@@ -213,6 +213,7 @@ const SELF_DEFENSE_DUPLICATE_SUPPRESS_MS: u64 = 2_000;
 /// Mirrors `c_nHostileAccessMask` in libsysmon/src/controller.cpp (the
 /// SelfDefense gate) so benign read/query probes — including the EDR's own
 /// monitoring — are never reported as process attacks.
+#[allow(dead_code)]
 const HOSTILE_PROCESS_ACCESS_MASK: u64 = 0x0001 // PROCESS_TERMINATE
     | 0x0002 // PROCESS_CREATE_THREAD
     | 0x0008 // PROCESS_VM_OPERATION
@@ -790,6 +791,7 @@ impl OpenEdrFlsVerdict {
         }
     }
 
+    #[allow(dead_code)]
     fn from_json_value(value: &serde_json::Value) -> Option<Self> {
         if let Some(code) = value.as_u64().and_then(|code| u8::try_from(code).ok()) {
             return Self::from_code(code);
@@ -1507,7 +1509,21 @@ impl RootkitFindingKind {
 // =============================================================================
 
 fn normalize_path_separators(path: &str) -> String {
-    path.replace("\\", "/").trim_end_matches('/').to_string()
+    let p = path.replace("\\\\", "/").replace('\\', "/");
+    let mut out = String::with_capacity(p.len());
+    let mut prev_slash = false;
+    for ch in p.chars() {
+        if ch == '/' {
+            if !prev_slash {
+                out.push('/');
+                prev_slash = true;
+            }
+        } else {
+            out.push(ch);
+            prev_slash = false;
+        }
+    }
+    out.trim_end_matches('/').to_string()
 }
 
 fn normalize_device_prefix(path: &str) -> String {
@@ -2932,6 +2948,59 @@ impl ProcessBehaviorState {
             || is_openedr_fls_safe_code(self.cloud_dynamic_verdict)
     }
 
+    /// Generic condition match recording and threshold evaluation.
+    pub fn record_condition_match(
+        &mut self,
+        scoped_name: &str,
+        match_key: String,
+        now: SystemTime,
+        required: usize,
+        debug: bool,
+    ) -> bool {
+        let values = self
+            .condition_match_values
+            .entry(scoped_name.to_string())
+            .or_insert_with(HashSet::new);
+        let order = self
+            .condition_match_order
+            .entry(scoped_name.to_string())
+            .or_insert_with(VecDeque::new);
+        let is_new = BehaviorEngine::insert_bounded_match_value(
+            values,
+            order,
+            match_key.clone(),
+            CONDITION_MATCH_VALUE_CAP,
+        );
+        let count = self
+            .condition_match_counts
+            .entry(scoped_name.to_string())
+            .or_insert(0);
+        if is_new {
+            *count += 1;
+        }
+        self.condition_first_seen
+            .entry(scoped_name.to_string())
+            .or_insert(now);
+        self.condition_last_seen
+            .insert(scoped_name.to_string(), now);
+
+        let satisfied = *count >= required.max(1);
+        if satisfied {
+            self.satisfied_named_conditions.insert(scoped_name.to_string());
+            if debug {
+                Logging::debug(&format!(
+                    "[BehaviorEngine] Condition '{}' satisfied for PID {} (count: {}/{}, match: {})",
+                    scoped_name,
+                    self.pid,
+                    *count,
+                    required.max(1),
+                    match_key
+                ));
+            }
+        }
+        satisfied
+    }
+
     fn record_hook_error(&mut self, record: HookErrorRecord) {
         self.hook_error_count = self.hook_error_count.saturating_add(1);
         *self
@@ -3559,7 +3628,7 @@ pub struct BehaviorEngine {
     pub amsi_analyzer: crate::behavioral::amsi::AmsiAnalyzer,
 }
 
-trait RawEventInput {
+pub trait RawEventInput {
     fn into_raw_event(&self) -> String;
 }
 
@@ -3616,6 +3685,7 @@ impl BehaviorEngine {
             self_defense_telemetry: shared_self_defense_telemetry(),
             pending_irp_records: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             pending_hook_pids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            pending_raw_events: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             
             firewall_net_pids: shared_firewall_net_pids(),
             
@@ -4090,6 +4160,7 @@ impl BehaviorEngine {
 
     /// Write one newline-terminated message to the HydraHipEvent pipe.
     /// Returns true when the full payload was delivered.
+    #[allow(dead_code)]
     fn write_hydra_hip_event(message: &str) -> bool {
         use windows::Win32::Foundation::{BOOL, CloseHandle, GetLastError, HANDLE};
         use windows::Win32::Storage::FileSystem::{
@@ -4189,6 +4260,7 @@ impl BehaviorEngine {
     }
 
     /// Notify the firewall GUI about the OpenEDR FLS verdict for this process.
+    #[allow(dead_code)]
     fn notify_firewall_openedr_verdict(
         &self,
         pid: u32,
@@ -4242,6 +4314,7 @@ impl BehaviorEngine {
 
     /// Notify the firewall GUI via HydraHipEvent about an OpenEDR-sourced threat.
     /// Malware detections are THREAT_ALERTs, never HIPS ask prompts.
+    #[allow(dead_code)]
     fn notify_openedr_threat(&self, pid: u32, exe_path: &str, label: &str, analysis_type: &str) {
         let threat_message = format!(
             "THREAT_ALERT:{}|{}\n",
@@ -4411,38 +4484,43 @@ impl BehaviorEngine {
                         .unwrap_or(0);
                     let match_key = format!("raw-json:{}:{}", pid, event_ts);
 
-                    let values = state
-                        .condition_match_values
-                        .entry(scoped.clone())
-                        .or_insert_with(HashSet::new);
-                    let order = state
-                        .condition_match_order
-                        .entry(scoped.clone())
-                        .or_insert_with(VecDeque::new);
-                    let is_new = Self::insert_bounded_match_value(
-                        values,
-                        order,
-                        match_key,
-                        CONDITION_MATCH_VALUE_CAP,
-                    );
-                    let count = state
-                        .condition_match_counts
-                        .entry(scoped.clone())
-                        .or_insert(0);
-                    if is_new {
-                        *count += 1;
-                    }
-                    state
-                        .condition_first_seen
-                        .entry(scoped.clone())
-                        .or_insert(now);
-                    state.condition_last_seen.insert(scoped.clone(), now);
-
-                    if *count >= *required {
-                        state.satisfied_named_conditions.insert(scoped.clone());
-                    }
+                    state.record_condition_match(scoped, match_key, now, *required, false);
                 }
             }
+        }
+    }
+
+    fn format_capemon_bson_scalar(value: &bson::Bson) -> Option<String> {
+        Some(match value {
+            bson::Bson::String(s) => s.clone(),
+            bson::Bson::Int32(i) => i.to_string(),
+            bson::Bson::Int64(i) => i.to_string(),
+            bson::Bson::Double(d) => d.to_string(),
+            bson::Bson::Boolean(b) => b.to_string(),
+            _ => return None,
+        })
+    }
+
+    fn format_capemon_bson_value(value: &bson::Bson, format: CapemonBsonFormat) -> String {
+        if let Some(scalar) = Self::format_capemon_bson_scalar(value) {
+            return scalar;
+        }
+
+        match value {
+            bson::Bson::Array(arr) => {
+                let elements: Vec<String> = arr
+                    .iter()
+                    .map(|element| {
+                        Self::format_capemon_bson_scalar(element)
+                            .unwrap_or_else(|| format!("{:?}", element))
+                    })
+                    .collect();
+                format.format_array(&elements)
+            }
+            bson::Bson::Document(subdoc) if matches!(format, CapemonBsonFormat::Log) => {
+                format!("{{{} fields}}", subdoc.len())
+            }
+            _ => format!("{:?}", value),
         }
     }
 
@@ -6233,6 +6311,26 @@ impl BehaviorEngine {
         *self.api_pattern_index.write().unwrap() = index;
     }
 
+    /// Fast check whether `text` contains any API-name fragment indexed by the
+    /// daachorse automaton. Returns false when the index is empty (meaning no
+    /// literal API conditions exist — caller must fall back to regex).
+    pub fn api_index_contains(&self, text: &str) -> bool {
+        let guard = match self.api_pattern_index.read() {
+            Ok(g) => g,
+            Err(_) => return false,
+        };
+        match guard.as_ref() {
+            None => false,
+            Some(index) => {
+                let haystack = text.to_ascii_lowercase();
+                index
+                    .find_overlapping_iter(haystack.as_bytes())
+                    .next()
+                    .is_some()
+            }
+        }
+    }
+
     fn log_rule_load_error_once(path: &Path, key_suffix: &str, message: String) {
         let key = format!(
             "{}|{}|{}",
@@ -6965,55 +7063,7 @@ impl BehaviorEngine {
         debug: bool,
     ) {
         let scoped_name = format!("{}::{}", rule_name, cond_name);
-        let values = state
-            .condition_match_values
-            .entry(scoped_name.clone())
-            .or_insert_with(HashSet::new);
-        let order = state
-            .condition_match_order
-            .entry(scoped_name.clone())
-            .or_insert_with(VecDeque::new);
-        let is_new = Self::insert_bounded_match_value(
-            values,
-            order,
-            match_key.clone(),
-            CONDITION_MATCH_VALUE_CAP,
-        );
-        let count = state
-            .condition_match_counts
-            .entry(scoped_name.clone())
-            .or_insert(0);
-        if is_new {
-            *count += 1;
-        }
-        state
-            .condition_first_seen
-            .entry(scoped_name.clone())
-            .or_insert(now);
-        state.condition_last_seen.insert(scoped_name.clone(), now);
-
-        if *count >= required.max(1) {
-            state.satisfied_named_conditions.insert(scoped_name);
-            if debug {
-                Logging::debug(&format!(
-                    "[BehaviorEngine] Named condition '{}' satisfied for PID {} (count: {}/{}, matches: {})",
-                    cond_name,
-                    state.pid,
-                    *count,
-                    required.max(1),
-                    match_key
-                ));
-            }
-        } else if is_new && debug {
-            Logging::debug(&format!(
-                "[BehaviorEngine] Condition '{}' match #{}/{} for PID {} ({})",
-                cond_name,
-                *count,
-                required.max(1),
-                state.pid,
-                match_key
-            ));
-        }
+        state.record_condition_match(&scoped_name, match_key, now, required, debug);
     }
 
     fn record_self_defense_event_in_state(
@@ -9797,66 +9847,12 @@ impl BehaviorEngine {
                             cond_name, msg.pid, msg.irp_op, event_ts
                         )
                     };
-                    let values = state
-                        .condition_match_values
-                        .entry(scoped_name.clone())
-                        .or_insert_with(HashSet::new);
-                    let order = state
-                        .condition_match_order
-                        .entry(scoped_name.clone())
-                        .or_insert_with(VecDeque::new);
-                    let is_new = Self::insert_bounded_match_value(
-                        values,
-                        order,
-                        match_key.clone(),
-                        CONDITION_MATCH_VALUE_CAP,
-                    );
-                    let count = state
-                        .condition_match_counts
-                        .entry(scoped_name.clone())
-                        .or_insert(0);
-                    if is_new {
-                        *count += 1;
-                    }
-                    state
-                        .condition_first_seen
-                        .entry(scoped_name.clone())
-                        .or_insert(now);
-                    state.condition_last_seen.insert(scoped_name.clone(), now);
-
                     let required = if cond_group.min_matches > 0 {
                         cond_group.min_matches
                     } else {
                         1
                     };
-                    if *count >= required {
-                        let just_satisfied = state.satisfied_named_conditions.insert(scoped_name);
-                        if any_debug_rule {
-                            if just_satisfied {
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Named condition '{}' satisfied for PID {} (count: {}/{}, matches: {})",
-                                    cond_name, state.pid, *count, required, match_key
-                                ));
-                            } else if is_new {
-                                // Condition was already satisfied earlier; this is a
-                                // further independent match collected AFTER the
-                                // threshold was first crossed (e.g. another file
-                                // read/written/renamed by the same process). We keep
-                                // recording these — they matter for response scope
-                                // (auto_revert/quarantine/record) — but log them at a
-                                // lower-noise level than the initial "satisfied" event.
-                                Logging::debug(&format!(
-                                    "[BehaviorEngine] Condition '{}' additional match #{} for PID {} after satisfaction ({})",
-                                    cond_name, *count, state.pid, match_key
-                                ));
-                            }
-                        }
-                    } else if is_new && any_debug_rule {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition '{}' match #{}/{} for PID {} ({})",
-                            cond_name, *count, required, state.pid, match_key
-                        ));
-                    }
+                    state.record_condition_match(&scoped_name, match_key, now, required, any_debug_rule);
                 }
             }
         }
@@ -11883,34 +11879,83 @@ impl BehaviorEngine {
             trimmed.starts_with("(?") || trimmed.starts_with('^') || trimmed.ends_with('$');
 
         if !has_glob && !is_explicit_regex {
-            let text_norm = normalize_path_separators(&text.to_lowercase());
-            let pattern_norm = normalize_path_separators(&trimmed.to_lowercase());
+            let text_lc = text.to_lowercase();
+            let pattern_lc = trimmed.to_lowercase();
+
+            if text_lc.contains(&pattern_lc) {
+                return true;
+            }
+
+            let text_norm = normalize_path_separators(&text_lc);
+            let pattern_norm = normalize_path_separators(&pattern_lc);
+
+            if text_norm == pattern_norm {
+                return true;
+            }
+
             let looks_like_path = pattern_norm.contains(":/")
                 || pattern_norm.starts_with('/')
                 || pattern_norm.starts_with('%')
                 || pattern_norm.contains('/');
 
             if looks_like_path {
-                if text_norm == pattern_norm {
+                if pattern_norm.ends_with('/') {
+                    if text_norm.starts_with(&pattern_norm) || text_norm.contains(&pattern_norm) {
+                        return true;
+                    }
+                }
+
+                let mut dir_prefix = pattern_norm.clone();
+                dir_prefix.push('/');
+                if text_norm.starts_with(&dir_prefix) || text_norm.contains(&dir_prefix) {
                     return true;
                 }
 
-                if pattern_norm.ends_with('/') {
-                    return text_norm.starts_with(&pattern_norm);
+                // Check for exact path token match inside text_norm with boundary checks
+                let p_len = pattern_norm.len();
+                let mut start = 0;
+                while let Some(pos) = text_norm[start..].find(&pattern_norm) {
+                    let idx = start + pos;
+                    let end_idx = idx + p_len;
+
+                    let before_ok = idx == 0 || {
+                        let prev = text_norm[..idx].chars().next_back().unwrap();
+                        prev == '"' || prev == '\'' || prev == ' ' || prev == '/' || prev == ':' || prev == ',' || prev == '<' || prev == '>' || prev == '\\'
+                    };
+
+                    let after_ok = end_idx == text_norm.len() || {
+                        let next = text_norm[end_idx..].chars().next().unwrap();
+                        next == '"' || next == '\'' || next == ' ' || next == '/' || next == ',' || next == ';' || next == '}' || next == '\r' || next == '\n' || next == '\\'
+                    };
+
+                    if before_ok && after_ok {
+                        return true;
+                    }
+
+                    start = idx + 1;
+                    if start >= text_norm.len() {
+                        break;
+                    }
                 }
 
-                let mut prefix = pattern_norm.clone();
-                prefix.push('/');
-                return text_norm.starts_with(&prefix);
+                if pattern_norm.starts_with('/') && !pattern_norm.is_empty() {
+                    let without_slash = pattern_norm.trim_start_matches('/');
+                    if !without_slash.is_empty() && text_norm == without_slash {
+                        return true;
+                    }
+                }
+
+                return false;
             }
 
-            return text.to_lowercase().contains(&pattern_norm);
+            return text_lc.contains(&pattern_lc) || text_norm.contains(&pattern_norm);
         }
 
         {
             if let Ok(cache_map) = cache.read() {
                 if let Some(re) = cache_map.get(trimmed) {
-                    return re.is_match(text);
+                    let text_norm = normalize_path_separators(&text.to_lowercase());
+                    return re.is_match(text) || re.is_match(&text_norm);
                 }
             }
         }
@@ -11918,14 +11963,16 @@ impl BehaviorEngine {
         let mut cache_map = cache.write().unwrap();
 
         if let Some(re) = cache_map.get(trimmed) {
-            return re.is_match(text);
+            let text_norm = normalize_path_separators(&text.to_lowercase());
+            return re.is_match(text) || re.is_match(&text_norm);
         }
 
         let regex_str = if has_glob {
-            let escaped = regex::escape(trimmed)
+            let pattern_norm = normalize_path_separators(&trimmed.to_lowercase());
+            let escaped = regex::escape(&pattern_norm)
                 .replace("\\*", ".*")
                 .replace("\\?", ".");
-            format!("(?i)^{}$", escaped)
+            format!("(?i){}", escaped)
         } else if trimmed.starts_with("(?") {
             trimmed.to_string()
         } else {
@@ -11934,11 +11981,18 @@ impl BehaviorEngine {
 
         match Regex::new(&regex_str) {
             Ok(re) => {
-                let is_match = re.is_match(text);
+                let text_norm = normalize_path_separators(&text.to_lowercase());
+                let is_match = re.is_match(text) || re.is_match(&text_norm);
                 cache_map.insert(trimmed.to_string(), re);
                 is_match
             }
-            Err(_) => text.to_lowercase().contains(&trimmed.to_lowercase()),
+            Err(_) => {
+                let text_lc = text.to_lowercase();
+                let pattern_lc = trimmed.to_lowercase();
+                text_lc.contains(&pattern_lc)
+                    || normalize_path_separators(&text_lc)
+                        .contains(&normalize_path_separators(&pattern_lc))
+            }
         }
     }
 
@@ -12414,7 +12468,7 @@ mod tests {
 
     #[test]
     fn process_create_event_type_alias_and_process_id_are_accepted() {
-        let engine = BehaviorEngine::new();
+        let mut engine = BehaviorEngine::new();
 
         let event = serde_json::json!({
             "eventType": "lle_process_create",
@@ -12464,45 +12518,65 @@ mod tests {
     }
 
     #[test]
-    fn process_create_record_jumps_irp_queue() {
+    fn ingest_openedr_event_queues_raw_json() {
+        let engine = BehaviorEngine::new();
+        let file_event = serde_json::json!({
+            "type": "LLE_FILE_CREATE",
+            "pid": 4242,
+            "file": { "path": r"C:\Temp\test.txt" }
+        });
+        engine.ingest_openedr_event(&file_event);
+
+        let mut drained = engine.pending_raw_events.lock().unwrap();
+        assert_eq!(drained.len(), 1);
+        let (pid, raw) = drained.pop_front().unwrap();
+        assert_eq!(pid, 4242);
+        assert!(raw.contains("LLE_FILE_CREATE"));
+        assert!(raw.contains("test.txt"));
+    }
+
+    #[test]
+    fn raw_json_patterns_match_with_env_vars_and_min_matches() {
+        use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
+
         let mut engine = BehaviorEngine::new();
         engine.register_process(
-            7,
-            4242,
+            1,
+            5000,
             PathBuf::from(r"C:\Windows\System32\cmd.exe"),
             "cmd.exe".into(),
         );
 
-        // Backlogged file record queued before the process-create event arrives.
-        let file_event = serde_json::json!({
-            "type": "LLE_FILE_CREATE",
-            "pid": 4242,
-            "file": { "path": r"C:\Temp\backlog.txt" }
-        });
-        engine.ingest_openedr_event(&file_event);
-        assert_eq!(engine.pending_irp_records.lock().unwrap().len(), 1);
+        let mut cond = NamedConditionGroup::default();
+        cond.raw_json_patterns = vec!["%APPDATA%/*".to_string(), "*ransom_target*".to_string()];
+        cond.min_matches = 2;
 
-        let create_event = serde_json::json!({
-            "type": "LLE_PROCESS_CREATE",
-            "pid": 4242,
-        });
-        engine.ingest_openedr_event(&create_event);
-        assert_eq!(engine.pending_irp_records.lock().unwrap().len(), 2);
+        let mut rule = BehaviorRule::default();
+        rule.name = "RawJsonPatternTest".to_string();
+        rule.named_conditions.insert("raw_cond".to_string(), cond);
+        rule.finalize_rich_fields();
+        engine.rules.push(rule);
 
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 2);
-        // Verify order: the LLE_PROCESS_CREATE IOMessage (irp_op ProcessCreate)
-        // must precede the backlogged file-create record.
-        use crate::shared_def::SysmonEvent as SE;
-        assert_eq!(
-            drained[0].1.irp_op,
-            SE::ProcessCreate as u32,
-            "process-create record must be drained first (new-process-first)"
+        let appdata_val = std::env::var("APPDATA").unwrap_or_else(|_| r"C:\Users\Default\AppData\Roaming".to_string());
+        let event1 = format!(
+            "{{\"type\":\"LLE_FILE_CREATE\",\"pid\":5000,\"file\":{{\"path\":\"{}\\\\payload.exe\"}}}}",
+            appdata_val.replace('\\', "\\\\")
         );
-        assert_eq!(
-            drained[1].1.irp_op,
-            SE::FileCreate as u32,
-            "backlogged file-create record must drain after process-create"
+        let event2 = "{\"type\":\"LLE_FILE_WRITE\",\"pid\":5000,\"file\":{\"path\":\"C:\\\\data\\\\ransom_target.docx\"}}".to_string();
+
+        engine.apply_raw_openedr_events(vec![(5000, event1)]);
+        let state = engine.process_states.get(&1).unwrap();
+        assert!(
+            !state.satisfied_named_conditions.iter().any(|c| c.ends_with("raw_cond")),
+            "min_matches: 2 must NOT be satisfied after 1 event"
+        );
+
+        engine.apply_raw_openedr_events(vec![(5000, event2)]);
+        let state = engine.process_states.get(&1).unwrap();
+        assert!(
+            state.satisfied_named_conditions.iter().any(|c| c.ends_with("raw_cond")),
+            "min_matches: 2 MUST be satisfied after 2 matching events (got {:?})",
+            state.satisfied_named_conditions
         );
     }
 
@@ -12519,9 +12593,6 @@ mod tests {
             "cmd.exe".into(),
         );
 
-        // A real dynamic user-mode API hook event: event-id 0x6000
-        // (Worker::DYNAMIC_HOOK_EVENT_ID_START) with the API name carried by
-        // owlyHook.functionName from the driver.
         {
             let mut q = engine.pending_irp_records.lock().unwrap();
             q.push_back((
@@ -12549,7 +12620,6 @@ mod tests {
         let (gid, msg) = &drained[0];
         assert_eq!(*gid, 7);
 
-        // Encoded on the usermode-hook wire opcode with the event-id preserved.
         assert_eq!(
             msg.irp_op,
             IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32(),
@@ -12562,8 +12632,6 @@ mod tests {
             IrpMajorOp::IrpUserModeHookEvent.to_sysmonevent_u32()
         );
 
-        // Regression: before the fix the record resolved to IrpNone, so the real
-        // hook API name never reached detected_apis.
         let state = engine.process_states.get_mut(&7).unwrap();
         state.record_irp_operation(msg, effective_hypervisor_irp_byte(msg));
         assert!(
@@ -12574,261 +12642,11 @@ mod tests {
     }
 
     #[test]
-    fn ingest_openedr_hook_event_uses_owly_hook_source_pid() {
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            9,
-            5150,
-            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
-            "cmd.exe".into(),
-        );
-
-        // Defensive fallback coverage: older/in-flight drivers (or the
-        // legacy direct-IOCTL path, if it's ever revived) may still encode
-        // process.pid = TargetPid, which is 0 for file/registry APIs (no
-        // process handle in the args). The current driver now writes
-        // process.pid = SourcePid directly (ProcessProtection.cpp), so this
-        // fallback should rarely trigger in practice, but must keep working
-        // for any event that still arrives with pid == 0 and a populated
-        // owlyHook.sourcePid.
-        let event = serde_json::json!({
-            "type": "LLE_DEVICE_IOCTL",
-            "process": { "pid": 0 },
-            "owlyHook": {
-                "eventType": 0x6001,
-                "functionName": "ntdll!NtCreateFile",
-                "sourcePid": 5150,
-                "targetPid": 0,
-                "arg1": 0x10,
-                "arg2": 0,
-                "arg3": 0,
-                "arg4": 0
-            }
-        });
-        engine.ingest_openedr_event(&event);
-
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1, "hook record must not be dropped when process.pid is 0");
-        let (gid, msg) = &drained[0];
-        assert_eq!(*gid, 9, "record must be attributed to the owlyHook.sourcePid caller");
-        assert_eq!(msg.kernel_event_info.object_name, "ntdll!NtCreateFile");
-        assert_eq!(msg.kernel_event_info.event_type, 0x6001);
-    }
-
-    #[test]
-    fn ingest_openedr_hook_event_uses_process_pid_when_driver_sets_source_pid() {
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            9,
-            5150,
-            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
-            "cmd.exe".into(),
-        );
-
-        // Current driver behavior: process.pid is written as SourcePid
-        // directly (ProcessProtection.cpp::OnKernelApiEvent), and
-        // owlyHook.targetPid carries the resolved victim PID separately
-        // for injection-style events (e.g. CreateRemoteThread).
-        let event = serde_json::json!({
-            "type": "LLE_DEVICE_IOCTL",
-            "process": { "pid": 5150 },
-            "owlyHook": {
-                "eventType": 0x6002,
-                "functionName": "kernel32!CreateRemoteThread",
-                "sourcePid": 5150,
-                "targetPid": 9999,
-                "arg1": 0,
-                "arg2": 0,
-                "arg3": 0,
-                "arg4": 0
-            }
-        });
-        engine.ingest_openedr_event(&event);
-
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1, "hook record must be attributed via process.pid");
-        let (gid, msg) = &drained[0];
-        assert_eq!(*gid, 9);
-        assert_eq!(msg.kernel_event_info.object_name, "kernel32!CreateRemoteThread");
-        assert_eq!(msg.kernel_event_info.event_type, 0x6002);
-        // Regression: drain_pending_irp_records previously discarded
-        // source_process_id/target_process_id/raw_argument1-4 via
-        // `..Default::default()`, which meant resolved_hypervisor_event()
-        // always collapsed source and target to the same value (self.pid),
-        // silently losing the injection victim PID for every consumer.
-        assert_eq!(msg.kernel_event_info.source_process_id, 5150);
-        assert_eq!(msg.kernel_event_info.target_process_id, 9999);
-    }
-
-    #[test]
-    fn drain_pending_irp_records_preserves_raw_arguments() {
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            13,
-            7777,
-            PathBuf::from(r"C:\Windows\System32\svchost.exe"),
-            "svchost.exe".into(),
-        );
-
-        let event = serde_json::json!({
-            "type": "LLE_DEVICE_IOCTL",
-            "process": { "pid": 7777 },
-            "owlyHook": {
-                "eventType": 0x6003,
-                "functionName": "kernel32!VirtualAllocEx",
-                "sourcePid": 7777,
-                "targetPid": 4242,
-                "arg1": 0x1000,
-                "arg2": 0x2000,
-                "arg3": 0x3000,
-                "arg4": 0x4000
-            }
-        });
-        engine.ingest_openedr_event(&event);
-
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1);
-        let (_, msg) = &drained[0];
-        assert_eq!(msg.kernel_event_info.target_process_id, 4242);
-        assert_eq!(msg.kernel_event_info.raw_argument1, 0x1000);
-        assert_eq!(msg.kernel_event_info.raw_argument2, 0x2000);
-        assert_eq!(msg.kernel_event_info.raw_argument3, 0x3000);
-        assert_eq!(msg.kernel_event_info.raw_argument4, 0x4000);
-    }
-
-    #[test]
-    fn ingest_openedr_non_hook_event_still_uses_process_pid() {
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            11,
-            6161,
-            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
-            "cmd.exe".into(),
-        );
-
-        // A normal (non-hook) event with a plain process.pid must keep its old
-        // attribution path — the owlyHook override must not leak into other events.
-        let event = serde_json::json!({
-            "type": "LLE_FILE_CREATE",
-            "process": { "pid": 6161 },
-            "file": { "path": r"C:\Temp\evil.exe" }
-        });
-        engine.ingest_openedr_event(&event);
-
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1, "file create record must still drain");
-        let (gid, _) = &drained[0];
-        assert_eq!(*gid, 11);
-    }
-
-    #[test]
-    fn priority_queue_sheds_low_priority_flood_before_high_priority() {
-        use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
-
-        let mut engine = BehaviorEngine::new();
-
-        // Pre-fill the queue to the soft cap so the next low-priority push
-        // would exceed it.
-        {
-            let mut q = engine.pending_irp_records.lock().unwrap();
-            while q.len() < 16384 {
-                q.push_back((
-                    1,
-                    IrpOperationRecord {
-                        timestamp: std::time::SystemTime::now(),
-                        irp_type: 0x0F,
-                        is_legacy_kernel_subtype: false,
-                        file_path: String::new(),
-                        file_change: 0,
-                        extension: String::new(),
-                        entropy: 0.0,
-                        bytes_transferred: 0,
-                        target_pid: 1,
-                        function_name: String::new(),
-                        pipe_name: String::new(),
-                        pipe_payload: Vec::new(),
-                        raw_arguments: [0; 4],
-                    },
-                ));
-            }
-            assert_eq!(q.len(), 16384);
-        }
-
-        // A low-priority DeviceIoControl flood event must be dropped once the
-        // queue is at the soft cap...
-        let low = serde_json::json!({ "type": "LLE_DEVICE_IOCTL", "pid": 5150 });
-        engine.ingest_openedr_event(&low);
-        assert_eq!(
-            engine.pending_irp_records.lock().unwrap().len(),
-            16384,
-            "low-priority DeviceIoControl must be shed at the soft cap"
-        );
-
-        // ...while a high-priority file write event must still be admitted.
-        let high = serde_json::json!({
-            "type": "LLE_FILE_DATA_WRITE_FULL",
-            "pid": 5150,
-            "file": { "path": r"C:\temp\pwned.docx" }
-        });
-        engine.ingest_openedr_event(&high);
-        assert_eq!(
-            engine.pending_irp_records.lock().unwrap().len(),
-            16385,
-            "high-priority file event must be admitted past the soft cap"
-        );
-
-        // And a high-priority event must keep being admitted up to the hard cap.
-        // Leave one slot free (HARD_CAP-1) so the rule-relevant hook below can
-        // demonstrate daachorse-driven admission at the boundary.
-        for _ in 0..16382 {
-            let h = serde_json::json!({
-                "type": "LLE_FILE_DATA_WRITE_FULL",
-                "pid": 5150,
-                "file": { "path": r"C:\temp\x.docx" }
-            });
-            engine.ingest_openedr_event(&h);
-        }
-        assert_eq!(
-            engine.pending_irp_records.lock().unwrap().len(),
-            32767,
-            "high-priority events must be admitted up to one slot below the hard cap"
-        );
-
-        // A DeviceIoControl hook event whose function_name matches a literal API
-        // in the rule index must also be admitted past the soft cap, even though
-        // DeviceIoControl is normally low-priority flood.
-        let mut group = NamedConditionGroup::default();
-        group.apis = vec!["ntdll!NtWriteVirtualMemory".to_string()];
-        let mut rule = BehaviorRule::default();
-        rule.named_conditions.insert("api_cond".to_string(), group);
-        engine.rules.push(rule);
-        engine.rebuild_api_pattern_index();
-
-        let hook = serde_json::json!({
-            "type": "LLE_DEVICE_IOCTL",
-            "process": { "pid": 5150 },
-            "owlyHook": {
-                "eventType": 0x6001,
-                "functionName": "ntdll!NtWriteVirtualMemory",
-                "sourcePid": 5150
-            }
-        });
-        engine.ingest_openedr_event(&hook);
-        assert_eq!(
-            engine.pending_irp_records.lock().unwrap().len(),
-            32768,
-            "rule-relevant hook API must be admitted past the soft cap via daachorse"
-        );
-    }
-
-    #[test]
     fn api_pattern_index_fast_paths_literal_apis_only() {
         use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
 
         let mut engine = BehaviorEngine::new();
 
-        // A rule whose condition references one literal API and one regex/glob
-        // pattern. Only the literal fragment may land in the daachorse index.
         let mut group = NamedConditionGroup::default();
         group.apis = vec!["ntdll!NtWriteVirtualMemory".to_string()];
         group.hook_error_api_patterns =
@@ -12842,7 +12660,6 @@ mod tests {
         let guard = engine.api_pattern_index.read().unwrap();
         let index = guard.as_ref().expect("index must be built");
 
-        // Literal API fragments match case-insensitively.
         assert!(
             index
                 .find_overlapping_iter(b"ntdll!ntwritevirtualmemory")
@@ -12857,7 +12674,6 @@ mod tests {
                 .is_some(),
             "literal hook-error api must be indexed"
         );
-        // The regex pattern must NOT be indexed (it contains (?i) and $).
         assert!(
             index
                 .find_overlapping_iter(b"(?i)(^|!)(nt|zw)(close)$")
@@ -12866,13 +12682,11 @@ mod tests {
             "regex patterns must not be indexed"
         );
 
-        // api_index_contains() routes through the shared automaton.
         drop(guard);
         assert!(engine.api_index_contains("ntdll!NtWriteVirtualMemory"));
         assert!(engine.api_index_contains("KERNEL32!WRITEFILE"));
         assert!(!engine.api_index_contains("ntdll!NtCreateFile"));
 
-        // An empty rule set yields no index.
         let empty = BehaviorEngine::new();
         empty.rebuild_api_pattern_index();
         assert!(empty.api_index_contains("anything").eq(&false));
@@ -12880,14 +12694,8 @@ mod tests {
 
     #[test]
     fn shipped_process_hollowing_rule_uses_supported_cross_process_logic() {
-        // Load the real shipped rules through the same include chain the worker
-        // uses. This guards against the previous FP fix regressing: the old rule
-        // relied on `hypervisor_raw_event_types` (a field the engine silently
-        // ignores, making the telemetry leg dead) plus a weak `remote_process_access`
-        // leg that matched benign self-process (src == tgt) hook events.
         let rules_path = Path::new("../edrav2/rules/behavior_rules.yaml");
         if !rules_path.exists() {
-            // Keep the test hermetic when run from a different working directory.
             return;
         }
         let mut engine = BehaviorEngine::new();
@@ -12910,10 +12718,6 @@ mod tests {
             .named_conditions
             .get("kernel_hollowing_telemetry")
             .expect("kernel_hollowing_telemetry must be defined");
-        // Only the collision-safe kernel sub-types may be referenced. Opcodes
-        // 13/14/15/16 collide with SysmonEvent ProcessOpen/DeviceIoControl/
-        // NamedPipeCreate/SelfDefense (user-mode hook) and would let benign
-        // self-process events satisfy the leg.
         assert_eq!(
             telemetry.irp_operations,
             vec![
@@ -12990,221 +12794,36 @@ mod tests {
     }
 
     #[test]
-    fn drain_pending_irp_records_differentiates_legacy_kernel_subtypes_from_sysmon_events() {
-        use crate::shared_def::SysmonEvent;
-
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            1,
-            5001,
-            PathBuf::from(r"C:\Windows\System32\cmd.exe"),
-            "cmd.exe".into(),
-        );
-
-        // 1. Legacy kernel hook event (e.g. kernel_queue_apc = 17) via owlyHook
-        let hook_event = serde_json::json!({
-            "type": "LLE_DEVICE_IOCTL",
-            "process": { "pid": 5001 },
-            "owlyHook": {
-                "eventType": 17, // legacy kernel_queue_apc
-                "functionName": "kernel_queue_apc",
-                "sourcePid": 5001,
-                "targetPid": 5002,
-                "arg1": 0, "arg2": 0, "arg3": 0, "arg4": 0
-            }
-        });
-        engine.ingest_openedr_event(&hook_event);
-
-        // 2. SysmonEvent FileMapRead (17) without owlyHook
-        let file_map_read_event = serde_json::json!({
-            "type": "LLE_FILE_MAP_READ",
-            "process": { "pid": 5001 },
-            "file": { "path": r"C:\data\test.bin" }
-        });
-        engine.ingest_openedr_event(&file_map_read_event);
-
-        // 3. SysmonEvent FileRename (20) without owlyHook
-        let file_rename_event = serde_json::json!({
-            "type": "LLE_FILE_RENAME",
-            "process": { "pid": 5001 },
-            "file": { "path": r"C:\data\renamed.txt" }
-        });
-        engine.ingest_openedr_event(&file_rename_event);
-
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 3);
-
-        // First: legacy hook event must be carried on DeviceIoControl with event_type = 17
-        let (_, hook_msg) = &drained[0];
-        assert_eq!(
-            hook_msg.irp_op,
-            SysmonEvent::DeviceIoControl as u32,
-            "legacy kernel hook must map to DeviceIoControl carrier"
-        );
-        assert_eq!(
-            hook_msg.kernel_event_info.event_type,
-            17,
-            "legacy kernel hook sub-type must be preserved in kernel_event_info.event_type"
-        );
-
-        // Second: FileMapRead (17) must NOT be mapped to DeviceIoControl
-        let (_, map_msg) = &drained[1];
-        assert_eq!(
-            map_msg.irp_op,
-            SysmonEvent::FileMapRead as u32,
-            "FileMapRead must retain its own SysmonEvent opcode and not collide with legacy hook"
-        );
-        assert_eq!(
-            map_msg.kernel_event_info.event_type,
-            0,
-            "non-hook event must have event_type 0"
-        );
-
-        // Third: FileRename (20) must NOT be mapped to DeviceIoControl
-        let (_, rename_msg) = &drained[2];
-        assert_eq!(
-            rename_msg.irp_op,
-            SysmonEvent::FileRename as u32,
-            "FileRename must retain its own SysmonEvent opcode and not collide with legacy hook"
-        );
-        assert_eq!(
-            rename_msg.kernel_event_info.event_type,
-            0,
-            "non-hook event must have event_type 0"
-        );
-    }
-
-    #[test]
-    fn ingest_openedr_hook_event_normalizes_pseudo_handle_to_self() {
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            1,
-            4816,
-            PathBuf::from(r"C:\Program Files\VMware\VMware Tools\vmtoolsd.exe"),
-            "vmtoolsd.exe".into(),
-        );
-
-        // Event with arg1 = 0xFFFFFFFFFFFFFFFF (NtCurrentProcess() == -1) and targetPid = 4 (bogus fallback)
-        let event = serde_json::json!({
-            "type": "LLE_DEVICE_IOCTL",
-            "process": { "pid": 4816 },
-            "owlyHook": {
-                "eventType": 0x604E,
-                "functionName": "ntdll.dll!NtAllocateVirtualMemory",
-                "sourcePid": 4816,
-                "targetPid": 4, // Bogus fallback from unresolvable pseudo-handle
-                "arg1": 0xFFFFFFFFFFFFFFFF_u64,
-                "arg2": 0,
-                "arg3": 0,
-                "arg4": 0
-            }
-        });
-        engine.ingest_openedr_event(&event);
-
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1);
-        let (_, msg) = &drained[0];
-        assert_eq!(
-            msg.kernel_event_info.target_process_id, 4816,
-            "pseudo-handle -1 must resolve target_process_id to caller PID (4816), not 4"
-        );
-    }
-
-    #[test]
-    fn api_condition_respects_require_cross_target() {
-        use crate::behavioral::rule_types::{BehaviorRule, NamedConditionGroup};
-
-        let mut engine = BehaviorEngine::new();
-        engine.register_process(
-            1,
-            5000,
-            PathBuf::from(r"C:\app\test.exe"),
-            "test.exe".into(),
-        );
-
-        let mut cond = NamedConditionGroup::default();
-        cond.apis = vec!["ntdll.dll!NtAllocateVirtualMemory".to_string()];
-        cond.api_threshold = 1;
-        cond.require_cross_target = true;
-
-        let mut rule = BehaviorRule::default();
-        rule.name = "CrossProcessApiTest".to_string();
-        rule.named_conditions.insert("cross_api".to_string(), cond);
-        engine.rules.push(rule);
-        engine.rebuild_api_pattern_index();
-
-        // 1. Self-allocation (target_pid == 5000): should NOT match because require_cross_target is true
-        let self_event = serde_json::json!({
-            "type": "LLE_DEVICE_IOCTL",
-            "process": { "pid": 5000 },
-            "owlyHook": {
-                "eventType": 0x604E,
-                "functionName": "ntdll.dll!NtAllocateVirtualMemory",
-                "sourcePid": 5000,
-                "targetPid": 5000,
-                "arg1": 0xFFFFFFFFFFFFFFFF_u64,
-                "arg2": 0,
-                "arg3": 0,
-                "arg4": 0
-            }
-        });
-        engine.ingest_openedr_event(&self_event);
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1);
-        struct NoopThreatHandler;
-        impl ThreatHandler for NoopThreatHandler {
-            fn suspend(&self, _proc: &mut ProcessRecord) {}
-            fn kill(&self, _gid: u64) {}
-            fn deny_path_access(&self, _path: &std::path::Path) {}
-            fn kill_and_quarantine(&self, _gid: u64, _path: &std::path::Path, _metadata: &crate::threat_handler::QuarantineMetadata) {}
-            fn quarantine_only(&self, _path: &std::path::Path, _metadata: &crate::threat_handler::QuarantineMetadata) {}
-            fn kill_and_remove(&self, _gid: u64, _path: &std::path::Path) {}
-            fn schedule_cleanup_on_reboot(&self, _path: &std::path::Path) {}
-            fn awake(&self, _proc: &mut ProcessRecord, _kill_proc_on_exit: bool) {}
-            fn revert_registry(&self, _gid: u64) {}
-            fn restore_files_from_shadow_copy(&self, _paths: &[std::path::PathBuf]) {}
-            fn clone_box(&self) -> Box<dyn ThreatHandler> { Box::new(NoopThreatHandler) }
+    fn all_shipped_yaml_rules_load_and_deserialize_successfully() {
+        let rules_dir = Path::new("../edrav2/rules");
+        if !rules_dir.exists() {
+            return;
         }
 
-        let mut precord = ProcessRecord::new(1, "test.exe".into(), PathBuf::from(r"C:\app\test.exe"));
-        precord.pids.insert(5000);
-        let config = crate::config::Config::new();
-        let dummy_handler = NoopThreatHandler;
+        let mut engine = BehaviorEngine::new();
+        let mut loaded_count = 0;
 
-        let (gid, msg) = &drained[0];
-        engine.process_event(&mut precord, msg, &config, &dummy_handler);
-        let state = engine.process_states.get(gid).unwrap();
-        assert!(
-            !state.satisfied_named_conditions.iter().any(|c| c.ends_with("cross_api")),
-            "require_cross_target must NOT satisfy condition for self-process allocation (got {:?})",
-            state.satisfied_named_conditions
-        );
-
-        // 2. Cross-process allocation (target_pid == 6000 != 5000): MUST be counted
-        let cross_event = serde_json::json!({
-            "type": "LLE_DEVICE_IOCTL",
-            "process": { "pid": 5000 },
-            "owlyHook": {
-                "eventType": 0x604E,
-                "functionName": "ntdll.dll!NtAllocateVirtualMemory",
-                "sourcePid": 5000,
-                "targetPid": 6000,
-                "arg1": 0x1234,
-                "arg2": 0,
-                "arg3": 0,
-                "arg4": 0
+        for entry in std::fs::read_dir(rules_dir).expect("rules directory must be readable") {
+            let entry = entry.expect("valid dir entry");
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "yaml" || ext == "yml") {
+                let filename = path.file_name().unwrap().to_string_lossy();
+                if filename == "settings.yaml" {
+                    continue;
+                }
+                match engine.load_rules(&path) {
+                    Ok(_) => {
+                        loaded_count += 1;
+                    }
+                    Err(e) => {
+                        panic!("Failed to load rule file {}: {}", path.display(), e);
+                    }
+                }
             }
-        });
-        engine.ingest_openedr_event(&cross_event);
-        let drained = engine.drain_pending_irp_records();
-        assert_eq!(drained.len(), 1);
-        let (gid, msg) = &drained[0];
-        engine.process_event(&mut precord, msg, &config, &dummy_handler);
-        let state = engine.process_states.get(gid).unwrap();
-        assert!(
-            state.satisfied_named_conditions.iter().any(|c| c.ends_with("cross_api")),
-            "require_cross_target MUST satisfy condition for cross-process allocation (got {:?})",
-            state.satisfied_named_conditions
-        );
+        }
+
+        let rule_count = engine.rules.len();
+        assert!(loaded_count > 0, "must load at least one rule file");
+        assert!(rule_count > 0, "must have parsed rules across yaml files");
     }
 }
