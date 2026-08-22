@@ -16,8 +16,8 @@
       orderless: true
       self_image_exclusion: true
       file_paths:
-        - "C:\\Program Files\\Sandboxie\\*"
-        - "C:\\Program Files (x86)\\Sandboxie\\*"
+        - "%ProgramFiles%\\Sandboxie\\*"
+        - "%ProgramFiles(x86)%\\Sandboxie\\*"
         - "*\\vmtoolsd.exe"
         - "*\\vmacthlp.exe"
         - "*\\vgauthservice.exe"

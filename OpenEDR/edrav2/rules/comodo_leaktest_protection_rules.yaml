@@ -24,15 +24,15 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -66,7 +66,7 @@
       signers: ["*Microsoft*"]
     # explorer.exe legitimately writes Shell\Bags and other HKCU keys via reg_set_value.
     # Must be explicitly allowlisted to prevent ShellBags false positives (Alert #1).
-    - pattern: "C:/Windows/explorer.exe"
+    - pattern: "%SystemRoot%/explorer.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -339,19 +339,19 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -383,11 +383,11 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/csrss.exe"
+    - pattern: "%SystemRoot%/System32/csrss.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       is_absolute: true
 
   named_conditions:
@@ -398,17 +398,17 @@
       orderless: true
       file_paths:
         # Anchored to System32 — only .exe/.dll/.sys/.drv drops here are dangerous
-        - "C:\\Windows\\System32\\*.exe"
-        - "C:\\Windows\\System32\\*.dll"
-        - "C:\\Windows\\System32\\*.sys"
-        - "C:\\Windows\\System32\\*.drv"
+        - "%SystemRoot%\\System32\\*.exe"
+        - "%SystemRoot%\\System32\\*.dll"
+        - "%SystemRoot%\\System32\\*.sys"
+        - "%SystemRoot%\\System32\\*.drv"
         # Drivers subdirectory
-        - "C:\\Windows\\System32\\drivers\\*.sys"
-        - "C:\\Windows\\System32\\drivers\\*.dll"
+        - "%SystemRoot%\\System32\\drivers\\*.sys"
+        - "%SystemRoot%\\System32\\drivers\\*.dll"
         # 32-bit compat layer
-        - "C:\\Windows\\SysWOW64\\*.exe"
-        - "C:\\Windows\\SysWOW64\\*.dll"
-        - "C:\\Windows\\SysWOW64\\*.sys"
+        - "%SystemRoot%\\SysWOW64\\*.exe"
+        - "%SystemRoot%\\SysWOW64\\*.dll"
+        - "%SystemRoot%\\SysWOW64\\*.sys"
       file_operations: ["create", "write"]
       min_matches: 1
 
@@ -427,7 +427,7 @@
         - "*\\Downloads\\*"
         - "*\\Public\\*"
         - "*\\Temp\\*"
-        - "C:\\Temp\\*"
+        - "%TEMP%/*"
         - "%TEMP%\\*"
       min_matches: 1
 
@@ -435,7 +435,7 @@
     prefetch_artifact_write:
       orderless: true
       file_paths:
-        - "C:\\Windows\\Prefetch\\"
+        - "%SystemRoot%\\Prefetch\\"
         - "*.pf"
       file_operations: ["create", "write", "setinfo"]
       min_matches: 1
@@ -605,15 +605,15 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -796,17 +796,17 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       is_absolute: true
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -838,16 +838,16 @@
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/chrome.exe"
+    - pattern: "%SystemRoot%/System32/chrome.exe"
       must_be_signed: true
-    - pattern: "C:/Program Files/Mozilla Firefox/firefox.exe"
+    - pattern: "%ProgramFiles%/Mozilla Firefox/firefox.exe"
       must_be_signed: true
-    - pattern: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+    - pattern: "%ProgramFiles(x86)%/Microsoft/Edge/Application/msedge.exe"
       must_be_signed: true
-    - pattern: "C:/Windows/explorer.exe"
+    - pattern: "%SystemRoot%/explorer.exe"
       must_be_signed: true
       is_absolute: true
-    - pattern: "C:/Program Files/Microsoft Office/root/Office16/outlook.exe"
+    - pattern: "%ProgramFiles%/Microsoft Office/root/Office16/outlook.exe"
       must_be_signed: true
 
   named_conditions:
@@ -921,19 +921,19 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Program Files/Google/Chrome/Application/chrome.exe"
+    - pattern: "%ProgramFiles%/Google/Chrome/Application/chrome.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Google*"]
-    - pattern: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+    - pattern: "%ProgramFiles(x86)%/Microsoft/Edge/Application/msedge.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Program Files/Mozilla Firefox/firefox.exe"
+    - pattern: "%ProgramFiles%/Mozilla Firefox/firefox.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Mozilla*"]
-    - pattern: "C:/Program Files/Internet Explorer/iexplore.exe"
+    - pattern: "%ProgramFiles%/Internet Explorer/iexplore.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1000,15 +1000,15 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1501,8 +1501,10 @@
     boot_file_modification:
       orderless: true
       file_paths:
-        - "C:\\boot.ini"
-        - "C:\\BCD"
+        - "%SystemDrive%\\boot.ini"
+        - "%SystemDrive%/boot.ini"
+        - "%SystemDrive%\\BCD"
+        - "%SystemDrive%/BCD"
       file_operations: ["write", "create", "delete"]
       min_matches: 1
 
@@ -1814,7 +1816,7 @@
   severity: 100
   named_conditions:
     driver_overwrite:
-      file_paths: ["C:\\Windows\\System32\\drivers\\*.sys"]
+      file_paths: ["%SystemRoot%\\System32\\drivers\\*.sys"]
       file_operations: ["write", "delete", "setinfo"]
       min_matches: 1
     unsigned_caller:
@@ -2078,29 +2080,29 @@
 
   allowlisted_apps:
     # The HydraDragon firewall itself sends ICMP for network monitoring — must not self-block
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       is_absolute: true
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/lsass.exe"
+    - pattern: "%SystemRoot%/System32/lsass.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/ping.exe"
+    - pattern: "%SystemRoot%/System32/ping.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/tracert.exe"
+    - pattern: "%SystemRoot%/System32/tracert.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/pathping.exe"
+    - pattern: "%SystemRoot%/System32/pathping.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -2155,19 +2157,19 @@
   debug: false
 
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/sc.exe"
+    - pattern: "%SystemRoot%/System32/sc.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -2200,7 +2202,7 @@
       is_absolute: true
       signers: ["*Microsoft*"]
     # Own firewall may register a driver service during installation
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       is_absolute: true
 
   named_conditions:
