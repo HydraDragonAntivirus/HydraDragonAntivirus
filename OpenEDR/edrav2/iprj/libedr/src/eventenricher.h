@@ -9,8 +9,6 @@
 #pragma once
 #include "..\inc\objects.h"
 
-#include <unordered_set>
-
 namespace cmd {
 
 ///
@@ -32,13 +30,6 @@ private:
 	ObjWeakPtr<IDataProvider> m_pProvider;
 	ObjPtr<IDataReceiver> m_pReceiver;
 	void processQueueEvent();
-
-	// Comodo-cloud trust mode state (registry: HKLM\SOFTWARE\Owlyshield\TRUST_COMODO_CLOUD)
-	bool m_fTrustComodoCloud = false;
-	std::mutex m_mtxTrustedPids;
-	std::unordered_set<uint32_t> m_setTrustedPids;
-	bool isPidCloudTrusted(uint32_t nPid);
-	bool isProcessCloudTrusted(const Variant& vProcess);
 
 	std::wstring getRegistryPath(std::wstring sPath);
 	std::wstring getRegistryAbstractPath(std::wstring sPath);

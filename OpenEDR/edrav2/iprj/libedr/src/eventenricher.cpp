@@ -13,24 +13,6 @@
 
 namespace cmd {
 
-namespace {
-
-//
-// Checks whether the Comodo-cloud trust mode is enabled via the registry
-// value HKLM\SOFTWARE\Owlyshield\TRUST_COMODO_CLOUD ("1"/"true").
-//
-bool isTrustComodoCloudEnabled()
-{
-	wchar_t szValue[16] = {};
-	DWORD nSize = sizeof(szValue);
-	if (::RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Owlyshield",
-		L"TRUST_COMODO_CLOUD", RRF_RT_REG_SZ, nullptr, szValue, &nSize) != ERROR_SUCCESS)
-		return false;
-	return (_wcsicmp(szValue, L"1") == 0) || (_wcsicmp(szValue, L"true") == 0);
-}
-
-} // anonymous namespace
-
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "enricher"
 
@@ -108,10 +90,6 @@ void EventEnricher::finalConstruct(Variant vConfig)
 	std::scoped_lock _lock(m_mtxQueue);
 	if (m_threadPool.getThreadsCount() == 0)
 		m_threadPool.addThreads(1);
-
-	m_fTrustComodoCloud = isTrustComodoCloudEnabled();
-	if (m_fTrustComodoCloud)
-		LOGLVL(Detailed, "Comodo-cloud trust mode is enabled (TRUST_COMODO_CLOUD=1)");
 }
 
 //
@@ -246,73 +224,6 @@ std::wstring EventEnricher::getRegistryAbstractPath(std::wstring sPath)
 			sPath.replace(nControlSetPos, 22, L"\\SYSTEM\\CurrentControlSet\\");
 	}
 	return string::convertToLow(sPath);
-}
-
-//
-// Fast check of the cached trusted-process set.
-//
-bool EventEnricher::isPidCloudTrusted(uint32_t nPid)
-{
-	if (nPid == 0)
-		return false;
-	std::scoped_lock _lock(m_mtxTrustedPids);
-	return (m_setTrustedPids.count(nPid) != 0);
-}
-
-//
-// Checks whether the process is trusted per the Comodo cloud (FLS Safe
-// verdict) and remembers it, so subsequent hook events of the process are
-// not fully monitored (only the C++ firewall continues to see them).
-//
-bool EventEnricher::isProcessCloudTrusted(const Variant& vProcess)
-{
-	if (!m_fTrustComodoCloud)
-		return false;
-
-	const uint32_t nPid = vProcess.get("pid", uint32_t(0));
-	if (nPid == 0)
-		return false;
-
-	if (isPidCloudTrusted(nPid))
-		return true;
-
-	bool fTrusted = false;
-	CMD_TRY
-	{
-		Variant vImageFile = getByPath(vProcess, "imageFile", {});
-		if (vImageFile.isEmpty())
-			return false;
-
-		auto pFileProvider = queryInterfaceSafe<ICommandProcessor>(queryService("fileDataProvider"));
-		auto pFlsService = queryInterfaceSafe<ICommandProcessor>(queryService("flsService"));
-		if (pFileProvider == nullptr || pFlsService == nullptr)
-			return false;
-
-		// Add "hash" to the image file, then resolve the Comodo cloud verdict.
-		// FileVerdict::Safe == 1 (see edrav2/iprj/libcloud/inc/fls.hpp).
-		vImageFile = pFileProvider->execute("enrichFileHash", vImageFile);
-		Dictionary vVerdictParams({ {"file", vImageFile} });
-		pFlsService->execute("enrichFileVerdict", vVerdictParams);
-
-		const int64_t nVerdict = getByPath(vVerdictParams["file"], "fls.verdict", int64_t(3));
-		fTrusted = (nVerdict == int64_t(1));
-	}
-	CMD_PREPARE_CATCH
-	catch (error::Exception& e)
-	{
-		e.log(SL, FMT("Failed to resolve Comodo cloud verdict for process <" << nPid << ">"));
-	}
-	catch (...)
-	{
-		error::RuntimeError(SL, "Failed to resolve Comodo cloud verdict").log();
-	}
-
-	if (fTrusted)
-	{
-		std::scoped_lock _lock(m_mtxTrustedPids);
-		m_setTrustedPids.insert(nPid);
-	}
-	return fTrusted;
 }
 
 //
