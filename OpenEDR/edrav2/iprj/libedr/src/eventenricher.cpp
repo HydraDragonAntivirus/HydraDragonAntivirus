@@ -15,92 +15,6 @@ namespace cmd {
 
 namespace {
 
-constexpr wchar_t c_sOwlyshieldRansomDll[] = L"owlyshield_ransom.dll";
-
-typedef int32_t(__stdcall* FnOwlyshieldDllStart)();
-typedef int32_t(__stdcall* FnIngestOpenedrEvent)(const uint8_t*, uint32_t);
-
-namespace {
-
-enum class OwlyshieldEngineState
-{
-	NotInitialized,
-	Started,
-	Failed
-};
-
-std::mutex g_mtxOwlyshieldEngine;
-OwlyshieldEngineState g_eOwlyshieldEngineState = OwlyshieldEngineState::NotInitialized;
-
-//
-// Resolve the owlyshield_ransom.dll module. Falls back to explicit loads from
-// well-known locations so telemetry delivery does not depend on the DLL being
-// loadable by bare name from the process search path.
-//
-HMODULE getOwlyshieldDllHandle()
-{
-	HMODULE hDll = ::GetModuleHandleW(c_sOwlyshieldRansomDll);
-	if (hDll != nullptr)
-		return hDll;
-
-	wchar_t szExePath[MAX_PATH];
-	const DWORD nExeLen = ::GetModuleFileNameW(nullptr, szExePath, MAX_PATH);
-	if (nExeLen > 0 && nExeLen < MAX_PATH)
-	{
-		std::wstring sDllPath(szExePath, nExeLen);
-		const auto nSlash = sDllPath.rfind(L'\\');
-		if (nSlash != std::wstring::npos)
-		{
-			sDllPath.replace(nSlash + 1, sDllPath.length(), c_sOwlyshieldRansomDll);
-			hDll = ::LoadLibraryW(sDllPath.c_str());
-			if (hDll != nullptr)
-				return hDll;
-		}
-	}
-
-	constexpr wchar_t c_sOwlyshieldInstallPath[] =
-		L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\owlyshield_ransom.dll";
-	hDll = ::LoadLibraryW(c_sOwlyshieldInstallPath);
-	if (hDll != nullptr)
-		return hDll;
-
-	return ::LoadLibraryW(c_sOwlyshieldRansomDll);
-}
-
-//
-// Make sure the Owlyshield behavior engine has been started before events are
-// delivered. The Rust side treats a second start call as a no-op success, so
-// this is safe even if another component (e.g. libnetmon) already started it.
-//
-bool ensureOwlyshieldEngineStarted(HMODULE hDll)
-{
-	std::scoped_lock _lock(g_mtxOwlyshieldEngine);
-	if (g_eOwlyshieldEngineState == OwlyshieldEngineState::Started)
-		return true;
-	if (g_eOwlyshieldEngineState == OwlyshieldEngineState::Failed)
-		return false;
-
-	auto fnStart = reinterpret_cast<FnOwlyshieldDllStart>(
-		::GetProcAddress(hDll, "owlyshield_dll_start"));
-	if (fnStart == nullptr)
-	{
-		LOGLVL(Debug, "Failed to resolve owlyshield_dll_start from <" << c_sOwlyshieldRansomDll << ">");
-		g_eOwlyshieldEngineState = OwlyshieldEngineState::Failed;
-		return false;
-	}
-
-	const int32_t nResult = fnStart();
-	if (nResult == 0 || nResult == 1) // OWLY_OK / OWLY_ALREADY_STARTED
-	{
-		g_eOwlyshieldEngineState = OwlyshieldEngineState::Started;
-		return true;
-	}
-
-	LOGLVL(Debug, "Failed to start Owlyshield engine (code: " << nResult << ")");
-	g_eOwlyshieldEngineState = OwlyshieldEngineState::Failed;
-	return false;
-}
-
 //
 // Checks whether the Comodo-cloud trust mode is enabled via the registry
 // value HKLM\SOFTWARE\Owlyshield\TRUST_COMODO_CLOUD ("1"/"true").
@@ -113,49 +27,6 @@ bool isTrustComodoCloudEnabled()
 		L"TRUST_COMODO_CLOUD", RRF_RT_REG_SZ, nullptr, szValue, &nSize) != ERROR_SUCCESS)
 		return false;
 	return (_wcsicmp(szValue, L"1") == 0) || (_wcsicmp(szValue, L"true") == 0);
-}
-
-} // anonymous namespace
-
-void sendEnrichedTelemetryToOwlyshield(const Variant& vEvent)
-{
-	std::string sPayload;
-	CMD_TRY
-	{
-		sPayload = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
-	}
-	CMD_PREPARE_CATCH
-	catch (error::Exception& e)
-	{
-		e.log(SL, "Failed to serialize enriched telemetry for Owlyshield");
-		return;
-	}
-
-	if (sPayload.empty())
-		return;
-
-	// Deliver straight into the in-process FFI telemetry channel. The former
-	// global named pipe is gone so no untrusted usermode process can inject
-	// events into the behavior engine.
-	HMODULE hDll = getOwlyshieldDllHandle();
-	if (hDll == nullptr)
-		return;
-
-	if (!ensureOwlyshieldEngineStarted(hDll))
-		return;
-
-	auto fnIngest = reinterpret_cast<FnIngestOpenedrEvent>(
-		::GetProcAddress(hDll, "owlyshield_dll_ingest_openedr_event"));
-	if (fnIngest == nullptr)
-		return;
-
-	const int32_t nResult = fnIngest(
-		reinterpret_cast<const uint8_t*>(sPayload.data()),
-		static_cast<uint32_t>(sPayload.size()));
-	if (nResult != 0)
-	{
-		LOGLVL(Trace, "Failed to send enriched telemetry to Owlyshield (code: " << nResult << ")");
-	}
 }
 
 } // anonymous namespace
@@ -468,10 +339,7 @@ void EventEnricher::put(const Variant& vEventRef)
 	if (vProcess.isEmpty())
 	{
 		LOGLVL(Detailed, "Process <" << vRawProcess["pid"] << "> not found for event <" <<
-			Enum(eEventType) << ">, forwarding to Owlyshield with raw process info");
-		// Forward to Owlyshield even if process context is missing —
-		// input/injection/network events may arrive after process exit.
-		sendEnrichedTelemetryToOwlyshield(vEvent);
+			Enum(eEventType) << ">, dropping event");
 		return;
 	}
 	vEvent.put("process", vProcess);
@@ -653,10 +521,7 @@ void EventEnricher::put(const Variant& vEventRef)
 			if (vTargetInfo.isEmpty())
 			{
 				LOGLVL(Detailed, "Process <" << vTarget["pid"] << "> not found for target in event <" <<
-					Enum(eEventType) << ">, forwarding to Owlyshield with raw target info");
-				// Forward to Owlyshield anyway — process/memory injection events must
-				// not be silently dropped just because the target has already exited.
-				sendEnrichedTelemetryToOwlyshield(vEvent);
+					Enum(eEventType) << ">, dropping event");
 				return;
 			}
 			vEvent.put("target", vTargetInfo);
@@ -782,11 +647,6 @@ void EventEnricher::put(const Variant& vEventRef)
 	}
 	}
 
-	// Comodo-cloud trust mode: hook carrier events from a trusted (FLS Safe)
-	// process are not fully monitored — they are not fed to the Owlyshield
-	// behavior engine, but the C++ firewall still processes them.
-	if (eEventType != Event::LLE_DEVICE_IOCTL || !isProcessCloudTrusted(vProcess))
-		sendEnrichedTelemetryToOwlyshield(vEvent);
 	return pReceiver->put(vEvent);
 	TRACE_END(FMT("Fail to parse event <" << vEvent.get("baseType", 0) << ">"))
 }
