@@ -3229,96 +3229,10 @@ impl BehaviorEngine {
                     history.push_back(pkt.clone());
                 }
 
-                // Behavior rule matching — identical logic to the HydraNetEvent handler.
-                let mut matched_any = false;
-                for rule in self.rules.iter() {
-                    if rule.matches_packet(&self.regex_cache, &pkt, &[]) {
-                        matched_any = true;
-
-                        if rule.is_private {
-                            continue;
-                        }
-
-                        Logging::alert(&format!(
-                            "[BEHAVIOR RULE MATCH] PID {} matched network condition in rule '{}': {} -> {}",
-                            pid, rule.name, pkt.src_ip, pkt.dst_ip
-                        ));
-
-                        if !rule.response.ask_user
-                            && (rule.response.status_access_denied
-                                || rule.response.quarantine
-                                || rule.response.kill_and_remove
-                                || rule.response.terminate_process
-                                || rule.response.traffic_attack)
-                        {
-                            let blocked_exes_arc = shared_firewall_blocked_exes();
-                            let mut blocked = blocked_exes_arc.write().unwrap();
-
-                            let reason = if rule.response.traffic_attack {
-                                format!("Traffic attack rule [{}] matched", rule.name)
-                            } else if rule.response.change_request_body.is_some()
-                                || rule.response.change_response_body.is_some()
-                            {
-                                format!("Rule [{}] matched (Replacement suggested)", rule.name)
-                            } else {
-                                format!("Rule [{}] matched", rule.name)
-                            };
-
-                            let (detected_domain, detected_subdomain) =
-                                if let Some(ref hostname) = pkt.hostname {
-                                    let parts: Vec<&str> = hostname.split('.').collect();
-                                    if parts.len() >= 2 {
-                                        let domain = format!(
-                                            "{}.{}",
-                                            parts[parts.len() - 2],
-                                            parts[parts.len() - 1]
-                                        );
-                                        let subdomain = if parts.len() > 2 {
-                                            Some(hostname.clone())
-                                        } else {
-                                            None
-                                        };
-                                        (Some(domain), subdomain)
-                                    } else {
-                                        (None, None)
-                                    }
-                                } else {
-                                    (None, None)
-                                };
-
-                            blocked.insert(
-                                normalize_firewall_file_verdict_key(&pkt.image_path),
-                                FirewallDetection {
-                                    dst_ip: pkt.dst_ip.to_string(),
-                                    dst_port: pkt.dst_port,
-                                    hostname: pkt.hostname.clone().unwrap_or_default(),
-                                    reason,
-                                    is_private_rule_match: rule.is_private,
-                                    detected_subdomain,
-                                    detected_domain,
-                                    used_public_suffix_list: false,
-                                    matched_private_rules: if rule.is_private {
-                                        vec![rule.name.clone()]
-                                    } else {
-                                        Vec::new()
-                                    },
-                                    is_traffic_attack: rule.response.traffic_attack,
-                                },
-                            );
-                        }
-
-                        if let Some(ref hostname) = pkt.hostname {
-                            let _replaced = rule.apply_replacement(hostname);
-                        }
-                    }
-                }
-
-                if !matched_any {
-                    Logging::info(&format!(
-                        "[FirewallEvent] Full packed data recorded for PID {}: {} -> {} ({})",
-                        pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
-                    ));
-                }
+                Logging::info(&format!(
+                    "[FirewallEvent] Full packed data recorded for PID {}: {} -> {} ({})",
+                    pid, pkt.src_ip, pkt.dst_ip, pkt.protocol
+                ));
             }
             Err(error) => {
                 let preview: String = json.chars().take(240).collect();
@@ -4914,7 +4828,7 @@ impl BehaviorEngine {
             "[Owlyshield] Starting behavior rule load from {:?}",
             path
         ));
-        let rules = self.load_rules_recursive(path, 0)?;
+        let rules = Self::raw_json_only_rules(self.load_rules_recursive(path, 0)?);
         let count = rules.len();
 
         if count == 0 {
@@ -4933,6 +4847,86 @@ impl BehaviorEngine {
             count, path
         ));
         Ok(())
+    }
+
+    fn raw_json_only_rules(rules: Vec<BehaviorRule>) -> Vec<BehaviorRule> {
+        rules
+            .into_iter()
+            .filter_map(|mut rule| {
+                let raw_named_conditions = std::mem::take(&mut rule.named_conditions)
+                    .into_iter()
+                    .filter_map(|(name, mut group)| {
+                        if group.raw_json_patterns.is_empty() {
+                            return None;
+                        }
+
+                        let orderless = group.orderless;
+                        let min_matches = group.min_matches;
+                        let raw_json_patterns = std::mem::take(&mut group.raw_json_patterns);
+
+                        Some((
+                            name,
+                            NamedConditionGroup {
+                                orderless,
+                                min_matches,
+                                raw_json_patterns,
+                                ..Default::default()
+                            },
+                        ))
+                    })
+                    .collect::<HashMap<_, _>>();
+
+                if raw_named_conditions.is_empty() {
+                    Logging::warning(&format!(
+                        "[BehaviorEngine] Skipping non-raw-json behavior rule '{}'",
+                        rule.name
+                    ));
+                    return None;
+                }
+
+                rule.named_conditions = raw_named_conditions;
+                rule.detection_logic = None;
+                rule.stages.clear();
+                rule.mapping = None;
+                rule.min_stages_satisfied = 0;
+                rule.proximity_log_threshold = 0.0;
+                rule.record_on_start.clear();
+                rule.entropy_threshold = 0.0;
+                rule.memory_scan_config = None;
+                rule.network_whitelist = None;
+                rule.sdk_protocol = None;
+                rule.sdk_action = None;
+                rule.sdk_condition_logic = None;
+                rule.sdk_encoding = None;
+                rule.sdk_src_ip = None;
+                rule.sdk_dst_ip = None;
+                rule.sdk_src_port = None;
+                rule.sdk_dst_port = None;
+                rule.sdk_domain = None;
+                rule.sdk_url = None;
+                rule.sdk_file_type = None;
+                rule.sdk_regex = None;
+                rule.sdk_localhost_type = None;
+                rule.sdk_routine = None;
+                rule.sdk_conditions.clear();
+                rule.sdk_change_data = None;
+                rule.sdk_change_request_body = None;
+                rule.sdk_change_response_body = None;
+                rule.sdk_http_request_body = None;
+                rule.sdk_http_response_body = None;
+                rule.sdk_use_regex_replacement = false;
+                rule.sdk_search_pattern = None;
+                rule.sdk_json_match = None;
+                rule.http_request_body_patterns.clear();
+                rule.http_response_body_patterns.clear();
+                rule.private_rules = None;
+                rule
+                    .tags
+                    .retain(|tag| !tag.eq_ignore_ascii_case("network") && !tag.eq_ignore_ascii_case("firewall"));
+
+                Some(rule)
+            })
+            .collect()
     }
 
     /// Rebuild the daachorse Aho-Corasick index over every literal API-name
