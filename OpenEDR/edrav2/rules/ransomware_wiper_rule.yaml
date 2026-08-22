@@ -1,0 +1,124 @@
+# =============================================================================
+# Ransomware / Wiper behavioral detection rule
+# Verified against the actual schema in rule_types.rs:
+#   - BehaviorRule { stages: Vec<AttackStage>, named_conditions: HashMap<String,
+#     NamedConditionGroup>, detection_logic: Option<DetectionCondition>, ... }
+#   - RuleCondition is internally tagged with `type:` (#[serde(tag = "type")])
+#     and only exists inside stage.conditions / MultiCondition, NOT inside
+#     named_conditions.
+#   - NamedConditionGroup is a flat struct (cmdline_patterns, raw_json_patterns,
+#     entropy_threshold, min_matches, etc.) - it has no generic "conditions"
+#     list, so all the counting/threshold logic (renames, deletes, entropy,
+#     rate-of-change, raw-disk writes) has to live in `stages`.
+#   - Within one AttackStage all `conditions` are ANDed; to express OR logic
+#     inside a stage you wrap alternatives in a single `MultiCondition` with
+#     operator: any.
+#   - detection_logic (named_conditions) and stages are combined with OR at
+#     the top level of the engine (rich_triggered || stages_triggered), so
+#     they can be used as two independent trigger paths.
+# =============================================================================
+
+name: "Destructive Behavior - Ransomware/Wiper"
+description: >
+  Detects mass file destruction consistent with ransomware encryption or
+  wiper-style data destruction: rapid mass rename/delete activity combined
+  with high-entropy writes or raw-disk wipe attempts (stage-based path), or
+  shadow-copy/backup destruction on its own (named-condition early-warning
+  path).
+severity: 95
+level: critical
+status: stable
+debug: false
+within_ms: 120000
+never_trust_comodo_cloud: true
+mitre_attack:
+  - "T1486"   # Data Encrypted for Impact
+  - "T1490"   # Inhibit System Recovery
+  - "T1561"   # Disk Wipe
+tags:
+  - ransomware
+  - wiper
+  - destructive
+
+# ---------------------------------------------------------------------------
+# Stage-based path: requires BOTH stages to be satisfied
+# (min_stages_satisfied: 2, i.e. all stages below).
+# Each stage's conditions are ANDed; MultiCondition(operator: any) is used
+# to express "any one of these signals is enough" within a stage.
+# ---------------------------------------------------------------------------
+min_stages_satisfied: 2
+stages:
+  - name: "Mass destructive file activity"
+    conditions:
+      - type: MultiCondition
+        operator: "any"
+        min_matches: 1
+        conditions:
+          - type: OperationCount
+            op_type: "rename"       # covers rename + extension-change (engine
+            comparison: gte          # treats both as the same IRP token)
+            threshold: 40
+          - type: OperationCount
+            op_type: "delete"
+            comparison: gte
+            threshold: 50
+          - type: RateOfChange
+            metric: "rename_count"
+            comparison: gte
+            threshold: 20.0
+          - type: RateOfChange
+            metric: "delete_count"
+            comparison: gte
+            threshold: 25.0
+
+  - name: "Encryption or wipe evidence"
+    conditions:
+      - type: MultiCondition
+        operator: "any"
+        min_matches: 1
+        conditions:
+          - type: EntropyThreshold
+            metric: "file_write_entropy"
+            comparison: gte
+            threshold: 0.85
+          - type: OperationCount
+            op_type: "write"
+            comparison: gte
+            threshold: 30
+          - type: File
+            op: "write"
+            path_pattern: "physicaldrive"   # substring match, e.g. \\.\PhysicalDrive0
+          - type: Api
+            functions:
+              - "DeviceIoControl"
+            module_pattern: "kernel32"
+
+# ---------------------------------------------------------------------------
+# Named-condition path: fires independently of the stages above, as an
+# early-warning signal even before mass destruction is fully observed.
+# (No content-based ransom-note detection - command-line evidence only.)
+# ---------------------------------------------------------------------------
+named_conditions:
+  backup_destruction:
+    min_matches: 1
+    cmdline_patterns:
+      - pattern: "(?i)vssadmin(\\.exe)?\\s+delete\\s+shadows"
+        is_regex: true
+      - pattern: "(?i)wbadmin(\\.exe)?\\s+delete\\s+catalog"
+        is_regex: true
+      - pattern: "(?i)bcdedit(\\.exe)?.*recoveryenabled\\s+no"
+        is_regex: true
+
+detection_logic:
+  any_of:
+    - "backup_destruction"
+
+response:
+  terminate_process: true
+  kill_and_remove: true
+  quarantine: true
+  suspend_process: true
+  notify_user: true
+  ask_user: false
+  deny_while_ask: false
+  auto_revert: true   # try to roll back changed files where the engine supports it
