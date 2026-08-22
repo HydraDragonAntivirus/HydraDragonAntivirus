@@ -41,7 +41,7 @@ private:
 	// Tracks files fully read by each process; when that process then
 	// overwrites / deletes / renames one of them, the ORIGINAL content is
 	// backed up to %PROGRAMDATA%\HydraBackups\<pid>\ first (rule-independent).
-	// After 3 such destructive operations the process is reported as
+	// After 5 distinct victim files the process is reported as
 	// ransomware and ALL captured originals are rolled back to their places
 	// (Kaspersky-style file remediation: modified/deleted/renamed restored).
 	struct ShadowBackupEntry

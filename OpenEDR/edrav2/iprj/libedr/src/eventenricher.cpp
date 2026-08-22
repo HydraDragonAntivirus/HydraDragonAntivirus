@@ -210,6 +210,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 		switch (eEventType)
 		{
 		case Event::LLE_FILE_DATA_READ_FULL:
+		case Event::LLE_FILE_MAP_READ:
 			readSet.insert(wsFilePath);
 			return; // pure tracking
 
@@ -265,7 +266,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 	LOGLVL(Normal, FMT("RansomShield: destructive op on a previously-read file, "
 		<< "pid=" << nPid << " distinct-victims=" << nDistinct));
 
-	if (nDistinct >= 3)
+	if (nDistinct >= 5)
 	{
 		LOGLVL(Critical, FMT("RansomShield: ransomware behavior confirmed for pid="
 			<< nPid << " - rolling back captured originals"));
@@ -329,7 +330,6 @@ void EventEnricher::rollbackRansomBackups(int64_t nPid)
 
 		if (IsSystemArea(entry.wsOriginal))
 			continue; // never touch OS/browser internals during remediation
-		const ShadowBackupEntry& entry = *itEntry;
 
 		if (entry.nOp == 2 && !entry.wsNewName.empty() &&
 			!::DeleteFileW(entry.wsNewName.c_str()))
