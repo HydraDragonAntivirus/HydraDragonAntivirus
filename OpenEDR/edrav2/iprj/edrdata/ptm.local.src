@@ -10,7 +10,12 @@
 	"constants": {
 		"basket": {
 			"fileReadWrite": "FILE_COPY_READ_WRITE",
-			"fileWriteRead": "FILE_COPY_WRITE_READ"
+			"fileWriteRead": "FILE_COPY_WRITE_READ",
+			"ransomReadFiles": "RANSOM_READ_FILES",
+			"ransomWriteAfterRead": "RANSOM_WRITE_AFTER_READ"
+		},
+		"ransomEventBaseType": {
+			"MLE_RANSOMWARE_FILE_ENCRYPTION": 1000008
 		}
 	},
 
@@ -170,6 +175,108 @@
 					}
 				}
 			}
-		] // FILE_COPY_WRITE_READ
+		], // FILE_COPY_WRITE_READ
+
+		//
+		// Pattern for ransomware file-encryption scenario
+		// (Kaspersky-style behavioral chain: read content -> encrypt and
+		// save -> remove the original). Purely behavioral: no extension
+		// lists, no static hashes.
+		//
+		"RANSOMWARE_FILE_ENCRYPTION": [
+
+			// 1) Full read of a file: remember it per process + rawHash
+			{
+				"eventType": "LLE_FILE_DATA_READ_FULL",
+				"rule": {
+					"saveContext": {
+						"basket": "@const.basket.ransomReadFiles",
+						"key": "@var.copyFileKey",
+						"group": "@event.process.id",
+						"lifetime": 600000,
+						"data": { "file": "@event.file" }
+					}
+				}
+			},
+
+			// 2) Full write to the SAME file (same process + same rawHash)
+			//    after it was fully read = encrypt-and-save footprint
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.basket.ransomReadFiles",
+						"key": "@var.copyFileKey"
+					},
+					"saveContext": {
+						"basket": "@const.basket.ransomWriteAfterRead",
+						"key": "@var.copyFileKey",
+						"group": "@event.process.id",
+						"lifetime": 600000,
+						"data": { "file": "@event.file" }
+					}
+				}
+			},
+
+			// 3) Delete of a file that was read AND rewritten by this
+			//    process = original removal after encryption -> detection
+			{
+				"eventType": "LLE_FILE_DELETE",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.basket.ransomWriteAfterRead",
+						"key": "@var.copyFileKey",
+						"delete": true
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOMWARE_FILE_ENCRYPTION",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{
+								"name": "baseType",
+								"value": "@const.ransomEventBaseType.MLE_RANSOMWARE_FILE_ENCRYPTION"
+							},
+							{
+								"name": "process",
+								"value": "@event.process"
+							},
+							{
+								"name": "source",
+								"value": "@context.file"
+							},
+							{
+								"name": "time",
+								"value": "@event.time"
+							},
+							{
+								"name": "tickTime",
+								"value": "@event.tickTime"
+							}
+						]
+					}
+				}
+			},
+
+			// 4) Process termination: free ransomware-related contexts
+			{
+				"eventType": "LLE_PROCESS_DELETE",
+				"rule": {
+					"deleteContext": {
+						"basket": "@const.basket.ransomReadFiles",
+						"group": "@event.process.id"
+					}
+				}
+			},
+			{
+				"eventType": "LLE_PROCESS_DELETE",
+				"rule": {
+					"deleteContext": {
+						"basket": "@const.basket.ransomWriteAfterRead",
+						"group": "@event.process.id"
+					}
+				}
+			}
+		] // RANSOMWARE_FILE_ENCRYPTION
 	}
 }
