@@ -2994,8 +2994,8 @@ pub struct BehaviorEngine {
     /// the engine through this queue. `Arc<Mutex<_>>` so the telemetry-thread
     /// `BehaviorEngine` clone shares it with the Worker's main-thread engine.
     pub pending_hook_pids: Arc<Mutex<std::collections::VecDeque<u32>>>,
-    /// Raw OpenEDR telemetry lines. Events are intentionally kept as opaque JSON
-    /// strings; no schema-specific JSON parsing is performed on the event path.
+    /// Raw telemetry lines from OpenEDR/OwlyShield and firewall JSON events.
+    /// The original JSON strings are retained for raw_json_patterns evaluation.
     pub pending_raw_events: Arc<Mutex<std::collections::VecDeque<(u32, String)>>>,
     /// PIDs for which the firewall observed real outbound network I/O (NET_EVENT).
     
@@ -3167,6 +3167,24 @@ impl BehaviorEngine {
     /// path delivers the packet.
     
     pub fn ingest_firewall_packed_data(&self, json: &str) {
+        // Keep the complete firewall JSON opaque for behavior-rule matching.
+        // The existing typed firewall path below remains intact for packet/body handling.
+        let raw_pid = serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| {
+                v.get("packet")
+                    .and_then(|p| p.get("process_id"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.min(u32::MAX as u64) as u32)
+                    .or_else(|| {
+                        v.get("process_id")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v.min(u32::MAX as u64) as u32)
+                    })
+            })
+            .unwrap_or(0);
+        self.queue_raw_json_event(raw_pid, json.to_owned());
+
         match serde_json::from_str::<FirewallPackedDataMessage>(json) {
             Ok(packed) => {
                 let mut pkt = packed.packet;
@@ -3780,12 +3798,7 @@ impl BehaviorEngine {
             }
         }
 
-        if let Ok(mut q) = self.pending_raw_events.lock() {
-            if q.len() >= 4096 {
-                q.pop_front();
-            }
-            q.push_back((pid, raw_event));
-        }
+        self.queue_raw_json_event(pid, raw_event);
     }
 
     fn json_string_field(event: &serde_json::Value, names: &[&str]) -> Option<String> {
@@ -3814,7 +3827,22 @@ impl BehaviorEngine {
         None
     }
 
-    /// Drain opaque OpenEDR events on the Worker thread.
+    /// Queue an opaque raw JSON event for behavior-rule evaluation.
+    /// Used by both OpenEDR/OwlyShield telemetry and firewall JSON telemetry.
+    fn queue_raw_json_event(&self, pid: u32, raw_json: String) {
+        if pid == 0 || raw_json.trim().is_empty() {
+            return;
+        }
+
+        if let Ok(mut q) = self.pending_raw_events.lock() {
+            if q.len() >= 4096 {
+                q.pop_front();
+            }
+            q.push_back((pid, raw_json));
+        }
+    }
+
+    /// Drain opaque OpenEDR/firewall JSON events on the Worker thread.
     pub fn drain_pending_raw_events(&mut self) -> Vec<(u32, String)> {
         match self.pending_raw_events.lock() {
             Ok(mut q) => q.drain(..).collect(),
@@ -3822,8 +3850,8 @@ impl BehaviorEngine {
         }
     }
 
-    /// Evaluates raw OpenEDR JSON events against named condition groups.
-    /// YAML rules use `json_field_conditions`, `json_match`, or `raw_json_patterns`.
+    /// Evaluates opaque raw JSON telemetry against named condition groups.
+    /// Behavior YAML rules use `raw_json_patterns`; the original JSON is retained.
     pub fn apply_raw_openedr_events(&mut self, events: Vec<(u32, String)>) {
         if events.is_empty() {
             return;
@@ -3831,8 +3859,6 @@ impl BehaviorEngine {
 
         for (pid, raw) in events {
             let Some(gid) = self.find_gid_by_pid(pid) else { continue };
-
-            let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
 
             if let Some(state) = self.process_states.get_mut(&gid) {
                 if state.raw_openedr_events.len() >= 256 {
@@ -3844,20 +3870,21 @@ impl BehaviorEngine {
 
                 for rule in &self.rules {
                     for (cond_name, cond_group) in &rule.named_conditions {
-                        let matched =
-                            (!cond_group.json_field_conditions.is_empty()
-                                && cond_group.json_field_conditions.iter().all(|jm| jm.matches_value(&parsed)))
-                            || cond_group.json_match.as_ref().map_or(false, |jm| jm.matches_value(&parsed))
-                            || (!cond_group.raw_json_patterns.is_empty()
-                                && cond_group.raw_json_patterns.iter().any(|p| {
-                                    Self::matches_pattern_internal(&self.regex_cache, p, &raw)
-                                }));
+                        let matched = !cond_group.raw_json_patterns.is_empty()
+                            && cond_group.raw_json_patterns.iter().any(|p| {
+                                Self::matches_pattern_internal(&self.regex_cache, p, &raw)
+                            });
 
                         if matched {
-                            let ts = now.duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
                             state.record_condition_match(
                                 &Self::scoped_condition_name(rule, cond_name),
-                                format!("raw:{}:{}", pid, ts),
+                                format!(
+                                    "raw:{}:{}",
+                                    pid,
+                                    now.duration_since(UNIX_EPOCH)
+                                        .map(|d| d.as_nanos())
+                                        .unwrap_or(0)
+                                ),
                                 now,
                                 cond_group.min_matches.max(1),
                                 rule.debug,
@@ -3955,204 +3982,6 @@ impl BehaviorEngine {
     ) -> bool {
         let scoped = Self::scoped_condition_name(rule, cond_name);
         state.satisfied_named_conditions.contains(scoped.as_str())
-    }
-
-    fn rule_condition_last_seen(
-        state: &ProcessBehaviorState,
-        rule: &BehaviorRule,
-        cond_name: &str,
-    ) -> Option<SystemTime> {
-        let scoped = Self::scoped_condition_name(rule, cond_name);
-        state.condition_last_seen.get(&scoped).copied()
-    }
-
-    fn collect_detection_condition_timestamps(
-        &self,
-        condition: &DetectionCondition,
-        state: &ProcessBehaviorState,
-        rule: &BehaviorRule,
-    ) -> Option<Vec<SystemTime>> {
-        match condition {
-            DetectionCondition::Named {
-                condition: cond_name,
-            } => {
-                if Self::rule_condition_satisfied(state, rule, cond_name) {
-                    Self::rule_condition_last_seen(state, rule, cond_name).map(|ts| vec![ts])
-                } else {
-                    None
-                }
-            }
-            DetectionCondition::And { and } => {
-                let mut timestamps = Vec::new();
-                for child in and {
-                    timestamps.extend(
-                        self.collect_detection_condition_timestamps(child, state, rule)?,
-                    );
-                }
-                Some(timestamps)
-            }
-            DetectionCondition::Or { or } => or.iter().find_map(|child| {
-                self.collect_detection_condition_timestamps(child, state, rule)
-            }),
-            DetectionCondition::Not { .. } => Some(Vec::new()),
-            DetectionCondition::AllOf { all_of } => {
-                let mut timestamps = Vec::new();
-                for cond_name in all_of {
-                    if !Self::rule_condition_satisfied(state, rule, cond_name) {
-                        return None;
-                    }
-                    timestamps.push(Self::rule_condition_last_seen(state, rule, cond_name)?);
-                }
-                Some(timestamps)
-            }
-            DetectionCondition::AnyOf { any_of } => any_of.iter().find_map(|cond_name| {
-                if Self::rule_condition_satisfied(state, rule, cond_name) {
-                    Self::rule_condition_last_seen(state, rule, cond_name).map(|ts| vec![ts])
-                } else {
-                    None
-                }
-            }),
-            DetectionCondition::NOf { n_of, conditions } => {
-                let timestamps: Vec<SystemTime> = conditions
-                    .iter()
-                    .filter_map(|cond_name| {
-                        if Self::rule_condition_satisfied(state, rule, cond_name) {
-                            Self::rule_condition_last_seen(state, rule, cond_name)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                (timestamps.len() == *n_of).then_some(timestamps)
-            }
-            DetectionCondition::AtLeast {
-                at_least,
-                conditions,
-            } => {
-                let timestamps: Vec<SystemTime> = conditions
-                    .iter()
-                    .filter_map(|cond_name| {
-                        if Self::rule_condition_satisfied(state, rule, cond_name) {
-                            Self::rule_condition_last_seen(state, rule, cond_name)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                (timestamps.len() >= *at_least).then_some(timestamps)
-            }
-            DetectionCondition::AllOfPattern { all_of_pattern } => {
-                let timestamps: Vec<SystemTime> = rule
-                    .named_conditions
-                    .keys()
-                    .filter(|cond_name| {
-                        Self::rule_condition_satisfied(state, rule, cond_name)
-                            && Self::matches_pattern_internal(
-                                &self.regex_cache,
-                                all_of_pattern,
-                                cond_name,
-                            )
-                    })
-                    .filter_map(|cond_name| Self::rule_condition_last_seen(state, rule, cond_name))
-                    .collect();
-                (!timestamps.is_empty()).then_some(timestamps)
-            }
-            DetectionCondition::AnyOfPattern { any_of_pattern } => rule
-                .named_conditions
-                .keys()
-                .find_map(|cond_name| {
-                    if Self::rule_condition_satisfied(state, rule, cond_name)
-                        && Self::matches_pattern_internal(
-                            &self.regex_cache,
-                            any_of_pattern,
-                            cond_name,
-                        )
-                    {
-                        Self::rule_condition_last_seen(state, rule, cond_name).map(|ts| vec![ts])
-                    } else {
-                        None
-                    }
-                }),
-            DetectionCondition::Count {
-                count,
-                comparison,
-                threshold,
-            } => {
-                let timestamps: Vec<SystemTime> = count
-                    .iter()
-                    .filter_map(|cond_name| {
-                        if Self::rule_condition_satisfied(state, rule, cond_name) {
-                            Self::rule_condition_last_seen(state, rule, cond_name)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                let satisfied_count = timestamps.len();
-                let matched = match comparison {
-                    Comparison::Gt => satisfied_count > *threshold,
-                    Comparison::Gte => satisfied_count >= *threshold,
-                    Comparison::Lt => satisfied_count < *threshold,
-                    Comparison::Lte => satisfied_count <= *threshold,
-                    Comparison::Eq => satisfied_count == *threshold,
-                    Comparison::Ne => satisfied_count != *threshold,
-                };
-                matched.then_some(timestamps)
-            }
-            DetectionCondition::Percentage {
-                percentage,
-                comparison,
-                threshold,
-            } => {
-                if percentage.is_empty() {
-                    return None;
-                }
-                let timestamps: Vec<SystemTime> = percentage
-                    .iter()
-                    .filter_map(|cond_name| {
-                        if Self::rule_condition_satisfied(state, rule, cond_name) {
-                            Self::rule_condition_last_seen(state, rule, cond_name)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                let ratio = timestamps.len() as f32 / percentage.len() as f32;
-                let matched = match comparison {
-                    Comparison::Gt => ratio > *threshold,
-                    Comparison::Gte => ratio >= *threshold,
-                    Comparison::Lt => ratio < *threshold,
-                    Comparison::Lte => ratio <= *threshold,
-                    Comparison::Eq => (ratio - threshold).abs() < 0.001,
-                    Comparison::Ne => (ratio - threshold).abs() >= 0.001,
-                };
-                matched.then_some(timestamps)
-            }
-        }
-    }
-
-    fn detection_condition_within_window(
-        &self,
-        condition: &DetectionCondition,
-        state: &ProcessBehaviorState,
-        rule: &BehaviorRule,
-        window_ms: u64,
-    ) -> bool {
-        let Some(timestamps) =
-            self.collect_detection_condition_timestamps(condition, state, rule)
-        else {
-            return false;
-        };
-        if timestamps.len() <= 1 {
-            return true;
-        }
-
-        let min_ts = timestamps.iter().min().copied().unwrap();
-        let max_ts = timestamps.iter().max().copied().unwrap();
-        max_ts
-            .duration_since(min_ts)
-            .map(|duration| duration.as_millis() <= u128::from(window_ms))
-            .unwrap_or(false)
     }
 
     fn rule_condition_values<'a>(
@@ -5304,43 +5133,9 @@ impl BehaviorEngine {
     }
 
     /// Extract all unique APIs mentioned across all rules, stages, and named conditions
+    /// Behavior rules no longer declare APIs. API monitoring is global/raw-event driven.
     pub fn get_all_monitored_apis(&self) -> HashSet<String> {
-        fn collect_condition_apis(cond: &RuleCondition, all_apis: &mut HashSet<String>) {
-            match cond {
-                RuleCondition::Api {
-                    functions,
-                    arguments: _,
-                    module_pattern,
-                } => {
-                    for name_pattern in functions {
-                        if module_pattern.is_empty() {
-                            all_apis.insert(name_pattern.clone());
-                        } else {
-                            all_apis.insert(format!("{}!{}", module_pattern, name_pattern));
-                        }
-                    }
-                }
-                RuleCondition::MultiCondition { conditions, .. } => {
-                    for subcondition in conditions {
-                        collect_condition_apis(subcondition, all_apis);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let mut all_apis = HashSet::new();
-
-        for rule in &self.rules {
-            // Stage-level conditions
-            for stage in &rule.stages {
-                for cond in &stage.conditions {
-                    collect_condition_apis(cond, &mut all_apis);
-                }
-            }
-        }
-
-        all_apis
+        HashSet::new()
     }
 
     fn load_rules_recursive(
@@ -6457,212 +6252,6 @@ impl BehaviorEngine {
     }
 
 
-    fn collect_named_conditions(
-        condition: &DetectionCondition,
-        out: &mut Vec<String>,
-    ) {
-        match condition {
-            DetectionCondition::And { and } => {
-                for child in and {
-                    Self::collect_named_conditions(child, out);
-                }
-            }
-            DetectionCondition::Or { or } => {
-                for child in or {
-                    Self::collect_named_conditions(child, out);
-                }
-            }
-            DetectionCondition::Not { not } => Self::collect_named_conditions(not, out),
-            DetectionCondition::Named { condition } => out.push(condition.clone()),
-            DetectionCondition::AllOf { all_of }
-            | DetectionCondition::AnyOf { any_of: all_of }
-            | DetectionCondition::NOf { conditions: all_of, .. }
-            | DetectionCondition::AtLeast { conditions: all_of, .. }
-            | DetectionCondition::Count { count: all_of, .. }
-            | DetectionCondition::Percentage { percentage: all_of, .. } => {
-                out.extend(all_of.iter().cloned());
-            }
-            DetectionCondition::AllOfPattern { .. }
-            | DetectionCondition::AnyOfPattern { .. } => {}
-        }
-    }
-
-    fn detection_condition_order_valid(
-        &self,
-        condition: &DetectionCondition,
-        state: &ProcessBehaviorState,
-        rule: &BehaviorRule,
-    ) -> bool {
-        match condition {
-            DetectionCondition::Or { or } => or.iter().any(|branch| {
-                self.evaluate_detection_condition(branch, state, rule)
-                    && self.detection_condition_order_valid(branch, state, rule)
-            }),
-            DetectionCondition::And { and } => {
-                if !and
-                    .iter()
-                    .all(|child| self.evaluate_detection_condition(child, state, rule))
-                {
-                    return false;
-                }
-                let mut names = Vec::new();
-                Self::collect_named_conditions(condition, &mut names);
-                for ordered_name in names.iter().filter(|name| {
-                    rule.named_conditions
-                        .get(*name)
-                        .map(|group| !group.orderless)
-                        .unwrap_or(false)
-                }) {
-                    let Some(ordered_first) = state.condition_first_seen.get(
-                        &Self::scoped_condition_name(rule, ordered_name),
-                    ) else {
-                        return false;
-                    };
-                    for sibling in &names {
-                        if sibling == ordered_name {
-                            continue;
-                        }
-                        let sibling_key = Self::scoped_condition_name(rule, sibling);
-                        if let Some(sibling_first) = state.condition_first_seen.get(&sibling_key) {
-                            if ordered_first > sibling_first {
-                                if rule.debug || self.rules.iter().any(|r| r.debug) {
-                                    Logging::debug(&format!(
-                                        "[BehaviorEngine] Ordered condition '{}' occurred after '{}' in rule '{}' on PID {}",
-                                        ordered_name, sibling, rule.name, state.pid
-                                    ));
-                                }
-                                return false;
-                            }
-                        }
-                    }
-                }
-                true
-            }
-            // The ransomware rule uses And/Or/Named. For other operators, preserve
-            // the existing evaluator semantics rather than inventing ordering rules.
-            _ => self.evaluate_detection_condition(condition, state, rule),
-        }
-    }
-
-    fn evaluate_detection_condition(
-        &self,
-        condition: &DetectionCondition,
-        state: &ProcessBehaviorState,
-        rule: &BehaviorRule,
-    ) -> bool {
-        match condition {
-            DetectionCondition::Named {
-                condition: cond_name,
-            } => Self::rule_condition_satisfied(state, rule, cond_name),
-
-            DetectionCondition::And { and } => and
-                .iter()
-                .all(|c| self.evaluate_detection_condition(c, state, rule)),
-
-            DetectionCondition::Or { or } => or
-                .iter()
-                .any(|c| self.evaluate_detection_condition(c, state, rule)),
-
-            DetectionCondition::Not { not } => !self.evaluate_detection_condition(not, state, rule),
-
-            DetectionCondition::AllOf { all_of } => all_of
-                .iter()
-                .all(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name)),
-
-            DetectionCondition::AnyOf { any_of } => any_of
-                .iter()
-                .any(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name)),
-
-            DetectionCondition::NOf { n_of, conditions } => {
-                let satisfied_count = conditions
-                    .iter()
-                    .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
-                    .count();
-                satisfied_count == *n_of
-            }
-
-            DetectionCondition::AtLeast {
-                at_least,
-                conditions,
-            } => {
-                let satisfied_count = conditions
-                    .iter()
-                    .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
-                    .count();
-                satisfied_count >= *at_least
-            }
-
-            DetectionCondition::AllOfPattern { all_of_pattern } => {
-                let matching_conditions: Vec<_> = rule
-                    .named_conditions
-                    .keys()
-                    .filter(|cond_name| {
-                        Self::rule_condition_satisfied(state, rule, cond_name)
-                            && Self::matches_pattern_internal(
-                                &self.regex_cache,
-                                all_of_pattern,
-                                cond_name,
-                            )
-                    })
-                    .collect();
-                !matching_conditions.is_empty()
-            }
-
-            DetectionCondition::AnyOfPattern { any_of_pattern } => {
-                rule.named_conditions.keys().any(|cond_name| {
-                    Self::rule_condition_satisfied(state, rule, cond_name)
-                        && Self::matches_pattern_internal(
-                            &self.regex_cache,
-                            any_of_pattern,
-                            cond_name,
-                        )
-                })
-            }
-
-            DetectionCondition::Count {
-                count,
-                comparison,
-                threshold,
-            } => {
-                let satisfied_count = count
-                    .iter()
-                    .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
-                    .count();
-                match comparison {
-                    Comparison::Gt => satisfied_count > *threshold,
-                    Comparison::Gte => satisfied_count >= *threshold,
-                    Comparison::Lt => satisfied_count < *threshold,
-                    Comparison::Lte => satisfied_count <= *threshold,
-                    Comparison::Eq => satisfied_count == *threshold,
-                    Comparison::Ne => satisfied_count != *threshold,
-                }
-            }
-
-            DetectionCondition::Percentage {
-                percentage,
-                comparison,
-                threshold,
-            } => {
-                if percentage.is_empty() {
-                    return false;
-                }
-                let satisfied_count = percentage
-                    .iter()
-                    .filter(|cond_name| Self::rule_condition_satisfied(state, rule, cond_name))
-                    .count();
-                let ratio = satisfied_count as f32 / percentage.len() as f32;
-                match comparison {
-                    Comparison::Gt => ratio > *threshold,
-                    Comparison::Gte => ratio >= *threshold,
-                    Comparison::Lt => ratio < *threshold,
-                    Comparison::Lte => ratio <= *threshold,
-                    Comparison::Eq => (ratio - threshold).abs() < 0.001,
-                    Comparison::Ne => (ratio - threshold).abs() >= 0.001,
-                }
-            }
-        }
-    }
-
     fn check_rules(
         &mut self,
         precord: &mut ProcessRecord,
@@ -6789,63 +6378,15 @@ impl BehaviorEngine {
                 }
             }
 
-            let mut rich_triggered = false;
-            if let Some(logic) = &rule.detection_logic {
-                rich_triggered = self.detection_condition_order_valid(logic, &state_ref, rule);
-                if rich_triggered
-                    && let Some(window_ms) = rule.within_ms
-                    && !self.detection_condition_within_window(
-                        logic,
-                        &state_ref,
-                        rule,
-                        window_ms,
-                    )
-                {
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Skipping rich-logic trigger for '{}' on PID {}: named condition timestamps exceeded {} ms",
-                            rule.name, state_ref.pid, window_ms
-                        ));
-                    }
-                    rich_triggered = false;
-                }
-                if rich_triggered
-                    && !Self::rule_has_current_named_condition_match(&state_ref, rule, msg.time)
-                {
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Skipping stale rich-logic trigger for '{}' on PID {}: current event did not satisfy a rule condition",
-                            rule.name, state_ref.pid
-                        ));
-                    }
-                    rich_triggered = false;
-                }
-            } else if !rule.named_conditions.is_empty() {
-                rich_triggered = rule.named_conditions.keys().all(|cond_name| {
+            // RAW JSON ONLY: named conditions are satisfied exclusively by raw_json_patterns.
+            let raw_json_triggered = !rule.named_conditions.is_empty()
+                && rule.named_conditions.keys().all(|cond_name| {
                     Self::rule_condition_satisfied(&state_ref, rule, cond_name)
                 });
-            }
 
-            let mut stages_triggered = false;
-            let mut stage_conf = 0.0;
-            if !rule.stages.is_empty() {
-                let (detected, conf) = self.evaluate_stages_from_state(rule, &state_ref, Some(msg));
-                stages_triggered = detected;
-                stage_conf = conf;
-            }
-
-            if rich_triggered || stages_triggered {
-                let trigger_type = if stages_triggered {
-                    "Stage-based"
-                } else {
-                    "Rich-logic"
-                };
-
-                let indicator_ratio = if stages_triggered {
-                    stage_conf
-                } else {
-                    1.0
-                };
+            if raw_json_triggered {
+                let trigger_type = "Raw-JSON";
+                let indicator_ratio = 1.0;
 
                 let mut prompted_deny = false;
                 let mut prompted_block = false;
@@ -7059,747 +6600,6 @@ impl BehaviorEngine {
         }
     }
 
-    fn api_candidate_matches(
-        &self,
-        name_pattern: &str,
-        module_pattern: &str,
-        candidate: &str,
-    ) -> bool {
-        let (candidate_norm, _) = Self::normalize_api_signature(candidate);
-        let function_part = candidate_norm
-            .rsplit('!')
-            .next()
-            .unwrap_or(candidate_norm.as_str());
-        let module_part = candidate_norm.split('!').next().unwrap_or("");
-
-        let name_ok = name_pattern.trim().is_empty()
-            || name_pattern.trim() == "*"
-            || Self::matches_pattern_internal(&self.regex_cache, name_pattern, function_part)
-            || Self::matches_pattern_internal(&self.regex_cache, name_pattern, &candidate_norm)
-            || Self::matches_pattern_internal(&self.regex_cache, name_pattern, candidate);
-
-        let module_ok = module_pattern.trim().is_empty()
-            || module_pattern.trim() == "*"
-            || Self::matches_pattern_internal(&self.regex_cache, module_pattern, module_part)
-            || Self::matches_pattern_internal(&self.regex_cache, module_pattern, &candidate_norm)
-            || Self::matches_pattern_internal(&self.regex_cache, module_pattern, candidate);
-
-        name_ok && module_ok
-    }
-
-    fn latest_api_match_time(
-        &self,
-        state: &ProcessBehaviorState,
-        name_pattern: &str,
-        module_pattern: &str,
-        arguments: &[crate::behavioral::rule_types::ApiArgument],
-    ) -> Option<SystemTime> {
-        state
-            .irp_operations
-            .iter()
-            .rev()
-            .find(|record| {
-                !record.function_name.trim().is_empty()
-                    && self.api_candidate_matches(
-                        name_pattern,
-                        module_pattern,
-                        &record.function_name,
-                    )
-                    && (arguments.is_empty()
-                        || arguments
-                            .iter()
-                            .all(|req_arg| Self::api_argument_matches(req_arg, record)))
-            })
-            .map(|record| record.timestamp)
-    }
-
-    fn evaluate_multi_condition_window(
-        &self,
-        conditions: &[RuleCondition],
-        operator: Option<&String>,
-        min_matches: Option<usize>,
-        within_ms: Option<u64>,
-        state: &ProcessBehaviorState,
-        msg: Option<&IOMessage>,
-    ) -> bool {
-        let op = operator
-            .map(|value| value.to_ascii_lowercase())
-            .unwrap_or_else(|| "all".to_string());
-        let required_matches = min_matches.unwrap_or_else(|| {
-            if matches!(op.as_str(), "any" | "or") {
-                1
-            } else {
-                conditions.len()
-            }
-        });
-
-        if let Some(window_ms) = within_ms {
-            let mut match_count = 0usize;
-            let mut timestamps = Vec::new();
-
-            for condition in conditions {
-                match condition {
-                    RuleCondition::Api {
-                        functions,
-                        arguments,
-                        module_pattern,
-                        ..
-                    } => {
-                        let mut best_ts = None;
-                        for name_pattern in functions {
-                            if let Some(ts) = self.latest_api_match_time(
-                                state,
-                                name_pattern,
-                                module_pattern,
-                                arguments,
-                            ) {
-                                if best_ts.is_none() || ts > best_ts.unwrap() {
-                                    best_ts = Some(ts);
-                                }
-                            }
-                        }
-                        if let Some(ts) = best_ts {
-                            match_count += 1;
-                            timestamps.push(ts);
-                        }
-                    }
-                    _ => {
-                        if self.evaluate_rule_condition(condition, state, msg) {
-                            match_count += 1;
-                        }
-                    }
-                }
-            }
-
-            if match_count < required_matches {
-                return false;
-            }
-
-            if timestamps.len() <= 1 {
-                return true;
-            }
-
-            let min_ts = timestamps.iter().min().copied().unwrap();
-            let max_ts = timestamps.iter().max().copied().unwrap();
-            return max_ts
-                .duration_since(min_ts)
-                .map(|duration| duration.as_millis() <= u128::from(window_ms))
-                .unwrap_or(false);
-        }
-
-        let match_count = conditions
-            .iter()
-            .filter(|condition| self.evaluate_rule_condition(condition, state, msg))
-            .count();
-
-        match_count >= required_matches
-    }
-
-    fn evaluate_process_tree_condition(
-        &self,
-        parent_patterns: &[String],
-        child_patterns: &[String],
-        ancestor_patterns: &[String],
-        command_line_patterns: &[CommandLinePattern],
-        max_depth: Option<u32>,
-        require_current_process: bool,
-        state: &ProcessBehaviorState,
-        msg: Option<&IOMessage>,
-    ) -> bool {
-        let parent_name = state.parent_name.to_lowercase();
-        let parent_path = canonical_behavior_path(&state.parent_path.to_string_lossy());
-        let child_name = state.app_name.to_lowercase();
-        let child_path = canonical_behavior_path(&state.exe_path.to_string_lossy());
-        let event_path = msg
-            .map(|m| canonical_behavior_path(&m.filepathstr))
-            .unwrap_or_default();
-        let cmdline = msg
-            .and_then(|m| {
-                let value = m.runtime_features.command_line.trim();
-                if value.is_empty() {
-                    None
-                } else {
-                    Some(value.to_lowercase())
-                }
-            })
-            .unwrap_or_else(|| state.command_line.to_lowercase());
-
-        let parent_ok = parent_patterns.is_empty()
-            || parent_patterns.iter().any(|pattern| {
-                Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_name)
-                    || Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_path)
-            });
-
-        let child_ok = child_patterns.is_empty()
-            || child_patterns.iter().any(|pattern| {
-                Self::matches_pattern_internal(&self.regex_cache, pattern, &child_name)
-                    || Self::matches_pattern_internal(&self.regex_cache, pattern, &child_path)
-                    || (!require_current_process
-                        && Self::matches_pattern_internal(&self.regex_cache, pattern, &event_path))
-            });
-
-        let ancestor_ok = ancestor_patterns.is_empty()
-            || max_depth.unwrap_or(1) == 0
-            || ancestor_patterns.iter().any(|pattern| {
-                Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_name)
-                    || Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_path)
-            });
-
-        let cmdline_ok = command_line_patterns.is_empty()
-            || command_line_patterns
-                .iter()
-                .any(|pattern| pattern.matches(&self.regex_cache, &cmdline));
-
-        parent_ok && child_ok && ancestor_ok && cmdline_ok
-    }
-
-    fn evaluate_rule_condition(
-        &self,
-        condition: &RuleCondition,
-        state: &ProcessBehaviorState,
-        msg: Option<&IOMessage>,
-    ) -> bool {
-        match condition {
-            RuleCondition::OperationCount {
-                op_type,
-                comparison,
-                threshold,
-                path_pattern,
-            } => {
-                let count = if let Some(pattern) = path_pattern {
-                    state
-                        .irp_operations
-                        .iter()
-                        .filter(|rec| {
-                            let is_match =
-                                irp_operation_matches_token(rec.irp_type, rec.file_change, op_type);
-                            is_match
-                                && Self::matches_pattern_internal(
-                                    &self.regex_cache,
-                                    pattern,
-                                    &rec.file_path,
-                                )
-                        })
-                        .count() as u64
-                } else {
-                    state.irp_stats.get_operation_count(op_type)
-                };
-
-                match comparison {
-                    Comparison::Gt => count > *threshold,
-                    Comparison::Gte => count >= *threshold,
-                    Comparison::Lt => count < *threshold,
-                    Comparison::Lte => count <= *threshold,
-                    Comparison::Eq => count == *threshold,
-                    Comparison::Ne => count != *threshold,
-                }
-            }
-            RuleCondition::ByteThreshold {
-                direction,
-                comparison,
-                threshold,
-            } => {
-                let bytes = match direction.as_str() {
-                    "read" => state.irp_stats.total_bytes_read,
-                    "write" => state.irp_stats.total_bytes_written,
-                    _ => 0,
-                };
-                match comparison {
-                    Comparison::Gt => bytes > *threshold,
-                    Comparison::Gte => bytes >= *threshold,
-                    Comparison::Lt => bytes < *threshold,
-                    Comparison::Lte => bytes <= *threshold,
-                    Comparison::Eq => bytes == *threshold,
-                    Comparison::Ne => bytes != *threshold,
-                }
-            }
-            RuleCondition::File { op, path_pattern } => match op.as_str() {
-                "write" | "create" | "read" | "delete" | "rename" => {
-                    state.irp_stats.unique_paths_accessed.iter().any(|path| {
-                        Self::matches_pattern_internal(&self.regex_cache, path_pattern, path)
-                    })
-                }
-                _ => false,
-            },
-            RuleCondition::EntropyThreshold {
-                comparison,
-                threshold,
-                ..
-            } => msg.map_or(false, |m| {
-                let entropy = m.entropy;
-                match comparison {
-                    Comparison::Gt => entropy > *threshold,
-                    Comparison::Gte => entropy >= *threshold,
-                    Comparison::Lt => entropy < *threshold,
-                    Comparison::Lte => entropy <= *threshold,
-                    Comparison::Eq => (entropy - threshold).abs() < 0.001,
-                    Comparison::Ne => (entropy - threshold).abs() >= 0.001,
-                }
-            }),
-            RuleCondition::NetworkCondition(net_rule) => {
-                state
-                    .net_packets
-                    .iter()
-                    .any(|pkt| net_rule.matches_packet(&self.regex_cache, pkt, &[]))
-            }
-            RuleCondition::Amsi {
-                risk_at_least,
-                patterns,
-                source,
-                cmdline_patterns,
-            } => {
-                let required_risk = risk_at_least
-                    .as_deref()
-                    .map(crate::behavioral::amsi::AmsiRiskLevel::from_str)
-                    .unwrap_or(crate::behavioral::amsi::AmsiRiskLevel::None);
-
-                state.amsi_results.iter().any(|res| {
-                    let risk_ok = res.risk_level >= required_risk;
-                    let source_ok = source
-                        .as_ref()
-                        .map(|src| res.source.contains(src))
-                        .unwrap_or(true);
-                    let patterns_ok = patterns.is_empty()
-                        || patterns.iter().any(|p| {
-                            res.detected_patterns
-                                .iter()
-                                .any(|dp| Self::matches_pattern_internal(&self.regex_cache, p, dp))
-                                || Self::matches_pattern_internal(
-                                    &self.regex_cache,
-                                    p,
-                                    &res.content_sample,
-                                )
-                        });
-                    let cmdline_ok = cmdline_patterns.is_empty()
-                        || cmdline_patterns.iter().any(|p| {
-                            Self::matches_pattern_internal(
-                                &self.regex_cache,
-                                p,
-                                &state.command_line,
-                            )
-                        });
-                    risk_ok && source_ok && patterns_ok && cmdline_ok
-                })
-            }
-            RuleCondition::SanctumGhost {
-                functions,
-                caller_address_patterns,
-                hex_patterns,
-                min_matches,
-            } => {
-                let _ = (
-                    functions,
-                    caller_address_patterns,
-                    hex_patterns,
-                    min_matches,
-                );
-                false
-            }
-            RuleCondition::Api {
-                functions,
-                arguments,
-                module_pattern,
-            } => {
-                let check_api = |api: &IrpOperationRecord| {
-                    let func_match = functions.is_empty()
-                        || functions.iter().any(|f| {
-                            self.api_candidate_matches(f, module_pattern, &api.function_name)
-                        });
-                    if !func_match {
-                        return false;
-                    }
-
-                    if arguments.is_empty() {
-                        return true;
-                    }
-
-                    arguments
-                        .iter()
-                        .all(|req_arg| Self::api_argument_matches(req_arg, api))
-                };
-
-                state.irp_operations.iter().any(|api| check_api(api))
-            }
-            RuleCondition::CommandLineMatch {
-                patterns,
-                match_mode,
-            } => {
-                if patterns.is_empty() {
-                    return true;
-                }
-                match match_mode {
-                    MatchMode::All => patterns
-                        .iter()
-                        .all(|pattern| pattern.matches(&self.regex_cache, &state.command_line)),
-                    MatchMode::Exact => patterns.iter().any(|pattern| {
-                        pattern
-                            .pattern
-                            .pattern()
-                            .eq_ignore_ascii_case(&state.command_line)
-                    }),
-                    _ => patterns
-                        .iter()
-                        .any(|pattern| pattern.matches(&self.regex_cache, &state.command_line)),
-                }
-            }
-            RuleCondition::Process { op, pattern } => {
-                let current_name = state.app_name.to_lowercase();
-                let current_path = canonical_behavior_path(&state.exe_path.to_string_lossy());
-                let parent_name = state.parent_name.to_lowercase();
-                let parent_path = canonical_behavior_path(&state.parent_path.to_string_lossy());
-                let event_path = msg
-                    .map(|m| canonical_behavior_path(&m.filepathstr))
-                    .unwrap_or_default();
-                match op.as_str() {
-                    "parent" => {
-                        Self::matches_pattern_internal(&self.regex_cache, pattern, &parent_name)
-                            || Self::matches_pattern_internal(
-                                &self.regex_cache,
-                                pattern,
-                                &parent_path,
-                            )
-                    }
-                    "create" | "start" | "child" => {
-                        Self::matches_pattern_internal(&self.regex_cache, pattern, &current_name)
-                            || Self::matches_pattern_internal(
-                                &self.regex_cache,
-                                pattern,
-                                &current_path,
-                            )
-                            || Self::matches_pattern_internal(
-                                &self.regex_cache,
-                                pattern,
-                                &event_path,
-                            )
-                    }
-                    _ => {
-                        Self::matches_pattern_internal(&self.regex_cache, pattern, &current_name)
-                            || Self::matches_pattern_internal(
-                                &self.regex_cache,
-                                pattern,
-                                &current_path,
-                            )
-                    }
-                }
-            }
-            RuleCondition::ProcessTree {
-                parent_patterns,
-                child_patterns,
-                ancestor_patterns,
-                command_line_patterns,
-                max_depth,
-                require_current_process,
-            } => self.evaluate_process_tree_condition(
-                parent_patterns,
-                child_patterns,
-                ancestor_patterns,
-                command_line_patterns,
-                *max_depth,
-                *require_current_process,
-                state,
-                msg,
-            ),
-            RuleCondition::MultiCondition {
-                conditions,
-                operator,
-                min_matches,
-                within_ms,
-                ..
-            } => self.evaluate_multi_condition_window(
-                conditions,
-                operator.as_ref(),
-                *min_matches,
-                *within_ms,
-                state,
-                msg,
-            ),
-            RuleCondition::ExtensionPattern {
-                patterns,
-                match_mode,
-                op_type,
-            } => {
-                let op_ok =
-                    op_type.trim().is_empty() || state.irp_stats.get_operation_count(op_type) > 0;
-                if !op_ok {
-                    return false;
-                }
-                let matches =
-                    patterns.iter().filter(|pattern| {
-                        state.irp_stats.files_by_extension.keys().any(|ext| {
-                            Self::matches_pattern_internal(&self.regex_cache, pattern, ext)
-                        })
-                    });
-                match match_mode {
-                    MatchMode::All => matches.count() == patterns.len(),
-                    _ => matches.count() > 0,
-                }
-            }
-            RuleCondition::RateOfChange {
-                metric,
-                comparison,
-                threshold,
-            } => {
-                let value = match metric.as_str() {
-                    "write_count" => state.irp_stats.write_count as f64,
-                    "rename_count" => state.irp_stats.rename_count as f64,
-                    "delete_count" => state.irp_stats.delete_count as f64,
-                    "process_create_count" => state.irp_stats.process_create_count as f64,
-                    _ => 0.0,
-                };
-                match comparison {
-                    Comparison::Gt => value > *threshold,
-                    Comparison::Gte => value >= *threshold,
-                    Comparison::Lt => value < *threshold,
-                    Comparison::Lte => value <= *threshold,
-                    Comparison::Eq => (value - threshold).abs() < 0.001,
-                    Comparison::Ne => (value - threshold).abs() >= 0.001,
-                }
-            }
-            RuleCondition::KernelHook {
-                event_types,
-                function_pattern,
-                source_pattern,
-                target_pattern,
-                min_count,
-            } => {
-                // Canonical IRP event-type token → IrpMajorOp mapping.
-                // Covers IRP_USERMODE_HOOK_EVENT, IRP_KERNEL_*, and IRP_ROOTKIT_*.
-                fn irp_type_for_token(token: &str) -> Option<u32> {
-                    let t = token.trim().to_ascii_uppercase();
-                    // Values mirror the IrpMajorOp::from_sysmonevent() mapping in shared_def.rs.
-                    match t.as_str() {
-                        "IRP_USERMODE_HOOK_EVENT" => Some(0x13), // 19
-                        "IRP_KERNEL_REMOTE_THREAD" => Some(0x14),
-                        "IRP_KERNEL_WRITE_MEMORY" => Some(0x15),
-                        "IRP_KERNEL_PROTECT_MEMORY" => Some(0x16),
-                        "IRP_KERNEL_CREATE_THREAD" => Some(0x17),
-                        "IRP_KERNEL_QUEUE_APC" => Some(0x18),
-                        "IRP_KERNEL_CREATE_SECTION" => Some(0x19),
-                        "IRP_KERNEL_MAP_SECTION" => Some(0x1A),
-                        "IRP_ROOTKIT_SSDT_HOOK" => Some(0x1B),
-                        "IRP_ROOTKIT_HIDDEN_PROCESS" => Some(0x1C),
-                        "IRP_ROOTKIT_HIDDEN_DRIVER" => Some(0x1D),
-                        "IRP_ROOTKIT_KERNEL_HOOK" => Some(0x1E),
-                        "IRP_ROOTKIT_TERMINATE_PROCESS" => Some(0x1F),
-                        "IRP_ROOTKIT_FILE_MOVE" => Some(0x20),
-                        "IRP_ROOTKIT_GENERIC" => Some(0x21),
-                        // OpenEDR usermode process-memory telemetry (API hook /
-                        // DeviceIoControl transport) collapses to the same
-                        // DeviceIoControl opcode as the IRP_ hook events.
-                        "LLE_PROCESS_MEMORY_READ" => Some(0x0E),
-                        _ => None,
-                    }
-                }
-
-                // Build the set of irp_type values we accept (empty = any hook event).
-                let accepted_types: Vec<u32> = event_types
-                    .iter()
-                    .filter_map(|t| irp_type_for_token(t))
-                    .collect();
-
-                // Determine whether an IrpMajorOp corresponds to any hook/rootkit category.
-                fn is_kernel_hook_or_rootkit_op(irp_type: u32) -> bool {
-                    matches!(
-                        irp_type,
-                        0x13..=0x21 // IRP_USERMODE_HOOK_EVENT through IRP_ROOTKIT_GENERIC
-                    )
-                }
-
-                let required = (*min_count).max(1);
-                let mut match_count = 0usize;
-
-                for rec in &state.irp_operations {
-                    // Type gate: accepted_types empty ⇒ any kernel-hook/rootkit event.
-                    let type_ok = if accepted_types.is_empty() {
-                        is_kernel_hook_or_rootkit_op(rec.irp_type)
-                    } else {
-                        accepted_types.contains(&rec.irp_type)
-                    };
-                    if !type_ok {
-                        continue;
-                    }
-
-                    // Optional function name pattern.
-                    let func_ok = match function_pattern {
-                        Some(pat) if !pat.is_empty() => {
-                            !rec.function_name.is_empty()
-                                && Self::matches_pattern_internal(
-                                    &self.regex_cache,
-                                    pat,
-                                    &rec.function_name,
-                                )
-                        }
-                        _ => true,
-                    };
-                    if !func_ok {
-                        continue;
-                    }
-
-                    // Optional source process pattern (matched against file_path which
-                    // carries the attacker exe path for kernel hook events).
-                    let src_ok = match source_pattern {
-                        Some(pat) if !pat.is_empty() => {
-                            let src_name = rec
-                                .file_path
-                                .split(['\\', '/'])
-                                .filter(|s| !s.is_empty())
-                                .last()
-                                .unwrap_or(rec.file_path.as_str());
-                            Self::matches_pattern_internal(&self.regex_cache, pat, src_name)
-                                || Self::matches_pattern_internal(
-                                    &self.regex_cache,
-                                    pat,
-                                    &rec.file_path,
-                                )
-                        }
-                        _ => true,
-                    };
-                    if !src_ok {
-                        continue;
-                    }
-
-                    // Optional target process pattern (matched against
-                    // the process image for the target PID if available).
-                    let tgt_ok = match target_pattern {
-                        Some(pat) if !pat.is_empty() => {
-                            // target_pid 0 or equal to source = self-targeting event
-                            if rec.target_pid == 0 || rec.target_pid == state.pid {
-                                false
-                            } else {
-                                // Best-effort: compare against app_name / exe_path when the
-                                // target happens to be the tracked process, otherwise skip.
-                                let target_name = state.app_name.to_lowercase();
-                                let target_path =
-                                    canonical_behavior_path(&state.exe_path.to_string_lossy());
-                                Self::matches_pattern_internal(&self.regex_cache, pat, &target_name)
-                                    || Self::matches_pattern_internal(
-                                        &self.regex_cache,
-                                        pat,
-                                        &target_path,
-                                    )
-                            }
-                        }
-                        _ => true,
-                    };
-                    if !tgt_ok {
-                        continue;
-                    }
-
-                    match_count += 1;
-                    if match_count >= required {
-                        return true;
-                    }
-                }
-                false
-            }
-            _ => false,
-        }
-    }
-
-    fn api_argument_matches(req_arg: &ApiArgument, api: &IrpOperationRecord) -> bool {
-        let Some(idx) = Self::api_argument_index(&api.function_name, &req_arg.name) else {
-            return false;
-        };
-        if idx >= 4 {
-            return false;
-        }
-        let observed_val = api.raw_arguments[idx];
-        let req_val_str = req_arg.value.trim().to_lowercase();
-
-        if req_val_str.starts_with("0x") {
-            if let Ok(req_val) = u64::from_str_radix(&req_val_str[2..], 16) {
-                return observed_val == req_val;
-            }
-        } else if let Ok(req_val) = req_val_str.parse::<u64>() {
-            return observed_val == req_val;
-        }
-
-        false
-    }
-
-    fn api_argument_index(function: &str, arg_name: &str) -> Option<usize> {
-        let f = function.to_lowercase();
-        let a = arg_name.to_lowercase();
-
-        match f.as_str() {
-            "ntwritevirtualmemory" | "ntreadvirtualmemory" => match a.as_str() {
-                "processhandle" => Some(0),
-                "baseaddress" => Some(1),
-                "buffer" | "bufferaddress" => Some(2),
-                "numberofbytestowrite" | "numberofbytestoread" | "size" => Some(3),
-                _ => None,
-            },
-            "ntprotectvirtualmemory" => match a.as_str() {
-                "processhandle" => Some(0),
-                "baseaddress" => Some(1),
-                "numberofbytestoprotect" | "size" => Some(2),
-                "newaccessprotection" | "protection" => Some(3),
-                _ => None,
-            },
-            "ntcreatesection" => match a.as_str() {
-                "sectionhandle" => Some(0),
-                "desiredaccess" => Some(1),
-                "objectattributes" => Some(2),
-                "maximumsize" => Some(3), // Note: actually more args, but these are first 4
-                _ => None,
-            },
-            "nttracecontrol" => match a.as_str() {
-                "controlcode" => Some(0),
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-
-    fn evaluate_stages_from_state(
-        &self,
-        rule: &BehaviorRule,
-        state: &ProcessBehaviorState,
-        msg: Option<&IOMessage>,
-    ) -> (bool, f32) {
-        let mut satisfied_stages = 0;
-
-        for stage in &rule.stages {
-            let mut stage_satisfied_count = 0;
-            let mut stage_total_conditions = 0;
-
-            for condition in &stage.conditions {
-                stage_total_conditions += 1;
-                let condition_matched = self.evaluate_rule_condition(condition, state, msg);
-
-                if condition_matched {
-                    stage_satisfied_count += 1;
-                }
-            }
-
-            if stage_total_conditions > 0 && stage_satisfied_count == stage_total_conditions {
-                satisfied_stages += 1;
-            }
-        }
-
-        let total_stages = rule.stages.len() as f32;
-        let stage_confidence = if total_stages > 0.0 {
-            satisfied_stages as f32 / total_stages
-        } else {
-            0.0
-        };
-
-        let min_stages = if rule.min_stages_satisfied > 0 {
-            rule.min_stages_satisfied
-        } else if !rule.stages.is_empty() {
-            rule.stages.len()
-        } else {
-            1
-        };
-
-        let detected = satisfied_stages >= min_stages && satisfied_stages > 0;
-        (detected, stage_confidence)
-    }
-
-    /// Parse the command line of a known script interpreter and return
-    /// `(script_filename, script_full_path_normalized)`.
-    /// Returns `None` when the process is not a known interpreter or no script
-    /// argument can be identified.
     fn extract_script_from_cmdline(interpreter: &str, cmdline: &str) -> Option<(String, String)> {
         let interp = interpreter.to_lowercase();
         let interp_name = interp
@@ -8577,23 +7377,13 @@ impl BehaviorEngine {
                     continue;
                 }
 
-                let mut rich_triggered = false;
-                let mut stages_triggered = false;
-
-                if let Some(logic) = &rule.detection_logic {
-                    rich_triggered = self.evaluate_detection_condition(logic, &state, rule);
-                } else if !rule.named_conditions.is_empty() {
-                    rich_triggered = rule.named_conditions.keys().all(|cond_name| {
+                // RAW JSON ONLY: scan uses only named conditions satisfied by raw JSON patterns.
+                let raw_json_triggered = !rule.named_conditions.is_empty()
+                    && rule.named_conditions.keys().all(|cond_name| {
                         Self::rule_condition_satisfied(&state, rule, cond_name)
                     });
-                }
 
-                if !rule.stages.is_empty() {
-                    let (detected, _) = self.evaluate_stages_from_state(rule, &state, None);
-                    stages_triggered = detected;
-                }
-
-                if rich_triggered || stages_triggered {
+                if raw_json_triggered {
                     let mut prompted_deny = false;
                     let mut prompted_block = false;
                     let mut prompted_quarantine = false;
