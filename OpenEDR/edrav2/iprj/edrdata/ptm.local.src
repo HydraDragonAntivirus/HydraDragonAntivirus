@@ -231,6 +231,39 @@
 				}
 			},
 
+			// 2b) Memory-mapped read: section-backed reads count as reads
+			{
+				"eventType": "LLE_FILE_MAP_READ",
+				"rule": {
+					"saveContext": {
+						"basket": "@const.basket.ransomReadFiles",
+						"key": "@var.ransomPathKey",
+						"group": "@event.process.id",
+						"lifetime": 600000,
+						"data": { "file": "@event.file" }
+					}
+				}
+			},
+
+			// 2c) Memory-mapped write to a previously-read file:
+			//     encrypt-in-place footprint via section I/O
+			{
+				"eventType": "LLE_FILE_MAP_WRITE",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.basket.ransomReadFiles",
+						"key": "@var.ransomPathKey"
+					},
+					"saveContext": {
+						"basket": "@const.basket.ransomWriteAfterRead",
+						"key": "@var.ransomPathKey",
+						"group": "@event.process.id",
+						"lifetime": 600000,
+						"data": { "file": "@event.file" }
+					}
+				}
+			},
+
 			// 3a) Delete of a written-after-read file = original removal
 			//     after encryption -> detection
 			{

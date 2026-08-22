@@ -521,6 +521,21 @@ void EventEnricher::put(const Variant& vEventRef)
 		}, true));
 		break;
 	}
+
+	case Event::LLE_FILE_MAP_READ:
+	case Event::LLE_FILE_MAP_WRITE:
+	{
+		// Memory-mapped section I/O: enrich like regular file events so
+		// policies can correlate mapped reads/writes via uniquePath.
+		Dictionary vParams = vEvent.get("file");
+		vParams.put("security", vToken);
+		vEvent.put("file", variant::createLambdaProxy([vParams]() -> Variant
+		{
+			auto pFileInformation = queryInterface<sys::win::IFileInformation>(queryService("fileDataProvider"));
+			return pFileInformation->getFileInfo(vParams);
+		}, true));
+		break;
+	}
 	case Event::LLE_REGISTRY_KEY_CREATE:
 	case Event::LLE_REGISTRY_KEY_NAME_CHANGE:
 	case Event::LLE_REGISTRY_KEY_DELETE:

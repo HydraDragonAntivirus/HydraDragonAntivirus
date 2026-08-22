@@ -74,7 +74,6 @@
     <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\WinDivert\WinDivert.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\WinDivert\WinDivert64.sys&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
-    <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\rules\&quot;" />
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\firewall-rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\&quot;" />
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\models&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\models\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\MBRFilter\x64\Win8Release')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\..\MBRFilter\x64\Win8Release\MBRFilter.*&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
