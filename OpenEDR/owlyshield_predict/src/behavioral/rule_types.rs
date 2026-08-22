@@ -19,10 +19,47 @@ pub fn default_severity() -> u8 {
 pub fn default_true() -> bool {
     true
 }
+pub fn deserialize_string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringOrVecVisitor;
 
+    impl<'de> serde::de::Visitor<'de> for StringOrVecVisitor {
+        type Value = Vec<String>;
 
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or a list of strings")
+        }
 
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(vec![value.to_string()])
+        }
 
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(vec![value])
+        }
+
+        fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
+        where
+            S: serde::de::SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(elem) = seq.next_element()? {
+                vec.push(elem);
+            }
+            Ok(vec)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrVecVisitor)
+}
 
 pub fn expand_environment_variables(text: &str) -> String {
     if !text.contains('%') {
@@ -2064,12 +2101,17 @@ pub struct NamedConditionGroup {
     /// OpenEDR JSON line. The event stays opaque; no JSON parsing is performed.
     #[serde(
         default,
-        alias = "raw_event_patterns",
+        deserialize_with = "deserialize_string_or_vec",
+        alias = "raw_json",
         alias = "raw_json_patterns",
+        alias = "raw_event_patterns",
         alias = "raw_patterns",
         alias = "raw_pattern",
         alias = "raw_json_pattern",
-        alias = "raw_event_pattern"
+        alias = "raw_event_pattern",
+        alias = "json_patterns",
+        alias = "raw_events",
+        alias = "patterns"
     )]
     pub raw_json_patterns: Vec<String>,
 
@@ -3235,5 +3277,43 @@ named_conditions:
         let any = rule.named_conditions.get("any_ml").expect("any_ml condition");
         assert_eq!(any.ml_detected, Some(true));
         assert!(any.ml_features.is_empty());
+    }
+
+    #[test]
+    fn raw_json_patterns_deserialize_single_string_and_array_with_aliases() {
+        let yaml = r#"
+name: Generic Raw JSON Rule
+named_conditions:
+  single_string_cond:
+    raw_json: "*powershell.exe*-enc*"
+    matches: 1
+  array_patterns_cond:
+    raw_patterns:
+      - "*cmd.exe*/c*"
+      - "*certutil.exe*-urlcache*"
+    count: 2
+  env_expansion_cond:
+    patterns:
+      - "%TEMP%/*"
+    min_matches: 1
+"#;
+
+        let mut rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+        rule.finalize_rich_fields();
+
+        let single = rule.named_conditions.get("single_string_cond").unwrap();
+        assert_eq!(single.raw_json_patterns, vec!["*powershell.exe*-enc*"]);
+        assert_eq!(single.min_matches, 1);
+
+        let array = rule.named_conditions.get("array_patterns_cond").unwrap();
+        assert_eq!(
+            array.raw_json_patterns,
+            vec!["*cmd.exe*/c*", "*certutil.exe*-urlcache*"]
+        );
+        assert_eq!(array.min_matches, 2);
+
+        let env_cond = rule.named_conditions.get("env_expansion_cond").unwrap();
+        assert_eq!(env_cond.min_matches, 1);
+        assert!(!env_cond.raw_json_patterns[0].contains("%TEMP%"));
     }
 }
