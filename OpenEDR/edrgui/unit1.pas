@@ -16,7 +16,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, Menus,
-  Windows, USvcControl, UAlert, UGuiNotify, UHipPipe;
+  Windows, Registry, USvcControl, UAlert, UGuiNotify, UHipPipe;
 
 type
 
@@ -37,6 +37,7 @@ type
     PopupMenu1: TPopupMenu;
     Timer1: TTimer;
     TrayIcon1: TTrayIcon;
+    MenuPauseResume: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure MenuExitClick(Sender: TObject);
@@ -45,6 +46,7 @@ type
     procedure MenuStartClick(Sender: TObject);
     procedure MenuStopClick(Sender: TObject);
     procedure MenuUninstallClick(Sender: TObject);
+    procedure MenuPauseResumeClick(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure TrayIcon1DblClick(Sender: TObject);
   private
@@ -54,6 +56,9 @@ type
     FRestartPending: Boolean;
     FNotifier: TGuiNotifierThread;
     FHiPPipe: THipPipeListener;
+    function ReadProtectionPaused: Boolean;
+    procedure WriteProtectionPaused(APaused: Boolean);
+    procedure SetPauseCaption(APaused: Boolean);
     procedure RunCommand(ACmd: TSvcCommand);
     procedure OnCommandDone(Sender: TObject; Cmd: TSvcCommand;
       Success: Boolean; ExitCode: DWORD; const Output: string);
@@ -101,6 +106,14 @@ begin
   RefreshStatus(False);
   Timer1.Interval := 4000;
   Timer1.Enabled := True;
+
+  // Pause/Resume Protection toggle (writes HKLM\SOFTWARE\Owlyshield!
+  // PROTECTION_PAUSED; the agent picks it up within ~2 seconds).
+  MenuPauseResume := TMenuItem.Create(Self);
+  MenuPauseResume.OnClick := @MenuPauseResumeClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuStatus) + 1,
+    MenuPauseResume);
+  SetPauseCaption(ReadProtectionPaused);
 
   FNotifier := TGuiNotifierThread.Create(@OnNotifierDetections);
   FHiPPipe := THipPipeListener.Create(@OnHipMessage);
@@ -243,6 +256,14 @@ begin
     LoadStateIcon('warn');
   end;
 
+  // Reflect the protection-pause toggle on top of the service state.
+  if ReadProtectionPaused then
+  begin
+    LoadStateIcon('off');
+    TrayIcon1.Hint := TrayIcon1.Hint + LineEnding + 'Protection: PAUSED';
+  end;
+  SetPauseCaption(ReadProtectionPaused);
+
   UpdateMenuEnabled(NewState);
 end;
 
@@ -312,6 +333,96 @@ begin
   end
   else
     TAlertForm.ShowAlert('HIPS Event', AText, asInfo, 0);
+end;
+
+// ---------------------------------------------------------------------------
+// Pause / Resume Protection
+//
+// The toggle lives in HKLM\SOFTWARE\Owlyshield!PROTECTION_PAUSED ("1"/"0").
+// The agent re-reads it at most once per second; while set, only detection
+// *actions* (quarantine/kill) are suppressed — monitoring and event flow
+// keep running.
+// ---------------------------------------------------------------------------
+
+function TForm1.ReadProtectionPaused: Boolean;
+var
+  Reg: TRegistry;
+begin
+  Result := False;
+  Reg := TRegistry.Create(KEY_READ);
+  try
+    Reg.RootKey := HKEY_LOCAL_MACHINE;
+    if Reg.OpenKeyReadOnly('Software\Owlyshield') then
+    try
+      if Reg.ValueExists('PROTECTION_PAUSED') then
+        Result := Trim(Reg.ReadString('PROTECTION_PAUSED')) = '1';
+    finally
+      Reg.CloseKey;
+    end;
+  finally
+    Reg.Free;
+  end;
+end;
+
+procedure TForm1.WriteProtectionPaused(APaused: Boolean);
+var
+  Reg: TRegistry;
+begin
+  Reg := TRegistry.Create(KEY_WRITE);
+  try
+    Reg.RootKey := HKEY_LOCAL_MACHINE;
+    if not Reg.OpenKey('Software\Owlyshield', True) then
+    begin
+      TAlertForm.ShowAlert('Pause failed',
+        'Could not open HKLM\Software\Owlyshield. Run the agent as administrator.',
+        asCritical, 0);
+      Exit;
+    end;
+    try
+      if APaused then
+        Reg.WriteString('PROTECTION_PAUSED', '1')
+      else
+        Reg.WriteString('PROTECTION_PAUSED', '0');
+    finally
+      Reg.CloseKey;
+    end;
+
+    SetPauseCaption(APaused);
+    if APaused then
+    begin
+      LoadStateIcon('off');
+      TrayIcon1.Hint := 'HydraDragon EDR Agent' + LineEnding +
+        'Status: Protection PAUSED';
+      TAlertForm.ShowAlert('Protection paused',
+        'Detection and quarantine actions are suspended. Monitoring continues.',
+        asWarning, 6000);
+    end
+    else
+    begin
+      RefreshStatus(False);
+      TAlertForm.ShowAlert('Protection resumed',
+        'Detection and quarantine actions are active again.',
+        asSuccess, 5000);
+    end;
+  finally
+    Reg.Free;
+  end;
+end;
+
+procedure TForm1.SetPauseCaption(APaused: Boolean);
+begin
+  if MenuPauseResume <> nil then
+  begin
+    if APaused then
+      MenuPauseResume.Caption := 'Resume Protection'
+    else
+      MenuPauseResume.Caption := 'Pause Protection';
+  end;
+end;
+
+procedure TForm1.MenuPauseResumeClick(Sender: TObject);
+begin
+  WriteProtectionPaused(not ReadProtectionPaused);
 end;
 
 procedure TForm1.RunCommand(ACmd: TSvcCommand);

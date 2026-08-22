@@ -369,6 +369,14 @@ fn handle_mbr_threat(disk_number: i32, process_path: &str) {
         return;
     }
 
+    // Pause protection: log the alert but do not terminate anyone.
+    if crate::globals::is_protection_paused() {
+        Logging::warning(
+            "[MBR ALERT] Protection is paused - offending process NOT terminated",
+        );
+        return;
+    }
+
     for pid in find_pids_by_image_path(&target) {
         match terminate_process(pid) {
             Ok(()) => Logging::warning(&format!(

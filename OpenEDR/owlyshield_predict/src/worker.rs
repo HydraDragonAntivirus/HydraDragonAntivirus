@@ -1067,19 +1067,26 @@ pub mod worker_instance {
                     }
 
                     if let Some(det) = fast_det {
-                        precord.is_malicious = true;
-                        precord.termination_requested = true;
-                        precord.quarantine_requested = true;
+                        // Pause protection = log the detection but take no
+                        // quarantine/kill action while paused.
+                        let protection_paused = crate::globals::is_protection_paused();
+
+                        if !protection_paused {
+                            precord.is_malicious = true;
+                            precord.termination_requested = true;
+                            precord.quarantine_requested = true;
+                        }
                         precord.triggered_rule_name = Some(det.detection_name.clone());
                         precord.triggered_rule_details = Some(det.reason.clone());
                         precord.fast_detection_features = Some(det.features.clone());
 
                         Logging::warning(&format!(
-                            "[FastDetection] Process {} (PID: {}) triggered static detection '{}': {}",
+                            "[FastDetection]{} Process {} (PID: {}) triggered static detection '{}': {}",
+                            if protection_paused { " [PAUSED - logged only]" } else { "" },
                             precord.appname, iomsg.pid, det.detection_name, det.reason
                         ));
 
-                        if let Some(ref threat_handler) = self.threat_handler {
+                        if !protection_paused && let Some(ref threat_handler) = self.threat_handler {
                             let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                             let threat_info = crate::actions_on_kill::ThreatInfo {
                                 threat_type_label: "Fast Static Detection",
