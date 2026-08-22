@@ -75,6 +75,9 @@ enum class Event : uint64_t
 	LLE_FILE_MAP_READ				= 0x0000000000000034L,
 	LLE_FILE_MAP_WRITE				= 0x0000000000000035L,
 	LLE_DESKTOP_OPEN				= 0x0000000000000036L,
+	// Kernel saved a pre-image of an overwrite under ProgramData
+	// (ransomware shadow-backup shield)
+	LLE_FILE_PREIMAGE_SAVED			= 0x0000000000000037L,
 
 
 

@@ -176,17 +176,24 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 		break;
 	}
 
-	// Extract victim path (+ rename target) from the event
+	// Extract victim path (+ rename target) from the event.
+	// IMPORTANT: prefer rawPath as the correlation key - uniquePath comes
+	// from the file provider and disappears once a file is deleted, which
+	// made read-leg and delete-leg keys mismatch. Lowercased for stable
+	// comparison across volume/device spellings.
 	std::wstring wsFilePath;
 	std::wstring wsNewName;
 	try
 	{
 		Variant vFile = vEvent.get("file");
-		wsFilePath = vFile.get("uniquePath", L"");
+		wsFilePath = vFile.get("rawPath", L"");
+		if (wsFilePath.empty())
+			wsFilePath = vFile.get("uniquePath", L"");
 		if (wsFilePath.empty())
 			wsFilePath = vFile.get("abstractPath", L"");
-		if (wsFilePath.empty())
-			wsFilePath = vFile.get("rawPath", L"");
+
+		std::transform(wsFilePath.begin(), wsFilePath.end(),
+			wsFilePath.begin(), ::towlower);
 
 		if (vFile.has("renameTarget"))
 			wsNewName = vFile.get("renameTarget", L"");
@@ -226,6 +233,11 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 			readSet.insert(wsFilePath);
 			return; // pure tracking
 
+		case Event::LLE_FILE_PREIMAGE_SAVED:
+			// Kernel already saved the pre-image before allowing the
+			// overwrite; record it without requiring fTracked.
+			break;
+
 		case Event::LLE_FILE_DATA_WRITE_FULL:
 		case Event::LLE_FILE_DATA_CHANGE:
 		case Event::LLE_FILE_MAP_WRITE:
@@ -257,7 +269,17 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 
 		if (vec.size() < c_nMaxBackupsPerProcess)
 		{
-			entry.wsBackup = BackupOneFile(nPid, wsFilePath);
+			if (eEventType == Event::LLE_FILE_PREIMAGE_SAVED)
+			{
+				// Pre-image already written by the kernel; just adopt the
+				// backup path reported in the event.
+				Variant vFile = vEvent.get("file");
+				entry.wsBackup = vFile.get("backupPath", L"");
+			}
+			else
+			{
+				entry.wsBackup = BackupOneFile(nPid, wsFilePath);
+			}
 			vec.push_back(std::move(entry));
 		}
 

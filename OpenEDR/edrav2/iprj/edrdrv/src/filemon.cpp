@@ -1,4 +1,4 @@
-//
+﻿//
 // edrav2.edrdrv project
 //
 // Author: Yury Podpruzhnikov (31.01.2019)
@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include <Ntddstor.h>
+#include <ntstrsafe.h>
 
 #ifndef IOCTL_DISK_BASE
 #define IOCTL_DISK_BASE FILE_DEVICE_DISK
@@ -257,6 +258,10 @@ public:
 
 	SequenceActionInfo sequenceReadInfo;
 	SequenceActionInfo sequenceWriteInfo;
+
+	// RansomShield: set once the pre-overwrite content has been shadow-
+	// copied to ProgramData for this handle (pre-image saved at most once).
+	volatile LONG fPreImageSaved = 0;
 
 	InstanceContext* pInstanceContext = nullptr; ///< VolumeInfo
 
@@ -1611,6 +1616,200 @@ bool isReadWriteSkipping(PFLT_CALLBACK_DATA pData, StreamHandleContext* pStreamH
 //
 //
 //
+//
+// RansomShield: shadow-copy the current (pre-overwrite) content of the file
+// to %PROGRAMDATA%\HydraBackups\<pid>\ BEFORE the writer's IRP goes down.
+// Runs synchronously in preWrite, so the writing thread is held until the
+// copy completes - zero data loss even for in-place encryption.
+// The saved path is reported to usermode via OwlyPreImageSaved.
+//
+//
+// RansomShield: shadow-copy the current (pre-overwrite) content of the file
+// to %PROGRAMDATA%\HydraBackups\<pid>\ BEFORE the writer's IRP goes down.
+// Runs synchronously in preWrite, so the writing thread is held until the
+// copy completes - zero data loss even for in-place encryption.
+// The saved path is reported to usermode via OwlyPreImageSaved.
+//
+
+static NTSTATUS CreateDirNt(PCWSTR pszDir)
+{
+	UNICODE_STRING usDir;
+	OBJECT_ATTRIBUTES oa = {};
+	IO_STATUS_BLOCK ios = {};
+	HANDLE hDir = nullptr;
+
+	RtlInitUnicodeString(&usDir, pszDir);
+	InitializeObjectAttributes(&oa, &usDir,
+		OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+
+	NTSTATUS ns = ZwCreateFile(&hDir,
+		SYNCHRONIZE | FILE_LIST_DIRECTORY, &oa, &ios, nullptr,
+		FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+		FILE_OPEN_IF, FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+		nullptr, 0);
+	if (hDir != nullptr)
+		ZwClose(hDir);
+	return ns;
+}
+
+NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
+	_Inout_ StreamHandleContext* pCtx)
+{
+	NTSTATUS ns = STATUS_SUCCESS;
+	PVOID pBuffer = nullptr;
+	HANDLE hDst = nullptr;
+
+	const ULONG nPid = (ULONG)(ULONG_PTR)pCtx->nOpeningProcessId;
+
+	wchar_t szDst[512] = L"";
+	wchar_t szDstUser[512] = L"";
+	wchar_t szName[192] = L"";
+
+	__try
+	{
+		// Query current file size (cap the backup to full-activity limit)
+		FILE_STANDARD_INFORMATION stdInfo = {};
+		ns = FltQueryInformationFile(pFltObjects->Instance,
+			pFltObjects->FileObject, &stdInfo, sizeof(stdInfo),
+			FileStandardInformation);
+		if (!NT_SUCCESS(ns))
+			__leave;
+
+		uint64_t nSize = (uint64_t)stdInfo.EndOfFile.QuadPart;
+		if (nSize == 0)
+		{
+			ns = STATUS_SUCCESS; // nothing to preserve
+			pCtx->fPreImageSaved = 1; // empty file: mark as handled
+			__leave;
+		}
+		if (nSize > g_pCommonData->nMaxFullActFileSize)
+			nSize = g_pCommonData->nMaxFullActFileSize;
+
+		// Directory tree (v1: fixed ProgramData location)
+		ns = CreateDirNt(L"\\??\\C:\\ProgramData\\HydraBackups");
+		if (!NT_SUCCESS(ns))
+			__leave;
+
+		wchar_t szPidDir[96] = L"";
+		RtlStringCchPrintfW(szPidDir, RTL_NUMBER_OF(szPidDir),
+			L"\\??\\C:\\ProgramData\\HydraBackups\\%lu", nPid);
+		ns = CreateDirNt(szPidDir);
+		if (!NT_SUCCESS(ns))
+			__leave;
+
+		// Original file name (after last separator), sanitized for NT paths
+		PCWSTR pszSrc = L"unknown";
+		if (pCtx->pNameInfo != nullptr && pCtx->pNameInfo->Name.Buffer != nullptr)
+			pszSrc = pCtx->pNameInfo->Name.Buffer;
+
+		PCWSTR pszLast = pszSrc;
+		for (PCWSTR p = pszSrc; *p != L'\0'; ++p)
+			if (*p == L'\\' || *p == L'/')
+				pszLast = p + 1;
+		pszSrc = pszLast;
+
+		RtlStringCchCopyW(szName, RTL_NUMBER_OF(szName), pszSrc);
+		for (PWSTR p = szName; *p != L'\0'; ++p)
+			if (*p == L':' || *p == L'"')
+				*p = L'_';
+
+		LARGE_INTEGER nTick = {};
+		KeQueryTickCount(&nTick);
+
+		wchar_t szTick[24] = L"";
+		RtlStringCchPrintfW(szTick, RTL_NUMBER_OF(szTick), L"%08x_",
+			nTick.LowPart);
+
+		RtlStringCchPrintfW(szDst, RTL_NUMBER_OF(szDst),
+			L"%s\\%s%s", szPidDir, szTick, szName);
+		RtlStringCchPrintfW(szDstUser, RTL_NUMBER_OF(szDstUser),
+			L"C:\\ProgramData\\HydraBackups\\%lu\\%s%s", nPid, szTick, szName);
+
+		UNICODE_STRING usDst;
+		RtlInitUnicodeString(&usDst, szDst);
+		OBJECT_ATTRIBUTES oaDst = {};
+		InitializeObjectAttributes(&oaDst, &usDst,
+			OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+
+		IO_STATUS_BLOCK iosDst = {};
+		ns = ZwCreateFile(&hDst,
+			FILE_WRITE_DATA | SYNCHRONIZE, &oaDst, &iosDst, nullptr,
+			FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OVERWRITE_IF,
+			FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+			nullptr, 0);
+		if (!NT_SUCCESS(ns))
+			__leave;
+
+		constexpr ULONG c_nChunk = 256 * 1024;
+		pBuffer = ExAllocatePool2(POOL_FLAG_PAGED, c_nChunk, 'rdSB');
+		if (pBuffer == nullptr)
+		{
+			ZwClose(hDst);
+			hDst = nullptr;
+			ns = STATUS_INSUFFICIENT_RESOURCES;
+			__leave;
+		}
+
+		LARGE_INTEGER nSrcOff = {};
+		LARGE_INTEGER nDstOff = {};
+		uint64_t nTotal = 0;
+
+		while (nTotal < nSize)
+		{
+			ULONG nToRead = c_nChunk;
+			if ((uint64_t)nToRead > nSize - nTotal)
+				nToRead = (ULONG)(nSize - nTotal);
+
+			ULONG nRead = 0;
+			IO_STATUS_BLOCK iosR = {};
+
+			ns = FltReadFile(pFltObjects->Instance, pFltObjects->FileObject,
+				&nSrcOff, pBuffer, nToRead, &nRead, nullptr, nullptr);
+			if (!NT_SUCCESS(ns) || nRead == 0)
+				break;
+
+			IO_STATUS_BLOCK iosW = {};
+			ns = ZwWriteFile(hDst, nullptr, nullptr, nullptr, &iosW,
+				pBuffer, nRead, &nDstOff, nullptr);
+			if (!NT_SUCCESS(ns))
+				break;
+
+			nSrcOff.QuadPart += nRead;
+			nDstOff.QuadPart += nRead;
+			nTotal += nRead;
+		}
+
+		ZwClose(hDst);
+		hDst = nullptr;
+		ExFreePoolWithTag(pBuffer, 'rdSB');
+		pBuffer = nullptr;
+
+		LOGINFO4("RansomShield pre-image saved: pid %lu bytes %I64u -> <%ws>\r\n",
+			nPid, nTotal, szDstUser);
+
+		// Tell usermode where the pre-image lives (the original path rides
+		// on the standard FilePath field of this event).
+		UNICODE_STRING usBk;
+		RtlInitUnicodeString(&usBk, szDstUser);
+		sendFileEvent(SysmonEvent::OwlyPreImageSaved, pCtx,
+			[&usBk](auto pSerializer)
+			{
+				return write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+			});
+
+		ns = STATUS_SUCCESS;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		ns = GetExceptionCode();
+		if (pBuffer != nullptr)
+			ExFreePoolWithTag(pBuffer, 'rdSB');
+		if (hDst != nullptr)
+			ZwClose(hDst);
+	}
+	return ns;
+}
+
 FLT_PREOP_CALLBACK_STATUS FLTAPI preWrite(_Inout_ PFLT_CALLBACK_DATA pData, 
 	_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 	_Flt_CompletionContext_Outptr_ PVOID* /*pCompletionContext*/)
@@ -1631,10 +1830,37 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preWrite(_Inout_ PFLT_CALLBACK_DATA pData,
 		|| pStreamHandleContext->fSkipItem)
 	{
 		FltReleaseContext(pStreamHandleContext);
-		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+		return FLT_PREOP_SUCCESS_WITH_CALLBACK;
 	}
 
 	auto& writeParams = pData->Iopb->Parameters.Write;
+
+	bool fSyncNeeded = false;
+
+	// RansomShield pre-image: this handle fully read the file and is about
+	// to overwrite it - hold the write while the original is shadow-copied
+	// once per handle. The writer continues right after; zero data loss.
+	do
+	{
+		if (pStreamHandleContext->fPreImageSaved)
+			break;
+
+		auto& rInfo = pStreamHandleContext->sequenceReadInfo;
+		if (!rInfo.fEnabled || rInfo.nNextPos == 0)
+			break;
+
+		if (writeParams.Length == 0)
+			break;
+
+		if (rInfo.nNextPos > g_pCommonData->nMaxFullActFileSize)
+			break;
+
+		fSyncNeeded = true; // writer waits on this thread until copy done
+
+		NTSTATUS nsBk = BackupPreImage(pFltObjects, pStreamHandleContext);
+		if (NT_SUCCESS(nsBk))
+			pStreamHandleContext->fPreImageSaved = 1;
+	} while (false);
 
 	// postWrite is necessary to check operation success and emit the write event.
 	// Every write IRP must reach the engine unfiltered — the rule layer decides
@@ -1642,7 +1868,7 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preWrite(_Inout_ PFLT_CALLBACK_DATA pData,
 	// postWrite for full sequential writes or first-change detection.
 	// Sequence hashing requires a synchronous post-op (buffer stays valid);
 	// plain event emission only needs a callback on completion.
-	bool fSyncNeeded = false;
+
 
 	// process sequenced write
 	do
@@ -1803,7 +2029,7 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preRead(_Inout_ PFLT_CALLBACK_DATA pData,
 	auto& readParams = pData->Iopb->Parameters.Read;
 
 	// postRead is necessary to check operation success and emit the read event.
-	// Every read IRP must reach the engine unfiltered — the rule layer decides
+	// Every read IRP must reach the engine unfiltered â€” the rule layer decides
 	// whether the file extension/path is interesting. Random-access and partial
 	// reads (ransomware scans) previously produced no event at all because the
 	// old logic only enabled postRead for full sequential reads.

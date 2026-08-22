@@ -65,6 +65,7 @@ enum class SysmonEvent : uint16_t
 	FileRename = 0x0014,    ///< IRP_MJ_SET_INFORMATION FileRenameInformation(Ex)
 	ThreadOpen = 0x0015,    ///< ObRegisterCallbacks thread handle open
 	DesktopOpen = 0x0016,   ///< ObRegisterCallbacks desktop handle open
+	OwlyPreImageSaved = 0x0017, ///< pre-image of an overwrite saved (RansomShield)
 
 	_Max //< "last" event. for internal usage
 };
@@ -163,6 +164,7 @@ enum class EventField : variant::lbvs::FieldId
 	OwlyHookTargetPid = 125,        ///< uint32 - resolved victim PID for hook events (e.g. CreateRemoteThread)
 	FileRenameTarget = 126,         ///< str - new file name (target) of a rename operation
 	ThreadId = 127,                ///< uint32 - target thread ID (thread handle open)
+	FileBackupPath = 128,          ///< str - where the pre-image backup was saved
 };
 
 ///
@@ -298,7 +300,8 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "owlyHv.targetPid" },
 	{ "name": "owlyHookTargetPid" },
 	{ "name": "file.renameTarget" },
-	{ "name": "thread.id" }
+	{ "name": "thread.id" },
+	{ "name": "file.backupPath" }
 ]})json";
 
 //////////////////////////////////////////////////////////////////////////
