@@ -168,10 +168,10 @@
       must_be_signed: true
       signers:
         - "microsoft"
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       must_be_signed: false
       is_absolute: true
-    - pattern: "C:/Windows/System32/DriverStore/*"
+    - pattern: "%SystemRoot%/System32/DriverStore/*"
       must_be_signed: true
 
 - name: "Suspicious Kernel Driver Service Registration"
@@ -255,8 +255,8 @@
       must_be_signed: true
       signers:
         - "microsoft"
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       must_be_signed: false
       is_absolute: true
-    - pattern: "C:/Windows/System32/DriverStore/*"
+    - pattern: "%SystemRoot%/System32/DriverStore/*"
       must_be_signed: true

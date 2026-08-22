@@ -216,10 +216,10 @@
       must_be_signed: true
     - pattern: "install*.exe"
       must_be_signed: true
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       must_be_signed: false
       is_absolute: true
-    - pattern: "C:/Windows/System32/DriverStore/*"
+    - pattern: "%SystemRoot%/System32/DriverStore/*"
       must_be_signed: true
 
   false_positives:

@@ -91,47 +91,47 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/SrTasks.exe"
+    - pattern: "%SystemRoot%/System32/SrTasks.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -224,43 +224,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -330,43 +330,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -435,43 +435,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -556,43 +556,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -660,43 +660,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -781,43 +781,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -906,43 +906,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1075,54 +1075,54 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/SrTasks.exe"
+    - pattern: "%SystemRoot%/System32/SrTasks.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       must_be_signed: false
       is_absolute: true
-    - pattern: "C:/Windows/System32/drvinst.exe"
+    - pattern: "%SystemRoot%/System32/drvinst.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1196,43 +1196,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1320,43 +1320,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1426,43 +1426,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1528,43 +1528,43 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
@@ -1671,50 +1671,50 @@
     auto_revert: true
     record: true
   allowlisted_apps:
-    - pattern: "C:/Program Files/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
+    - pattern: "%ProgramFiles%/HydraDragonAntivirus/hydradragon/HydraDragonFirewall/hydradragonfirewall.exe"
       must_be_signed: false
       is_absolute: true
-    - pattern: "C:/Windows/System32/lsass.exe"
+    - pattern: "%SystemRoot%/System32/lsass.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/msiexec.exe"
+    - pattern: "%SystemRoot%/System32/msiexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/svchost.exe"
+    - pattern: "%SystemRoot%/System32/svchost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/services.exe"
+    - pattern: "%SystemRoot%/System32/services.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/servicing/TrustedInstaller.exe"
+    - pattern: "%SystemRoot%/servicing/TrustedInstaller.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/TiWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/TiWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/UUS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/UUS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/WinSxS/*/MoUsoCoreWorker.exe"
+    - pattern: "%SystemRoot%/WinSxS/*/MoUsoCoreWorker.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/poqexec.exe"
+    - pattern: "%SystemRoot%/System32/poqexec.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/wusa.exe"
+    - pattern: "%SystemRoot%/System32/wusa.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]
-    - pattern: "C:/Windows/System32/Dism/DismHost.exe"
+    - pattern: "%SystemRoot%/System32/Dism/DismHost.exe"
       must_be_signed: true
       is_absolute: true
       signers: ["*Microsoft*"]

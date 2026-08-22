@@ -24,10 +24,10 @@
     sys_file_in_temp:
       orderless: true
       file_paths:
-        - "\\Temp\\"
-        - "\\AppData\\Local\\Temp\\"
-        - "\\Windows\\Temp\\"
-        - "\\SystemRoot\\Temp\\"
+        - "%TEMP%/*"
+        - "%LOCALAPPDATA%/Temp/*"
+        - "%WINDIR%/Temp/*"
+        - "%SYSTEMROOT%/Temp/*"
       file_operations: ["create", "write"]
       file_extensions:
         - ".sys"
@@ -125,13 +125,13 @@
     sys_file_in_user_location:
       orderless: true
       file_paths:
-        - "\\AppData\\Roaming\\"
-        - "\\AppData\\Local\\"
-        - "\\Desktop\\"
-        - "\\Downloads\\"
-        - ":\\Users\\Public\\"
-        - "\\$Recycle.Bin\\"
-        - ":\\ProgramData\\"
+        - "%APPDATA%/*"
+        - "%LOCALAPPDATA%/*"
+        - "%USERPROFILE%/Desktop/*"
+        - "%USERPROFILE%/Downloads/*"
+        - "%PUBLIC%/*"
+        - "%SYSTEMDRIVE%/$Recycle.Bin/*"
+        - "%PROGRAMDATA%/*"
       file_operations: ["create", "write"]
       file_extensions:
         - ".sys"
