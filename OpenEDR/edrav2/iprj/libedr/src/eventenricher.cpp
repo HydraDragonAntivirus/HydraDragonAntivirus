@@ -119,6 +119,38 @@ namespace {
 //
 //
 //
+//
+// System areas are never backed-up/restored/flagged: services and OS
+// components rewrite their own databases/logs constantly and would
+// otherwise trip the shield (evtx, EBWebView cache, ...).
+//
+static bool IsSystemArea(const std::wstring& wsPath)
+{
+	std::wstring p = wsPath;
+	std::transform(p.begin(), p.end(), p.begin(), ::towlower);
+	std::replace(p.begin(), p.end(), L'\\', L'/');
+
+	static const wchar_t* c_pPrefixes[] =
+	{
+		L"/windows/",
+		L"/program files/",
+		L"/program files (x86)/",
+		L"/programdata/microsoft",
+	};
+	for (const wchar_t* pszPrefix : c_pPrefixes)
+	{
+		const size_t nLen = wcslen(pszPrefix);
+		if (p.size() >= nLen && p.compare(0, nLen, pszPrefix) == 0)
+			return true;
+	}
+
+	// UWP/app-container data (Edge WebView cache lives here)
+	if (p.find(L"/appdata/local/packages/") != std::wstring::npos)
+		return true;
+
+	return false;
+}
+
 void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage,
 	Event eEventType, const Variant& vEvent)
 {
@@ -131,8 +163,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 	{
 		std::scoped_lock _lock(m_mtxRansomShield);
 		m_readFiles.erase(nPid);
-		m_ransomCount.erase(nPid);
-		m_hashDedup.erase(nPid);
+		m_hitFiles.erase(nPid);
 		m_backups.erase(nPid);
 		return;
 	}
@@ -160,16 +191,21 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 		return;
 	}
 
-	if (wsFilePath.empty())
+	if (wsFilePath.empty() || IsSystemArea(wsFilePath))
 		return;
 
-	int nCount = 0;
+	// The acting process itself is an OS/service component: never flag it.
+	if (!sImage.empty() && IsSystemArea(sImage))
+		return;
+
+	bool fTracked = false;
+	bool fNewVictim = false;
 
 	{
 		std::scoped_lock _lock(m_mtxRansomShield);
 
 		auto& readSet = m_readFiles[nPid];
-		const bool fTracked = readSet.count(wsFilePath) != 0;
+		fTracked = readSet.count(wsFilePath) != 0;
 
 		switch (eEventType)
 		{
@@ -208,36 +244,29 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 
 		if (vec.size() < c_nMaxBackupsPerProcess)
 		{
-			// Content dedup: the driver already computes a sequence hash
-			// (file.rawHash). Same content is stored once per process.
-			std::wstring wsHash = vEvent.get("file").get("rawHash", L"");
-			auto& hashMap = m_hashDedup[nPid];
-			auto itHash = wsHash.empty() ? hashMap.end() : hashMap.find(wsHash);
-			if (itHash != hashMap.end())
-			{
-				entry.wsBackup = itHash->second; // reuse existing pre-image
-			}
-			else
-			{
-				entry.wsBackup = BackupOneFile(nPid, wsFilePath);
-				if (!wsHash.empty() && !entry.wsBackup.empty())
-					hashMap.emplace(wsHash, entry.wsBackup);
-			}
+			entry.wsBackup = BackupOneFile(nPid, wsFilePath);
 			vec.push_back(std::move(entry));
 		}
-		nCount = ++m_ransomCount[nPid];
+
+		// Confirmation requires three DIFFERENT victim files: same-file
+		// service churn cannot inflate the counter.
+		fNewVictim = m_hitFiles[nPid].insert(wsFilePath).second;
+	}
+
+	if (!fNewVictim)
+		return;
+
+	size_t nDistinct = 0;
+	{
+		std::scoped_lock _lock(m_mtxRansomShield);
+		nDistinct = m_hitFiles[nPid].size();
 	}
 
 	LOGLVL(Normal, FMT("RansomShield: destructive op on a previously-read file, "
-		<< "pid=" << nPid << " count=" << nCount));
+		<< "pid=" << nPid << " distinct-victims=" << nDistinct));
 
-	if (nCount >= 3)
+	if (nDistinct >= 3)
 	{
-		{
-			std::scoped_lock _lock(m_mtxRansomShield);
-			m_ransomCount[nPid] = 0;
-		}
-
 		LOGLVL(Critical, FMT("RansomShield: ransomware behavior confirmed for pid="
 			<< nPid << " - rolling back captured originals"));
 
@@ -289,14 +318,17 @@ void EventEnricher::rollbackRansomBackups(int64_t nPid)
 			return;
 		vec = it->second;
 		m_backups.erase(it);
-		m_ransomCount.erase(nPid);
+		m_hitFiles.erase(nPid);
 		m_readFiles.erase(nPid);
-		m_hashDedup.erase(nPid);
 	}
 
 	// Roll back newest-first so chained renames unwind correctly.
 	for (auto itEntry = vec.rbegin(); itEntry != vec.rend(); ++itEntry)
 	{
+		const ShadowBackupEntry& entry = *itEntry;
+
+		if (IsSystemArea(entry.wsOriginal))
+			continue; // never touch OS/browser internals during remediation
 		const ShadowBackupEntry& entry = *itEntry;
 
 		if (entry.nOp == 2 && !entry.wsNewName.empty() &&

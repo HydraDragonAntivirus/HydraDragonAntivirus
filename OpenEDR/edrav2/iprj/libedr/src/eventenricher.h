@@ -54,10 +54,9 @@ private:
 
 	std::mutex m_mtxRansomShield;
 	std::unordered_map<int64_t, std::unordered_set<std::wstring>> m_readFiles;
-	std::unordered_map<int64_t, int> m_ransomCount;
-	// Content-hash -> backup path per process: identical content is stored
-	// once even across repeated read/write lifecycles.
-	std::unordered_map<int64_t, std::unordered_map<std::wstring, std::wstring>> m_hashDedup;
+	// Distinct victim paths per process: three DIFFERENT files must be hit
+	// before confirmation (same-file service churn cannot inflate the count).
+	std::unordered_map<int64_t, std::unordered_set<std::wstring>> m_hitFiles;
 	std::unordered_map<int64_t, std::vector<ShadowBackupEntry>> m_backups;
 	void processRansomShield(int64_t nPid, const std::wstring& sImage,
 		Event eEventType, const Variant& vEvent);
