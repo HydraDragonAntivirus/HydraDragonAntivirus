@@ -1,0 +1,208 @@
+﻿- name: "HEUR:Win.Ransom.BehavesLike.FileEncryptor.gen"
+  should_trust_comodo_cloud: false
+  author: "Emirhan Ucan"
+  date: "2026-02-09"
+  status: test
+  level: critical
+  severity: 99
+  description: |
+    Detects ransomware-like encryption behavior across the full disk scope.
+    Uses bulk file modifications, encryption-oriented APIs, and extension-change activity
+    without restricting detection to user-profile folders only.
+    Correlation policy:
+    - same-file prerequisites are declared per condition in YAML
+    - rename branch requires read+write on the same file
+    - delete branch requires read on the same file
+  debug: true
+
+  named_conditions:
+    ransomware_read_activity:
+      orderless: false
+      file_operations: ["read"]
+      min_matches: 1
+
+    mass_disk_writes:
+      orderless: true
+      file_operations: ["write", "create", "setinfo", "rename"]
+      min_matches: 2
+
+    suspicious_encryption_apis:
+      orderless: true
+      apis:
+        - "advapi32.dll!CryptAcquireContextA"
+        - "bcrypt.dll!BCryptOpenAlgorithmProvider"
+        - "ncrypt.dll!NCryptEncrypt"
+        - "advapi32.dll!CryptGenKey"
+        - "bcrypt.dll!BCryptGenerateKeyPair"
+        - "ncrypt.dll!NCryptImportKey"
+        - "advapi32.dll!CryptEncrypt"
+        - "bcrypt.dll!BCryptEncrypt"
+        - "ncrypt.dll!NCryptCreatePersistedKey"
+        - "advapi32.dll!CryptHashData"
+        - "bcrypt.dll!BCryptImportKey"
+        - "ncrypt.dll!NCryptExportKey"
+        - "advapi32.dll!CryptExportKey"
+        - "bcrypt.dll!BCryptDeriveKey"
+        - "ncrypt.dll!NCryptSignHash"
+        - "advapi32.dll!CryptAcquireContextW"
+        - "bcrypt.dll!BCryptFinalizeKeyPair"
+        - "ncrypt.dll!NCryptSecretAgreement"
+        - "advapi32.dll!CryptImportKey"
+        - "bcrypt.dll!BCryptGenerateSymmetricKey"
+        - "ncrypt.dll!NCryptDeriveKey"
+        - "advapi32.dll!CryptCreateHash"
+        - "bcrypt.dll!BCryptCloseAlgorithmProvider"
+        - "ncrypt.dll!NCryptFinalizeKey"
+        - "advapi32.dll!CryptSetKeyParam"
+        - "bcrypt.dll!BCryptImportKeyPair"
+        - "advapi32.dll!CryptDeriveKey"
+        - "bcrypt.dll!BCryptExportKey"
+        - "advapi32.dll!CryptGetKeyParam"
+        - "bcrypt.dll!BCryptSetProperty"
+        - "advapi32.dll!CryptGetHashParam"
+        - "bcrypt.dll!BCryptSecretAgreement"
+        - "advapi32.dll!SystemFunction036"
+        - "ntdll.dll!RtlEncryptMemory"
+      api_threshold: 2
+
+    ransomware_write_activity:
+      orderless: true
+      file_operations: ["write"]
+      min_matches: 1
+
+    ransomware_rename_activity:
+      orderless: true
+      file_operations: ["rename"]
+      require_same_file_read: true
+      require_same_file_write: true
+      detect_extension_changes: true
+      detect_known_to_unknown_extension_change: true
+      min_matches: 1
+
+    ransomware_create_activity:
+      orderless: true
+      file_operations: ["create", "write"]
+      detect_non_whitelisted_extensions: true
+      min_matches: 1
+
+    ransomware_delete_activity:
+      orderless: true
+      file_operations: ["delete"]
+      require_same_file_read: true
+      min_matches: 1
+
+    ransomware_delete_stem_activity:
+      orderless: true
+      file_operations: ["delete"]
+      require_same_stem_created_unknown_extension: true
+      min_matches: 1
+
+  detection_logic:
+    or:
+      # Branch A: read + write + rename (ext change) + crypto APIs
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_write_activity"
+          - condition: "ransomware_rename_activity"
+          - condition: "suspicious_encryption_apis"
+
+      # Branch B: read + create (unknown ext) + delete (stem replace) + crypto APIs
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_create_activity"
+          - condition: "ransomware_delete_stem_activity"
+          - condition: "suspicious_encryption_apis"
+
+      # Branch C: mass disk writes + crypto APIs
+      - and:
+          - condition: "mass_disk_writes"
+          - condition: "suspicious_encryption_apis"
+
+      # Branch D: Pure Behavioral - read + write + rename + mass disk
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_write_activity"
+          - condition: "ransomware_rename_activity"
+          - condition: "mass_disk_writes"
+
+      # Branch E: read + delete (same file) + crypto APIs
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_delete_activity"
+          - condition: "suspicious_encryption_apis"
+
+      # Branch F: Pure Behavioral - read + create (unknown ext) + delete (stem replace)
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_create_activity"
+          - condition: "ransomware_delete_stem_activity"
+
+      # Branch G: Pure Behavioral - read + create + delete (stem replace) + mass disk
+      - and:
+          - condition: "ransomware_read_activity"
+          - condition: "ransomware_create_activity"
+          - condition: "ransomware_delete_stem_activity"
+          - condition: "mass_disk_writes"
+
+  response:
+    terminate_process: true
+    quarantine: true
+    auto_revert: true
+    record: true
+
+  allowlisted_apps:
+    - pattern: "7z.exe"
+      must_be_signed: true
+      signers:
+        - "igor pavlov"
+    - pattern: "7zg.exe"
+      must_be_signed: true
+      signers:
+        - "igor pavlov"
+    - pattern: "winrar.exe"
+      must_be_signed: true
+      signers:
+        - "rarlab"
+    - pattern: "robocopy.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "onedrive.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "msmpeng.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "mssense.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "searchindexer.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "srtasks.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "backup*.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+    - pattern: "wbengine.exe"
+      must_be_signed: true
+      signers:
+        - "microsoft"
+
+  tags:
+    - "ransomware"
+    - "file-encryption"
+    - "bulk-modification"
+    - "poc-detection"
+
+  false_positives:
+    - "Third-party backup suites (Acronis, Veeam, Macrium) - add signed binary to allowlisted_apps"
+    - "Mass file migration / conversion tools writing many files rapidly"
+    - "Encryption-at-rest agents that rename files after encrypting in-place"
