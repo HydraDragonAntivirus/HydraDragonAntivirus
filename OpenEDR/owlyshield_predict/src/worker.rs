@@ -2202,581 +2202,65 @@ pub mod worker_instance {
         }
 
         
-        fn known_hook_function_variants(function_pattern: &str) -> Vec<&'static str> {
-            let lowered = function_pattern.trim().to_ascii_lowercase();
-            let mut variants = Vec::new();
-            let mut push = |name: &'static str| {
-                if !variants.contains(&name) {
-                    variants.push(name);
-                }
-            };
-
-            if lowered.contains("setwineventhook") {
-                push("SetWinEventHook");
-                push("SetWinEventHookA");
-                push("SetWinEventHookW");
-                push("NtUserSetWinEventHook");
-            }
-            if lowered.contains("setwindowshookex") {
-                push("SetWindowsHookExA");
-                push("SetWindowsHookExW");
-                push("NtUserSetWindowsHookEx");
-            }
-            if lowered.contains("setwindowshook") {
-                push("SetWindowsHookA");
-                push("SetWindowsHookW");
-            }
-            if lowered.contains("dnsqueryex") {
-                push("DnsQueryEx");
-            }
-            if lowered.contains("dnsquery_a") {
-                push("DnsQuery_A");
-            }
-            if lowered.contains("dnsquery_w") {
-                push("DnsQuery_W");
-            }
-            if lowered.contains("dnsquery") {
-                push("DnsQuery_A");
-                push("DnsQuery_W");
-                push("DnsQuery_UTF8");
-                push("DnsQueryEx");
-            }
-            if lowered.contains("querydnsconfig") {
-                push("QueryDnsConfig");
-            }
-            if lowered.contains("getaddrinfo") {
-                push("getaddrinfo");
-                push("GetAddrInfoW");
-                push("GetAddrInfoExW");
-            }
-            if lowered.contains("createserviceex") {
-                push("CreateServiceExA");
-                push("CreateServiceExW");
-            }
-            if lowered.contains("createservice") {
-                push("CreateServiceA");
-                push("CreateServiceW");
-                push("CreateServiceExA");
-                push("CreateServiceExW");
-            }
-            if lowered.contains("changeserviceconfig2") {
-                push("ChangeServiceConfig2A");
-                push("ChangeServiceConfig2W");
-            }
-            if lowered.contains("changeserviceconfig") {
-                push("ChangeServiceConfigA");
-                push("ChangeServiceConfigW");
-                push("ChangeServiceConfig2A");
-                push("ChangeServiceConfig2W");
-            }
-            if lowered.contains("openscmanager") {
-                push("OpenSCManagerA");
-                push("OpenSCManagerW");
-            }
-            if lowered.contains("openservice") {
-                push("OpenServiceA");
-                push("OpenServiceW");
-            }
-            if lowered.contains("startservice") {
-                push("StartServiceA");
-                push("StartServiceW");
-            }
-            if lowered.contains("regcreatekeyex") {
-                push("RegCreateKeyExA");
-                push("RegCreateKeyExW");
-            }
-            if lowered.contains("regcreatekey") {
-                push("RegCreateKeyA");
-                push("RegCreateKeyW");
-                push("RegCreateKeyExA");
-                push("RegCreateKeyExW");
-            }
-            if lowered.contains("regsetkeyvalue") {
-                push("RegSetKeyValueA");
-                push("RegSetKeyValueW");
-            }
-            if lowered.contains("regsetvalueex") {
-                push("RegSetValueExA");
-                push("RegSetValueExW");
-            }
-            if lowered.contains("regsetvalue") {
-                push("RegSetValueA");
-                push("RegSetValueW");
-                push("RegSetValueExA");
-                push("RegSetValueExW");
-                push("RegSetKeyValueA");
-                push("RegSetKeyValueW");
-            }
-            if lowered.contains("ntloaddriver") {
-                push("NtLoadDriver");
-            }
-            if lowered.contains("zwloaddriver") {
-                push("ZwLoadDriver");
-            }
-            if lowered.contains("ntcreatekey") {
-                push("NtCreateKey");
-            }
-            if lowered.contains("zwcreatekey") {
-                push("ZwCreateKey");
-            }
-            if lowered.contains("ntsetvaluekey") {
-                push("NtSetValueKey");
-            }
-            if lowered.contains("zwsetvaluekey") {
-                push("ZwSetValueKey");
-            }
-            if lowered.contains("ntcreatefile") {
-                push("NtCreateFile");
-            }
-            if lowered.contains("zwcreatefile") {
-                push("ZwCreateFile");
-            }
-            if lowered.contains("ntwritefile") {
-                push("NtWriteFile");
-            }
-            if lowered.contains("zwwritefile") {
-                push("ZwWriteFile");
-            }
-            if lowered.contains("ntsetinformationfile") {
-                push("NtSetInformationFile");
-            }
-            if lowered.contains("zwsetinformationfile") {
-                push("ZwSetInformationFile");
-            }
-            if lowered.contains("ntfscontrolfile") {
-                push("NtFsControlFile");
-            }
-            if lowered.contains("zwfscontrolfile") {
-                push("ZwFsControlFile");
-            }
-            if lowered.contains("createfile") {
-                push("CreateFileA");
-                push("CreateFileW");
-            }
-            if lowered.contains("readfile") {
-                push("ReadFile");
-            }
-            if lowered.contains("writefile") {
-                push("WriteFile");
-            }
-            if lowered.contains("copyfileex") {
-                push("CopyFileExA");
-                push("CopyFileExW");
-            }
-            if lowered.contains("copyfile") {
-                push("CopyFileA");
-                push("CopyFileW");
-                push("CopyFileExA");
-                push("CopyFileExW");
-            }
-            if lowered.contains("movefileex") {
-                push("MoveFileExA");
-                push("MoveFileExW");
-            }
-            if lowered.contains("movefile") {
-                push("MoveFileA");
-                push("MoveFileW");
-                push("MoveFileExA");
-                push("MoveFileExW");
-            }
-            if lowered.contains("replacefile") {
-                push("ReplaceFileA");
-                push("ReplaceFileW");
-            }
-            if lowered.contains("deviceiocontrol") {
-                push("DeviceIoControl");
-            }
-            if lowered.contains("cocreateinstance") {
-                push("CoCreateInstance");
-                push("CoCreateInstanceEx");
-            }
-            if lowered.contains("cogetobject") {
-                push("CoGetObject");
-            }
-            if lowered.contains("cogetclassobject") {
-                push("CoGetClassObject");
-            }
-            if lowered.contains("coinitializesecurity") {
-                push("CoInitializeSecurity");
-            }
-            if lowered.contains("cosetproxyblanket") {
-                push("CoSetProxyBlanket");
-            }
-            if lowered.contains("impersonateloggedonuser") {
-                push("ImpersonateLoggedOnUser");
-            }
-            if lowered.contains("setthreadtoken") {
-                push("SetThreadToken");
-            }
-            if lowered.contains("duplicatetokenex") {
-                push("DuplicateTokenEx");
-            }
-            if lowered.contains("openthreadtoken") {
-                push("OpenThreadToken");
-            }
-            if lowered.contains("openprocesstoken") {
-                push("OpenProcessToken");
-            }
-            if lowered.contains("adjusttokenprivileges") {
-                push("AdjustTokenPrivileges");
-            }
-            if lowered.contains("impersonatenamedpipeclient") {
-                push("ImpersonateNamedPipeClient");
-            }
-            if lowered.contains("createprocesswithtokenw") {
-                push("CreateProcessWithTokenW");
-            }
-            if lowered.contains("createprocessasuserw") {
-                push("CreateProcessAsUserW");
-            }
-            if lowered.contains("ntimpersonatethread") {
-                push("NtImpersonateThread");
-            }
-            if lowered.contains("ntsetinformationthread") {
-                push("NtSetInformationThread");
-            }
-            if lowered.contains("ntwritevirtualmemory") {
-                push("NtWriteVirtualMemory");
-            }
-            if lowered.contains("zwwritevirtualmemory") {
-                push("ZwWriteVirtualMemory");
-            }
-            if lowered.contains("writeprocessmemory") {
-                push("WriteProcessMemory");
-            }
-            if lowered.contains("ntallocatevirtualmemory") {
-                push("NtAllocateVirtualMemory");
-            }
-            if lowered.contains("zwallocatevirtualmemory") {
-                push("ZwAllocateVirtualMemory");
-            }
-            if lowered.contains("virtualallocex") {
-                push("VirtualAllocEx");
-            }
-            if lowered.contains("virtualalloc") {
-                push("VirtualAlloc");
-                push("VirtualAllocEx");
-            }
-            if lowered.contains("ntprotectvirtualmemory") {
-                push("NtProtectVirtualMemory");
-            }
-            if lowered.contains("zwprotectvirtualmemory") {
-                push("ZwProtectVirtualMemory");
-            }
-            if lowered.contains("virtualprotectex") {
-                push("VirtualProtectEx");
-            }
-            if lowered.contains("virtualprotect") {
-                push("VirtualProtect");
-                push("VirtualProtectEx");
-            }
-            if lowered.contains("ntcreatethreadex") {
-                push("NtCreateThreadEx");
-            }
-            if lowered.contains("zwcreatethreadex") {
-                push("ZwCreateThreadEx");
-            }
-            if lowered.contains("createremotethread") {
-                push("CreateRemoteThread");
-                push("CreateRemoteThreadEx");
-            }
-            if lowered.contains("createthread") {
-                push("CreateThread");
-                push("CreateRemoteThread");
-                push("CreateRemoteThreadEx");
-                push("NtCreateThreadEx");
-            }
-            if lowered.contains("ntqueueapcthread") {
-                push("NtQueueApcThread");
-            }
-            if lowered.contains("zwqueueapcthread") {
-                push("ZwQueueApcThread");
-            }
-            if lowered.contains("queueuserapc") {
-                push("QueueUserAPC");
-            }
-            if lowered.contains("ntsetcontextthread") {
-                push("NtSetContextThread");
-            }
-            if lowered.contains("zwsetcontextthread") {
-                push("ZwSetContextThread");
-            }
-            if lowered.contains("setthreadcontext") {
-                push("SetThreadContext");
-            }
-            if lowered.contains("ntcreatesection") {
-                push("NtCreateSection");
-            }
-            if lowered.contains("zwcreatesection") {
-                push("ZwCreateSection");
-            }
-            if lowered.contains("ntmapviewofsection") {
-                push("NtMapViewOfSection");
-            }
-            if lowered.contains("zwmapviewofsection") {
-                push("ZwMapViewOfSection");
-            }
-            if lowered.contains("mapviewoffile") {
-                push("MapViewOfFile");
-                push("MapViewOfFileEx");
-            }
-            if lowered.contains("ntopenprocess") {
-                push("NtOpenProcess");
-            }
-            if lowered.contains("zwopenprocess") {
-                push("ZwOpenProcess");
-            }
-            if lowered == "openprocess" || lowered.ends_with("!openprocess") {
-                push("OpenProcess");
-            }
-
-            variants
-        }
-
-        
-        fn expand_dynamic_hook_api_target(api_spec: &str) -> Vec<String> {
+        /// Normalize an API target without knowing any specific API names.
+        /// Supported forms:
+        ///   module!function
+        ///   module+rva
+        ///   function            -> *!function
+        /// The monitor-all mode uses *!* and therefore requires no hardcoded API list.
+        fn normalize_dynamic_hook_api_target(api_spec: &str) -> Option<String> {
             let trimmed = api_spec.trim();
             if trimmed.is_empty() {
-                return Vec::new();
+                return None;
             }
-
-            let mut expanded = Vec::new();
-            let mut seen_lower = HashSet::new();
 
             if let Some((module_raw, offset_raw)) = Self::split_module_rva_target(trimmed) {
                 let module = Self::normalize_hook_module_name(module_raw);
-                Self::push_unique_hook_target(
-                    &mut seen_lower,
-                    &mut expanded,
-                    format!("{module}!rva:{}", offset_raw.trim()),
-                );
-                return expanded;
+                return Some(format!("{module}!rva:{}", offset_raw.trim()));
             }
 
             if let Some((module_raw, function_raw)) = trimmed.split_once('!') {
                 let module = Self::normalize_hook_module_name(module_raw);
-                let function_variants = Self::known_hook_function_variants(function_raw);
-                if function_variants.is_empty() {
-                    Self::push_unique_hook_target(
-                        &mut seen_lower,
-                        &mut expanded,
-                        format!("{module}!{}", function_raw.trim()),
-                    );
-                } else {
-                    for function in function_variants {
-                        Self::push_unique_hook_target(
-                            &mut seen_lower,
-                            &mut expanded,
-                            format!("{module}!{function}"),
-                        );
-                    }
+                let function = function_raw.trim();
+                if function.is_empty() {
+                    return None;
                 }
-                return expanded;
+                return Some(format!("{module}!{function}"));
             }
 
-            let lowered = trimmed.to_ascii_lowercase();
-            let normalized_name = trimmed.trim_matches(|c| c == '*' || c == '?').trim();
-            let mut add_many = |module: &str, functions: &[&str]| {
-                let normalized_module = Self::normalize_hook_module_name(module);
-                for function in functions {
-                    Self::push_unique_hook_target(
-                        &mut seen_lower,
-                        &mut expanded,
-                        format!("{normalized_module}!{function}"),
-                    );
-                }
-            };
-
-            match lowered.as_str() {
-                value if value.contains("setwineventhook") => {
-                    add_many(
-                        "user32.dll",
-                        &["SetWinEventHook", "SetWinEventHookA", "SetWinEventHookW"],
-                    );
-                    add_many("win32u.dll", &["NtUserSetWinEventHook"]);
-                }
-                value if value.contains("setwindowshookex") => {
-                    add_many("user32.dll", &["SetWindowsHookExA", "SetWindowsHookExW"]);
-                    add_many("win32u.dll", &["NtUserSetWindowsHookEx"]);
-                }
-                value if value.contains("setwindowshook") => {
-                    add_many(
-                        "user32.dll",
-                        &[
-                            "SetWindowsHookA",
-                            "SetWindowsHookW",
-                            "SetWindowsHookExA",
-                            "SetWindowsHookExW",
-                        ],
-                    );
-                }
-                value if value.contains("dnsquery") => {
-                    add_many(
-                        "dnsapi.dll",
-                        &["DnsQuery_A", "DnsQuery_W", "DnsQuery_UTF8", "DnsQueryEx"],
-                    );
-                }
-                value if value.contains("querydnsconfig") => {
-                    add_many("dnsapi.dll", &["QueryDnsConfig"]);
-                }
-                value if value.contains("getaddrinfo") => {
-                    add_many(
-                        "ws2_32.dll",
-                        &["getaddrinfo", "GetAddrInfoW", "GetAddrInfoExW"],
-                    );
-                }
-                value
-                    if value.contains("createservice")
-                        || value.contains("changeserviceconfig")
-                        || value.contains("openscmanager")
-                        || value.contains("openservice")
-                        || value.contains("startservice")
-                        || value.contains("regcreatekey")
-                        || value.contains("regsetvalue")
-                        || value.contains("regsetkeyvalue")
-                        || value.contains("impersonateloggedonuser")
-                        || value.contains("setthreadtoken")
-                        || value.contains("duplicatetokenex")
-                        || value.contains("openthreadtoken")
-                        || value.contains("openprocesstoken")
-                        || value.contains("adjusttokenprivileges")
-                        || value.contains("impersonatenamedpipeclient")
-                        || value.contains("createprocesswithtokenw")
-                        || value.contains("createprocessasuserw") =>
-                {
-                    let variants = Self::known_hook_function_variants(trimmed);
-                    if variants.is_empty() {
-                        if !normalized_name.is_empty() {
-                            add_many("advapi32.dll", &[normalized_name]);
-                        }
-                    } else {
-                        add_many("advapi32.dll", &variants);
-                    }
-                }
-                value if value.contains("nt") || value.contains("zw") => {
-                    let variants = Self::known_hook_function_variants(trimmed);
-                    if variants.is_empty() {
-                        if !normalized_name.is_empty() {
-                            add_many("ntdll.dll", &[normalized_name]);
-                        }
-                    } else {
-                        add_many("ntdll.dll", &variants);
-                    }
-                }
-                value
-                    if value.contains("cocreateinstance")
-                        || value.contains("cogetobject")
-                        || value.contains("cogetclassobject")
-                        || value.contains("coinitializesecurity")
-                        || value.contains("cosetproxyblanket") =>
-                {
-                    let variants = Self::known_hook_function_variants(trimmed);
-                    if variants.is_empty() {
-                        if !normalized_name.is_empty() {
-                            add_many("ole32.dll", &[normalized_name]);
-                        }
-                    } else {
-                        add_many("ole32.dll", &variants);
-                    }
-                }
-                value
-                    if value.contains("createfile")
-                        || value.contains("readfile")
-                        || value.contains("writefile")
-                        || value.contains("copyfile")
-                        || value.contains("movefile")
-                        || value.contains("replacefile")
-                        || value.contains("deviceiocontrol") =>
-                {
-                    let variants = Self::known_hook_function_variants(trimmed);
-                    if variants.is_empty() {
-                        if !normalized_name.is_empty() {
-                            add_many("kernel32.dll", &[normalized_name]);
-                            add_many("kernelbase.dll", &[normalized_name]);
-                        }
-                    } else {
-                        add_many("kernel32.dll", &variants);
-                        add_many("kernelbase.dll", &variants);
-                    }
-                }
-                _ => {
-                    let variants = Self::known_hook_function_variants(trimmed);
-                    if !variants.is_empty() {
-                        for function in variants {
-                            let function_lower = function.to_ascii_lowercase();
-                            if function_lower.starts_with("ntuser") {
-                                add_many("win32u.dll", &[function]);
-                            } else if function_lower.starts_with("nt")
-                                || function_lower.starts_with("zw")
-                            {
-                                add_many("ntdll.dll", &[function]);
-                            } else if function_lower.starts_with("co") {
-                                add_many("ole32.dll", &[function]);
-                            } else if function_lower.contains("dns") {
-                                add_many("dnsapi.dll", &[function]);
-                            } else if function_lower.contains("addrinfo") {
-                                add_many("ws2_32.dll", &[function]);
-                            } else if function_lower.contains("service")
-                                || function_lower.starts_with("reg")
-                                || function_lower.contains("token")
-                                || function_lower.contains("impersonate")
-                            {
-                                add_many("advapi32.dll", &[function]);
-                            } else if function_lower.contains("file")
-                                || function_lower.contains("deviceiocontrol")
-                                || function_lower.contains("processmemory")
-                                || function_lower.contains("virtualalloc")
-                                || function_lower.contains("virtualprotect")
-                                || function_lower.contains("createremotethread")
-                                || function_lower == "createthread"
-                                || function_lower.contains("queueuserapc")
-                                || function_lower.contains("setthreadcontext")
-                                || function_lower.contains("mapviewoffile")
-                                || function_lower == "openprocess"
-                            {
-                                add_many("kernel32.dll", &[function]);
-                                add_many("kernelbase.dll", &[function]);
-                            } else if function_lower.contains("hook") {
-                                add_many("user32.dll", &[function]);
-                            }
-                        }
-                    }
-                }
+            let function = trimmed.trim_matches(|c| c == '*' || c == '?').trim();
+            if function.is_empty() {
+                return None;
             }
 
-            if expanded.is_empty() {
-                Self::push_unique_hook_target(&mut seen_lower, &mut expanded, trimmed.to_string());
-            }
-
-            expanded
+            Some(format!("*!{function}"))
         }
 
-        
-        /// Collect APIs to monitor for a process:
-        /// By default (MONITOR_ALL_APIS = 0), ONLY APIs required by active behavioral rules are monitored.
+        /// Collect APIs to monitor for a process.
+        /// MONITOR_ALL_APIS is intentionally represented by the driver-level wildcard
+        /// (*!*) so no API/function/module names are hardcoded in user mode.
         fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
+            if self.config.monitor_all_apis() {
+                Logging::info(
+                    "[DYNAMIC HOOK] MONITOR_ALL_APIS enabled: using driver wildcard *!*; no hardcoded API list",
+                );
+                return vec!["*!*".to_string()];
+            }
+
             let mut seen_lower = HashSet::new();
             let mut merged = Vec::new();
 
-            // Collect APIs defined in loaded behavioral rules
             let mut rule_apis: Vec<String> = self
                 .behavior_engine
                 .get_all_monitored_apis()
                 .into_iter()
                 .collect();
             rule_apis.sort_unstable();
-            for api in rule_apis {
-                let trimmed = api.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                for expanded_api in Self::expand_dynamic_hook_api_target(trimmed) {
-                    Self::push_unique_hook_target(&mut seen_lower, &mut merged, expanded_api);
-                }
-            }
 
-            if self.config.monitor_all_apis() {
-                Logging::info("[DYNAMIC HOOK] MONITOR_ALL_APIS setting is enabled");
+            for api in rule_apis {
+                if let Some(normalized) = Self::normalize_dynamic_hook_api_target(&api) {
+                    Self::push_unique_hook_target(&mut seen_lower, &mut merged, normalized);
+                }
             }
 
             merged
