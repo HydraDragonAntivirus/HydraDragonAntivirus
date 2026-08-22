@@ -2001,6 +2001,43 @@ impl SdkRegistry {
         guard
     }
 
+    /// Forward a private-rule match to OpenEDR for further matching.
+    ///
+    /// Private (YARA-style) rules never alert on their own: instead of acting
+    /// locally, the match is emitted as a JSONL telemetry event so the OpenEDR
+    /// side can correlate it with its own policy matches. Public rule matches
+    /// are handled by the firewall itself and are NOT forwarded here.
+    fn send_private_match_to_openedr(rule: &SdkRule, packet: &PacketInfo) {
+        let event = serde_json::json!({
+            "type": "FIREWALL_PRIVATE_MATCH",
+            "rule": rule.name,
+            "severity": rule.severity,
+            "description": rule.description,
+            "process_id": packet.process_id,
+            "image_path": packet.image_path,
+            "protocol": format!("{:?}", packet.protocol),
+            "src_ip": packet.src_ip.to_string(),
+            "dst_ip": packet.dst_ip.to_string(),
+            "dst_port": packet.dst_port,
+            "hostname": packet.hostname,
+            "dns_query": packet.dns_query,
+            "full_url": packet.full_url,
+            "timestamp_ms": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        });
+
+        if crate::ffi::send_telemetry_line(crate::ffi::TelemetryLine::OpenedrEvent(
+            event.to_string(),
+        )) {
+            tracing::debug!(
+                "Private rule '{}' forwarded to OpenEDR for further matching",
+                rule.name
+            );
+        }
+    }
+
     /// Evaluate all rules against packet, return first matching rule
     pub fn evaluate(
         &self,
@@ -2018,6 +2055,7 @@ impl SdkRegistry {
                 if rule.private {
                     matched_private_rules.push(rule.name.clone());
                     tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
+                    Self::send_private_match_to_openedr(rule, packet);
                     continue;
                 }
 
@@ -2078,6 +2116,7 @@ impl SdkRegistry {
             if rule.matches_with_flow(packet, payload, &mut flow) && rule.private {
                 matched_private_rules.push(rule.name.clone());
                 tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
+                Self::send_private_match_to_openedr(rule, packet);
             }
         }
 
@@ -2149,6 +2188,7 @@ impl SdkRegistry {
                     if rule.private {
                         matched_private_rules.push(rule.name.clone());
                         tracing::debug!("Private rule matched (not generating alert): {}", rule.name);
+                        Self::send_private_match_to_openedr(rule, packet);
                         return None;
                     }
                     
