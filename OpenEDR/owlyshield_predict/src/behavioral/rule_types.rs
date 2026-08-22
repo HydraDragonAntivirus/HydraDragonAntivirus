@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 // =============================================================================
 // HELPER FUNCTIONS & DEFAULTS
@@ -19,76 +19,47 @@ pub fn default_severity() -> u8 {
 pub fn default_true() -> bool {
     true
 }
+pub fn deserialize_string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringOrVecVisitor;
 
+    impl<'de> serde::de::Visitor<'de> for StringOrVecVisitor {
+        type Value = Vec<String>;
 
-fn wide_ptr_len(ptr: *const u16) -> usize {
-    let mut len = 0usize;
-    unsafe {
-        while !ptr.is_null() && *ptr.add(len) != 0 {
-            len += 1;
-        }
-    }
-    len
-}
-
-
-fn get_known_folder_path(folder_id: &windows::core::GUID) -> Option<String> {
-    use std::ffi::{OsString, c_void};
-    use std::os::windows::ffi::OsStringExt;
-    use std::slice;
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::UI::Shell::{KNOWN_FOLDER_FLAG, SHGetKnownFolderPath};
-
-    unsafe {
-        let path_ptr =
-            SHGetKnownFolderPath(folder_id, KNOWN_FOLDER_FLAG(0), HANDLE::default()).ok()?;
-        if path_ptr.is_null() {
-            return None;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or a list of strings")
         }
 
-        let len = wide_ptr_len(path_ptr.0);
-        let path_slice = slice::from_raw_parts(path_ptr.0, len);
-        let path = OsString::from_wide(path_slice)
-            .to_string_lossy()
-            .into_owned();
-        CoTaskMemFree(Some(path_ptr.0 as *const c_void));
-        Some(path)
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(vec![value.to_string()])
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(vec![value])
+        }
+
+        fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
+        where
+            S: serde::de::SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(elem) = seq.next_element()? {
+                vec.push(elem);
+            }
+            Ok(vec)
+        }
     }
+
+    deserializer.deserialize_any(StringOrVecVisitor)
 }
-
-
-fn resolve_special_environment_variable(var_name: &str) -> Option<String> {
-    use windows::Win32::UI::Shell::{
-        FOLDERID_CommonStartup, FOLDERID_Desktop, FOLDERID_Downloads, FOLDERID_Startup,
-    };
-
-    static CACHE: OnceLock<HashMap<&'static str, Option<String>>> = OnceLock::new();
-
-    let cache = CACHE.get_or_init(|| {
-        let mut map = HashMap::new();
-        map.insert(
-            "KNOWNFOLDER_DESKTOP",
-            get_known_folder_path(&FOLDERID_Desktop),
-        );
-        map.insert(
-            "KNOWNFOLDER_DOWNLOADS",
-            get_known_folder_path(&FOLDERID_Downloads),
-        );
-        map.insert(
-            "KNOWNFOLDER_STARTUP",
-            get_known_folder_path(&FOLDERID_Startup),
-        );
-        map.insert(
-            "KNOWNFOLDER_COMMONSTARTUP",
-            get_known_folder_path(&FOLDERID_CommonStartup),
-        );
-        map
-    });
-
-    cache.get(var_name).cloned().flatten()
-}
-
 
 pub fn expand_environment_variables(text: &str) -> String {
     if !text.contains('%') {
@@ -99,15 +70,53 @@ pub fn expand_environment_variables(text: &str) -> String {
         Err(_) => return text.to_string(),
     };
     re.replace_all(text, |caps: &regex::Captures| {
-        let var_name = caps[1].to_uppercase();
-        if let Some(val) = std::env::var(&var_name)
-            .ok()
-            .or_else(|| resolve_special_environment_variable(&var_name))
-        {
-            val
-        } else {
-            caps[0].to_string()
+        let var_name = &caps[1];
+
+        // 1. Direct environment variable lookup (exact, uppercase, lowercase)
+        if let Ok(val) = std::env::var(var_name) {
+            return val;
         }
+        if let Ok(val) = std::env::var(var_name.to_uppercase()) {
+            return val;
+        }
+        if let Ok(val) = std::env::var(var_name.to_lowercase()) {
+            return val;
+        }
+
+        // 2. Standard fallback paths if env var is missing in current process context
+        let var_upper = var_name.to_ascii_uppercase();
+        match var_upper.as_str() {
+            "TEMP" | "TMP" => {
+                return std::env::temp_dir()
+                    .to_string_lossy()
+                    .trim_end_matches(['\\', '/'])
+                    .to_string();
+            }
+            "SYSTEMROOT" | "WINDIR" => {
+                return "C:\\Windows".to_string();
+            }
+            "SYSTEMDRIVE" => {
+                return "C:".to_string();
+            }
+            "SYSTEM32" => {
+                return "C:\\Windows\\System32".to_string();
+            }
+            "PROGRAMFILES" => {
+                return "C:\\Program Files".to_string();
+            }
+            "PROGRAMFILES(X86)" => {
+                return "C:\\Program Files (x86)".to_string();
+            }
+            "PROGRAMDATA" | "ALLUSERSPROFILE" => {
+                return "C:\\ProgramData".to_string();
+            }
+            "PUBLIC" => {
+                return "C:\\Users\\Public".to_string();
+            }
+            _ => {}
+        }
+
+        caps[0].to_string()
     })
     .to_string()
 }
@@ -1987,28 +1996,6 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub script_file_patterns: Vec<String>,
     #[serde(default)]
-    pub staging_paths: Vec<String>,
-    #[serde(default)]
-    pub browsed_paths: Vec<String>,
-    #[serde(default)]
-    pub sensitive_paths: Vec<String>,
-    #[serde(default)]
-    pub temp_writes: bool,
-    #[serde(default)]
-    pub persistence_locations: Vec<String>,
-    #[serde(default)]
-    pub autorun_keys: Vec<String>,
-    #[serde(default)]
-    pub scheduled_task_apis: Vec<String>,
-    #[serde(default)]
-    pub obfuscation_indicators: Vec<String>,
-    #[serde(default)]
-    pub anti_debug_apis: Vec<String>,
-    #[serde(default)]
-    pub anti_vm_apis: Vec<String>,
-    #[serde(default)]
-    pub requires_signed: Option<bool>,
-    #[serde(default)]
     pub is_signed: Option<bool>,
     #[serde(default)]
     pub is_valid_signed: Option<bool>,
@@ -2024,18 +2011,14 @@ pub struct NamedConditionGroup {
     pub cloud_available: Option<bool>,
     #[serde(default)]
     pub cloud_unknown: Option<bool>,
-    // Fast static ML engine conditions (fast_detect_file). `ml_detection`
-    // matches a specific detection name ("MaliciousJsScript",
-    // "MaliciousPeExecutable"); `ml_detected` matches on whether any ML
-    // detection was recorded for the process; `ml_features` matches the actual
-    // ML feature vector (feature name -> value, e.g. is_obfuscated, entropy,
-    // suspicious_score) recorded when an ML detection fired.
     #[serde(default)]
     pub ml_detection: Option<String>,
     #[serde(default)]
     pub ml_detected: Option<bool>,
     #[serde(default)]
     pub ml_features: HashMap<String, MlFeatureCondition>,
+    #[serde(default)]
+    pub requires_signed: Option<bool>,
     #[serde(default)]
     pub signature_status: Option<String>,
     #[serde(default)]
@@ -2058,13 +2041,8 @@ pub struct NamedConditionGroup {
     pub signer_pattern: Option<String>,
     #[serde(default)]
     pub signer_patterns: Vec<String>,
-    #[serde(default)]
-    pub trusted_signers: Vec<String>,
-    #[serde(default)]
-    pub untrusted_signers: Vec<String>,
 
-    // Hook/user-mode API error telemetry conditions. These match non-success
-    // operation_status values without counting them as successful API behavior.
+    // Hook/user-mode API error telemetry conditions
     #[serde(default)]
     pub hook_error_statuses: Vec<u32>,
     #[serde(default)]
@@ -2075,14 +2053,35 @@ pub struct NamedConditionGroup {
     pub hook_error_min_count: Option<usize>,
     #[serde(default)]
     pub hook_error_exclude_benign: bool,
-    #[serde(default = "default_zero")]
+    #[serde(
+        default = "default_zero",
+        alias = "matches",
+        alias = "count",
+        alias = "min_count",
+        alias = "match_count",
+        alias = "required_matches",
+        alias = "min_matches_count"
+    )]
     pub min_matches: usize,
     #[serde(default)]
     pub json_match: Option<JsonMatcher>,
 
     /// Literal/glob/regex patterns matched directly against the complete
     /// OpenEDR JSON line. The event stays opaque; no JSON parsing is performed.
-    #[serde(default, alias = "raw_event_patterns", alias = "raw_json_patterns")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_string_or_vec",
+        alias = "raw_json",
+        alias = "raw_json_patterns",
+        alias = "raw_event_patterns",
+        alias = "raw_patterns",
+        alias = "raw_pattern",
+        alias = "raw_json_pattern",
+        alias = "raw_event_pattern",
+        alias = "json_patterns",
+        alias = "raw_events",
+        alias = "patterns"
+    )]
     pub raw_json_patterns: Vec<String>,
 
     // Sanctum EDR conditions
@@ -2107,9 +2106,7 @@ pub struct NamedConditionGroup {
     #[serde(default)]
     pub rootkit_description_contains: Vec<String>,
 
-    // Self-defense telemetry from OpenEDR/Owlyshield kernel sensors. These
-    // conditions observe tamper attempts and leave blocking to rule response or
-    // user decision.
+    // Self-defense telemetry from OpenEDR/Owlyshield kernel sensors
     #[serde(default)]
     pub self_defense_attack_types: Vec<String>,
     #[serde(default)]
@@ -2138,32 +2135,6 @@ pub struct BehaviorRule {
     #[serde(default)]
     pub description: String,
     #[serde(default)]
-    pub browsed_paths: Vec<String>,
-    #[serde(default)]
-    pub accessed_paths: Vec<String>,
-    #[serde(default)]
-    pub staging_paths: Vec<String>,
-    #[serde(default = "default_zero")]
-    pub multi_access_threshold: usize,
-    #[serde(default)]
-    pub require_internet: bool,
-    #[serde(default)]
-    pub monitored_apis: Vec<String>,
-    #[serde(default)]
-    pub file_actions: Vec<String>,
-    #[serde(default)]
-    pub file_extensions: Vec<String>,
-    #[serde(default)]
-    pub suspicious_parents: Vec<String>,
-    #[serde(default)]
-    pub terminated_processes: Vec<String>,
-    #[serde(default)]
-    pub detect_self_termination: bool,
-    #[serde(default)]
-    pub entropy_threshold: f64,
-    #[serde(default)]
-    pub conditions_percentage: f32,
-    #[serde(default)]
     pub named_conditions: HashMap<String, NamedConditionGroup>,
     #[serde(default)]
     pub detection_logic: Option<DetectionCondition>,
@@ -2183,9 +2154,18 @@ pub struct BehaviorRule {
     pub stages: Vec<AttackStage>,
     #[serde(default)]
     pub mapping: Option<RuleMapping>,
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "min_stages",
+        alias = "required_stages",
+        alias = "min_stages_count",
+        alias = "stages_required"
+    )]
     pub min_stages_satisfied: usize,
-    #[serde(default = "default_severity")]
+    #[serde(
+        default = "default_severity",
+        alias = "score"
+    )]
     pub severity: u8,
     #[serde(default)]
     pub author: Option<String>,
@@ -2213,6 +2193,8 @@ pub struct BehaviorRule {
     pub proximity_log_threshold: f32,
     #[serde(default)]
     pub record_on_start: Vec<String>,
+    #[serde(default)]
+    pub entropy_threshold: f64,
     #[serde(default)]
     pub debug: bool,
     #[serde(default)]
@@ -2666,16 +2648,6 @@ impl BehaviorRule {
             }
         };
 
-        expand_vec(&mut self.browsed_paths);
-        expand_vec(&mut self.accessed_paths);
-        expand_vec(&mut self.staging_paths);
-        expand_vec(&mut self.monitored_apis);
-        expand_vec(&mut self.file_actions);
-        expand_vec(&mut self.file_extensions);
-        expand_vec(&mut self.raw_json_patterns);
-        expand_vec(&mut self.suspicious_parents);
-        expand_vec(&mut self.terminated_processes);
-
         for entry in &mut self.allowlisted_apps {
             match entry {
                 AllowlistEntry::Simple(s) => *s = expand_environment_variables(s),
@@ -2705,21 +2677,11 @@ impl BehaviorRule {
             expand_vec(&mut cond_group.file_actions);
             expand_cmd_patterns(&mut cond_group.cmdline_patterns);
             expand_vec(&mut cond_group.cmdline_keywords);
-            expand_vec(&mut cond_group.staging_paths);
-            expand_vec(&mut cond_group.browsed_paths);
-            expand_vec(&mut cond_group.sensitive_paths);
-            expand_vec(&mut cond_group.persistence_locations);
-            expand_vec(&mut cond_group.autorun_keys);
-            expand_vec(&mut cond_group.scheduled_task_apis);
-            expand_vec(&mut cond_group.obfuscation_indicators);
-            expand_vec(&mut cond_group.anti_debug_apis);
-            expand_vec(&mut cond_group.anti_vm_apis);
-            expand_vec(&mut cond_group.trusted_signers);
-            expand_vec(&mut cond_group.untrusted_signers);
             expand_vec(&mut cond_group.hook_error_api_patterns);
             expand_network_rules(&mut cond_group.network_rules);
             expand_vec(&mut cond_group.registry_value_data_patterns);
             expand_vec(&mut cond_group.dns_query_patterns);
+            expand_vec(&mut cond_group.raw_json_patterns);
             expand_vec(&mut cond_group.self_defense_attack_types);
             expand_vec(&mut cond_group.self_defense_categories);
             expand_vec(&mut cond_group.self_defense_operations);
@@ -3227,5 +3189,43 @@ named_conditions:
         let any = rule.named_conditions.get("any_ml").expect("any_ml condition");
         assert_eq!(any.ml_detected, Some(true));
         assert!(any.ml_features.is_empty());
+    }
+
+    #[test]
+    fn raw_json_patterns_deserialize_single_string_and_array_with_aliases() {
+        let yaml = r#"
+name: Generic Raw JSON Rule
+named_conditions:
+  single_string_cond:
+    raw_json: "*powershell.exe*-enc*"
+    matches: 1
+  array_patterns_cond:
+    raw_patterns:
+      - "*cmd.exe*/c*"
+      - "*certutil.exe*-urlcache*"
+    count: 2
+  env_expansion_cond:
+    patterns:
+      - "%TEMP%/*"
+    min_matches: 1
+"#;
+
+        let mut rule: BehaviorRule = serde_yaml::from_str(yaml).unwrap();
+        rule.finalize_rich_fields();
+
+        let single = rule.named_conditions.get("single_string_cond").unwrap();
+        assert_eq!(single.raw_json_patterns, vec!["*powershell.exe*-enc*"]);
+        assert_eq!(single.min_matches, 1);
+
+        let array = rule.named_conditions.get("array_patterns_cond").unwrap();
+        assert_eq!(
+            array.raw_json_patterns,
+            vec!["*cmd.exe*/c*", "*certutil.exe*-urlcache*"]
+        );
+        assert_eq!(array.min_matches, 2);
+
+        let env_cond = rule.named_conditions.get("env_expansion_cond").unwrap();
+        assert_eq!(env_cond.min_matches, 1);
+        assert!(!env_cond.raw_json_patterns[0].contains("%TEMP%"));
     }
 }
