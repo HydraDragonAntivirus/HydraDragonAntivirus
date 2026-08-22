@@ -59,7 +59,7 @@ private:
 	std::unordered_map<int64_t, std::unordered_set<std::wstring>> m_hitFiles;
 	std::unordered_map<int64_t, std::vector<ShadowBackupEntry>> m_backups;
 	void processRansomShield(int64_t nPid, const std::wstring& sImage,
-		Event eEventType, const Variant& vEvent);
+		int nImageVerdict, Event eEventType, const Variant& vEvent);
 	void rollbackRansomBackups(int64_t nPid);
 
 public:

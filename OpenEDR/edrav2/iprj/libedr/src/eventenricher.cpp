@@ -148,11 +148,16 @@ static bool IsSystemArea(const std::wstring& wsPath)
 	if (p.find(L"/appdata/local/packages/") != std::wstring::npos)
 		return true;
 
+	// Temporary directories: installers/updaters churn files here constantly
+	if (p.find(L"/temp/") != std::wstring::npos ||
+		(p.size() >= 5 && p.compare(p.size() - 5, 5, L"/temp") == 0))
+		return true;
+
 	return false;
 }
 
 void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage,
-	Event eEventType, const Variant& vEvent)
+	int nImageVerdict, Event eEventType, const Variant& vEvent)
 {
 	if (nPid <= 0)
 		return;
@@ -196,6 +201,13 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 
 	// The acting process itself is an OS/service component: never flag it.
 	if (!sImage.empty() && IsSystemArea(sImage))
+		return;
+
+	// Trust refinement (works when cloud/FLS reachable): an image with a
+	// SAFE verdict is exempt even outside the known system areas. Unknown /
+	// absent verdicts stay monitored so offline protection is unchanged.
+	// 1 = SAFE (see common.src "verdict" constants).
+	if (nImageVerdict == 1)
 		return;
 
 	bool fTracked = false;
@@ -257,16 +269,28 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 	if (!fNewVictim)
 		return;
 
+	// User-profile victims are high-value assets: two distinct files are
+	// enough for confirmation there; everything else stays at five.
+	// AppData churn (browser/APP caches) is excluded from the fast lane.
+	std::wstring wsLowerPath = wsFilePath;
+	std::transform(wsLowerPath.begin(), wsLowerPath.end(), wsLowerPath.begin(), ::towlower);
+	const bool fUserProfileVictim =
+		wsLowerPath.find(L"/users/") != std::wstring::npos &&
+		wsLowerPath.find(L"/appdata/") == std::wstring::npos;
+
 	size_t nDistinct = 0;
 	{
 		std::scoped_lock _lock(m_mtxRansomShield);
 		nDistinct = m_hitFiles[nPid].size();
 	}
 
-	LOGLVL(Normal, FMT("RansomShield: destructive op on a previously-read file, "
-		<< "pid=" << nPid << " distinct-victims=" << nDistinct));
+	const size_t nConfirmAt = fUserProfileVictim ? 2 : 5;
 
-	if (nDistinct >= 5)
+	LOGLVL(Normal, FMT("RansomShield: destructive op on a previously-read file, "
+		<< "pid=" << nPid << " distinct-victims=" << nDistinct
+		<< " confirm-at=" << nConfirmAt));
+
+	if (nDistinct >= nConfirmAt)
 	{
 		LOGLVL(Critical, FMT("RansomShield: ransomware behavior confirmed for pid="
 			<< nPid << " - rolling back captured originals"));
@@ -847,15 +871,17 @@ void EventEnricher::put(const Variant& vEventRef)
 	{
 		const int64_t nShieldPid = getByPath(vEvent, "process.pid", int64_t(0));
 		std::wstring sImage;
+		int nImageVerdict = -1; // -1/0/3 = unknown or absent -> stays monitored
 		try
 		{
 			Variant vImage = getByPath(vProcess, "imageFile");
 			sImage = vImage.get("uniquePath", L"");
+			nImageVerdict = vImage.get("verdict", -1);
 		}
 		catch (...)
 		{
 		}
-		processRansomShield(nShieldPid, sImage, eEventType, vEvent);
+		processRansomShield(nShieldPid, sImage, nImageVerdict, eEventType, vEvent);
 	}
 	catch (...)
 	{
