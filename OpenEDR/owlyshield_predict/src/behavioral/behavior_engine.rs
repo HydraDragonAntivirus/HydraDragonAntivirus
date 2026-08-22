@@ -2646,19 +2646,10 @@ fn is_rootkit_pseudo_gid(gid: u64) -> bool {
 
 #[derive(Default, Clone)]
 pub struct ProcessBehaviorState {
-    pub browsed_paths_tracker: HashMap<String, SystemTime>,
-    pub accessed_paths_tracker: HashSet<String>,
-    pub staged_files_written: HashMap<PathBuf, SystemTime>,
     pub recent_written_payloads: HashMap<String, SystemTime>,
     pub terminated_processes: HashSet<String>,
-    pub self_terminated_processes: HashSet<String>,
     pub detected_apis: HashSet<String>,
 
-    #[allow(dead_code)]
-    pub monitored_api_count: usize,
-    pub high_entropy_detected: bool,
-    pub file_action_detected: bool,
-    pub extension_match_detected: bool,
     pub parent_name: String,
     pub parent_path: PathBuf,
     pub command_line: String,
@@ -2876,7 +2867,6 @@ impl ProcessBehaviorState {
         state.parent_name = "unknown".to_string();
         state.parent_path = PathBuf::new();
         state.command_line = String::new();
-        state.self_terminated_processes = HashSet::new();
         state.terminated_processes = HashSet::new();
         state.recent_written_payloads = HashMap::new();
         state.detected_apis = HashSet::new();
@@ -4591,7 +4581,6 @@ impl BehaviorEngine {
     
     fn is_registry_condition_group(cond_group: &NamedConditionGroup) -> bool {
         !cond_group.registry_keys.is_empty()
-            || !cond_group.autorun_keys.is_empty()
             || !cond_group.registry_values.is_empty()
             || !cond_group.registry_value_data_patterns.is_empty()
     }
@@ -5276,10 +5265,6 @@ impl BehaviorEngine {
         !cond_group.file_paths.is_empty()
             || !cond_group.file_extensions.is_empty()
             || !cond_group.file_operations.is_empty()
-            || !cond_group.staging_paths.is_empty()
-            || !cond_group.browsed_paths.is_empty()
-            || !cond_group.sensitive_paths.is_empty()
-            || !cond_group.persistence_locations.is_empty()
             || cond_group.detect_extension_changes
             || cond_group.detect_non_whitelisted_extensions
             || cond_group.detect_known_to_unknown_extension_change
@@ -5348,21 +5333,13 @@ impl BehaviorEngine {
         cond_group: &NamedConditionGroup,
         candidate_path: &str,
     ) -> bool {
-        let has_path_filters = !cond_group.file_paths.is_empty()
-            || !cond_group.staging_paths.is_empty()
-            || !cond_group.browsed_paths.is_empty()
-            || !cond_group.sensitive_paths.is_empty()
-            || !cond_group.persistence_locations.is_empty();
+        let has_path_filters = !cond_group.file_paths.is_empty();
 
         if has_path_filters {
             let path_variants = build_path_variants(candidate_path, candidate_path);
             let path_ok = cond_group
                 .file_paths
                 .iter()
-                .chain(cond_group.staging_paths.iter())
-                .chain(cond_group.browsed_paths.iter())
-                .chain(cond_group.sensitive_paths.iter())
-                .chain(cond_group.persistence_locations.iter())
                 .any(|pattern| {
                     let pattern_norm = pattern.replace("\\", "/");
                     let pattern_norm_stripped = strip_drive_prefix_for_pattern(&pattern_norm);
@@ -5607,7 +5584,6 @@ impl BehaviorEngine {
                 if let Some(pattern) = cond_group
                     .registry_keys
                     .first()
-                    .or_else(|| cond_group.autorun_keys.first())
                     .or_else(|| cond_group.registry_values.first())
                 {
                     return pattern.clone();
@@ -6284,9 +6260,6 @@ impl BehaviorEngine {
                 };
                 push_group(&group.hook_error_api_patterns);
                 push_group(&group.apis);
-                push_group(&group.scheduled_task_apis);
-                push_group(&group.anti_debug_apis);
-                push_group(&group.anti_vm_apis);
             }
         }
 
@@ -6480,23 +6453,9 @@ impl BehaviorEngine {
         let mut all_apis = HashSet::new();
 
         for rule in &self.rules {
-            // 1. Rule-level monitored_apis
-            for api in &rule.monitored_apis {
-                all_apis.insert(api.clone());
-            }
-
-            // 2. Named conditions
+            // 1. Named conditions
             for cond_group in rule.named_conditions.values() {
                 for api in &cond_group.apis {
-                    all_apis.insert(api.clone());
-                }
-                for api in &cond_group.scheduled_task_apis {
-                    all_apis.insert(api.clone());
-                }
-                for api in &cond_group.anti_debug_apis {
-                    all_apis.insert(api.clone());
-                }
-                for api in &cond_group.anti_vm_apis {
                     all_apis.insert(api.clone());
                 }
             }
@@ -7746,15 +7705,9 @@ impl BehaviorEngine {
                 {
                     attacker_found = true;
                     if !victim_path.is_empty() {
-                        if is_self {
-                            attacker_state
-                                .self_terminated_processes
-                                .insert(victim_path.clone());
-                        } else {
-                            attacker_state
-                                .terminated_processes
-                                .insert(victim_path.clone());
-                        }
+                        attacker_state
+                            .terminated_processes
+                            .insert(victim_path.clone());
                     }
                 }
 
@@ -7784,68 +7737,11 @@ impl BehaviorEngine {
         }
 
         let filepath = msg.filepathstr.clone();
-        let norm_filepath = filepath.to_lowercase().replace("\\", "/");
-        let norm_filepath = norm_filepath.trim_end_matches('/');
 
         // === STEP 5: UPDATE NAMED CONDITIONS STATE ===
         self.update_named_conditions_state(precord, gid, msg, &irp_op, &filepath);
 
-        // === STEP 6: UPDATE LEGACY TRACKING ===
-        for rule in &self.rules {
-            if rule.named_conditions.is_empty() {
-                continue;
-            }
-
-            for cond_group in rule.named_conditions.values() {
-                if let Some(state) = self.process_states.get_mut(&gid) {
-                    for path_pattern in &cond_group.file_paths {
-                        let norm_pattern = path_pattern.to_lowercase().replace("\\", "/");
-                        let norm_pattern = norm_pattern.trim_end_matches('/');
-                        if norm_filepath.contains(norm_pattern) {
-                            state
-                                .browsed_paths_tracker
-                                .insert(path_pattern.clone(), SystemTime::now());
-                        }
-                    }
-
-                    for staging_pattern in &cond_group.staging_paths {
-                        let norm_pattern = staging_pattern.to_lowercase().replace("\\", "/");
-                        let norm_pattern = norm_pattern.trim_end_matches('/');
-                        let is_staging_op = matches!(
-                            irp_op,
-                            IrpMajorOp::IrpWrite | IrpMajorOp::IrpCreate | IrpMajorOp::IrpSetInfo
-                        );
-                        if norm_filepath.contains(norm_pattern) && is_staging_op {
-                            state
-                                .staged_files_written
-                                .insert(PathBuf::from(&filepath), SystemTime::now());
-                        }
-                    }
-
-                    for browsed_pattern in &cond_group.browsed_paths {
-                        let norm_pattern = browsed_pattern.to_lowercase().replace("\\", "/");
-                        let norm_pattern = norm_pattern.trim_end_matches('/');
-                        if norm_filepath.contains(norm_pattern) {
-                            state
-                                .browsed_paths_tracker
-                                .insert(browsed_pattern.clone(), SystemTime::now());
-                        }
-                    }
-
-                    for sensitive_pattern in &cond_group.sensitive_paths {
-                        let norm_pattern = sensitive_pattern.to_lowercase().replace("\\", "/");
-                        let norm_pattern = norm_pattern.trim_end_matches('/');
-                        if norm_filepath.contains(norm_pattern) {
-                            state
-                                .accessed_paths_tracker
-                                .insert(sensitive_pattern.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        // === STEP 7: EVALUATE RULES ===
+        // === STEP 6: EVALUATE RULES ===
         self.check_rules(precord, gid, msg, irp_op.clone(), config, &mut actions);
 
         // === STEP 8: HANDLE SPECIAL IRP OPERATIONS ===
@@ -8046,20 +7942,12 @@ impl BehaviorEngine {
                 .count();
                 let conjunctive_process_context = process_context_requirement_count > 1;
 
-                let has_api_conditions = !cond_group.apis.is_empty()
-                    || !cond_group.scheduled_task_apis.is_empty()
-                    || !cond_group.anti_debug_apis.is_empty()
-                    || !cond_group.anti_vm_apis.is_empty();
+                let has_api_conditions = !cond_group.apis.is_empty();
                 let api_context_has_reg_conditions = !cond_group.registry_keys.is_empty()
                     || !cond_group.registry_keys_exclude.is_empty()
-                    || !cond_group.autorun_keys.is_empty()
                     || !cond_group.registry_values.is_empty()
                     || !cond_group.registry_value_data_patterns.is_empty();
-                let api_context_has_path_filters = !cond_group.file_paths.is_empty()
-                    || !cond_group.staging_paths.is_empty()
-                    || !cond_group.browsed_paths.is_empty()
-                    || !cond_group.sensitive_paths.is_empty()
-                    || !cond_group.persistence_locations.is_empty();
+                let api_context_has_path_filters = !cond_group.file_paths.is_empty();
                 let api_context_has_extension_conditions = !cond_group.file_extensions.is_empty()
                     || cond_group.detect_extension_changes
                     || cond_group.detect_non_whitelisted_extensions
@@ -8124,15 +8012,8 @@ impl BehaviorEngine {
                 }
 
                 if has_api_conditions {
-                    let api_iter = cond_group
-                        .apis
-                        .iter()
-                        .chain(cond_group.scheduled_task_apis.iter())
-                        .chain(cond_group.anti_debug_apis.iter())
-                        .chain(cond_group.anti_vm_apis.iter());
-
                     let current_matches_any = current_event_apis.iter().any(|available| {
-                        api_iter.clone().any(|required_api| {
+                        cond_group.apis.iter().any(|required_api| {
                             Self::api_signature_matches_required(
                                 &self.regex_cache,
                                 required_api,
@@ -8150,7 +8031,9 @@ impl BehaviorEngine {
                     // API set on every single hook event.
                     let matched_apis: Vec<&String> = if current_matches_any {
                         if cond_group.api_threshold.max(1) <= 1 {
-                            api_iter
+                            cond_group
+                                .apis
+                                .iter()
                                 .filter(|required_api| {
                                     current_event_apis.iter().any(|available| {
                                         Self::api_signature_matches_required(
@@ -8163,7 +8046,9 @@ impl BehaviorEngine {
                                 })
                                 .collect()
                         } else {
-                            api_iter
+                            cond_group
+                                .apis
+                                .iter()
                                 .filter(|required_api| {
                                     available_apis.iter().any(|available| {
                                         Self::api_signature_matches_required(
@@ -8554,11 +8439,7 @@ impl BehaviorEngine {
                     })
                 };
 
-                let has_path_filters = !cond_group.file_paths.is_empty()
-                    || !cond_group.staging_paths.is_empty()
-                    || !cond_group.browsed_paths.is_empty()
-                    || !cond_group.sensitive_paths.is_empty()
-                    || !cond_group.persistence_locations.is_empty();
+                let has_path_filters = !cond_group.file_paths.is_empty();
 
                 let has_extension_conditions = !cond_group.file_extensions.is_empty()
                     || cond_group.detect_extension_changes
@@ -8695,15 +8576,9 @@ impl BehaviorEngine {
                         && target_matches_process_image(&state.exe_path, filepath, &msg.filepathstr))
                 {
                     let path_variants = build_path_variants(filepath, &msg.filepathstr);
-                    let mut path_iter = cond_group
+                    let matched_path: Option<String> = cond_group
                         .file_paths
                         .iter()
-                        .chain(cond_group.staging_paths.iter())
-                        .chain(cond_group.browsed_paths.iter())
-                        .chain(cond_group.sensitive_paths.iter())
-                        .chain(cond_group.persistence_locations.iter());
-
-                    let matched_path: Option<String> = path_iter
                         .find(|p| {
                             let p_norm = p.replace("\\", "/");
                             let p_norm_stripped = strip_drive_prefix_for_pattern(&p_norm);
@@ -8774,10 +8649,6 @@ impl BehaviorEngine {
                         cond_group
                             .file_paths
                             .iter()
-                            .chain(cond_group.staging_paths.iter())
-                            .chain(cond_group.browsed_paths.iter())
-                            .chain(cond_group.sensitive_paths.iter())
-                            .chain(cond_group.persistence_locations.iter())
                             .any(|p| {
                                 let p_norm = p.replace("\\", "/");
                                 let p_norm_stripped = strip_drive_prefix_for_pattern(&p_norm);
@@ -8953,7 +8824,6 @@ impl BehaviorEngine {
 
                 let has_reg_conditions = !cond_group.registry_keys.is_empty()
                     || !cond_group.registry_keys_exclude.is_empty()
-                    || !cond_group.autorun_keys.is_empty()
                     || !cond_group.registry_values.is_empty()
                     || !cond_group.registry_value_data_patterns.is_empty();
 
@@ -8974,15 +8844,12 @@ impl BehaviorEngine {
                             ));
                         }
                     } else {
-                        let key_ok = if cond_group.registry_keys.is_empty()
-                            && cond_group.autorun_keys.is_empty()
-                        {
+                        let key_ok = if cond_group.registry_keys.is_empty() {
                             true
                         } else {
                             cond_group
                                 .registry_keys
                                 .iter()
-                                .chain(cond_group.autorun_keys.iter())
                                 .any(|pattern| {
                                     Self::registry_pattern_matches(
                                         &self.regex_cache,
@@ -9776,42 +9643,6 @@ impl BehaviorEngine {
                     }
                 }
 
-                if !matched && state.signature_checked {
-                    let signer = state.signer_name.as_deref().unwrap_or("");
-                    if !signer.is_empty()
-                        && !cond_group.trusted_signers.is_empty()
-                        && state.has_valid_signature
-                    {
-                        if cond_group.trusted_signers.iter().any(|pattern| {
-                            Self::matches_pattern_internal(&self.regex_cache, pattern, signer)
-                        }) {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Trusted signer match for PID {}: {}",
-                                cond_name, state.pid, signer
-                            ));
-                        }
-                    }
-                }
-
-                if !matched && state.signature_checked {
-                    let signer = state.signer_name.as_deref().unwrap_or("");
-                    if !signer.is_empty()
-                        && !cond_group.untrusted_signers.is_empty()
-                        && !state.has_valid_signature
-                    {
-                        if cond_group.untrusted_signers.iter().any(|pattern| {
-                            Self::matches_pattern_internal(&self.regex_cache, pattern, signer)
-                        }) {
-                            matched = true;
-                            Logging::info(&format!(
-                                "[BehaviorEngine] Condition '{}' - Untrusted signer match for PID {}: {}",
-                                cond_name, state.pid, signer
-                            ));
-                        }
-                    }
-                }
-
                 if matched {
                     let scoped_name = Self::scoped_condition_name(rule, cond_name);
                     // Every matched event is counted as an independent match.
@@ -10168,15 +9999,6 @@ impl BehaviorEngine {
                 if !state_ref.detected_apis.is_empty() {
                     alert_sources.push("SuspiciousApiCall");
                 }
-                if state_ref.high_entropy_detected {
-                    alert_sources.push("HighEntropy");
-                }
-                if state_ref.file_action_detected {
-                    alert_sources.push("FileAction");
-                }
-                if state_ref.extension_match_detected {
-                    alert_sources.push("ExtensionMatch");
-                }
 
                 let has_behavioral_alerts = !alert_sources.is_empty();
 
@@ -10199,258 +10021,6 @@ impl BehaviorEngine {
                         ));
                     }
                 }
-            }
-
-            let browsed_access_count = state_ref.browsed_paths_tracker.len();
-            let has_staged_data = !state_ref.staged_files_written.is_empty();
-            let is_online = if rule.require_internet {
-                self.has_network_activity(&state_ref)
-            } else {
-                true
-            };
-            let parent_name = state_ref.parent_name.clone();
-            let is_suspicious_parent = if !rule.suspicious_parents.is_empty() {
-                let parent_lc = parent_name.to_lowercase();
-                if parent_lc.is_empty() || parent_lc == "unknown" {
-                    false
-                } else {
-                    rule.suspicious_parents
-                        .iter()
-                        .any(|p| Self::matches_pattern_internal(&self.regex_cache, p, &parent_lc))
-                }
-            } else {
-                false
-            };
-            let has_sensitive_access = !state_ref.accessed_paths_tracker.is_empty();
-
-            let mut legacy_satisfied = 0;
-            let mut legacy_total = 0;
-
-            if !rule.browsed_paths.is_empty() {
-                legacy_total += 1;
-                if browsed_access_count >= rule.multi_access_threshold {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'browsed_paths' matched for PID {}: {} paths >= {}",
-                            state_ref.pid, browsed_access_count, rule.multi_access_threshold
-                        ));
-                    }
-                }
-            }
-            if !rule.staging_paths.is_empty() {
-                legacy_total += 1;
-                if has_staged_data {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'staging_paths' matched for PID {}: {} files staged",
-                            state_ref.pid,
-                            state_ref.staged_files_written.len()
-                        ));
-                    }
-                }
-            }
-            if rule.require_internet {
-                legacy_total += 1;
-                if is_online {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'require_internet' matched for PID {}: has detected network activity",
-                            state_ref.pid
-                        ));
-                    }
-                }
-            }
-            if !rule.suspicious_parents.is_empty() {
-                legacy_total += 1;
-                if is_suspicious_parent {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'suspicious_parents' matched for PID {}: parent '{}'",
-                            state_ref.pid, parent_name
-                        ));
-                    }
-                }
-            }
-            if !rule.accessed_paths.is_empty() {
-                legacy_total += 1;
-                if has_sensitive_access {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'accessed_paths' matched for PID {}: {} sensitive paths",
-                            state_ref.pid,
-                            state_ref.accessed_paths_tracker.len()
-                        ));
-                    }
-                }
-            }
-            if rule.entropy_threshold > 0.01 {
-                legacy_total += 1;
-                if state_ref.high_entropy_detected {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'entropy_threshold' matched for PID {}",
-                            state_ref.pid
-                        ));
-                    }
-                }
-            }
-            if !rule.monitored_apis.is_empty() {
-                legacy_total += 1;
-                let api_match_count = rule
-                    .monitored_apis
-                    .iter()
-                    .filter(|monitored_api| {
-                        let (monitored_norm, monitored_has_path) =
-                            Self::normalize_api_signature(monitored_api);
-                        state_ref.all_apis_called.iter().any(|tracked_api| {
-                            let (tracked_norm, tracked_has_path) =
-                                Self::normalize_api_signature(tracked_api);
-                            if monitored_has_path {
-                                tracked_has_path
-                                    && Self::matches_pattern_internal(
-                                        &self.regex_cache,
-                                        monitored_api,
-                                        tracked_api,
-                                    )
-                            } else {
-                                Self::matches_pattern_internal(
-                                    &self.regex_cache,
-                                    &monitored_norm,
-                                    &tracked_norm,
-                                )
-                            }
-                        })
-                    })
-                    .count();
-                let threshold = std::cmp::max(1, rule.multi_access_threshold);
-                if api_match_count >= threshold {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'monitored_apis' matched for PID {}: {} APIs",
-                            state_ref.pid, api_match_count
-                        ));
-                    }
-                }
-            }
-            if !rule.file_actions.is_empty() {
-                legacy_total += 1;
-                if state_ref.file_action_detected {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'file_actions' matched for PID {}",
-                            state_ref.pid
-                        ));
-                    }
-                }
-            }
-            if !rule.file_extensions.is_empty() {
-                legacy_total += 1;
-                if state_ref.extension_match_detected {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'file_extensions' matched for PID {}",
-                            state_ref.pid
-                        ));
-                    }
-                }
-            }
-            if !rule.terminated_processes.is_empty() {
-                legacy_total += 1;
-                let term_hit = rule.terminated_processes.iter().any(|rule_proc| {
-                    let ext_match = state_ref
-                        .terminated_processes
-                        .iter()
-                        .any(|v| Self::matches_pattern_internal(&self.regex_cache, rule_proc, v));
-                    let self_match = rule.detect_self_termination
-                        && state_ref.self_terminated_processes.iter().any(|v| {
-                            Self::matches_pattern_internal(&self.regex_cache, rule_proc, v)
-                        });
-                    ext_match || self_match
-                });
-                if term_hit {
-                    legacy_satisfied += 1;
-                    if rule.debug || self.rules.iter().any(|r| r.debug) {
-                        Logging::debug(&format!(
-                            "[BehaviorEngine] Condition 'terminated_processes' matched for PID {}",
-                            state_ref.pid
-                        ));
-                    }
-                }
-            }
-
-            
-            {
-                if !rule.http_request_body_patterns.is_empty() {
-                    legacy_total += 1;
-                    let matched = state_ref.http_body_entries.iter().any(|(req_body, _)| {
-                        rule.http_request_body_patterns
-                            .iter()
-                            .any(|pat| req_body.contains(pat.as_str()))
-                    });
-                    if matched {
-                        legacy_satisfied += 1;
-                        if rule.debug || self.rules.iter().any(|r| r.debug) {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Condition 'http_request_body_patterns' matched for PID {}",
-                                state_ref.pid
-                            ));
-                        }
-                    }
-                }
-                if !rule.http_response_body_patterns.is_empty() {
-                    legacy_total += 1;
-                    let matched = state_ref.http_body_entries.iter().any(|(_, resp_body)| {
-                        rule.http_response_body_patterns
-                            .iter()
-                            .any(|pat| resp_body.contains(pat.as_str()))
-                    });
-                    if matched {
-                        legacy_satisfied += 1;
-                        if rule.debug || self.rules.iter().any(|r| r.debug) {
-                            Logging::debug(&format!(
-                                "[BehaviorEngine] Condition 'http_response_body_patterns' matched for PID {}",
-                                state_ref.pid
-                            ));
-                        }
-                    }
-                }
-            }
-
-            let legacy_ratio = if legacy_total > 0 {
-                legacy_satisfied as f32 / legacy_total as f32
-            } else {
-                0.0
-            };
-            let legacy_threshold = if rule.conditions_percentage > 0.0 {
-                rule.conditions_percentage
-            } else {
-                1.0
-            };
-            let legacy_triggered = legacy_total > 0 && legacy_ratio >= legacy_threshold;
-
-            if legacy_total > 0
-                && legacy_ratio > 0.0
-                && legacy_ratio < legacy_threshold
-                && (rule.debug || self.rules.iter().any(|r| r.debug))
-            {
-                Logging::debug(&format!(
-                    "[BehaviorEngine] Partial match on rule '{}' for PID {}: {}/{} conditions met ({:.1}% < {:.1}% required)",
-                    rule.name,
-                    state_ref.pid,
-                    legacy_satisfied,
-                    legacy_total,
-                    legacy_ratio * 100.0,
-                    legacy_threshold * 100.0
-                ));
             }
 
             let mut rich_triggered = false;
@@ -10484,7 +10054,12 @@ impl BehaviorEngine {
                     }
                     rich_triggered = false;
                 }
+            } else if !rule.named_conditions.is_empty() {
+                rich_triggered = rule.named_conditions.keys().all(|cond_name| {
+                    Self::rule_condition_satisfied(&state_ref, rule, cond_name)
+                });
             }
+
             let mut stages_triggered = false;
             let mut stage_conf = 0.0;
             if !rule.stages.is_empty() {
@@ -10493,21 +10068,17 @@ impl BehaviorEngine {
                 stage_conf = conf;
             }
 
-            if legacy_triggered || rich_triggered || stages_triggered {
+            if rich_triggered || stages_triggered {
                 let trigger_type = if stages_triggered {
                     "Stage-based"
-                } else if rich_triggered {
-                    "Rich-logic"
                 } else {
-                    "Legacy"
+                    "Rich-logic"
                 };
 
                 let indicator_ratio = if stages_triggered {
                     stage_conf
-                } else if rich_triggered {
-                    1.0
                 } else {
-                    legacy_ratio
+                    1.0
                 };
 
                 let mut prompted_deny = false;
@@ -11435,17 +11006,8 @@ impl BehaviorEngine {
                 }
             }
 
-            if stage_total_conditions > 0 {
-                let stage_ratio = stage_satisfied_count as f32 / stage_total_conditions as f32;
-                let threshold = if rule.conditions_percentage > 0.0 {
-                    rule.conditions_percentage
-                } else {
-                    1.0
-                };
-
-                if stage_ratio >= threshold {
-                    satisfied_stages += 1;
-                }
+            if stage_total_conditions > 0 && stage_satisfied_count == stage_total_conditions {
+                satisfied_stages += 1;
             }
         }
 
@@ -12033,10 +11595,6 @@ impl BehaviorEngine {
         openedr_observed || self.firewall_net_pids.read().unwrap().contains(&pid)
     }
 
-    fn has_network_activity(&self, state: &ProcessBehaviorState) -> bool {
-        self.pid_has_network_activity(state.pid)
-    }
-
     /// Returns a snapshot of all rootkit findings since last clear.
     pub fn get_rootkit_findings(&self) -> &[RootkitFinding] {
         &self.rootkit_findings
@@ -12290,24 +11848,15 @@ impl BehaviorEngine {
                     continue;
                 }
 
-                let mut legacy_triggered = false;
                 let mut rich_triggered = false;
                 let mut stages_triggered = false;
 
-                if !rule.browsed_paths.is_empty()
-                    && state.browsed_paths_tracker.len() >= rule.multi_access_threshold
-                {
-                    legacy_triggered = true;
-                }
-                if !rule.staging_paths.is_empty() && !state.staged_files_written.is_empty() {
-                    legacy_triggered = true;
-                }
-                if rule.require_internet && self.has_network_activity(&state) {
-                    legacy_triggered = true;
-                }
-
                 if let Some(logic) = &rule.detection_logic {
                     rich_triggered = self.evaluate_detection_condition(logic, &state, rule);
+                } else if !rule.named_conditions.is_empty() {
+                    rich_triggered = rule.named_conditions.keys().all(|cond_name| {
+                        Self::rule_condition_satisfied(&state, rule, cond_name)
+                    });
                 }
 
                 if !rule.stages.is_empty() {
@@ -12315,7 +11864,7 @@ impl BehaviorEngine {
                     stages_triggered = detected;
                 }
 
-                if legacy_triggered || rich_triggered || stages_triggered {
+                if rich_triggered || stages_triggered {
                     let mut prompted_deny = false;
                     let mut prompted_block = false;
                     let mut prompted_quarantine = false;
