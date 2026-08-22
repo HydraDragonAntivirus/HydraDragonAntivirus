@@ -54,11 +54,11 @@
       api_threshold: 2
 
     hosts_file_write:
-      # Modifies System32\drivers\etc\hosts to block AV/sandbox domains.
-      # orderless: true — file open and write events are counted as a set.
       orderless: true
       file_paths:
-        - "System32\\drivers\\etc\\hosts"
+        - "%SYSTEM32%/drivers/etc/hosts"
+        - "%SYSTEMROOT%/System32/drivers/etc/hosts"
+        - "System32/drivers/etc/hosts"
       file_operations: ["write", "setinfo"]
       min_matches: 1
 
@@ -132,11 +132,10 @@
       min_matches: 5
 
     payload_drop:
-      # Drops destructive.exe (embedded ransomware) into %ProgramFiles%\utkudrk2\.
-      # The directory name "utkudrk2" is unique to this malware family.
-      # orderless: true — create then write are counted as a set.
       orderless: true
       file_paths:
+        - "%ProgramFiles%/utkudrk2/*"
+        - "%ProgramFiles(x86)%/utkudrk2/*"
         - "utkudrk2"
       file_operations: ["create", "write"]
       min_matches: 1

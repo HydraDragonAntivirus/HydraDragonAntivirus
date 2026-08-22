@@ -65,14 +65,12 @@
       min_matches: 1
 
     payload_drop_system_root:
-      # Writes an executable directly to the system drive root (C:\explorer.exe).
-      # Legitimate software NEVER writes executables to C:\ root.
-      # The filename masquerades as explorer.exe but is not in %SystemRoot%\System32
-      # or %SystemRoot%\ — the path starts with the drive letter and no subdirectory.
-      # orderless: true — create and write events are an unordered set.
       orderless: true
       file_paths:
-        - ":\explorer.exe"
+        - "%SystemDrive%/explorer.exe"
+        - "%SystemDrive%\\explorer.exe"
+        - ":/explorer.exe"
+        - ":\\explorer.exe"
       file_operations:
         - create
         - write

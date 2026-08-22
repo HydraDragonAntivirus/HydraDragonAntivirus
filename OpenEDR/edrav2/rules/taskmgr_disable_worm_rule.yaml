@@ -44,6 +44,9 @@
       orderless: true
     taskmgr_binary_tamper:
       file_paths:
+        - "%SYSTEM32%/taskmgr.exe"
+        - "%SYSTEMROOT%/System32/taskmgr.exe"
+        - "%SYSTEMROOT%/SysWOW64/taskmgr.exe"
         - "*windows/system32/taskmgr.exe"
         - "*windows/syswow64/taskmgr.exe"
       file_operations:
@@ -73,6 +76,10 @@
       orderless: true
     startup_persistence:
       file_paths:
+        - "%COMMONSTARTUP%/*"
+        - "%STARTUP%/*"
+        - "%APPDATA%/Microsoft/Windows/Start Menu/Programs/Startup/*"
+        - "%PROGRAMDATA%/Microsoft/Windows/Start Menu/Programs/Startup/*"
         - "*programdata/microsoft/windows/start menu/programs/startup/*"
         - "*users/*/appdata/roaming/microsoft/windows/start menu/programs/startup/*"
       file_operations:
