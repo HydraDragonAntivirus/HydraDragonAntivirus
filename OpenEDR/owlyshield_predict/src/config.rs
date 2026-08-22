@@ -55,7 +55,6 @@ pub enum Param {
     MinimalScanTimeoutMs,
     DeepScanTimeoutMs,
     LateChildScanGraceMs,
-    MonitorAllApis,
     AlwaysAutoRevert,
     Unknown,
 }
@@ -94,7 +93,6 @@ impl Param {
             Param::MinimalScanTimeoutMs => "MINIMAL_SCAN_TIMEOUT_MS",
             Param::DeepScanTimeoutMs => "DEEP_SCAN_TIMEOUT_MS",
             Param::LateChildScanGraceMs => "LATE_CHILD_SCAN_GRACE_MS",
-            Param::MonitorAllApis => "MONITOR_ALL_APIS",
             Param::AlwaysAutoRevert => "ALWAYS_AUTO_REVERT",
             _ => "UNKNOWN",
         }
@@ -124,7 +122,6 @@ impl Param {
             Param::MinimalScanTimeoutMs => "minimal_scan_timeout_ms",
             Param::DeepScanTimeoutMs => "deep_scan_timeout_ms",
             Param::LateChildScanGraceMs => "late_child_scan_grace_ms",
-            Param::MonitorAllApis => "monitor_all_apis",
             Param::AlwaysAutoRevert => "always_auto_revert",
             _ => "unknown",
         }
@@ -156,7 +153,6 @@ impl Param {
         params.push(Param::StaticRulesPath);
         params.push(Param::StaticRulesMode);
         params.push(Param::ReportDir);
-        params.push(Param::MonitorAllApis);
         params.push(Param::AlwaysAutoRevert);
 
         let mut ret = Vec::new();
@@ -191,7 +187,6 @@ impl Param {
             "MINIMAL_SCAN_TIMEOUT_MS" => Param::MinimalScanTimeoutMs,
             "DEEP_SCAN_TIMEOUT_MS" => Param::DeepScanTimeoutMs,
             "LATE_CHILD_SCAN_GRACE_MS" => Param::LateChildScanGraceMs,
-            "MONITOR_ALL_APIS" | "MONITOR_ALL_API" => Param::MonitorAllApis,
             "ALWAYS_AUTO_REVERT" => Param::AlwaysAutoRevert,
             _ => Param::Unknown,
         }
@@ -221,7 +216,6 @@ impl Param {
             "minimal_scan_timeout_ms" => Param::MinimalScanTimeoutMs,
             "deep_scan_timeout_ms" => Param::DeepScanTimeoutMs,
             "late_child_scan_grace_ms" => Param::LateChildScanGraceMs,
-            "monitor_all_apis" | "monitor_all_api" => Param::MonitorAllApis,
             "always_auto_revert" => Param::AlwaysAutoRevert,
             _ => Param::Unknown,
         }
@@ -336,12 +330,6 @@ impl Config {
             "late_child_scan_grace_ms",
             default_value,
         )
-    }
-
-    pub fn monitor_all_apis(&self) -> bool {
-        self.get_non_empty_param(Param::MonitorAllApis)
-            .map(|val| val.trim() == "1")
-            .unwrap_or(false)
     }
 
     pub fn always_auto_revert(&self) -> bool {
