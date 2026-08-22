@@ -4,7 +4,6 @@ extern crate num;
 extern crate num_derive;
 
 pub mod actions_on_kill;
-pub mod behavioral;
 pub mod config;
 pub mod connectors;
 pub mod extensions;
@@ -28,7 +27,6 @@ pub mod worker;
 
 // --- Re-exports ---
 
-pub use crate::behavioral::behavior_engine::BehaviorEngine;
 pub use crate::connectors::register::Connectors;
 pub use crate::logging::Logging;
 pub use crate::shared_def::IOMessage;

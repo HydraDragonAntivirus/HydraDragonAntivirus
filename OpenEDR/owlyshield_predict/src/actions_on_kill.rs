@@ -1,4 +1,4 @@
-use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
+﻿use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use std::error::Error;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
@@ -29,14 +29,14 @@ pub struct ThreatInfo<'a> {
     pub deny_access: bool,
     pub terminate: bool,
     pub quarantine: bool,
-    pub kill_and_remove: bool, // Added field to match usage in behavior_engine.rs
+    pub kill_and_remove: bool,
     pub suspend: bool,
     pub notify_user: bool,
     pub revert: bool,
     /// True while an `ask_user` rule is still waiting for the operator's answer.
     ///
-    /// The interim enforcement is still reported — `deny_while_ask` really did
-    /// deny access, so operators need to see it — but the response is labelled
+    /// The interim enforcement is still reported â€” `deny_while_ask` really did
+    /// deny access, so operators need to see it â€” but the response is labelled
     /// by what was actually enforced ("Access denied") instead of by the
     /// internal prompt state. Set explicitly rather than sniffed from
     /// `match_details`, whose wording differs per code path.
@@ -67,7 +67,7 @@ impl ThreatInfo<'_> {
         // A prompt that is still pending has enforced something concrete
         // (deny/suspend while asking), so it is reported like any other
         // response. Only firewall detections that are *purely* waiting on the
-        // user — no enforcement at all — stay silent.
+        // user â€” no enforcement at all â€” stay silent.
         if self.is_pending_user_decision() && !self.has_enforced_response() {
             return false;
         }
@@ -1077,7 +1077,7 @@ mod tests {
             threat_type_label: "Network Attack",
             virus_name: "Traffic attack rule [ET SHELLCODE] matched",
             prediction: 1.0,
-            match_details: Some("1.2.3.4:80 — Traffic attack rule matched".to_string()),
+            match_details: Some("1.2.3.4:80 â€” Traffic attack rule matched".to_string()),
             deny_access: false,
             terminate: false,
             quarantine: true,
@@ -1223,3 +1223,4 @@ mod tests {
         assert_eq!(threat_info.display_threat_type_label(), "Suspended");
     }
 }
+

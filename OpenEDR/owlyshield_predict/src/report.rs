@@ -180,14 +180,9 @@ impl SystemReport {
     }
 
     
-    pub fn collect(
-        _config: &Config,
-        firewall_pids: Option<&std::collections::HashSet<u32>>,
-        signatures_count: usize,
-        rootkit_findings: &[crate::behavioral::behavior_engine::RootkitFinding],
-    ) -> Self {
+    pub fn collect(_config: &Config) -> Self {
         let mut report = SystemReport::default();
-        report.av_status.signatures_count = signatures_count;
+        report.av_status.signatures_count = 0;
         report.timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         report.hostname = hostname::get()
             .map(|h| h.to_string_lossy().into_owned())
@@ -198,19 +193,9 @@ impl SystemReport {
             report.os_version = "Windows".to_string();
             report.collect_windows_startups();
             report.collect_hosts_file();
-            report.collect_network_listeners(firewall_pids);
+            report.collect_network_listeners(None);
             report.collect_kernel_drivers();
             report.collect_browser_extensions();
-
-            for f in rootkit_findings {
-                report.rootkit_findings.push(RootkitEntry {
-                    label: f.kind.threat_label().to_string(),
-                    description: f.description.clone(),
-                    address: f.address,
-                    pid: f.pid,
-                    severity: f.kind.severity(),
-                });
-            }
         }
 
         report.sort_sections();

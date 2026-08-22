@@ -1,4 +1,4 @@
-pub mod process_record_handling {
+﻿pub mod process_record_handling {
     use std::path::PathBuf;
 
     use windows::Win32::Foundation::CloseHandle;
@@ -75,7 +75,7 @@ pub mod process_record_handling {
 
     impl ProcessRecordIOHandler for ProcessRecordHandlerLive<'_> {
         fn handle_io(&mut self, _precord: &mut ProcessRecord) {
-            // ML prediction handled by behavior_engine in process_io()
+            // ML prediction handled by the worker in process_io() (fast static detection)
         }
     }
 
@@ -142,20 +142,6 @@ mod process_records {
 
         pub fn get_precord_by_gid(&mut self, gid: u64) -> Option<&ProcessRecord> {
             self.process_records.get(&gid)
-        }
-
-        pub fn get_precord_by_gid_or_pid(&mut self, gid: u64, pid: u32) -> Option<&ProcessRecord> {
-            if let Some((_, precord)) = self
-                .process_records
-                .iter()
-                .find(|(candidate_gid, _)| **candidate_gid == gid)
-            {
-                return Some(precord);
-            }
-
-            self.process_records
-                .iter()
-                .find_map(|(_, precord)| precord.pids.contains(&pid).then_some(precord))
         }
 
         pub fn get_precord_mut_by_gid(&mut self, gid: u64) -> Option<&mut ProcessRecord> {
@@ -249,31 +235,24 @@ mod process_records {
 pub mod worker_instance {
     use crate::ExepathLive;
     use crate::IOMessage;
-    
-    use crate::actions_on_kill::{
-        ActionReportContext, ActionsOnKill, ThreatInfo, restart_cleanup_reason,
-    };
-    
-    use crate::behavioral::app_settings::AppSettings;
-    
-    use crate::behavioral::behavior_engine::BehaviorEngine;
-    use crate::config::Config;
+
     use crate::logging::Logging;
+    use crate::config::Config;
     use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::process::ProcessRecord;
     use crate::process::ProcessState;
     use crate::shared_def::IrpMajorOp;
-    
+
     use crate::shared_def::effective_hypervisor_raw_event_type;
     use crate::threat_handler::ThreatHandler;
-    
+
     use crate::worker::process_record_handling::{
         ExePathReplay, Exepath, ProcessRecordHandlerReplay, ProcessRecordIOHandler,
     };
     use crate::worker::process_records::ProcessRecords;
-    
+
     use std::collections::HashSet;
-    
+
     use std::path::{Path, PathBuf};
 
     use sysinfo::{ProcessesToUpdate, System};
@@ -301,26 +280,22 @@ pub mod worker_instance {
         process_record_handler: Option<Box<dyn ProcessRecordIOHandler + 'a>>,
         exepath_handler: Box<dyn Exepath>,
         iomsg_postprocessors: Vec<Box<dyn IOMsgPostProcessor>>,
-        
-        pub behavior_engine: BehaviorEngine,
-        
-        pub app_settings: AppSettings,
-        
+
         dynamic_hooks_registered: bool,
-        
+
         dynamic_hook_event_map: std::collections::HashMap<u32, String>,
-        
+
         dynamic_registered_apis: HashSet<String>,
-        
+
         next_dynamic_hook_event_id: u32,
-        
+
         dynamic_hook_registration_blocked: bool,
-        
+
         dynamic_hook_last_refresh: std::collections::HashMap<u32, std::time::Instant>,
-        
+
         dynamic_hook_apply_failures: std::collections::HashMap<u32, u32>,
         pub threat_handler: Option<Box<dyn ThreatHandler>>,
-        
+
         pub driver: Option<crate::Driver>,
         pub last_report_time: Option<std::time::Instant>,
     }
@@ -330,195 +305,85 @@ pub mod worker_instance {
         pub fn generate_system_report(&mut self) {
             let config = self.config;
             let _ = &config[crate::config::Param::ConfigPath]; // Explicit read to ensure compiler sees it as used
-            let signatures_count = self.behavior_engine.rules.len();
-            let rootkit_findings = self.behavior_engine.get_rootkit_findings();
-            
-            let fw_pids = self.behavior_engine.firewall_net_pids.read().unwrap();
-            let firewall_pids = Some(&*fw_pids);
-            let mut report = crate::report::SystemReport::collect(
-                config,
-                firewall_pids,
-                signatures_count,
-                rootkit_findings,
-            );
-            
-            let fw_net_details = self.behavior_engine.firewall_net_details.read().unwrap();
+            let mut report = crate::report::SystemReport::collect(config);
 
-            // Collect process snapshots from behavior engine
-            for (gid, state) in &self.behavior_engine.process_states {
-                let mut path = state.exe_path.to_string_lossy().into_owned();
+            // Collect process snapshots from tracked process records
+            for (gid, precord) in self.process_records.process_records.iter() {
+                let pid = precord.pids.iter().next().copied().unwrap_or(0);
+                let mut path = precord.exepath.to_string_lossy().into_owned();
                 if path.is_empty() || path == "UNKNOWN" {
-                    if let Some(resolved) = crate::utils::resolve_process_path(state.pid) {
+                    if let Some(resolved) = crate::utils::resolve_process_path(pid) {
                         path = resolved.to_string_lossy().into_owned();
                     }
                 }
 
-                let fallback_directories_touched = state
-                    .irp_stats
-                    .unique_paths_accessed
-                    .iter()
-                    .filter_map(|value| {
-                        let normalized = value.replace('\\', "/");
-                        if !normalized.contains(":/") && !normalized.starts_with("//") {
-                            return None;
-                        }
-                        Path::new(value)
-                            .parent()
-                            .map(|parent| parent.to_string_lossy().into_owned())
-                    })
-                    .collect::<std::collections::BTreeSet<_>>()
-                    .len();
-
-                let fallback_files_updated = state
-                    .irp_stats
-                    .write_count
-                    .saturating_add(state.irp_stats.setinfo_count)
-                    .saturating_add(state.irp_stats.rename_count)
-                    as usize;
-
                 let mut snapshot = crate::report::ProcessSnapshot {
-                    pid: state.pid,
+                    pid,
                     gid: *gid as u32,
-                    name: state.app_name.clone(),
+                    name: precord.appname.clone(),
                     path,
                     command_line: None,
-                    process_state: "RUNNING".to_string(),
-                    total_ops: state.irp_stats.get_total_operations(),
-                    high_entropy_files: state.irp_stats.get_high_entropy_count(),
-                    driver_message_count: state.irp_stats.get_total_operations() as usize,
-                    ops_read: state.irp_stats.read_count,
-                    ops_written: state.irp_stats.write_count,
-                    ops_open: state.irp_stats.create_count,
-                    ops_setinfo: state.irp_stats.setinfo_count,
-                    bytes_read: state.irp_stats.total_bytes_read,
-                    bytes_written: state.irp_stats.total_bytes_written,
-                    files_created: state.irp_stats.create_count as usize,
-                    files_updated: fallback_files_updated,
-                    files_deleted: state.irp_stats.delete_count as usize,
-                    directories_touched: fallback_directories_touched,
-                    is_malicious: false,
+                    process_state: precord.process_state.to_string(),
+                    total_ops: precord.driver_msg_count as u64,
+                    high_entropy_files: 0,
+                    driver_message_count: precord.driver_msg_count,
+                    ops_read: precord.ops_read,
+                    ops_written: precord.ops_written,
+                    ops_open: precord.ops_open,
+                    ops_setinfo: precord.ops_setinfo,
+                    bytes_read: precord.bytes_read,
+                    bytes_written: precord.bytes_written,
+                    files_created: precord.fpaths_created.len(),
+                    files_updated: precord.fpaths_updated.len(),
+                    files_deleted: precord.files_deleted.len(),
+                    directories_touched: 0,
+                    is_malicious: precord.is_malicious,
                     detections: Vec::new(),
                     detection_details: None,
                     named_conditions: Vec::new(),
                     detected_apis: Vec::new(),
                     network_targets: Vec::new(),
-                    rootkit_implicated: state.rootkit_implicated,
-                    rootkit_findings: state
-                        .rootkit_findings
-                        .iter()
-                        .take(12)
-                        .map(|finding| {
-                            format!(
-                                "{} (addr=0x{:X}, pid={})",
-                                finding.kind.threat_label(),
-                                finding.address,
-                                finding.pid
-                            )
-                        })
-                        .collect(),
+                    rootkit_implicated: false,
+                    rootkit_findings: Vec::new(),
                     remediation_target: None,
-                    signature_summary: if state.is_signed {
-                        if state.has_valid_signature {
-                            "Signed / Trusted".to_string()
-                        } else {
-                            "Signed / Untrusted".to_string()
-                        }
-                    } else {
-                        "Unsigned or Unknown".to_string()
-                    },
+                    signature_summary: "Unsigned or Unknown".to_string(),
                     sample_created_paths: Vec::new(),
                     sample_updated_paths: Vec::new(),
-                    restart_cleanup_requested: false,
+                    restart_cleanup_requested: precord.restart_cleanup_requested,
                 };
 
-                if let Some(precord) = self
-                    .process_records
-                    .get_precord_by_gid_or_pid(*gid, state.pid)
                 {
-                    snapshot.is_malicious = precord.is_malicious;
-                    snapshot.process_state = precord.process_state.to_string();
-                    snapshot.driver_message_count = precord.driver_msg_count;
-                    snapshot.ops_read = precord.ops_read;
-                    snapshot.ops_written = precord.ops_written;
-                    snapshot.ops_open = precord.ops_open;
-                    snapshot.ops_setinfo = precord.ops_setinfo;
-                    snapshot.bytes_read = precord.bytes_read;
-                    snapshot.bytes_written = precord.bytes_written;
-                    snapshot.files_created = precord.fpaths_created.len();
-                    snapshot.files_updated = precord.fpaths_updated.len();
-                    snapshot.files_deleted = precord.files_deleted.len();
                     let mut directories_touched = std::collections::BTreeSet::new();
                     directories_touched.extend(precord.dirs_with_files_created.iter().cloned());
                     directories_touched.extend(precord.dirs_with_files_updated.iter().cloned());
                     directories_touched.extend(precord.dirs_with_files_opened.iter().cloned());
                     snapshot.directories_touched = directories_touched.len();
-                    if !precord.command_line.trim().is_empty() {
-                        snapshot.command_line = Some(precord.command_line.clone());
-                    }
-                    if let Some(ref rule) = precord.triggered_rule_name {
-                        snapshot.detections.push(rule.clone());
-                    }
-                    snapshot.detection_details = precord.triggered_rule_details.clone();
-                    snapshot.remediation_target = precord
-                        .remediation_target_path
-                        .as_ref()
-                        .map(|path| path.display().to_string());
-                    let mut sample_created_paths =
-                        precord.fpaths_created.iter().cloned().collect::<Vec<_>>();
-                    sample_created_paths.sort();
-                    sample_created_paths.truncate(6);
-                    snapshot.sample_created_paths = sample_created_paths;
-                    let mut sample_updated_paths =
-                        precord.fpaths_updated.iter().cloned().collect::<Vec<_>>();
-                    sample_updated_paths.sort();
-                    sample_updated_paths.truncate(6);
-                    snapshot.sample_updated_paths = sample_updated_paths;
-                    snapshot.restart_cleanup_requested = precord.restart_cleanup_requested;
                 }
 
-                if snapshot.command_line.is_none() && !state.command_line.trim().is_empty() {
-                    snapshot.command_line = Some(state.command_line.clone());
+                if !precord.command_line.trim().is_empty() {
+                    snapshot.command_line = Some(precord.command_line.clone());
                 }
 
-                for cond in &state.satisfied_named_conditions {
-                    snapshot.named_conditions.push(cond.clone());
-                    snapshot.detections.push(format!("Condition: {}", cond));
+                if let Some(ref rule) = precord.triggered_rule_name {
+                    snapshot.detections.push(rule.clone());
                 }
+                snapshot.detection_details = precord.triggered_rule_details.clone();
+                snapshot.remediation_target = precord
+                    .remediation_target_path
+                    .as_ref()
+                    .map(|path| path.display().to_string());
 
-                snapshot.named_conditions.sort();
-                snapshot.named_conditions.dedup();
+                let mut sample_created_paths =
+                    precord.fpaths_created.iter().cloned().collect::<Vec<_>>();
+                sample_created_paths.sort();
+                sample_created_paths.truncate(6);
+                snapshot.sample_created_paths = sample_created_paths;
 
-                snapshot.detected_apis = state.detected_apis.iter().cloned().collect();
-                snapshot.detected_apis.sort();
-                snapshot.detected_apis.dedup();
-
-                
-                if let Some(targets) = fw_net_details.get(&state.pid) {
-                    let mut network_targets = targets
-                        .iter()
-                        .map(|(ip, port)| format!("{}:{}", ip, port))
-                        .collect::<Vec<_>>();
-                    network_targets.sort();
-                    network_targets.dedup();
-                    network_targets.truncate(12);
-                    snapshot.network_targets = network_targets;
-                }
-
-                if let Some(targets) = self
-                    .behavior_engine
-                    .openedr_net_details
-                    .read()
-                    .unwrap()
-                    .get(&state.pid)
-                {
-                    let mut network_targets = snapshot.network_targets.clone();
-                    network_targets
-                        .extend(targets.iter().map(|(ip, port)| format!("{}:{}", ip, port)));
-                    network_targets.sort();
-                    network_targets.dedup();
-                    network_targets.truncate(12);
-                    snapshot.network_targets = network_targets;
-                }
+                let mut sample_updated_paths =
+                    precord.fpaths_updated.iter().cloned().collect::<Vec<_>>();
+                sample_updated_paths.sort();
+                sample_updated_paths.truncate(6);
+                snapshot.sample_updated_paths = sample_updated_paths;
 
                 snapshot.detections.sort();
                 snapshot.detections.dedup();
@@ -576,181 +441,14 @@ pub mod worker_instance {
                 && iomsg.kernel_event_info.source_process_id == 0
         }
 
-        
-        fn build_behavior_engine(config: &Config) -> BehaviorEngine {
-            
-            static OPENEDR_TELEMETRY_START: std::sync::Once = std::sync::Once::new();
-
-            let extension_source_mode = config.extension_source_mode();
-            let mut engine =
-                BehaviorEngine::new_with_extension_source_mode(extension_source_mode.as_deref());
-
-            // Load behavior rules BEFORE any clone is handed to the telemetry
-            // consumer thread, so both the worker engine and the consumer-thread
-            // clone have detection capability.
-            if let Some(rules_dir) = crate::globals::RULES_PATH.get() {
-                if let Ok(app_settings) = AppSettings::load(&rules_dir.to_path_buf()) {
-                    let rules_path = app_settings.behavior_rules_path.clone();
-                    Logging::info(&format!(
-                        "[Owlyshield] Handing rules off to BehaviorEngine from path: {:?}",
-                        rules_path
-                    ));
-                    if let Err(e) = engine.load_rules(&rules_path) {
-                        Logging::error(&format!(
-                            "Failed to load behavior rules from {:?}: {}",
-                            rules_path, e
-                        ));
-                    }
-                } else {
-                    Logging::error(&format!(
-                        "[Owlyshield] Failed to load app settings from rules/settings.yaml at {:?}",
-                        rules_dir
-                    ));
-                }
-            } else {
-                Logging::error("[Owlyshield] RULES_PATH globals not initialized; behavior rules not loaded");
-            }
-
-            OPENEDR_TELEMETRY_START.call_once({
-                let engine = engine.clone();
-                move || {
-                    Self::start_openedr_telemetry_consumer(engine);
-                }
-            });
-
-            engine
-        }
-
-        
-        pub fn start_openedr_telemetry_consumer(behavior_engine: BehaviorEngine) {
-            std::thread::Builder::new()
-                .name("openedr_telemetry_consumer".to_string())
-                .spawn(move || {
-                    let Some(rx) = crate::ffi::telemetry_receiver() else {
-                        Logging::error(
-                            "[OpenEDRTelemetry] Telemetry channel not initialized; consumer exiting",
-                        );
-                        return;
-                    };
-
-                    Logging::info(
-                        "[OpenEDRTelemetry] Direct OpenEDR telemetry consumer started (in-process)",
-                    );
-
-                    while let Ok(line) = rx.recv() {
-                        match line {
-                            crate::ffi::TelemetryLine::FirewallPackedData(raw_line) => {
-                                behavior_engine.ingest_firewall_raw_line(&raw_line);
-                            }
-                            crate::ffi::TelemetryLine::OpenedrEvent(raw_event) => {
-                                Logging::debug(&format!(
-                                    "[OpenEDRTelemetry] EVENT RECEIVED: {}",
-                                    raw_event
-                                ));
-                                // Keep the OpenEDR event opaque. Do not deserialize or
-                                // normalize its schema here.
-                                behavior_engine.ingest_openedr_event(&raw_event);
-                            }
-                        }
-                    }
-
-                    Logging::warning("[OpenEDRTelemetry] Telemetry channel closed; consumer exiting");
-                })
-                .expect("failed to spawn openedr_telemetry_consumer thread");
-        }
-
-        
-        #[allow(dead_code)]
-        fn apply_behavior_detection_state(record: &mut ProcessRecord, det: &ProcessRecord) {
-            record.is_malicious = true;
-            record.termination_requested = det.termination_requested;
-            record.quarantine_requested = det.quarantine_requested;
-            record.deny_access_requested = det.deny_access_requested;
-            record.kill_and_remove_requested = det.kill_and_remove_requested;
-            record.notify_user_requested = det.notify_user_requested;
-            record.revert_requested = det.revert_requested;
-            record.restart_cleanup_requested = det.restart_cleanup_requested;
-            record.triggered_rule_name = det.triggered_rule_name.clone();
-            record.triggered_rule_details = det.triggered_rule_details.clone();
-            record.remediation_target_path = det.remediation_target_path.clone();
-        }
-
-        
-        #[allow(dead_code)]
-        fn build_behavior_threat_info<'b>(det: &'b ProcessRecord, context: &str) -> ThreatInfo<'b> {
-            let mut virus_name = det
-                .triggered_rule_name
-                .as_deref()
-                .unwrap_or("Behavioral Detection");
-            let mut legacy_details = None;
-
-            if let Some(encoded) = det.triggered_rule_name.as_deref()
-                && let Some(rest) = encoded.strip_prefix("FirewallNetworkBlock|")
-            {
-                let mut parts = rest.splitn(2, '|');
-                if let Some(label) = parts.next()
-                    && !label.trim().is_empty()
-                {
-                    virus_name = label;
-                }
-                if let Some(details) = parts.next()
-                    && !details.trim().is_empty()
-                {
-                    legacy_details = Some(details.to_string());
-                }
-            }
-
-            let match_details = det
-                .triggered_rule_details
-                .clone()
-                .or(legacy_details)
-                .or_else(|| match &det.triggered_rule_name {
-                    Some(rule_name) => match det.remediation_target_path.as_ref() {
-                        Some(path) => Some(format!(
-                            "Rule '{}' matched during {}. Target: {}",
-                            rule_name,
-                            context,
-                            path.display()
-                        )),
-                        None => Some(format!("Rule '{}' matched during {}", rule_name, context)),
-                    },
-                    None => match det.remediation_target_path.as_ref() {
-                        Some(path) => Some(format!(
-                            "Behavioral detection matched during {}. Target: {}",
-                            context,
-                            path.display()
-                        )),
-                        None => Some(format!("Behavioral detection matched during {}", context)),
-                    },
-                });
-
-            ThreatInfo {
-                threat_type_label: "Behavioral Detection",
-                virus_name,
-                prediction: 1.0,
-                match_details,
-                deny_access: det.deny_access_requested,
-                terminate: det.termination_requested,
-                quarantine: det.quarantine_requested,
-                kill_and_remove: det.kill_and_remove_requested,
-                suspend: det.suspend_requested,
-                notify_user: det.notify_user_requested,
-                revert: det.revert_requested,
-                pending_user_decision: false,
-            }
-        }
-
-        
         fn default_dynamic_hook_event_map() -> std::collections::HashMap<u32, String> {
             std::collections::HashMap::new()
         }
 
-        
         fn default_registered_dynamic_apis() -> HashSet<String> {
             HashSet::new()
         }
 
-        
         fn should_refresh_dynamic_hooks_for_pid(&mut self, pid: u32) -> bool {
             if pid == 0 {
                 return false;
@@ -769,7 +467,6 @@ pub mod worker_instance {
             true
         }
 
-        
         fn refresh_dynamic_hooks_for_pid_if_due(&mut self, pid: u32) {
             if Self::should_skip_dynamic_hooks_for_pid(pid) {
                 return;
@@ -780,7 +477,6 @@ pub mod worker_instance {
             }
         }
 
-        
         fn should_skip_dynamic_hooks_for_pid(pid: u32) -> bool {
             if pid == 0 || Self::is_internal_service_pid(pid) {
                 return true;
@@ -819,13 +515,6 @@ pub mod worker_instance {
                 return;
             }
 
-            let behavior_pid_conflict = self
-                .behavior_engine
-                .process_states
-                .get(&iomsg.gid)
-                .map(|s| s.pid != 0 && s.pid != pid)
-                .unwrap_or(false);
-
             let record_pid_conflict = self
                 .process_records
                 .process_records
@@ -833,7 +522,7 @@ pub mod worker_instance {
                 .map(|p| !p.pids.is_empty() && !p.pids.contains(&pid))
                 .unwrap_or(false);
 
-            if behavior_pid_conflict || record_pid_conflict {
+            if record_pid_conflict {
                 let remapped = Self::PID_FALLBACK_GID_MASK | (pid as u64);
                 Logging::warning(&format!(
                     "[GID COLLISION] PID {} kernel GID {} collides with existing tracked process; using synthetic GID {}",
@@ -842,23 +531,22 @@ pub mod worker_instance {
                 iomsg.gid = remapped;
             }
         }
-        pub fn new(
-            config: &'a Config,
-            
-            app_settings: AppSettings,
-        ) -> Self {
+        pub fn new(config: &'a Config) -> Self {
+            // Event parsing / detection decisions stay on the OpenEDR side.
+            // This drain thread only keeps the in-process telemetry channel
+            // empty so edrsvc event deliveries never block or leak.
+            static TELEMETRY_DRAIN_START: std::sync::Once = std::sync::Once::new();
+            TELEMETRY_DRAIN_START.call_once(Self::start_telemetry_drain);
+
             Worker {
                 config,
                 process_records: ProcessRecords::new(),
                 process_record_handler: None,
                 exepath_handler: Box::<ExepathLive>::default(),
                 threat_handler: None,
-                
-                app_settings: app_settings.clone(),
+
                 iomsg_postprocessors: vec![],
-                
-                behavior_engine: Self::build_behavior_engine(config),
-                
+
                 dynamic_hooks_registered: false,
                 
                 dynamic_hook_event_map: Self::default_dynamic_hook_event_map(),
@@ -876,6 +564,42 @@ pub mod worker_instance {
                 driver: None,
                 last_report_time: None,
             }
+        }
+
+        /// Consume the in-process OpenEDR telemetry channel without parsing.
+        /// OpenEDR owns event parsing and detection; firewall packed data stays
+        /// with the firewall SDK. Events are logged at debug level only.
+        fn start_telemetry_drain() {
+            let _ = std::thread::Builder::new()
+                .name("openedr_telemetry_drain".to_string())
+                .spawn(move || {
+                    let Some(rx) = crate::ffi::telemetry_receiver() else {
+                        return;
+                    };
+
+                    Logging::info(
+                        "[TelemetryDrain] OpenEDR telemetry drain started (parsing handled by OpenEDR)",
+                    );
+
+                    while let Ok(line) = rx.recv() {
+                        match line {
+                            crate::ffi::TelemetryLine::FirewallPackedData(raw) => {
+                                Logging::debug(&format!(
+                                    "[TelemetryDrain] Firewall packed data ({} bytes) handled by firewall SDK",
+                                    raw.len()
+                                ));
+                            }
+                            crate::ffi::TelemetryLine::OpenedrEvent(raw) => {
+                                Logging::debug(&format!(
+                                    "[TelemetryDrain] OpenEDR event ({} bytes)",
+                                    raw.len()
+                                ));
+                            }
+                        }
+                    }
+
+                    Logging::warning("[TelemetryDrain] Telemetry channel closed; drain exiting");
+                });
         }
 
         /// Discover pre-existing processes at startup (one-time only)
@@ -920,25 +644,8 @@ pub mod worker_instance {
                 precord.pids.insert(pid_u32);
                 self.process_records.insert_precord(gid, precord);
 
-                // Register in behavior engine
-                
-                {
-                    self.behavior_engine.register_process(
-                        gid,
-                        pid_u32,
-                        exepath.clone(),
-                        appname.clone(),
-                    );
-                    self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
-                }
-
-                self.queue_process_start_scan_if_needed(
-                    gid,
-                    pid_u32,
-                    &appname,
-                    &exepath,
-                    "Startup process executable scan",
-                );
+                // Hook every API on the new process (no rules required).
+                self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
 
                 discovered_count += 1;
 
@@ -966,17 +673,6 @@ pub mod worker_instance {
         /// Find GID by PID - needed because kernel GIDs and discovery GIDs may not match
         /// Returns the GID if we're already tracking this PID
         fn find_gid_by_pid(&self, pid: u32) -> Option<u64> {
-            // Check behavior engine first (most likely location)
-            
-            {
-                for (gid, state) in &self.behavior_engine.process_states {
-                    if state.pid == pid {
-                        return Some(*gid);
-                    }
-                }
-            }
-
-            // Fallback: check process_records (in case behavior_engine not enabled)
             for (gid, precord) in &self.process_records.process_records {
                 // Check if this precord contains the PID
                 if precord.pids.contains(&pid) {
@@ -985,96 +681,6 @@ pub mod worker_instance {
             }
 
             None
-        }
-
-        fn queue_process_start_scan_if_needed(
-            &mut self,
-            _gid: u64,
-            _pid: u32,
-            _appname: &str,
-            _exepath: &Path,
-            _reason: &str,
-        ) {
-        }
-        fn sync_firewall_process_contexts(&mut self) {
-            let firewall_pids: Vec<u32> = self
-                .behavior_engine
-                .firewall_net_pids
-                .read()
-                .unwrap()
-                .iter()
-                .copied()
-                .collect();
-            let mut stale_pids = Vec::new();
-
-            for pid in firewall_pids {
-                if pid == 0 || Self::is_internal_service_pid(pid) {
-                    continue;
-                }
-
-                let Some(exepath) = crate::utils::resolve_process_path(pid) else {
-                    if !crate::utils::is_process_alive(pid) {
-                        stale_pids.push(pid);
-                    }
-                    continue;
-                };
-
-                let appname = Self::appname_from_exepath_static(&exepath)
-                    .unwrap_or_else(|| format!("PROC_{}", pid));
-                let gid = self
-                    .find_gid_by_pid(pid)
-                    .unwrap_or(Self::PID_FALLBACK_GID_MASK | (pid as u64));
-                let is_new_record = self.process_records.get_precord_by_gid(gid).is_none();
-
-                self.behavior_engine
-                    .register_process(gid, pid, exepath.clone(), appname.clone());
-
-                if let Some(precord) = self.process_records.get_precord_mut_by_gid(gid) {
-                    precord.pids.insert(pid);
-                    if precord.exepath.as_os_str().is_empty()
-                        || precord.exepath.to_string_lossy() == "UNKNOWN"
-                    {
-                        precord.exepath = exepath.clone();
-                    }
-                    if precord.appname.is_empty()
-                        || precord.appname.starts_with("PROC_")
-                        || precord.appname == "UNKNOWN"
-                    {
-                        precord.appname = appname.clone();
-                    }
-                } else {
-                    let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
-                    precord.pids.insert(pid);
-                    self.process_records.insert_precord(gid, precord);
-                }
-
-                self.refresh_dynamic_hooks_for_pid_if_due(pid);
-                if is_new_record {
-                    self.queue_process_start_scan_if_needed(
-                        gid,
-                        pid,
-                        &appname,
-                        &exepath,
-                        "Firewall-observed process executable scan",
-                    );
-                }
-
-                if is_new_record {
-                    Logging::info(&format!(
-                        "[HydraNetPipe] Registered firewall-observed PID {} as tracked worker process {} (GID: {})",
-                        pid,
-                        exepath.display(),
-                        gid
-                    ));
-                }
-            }
-
-            if !stale_pids.is_empty() {
-                let mut firewall_pids = self.behavior_engine.firewall_net_pids.write().unwrap();
-                for pid in stale_pids {
-                    firewall_pids.remove(&pid);
-                }
-            }
         }
 
         pub fn process_record_handler(
@@ -1118,61 +724,58 @@ pub mod worker_instance {
         /// Validate all tracked processes and remove any with dead PIDs
         /// This is a safety net to catch processes tracked with mismatched GIDs
         pub fn validate_tracked_processes(&mut self) {
-            
-            {
-                use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
-                use windows::Win32::System::Threading::{
-                    GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-                };
+            use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+            use windows::Win32::System::Threading::{
+                GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            };
 
-                let mut dead_gids = Vec::new();
-                let mut total_checked = 0;
+            let mut dead_gids = Vec::new();
+            let mut total_checked = 0;
 
-                // Check all tracked processes in behavior engine
-                for (gid, state) in &self.behavior_engine.process_states {
-                    total_checked += 1;
-                    let pid = state.pid;
-                    let mut is_dead = false;
+            // Check all tracked process records
+            for (gid, precord) in &self.process_records.process_records {
+                total_checked += 1;
+                let pid = precord.pids.iter().next().copied().unwrap_or(0);
+                let mut is_dead = false;
 
-                    unsafe {
-                        match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
-                            Ok(handle) => {
-                                let mut exit_code: u32 = 0;
-                                if GetExitCodeProcess(handle, &mut exit_code).as_bool()
-                                    && exit_code != STILL_ACTIVE.0 as u32
-                                {
-                                    is_dead = true;
-                                }
-                                let _ = CloseHandle(handle);
-                            }
-                            Err(_) => {
-                                // Process handle invalid - definitely dead
+                unsafe {
+                    match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                        Ok(handle) => {
+                            let mut exit_code: u32 = 0;
+                            if GetExitCodeProcess(handle, &mut exit_code).as_bool()
+                                && exit_code != STILL_ACTIVE.0 as u32
+                            {
                                 is_dead = true;
                             }
+                            let _ = CloseHandle(handle);
+                        }
+                        Err(_) => {
+                            // Process handle invalid - definitely dead
+                            is_dead = true;
                         }
                     }
-
-                    if is_dead {
-                        dead_gids.push(*gid);
-                    }
                 }
 
-                if !dead_gids.is_empty() {
-                    Logging::info(&format!(
-                        "[VALIDATION] Cleaning {} dead processes (checked {} total)",
-                        dead_gids.len(),
-                        total_checked
-                    ));
-
-                    for gid in dead_gids {
-                        self.cleanup_process(gid, "Dead (validation)");
-                    }
-                } else if total_checked > 0 {
-                    Logging::debug(&format!(
-                        "[VALIDATION] All {} tracked processes are alive",
-                        total_checked
-                    ));
+                if is_dead {
+                    dead_gids.push(*gid);
                 }
+            }
+
+            if !dead_gids.is_empty() {
+                Logging::info(&format!(
+                    "[VALIDATION] Cleaning {} dead processes (checked {} total)",
+                    dead_gids.len(),
+                    total_checked
+                ));
+
+                for gid in dead_gids {
+                    self.cleanup_process(gid, "Dead (validation)");
+                }
+            } else if total_checked > 0 {
+                Logging::debug(&format!(
+                    "[VALIDATION] All {} tracked processes are alive",
+                    total_checked
+                ));
             }
         }
 
@@ -1190,22 +793,9 @@ pub mod worker_instance {
             if let Some(mut precord) = precord_opt {
                 precord.process_state = ProcessState::Terminated;
 
-                // Remove from behavior engine
-                
-                {
-                    self.behavior_engine.process_states.remove(&gid);
-                    
-                    {
-                        let mut firewall_pids =
-                            self.behavior_engine.firewall_net_pids.write().unwrap();
-                        for pid in &precord.pids {
-                            firewall_pids.remove(pid);
-                        }
-                    }
-                    for pid in &precord.pids {
-                        self.dynamic_hook_last_refresh.remove(pid);
-                        self.dynamic_hook_apply_failures.remove(pid);
-                    }
+                for pid in &precord.pids {
+                    self.dynamic_hook_last_refresh.remove(pid);
+                    self.dynamic_hook_apply_failures.remove(pid);
                 }
 
                 // Keep terminated history out of the active tracking map so the same
@@ -1227,431 +817,114 @@ pub mod worker_instance {
             }
         }
 
-        /// Scan all tracked processes for behavioral detections
-        pub fn scan_processes(
-            &mut self,
-            config: &Config,
-            threat_handler: Box<dyn ThreatHandler>,
-        ) {
-            
-            {
-                // Import necessary Win32 modules for the Kernel Check
-                use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
-                use windows::Win32::System::Threading::{
-                    GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-                };
 
-                // Refresh system state to identify new and dead processes
-                // We keep sysinfo here because you requested Discovery logic to remain intact
-                let mut sys = System::new_all();
-                sys.refresh_processes(ProcessesToUpdate::All, true);
+        /// Periodic housekeeping scan: prune dead processes, discover new ones,
+        /// and apply dynamic API hooks to every process (no rules required).
+        /// Detection decisions stay with OpenEDR / fast static detection.
+        pub fn scan_processes(&mut self, _config: &Config) {
+            use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+            use windows::Win32::System::Threading::{
+                GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            };
 
-                // --- FIRST: Prune dead processes from behavior engine ---
-                // IMPROVEMENT: We use direct Kernel Queries (OpenProcess) for 100% accuracy.
-                let mut dead_gids = Vec::new();
-                for (gid, state) in self.behavior_engine.process_states.iter() {
-                    unsafe {
-                        let handle_res =
-                            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, state.pid);
-                        match handle_res {
-                            Ok(handle) => {
-                                let mut exit_code: u32 = 0;
-                                if GetExitCodeProcess(handle, &mut exit_code).as_bool()
-                                    && exit_code != STILL_ACTIVE.0 as u32
-                                {
-                                    dead_gids.push(*gid);
-                                }
-                                let _ = CloseHandle(handle);
-                            }
-                            Err(_) => {
-                                // Kernel says PID is invalid or gone
+            // --- FIRST: Prune dead processes ---
+            // We use direct Kernel Queries (OpenProcess) for 100% accuracy.
+            let mut dead_gids = Vec::new();
+            for (gid, precord) in self.process_records.process_records.iter() {
+                let pid = precord.pids.iter().next().copied().unwrap_or(0);
+                unsafe {
+                    let handle_res = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+                    match handle_res {
+                        Ok(handle) => {
+                            let mut exit_code: u32 = 0;
+                            if GetExitCodeProcess(handle, &mut exit_code).as_bool()
+                                && exit_code != STILL_ACTIVE.0 as u32
+                            {
                                 dead_gids.push(*gid);
                             }
+                            let _ = CloseHandle(handle);
+                        }
+                        Err(_) => {
+                            // Kernel says PID is invalid or gone
+                            dead_gids.push(*gid);
                         }
                     }
                 }
-
-                // FIX: Use centralized cleanup function
-                if !dead_gids.is_empty() {
-                    Logging::info(&format!(
-                        "[BEHAVIOR SCAN] Pruning {} dead processes",
-                        dead_gids.len()
-                    ));
-                    for gid in dead_gids {
-                        self.cleanup_process(gid, "Dead process");
-                    }
-                }
-
-                // --- SECOND: Discover any new processes that started since last scan ---
-                let mut discovered_new = 0;
-                for (pid, process) in sys.processes() {
-                    let pid_u32 = pid.as_u32();
-                    if pid_u32 == 4 || Self::is_internal_service_pid(pid_u32) {
-                        continue;
-                    }
-
-                    let exepath = process.exe().map(PathBuf::from).unwrap_or_default();
-                    let appname = process.name().to_string_lossy().to_string();
-
-                    if exepath.to_string_lossy().is_empty() || appname.is_empty() {
-                        continue;
-                    }
-
-                    // FIX: Check if we're ALREADY tracking this PID
-                    // This prevents duplicate entries when GID generation is non-deterministic
-                    if self.find_gid_by_pid(pid_u32).is_some() {
-                        self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
-                        // Already tracking this PID - skip to avoid duplicates
-                        continue;
-                    }
-
-                    // Generate a new GID for this discovered process
-                    // NOTE: This may not match the kernel's GID, but we use PID lookup
-                    // to prevent duplicates regardless
-                    let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
-
-                    Logging::debug(&format!(
-                        "[BEHAVIOR SCAN] Discovered new process during scan: {} (PID: {}, GID: {}, Path: {})",
-                        appname,
-                        pid_u32,
-                        gid,
-                        exepath.display()
-                    ));
-
-                    self.behavior_engine.register_process(
-                        gid,
-                        pid_u32,
-                        exepath.clone(),
-                        appname.clone(),
-                    );
-                    let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
-                    precord.pids.insert(pid_u32);
-                    self.process_records.insert_precord(gid, precord);
-                    self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
-                    self.queue_process_start_scan_if_needed(
-                        gid,
-                        pid_u32,
-                        &appname,
-                        &exepath,
-                        "New process executable scan",
-                    );
-
-                    discovered_new += 1;
-                }
-
-                if discovered_new > 0 {
-                    Logging::info(&format!(
-                        "[BEHAVIOR SCAN] Discovered {} new processes",
-                        discovered_new
-                    ));
-                }
-
-                // Apply raw OpenEDR telemetry on the main thread so rule state is
-                // mutated without sharing a mutable process-state map across threads.
-                let raw_openedr_events = self.behavior_engine.drain_pending_raw_events();
-                self.behavior_engine.apply_raw_openedr_events(raw_openedr_events);
-
-                // --- THIRD: Sync behavior engine state to process_records ---
-                // --- THIRD-B: Finalize OpenEDR ProcessCreate -> condition state -> hooks ---
-                //
-                // The in-process FFI telemetry path does not pass ProcessCreate
-                // through process_io(). Therefore the queued PID must be registered
-                // in BehaviorEngine before its dynamic hooks are applied; otherwise
-                // the first hooked API event can arrive without condition state.
-                //
-                // Required lifecycle:
-                //   ProcessCreate -> register_process() -> condition state
-                //                -> dynamic hook -> first event evaluation
-                for hook_pid in self.behavior_engine.drain_pending_hook_pids() {
-                    if hook_pid == 0 || Self::is_internal_service_pid(hook_pid) {
-                        continue;
-                    }
-
-                    if self.find_gid_by_pid(hook_pid).is_none() {
-                        if let Some((pid, process)) = sys
-                            .processes()
-                            .iter()
-                            .find(|(pid, _)| pid.as_u32() == hook_pid)
-                        {
-                            let pid_u32 = pid.as_u32();
-                            let exepath = process.exe().map(PathBuf::from).unwrap_or_default();
-                            let appname = process.name().to_string_lossy().to_string();
-
-                            if !exepath.to_string_lossy().is_empty() && !appname.is_empty() {
-                                let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
-
-                                self.behavior_engine.register_process(
-                                    gid,
-                                    pid_u32,
-                                    exepath.clone(),
-                                    appname.clone(),
-                                );
-
-                                if self.process_records.get_precord_by_gid(gid).is_none() {
-                                    let mut precord =
-                                        ProcessRecord::new(gid, appname.clone(), exepath.clone());
-                                    precord.pids.insert(pid_u32);
-                                    self.process_records.insert_precord(gid, precord);
-                                }
-
-                                Logging::debug(&format!(
-                                    "[PROCESS CREATE] Registered PID {} in behavior engine before dynamic hook application (GID: {})",
-                                    pid_u32, gid
-                                ));
-                            }
-                        }
-                    }
-
-                    if self.find_gid_by_pid(hook_pid).is_some() {
-                        Logging::debug(&format!(
-                            "[DYNAMIC HOOK] OpenEDR ProcessCreate queue: applying hooks to PID {} after condition-state registration",
-                            hook_pid
-                        ));
-
-                        self.dynamic_hook_last_refresh
-                            .insert(hook_pid, std::time::Instant::now());
-                        self.register_dynamic_hooks_for_process(hook_pid);
-                    } else {
-                        Logging::debug(&format!(
-                            "[PROCESS CREATE] PID {} not visible yet; dynamic hook will be retried by PID refresh",
-                            hook_pid
-                        ));
-                    }
-                }
-
-                
-                self.sync_firewall_process_contexts();
-                let mut process_sync_scans = Vec::new();
-                for (gid, state) in self.behavior_engine.process_states.iter() {
-                    if self.process_records.get_precord_by_gid(*gid).is_none() {
-                        let mut precord = ProcessRecord::new(
-                            *gid,
-                            state.app_name.clone(),
-                            state.exe_path.clone(),
-                        );
-                        precord.pids.insert(state.pid);
-                        self.process_records.insert_precord(*gid, precord);
-                        process_sync_scans.push((
-                            *gid,
-                            state.pid,
-                            state.app_name.clone(),
-                            state.exe_path.clone(),
-                        ));
-                        Logging::debug(&format!(
-                            "[PROCESS SYNC] Registered GID: {} from behavior_engine",
-                            gid
-                        ));
-                    }
-                }
-                for (gid, pid, appname, exepath) in process_sync_scans {
-                    self.queue_process_start_scan_if_needed(
-                        gid,
-                        pid,
-                        &appname,
-                        &exepath,
-                        "Behavior-engine process executable scan",
-                    );
-                }
-
-                // Drain IRP records queued by the OpenEDR telemetry pipe thread and
-                // route them through process_event so OpenEDR-only (non-edrdrv)
-                // events get the same named-condition + rule evaluation as driver
-                // events (e.g. the non-whitelisted-extension ransomware rule).
-                // Runs after process discovery/sync so freshly seen processes are
-                // already tracked. No additional locking needed beyond the
-                // Arc<Mutex<_>> inside drain_pending_irp_records itself.
-                let drained_records = self.behavior_engine.drain_pending_irp_records();
-                for (gid, iomsg) in drained_records {
-                    // Ensure a precord exists so process_event can resolve extension
-                    // history and file-id state for this GID.
-                    if self.process_records.get_precord_by_gid(gid).is_none() {
-                        let (app_name, exe_path) = self
-                            .behavior_engine
-                            .process_states
-                            .get(&gid)
-                            .map(|s| (s.app_name.clone(), s.exe_path.clone()))
-                            .unwrap_or_default();
-                        let mut precord = ProcessRecord::new(gid, app_name, exe_path);
-                        precord.pids.insert(iomsg.pid);
-                        self.process_records.insert_precord(gid, precord);
-                    }
-                    if let Some(precord) = self.process_records.get_precord_mut_by_gid(gid) {
-                        self.behavior_engine
-                            .process_event(precord, &iomsg, config, &*threat_handler);
-                    }
-                }
-
-                // Log Current Status
-                let total_tracked = self.behavior_engine.process_states.len();
-                if total_tracked > 0 {
-                    Logging::info(&format!(
-                        "[BEHAVIOR SCAN] Evaluating {} tracked processes",
-                        total_tracked
-                    ));
-                } else {
-                    Logging::warning("[BEHAVIOR SCAN] No processes are being tracked!");
-                }
-
-                // New processes are guaranteed to have a BehaviorEngine
-                // process_state before this scan, so named conditions/rules can
-                // evaluate them in the same pass as existing processes.
-                // --- FOURTH: Run the scan on all tracked processes ---
-                let detections = self
-                    .behavior_engine
-                    .scan_all_processes(config, &*threat_handler);
-
-                if !detections.is_empty() {
-                    Logging::info(&format!(
-                        "[BEHAVIOR SCAN] Found {} detections",
-                        detections.len()
-                    ));
-                }
-
-                // --- FIFTH: Apply detections to process records ---
-                self.apply_detections_internal(detections, config, &*threat_handler, "periodic behavior scan");
             }
-        }
 
-        fn apply_detections_internal(
-            &mut self,
-            detections: Vec<ProcessRecord>,
-            config: &Config,
-            threat_handler: &dyn ThreatHandler,
-            scan_context: &str,
-        ) {
-            let mut terminated_gids = HashSet::new();
-            for det in detections {
-                if terminated_gids.contains(&det.gid) {
+            if !dead_gids.is_empty() {
+                Logging::info(&format!(
+                    "[HOUSEKEEPING] Pruning {} dead processes",
+                    dead_gids.len()
+                ));
+                for gid in dead_gids {
+                    self.cleanup_process(gid, "Dead process");
+                }
+            }
+
+            // --- SECOND: Discover any new processes that started since last scan ---
+            let mut sys = System::new_all();
+            sys.refresh_processes(ProcessesToUpdate::All, true);
+
+            let mut discovered_new = 0;
+            for (pid, process) in sys.processes() {
+                let pid_u32 = pid.as_u32();
+                if pid_u32 == 4 || Self::is_internal_service_pid(pid_u32) {
                     continue;
                 }
 
-                let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                let threat_info =
-                    Self::build_behavior_threat_info(&det, scan_context);
-                let matching_record = self
-                    .process_records
-                    .process_records
-                    .iter_mut()
-                    .find(|(gid, _)| **gid == det.gid);
+                let exepath = process.exe().map(PathBuf::from).unwrap_or_default();
+                let appname = process.name().to_string_lossy().to_string();
 
-                if let Some((_, record)) = matching_record {
-                    Self::apply_behavior_detection_state(record, &det);
-                    let rule_name = det
-                        .triggered_rule_name
-                        .as_deref()
-                        .unwrap_or("Behavioral Detection");
-                    Logging::warning(&format!(
-                        "[DETECTION] Process {} (GID: {}) marked malicious by rule '{}'",
-                        record.appname, det.gid, rule_name
-                    ));
-                    let report_context = ActionReportContext::default();
-                    ActionsOnKill::with_handler(threat_handler.clone_box())
-                        .run_actions_with_info_and_context(
-                            config,
-                            record,
-                            &dummy_pred_mtrx,
-                            &threat_info,
-                            &report_context,
-                        );
-
-                    if det.termination_requested
-                        && restart_cleanup_reason(record, &threat_info).is_none()
-                    {
-                        terminated_gids.insert(det.gid);
-                    }
-                } else if let Some(state) = self.behavior_engine.process_states.get(&det.gid) {
-                    // Handle detection for process not yet in records
-                    let mut precord = ProcessRecord::new(
-                        det.gid,
-                        state.app_name.clone(),
-                        state.exe_path.clone(),
-                    );
-                    Self::apply_behavior_detection_state(&mut precord, &det);
-                    let report_context = ActionReportContext::default();
-                    ActionsOnKill::with_handler(threat_handler.clone_box())
-                        .run_actions_with_info_and_context(
-                            config,
-                            &mut precord,
-                            &dummy_pred_mtrx,
-                            &threat_info,
-                            &report_context,
-                        );
-
-                    if det.termination_requested
-                        && restart_cleanup_reason(&precord, &threat_info).is_none()
-                    {
-                        terminated_gids.insert(det.gid);
-                    } else {
-                        self.process_records.insert_precord(det.gid, precord);
-                    }
+                if exepath.to_string_lossy().is_empty() || appname.is_empty() {
+                    continue;
                 }
+
+                // Check if we're ALREADY tracking this PID
+                // This prevents duplicate entries when GID generation is non-deterministic
+                if self.find_gid_by_pid(pid_u32).is_some() {
+                    self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
+                    // Already tracking this PID - skip to avoid duplicates
+                    continue;
+                }
+
+                // Generate a new GID for this discovered process
+                let gid = self.generate_gid_for_discovery(pid_u32, &exepath);
+
+                Logging::debug(&format!(
+                    "[HOUSEKEEPING] Discovered new process during scan: {} (PID: {}, GID: {}, Path: {})",
+                    appname,
+                    pid_u32,
+                    gid,
+                    exepath.display()
+                ));
+
+                let mut precord = ProcessRecord::new(gid, appname.clone(), exepath.clone());
+                precord.pids.insert(pid_u32);
+                self.process_records.insert_precord(gid, precord);
+
+                // Hook every API on the new process (no rules required).
+                self.refresh_dynamic_hooks_for_pid_if_due(pid_u32);
+
+                discovered_new += 1;
             }
 
-            for gid in terminated_gids.clone() {
-                self.cleanup_process(gid, "Killed (behavior detection)");
-            }
-
-            for gid in terminated_gids {
-                if self.process_records.process_records.contains(&gid) {
-                    self.cleanup_process(gid, "Killed (behavior detection)");
-                }
+            if discovered_new > 0 {
+                Logging::info(&format!(
+                    "[HOUSEKEEPING] Discovered {} new processes",
+                    discovered_new
+                ));
             }
         }
 
-        /// Realtime: drains pending OpenEDR telemetry records and evaluates them immediately.
-        pub fn drain_and_process_pending_telemetry(
-            &mut self,
-            config: &Config,
-            threat_handler: &dyn ThreatHandler,
-        ) {
-            let drained_records = self.behavior_engine.drain_pending_irp_records();
-            if drained_records.is_empty() {
-                return;
-            }
-
-            for (gid, iomsg) in drained_records {
-                if self.process_records.get_precord_by_gid(gid).is_none() {
-                    let (app_name, exe_path) = self
-                        .behavior_engine
-                        .process_states
-                        .get(&gid)
-                        .map(|s| (s.app_name.clone(), s.exe_path.clone()))
-                        .unwrap_or_default();
-                    let mut precord = ProcessRecord::new(gid, app_name, exe_path);
-                    precord.pids.insert(iomsg.pid);
-                    self.process_records.insert_precord(gid, precord);
-                }
-                if let Some(precord) = self.process_records.get_precord_mut_by_gid(gid) {
-                    self.behavior_engine
-                        .process_event(precord, &iomsg, config, threat_handler);
-                }
-            }
-
-            let detections = self
-                .behavior_engine
-                .scan_all_processes(config, threat_handler);
-
-            if !detections.is_empty() {
-                self.apply_detections_internal(detections, config, threat_handler, "realtime telemetry scan");
-            }
-        }
-
-        pub fn new_replay(
-            config: &'a Config,
-            
-            app_settings: AppSettings,
-        ) -> Worker<'a> {
+        pub fn new_replay(config: &'a Config) -> Worker<'a> {
             Worker {
                 config,
                 process_records: ProcessRecords::new(),
                 process_record_handler: Some(Box::new(ProcessRecordHandlerReplay::new(config))),
                 exepath_handler: Box::<ExePathReplay>::default(),
                 iomsg_postprocessors: vec![],
-                
-                behavior_engine: Self::build_behavior_engine(config),
-                
-                app_settings,
-                
+
                 dynamic_hooks_registered: false,
                 
                 dynamic_hook_event_map: Self::default_dynamic_hook_event_map(),
@@ -1678,23 +951,14 @@ pub mod worker_instance {
 
             
             {
+                // Periodic system report: once per hour.
                 let now = std::time::Instant::now();
                 let report_interval = std::time::Duration::from_secs(3600); // 1 hour
-                
-                use std::sync::atomic::Ordering; // Import Ordering
-                
-                let force_report = self
-                    .behavior_engine
-                    .generate_report_flag
-                    .swap(false, Ordering::SeqCst);
-                if force_report
-                    || self
-                        .last_report_time
-                        .map_or(true, |t| now.duration_since(t) > report_interval)
+
+                if self
+                    .last_report_time
+                    .map_or(true, |t| now.duration_since(t) > report_interval)
                 {
-                    if force_report {
-                        Logging::info("[REPORT] Triggering on-demand report requested via pipe");
-                    }
                     self.generate_system_report();
                 }
             }
@@ -1724,11 +988,10 @@ pub mod worker_instance {
             
             if Self::is_unattributed_rootkit_event(iomsg, &irp_op) {
                 Logging::warning(&format!(
-                    "[ROOTKIT] Routing unattributed kernel finding through global handler only: opcode={:?} desc={}",
+                    "[ROOTKIT] Unattributed kernel finding: opcode={:?} desc={}",
                     irp_op,
                     iomsg.kernel_event_info.object_name.trim_matches('\0')
                 ));
-                self.behavior_engine.handle_rootkit_event(iomsg);
                 return;
             }
 
@@ -1754,14 +1017,10 @@ pub mod worker_instance {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
 
-            if is_process_create && self.threat_handler.is_some() {
-                self.sync_firewall_process_contexts();
-            }
-
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // For new processes (after startup flood), run static scan
                 // immediately so pre-loaded malware state is caught on creation.
-                // Skipped during startup_complete=false to avoid the O(n²)
+                // Skipped during startup_complete=false to avoid the O(nÂ²)
                 // per-IrpProcessCreate scan backlog; the periodic 750ms scan covers it.
                 // Add IRP record to process
                 {
@@ -1792,20 +1051,6 @@ pub mod worker_instance {
                         }
                         if precord_name_stale && !resolved_name.is_empty() {
                             precord.appname = resolved_name.clone();
-                        }
-                        // Propagate to behavior engine state so rule matching
-                        // and allowlists are also correct immediately.
-                        
-                        if let Some(state) =
-                            self.behavior_engine.process_states.get_mut(&tracking_key)
-                            && (state.app_name.is_empty()
-                                || state.app_name.starts_with("PROC_")
-                                || state.app_name == "UNKNOWN")
-                        {
-                            if !resolved_name.is_empty() {
-                                state.app_name = resolved_name;
-                            }
-                            state.exe_path = resolved_path;
                         }
                     }
 
@@ -1862,13 +1107,6 @@ pub mod worker_instance {
                         }
                     }
 
-                    // Process behavioral event
-                    
-                    if let Some(ref th) = self.threat_handler {
-                        self.behavior_engine
-                            .process_event(precord, iomsg, config, &**th);
-                    }
-
                     // Run process record handler (e.g., prediction)
                     if let Some(process_record_handler) = &mut self.process_record_handler {
                         process_record_handler.handle_io(precord);
@@ -1892,14 +1130,11 @@ pub mod worker_instance {
 
             
             if is_process_create {
-                let th_opt = self.threat_handler.as_ref().map(|h| h.clone_box());
-                if let Some(threat_handler) = th_opt {
-                    Logging::debug(&format!(
-                        "[PROCESS CREATE] Running immediate behavior scan for PID {} GID {}",
-                        iomsg.pid, tracking_key
-                    ));
-                    self.scan_processes(config, threat_handler);
-                }
+                Logging::debug(&format!(
+                    "[PROCESS CREATE] Running immediate housekeeping scan for PID {} GID {}",
+                    iomsg.pid, tracking_key
+                ));
+                self.scan_processes(config);
             }
 
             // FIX: Cleanup on termination - works regardless of feature flags
@@ -2011,28 +1246,8 @@ pub mod worker_instance {
                     // Create process record
                     let precord = ProcessRecord::from(iomsg, appname.clone(), exepath.clone());
 
-                    // Register in behavior engine
-                    
-                    {
-                        self.behavior_engine.register_process(
-                            gid,
-                            pid,
-                            exepath.clone(),
-                            appname.clone(),
-                        );
-                    }
-
                     // Store process record (moves precord)
                     self.process_records.insert_precord(gid, precord);
-                    if irp_op == IrpMajorOp::IrpProcessCreate {
-                        self.queue_process_start_scan_if_needed(
-                            gid,
-                            pid,
-                            &appname,
-                            &exepath,
-                            "Kernel process-create executable scan",
-                        );
-                    }
                 }
                 Some(false) => {
                     // Existing process - upgrade UNKNOWN info
@@ -2053,29 +1268,6 @@ pub mod worker_instance {
 
                             precord.exepath = path.clone();
                             precord.appname = name.clone();
-
-                            // Update behavior engine
-                            
-                            {
-                                if let Some(state) =
-                                    self.behavior_engine.process_states.get_mut(&gid)
-                                {
-                                    state.exe_path = path.clone();
-                                    state.app_name = name.clone();
-                                }
-                            }
-                        }
-
-                        if IrpMajorOp::from_sysmonevent(iomsg.irp_op)
-                            == IrpMajorOp::IrpProcessCreate
-                        {
-                            self.queue_process_start_scan_if_needed(
-                                gid,
-                                pid,
-                                &name,
-                                &path,
-                                "Kernel process-create executable scan",
-                            );
                         }
                     }
                 }
@@ -2355,3 +1547,4 @@ pub mod worker_instance {
         }
     }
 }
+

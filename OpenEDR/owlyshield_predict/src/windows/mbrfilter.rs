@@ -6,9 +6,9 @@
 //!  * stages the driver binary next to `System32\drivers`,
 //!  * registers and starts the `MBRFilter` kernel driver service,
 //!  * adds the driver as an upper filter for the disk class,
-//!  * listens on the alert pipe and forwards alerts to the behavior engine,
-//!    which in turn prompts the firewall GUI (HydraHipEvent) for USB/external
-//!    disk writes.
+//!  * listens on the alert pipe: system-disk writes are logged, while
+//!    USB/external-disk writes terminate the offending process and forward
+//!    an alert into the in-process OpenEDR telemetry channel.
 
 use std::ffi::CString;
 use std::thread;
@@ -295,16 +295,9 @@ pub fn spawn_mbr_alert_listener() -> thread::JoinHandle<()> {
                             process_path
                         ));
                     } else {
-                        // Non-system disk (USB/external) MBR write — blocked and
-                        // forwarded to the behavior engine / firewall GUI.
-                        Logging::error(&format!(
-                            "[MBR ALERT] USB/External disk {} MBR write blocked — Offending process: {}",
-                            disk_number, process_path
-                        ));
-                        crate::behavioral::behavior_engine::report_mbr_alert(
-                            disk_number,
-                            &process_path,
-                        );
+                        // Non-system disk (USB/external) MBR write — blocked by
+                        // the kernel; kill the offender and alert OpenEDR.
+                        handle_mbr_threat(disk_number, &process_path);
                     }
                 }
 
@@ -356,4 +349,138 @@ fn normalize_nt_path(nt_path: &str) -> String {
     }
 
     normalized.trim_end_matches('\0').to_string()
+}
+
+/// Respond to a blocked MBR write on a removable/external disk.
+///
+/// The kernel driver has already blocked the write. Defense-in-depth: a
+/// process probing the MBR of a USB disk is hostile, so every matching
+/// process is terminated and a `MBR_USB_WRITE_BLOCKED` alert is forwarded
+/// into the in-process OpenEDR telemetry channel for the standard
+/// detection/report pipeline.
+fn handle_mbr_threat(disk_number: i32, process_path: &str) {
+    Logging::error(&format!(
+        "[MBR ALERT] USB/external disk {} MBR write blocked — Offending process: {}",
+        disk_number, process_path
+    ));
+
+    let target = process_path.trim_matches('"').trim().to_ascii_lowercase();
+    if target.is_empty() || target == "unknown" || target == "system" {
+        return;
+    }
+
+    for pid in find_pids_by_image_path(&target) {
+        match terminate_process(pid) {
+            Ok(()) => Logging::warning(&format!(
+                "[MBR ALERT] Terminated MBR-offending process {} (PID {})",
+                process_path, pid
+            )),
+            Err(err) => Logging::warning(&format!(
+                "[MBR ALERT] Failed to terminate PID {}: {}",
+                pid, err
+            )),
+        }
+    }
+
+    let alert = serde_json::json!({
+        "type": "MBR_USB_WRITE_BLOCKED",
+        "disk_number": disk_number,
+        "process_path": process_path,
+        "timestamp_ms": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+    });
+    if crate::ffi::send_telemetry_line(crate::ffi::TelemetryLine::OpenedrEvent(alert.to_string())) {
+        Logging::info("[MBR ALERT] Alert forwarded to OpenEDR telemetry channel");
+    } else {
+        Logging::debug("[MBR ALERT] OpenEDR telemetry channel unavailable; alert logged only");
+    }
+}
+
+/// Enumerate running processes whose full image path matches `image_path_lc`
+/// (already lowercased). Matching is suffix-based so `\Device\HarddiskVolumeX`
+/// vs drive-letter path differences still resolve.
+fn find_pids_by_image_path(image_path_lc: &str) -> Vec<u32> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let mut pids = Vec::new();
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    let Ok(snapshot) = snapshot else {
+        return pids;
+    };
+
+    unsafe {
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        if Process32FirstW(snapshot, &mut entry).as_bool() {
+            loop {
+                let pid = entry.th32ProcessID;
+                if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                    if !handle.is_invalid() {
+                        let mut buffer = vec![0u16; 1024];
+                        let mut size = buffer.len() as u32;
+                        if QueryFullProcessImageNameW(
+                            handle,
+                            PROCESS_NAME_WIN32,
+                            windows::core::PWSTR(buffer.as_mut_ptr()),
+                            &mut size,
+                        )
+                        .as_bool()
+                        {
+                            let path =
+                                String::from_utf16_lossy(&buffer[..size as usize])
+                                    .to_ascii_lowercase();
+                            if path.ends_with(image_path_lc) || image_path_lc.ends_with(&path) {
+                                pids.push(pid);
+                            }
+                        }
+                        let _ = CloseHandle(handle);
+                    }
+                }
+
+                if !Process32NextW(snapshot, &mut entry).as_bool() {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+    }
+
+    pids
+}
+
+fn terminate_process(pid: u32) -> Result<(), String> {
+    use windows::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    };
+
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            false,
+            pid,
+        )
+        .map_err(|e| format!("OpenProcess failed: {e}"))?;
+        if handle.is_invalid() {
+            return Err("OpenProcess returned an invalid handle".to_string());
+        }
+        let ok = TerminateProcess(handle, 1);
+        let _ = CloseHandle(handle);
+        if ok.as_bool() {
+            Ok(())
+        } else {
+            Err(format!("TerminateProcess failed: {:?}", GetLastError()))
+        }
+    }
 }

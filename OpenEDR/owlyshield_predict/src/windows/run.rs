@@ -1,9 +1,7 @@
-
+﻿
 use std::sync::mpsc::channel;
 use std::thread;
 
-
-use crate::behavioral::app_settings::AppSettings;
 use crate::connectors::register::Connectors;
 use crate::shared_def::IOMessage;
 use crate::threathandling::WindowsThreatHandler;
@@ -31,29 +29,10 @@ pub fn run() {
         .driver_set_app_pid()
         .expect("Cannot set driver app pid");
 
-    // Load config and app settings once and reuse
+    // Load config once and reuse
     let config = config::Config::new();
     crate::globals::init_globals(&config);
     let _current_exe_path = std::env::current_exe().unwrap();
-    
-    let rules_dir = crate::globals::rules_path().to_path_buf();
-
-    
-    Logging::info(&format!(
-        "[Owlyshield] Using rules directory: {:?}",
-        rules_dir
-    ));
-
-    
-    let app_settings = AppSettings::load(&rules_dir)
-        .map_err(|e| {
-            Logging::error(&format!(
-                "Failed to load app settings from rules/settings.yaml at {:?}: {}",
-                rules_dir, e
-            ));
-            e
-        })
-        .expect("Critical: Failed to load app settings");
 
     println!("Interactive - can also work as a service.\n");
 
@@ -69,13 +48,10 @@ pub fn run() {
 
     // Spawn the worker thread that consumes IO messages and performs analysis
     let thread_config = config; // moved into thread
-    
-    let thread_app_settings = app_settings; // moved into thread
     let thread_driver = driver.clone();
     thread::spawn(move || {
         
-        let mut worker =
-            Worker::new(&thread_config, thread_app_settings).driver(thread_driver.clone());
+        let mut worker = Worker::new(&thread_config).driver(thread_driver.clone());
 
         // Initialize threat handler early to reuse the driver connection
         let win_threat_handler = WindowsThreatHandler::from(thread_driver.clone());
@@ -89,10 +65,6 @@ pub fn run() {
         )));
 
         worker = worker.build();
-
-        // Behavior rules are loaded inside build_behavior_engine() before the
-        // telemetry-pipe clone is taken, so both this worker and the pipe thread
-        // have detection rules.
 
         worker.discover_existing_processes();
 
@@ -111,19 +83,13 @@ pub fn run() {
                 break;
             }
 
-            // Realtime: Immediately evaluate any pending OpenEDR telemetry records
-            // without waiting for the periodic 750ms housekeeping interval.
-            let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
-            if let Some(th) = th_opt.as_ref() {
-                worker.drain_and_process_pending_telemetry(&thread_config, &**th);
-            }
-
             if msgs_since_housekeeping >= 256
                 || last_housekeeping.elapsed() >= housekeeping_interval
             {
+                let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
                 if let Some(th) = th_opt {
                     worker.validate_tracked_processes();
-                    worker.scan_processes(&thread_config, th.clone_box());
+                    worker.scan_processes(&thread_config);
                     worker.process_suspended_records(&thread_config, th);
                 }
                 msgs_since_housekeeping = 0;
@@ -136,50 +102,30 @@ pub fn run() {
     // edrsvc.exe reads from edrdrv and forwards all events (opcodes 0-30+)
     // to Owlyshield via the in-process FFI telemetry channel.
     // Worker thread above consumes IOMessages from rx_iomsgs channel.
-    // This thread parks itself — all work is channel-driven.
+    // This thread parks itself â€” all work is channel-driven.
     Logging::info("[Owlyshield] Main thread parked. Telemetry via edrsvc FFI.");
     loop {
         thread::sleep(std::time::Duration::from_secs(60));
     }
 }
 /// Entry point for the DLL worker loop used by `ffi.rs`.
-/// Receives IOMessages from `edrsvc` and processes them through the behavior engine.
+/// Receives IOMessages from `edrsvc` and processes them through the worker.
 /// A short-cadence housekeeping loop drives process discovery and dynamic
 /// kernel-hook registration (`scan_processes` -> `MESSAGE_HOOK_PROCESS`) that
-/// otherwise never runs in the in-process FFI architecture, where OpenEDR
-/// telemetry bypasses `process_io` and flows straight into the behavior engine.
+/// otherwise never runs in the in-process FFI architecture.
 pub fn run_worker_loop(
     rx: std::sync::mpsc::Receiver<crate::shared_def::IOMessage>,
     driver: crate::windows::edrsvc_client::Driver,
 ) {
-    use crate::behavioral::app_settings::AppSettings;
-
     let config = crate::config::Config::new();
     crate::globals::init_globals(&config);
-
-    let rules_dir = crate::globals::rules_path().to_path_buf();
-    Logging::info(&format!(
-        "[Owlyshield] Using rules directory: {:?}",
-        rules_dir
-    ));
-
-    let app_settings = AppSettings::load(&rules_dir)
-        .map_err(|e| {
-            Logging::error(&format!(
-                "Failed to load app settings from rules/settings.yaml at {:?}: {}",
-                rules_dir, e
-            ));
-            e
-        })
-        .expect("Critical: Failed to load app settings");
 
     // Install + start the MBRFilter kernel driver and listen for MBR write
     // alerts (best effort; failures are logged, never fatal).
     crate::windows::mbrfilter::ensure_mbrfilter_driver();
     crate::windows::mbrfilter::spawn_mbr_alert_listener();
 
-    let mut worker =
-        crate::worker::worker_instance::Worker::new(&config, app_settings).driver(driver.clone());
+    let mut worker = crate::worker::worker_instance::Worker::new(&config).driver(driver.clone());
 
     // Initialize threat handler early to reuse the driver connection
     let win_threat_handler = WindowsThreatHandler::from(driver.clone());
@@ -194,16 +140,11 @@ pub fn run_worker_loop(
 
     worker = worker.build();
 
-    // Behavior rules are loaded inside build_behavior_engine() before the
-    // telemetry-pipe clone is taken, so both this worker and the pipe thread
-    // have detection rules.
-
     worker.discover_existing_processes();
 
     // Event-driven loop with periodic housekeeping that discovers new processes
-    // and registers dynamic kernel hooks. The telemetry for behavioral analysis
-    // flows through the in-process FFI channel, so this loop only needs to keep
-    // the hook registration / process-pruning machinery alive.
+    // and registers dynamic kernel hooks. Telemetry event parsing and detection
+    // decisions stay on the OpenEDR side.
     let mut last_housekeeping = std::time::Instant::now();
     let housekeeping_interval = std::time::Duration::from_millis(750);
     loop {
@@ -215,17 +156,11 @@ pub fn run_worker_loop(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
 
-        // Realtime: Immediately evaluate any pending OpenEDR telemetry records
-        // on every tick (~20ms latency) instead of waiting for the 750ms housekeeping timer.
-        let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
-        if let Some(th) = th_opt.as_ref() {
-            worker.drain_and_process_pending_telemetry(&config, &**th);
-        }
-
         if last_housekeeping.elapsed() >= housekeeping_interval {
+            let th_opt = worker.threat_handler.as_ref().map(|h| h.clone_box());
             if let Some(th) = th_opt {
                 worker.validate_tracked_processes();
-                worker.scan_processes(&config, th.clone_box());
+                worker.scan_processes(&config);
                 worker.process_suspended_records(&config, th);
             }
             last_housekeeping = std::time::Instant::now();
