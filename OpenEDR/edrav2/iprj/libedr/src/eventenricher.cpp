@@ -104,6 +104,16 @@ namespace {
 			return {};
 		return wsDst;
 	}
+
+	// char-stream friendly narrowing for log lines (lossy beyond ASCII).
+	std::string Narrow(const std::wstring& wsIn)
+	{
+		std::string sOut;
+		sOut.reserve(wsIn.size());
+		for (wchar_t wc : wsIn)
+			sOut.push_back(static_cast<char>(wc));
+		return sOut;
+	}
 }
 
 //
@@ -302,11 +312,9 @@ void EventEnricher::rollbackRansomBackups(int64_t nPid)
 		}
 
 		if (::CopyFileW(entry.wsBackup.c_str(), entry.wsOriginal.c_str(), FALSE))
-			LOGLVL(Normal, FMT("RansomShield: restored <"
-				<< std::string(entry.wsOriginal.begin(), entry.wsOriginal.end()) << ">"));
+			LOGLVL(Normal, FMT("RansomShield: restored <" << Narrow(entry.wsOriginal) << ">"));
 		else
-			LOGLVL(Critical,FMT("RansomShield: restore FAILED for <"
-				<< std::string(entry.wsOriginal.begin(), entry.wsOriginal.end()) << ">"));
+			LOGLVL(Critical, FMT("RansomShield: restore FAILED for <" << Narrow(entry.wsOriginal) << ">"));
 	}
 }
 
