@@ -707,7 +707,32 @@ void EventEnricher::put(const Variant& vEventRef)
 	{
 		// Kernel hook event carrier.
 		// owlyHook and owlyHv sub-dicts are already built by controller.cpp::parseEvent.
-		// No additional enrichment needed here — pass through to Owlyshield as-is.
+		//
+		// WinAPI usage parsing: the user-mode hook carrier carries the hooked
+		// API as "module!Function" (e.g. "advapi32.dll!CryptEncrypt"). Split it
+		// into apiModule/apiFunction so edrav2 policies can match either part:
+		//   @event.owlyHook.functionName  - full "module!Function" name
+		//   @event.owlyHook.apiModule     - "advapi32.dll"
+		//   @event.owlyHook.apiFunction   - "CryptEncrypt"
+		if (vEvent.has("owlyHook"))
+		{
+			Variant vHook = vEvent.get("owlyHook");
+			std::wstring sName = vHook.get("functionName", L"");
+			auto nPos = sName.rfind(L'!');
+			if (!sName.empty())
+			{
+				if (nPos != std::wstring::npos)
+				{
+					vHook.put("apiModule", sName.substr(0, nPos));
+					vHook.put("apiFunction", sName.substr(nPos + 1));
+				}
+				else
+				{
+					vHook.put("apiFunction", sName);
+				}
+				vEvent.put("owlyHook", vHook);
+			}
+		}
 		break;
 	}
 	case Event::LLE_SELF_DEFENSE:

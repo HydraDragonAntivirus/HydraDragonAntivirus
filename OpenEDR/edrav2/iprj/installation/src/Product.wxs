@@ -89,15 +89,15 @@
 				<RemoveFile Id="RemovingDriver" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
 				<RemoveFile Id="RemovingMbrFilterDriver" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield">
-					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]rules" Type="string" KeyPath="yes" />
-					<RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" />
+					<RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" KeyPath="yes" />
 					<RegistryValue Name="LOG_PATH" Value="[CommonAppDataFolder]edrsvc\log" Type="string" />
 					<RegistryValue Name="REPORTS_PATH" Value="[CommonAppDataFolder]edrsvc\log\reports" Type="string" />
 					<RegistryValue Name="ALWAYS_AUTO_REVERT" Value="1" Type="string" />
 					<RegistryValue Name="TRUST_COMODO_CLOUD" Value="1" Type="string" />
 				</RegistryKey>
+				<!-- Firewall SDK rule path (the only RULES_PATH kept) -->
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
-					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]firewall-rules" Type="string" />
+					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]firewall-rules" Type="string" KeyPath="no" />
 				</RegistryKey>
 			</Component>
 			<Files Include="$(var.SourceBinDir)**">
