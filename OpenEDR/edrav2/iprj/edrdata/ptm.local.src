@@ -15,12 +15,24 @@
 			"ransomWriteAfterRead": "RANSOM_WRITE_AFTER_READ"
 		},
 		"ransomEventBaseType": {
-			"MLE_RANSOMWARE_FILE_ENCRYPTION": 1000008
-		}
+			"MLE_RANSOMWARE_FILE_ENCRYPTION": 1000008,
+			"MLE_RANSOM_SHADOW_COPY_DELETE": 1000009
+		},
+		// imatch (case-insensitive wildcard) patterns for shadow-copy wiping
+		"ransomShadowDeleteCmdLines": [
+			"*vssadmin*delete shadows*",
+			"*wmic*shadowcopy delete*",
+			"*wmic*shadowcopy*delete*",
+			"*wbadmin*delete catalog*"
+		]
 	},
 
 	"variables": {
-		"copyFileKey": [ "@event.process.id", "@event.file.rawHash" ]
+		"copyFileKey": [ "@event.process.id", "@event.file.rawHash" ],
+		// Ransomware correlation is keyed by file identity (uniquePath), not
+		// content hash: in-place encryption changes content, so the read and
+		// write sequence hashes differ while the file stays the same.
+		"ransomPathKey": [ "@event.process.id", "@event.file.uniquePath" ]
 	},
 
 	"patterns": {
@@ -178,20 +190,21 @@
 		], // FILE_COPY_WRITE_READ
 
 		//
-		// Pattern for ransomware file-encryption scenario
-		// (Kaspersky-style behavioral chain: read content -> encrypt and
-		// save -> remove the original). Purely behavioral: no extension
-		// lists, no static hashes.
+		// Pattern for ransomware file-encryption scenario.
+		// Purely behavioral: read -> modify same file -> remove/rename it.
+		// Correlation is keyed by process + uniquePath (file identity), so
+		// in-place encryption (content changes) still correlates. No extension
+		// lists, no benign lists, no static hashes.
 		//
 		"RANSOMWARE_FILE_ENCRYPTION": [
 
-			// 1) Full read of a file: remember it per process + rawHash
+			// 1) Full read of a file: remember it per process + file identity
 			{
 				"eventType": "LLE_FILE_DATA_READ_FULL",
 				"rule": {
 					"saveContext": {
 						"basket": "@const.basket.ransomReadFiles",
-						"key": "@var.copyFileKey",
+						"key": "@var.ransomPathKey",
 						"group": "@event.process.id",
 						"lifetime": 600000,
 						"data": { "file": "@event.file" }
@@ -199,18 +212,18 @@
 				}
 			},
 
-			// 2) Full write to the SAME file (same process + same rawHash)
-			//    after it was fully read = encrypt-and-save footprint
+			// 2) Full write to a previously-read file (same process):
+			//    encrypt-and-save footprint
 			{
 				"eventType": "LLE_FILE_DATA_WRITE_FULL",
 				"rule": {
 					"loadContext": {
 						"basket": "@const.basket.ransomReadFiles",
-						"key": "@var.copyFileKey"
+						"key": "@var.ransomPathKey"
 					},
 					"saveContext": {
 						"basket": "@const.basket.ransomWriteAfterRead",
-						"key": "@var.copyFileKey",
+						"key": "@var.ransomPathKey",
 						"group": "@event.process.id",
 						"lifetime": 600000,
 						"data": { "file": "@event.file" }
@@ -218,14 +231,14 @@
 				}
 			},
 
-			// 3) Delete of a file that was read AND rewritten by this
-			//    process = original removal after encryption -> detection
+			// 3a) Delete of a written-after-read file = original removal
+			//     after encryption -> detection
 			{
 				"eventType": "LLE_FILE_DELETE",
 				"rule": {
 					"loadContext": {
 						"basket": "@const.basket.ransomWriteAfterRead",
-						"key": "@var.copyFileKey",
+						"key": "@var.ransomPathKey",
 						"delete": true
 					},
 					"createEvent": {
@@ -244,6 +257,51 @@
 							{
 								"name": "source",
 								"value": "@context.file"
+							},
+							{
+								"name": "time",
+								"value": "@event.time"
+							},
+							{
+								"name": "tickTime",
+								"value": "@event.tickTime"
+							}
+						]
+					}
+				}
+			},
+
+			// 3b) Rename of a written-after-read file (extension-change /
+			//     .locked style): the event's file identity is the ORIGINAL
+			//     name; the new name rides on <fileRenameTarget>.
+			{
+				"eventType": "LLE_FILE_RENAME",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.basket.ransomWriteAfterRead",
+						"key": "@var.ransomPathKey",
+						"delete": true
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOMWARE_FILE_ENCRYPTION",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{
+								"name": "baseType",
+								"value": "@const.ransomEventBaseType.MLE_RANSOMWARE_FILE_ENCRYPTION"
+							},
+							{
+								"name": "process",
+								"value": "@event.process"
+							},
+							{
+								"name": "source",
+								"value": "@context.file"
+							},
+							{
+								"name": "destination",
+								"value": "@event.fileRenameTarget"
 							},
 							{
 								"name": "time",
@@ -277,6 +335,44 @@
 					}
 				}
 			}
-		] // RANSOMWARE_FILE_ENCRYPTION
+		], // RANSOMWARE_FILE_ENCRYPTION
+
+		//
+		// Pattern for shadow-copy deletion: vssadmin/wmic/wbadmin wiping
+		// volume shadow copies is a near-zero-FP ransomware footprint.
+		//
+		"RANSOM_SHADOW_COPY_DELETE": [
+			{
+				"eventType": "LLE_PROCESS_CREATE",
+				"condition": {
+					"$operation": "imatch",
+					"pattern": "@const.ransomShadowDeleteCmdLines",
+					"args": [ "@event.process.cmdLine" ]
+				},
+				"createEvent": {
+					"eventType": "MLE_RANSOM_SHADOW_COPY_DELETE",
+					"destination": "OUT",
+					"clone": false,
+					"data": [
+						{
+							"name": "baseType",
+							"value": "@const.ransomEventBaseType.MLE_RANSOM_SHADOW_COPY_DELETE"
+						},
+						{
+							"name": "process",
+							"value": "@event.process"
+						},
+						{
+							"name": "time",
+							"value": "@event.time"
+						},
+						{
+							"name": "tickTime",
+							"value": "@event.tickTime"
+						}
+					]
+				}
+			}
+		] // RANSOM_SHADOW_COPY_DELETE
 	}
 }

@@ -503,6 +503,24 @@ void EventEnricher::put(const Variant& vEventRef)
 
 		break;
 	}
+	case Event::LLE_FILE_RENAME:
+	{
+		// Enrich renames like other file events so policies can correlate
+		// the renamed (pre-rename) file via uniquePath/abstractPath. The new
+		// name is hoisted to a top-level <fileRenameTarget> field because
+		// the enriched file object below replaces the raw dictionary that
+		// carried it.
+		Dictionary vParams = vEvent.get("file");
+		if (vParams.has("renameTarget"))
+			vEvent.put("fileRenameTarget", vParams["renameTarget"]);
+		vParams.put("security", vToken);
+		vEvent.put("file", variant::createLambdaProxy([vParams]() -> Variant
+		{
+			auto pFileInformation = queryInterface<sys::win::IFileInformation>(queryService("fileDataProvider"));
+			return pFileInformation->getFileInfo(vParams);
+		}, true));
+		break;
+	}
 	case Event::LLE_REGISTRY_KEY_CREATE:
 	case Event::LLE_REGISTRY_KEY_NAME_CHANGE:
 	case Event::LLE_REGISTRY_KEY_DELETE:
