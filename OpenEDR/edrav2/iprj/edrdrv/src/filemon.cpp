@@ -1669,9 +1669,10 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 	{
 		// Query current file size (cap the backup to full-activity limit)
 		FILE_STANDARD_INFORMATION stdInfo = {};
+		IO_STATUS_BLOCK iosQuery = {};
 		ns = FltQueryInformationFile(pFltObjects->Instance,
 			pFltObjects->FileObject, &stdInfo, sizeof(stdInfo),
-			FileStandardInformation);
+			FileStandardInformation, &iosQuery);
 		if (!NT_SUCCESS(ns))
 			__leave;
 
@@ -1741,7 +1742,7 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 			__leave;
 
 		constexpr ULONG c_nChunk = 256 * 1024;
-		pBuffer = ExAllocatePool2(POOL_FLAG_PAGED, c_nChunk, 'rdSB');
+		pBuffer = ExAllocatePoolWithTag(PagedPool, c_nChunk, 'rdSB');
 		if (pBuffer == nullptr)
 		{
 			ZwClose(hDst);
@@ -1764,7 +1765,8 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 			IO_STATUS_BLOCK iosR = {};
 
 			ns = FltReadFile(pFltObjects->Instance, pFltObjects->FileObject,
-				&nSrcOff, pBuffer, nToRead, &nRead, nullptr, nullptr);
+				&nSrcOff, nToRead, pBuffer, 0 /*FLT_IO_OPERATION_FLAGS*/,
+				&nRead, nullptr, nullptr, 0 /*paging priority*/);
 			if (!NT_SUCCESS(ns) || nRead == 0)
 				break;
 

@@ -436,7 +436,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 					"\"certainty\":1.0,"
 					"\"matchDetails\":\"3+ destructive ops on previously-read files\","
 					"\"response\":\"rollback+terminate\"},"
-				"\"process\":{\"processId\":" + std::to_string(nShieldPid) +
+				"\"process\":{\"processId\":" + std::to_string(nPid) +
 					",\"processPath\":\"" + sWhoJson + "\"}}";
 			AppendToOutputEvents(sJson);
 		}
