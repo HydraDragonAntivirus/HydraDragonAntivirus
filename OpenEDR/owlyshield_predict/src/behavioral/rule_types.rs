@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 // =============================================================================
 // HELPER FUNCTIONS & DEFAULTS
@@ -21,73 +21,7 @@ pub fn default_true() -> bool {
 }
 
 
-fn wide_ptr_len(ptr: *const u16) -> usize {
-    let mut len = 0usize;
-    unsafe {
-        while !ptr.is_null() && *ptr.add(len) != 0 {
-            len += 1;
-        }
-    }
-    len
-}
 
-
-fn get_known_folder_path(folder_id: &windows::core::GUID) -> Option<String> {
-    use std::ffi::{OsString, c_void};
-    use std::os::windows::ffi::OsStringExt;
-    use std::slice;
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::UI::Shell::{KNOWN_FOLDER_FLAG, SHGetKnownFolderPath};
-
-    unsafe {
-        let path_ptr =
-            SHGetKnownFolderPath(folder_id, KNOWN_FOLDER_FLAG(0), HANDLE::default()).ok()?;
-        if path_ptr.is_null() {
-            return None;
-        }
-
-        let len = wide_ptr_len(path_ptr.0);
-        let path_slice = slice::from_raw_parts(path_ptr.0, len);
-        let path = OsString::from_wide(path_slice)
-            .to_string_lossy()
-            .into_owned();
-        CoTaskMemFree(Some(path_ptr.0 as *const c_void));
-        Some(path)
-    }
-}
-
-
-fn resolve_special_environment_variable(var_name: &str) -> Option<String> {
-    use windows::Win32::UI::Shell::{
-        FOLDERID_CommonStartup, FOLDERID_Desktop, FOLDERID_Downloads, FOLDERID_Startup,
-    };
-
-    static CACHE: OnceLock<HashMap<&'static str, Option<String>>> = OnceLock::new();
-
-    let cache = CACHE.get_or_init(|| {
-        let mut map = HashMap::new();
-        map.insert(
-            "KNOWNFOLDER_DESKTOP",
-            get_known_folder_path(&FOLDERID_Desktop),
-        );
-        map.insert(
-            "KNOWNFOLDER_DOWNLOADS",
-            get_known_folder_path(&FOLDERID_Downloads),
-        );
-        map.insert(
-            "KNOWNFOLDER_STARTUP",
-            get_known_folder_path(&FOLDERID_Startup),
-        );
-        map.insert(
-            "KNOWNFOLDER_COMMONSTARTUP",
-            get_known_folder_path(&FOLDERID_CommonStartup),
-        );
-        map
-    });
-
-    cache.get(var_name).cloned().flatten()
-}
 
 
 pub fn expand_environment_variables(text: &str) -> String {
@@ -99,15 +33,53 @@ pub fn expand_environment_variables(text: &str) -> String {
         Err(_) => return text.to_string(),
     };
     re.replace_all(text, |caps: &regex::Captures| {
-        let var_name = caps[1].to_uppercase();
-        if let Some(val) = std::env::var(&var_name)
-            .ok()
-            .or_else(|| resolve_special_environment_variable(&var_name))
-        {
-            val
-        } else {
-            caps[0].to_string()
+        let var_name = &caps[1];
+
+        // 1. Direct environment variable lookup (exact, uppercase, lowercase)
+        if let Ok(val) = std::env::var(var_name) {
+            return val;
         }
+        if let Ok(val) = std::env::var(var_name.to_uppercase()) {
+            return val;
+        }
+        if let Ok(val) = std::env::var(var_name.to_lowercase()) {
+            return val;
+        }
+
+        // 2. Standard fallback paths if env var is missing in current process context
+        let var_upper = var_name.to_ascii_uppercase();
+        match var_upper.as_str() {
+            "TEMP" | "TMP" => {
+                return std::env::temp_dir()
+                    .to_string_lossy()
+                    .trim_end_matches(['\\', '/'])
+                    .to_string();
+            }
+            "SYSTEMROOT" | "WINDIR" => {
+                return "C:\\Windows".to_string();
+            }
+            "SYSTEMDRIVE" => {
+                return "C:".to_string();
+            }
+            "SYSTEM32" => {
+                return "C:\\Windows\\System32".to_string();
+            }
+            "PROGRAMFILES" => {
+                return "C:\\Program Files".to_string();
+            }
+            "PROGRAMFILES(X86)" => {
+                return "C:\\Program Files (x86)".to_string();
+            }
+            "PROGRAMDATA" | "ALLUSERSPROFILE" => {
+                return "C:\\ProgramData".to_string();
+            }
+            "PUBLIC" => {
+                return "C:\\Users\\Public".to_string();
+            }
+            _ => {}
+        }
+
+        caps[0].to_string()
     })
     .to_string()
 }
@@ -2075,14 +2047,30 @@ pub struct NamedConditionGroup {
     pub hook_error_min_count: Option<usize>,
     #[serde(default)]
     pub hook_error_exclude_benign: bool,
-    #[serde(default = "default_zero")]
+    #[serde(
+        default = "default_zero",
+        alias = "matches",
+        alias = "count",
+        alias = "min_count",
+        alias = "match_count",
+        alias = "required_matches",
+        alias = "min_matches_count"
+    )]
     pub min_matches: usize,
     #[serde(default)]
     pub json_match: Option<JsonMatcher>,
 
     /// Literal/glob/regex patterns matched directly against the complete
     /// OpenEDR JSON line. The event stays opaque; no JSON parsing is performed.
-    #[serde(default, alias = "raw_event_patterns", alias = "raw_json_patterns")]
+    #[serde(
+        default,
+        alias = "raw_event_patterns",
+        alias = "raw_json_patterns",
+        alias = "raw_patterns",
+        alias = "raw_pattern",
+        alias = "raw_json_pattern",
+        alias = "raw_event_pattern"
+    )]
     pub raw_json_patterns: Vec<String>,
 
     // Sanctum EDR conditions
@@ -2143,6 +2131,16 @@ pub struct BehaviorRule {
     pub accessed_paths: Vec<String>,
     #[serde(default)]
     pub staging_paths: Vec<String>,
+    #[serde(
+        default,
+        alias = "raw_event_patterns",
+        alias = "raw_json_patterns",
+        alias = "raw_patterns",
+        alias = "raw_pattern",
+        alias = "raw_json_pattern",
+        alias = "raw_event_pattern"
+    )]
+    pub raw_json_patterns: Vec<String>,
     #[serde(default = "default_zero")]
     pub multi_access_threshold: usize,
     #[serde(default)]
@@ -2183,9 +2181,18 @@ pub struct BehaviorRule {
     pub stages: Vec<AttackStage>,
     #[serde(default)]
     pub mapping: Option<RuleMapping>,
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "min_stages",
+        alias = "required_stages",
+        alias = "min_stages_count",
+        alias = "stages_required"
+    )]
     pub min_stages_satisfied: usize,
-    #[serde(default = "default_severity")]
+    #[serde(
+        default = "default_severity",
+        alias = "score"
+    )]
     pub severity: u8,
     #[serde(default)]
     pub author: Option<String>,
@@ -2720,6 +2727,7 @@ impl BehaviorRule {
             expand_network_rules(&mut cond_group.network_rules);
             expand_vec(&mut cond_group.registry_value_data_patterns);
             expand_vec(&mut cond_group.dns_query_patterns);
+            expand_vec(&mut cond_group.raw_json_patterns);
             expand_vec(&mut cond_group.self_defense_attack_types);
             expand_vec(&mut cond_group.self_defense_categories);
             expand_vec(&mut cond_group.self_defense_operations);
