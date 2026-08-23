@@ -52,7 +52,8 @@ fn run_install() {
     println!("[i] Starting ELAM installer..");
 
     // Step 1: Install the ELAM certificate via the driver (.sys) file.
-    let system32 = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string()) + "\\System32";
+    let system32 =
+        std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string()) + "\\System32";
     let driver_path = std::path::PathBuf::from(&system32).join("drivers\\sanctum.sys");
     let path = path_to_wstring(&driver_path);
 
