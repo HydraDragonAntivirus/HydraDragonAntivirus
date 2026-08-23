@@ -513,10 +513,10 @@
 		//
 		"FLS_MALICIOUS_VERDICT": [
 			{
-				"eventType": "LLE_PROCESS_CREATE",
+				"eventType": "LLE_FILE_DATA_READ_FULL",
 				"rule": {
 					"condition": {
-						"$operation": "==",
+						"$operation": "equal",
 						"args": [ "@event.process.imageFile.verdict", 2 ]
 					},
 					"createEvent": {
@@ -530,6 +530,49 @@
 							{ "name": "tickTime", "value": "@event.tickTime" }
 						]
 					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"condition": {
+						"$operation": "equal",
+						"args": [ "@event.process.imageFile.verdict", 2 ]
+					},
+					"createEvent": {
+						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_NETWORK_CONNECT_OUT",
+				"rule": {
+					"condition": {
+						"$operation": "equal",
+						"args": [ "@event.process.imageFile.verdict", 2 ]
+					},
+					"createEvent": {
+						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			}
 				}
 			}
 		] // FLS_MALICIOUS_VERDICT
