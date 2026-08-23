@@ -1715,7 +1715,7 @@ bool isReadWriteSkipping(PFLT_CALLBACK_DATA pData, StreamHandleContext* pStreamH
 // The saved path is reported to usermode via OwlyPreImageSaved.
 //
 
-static NTSTATUS CreateDirFlt(PFLT_FILTER pFilter, PFLT_INSTANCE pInstance, PCWSTR pszDir)
+static NTSTATUS CreateDirZw(PCWSTR pszDir)
 {
 	UNICODE_STRING usDir;
 	RtlInitUnicodeString(&usDir, pszDir);
@@ -1724,25 +1724,19 @@ static NTSTATUS CreateDirFlt(PFLT_FILTER pFilter, PFLT_INSTANCE pInstance, PCWST
 		OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, nullptr, nullptr);
 	IO_STATUS_BLOCK ios = {};
 	HANDLE hDir = nullptr;
-	PFILE_OBJECT pDirObj = nullptr;
 
-	NTSTATUS ns = FltCreateFileEx(pFilter, pInstance,
-		&hDir, &pDirObj,
+	NTSTATUS ns = ZwCreateFile(&hDir,
 		SYNCHRONIZE | FILE_LIST_DIRECTORY | FILE_TRAVERSE,
 		&oa, &ios, nullptr,
 		FILE_ATTRIBUTE_DIRECTORY,
 		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		FILE_OPEN_IF,
 		FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-		nullptr, 0,
-		IO_IGNORE_SHARE_ACCESS_CHECK);
+		nullptr, 0);
 
 	if (NT_SUCCESS(ns))
 	{
-		if (pDirObj != nullptr)
-			ObDereferenceObject(pDirObj);
-		if (hDir != nullptr)
-			FltClose(hDir);
+		ZwClose(hDir);
 	}
 	return ns;
 }
@@ -1772,9 +1766,12 @@ void StreamHandleContext::RansomTeeOpenIfNeeded(PCFLT_RELATED_OBJECTS pFltObject
 
 	const ULONG nPid = (ULONG)(ULONG_PTR)nOpeningProcessId;
 
+	(void)CreateDirZw(L"\\??\\C:\\ProgramData\\HydraDragonBackups");
+
 	wchar_t szPidDir[96] = L"";
 	RtlStringCchPrintfW(szPidDir, RTL_NUMBER_OF(szPidDir),
 		L"\\??\\C:\\ProgramData\\HydraDragonBackups\\%lu", nPid);
+	(void)CreateDirZw(szPidDir);
 
 	PCWSTR pszLast = L"unknown";
 	if (pNameInfo != nullptr && pNameInfo->Name.Buffer != nullptr)
@@ -1902,9 +1899,12 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 		if (nSize > g_pCommonData->nMaxFullActFileSize)
 			nSize = g_pCommonData->nMaxFullActFileSize;
 
+		(void)CreateDirZw(L"\\??\\C:\\ProgramData\\HydraDragonBackups");
+
 		wchar_t szPidDir[96] = L"";
 		RtlStringCchPrintfW(szPidDir, RTL_NUMBER_OF(szPidDir),
 			L"\\??\\C:\\ProgramData\\HydraDragonBackups\\%lu", nPid);
+		(void)CreateDirZw(szPidDir);
 
 		PCWSTR pszFullPath = L"";
 		if (pCtx->pNameInfo != nullptr && pCtx->pNameInfo->Name.Buffer != nullptr)
