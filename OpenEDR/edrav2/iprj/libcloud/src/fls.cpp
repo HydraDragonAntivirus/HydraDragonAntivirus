@@ -14,6 +14,7 @@
 #include <net.hpp>
 #include "fls.h"
 #include "flsproto4.h"
+#include <mutex>
 
 // Set component for logging
 #undef CMD_COMPONENT
@@ -22,6 +23,10 @@
 constexpr char c_sZeroHash[] = "0000000000000000000000000000000000000000";
 constexpr char c_sUdpPrefix[] = "udp://";
 constexpr char c_sProtocolDelimiter[] = "://";
+
+// RansomShield/FLS dedup: quarantine + GUI detection fires ONCE per file.
+std::mutex g_mtxFlsHandled;
+std::unordered_set<std::string> g_handledMaliciousFiles;
 
 namespace cmd {
 namespace cloud {
@@ -682,12 +687,25 @@ void FlsService::enrichFileVerdict(Variant vFile)
 	auto verdict = getFileVerdict(sFileHash);
 	putByPath(vFile, "fls.verdict", verdict, true /* fCreatePaths */);
 
- 	if (verdict == FileVerdict::Malicious)
- 	{
- 		std::string sFilePath = vFile["path"];
- 		if (!sFilePath.empty())
- 		{
- 			LOGLVL(Normal, "FLS Verdict is Malicious! Dynamically invoking Owlyshield Quarantine for: <" << sFilePath << ">");
+	if (verdict == FileVerdict::Malicious)
+	{
+		std::string sFilePath = vFile["path"];
+		if (!sFilePath.empty())
+		{
+			// Handle each malicious file ONCE: repeated FLS checks on the
+			// same path (every process touching it) must not spam
+			// quarantine attempts or GUI detections.
+			{
+				std::scoped_lock _lock(g_mtxFlsHandled);
+				if (!g_handledMaliciousFiles.insert(sFilePath).second)
+				{
+					LOGLVL(Detailed, "FLS Malicious verdict already handled for <"
+						<< sFilePath << ">; skipping");
+					return;
+				}
+			}
+
+			LOGLVL(Normal, "FLS Verdict is Malicious! Dynamically invoking Owlyshield Quarantine for: <" << sFilePath << ">");
  			HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
  			if (hDll != nullptr)
  			{
@@ -700,6 +718,14 @@ void FlsService::enrichFileVerdict(Variant vFile)
  						static_cast<uint32_t>(sFilePath.size())
  					);
  					LOGLVL(Normal, "Owlyshield Quarantine executed for <" << sFilePath << "> with result: " << qRes);
+
+					// Quarantine failed (locked/moved): allow a retry on the
+					// next malicious-verdict event for this path.
+					if (qRes != 0)
+					{
+						std::scoped_lock _retryLock(g_mtxFlsHandled);
+						g_handledMaliciousFiles.erase(sFilePath);
+					}
  				}
  				else
  				{
