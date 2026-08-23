@@ -1772,12 +1772,9 @@ void StreamHandleContext::RansomTeeOpenIfNeeded(PCFLT_RELATED_OBJECTS pFltObject
 
 	const ULONG nPid = (ULONG)(ULONG_PTR)nOpeningProcessId;
 
-	(void)CreateDirFlt(pFltObjects->Filter, pFltObjects->Instance, L"\\HydraDragonBackups");
-
 	wchar_t szPidDir[96] = L"";
 	RtlStringCchPrintfW(szPidDir, RTL_NUMBER_OF(szPidDir),
-		L"\\HydraDragonBackups\\%lu", nPid);
-	(void)CreateDirFlt(pFltObjects->Filter, pFltObjects->Instance, szPidDir);
+		L"\\??\\C:\\ProgramData\\HydraDragonBackups\\%lu", nPid);
 
 	PCWSTR pszLast = L"unknown";
 	if (pNameInfo != nullptr && pNameInfo->Name.Buffer != nullptr)
@@ -1810,13 +1807,16 @@ void StreamHandleContext::RansomTeeOpenIfNeeded(PCFLT_RELATED_OBJECTS pFltObject
 		OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, nullptr, nullptr);
 
 	IO_STATUS_BLOCK ios = {};
-	NTSTATUS ns = FltCreateFileEx2(pFltObjects->Filter, pFltObjects->Instance,
-		&hRansomTee, &pRansomTeeObj,
-		FILE_WRITE_DATA | SYNCHRONIZE, &oaDst, &ios, nullptr,
+	NTSTATUS ns = ZwCreateFile(&hRansomTee, FILE_WRITE_DATA | SYNCHRONIZE, &oaDst, &ios, nullptr,
 		FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OVERWRITE_IF,
 		FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_NO_INTERMEDIATE_BUFFERING,
-		nullptr, 0, IO_IGNORE_SHARE_ACCESS_CHECK, nullptr);
-	if (!NT_SUCCESS(ns))
+		nullptr, 0);
+
+	if (NT_SUCCESS(ns))
+	{
+		ObReferenceObjectByHandle(hRansomTee, FILE_WRITE_DATA, *IoFileObjectType, KernelMode, (PVOID*)&pRansomTeeObj, nullptr);
+	}
+	else
 	{
 		hRansomTee = ((HANDLE)(LONG_PTR)-1);
 		pRansomTeeObj = nullptr;
@@ -1839,12 +1839,14 @@ void StreamHandleContext::RansomTeeChunk(PCFLT_RELATED_OBJECTS pFltObjects, void
 
 	LARGE_INTEGER off = nRansomOff;
 	ULONG nWritten = 0;
-	NTSTATUS ns = FltWriteFile(pFltObjects->Instance, pRansomTeeObj,
-		&off, (ULONG)nLen, pDataBuffer,
-		FLTFL_IO_OPERATION_DO_NOT_UPDATE_BYTE_OFFSET,
-		&nWritten, nullptr, nullptr);
+	IO_STATUS_BLOCK iosWrite = {};
+	NTSTATUS ns = ZwWriteFile(hRansomTee, nullptr, nullptr, nullptr, &iosWrite,
+		pDataBuffer, (ULONG)nLen, &off, nullptr);
 	if (NT_SUCCESS(ns))
+	{
+		nWritten = (ULONG)iosWrite.Information;
 		nRansomOff.QuadPart += nWritten;
+	}
 }
 
 // Flushes and closes the tee stream.
@@ -1857,7 +1859,7 @@ void StreamHandleContext::RansomTeeClose(bool /*fFlush*/)
 	}
 	if (hRansomTee != nullptr && hRansomTee != ((HANDLE)(LONG_PTR)-1))
 	{
-		FltClose(hRansomTee);
+		ZwClose(hRansomTee);
 	}
 	hRansomTee = nullptr;
 }
@@ -1900,13 +1902,9 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 		if (nSize > g_pCommonData->nMaxFullActFileSize)
 			nSize = g_pCommonData->nMaxFullActFileSize;
 
-		// Create directories on the same volume
-		(void)CreateDirFlt(pFltObjects->Filter, pFltObjects->Instance, L"\\HydraDragonBackups");
-
 		wchar_t szPidDir[96] = L"";
 		RtlStringCchPrintfW(szPidDir, RTL_NUMBER_OF(szPidDir),
-			L"\\HydraDragonBackups\\%lu", nPid);
-		(void)CreateDirFlt(pFltObjects->Filter, pFltObjects->Instance, szPidDir);
+			L"\\??\\C:\\ProgramData\\HydraDragonBackups\\%lu", nPid);
 
 		PCWSTR pszFullPath = L"";
 		if (pCtx->pNameInfo != nullptr && pCtx->pNameInfo->Name.Buffer != nullptr)
@@ -1939,14 +1937,15 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 			OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, nullptr, nullptr);
 
 		IO_STATUS_BLOCK iosDst = {};
-		ns = FltCreateFileEx2(pFltObjects->Filter, pFltObjects->Instance,
-			&hDst, &pDstObj,
-			FILE_WRITE_DATA | SYNCHRONIZE, &oaDst, &iosDst, nullptr,
+		ns = ZwCreateFile(&hDst, FILE_WRITE_DATA | SYNCHRONIZE, &oaDst, &iosDst, nullptr,
 			FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OVERWRITE_IF,
 			FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_NO_INTERMEDIATE_BUFFERING,
-			nullptr, 0, IO_IGNORE_SHARE_ACCESS_CHECK, nullptr);
+			nullptr, 0);
+
 		if (!NT_SUCCESS(ns))
 			__leave;
+
+		ObReferenceObjectByHandle(hDst, FILE_WRITE_DATA, *IoFileObjectType, KernelMode, (PVOID*)&pDstObj, nullptr);
 
 		constexpr ULONG c_nChunk = 256 * 1024;
 		pBuffer = ExAllocatePoolWithTag(PagedPool, c_nChunk, 'rdSB');
@@ -1975,10 +1974,11 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 				break;
 
 			ULONG nWritten = 0;
-			ns = FltWriteFile(pFltObjects->Instance, pDstObj,
-				&nDstOff, nRead, pBuffer,
-				FLTFL_IO_OPERATION_DO_NOT_UPDATE_BYTE_OFFSET,
-				&nWritten, nullptr, nullptr);
+			IO_STATUS_BLOCK iosWrite = {};
+			ns = ZwWriteFile(hDst, nullptr, nullptr, nullptr, &iosWrite,
+				pBuffer, nRead, &nDstOff, nullptr);
+			if (NT_SUCCESS(ns))
+				nWritten = (ULONG)iosWrite.Information;
 			if (!NT_SUCCESS(ns))
 				break;
 
@@ -2015,7 +2015,7 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 	if (pDstObj != nullptr)
 		ObDereferenceObject(pDstObj);
 	if (hDst != nullptr)
-		FltClose(hDst);
+		ZwClose(hDst);
 
 	return ns;
 }

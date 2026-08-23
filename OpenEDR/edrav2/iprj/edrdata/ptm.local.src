@@ -28,7 +28,8 @@
 			"MLE_RANSOM_BEHAVIOR": 1000008
 		},
 		"ransomBasket": {
-			"readWrite": "RANSOM_FILE_READ_WRITE"
+			"readWrite": "RANSOM_FILE_READ_WRITE",
+			"processCounter": "RANSOM_PROCESS_COUNTER"
 		},
 		"flsEventBaseType": {
 			"MLE_FLS_MALICIOUS_VERDICT": 1000010
@@ -340,6 +341,34 @@
 		], // RANSOM_SHADOW_COPY_DELETE
 
 		//
+		// Pattern for keeping track of process distinct hits
+		//
+		"RANSOM_COUNTER_INIT": [
+			{
+				"eventType": "LLE_PROCESS_CREATE",
+				"rule": {
+					"saveContext": {
+						"basket": "@const.ransomBasket.processCounter",
+						"key": "@event.process.id",
+						"lifetime": 86400000,
+						"data": {
+							"hitCount": 0
+						}
+					}
+				}
+			},
+			{
+				"eventType": "LLE_PROCESS_DELETE",
+				"rule": {
+					"deleteContext": {
+						"basket": "@const.ransomBasket.processCounter",
+						"group": "@event.process.id"
+					}
+				}
+			}
+		], // RANSOM_COUNTER_INIT
+
+		//
 		// Pattern for Ransomware destructive overwrite / in-place encryption behavior
 		// Detects a process reading a file (sequential or mmap) and subsequently overwriting, modifying, renaming or deleting it.
 		//
@@ -384,9 +413,13 @@
 						"basket": "@const.ransomBasket.readWrite",
 						"key": "@var.ransomPathKey"
 					},
+					"deleteContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
 					"createEvent": {
-						"eventType": "MLE_RANSOM_BEHAVIOR",
-						"destination": "OUT",
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
 						"clone": false,
 						"data": [
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
@@ -408,9 +441,13 @@
 						"basket": "@const.ransomBasket.readWrite",
 						"key": "@var.ransomPathKey"
 					},
+					"deleteContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
 					"createEvent": {
-						"eventType": "MLE_RANSOM_BEHAVIOR",
-						"destination": "OUT",
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
 						"clone": false,
 						"data": [
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
@@ -432,9 +469,13 @@
 						"basket": "@const.ransomBasket.readWrite",
 						"key": "@var.ransomPathKey"
 					},
+					"deleteContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
 					"createEvent": {
-						"eventType": "MLE_RANSOM_BEHAVIOR",
-						"destination": "OUT",
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
 						"clone": false,
 						"data": [
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
@@ -456,9 +497,13 @@
 						"basket": "@const.ransomBasket.readWrite",
 						"key": "@var.ransomPathKey"
 					},
+					"deleteContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
 					"createEvent": {
-						"eventType": "MLE_RANSOM_BEHAVIOR",
-						"destination": "OUT",
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
 						"clone": false,
 						"data": [
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
@@ -480,9 +525,13 @@
 						"basket": "@const.ransomBasket.readWrite",
 						"key": "@var.ransomPathKey"
 					},
+					"deleteContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
 					"createEvent": {
-						"eventType": "MLE_RANSOM_BEHAVIOR",
-						"destination": "OUT",
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
 						"clone": false,
 						"data": [
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
@@ -496,7 +545,159 @@
 				}
 			},
 
-			// Step 3: Cleanup context when process exits
+			// Step 3: Count the distinct candidate hits per process and forward to evaluation
+			{
+				"eventType": "MLE_RANSOM_CANDIDATE",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.ransomBasket.processCounter",
+						"key": "@event.process.id"
+					},
+					"saveContext": {
+						"basket": "@const.ransomBasket.processCounter",
+						"key": "@event.process.id",
+						"lifetime": 86400000,
+						"data": {
+							"hitCount": {
+								"$operation": "add",
+								"args": [
+									{ "$path": "@context.hitCount", "$default": 0 },
+									1
+								]
+							}
+						}
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_EVALUATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.destination" },
+							{ "name": "source", "value": "@event.source" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "hitCount", "value": { "$operation": "add", "args": [ { "$path": "@context.hitCount", "$default": 0 }, 1 ] } }
+						]
+					}
+				}
+			},
+
+			// Step 4a: Fast Lane evaluation (User Profile files -> 2 hits)
+			{
+				"eventType": "MLE_RANSOM_EVALUATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!equal",
+								"args": [ { "$path": "@event.process.imageFile.verdict", "$default": 0 }, 1 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ { "$path": "@event.process.imageFile.abstractPath", "$default": "" } ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ { "$path": "@event.destination.abstractPath", "$default": "" } ]
+							},
+							{
+								"$operation": "greater",
+								"args": [ { "$path": "@event.hitCount" }, 1 ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "*\\users\\*",
+								"args": [ { "$path": "@event.destination.abstractPath" } ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "*\\appdata\\*",
+								"args": [ { "$path": "@event.destination.abstractPath" } ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.destination" },
+							{ "name": "source", "value": "@event.source" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "hitCount", "value": "@event.hitCount" }
+						]
+					}
+				}
+			},
+
+			// Step 4b: Slow Lane evaluation (Non-User Profile files -> 5 hits)
+			{
+				"eventType": "MLE_RANSOM_EVALUATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!equal",
+								"args": [ { "$path": "@event.process.imageFile.verdict", "$default": 0 }, 1 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ { "$path": "@event.process.imageFile.abstractPath", "$default": "" } ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ { "$path": "@event.destination.abstractPath", "$default": "" } ]
+							},
+							{
+								"$operation": "greater",
+								"args": [ { "$path": "@event.hitCount" }, 4 ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "*\\users\\*",
+								"args": [ { "$path": "@event.destination.abstractPath" } ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*\\appdata\\*",
+								"args": [ { "$path": "@event.destination.abstractPath" } ]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.destination" },
+							{ "name": "source", "value": "@event.source" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "hitCount", "value": "@event.hitCount" }
+						]
+					}
+				}
+			},
+
+			// Step 5: Cleanup context when process exits
 			{
 				"eventType": "LLE_PROCESS_DELETE",
 				"rule": {
@@ -511,29 +712,9 @@
 		//
 		// Pattern for cloud FLS malicious verdict
 		//
-		"FLS_MALICIOUS_VERDICT": [
+				"FLS_MALICIOUS_VERDICT": [
 			{
-				"eventType": "LLE_FILE_DATA_READ_FULL",
-				"rule": {
-					"condition": {
-						"$operation": "equal",
-						"args": [ "@event.process.imageFile.verdict", 2 ]
-					},
-					"createEvent": {
-						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
-						"destination": "OUT",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
-							{ "name": "process", "value": "@event.process" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
-						]
-					}
-				}
-			},
-			{
-				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"eventType": "*",
 				"rule": {
 					"condition": {
 						"$operation": "equal",
@@ -547,26 +728,7 @@
 							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "file", "value": "@event.file" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
-						]
-					}
-				}
-			},
-			{
-				"eventType": "LLE_NETWORK_CONNECT_OUT",
-				"rule": {
-					"condition": {
-						"$operation": "equal",
-						"args": [ "@event.process.imageFile.verdict", 2 ]
-					},
-					"createEvent": {
-						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
-						"destination": "OUT",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
-							{ "name": "process", "value": "@event.process" },
+							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" }
 						]
