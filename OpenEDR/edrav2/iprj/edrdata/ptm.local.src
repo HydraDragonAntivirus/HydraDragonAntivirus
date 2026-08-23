@@ -1,4 +1,4 @@
-//
+﻿//
 // Local policy definition for PatternsMatching
 //
 {
@@ -17,9 +17,27 @@
 			"MLE_PSW_STEALER": 1000011
 		},
 		"pswBasket": {
+			"pswCredRead": "PSW_CRED_READ",
 			"pswReadFiles": "PSW_READ_FILES",
 			"pswWriteAfterRead": "PSW_WRITE_AFTER_READ"
 		},
+		// Credential / browser data paths (imatch is case-insensitive)
+		"pswCredPaths": [
+			"*\\Google\\Chrome\\User Data*",
+			"*\\Microsoft\\Edge\\User Data*",
+			"*\\BraveSoftware\\Brave-Browser\\User Data*",
+			"*\\Opera Software\\Opera Stable*",
+			"*\\Opera Software\\Opera GX Stable*",
+			"*\\Discord\\Local Storage*",
+			"*\\Discord\\leveldb*",
+			"*Electrum\\wallets*",
+			"*Bitcoin\\wallets*",
+			"*Ethereum\\keystore*",
+			"*Cookies*",
+			"*Login Data*",
+			"*Web Data*",
+			"*Local State*"
+		],
 		// imatch (case-insensitive wildcard) patterns for shadow-copy wiping
 		"ransomShadowDeleteCmdLines": [
 			"*vssadmin*delete shadows*",
@@ -189,110 +207,68 @@
 		], // FILE_COPY_WRITE_READ
 
 		//
+		//
+		// PSW Stealer: credential file full-read + outbound network connect.
+		// A process that reads credential databases and then connects out
+		// is exfiltrating stolen data. No destructive op needed.
+		//
 		"PSW_CREDENTIAL_ACCESS": [
 
-      // 1) Full read of a tracked-path file: remember per pid + identity
-      {
-        "eventType": [ "LLE_FILE_DATA_READ_FULL" ],
-        "rule": {
-          "saveContext": {
-            "basket": "@const.basket.pswReadFiles",
-            "key": "@var.ransomPathKey",
-            "group": "@event.process.id",
-            "lifetime": 300000,
-            "data": { "file": "@event.file" }
-          }
-        }
-      },
+			// 1) Full sequential read of a credential/browser data file:
+			//    only tracks reads matching credential path patterns
+			{
+				"eventType": "LLE_FILE_DATA_READ_FULL",
+				"rule": {
+					"condition": {
+						"$operation": "imatch",
+						"pattern": "@const.pswCredPaths",
+						"args": [ "@event.file.uniquePath" ]
+					},
+					"saveContext": {
+						"basket": "@const.basket.pswCredRead",
+						"key": "@event.process.id",
+						"group": "@event.process.id",
+						"lifetime": 600000,
+						"data": { "file": "@event.file" }
+					}
+				}
+			},
 
-      // 2) Overwrite of the same file = credential DB being modified
-      {
-        "eventType": [ "LLE_FILE_DATA_WRITE_FULL", "LLE_FILE_DATA_CHANGE" ],
-        "rule": {
-          "loadContext": {
-            "basket": "@const.basket.pswReadFiles",
-            "key": "@var.ransomPathKey"
-          },
-          "saveContext": {
-            "basket": "@const.basket.pswWriteAfterRead",
-            "key": "@var.ransomPathKey",
-            "group": "@event.process.id",
-            "lifetime": 300000,
-            "data": { "file": "@event.file" }
-          }
-        }
-      },
+			// 2) Outbound network connect from a process that previously
+			//    read credential files = exfiltration attempt
+			{
+				"eventType": "LLE_NETWORK_CONNECT_OUT",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.basket.pswCredRead",
+						"key": "@event.process.id"
+					},
+					"createEvent": {
+						"eventType": "MLE_PSW_STEALER",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.pswEventBaseType.MLE_PSW_STEALER" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
 
-      // 3a) Delete of a written-after-read credential file
-      {
-        "eventType": "LLE_FILE_DELETE",
-        "rule": {
-          "loadContext": {
-            "basket": "@const.basket.pswWriteAfterRead",
-            "key": "@var.ransomPathKey",
-            "delete": true
-          },
-          "createEvent": {
-            "eventType": "MLE_PSW_STEALER",
-            "destination": "OUT",
-            "clone": false,
-            "data": [
-              { "name": "baseType", "value": "@const.pswEventBaseType.MLE_PSW_STEALER" },
-              { "name": "process", "value": "@event.process" },
-              { "name": "source", "value": "@context.file" },
-              { "name": "time", "value": "@event.time" },
-              { "name": "tickTime", "value": "@event.tickTime" }
-            ]
-          }
-        }
-      },
+			// Cleanup on process exit
+			{
+				"eventType": "LLE_PROCESS_DELETE",
+				"rule": {
+					"deleteContext": {
+						"basket": "@const.basket.pswCredRead",
+						"group": "@event.process.id"
+					}
+				}
+			}
+		] // PSW_CREDENTIAL_ACCESS
 
-      // 3b) Rename of a written-after-read credential file (relocation to
-      //     staging dir before exfiltration)
-      {
-        "eventType": "LLE_FILE_RENAME",
-        "rule": {
-          "loadContext": {
-            "basket": "@const.basket.pswWriteAfterRead",
-            "key": "@var.ransomPathKey",
-            "delete": true
-          },
-          "createEvent": {
-            "eventType": "MLE_PSW_STEALER",
-            "destination": "OUT",
-            "clone": false,
-            "data": [
-              { "name": "baseType", "value": "@const.pswEventBaseType.MLE_PSW_STEALER" },
-              { "name": "process", "value": "@event.process" },
-              { "name": "source", "value": "@context.file" },
-              { "name": "destination", "value": "@event.fileRenameTarget" },
-              { "name": "time", "value": "@event.time" },
-              { "name": "tickTime", "value": "@event.tickTime" }
-            ]
-          }
-        }
-      },
-
-      // Cleanup on process exit
-      {
-        "eventType": "LLE_PROCESS_DELETE",
-        "rule": {
-          "deleteContext": {
-            "basket": "@const.basket.pswReadFiles",
-            "group": "@event.process.id"
-          }
-        }
-      },
-      {
-        "eventType": "LLE_PROCESS_DELETE",
-        "rule": {
-          "deleteContext": {
-            "basket": "@const.basket.pswWriteAfterRead",
-            "group": "@event.process.id"
-          }
-        }
-      }
-    ] // PSW_CREDENTIAL_ACCESS
 ,
 		// Pattern for shadow-copy deletion: vssadmin/wmic/wbadmin wiping
 		// volume shadow copies is a near-zero-FP ransomware footprint.
