@@ -310,15 +310,24 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 	{
 		std::scoped_lock _lock(m_mtxRansomShield);
 
-		auto& readSet = m_readFiles[nPid];
-		fTracked = readSet.count(wsFilePath) != 0;
+		auto& readMap = m_readFiles[nPid];
+		fTracked = readMap.count(wsFilePath) != 0;
 
 		switch (eEventType)
 		{
 		case Event::LLE_FILE_DATA_READ_FULL:
 		case Event::LLE_FILE_MAP_READ:
-			readSet.insert(wsFilePath);
+		{
+			std::wstring wsBk;
+			try
+			{
+				Variant vF = vEvent.get("file");
+				wsBk = vF.get("backupPath", L"");
+			}
+			catch (...) {}
+			readMap[wsFilePath] = std::move(wsBk);
 			return; // pure tracking
+		}
 
 		case Event::LLE_FILE_PREIMAGE_SAVED:
 			// Kernel already saved the pre-image before allowing the
@@ -334,7 +343,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 
 		case Event::LLE_FILE_DELETE:
 		case Event::LLE_FILE_RENAME:
-			readSet.erase(wsFilePath);
+			readMap.erase(wsFilePath);
 			if (!fTracked)
 				return;
 			break; // destructive: back it up
@@ -365,7 +374,13 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 			}
 			else
 			{
-				entry.wsBackup = BackupOneFile(nPid, wsFilePath);
+				// Prefer the kernel tee pre-image captured during reads;
+				// fall back to a best-effort copy only when none exists.
+				auto itBk = readMap.find(wsFilePath);
+				entry.wsBackup = (itBk != readMap.end()) ?
+					itBk->second : std::wstring();
+				if (entry.wsBackup.empty())
+					entry.wsBackup = BackupOneFile(nPid, wsFilePath);
 			}
 			vec.push_back(std::move(entry));
 		}

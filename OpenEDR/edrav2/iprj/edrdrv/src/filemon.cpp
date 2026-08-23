@@ -263,7 +263,19 @@ public:
 	// copied to ProgramData for this handle (pre-image saved at most once).
 	volatile LONG fPreImageSaved = 0;
 
+	// Read-time tee: while sequence-read hashing streams through the filter,
+	// bytes are duplicated into this handle so the ORIGINAL content survives
+	// any later overwrite/delete (exclusive-open ransomware included).
+	HANDLE hRansomTee = nullptr;
+	LARGE_INTEGER nRansomOff = {};
+	wchar_t szRansomDst[300] = L"";
+
 	InstanceContext* pInstanceContext = nullptr; ///< VolumeInfo
+
+	// RansomShield tee helpers (defined below, prototypes here)
+	void RansomTeeOpenIfNeeded();
+	void RansomTeeChunk(void* pDataBuffer, SIZE_T nLen);
+	void RansomTeeClose(bool fFlush);
 
 	static NTSTATUS create(StreamHandleContext** ppThis, PCFLT_RELATED_OBJECTS pFltObjects)
 	{
@@ -542,12 +554,13 @@ NTSTATUS setupInstance(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 			IFERR_LOG(collectUsbInfo(pFltObjects, pInstCtx));
 		}
 
-		// Detect fixed
-		if (pVolumeProperties != nullptr)
-		{
-			pInstCtx->fIsFixed = !BooleanFlagOn(pVolumeProperties->DeviceCharacteristics, 
-				FILE_REMOVABLE_MEDIA | FILE_FLOPPY_DISKETTE | FILE_REMOTE_DEVICE | FILE_PORTABLE_DEVICE);
-		}
+ 		// Detect fixed
+ 		if (pVolumeProperties != nullptr)
+ 		{
+ 			pInstCtx->fIsFixed = BooleanFlagOn(pVolumeProperties->DeviceCharacteristics,
+ 				FILE_REMOVABLE_MEDIA | FILE_FLOPPY_DISKETTE | FILE_REMOTE_DEVICE | FILE_PORTABLE_DEVICE)
+ 				? FALSE : TRUE;
+ 		}
 		else
 		{
 			pInstCtx->fIsFixed = (BOOLEAN)(eVolumeDeviceType == FILE_DEVICE_DISK_FILE_SYSTEM && !pInstCtx->fIsUsb);
@@ -888,6 +901,10 @@ inline NTSTATUS _updateHashOnPostOp(StreamHandleContext* pStreamHandleContext, P
 			}
 			IFERR_RET_NOLOG(actionInfo.updateHash(pDataBuffer, nCurMdlDataSize));
 
+			// RansomShield read-time tee
+			if (eAction == HashedAction::Read)
+				pStreamHandleContext->RansomTeeChunk(pDataBuffer, nCurMdlDataSize);
+
 			nRestDataSize -= nCurMdlDataSize;
 		}
 
@@ -924,6 +941,11 @@ inline NTSTATUS _updateHashOnPostOp(StreamHandleContext* pStreamHandleContext, P
 				actionInfo.nMaxEntropyQ24 = currentEntropy;
 			}
 		}
+
+		// RansomShield read-time tee
+		if (eAction == HashedAction::Read)
+			pStreamHandleContext->RansomTeeChunk(pDataBuffer, nDataSize);
+
 		return actionInfo.updateHash(pDataBuffer, nDataSize);
 	}
 }
@@ -1394,7 +1416,7 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postCleanup(
 		} while (false);
 
 		// Send FileDataReadFull
-		if(pStreamHandleContext->sequenceReadInfo.fEnabled) do
+		if(pStreamHandleContext->sequenceReadInfo.fEnabled) do 
 		{
 			auto& readInfo = pStreamHandleContext->sequenceReadInfo;
 			// Check that full file was read
@@ -1405,9 +1427,20 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postCleanup(
 				readInfo.nNextPos > g_pCommonData->nMaxFullActFileSize)
 				break;
 
+			// RansomShield: finalize the read-time pre-image before the
+			// event goes out so usermode can map victim -> backup.
+			pStreamHandleContext->RansomTeeClose(true);
+
 			sendFileEvent(SysmonEvent::FileDataReadFull, pStreamHandleContext,
-				[&readInfo](auto pSerializer) {
-					return writeFileHash(pSerializer, readInfo);
+				[&readInfo, pStreamHandleContext](auto pSerializer) {
+					auto nsH = writeFileHash(pSerializer, readInfo);
+					if (!NT_SUCCESS(nsH))
+						return nsH;
+					UNICODE_STRING usBk;
+					RtlInitUnicodeString(&usBk,
+						pStreamHandleContext->szRansomDst);
+					(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+return STATUS_SUCCESS;
 				}
 			);
 
@@ -1520,20 +1553,34 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postSetFileInfo(
 			// delete attempts silently (postCleanup only emits FileDelete for
 			// delete-on-close, missing plain FileDispositionInformation deletes).
 			if (fDelete)
-				sendFileEvent(SysmonEvent::FileDelete, pStreamHandleContext);
+				sendFileEvent(SysmonEvent::FileDelete, pStreamHandleContext,
+					[pStreamHandleContext](auto pSerializer) {
+						UNICODE_STRING usBk;
+						RtlInitUnicodeString(&usBk,
+							pStreamHandleContext->szRansomDst);
+						(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+return STATUS_SUCCESS;
+					});
 		}
 		else if (eInfoClass == FileDispositionInformationEx)
 		{
 			ULONG flags = ((PFILE_DISPOSITION_INFORMATION_EX)pData->Iopb->Parameters.SetFileInformation.InfoBuffer)->Flags;
 
-			if (FlagOn(flags, FILE_DISPOSITION_ON_CLOSE)) 
+			if (FlagOn(flags, FILE_DISPOSITION_ON_CLOSE))
 				pStreamHandleContext->fDeleteOnClose = BooleanFlagOn(flags, FILE_DISPOSITION_DELETE);
-			else 
+			else
 			{
 				BOOLEAN fDelete = BooleanFlagOn(flags, FILE_DISPOSITION_DELETE);
 				pStreamHandleContext->fDispositionDelete = fDelete;
 				if (fDelete)
-					sendFileEvent(SysmonEvent::FileDelete, pStreamHandleContext);
+					sendFileEvent(SysmonEvent::FileDelete, pStreamHandleContext,
+						[pStreamHandleContext](auto pSerializer) {
+							UNICODE_STRING usBk;
+							RtlInitUnicodeString(&usBk,
+								pStreamHandleContext->szRansomDst);
+							(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+return STATUS_SUCCESS;
+						});
 			}
 		}
 		else if (eInfoClass == FileRenameInformation || eInfoClass == FileRenameInformationEx)
@@ -1565,13 +1612,26 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postSetFileInfo(
 				detail::sendFileEvent(SysmonEvent::FileRename,
 					(ULONG_PTR)pStreamHandleContext->nOpeningProcessId,
 					pStreamHandleContext,
-					[&usTarget](auto pSerializer) {
-						return write(*(pSerializer), EvFld::FileRenameTarget, &usTarget);
+					[&usTarget, pStreamHandleContext](auto pSerializer) -> NTSTATUS {
+						UNICODE_STRING usBk;
+						RtlInitUnicodeString(&usBk,
+							pStreamHandleContext->szRansomDst);
+						(void)write(*(pSerializer),
+							EvFld::FileBackupPath, &usBk);
+						return write(*(pSerializer), EvFld::FileRenameTarget,
+							&usTarget);
 					});
 			}
 			else
 			{
-				sendFileEvent(SysmonEvent::FileRename, pStreamHandleContext);
+				sendFileEvent(SysmonEvent::FileRename, pStreamHandleContext,
+					[pStreamHandleContext](auto pSerializer) {
+						UNICODE_STRING usBk;
+						RtlInitUnicodeString(&usBk,
+							pStreamHandleContext->szRansomDst);
+						(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+return STATUS_SUCCESS;
+					});
 			}
 		}
 	}
@@ -1650,6 +1710,111 @@ static NTSTATUS CreateDirNt(PCWSTR pszDir)
 	if (hDir != nullptr)
 		ZwClose(hDir);
 	return ns;
+}
+
+//
+// RansomShield read-time tee ---------------------------------------------
+//
+
+// Opens (once) the pre-image stream under
+// %PROGRAMDATA%\HydraBackups\<pid>\read_<tick>_<name>.
+void StreamHandleContext::RansomTeeOpenIfNeeded()
+{
+	if (hRansomTee != nullptr)
+		return; // already open
+
+	// Sentinel marks a previous failed open: stop retrying this handle.
+	hRansomTee = ((HANDLE)(LONG_PTR)-1);
+
+	const ULONG nPid = (ULONG)(ULONG_PTR)nOpeningProcessId;
+
+	if (!NT_SUCCESS(CreateDirNt(L"\\??\\C:\\ProgramData\\HydraBackups")))
+		return;
+
+	wchar_t szPidDir[96] = L"";
+	RtlStringCchPrintfW(szPidDir, RTL_NUMBER_OF(szPidDir),
+		L"\\??\\C:\\ProgramData\\HydraBackups\\%lu", nPid);
+	if (!NT_SUCCESS(CreateDirNt(szPidDir)))
+		return;
+
+	PCWSTR pszLast = L"unknown";
+	if (pNameInfo != nullptr && pNameInfo->Name.Buffer != nullptr)
+	{
+		pszLast = pNameInfo->Name.Buffer;
+		for (PCWSTR p = pszLast; *p != L'\0'; ++p)
+			if (*p == L'\\' || *p == L'/')
+				pszLast = p + 1;
+	}
+
+	wchar_t szName[192] = L"";
+	RtlStringCchCopyW(szName, RTL_NUMBER_OF(szName), pszLast);
+	for (PWSTR p = szName; *p != L'\0'; ++p)
+		if (*p == L':' || *p == L'"')
+			*p = L'_';
+
+	LARGE_INTEGER nTick = {};
+	KeQueryTickCount(&nTick);
+
+	wchar_t szTick[24] = L"";
+	RtlStringCchPrintfW(szTick, RTL_NUMBER_OF(szTick), L"read_%08x_", nTick.LowPart);
+
+	wchar_t szDst[512] = L"";
+	RtlStringCchPrintfW(szDst, RTL_NUMBER_OF(szDst),
+		L"%s\\%s%s", szPidDir, szTick, szName);
+	RtlStringCchPrintfW(szRansomDst, RTL_NUMBER_OF(szRansomDst),
+		L"C:\\ProgramData\\HydraBackups\\%lu\\%s%s", nPid, szTick, szName);
+
+	UNICODE_STRING usDst;
+	RtlInitUnicodeString(&usDst, szDst);
+	OBJECT_ATTRIBUTES oaDst = {};
+	InitializeObjectAttributes(&oaDst, &usDst,
+		OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+
+	IO_STATUS_BLOCK ios = {};
+	NTSTATUS ns = ZwCreateFile(&hRansomTee,
+		FILE_WRITE_DATA | SYNCHRONIZE, &oaDst, &ios, nullptr,
+		FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OVERWRITE_IF,
+		FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+		nullptr, 0);
+	if (!NT_SUCCESS(ns))
+	{
+		// Stop retrying for this handle; a failed open must not spam
+		hRansomTee = ((HANDLE)(LONG_PTR)-1);
+		LOGINFO4("RansomShield tee open failed 0x%08X pid %lu\r\n", ns, nPid);
+	}
+}
+
+// Duplicates one read chunk into the pre-image stream.
+void StreamHandleContext::RansomTeeChunk(void* pDataBuffer, SIZE_T nLen)
+{
+	if (pDataBuffer == nullptr || nLen == 0)
+		return;
+
+	RansomTeeOpenIfNeeded();
+	if (hRansomTee == nullptr || hRansomTee == ((HANDLE)(LONG_PTR)-1))
+		return;
+
+	LARGE_INTEGER off = nRansomOff;
+	IO_STATUS_BLOCK ios = {};
+	NTSTATUS ns = ZwWriteFile(hRansomTee, nullptr, nullptr, nullptr,
+		&ios, pDataBuffer, (ULONG)nLen, &off, nullptr);
+	if (NT_SUCCESS(ns))
+		nRansomOff.QuadPart += nLen;
+}
+
+// Flushes and closes the tee stream.
+void StreamHandleContext::RansomTeeClose(bool fFlush)
+{
+	if (hRansomTee != nullptr && hRansomTee != ((HANDLE)(LONG_PTR)-1))
+	{
+		if (fFlush)
+		{
+			IO_STATUS_BLOCK ios = {};
+			ZwFlushBuffersFile(hRansomTee, &ios);
+		}
+		ZwClose(hRansomTee);
+	}
+	hRansomTee = nullptr;
 }
 
 NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS /*pFltObjects*/,
@@ -1809,7 +1974,8 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS /*pFltObjects*/,
 		sendFileEvent(SysmonEvent::OwlyPreImageSaved, pCtx,
 			[&usBk](auto pSerializer)
 			{
-				return write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+				(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+return STATUS_SUCCESS;
 			});
 
 		ns = STATUS_SUCCESS;
@@ -1963,6 +2129,9 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postWrite(__inout PFLT_CALLBACK_DATA pData, __
 			pStreamHandleContext->fWasChanged = TRUE;
 			// Disable detect sequence read
 			pStreamHandleContext->sequenceReadInfo.fEnabled = FALSE;
+			// First overwrite ends the read phase: flush + close the tee so
+			// the captured pre-image is complete on disk.
+			pStreamHandleContext->RansomTeeClose(true);
 		}
 
 		// Sequence action detection
@@ -2003,10 +2172,18 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postWrite(__inout PFLT_CALLBACK_DATA pData, __
 		{
 			auto& info = pStreamHandleContext->sequenceWriteInfo;
 			sendFileEvent(SysmonEvent::FileDataWriteFull, pStreamHandleContext,
-				[&info](auto pSerializer) {
+				[&info, pStreamHandleContext](auto pSerializer) {
 					if (info.fEnabled)
-						return writeFileHash(pSerializer, info);
-					return STATUS_SUCCESS;
+					{
+						NTSTATUS nsH = writeFileHash(pSerializer, info);
+						if (!NT_SUCCESS(nsH))
+							return nsH;
+					}
+					UNICODE_STRING usBk;
+					RtlInitUnicodeString(&usBk,
+						pStreamHandleContext->szRansomDst);
+					(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+return STATUS_SUCCESS;
 				}
 			);
 		}
@@ -2152,10 +2329,18 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postRead(__inout PFLT_CALLBACK_DATA pData,
 		{
 			auto& info = pStreamHandleContext->sequenceReadInfo;
 			sendFileEvent(SysmonEvent::FileDataReadFull, pStreamHandleContext,
-				[&info](auto pSerializer) {
+				[&info, pStreamHandleContext](auto pSerializer) {
 					if (info.fEnabled)
-						return writeFileHash(pSerializer, info);
-					return STATUS_SUCCESS;
+					{
+						NTSTATUS nsH = writeFileHash(pSerializer, info);
+						if (!NT_SUCCESS(nsH))
+							return nsH;
+					}
+					UNICODE_STRING usBk;
+					RtlInitUnicodeString(&usBk,
+						pStreamHandleContext->szRansomDst);
+					(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+return STATUS_SUCCESS;
 				}
 			);
 		}
@@ -2844,3 +3029,4 @@ getSystemRootDirectoryPath(
 } // namespace filemon
 } // namespace cmd
 /// @}
+
