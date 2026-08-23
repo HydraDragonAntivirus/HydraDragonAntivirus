@@ -72,18 +72,23 @@ template<typename IdType, typename MemAllocator, size_t c_nBufferSize, size_t c_
 [[nodiscard]] bool write(variant::BasicLbvsSerializer<IdType, MemAllocator, c_nBufferSize,
 	c_nLimitSize>& serializer, IdType eFieldId, PCUNICODE_STRING pusStr)
 {
-	if (pusStr == nullptr) return false;
+	if (pusStr == nullptr || pusStr->Buffer == nullptr || pusStr->Length == 0)
+	{
+		return serializer.write(eFieldId, L"", 0);
+	}
 
 	const wchar_t* psBegin = pusStr->Buffer;
 	size_t nSize = (size_t)pusStr->Length / sizeof(wchar_t);
 	// Validate size (find internal zero)
 	const wchar_t* psEnd = psBegin + nSize;
 	for (const wchar_t* psCur = psBegin; psCur < psEnd; ++psCur)
+	{
 		if (*psCur == 0)
 		{
-			nSize = psCur - psBegin;
+			nSize = (size_t)(psCur - psBegin);
 			break;
 		}
+	}
 
 	return serializer.write(eFieldId, psBegin, nSize);
 }

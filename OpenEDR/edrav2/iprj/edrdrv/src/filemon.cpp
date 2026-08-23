@@ -750,6 +750,9 @@ template<typename Fn>
 NTSTATUS sendFileEvent(SysmonEvent eEvent, ULONG_PTR nProcessId, StreamHandleContext* pStreamHandleContext,
 	Fn fnWriteAdditionalData)
 {
+	if (pStreamHandleContext == nullptr)
+		return STATUS_INVALID_PARAMETER_1;
+
 	NonPagedLbvsSerializer<edrdrv::EventField> serializer;
 
 	// +FIXME : Why STATUS_NO_MEMORY?
@@ -763,20 +766,36 @@ NTSTATUS sendFileEvent(SysmonEvent eEvent, ULONG_PTR nProcessId, StreamHandleCon
 	//
 	// I need additional function to write UNICODE_STRING or any my internal structures
 	// We can use one call format if we define `write` not as method but as function
-	if (!write(serializer, EvFld::FilePath, &pStreamHandleContext->pNameInfo->Name))
-		return STATUS_NO_MEMORY;
+	if (pStreamHandleContext->pNameInfo != nullptr && pStreamHandleContext->pNameInfo->Name.Buffer != nullptr)
+	{
+		if (!write(serializer, EvFld::FilePath, &pStreamHandleContext->pNameInfo->Name))
+			return STATUS_NO_MEMORY;
+	}
+	else
+	{
+		UNICODE_STRING usEmpty = RTL_CONSTANT_STRING(L"");
+		if (!write(serializer, EvFld::FilePath, &usEmpty))
+			return STATUS_NO_MEMORY;
+	}
 
 	auto pInstanceContext = pStreamHandleContext->pInstanceContext;
+	if (pInstanceContext != nullptr)
+	{
+		if (pInstanceContext->usVolumeGuid.Buffer != nullptr && pInstanceContext->usVolumeGuid.Length > 0)
+		{
+			if (!write(serializer, EvFld::FileVolumeGuid, &pInstanceContext->usVolumeGuid))
+				return STATUS_NO_MEMORY;
+		}
 
-	if (!write(serializer, EvFld::FileVolumeGuid, &pInstanceContext->usVolumeGuid))
-		return STATUS_NO_MEMORY;
-
-	if (!serializer.write(EvFld::FileVolumeType, convertToString(pInstanceContext->eDriveType)))
-		return STATUS_NO_MEMORY;
-
-	if (pInstanceContext->usDeviceName.Length != 0)
-		if (!write(serializer, EvFld::FileVolumeDevice, &pInstanceContext->usDeviceName))
+		if (!serializer.write(EvFld::FileVolumeType, convertToString(pInstanceContext->eDriveType)))
 			return STATUS_NO_MEMORY;
+
+		if (pInstanceContext->usDeviceName.Buffer != nullptr && pInstanceContext->usDeviceName.Length != 0)
+		{
+			if (!write(serializer, EvFld::FileVolumeDevice, &pInstanceContext->usDeviceName))
+				return STATUS_NO_MEMORY;
+		}
+	}
 
 	#pragma warning(suppress : 4127)
 	IFERR_RET(fnWriteAdditionalData(&serializer));
@@ -795,19 +814,22 @@ void sendFileEvent(SysmonEvent eEvent, StreamHandleContext* pStreamHandleContext
 {
 	if (!isEventEnabled(eEvent))
 		return;
-	if(pStreamHandleContext->fSkipItem)
+	if (pStreamHandleContext == nullptr || pStreamHandleContext->fSkipItem)
 		return;
 
 	auto nProcessId = (ULONG_PTR)pStreamHandleContext->nOpeningProcessId;
 	if (procmon::isProcessInWhiteList(nProcessId))
 		return;
 
+	PCUNICODE_STRING pusName = (pStreamHandleContext->pNameInfo != nullptr && pStreamHandleContext->pNameInfo->Name.Buffer != nullptr) ?
+		&pStreamHandleContext->pNameInfo->Name : nullptr;
+
 	LOGINFO2("sendEvent: %u (fileEvent), pid: %Iu, file: <%wZ>\r\n",
-		(ULONG)eEvent, nProcessId, &pStreamHandleContext->pNameInfo->Name);
+		(ULONG)eEvent, nProcessId, pusName);
 
 	IFERR_LOG(detail::sendFileEvent(eEvent, nProcessId, pStreamHandleContext, fnWriteAdditionalData),
 		"Can't send file event %u pid: %Iu file: <%wZ>.\r\n",
-		(ULONG)eEvent, nProcessId, &pStreamHandleContext->pNameInfo->Name);
+		(ULONG)eEvent, nProcessId, pusName);
 }
 
 //
@@ -2216,11 +2238,13 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postWrite(__inout PFLT_CALLBACK_DATA pData, __
 						if (!NT_SUCCESS(nsH))
 							return nsH;
 					}
-					UNICODE_STRING usBk;
-					RtlInitUnicodeString(&usBk,
-						pStreamHandleContext->szRansomDst);
-					(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
-return STATUS_SUCCESS;
+					if (pStreamHandleContext != nullptr && pStreamHandleContext->szRansomDst[0] != L'\0')
+					{
+						UNICODE_STRING usBk;
+						RtlInitUnicodeString(&usBk, pStreamHandleContext->szRansomDst);
+						(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+					}
+					return STATUS_SUCCESS;
 				}
 			);
 		}
@@ -2373,11 +2397,14 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postRead(__inout PFLT_CALLBACK_DATA pData,
 						if (!NT_SUCCESS(nsH))
 							return nsH;
 					}
-					UNICODE_STRING usBk;
-					RtlInitUnicodeString(&usBk,
-						pStreamHandleContext->szRansomDst);
-					(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
-return STATUS_SUCCESS;
+					if (pStreamHandleContext != nullptr && pStreamHandleContext->szRansomDst[0] != L'\0')
+					{
+						UNICODE_STRING usBk;
+						RtlInitUnicodeString(&usBk,
+							pStreamHandleContext->szRansomDst);
+						(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+					}
+					return STATUS_SUCCESS;
 				}
 			);
 		}
