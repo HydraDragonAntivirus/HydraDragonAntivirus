@@ -1652,11 +1652,12 @@ static NTSTATUS CreateDirNt(PCWSTR pszDir)
 	return ns;
 }
 
-NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
+NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS /*pFltObjects*/,
 	_Inout_ StreamHandleContext* pCtx)
 {
 	NTSTATUS ns = STATUS_SUCCESS;
 	PVOID pBuffer = nullptr;
+	HANDLE hSrc = nullptr;
 	HANDLE hDst = nullptr;
 
 	const ULONG nPid = (ULONG)(ULONG_PTR)pCtx->nOpeningProcessId;
@@ -1665,14 +1666,36 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 	wchar_t szDstUser[512] = L"";
 	wchar_t szName[192] = L"";
 
+	UNREFERENCED_PARAMETER(pFltObjects);
+
 	__try
 	{
-		// Query current file size (cap the backup to full-activity limit)
+		// Open the original by its kernel path (\Device\HarddiskVolumeN\...)
+		PCWSTR pszFullPath = L"";
+		if (pCtx->pNameInfo != nullptr && pCtx->pNameInfo->Name.Buffer != nullptr)
+			pszFullPath = pCtx->pNameInfo->Name.Buffer;
+
+		UNICODE_STRING usSrc;
+		RtlInitUnicodeString(&usSrc, pszFullPath);
+		OBJECT_ATTRIBUTES oaSrc = {};
+		InitializeObjectAttributes(&oaSrc, &usSrc,
+			OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+
+		IO_STATUS_BLOCK iosS = {};
+		ns = ZwCreateFile(&hSrc,
+			FILE_READ_DATA | SYNCHRONIZE, &oaSrc, &iosS, nullptr,
+			FILE_ATTRIBUTE_NORMAL,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			FILE_OPEN,
+			FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+			nullptr, 0);
+		if (!NT_SUCCESS(ns))
+			__leave;
+
 		FILE_STANDARD_INFORMATION stdInfo = {};
-		IO_STATUS_BLOCK iosQuery = {};
-		ns = FltQueryInformationFile(pFltObjects->Instance,
-			pFltObjects->FileObject, &stdInfo, sizeof(stdInfo),
-			FileStandardInformation, &iosQuery);
+		IO_STATUS_BLOCK iosQ = {};
+		ns = ZwQueryInformationFile(hSrc, &stdInfo, sizeof(stdInfo),
+			FileStandardInformation, &iosQ);
 		if (!NT_SUCCESS(ns))
 			__leave;
 
@@ -1680,13 +1703,12 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 		if (nSize == 0)
 		{
 			ns = STATUS_SUCCESS; // nothing to preserve
-			pCtx->fPreImageSaved = 1; // empty file: mark as handled
+			pCtx->fPreImageSaved = 1;
 			__leave;
 		}
 		if (nSize > g_pCommonData->nMaxFullActFileSize)
 			nSize = g_pCommonData->nMaxFullActFileSize;
 
-		// Directory tree (v1: fixed ProgramData location)
 		ns = CreateDirNt(L"\\??\\C:\\ProgramData\\HydraBackups");
 		if (!NT_SUCCESS(ns))
 			__leave;
@@ -1698,18 +1720,12 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 		if (!NT_SUCCESS(ns))
 			__leave;
 
-		// Original file name (after last separator), sanitized for NT paths
-		PCWSTR pszSrc = L"unknown";
-		if (pCtx->pNameInfo != nullptr && pCtx->pNameInfo->Name.Buffer != nullptr)
-			pszSrc = pCtx->pNameInfo->Name.Buffer;
-
-		PCWSTR pszLast = pszSrc;
-		for (PCWSTR p = pszSrc; *p != L'\0'; ++p)
+		PCWSTR pszLast = L"unknown";
+		for (PCWSTR p = pszFullPath; *p != L'\0'; ++p)
 			if (*p == L'\\' || *p == L'/')
 				pszLast = p + 1;
-		pszSrc = pszLast;
 
-		RtlStringCchCopyW(szName, RTL_NUMBER_OF(szName), pszSrc);
+		RtlStringCchCopyW(szName, RTL_NUMBER_OF(szName), pszLast);
 		for (PWSTR p = szName; *p != L'\0'; ++p)
 			if (*p == L':' || *p == L'"')
 				*p = L'_';
@@ -1764,9 +1780,8 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 			ULONG nRead = 0;
 			IO_STATUS_BLOCK iosR = {};
 
-			ns = FltReadFile(pFltObjects->Instance, pFltObjects->FileObject,
-				&nSrcOff, nToRead, pBuffer, 0 /*FLT_IO_OPERATION_FLAGS*/,
-				&nRead, nullptr, nullptr, 0 /*paging priority*/);
+			ns = ZwReadFile(hSrc, nullptr, nullptr, nullptr, &iosR,
+				pBuffer, nToRead, &nSrcOff, nullptr);
 			if (!NT_SUCCESS(ns) || nRead == 0)
 				break;
 
@@ -1781,6 +1796,8 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 			nTotal += nRead;
 		}
 
+		ZwClose(hSrc);
+		hSrc = nullptr;
 		ZwClose(hDst);
 		hDst = nullptr;
 		ExFreePoolWithTag(pBuffer, 'rdSB');
@@ -1789,8 +1806,6 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 		LOGINFO4("RansomShield pre-image saved: pid %lu bytes %I64u -> <%ws>\r\n",
 			nPid, nTotal, szDstUser);
 
-		// Tell usermode where the pre-image lives (the original path rides
-		// on the standard FilePath field of this event).
 		UNICODE_STRING usBk;
 		RtlInitUnicodeString(&usBk, szDstUser);
 		sendFileEvent(SysmonEvent::OwlyPreImageSaved, pCtx,
@@ -1806,6 +1821,8 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
 		ns = GetExceptionCode();
 		if (pBuffer != nullptr)
 			ExFreePoolWithTag(pBuffer, 'rdSB');
+		if (hSrc != nullptr)
+			ZwClose(hSrc);
 		if (hDst != nullptr)
 			ZwClose(hDst);
 	}
