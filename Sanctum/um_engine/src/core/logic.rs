@@ -16,21 +16,30 @@ use shared_std::constants::PIPE_SANCTUM_TELEMETRY;
 use tokio::net::windows::named_pipe::ServerOptions;
 
 /// Forward a Syscall event to the OpenEDR behavior engine.
-fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall, pipe_tx: &tokio::sync::mpsc::Sender<String>) {
+fn forward_to_owlyshield(
+    syscall: &shared_no_std::ghost_hunting::Syscall,
+    pipe_tx: &tokio::sync::mpsc::Sender<String>,
+) {
     if let Ok(json) = serde_json::to_string(syscall) {
         let _ = pipe_tx.try_send(json + "\n");
     }
 }
 
 /// Forward an AMSI bypass attempt.
-fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBypassAttempt, pipe_tx: &tokio::sync::mpsc::Sender<String>) {
+fn forward_amsi_bypass_to_owlyshield(
+    attempt: &shared_no_std::driver_ipc::AmsiBypassAttempt,
+    pipe_tx: &tokio::sync::mpsc::Sender<String>,
+) {
     if let Ok(json) = serde_json::to_string(attempt) {
         let _ = pipe_tx.try_send(json + "\n");
     }
 }
 
 /// Forward a Ghost Hunting detection (direct/indirect syscall abuse).
-fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt, pipe_tx: &tokio::sync::mpsc::Sender<String>) {
+fn forward_ghost_hunt_to_owlyshield(
+    hunt: &shared_no_std::driver_ipc::GhostHunt,
+    pipe_tx: &tokio::sync::mpsc::Sender<String>,
+) {
     if let Ok(json) = serde_json::to_string(hunt) {
         let _ = pipe_tx.try_send(json + "\n");
     }
@@ -92,8 +101,8 @@ impl Core {
 
         let (pipe_tx, mut pipe_rx) = mpsc::channel::<String>(5000);
         tokio::spawn(async move {
-            use tokio::net::windows::named_pipe::ClientOptions;
             use tokio::io::AsyncWriteExt;
+            use tokio::net::windows::named_pipe::ClientOptions;
             loop {
                 match ClientOptions::new().open(PIPE_SANCTUM_TELEMETRY) {
                     Ok(mut client) => {
@@ -130,8 +139,7 @@ impl Core {
             if let Ok(syscall) = etw_rx.try_recv() {
                 forward_to_owlyshield(&syscall, &pipe_tx);
 
-                if let NtFunction::NetworkActivity(_) = &syscall.data {
-                }
+                if let NtFunction::NetworkActivity(_) = &syscall.data {}
 
                 if matches!(&syscall.data, NtFunction::EtwThreatIntelligence(_)) {
                     continue;
