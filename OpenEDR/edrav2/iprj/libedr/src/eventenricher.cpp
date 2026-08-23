@@ -1,4 +1,4 @@
-//
+﻿//
 // edrav2.libedr project
 //
 // Event Enricher implementation
@@ -464,7 +464,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 		rollbackRansomBackups(nPid);
 
 
-		// --- ENFORCEMENT: terminate + quarantine ---
+		// --- ENFORCEMENT: kill process + quarantine malware exe ---
 		{
 			HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE,
 				FALSE, (DWORD)nPid);
@@ -482,24 +482,23 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 				typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
 				auto fnQ = (QuarantineFn)::GetProcAddress(hDll,
 					"owlyshield_dll_quarantine_file");
-				if (fnQ != nullptr)
+				if (fnQ != nullptr && !sImage.empty())
 				{
-					for (const auto& entry : capturedBackups)
-					{
-						std::wstring wsDosPath = NtPathToDosPath(entry.wsOriginal);
-						std::string sNarrow = Narrow(wsDosPath);
-						int32_t qRes = fnQ(
-							reinterpret_cast<const uint8_t*>(sNarrow.data()),
-							static_cast<uint32_t>(sNarrow.size()));
-						if (qRes == 0)
-							LOGLVL(Critical, FMT("RansomShield: quarantined <"
-								<< sNarrow << ">"));
-						else
-							LOGLVL(Critical, FMT("RansomShield: quarantine FAILED for <"
-								<< sNarrow << "> result=" << qRes));
-					}
+					std::wstring wsExeDos = NtPathToDosPath(sImage);
+					std::string sNarrow = Narrow(wsExeDos);
+					int32_t qRes = fnQ(
+						reinterpret_cast<const uint8_t*>(sNarrow.data()),
+						static_cast<uint32_t>(sNarrow.size()));
+					if (qRes == 0)
+						LOGLVL(Critical, FMT("RansomShield: quarantined malware <"
+							<< sNarrow << ">"));
+					else
+						LOGLVL(Error, FMT("RansomShield: quarantine FAILED for <"
+							<< sNarrow << "> result=" << qRes));
 				}
 				::FreeLibrary(hDll);
+			}
+		}
 			}
 		}
 		// BEHAVIORAL_ALERT line into output_events (same JSON shape as the
