@@ -70,44 +70,6 @@ namespace {
 		return content;
 	}
 
-	// Ransomware shadow-backup shield helpers -------------------------------
-
-	std::wstring GetBackupDir(int64_t nPid)
-	{
-		wchar_t szProgramData[MAX_PATH] = {};
-		DWORD nLen = ::GetEnvironmentVariableW(L"PROGRAMDATA", szProgramData, MAX_PATH);
-		if (nLen == 0 || nLen >= MAX_PATH)
-			return {};
-
-		std::wstring wsDir = std::wstring(szProgramData) + L"\\HydraDragonBackups";
-		::CreateDirectoryW(wsDir.c_str(), nullptr);
-		wsDir += L"\\" + std::to_wstring(nPid);
-		::CreateDirectoryW(wsDir.c_str(), nullptr);
-		return wsDir;
-	}
-
-	// Best-effort pre-image copy. Returns the backup path or "" on failure.
-	std::wstring BackupOneFile(int64_t nPid, const std::wstring& wsSrc)
-	{
-		std::wstring wsDir = GetBackupDir(nPid);
-		if (wsDir.empty() || wsSrc.empty())
-			return {};
-
-		std::wstring wsName = wsSrc.substr(wsSrc.find_last_of(L"\\/") + 1);
-
-		SYSTEMTIME st = {};
-		::GetLocalTime(&st);
-		wchar_t szPrefix[48] = {};
-		swprintf_s(szPrefix, L"%04u%02u%02u_%02u%02u%02u_%03u_",
-			st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
-			st.wMilliseconds);
-
-		std::wstring wsDst = wsDir + L"\\" + szPrefix + wsName;
-		if (!::CopyFileW(wsSrc.c_str(), wsDst.c_str(), TRUE))
-			return {};
-		return wsDst;
-	}
-
 	// char-stream friendly narrowing for log lines (lossy beyond ASCII).
 	std::string Narrow(const std::wstring& wsIn)
 	{
@@ -397,20 +359,17 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 		{
 			if (eEventType == Event::LLE_FILE_PREIMAGE_SAVED)
 			{
-				// Pre-image already written by the kernel; just adopt the
+				// Pre-image already written by the kernel driver; adopt the
 				// backup path reported in the event.
 				Variant vFile = vEvent.get("file");
 				entry.wsBackup = vFile.get("backupPath", L"");
 			}
 			else
 			{
-				// Prefer the kernel tee pre-image captured during reads;
-				// fall back to a best-effort copy only when none exists.
+				// Adopt the kernel tee pre-image captured during reads
 				auto itBk = readMap.find(wsFilePath);
-				entry.wsBackup = (itBk != readMap.end()) ?
-					itBk->second : std::wstring();
-				if (entry.wsBackup.empty())
-					entry.wsBackup = BackupOneFile(nPid, wsFilePath);
+				if (itBk != readMap.end())
+					entry.wsBackup = itBk->second;
 			}
 			vec.push_back(std::move(entry));
 		}
@@ -464,18 +423,8 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 		rollbackRansomBackups(nPid);
 
 
-		// --- ENFORCEMENT: kill process + quarantine malware exe ---
+		// --- ENFORCEMENT: quarantine malware exe (kernel edrdrv already killed process) ---
 		{
-			HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE,
-				FALSE, (DWORD)nPid);
-			if (hProc != nullptr)
-			{
-				::TerminateProcess(hProc, 1);
-				::WaitForSingleObject(hProc, 5000);
-				::CloseHandle(hProc);
-				LOGLVL(Critical, FMT("RansomShield: terminated pid=" << nPid));
-			}
-
 			HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 			if (hDll != nullptr)
 			{
@@ -499,6 +448,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 				::FreeLibrary(hDll);
 			}
 		}
+
 		// BEHAVIORAL_ALERT line into output_events (same JSON shape as the
 		// Owlyshield behavioral alerts, so dashboards pick it up).
 		{
