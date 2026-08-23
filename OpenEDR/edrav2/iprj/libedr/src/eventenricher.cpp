@@ -1,4 +1,4 @@
-//
+﻿//
 // edrav2.libedr project
 //
 // Event Enricher implementation
@@ -422,8 +422,52 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 		LOGLVL(Critical, FMT("RansomShield: ransomware behavior confirmed for pid="
 			<< nPid << " - rolling back captured originals"));
 
+
+		// Capture backup entries before rollback clears them
+		std::vector<ShadowBackupEntry> capturedBackups;
+		{
+			std::scoped_lock _lock(m_mtxRansomShield);
+			auto itBk = m_backups.find(nPid);
+			if (itBk != m_backups.end())
+				capturedBackups = itBk->second;
+		}
 		rollbackRansomBackups(nPid);
 
+
+		// --- ENFORCEMENT: terminate + quarantine ---
+		{
+			HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE,
+				FALSE, (DWORD)nPid);
+			if (hProc != nullptr)
+			{
+				::TerminateProcess(hProc, 1);
+				::WaitForSingleObject(hProc, 5000);
+				::CloseHandle(hProc);
+				LOGLVL(Critical, FMT("RansomShield: terminated pid=" << nPid));
+			}
+
+			HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			if (hDll != nullptr)
+			{
+				typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+				auto fnQ = (QuarantineFn)::GetProcAddress(hDll,
+					"owlyshield_dll_quarantine_file");
+				if (fnQ != nullptr)
+				{
+					for (const auto& entry : capturedBackups)
+					{
+						std::string sNarrow(entry.wsOriginal.begin(),
+							entry.wsOriginal.end());
+						int32_t qRes = fnQ(
+							reinterpret_cast<const uint8_t*>(sNarrow.data()),
+							static_cast<uint32_t>(sNarrow.size()));
+						LOGLVL(Critical, FMT("RansomShield: quarantined <"
+							<< sNarrow << "> result=" << qRes));
+					}
+				}
+				::FreeLibrary(hDll);
+			}
+		}
 		// BEHAVIORAL_ALERT line into output_events (same JSON shape as the
 		// Owlyshield behavioral alerts, so dashboards pick it up).
 		{
