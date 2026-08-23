@@ -297,7 +297,8 @@ begin
     if Detections[i].Title <> '' then
       sMsg := sMsg + Detections[i].Title
     else
-      sMsg := sMsg + Detections[i].EventType;
+      if Detections[i].Title <> '' then sMsg := sMsg + Detections[i].Title + ': '
+      else sMsg := sMsg + Detections[i].EventType;
     if Detections[i].ImagePath <> '' then
       sMsg := sMsg + ': ' + Detections[i].ImagePath;
   end;
