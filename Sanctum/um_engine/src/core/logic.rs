@@ -18,19 +18,6 @@ use tokio::net::windows::named_pipe::ServerOptions;
 
 /// Pipe name of the Owlyshield behavior engine's Sanctum telemetry receiver.
 const OWLYSHIELD_SANCTUM_PIPE: &str = r"\\.\pipe\HydraSanctumTelemetry";
-/// Named-pipe for the Pascal GUI (UHipPipe)
-const HYDRA_HIP_EVENT_PIPE: &str = r"\\.\pipe\HydraHipEvent";
-
-fn forward_to_pascal_gui(kind: &str, text: &str) {
-    use std::io::Write;
-    let line = format!("{}:{}\n", kind, text);
-    if let Ok(mut pipe) = std::fs::OpenOptions::new()
-        .write(true)
-        .open(HYDRA_HIP_EVENT_PIPE)
-    {
-        let _ = pipe.write_all(line.as_bytes());
-    }
-}
 
 /// Forward a Syscall event to the Owlyshield behavior engine over the
 /// HydraSanctumTelemetry named pipe as a JSON line.
@@ -108,11 +95,6 @@ fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBy
     {
         let _ = pipe.write_all(line.as_bytes());
     }
-
-    forward_to_pascal_gui(
-        "THREAT_ALERT",
-        &format!("Sanctum AMSI Bypass|pid {} function {}", attempt.pid, attempt.function_name),
-    );
 }
 
 /// Forward a Ghost Hunting detection (direct/indirect syscall abuse) to Owlyshield.
@@ -130,11 +112,6 @@ fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt)
     {
         let _ = pipe.write_all(line.as_bytes());
     }
-
-    forward_to_pascal_gui(
-        "THREAT_ALERT",
-        &format!("Sanctum Ghost Hunting|pid {} syscall {}", hunt.pid, hunt.syscall_name),
-    );
 }
 
 fn source_name(source: shared_no_std::ghost_hunting::SyscallEventSource) -> &'static str {
