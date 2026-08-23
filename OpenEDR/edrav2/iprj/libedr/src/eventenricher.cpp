@@ -1,4 +1,4 @@
-﻿//
+//
 // edrav2.libedr project
 //
 // Event Enricher implementation
@@ -121,10 +121,10 @@ namespace {
 	// Converts \Device\HarddiskVolumeN\... to C:\... style DOS path
 	// using GetLogicalDriveStringsW + QueryDosDeviceW (same approach as
 	// FileDataProvider::convertNtPathToDosPath).
-	static std::wstring NtToDos(const std::wstring& wsNt)
+	static std::wstring NtPathToDosPath(const std::wstring& wsNt)
 	{
 		wchar_t sDrives[27 * 4] = {};
-		if (::GetLogicalDriveStringsWW(DWORD(std::size(sDrives)), sDrives) == 0)
+		if (::GetLogicalDriveStringsW(DWORD(std::size(sDrives)), sDrives) == 0)
 			return wsNt;
 
 		wchar_t* sDrv = sDrives;
@@ -135,7 +135,7 @@ namespace {
 			if (::QueryDosDeviceW(sDrv, szTarget, MAX_PATH) > 0)
 			{
 				std::wstring wsDevice(szTarget);
-				if (wsNt.starts_with(wsDevice) &&
+				if (wsNt.compare(0, wsDevice.size(), wsDevice) == 0 &&
 					(wsNt.size() == wsDevice.size() || wsNt[wsDevice.size()] == L'\\'))
 				{
 					std::wstring sDrive(sDrv);
@@ -495,7 +495,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 							LOGLVL(Critical, FMT("RansomShield: quarantined <"
 								<< sNarrow << ">"));
 						else
-							LOGLVL(Error, FMT("RansomShield: quarantine FAILED for <"
+							LOGLVL(Critical, FMT("RansomShield: quarantine FAILED for <"
 								<< sNarrow << "> result=" << qRes));
 					}
 				}
