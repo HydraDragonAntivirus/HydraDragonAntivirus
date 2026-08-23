@@ -98,11 +98,36 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			std::scoped_lock _lock(m_mtxStorage);
 
 			int64_t nId = ++m_nLastId;
-			Variant vEntry = Dictionary({ {"id", nId}, {"event", vEvent} });
-			m_storage.push_back(std::move(vEntry));
+		Variant vEntry = Dictionary({ {"id", nId}, {"event", vEvent} });
+		m_storage.push_back(std::move(vEntry));
 
-			while (m_storage.size() > m_nMaxSize)
-				m_storage.pop_front();
+		// --- ENFORCEMENT: terminate + quarantine on every detection ---
+		{
+			int64_t nPid = 0;
+			try
+			{
+				auto vProc = vEvent.get("process");
+				nPid = (int64_t)vProc.get("pid", int64_t(0));
+			}
+			catch (...) {}
+
+			if (nPid > 0)
+			{
+				HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE,
+					FALSE, static_cast<DWORD>(nPid));
+				if (hProc != nullptr)
+				{
+					::TerminateProcess(hProc, 1);
+					::WaitForSingleObject(hProc, 3000);
+					::CloseHandle(hProc);
+					LOGLVL(Critical, FMT("DetectionNotifier: terminated malicious pid="
+						<< nPid));
+				}
+			}
+		}
+
+		while (m_storage.size() > m_nMaxSize)
+			m_storage.pop_front();
 		}
 
 		LOGLVL(Detailed, "Detection event <" << vEvent.get("type", "<undefined>") << "> is stored (id <" << m_nLastId << ">)");
