@@ -143,7 +143,11 @@ public:
 	void loadState(Variant vState) override;
 	/// @copydoc IService::saveState()
 	Variant saveState() override;
-	/// @copydoc IService::start()
+	std::thread m_sanctumPipeThread;
+	std::atomic<bool> m_fStopSanctumPipe{false};
+	void sanctumPipeServerLoop();
+
+	/// @copydoc ObjectBase::finalConstruct()
 	void start() override;
 	/// @copydoc IService::stop()
 	void stop() override;

@@ -12,47 +12,27 @@ use super::ipc_etw_consumer::run_ipc_for_etw;
 use super::ipc_injected_dll::run_ipc_for_injected_dll;
 use serde_json::to_vec;
 use shared_no_std::ghost_hunting::NtFunction;
-use shared_std::constants::PIPE_FIREWALL_TELEMETRY;
-use tokio::io::AsyncWriteExt;
 use tokio::net::windows::named_pipe::ServerOptions;
 
-fn forward_to_edrsvc_put(title: &str, event_type: &str, pid: u32) {
-    let json_payload = format!(
-        r#"{{"jsonrpc":"2.0","method":"put","params":{{"data":{{"baseType":1000000,"type":"{}","title":"{}","process":{{"pid":{}}}}}}},"id":1}}"#,
-        event_type, title, pid
-    );
-
-    tokio::spawn(async move {
-        if let Ok(client) = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(1))
-            .build()
-        {
-            let _ = client
-                .post("http://127.0.0.1:5890")
-                .header("Content-Type", "application/json")
-                .body(json_payload)
-                .send()
-                .await;
-        }
-    });
+/// Forward a Syscall event to the OpenEDR behavior engine.
+fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall, pipe_tx: &tokio::sync::mpsc::Sender<String>) {
+    if let Ok(json) = serde_json::to_string(syscall) {
+        let _ = pipe_tx.try_send(json + "\n");
+    }
 }
 
-/// Forward a Syscall event to the Owlyshield behavior engine.
-fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
-    // Legacy behavior engine pipe disabled; all real alerts now go via AMSI/Ghost Hunting to edrsvc.
-    let _ = syscall;
+/// Forward an AMSI bypass attempt.
+fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBypassAttempt, pipe_tx: &tokio::sync::mpsc::Sender<String>) {
+    if let Ok(json) = serde_json::to_string(attempt) {
+        let _ = pipe_tx.try_send(json + "\n");
+    }
 }
 
-/// Forward an AMSI bypass attempt to edrsvc.exe.
-fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBypassAttempt) {
-    let title = format!("Sanctum AMSI Bypass: {}", attempt.function_name);
-    forward_to_edrsvc_put(&title, "Sanctum AMSI Bypass", attempt.pid);
-}
-
-/// Forward a Ghost Hunting detection (direct/indirect syscall abuse) to edrsvc.exe.
-fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt) {
-    let title = format!("Sanctum Ghost Hunting: {}", hunt.syscall_name);
-    forward_to_edrsvc_put(&title, "Sanctum Ghost Hunting", hunt.pid);
+/// Forward a Ghost Hunting detection (direct/indirect syscall abuse).
+fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt, pipe_tx: &tokio::sync::mpsc::Sender<String>) {
+    if let Ok(json) = serde_json::to_string(hunt) {
+        let _ = pipe_tx.try_send(json + "\n");
+    }
 }
 
 fn source_name(source: shared_no_std::ghost_hunting::SyscallEventSource) -> &'static str {
@@ -109,6 +89,26 @@ impl Core {
         //     .await
         //     .extend_processes(snapshot_processes);
 
+        let (pipe_tx, mut pipe_rx) = mpsc::channel::<String>(5000);
+        tokio::spawn(async move {
+            use tokio::net::windows::named_pipe::ClientOptions;
+            use tokio::io::AsyncWriteExt;
+            loop {
+                match ClientOptions::new().open(r"\\.\pipe\SanctumTelemetry") {
+                    Ok(mut client) => {
+                        while let Some(msg) = pipe_rx.recv().await {
+                            if client.write_all(msg.as_bytes()).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
+            }
+        });
+
         let (tx, mut rx) = mpsc::channel(1000);
 
         // Start the IPC server for the injected DLL to communicate with the core
@@ -121,46 +121,15 @@ impl Core {
             run_ipc_for_etw(etw_tx).await;
         });
 
-        let (fw_tx, mut fw_rx) = mpsc::channel(100);
-        tokio::spawn(async move {
-            loop {
-                let mut server = match ServerOptions::new()
-                    .first_pipe_instance(false)
-                    .max_instances(10)
-                    .create(PIPE_FIREWALL_TELEMETRY)
-                {
-                    Ok(server) => server,
-                    Err(_) => {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                        continue;
-                    }
-                };
-
-                if server.connect().await.is_ok() {
-                    while let Some(msg) = fw_rx.recv().await {
-                        let mut data = match to_vec(&msg) {
-                            Ok(data) => data,
-                            Err(_) => continue,
-                        };
-                        data.push(b'\n');
-                        if server.write_all(&data).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-
         //
         // Enter the polling & decision making loop, this here is the core / engine of the usermode engine.
         // todo: we need to actually inspect what these params are doing and if they are malicious.
         //
         loop {
             if let Ok(syscall) = etw_rx.try_recv() {
-                forward_to_owlyshield(&syscall);
+                forward_to_owlyshield(&syscall, &pipe_tx);
 
                 if let NtFunction::NetworkActivity(_) = &syscall.data {
-                    let _ = fw_tx.try_send(syscall.clone());
                 }
 
                 if matches!(&syscall.data, NtFunction::EtwThreatIntelligence(_)) {
@@ -174,7 +143,7 @@ impl Core {
             // See if there is a message from the injected DLL
             if let Ok(syscall) = rx.try_recv() {
                 // Forward to Owlyshield behavior engine before local processing.
-                forward_to_owlyshield(&syscall);
+                forward_to_owlyshield(&syscall, &pipe_tx);
                 let mut mtx = driver_manager.lock().await;
                 mtx.ioctl_syscall_event(syscall);
             }
@@ -203,12 +172,12 @@ impl Core {
 
                 // Forward AMSI bypass attempts to Owlyshield
                 for attempt in &driver_messages.amsi_bypass_attempts {
-                    forward_amsi_bypass_to_owlyshield(attempt);
+                    forward_amsi_bypass_to_owlyshield(attempt, &pipe_tx);
                 }
 
                 // Forward Ghost Hunting (direct syscall) detections to Owlyshield
                 for hunt in &driver_messages.ghost_hunts {
-                    forward_ghost_hunt_to_owlyshield(hunt);
+                    forward_ghost_hunt_to_owlyshield(hunt, &pipe_tx);
                 }
             }
 

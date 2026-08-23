@@ -440,6 +440,9 @@ void SystemMonitorController::startThreads()
 	};
 
 	m_hFltPortReceiver.Start(handler);
+
+	m_fStopSanctumPipe = false;
+	m_sanctumPipeThread = std::thread(&SystemMonitorController::sanctumPipeServerLoop, this);
 }
 
 //
@@ -449,6 +452,80 @@ void SystemMonitorController::stopThreads()
 {	
 	m_hFltPortReceiver.Stop();
 	m_pIoctl.reset();
+
+	m_fStopSanctumPipe = true;
+	// Wake up the pipe so it can exit
+	auto hWake = ::CreateFileW(L"\\\\.\\pipe\\SanctumTelemetry", GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+	if (hWake != INVALID_HANDLE_VALUE) {
+		::CloseHandle(hWake);
+	}
+	if (m_sanctumPipeThread.joinable())
+		m_sanctumPipeThread.join();
+}
+
+void SystemMonitorController::sanctumPipeServerLoop()
+{
+	while (!m_fStopSanctumPipe)
+	{
+		auto hPipe = ::CreateNamedPipeW(
+			L"\\\\.\\pipe\\SanctumTelemetry",
+			PIPE_ACCESS_INBOUND,
+			PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+			PIPE_UNLIMITED_INSTANCES,
+			0, 65536, 0, nullptr);
+
+		if (hPipe == INVALID_HANDLE_VALUE)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(250));
+			continue;
+		}
+
+		BOOL fConnected = ::ConnectNamedPipe(hPipe, nullptr) ? TRUE : (::GetLastError() == ERROR_PIPE_CONNECTED);
+		if (!fConnected || m_fStopSanctumPipe)
+		{
+			::CloseHandle(hPipe);
+			continue;
+		}
+
+		LOGLVL(Detailed, "Sanctum connected to \\\\.\\pipe\\SanctumTelemetry");
+
+		std::string sCarry;
+		char pBuffer[65536] = {};
+		while (!m_fStopSanctumPipe)
+		{
+			DWORD nRead = 0;
+			if (!::ReadFile(hPipe, pBuffer, sizeof(pBuffer), &nRead, nullptr) || nRead == 0)
+				break;
+
+			sCarry.append(pBuffer, pBuffer + nRead);
+			for (;;)
+			{
+				auto nPos = sCarry.find('\n');
+				if (nPos == std::string::npos)
+					break;
+
+				auto sLine = sCarry.substr(0, nPos);
+				sCarry.erase(0, nPos + 1);
+
+				if (!sLine.empty())
+				{
+					try
+					{
+						auto vEvent = variant::deserializeFromJson(sLine);
+						if (m_pReceiver)
+							m_pReceiver->put(vEvent);
+					}
+					catch (...)
+					{
+						LOGWRN("Failed to parse Sanctum event JSON");
+					}
+				}
+			}
+		}
+
+		::DisconnectNamedPipe(hPipe);
+		::CloseHandle(hPipe);
+	}
 }
 
 //
