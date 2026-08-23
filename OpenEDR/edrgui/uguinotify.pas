@@ -29,6 +29,7 @@ const
 type
   TDetInfo = record
     Id: Int64;
+    Title: string;
     EventType: string;
     ImagePath: string;
     FlsVerdict: Integer;
@@ -235,6 +236,7 @@ begin
                 Det.ImagePath := GetPathStr(jEvent, 'processes[0].imagePath');
                 if Det.ImagePath = '' then
                   Det.ImagePath := GetPathStr(jEvent, 'childProcess.imagePath');
+                Det.Title := GetPathStr(jEvent, 'title');
                 Det.FlsVerdict := GetPathInt(jEvent, 'processes[0].flsVerdict');
                 Det.Verdict := GetPathInt(jEvent, 'processes[0].verdict');
                 if Det.EventType = '' then

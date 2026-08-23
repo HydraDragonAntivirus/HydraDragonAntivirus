@@ -749,6 +749,7 @@ void FlsService::enrichFileVerdict(Variant vFile)
 				Variant vDet = Dictionary({
 					{ "type", "MLE_FLS_MALICIOUS_VERDICT" },
 					{ "baseType", 1000010 },
+					{ "title", "Malware Detected (OpenEDR FLS): " + sFilePath },
 					{ "processes", Sequence({ Dictionary({
 						{ "imagePath", sFilePath },
 						}) }) },

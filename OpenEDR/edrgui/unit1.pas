@@ -294,12 +294,15 @@ begin
   begin
     if sMsg <> '' then
       sMsg := sMsg + LineEnding;
-    sMsg := sMsg + Detections[i].EventType;
+    if Detections[i].Title <> '' then
+      sMsg := sMsg + Detections[i].Title
+    else
+      sMsg := sMsg + Detections[i].EventType;
     if Detections[i].ImagePath <> '' then
       sMsg := sMsg + ': ' + Detections[i].ImagePath;
   end;
 
-  TAlertForm.ShowAlert('EDR Detection', sMsg, asCritical, 0);
+  TAlertForm.ShowAlert(Detections[0].Title, sMsg, asCritical, 0);
 end;
 
 // Runs on the main thread (via Synchronize) whenever the Rust behavior engine
