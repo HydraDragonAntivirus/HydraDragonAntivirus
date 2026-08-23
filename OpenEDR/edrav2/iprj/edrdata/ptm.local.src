@@ -12,14 +12,29 @@
 			"fileReadWrite": "FILE_COPY_READ_WRITE",
 			"fileWriteRead": "FILE_COPY_WRITE_READ"
 		},
+		"ransomShadowEventBaseType": {
+			"MLE_RANSOM_SHADOW_COPY_DELETE": 1000009
+		},
+		"ransomShadowDeleteCmdLines": [
+			"*vssadmin*delete shadows*",
+			"*wmic*shadowcopy delete*",
+			"*wmic*shadowcopy*delete*",
+			"*wbadmin*delete catalog*",
+			"*bcdedit*recoveryenabled*no*",
+			"*wbadmin*delete systemstatebackup*",
+			"*vssadmin*resize shadowstorage*"
+		],
 		"ransomEventBaseType": {
-			"MLE_RANSOM_BEHAVIOR": 1000008,
-			"MLE_RANSOM_SHADOW_COPY_DELETE": 1000009,
-			"MLE_FLS_MALICIOUS_VERDICT": 1000010,
-			"MLE_PSW_STEALER": 1000011
+			"MLE_RANSOM_BEHAVIOR": 1000008
 		},
 		"ransomBasket": {
 			"readWrite": "RANSOM_FILE_READ_WRITE"
+		},
+		"flsEventBaseType": {
+			"MLE_FLS_MALICIOUS_VERDICT": 1000010
+		},
+		"pswEventBaseType": {
+			"MLE_PSW_STEALER": 1000011
 		},
 		"pswBasket": {
 			"pswCredRead": "PSW_CRED_READ",
@@ -42,16 +57,6 @@
 			"*Login Data*",
 			"*Web Data*",
 			"*Local State*"
-		],
-		// imatch (case-insensitive wildcard) patterns for shadow-copy wiping
-		"ransomShadowDeleteCmdLines": [
-			"*vssadmin*delete shadows*",
-			"*wmic*shadowcopy delete*",
-			"*wmic*shadowcopy*delete*",
-			"*wbadmin*delete catalog*",
-			"*bcdedit*recoveryenabled*no*",
-			"*wbadmin*delete systemstatebackup*",
-			"*vssadmin*resize shadowstorage*"
 		],
 		// System and browser cache paths excluded from ransomware tripping (FP reduction)
 		"ransomSystemExclusions": [
@@ -233,8 +238,7 @@
 		//
 		"PSW_CREDENTIAL_ACCESS": [
 
-			// 1) Full sequential read of a credential/browser data file:
-			//    only tracks reads matching credential path patterns
+			// 1a) Full sequential read of a credential/browser data file
 			{
 				"eventType": "LLE_FILE_DATA_READ_FULL",
 				"rule": {
@@ -244,7 +248,26 @@
 						"args": [ "@event.file.uniquePath" ]
 					},
 					"saveContext": {
-						"basket": "@const.basket.pswCredRead",
+						"basket": "@const.pswBasket.pswCredRead",
+						"key": "@event.process.id",
+						"group": "@event.process.id",
+						"lifetime": 600000,
+						"data": { "file": "@event.file" }
+					}
+				}
+			},
+
+			// 1b) Memory-mapped section read of a credential/browser data file
+			{
+				"eventType": "LLE_FILE_MAP_READ",
+				"rule": {
+					"condition": {
+						"$operation": "imatch",
+						"pattern": "@const.pswCredPaths",
+						"args": [ "@event.file.uniquePath" ]
+					},
+					"saveContext": {
+						"basket": "@const.pswBasket.pswCredRead",
 						"key": "@event.process.id",
 						"group": "@event.process.id",
 						"lifetime": 600000,
@@ -259,7 +282,7 @@
 				"eventType": "LLE_NETWORK_CONNECT_OUT",
 				"rule": {
 					"loadContext": {
-						"basket": "@const.basket.pswCredRead",
+						"basket": "@const.pswBasket.pswCredRead",
 						"key": "@event.process.id"
 					},
 					"createEvent": {
@@ -281,7 +304,7 @@
 				"eventType": "LLE_PROCESS_DELETE",
 				"rule": {
 					"deleteContext": {
-						"basket": "@const.basket.pswCredRead",
+						"basket": "@const.pswBasket.pswCredRead",
 						"group": "@event.process.id"
 					}
 				}
@@ -290,7 +313,7 @@
 
 ,
 		// Pattern for shadow-copy deletion: vssadmin/wmic/wbadmin wiping
-		// volume shadow copies is a near-zero-FP ransomware footprint.
+		// volume shadow copies is a near-zero-FP destructive footprint.
 		//
 		"RANSOM_SHADOW_COPY_DELETE": [
 			{
@@ -306,7 +329,7 @@
 						"destination": "OUT",
 						"clone": false,
 						"data": [
-							{ "name": "baseType", "value": "@const.ransomEventBaseType.MLE_RANSOM_SHADOW_COPY_DELETE" },
+							{ "name": "baseType", "value": "@const.ransomShadowEventBaseType.MLE_RANSOM_SHADOW_COPY_DELETE" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" }
@@ -318,10 +341,10 @@
 
 		//
 		// Pattern for Ransomware destructive overwrite / in-place encryption behavior
-		// Detects a process reading a file and subsequently overwriting/destroying it.
+		// Detects a process reading a file (sequential or mmap) and subsequently overwriting, modifying, renaming or deleting it.
 		//
 		"RANSOM_BEHAVIOR": [
-			// Step 1: Process reads a full file -> save context to ransomBasket
+			// Step 1a: Process reads a full file -> save context to ransomBasket
 			{
 				"eventType": "LLE_FILE_DATA_READ_FULL",
 				"rule": {
@@ -337,7 +360,23 @@
 				}
 			},
 
-			// Step 2: Same process overwrites the previously-read file -> trigger MLE_RANSOM_BEHAVIOR
+			// Step 1b: Process memory-maps a file for read -> save context to ransomBasket
+			{
+				"eventType": "LLE_FILE_MAP_READ",
+				"rule": {
+					"saveContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey",
+						"group": "@event.process.id",
+						"lifetime": 120000,
+						"data": {
+							"file": "@event.file"
+						}
+					}
+				}
+			},
+
+			// Step 2a: Same process overwrites the previously-read file via write -> trigger MLE_RANSOM_BEHAVIOR
 			{
 				"eventType": "LLE_FILE_DATA_WRITE_FULL",
 				"rule": {
@@ -350,7 +389,103 @@
 						"destination": "OUT",
 						"clone": false,
 						"data": [
-							{ "name": "baseType", "value": "@const.ransomEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "source", "value": "@context.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+
+			// Step 2b: Same process overwrites the previously-read file via mmap write -> trigger MLE_RANSOM_BEHAVIOR
+			{
+				"eventType": "LLE_FILE_MAP_WRITE",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "source", "value": "@context.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+
+			// Step 2c: Same process modifies previously-read file -> trigger MLE_RANSOM_BEHAVIOR
+			{
+				"eventType": "LLE_FILE_DATA_CHANGE",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "source", "value": "@context.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+
+			// Step 2d: Same process renames previously-read file -> trigger MLE_RANSOM_BEHAVIOR
+			{
+				"eventType": "LLE_FILE_RENAME",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "source", "value": "@context.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+
+			// Step 2e: Same process deletes previously-read file -> trigger MLE_RANSOM_BEHAVIOR
+			{
+				"eventType": "LLE_FILE_DELETE",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "source", "value": "@context.file" },
@@ -389,7 +524,7 @@
 						"destination": "OUT",
 						"clone": false,
 						"data": [
-							{ "name": "baseType", "value": "@const.ransomEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
+							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" }
