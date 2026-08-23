@@ -487,7 +487,7 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 					for (const auto& entry : capturedBackups)
 					{
 						std::wstring wsDosPath = NtPathToDosPath(entry.wsOriginal);
-						std::string sNarrow(wsDosPath.begin(), wsDosPath.end());
+						std::string sNarrow = Narrow(wsDosPath);
 						int32_t qRes = fnQ(
 							reinterpret_cast<const uint8_t*>(sNarrow.data()),
 							static_cast<uint32_t>(sNarrow.size()));
