@@ -78,7 +78,6 @@ enum class Event : uint64_t
 	// Kernel saved a pre-image of an overwrite under ProgramData
 	// (ransomware shadow-backup shield)
 	LLE_FILE_PREIMAGE_SAVED			= 0x0000000000000037L,
-	LLE_RANSOM_CONFIRMED			= 0x0000000000000038L,
 
 
 

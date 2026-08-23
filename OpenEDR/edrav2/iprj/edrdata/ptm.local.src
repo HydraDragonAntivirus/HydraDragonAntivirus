@@ -1,4 +1,4 @@
-﻿//
+//
 // Local policy definition for PatternsMatching
 //
 {
@@ -13,8 +13,13 @@
 			"fileWriteRead": "FILE_COPY_WRITE_READ"
 		},
 		"ransomEventBaseType": {
+			"MLE_RANSOM_BEHAVIOR": 1000008,
 			"MLE_RANSOM_SHADOW_COPY_DELETE": 1000009,
+			"MLE_FLS_MALICIOUS_VERDICT": 1000010,
 			"MLE_PSW_STEALER": 1000011
+		},
+		"ransomBasket": {
+			"readWrite": "RANSOM_FILE_READ_WRITE"
 		},
 		"pswBasket": {
 			"pswCredRead": "PSW_CRED_READ",
@@ -43,7 +48,21 @@
 			"*vssadmin*delete shadows*",
 			"*wmic*shadowcopy delete*",
 			"*wmic*shadowcopy*delete*",
-			"*wbadmin*delete catalog*"
+			"*wbadmin*delete catalog*",
+			"*bcdedit*recoveryenabled*no*",
+			"*wbadmin*delete systemstatebackup*",
+			"*vssadmin*resize shadowstorage*"
+		],
+		// System and browser cache paths excluded from ransomware tripping (FP reduction)
+		"ransomSystemExclusions": [
+			"*\\Windows\\*",
+			"*\\Program Files\\*",
+			"*\\Program Files (x86)\\*",
+			"*\\ProgramData\\Microsoft\\*",
+			"*\\AppData\\Local\\Packages\\*",
+			"*\\AppData\\Local\\Microsoft\\Edge\\User Data\\EBWebView\\*",
+			"*\\AppData\\Local\\Temp\\*",
+			"*\\Temp\\*"
 		]
 	},
 
@@ -295,6 +314,90 @@
 					}
 				}
 			}
-		] // RANSOM_SHADOW_COPY_DELETE
+		], // RANSOM_SHADOW_COPY_DELETE
+
+		//
+		// Pattern for Ransomware destructive overwrite / in-place encryption behavior
+		// Detects a process reading a file and subsequently overwriting/destroying it.
+		//
+		"RANSOM_BEHAVIOR": [
+			// Step 1: Process reads a full file -> save context to ransomBasket
+			{
+				"eventType": "LLE_FILE_DATA_READ_FULL",
+				"rule": {
+					"saveContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey",
+						"group": "@event.process.id",
+						"lifetime": 120000,
+						"data": {
+							"file": "@event.file"
+						}
+					}
+				}
+			},
+
+			// Step 2: Same process overwrites the previously-read file -> trigger MLE_RANSOM_BEHAVIOR
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"loadContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@var.ransomPathKey"
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "source", "value": "@context.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+
+			// Step 3: Cleanup context when process exits
+			{
+				"eventType": "LLE_PROCESS_DELETE",
+				"rule": {
+					"deleteContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"group": "@event.process.id"
+					}
+				}
+			}
+		], // RANSOM_BEHAVIOR
+
+		//
+		// Pattern for cloud FLS malicious verdict
+		//
+		"FLS_MALICIOUS_VERDICT": [
+			{
+				"eventType": "LLE_PROCESS_CREATE",
+				"rule": {
+					"condition": {
+						"$operation": "==",
+						"args": [ "@event.process.imageFile.verdict", 2 ]
+					},
+					"createEvent": {
+						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			}
+		] // FLS_MALICIOUS_VERDICT
 	}
 }
+

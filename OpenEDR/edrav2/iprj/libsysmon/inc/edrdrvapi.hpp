@@ -66,7 +66,6 @@ enum class SysmonEvent : uint16_t
 	ThreadOpen = 0x0015,    ///< ObRegisterCallbacks thread handle open
 	DesktopOpen = 0x0016,   ///< ObRegisterCallbacks desktop handle open
 	OwlyPreImageSaved = 0x0017, ///< pre-image of an overwrite saved (RansomShield)
-	OwlyRansomConfirmed = 0x0018, ///< ransomware behavior confirmed & terminated (RansomShield)
 
 	_Max //< "last" event. for internal usage
 };

@@ -223,8 +223,9 @@ static bool IsSystemArea(const std::wstring& wsPath)
 			return true;
 	}
 
-	// UWP/app-container data (Edge WebView cache lives here)
-	if (p.find(L"/appdata/local/packages/") != std::wstring::npos)
+	// UWP/app-container and Edge WebView cache data
+	if (p.find(L"/appdata/local/packages/") != std::wstring::npos ||
+		p.find(L"/ebwebview/") != std::wstring::npos)
 		return true;
 
 	// Temporary directories: installers/updaters churn files here constantly
@@ -235,8 +236,7 @@ static bool IsSystemArea(const std::wstring& wsPath)
 	return false;
 }
 
-void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage,
-	int nImageVerdict, Event eEventType, const Variant& vEvent)
+void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent)
 {
 	if (nPid <= 0)
 		return;
@@ -247,7 +247,6 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 	{
 		std::scoped_lock _lock(m_mtxRansomShield);
 		m_readFiles.erase(nPid);
-		m_hitFiles.erase(nPid);
 		m_backups.erase(nPid);
 		return;
 	}
@@ -255,11 +254,6 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 		break;
 	}
 
-	// Extract victim path (+ rename target) from the event.
-	// IMPORTANT: prefer rawPath as the correlation key - uniquePath comes
-	// from the file provider and disappears once a file is deleted, which
-	// made read-leg and delete-leg keys mismatch. Lowercased for stable
-	// comparison across volume/device spellings.
 	std::wstring wsFilePath;
 	std::wstring wsNewName;
 	try
@@ -285,25 +279,9 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 	if (wsFilePath.empty() || IsSystemArea(wsFilePath))
 		return;
 
-	// The acting process itself is an OS/service component: never flag it.
-	if (!sImage.empty() && IsSystemArea(sImage))
-		return;
-
-	// Trust refinement (works when cloud/FLS reachable): an image with a
-	// SAFE verdict is exempt even outside the known system areas. Unknown /
-	// absent verdicts stay monitored so offline protection is unchanged.
-	// 1 = SAFE (see common.src "verdict" constants).
-	if (nImageVerdict == 1)
-		return;
-
-	bool fTracked = false;
-	bool fNewVictim = false;
-
 	{
 		std::scoped_lock _lock(m_mtxRansomShield);
-
 		auto& readMap = m_readFiles[nPid];
-		fTracked = readMap.count(wsFilePath) != 0;
 
 		switch (eEventType)
 		{
@@ -318,198 +296,90 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 			}
 			catch (...) {}
 			readMap[wsFilePath] = std::move(wsBk);
-			return; // pure tracking
-		}
-
-		case Event::LLE_FILE_PREIMAGE_SAVED:
-			// Kernel already saved the pre-image before allowing the
-			// overwrite; record it without requiring fTracked.
-			break;
-
-		case Event::LLE_FILE_DATA_WRITE_FULL:
-		case Event::LLE_FILE_DATA_CHANGE:
-		case Event::LLE_FILE_MAP_WRITE:
-			if (!fTracked)
-				return; // overwrite of a file this process never fully read
-			break; // destructive: back it up
-
-		case Event::LLE_FILE_DELETE:
-		case Event::LLE_FILE_RENAME:
-			readMap.erase(wsFilePath);
-			if (!fTracked)
-				return;
-			break; // destructive: back it up
-
-		default:
 			return;
 		}
 
-		constexpr int c_nMaxBackupsPerProcess = 500;
-		auto& vec = m_backups[nPid];
-
-		ShadowBackupEntry entry;
-		entry.wsOriginal = wsFilePath;
-		entry.nOp = (eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
-				eEventType == Event::LLE_FILE_DATA_CHANGE ||
-				eEventType == Event::LLE_FILE_MAP_WRITE) ? 0 :
-			(eEventType == Event::LLE_FILE_DELETE) ? 1 : 2;
-		entry.wsNewName = wsNewName;
-
-		if (vec.size() < c_nMaxBackupsPerProcess)
+		case Event::LLE_FILE_PREIMAGE_SAVED:
+		case Event::LLE_FILE_DATA_WRITE_FULL:
+		case Event::LLE_FILE_DATA_CHANGE:
+		case Event::LLE_FILE_MAP_WRITE:
+		case Event::LLE_FILE_DELETE:
+		case Event::LLE_FILE_RENAME:
 		{
-			if (eEventType == Event::LLE_FILE_PREIMAGE_SAVED)
+			constexpr size_t c_nMaxBackupsPerProcess = 500;
+			auto& vec = m_backups[nPid];
+			if (vec.size() < c_nMaxBackupsPerProcess)
 			{
-				// Pre-image already written by the kernel driver; adopt the
-				// backup path reported in the event.
-				Variant vFile = vEvent.get("file");
-				entry.wsBackup = vFile.get("backupPath", L"");
+				ShadowBackupEntry entry;
+				entry.wsOriginal = wsFilePath;
+				entry.nOp = (eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
+						eEventType == Event::LLE_FILE_DATA_CHANGE ||
+						eEventType == Event::LLE_FILE_MAP_WRITE) ? 0 :
+					(eEventType == Event::LLE_FILE_DELETE) ? 1 : 2;
+				entry.wsNewName = wsNewName;
+
+				if (eEventType == Event::LLE_FILE_PREIMAGE_SAVED)
+				{
+					Variant vFile = vEvent.get("file");
+					entry.wsBackup = vFile.get("backupPath", L"");
+				}
+				else
+				{
+					auto itBk = readMap.find(wsFilePath);
+					if (itBk != readMap.end())
+						entry.wsBackup = itBk->second;
+				}
+				vec.push_back(std::move(entry));
 			}
-			else
-			{
-				// Adopt the kernel tee pre-image captured during reads
-				auto itBk = readMap.find(wsFilePath);
-				if (itBk != readMap.end())
-					entry.wsBackup = itBk->second;
-			}
-			vec.push_back(std::move(entry));
+			break;
 		}
 
-		// Confirmation requires three DIFFERENT victim files: same-file
-		// service churn cannot inflate the counter.
-		fNewVictim = m_hitFiles[nPid].insert(wsFilePath).second;
+		default:
+			break;
+		}
 	}
+}
 
-	if (!fNewVictim)
+void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName)
+{
+	if (nPid <= 0)
 		return;
 
-	// User-profile victims are high-value assets: two distinct files are
-	// enough for confirmation there; everything else stays at five.
-	// AppData churn (browser/APP caches) is excluded from the fast lane.
-	std::wstring wsLowerPath = wsFilePath;
-	std::transform(wsLowerPath.begin(), wsLowerPath.end(), wsLowerPath.begin(), ::towlower);
-	const bool fUserProfileVictim =
-		wsLowerPath.find(L"/users/") != std::wstring::npos &&
-		wsLowerPath.find(L"/appdata/") == std::wstring::npos;
+	LOGLVL(Critical, FMT("ThreatRemediation: executing complete rollback & kill for pid="
+		<< nPid << " threat=" << sThreatName));
 
-	size_t nDistinct = 0;
+	// 1. File rollback from pre-images
+	rollbackRansomBackups(nPid);
+
+	// 2. Process termination
+	HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, (DWORD)nPid);
+	if (hProc != nullptr)
 	{
-		std::scoped_lock _lock(m_mtxRansomShield);
-		nDistinct = m_hitFiles[nPid].size();
+		::TerminateProcess(hProc, 1);
+		::WaitForSingleObject(hProc, 3000);
+		::CloseHandle(hProc);
+		LOGLVL(Critical, FMT("ThreatRemediation: terminated malicious process pid=" << nPid));
 	}
 
-	const size_t nConfirmAt = fUserProfileVictim ? 2 : 5;
-
-	if (IsVerboseLoggingEnabled())
+	// 3. XOR quarantine executable
+	HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+	if (hDll != nullptr)
 	{
-		LOGLVL(Normal, FMT("RansomShield: destructive op on a previously-read file, "
-			<< "pid=" << nPid << " distinct-victims=" << nDistinct
-			<< " confirm-at=" << nConfirmAt));
-	}
-
-	if (nDistinct >= nConfirmAt)
-	{
-		LOGLVL(Critical, FMT("RansomShield: ransomware behavior confirmed for pid="
-			<< nPid << " - rolling back captured originals"));
-
-
-		// Capture backup entries before rollback clears them
-		std::vector<ShadowBackupEntry> capturedBackups;
+		typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+		auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+		if (fnQ != nullptr && !sImage.empty())
 		{
-			std::scoped_lock _lock(m_mtxRansomShield);
-			auto itBk = m_backups.find(nPid);
-			if (itBk != m_backups.end())
-				capturedBackups = itBk->second;
+			std::wstring wsExeDos = NtPathToDosPath(sImage);
+			std::string sNarrow = Narrow(wsExeDos);
+			int32_t qRes = fnQ(
+				reinterpret_cast<const uint8_t*>(sNarrow.data()),
+				static_cast<uint32_t>(sNarrow.size()));
+			if (qRes == 0)
+				LOGLVL(Critical, FMT("ThreatRemediation: quarantined malware <" << sNarrow << ">"));
+			else
+				LOGLVL(Critical, FMT("ThreatRemediation: quarantine FAILED for <" << sNarrow << "> result=" << qRes));
 		}
-		rollbackRansomBackups(nPid);
-
-
-		// --- ENFORCEMENT: quarantine malware exe (kernel edrdrv already killed process) ---
-		{
-			HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-			if (hDll != nullptr)
-			{
-				typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-				auto fnQ = (QuarantineFn)::GetProcAddress(hDll,
-					"owlyshield_dll_quarantine_file");
-				if (fnQ != nullptr && !sImage.empty())
-				{
-					std::wstring wsExeDos = NtPathToDosPath(sImage);
-					std::string sNarrow = Narrow(wsExeDos);
-					int32_t qRes = fnQ(
-						reinterpret_cast<const uint8_t*>(sNarrow.data()),
-						static_cast<uint32_t>(sNarrow.size()));
-					if (qRes == 0)
-						LOGLVL(Critical, FMT("RansomShield: quarantined malware <"
-							<< sNarrow << ">"));
-					else
-						LOGLVL(Critical, FMT("RansomShield: quarantine FAILED for <"
-							<< sNarrow << "> result=" << qRes));
-				}
-				::FreeLibrary(hDll);
-			}
-		}
-
-		// BEHAVIORAL_ALERT line into output_events (same JSON shape as the
-		// Owlyshield behavioral alerts, so dashboards pick it up).
-		{
-			SYSTEMTIME stNow = {};
-			::GetLocalTime(&stNow);
-			char szTime[48] = "";
-			sprintf_s(szTime, sizeof(szTime),
-				"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ",
-				stNow.wYear, stNow.wMonth, stNow.wDay,
-				stNow.wHour, stNow.wMinute, stNow.wSecond,
-				stNow.wMilliseconds);
-
-			const std::string sWhoJson = JsonEscape(!sImage.empty() ? sImage : wsFilePath);
-			std::string sJson = std::string("{") +
-				"\"customerId\":\"\",\"endpointId\":\"\","
-				"\"deviceName\":\"\","
-				"\"eventGroup\":\"THREAT\","
-				"\"eventType\":\"BEHAVIORAL_ALERT\","
-				"\"status\":\"ALERT\","
-				"\"version\":\"1.1\","
-				"\"eventTime\":\"" + szTime + "\","
-				"\"threat\":{"
-					"\"type\":\"Ransomware\","
-					"\"name\":\"MLE_RANSOM_BEHAVIOR\","
-					"\"certainty\":1.0,"
-					"\"matchDetails\":\"3+ destructive ops on previously-read files\","
-					"\"response\":\"rollback+terminate\"},"
-				"\"process\":{\"processId\":" + std::to_string(nPid) +
-					",\"processPath\":\"" + sWhoJson + "\"}}";
-			AppendToOutputEvents(sJson);
-		}
-
-		// Raise detection so GUI/response pipeline sees it (title is
-		// auto-generated by DetectionNotifier).
-		CMD_TRY
-		{
-			auto pNotifier = queryInterfaceSafe<ICommandProcessor>(
-				queryService("guiNotification"));
-			if (pNotifier)
-			{
-				std::wstring sWho = !sImage.empty() ? sImage : wsFilePath;
-				Variant vDet = Dictionary({
-					{ "type", "MLE_RANSOM_BEHAVIOR" },
-					{ "baseType", 1000010 },
-					{ "processes", Sequence({ Dictionary({
-						{ "imagePath", sWho },
-						}) }) },
-					});
-				(void)pNotifier->execute("put",
-					Dictionary({ { "data", vDet } }));
-			}
-		}
-		CMD_PREPARE_CATCH
-		catch (const std::exception& e)
-		{
-			LOGLVL(Critical,FMT("RansomShield: failed to raise detection: " << e.what()));
-		}
-		catch (...)
-		{
-			LOGLVL(Critical,"RansomShield: failed to raise detection");
-		}
+		::FreeLibrary(hDll);
 	}
 }
 
@@ -1051,24 +921,26 @@ void EventEnricher::put(const Variant& vEventRef)
 	}
 	}
 
-	// Ransomware shadow-backup shield: rule-independent tracking of
-	// read -> overwrite/delete/rename sequences. Pre-images are saved under
-	// %PROGRAMDATA%\HydraDragonBackups\<pid>\ and rolled back on confirmation.
+	// Shadow-backup shield: record pre-images under %PROGRAMDATA%\HydraDragonBackups\<pid>\
 	try
 	{
 		const int64_t nShieldPid = getByPath(vEvent, "process.pid", int64_t(0));
-		std::wstring sImage;
-		int nImageVerdict = -1; // -1/0/3 = unknown or absent -> stays monitored
-		try
+		recordShadowBackup(nShieldPid, eEventType, vEvent);
+
+		// If policy generated any detection/threat event, execute universal remediation (file rollback + terminate + quarantine)
+		const int64_t nBaseType = vEvent.get("baseType", int64_t(0));
+		if (nBaseType >= 1000000 || vEvent.has("threat"))
 		{
-			Variant vImage = getByPath(vProcess, "imageFile");
-			sImage = vImage.get("uniquePath", L"");
-			nImageVerdict = vImage.get("verdict", -1);
+			std::wstring sImage;
+			try
+			{
+				Variant vImage = getByPath(vProcess, "imageFile");
+				sImage = vImage.get("uniquePath", L"");
+			}
+			catch (...) {}
+			std::string sThreatName = "THREAT_BASE_TYPE_" + std::to_string(nBaseType);
+			handleThreatRemediation(nShieldPid, sImage, sThreatName);
 		}
-		catch (...)
-		{
-		}
-		processRansomShield(nShieldPid, sImage, nImageVerdict, eEventType, vEvent);
 	}
 	catch (...)
 	{

@@ -55,12 +55,9 @@ private:
 	std::mutex m_mtxRansomShield;
 	// pid -> { victim path -> kernel-saved pre-image path }
 	std::unordered_map<int64_t, std::unordered_map<std::wstring, std::wstring>> m_readFiles;
-	// Distinct victim paths per process: five DIFFERENT files must be hit
-	// before confirmation (same-file service churn cannot inflate the count).
-	std::unordered_map<int64_t, std::unordered_set<std::wstring>> m_hitFiles;
 	std::unordered_map<int64_t, std::vector<ShadowBackupEntry>> m_backups;
-	void processRansomShield(int64_t nPid, const std::wstring& sImage,
-		int nImageVerdict, Event eEventType, const Variant& vEvent);
+	void recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent);
+	void handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName);
 	void rollbackRansomBackups(int64_t nPid);
 
 public:

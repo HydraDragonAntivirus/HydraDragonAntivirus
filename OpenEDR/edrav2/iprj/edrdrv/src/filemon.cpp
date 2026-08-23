@@ -2076,40 +2076,6 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preWrite(_Inout_ PFLT_CALLBACK_DATA pData,
 			if (NT_SUCCESS(nsBk))
 				pStreamHandleContext->fPreImageSaved = 1;
 		}
-
-		// Per-PID destructive operation counter
-		ULONG nPid = (ULONG)(ULONG_PTR)pStreamHandleContext->nOpeningProcessId;
-		if (nPid > 4) // Skip System / Idle
-		{
-			ULONG bucket = nPid % 64;
-			if (g_pCommonData->ransomPid[bucket] != nPid)
-			{
-				g_pCommonData->ransomPid[bucket] = nPid;
-				InterlockedExchange(&g_pCommonData->ransomCount[bucket], 0);
-			}
-			LONG count = InterlockedIncrement(&g_pCommonData->ransomCount[bucket]);
-
-			if (count >= 5)
-			{
-				CLIENT_ID cid = { (HANDLE)(ULONG_PTR)nPid, nullptr };
-				OBJECT_ATTRIBUTES oa = {};
-				InitializeObjectAttributes(&oa, nullptr, OBJ_KERNEL_HANDLE, nullptr, nullptr);
-				HANDLE hProc = nullptr;
-				if (NT_SUCCESS(ZwOpenProcess(&hProc, PROCESS_TERMINATE, &oa, &cid)))
-				{
-					ZwTerminateProcess(hProc, 1);
-					ZwClose(hProc);
-					LOGINFO1("RansomShield: Terminated ransomware pid %lu (destructive op count=%ld)\r\n", nPid, count);
-				}
-
-				sendFileEvent(SysmonEvent::OwlyRansomConfirmed, pStreamHandleContext,
-					[count](auto pSerializer)
-					{
-						(void)write(*(pSerializer), EvFld::EventSubtype, (uint32_t)count);
-						return STATUS_SUCCESS;
-					});
-			}
-		}
 	} while (false);
 
 	// process sequenced write
