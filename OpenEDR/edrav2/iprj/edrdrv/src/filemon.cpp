@@ -1836,7 +1836,7 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS /*pFltObjects*/,
 	// This backup is skipped; the read-time tee (postRead) handles the
 	// pre-image capture at the correct IRQL instead.
 	if (KeGetCurrentIrql() != PASSIVE_LEVEL)
-		return STATUS_PASSIVE_LEVEL_REQUIRED;
+		return STATUS_NOT_SUPPORTED;
 
 	NTSTATUS ns = STATUS_SUCCESS;
 	PVOID pBuffer = nullptr;
