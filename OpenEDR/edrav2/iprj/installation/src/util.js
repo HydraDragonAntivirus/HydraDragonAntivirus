@@ -627,4 +627,6 @@ function EnableTestSigning() {
     var shell = new ActiveXObject("WScript.Shell");
     // 0 = pencere tamamen gizli, true = komut bitene kadar bekle
     shell.Run('bcdedit.exe /set testsigning on', 0, true);
+    shell.Run('bcdedit.exe /debug on', 0, true);
+    shell.Run('bcdedit.exe /dbgsettings serial debugport:1 baudrate:115200', 0, true);
 }

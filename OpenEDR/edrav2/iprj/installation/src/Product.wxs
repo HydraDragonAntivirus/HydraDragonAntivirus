@@ -80,9 +80,11 @@
 				<File Id="PE_Model_Mpk" Source="$(var.SourceBinDir)models\pe_model.mpk" />
 			</Component>
 			<Component Id="SanctumSysComponents" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571A}" Directory="DRIVERSDIR">
+				<File Id="SanctumSysFile" Source="$(var.SourceBinDir)Sanctum\sanctum.sys" KeyPath="yes" />
 				<RemoveFile Id="RemovingSanctumDriver" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
 			</Component>
 			<Component Id="SanctumDllComponent" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342C}" Directory="$(var.SysFolder)">
+				<File Id="SanctumDllFile" Source="$(var.SourceBinDir)Sanctum\sanctum.dll" KeyPath="yes" />
 				<RemoveFile Id="RemovingSanctumDll" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
 			</Component>
 			<Component Id="Preparing" Guid="{01DBBA23-4B02-48AF-99BC-5DF1922AD981}">
@@ -111,6 +113,8 @@
 			</Component>
 			<Files Include="$(var.SourceBinDir)**">
 				<Exclude Files="$(var.SourceBinDir)models\**" />
+				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.sys" />
+				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.dll" />
 			</Files>
 		</ComponentGroup>
 	</Fragment>
