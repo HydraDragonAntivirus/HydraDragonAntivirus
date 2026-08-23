@@ -86,12 +86,22 @@
                     <File Id="JS_Model_Mpk_X64" Source="$(var.SourceBinDir64)models\js_model.mpk" KeyPath="yes" />
                     <File Id="PE_Model_Mpk_X64" Source="$(var.SourceBinDir64)models\pe_model.mpk" />
                 </Component>
+                <Component Id="SanctumSysComponentsX64" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571B}" Directory="DRIVERSDIR">
+                    <File Id="SanctumSysFileX64" Source="$(var.SourceBinDir64)Sanctum\sanctum.sys" KeyPath="yes" />
+                    <RemoveFile Id="RemovingSanctumDriverX64" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
+                </Component>
+                <Component Id="SanctumDllComponentX64" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342D}" Directory="$(var.SysFolder)">
+                    <File Id="SanctumDllFileX64" Source="$(var.SourceBinDir64)Sanctum\sanctum.dll" KeyPath="yes" />
+                    <RemoveFile Id="RemovingSanctumDllX64" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
+                </Component>
                 <Component Id="PreparingX64" Guid="{4BEB1048-A6EB-4021-ADAA-74A75EDA5EAE}">
                     <CopyFile Id="CopyingDefaultCfgX64" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR_PLATFORM" />
                     <CopyFile Id="CopyingCacertPemX64" SourceDirectory="TARGETDIR" SourceName="cacert.pem" DestinationDirectory="INSTALLDIR_PLATFORM" />
                     <fire:FirewallException Id="SvcFirewallRulesX64" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
                     <ServiceControl Id="StopEdrSvcX64" Name="edrsvc" Stop="uninstall" />
+                    <ServiceControl Id="StopSanctumRunnerX64" Name="sanctum_ppl_runner" Stop="uninstall" Remove="uninstall" />
                     <RemoveFile Id="RemovingDriverX64" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
+                    <RemoveFile Id="RemovingMbrFilterDriverX64" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]rules" Type="string" KeyPath="yes" />
                         <RegistryValue Name="VERBOSE_LOGGING" Value="1" Type="string" />
@@ -102,10 +112,17 @@
                     </RegistryKey>
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
+                        <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
+                    </RegistryKey>
+                    <!-- Run elam_installer after reboot -->
+                    <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce">
+                        <RegistryValue Name="OwlyshieldPostInstallX64" Value="&quot;[INSTALLDIR_PLATFORM]Sanctum\elam_installer.exe&quot;" Type="string" KeyPath="no" />
                     </RegistryKey>
                 </Component>
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
+                    <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.sys" />
+                    <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.dll" />
                 </Files>
             </ComponentGroup>
         <?else?>
@@ -114,12 +131,22 @@
                     <File Id="JS_Model_Mpk_X86" Source="$(var.SourceBinDir32)models\js_model.mpk" KeyPath="yes" />
                     <File Id="PE_Model_Mpk_X86" Source="$(var.SourceBinDir32)models\pe_model.mpk" />
                 </Component>
+                <Component Id="SanctumSysComponentsX86" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571C}" Directory="DRIVERSDIR">
+                    <File Id="SanctumSysFileX86" Source="$(var.SourceBinDir32)Sanctum\sanctum.sys" KeyPath="yes" />
+                    <RemoveFile Id="RemovingSanctumDriverX86" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
+                </Component>
+                <Component Id="SanctumDllComponentX86" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342E}" Directory="$(var.SysFolder)">
+                    <File Id="SanctumDllFileX86" Source="$(var.SourceBinDir32)Sanctum\sanctum.dll" KeyPath="yes" />
+                    <RemoveFile Id="RemovingSanctumDllX86" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
+                </Component>
                 <Component Id="PreparingX86" Guid="{01DBBA23-4B02-48AF-99BC-5DF1922AD981}">
                     <CopyFile Id="CopyingDefaultCfgX86" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR_PLATFORM" />
                     <CopyFile Id="CopyingCacertPemX86" SourceDirectory="TARGETDIR" SourceName="cacert.pem" DestinationDirectory="INSTALLDIR_PLATFORM" />
                     <fire:FirewallException Id="SvcFirewallRulesX86" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
                     <ServiceControl Id="StopEdrSvcX86" Name="edrsvc" Stop="uninstall" />
+                    <ServiceControl Id="StopSanctumRunnerX86" Name="sanctum_ppl_runner" Stop="uninstall" Remove="uninstall" />
                     <RemoveFile Id="RemovingDriverX86" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
+                    <RemoveFile Id="RemovingMbrFilterDriverX86" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]rules" Type="string" KeyPath="yes" />
                         <RegistryValue Name="VERBOSE_LOGGING" Value="1" Type="string" />
@@ -129,10 +156,17 @@
                     </RegistryKey>
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
+                        <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
+                    </RegistryKey>
+                    <!-- Run elam_installer after reboot -->
+                    <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce">
+                        <RegistryValue Name="OwlyshieldPostInstallX86" Value="&quot;[INSTALLDIR_PLATFORM]Sanctum\elam_installer.exe&quot;" Type="string" KeyPath="no" />
                     </RegistryKey>
                 </Component>
                 <Files Include="$(var.SourceBinDir32)**">
                     <Exclude Files="$(var.SourceBinDir32)models\**" />
+                    <Exclude Files="$(var.SourceBinDir32)Sanctum\sanctum.sys" />
+                    <Exclude Files="$(var.SourceBinDir32)Sanctum\sanctum.dll" />
                 </Files>
             </ComponentGroup>
         <?endif?>

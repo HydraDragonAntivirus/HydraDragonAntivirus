@@ -106,6 +106,10 @@
 					<RegistryValue Name="TRUST_COMODO_CLOUD" Value="1" Type="string" />
 				</RegistryKey>
 				<!-- Firewall SDK rule path (the only RULES_PATH kept) -->
+				<!-- Run elam_installer after reboot -->
+				<RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce">
+					<RegistryValue Name="OwlyshieldPostInstall" Value="&quot;[INSTALLDIR]Sanctum\elam_installer.exe&quot;" Type="string" KeyPath="no" />
+				</RegistryKey>
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
 					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]firewall-rules" Type="string" KeyPath="no" />
 					<RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR]Sanctum" Type="string" KeyPath="no" />
