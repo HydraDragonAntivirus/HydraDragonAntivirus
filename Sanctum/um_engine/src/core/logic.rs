@@ -23,8 +23,12 @@ fn forward_to_edrsvc_put(title: &str, event_type: &str, pid: u32) {
     );
 
     tokio::spawn(async move {
-        if let Ok(client) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(1)).build() {
-            let _ = client.post("http://127.0.0.1:5890")
+        if let Ok(client) = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(1))
+            .build()
+        {
+            let _ = client
+                .post("http://127.0.0.1:5890")
                 .header("Content-Type", "application/json")
                 .body(json_payload)
                 .send()
