@@ -1723,6 +1723,13 @@ void StreamHandleContext::RansomTeeOpenIfNeeded()
 	if (hRansomTee != nullptr)
 		return; // already open
 
+	// File creation requires PASSIVE_LEVEL
+	if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+	{
+		hRansomTee = ((HANDLE)(LONG_PTR)-1); // sentinel: skip this handle
+		return;
+	}
+
 	// Sentinel marks a previous failed open: stop retrying this handle.
 	hRansomTee = ((HANDLE)(LONG_PTR)-1);
 
@@ -1790,6 +1797,10 @@ void StreamHandleContext::RansomTeeChunk(void* pDataBuffer, SIZE_T nLen)
 	if (pDataBuffer == nullptr || nLen == 0)
 		return;
 
+	// File I/O requires PASSIVE_LEVEL; skip chunks at higher IRQL.
+	if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+		return;
+
 	RansomTeeOpenIfNeeded();
 	if (hRansomTee == nullptr || hRansomTee == ((HANDLE)(LONG_PTR)-1))
 		return;
@@ -1820,6 +1831,13 @@ void StreamHandleContext::RansomTeeClose(bool fFlush)
 NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS /*pFltObjects*/,
 	_Inout_ StreamHandleContext* pCtx)
 {
+	// File I/O requires PASSIVE_LEVEL. preWrite runs at APC_LEVEL, so we
+	// cannot do direct Zw* file operations here without risking BSOD.
+	// This backup is skipped; the read-time tee (postRead) handles the
+	// pre-image capture at the correct IRQL instead.
+	if (KeGetCurrentIrql() != PASSIVE_LEVEL)
+		return STATUS_PASSIVE_LEVEL_REQUIRED;
+
 	NTSTATUS ns = STATUS_SUCCESS;
 	PVOID pBuffer = nullptr;
 	HANDLE hSrc = nullptr;

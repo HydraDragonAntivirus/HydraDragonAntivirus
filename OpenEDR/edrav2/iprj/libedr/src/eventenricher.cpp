@@ -118,6 +118,36 @@ namespace {
 		return sOut;
 	}
 
+	// Converts \Device\HarddiskVolumeN\... to C:\... style DOS path
+	// using GetLogicalDriveStringsW + QueryDosDeviceW (same approach as
+	// FileDataProvider::convertNtPathToDosPath).
+	static std::wstring NtToDos(const std::wstring& wsNt)
+	{
+		wchar_t sDrives[27 * 4] = {};
+		if (::GetLogicalDriveStringsWW(DWORD(std::size(sDrives)), sDrives) == 0)
+			return wsNt;
+
+		wchar_t* sDrv = sDrives;
+		while (sDrv[0])
+		{
+			sDrv[2] = 0;
+			wchar_t szTarget[MAX_PATH] = {};
+			if (::QueryDosDeviceW(sDrv, szTarget, MAX_PATH) > 0)
+			{
+				std::wstring wsDevice(szTarget);
+				if (wsNt.starts_with(wsDevice) &&
+					(wsNt.size() == wsDevice.size() || wsNt[wsDevice.size()] == L'\\'))
+				{
+					std::wstring sDrive(sDrv);
+					sDrive.resize(2); // "C:"
+					return sDrive + wsNt.substr(wsDevice.size());
+				}
+			}
+			sDrv += 4;
+		}
+		return wsNt;
+	}
+
 	// JSON string escape (backslash, quotes, control chars)
 	std::string JsonEscape(const std::wstring& wsIn)
 	{
@@ -456,13 +486,17 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 				{
 					for (const auto& entry : capturedBackups)
 					{
-						std::string sNarrow(entry.wsOriginal.begin(),
-							entry.wsOriginal.end());
+						std::wstring wsDosPath = NtPathToDosPath(entry.wsOriginal);
+						std::string sNarrow(wsDosPath.begin(), wsDosPath.end());
 						int32_t qRes = fnQ(
 							reinterpret_cast<const uint8_t*>(sNarrow.data()),
 							static_cast<uint32_t>(sNarrow.size()));
-						LOGLVL(Critical, FMT("RansomShield: quarantined <"
-							<< sNarrow << "> result=" << qRes));
+						if (qRes == 0)
+							LOGLVL(Critical, FMT("RansomShield: quarantined <"
+								<< sNarrow << ">"));
+						else
+							LOGLVL(Error, FMT("RansomShield: quarantine FAILED for <"
+								<< sNarrow << "> result=" << qRes));
 					}
 				}
 				::FreeLibrary(hDll);
