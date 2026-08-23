@@ -1,4 +1,4 @@
-﻿//
+//
 // edrav2.libedr project
 //
 // Event Enricher implementation
@@ -493,12 +493,10 @@ void EventEnricher::processRansomShield(int64_t nPid, const std::wstring& sImage
 						LOGLVL(Critical, FMT("RansomShield: quarantined malware <"
 							<< sNarrow << ">"));
 					else
-						LOGLVL(Error, FMT("RansomShield: quarantine FAILED for <"
+						LOGLVL(Critical, FMT("RansomShield: quarantine FAILED for <"
 							<< sNarrow << "> result=" << qRes));
 				}
 				::FreeLibrary(hDll);
-			}
-		}
 			}
 		}
 		// BEHAVIORAL_ALERT line into output_events (same JSON shape as the
