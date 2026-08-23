@@ -19,11 +19,11 @@ use windows::{
 };
 
 /// Base installation path for HydraDragon Antivirus
-const HYDRADRAGON_BASE_PATH: &str = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\";
+const HYDRADRAGON_BASE_PATH: &str = "C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\";
 
 /// Path to Exorcism DLL for PowerShell monitoring
 const EXORCISM_DLL_PATH: &str =
-    "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Exorcism-PowershellEdition.dll";
+    "C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\Exorcism-PowershellEdition.dll";
 
 /// Helper function to safely cast function pointer for LoadLibraryA
 ///
@@ -73,7 +73,7 @@ pub fn inject_edr_dll(pid: u64) -> Result<(), ProcessErrors> {
     };
 
     // Allocate memory for the path to the DLL
-    let base_path = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\";
+    let base_path = "C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\";
     let dll_path = format!("{}{}\0", base_path, SANCTUM_DLL_RELATIVE_PATH);
     let path_len = dll_path.len();
 
@@ -176,7 +176,7 @@ pub fn inject_capemon_dll(pid: u64) -> Result<(), ProcessErrors> {
 
     // Allocate memory for the path to the CAPEMON DLL
     // Assuming x64 by default for the EDR
-    let base_path = "C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\capemon\\";
+    let base_path = "C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\capemon\\";
     let dll_path = format!("{}capemon64.dll\0", base_path);
     let path_len = dll_path.len();
 

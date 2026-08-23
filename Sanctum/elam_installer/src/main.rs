@@ -265,6 +265,6 @@ fn installed_path(relative_path: &str) -> std::io::Result<PathBuf> {
 
 fn fallback_runner_path() -> PathBuf {
     PathBuf::from(
-        r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe",
+        r"C:\Program Files\HydraDragonAntivirus\OpenEDR\Sanctum\AppData\sanctum_ppl_runner.exe",
     )
 }

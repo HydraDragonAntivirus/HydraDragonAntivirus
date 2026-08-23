@@ -7,7 +7,7 @@ pub static NT_DEVICE_NAME: &str = "\\Device\\SanctumEDR";
 pub static DOS_DEVICE_NAME: &str = "\\??\\SanctumEDR";
 pub static DRIVER_UM_NAME: &str = "\\\\.\\SanctumEDR"; // \\.\ sets device namespace
 
-pub static HYDRADRAGON_DIR: &str = r"C:\Program Files\HydraDragonAntivirus\hydradragon";
+pub static HYDRADRAGON_DIR: &str = r"C:\Program Files\HydraDragonAntivirus\OpenEDR";
 pub static SYS_INSTALL_RELATIVE_LOC: &str = "sanctum.sys";
 pub static SVC_NAME: &str = "Sanctum";
 pub static PIPE_NAME: &str = r"\\.\pipe\sanctum_um_engine_pipe";
@@ -54,5 +54,5 @@ pub static SANC_SYS_FILE_LOCATION: &str = "Sanctum\\AppData\\sanctum.sys";
 pub static IOC_LIST_LOCATION: &str = "Sanctum\\AppData\\ioc_list.txt";
 pub static IOC_URL: &str = "https://raw.githubusercontent.com/HydraDragonAntivirus/HydraDragonAntivirus/development-version/hydradragon/Sanctum/AppData/ioc_list.txt";
 pub static LOG_PATH: &str = r"logs\sanctum.log";
-pub static SANCTUM_LOG_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus\Sanctum";
+pub static SANCTUM_LOG_DIR: &str = r"C:\ProgramData\HydraDragonAntivirus\OpenEDR\Sanctum";
 pub static SANCTUM_DLL_RELATIVE_PATH: &str = "Sanctum\\sanctum.dll";

@@ -71,7 +71,7 @@ impl SanctumSettingsImpl for SanctumSettings {
 /// Get the base path and file name of the settings file.
 pub fn get_setting_paths(_username: &String) -> (PathBuf, PathBuf) {
     let base_path =
-        String::from("C:\\Program Files\\HydraDragonAntivirus\\hydradragon\\Sanctum\\AppData\\");
+        String::from("C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\Sanctum\\AppData\\");
     let dir = PathBuf::from(&base_path);
     let path = PathBuf::from(format!("{}\\config.cfg", base_path));
 

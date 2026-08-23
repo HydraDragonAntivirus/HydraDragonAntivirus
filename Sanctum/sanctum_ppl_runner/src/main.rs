@@ -38,7 +38,7 @@ mod tracing;
 
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
 const EXPECTED_RUNNER_PATH: &str =
-    r"C:\Program Files\HydraDragonAntivirus\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe";
+    r"C:\Program Files\HydraDragonAntivirus\OpenEDR\Sanctum\AppData\sanctum_ppl_runner.exe";
 
 /// The service entrypoint for the binary which will be run via powershell / persistence
 ///
@@ -158,7 +158,7 @@ fn spawn_owlyshield_ransom_process() {
 
     // start the process
     let mut process_info = PROCESS_INFORMATION::default();
-    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
+    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\OpenEDR\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
@@ -254,7 +254,7 @@ fn spawn_firewall_process() {
     }
 
     let mut process_info = PROCESS_INFORMATION::default();
-    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\hydradragon\HydraDragonFirewall\hydradragonfirewall.exe"
+    let path: Vec<u16> = r"C:\Program Files\HydraDragonAntivirus\OpenEDR\HydraDragonFirewall\hydradragonfirewall.exe"
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
