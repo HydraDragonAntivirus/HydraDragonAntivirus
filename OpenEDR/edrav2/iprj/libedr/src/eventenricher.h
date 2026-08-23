@@ -40,14 +40,14 @@ private:
 	// --- Ransomware shadow-backup shield + remediation ---
 	// Tracks files fully read by each process; when that process then
 	// overwrites / deletes / renames one of them, the ORIGINAL content is
-	// backed up to %PROGRAMDATA%\HydraBackups\<pid>\ first (rule-independent).
+	// backed up to %PROGRAMDATA%\HydraDragonBackups\<pid>\ first (rule-independent).
 	// After 5 distinct victim files the process is reported as
 	// ransomware and ALL captured originals are rolled back to their places
 	// (Kaspersky-style file remediation: modified/deleted/renamed restored).
 	struct ShadowBackupEntry
 	{
 		std::wstring wsOriginal;   ///< pre-image location (restore target)
-		std::wstring wsBackup;     ///< saved pre-image under HydraBackups
+		std::wstring wsBackup;     ///< saved pre-image under HydraDragonBackups
 		int nOp = 0;               ///< 0=overwritten, 1=deleted, 2=renamed
 		std::wstring wsNewName;    ///< rename target (removed on rollback)
 	};

@@ -79,7 +79,7 @@ namespace {
 		if (nLen == 0 || nLen >= MAX_PATH)
 			return {};
 
-		std::wstring wsDir = std::wstring(szProgramData) + L"\\HydraBackups";
+		std::wstring wsDir = std::wstring(szProgramData) + L"\\HydraDragonBackups";
 		::CreateDirectoryW(wsDir.c_str(), nullptr);
 		wsDir += L"\\" + std::to_wstring(nPid);
 		::CreateDirectoryW(wsDir.c_str(), nullptr);
@@ -1103,7 +1103,7 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	// Ransomware shadow-backup shield: rule-independent tracking of
 	// read -> overwrite/delete/rename sequences. Pre-images are saved under
-	// %PROGRAMDATA%\HydraBackups\<pid>\ and rolled back on confirmation.
+	// %PROGRAMDATA%\HydraDragonBackups\<pid>\ and rolled back on confirmation.
 	try
 	{
 		const int64_t nShieldPid = getByPath(vEvent, "process.pid", int64_t(0));

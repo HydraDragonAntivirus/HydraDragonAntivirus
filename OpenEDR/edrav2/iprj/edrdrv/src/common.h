@@ -273,6 +273,10 @@ struct CommonGlobalData
 	PPsGetProcessWow64Process PsGetProcessWow64Process = nullptr;
 	PPsWrapApcWow64Thread PsWrapApcWow64Thread = nullptr;
 
+	// RansomShield: per-PID destructive op counter
+	volatile LONG ransomCount[64] = {}; // pid % 64 bucket
+	volatile DWORD ransomPid[64] = {};  // last pid in each bucket
+
 	//
 	// Contains resources initialization which can NOT return errors.
 	//

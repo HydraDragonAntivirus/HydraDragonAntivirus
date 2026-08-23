@@ -476,6 +476,7 @@ std::map<edrdrv::SysmonEvent, Event> mEventMap = {
 	{edrdrv::SysmonEvent::FileMapWrite, Event::LLE_FILE_MAP_WRITE},
 	{edrdrv::SysmonEvent::FileRename, Event::LLE_FILE_RENAME},
 	{edrdrv::SysmonEvent::OwlyPreImageSaved, Event::LLE_FILE_PREIMAGE_SAVED},
+	{edrdrv::SysmonEvent::OwlyRansomConfirmed, Event::LLE_RANSOM_CONFIRMED},
 	{edrdrv::SysmonEvent::ThreadOpen, Event::LLE_THREAD_OPEN},
 	{edrdrv::SysmonEvent::DesktopOpen, Event::LLE_DESKTOP_OPEN},
 };
