@@ -111,7 +111,10 @@ fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBy
 
     forward_to_pascal_gui(
         "THREAT_ALERT",
-        &format!("Sanctum AMSI Bypass|pid {} function {}", attempt.pid, attempt.function_name),
+        &format!(
+            "Sanctum AMSI Bypass|pid {} function {}",
+            attempt.pid, attempt.function_name
+        ),
     );
 }
 
@@ -133,7 +136,10 @@ fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt)
 
     forward_to_pascal_gui(
         "THREAT_ALERT",
-        &format!("Sanctum Ghost Hunting|pid {} syscall {}", hunt.pid, hunt.syscall_name),
+        &format!(
+            "Sanctum Ghost Hunting|pid {} syscall {}",
+            hunt.pid, hunt.syscall_name
+        ),
     );
 }
 
