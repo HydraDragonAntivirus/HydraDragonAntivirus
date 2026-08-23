@@ -116,8 +116,7 @@ fn run_install() {
         Ok(h) => h,
         Err(e) => {
             if e.code().0 as u32 == 0x80070431 {
-                println!("[+] PPL service configured, starting system reboot.");
-                trigger_auto_reboot();
+                println!("[+] PPL service already configured.");
                 exit(0);
             }
             panic!("[!] Failed to create service. {e}")

@@ -397,7 +397,6 @@ void EventEnricher::rollbackRansomBackups(int64_t nPid)
 			return;
 		vec = it->second;
 		m_backups.erase(it);
-		m_hitFiles.erase(nPid);
 		m_readFiles.erase(nPid);
 	}
 
@@ -921,7 +920,7 @@ void EventEnricher::put(const Variant& vEventRef)
 	}
 	}
 
-	// Shadow-backup shield: record pre-images under %PROGRAMDATA%\HydraDragonBackups\<pid>\
+	// Shadow-backup shield: record pre-images under %PROGRAMDATA%\HydraDragonBackups\<pid>
 	try
 	{
 		const int64_t nShieldPid = getByPath(vEvent, "process.pid", int64_t(0));
