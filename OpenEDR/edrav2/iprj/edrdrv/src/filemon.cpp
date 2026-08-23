@@ -1666,8 +1666,6 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS /*pFltObjects*/,
 	wchar_t szDstUser[512] = L"";
 	wchar_t szName[192] = L"";
 
-	UNREFERENCED_PARAMETER(pFltObjects);
-
 	__try
 	{
 		// Open the original by its kernel path (\Device\HarddiskVolumeN\...)
@@ -1694,8 +1692,8 @@ NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS /*pFltObjects*/,
 
 		FILE_STANDARD_INFORMATION stdInfo = {};
 		IO_STATUS_BLOCK iosQ = {};
-		ns = ZwQueryInformationFile(hSrc, &stdInfo, sizeof(stdInfo),
-			FileStandardInformation, &iosQ);
+		ns = ZwQueryInformationFile(hSrc, &iosQ, &stdInfo, sizeof(stdInfo),
+			FileStandardInformation);
 		if (!NT_SUCCESS(ns))
 			__leave;
 
