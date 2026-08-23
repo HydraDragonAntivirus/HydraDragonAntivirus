@@ -14,7 +14,8 @@
 		// Own product processes which must be fully invisible for the engine
 		// (initiator-side, target-side and file-side events are discarded)
 		"selfExcludedPaths": [
-			"*\\edrsvc.exe"
+			"*\\edrsvc.exe",
+			"*\\um_engine.exe"
 		],
 		"knownTrustedPaths": [
 			"*\\git.exe",

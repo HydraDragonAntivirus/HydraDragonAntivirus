@@ -16,102 +16,39 @@ use shared_std::constants::PIPE_FIREWALL_TELEMETRY;
 use tokio::io::AsyncWriteExt;
 use tokio::net::windows::named_pipe::ServerOptions;
 
-/// Pipe name of the Owlyshield behavior engine's Sanctum telemetry receiver.
-const OWLYSHIELD_SANCTUM_PIPE: &str = r"\\.\pipe\HydraSanctumTelemetry";
+fn forward_to_edrsvc_put(title: &str, event_type: &str, pid: u32) {
+    let json_payload = format!(
+        r#"{{"jsonrpc":"2.0","method":"put","params":{{"data":{{"baseType":1000000,"type":"{}","title":"{}","process":{{"pid":{}}}}}}},"id":1}}"#,
+        event_type, title, pid
+    );
 
-/// Forward a Syscall event to the Owlyshield behavior engine over the
-/// HydraSanctumTelemetry named pipe as a JSON line.
-/// The function is fire-and-forget: if the pipe is unavailable (Owlyshield
-/// not running) it silently drops the event — Sanctum continues normally.
+    tokio::spawn(async move {
+        if let Ok(client) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(1)).build() {
+            let _ = client.post("http://127.0.0.1:5890")
+                .header("Content-Type", "application/json")
+                .body(json_payload)
+                .send()
+                .await;
+        }
+    });
+}
+
+/// Forward a Syscall event to the Owlyshield behavior engine.
 fn forward_to_owlyshield(syscall: &shared_no_std::ghost_hunting::Syscall) {
-    use std::io::Write;
-
-    // Build a simplified JSON payload: {pid, source, function, args, address, hex}
-    let (source_str, function_name, args_json) = match &syscall.data {
-        shared_no_std::ghost_hunting::NtFunction::NtOpenProcess(data) => (
-            source_name(syscall.source),
-            "NtOpenProcess",
-            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
-        ),
-        shared_no_std::ghost_hunting::NtFunction::NtWriteVirtualMemory(data) => (
-            source_name(syscall.source),
-            "NtWriteVirtualMemory",
-            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
-        ),
-        shared_no_std::ghost_hunting::NtFunction::NtAllocateVirtualMemory(data) => (
-            source_name(syscall.source),
-            "NtAllocateVirtualMemory",
-            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
-        ),
-        shared_no_std::ghost_hunting::NtFunction::NtCreateThreadEx(data) => (
-            source_name(syscall.source),
-            "NtCreateThreadEx",
-            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
-        ),
-        shared_no_std::ghost_hunting::NtFunction::EtwThreatIntelligence(data) => (
-            "etw_ti",
-            data.function.as_str(),
-            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
-        ),
-        shared_no_std::ghost_hunting::NtFunction::NetworkActivity(data) => (
-            source_name(syscall.source),
-            "NetworkActivity",
-            serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string()),
-        ),
-        shared_no_std::ghost_hunting::NtFunction::None => return, // skip empty
-    };
-
-    let hex_str = syscall
-        .hex_payload
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>();
-
-    let line = format!(
-        "{{\"pid\":{},\"source\":\"{}\",\"function\":\"{}\",\"address\":{},\"hex\":\"{}\",\"args\":{}}}\n",
-        syscall.pid, source_str, function_name, syscall.caller_address, hex_str, args_json
-    );
-
-    if let Ok(mut pipe) = std::fs::OpenOptions::new()
-        .write(true)
-        .open(OWLYSHIELD_SANCTUM_PIPE)
-    {
-        let _ = pipe.write_all(line.as_bytes());
-    }
+    // Legacy behavior engine pipe disabled; all real alerts now go via AMSI/Ghost Hunting to edrsvc.
+    let _ = syscall;
 }
 
-/// Forward an AMSI bypass attempt to the Owlyshield behavior engine.
+/// Forward an AMSI bypass attempt to edrsvc.exe.
 fn forward_amsi_bypass_to_owlyshield(attempt: &shared_no_std::driver_ipc::AmsiBypassAttempt) {
-    use std::io::Write;
-
-    let line = format!(
-        "{{\"pid\":{},\"source\":\"sanctum_veh\",\"function\":\"{}\",\"args\":{{\"offending_address\":{}}}}}\n",
-        attempt.pid, attempt.function_name, attempt.offending_address
-    );
-
-    if let Ok(mut pipe) = std::fs::OpenOptions::new()
-        .write(true)
-        .open(OWLYSHIELD_SANCTUM_PIPE)
-    {
-        let _ = pipe.write_all(line.as_bytes());
-    }
+    let title = format!("Sanctum AMSI Bypass: {}", attempt.function_name);
+    forward_to_edrsvc_put(&title, "Sanctum AMSI Bypass", attempt.pid);
 }
 
-/// Forward a Ghost Hunting detection (direct/indirect syscall abuse) to Owlyshield.
+/// Forward a Ghost Hunting detection (direct/indirect syscall abuse) to edrsvc.exe.
 fn forward_ghost_hunt_to_owlyshield(hunt: &shared_no_std::driver_ipc::GhostHunt) {
-    use std::io::Write;
-
-    let line = format!(
-        "{{\"pid\":{},\"source\":\"sanctum_ghost\",\"function\":\"{}\",\"address\":{},\"hex\":\"{}\",\"args\":{{}}}}\n",
-        hunt.pid, hunt.syscall_name, hunt.address, hunt.hex_payload
-    );
-
-    if let Ok(mut pipe) = std::fs::OpenOptions::new()
-        .write(true)
-        .open(OWLYSHIELD_SANCTUM_PIPE)
-    {
-        let _ = pipe.write_all(line.as_bytes());
-    }
+    let title = format!("Sanctum Ghost Hunting: {}", hunt.syscall_name);
+    forward_to_edrsvc_put(&title, "Sanctum Ghost Hunting", hunt.pid);
 }
 
 fn source_name(source: shared_no_std::ghost_hunting::SyscallEventSource) -> &'static str {
