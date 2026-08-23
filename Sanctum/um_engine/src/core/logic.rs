@@ -12,6 +12,7 @@ use super::ipc_etw_consumer::run_ipc_for_etw;
 use super::ipc_injected_dll::run_ipc_for_injected_dll;
 use serde_json::to_vec;
 use shared_no_std::ghost_hunting::NtFunction;
+use shared_std::constants::PIPE_SANCTUM_TELEMETRY;
 use tokio::net::windows::named_pipe::ServerOptions;
 
 /// Forward a Syscall event to the OpenEDR behavior engine.
@@ -94,7 +95,7 @@ impl Core {
             use tokio::net::windows::named_pipe::ClientOptions;
             use tokio::io::AsyncWriteExt;
             loop {
-                match ClientOptions::new().open(r"\\.\pipe\SanctumTelemetry") {
+                match ClientOptions::new().open(PIPE_SANCTUM_TELEMETRY) {
                     Ok(mut client) => {
                         while let Some(msg) = pipe_rx.recv().await {
                             if client.write_all(msg.as_bytes()).await.is_err() {
