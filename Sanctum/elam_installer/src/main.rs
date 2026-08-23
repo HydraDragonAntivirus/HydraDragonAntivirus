@@ -7,7 +7,7 @@ use std::{
 
 use windows::{
     Win32::{
-        Foundation::{DELETE, ERROR_SUCCESS},
+        Foundation::ERROR_SUCCESS,
         Storage::FileSystem::{
             CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_READ_DATA, FILE_SHARE_READ, OPEN_EXISTING,
         },
@@ -23,12 +23,12 @@ use windows::{
                 OpenSCManagerW, OpenServiceW, SERVICE_CONFIG_LAUNCH_PROTECTED,
                 SERVICE_CONTROL_STOP, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
                 SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
-                SERVICE_MANAGER_ALL_ACCESS, SERVICE_STATUS, SERVICE_STOP,
+                SC_MANAGER_ALL_ACCESS, SERVICE_STATUS, SERVICE_STOP, SERVICE_ALL_ACCESS,
                 SERVICE_WIN32_OWN_PROCESS,
             },
         },
     },
-    core::{Error, PCWSTR, PWSTR, s},
+    core::{Error, PCWSTR, PWSTR},
 };
 
 fn main() {
@@ -87,7 +87,7 @@ fn run_install() {
     // Step 2: Create a service with correct privileges
     println!("[i] Attempting to create the service.");
     let result =
-        unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SERVICE_MANAGER_ALL_ACCESS) };
+        unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_ALL_ACCESS) };
 
     let h_sc_mgr = match result {
         Ok(h) => h,
@@ -99,7 +99,7 @@ fn run_install() {
             h_sc_mgr,
             PCWSTR(svc_name().as_ptr()),
             PCWSTR(svc_name().as_ptr()),
-            SERVICE_MANAGER_ALL_ACCESS,
+            SERVICE_ALL_ACCESS,
             SERVICE_WIN32_OWN_PROCESS,
             SERVICE_DEMAND_START,
             SERVICE_ERROR_NORMAL,
@@ -164,10 +164,10 @@ fn run_uninstall() {
     println!("[i] Starting ELAM uninstaller..");
 
     let h_sc_mgr =
-        unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SERVICE_MANAGER_ALL_ACCESS) };
+        unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_ALL_ACCESS) };
     if let Ok(h_sc_mgr) = h_sc_mgr {
         let h_svc =
-            unsafe { OpenServiceW(h_sc_mgr, PCWSTR(svc_name().as_ptr()), SERVICE_STOP | DELETE) };
+            unsafe { OpenServiceW(h_sc_mgr, PCWSTR(svc_name().as_ptr()), SERVICE_ALL_ACCESS) };
 
         if let Ok(h_svc) = h_svc {
             let mut status = SERVICE_STATUS::default();

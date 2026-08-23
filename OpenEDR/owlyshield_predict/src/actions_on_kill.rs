@@ -1,4 +1,4 @@
-﻿use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
+use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
 use std::error::Error;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
@@ -548,8 +548,7 @@ impl ActionOnKill for WriteReportFile {
         std::fs::create_dir_all(report_dir)?;
         let basename = Path::new(&proc.appname)
             .file_name()
-            .unwrap_or_default()
-            .to_str()
+            .and_then(|name| name.to_str())
             .unwrap_or("unknown");
         let temp = report_dir.join(Path::new(&format!(
             "{}_{}_report_{}.log",
