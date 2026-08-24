@@ -283,11 +283,15 @@ end;
 procedure TForm1.OnNotifierDetections(Sender: TObject;
   const Detections: TDetInfoArray);
 var
-  sMsg: string;
+  sMsg, sTitle: string;
   i: Integer;
 begin
   if Length(Detections) = 0 then
     Exit;
+
+  sTitle := Trim(Detections[0].Title);
+  if sTitle = '' then
+    sTitle := 'Threat Detected (' + Detections[0].EventType + ')';
 
   sMsg := '';
   for i := 0 to High(Detections) do
@@ -295,15 +299,17 @@ begin
     if sMsg <> '' then
       sMsg := sMsg + LineEnding;
     if Detections[i].Title <> '' then
-      sMsg := sMsg + Detections[i].Title
-    else
-      if Detections[i].Title <> '' then sMsg := sMsg + Detections[i].Title + ': '
-      else sMsg := sMsg + Detections[i].EventType;
+      sMsg := sMsg + Detections[i].Title + ': '
+    else if Detections[i].EventType <> '' then
+      sMsg := sMsg + Detections[i].EventType + ': ';
     if Detections[i].ImagePath <> '' then
-      sMsg := sMsg + ': ' + Detections[i].ImagePath;
+      sMsg := sMsg + Detections[i].ImagePath;
   end;
 
-  TAlertForm.ShowAlert(Detections[0].Title, sMsg, asCritical, 0);
+  if Trim(sMsg) = '' then
+    sMsg := 'Action taken on detected process activity.';
+
+  TAlertForm.ShowAlert(sTitle, sMsg, asCritical, 0);
 end;
 
 // Runs on the main thread (via Synchronize) whenever the Rust behavior engine
@@ -312,6 +318,7 @@ end;
 procedure TForm1.OnHipMessage(Sender: TObject; const AKind, AText: string);
 var
   Parts: TStringList;
+  ExePath, PIDStr, VerdictCode, FormattedMsg: string;
 begin
   if AKind = 'THREAT_ALERT' then
     TAlertForm.ShowAlert('EDR Threat Alert', AText, asCritical, 0)
@@ -320,17 +327,36 @@ begin
   else if AKind = 'HIPS_VERDICT' then
   begin
     // AText: <pid>|<exe_path>|<verdict_code>|<analysis_type>
-    // Verdict code 2 = Malicious: surface it as a malware event instead of
-    // an informational HIPS event.
     Parts := TStringList.Create;
     try
       Parts.Delimiter := '|';
       Parts.StrictDelimiter := True;
       Parts.DelimitedText := AText;
-      if (Parts.Count >= 3) and (Trim(Parts[2]) = '2') then
-        TAlertForm.ShowAlert('Malware Detected (OpenEDR FLS)', AText, asCritical, 0)
+
+      PIDStr := '';
+      ExePath := '';
+      VerdictCode := '';
+
+      if Parts.Count >= 1 then PIDStr := Trim(Parts[0]);
+      if Parts.Count >= 2 then ExePath := Trim(Parts[1]);
+      if Parts.Count >= 3 then VerdictCode := Trim(Parts[2]);
+
+      if ExePath = '' then ExePath := AText;
+
+      if (VerdictCode = '2') or (VerdictCode = '3') then
+      begin
+        FormattedMsg := 'Malicious File Detected: ' + ExePath;
+        if PIDStr <> '' then
+          FormattedMsg := FormattedMsg + ' (PID: ' + PIDStr + ')';
+        TAlertForm.ShowAlert('Malware Detected (OpenEDR FLS)', FormattedMsg, asCritical, 0);
+      end
       else
-        TAlertForm.ShowAlert('HIPS Verdict', AText, asInfo, 0);
+      begin
+        FormattedMsg := 'File Analyzed: ' + ExePath;
+        if PIDStr <> '' then
+          FormattedMsg := FormattedMsg + ' (PID: ' + PIDStr + ')';
+        TAlertForm.ShowAlert('HIPS Verdict', FormattedMsg, asInfo, 4000);
+      end;
     finally
       Parts.Free;
     end;
