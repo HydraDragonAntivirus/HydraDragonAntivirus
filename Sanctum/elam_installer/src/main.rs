@@ -42,8 +42,8 @@ fn main() {
 
     // Step 1: Register Sanctum Kernel Driver Service
     println!("[i] Configuring Sanctum kernel driver service.");
-    let kernel_driver_path = installed_path("AppData\\sanctum.sys")
-        .unwrap_or_else(|_| fallback_driver_path());
+    let kernel_driver_path =
+        installed_path("AppData\\sanctum.sys").unwrap_or_else(|_| fallback_driver_path());
     let kernel_path_w = path_to_wstring(&kernel_driver_path);
     let kernel_svc_name = to_wstring("Sanctum");
     let kernel_svc_display = to_wstring("Sanctum Kernel Driver");
@@ -181,7 +181,13 @@ fn main() {
 fn trigger_auto_reboot() {
     println!("[*] Automatically restarting the computer to complete installation...");
     let _ = std::process::Command::new("shutdown")
-        .args(["/r", "/t", "10", "/c", "HydraDragon Antivirus ELAM Installation Complete. Restarting..."])
+        .args([
+            "/r",
+            "/t",
+            "10",
+            "/c",
+            "HydraDragon Antivirus ELAM Installation Complete. Restarting...",
+        ])
         .status();
 }
 
@@ -297,7 +303,5 @@ fn fallback_runner_path() -> PathBuf {
 }
 
 fn fallback_driver_path() -> PathBuf {
-    PathBuf::from(
-        r"C:\Program Files\HydraDragonAntivirus\OpenEDR\Sanctum\AppData\sanctum.sys",
-    )
+    PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\Sanctum\AppData\sanctum.sys")
 }
