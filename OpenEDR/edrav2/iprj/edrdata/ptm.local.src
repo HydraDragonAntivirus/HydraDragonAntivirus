@@ -487,9 +487,19 @@
 								"args": [ "@event.process.imageFile.abstractPath" ]
 							},
 							{
-								"$operation": "imatch",
-								"pattern": [ "*.winball", "*.locked", "*.crypto", "*.enc", "*.crypted", "*.ransom", "*.encrypt*", "*.wncry", "*.wcry", "*.locky" ],
-								"args": [ "@event.file.abstractPath" ]
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": [ "*.winball", "*.locked", "*.crypto", "*.enc", "*.crypted", "*.ransom", "*.encrypt*", "*.wncry", "*.wcry", "*.locky" ],
+										"args": [ "@event.file.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": [ "*.winball", "*.locked", "*.crypto", "*.enc", "*.crypted", "*.ransom", "*.encrypt*", "*.wncry", "*.wcry", "*.locky" ],
+										"args": [ "@event.destination.abstractPath" ]
+									}
+								]
 							}
 						]
 					},

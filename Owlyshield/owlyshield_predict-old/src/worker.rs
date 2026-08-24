@@ -3620,26 +3620,26 @@ pub mod worker_instance {
                         hr == 0x800703E6 || hr == 0xC0000005 || low_word == 0x03E6;
                     if hr == 0x80070677 {
                         self.dynamic_hook_apply_failures.remove(&pid);
-                        Logging::warning(&format!(
-                            "[DYNAMIC HOOK] PID {} apply failed: process mitigation blocks dynamic code (hr=0x{:08X})",
+                        Logging::debug(&format!(
+                            "[DYNAMIC HOOK] PID {} apply skipped: process mitigation blocks dynamic code (hr=0x{:08X})",
                             pid, hr
                         ));
-                    } else if hr == 0x80070005 {
+                    } else if hr == 0x80070005 || hr == 0x80070000 {
                         self.dynamic_hook_apply_failures.remove(&pid);
-                        Logging::warning(&format!(
-                            "[DYNAMIC HOOK] PID {} apply failed: access denied (likely protected/critical process) (hr=0x{:08X})",
+                        Logging::debug(&format!(
+                            "[DYNAMIC HOOK] PID {} apply skipped: access denied (likely protected/critical process) (hr=0x{:08X})",
                             pid, hr
                         ));
                     } else if is_noaccess_like {
                         self.dynamic_hook_apply_failures.remove(&pid);
-                        Logging::warning(&format!(
-                            "[DYNAMIC HOOK] PID {} apply failed: NOACCESS while patching hooks (hr=0x{:08X})",
+                        Logging::debug(&format!(
+                            "[DYNAMIC HOOK] PID {} apply skipped: NOACCESS while patching hooks (hr=0x{:08X})",
                             pid, hr
                         ));
                     } else if hr == 0x80070016 {
                         self.dynamic_hook_apply_failures.remove(&pid);
-                        Logging::warning(&format!(
-                            "[DYNAMIC HOOK] PID {} apply failed: driver command not recognized for this target (hr=0x{:08X})",
+                        Logging::debug(&format!(
+                            "[DYNAMIC HOOK] PID {} apply skipped: driver command not recognized for this target (hr=0x{:08X})",
                             pid, hr
                         ));
                     } else if hr == 0x8007001F {
@@ -3691,7 +3691,7 @@ pub mod worker_instance {
                 applied_generation,
                 target_generation
             );
-            if registered_count > 0 || failed_count > 0 || apply_attempted {
+            if apply_succeeded || registered_count > 0 {
                 Logging::info(&message);
             } else {
                 Logging::debug(&message);
