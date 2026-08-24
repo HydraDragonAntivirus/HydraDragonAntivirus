@@ -438,6 +438,25 @@
 			{
 				"eventType": "LLE_FILE_DATA_READ_FULL",
 				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.imageFile.verdict", 1 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
 					"saveContext": {
 						"basket": "@const.ransomBasket.readWrite",
 						"key": "@var.ransomPathKey",
@@ -454,6 +473,25 @@
 			{
 				"eventType": "LLE_FILE_MAP_READ",
 				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.imageFile.verdict", 1 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
 					"saveContext": {
 						"basket": "@const.ransomBasket.readWrite",
 						"key": "@var.ransomPathKey",
