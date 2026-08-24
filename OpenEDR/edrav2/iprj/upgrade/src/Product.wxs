@@ -100,6 +100,7 @@
                     <fire:FirewallException Id="SvcFirewallRulesX64" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
                     <ServiceControl Id="StopEdrSvcX64" Name="edrsvc" Stop="uninstall" />
                     <ServiceControl Id="StopSanctumRunnerX64" Name="sanctum_ppl_runner" Stop="uninstall" Remove="uninstall" />
+                    <ServiceControl Id="StopElamInstallerX64" Name="elam_installer" Stop="uninstall" Remove="uninstall" />
                     <RemoveFile Id="RemovingDriverX64" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
                     <RemoveFile Id="RemovingMbrFilterDriverX64" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield">
@@ -112,11 +113,6 @@
                     </RegistryKey>
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
-                        <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
-                    </RegistryKey>
-                    <!-- Run elam_installer after reboot -->
-                    <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce">
-                        <RegistryValue Name="OwlyshieldPostInstallX64" Value="&quot;[INSTALLDIR_PLATFORM]Sanctum\elam_installer.exe&quot;" Type="string" KeyPath="no" />
                     </RegistryKey>
                 </Component>
                 <Files Include="$(var.SourceBinDir64)**">
@@ -145,6 +141,7 @@
                     <fire:FirewallException Id="SvcFirewallRulesX86" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
                     <ServiceControl Id="StopEdrSvcX86" Name="edrsvc" Stop="uninstall" />
                     <ServiceControl Id="StopSanctumRunnerX86" Name="sanctum_ppl_runner" Stop="uninstall" Remove="uninstall" />
+                    <ServiceControl Id="StopElamInstallerX86" Name="elam_installer" Stop="uninstall" Remove="uninstall" />
                     <RemoveFile Id="RemovingDriverX86" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
                     <RemoveFile Id="RemovingMbrFilterDriverX86" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield">
@@ -154,13 +151,10 @@
                         <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
                         <RegistryValue Name="TRUST_COMODO_CLOUD" Value="1" Type="string" />
                     </RegistryKey>
+                    <!-- Firewall SDK rule path -->
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
                         <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
-                    </RegistryKey>
-                    <!-- Run elam_installer after reboot -->
-                    <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce">
-                        <RegistryValue Name="OwlyshieldPostInstallX86" Value="&quot;[INSTALLDIR_PLATFORM]Sanctum\elam_installer.exe&quot;" Type="string" KeyPath="no" />
                     </RegistryKey>
                 </Component>
                 <Files Include="$(var.SourceBinDir32)**">

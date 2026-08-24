@@ -17,7 +17,7 @@ use windows::{
             },
             Services::{
                 ChangeServiceConfig2W, CreateServiceW, OpenSCManagerW, SC_MANAGER_ALL_ACCESS,
-                SERVICE_ALL_ACCESS, SERVICE_AUTO_START, SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_DEMAND_START,
+                SERVICE_ALL_ACCESS, SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_DEMAND_START,
                 SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
                 SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
                 SERVICE_WIN32_OWN_PROCESS,
@@ -120,7 +120,7 @@ fn main() {
             PCWSTR(svc_name().as_ptr()),
             SERVICE_ALL_ACCESS,
             SERVICE_WIN32_OWN_PROCESS,
-            SERVICE_AUTO_START,
+            SERVICE_DEMAND_START,
             SERVICE_ERROR_NORMAL,
             PCWSTR(svc_bin_path().as_ptr()),
             PCWSTR::null(),
@@ -174,8 +174,10 @@ fn main() {
 
     println!("[+] Successfully initialised the PPL AntiMalware service.");
 
-    // Trigger auto reboot
-    trigger_auto_reboot();
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|arg| arg == "--reboot" || arg == "/reboot") {
+        trigger_auto_reboot();
+    }
 }
 
 fn trigger_auto_reboot() {

@@ -273,9 +273,6 @@ function InterruptAndRestartAfterReboot(uiLevel, path, disableProperty, updatePr
 	if (updateProperty == 1) cmdLine += " UPDATE=1";
 	if (token) cmdLine += " TOKEN=" + token;
 	if (rootUrl) cmdLine += " ROOT_URL=" + rootUrl;
-	shell.RegWrite("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\InstallEdrNeedReboot", cmdLine);
-	
-	shell.RegDelete("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\InstallEdr");
 	return 3;
 }
 
@@ -439,8 +436,6 @@ function OnStartAdminInstallation() {
 		if (Session.Property("TOKEN")) cmdLine += " TOKEN=" + Session.Property("TOKEN");
 		if (Session.Property("ROOT_URL")) cmdLine += " ROOT_URL=" + Session.Property("ROOT_URL");
 		if (Session.Property("UILevel") == 2) cmdLine += " /q";
-
-		shell.RegWrite("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\InstallEdr", cmdLine);
 	}
 	catch (err) {
 		LogErr(err);
@@ -460,7 +455,6 @@ function OnStartInstallation() {
 		if (args[7]) cmdLine += " ROOT_URL=" + args[7];
 
 		if (args[5] == 2) cmdLine += " /q";
-		shell.RegWrite("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\InstallEdr", cmdLine);
 	}
 	catch (err) {
 		LogErr(err);
@@ -499,12 +493,6 @@ function OnBeforeReboot() {
 function OnEndInstallation(msg) {
 	if (msg == null) msg = "Installation finished";
 	Log(msg);
-
-	try {
-		var shell = new ActiveXObject("WScript.Shell");
-		shell.RegDelete("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\InstallEdr");
-	}
-	catch (err) { }
 }
 
 function InstallEdrService() {
@@ -530,6 +518,16 @@ function InstallEdrService() {
 			LogErr(err);
 		}
 	}
+	return res;
+}
+
+function InstallElamService() {
+	var cmdLine = Session.Property("CustomActionData");
+	if (!cmdLine) {
+		var installDir = Session.Property("INSTALLDIR");
+		cmdLine = '"' + installDir + 'Sanctum\\elam_installer.exe"';
+	}
+	var res = _ExecSilentCommand(cmdLine, "Install ELAM service");
 	return res;
 }
 

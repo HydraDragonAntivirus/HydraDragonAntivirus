@@ -1476,6 +1476,8 @@ pub mod worker_instance {
                     let hr = e.code().0 as u32;
                     let low_word = hr & 0xFFFF;
                     let is_access_denied = hr == 0x80070005 || hr == 0x80070000 || low_word == 5;
+                    let is_noaccess_like =
+                        hr == 0x800703E6 || hr == 0xC0000005 || low_word == 0x03E6;
                     if hr == 0x80070677 {
                         self.dynamic_hook_apply_failures.remove(&pid);
                         Logging::warning(&format!(
@@ -1545,7 +1547,7 @@ pub mod worker_instance {
                 apply_attempted,
                 apply_succeeded
             );
-            if registered_count > 0 || failed_count > 0 || apply_attempted {
+            if registered_count > 0 || failed_count > 0 || !apply_succeeded {
                 Logging::info(&message);
             } else {
                 Logging::debug(&message);

@@ -434,7 +434,7 @@
 		// Detects a process reading a file (sequential or mmap) and subsequently overwriting, modifying, renaming or deleting it.
 		//
 		"RANSOM_BEHAVIOR": [
-			// Step 1c: Direct suspicious ransomware extension creation / modification -> trigger candidate
+			// Step 1c: Direct suspicious ransomware extension creation / modification / rename -> trigger candidate
 			{
 				"eventType": "LLE_FILE_DATA_CHANGE",
 				"rule": {
@@ -453,6 +453,114 @@
 							{
 								"$operation": "imatch",
 								"pattern": [ "*.winball", "*.locked", "*.crypto", "*.enc", "*.crypted", "*.ransom", "*.encrypt*", "*.wncry", "*.wcry", "*.locky" ],
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_RENAME",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.imageFile.verdict", 1 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": [ "*.winball", "*.locked", "*.crypto", "*.enc", "*.crypted", "*.ransom", "*.encrypt*", "*.wncry", "*.wcry", "*.locky" ],
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_CREATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.imageFile.verdict", 1 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": [ "*.winball", "*.locked", "*.crypto", "*.enc", "*.crypted", "*.ransom", "*.encrypt*", "*.wncry", "*.wcry", "*.locky" ],
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_PREIMAGE_SAVED",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.imageFile.verdict", 1 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
 								"args": [ "@event.file.abstractPath" ]
 							}
 						]
