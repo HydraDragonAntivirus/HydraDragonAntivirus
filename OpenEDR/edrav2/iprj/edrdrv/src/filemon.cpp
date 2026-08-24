@@ -226,6 +226,8 @@ private:
 			FltReleaseContext(pInstanceContext);
 			pInstanceContext = nullptr;
 		}
+
+		RansomTeeClose(false);
 	}
 
 
@@ -1846,6 +1848,18 @@ void StreamHandleContext::RansomTeeChunk(PCFLT_RELATED_OBJECTS pFltObjects, void
 	}
 }
 
+struct RansomTeeCloseCtx {
+	WORK_QUEUE_ITEM WorkItem;
+	HANDLE hRansomTee;
+};
+
+static void RansomTeeCloseWorker(PVOID Context)
+{
+	auto pCtx = (RansomTeeCloseCtx*)Context;
+	ZwClose(pCtx->hRansomTee);
+	ExFreePoolWithTag(pCtx, 'TnsR');
+}
+
 // Flushes and closes the tee stream.
 void StreamHandleContext::RansomTeeClose(bool /*fFlush*/)
 {
@@ -1856,7 +1870,20 @@ void StreamHandleContext::RansomTeeClose(bool /*fFlush*/)
 	}
 	if (hRansomTee != nullptr && hRansomTee != ((HANDLE)(LONG_PTR)-1))
 	{
-		ZwClose(hRansomTee);
+		if (KeGetCurrentIrql() > APC_LEVEL)
+		{
+			auto pCtx = (RansomTeeCloseCtx*)ExAllocatePoolWithTag(NonPagedPool, sizeof(RansomTeeCloseCtx), 'TnsR');
+			if (pCtx)
+			{
+				pCtx->hRansomTee = hRansomTee;
+				ExInitializeWorkItem(&pCtx->WorkItem, RansomTeeCloseWorker, pCtx);
+				ExQueueWorkItem(&pCtx->WorkItem, DelayedWorkQueue);
+			}
+		}
+		else
+		{
+			ZwClose(hRansomTee);
+		}
 	}
 	hRansomTee = nullptr;
 }
