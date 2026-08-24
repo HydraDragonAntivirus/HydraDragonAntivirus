@@ -36,6 +36,9 @@
 		<Custom Action="SetInstallEdrServiceData" Before="InstallEdrService" Condition="(NOT Installed OR REINSTALL) AND (NOT REMOVE)" />
 		<Custom Action="InstallEdrService" After="RollbackInstalledEdrService" Condition="(NOT Installed OR REINSTALL) AND (NOT REMOVE)" />
 
+		<Custom Action="SetInstallElamServiceData" Before="InstallElamService" Condition="(NOT Installed OR REINSTALL) AND (NOT REMOVE)" />
+		<Custom Action="InstallElamService" After="InstallEdrService" Condition="(NOT Installed OR REINSTALL) AND (NOT REMOVE)" />
+
 		<Custom Action="SetEnrollEdrServiceData" Before="EnrollEdrService" Condition="(NOT Installed OR REINSTALL) AND (NOT REMOVE) AND NOT (DISABLE=1) AND NOT (UPDATE=1)" />
 		<Custom Action="EnrollEdrService" After="InstallEdrService" Condition="(NOT Installed OR REINSTALL) AND (NOT REMOVE) AND NOT (DISABLE=1) AND NOT (UPDATE=1)" />
 
@@ -98,6 +101,10 @@
 	<!-- InstallEdrService -->
 	<CustomAction Id="SetInstallEdrServiceData" Property="InstallEdrService" Value='"[ACTUALINSTALLDIR]edrsvc.exe" install' />
 	<CustomAction Id="InstallEdrService" BinaryRef="UtilJs" JScriptCall="InstallEdrService" Return="check" Impersonate="no" Execute="deferred" />
+
+	<!-- InstallElamService -->
+	<CustomAction Id="SetInstallElamServiceData" Property="InstallElamService" Value='"[ACTUALINSTALLDIR]Sanctum\elam_installer.exe"' />
+	<CustomAction Id="InstallElamService" BinaryRef="UtilJs" JScriptCall="InstallElamService" Return="check" Impersonate="no" Execute="deferred" />
   <!-- EnrollEdrService -->
   <CustomAction Id="SetEnrollEdrServiceData" Property="EnrollEdrService" Value='[REINSTALL]*"[ACTUALINSTALLDIR]edrsvc.exe" enroll [SvcInstallCommandLine]' />
   <CustomAction Id="EnrollEdrService" BinaryRef="UtilJs" JScriptCall="EnrollEdrService" Return="check" Impersonate="no" Execute="deferred" />
