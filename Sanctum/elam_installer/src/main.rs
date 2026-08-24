@@ -1,7 +1,6 @@
 use std::{
     env,
     path::{Path, PathBuf},
-    process::exit,
     ptr::null_mut,
 };
 
@@ -19,12 +18,12 @@ use windows::{
                 RegSetValueExW,
             },
             Services::{
-                ChangeServiceConfig2W, CloseServiceHandle, ControlService, CreateServiceW,
+                ChangeServiceConfig2W, ControlService, CreateServiceW,
                 DeleteService, OpenSCManagerW, OpenServiceW, SC_MANAGER_ALL_ACCESS,
                 SERVICE_ALL_ACCESS, SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_CONTROL_STOP,
                 SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
                 SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
-                SERVICE_STATUS, SERVICE_STOP, SERVICE_WIN32_OWN_PROCESS,
+                SERVICE_STATUS, SERVICE_WIN32_OWN_PROCESS,
             },
         },
     },

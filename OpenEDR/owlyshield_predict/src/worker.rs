@@ -1,4 +1,4 @@
-﻿pub mod process_record_handling {
+pub mod process_record_handling {
     use std::path::PathBuf;
 
     use windows::Win32::Foundation::CloseHandle;
@@ -1475,15 +1475,14 @@ pub mod worker_instance {
                 if let Err(e) = driver.hook_process(pid) {
                     let hr = e.code().0 as u32;
                     let low_word = hr & 0xFFFF;
-                    let is_noaccess_like =
-                        hr == 0x800703E6 || hr == 0xC0000005 || low_word == 0x03E6;
+                    let is_access_denied = hr == 0x80070005 || hr == 0x80070000 || low_word == 5;
                     if hr == 0x80070677 {
                         self.dynamic_hook_apply_failures.remove(&pid);
                         Logging::warning(&format!(
                             "[DYNAMIC HOOK] PID {} apply failed: process mitigation blocks dynamic code (hr=0x{:08X})",
                             pid, hr
                         ));
-                    } else if hr == 0x80070005 {
+                    } else if is_access_denied {
                         self.dynamic_hook_apply_failures.remove(&pid);
                         Logging::warning(&format!(
                             "[DYNAMIC HOOK] PID {} apply failed: access denied (likely protected/critical process) (hr=0x{:08X})",

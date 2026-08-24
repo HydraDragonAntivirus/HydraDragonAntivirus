@@ -15,7 +15,7 @@ unit UAlert;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, ExtCtrls, StdCtrls;
+  Classes, SysUtils, Forms, Controls, Graphics, ExtCtrls, StdCtrls, Windows;
 
 type
   TAlertSeverity = (asInfo, asSuccess, asWarning, asCritical);
@@ -80,7 +80,9 @@ var
   Item: TAlertItem;
   NewIndex: Integer;
 begin
-  Item.Title := ATitle;
+  Item.Title := Trim(ATitle);
+  if Item.Title = '' then
+    Item.Title := 'Security Alert';
   Item.Msg := AMsg;
   Item.Severity := ASeverity;
   Item.AutoCloseMs := AAutoCloseMs;
@@ -98,6 +100,9 @@ begin
   FInstance.AlphaBlend := True;
   FInstance.AlphaBlendValue := 0;
   FInstance.Show;
+  FInstance.BringToFront;
+  SetWindowPos(FInstance.Handle, HWND_TOPMOST, 0, 0, 0, 0,
+    SWP_NOMOVE or SWP_NOSIZE or SWP_SHOWWINDOW);
   FInstance.TimerFade.Enabled := True;
 end;
 
@@ -107,6 +112,8 @@ begin
   FormStyle := fsStayOnTop;
   Position := poDesigned;
   Color := $00302518;
+  LblTitle.Caption := '';
+  LblMessage.Caption := '';
   FInstance := Self;
 
   BtnPrev := TButton.Create(Self);
