@@ -38,32 +38,42 @@ pub enum EventID {
 /// fail. There is no real abstraction to be had to returning an error from the function; it will either
 /// work or it wont, it will not affect the caller.
 pub fn event_log(msg: &str, event_type: REPORT_EVENT_TYPE, event_id: EventID) {
-    // todo consider adding an enum which will exit on error or just return.
-    let source: Vec<u16> = "SanctumPPLRunner\0".encode_utf16().collect();
+    let mut log_dir = std::path::PathBuf::from(shared_no_std::constants::SANCTUM_LOG_DIR);
+    log_dir.push("log");
+    
+    // Create directory if it doesn't exist
+    if let Err(_) = std::fs::create_dir_all(&log_dir) {
+        return;
+    }
 
-    let handle = match unsafe { RegisterEventSourceW(PCWSTR::null(), PCWSTR(source.as_ptr())) } {
-        Ok(h) => h,
+    let log_file = log_dir.join("sanctum.log");
+    
+    let mut file = match std::fs::OpenOptions::new().create(true).append(true).open(log_file) {
+        Ok(f) => f,
         Err(_) => return,
     };
 
-    let msg_wide: Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
-    let msg_as_pcwstr = PCWSTR(msg_wide.as_ptr());
-
-    // write the event into the event log
-    let _ = unsafe {
-        ReportEventW(
-            handle,
-            event_type,
-            0,
-            event_id as u32, // https://learn.microsoft.com/en-us/windows/win32/eventlog/event-identifiers
-            None,
-            0,
-            Some([msg_as_pcwstr].as_ref()),
-            None, // no binary data
-        )
+    use std::io::Write;
+    let event_type_str = match event_type {
+        windows::Win32::System::EventLog::EVENTLOG_ERROR_TYPE => "ERROR",
+        windows::Win32::System::EventLog::EVENTLOG_WARNING_TYPE => "WARNING",
+        windows::Win32::System::EventLog::EVENTLOG_INFORMATION_TYPE => "INFO",
+        _ => "UNKNOWN",
     };
 
-    let _ = unsafe { DeregisterEventSource(handle) };
+    // Format the log line as JSONL
+    let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(n) => n.as_millis() as u64,
+        Err(_) => 0,
+    };
 
-    let _ = unsafe { CloseHandle(handle) };
+    let log_line = format!(
+        r#"{{"timestamp":{},"level":"{}","event_id":{},"message":"{}"}}{}"#,
+        now,
+        event_type_str,
+        event_id as u32,
+        msg.replace('"', "\\\""), // simple escape
+        "\n"
+    );
+    let _ = file.write_all(log_line.as_bytes());
 }

@@ -961,18 +961,26 @@ inline NTSTATUS _updateHashOnPostOp(StreamHandleContext* pStreamHandleContext, P
 		}
 
 		void* pDataBuffer = (eAction == HashedAction::Read) ? readParams.ReadBuffer : writeParams.WriteBuffer;
-		if (eAction == HashedAction::Write) {
-			ULONGLONG currentEntropy = shannonEntropyQ24((PUCHAR)pDataBuffer, nDataSize);
-			if (currentEntropy > actionInfo.nMaxEntropyQ24) {
-				actionInfo.nMaxEntropyQ24 = currentEntropy;
+		if (pDataBuffer == nullptr || nDataSize == 0)
+			return STATUS_SUCCESS;
+
+		__try {
+			if (eAction == HashedAction::Write) {
+				ULONGLONG currentEntropy = shannonEntropyQ24((PUCHAR)pDataBuffer, nDataSize);
+				if (currentEntropy > actionInfo.nMaxEntropyQ24) {
+					actionInfo.nMaxEntropyQ24 = currentEntropy;
+				}
 			}
+
+			// RansomShield read-time tee
+			if (eAction == HashedAction::Read && pFltObjects != nullptr)
+				pStreamHandleContext->RansomTeeChunk(pFltObjects, pDataBuffer, nDataSize);
+
+			return actionInfo.updateHash(pDataBuffer, nDataSize);
 		}
-
-		// RansomShield read-time tee
-		if (eAction == HashedAction::Read && pFltObjects != nullptr)
-			pStreamHandleContext->RansomTeeChunk(pFltObjects, pDataBuffer, nDataSize);
-
-		return actionInfo.updateHash(pDataBuffer, nDataSize);
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			return GetExceptionCode();
+		}
 	}
 }
 
@@ -1836,15 +1844,49 @@ void StreamHandleContext::RansomTeeChunk(PCFLT_RELATED_OBJECTS pFltObjects, void
 	if (hRansomTee == nullptr || hRansomTee == ((HANDLE)(LONG_PTR)-1) || pRansomTeeObj == nullptr || pFltObjects == nullptr || pFltObjects->Instance == nullptr)
 		return;
 
+	// Copy pDataBuffer to a safe Kernel NonPagedPool/stack buffer so ZwWriteFile
+	// never receives a user-mode Virtual Address (which causes INVALID_MDL_RANGE 0x12e in CLASSPNP/partmgr).
+	UCHAR stackBuffer[1024];
+	PVOID pKernelBuffer = nullptr;
+	PVOID pAllocatedBuffer = nullptr;
+
+	if (nLen <= sizeof(stackBuffer))
+	{
+		pKernelBuffer = stackBuffer;
+	}
+	else
+	{
+		pAllocatedBuffer = ExAllocatePoolWithTag(NonPagedPool, nLen, 'TnsR');
+		if (pAllocatedBuffer == nullptr)
+			return;
+		pKernelBuffer = pAllocatedBuffer;
+	}
+
+	__try
+	{
+		RtlCopyMemory(pKernelBuffer, pDataBuffer, nLen);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		if (pAllocatedBuffer != nullptr)
+			ExFreePoolWithTag(pAllocatedBuffer, 'TnsR');
+		return;
+	}
+
 	LARGE_INTEGER off = nRansomOff;
 	ULONG nWritten = 0;
 	IO_STATUS_BLOCK iosWrite = {};
 	NTSTATUS ns = ZwWriteFile(hRansomTee, nullptr, nullptr, nullptr, &iosWrite,
-		pDataBuffer, (ULONG)nLen, &off, nullptr);
+		pKernelBuffer, (ULONG)nLen, &off, nullptr);
 	if (NT_SUCCESS(ns))
 	{
 		nWritten = (ULONG)iosWrite.Information;
 		nRansomOff.QuadPart += nWritten;
+	}
+
+	if (pAllocatedBuffer != nullptr)
+	{
+		ExFreePoolWithTag(pAllocatedBuffer, 'TnsR');
 	}
 }
 

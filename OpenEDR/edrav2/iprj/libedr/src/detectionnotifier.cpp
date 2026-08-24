@@ -83,13 +83,23 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		if (!vEvent.has("title"))
 		{
 			std::string sTitle = vEvent.get("type", std::string());
+			std::string sPath;
+
+			// C++ FLS path puts it in processes[0].imagePath
 			auto optPath = getByPathSafe(vEvent, "processes[0].imagePath");
 			if (optPath.has_value())
+				sPath = std::string(optPath.value());
+
+			// PTM policy path puts it in process.imageFile.path
+			if (sPath.empty())
 			{
-				std::string sPath = optPath.value();
-				if (!sPath.empty())
-					sTitle += (sTitle.empty() ? "" : ": ") + sPath;
+				auto optPath2 = getByPathSafe(vEvent, "process.imageFile.path");
+				if (optPath2.has_value())
+					sPath = std::string(optPath2.value());
 			}
+
+			if (!sPath.empty())
+				sTitle += (sTitle.empty() ? "" : ": ") + sPath;
 			if (!sTitle.empty())
 				vEvent.put("title", sTitle);
 		}

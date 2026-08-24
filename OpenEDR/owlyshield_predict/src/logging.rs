@@ -106,19 +106,6 @@ impl Logging {
         Self::owlyshield_log_dir().join("owlyshield.jsonl")
     }
 
-    fn should_write_to_file(status: Status, _message: &str) -> bool {
-        // With VERBOSE_LOGGING enabled every level (START/STOP/ALERT/WARNING/
-        // ERROR/INFO/DEBUG) is mirrored into `owlyshield.jsonl` for troubleshooting.
-        if is_verbose_logging_enabled() {
-            return true;
-        }
-        // Otherwise the feed contains ONLY detections so the stream consumed by
-        // Filebeat / Logstash / Elasticsearch stays small and high-signal.
-        matches!(status, Status::Alert)
-    }
-
-
-    
     pub fn init() {
         use registry::{Hive, Security};
         if let Ok(regkey) = Hive::LocalMachine.open(r"SOFTWARE\Owlyshield", Security::Read) {
@@ -130,10 +117,6 @@ impl Logging {
             }
         }
         crate::config::init_trust_comodo_cloud();
-
-        let log_source = "Owlyshield Ransom Rust";
-        winlog::register(log_source);
-        winlog::init(log_source).unwrap_or(());
     }
 
 
@@ -174,13 +157,11 @@ impl Logging {
 
     
     fn log(status: Status, message: &str) {
-        if Self::should_write_to_file(status, message) {
-            Self::log_in_file(
-                status,
-                message,
-                ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield").as_str(),
-            );
-        }
+        Self::log_in_file(
+            status,
+            message,
+            ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield").as_str(),
+        );
 
         match status {
             Status::Alert | Status::Warning => {

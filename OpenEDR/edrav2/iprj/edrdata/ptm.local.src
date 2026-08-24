@@ -27,6 +27,9 @@
 		"ransomEventBaseType": {
 			"MLE_RANSOM_BEHAVIOR": 1000008
 		},
+		"ransomBehaviorEventBaseType": {
+			"MLE_RANSOM_BEHAVIOR": 1000008
+		},
 		"ransomBasket": {
 			"readWrite": "RANSOM_FILE_READ_WRITE",
 			"processCounter": "RANSOM_PROCESS_COUNTER"
@@ -77,7 +80,7 @@
 
 	"variables": {
 		"copyFileKey": [ "@event.process.id", "@event.file.rawHash" ],
-		"ransomPathKey": [ "@event.process.id", "@event.file.uniquePath" ]
+		"ransomPathKey": [ "@event.process.id", "@event.file.abstractPath" ]
 	},
 
 	"patterns": {
