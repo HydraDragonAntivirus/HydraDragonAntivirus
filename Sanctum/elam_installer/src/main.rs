@@ -19,10 +19,10 @@ use windows::{
                 RegSetValueExW,
             },
             Services::{
-                ChangeServiceConfig2W, ControlService, CreateServiceW, DeleteService,
+                ChangeServiceConfig2W, CloseServiceHandle, ControlService, CreateServiceW, DeleteService,
                 OpenSCManagerW, OpenServiceW, SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS,
                 SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_CONTROL_STOP, SERVICE_DEMAND_START,
-                SERVICE_ERROR_NORMAL, SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT,
+                SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER, SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT,
                 SERVICE_LAUNCH_PROTECTED_INFO, SERVICE_STATUS, SERVICE_STOP,
                 SERVICE_WIN32_OWN_PROCESS,
             },
@@ -93,6 +93,47 @@ fn run_install() {
         Ok(h) => h,
         Err(e) => panic!("[!] Unable to open SC Manager. {e}"),
     };
+
+    // Step 2a: Create Sanctum Kernel Driver Service
+    println!("[i] Configuring Sanctum kernel driver service.");
+    let kernel_bin_path = path_to_wstring(&driver_path);
+    let kernel_svc_name = to_wstring("Sanctum");
+    let kernel_svc_display = to_wstring("Sanctum Kernel Driver");
+
+    let h_kernel_svc = unsafe {
+        CreateServiceW(
+            h_sc_mgr,
+            PCWSTR(kernel_svc_name.as_ptr()),
+            PCWSTR(kernel_svc_display.as_ptr()),
+            SERVICE_ALL_ACCESS,
+            SERVICE_KERNEL_DRIVER,
+            SERVICE_DEMAND_START,
+            SERVICE_ERROR_NORMAL,
+            PCWSTR(kernel_bin_path.as_ptr()),
+            PCWSTR::null(),
+            None,
+            PCWSTR::null(),
+            PCWSTR::null(),
+            PCWSTR::null(),
+        )
+    };
+
+    match h_kernel_svc {
+        Ok(h) => {
+            println!("[+] Sanctum kernel driver service created successfully.");
+            let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h) };
+        }
+        Err(e) => {
+            let win_err = e.code().0 as u32;
+            if win_err == 0x80070431 || win_err == 1073 {
+                println!("[+] Sanctum kernel driver service already exists.");
+            } else {
+                println!("[!] Failed to create Sanctum kernel service: {e}");
+            }
+        }
+    }
+
+    // Step 2b: Create PPL AntiMalware Service
 
     let result = unsafe {
         CreateServiceW(
@@ -174,6 +215,23 @@ fn run_uninstall() {
             let ret = unsafe { DeleteService(h_svc) };
             if ret.is_ok() {
                 println!("[+] Service sanctum_ppl_runner deleted successfully.");
+            }
+        }
+
+        // Delete Sanctum Kernel Driver Service
+        let h_kernel_svc = unsafe {
+            OpenServiceW(
+                h_sc_mgr,
+                PCWSTR(to_wstring("Sanctum").as_ptr()),
+                SERVICE_ALL_ACCESS,
+            )
+        };
+        if let Ok(h_kernel_svc) = h_kernel_svc {
+            let mut status = SERVICE_STATUS::default();
+            let _ = unsafe { ControlService(h_kernel_svc, SERVICE_CONTROL_STOP, &mut status) };
+            let ret = unsafe { DeleteService(h_kernel_svc) };
+            if ret.is_ok() {
+                println!("[+] Service Sanctum kernel driver deleted successfully.");
             }
         }
     }
