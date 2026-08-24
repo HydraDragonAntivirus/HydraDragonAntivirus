@@ -157,6 +157,10 @@ impl Logging {
 
     
     fn log(status: Status, message: &str) {
+        if matches!(status, Status::Debug) && !is_verbose_logging_enabled() {
+            return;
+        }
+
         Self::log_in_file(
             status,
             message,
