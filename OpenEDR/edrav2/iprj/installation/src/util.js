@@ -531,6 +531,13 @@ function InstallElamService() {
 	return res;
 }
 
+function UninstallElamService() {
+	var installDir = Session.Property("INSTALLDIR");
+	if (!installDir) installDir = "C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\";
+	var cmdLine = '"' + installDir + 'Sanctum\\elam_installer.exe" --uninstall';
+	_ExecSilentCommand(cmdLine, "Uninstall ELAM service", true);
+}
+
 function EnrollEdrService() {
 	var args = Session.Property("CustomActionData").split("*");
 	var ignore = false;

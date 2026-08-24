@@ -414,11 +414,25 @@ Variant WinService::install(Variant vParams)
 	);
 }
 
-//
-//
-//
 Variant WinService::uninstall(Variant vParams)
 {
+	// 1. Run elam_installer.exe --uninstall to unprotect PPL, stop, and delete all Sanctum/ELAM services
+	try
+	{
+		std::filesystem::path elamInstallerPath = getCatalogData("app.dataPath").convertToPath() / "Sanctum" / "elam_installer.exe";
+		if (!std::filesystem::exists(elamInstallerPath))
+		{
+			elamInstallerPath = std::filesystem::path("C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\Sanctum\\elam_installer.exe");
+		}
+		if (std::filesystem::exists(elamInstallerPath))
+		{
+			std::string cmd = "\"" + elamInstallerPath.string() + "\" --uninstall";
+			::system(cmd.c_str());
+		}
+	}
+	catch (...) {}
+
+	// 2. Clean up edrsvc
 	auto vResult = execCommand(createObject(CLSID_WinServiceController), "isExist",
 		Dictionary({ { "name", c_sServiceName } }));
 

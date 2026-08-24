@@ -20,7 +20,7 @@ use windows::{
                 SERVICE_ALL_ACCESS, SERVICE_AUTO_START, SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_DEMAND_START,
                 SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
                 SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
-                SERVICE_WIN32_OWN_PROCESS,
+                SERVICE_LAUNCH_PROTECTED_NONE, SERVICE_WIN32_OWN_PROCESS,
             },
         },
     },
@@ -39,6 +39,12 @@ fn main() {
             }
         }
     };
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|arg| arg == "--uninstall" || arg == "/uninstall" || arg == "uninstall") {
+        uninstall_all_sanctum_services(h_sc_mgr);
+        return;
+    }
 
     // Step 1: Register Sanctum Kernel Driver Service
     println!("[i] Configuring Sanctum kernel driver service.");
@@ -191,6 +197,86 @@ fn trigger_auto_reboot() {
             "HydraDragon Antivirus ELAM Installation Complete. Restarting...",
         ])
         .status();
+}
+
+fn uninstall_all_sanctum_services(h_sc_mgr: windows::Win32::System::Services::SC_HANDLE) {
+    println!("[i] Uninstalling Sanctum & ELAM services...");
+
+    // 1. Unprotect sanctum_ppl_runner PPL protection so it can be stopped and deleted without Access Denied
+    let ppl_svc_name = svc_name();
+    if let Ok(h_svc) = unsafe {
+        windows::Win32::System::Services::OpenServiceW(
+            h_sc_mgr,
+            PCWSTR(ppl_svc_name.as_ptr()),
+            SERVICE_ALL_ACCESS,
+        )
+    } {
+        let mut info = SERVICE_LAUNCH_PROTECTED_INFO {
+            dwLaunchProtected: SERVICE_LAUNCH_PROTECTED_NONE,
+        };
+        let _ = unsafe {
+            ChangeServiceConfig2W(
+                h_svc,
+                SERVICE_CONFIG_LAUNCH_PROTECTED,
+                Some(&mut info as *mut _ as *mut _),
+            )
+        };
+        let mut status = windows::Win32::System::Services::SERVICE_STATUS::default();
+        let _ = unsafe {
+            windows::Win32::System::Services::ControlService(
+                h_svc,
+                windows::Win32::System::Services::SERVICE_CONTROL_STOP,
+                &mut status,
+            )
+        };
+        let _ = unsafe { windows::Win32::System::Services::DeleteService(h_svc) };
+        let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
+        println!("[+] sanctum_ppl_runner service unprotected, stopped and uninstalled.");
+    }
+
+    // 2. Stop and delete Sanctum kernel driver service
+    let kernel_svc_name = to_wstring("Sanctum");
+    if let Ok(h_svc) = unsafe {
+        windows::Win32::System::Services::OpenServiceW(
+            h_sc_mgr,
+            PCWSTR(kernel_svc_name.as_ptr()),
+            SERVICE_ALL_ACCESS,
+        )
+    } {
+        let mut status = windows::Win32::System::Services::SERVICE_STATUS::default();
+        let _ = unsafe {
+            windows::Win32::System::Services::ControlService(
+                h_svc,
+                windows::Win32::System::Services::SERVICE_CONTROL_STOP,
+                &mut status,
+            )
+        };
+        let _ = unsafe { windows::Win32::System::Services::DeleteService(h_svc) };
+        let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
+        println!("[+] Sanctum kernel driver service stopped and uninstalled.");
+    }
+
+    // 3. Stop and delete sanctum_elam driver service
+    let elam_svc_name = to_wstring("sanctum_elam");
+    if let Ok(h_svc) = unsafe {
+        windows::Win32::System::Services::OpenServiceW(
+            h_sc_mgr,
+            PCWSTR(elam_svc_name.as_ptr()),
+            SERVICE_ALL_ACCESS,
+        )
+    } {
+        let mut status = windows::Win32::System::Services::SERVICE_STATUS::default();
+        let _ = unsafe {
+            windows::Win32::System::Services::ControlService(
+                h_svc,
+                windows::Win32::System::Services::SERVICE_CONTROL_STOP,
+                &mut status,
+            )
+        };
+        let _ = unsafe { windows::Win32::System::Services::DeleteService(h_svc) };
+        let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
+        println!("[+] sanctum_elam driver service stopped and uninstalled.");
+    }
 }
 
 fn svc_name() -> Vec<u16> {
