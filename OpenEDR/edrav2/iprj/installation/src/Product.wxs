@@ -81,7 +81,6 @@
 			</Component>
 			<Component Id="SanctumSysComponents" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571A}" Directory="DRIVERSDIR">
 				<File Id="SanctumSysFile" Source="$(var.SourceBinDir)Sanctum\sanctum.sys" KeyPath="yes" />
-				<ServiceInstall Id="SanctumElamService" Name="sanctum_elam" DisplayName="sanctum_elam ELAM Kernel Driver" Type="kernelDriver" Start="boot" ErrorControl="normal" LoadOrderGroup="Early-Launch" />
 				<RemoveFile Id="RemovingSanctumDriver" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
 			</Component>
 			<Component Id="SanctumDllComponent" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342C}" Directory="$(var.SysFolder)">
