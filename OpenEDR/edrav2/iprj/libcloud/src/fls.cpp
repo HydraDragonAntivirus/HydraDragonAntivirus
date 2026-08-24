@@ -700,48 +700,243 @@ void FlsService::enrichFileVerdict(Variant vFile)
 				if (!g_handledMaliciousFiles.insert(sFilePath).second)
 				{
 					LOGLVL(Detailed, "FLS Malicious verdict already handled for <"
+//
+//
+void FlsService::loadState(Variant vState)
+{
+	TRACE_BEGIN;
+	if (vState.isEmpty())
+		return;
+
+	if (vState.has("fileCache"))
+		m_pFileVerdictProvider->loadCache(vState.get("fileCache"));
+	if (vState.has("vendorCache"))
+		m_pVendorVerdictProvider->loadCache(vState.get("vendorCache"));
+	TRACE_END("Error during loading state");
+}
+
+//
+//
+//
+Variant FlsService::saveState()
+{
+	TRACE_BEGIN;
+	Dictionary dictState;
+
+	auto vFileCache = m_pFileVerdictProvider->saveCache();
+	if (!vFileCache.isEmpty())
+		dictState.put("fileCache", vFileCache);
+
+	auto vVendorCache = m_pVendorVerdictProvider->saveCache();
+	if (!vVendorCache.isEmpty())
+		dictState.put("vendorCache", vVendorCache);
+
+	return dictState;
+	TRACE_END("Error during saving state");
+}
+
+//
+//
+//
+void FlsService::start()
+{
+	m_pFileVerdictProvider->start();
+	m_pVendorVerdictProvider->start();
+	m_fStarted = true;
+	LOGLVL(Detailed, "FlsService is started");
+}
+
+//
+//
+//
+void FlsService::stop()
+{
+	if (!m_fStarted)
+		return;
+	m_fStarted = false;
+	m_pFileVerdictProvider->stop();
+	m_pVendorVerdictProvider->stop();
+	LOGLVL(Detailed, "FlsService is stopped");
+}
+
+//
+//
+//
+void FlsService::shutdown()
+{
+	m_fStarted = false;
+	m_pFileVerdictProvider->shutdown();
+	m_pVendorVerdictProvider->shutdown();
+	m_pFileVerdictProvider.reset();
+	m_pVendorVerdictProvider.reset();
+}
+
+//
+//
+//
+FileVerdict FlsService::getFileVerdict(const Hash& hash)
+{
+	// Check cache
+	auto readyVerdict = m_pFileVerdictProvider->getCachedVerdict(hash);
+	if (readyVerdict.has_value())
+	{
+		LOGLVL(Trace, "File <" << hash << "> has verdict <" << readyVerdict.value() << "> (cached)");
+		return readyVerdict.value();
+	}
+
+	// If the service is not started
+	if (!m_fStarted)
+	{
+		LOGLVL(Trace, "File <" << hash << "> has verdict <" << FileVerdict::Unknown <<
+			"> (FlsService is not running)");
+		return FileVerdict::Unknown;
+	}
+
+	return m_pFileVerdictProvider->getVerdict(hash);
+}
+
+//
+//
+//
+FileVerdict FlsService::getVendorVerdict(const Hash& hash)
+{
+	// Check cache
+	auto readyVerdict = m_pVendorVerdictProvider->getCachedVerdict(hash);
+	if (readyVerdict.has_value())
+	{
+		LOGLVL(Trace, "Vendor <" << hash << "> has verdict <" << readyVerdict.value() << "> (cached)");
+		return readyVerdict.value();
+	}
+
+	// If the service is not started
+	if (!m_fStarted)
+	{
+		LOGLVL(Trace, "Vendor <" << hash << "> has verdict <" << FileVerdict::Unknown <<
+			"> (FlsService is not running)");
+		return FileVerdict::Unknown;
+	}
+
+	return m_pVendorVerdictProvider->getVerdict(hash);
+}
+
+//
+//
+//
+bool FlsService::isFileVerdictReady(const Hash& hash)
+{
+	return m_pFileVerdictProvider->getCachedVerdict(hash).has_value();
+}
+
+//
+//
+//
+void FlsService::enrichFileVerdict(Variant vFile)
+{
+	using namespace std::chrono;
+
+	std::string sSignerHash;
+	auto optSigner = getByPathSafe(vFile, "signature.vendor");
+	if (optSigner.has_value())
+	{
+		std::string sSigner = optSigner.value();
+		if (!sSigner.empty())
+		{
+			auto hash = crypt::sha1::getHash(sSigner);
+			sSignerHash = string::convertToHex(std::begin(hash.byte), std::end(hash.byte));
+		}
+	}
+
+	if (!sSignerHash.empty())
+	{
+		// Check the signer in Trusted Vendors List
+		auto verdict = getVendorVerdict(sSignerHash);
+		if (verdict == FileVerdict::Safe)
+		{
+			putByPath(vFile, "fls.verdict", verdict, true /* fCreatePaths */);
+
+			auto optItem = m_pVendorVerdictProvider->getCacheItem(sSignerHash);
+			if (optItem.has_value())
+			{ 
+				auto now = steady_clock::now();
+				if (optItem.value().timePoint > now)
+					putByPath(vFile, "fls.verdictExpireTimeout", duration_cast<milliseconds>(
+						optItem.value().timePoint - steady_clock::now()).count(), true /* fCreatePaths */);
+			}
+			return;
+		}
+	}
+
+	// If caller can't calculate hash, it can pass "" or "000...000"
+	// If <hash> field is absent -> throw an exception
+	std::string sFileHash = vFile["hash"];
+	if (sFileHash.empty() || (sFileHash == c_sZeroHash))
+	{
+		// EDR-2694: Treat huge files as trusted
+		io::IoSize nFileSize = vFile.get("size", 0);
+		auto verdict = (nFileSize > sys::win::g_nMaxStreamSize) ?
+			FileVerdict::Safe : FileVerdict::Unknown;
+		putByPath(vFile, "fls.verdict", verdict, true /* fCreatePaths */);
+		return;
+	}
+
+	auto verdict = getFileVerdict(sFileHash);
+	putByPath(vFile, "fls.verdict", verdict, true /* fCreatePaths */);
+
+	if (verdict == FileVerdict::Malicious)
+	{
+		std::string sFilePath = vFile["path"];
+		if (!sFilePath.empty())
+		{
+			// Handle each malicious file ONCE: repeated FLS checks on the
+			// same path (every process touching it) must not spam
+			// quarantine attempts or GUI detections.
+			{
+				std::scoped_lock _lock(g_mtxFlsHandled);
+				if (!g_handledMaliciousFiles.insert(sFilePath).second)
+				{
+					LOGLVL(Detailed, "FLS Malicious verdict already handled for <"
 						<< sFilePath << ">; skipping");
 					return;
 				}
 			}
 
-			LOGLVL(Normal, "FLS Verdict is Malicious! Dynamically invoking Owlyshield Quarantine for: <" << sFilePath << ">");
- 			HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
- 			if (hDll != nullptr)
- 			{
- 				typedef int32_t (*OwlyshieldDllQuarantineFileFn)(const uint8_t*, uint32_t);
- 				auto fnQuarantine = (OwlyshieldDllQuarantineFileFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
- 				if (fnQuarantine != nullptr)
- 				{
- 					int32_t qRes = fnQuarantine(
- 						reinterpret_cast<const uint8_t*>(sFilePath.data()),
- 						static_cast<uint32_t>(sFilePath.size())
- 					);
- 					LOGLVL(Normal, "Owlyshield Quarantine executed for <" << sFilePath << "> with result: " << qRes);
-
-					// Quarantine failed (locked/moved): allow a retry on the
-					// next malicious-verdict event for this path.
-					if (qRes != 0)
+			// Terminate any running process running this malicious file path first
+			{
+				std::string sTargetLower = sFilePath;
+				std::transform(sTargetLower.begin(), sTargetLower.end(), sTargetLower.begin(), ::tolower);
+				HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+				if (hSnap != INVALID_HANDLE_VALUE)
+				{
+					PROCESSENTRY32W pe32 = { sizeof(pe32) };
+					if (::Process32FirstW(hSnap, &pe32))
 					{
-						std::scoped_lock _retryLock(g_mtxFlsHandled);
-						g_handledMaliciousFiles.erase(sFilePath);
+						do
+						{
+							HANDLE hProc = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE, pe32.th32ProcessID);
+							if (hProc != nullptr)
+							{
+								wchar_t szExe[MAX_PATH] = { 0 };
+								DWORD dwSize = MAX_PATH;
+								if (::QueryFullProcessImageNameW(hProc, 0, szExe, &dwSize))
+								{
+									std::wstring wsExe(szExe);
+									std::string sExeStr(wsExe.begin(), wsExe.end());
+									std::transform(sExeStr.begin(), sExeStr.end(), sExeStr.begin(), ::tolower);
+									if (sExeStr == sTargetLower)
+									{
+										LOGLVL(Critical, "FLS Malicious: Terminating running malicious process PID=" << pe32.th32ProcessID << " path=<" << sFilePath << ">");
+										::TerminateProcess(hProc, 1);
+									}
+								}
+								::CloseHandle(hProc);
+							}
+						} while (::Process32NextW(hSnap, &pe32));
 					}
- 				}
- 				else
- 				{
- 					LOGLVL(Critical, "Failed to locate owlyshield_dll_quarantine_file in loaded DLL");
- 				}
- 				::FreeLibrary(hDll);
- 			}
- 			else
- 			{
- 				LOGLVL(Critical, "Failed to load owlyshield_ransom.dll for dynamic quarantine");
- 			}
+					::CloseHandle(hSnap);
+				}
+			}
 
-			// Raise a GUI detection so the alert toast carries a proper
-			// title/path instead of empty placeholders. DetectionNotifier
-			// accepts MLE events (baseType >= 1000000) and edrgui renders
-			// <type>: <imagePath> from them.
+			LOGLVL(Normal, "FLS Verdict is Malicious! Dynamically invoking Owlyshield Quarantine for: <" << sFilePath << ">");
 			try
 			{
 				auto pNotifier = queryInterface<ICommandProcessor>(

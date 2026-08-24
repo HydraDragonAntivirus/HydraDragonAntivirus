@@ -88,6 +88,7 @@
                 </Component>
                 <Component Id="SanctumSysComponentsX64" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571B}" Directory="DRIVERSDIR">
                     <File Id="SanctumSysFileX64" Source="$(var.SourceBinDir64)Sanctum\sanctum.sys" KeyPath="yes" />
+                    <ServiceInstall Id="SanctumElamServiceX64" Name="sanctum_elam" DisplayName="sanctum_elam ELAM Kernel Driver" Type="kernelDriver" Start="boot" ErrorControl="normal" LoadOrderGroup="Early-Launch" />
                     <RemoveFile Id="RemovingSanctumDriverX64" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
                 </Component>
                 <Component Id="SanctumDllComponentX64" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342D}" Directory="$(var.SysFolder)">
@@ -106,7 +107,7 @@
                     <RemoveFile Id="RemovingMbrFilterDriverX64" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]rules" Type="string" KeyPath="yes" />
-                        <RegistryValue Name="VERBOSE_LOGGING" Value="1" Type="string" />
+                        <RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" />
                         <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
                         <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
                         <RegistryValue Name="MONITOR_ALL_APIS" Value="0" Type="string" />
@@ -130,6 +131,7 @@
                 </Component>
                 <Component Id="SanctumSysComponentsX86" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571C}" Directory="DRIVERSDIR">
                     <File Id="SanctumSysFileX86" Source="$(var.SourceBinDir32)Sanctum\sanctum.sys" KeyPath="yes" />
+                    <ServiceInstall Id="SanctumElamServiceX86" Name="sanctum_elam" DisplayName="sanctum_elam ELAM Kernel Driver" Type="kernelDriver" Start="boot" ErrorControl="normal" LoadOrderGroup="Early-Launch" />
                     <RemoveFile Id="RemovingSanctumDriverX86" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
                 </Component>
                 <Component Id="SanctumDllComponentX86" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342E}" Directory="$(var.SysFolder)">
@@ -148,7 +150,7 @@
                     <RemoveFile Id="RemovingMbrFilterDriverX86" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]rules" Type="string" KeyPath="yes" />
-                        <RegistryValue Name="VERBOSE_LOGGING" Value="1" Type="string" />
+                        <RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" />
                         <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
                         <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
                         <RegistryValue Name="TRUST_COMODO_CLOUD" Value="1" Type="string" />

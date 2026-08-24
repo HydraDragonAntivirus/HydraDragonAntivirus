@@ -157,7 +157,7 @@ impl Logging {
 
     
     fn log(status: Status, message: &str) {
-        if matches!(status, Status::Debug) && !is_verbose_logging_enabled() {
+        if (matches!(status, Status::Debug) || matches!(status, Status::Info)) && !is_verbose_logging_enabled() {
             return;
         }
 

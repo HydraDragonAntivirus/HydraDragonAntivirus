@@ -102,17 +102,8 @@ impl Logging {
     #[cfg(target_os = "windows")]
     fn should_write_to_file(status: Status, message: &str) -> bool {
         if !VERBOSE_LOGGING.load(Ordering::Relaxed) {
-            if matches!(status, Status::Debug) {
+            if matches!(status, Status::Debug) || matches!(status, Status::Info) {
                 return false;
-            }
-
-            if matches!(status, Status::Info) {
-                return !message.starts_with("[DIAG] API HOOKING EVENT")
-                    && !message.starts_with("[DIAG] VMM HOOK EVENT")
-                    && !message.starts_with("[DIAG] USERMODE HOOK EVENT")
-                    && !message.starts_with("[DIAG] KERNEL EVENT")
-                    && !message.starts_with("[DIAG] EVENT RECEIVED")
-                    && !message.starts_with("[API HOOKING EVENT]");
             }
         }
 

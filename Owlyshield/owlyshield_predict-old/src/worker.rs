@@ -3691,11 +3691,7 @@ pub mod worker_instance {
                 applied_generation,
                 target_generation
             );
-            if apply_succeeded || registered_count > 0 {
-                Logging::info(&message);
-            } else {
-                Logging::debug(&message);
-            }
+            Logging::debug(&message);
         }
     }
 }

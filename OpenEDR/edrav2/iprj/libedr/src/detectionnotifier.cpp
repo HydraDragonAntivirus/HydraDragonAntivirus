@@ -129,25 +129,78 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 
 		// --- ENFORCEMENT: terminate + quarantine on every detection ---
 		{
-			int64_t nPid = 0;
-			try
-			{
-				auto vProc = vEvent.get("process");
-				nPid = (int64_t)vProc.get("pid", int64_t(0));
-			}
-			catch (...) {}
+			std::vector<DWORD> vPidsToKill;
 
-			if (nPid > 0)
+			// Check childProcess.pid
+			auto optChildPid = getByPathSafe(vEvent, "childProcess.pid");
+			if (optChildPid.has_value())
 			{
-				HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE,
-					FALSE, static_cast<DWORD>(nPid));
+				int64_t pidVal = (int64_t)optChildPid.value();
+				if (pidVal > 4) vPidsToKill.push_back(static_cast<DWORD>(pidVal));
+			}
+
+			// Check process.pid
+			auto optProcPid = getByPathSafe(vEvent, "process.pid");
+			if (optProcPid.has_value())
+			{
+				int64_t pidVal = (int64_t)optProcPid.value();
+				if (pidVal > 4) vPidsToKill.push_back(static_cast<DWORD>(pidVal));
+			}
+
+			// Check processes array
+			auto optProcesses = getByPathSafe(vEvent, "processes");
+			if (optProcesses.has_value() && optProcesses.value().isSequenceLike())
+			{
+				Variant vProcsSeq = optProcesses.value();
+				size_t nSize = vProcsSeq.getSize();
+				for (size_t idx = 0; idx < nSize; ++idx)
+				{
+					Variant vP = vProcsSeq.get(idx);
+					int64_t nVerd = (int64_t)vP.get("verdict", int64_t(0));
+					int64_t nFlsVerd = (int64_t)vP.get("flsVerdict", int64_t(0));
+					int64_t nPidVal = (int64_t)vP.get("pid", int64_t(0));
+
+					// If process verdict is malicious (3) or it's the last process in chain of MLE detection
+					if (nPidVal > 4 && (nVerd == 3 || nFlsVerd == 3 || idx == nSize - 1))
+					{
+						vPidsToKill.push_back(static_cast<DWORD>(nPidVal));
+					}
+				}
+			}
+
+			for (DWORD dwPid : vPidsToKill)
+			{
+				// Skip system critical PIDs
+				if (dwPid <= 4) continue;
+
+				HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, dwPid);
 				if (hProc != nullptr)
 				{
+					// Extra safety check: verify image path before killing
+					wchar_t szPath[MAX_PATH] = { 0 };
+					DWORD dwSize = MAX_PATH;
+					if (::QueryFullProcessImageNameW(hProc, 0, szPath, &dwSize))
+					{
+						std::wstring wsPath(szPath);
+						std::string sPathStr(wsPath.begin(), wsPath.end());
+						std::transform(sPathStr.begin(), sPathStr.end(), sPathStr.begin(), ::tolower);
+						if (sPathStr.find("winlogon.exe") != std::string::npos ||
+							sPathStr.find("userinit.exe") != std::string::npos ||
+							sPathStr.find("explorer.exe") != std::string::npos ||
+							sPathStr.find("svchost.exe") != std::string::npos ||
+							sPathStr.find("csrss.exe") != std::string::npos ||
+							sPathStr.find("smss.exe") != std::string::npos ||
+							sPathStr.find("services.exe") != std::string::npos ||
+							sPathStr.find("lsass.exe") != std::string::npos)
+						{
+							::CloseHandle(hProc);
+							continue;
+						}
+					}
 					::TerminateProcess(hProc, 1);
 					::WaitForSingleObject(hProc, 3000);
 					::CloseHandle(hProc);
-					LOGLVL(Critical, FMT("DetectionNotifier: terminated malicious pid="
-						<< nPid));
+					LOGLVL(Critical, FMT("DetectionNotifier: terminated malicious pid=" << dwPid));
 				}
 			}
 		}

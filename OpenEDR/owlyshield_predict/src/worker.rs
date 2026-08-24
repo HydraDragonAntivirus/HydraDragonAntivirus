@@ -1547,11 +1547,7 @@ pub mod worker_instance {
                 apply_attempted,
                 apply_succeeded
             );
-            if apply_succeeded || registered_count > 0 {
-                Logging::info(&message);
-            } else {
-                Logging::debug(&message);
-            }
+            Logging::debug(&message);
         }
     }
 }

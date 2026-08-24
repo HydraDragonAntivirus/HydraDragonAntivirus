@@ -94,30 +94,28 @@ begin
     SetLength(data, Length(data) + Integer(nRead));
     Move(buf[0], data[Length(data) - Integer(nRead) + 1], nRead);
     Inc(total, nRead);
-    // A message is one line: newline-terminated.
-    if total > 0 then
-    begin
-      i := Pos(#10, data);
-      if (i > 0) or (total >= 1) then
-        Break;
-    end;
+    // A message is one line: break only when newline (#10) is received
+    if Pos(#10, data) > 0 then
+      Break;
   until False;
 
+  data := Trim(data);
   if data <> '' then
   begin
-    data := Trim(data);
     i := Pos(':', data);
     if i > 0 then
     begin
-      FKind := Copy(data, 1, i - 1);
-      FText := Copy(data, i + 1, MaxInt);
+      FKind := Trim(Copy(data, 1, i - 1));
+      FText := Trim(Copy(data, i + 1, MaxInt));
     end
     else
     begin
       FKind := 'HIPS';
       FText := data;
     end;
-    Synchronize(@DoNotify);
+
+    if (Trim(FKind) <> '') and (Trim(FText) <> '') then
+      Synchronize(@DoNotify);
   end;
 
   CloseHandle(FHandle);
