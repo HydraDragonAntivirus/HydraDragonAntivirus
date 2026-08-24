@@ -17,8 +17,8 @@ use windows::{
             },
             Services::{
                 ChangeServiceConfig2W, CreateServiceW, OpenSCManagerW, SC_MANAGER_ALL_ACCESS,
-                SERVICE_ALL_ACCESS, SERVICE_AUTO_START, SERVICE_BOOT_START, SERVICE_CONFIG_LAUNCH_PROTECTED,
-                SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
+                SERVICE_ALL_ACCESS, SERVICE_AUTO_START, SERVICE_CONFIG_LAUNCH_PROTECTED,
+                SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
                 SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
                 SERVICE_LAUNCH_PROTECTED_NONE, SERVICE_WIN32_OWN_PROCESS,
             },
@@ -46,46 +46,45 @@ fn main() {
         return;
     }
 
-    // Step 1: Register sanctum_elam & Sanctum ELAM Kernel Driver Service
-    println!("[i] Configuring sanctum_elam kernel driver service.");
+    // Step 1: Register Sanctum Kernel Driver Service
+    // NOTE: must stay SERVICE_DEMAND_START. Boot-start + Early-Launch group
+    // makes winload load the driver before logon; a test-signed or buggy
+    // driver there black-screens the machine at next reboot.
+    println!("[i] Configuring Sanctum kernel driver service.");
     let kernel_driver_path =
         installed_path("AppData\\sanctum.sys").unwrap_or_else(|_| fallback_driver_path());
     let kernel_path_w = path_to_wstring(&kernel_driver_path);
-    let elam_group_w = to_wstring("Early-Launch");
+    let kernel_svc_name = to_wstring("Sanctum");
+    let kernel_svc_display = to_wstring("Sanctum Kernel Driver");
 
-    for svc_name_str in ["sanctum_elam", "Sanctum"] {
-        let kernel_svc_name = to_wstring(svc_name_str);
-        let kernel_svc_display = to_wstring(&format!("{svc_name_str} ELAM Kernel Driver"));
+    let h_kernel_svc = unsafe {
+        CreateServiceW(
+            h_sc_mgr,
+            PCWSTR(kernel_svc_name.as_ptr()),
+            PCWSTR(kernel_svc_display.as_ptr()),
+            SERVICE_ALL_ACCESS,
+            SERVICE_KERNEL_DRIVER,
+            SERVICE_DEMAND_START,
+            SERVICE_ERROR_NORMAL,
+            PCWSTR(kernel_path_w.as_ptr()),
+            PCWSTR::null(),
+            None,
+            PCWSTR::null(),
+            PCWSTR::null(),
+            PCWSTR::null(),
+        )
+    };
 
-        let h_kernel_svc = unsafe {
-            CreateServiceW(
-                h_sc_mgr,
-                PCWSTR(kernel_svc_name.as_ptr()),
-                PCWSTR(kernel_svc_display.as_ptr()),
-                SERVICE_ALL_ACCESS,
-                SERVICE_KERNEL_DRIVER,
-                SERVICE_BOOT_START,
-                SERVICE_ERROR_NORMAL,
-                PCWSTR(kernel_path_w.as_ptr()),
-                PCWSTR(elam_group_w.as_ptr()),
-                None,
-                PCWSTR::null(),
-                PCWSTR::null(),
-                PCWSTR::null(),
-            )
-        };
-
-        match h_kernel_svc {
-            Ok(h) => {
-                println!("[+] {svc_name_str} ELAM driver service created successfully.");
-                let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h) };
-            }
-            Err(e) => {
-                if e.code().0 as u32 == 0x80070431 || e.code().0 as u32 == 1073 {
-                    println!("[+] {svc_name_str} driver service already exists.");
-                } else {
-                    println!("[!] Warning: Failed to create {svc_name_str} service: {e}");
-                }
+    match h_kernel_svc {
+        Ok(h) => {
+            println!("[+] Sanctum kernel driver service created successfully.");
+            let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h) };
+        }
+        Err(e) => {
+            if e.code().0 as u32 == 0x80070431 || e.code().0 as u32 == 1073 {
+                println!("[+] Sanctum driver service already exists.");
+            } else {
+                println!("[!] Warning: Failed to create Sanctum kernel service: {e}");
             }
         }
     }
