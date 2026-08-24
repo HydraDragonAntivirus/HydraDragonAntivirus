@@ -291,7 +291,7 @@ begin
 
   sTitle := Trim(Detections[0].Title);
   if sTitle = '' then
-    sTitle := 'Threat Detected (' + Detections[0].EventType + ')';
+    sTitle := Detections[0].EventType;
 
   sMsg := '';
   for i := 0 to High(Detections) do
@@ -306,63 +306,15 @@ begin
       sMsg := sMsg + Detections[i].ImagePath;
   end;
 
-  if Trim(sMsg) = '' then
-    sMsg := 'Action taken on detected process activity.';
-
-  TAlertForm.ShowAlert(sTitle, sMsg, asCritical, 0);
+  TAlertForm.ShowAlert(sTitle, sMsg, asInfo, 0);
 end;
 
 // Runs on the main thread (via Synchronize) whenever the Rust behavior engine
 // writes a message to the HydraHipEvent pipe (threat alert, HIPS prompt,
 // verdict, ...).
 procedure TForm1.OnHipMessage(Sender: TObject; const AKind, AText: string);
-var
-  Parts: TStringList;
-  ExePath, PIDStr, VerdictCode, FormattedMsg: string;
 begin
-  if AKind = 'THREAT_ALERT' then
-    TAlertForm.ShowAlert('EDR Threat Alert', AText, asCritical, 0)
-  else if AKind = 'HIPS_ASK' then
-    TAlertForm.ShowAlert('HIPS Prompt', AText, asWarning, 0)
-  else if AKind = 'HIPS_VERDICT' then
-  begin
-    // AText: <pid>|<exe_path>|<verdict_code>|<analysis_type>
-    Parts := TStringList.Create;
-    try
-      Parts.Delimiter := '|';
-      Parts.StrictDelimiter := True;
-      Parts.DelimitedText := AText;
-
-      PIDStr := '';
-      ExePath := '';
-      VerdictCode := '';
-
-      if Parts.Count >= 1 then PIDStr := Trim(Parts[0]);
-      if Parts.Count >= 2 then ExePath := Trim(Parts[1]);
-      if Parts.Count >= 3 then VerdictCode := Trim(Parts[2]);
-
-      if ExePath = '' then ExePath := AText;
-
-      if (VerdictCode = '2') or (VerdictCode = '3') then
-      begin
-        FormattedMsg := 'Malicious File Detected: ' + ExePath;
-        if PIDStr <> '' then
-          FormattedMsg := FormattedMsg + ' (PID: ' + PIDStr + ')';
-        TAlertForm.ShowAlert('Malware Detected (OpenEDR FLS)', FormattedMsg, asCritical, 0);
-      end
-      else
-      begin
-        FormattedMsg := 'File Analyzed: ' + ExePath;
-        if PIDStr <> '' then
-          FormattedMsg := FormattedMsg + ' (PID: ' + PIDStr + ')';
-        TAlertForm.ShowAlert('HIPS Verdict', FormattedMsg, asInfo, 4000);
-      end;
-    finally
-      Parts.Free;
-    end;
-  end
-  else
-    TAlertForm.ShowAlert('HIPS Event', AText, asInfo, 0);
+  TAlertForm.ShowAlert(AKind, AText, asInfo, 0);
 end;
 
 // ---------------------------------------------------------------------------

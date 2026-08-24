@@ -80,26 +80,42 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		// Auto-generate a human-readable <title> so GUI consumers always have
 		// one; neither policy createEvent data nor the FLS verdict path sets
 		// it themselves (root cause of "no title" toasts).
-		if (!vEvent.has("title"))
+		if (!vEvent.has("title") || std::string(vEvent["title"]).empty())
 		{
 			std::string sTitle = vEvent.get("type", std::string());
-			std::string sPath;
-
-			// C++ FLS path puts it in processes[0].imagePath
-			auto optPath = getByPathSafe(vEvent, "processes[0].imagePath");
-			if (optPath.has_value())
-				sPath = std::string(optPath.value());
-
-			// PTM policy path puts it in process.imageFile.path
-			if (sPath.empty())
+			if (sTitle.empty())
 			{
-				auto optPath2 = getByPathSafe(vEvent, "process.imageFile.path");
-				if (optPath2.has_value())
-					sPath = std::string(optPath2.value());
+				auto optBaseType = getByPathSafe(vEvent, "baseType");
+				if (optBaseType.has_value())
+					sTitle = std::string(optBaseType.value());
+			}
+
+			std::string sPath;
+			static const char* const c_pPaths[] = {
+				"processes[0].imagePath",
+				"process.imageFile.abstractPath",
+				"process.imageFile.path",
+				"process.imagePath",
+				"target.imageFile.abstractPath",
+				"target.imageFile.path",
+				"destination.abstractPath",
+				"destination.path",
+				"file.abstractPath",
+				"file.path"
+			};
+			for (const char* pszField : c_pPaths)
+			{
+				auto optField = getByPathSafe(vEvent, pszField);
+				if (optField.has_value() && !std::string(optField.value()).empty())
+				{
+					sPath = std::string(optField.value());
+					break;
+				}
 			}
 
 			if (!sPath.empty())
 				sTitle += (sTitle.empty() ? "" : ": ") + sPath;
+
 			if (!sTitle.empty())
 				vEvent.put("title", sTitle);
 		}

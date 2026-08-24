@@ -81,9 +81,7 @@ var
   NewIndex: Integer;
 begin
   Item.Title := Trim(ATitle);
-  if Item.Title = '' then
-    Item.Title := 'Security Alert';
-  Item.Msg := AMsg;
+  Item.Msg := Trim(AMsg);
   Item.Severity := ASeverity;
   Item.AutoCloseMs := AAutoCloseMs;
 
