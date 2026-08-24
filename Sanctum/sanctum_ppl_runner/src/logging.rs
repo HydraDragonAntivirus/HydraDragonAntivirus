@@ -40,15 +40,19 @@ pub enum EventID {
 pub fn event_log(msg: &str, event_type: REPORT_EVENT_TYPE, event_id: EventID) {
     let mut log_dir = std::path::PathBuf::from(shared_no_std::constants::SANCTUM_LOG_DIR);
     log_dir.push("log");
-    
+
     // Create directory if it doesn't exist
     if let Err(_) = std::fs::create_dir_all(&log_dir) {
         return;
     }
 
     let log_file = log_dir.join("sanctum.log");
-    
-    let mut file = match std::fs::OpenOptions::new().create(true).append(true).open(log_file) {
+
+    let mut file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file)
+    {
         Ok(f) => f,
         Err(_) => return,
     };
