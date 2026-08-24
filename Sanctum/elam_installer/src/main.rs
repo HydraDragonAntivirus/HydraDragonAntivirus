@@ -49,52 +49,25 @@ fn main() {
 }
 
 fn run_install() {
-    println!("[i] Starting ELAM installer..");
+    println!("[i] Starting Sanctum & ELAM installer..");
 
-    // Step 1: Install the ELAM certificate via the driver (.sys) file.
     let system32 =
         std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string()) + "\\System32";
     let driver_path = std::path::PathBuf::from(&system32).join("drivers\\sanctum.sys");
-    let path = path_to_wstring(&driver_path);
 
-    println!(
-        "[i] Installing ELAM certificate from: {}",
-        driver_path.display()
-    );
-
-    let result = unsafe {
-        CreateFileW(
-            PCWSTR(path.as_ptr()),
-            FILE_READ_DATA.0,
-            FILE_SHARE_READ,
-            None,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            None,
-        )
-    };
-
-    let handle = match result {
-        Ok(h) => h,
-        Err(e) => panic!("[!] An error occurred whilst trying to open a handle to the driver. {e}"),
-    };
-
-    if let Err(e) = unsafe { InstallELAMCertificateInfo(handle) } {
-        panic!("[!] Failed to install ELAM certificate. Error: {e}");
-    }
-
-    println!("[+] ELAM certificate installed successfully!");
-
-    // Step 2: Create a service with correct privileges
-    println!("[i] Attempting to create the service.");
+    // Step 1: Create Services via SCManager
+    println!("[i] Opening Service Control Manager...");
     let result = unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_ALL_ACCESS) };
 
     let h_sc_mgr = match result {
         Ok(h) => h,
-        Err(e) => panic!("[!] Unable to open SC Manager. {e}"),
+        Err(e) => {
+            println!("[!] Unable to open SC Manager: {e}");
+            return;
+        }
     };
 
-    // Step 2a: Create Sanctum Kernel Driver Service
+    // Step 1a: Create Sanctum Kernel Driver Service
     println!("[i] Configuring Sanctum kernel driver service.");
     let kernel_bin_path = path_to_wstring(&driver_path);
     let kernel_svc_name = to_wstring("Sanctum");
@@ -133,8 +106,8 @@ fn run_install() {
         }
     }
 
-    // Step 2b: Create PPL AntiMalware Service
-
+    // Step 1b: Create PPL AntiMalware Service
+    println!("[i] Configuring Sanctum PPL Runner service.");
     let result = unsafe {
         CreateServiceW(
             h_sc_mgr,
@@ -154,35 +127,75 @@ fn run_install() {
     };
 
     let h_svc = match result {
-        Ok(h) => h,
+        Ok(h) => Some(h),
         Err(e) => {
-            if e.code().0 as u32 == 0x80070431 {
+            let win_err = e.code().0 as u32;
+            if win_err == 0x80070431 || win_err == 1073 {
                 println!("[+] PPL service already configured.");
-                exit(0);
+                unsafe {
+                    OpenServiceW(h_sc_mgr, PCWSTR(svc_name().as_ptr()), SERVICE_ALL_ACCESS).ok()
+                }
+            } else {
+                println!("[!] Failed to create PPL service: {e}");
+                None
             }
-            panic!("[!] Failed to create service. {e}")
         }
     };
 
-    let mut info = SERVICE_LAUNCH_PROTECTED_INFO {
-        dwLaunchProtected: SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT,
-    };
+    if let Some(h_svc) = h_svc {
+        let mut info = SERVICE_LAUNCH_PROTECTED_INFO {
+            dwLaunchProtected: SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT,
+        };
 
-    if let Err(e) = unsafe {
-        ChangeServiceConfig2W(
-            h_svc,
-            SERVICE_CONFIG_LAUNCH_PROTECTED,
-            Some(&mut info as *mut _ as *mut _),
-        )
-    } {
-        panic!("[!] Error calling ChangeServiceConfig2W. {e}");
+        if let Err(e) = unsafe {
+            ChangeServiceConfig2W(
+                h_svc,
+                SERVICE_CONFIG_LAUNCH_PROTECTED,
+                Some(&mut info as *mut _ as *mut _),
+            )
+        } {
+            println!("[!] Warning: Error calling ChangeServiceConfig2W: {e}");
+        }
+        let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
     }
 
     if let Err(e) = create_event_source_key() {
-        panic!("[-] Failed to create event viewer source key. {e}");
+        println!("[-] Warning: Failed to create event viewer source key: {e}");
     }
 
-    println!("[+] Successfully initialised the PPL AntiMalware service.");
+    println!("[+] Successfully initialised Sanctum services.");
+
+    // Step 2: Install ELAM certificate gracefully (non-fatal)
+    let path = path_to_wstring(&driver_path);
+    println!(
+        "[i] Installing ELAM certificate from: {}",
+        driver_path.display()
+    );
+
+    let result = unsafe {
+        CreateFileW(
+            PCWSTR(path.as_ptr()),
+            FILE_READ_DATA.0,
+            FILE_SHARE_READ,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+    };
+
+    match result {
+        Ok(handle) => {
+            if let Err(e) = unsafe { InstallELAMCertificateInfo(handle) } {
+                println!("[!] Warning: Failed to install ELAM certificate info: {e}");
+            } else {
+                println!("[+] ELAM certificate installed successfully!");
+            }
+        }
+        Err(e) => {
+            println!("[!] Warning: Could not open driver file for ELAM certificate: {e}");
+        }
+    }
 
     // Auto shutdown / reboot on install
     trigger_auto_reboot();
