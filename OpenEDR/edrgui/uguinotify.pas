@@ -207,6 +207,21 @@ begin
   if not EnsureWSA then
     Exit;
 
+  // On initial startup, sync FLastId to current daemon lastId to avoid replaying old events
+  try
+    Req := '{"jsonrpc":"2.0","id":1,"method":"getLastDetectionId","params":{}}';
+    if HttpPostJson(FHost, FPort, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        FLastId := GetPathInt(j, 'result.lastId');
+      finally
+        j.Free;
+      end;
+    end;
+  except
+  end;
+
   try
     while not Terminated do
     begin

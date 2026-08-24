@@ -306,6 +306,11 @@ begin
       sMsg := sMsg + Detections[i].ImagePath;
   end;
 
+  sTitle := Trim(sTitle);
+  sMsg := Trim(sMsg);
+  if (sTitle = '') and (sMsg = '') then
+    Exit;
+
   TAlertForm.ShowAlert(sTitle, sMsg, asInfo, 0);
 end;
 
@@ -313,8 +318,15 @@ end;
 // writes a message to the HydraHipEvent pipe (threat alert, HIPS prompt,
 // verdict, ...).
 procedure TForm1.OnHipMessage(Sender: TObject; const AKind, AText: string);
+var
+  CleanKind, CleanText: string;
 begin
-  TAlertForm.ShowAlert(AKind, AText, asInfo, 0);
+  CleanKind := Trim(AKind);
+  CleanText := Trim(AText);
+  if (CleanKind = '') and (CleanText = '') then
+    Exit;
+
+  TAlertForm.ShowAlert(CleanKind, CleanText, asInfo, 0);
 end;
 
 // ---------------------------------------------------------------------------

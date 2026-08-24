@@ -82,6 +82,8 @@ var
 begin
   Item.Title := Trim(ATitle);
   Item.Msg := Trim(AMsg);
+  if (Item.Title = '') and (Item.Msg = '') then
+    Exit;
   Item.Severity := ASeverity;
   Item.AutoCloseMs := AAutoCloseMs;
 
