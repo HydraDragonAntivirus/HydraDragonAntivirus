@@ -32,6 +32,18 @@ pub fn is_trust_comodo_cloud_enabled() -> bool {
     TRUST_COMODO_CLOUD.load(Ordering::Relaxed)
 }
 
+static MONITOR_ALL_APIS: AtomicBool = AtomicBool::new(false);
+
+pub fn init_monitor_all_apis() {
+    let val = ConfigReader::read_param_from_registry("MONITOR_ALL_APIS", r"SOFTWARE\Owlyshield");
+    let clean = val.trim_matches('\0').trim().to_lowercase();
+    MONITOR_ALL_APIS.store(clean == "1" || clean == "true", Ordering::Relaxed);
+}
+
+pub fn is_monitor_all_apis_enabled() -> bool {
+    MONITOR_ALL_APIS.load(Ordering::Relaxed)
+}
+
 #[derive(Debug, EnumIter, PartialEq, Eq, Hash, Clone)]
 pub enum Param {
     RealTimeLearningPath,

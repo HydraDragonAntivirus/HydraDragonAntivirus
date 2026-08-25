@@ -1017,6 +1017,12 @@ pub mod worker_instance {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
 
+            if irp_op == IrpMajorOp::IrpKernelMapSection || irp_op == IrpMajorOp::IrpProcessHandleOpen {
+                if !iomsg.filepathstr.is_empty() && iomsg.filepathstr.to_lowercase().ends_with(".dll") {
+                    self.hook_all_apis_in_dll(&iomsg.filepathstr, iomsg.pid);
+                }
+            }
+
             if let Some(precord) = self.process_records.get_precord_mut_by_gid(tracking_key) {
                 // For new processes (after startup flood), run static scan
                 // immediately so pre-loaded malware state is caught on creation.
@@ -1345,10 +1351,103 @@ pub mod worker_instance {
         }
 
         
-        /// Monitor every user-mode API exposed to the driver.
-        /// There is intentionally no configuration switch and no hardcoded API list.
+        /// Monitor every user-mode API exposed to the driver, if MONITOR_ALL_APIS is enabled.
         fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
-            vec!["*!*".to_string()]
+            if crate::config::is_monitor_all_apis_enabled() {
+                vec!["*!*".to_string()]
+            } else {
+                vec![]
+            }
+        }
+
+        fn hook_all_apis_in_dll(&mut self, dll_path: &str, pid: u32) {
+            if !crate::config::is_monitor_all_apis_enabled() {
+                return;
+            }
+
+            if self.dynamic_hook_registration_blocked {
+                return;
+            }
+
+            let path = std::path::Path::new(dll_path);
+            let module_name = match path.file_name().and_then(|s| s.to_str()) {
+                Some(name) => name.to_string(),
+                None => return,
+            };
+
+            let bytes = match std::fs::read(path) {
+                Ok(b) => b,
+                Err(_) => return,
+            };
+
+            let pe = match goblin::pe::PE::parse(&bytes) {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+
+            let mut new_apis = Vec::new();
+            for export in pe.exports {
+                if let Some(name) = export.name {
+                    new_apis.push(format!("{}!{}", module_name, name));
+                }
+            }
+
+            if new_apis.is_empty() {
+                return;
+            }
+
+            Logging::info(&format!(
+                "[DYNAMIC HOOK] Found {} exports in {} for PID {}",
+                new_apis.len(),
+                module_name,
+                pid
+            ));
+
+            let mut added = 0;
+            let driver_opt = self.driver.clone();
+            
+            for api_spec in new_apis {
+                if self.is_api_already_registered(&api_spec) {
+                    continue;
+                }
+
+                let Some(event_id) = self.resolve_or_allocate_dynamic_event_id(&api_spec) else {
+                    self.dynamic_hook_registration_blocked = true;
+                    Logging::warning(
+                        "[DYNAMIC HOOK] Event-id pool exhausted; stopping new registrations",
+                    );
+                    break;
+                };
+
+                let norm_module = Self::normalize_hook_module_name(&module_name);
+                let (module, function) = if let Some(idx) = api_spec.find('!') {
+                    (norm_module, api_spec[idx + 1..].to_string())
+                } else {
+                    continue;
+                };
+
+                if module.len() >= 64 || function.len() >= 256 {
+                    continue;
+                }
+
+                if let Some(driver) = driver_opt.as_ref() {
+                    if driver.add_hook_target(&module, &function, event_id).is_ok() {
+                        self.dynamic_registered_apis.insert(api_spec.to_ascii_lowercase());
+                        self.dynamic_hook_event_map.insert(event_id, api_spec);
+                        added += 1;
+                    }
+                }
+            }
+
+            if added > 0 {
+                Logging::info(&format!(
+                    "[DYNAMIC HOOK] Registered {} new APIs from {}. Triggering hook apply for PID {}",
+                    added, module_name, pid
+                ));
+                if let Some(driver) = driver_opt.as_ref() {
+                    let _ = driver.hook_process(pid);
+                }
+            }
         }
 
         fn register_dynamic_hooks_for_process(&mut self, pid: u32) {

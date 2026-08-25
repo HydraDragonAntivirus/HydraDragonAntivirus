@@ -117,6 +117,7 @@ impl Logging {
             }
         }
         crate::config::init_trust_comodo_cloud();
+        crate::config::init_monitor_all_apis();
     }
 
 
