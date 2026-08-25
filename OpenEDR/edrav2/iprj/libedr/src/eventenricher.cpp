@@ -351,15 +351,6 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& sI
 	// 1. File rollback from pre-images
 	rollbackRansomBackups(nPid);
 
-	// 2. Process termination
-	HANDLE hProc = ::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, (DWORD)nPid);
-	if (hProc != nullptr)
-	{
-		::TerminateProcess(hProc, 1);
-		::WaitForSingleObject(hProc, 3000);
-		::CloseHandle(hProc);
-		LOGLVL(Critical, FMT("ThreatRemediation: terminated malicious process pid=" << nPid));
-	}
 
 	// 3. XOR quarantine executable
 	HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
