@@ -351,6 +351,37 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& sI
 	// 1. File rollback from pre-images
 	rollbackRansomBackups(nPid);
 
+	// 2. Kernel Kill & Quarantine
+	HANDLE hIoctl = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}",
+		GENERIC_READ | GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (hIoctl != INVALID_HANDLE_VALUE)
+	{
+		#define IOCTL_OWLY_COMPAT_MESSAGE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x921, METHOD_BUFFERED, FILE_ANY_ACCESS)
+		struct COM_MESSAGE {
+			ULONG type;
+			ULONG pid;
+			ULONGLONG gid;
+			WCHAR path[260];
+			WCHAR quarantine_path[260];
+		};
+		COM_MESSAGE msg = {0};
+		msg.type = 5; // MESSAGE_KILL_AND_QUARANTINE_GID
+		msg.gid = nPid;
+		
+		DWORD dwReturn = 0;
+		LONG outStatus = 0;
+		if (::DeviceIoControl(hIoctl, IOCTL_OWLY_COMPAT_MESSAGE, &msg, sizeof(msg), &outStatus, sizeof(outStatus), &dwReturn, nullptr))
+		{
+			LOGLVL(Critical, FMT("ThreatRemediation: Kernel Kill & Quarantine successful for gid=" << nPid << " status=" << outStatus));
+		}
+		else
+		{
+			LOGLVL(Critical, FMT("ThreatRemediation: Kernel Kill & Quarantine FAILED for gid=" << nPid << " err=" << ::GetLastError()));
+		}
+		::CloseHandle(hIoctl);
+	}
 
 	// 3. XOR quarantine executable
 	HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
@@ -366,9 +397,9 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& sI
 				reinterpret_cast<const uint8_t*>(sNarrow.data()),
 				static_cast<uint32_t>(sNarrow.size()));
 			if (qRes == 0)
-				LOGLVL(Critical, FMT("ThreatRemediation: quarantined malware <" << sNarrow << ">"));
+				LOGLVL(Critical, FMT("ThreatRemediation: user-mode quarantined malware <" << sNarrow << ">"));
 			else
-				LOGLVL(Critical, FMT("ThreatRemediation: quarantine FAILED for <" << sNarrow << "> result=" << qRes));
+				LOGLVL(Critical, FMT("ThreatRemediation: user-mode quarantine FAILED for <" << sNarrow << "> result=" << qRes));
 		}
 		::FreeLibrary(hDll);
 	}
