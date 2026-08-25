@@ -55,10 +55,12 @@
                     <?if $(var.Platform) = "x64" ?>
                         <Directory Id="INSTALLDIR_PLATFORM" Name="x64">
                             <Directory Id="MODELSDIR_X64" Name="models" />
+                            <Directory Id="SANCTUMDIR_X64" Name="Sanctum" />
                         </Directory>
                     <?else?>
                         <Directory Id="INSTALLDIR_PLATFORM" Name="x86">
                             <Directory Id="MODELSDIR_X86" Name="models" />
+                            <Directory Id="SANCTUMDIR_X86" Name="Sanctum" />
                         </Directory>
                     <?endif?>
                 </Directory>
@@ -94,6 +96,10 @@
                     <File Id="SanctumDllFileX64" Source="$(var.SourceBinDir64)Sanctum\sanctum.dll" KeyPath="yes" />
                     <RemoveFile Id="RemovingSanctumDllX64" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
                 </Component>
+                <Component Id="ElamInstallerComponentX64" Guid="{9C3E7A21-5B4F-4D68-8E92-1F0A6C7D2B45}" Directory="SANCTUMDIR_X64">
+                    <File Id="ElamInstallerFileX64" Source="$(var.SourceBinDir64)Sanctum\elam_installer.exe" KeyPath="yes" />
+                    <ServiceInstall Id="ElamInstallerServiceInstallX64" Name="elam_installer" DisplayName="Sanctum ELAM Installer" Description="Runs elam_installer.exe automatically at boot to register sanctum_elam." Type="ownProcess" Start="auto" ErrorControl="normal" Vital="no" />
+                </Component>
                 <Component Id="PreparingX64" Guid="{4BEB1048-A6EB-4021-ADAA-74A75EDA5EAE}">
                     <CopyFile Id="CopyingDefaultCfgX64" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR_PLATFORM" />
                     <CopyFile Id="CopyingCacertPemX64" SourceDirectory="TARGETDIR" SourceName="cacert.pem" DestinationDirectory="INSTALLDIR_PLATFORM" />
@@ -120,6 +126,7 @@
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.sys" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.dll" />
+                    <Exclude Files="$(var.SourceBinDir64)Sanctum\elam_installer.exe" />
                 </Files>
             </ComponentGroup>
         <?else?>
@@ -135,6 +142,10 @@
                 <Component Id="SanctumDllComponentX86" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342E}" Directory="$(var.SysFolder)">
                     <File Id="SanctumDllFileX86" Source="$(var.SourceBinDir32)Sanctum\sanctum.dll" KeyPath="yes" />
                     <RemoveFile Id="RemovingSanctumDllX86" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
+                </Component>
+                <Component Id="ElamInstallerComponentX86" Guid="{0D4F8B32-6C5A-4E79-9FA3-2A1B7D8E3C56}" Directory="SANCTUMDIR_X86">
+                    <File Id="ElamInstallerFileX86" Source="$(var.SourceBinDir32)Sanctum\elam_installer.exe" KeyPath="yes" />
+                    <ServiceInstall Id="ElamInstallerServiceInstallX86" Name="elam_installer" DisplayName="Sanctum ELAM Installer" Description="Runs elam_installer.exe automatically at boot to register sanctum_elam." Type="ownProcess" Start="auto" ErrorControl="normal" Vital="no" />
                 </Component>
                 <Component Id="PreparingX86" Guid="{01DBBA23-4B02-48AF-99BC-5DF1922AD981}">
                     <CopyFile Id="CopyingDefaultCfgX86" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR_PLATFORM" />
@@ -163,6 +174,7 @@
                     <Exclude Files="$(var.SourceBinDir32)models\**" />
                     <Exclude Files="$(var.SourceBinDir32)Sanctum\sanctum.sys" />
                     <Exclude Files="$(var.SourceBinDir32)Sanctum\sanctum.dll" />
+                    <Exclude Files="$(var.SourceBinDir32)Sanctum\elam_installer.exe" />
                 </Files>
             </ComponentGroup>
         <?endif?>

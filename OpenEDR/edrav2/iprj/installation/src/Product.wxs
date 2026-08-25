@@ -87,6 +87,10 @@
 				<File Id="SanctumDllFile" Source="$(var.SourceBinDir)Sanctum\sanctum.dll" KeyPath="yes" />
 				<RemoveFile Id="RemovingSanctumDll" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
 			</Component>
+			<Component Id="ElamInstallerComponent" Guid="{7F4B0E92-3C1D-4A6B-9E25-1C8D5A2F0B31}" Directory="SANCTUMDIR">
+				<File Id="ElamInstallerFile" Source="$(var.SourceBinDir)Sanctum\elam_installer.exe" KeyPath="yes" />
+				<ServiceInstall Id="ElamInstallerServiceInstall" Name="elam_installer" DisplayName="Sanctum ELAM Installer" Description="Runs elam_installer.exe automatically at boot to register sanctum_elam." Type="ownProcess" Start="auto" ErrorControl="normal" Vital="no" />
+			</Component>
 			<Component Id="Preparing" Guid="{01DBBA23-4B02-48AF-99BC-5DF1922AD981}">
 				<!-- Copy config files to INSTALLDIR -->
 				<CopyFile Id="CopyingDefaultCfg" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR" />
@@ -117,6 +121,7 @@
 				<Exclude Files="$(var.SourceBinDir)models\**" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.sys" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.dll" />
+				<Exclude Files="$(var.SourceBinDir)Sanctum\elam_installer.exe" />
 			</Files>
 		</ComponentGroup>
 	</Fragment>
