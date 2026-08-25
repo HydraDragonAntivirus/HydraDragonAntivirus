@@ -77,6 +77,11 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		if (!isDetectionEvent(vEvent))
 			return {};
 
+		// Provide X mark critical severity flag in any detection (that is not a HIPS alert)
+		// as requested by the user, so the GUI can parse it as a critical threat.
+		vEvent.put("severity", 3); // 3 maps to asCritical (X mark)
+		vEvent.put("alert_kind", "critical");
+
 		// Auto-generate a human-readable <title> so GUI consumers always have
 		// one; neither policy createEvent data nor the FLS verdict path sets
 		// it themselves (root cause of "no title" toasts).

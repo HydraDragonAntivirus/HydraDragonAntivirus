@@ -285,6 +285,7 @@ procedure TForm1.OnNotifierDetections(Sender: TObject;
 var
   sMsg, sTitle: string;
   i: Integer;
+  Sev: TAlertSeverity;
 begin
   if Length(Detections) = 0 then
     Exit;
@@ -294,8 +295,12 @@ begin
     sTitle := Detections[0].EventType;
 
   sMsg := '';
+  Sev := asInfo;
   for i := 0 to High(Detections) do
   begin
+    if (Detections[i].FlsVerdict = 2) or (Detections[i].Verdict = 2) then
+      Sev := asCritical;
+      
     if sMsg <> '' then
       sMsg := sMsg + LineEnding;
     if Detections[i].Title <> '' then
@@ -311,7 +316,7 @@ begin
   if (sTitle = '') and (sMsg = '') then
     Exit;
 
-  TAlertForm.ShowAlert(sTitle, sMsg, asInfo, 0);
+  TAlertForm.ShowAlert(sTitle, sMsg, Sev, 0);
 end;
 
 // Runs on the main thread (via Synchronize) whenever the Rust behavior engine
