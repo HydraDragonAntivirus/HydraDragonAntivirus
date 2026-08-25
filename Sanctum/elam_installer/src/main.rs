@@ -1,6 +1,7 @@
 use std::{
     path::{Path, PathBuf},
     ptr::null_mut,
+    sync::atomic::{AtomicIsize, Ordering},
 };
 
 use windows::{
@@ -21,15 +22,82 @@ use windows::{
                 SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
                 SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
                 SERVICE_LAUNCH_PROTECTED_NONE, SERVICE_WIN32_OWN_PROCESS,
+                LPHANDLER_FUNCTION, LPSERVICE_MAIN_FUNCTIONW, RegisterServiceCtrlHandlerW,
+                SERVICE_STATUS_HANDLE, SERVICE_START_PENDING, SERVICE_STOPPED,
+                SERVICE_STATUS_CURRENT_STATE, SERVICE_TABLE_ENTRYW, SetServiceStatus,
+                StartServiceCtrlDispatcherW,
             },
         },
     },
     core::{Error, PCWSTR, PWSTR},
 };
 
+static SVC_STATUS_HANDLE: AtomicIsize = AtomicIsize::new(0);
+
 fn main() {
     println!("[i] Starting Sanctum & ELAM installer..");
 
+    // If launched by the SCM (auto-start service at boot), go through the
+    // service protocol; otherwise SCM kills us with error 1053 even though
+    // the work is already done.
+    unsafe {
+        let name = to_wstring("elam_installer");
+        let mut table = [
+            SERVICE_TABLE_ENTRYW {
+                lpServiceName: PWSTR(name.as_ptr() as *mut u16),
+                lpServiceProc: LPSERVICE_MAIN_FUNCTIONW::Some(service_main),
+            },
+            SERVICE_TABLE_ENTRYW::default(),
+        ];
+        if StartServiceCtrlDispatcherW(table.as_mut_ptr()).is_ok() {
+            // service_main did the work and reported SERVICE_STOPPED.
+            return;
+        }
+        let code = Error::from_win32().code().0 as u32 & 0xFFFF;
+        if code != 1063 {
+            // 1063 = ERROR_FAILED_SERVICE_CONTROLLER_CONNECT (console start)
+            println!("[!] Service dispatcher failed (error {code}); running in console mode.");
+        }
+    }
+
+    run_installer();
+}
+
+unsafe extern "system" fn svc_handler(_control: u32) {}
+
+fn report_status(state: SERVICE_STATUS_CURRENT_STATE) {
+    unsafe {
+        let handle = SERVICE_STATUS_HANDLE(SVC_STATUS_HANDLE.load(Ordering::SeqCst) as *mut _);
+        if handle.0.is_null() {
+            return;
+        }
+        let status = windows::Win32::System::Services::SERVICE_STATUS {
+            dwServiceType: SERVICE_WIN32_OWN_PROCESS,
+            dwCurrentState: state,
+            dwControlsAccepted: 0,
+            dwWin32ExitCode: 0,
+            dwServiceSpecificExitCode: 0,
+            dwCheckPoint: 0,
+            dwWaitHint: 0,
+        };
+        let _ = SetServiceStatus(handle, &status);
+    }
+}
+
+unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
+    unsafe {
+        let name = to_wstring("elam_installer");
+        match RegisterServiceCtrlHandlerW(PCWSTR(name.as_ptr()), Some(svc_handler)) {
+            Ok(handle) => SVC_STATUS_HANDLE.store(handle.0 as isize, Ordering::SeqCst),
+            Err(_) => return,
+        }
+        report_status(SERVICE_START_PENDING);
+        run_installer();
+        report_status(SERVICE_STOPPED);
+    }
+}
+
+fn run_installer() {
     let h_sc_mgr = unsafe {
         match OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_ALL_ACCESS) {
             Ok(h) => h,
