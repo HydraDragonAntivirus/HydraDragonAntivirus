@@ -1,4 +1,4 @@
-//
+﻿//
 // edrav2.libcloud project
 // 
 // Author: Yury Ermakov (19.03.2019)
@@ -26,10 +26,6 @@
 constexpr char c_sZeroHash[] = "0000000000000000000000000000000000000000";
 constexpr char c_sUdpPrefix[] = "udp://";
 constexpr char c_sProtocolDelimiter[] = "://";
-
-// RansomShield/FLS dedup: quarantine + GUI detection fires ONCE per file.
-std::mutex g_mtxFlsHandled;
-std::unordered_set<std::string> g_handledMaliciousFiles;
 
 namespace cmd {
 namespace cloud {
@@ -689,83 +685,6 @@ void FlsService::enrichFileVerdict(Variant vFile)
 
 	auto verdict = getFileVerdict(sFileHash);
 	putByPath(vFile, "fls.verdict", verdict, true /* fCreatePaths */);
-
-	if (verdict == FileVerdict::Malicious)
-	{
-		std::string sFilePath = vFile["path"];
-		if (!sFilePath.empty())
-		{
-			// Handle each malicious file ONCE: repeated FLS checks on the
-			// same path (every process touching it) must not spam
-			// quarantine attempts or GUI detections.
-			{
-				std::scoped_lock _lock(g_mtxFlsHandled);
-				if (!g_handledMaliciousFiles.insert(sFilePath).second)
-				{
-					LOGLVL(Detailed, "FLS Malicious verdict already handled for <"
-						<< sFilePath << ">; skipping");
-					return;
-				}
-			}
-
-			// Terminate any running process running this malicious file path first
-			{
-				std::string sTargetLower = sFilePath;
-				std::transform(sTargetLower.begin(), sTargetLower.end(), sTargetLower.begin(), ::tolower);
-				HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-				if (hSnap != INVALID_HANDLE_VALUE)
-				{
-					PROCESSENTRY32W pe32 = { sizeof(pe32) };
-					if (::Process32FirstW(hSnap, &pe32))
-					{
-						do
-						{
-							HANDLE hProc = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE, pe32.th32ProcessID);
-							if (hProc != nullptr)
-							{
-								wchar_t szExe[MAX_PATH] = { 0 };
-								DWORD dwSize = MAX_PATH;
-								if (::QueryFullProcessImageNameW(hProc, 0, szExe, &dwSize))
-								{
-									std::wstring wsExe(szExe);
-									std::string sExeStr(wsExe.begin(), wsExe.end());
-									std::transform(sExeStr.begin(), sExeStr.end(), sExeStr.begin(), ::tolower);
-									if (sExeStr == sTargetLower)
-									{
-										LOGLVL(Critical, "FLS Malicious: Terminating running malicious process PID=" << pe32.th32ProcessID << " path=<" << sFilePath << ">");
-										::TerminateProcess(hProc, 1);
-									}
-								}
-								::CloseHandle(hProc);
-							}
-						} while (::Process32NextW(hSnap, &pe32));
-					}
-					::CloseHandle(hSnap);
-				}
-			}
-
-			LOGLVL(Normal, "FLS Verdict is Malicious! Dynamically invoking Owlyshield Quarantine for: <" << sFilePath << ">");
-			try
-			{
-				auto pNotifier = queryInterface<ICommandProcessor>(
-					queryService("guiNotification"));
-				Variant vDet = Dictionary({
-					{ "type", "MLE_FLS_MALICIOUS_VERDICT" },
-					{ "baseType", 1000010 },
-					{ "title", "Malware Detected (OpenEDR FLS): " + sFilePath },
-					{ "processes", Sequence({ Dictionary({
-						{ "imagePath", sFilePath },
-						}) }) },
-					});
-				(void)pNotifier->execute("put",
-					Dictionary({ { "data", vDet } }));
-			}
-			catch (...)
-			{
-				// Notification is best-effort; quarantine already succeeded.
-			}
- 		}
- 	}
 
 	auto optItem = m_pFileVerdictProvider->getCacheItem(sFileHash);
 	if (optItem.has_value())
