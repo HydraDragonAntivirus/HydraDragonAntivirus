@@ -49,7 +49,7 @@ object AlertForm: TAlertForm
     Height = 20
     Top = 14
     Width = 260
-    Caption = 'Title'
+    Caption = ''
     Font.Color = clWhite
     Font.Height = -15
     Font.Style = [fsBold]
@@ -62,7 +62,7 @@ object AlertForm: TAlertForm
     Top = 38
     Width = 270
     AutoSize = False
-    Caption = 'Message text goes here.'
+    Caption = ''
     Font.Color = 12500670
     Font.Height = -12
     ParentColor = False

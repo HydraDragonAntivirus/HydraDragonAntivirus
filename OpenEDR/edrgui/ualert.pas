@@ -43,11 +43,12 @@ type
     procedure FormMouseEnter(Sender: TObject);
     procedure FormMouseLeave(Sender: TObject);
   private
-    class var FInstance: TAlertForm;
-    class var FHistory: array of TAlertItem;
-    class var FCurrentIndex: Integer;
-    BtnPrev: TButton;
-    BtnNext: TButton;
+  class var FInstance: TAlertForm;
+  class var FHistory: array of TAlertItem;
+  class var FCurrentIndex: Integer;
+  BtnPrev: TButton;
+  BtnNext: TButton;
+  LblCount: TLabel;
     FSeverity: TAlertSeverity;
     FAutoCloseMs: Integer;
     procedure ApplySeverityStyle;
@@ -87,13 +88,15 @@ begin
   Item.Severity := ASeverity;
   Item.AutoCloseMs := AAutoCloseMs;
 
+  // Create/reuse the form FIRST: FormCreate must not run after history
+  // was already populated (it used to reset it and blank out the toast).
+  if FInstance = nil then
+    FInstance := TAlertForm.Create(Application);
+
   NewIndex := Length(FHistory);
   SetLength(FHistory, NewIndex + 1);
   FHistory[NewIndex] := Item;
   FCurrentIndex := NewIndex;
-
-  if FInstance = nil then
-    FInstance := TAlertForm.Create(Application);
 
   FInstance.ShowCurrentAlert;
   FInstance.PositionAtCorner;
@@ -136,8 +139,22 @@ begin
   BtnNext.Anchors := [akLeft, akBottom];
   BtnNext.OnClick := @BtnNextClick;
 
-  SetLength(FHistory, 0);
-  FCurrentIndex := -1;
+  LblCount := TLabel.Create(Self);
+  LblCount.Parent := Self;
+  LblCount.Caption := '';
+  LblCount.Left := BtnNext.Left + BtnNext.Width + 8;
+  LblCount.Height := 24;
+  LblCount.Top := ClientHeight - LblCount.Height - 8;
+  LblCount.Anchors := [akLeft, akBottom];
+  LblCount.Layout := tlCenter;
+  LblCount.Font.Color := $00B0A090;
+  LblCount.Font.Height := -11;
+  LblCount.ParentColor := False;
+  LblCount.ParentFont := False;
+
+  // NOTE: do NOT reset FHistory/FCurrentIndex here; class vars are already
+  // initialized in the initialization section and ShowAlert may have queued
+  // an item before this form was first created.
 end;
 
 procedure TAlertForm.FormDestroy(Sender: TObject);
@@ -218,6 +235,15 @@ begin
   BtnNext.Enabled :=
     (FCurrentIndex >= 0) and
     (FCurrentIndex < Length(FHistory) - 1);
+
+  if LblCount <> nil then
+  begin
+    if FCurrentIndex < 0 then
+      LblCount.Caption := '0/' + IntToStr(Length(FHistory))
+    else
+      LblCount.Caption := IntToStr(FCurrentIndex + 1) + '/' +
+        IntToStr(Length(FHistory));
+  end;
 end;
 
 procedure TAlertForm.BtnPrevClick(Sender: TObject);
