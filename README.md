@@ -1,5 +1,6 @@
 # Hydra Dragon Antivirus
 ## WARNING: Highly outdated documenation here but for reference I keep it.
+
 <p align="center">
   <img
     width="1024"
