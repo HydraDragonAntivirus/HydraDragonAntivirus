@@ -52,7 +52,9 @@
 				<Directory Id="INSTALLDIR" Name="OpenEDR">
 					<!--<Directory Id="QSC_DIR" Name="qsc"></Directory>-->
 					<Directory Id="MODELSDIR" Name="models" />
-					<Directory Id="SANCTUMDIR" Name="Sanctum" />
+					<Directory Id="SANCTUMDIR" Name="Sanctum">
+						<Directory Id="SANCTUMAPPDATA" Name="AppData" />
+					</Directory>
 				</Directory>
 			</Directory>
 		</StandardDirectory>
@@ -79,9 +81,9 @@
 				<File Id="JS_Model_Mpk" Source="$(var.SourceBinDir)models\js_model.mpk" KeyPath="yes" />
 				<File Id="PE_Model_Mpk" Source="$(var.SourceBinDir)models\pe_model.mpk" />
 			</Component>
-			<Component Id="SanctumSysComponents" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571A}" Directory="DRIVERSDIR">
+			<Component Id="SanctumSysComponents" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571A}" Directory="SANCTUMAPPDATA">
 				<File Id="SanctumSysFile" Source="..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys" KeyPath="yes" />
-				<RemoveFile Id="RemovingSanctumDriver" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
+				<RemoveFile Id="RemovingSanctumDriver" Directory="SANCTUMAPPDATA" Name="sanctum.sys" On="uninstall" />
 			</Component>
 			<Component Id="SanctumDllComponent" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342C}" Directory="$(var.SysFolder)">
 				<File Id="SanctumDllFile" Source="..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" KeyPath="yes" />

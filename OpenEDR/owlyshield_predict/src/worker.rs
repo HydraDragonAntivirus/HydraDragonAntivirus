@@ -1475,7 +1475,7 @@ pub mod worker_instance {
                 monitored_apis
             ));
             if monitored_apis.is_empty() {
-                Logging::warning(&format!(
+                Logging::debug(&format!(
                     "[DYNAMIC HOOK] PID {} skipped: no monitored APIs resolved from loaded rules",
                     pid
                 ));

@@ -1152,6 +1152,8 @@ std::string FileDataProvider::getFileHash(Variant vParams)
 Variant FileDataProvider::enrichFileHash(Variant vFile)
 {
 	TRACE_BEGIN
+	if (vFile.isNull() || !vFile.isDictionary())
+		return vFile;
 	vFile.put("hash", getFileHash(vFile));
 	return vFile;
 	TRACE_END("Fail to enrich file hash")
