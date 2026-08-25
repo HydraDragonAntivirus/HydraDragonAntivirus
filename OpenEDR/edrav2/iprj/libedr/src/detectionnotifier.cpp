@@ -19,6 +19,42 @@
 
 namespace cmd {
 
+namespace {
+
+	std::string NtPathToDosPathString(const std::string& sNt)
+	{
+		std::wstring wsNt;
+		wsNt.assign(sNt.begin(), sNt.end());
+		wchar_t sDrives[27 * 4] = {};
+		if (::GetLogicalDriveStringsW(DWORD(std::size(sDrives)), sDrives) == 0)
+			return sNt;
+
+		wchar_t* sDrv = sDrives;
+		while (sDrv[0])
+		{
+			sDrv[2] = 0;
+			wchar_t szTarget[MAX_PATH] = {};
+			if (::QueryDosDeviceW(sDrv, szTarget, MAX_PATH) > 0)
+			{
+				std::wstring wsDevice(szTarget);
+				if (wsNt.compare(0, wsDevice.size(), wsDevice) == 0 &&
+					(wsNt.size() == wsDevice.size() || wsNt[wsDevice.size()] == L'\\'))
+				{
+					std::wstring sDrive(sDrv);
+					sDrive.resize(2); // "C:"
+					std::wstring wsRes = sDrive + wsNt.substr(wsDevice.size());
+					std::string sRes;
+					sRes.assign(wsRes.begin(), wsRes.end());
+					return sRes;
+				}
+			}
+			sDrv += 4;
+		}
+		return sNt;
+	}
+
+} // namespace
+
 //
 //
 //
@@ -123,6 +159,29 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 
 			if (!sTitle.empty())
 				vEvent.put("title", sTitle);
+				
+			// Use owlyshield_ransom.dll to quarantine the malicious file
+			if (!sPath.empty())
+			{
+				HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+				if (hDll != nullptr)
+				{
+					typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+					auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+					if (fnQ != nullptr)
+					{
+						std::string sDos = NtPathToDosPathString(sPath);
+						int32_t qRes = fnQ(
+							reinterpret_cast<const uint8_t*>(sDos.data()),
+							static_cast<uint32_t>(sDos.size()));
+						if (qRes == 0)
+							LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
+						else
+							LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
+					}
+					::FreeLibrary(hDll);
+				}
+			}
 		}
 
 		{
