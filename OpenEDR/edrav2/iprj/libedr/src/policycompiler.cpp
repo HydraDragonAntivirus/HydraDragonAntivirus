@@ -13,6 +13,7 @@
 #include "policycompiler.h"
 #include "policy_v1.h"
 #include "policy_v2.h"
+#include <set>
 
 // Set component for logging
 #undef CMD_COMPONENT
@@ -256,6 +257,36 @@ Variant PolicyCompiler::compileEventRules(Context& ctx) const
 	{
 		for (const auto& pItem : pChain->getRules())
 			chainedEventRules[sEventType].insert(pItem);
+	}
+
+	// Expand "*" wildcard to all known event types dynamically
+	std::set<std::string> allEventTypes;
+	
+	// Collect all events used in any rule
+	for (const auto& [eventType, prioritizedRules] : patternEventRules)
+		if (eventType != "*") allEventTypes.insert(eventType);
+	for (const auto& [eventType, prioritizedRules] : chainedEventRules)
+		if (eventType != "*") allEventTypes.insert(eventType);
+
+	// Duplicate wildcard rules across all gathered events
+	if (patternEventRules.count("*")) {
+		const auto& wildcardRules = patternEventRules["*"];
+		for (const auto& eventType : allEventTypes) {
+			for (const auto& pItem : wildcardRules) {
+				patternEventRules[eventType].insert(pItem);
+			}
+		}
+		patternEventRules.erase("*");
+	}
+
+	if (chainedEventRules.count("*")) {
+		const auto& wildcardRules = chainedEventRules["*"];
+		for (const auto& eventType : allEventTypes) {
+			for (const auto& pItem : wildcardRules) {
+				chainedEventRules[eventType].insert(pItem);
+			}
+		}
+		chainedEventRules.erase("*");
 	}
 
 	std::multimap<std::string, Variant> eventMap;
