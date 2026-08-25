@@ -38,8 +38,6 @@
         <Feature Id="ProductFeature" Level="1" AllowAbsent="no" AllowAdvertise="no" TypicalDefault="install" InstallDefault="local">
             <?if $(var.Platform) = "x64" ?>
                 <ComponentGroupRef Id="ProductComponentsX64" />
-            <?else?>
-                <ComponentGroupRef Id="ProductComponentsX86" />
             <?endif?>
         </Feature>
     
@@ -56,11 +54,6 @@
                         <Directory Id="INSTALLDIR_PLATFORM" Name="x64">
                             <Directory Id="MODELSDIR_X64" Name="models" />
                             <Directory Id="SANCTUMDIR_X64" Name="Sanctum" />
-                        </Directory>
-                    <?else?>
-                        <Directory Id="INSTALLDIR_PLATFORM" Name="x86">
-                            <Directory Id="MODELSDIR_X86" Name="models" />
-                            <Directory Id="SANCTUMDIR_X86" Name="Sanctum" />
                         </Directory>
                     <?endif?>
                 </Directory>
@@ -125,52 +118,6 @@
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.sys" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.dll" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\elam_installer.exe" />
-                </Files>
-            </ComponentGroup>
-        <?else?>
-            <ComponentGroup Id="ProductComponentsX86" Directory="INSTALLDIR_PLATFORM">
-                <Component Id="ModelBinariesX86" Guid="{074D90EE-0D34-406C-B434-6FB8D2DF3EAD}" Directory="MODELSDIR_X86">
-                    <File Id="JS_Model_Mpk_X86" Source="$(var.SourceBinDir32)models\js_model.mpk" KeyPath="yes" />
-                    <File Id="PE_Model_Mpk_X86" Source="$(var.SourceBinDir32)models\pe_model.mpk" />
-                </Component>
-                <Component Id="SanctumSysComponentsX86" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571C}" Directory="DRIVERSDIR">
-                    <File Id="SanctumSysFileX86" Source="..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys" KeyPath="yes" />
-                    <RemoveFile Id="RemovingSanctumDriverX86" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
-                </Component>
-                <Component Id="SanctumDllComponentX86" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342E}" Directory="$(var.SysFolder)">
-                    <File Id="SanctumDllFileX86" Source="..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" KeyPath="yes" />
-                    <RemoveFile Id="RemovingSanctumDllX86" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
-                </Component>
-                <Component Id="ElamInstallerComponentX86" Guid="{0D4F8B32-6C5A-4E79-9FA3-2A1B7D8E3C56}" Directory="SANCTUMDIR_X86">
-                    <File Id="ElamInstallerFileX86" Source="..\..\..\..\..\hydradragon\Sanctum\elam_installer.exe" KeyPath="yes" />
-                    <ServiceInstall Id="ElamInstallerServiceInstallX86" Name="elam_installer" DisplayName="Sanctum ELAM Installer" Description="Runs elam_installer.exe automatically at boot to register sanctum_elam." Type="ownProcess" Start="auto" ErrorControl="normal" Vital="no" />
-                </Component>
-                <Component Id="PreparingX86" Guid="{01DBBA23-4B02-48AF-99BC-5DF1922AD981}">
-                    <CopyFile Id="CopyingDefaultCfgX86" SourceDirectory="TARGETDIR" SourceName="*.cfg" DestinationDirectory="INSTALLDIR_PLATFORM" />
-                    <CopyFile Id="CopyingCacertPemX86" SourceDirectory="TARGETDIR" SourceName="cacert.pem" DestinationDirectory="INSTALLDIR_PLATFORM" />
-                    <fire:FirewallException Id="SvcFirewallRulesX86" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
-                    <ServiceControl Id="StopEdrSvcX86" Name="edrsvc" Stop="uninstall" />
-                    <ServiceControl Id="StopSanctumRunnerX86" Name="sanctum_ppl_runner" Stop="uninstall" Remove="uninstall" />
-                    <RemoveFile Id="RemovingDriverX86" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
-                    <RemoveFile Id="RemovingMbrFilterDriverX86" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
-                    <RegistryKey Root="HKLM" Key="Software\Owlyshield">
-                        <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]rules" Type="string" KeyPath="yes" />
-                        <RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" />
-                        <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
-                        <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
-                        <RegistryValue Name="TRUST_COMODO_CLOUD" Value="1" Type="string" />
-                    </RegistryKey>
-                    <!-- Firewall SDK rule path -->
-                    <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
-                        <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
-                        <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
-                    </RegistryKey>
-                </Component>
-                <Files Include="$(var.SourceBinDir32)**">
-                    <Exclude Files="$(var.SourceBinDir32)models\**" />
-                    <Exclude Files="$(var.SourceBinDir32)Sanctum\sanctum.sys" />
-                    <Exclude Files="$(var.SourceBinDir32)Sanctum\sanctum.dll" />
-                    <Exclude Files="$(var.SourceBinDir32)Sanctum\elam_installer.exe" />
                 </Files>
             </ComponentGroup>
         <?endif?>

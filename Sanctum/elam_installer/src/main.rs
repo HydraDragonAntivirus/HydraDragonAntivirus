@@ -75,7 +75,7 @@ fn log_step(msg: &str) {
     if let Ok(mut f) = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(r"C:\ProgramData\edrsvc\elam_installer.log")
+        .open(r"C:\ProgramData\edrsvc\log\elam_installer.log")
     {
         let _ = writeln!(f, "[{secs}] {msg}");
     }

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
-    <Platforms>x86;x64</Platforms>
+    <Platforms>x64</Platforms>
     <ProjectGuid>{b7302b2d-5ee2-4660-a1c8-a8d560d9c581}</ProjectGuid>
     <OutputName>upgrade</OutputName>
     <OutputType>Package</OutputType>
@@ -18,7 +18,6 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <PlatformName Condition=" '$(Platform)' == 'x86' ">Win32</PlatformName>
     <PlatformName Condition=" '$(Platform)' == 'x64' ">x64</PlatformName>
   </PropertyGroup>
 
@@ -27,7 +26,7 @@
   <PropertyGroup>
     <OutputPath>$(CmdRootDir)\out\upgrade\$(CmdOutDirName)\</OutputPath>
     <IntermediateOutputPath>$(CmdRootDir)\out\temp\$(CmdOutDirName)\$(OutputName)\</IntermediateOutputPath>
-    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir32=$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\;SourceBinDir64=$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\</DefineConstants>
+    <DefineConstants>BIN_PATH=$(CmdRootDir)\out\bin\;OUT_DIR_NAME=$(CmdOutDirName)\;SourceBinDir64=$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\</DefineConstants>
     <IncludeSearchPaths>..\..\src;..\..\..\installation\src</IncludeSearchPaths>
   </PropertyGroup>
 
@@ -79,41 +78,26 @@
   </ItemGroup>
 
   <Target Name="ValidateSourceBinaries" BeforeTargets="PrepareUpgradePayload">
-    <Warning Condition="!Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32')" Text="Source binaries not found in '$(CmdRootDir)\out\bin\win-$(Configuration)-Win32'. The Win32 part of the installer will be empty." />
     <Warning Condition="!Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Text="Source binaries not found in '$(CmdRootDir)\out\bin\win-$(Configuration)-x64'. The x64 part of the installer will be empty." />
   </Target>
 
   <Target Name="PrepareUpgradePayload" BeforeTargets="CoreCompile">
     <Exec Command='if exist "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)" rd "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)" /S /Q' />
-    <Exec Command='md "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32"' />
     <Exec Command='md "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64"' />
-    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32')" Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-x64" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
-    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\firewall-rules\"' />
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\firewall-rules\"' />
-    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\..\owlyshield_predict\models" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\models\"' />
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\..\owlyshield_predict\models" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\models\"' />
-    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
-    <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-Win32\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
 
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\um_engine.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\um_engine.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\elam_installer.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\elam_installer.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum_ppl_runner.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum_ppl_runner.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\Sanctum\AppData\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\server.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\server.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\Sanctum\System32\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\driver\target\release\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\driver\target\release\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\driver\target\release\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\driver\target\release\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\Win32\Sanctum\AppData\"' />
 
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\um_engine.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\um_engine.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\elam_installer.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\elam_installer.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum_ppl_runner.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum_ppl_runner.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\AppData\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\server.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\server.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\target\release\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\System32\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\driver\target\release\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\driver\target\release\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\Sanctum\driver\target\release\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\Sanctum\driver\target\release\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\AppData\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\um_engine.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\um_engine.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\elam_installer.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\elam_installer.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\AppData\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\server.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\server.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\System32\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\AppData\"' />
   </Target>
 </Project>
