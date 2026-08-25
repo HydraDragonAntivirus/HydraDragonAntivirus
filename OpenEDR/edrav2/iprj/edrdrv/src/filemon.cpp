@@ -755,6 +755,9 @@ NTSTATUS sendFileEvent(SysmonEvent eEvent, ULONG_PTR nProcessId, StreamHandleCon
 	if (pStreamHandleContext == nullptr)
 		return STATUS_INVALID_PARAMETER_1;
 
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
+		return STATUS_INVALID_DEVICE_STATE;
+
 	NonPagedLbvsSerializer<edrdrv::EventField> serializer;
 
 	// +FIXME : Why STATUS_NO_MEMORY?
@@ -817,6 +820,9 @@ void sendFileEvent(SysmonEvent eEvent, StreamHandleContext* pStreamHandleContext
 	if (!isEventEnabled(eEvent))
 		return;
 	if (pStreamHandleContext == nullptr || pStreamHandleContext->fSkipItem)
+		return;
+
+	if (KeGetCurrentIrql() > PASSIVE_LEVEL)
 		return;
 
 	auto nProcessId = (ULONG_PTR)pStreamHandleContext->nOpeningProcessId;
