@@ -41,7 +41,10 @@ fn main() {
     };
 
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|arg| arg == "--uninstall" || arg == "/uninstall" || arg == "uninstall") {
+    if args
+        .iter()
+        .any(|arg| arg == "--uninstall" || arg == "/uninstall" || arg == "uninstall")
+    {
         uninstall_all_sanctum_services(h_sc_mgr);
         return;
     }
