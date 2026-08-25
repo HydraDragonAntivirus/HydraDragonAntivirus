@@ -65,6 +65,22 @@ fn main() {
 
 unsafe extern "system" fn svc_handler(_control: u32) {}
 
+fn log_step(msg: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(r"C:\ProgramData\edrsvc\elam_installer.log")
+    {
+        let _ = writeln!(f, "[{secs}] {msg}");
+    }
+}
+
 fn report_status(state: SERVICE_STATUS_CURRENT_STATE) {
     unsafe {
         let handle = SERVICE_STATUS_HANDLE(SVC_STATUS_HANDLE.load(Ordering::SeqCst) as *mut _);
@@ -92,8 +108,17 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
             Err(_) => return,
         }
         report_status(SERVICE_START_PENDING);
-        run_installer();
-        report_status(SERVICE_STOPPED);
+
+        // Run the installation on a worker thread so the SCM dispatch stays
+        // responsive even if a step (e.g. ELAM certificate validation) takes
+        // long - the service must never sit in START_PENDING forever.
+        let worker = std::thread::spawn(|| {
+            log_step("service start: install beginning");
+            run_installer();
+            log_step("service start: install finished");
+            report_status(SERVICE_STOPPED);
+        });
+        let _ = worker.join();
     }
 }
 
@@ -149,11 +174,13 @@ fn run_installer() {
     match h_kernel_svc {
         Ok(h) => {
             println!("[+] Sanctum kernel driver service created successfully.");
+            log_step("kernel driver service created");
             let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h) };
         }
         Err(e) => {
             if e.code().0 as u32 == 0x80070431 || e.code().0 as u32 == 1073 {
                 println!("[+] Sanctum driver service already exists.");
+                log_step("kernel driver service already exists");
             } else {
                 println!("[!] Warning: Failed to create Sanctum kernel service: {e}");
             }
@@ -165,6 +192,7 @@ fn run_installer() {
         "[i] Installing ELAM certificate from: {}",
         kernel_driver_path.display()
     );
+    log_step("opening driver file for ELAM certificate");
 
     let result = unsafe {
         CreateFileW(
@@ -180,14 +208,18 @@ fn run_installer() {
 
     match result {
         Ok(handle) => {
+            log_step("calling InstallELAMCertificateInfo");
             if let Err(e) = unsafe { InstallELAMCertificateInfo(handle) } {
                 println!("[!] Warning: Failed to install ELAM certificate info: {e}");
+                log_step("InstallELAMCertificateInfo FAILED");
             } else {
                 println!("[+] ELAM certificate installed successfully!");
+                log_step("InstallELAMCertificateInfo succeeded");
             }
         }
         Err(e) => {
             println!("[!] Warning: Could not open driver file for ELAM certificate: {e}");
+            log_step("could not open driver file for ELAM certificate");
         }
     }
 
