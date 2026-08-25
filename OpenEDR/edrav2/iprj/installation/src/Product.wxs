@@ -80,15 +80,15 @@
 				<File Id="PE_Model_Mpk" Source="$(var.SourceBinDir)models\pe_model.mpk" />
 			</Component>
 			<Component Id="SanctumSysComponents" Guid="{4C9A23E1-71A2-4D93-BF29-48A5E12E571A}" Directory="DRIVERSDIR">
-				<File Id="SanctumSysFile" Source="$(var.SourceBinDir)Sanctum\sanctum.sys" KeyPath="yes" />
+				<File Id="SanctumSysFile" Source="..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys" KeyPath="yes" />
 				<RemoveFile Id="RemovingSanctumDriver" Directory="DRIVERSDIR" Name="sanctum.sys" On="uninstall" />
 			</Component>
 			<Component Id="SanctumDllComponent" Guid="{3E298F11-4A56-4B82-9CD3-79A120FB342C}" Directory="$(var.SysFolder)">
-				<File Id="SanctumDllFile" Source="$(var.SourceBinDir)Sanctum\sanctum.dll" KeyPath="yes" />
+				<File Id="SanctumDllFile" Source="..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" KeyPath="yes" />
 				<RemoveFile Id="RemovingSanctumDll" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
 			</Component>
 			<Component Id="ElamInstallerComponent" Guid="{7F4B0E92-3C1D-4A6B-9E25-1C8D5A2F0B31}" Directory="SANCTUMDIR">
-				<File Id="ElamInstallerFile" Source="$(var.SourceBinDir)Sanctum\elam_installer.exe" KeyPath="yes" />
+				<File Id="ElamInstallerFile" Source="..\..\..\..\..\hydradragon\Sanctum\elam_installer.exe" KeyPath="yes" />
 				<ServiceInstall Id="ElamInstallerServiceInstall" Name="elam_installer" DisplayName="Sanctum ELAM Installer" Description="Runs elam_installer.exe automatically at boot to register sanctum_elam." Type="ownProcess" Start="auto" ErrorControl="normal" Vital="no" />
 			</Component>
 			<Component Id="Preparing" Guid="{01DBBA23-4B02-48AF-99BC-5DF1922AD981}">
