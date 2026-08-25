@@ -106,7 +106,6 @@
                     <fire:FirewallException Id="SvcFirewallRulesX64" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
                     <ServiceControl Id="StopEdrSvcX64" Name="edrsvc" Stop="uninstall" />
                     <ServiceControl Id="StopSanctumRunnerX64" Name="sanctum_ppl_runner" Stop="uninstall" Remove="uninstall" />
-                    <ServiceControl Id="StopElamInstallerX64" Name="elam_installer" Stop="uninstall" Remove="uninstall" />
                     <ServiceControl Id="StopElamDriverX64" Name="sanctum_elam" Stop="uninstall" Remove="uninstall" />
                     <RemoveFile Id="RemovingDriverX64" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
                     <RemoveFile Id="RemovingMbrFilterDriverX64" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
@@ -153,7 +152,6 @@
                     <fire:FirewallException Id="SvcFirewallRulesX86" Program="[INSTALLDIR_PLATFORM]edrsvc.exe" Name="$(var.strproduct)" Scope="any" />
                     <ServiceControl Id="StopEdrSvcX86" Name="edrsvc" Stop="uninstall" />
                     <ServiceControl Id="StopSanctumRunnerX86" Name="sanctum_ppl_runner" Stop="uninstall" Remove="uninstall" />
-                    <ServiceControl Id="StopElamInstallerX86" Name="elam_installer" Stop="uninstall" Remove="uninstall" />
                     <ServiceControl Id="StopElamDriverX86" Name="sanctum_elam" Stop="uninstall" Remove="uninstall" />
                     <RemoveFile Id="RemovingDriverX86" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
                     <RemoveFile Id="RemovingMbrFilterDriverX86" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />

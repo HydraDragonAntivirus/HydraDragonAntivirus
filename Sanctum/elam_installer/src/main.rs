@@ -283,6 +283,28 @@ fn uninstall_all_sanctum_services(h_sc_mgr: windows::Win32::System::Services::SC
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
         println!("[+] sanctum_elam driver service stopped and uninstalled.");
     }
+
+    // 4. Stop and delete the elam_installer service (itself)
+    let installer_svc_name = to_wstring("elam_installer");
+    if let Ok(h_svc) = unsafe {
+        windows::Win32::System::Services::OpenServiceW(
+            h_sc_mgr,
+            PCWSTR(installer_svc_name.as_ptr()),
+            SERVICE_ALL_ACCESS,
+        )
+    } {
+        let mut status = windows::Win32::System::Services::SERVICE_STATUS::default();
+        let _ = unsafe {
+            windows::Win32::System::Services::ControlService(
+                h_svc,
+                windows::Win32::System::Services::SERVICE_CONTROL_STOP,
+                &mut status,
+            )
+        };
+        let _ = unsafe { windows::Win32::System::Services::DeleteService(h_svc) };
+        let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_svc) };
+        println!("[+] elam_installer service stopped and uninstalled.");
+    }
 }
 
 fn svc_name() -> Vec<u16> {
