@@ -47,7 +47,11 @@ pub fn log_jsonl(entry: &OwlyshieldLogEntry) {
         return;
     };
 
-    let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
         return;
     };
 

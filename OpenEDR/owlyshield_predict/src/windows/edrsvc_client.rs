@@ -278,23 +278,25 @@ impl Driver {
             &module_wide,
             &function_wide,
         );
-        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input).map_err(|e| {
-            windows::core::Error::new(
-                windows::core::HRESULT(0x80070000u32 as i32),
-                windows::core::HSTRING::from(e),
-            )
-        })
+        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input)
+            .map_err(|e| {
+                windows::core::Error::new(
+                    windows::core::HRESULT(0x80070000u32 as i32),
+                    windows::core::HSTRING::from(e),
+                )
+            })
     }
 
     /// Apply all registered hook targets to the process identified by `pid`.
     pub fn hook_process(&self, pid: u32) -> Result<(), windows::core::Error> {
         let input = build_com_message(MESSAGE_HOOK_PROCESS, pid, 0, &[], &[]);
-        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input).map_err(|e| {
-            windows::core::Error::new(
-                windows::core::HRESULT(0x80070000u32 as i32),
-                windows::core::HSTRING::from(e),
-            )
-        })
+        self.ioctl_no_output(IOCTL_OWLY_COMPAT_MESSAGE, &input)
+            .map_err(|e| {
+                windows::core::Error::new(
+                    windows::core::HRESULT(0x80070000u32 as i32),
+                    windows::core::HSTRING::from(e),
+                )
+            })
     }
 
     // ── private helpers ──────────────────────────────────────────────────────

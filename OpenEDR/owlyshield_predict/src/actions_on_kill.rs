@@ -623,7 +623,10 @@ impl ActionOnKill for WriteOpenEdrEventLog {
         }
 
         // Determine output directory: place in same output_events folder OpenEDR uses.
-        let log_path_val = crate::config::ConfigReader::read_param_from_registry("LOG_PATH", r"SOFTWARE\Owlyshield");
+        let log_path_val = crate::config::ConfigReader::read_param_from_registry(
+            "LOG_PATH",
+            r"SOFTWARE\Owlyshield",
+        );
         let log_dir = if !log_path_val.trim().is_empty() {
             PathBuf::from(log_path_val)
         } else if let Some(program_data) = std::env::var_os("ProgramData") {
@@ -634,7 +637,11 @@ impl ActionOnKill for WriteOpenEdrEventLog {
 
         // Go up one level from 'owlyshield' subdirectory to get the main 'log' folder if needed
         let mut base_log_dir = log_dir.clone();
-        if base_log_dir.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("owlyshield")) {
+        if base_log_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map_or(false, |s| s.eq_ignore_ascii_case("owlyshield"))
+        {
             base_log_dir.pop();
         }
 
@@ -646,7 +653,8 @@ impl ActionOnKill for WriteOpenEdrEventLog {
         let log_file_path = output_events_dir.join(format!("owlyshield_{}.log", today));
 
         // Create the JSON event matching OpenEDR format
-        let event_time_iso = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let event_time_iso =
+            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
         let event = serde_json::json!({
             "customerId": crate::config::ConfigReader::read_param_from_registry("CUSTOMER_ID", r"SOFTWARE\Owlyshield"),
@@ -780,7 +788,12 @@ pub fn notify_firewall_threat_alert(threat_name: &str, file_path: &str) {
                 if !handle.is_invalid() {
                     let mut written: u32 = 0;
                     unsafe {
-                        let _ = WriteFile(handle, Some(message_bytes), Some(&mut written as *mut u32), None);
+                        let _ = WriteFile(
+                            handle,
+                            Some(message_bytes),
+                            Some(&mut written as *mut u32),
+                            None,
+                        );
                         let _ = FlushFileBuffers(handle);
                         let _ = CloseHandle(handle);
                     }
@@ -868,9 +881,9 @@ impl ActionOnKill for KillAction {
             }
 
             Logging::alert(&format!(
-                    "[ActionOnKill] Malware cleanup for {} was queued for the next restart.",
-                    proc.appname
-                ));
+                "[ActionOnKill] Malware cleanup for {} was queued for the next restart.",
+                proc.appname
+            ));
             return Ok(());
         }
 
@@ -1033,12 +1046,7 @@ mod tests {
             self.push("deny_path_access");
         }
 
-        fn kill_and_quarantine(
-            &self,
-            _gid: u64,
-            _path: &Path,
-            _metadata: &QuarantineMetadata,
-        ) {
+        fn kill_and_quarantine(&self, _gid: u64, _path: &Path, _metadata: &QuarantineMetadata) {
             self.push("kill_and_quarantine");
         }
 
@@ -1222,4 +1230,3 @@ mod tests {
         assert_eq!(threat_info.display_threat_type_label(), "Suspended");
     }
 }
-

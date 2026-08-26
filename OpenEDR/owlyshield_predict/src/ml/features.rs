@@ -98,7 +98,10 @@ impl PeFeatureVector {
             ("minor_linker_version", self.minor_linker_version),
             ("size_of_code", self.size_of_code),
             ("size_of_initialized_data", self.size_of_initialized_data),
-            ("size_of_uninitialized_data", self.size_of_uninitialized_data),
+            (
+                "size_of_uninitialized_data",
+                self.size_of_uninitialized_data,
+            ),
             ("address_of_entry_point", self.address_of_entry_point),
             ("image_base", self.image_base),
             ("subsystem", self.subsystem),

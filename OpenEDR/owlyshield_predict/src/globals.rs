@@ -1,7 +1,7 @@
 use crate::config::{Config, Param};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub static REPORTS_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();

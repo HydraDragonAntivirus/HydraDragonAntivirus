@@ -2,7 +2,7 @@ pub mod process_record_handling {
     use std::path::PathBuf;
 
     use windows::Win32::Foundation::CloseHandle;
-    
+
     use windows::Win32::System::Threading::{
         OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
         QueryFullProcessImageNameW,
@@ -21,7 +21,6 @@ pub mod process_record_handling {
     pub struct ExepathLive;
 
     impl Exepath for ExepathLive {
-        
         fn exepath(&self, iomsg: &IOMessage) -> Option<PathBuf> {
             let pid = iomsg.pid;
             unsafe {
@@ -109,7 +108,6 @@ pub mod process_record_handling {
             }
         }
     }
-
 }
 
 mod process_records {
@@ -236,8 +234,8 @@ pub mod worker_instance {
     use crate::ExepathLive;
     use crate::IOMessage;
 
-    use crate::logging::Logging;
     use crate::config::Config;
+    use crate::logging::Logging;
     use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::process::ProcessRecord;
     use crate::process::ProcessState;
@@ -301,7 +299,6 @@ pub mod worker_instance {
     }
 
     impl<'a> Worker<'a> {
-        
         pub fn generate_system_report(&mut self) {
             let config = self.config;
             let _ = &config[crate::config::Param::ConfigPath]; // Explicit read to ensure compiler sees it as used
@@ -402,12 +399,11 @@ pub mod worker_instance {
         }
 
         const PID_FALLBACK_GID_MASK: u64 = 0x8000_0000_0000_0000;
-        
+
         const DYNAMIC_HOOK_EVENT_ID_START: u32 = 0x6000;
-        
+
         const DYNAMIC_HOOK_MAX_FAILURES: u32 = 3;
 
-        
         fn is_internal_service_pid(pid: u32) -> bool {
             if pid == std::process::id() {
                 return true;
@@ -416,8 +412,6 @@ pub mod worker_instance {
                 .map(|r| r.contains("trusted EDR companion"))
                 .unwrap_or(false)
         }
-
-
 
         fn is_rootkit_irp(irp_op: &IrpMajorOp) -> bool {
             matches!(
@@ -432,7 +426,6 @@ pub mod worker_instance {
             )
         }
 
-        
         fn is_unattributed_rootkit_event(iomsg: &IOMessage, irp_op: &IrpMajorOp) -> bool {
             Self::is_rootkit_irp(irp_op)
                 && iomsg.gid == 0
@@ -548,19 +541,19 @@ pub mod worker_instance {
                 iomsg_postprocessors: vec![],
 
                 dynamic_hooks_registered: false,
-                
+
                 dynamic_hook_event_map: Self::default_dynamic_hook_event_map(),
-                
+
                 dynamic_registered_apis: Self::default_registered_dynamic_apis(),
-                
+
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
-                
+
                 dynamic_hook_registration_blocked: false,
-                
+
                 dynamic_hook_last_refresh: std::collections::HashMap::new(),
-                
+
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
-                
+
                 driver: None,
                 last_report_time: None,
             }
@@ -701,9 +694,7 @@ pub mod worker_instance {
             self
         }
 
-        
         pub fn driver(mut self, driver: crate::Driver) -> Worker<'a> {
-            
             crate::windows::edrsvc_client::register_shared_driver(driver.clone());
             self.driver = Some(driver);
             self
@@ -817,7 +808,6 @@ pub mod worker_instance {
             }
         }
 
-
         /// Periodic housekeeping scan: prune dead processes, discover new ones,
         /// and apply dynamic API hooks to every process (no rules required).
         /// Detection decisions stay with OpenEDR / fast static detection.
@@ -926,20 +916,20 @@ pub mod worker_instance {
                 iomsg_postprocessors: vec![],
 
                 dynamic_hooks_registered: false,
-                
+
                 dynamic_hook_event_map: Self::default_dynamic_hook_event_map(),
-                
+
                 dynamic_registered_apis: Self::default_registered_dynamic_apis(),
-                
+
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
-                
+
                 dynamic_hook_registration_blocked: false,
-                
+
                 dynamic_hook_last_refresh: std::collections::HashMap::new(),
-                
+
                 dynamic_hook_apply_failures: std::collections::HashMap::new(),
                 threat_handler: None,
-                
+
                 driver: None,
                 last_report_time: None,
             }
@@ -949,7 +939,6 @@ pub mod worker_instance {
         pub fn process_io(&mut self, iomsg: &mut IOMessage, config: &crate::config::Config) {
             self.normalize_tracking_gid(iomsg);
 
-            
             {
                 // Periodic system report: once per hour.
                 let now = std::time::Instant::now();
@@ -964,20 +953,20 @@ pub mod worker_instance {
             }
 
             let irp_kind_for_name_resolution = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
-                if matches!(
-                    irp_kind_for_name_resolution,
-                    IrpMajorOp::IrpUserModeHookEvent
-                ) {
-                    iomsg.normalize_hypervisor_event();
+            if matches!(
+                irp_kind_for_name_resolution,
+                IrpMajorOp::IrpUserModeHookEvent
+            ) {
+                iomsg.normalize_hypervisor_event();
 
-                    let raw_event_type = effective_hypervisor_raw_event_type(iomsg);
-                    let needs_name_resolution = iomsg.needs_hypervisor_name_resolution();
-                    if needs_name_resolution
-                        && let Some(mapped_api) = self.dynamic_hook_event_map.get(&raw_event_type)
-                    {
-                        iomsg.kernel_event_info.object_name = mapped_api.clone();
-                    }
+                let raw_event_type = effective_hypervisor_raw_event_type(iomsg);
+                let needs_name_resolution = iomsg.needs_hypervisor_name_resolution();
+                if needs_name_resolution
+                    && let Some(mapped_api) = self.dynamic_hook_event_map.get(&raw_event_type)
+                {
+                    iomsg.kernel_event_info.object_name = mapped_api.clone();
                 }
+            }
 
             let irp_op = IrpMajorOp::from_sysmonevent(iomsg.irp_op);
             let is_process_create = irp_op == IrpMajorOp::IrpProcessCreate;
@@ -985,7 +974,6 @@ pub mod worker_instance {
             let _ = is_process_create;
             let _ = is_process_terminate;
 
-            
             if Self::is_unattributed_rootkit_event(iomsg, &irp_op) {
                 Logging::warning(&format!(
                     "[ROOTKIT] Unattributed kernel finding: opcode={:?} desc={}",
@@ -999,7 +987,6 @@ pub mod worker_instance {
             self.register_precord(iomsg);
             let tracking_key = iomsg.gid;
 
-            
             if !is_process_terminate {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
@@ -1012,13 +999,16 @@ pub mod worker_instance {
                 iomsg.runtime_features.command_line = precord.command_line.clone();
             }
 
-            
             if is_process_create {
                 self.refresh_dynamic_hooks_for_pid_if_due(iomsg.pid);
             }
 
-            if irp_op == IrpMajorOp::IrpKernelMapSection || irp_op == IrpMajorOp::IrpProcessHandleOpen {
-                if !iomsg.filepathstr.is_empty() && iomsg.filepathstr.to_lowercase().ends_with(".dll") {
+            if irp_op == IrpMajorOp::IrpKernelMapSection
+                || irp_op == IrpMajorOp::IrpProcessHandleOpen
+            {
+                if !iomsg.filepathstr.is_empty()
+                    && iomsg.filepathstr.to_lowercase().ends_with(".dll")
+                {
                     self.hook_all_apis_in_dll(&iomsg.filepathstr, iomsg.pid);
                 }
             }
@@ -1069,7 +1059,8 @@ pub mod worker_instance {
                     }
 
                     if fast_det.is_none() && !iomsg.filepathstr.is_empty() {
-                        fast_det = crate::ml::fast_detect::fast_detect_file(&iomsg.filepathstr, iomsg);
+                        fast_det =
+                            crate::ml::fast_detect::fast_detect_file(&iomsg.filepathstr, iomsg);
                     }
 
                     if let Some(det) = fast_det {
@@ -1088,11 +1079,19 @@ pub mod worker_instance {
 
                         Logging::warning(&format!(
                             "[FastDetection]{} Process {} (PID: {}) triggered static detection '{}': {}",
-                            if protection_paused { " [PAUSED - logged only]" } else { "" },
-                            precord.appname, iomsg.pid, det.detection_name, det.reason
+                            if protection_paused {
+                                " [PAUSED - logged only]"
+                            } else {
+                                ""
+                            },
+                            precord.appname,
+                            iomsg.pid,
+                            det.detection_name,
+                            det.reason
                         ));
 
-                        if !protection_paused && let Some(ref threat_handler) = self.threat_handler {
+                        if !protection_paused && let Some(ref threat_handler) = self.threat_handler
+                        {
                             let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
                             let threat_info = crate::actions_on_kill::ThreatInfo {
                                 threat_type_label: "Fast Static Detection",
@@ -1108,15 +1107,18 @@ pub mod worker_instance {
                                 revert: false,
                                 pending_user_decision: false,
                             };
-                            let report_context = crate::actions_on_kill::ActionReportContext::default();
-                            crate::actions_on_kill::ActionsOnKill::with_handler(threat_handler.clone_box())
-                                .run_actions_with_info_and_context(
-                                    config,
-                                    precord,
-                                    &dummy_pred_mtrx,
-                                    &threat_info,
-                                    &report_context,
-                                );
+                            let report_context =
+                                crate::actions_on_kill::ActionReportContext::default();
+                            crate::actions_on_kill::ActionsOnKill::with_handler(
+                                threat_handler.clone_box(),
+                            )
+                            .run_actions_with_info_and_context(
+                                config,
+                                precord,
+                                &dummy_pred_mtrx,
+                                &threat_info,
+                                &report_context,
+                            );
                         }
                     }
 
@@ -1141,7 +1143,6 @@ pub mod worker_instance {
                 }
             }
 
-            
             if is_process_create {
                 Logging::debug(&format!(
                     "[PROCESS CREATE] Running immediate housekeeping scan for PID {} GID {}",
@@ -1294,13 +1295,11 @@ pub mod worker_instance {
             exepath.file_name()?.to_str().map(|s| s.to_string())
         }
 
-        
         fn is_api_already_registered(&self, api_spec: &str) -> bool {
             self.dynamic_registered_apis
                 .contains(&api_spec.to_ascii_lowercase())
         }
 
-        
         fn resolve_or_allocate_dynamic_event_id(&mut self, api_spec: &str) -> Option<u32> {
             if let Some((event_id, _)) = self
                 .dynamic_hook_event_map
@@ -1325,7 +1324,6 @@ pub mod worker_instance {
             Some(candidate)
         }
 
-        
         fn normalize_hook_module_name(raw: &str) -> String {
             let module = raw.trim();
             if module.is_empty() || module == "*" {
@@ -1350,7 +1348,6 @@ pub mod worker_instance {
             format!("{module}.dll")
         }
 
-        
         /// Monitor every user-mode API exposed to the driver, if MONITOR_ALL_APIS is enabled.
         fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
             if crate::config::is_monitor_all_apis_enabled() {
@@ -1405,7 +1402,7 @@ pub mod worker_instance {
 
             let mut added = 0;
             let driver_opt = self.driver.clone();
-            
+
             for api_spec in new_apis {
                 if self.is_api_already_registered(&api_spec) {
                     continue;
@@ -1432,7 +1429,8 @@ pub mod worker_instance {
 
                 if let Some(driver) = driver_opt.as_ref() {
                     if driver.add_hook_target(&module, &function, event_id).is_ok() {
-                        self.dynamic_registered_apis.insert(api_spec.to_ascii_lowercase());
+                        self.dynamic_registered_apis
+                            .insert(api_spec.to_ascii_lowercase());
                         self.dynamic_hook_event_map.insert(event_id, api_spec);
                         added += 1;
                     }
@@ -1650,4 +1648,3 @@ pub mod worker_instance {
         }
     }
 }
-

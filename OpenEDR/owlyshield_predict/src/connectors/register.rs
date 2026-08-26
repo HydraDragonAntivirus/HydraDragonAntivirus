@@ -1,9 +1,9 @@
 //! [Connectors] allows to manage the list of [Connector].
 
+use crate::Logging;
 use crate::config::Config;
 use crate::connectors::connector::Connector;
 use crate::process::ProcessRecord;
-use crate::Logging;
 
 /// Manages registered connectors. Add custom connectors here.
 pub struct Connectors;

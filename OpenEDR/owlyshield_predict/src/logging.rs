@@ -1,4 +1,3 @@
-
 use crate::config::ConfigReader;
 use log::{debug, error, info, warn};
 use serde::Serialize;
@@ -23,7 +22,6 @@ struct JsonlLogEntry {
     pub level: String,
     pub message: String,
 }
-
 
 static VERBOSE_LOGGING: AtomicBool = AtomicBool::new(false);
 
@@ -73,7 +71,6 @@ fn normalize_owlyshield_log_dir(mut dir: PathBuf) -> PathBuf {
 }
 
 impl Logging {
-    
     fn open_windows_log_file(dir: &Path) -> std::io::Result<std::fs::File> {
         std::fs::create_dir_all(dir)?;
         OpenOptions::new()
@@ -82,7 +79,6 @@ impl Logging {
             .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
             .open(dir.join("owlyshield.jsonl"))
     }
-
 
     /// Resolve the log directory that holds `owlyshield.jsonl`.
     ///
@@ -120,7 +116,6 @@ impl Logging {
         crate::config::init_monitor_all_apis();
     }
 
-
     /// Log the program start event
     pub fn start() {
         Logging::log(Status::Start, "");
@@ -156,9 +151,10 @@ impl Logging {
         Logging::log(Status::Debug, message);
     }
 
-    
     fn log(status: Status, message: &str) {
-        if (matches!(status, Status::Debug) || matches!(status, Status::Info)) && !is_verbose_logging_enabled() {
+        if (matches!(status, Status::Debug) || matches!(status, Status::Info))
+            && !is_verbose_logging_enabled()
+        {
             return;
         }
 
@@ -188,7 +184,6 @@ impl Logging {
         }
     }
 
-
     fn log_in_file(status: Status, message: &str, _dir: &str) {
         let now_millis = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -196,7 +191,11 @@ impl Logging {
             .as_millis() as u64;
 
         let entry = JsonlLogEntry {
-            id: format!("owlyshield-{}-{}", now_millis, status.to_str().to_lowercase()),
+            id: format!(
+                "owlyshield-{}-{}",
+                now_millis,
+                status.to_str().to_lowercase()
+            ),
             timestamp: now_millis,
             level: status.to_str().to_string(),
             message: message.to_string(),

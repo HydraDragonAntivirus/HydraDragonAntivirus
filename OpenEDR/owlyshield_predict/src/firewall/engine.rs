@@ -309,8 +309,7 @@ fn default_queue_total() -> usize {
 }
 
 fn firewall_data_dir() -> PathBuf {
-    PathBuf::from("C:\\ProgramData")
-        .join("edrsvc")
+    PathBuf::from("C:\\ProgramData").join("edrsvc")
 }
 
 fn firewall_log_file_path() -> PathBuf {
@@ -384,8 +383,8 @@ pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
 }
 
 pub fn emit_log_event(entry: LogEntry) {
-    let settings_snapshot = super::headless::engine()
-        .map(|engine| engine.settings.read().unwrap().clone());
+    let settings_snapshot =
+        super::headless::engine().map(|engine| engine.settings.read().unwrap().clone());
     persist_log_entry(&entry, settings_snapshot.as_ref());
 }
 
@@ -1497,8 +1496,12 @@ impl FirewallEngine {
 
     pub fn load_settings() -> Option<FirewallSettings> {
         let path = PathBuf::from("json/settings.bin");
-        fs::read(&path).ok()
-            .and_then(|bytes| decode_from_slice::<FirewallSettings, _>(&bytes, bincode_next::config::standard()).ok())
+        fs::read(&path)
+            .ok()
+            .and_then(|bytes| {
+                decode_from_slice::<FirewallSettings, _>(&bytes, bincode_next::config::standard())
+                    .ok()
+            })
             .map(|(settings, _)| settings)
     }
 
@@ -1785,21 +1788,19 @@ impl FirewallEngine {
         }
 
         let now = Self::now_ts();
-        emit_log_event(
-            LogEntry {
-                id: format!("{}-proxy-intercept-{}", now, info.process_id),
-                timestamp: now,
-                level: LogLevel::Info,
-                message: format!(
-                    "Proxy Intercept: {} (pid={}) -> {}:{} via transparent TLS proxy {}",
-                    app_info.name,
-                    info.process_id,
-                    host_label,
-                    info.dst_port,
-                    Self::proxy_addr_string(tls_proxy)
-                ),
-            },
-        );
+        emit_log_event(LogEntry {
+            id: format!("{}-proxy-intercept-{}", now, info.process_id),
+            timestamp: now,
+            level: LogLevel::Info,
+            message: format!(
+                "Proxy Intercept: {} (pid={}) -> {}:{} via transparent TLS proxy {}",
+                app_info.name,
+                info.process_id,
+                host_label,
+                info.dst_port,
+                Self::proxy_addr_string(tls_proxy)
+            ),
+        });
     }
 
     fn start_embedded_proxy(&self, tls_proxy: &TlsProxyConfig) {
@@ -1845,7 +1846,6 @@ impl FirewallEngine {
             });
         }
 
-
         let (stop_tx_main, stop_rx_main) = oneshot::channel::<()>();
 
         *self.tls_proxy_backend_child.lock().unwrap() = Some(stop_tx_main);
@@ -1860,7 +1860,9 @@ impl FirewallEngine {
                 id: format!("{}-ca-generation-failed", now),
                 timestamp: now,
                 level: LogLevel::Error,
-                message: "Failed to generate the HydraDragon firewall CA. The TLS proxy will not start.".to_string(),
+                message:
+                    "Failed to generate the HydraDragon firewall CA. The TLS proxy will not start."
+                        .to_string(),
             });
             return;
         };
@@ -1913,16 +1915,16 @@ impl FirewallEngine {
     }
 
     fn proxy_ca_cert_path() -> PathBuf {
-        PathBuf::from(r"C:\ProgramData\edrsvc\ca")
-            .join("hydradragon_ca.der")
+        PathBuf::from(r"C:\ProgramData\edrsvc\ca").join("hydradragon_ca.der")
     }
 
     /// Check whether a certificate with the HydraDragon Firewall CA subject is
     /// already present in the Windows LocalMachine\Root trust store.
     pub fn ca_certificate_installed() -> bool {
         use windows::Win32::Security::Cryptography::{
-            CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext,
-            CertGetNameStringW, CertOpenSystemStoreA, CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
+            CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CertCloseStore,
+            CertEnumCertificatesInStore, CertFreeCertificateContext, CertGetNameStringW,
+            CertOpenSystemStoreA,
         };
         use windows::core::PCSTR;
 
@@ -1972,10 +1974,11 @@ impl FirewallEngine {
     /// ROOT store it is left untouched and `Ok(())` is returned.
     pub fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
-            CertAddCertificateContextToStore, CertCloseStore, CertCreateCertificateContext,
-            CertEnumCertificatesInStore, CertFreeCertificateContext, CertGetNameStringW,
-            CertOpenSystemStoreA, X509_ASN_ENCODING, CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
-            CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
+            CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
+            CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, CertAddCertificateContextToStore,
+            CertCloseStore, CertCreateCertificateContext, CertEnumCertificatesInStore,
+            CertFreeCertificateContext, CertGetNameStringW, CertOpenSystemStoreA,
+            X509_ASN_ENCODING,
         };
         use windows::core::PCSTR;
 
@@ -2021,10 +2024,7 @@ impl FirewallEngine {
                 return Ok(());
             }
 
-            let cert = CertCreateCertificateContext(
-                X509_ASN_ENCODING,
-                der,
-            );
+            let cert = CertCreateCertificateContext(X509_ASN_ENCODING, der);
 
             if cert.is_null() {
                 let _ = CertCloseStore(store, 0);
@@ -2054,7 +2054,6 @@ impl FirewallEngine {
         }
     }
     fn remove_firewall_ca_from_windows_stores() -> Result<(), String> {
-        
         {
             let script = r#"
 $ErrorActionPreference = "SilentlyContinue"
@@ -2099,14 +2098,12 @@ foreach ($store in $stores) {
         }
     }
 
-
     pub fn install_firewall_certificate(&self) -> Result<String, String> {
         let ca_bundle = super::proxy::generate_ca()?;
         Self::install_ca_der(&ca_bundle.cert_der)?;
         self.windows_root_trust_ready.store(true, Ordering::SeqCst);
 
-        let message =
-            "HydraDragon Firewall CA installed into Windows trust store.".to_string();
+        let message = "HydraDragon Firewall CA installed into Windows trust store.".to_string();
         emit_log_event(LogEntry {
             id: format!("{}-certificate-installed-manual", Self::now_ts()),
             timestamp: Self::now_ts(),
@@ -2126,8 +2123,7 @@ foreach ($store in $stores) {
         self.windows_root_trust_ready.store(false, Ordering::SeqCst);
 
         if errors.is_empty() {
-            let message =
-                "HydraDragon Firewall CA removed from trust stores.".to_string();
+            let message = "HydraDragon Firewall CA removed from trust stores.".to_string();
             emit_log_event(LogEntry {
                 id: format!("{}-certificate-removed-manual", Self::now_ts()),
                 timestamp: Self::now_ts(),
@@ -2207,7 +2203,6 @@ foreach ($store in $stores) {
             .collect()
     }
 
-    
     fn get_process_inventory_windows(&self) -> Vec<ProcessInventoryEntry> {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -2484,7 +2479,9 @@ impl FirewallEngine {
                 id: format!("{}-tls-proxy-disabled", ts),
                 timestamp: ts,
                 level: LogLevel::Info,
-                message: "TLS Proxy mode disabled or not auto-started - Windows proxy cleanup enforced".into(),
+                message:
+                    "TLS Proxy mode disabled or not auto-started - Windows proxy cleanup enforced"
+                        .into(),
             });
         }
         self.sync_proxy_runtime();
@@ -3361,7 +3358,6 @@ impl FirewallEngine {
     }
 
     pub fn get_rules_raw(&self) -> String {
-        
         if let Some(path) = self.get_sdk_rules_path_from_registry() {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 return content;
@@ -3374,7 +3370,7 @@ impl FirewallEngine {
         if let Err(e) = serde_yaml::from_str::<super::sdk::SdkRuleFile>(&content) {
             return Err(format!("Invalid YAML: {}", e));
         }
-        
+
         if let Some(path) = self.get_sdk_rules_path_from_registry() {
             return std::fs::write(&path, content).map_err(|e| e.to_string());
         }
@@ -3382,7 +3378,6 @@ impl FirewallEngine {
         std::fs::write("rules/rules.yaml", content).map_err(|e| e.to_string())
     }
 
-    
     fn get_sdk_rules_path_from_registry(&self) -> Option<PathBuf> {
         use winreg::RegKey;
         use winreg::enums::HKEY_LOCAL_MACHINE;

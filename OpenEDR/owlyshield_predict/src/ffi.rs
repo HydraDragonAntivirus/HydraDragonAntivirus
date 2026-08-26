@@ -62,8 +62,7 @@ pub enum TelemetryLine {
 }
 
 static TELEMETRY_SENDER: OnceLock<Sender<TelemetryLine>> = OnceLock::new();
-static TELEMETRY_RECEIVER: OnceLock<Mutex<Option<mpsc::Receiver<TelemetryLine>>>> =
-    OnceLock::new();
+static TELEMETRY_RECEIVER: OnceLock<Mutex<Option<mpsc::Receiver<TelemetryLine>>>> = OnceLock::new();
 
 /// Initialize the in-process OpenEDR telemetry channel. Safe to call more than
 /// once; only the first call sets the channel.
@@ -97,9 +96,7 @@ pub fn send_telemetry_line(line: TelemetryLine) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_dll_start() -> i32 {
     if SENDER.get().is_some() {
-        Logging::info(
-            "[Owlyshield FFI] owlyshield_dll_start called again; engine already running",
-        );
+        Logging::info("[Owlyshield FFI] owlyshield_dll_start called again; engine already running");
         return OWLY_OK;
     }
 
@@ -117,17 +114,13 @@ pub extern "C" fn owlyshield_dll_start() -> i32 {
     let driver = match Driver::open_kernel_driver_com() {
         Ok(d) => d,
         Err(e) => {
-            Logging::error(&format!(
-                "[Owlyshield FFI] Cannot open driver: {e}"
-            ));
+            Logging::error(&format!("[Owlyshield FFI] Cannot open driver: {e}"));
             return OWLY_DRIVER_ERROR;
         }
     };
 
     if let Err(e) = driver.driver_set_app_pid() {
-        Logging::error(&format!(
-            "[Owlyshield FFI] driver_set_app_pid failed: {e}"
-        ));
+        Logging::error(&format!("[Owlyshield FFI] driver_set_app_pid failed: {e}"));
         return OWLY_DRIVER_ERROR;
     }
 
@@ -188,7 +181,9 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_openedr_event(data: *const u8, le
     let sender = match TELEMETRY_SENDER.get() {
         Some(s) => s,
         None => {
-            Logging::error("[Owlyshield FFI] owlyshield_dll_ingest_openedr_event called before start");
+            Logging::error(
+                "[Owlyshield FFI] owlyshield_dll_ingest_openedr_event called before start",
+            );
             return OWLY_NOT_STARTED;
         }
     };
@@ -219,7 +214,10 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_openedr_event(data: *const u8, le
 /// Called directly by `edrsvc.exe` via GetProcAddress; see
 /// `owlyshield_dll_ingest_openedr_event` for why there is no pipe anymore.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn owlyshield_dll_ingest_firewall_packed_data(data: *const u8, len: u32) -> i32 {
+pub unsafe extern "C" fn owlyshield_dll_ingest_firewall_packed_data(
+    data: *const u8,
+    len: u32,
+) -> i32 {
     let sender = match TELEMETRY_SENDER.get() {
         Some(s) => s,
         None => {
@@ -245,7 +243,10 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_firewall_packed_data(data: *const
         }
     };
 
-    if sender.send(TelemetryLine::FirewallPackedData(payload)).is_err() {
+    if sender
+        .send(TelemetryLine::FirewallPackedData(payload))
+        .is_err()
+    {
         return OWLY_NOT_STARTED;
     }
 
@@ -283,9 +284,7 @@ pub extern "C" fn owlyshield_dll_install_ca() -> i32 {
             OWLY_OK
         }
         Err(e) => {
-            Logging::error(&format!(
-                "[Owlyshield FFI] Firewall CA install failed: {e}"
-            ));
+            Logging::error(&format!("[Owlyshield FFI] Firewall CA install failed: {e}"));
             OWLY_CA_INSTALL_ERROR
         }
     }

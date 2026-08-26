@@ -17,7 +17,7 @@ use windows::{
                 REG_OPTION_NON_VOLATILE, RegCloseKey, RegCreateKeyExW, RegSetValueExW,
             },
             Services::{
-                ChangeServiceConfig2W, CreateServiceW, LPHANDLER_FUNCTION,
+                ChangeServiceConfig2W, CreateServiceW, 
                 LPSERVICE_MAIN_FUNCTIONW, OpenSCManagerW, RegisterServiceCtrlHandlerW,
                 SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_AUTO_START,
                 SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
@@ -175,7 +175,6 @@ fn run_installer() {
             let _ = unsafe {
                 windows::Win32::System::Services::StartServiceW(
                     h_ppl,
-                    0,
                     None,
                 )
             };

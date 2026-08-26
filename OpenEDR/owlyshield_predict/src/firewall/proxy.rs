@@ -80,11 +80,12 @@ fn is_bodiless_status(status: u16) -> bool {
 /// Computes a body-collection timeout that scales with the declared Content-Length.
 /// Fixed 30s caps fail large downloads (>64 KB) on slower links, so larger bodies
 /// are given proportionally more time while still bounding runaway transfers.
-fn adaptive_body_timeout(base_secs: u64, content_length_header: Option<&str>) -> std::time::Duration {
+fn adaptive_body_timeout(
+    base_secs: u64,
+    content_length_header: Option<&str>,
+) -> std::time::Duration {
     let base = std::time::Duration::from_secs(base_secs.max(1));
-    let Some(len) = content_length_header
-        .and_then(|v| v.trim().parse::<u64>().ok())
-    else {
+    let Some(len) = content_length_header.and_then(|v| v.trim().parse::<u64>().ok()) else {
         return base;
     };
     // Allow roughly 1 second of extra time per 64 KB of declared payload.

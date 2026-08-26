@@ -6,7 +6,6 @@ use chrono::Local;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-
 use winreg::RegKey;
 
 use winreg::enums::*;
@@ -179,7 +178,6 @@ impl SystemReport {
         }
     }
 
-    
     pub fn collect(_config: &Config) -> Self {
         let mut report = SystemReport::default();
         report.av_status.signatures_count = 0;
@@ -188,7 +186,6 @@ impl SystemReport {
             .map(|h| h.to_string_lossy().into_owned())
             .unwrap_or_else(|_| "Unknown".into());
 
-        
         {
             report.os_version = "Windows".to_string();
             report.collect_windows_startups();
@@ -202,7 +199,6 @@ impl SystemReport {
         report
     }
 
-    
     fn collect_windows_startups(&mut self) {
         let registry_paths = [
             (
@@ -275,7 +271,6 @@ impl SystemReport {
         }
     }
 
-    
     fn collect_hosts_file(&mut self) {
         let path = "C:\\Windows\\System32\\drivers\\etc\\hosts";
         if let Ok(content) = fs::read_to_string(path) {
@@ -288,7 +283,6 @@ impl SystemReport {
         }
     }
 
-    
     fn collect_network_listeners(
         &mut self,
         firewall_pids: Option<&std::collections::HashSet<u32>>,
@@ -318,7 +312,6 @@ impl SystemReport {
         // Use firewall-observed PIDs for the report
     }
 
-    
     fn collect_kernel_drivers(&mut self) {
         let hk = RegKey::predef(HKEY_LOCAL_MACHINE);
         if let Ok(services) = hk.open_subkey("SYSTEM\\CurrentControlSet\\Services") {
@@ -343,7 +336,6 @@ impl SystemReport {
         }
     }
 
-    
     fn collect_browser_extensions(&mut self) {
         if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
             let chrome_ext =

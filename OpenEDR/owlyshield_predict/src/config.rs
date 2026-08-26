@@ -81,7 +81,6 @@ pub enum KillPolicy {
 }
 
 impl Param {
-    
     fn convert_to_str(param: &Param) -> &str {
         match param {
             Param::ConfigPath => "CONFIG_PATH", // incidents reports, exclusions list
@@ -160,7 +159,6 @@ impl Param {
             params.append(&mut vec![Param::AppId, Param::UtilsPath]);
         }
 
-
         params.push(Param::RulesPath);
         params.push(Param::StaticRulesPath);
         params.push(Param::StaticRulesMode);
@@ -175,7 +173,6 @@ impl Param {
         ret
     }
 
-    
     fn convert_from_str(param: String) -> Param {
         match param.as_str() {
             "CONFIG_PATH" => Param::ConfigPath, // incidents reports, exclusions list
@@ -348,14 +345,15 @@ impl Config {
         self.get_non_empty_param(Param::AlwaysAutoRevert)
             .map(|val| val.trim() == "1" || val.trim().eq_ignore_ascii_case("true"))
             .or_else(|| {
-                Self::read_sanctum_setting_value("always_auto_revert")
-                    .and_then(|value| {
-                        value.as_bool().or_else(|| {
-                            value.as_u64().map(|v| v == 1).or_else(|| {
-                                value.as_str().map(|s| s.trim() == "1" || s.trim().eq_ignore_ascii_case("true"))
-                            })
+                Self::read_sanctum_setting_value("always_auto_revert").and_then(|value| {
+                    value.as_bool().or_else(|| {
+                        value.as_u64().map(|v| v == 1).or_else(|| {
+                            value
+                                .as_str()
+                                .map(|s| s.trim() == "1" || s.trim().eq_ignore_ascii_case("true"))
                         })
                     })
+                })
             })
             .or_else(|| {
                 // Fallback: live registry read from HKLM\Software\Owlyshield
@@ -382,7 +380,6 @@ impl Config {
         }
     }
 
-    
     fn get_params() -> HashMap<Param, String> {
         let mut params: HashMap<Param, String> = HashMap::new();
         let param_names = Param::get_string_vec();
@@ -423,7 +420,6 @@ impl Index<Param> for Config {
 pub struct ConfigReader {}
 
 impl ConfigReader {
-    
     pub fn read_param(param: String, location: &str, _bloc: &str) -> String {
         Self::read_param_from_registry(param.as_str(), location)
     }
@@ -433,7 +429,6 @@ impl ConfigReader {
         Self::read_param_from_file(param.as_str(), location, bloc)
     }
 
-    
     #[allow(dead_code)]
     pub fn read_params(
         params: Vec<String>,
@@ -456,7 +451,6 @@ impl ConfigReader {
         config.get(bloc, param).unwrap_or_default()
     }
 
-    
     pub fn read_param_from_registry(param: &str, location: &str) -> String {
         let regkey = match Hive::LocalMachine.open(location, Security::Read) {
             Ok(key) => key,
@@ -494,7 +488,6 @@ impl ConfigReader {
         ret
     }
 
-    
     fn read_params_from_registry(params: Vec<String>, location: &str) -> HashMap<String, String> {
         let mut ret: HashMap<String, String> = HashMap::new();
         for param in params {

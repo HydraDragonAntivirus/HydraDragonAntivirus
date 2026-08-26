@@ -26,7 +26,6 @@ pub(crate) fn get_firewall_sdk_rules_path() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
-
 /// Headless in-process entry point. Registers the single engine instance,
 /// starts packet capture, and blocks forever.
 pub fn run() {

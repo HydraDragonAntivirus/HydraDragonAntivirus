@@ -1,4 +1,4 @@
-﻿use crate::logging::Logging;
+use crate::logging::Logging;
 use crate::process::{ProcessRecord, ProcessState};
 use crate::quarantine::{
     build_quarantine_destination, compute_sha256, delete_with_reboot_fallback,
@@ -6,9 +6,7 @@ use crate::quarantine::{
 };
 use crate::shadow_copy;
 use crate::threat_handler::{QuarantineMetadata, ThreatHandler};
-use crate::utils::{
-    protected_process_record_reason, suspicious_critical_process_record_reason,
-};
+use crate::utils::{protected_process_record_reason, suspicious_critical_process_record_reason};
 use crate::windows::edrsvc_client::Driver;
 use serde::{Deserialize, Serialize};
 use windows::Win32::System::Diagnostics::Debug::{
@@ -66,7 +64,6 @@ impl WindowsThreatHandler {
             None
         }
     }
-
 
     fn add_kernel_block_path(&self, path: &Path) {
         let driver_path = Self::normalize_driver_path(path);

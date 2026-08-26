@@ -49,19 +49,14 @@ pub fn ensure_mbrfilter_driver() {
     if let Some(src) = staged_src {
         let dest_exists = std::path::Path::new(&driver_dest).is_file();
         let needs_copy = !dest_exists
-            || src
-                .metadata()
-                .map(|m| m.len())
-                .unwrap_or(0)
+            || src.metadata().map(|m| m.len()).unwrap_or(0)
                 != std::path::Path::new(&driver_dest)
                     .metadata()
                     .map(|m| m.len())
                     .unwrap_or(0);
         if needs_copy {
             match std::fs::copy(&src, &driver_dest) {
-                Ok(_) => {
-                    Logging::info(&format!("[MBR] Staged MBRFilter.sys to {}", driver_dest))
-                }
+                Ok(_) => Logging::info(&format!("[MBR] Staged MBRFilter.sys to {}", driver_dest)),
                 Err(err) => Logging::error(&format!(
                     "[MBR] Failed to copy MBRFilter.sys to {}: {}",
                     driver_dest, err
@@ -87,7 +82,9 @@ pub fn ensure_mbrfilter_driver() {
     let changed = set_disk_class_upper_filter();
     let changed = register_and_start_driver_service(&driver_dest) || changed;
     if changed {
-        Logging::info("[MBR] MBRFilter registered for the first time; restart required to activate");
+        Logging::info(
+            "[MBR] MBRFilter registered for the first time; restart required to activate",
+        );
     }
 }
 
@@ -95,14 +92,17 @@ pub fn ensure_mbrfilter_driver() {
 /// manager attaches the driver to all disk devices at next device start.
 /// Returns true if the registry value was modified (i.e. a restart is needed).
 fn set_disk_class_upper_filter() -> bool {
-    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
     use winreg::RegKey;
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
 
     let result = (|| -> Result<bool, Box<dyn std::error::Error>> {
         let class_key = RegKey::predef(HKEY_LOCAL_MACHINE)
             .open_subkey_with_flags(DISK_CLASS_FILTERS_KEY, KEY_READ | KEY_WRITE)?;
         let mut filters: Vec<String> = class_key.get_value("UpperFilters").unwrap_or_default();
-        if filters.iter().any(|f| f.eq_ignore_ascii_case(DRIVER_SERVICE_NAME)) {
+        if filters
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(DRIVER_SERVICE_NAME))
+        {
             return Ok(false);
         }
         filters.push(DRIVER_SERVICE_NAME.to_string());
@@ -131,9 +131,9 @@ fn set_disk_class_upper_filter() -> bool {
 /// Returns true if the service was created (i.e. a restart is needed).
 fn register_and_start_driver_service(driver_path: &str) -> bool {
     use windows::Win32::System::Services::{
-        CloseServiceHandle, CreateServiceW, OpenSCManagerW, OpenServiceW, StartServiceW,
-        SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_BOOT_START, SERVICE_ERROR_NORMAL,
-        SERVICE_KERNEL_DRIVER,
+        CloseServiceHandle, CreateServiceW, OpenSCManagerW, OpenServiceW, SC_MANAGER_ALL_ACCESS,
+        SERVICE_ALL_ACCESS, SERVICE_BOOT_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
+        StartServiceW,
     };
     use windows::core::PCWSTR;
 
@@ -371,9 +371,7 @@ fn handle_mbr_threat(disk_number: i32, process_path: &str) {
 
     // Pause protection: log the alert but do not terminate anyone.
     if crate::globals::is_protection_paused() {
-        Logging::warning(
-            "[MBR ALERT] Protection is paused - offending process NOT terminated",
-        );
+        Logging::warning("[MBR ALERT] Protection is paused - offending process NOT terminated");
         return;
     }
 
@@ -416,8 +414,8 @@ fn find_pids_by_image_path(image_path_lc: &str) -> Vec<u32> {
         TH32CS_SNAPPROCESS,
     };
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        QueryFullProcessImageNameW,
     };
 
     let mut pids = Vec::new();
@@ -445,9 +443,8 @@ fn find_pids_by_image_path(image_path_lc: &str) -> Vec<u32> {
                         )
                         .as_bool()
                         {
-                            let path =
-                                String::from_utf16_lossy(&buffer[..size as usize])
-                                    .to_ascii_lowercase();
+                            let path = String::from_utf16_lossy(&buffer[..size as usize])
+                                .to_ascii_lowercase();
                             if path.ends_with(image_path_lc) || image_path_lc.ends_with(&path) {
                                 pids.push(pid);
                             }
@@ -470,7 +467,7 @@ fn find_pids_by_image_path(image_path_lc: &str) -> Vec<u32> {
 
 fn terminate_process(pid: u32) -> Result<(), String> {
     use windows::Win32::System::Threading::{
-        OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, TerminateProcess,
     };
 
     unsafe {

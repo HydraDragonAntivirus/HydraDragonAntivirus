@@ -1,23 +1,21 @@
-
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
-
 
 use windows::core::{PCWSTR, PWSTR};
 
 use windows::Win32::Foundation::{ERROR_SUCCESS, HANDLE, HWND};
 
 use windows::Win32::Security::Cryptography::{
-    CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext, CertGetNameStringW,
-    CryptMsgClose, CryptQueryObject, CERT_NAME_SIMPLE_DISPLAY_TYPE,
-    CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_FORMAT_FLAG_BINARY,
-    CERT_QUERY_OBJECT_FILE, HCERTSTORE,
+    CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
+    CERT_QUERY_FORMAT_FLAG_BINARY, CERT_QUERY_OBJECT_FILE, CertCloseStore,
+    CertEnumCertificatesInStore, CertFreeCertificateContext, CertGetNameStringW, CryptMsgClose,
+    CryptQueryObject, HCERTSTORE,
 };
 
 use windows::Win32::Security::WinTrust::{
-    WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_CATALOG_INFO, WINTRUST_DATA,
+    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_CATALOG_INFO, WINTRUST_DATA,
     WINTRUST_DATA_UICONTEXT, WINTRUST_FILE_INFO, WTD_CHOICE_CATALOG, WTD_CHOICE_FILE,
-    WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
+    WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE, WinVerifyTrust,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -40,7 +38,6 @@ impl SignatureStatus {
         }
     }
 }
-
 
 const TRUST_E_NOSIGNATURE: i32 = 0x800B_0100u32 as i32;
 
@@ -90,10 +87,7 @@ unsafe extern "system" {
         h_cat_info: *mut std::ffi::c_void,
         dw_flags: u32,
     ) -> i32;
-    fn CryptCATAdminReleaseContext(
-        h_cat_admin: *mut std::ffi::c_void,
-        dw_flags: u32,
-    ) -> i32;
+    fn CryptCATAdminReleaseContext(h_cat_admin: *mut std::ffi::c_void, dw_flags: u32) -> i32;
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -140,7 +134,6 @@ impl Default for SignatureInfo {
     }
 }
 
-
 fn is_authenticode_binary_path(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -164,7 +157,6 @@ fn is_authenticode_binary_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-
 fn is_no_signature_for_non_authenticode_file(path: &Path, result: i32) -> bool {
     // WinVerifyTrust commonly returns provider/subject-form errors for ordinary
     // source/data files. Those files are still unsigned for metadata and tests.
@@ -177,7 +169,6 @@ fn is_no_signature_for_non_authenticode_file(path: &Path, result: i32) -> bool {
             TRUST_E_PROVIDER_UNKNOWN | TRUST_E_SUBJECT_FORM_UNKNOWN
         )
 }
-
 
 fn status_text_for(status: SignatureStatus, raw_hresult: u32) -> String {
     match status {
@@ -192,7 +183,6 @@ fn status_text_for(status: SignatureStatus, raw_hresult: u32) -> String {
         }
     }
 }
-
 
 fn classify_wintrust_result(path: &Path, result: i32) -> SignatureStatus {
     if result == ERROR_SUCCESS.0 as i32 {
@@ -209,7 +199,6 @@ fn classify_wintrust_result(path: &Path, result: i32) -> SignatureStatus {
         SignatureStatus::VerificationFailed
     }
 }
-
 
 pub fn verify_signature(path: &Path) -> SignatureInfo {
     let mut raw_hresult: u32;
@@ -330,7 +319,6 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
     }
 }
 
-
 /// Verifies a file against the Windows Catalog database (CatRoot .cat files).
 ///
 /// Returns the catalog signer name (e.g. "Microsoft Windows Production PCA 2011")
@@ -343,117 +331,127 @@ unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
     };
     const GENERIC_READ: u32 = 0x8000_0000;
     unsafe {
-    let file_handle = match CreateFileW(
-        PCWSTR(path_wide.as_ptr()),
-        GENERIC_READ,
-        FILE_SHARE_MODE(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0),
-        None,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        HANDLE::default(),
-    ) {
-        Ok(h) => h,
-        Err(_) => return None,
-    };
-
-    let mut cat_admin: *mut std::ffi::c_void = std::ptr::null_mut();
-    if CryptCATAdminAcquireContext(&mut cat_admin, std::ptr::null(), 0) == 0 {
-        let _ = windows::Win32::Foundation::CloseHandle(file_handle);
-        return None;
-    }
-
-    let mut hash_size: u32 = 0;
-    if CryptCATAdminCalcHashFromFileHandle(file_handle, &mut hash_size, std::ptr::null_mut(), 0) == 0
-    {
-        let _ = CryptCATAdminReleaseContext(cat_admin, 0);
-        let _ = windows::Win32::Foundation::CloseHandle(file_handle);
-        return None;
-    }
-    let mut hash: Vec<u8> = vec![0u8; hash_size as usize];
-    if CryptCATAdminCalcHashFromFileHandle(file_handle, &mut hash_size, hash.as_mut_ptr(), 0) == 0 {
-        let _ = CryptCATAdminReleaseContext(cat_admin, 0);
-        let _ = windows::Win32::Foundation::CloseHandle(file_handle);
-        return None;
-    }
-
-    let mut prev: *mut std::ffi::c_void = std::ptr::null_mut();
-    let mut trusted_signer: Option<String> = None;
-
-    loop {
-        let cat_info =
-            CryptCATAdminEnumCatalogFromHash(cat_admin, hash.as_ptr(), hash_size, 0, &mut prev);
-        if cat_info.is_null() {
-            break;
-        }
-        prev = cat_info;
-
-        let mut cat_info_struct = CatalogInfo {
-            cb_struct: std::mem::size_of::<CatalogInfo>() as u32,
-            catalog_file: [0u16; 260],
+        let file_handle = match CreateFileW(
+            PCWSTR(path_wide.as_ptr()),
+            GENERIC_READ,
+            FILE_SHARE_MODE(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0),
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            HANDLE::default(),
+        ) {
+            Ok(h) => h,
+            Err(_) => return None,
         };
-        if CryptCATCatalogInfoFromContext(cat_info, &mut cat_info_struct, 0) == 0 {
-            let _ = CryptCATAdminReleaseCatalogContext(cat_admin, cat_info, 0);
-            continue;
+
+        let mut cat_admin: *mut std::ffi::c_void = std::ptr::null_mut();
+        if CryptCATAdminAcquireContext(&mut cat_admin, std::ptr::null(), 0) == 0 {
+            let _ = windows::Win32::Foundation::CloseHandle(file_handle);
+            return None;
         }
 
-        let mut catalog_file_info = WINTRUST_CATALOG_INFO {
-            cbStruct: std::mem::size_of::<WINTRUST_CATALOG_INFO>() as u32,
-            dwCatalogVersion: 0,
-            pcwszCatalogFilePath: PCWSTR(cat_info_struct.catalog_file.as_ptr()),
-            pcwszMemberTag: PCWSTR::null(),
-            pcwszMemberFilePath: PCWSTR(path_wide.as_ptr()),
-            hMemberFile: file_handle,
-            pbCalculatedFileHash: hash.as_mut_ptr(),
-            cbCalculatedFileHash: hash_size,
-            pcCatalogContext: std::ptr::null_mut(),
-            hCatAdmin: cat_admin as isize,
-        };
+        let mut hash_size: u32 = 0;
+        if CryptCATAdminCalcHashFromFileHandle(file_handle, &mut hash_size, std::ptr::null_mut(), 0)
+            == 0
+        {
+            let _ = CryptCATAdminReleaseContext(cat_admin, 0);
+            let _ = windows::Win32::Foundation::CloseHandle(file_handle);
+            return None;
+        }
+        let mut hash: Vec<u8> = vec![0u8; hash_size as usize];
+        if CryptCATAdminCalcHashFromFileHandle(file_handle, &mut hash_size, hash.as_mut_ptr(), 0)
+            == 0
+        {
+            let _ = CryptCATAdminReleaseContext(cat_admin, 0);
+            let _ = windows::Win32::Foundation::CloseHandle(file_handle);
+            return None;
+        }
 
-        let mut win_trust_data = WINTRUST_DATA {
-            cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
-            pPolicyCallbackData: std::ptr::null_mut(),
-            pSIPClientData: std::ptr::null_mut(),
-            dwUIChoice: WTD_UI_NONE,
-            fdwRevocationChecks: windows::Win32::Security::WinTrust::WTD_REVOKE_NONE,
-            dwUnionChoice: WTD_CHOICE_CATALOG,
-            dwStateAction: WTD_STATEACTION_VERIFY,
-            hWVTStateData: HANDLE::default(),
-            pwszURLReference: PWSTR::null(),
-            dwProvFlags: windows::Win32::Security::WinTrust::WINTRUST_DATA_PROVIDER_FLAGS(0),
-            dwUIContext: WINTRUST_DATA_UICONTEXT(0),
-            pSignatureSettings: std::ptr::null_mut(),
-            Anonymous: windows::Win32::Security::WinTrust::WINTRUST_DATA_0 {
-                pCatalog: &mut catalog_file_info,
-            },
-        };
+        let mut prev: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut trusted_signer: Option<String> = None;
 
-        let mut action_guid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-        let verify_result = WinVerifyTrust(HWND::default(), &mut action_guid, &mut win_trust_data as *mut _ as _);
-
-        win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
-        let _ = WinVerifyTrust(HWND::default(), &mut action_guid, &mut win_trust_data as *mut _ as _);
-
-        if verify_result == ERROR_SUCCESS.0 as i32 {
-            // Signer name is read from the catalog file's own embedded signature.
-            let signer = get_signer_name_from_file(&cat_info_struct.catalog_file).ok();
-            if signer.is_some() {
-                trusted_signer = signer;
-            } else {
-                trusted_signer = Some("Microsoft Windows".to_string());
+        loop {
+            let cat_info =
+                CryptCATAdminEnumCatalogFromHash(cat_admin, hash.as_ptr(), hash_size, 0, &mut prev);
+            if cat_info.is_null() {
+                break;
             }
+            prev = cat_info;
+
+            let mut cat_info_struct = CatalogInfo {
+                cb_struct: std::mem::size_of::<CatalogInfo>() as u32,
+                catalog_file: [0u16; 260],
+            };
+            if CryptCATCatalogInfoFromContext(cat_info, &mut cat_info_struct, 0) == 0 {
+                let _ = CryptCATAdminReleaseCatalogContext(cat_admin, cat_info, 0);
+                continue;
+            }
+
+            let mut catalog_file_info = WINTRUST_CATALOG_INFO {
+                cbStruct: std::mem::size_of::<WINTRUST_CATALOG_INFO>() as u32,
+                dwCatalogVersion: 0,
+                pcwszCatalogFilePath: PCWSTR(cat_info_struct.catalog_file.as_ptr()),
+                pcwszMemberTag: PCWSTR::null(),
+                pcwszMemberFilePath: PCWSTR(path_wide.as_ptr()),
+                hMemberFile: file_handle,
+                pbCalculatedFileHash: hash.as_mut_ptr(),
+                cbCalculatedFileHash: hash_size,
+                pcCatalogContext: std::ptr::null_mut(),
+                hCatAdmin: cat_admin as isize,
+            };
+
+            let mut win_trust_data = WINTRUST_DATA {
+                cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
+                pPolicyCallbackData: std::ptr::null_mut(),
+                pSIPClientData: std::ptr::null_mut(),
+                dwUIChoice: WTD_UI_NONE,
+                fdwRevocationChecks: windows::Win32::Security::WinTrust::WTD_REVOKE_NONE,
+                dwUnionChoice: WTD_CHOICE_CATALOG,
+                dwStateAction: WTD_STATEACTION_VERIFY,
+                hWVTStateData: HANDLE::default(),
+                pwszURLReference: PWSTR::null(),
+                dwProvFlags: windows::Win32::Security::WinTrust::WINTRUST_DATA_PROVIDER_FLAGS(0),
+                dwUIContext: WINTRUST_DATA_UICONTEXT(0),
+                pSignatureSettings: std::ptr::null_mut(),
+                Anonymous: windows::Win32::Security::WinTrust::WINTRUST_DATA_0 {
+                    pCatalog: &mut catalog_file_info,
+                },
+            };
+
+            let mut action_guid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+            let verify_result = WinVerifyTrust(
+                HWND::default(),
+                &mut action_guid,
+                &mut win_trust_data as *mut _ as _,
+            );
+
+            win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
+            let _ = WinVerifyTrust(
+                HWND::default(),
+                &mut action_guid,
+                &mut win_trust_data as *mut _ as _,
+            );
+
+            if verify_result == ERROR_SUCCESS.0 as i32 {
+                // Signer name is read from the catalog file's own embedded signature.
+                let signer = get_signer_name_from_file(&cat_info_struct.catalog_file).ok();
+                if signer.is_some() {
+                    trusted_signer = signer;
+                } else {
+                    trusted_signer = Some("Microsoft Windows".to_string());
+                }
+                let _ = CryptCATAdminReleaseCatalogContext(cat_admin, cat_info, 0);
+                break;
+            }
+
             let _ = CryptCATAdminReleaseCatalogContext(cat_admin, cat_info, 0);
-            break;
         }
 
-        let _ = CryptCATAdminReleaseCatalogContext(cat_admin, cat_info, 0);
-    }
-
-    let _ = CryptCATAdminReleaseContext(cat_admin, 0);
-    let _ = windows::Win32::Foundation::CloseHandle(file_handle);
-    trusted_signer
+        let _ = CryptCATAdminReleaseContext(cat_admin, 0);
+        let _ = windows::Win32::Foundation::CloseHandle(file_handle);
+        trusted_signer
     }
 }
-
 
 unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
     unsafe {
@@ -531,9 +529,7 @@ mod tests {
         assert!(
             info.is_trusted,
             "conhost.exe (catalog-signed) should be trusted, got status={:?} text={:?} hresult=0x{:08X}",
-            info.status,
-            info.status_text,
-            info.raw_hresult
+            info.status, info.status_text, info.raw_hresult
         );
         assert!(
             info.signer_name
@@ -553,7 +549,11 @@ mod tests {
             return;
         }
         let info = verify_signature(&path);
-        assert!(info.is_trusted, "explorer.exe should be trusted, got {:?}", info.status);
+        assert!(
+            info.is_trusted,
+            "explorer.exe should be trusted, got {:?}",
+            info.status
+        );
     }
 
     #[test]
@@ -571,4 +571,3 @@ mod tests {
         );
     }
 }
-

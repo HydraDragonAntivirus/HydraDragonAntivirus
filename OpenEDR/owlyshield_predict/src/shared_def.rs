@@ -5,7 +5,6 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-
 pub const FILE_ID_LEN: usize = 16;
 #[cfg(target_os = "linux")]
 pub const FILE_ID_LEN: usize = 32;
@@ -230,17 +229,17 @@ impl IrpMajorOp {
             0x0009 => IrpMajorOp::_IrpCleanUp,
             0x000A | 0x000C => IrpMajorOp::IrpWrite,
             0x000B => IrpMajorOp::IrpRead,
-             0x000D => IrpMajorOp::IrpProcessHandleOpen,
-             0x000F => IrpMajorOp::IrpNamedPipeCreate,
-             0x0010 => IrpMajorOp::IrpUserModeHookEvent,
-             // Owlyshield extension events: collapse to coarse file ops so the
-             // aggregate counters work; the fine-grained mmap / handle-open
-             // distinction is surfaced at rule-token level (current_file_op).
-             0x0011 => IrpMajorOp::IrpRead,
-             0x0012 => IrpMajorOp::IrpWrite,
-             0x0013 => IrpMajorOp::IrpSetInfo,
-             0x0014 => IrpMajorOp::IrpSetInfo,
-             0x0015 => IrpMajorOp::IrpProcessHandleOpen,
+            0x000D => IrpMajorOp::IrpProcessHandleOpen,
+            0x000F => IrpMajorOp::IrpNamedPipeCreate,
+            0x0010 => IrpMajorOp::IrpUserModeHookEvent,
+            // Owlyshield extension events: collapse to coarse file ops so the
+            // aggregate counters work; the fine-grained mmap / handle-open
+            // distinction is surfaced at rule-token level (current_file_op).
+            0x0011 => IrpMajorOp::IrpRead,
+            0x0012 => IrpMajorOp::IrpWrite,
+            0x0013 => IrpMajorOp::IrpSetInfo,
+            0x0014 => IrpMajorOp::IrpSetInfo,
+            0x0015 => IrpMajorOp::IrpProcessHandleOpen,
             // Sub-event type IDs used by to_sysmonevent_u32 for round-trip (not on LBVS wire)
             0x1009 => IrpMajorOp::IrpProcessTerminateAttempt,
             0x100A => IrpMajorOp::IrpProcessExit,
@@ -583,13 +582,10 @@ pub struct IOMessage {
     /// Parent PID of the process
     pub parent_pid: u32,
     /// For IrpProcessTerminateAttempt: PID of the attacking process (0 if not applicable)
-    
     pub attacker_pid: u32,
     /// For IrpProcessTerminateAttempt: GID of the attacking process (0 if not tracked)
-    
     pub attacker_gid: u64,
     /// NEW: Ntdll API hook event details (matches KERNEL_EVENT_INFO from SharedDefs.h)
-    
     pub kernel_event_info: KernelEventInfo,
     pub runtime_features: RuntimeFeatures,
     pub file_size: i64,
@@ -611,11 +607,11 @@ impl Default for IOMessage {
             filepathstr: String::new(),
             gid: 0,
             parent_pid: 0,
-            
+
             attacker_pid: 0,
-            
+
             attacker_gid: 0,
-            
+
             kernel_event_info: KernelEventInfo::default(),
             runtime_features: RuntimeFeatures::default(),
             file_size: 0,
@@ -623,7 +619,6 @@ impl Default for IOMessage {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedHypervisorEvent {
@@ -648,7 +643,6 @@ pub struct ResolvedHypervisorEvent {
     pub access_mask: u32,
     pub operation_status: i32,
 }
-
 
 pub fn normalize_hypervisor_label(raw: &str) -> String {
     let mut value = raw.trim().to_string();
@@ -675,7 +669,6 @@ pub fn effective_hypervisor_irp_byte(msg: &IOMessage) -> u32 {
     }
 }
 
-
 pub fn effective_hypervisor_raw_event_type(msg: &IOMessage) -> u32 {
     if msg.kernel_event_info.event_type != 0 {
         msg.kernel_event_info.event_type
@@ -683,7 +676,6 @@ pub fn effective_hypervisor_raw_event_type(msg: &IOMessage) -> u32 {
         effective_hypervisor_irp_byte(msg)
     }
 }
-
 
 pub fn is_kernel_api_irp(irp_op: &IrpMajorOp) -> bool {
     matches!(
@@ -699,7 +691,6 @@ pub fn is_kernel_api_irp(irp_op: &IrpMajorOp) -> bool {
     )
 }
 
-
 pub fn is_kernel_process_protection_irp(irp_op: &IrpMajorOp) -> bool {
     matches!(
         irp_op,
@@ -713,7 +704,6 @@ pub fn is_kernel_process_protection_irp(irp_op: &IrpMajorOp) -> bool {
     )
 }
 
-
 pub fn resolved_hypervisor_event_name(msg: &IOMessage) -> String {
     let normalized = normalize_hypervisor_label(&msg.kernel_event_info.object_name);
     if !normalized.is_empty() {
@@ -725,7 +715,6 @@ pub fn resolved_hypervisor_event_name(msg: &IOMessage) -> String {
         .map(|name| name.to_string())
         .unwrap_or_else(|| format!("RawEventType(0x{raw_event_type:X})"))
 }
-
 
 impl IOMessage {
     pub fn normalize_hypervisor_event(&mut self) {

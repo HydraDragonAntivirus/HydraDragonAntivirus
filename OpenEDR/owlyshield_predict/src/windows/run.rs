@@ -1,4 +1,3 @@
-﻿
 use std::sync::mpsc::channel;
 use std::thread;
 
@@ -50,7 +49,6 @@ pub fn run() {
     let thread_config = config; // moved into thread
     let thread_driver = driver.clone();
     thread::spawn(move || {
-        
         let mut worker = Worker::new(&thread_config).driver(thread_driver.clone());
 
         // Initialize threat handler early to reuse the driver connection

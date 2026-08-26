@@ -1,5 +1,5 @@
-use capstone::arch::x86::ArchMode as X86Mode;
 use capstone::arch::BuildsCapstone;
+use capstone::arch::x86::ArchMode as X86Mode;
 use goblin::Object;
 
 use super::features::PeFeatureVector;

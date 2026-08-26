@@ -10,8 +10,8 @@ pub static LOG_TIME_FORMAT: &str = "%b %d %H:%M:%S";
 pub fn process_image_path(pid: u32) -> Option<PathBuf> {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        QueryFullProcessImageNameW,
     };
     use windows::core::PWSTR;
 
@@ -22,10 +22,17 @@ pub fn process_image_path(pid: u32) -> Option<PathBuf> {
         }
         let mut buf = vec![0u16; 1024];
         let mut size = buf.len() as u32;
-        let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut size);
+        let ok = QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        );
         let _ = CloseHandle(handle);
         if ok.as_bool() && size > 0 {
-            Some(PathBuf::from(String::from_utf16_lossy(&buf[..size as usize])))
+            Some(PathBuf::from(String::from_utf16_lossy(
+                &buf[..size as usize],
+            )))
         } else {
             None
         }
@@ -36,7 +43,10 @@ pub fn process_image_path(pid: u32) -> Option<PathBuf> {
 /// EDR install: i.e. its image lives in the same directory tree as this service.
 fn is_own_companion_process(pid: u32) -> bool {
     // Get our own install root (directory containing this service exe).
-    let own_dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+    let own_dir = match std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
         Some(d) => d,
         None => return false,
     };
@@ -70,8 +80,6 @@ pub fn protected_process_reason(pid: u32, _fallback_path: Option<&Path>) -> Opti
     None
 }
 
-
-
 fn is_process_marked_critical(pid: u32) -> bool {
     use windows::Win32::Foundation::{BOOL, CloseHandle};
     use windows::Win32::System::Threading::{
@@ -91,7 +99,6 @@ fn is_process_marked_critical(pid: u32) -> bool {
 
     false
 }
-
 
 pub fn protected_process_record_reason(proc: &ProcessRecord) -> Option<String> {
     for pid in &proc.pids {
@@ -188,7 +195,6 @@ pub fn resolve_process_path(pid: u32) -> Option<PathBuf> {
     }
     None
 }
-
 
 pub fn format_process_descriptor_with_fallback(pid: u32, fallback_path: Option<&Path>) -> String {
     let fallback = fallback_path.and_then(|path| {

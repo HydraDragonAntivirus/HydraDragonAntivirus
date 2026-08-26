@@ -34,7 +34,6 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, SystemTime};
 use std::{fmt, thread};
 
-
 use crate::shared_def::effective_hypervisor_irp_byte;
 use crate::shared_def::{
     DriveType,
@@ -688,12 +687,10 @@ impl ProcessRecord {
         self.time = iomsg.time;
     }
 
-    
     fn update_kernel_event_features(&mut self, iomsg: &IOMessage, _raw_irp: &IrpMajorOp) {
         let effective_irp = IrpMajorOp::from_sysmonevent(effective_hypervisor_irp_byte(iomsg));
         self.record_kernel_event_feature(effective_irp, &iomsg.kernel_event_info.object_name);
     }
-
 
     fn record_kernel_event_feature(&mut self, irp_op: IrpMajorOp, event_name: &str) {
         let is_kernel_event = matches!(
@@ -1017,7 +1014,7 @@ impl fmt::Display for ProcessState {
 mod tests {
     use crate::extensions::ExtensionCategory::{DocsMedia, Exe};
     use crate::process::{FileId, ProcessRecord};
-    
+
     use crate::shared_def::KernelEventInfo;
     use crate::shared_def::{FileChangeInfo, IOMessage, IrpMajorOp, RuntimeFeatures};
     use std::collections::HashSet;
@@ -1487,7 +1484,6 @@ mod tests {
         assert_eq!(pr.kernel_events_max_individual, 1);
     }
 
-    
     #[test]
     fn test_effective_kernel_opcodes_update_prediction_features() {
         let gid = 602;

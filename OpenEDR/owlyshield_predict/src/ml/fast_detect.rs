@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-use std::path::Path;
-use std::sync::OnceLock;
+use crate::Logging;
+use crate::shared_def::IOMessage;
 use burn::backend::NdArray;
 use burn::backend::ndarray::NdArrayDevice;
 use burn::module::Module;
 use burn::record::NamedMpkBytesRecorder;
 use burn::record::Recorder;
-use crate::shared_def::IOMessage;
-use crate::Logging;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::OnceLock;
 
 pub type InferBackend = NdArray<f32>;
 
@@ -19,11 +19,16 @@ fn get_pe_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
         let path = Path::new("models/pe_model.mpk");
         if path.exists() {
             if let Some(model) = load_ml_model(path, super::model::MalwareNetConfig::default()) {
-                Logging::info(&format!("[FastDetect] Loaded PE ML model from {}", path.display()));
+                Logging::info(&format!(
+                    "[FastDetect] Loaded PE ML model from {}",
+                    path.display()
+                ));
                 return Some(model);
             }
         }
-        Logging::error("[FastDetect] PE ML model could not be found or loaded from models/pe_model.mpk");
+        Logging::error(
+            "[FastDetect] PE ML model could not be found or loaded from models/pe_model.mpk",
+        );
         None
     })
 }
@@ -33,11 +38,16 @@ fn get_js_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
         let path = Path::new("models/js_model.mpk");
         if path.exists() {
             if let Some(model) = load_ml_model(path, super::model::MalwareNetConfig::default_js()) {
-                Logging::info(&format!("[FastDetect] Loaded JS ML model from {}", path.display()));
+                Logging::info(&format!(
+                    "[FastDetect] Loaded JS ML model from {}",
+                    path.display()
+                ));
                 return Some(model);
             }
         }
-        Logging::error("[FastDetect] JS ML model could not be found or loaded from models/js_model.mpk");
+        Logging::error(
+            "[FastDetect] JS ML model could not be found or loaded from models/js_model.mpk",
+        );
         None
     })
 }
@@ -81,7 +91,8 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
         return None;
     }
 
-    let extension = path.extension()
+    let extension = path
+        .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_ascii_lowercase())
         .unwrap_or_default();
@@ -160,7 +171,10 @@ mod tests {
             pe_path.display()
         );
 
-        let js_model = load_ml_model(&js_path, super::super::model::MalwareNetConfig::default_js());
+        let js_model = load_ml_model(
+            &js_path,
+            super::super::model::MalwareNetConfig::default_js(),
+        );
         assert!(
             js_model.is_some(),
             "JS model could not be loaded: {} (file exists? architecture matches?)",

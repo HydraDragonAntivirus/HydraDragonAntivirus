@@ -10,12 +10,12 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::{ProcessesToUpdate, System};
-use windows::Win32::Foundation::{CloseHandle, BOOL};
+use windows::Win32::Foundation::{BOOL, CloseHandle};
 use windows::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_NORMAL, MOVEFILE_DELAY_UNTIL_REBOOT, MOVEFILE_REPLACE_EXISTING, MoveFileExW,
     SetFileAttributesW,
 };
-use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
 use windows::core::PCWSTR;
 
 const QUARANTINE_MAGIC: &[u8; 7] = b"HYDRA\x00\x01";
@@ -162,7 +162,8 @@ pub fn build_quarantine_destination(src: &Path, qdir: &Path) -> PathBuf {
 /// Enumerate and terminate any running process executing or locking `path`.
 pub fn terminate_processes_locking_path(path: &Path) -> usize {
     let target_norm = normalize_usermode_path(path);
-    let target_canonical = std::fs::canonicalize(&target_norm).unwrap_or_else(|_| target_norm.clone());
+    let target_canonical =
+        std::fs::canonicalize(&target_norm).unwrap_or_else(|_| target_norm.clone());
     let target_str = target_norm.to_string_lossy().to_lowercase();
     let target_canon_str = target_canonical.to_string_lossy().to_lowercase();
     let target_name = target_norm
@@ -213,11 +214,7 @@ pub fn terminate_processes_locking_path(path: &Path) -> usize {
             }
 
             unsafe {
-                if let Ok(handle) = OpenProcess(
-                    PROCESS_TERMINATE,
-                    BOOL(0),
-                    pid_u32,
-                ) {
+                if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, BOOL(0), pid_u32) {
                     if TerminateProcess(handle, 1).as_bool() {
                         Logging::info(&format!(
                             "[Quarantine] Terminated locking process PID {} ({}) for {}",
@@ -281,7 +278,11 @@ pub fn try_delete_file_now(path: &Path) -> std::io::Result<()> {
     }
 
     // Step 5: Truncate file bytes to 0 to neutralize malware payload immediately even if handle locked
-    if let Ok(file) = std::fs::OpenOptions::new().write(true).truncate(true).open(&norm_path) {
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&norm_path)
+    {
         let _ = file.set_len(0);
     }
 
@@ -289,7 +290,10 @@ pub fn try_delete_file_now(path: &Path) -> std::io::Result<()> {
     let temp_trash = std::env::temp_dir().join(format!(
         "hd_del_{}_{}.tmp",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
     ));
     let wide_trash: Vec<u16> = temp_trash
         .as_os_str()
