@@ -186,7 +186,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				}
 				else
 				{
-					LOGLVL(Warning, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
+					LOGLVL(Critical, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
 				}
 			}
 				
@@ -195,7 +195,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			{
 				if (nVerdict == 1)
 				{
-					LOGLVL(Warning, FMT("detnotif: Target <" << sPath << "> is Trusted (verdict=1). KILL ONLY. Skipping quarantine."));
+					LOGLVL(Detailed, FMT("detnotif: Target <" << sPath << "> is Trusted (verdict=1). KILL ONLY. Skipping quarantine."));
 				}
 				else
 				{
