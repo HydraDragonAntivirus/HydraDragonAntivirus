@@ -152,11 +152,13 @@ fn run_installer() {
         windows::Win32::System::Services::OpenServiceW(
             h_sc_mgr,
             PCWSTR(kernel_svc_name.as_ptr()),
-            windows::Win32::System::Services::SERVICE_QUERY_STATUS,
+            SERVICE_ALL_ACCESS,
         )
     } {
-        println!("[+] Sanctum driver service already exists. Assuming already installed.");
-        log_step("kernel driver service already exists — exiting early");
+        println!("[+] 2nd boot detected. Starting services...");
+        log_step("kernel driver service exists -> starting it");
+        
+        let _ = unsafe { windows::Win32::System::Services::StartServiceW(h_existing, None) };
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_existing) };
 
         // Ensure PPL runner is started on subsequent boots
@@ -317,7 +319,8 @@ fn run_installer() {
 
 fn trigger_auto_reboot() {
     println!("[*] Automatically restarting the computer to complete installation...");
-    let _ = std::process::Command::new("shutdown")
+    // Use absolute path for shutdown to avoid Session 0 PATH lookup failures
+    let _ = std::process::Command::new("C:\\Windows\\System32\\shutdown.exe")
         .args([
             "/r",
             "/t",
