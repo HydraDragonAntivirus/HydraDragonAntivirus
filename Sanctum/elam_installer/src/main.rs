@@ -157,10 +157,31 @@ fn run_installer() {
         )
     } {
         println!(
-            "[+] Sanctum driver service already exists. Assuming already installed, exiting early."
+            "[+] Sanctum driver service already exists. Assuming already installed."
         );
         log_step("kernel driver service already exists — exiting early");
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_existing) };
+        
+        // Ensure PPL runner is started on subsequent boots
+        let ppl_svc_name = to_wstring("sanctum_ppl_runner");
+        if let Ok(h_ppl) = unsafe {
+            windows::Win32::System::Services::OpenServiceW(
+                h_sc_mgr,
+                PCWSTR(ppl_svc_name.as_ptr()),
+                SERVICE_ALL_ACCESS,
+            )
+        } {
+            log_step("starting sanctum_ppl_runner...");
+            let _ = unsafe {
+                windows::Win32::System::Services::StartServiceW(
+                    h_ppl,
+                    0,
+                    None,
+                )
+            };
+            let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_ppl) };
+        }
+        
         return; // Early exit on subsequent boots!
     }
 

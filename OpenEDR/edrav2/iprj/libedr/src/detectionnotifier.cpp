@@ -138,26 +138,85 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			if (!sTitle.empty())
 				vEvent.put("title", sTitle);
 				
-			// Use owlyshield_ransom.dll to quarantine the malicious file
+			// Determine action based on verdict
+			int64_t nVerdict = 0;
+			if (auto optVerdict = getByPathSafe(vEvent, "process.imageFile.verdict"))
+			{
+				try { nVerdict = std::stoll(std::string(optVerdict.value())); } catch (...) {}
+			}
+			
+			// Kill the offending process FIRST, regardless of verdict via kernel driver (edrdrv)
+			uint64_t nGid = 0;
+			if (auto optGid = getByPathSafe(vEvent, "process.id"))
+			{
+				try { nGid = std::stoull(std::string(optGid.value())); } catch (...) {}
+			}
+			
+			if (nGid > 0)
+			{
+				HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}", 
+					GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
+					NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+				if (hDev != INVALID_HANDLE_VALUE)
+				{
+					#pragma pack(push, 1)
+					struct COM_MESSAGE {
+						uint32_t msgType;
+						uint32_t pid;
+						uint64_t gid;
+						WCHAR path[260];
+						WCHAR quarantinePath[260];
+					};
+					#pragma pack(pop)
+					
+					COM_MESSAGE msg = {0};
+					msg.msgType = 6; // MESSAGE_KILL_ONLY_GID
+					msg.gid = nGid;
+					
+					DWORD retBytes = 0;
+					uint32_t output = 0;
+					DWORD IOCTL_OWLY = (0x00000022 << 16) | (0 << 14) | (0x921 << 2) | 0; // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x921, METHOD_BUFFERED, FILE_ANY_ACCESS)
+					
+					if (::DeviceIoControl(hDev, IOCTL_OWLY, &msg, sizeof(msg), &output, sizeof(output), &retBytes, NULL))
+						LOGLVL(Critical, FMT("detnotif: successfully KILLED malicious process GID=" << nGid << " via edrdrv IOCTL"));
+					else
+						LOGLVL(Critical, FMT("detnotif: FAILED to kill malicious process GID=" << nGid << " via edrdrv IOCTL. err=" << ::GetLastError()));
+						
+					::CloseHandle(hDev);
+				}
+				else
+				{
+					LOGLVL(Warning, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
+				}
+			}
+				
+			// Use owlyshield_ransom.dll to quarantine the malicious file ONLY IF verdict != 1
 			if (!sPath.empty())
 			{
-				HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-				if (hDll != nullptr)
+				if (nVerdict == 1)
 				{
-					typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-					auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
-					if (fnQ != nullptr)
+					LOGLVL(Warning, FMT("detnotif: Target <" << sPath << "> is Trusted (verdict=1). KILL ONLY. Skipping quarantine."));
+				}
+				else
+				{
+					HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+					if (hDll != nullptr)
 					{
-						std::string sDos = NtPathToDosPathString(sPath);
-						int32_t qRes = fnQ(
-							reinterpret_cast<const uint8_t*>(sDos.data()),
-							static_cast<uint32_t>(sDos.size()));
-						if (qRes == 0)
-							LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
-						else
-							LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
+						typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+						auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+						if (fnQ != nullptr)
+						{
+							std::string sDos = NtPathToDosPathString(sPath);
+							int32_t qRes = fnQ(
+								reinterpret_cast<const uint8_t*>(sDos.data()),
+								static_cast<uint32_t>(sDos.size()));
+							if (qRes == 0)
+								LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
+							else
+								LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
+						}
+						::FreeLibrary(hDll);
 					}
-					::FreeLibrary(hDll);
 				}
 			}
 		}

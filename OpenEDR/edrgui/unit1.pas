@@ -298,7 +298,9 @@ begin
   Sev := asInfo;
   for i := 0 to High(Detections) do
   begin
-    if (Detections[i].FlsVerdict = 2) or (Detections[i].Verdict = 2) then
+    if Pos('MLE_', Detections[i].EventType) = 1 then
+      Sev := asCritical
+    else if (Detections[i].FlsVerdict = 2) or (Detections[i].Verdict = 2) then
       Sev := asCritical;
       
     if sMsg <> '' then

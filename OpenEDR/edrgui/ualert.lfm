@@ -1,12 +1,12 @@
 object AlertForm: TAlertForm
   Left = 300
-  Height = 96
+  Height = 200
   Top = 300
-  Width = 360
+  Width = 450
   BorderStyle = bsNone
   Caption = 'Alert'
-  ClientHeight = 96
-  ClientWidth = 360
+  ClientHeight = 200
+  ClientWidth = 450
   Color = 3155224
   Font.Color = clWhite
   FormStyle = fsStayOnTop
@@ -48,7 +48,7 @@ object AlertForm: TAlertForm
     Left = 62
     Height = 20
     Top = 14
-    Width = 260
+    Width = 360
     Caption = ''
     Font.Color = clWhite
     Font.Height = -15
@@ -58,9 +58,9 @@ object AlertForm: TAlertForm
   end
   object LblMessage: TLabel
     Left = 62
-    Height = 44
+    Height = 140
     Top = 38
-    Width = 270
+    Width = 360
     AutoSize = False
     Caption = ''
     Font.Color = 12500670
