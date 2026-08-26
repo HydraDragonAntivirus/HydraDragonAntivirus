@@ -157,7 +157,7 @@ fn run_installer() {
     } {
         println!("[+] 2nd boot detected. Starting services...");
         log_step("kernel driver service exists -> starting it");
-        
+
         let _ = unsafe { windows::Win32::System::Services::StartServiceW(h_existing, None) };
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_existing) };
 
