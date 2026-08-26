@@ -146,11 +146,26 @@ fn run_installer() {
     // NOTE: must stay SERVICE_DEMAND_START. Boot-start + Early-Launch group
     // makes winload load the driver before logon; a test-signed or buggy
     // driver there black-screens the machine at next reboot.
+    let kernel_svc_name = to_wstring("Sanctum");
+
+    // First check if the service already exists to avoid redundant create requests
+    if let Ok(h_existing) = unsafe {
+        windows::Win32::System::Services::OpenServiceW(
+            h_sc_mgr,
+            PCWSTR(kernel_svc_name.as_ptr()),
+            windows::Win32::System::Services::SERVICE_QUERY_STATUS,
+        )
+    } {
+        println!("[+] Sanctum driver service already exists. Assuming already installed, exiting early.");
+        log_step("kernel driver service already exists — exiting early");
+        let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_existing) };
+        return; // Early exit on subsequent boots!
+    }
+
     println!("[i] Configuring Sanctum kernel driver service.");
     let kernel_driver_path =
         installed_path("AppData\\sanctum.sys").unwrap_or_else(|_| fallback_driver_path());
     let kernel_path_w = path_to_wstring(&kernel_driver_path);
-    let kernel_svc_name = to_wstring("Sanctum");
     let kernel_svc_display = to_wstring("Sanctum Kernel Driver");
 
     let h_kernel_svc = unsafe {
@@ -178,12 +193,7 @@ fn run_installer() {
             let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h) };
         }
         Err(e) => {
-            if e.code().0 as u32 == 0x80070431 || e.code().0 as u32 == 1073 {
-                println!("[+] Sanctum driver service already exists.");
-                log_step("kernel driver service already exists");
-            } else {
-                println!("[!] Warning: Failed to create Sanctum kernel service: {e}");
-            }
+            println!("[!] Warning: Failed to create Sanctum kernel service: {e}");
         }
     }
 
@@ -286,10 +296,9 @@ fn run_installer() {
 
     println!("[+] Successfully initialised the PPL AntiMalware service.");
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|arg| arg == "--reboot" || arg == "/reboot") {
-        trigger_auto_reboot();
-    }
+    // We only reach this point if the Sanctum kernel driver service was newly created.
+    // Therefore, this is the first install, and we must reboot.
+    trigger_auto_reboot();
 }
 
 fn trigger_auto_reboot() {
