@@ -156,7 +156,9 @@ fn run_installer() {
             windows::Win32::System::Services::SERVICE_QUERY_STATUS,
         )
     } {
-        println!("[+] Sanctum driver service already exists. Assuming already installed, exiting early.");
+        println!(
+            "[+] Sanctum driver service already exists. Assuming already installed, exiting early."
+        );
         log_step("kernel driver service already exists — exiting early");
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_existing) };
         return; // Early exit on subsequent boots!
