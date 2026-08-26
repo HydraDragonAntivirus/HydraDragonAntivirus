@@ -258,7 +258,7 @@ fn run_installer() {
             PCWSTR(svc_name().as_ptr()),
             SERVICE_ALL_ACCESS,
             SERVICE_WIN32_OWN_PROCESS,
-            SERVICE_AUTO_START,
+            SERVICE_DEMAND_START, // FIX: Prevent Windows from auto-starting it and hanging SCM before ELAM loads
             SERVICE_ERROR_NORMAL,
             PCWSTR(svc_bin_path().as_ptr()),
             PCWSTR::null(),
