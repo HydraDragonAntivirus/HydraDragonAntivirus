@@ -268,7 +268,7 @@ begin
                     if jProc <> nil then
                     begin
                       if ProcChain <> '' then
-                        ProcChain := ProcChain + ' -> ';
+                        ProcChain := ProcChain + ' -> '#13#10'  ';
                       ProcChain := ProcChain + ExtractFileName(GetPathStr(jProc, 'imagePath'));
                     end;
                   end;
