@@ -819,13 +819,13 @@
 		//
 		// Pattern for cloud FLS malicious verdict
 		//
-				"FLS_MALICIOUS_VERDICT": [
+		"FLS_MALICIOUS_VERDICT": [
 			{
 				"eventType": "*",
 				"rule": {
 					"condition": {
 						"$operation": "equal",
-						"args": [ "@event.process.imageFile.verdict", 2 ]
+						"args": [ "@event.file.verdict", 2 ]
 					},
 					"createEvent": {
 						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
@@ -838,7 +838,7 @@
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" }
 						]
 					}
 				}
