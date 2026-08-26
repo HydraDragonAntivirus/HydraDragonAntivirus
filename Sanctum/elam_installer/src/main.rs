@@ -17,15 +17,14 @@ use windows::{
                 REG_OPTION_NON_VOLATILE, RegCloseKey, RegCreateKeyExW, RegSetValueExW,
             },
             Services::{
-                ChangeServiceConfig2W, CreateServiceW, 
-                LPSERVICE_MAIN_FUNCTIONW, OpenSCManagerW, RegisterServiceCtrlHandlerW,
-                SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_AUTO_START,
-                SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
-                SERVICE_KERNEL_DRIVER, SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT,
-                SERVICE_LAUNCH_PROTECTED_INFO, SERVICE_LAUNCH_PROTECTED_NONE,
-                SERVICE_START_PENDING, SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_HANDLE,
-                SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS, SetServiceStatus,
-                StartServiceCtrlDispatcherW,
+                ChangeServiceConfig2W, CreateServiceW, LPSERVICE_MAIN_FUNCTIONW, OpenSCManagerW,
+                RegisterServiceCtrlHandlerW, SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS,
+                SERVICE_AUTO_START, SERVICE_CONFIG_LAUNCH_PROTECTED, SERVICE_DEMAND_START,
+                SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
+                SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT, SERVICE_LAUNCH_PROTECTED_INFO,
+                SERVICE_LAUNCH_PROTECTED_NONE, SERVICE_START_PENDING, SERVICE_STATUS_CURRENT_STATE,
+                SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW,
+                SERVICE_WIN32_OWN_PROCESS, SetServiceStatus, StartServiceCtrlDispatcherW,
             },
         },
     },
@@ -156,12 +155,10 @@ fn run_installer() {
             windows::Win32::System::Services::SERVICE_QUERY_STATUS,
         )
     } {
-        println!(
-            "[+] Sanctum driver service already exists. Assuming already installed."
-        );
+        println!("[+] Sanctum driver service already exists. Assuming already installed.");
         log_step("kernel driver service already exists — exiting early");
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_existing) };
-        
+
         // Ensure PPL runner is started on subsequent boots
         let ppl_svc_name = to_wstring("sanctum_ppl_runner");
         if let Ok(h_ppl) = unsafe {
@@ -172,15 +169,10 @@ fn run_installer() {
             )
         } {
             log_step("starting sanctum_ppl_runner...");
-            let _ = unsafe {
-                windows::Win32::System::Services::StartServiceW(
-                    h_ppl,
-                    None,
-                )
-            };
+            let _ = unsafe { windows::Win32::System::Services::StartServiceW(h_ppl, None) };
             let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_ppl) };
         }
-        
+
         return; // Early exit on subsequent boots!
     }
 
