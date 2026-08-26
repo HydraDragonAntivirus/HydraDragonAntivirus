@@ -131,29 +131,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					sTitle = std::string(optBaseType.value());
 			}
 
-			std::string sPath;
-			static const char* const c_pPaths[] = {
-				"processes[0].imagePath",
-				"process.imageFile.abstractPath",
-				"process.imageFile.path",
-				"process.imagePath",
-				"target.imageFile.abstractPath",
-				"target.imageFile.path",
-				"destination.abstractPath",
-				"destination.path",
-				"file.abstractPath",
-				"file.path"
-			};
-			for (const char* pszField : c_pPaths)
-			{
-				auto optField = getByPathSafe(vEvent, pszField);
-				if (optField.has_value() && !std::string(optField.value()).empty())
-				{
-					sPath = std::string(optField.value());
-					break;
-				}
-			}
-
+			std::string sPath = vEvent.get("quarantineTarget", std::string());
 			if (!sPath.empty())
 				sTitle += (sTitle.empty() ? "" : ": ") + sPath;
 

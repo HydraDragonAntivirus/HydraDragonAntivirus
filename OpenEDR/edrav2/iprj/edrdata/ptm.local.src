@@ -131,7 +131,8 @@
 							{ "name": "baseType", "value": "@const.powershellEventBaseType.MLE_POWERSHELL_MALICIOUS" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -195,7 +196,8 @@
 							{
 								"name": "tickTime",
 								"value": "@event.tickTime"
-							}
+							},
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -355,7 +357,8 @@
 							{ "name": "baseType", "value": "@const.pswEventBaseType.MLE_PSW_STEALER" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -394,7 +397,8 @@
 							{ "name": "baseType", "value": "@const.ransomShadowEventBaseType.MLE_RANSOM_SHADOW_COPY_DELETE" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -527,7 +531,8 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -555,7 +560,8 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -583,7 +589,8 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -611,7 +618,8 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -639,7 +647,8 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
 						]
 					}
 				}
@@ -830,7 +839,8 @@
 							{ "name": "file", "value": "@event.file" },
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
 						]
 					}
 				}

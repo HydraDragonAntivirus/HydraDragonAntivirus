@@ -309,6 +309,9 @@ begin
       sMsg := sMsg + Detections[i].EventType + ': ';
     if Detections[i].ImagePath <> '' then
       sMsg := sMsg + Detections[i].ImagePath;
+      
+    if Detections[i].AttackChain <> '' then
+      sMsg := sMsg + LineEnding + '  Attack Chain: ' + Detections[i].AttackChain;
   end;
 
   sTitle := Trim(sTitle);

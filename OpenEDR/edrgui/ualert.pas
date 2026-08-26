@@ -61,6 +61,8 @@ type
   public
     class procedure ShowAlert(const ATitle, AMsg: string;
       ASeverity: TAlertSeverity = asInfo; AAutoCloseMs: Integer = 6000);
+    class procedure LoadHistory;
+    class procedure SaveHistory;
   end;
 
 implementation
@@ -74,6 +76,78 @@ var
   Dummy: Integer;
 
 { TAlertForm }
+
+class procedure TAlertForm.LoadHistory;
+var
+  F: TextFile;
+  Line: string;
+  Item: TAlertItem;
+  HistFile: string;
+begin
+  HistFile := 'C:\ProgramData\HydraDragonQuarantine\alerts_history.txt';
+  if not FileExists(HistFile) then Exit;
+  
+  AssignFile(F, HistFile);
+  {$I-} Reset(F); {$I+}
+  if IOResult <> 0 then Exit;
+  
+  Item.Title := ''; Item.Msg := ''; Item.Severity := asInfo; Item.AutoCloseMs := 0;
+  
+  while not EOF(F) do
+  begin
+    ReadLn(F, Line);
+    if Line = '====' then
+    begin
+      if (Item.Title <> '') or (Item.Msg <> '') then
+      begin
+        SetLength(FHistory, Length(FHistory) + 1);
+        FHistory[Length(FHistory) - 1] := Item;
+      end;
+      Item.Title := ''; Item.Msg := ''; Item.Severity := asInfo; Item.AutoCloseMs := 0;
+    end
+    else if Item.Title = '' then
+      Item.Title := Line
+    else if Item.AutoCloseMs = 0 then // using AutoCloseMs as a flag for severity read
+    begin
+      Item.Severity := TAlertSeverity(StrToIntDef(Line, 0));
+      Item.AutoCloseMs := -1; // marked as read
+    end
+    else
+    begin
+      if Item.Msg <> '' then Item.Msg := Item.Msg + LineEnding + Line
+      else Item.Msg := Line;
+    end;
+  end;
+  CloseFile(F);
+  
+  FCurrentIndex := Length(FHistory) - 1;
+end;
+
+class procedure TAlertForm.SaveHistory;
+var
+  F: TextFile;
+  i: Integer;
+  HistFile: string;
+  Lines: TStringList;
+begin
+  HistFile := 'C:\ProgramData\HydraDragonQuarantine\alerts_history.txt';
+  ForceDirectories(ExtractFilePath(HistFile));
+  
+  AssignFile(F, HistFile);
+  {$I-} Rewrite(F); {$I+}
+  if IOResult <> 0 then Exit;
+  
+  for i := 0 to High(FHistory) do
+  begin
+    WriteLn(F, FHistory[i].Title);
+    WriteLn(F, IntToStr(Ord(FHistory[i].Severity)));
+    WriteLn(F, FHistory[i].Msg);
+    WriteLn(F, '====');
+  end;
+  CloseFile(F);
+end;
+
+
 
 class procedure TAlertForm.ShowAlert(const ATitle, AMsg: string;
   ASeverity: TAlertSeverity; AAutoCloseMs: Integer);
@@ -97,6 +171,7 @@ begin
   SetLength(FHistory, NewIndex + 1);
   FHistory[NewIndex] := Item;
   FCurrentIndex := NewIndex;
+  SaveHistory;
 
   FInstance.ShowCurrentAlert;
   FInstance.PositionAtCorner;
@@ -315,6 +390,7 @@ initialization
   TAlertForm.FInstance := nil;
   SetLength(TAlertForm.FHistory, 0);
   TAlertForm.FCurrentIndex := -1;
+  TAlertForm.LoadHistory;
 
 finalization
   TAlertForm.FInstance := nil;

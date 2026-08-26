@@ -32,6 +32,7 @@ type
     Title: string;
     EventType: string;
     ImagePath: string;
+    AttackChain: string;
     FlsVerdict: Integer;
     Verdict: Integer;
   end;
@@ -198,11 +199,12 @@ end;
 procedure TGuiNotifierThread.Execute;
 var
   j: TJSONData;
-  jEvents: TJSONArray;
-  jEvent: TJSONData;
+  jEvents, jProcs: TJSONArray;
+  jEvent, jProc: TJSONData;
   Req, Resp: string;
-  i, n: Integer;
+  i, n, k: Integer;
   Det: TDetInfo;
+  ProcChain: string;
 begin
   if not EnsureWSA then
     Exit;
@@ -248,9 +250,31 @@ begin
                   Continue;
 
                 Det.EventType := GetPathStr(jEvent, 'type');
-                Det.ImagePath := GetPathStr(jEvent, 'processes[0].imagePath');
+                Det.ImagePath := GetPathStr(jEvent, 'quarantineTarget');
                 if Det.ImagePath = '' then
-                  Det.ImagePath := GetPathStr(jEvent, 'childProcess.imagePath');
+                begin
+                  Det.ImagePath := GetPathStr(jEvent, 'processes[0].imagePath');
+                  if Det.ImagePath = '' then
+                    Det.ImagePath := GetPathStr(jEvent, 'childProcess.imagePath');
+                end;
+
+                ProcChain := '';
+                jProcs := jEvent.FindPath('processes') as TJSONArray;
+                if jProcs <> nil then
+                begin
+                  for k := 0 to jProcs.Count - 1 do
+                  begin
+                    jProc := jProcs.Items[k];
+                    if jProc <> nil then
+                    begin
+                      if ProcChain <> '' then
+                        ProcChain := ProcChain + ' -> ';
+                      ProcChain := ProcChain + ExtractFileName(GetPathStr(jProc, 'imagePath'));
+                    end;
+                  end;
+                end;
+                Det.AttackChain := ProcChain;
+
                 Det.Title := GetPathStr(jEvent, 'title');
                 Det.FlsVerdict := GetPathInt(jEvent, 'processes[0].flsVerdict');
                 Det.Verdict := GetPathInt(jEvent, 'processes[0].verdict');

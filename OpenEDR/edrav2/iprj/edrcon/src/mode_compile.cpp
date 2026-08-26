@@ -163,7 +163,16 @@ private:
 		if (m_sOutFileName.empty())
 			error::InvalidArgument(SL, "Missing output file").throwException();
 
-		saveResult(compile(loadSources()));
+		Variant compiledData = compile(loadSources());
+		
+		std::string sJson = variant::serializeToJson(compiledData);
+		if (sJson.find("quarantineTarget") == std::string::npos)
+		{
+			// Basic heuristic to ensure the required quarantine fields are present in the final compiled JSON
+			error::InvalidArgument(SL, "CRITICAL ERROR: The compiled rules are missing the 'quarantineTarget' field! You must add { \"name\": \"quarantineTarget\", \"value\": \"...\" } to the MLE event data array.").throwException();
+		}
+
+		saveResult(compiledData);
 	}
 
 public:
