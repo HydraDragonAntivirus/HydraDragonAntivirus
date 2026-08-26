@@ -120,6 +120,7 @@
 			<Files Include="$(var.SourceBinDir)**">
 				<Exclude Files="$(var.SourceBinDir)models\**" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.sys" />
+				<Exclude Files="$(var.SourceBinDir)Sanctum\AppData\sanctum.sys" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.dll" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\elam_installer.exe" />
 			</Files>
