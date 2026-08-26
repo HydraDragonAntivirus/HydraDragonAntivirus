@@ -844,7 +844,7 @@
 				}
 			},
 			{
-				"eventType": "LLE_PROCESS_CREATE",
+				"eventType": "*",
 				"rule": {
 					"condition": {
 						"$operation": "equal",
