@@ -144,6 +144,14 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			{
 				try { nVerdict = std::stoll(std::string(optVerdict.value())); } catch (...) {}
 			}
+			// If process verdict is trusted or unknown, check if the dropped file was the one with verdict=2
+			if (nVerdict != 2)
+			{
+				if (auto optVerdictFile = getByPathSafe(vEvent, "file.verdict"))
+				{
+					try { nVerdict = std::stoll(std::string(optVerdictFile.value())); } catch (...) {}
+				}
+			}
 			
 			// Kill the offending process FIRST, regardless of verdict via kernel driver (edrdrv)
 			uint64_t nGid = 0;
@@ -215,9 +223,21 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							else
 								LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
 						}
+						else
+						{
+							LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found!");
+						}
 						::FreeLibrary(hDll);
 					}
+					else
+					{
+						LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Cannot quarantine malware.");
+					}
 				}
+			}
+			else
+			{
+				LOGLVL(Critical, "detnotif: quarantineTarget path is empty! Cannot quarantine anything.");
 			}
 		}
 
