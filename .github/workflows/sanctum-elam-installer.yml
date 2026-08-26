@@ -38,7 +38,8 @@ jobs:
         run: cargo check -p elam_installer
 
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
+    needs: ci
+    if: needs.ci.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/development-version' && !startsWith(github.ref_name, 'auto-update-')
     runs-on: windows-2022
     steps:
       - name: Enable Git long paths
