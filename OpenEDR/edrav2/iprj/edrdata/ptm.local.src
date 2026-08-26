@@ -842,6 +842,29 @@
 						]
 					}
 				}
+			},
+			{
+				"eventType": "LLE_PROCESS_CREATE",
+				"rule": {
+					"condition": {
+						"$operation": "equal",
+						"args": [ "@event.process.imageFile.verdict", 2 ]
+					},
+					"createEvent": {
+						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "network", "value": "@event.network" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+						]
+					}
+				}
 			}
 		] // FLS_MALICIOUS_VERDICT
 	}

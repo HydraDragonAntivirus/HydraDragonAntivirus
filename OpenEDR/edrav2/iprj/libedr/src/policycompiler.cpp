@@ -259,35 +259,40 @@ Variant PolicyCompiler::compileEventRules(Context& ctx) const
 			chainedEventRules[sEventType].insert(pItem);
 	}
 
-	// Expand "*" wildcard to all known event types dynamically
+	// Expand wildcards (like "*" or "LLE_PROCESS_*") to all known event types dynamically
 	std::set<std::string> allEventTypes;
 	
-	// Collect all events used in any rule
+	// Collect all events used in any rule (excluding those with wildcards)
 	for (const auto& [eventType, prioritizedRules] : patternEventRules)
-		if (eventType != "*") allEventTypes.insert(eventType);
+		if (eventType.find('*') == std::string::npos) allEventTypes.insert(eventType);
 	for (const auto& [eventType, prioritizedRules] : chainedEventRules)
-		if (eventType != "*") allEventTypes.insert(eventType);
+		if (eventType.find('*') == std::string::npos) allEventTypes.insert(eventType);
 
-	// Duplicate wildcard rules across all gathered events
-	if (patternEventRules.count("*")) {
-		const auto& wildcardRules = patternEventRules["*"];
-		for (const auto& eventType : allEventTypes) {
-			for (const auto& pItem : wildcardRules) {
-				patternEventRules[eventType].insert(pItem);
+	// Helper lambda to duplicate wildcard rules
+	auto expandWildcards = [&allEventTypes](auto& ruleMap) {
+		std::vector<std::string> keysToErase;
+		for (const auto& [pattern, wildcardRules] : ruleMap) {
+			if (pattern.find('*') != std::string::npos) {
+				keysToErase.push_back(pattern);
+				std::string prefix = pattern.substr(0, pattern.find('*'));
+				
+				for (const auto& eventType : allEventTypes) {
+					// Match full "*" or partial prefix like "LLE_PROCESS_*"
+					if (prefix.empty() || eventType.find(prefix) == 0) {
+						for (const auto& pItem : wildcardRules) {
+							ruleMap[eventType].insert(pItem);
+						}
+					}
+				}
 			}
 		}
-		patternEventRules.erase("*");
-	}
-
-	if (chainedEventRules.count("*")) {
-		const auto& wildcardRules = chainedEventRules["*"];
-		for (const auto& eventType : allEventTypes) {
-			for (const auto& pItem : wildcardRules) {
-				chainedEventRules[eventType].insert(pItem);
-			}
+		for (const auto& key : keysToErase) {
+			ruleMap.erase(key);
 		}
-		chainedEventRules.erase("*");
-	}
+	};
+
+	expandWildcards(patternEventRules);
+	expandWildcards(chainedEventRules);
 
 	std::multimap<std::string, Variant> eventMap;
 
