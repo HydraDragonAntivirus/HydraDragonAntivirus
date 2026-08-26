@@ -48,14 +48,9 @@ pub fn ensure_mbrfilter_driver() {
 
     if let Some(src) = staged_src {
         let dest_exists = std::path::Path::new(&driver_dest).is_file();
-        let needs_copy = !dest_exists
-            || src.metadata().map(|m| m.len()).unwrap_or(0)
-                != std::path::Path::new(&driver_dest)
-                    .metadata()
-                    .map(|m| m.len())
-                    .unwrap_or(0);
+        let needs_copy = !dest_exists; // Sadece hedefte dosya HİÇ YOKSA kopyala. Boyut farkına bakma, çünkü zaten kurulu ve kilitli olabilir.
         if needs_copy {
-            match std::fs::copy(&src, &driver_dest) {
+            match std::fs::read(&src).and_then(|data| std::fs::write(&driver_dest, data)) {
                 Ok(_) => Logging::info(&format!("[MBR] Staged MBRFilter.sys to {}", driver_dest)),
                 Err(err) => Logging::error(&format!(
                     "[MBR] Failed to copy MBRFilter.sys to {}: {}",

@@ -429,6 +429,8 @@ Variant WinService::uninstall(Variant vParams)
 			std::string cmd = "\"" + elamInstallerPath.string() + "\" --uninstall";
 			::system(cmd.c_str());
 		}
+		// Mark the MBRFilter kernel driver for deletion (do not use sc stop to avoid crashing)
+		::system("sc delete MBRFilter");
 	}
 	catch (...) {}
 
@@ -451,6 +453,12 @@ Variant WinService::uninstall(Variant vParams)
 	{
 		error::RuntimeError(SL, "Unhandled exception in stopping service <edrsvc>, trying uninstall without stopping").log();
 	}
+
+	// Show warning to the user
+	::MessageBoxA(NULL, 
+		"A full restart is required to reinstall or fully uninstall OpenEDR components.", 
+		"HydraDragon Antivirus", 
+		MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
 
 	return execCommand(createObject(CLSID_WinServiceController), "delete",
 		Dictionary({ { "name", c_sServiceName } }));
