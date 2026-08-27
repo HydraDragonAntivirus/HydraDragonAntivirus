@@ -204,7 +204,8 @@ fn run_installer() {
         // CRITICAL: Install ELAM certificate into kernel RAM memory on 2nd boot too!
         install_elam_cert();
 
-        if let Err(e) = unsafe { windows::Win32::System::Services::StartServiceW(h_existing, None) } {
+        if let Err(e) = unsafe { windows::Win32::System::Services::StartServiceW(h_existing, None) }
+        {
             println!("[!] StartServiceW for Sanctum kernel driver failed: {e}");
         } else {
             println!("[+] Sanctum kernel driver service started successfully.");
@@ -221,7 +222,8 @@ fn run_installer() {
             )
         } {
             log_step("starting sanctum_ppl_runner...");
-            if let Err(e) = unsafe { windows::Win32::System::Services::StartServiceW(h_ppl, None) } {
+            if let Err(e) = unsafe { windows::Win32::System::Services::StartServiceW(h_ppl, None) }
+            {
                 println!("[!] StartServiceW for sanctum_ppl_runner failed: {e}");
             } else {
                 println!("[+] sanctum_ppl_runner service started successfully!");
