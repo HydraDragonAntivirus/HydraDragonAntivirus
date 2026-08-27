@@ -149,6 +149,18 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			}
 
 			std::string sPath = vEvent.get("quarantineTarget", std::string());
+			if (sPath.empty())
+			{
+				if (auto optP = getByPathSafe(vEvent, "childProcess.imagePath"))
+					sPath = std::string(optP.value());
+				else if (auto optF = getByPathSafe(vEvent, "file.path"))
+					sPath = std::string(optF.value());
+				else if (auto optAbs = getByPathSafe(vEvent, "process.imageFile.abstractPath"))
+					sPath = std::string(optAbs.value());
+				else if (auto optRaw = getByPathSafe(vEvent, "process.imageFile.rawPath"))
+					sPath = std::string(optRaw.value());
+			}
+
 			if (!sPath.empty())
 				sTitle += (sTitle.empty() ? "" : ": ") + sPath;
 
@@ -157,24 +169,28 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				
 			// Determine action based on verdict
 			int64_t nVerdict = 0;
-			if (auto optVerdict = getByPathSafe(vEvent, "process.imageFile.verdict"))
+			if (auto optVerdict = getByPathSafe(vEvent, "childProcess.verdict"))
 			{
 				try { nVerdict = std::stoll(std::string(optVerdict.value())); } catch (...) {}
 			}
-			// If process verdict is trusted or unknown, check if the dropped file was the one with verdict=2
-			if (nVerdict != 2)
+			else if (auto optVerdictP = getByPathSafe(vEvent, "process.imageFile.verdict"))
 			{
-				if (auto optVerdictFile = getByPathSafe(vEvent, "file.verdict"))
-				{
-					try { nVerdict = std::stoll(std::string(optVerdictFile.value())); } catch (...) {}
-				}
+				try { nVerdict = std::stoll(std::string(optVerdictP.value())); } catch (...) {}
+			}
+			else if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
+			{
+				try { nVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
 			}
 			
-			// Kill the offending process FIRST, regardless of verdict via kernel driver (edrdrv)
+			// Kill the offending process FIRST via kernel driver (edrdrv)
 			uint64_t nGid = 0;
-			if (auto optGid = getByPathSafe(vEvent, "process.id"))
+			if (auto optGid = getByPathSafe(vEvent, "childProcess.id"))
 			{
 				try { nGid = std::stoull(std::string(optGid.value())); } catch (...) {}
+			}
+			else if (auto optGidP = getByPathSafe(vEvent, "process.id"))
+			{
+				try { nGid = std::stoull(std::string(optGidP.value())); } catch (...) {}
 			}
 			
 			if (nGid > 0)

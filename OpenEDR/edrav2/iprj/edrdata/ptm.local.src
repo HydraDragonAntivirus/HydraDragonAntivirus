@@ -1115,7 +1115,7 @@
 		// Pattern for cloud FLS malicious verdict
 		//
 		"FLS_MALICIOUS_VERDICT": [
-			// Case 1: file.verdict is 2, abstractPath is available
+			// Case 1: file.verdict is 2 (MALWARE), abstractPath is available
 			{
 				"eventType": "*",
 				"rule": {
@@ -1149,7 +1149,7 @@
 					}
 				}
 			},
-			// Case 2: file.verdict is 2, abstractPath is missing -> use rawPath
+			// Case 2: file.verdict is 2 (MALWARE), abstractPath is missing -> use rawPath
 			{
 				"eventType": "*",
 				"rule": {
@@ -1183,7 +1183,7 @@
 					}
 				}
 			},
-			// Case 3: process.imageFile.verdict is 2, abstractPath is available
+			// Case 3: process.imageFile.verdict is 2 (MALWARE), abstractPath is available
 			{
 				"eventType": "*",
 				"rule": {
@@ -1217,7 +1217,7 @@
 					}
 				}
 			},
-			// Case 4: process.imageFile.verdict is 2, abstractPath is missing -> use rawPath
+			// Case 4: process.imageFile.verdict is 2 (MALWARE), abstractPath is missing -> use rawPath
 			{
 				"eventType": "*",
 				"rule": {
