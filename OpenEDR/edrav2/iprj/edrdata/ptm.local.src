@@ -573,7 +573,7 @@
 				"rule": {
 					"saveContext": {
 						"basket": "@const.ransomBasket.processCounter",
-						"key": "@event.process.id",
+						"key": "@event.childProcess.id",
 						"lifetime": 86400000,
 						"data": {
 							"hitCount": 0
