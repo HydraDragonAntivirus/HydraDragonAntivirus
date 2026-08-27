@@ -660,17 +660,24 @@
 				}
 			},
 
-			// Step 2a: Same process overwrites the previously-read file via write -> trigger MLE_RANSOM_BEHAVIOR
+			// Step 2a: File write -> trigger Candidate
 			{
 				"eventType": "LLE_FILE_DATA_WRITE_FULL",
 				"rule": {
-					"loadContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
-					},
-					"deleteContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -680,7 +687,6 @@
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "destination", "value": "@event.file" },
-							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
@@ -689,17 +695,24 @@
 				}
 			},
 
-			// Step 2b: Same process overwrites the previously-read file via mmap write -> trigger MLE_RANSOM_BEHAVIOR
+			// Step 2b: Memory-mapped write -> trigger Candidate
 			{
 				"eventType": "LLE_FILE_MAP_WRITE",
 				"rule": {
-					"loadContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
-					},
-					"deleteContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -709,7 +722,6 @@
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "destination", "value": "@event.file" },
-							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
@@ -718,17 +730,24 @@
 				}
 			},
 
-			// Step 2c: Same process modifies previously-read file -> trigger MLE_RANSOM_BEHAVIOR
+			// Step 2c: File data change (RF10) -> trigger Candidate
 			{
 				"eventType": "LLE_FILE_DATA_CHANGE",
 				"rule": {
-					"loadContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
-					},
-					"deleteContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -738,7 +757,6 @@
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "destination", "value": "@event.file" },
-							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
@@ -747,17 +765,24 @@
 				}
 			},
 
-			// Step 2d: Same process renames previously-read file -> trigger MLE_RANSOM_BEHAVIOR
+			// Step 2d: File rename -> trigger Candidate
 			{
 				"eventType": "LLE_FILE_RENAME",
 				"rule": {
-					"loadContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
-					},
-					"deleteContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -767,7 +792,6 @@
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "destination", "value": "@event.file" },
-							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
@@ -776,17 +800,24 @@
 				}
 			},
 
-			// Step 2e: Same process deletes previously-read file -> trigger MLE_RANSOM_BEHAVIOR
+			// Step 2e: File delete (RF4) -> trigger Candidate
 			{
 				"eventType": "LLE_FILE_DELETE",
 				"rule": {
-					"loadContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
-					},
-					"deleteContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey"
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -796,7 +827,6 @@
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 							{ "name": "process", "value": "@event.process" },
 							{ "name": "destination", "value": "@event.file" },
-							{ "name": "source", "value": "@context.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
