@@ -149,17 +149,47 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			}
 
 			std::string sPath = vEvent.get("quarantineTarget", std::string());
+			if (sPath == "<undefined>" || sPath == "null")
+				sPath.clear();
+
 			if (sPath.empty())
 			{
 				if (auto optP = getByPathSafe(vEvent, "childProcess.imagePath"))
 					sPath = std::string(optP.value());
-				else if (auto optF = getByPathSafe(vEvent, "file.path"))
-					sPath = std::string(optF.value());
+				else if (auto optProcesses = getByPathSafe(vEvent, "processes"))
+				{
+					if (optProcesses->isListLike() && !optProcesses->isEmpty())
+					{
+						auto firstProc = optProcesses->value()[0];
+						if (firstProc.isDictionaryLike())
+						{
+							if (auto optImg = getByPathSafe(firstProc, "imagePath"))
+								sPath = std::string(optImg.value());
+						}
+					}
+				}
 				else if (auto optAbs = getByPathSafe(vEvent, "process.imageFile.abstractPath"))
 					sPath = std::string(optAbs.value());
 				else if (auto optRaw = getByPathSafe(vEvent, "process.imageFile.rawPath"))
 					sPath = std::string(optRaw.value());
+				else if (auto optProcImg = getByPathSafe(vEvent, "process.imagePath"))
+					sPath = std::string(optProcImg.value());
+				else
+				{
+					// Only use file.path if the file itself is the detected malware (verdict == 2)
+					int64_t fv = 0;
+					if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
+						try { fv = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
+					if (fv == 2)
+					{
+						if (auto optF = getByPathSafe(vEvent, "file.path"))
+							sPath = std::string(optF.value());
+					}
+				}
 			}
+
+			if (sPath == "<undefined>" || sPath == "null")
+				sPath.clear();
 
 			if (!sPath.empty())
 				sTitle += (sTitle.empty() ? "" : ": ") + sPath;
@@ -191,6 +221,18 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			else if (auto optGidP = getByPathSafe(vEvent, "process.id"))
 			{
 				try { nGid = std::stoull(std::string(optGidP.value())); } catch (...) {}
+			}
+			else if (auto optProcesses = getByPathSafe(vEvent, "processes"))
+			{
+				if (optProcesses->isListLike() && !optProcesses->isEmpty())
+				{
+					auto firstProc = optProcesses->value()[0];
+					if (firstProc.isDictionaryLike())
+					{
+						if (auto optId = getByPathSafe(firstProc, "id"))
+							try { nGid = std::stoull(std::string(optId.value())); } catch (...) {}
+					}
+				}
 			}
 			
 			if (nGid > 0)

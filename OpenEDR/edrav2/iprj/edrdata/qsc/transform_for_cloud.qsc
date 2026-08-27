@@ -97,6 +97,12 @@
 						"item": "sessionUser",
 						"localPath": "process.token.user.name",
 						"default": "<undefined>"
+					},
+					// Copy quarantineTarget if set by PTM policy
+					{
+						"item": "quarantineTarget",
+						"localPath": "quarantineTarget",
+						"default": "<undefined>"
 					}
 				],
 				"args": [
