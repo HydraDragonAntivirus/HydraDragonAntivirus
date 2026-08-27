@@ -578,6 +578,23 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	// Put process info to event
 	auto vRawProcess = vEvent.get("process");
+	if (vRawProcess.isEmpty() && vEvent.has("processes"))
+	{
+		try
+		{
+			auto vSeq = vEvent.get("processes");
+			if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
+			{
+				vRawProcess = vSeq[vSeq.getSize() - 1];
+			}
+		}
+		catch (...) {}
+	}
+	if (vRawProcess.isEmpty() && vEvent.has("childProcess"))
+	{
+		vRawProcess = vEvent.get("childProcess");
+	}
+
 	auto vProcess = m_pProcProvider->enrichProcessInfo(vRawProcess);
 	if (vProcess.isEmpty())
 	{
