@@ -8,7 +8,7 @@ taskkill /F /IM edrcon.exe >nul 2>&1
 
 :: Run edrcon compile
 echo [i] Executing edrcon.exe compile...
-.\edrcon.exe compile
+.\edrcon.exe compile -o ptm.act common.src ptm.local.src
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
