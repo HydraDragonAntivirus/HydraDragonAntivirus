@@ -1176,98 +1176,7 @@
 			},
 
 
-  			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit) - abstractPath/rawPath/path variant
-  			{
-  				"eventType": "MLE_RANSOM_EVALUATE",
-  				"rule": {
-  					"condition": {
-  						"$operation": "and",
-  						"args": [
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.process.imageFile.abstractPath" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.destination.abstractPath" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.destination.path" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.file.path" ]
-  							},
-  							{
-  								"$operation": "greater",
-  								"args": [ "@event.hitCount", 0 ]
-  							},
-  							{
-  								"$operation": "or",
-  								"args": [
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.abstractPath" ]
-  									},
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.rawPath" ]
-  									},
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.path" ]
-  									},
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.file.path" ]
-  									}
-  								]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "*\\appdata\\*",
-  								"args": [ "@event.destination.abstractPath" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "*\\appdata\\*",
-  								"args": [ "@event.destination.path" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "*\\appdata\\*",
-  								"args": [ "@event.file.path" ]
-  							}
-  						]
-  					},
-  					"createEvent": {
-  						"eventType": "MLE_RANSOM_BEHAVIOR",
-  						"destination": "OUT",
-  						"clone": false,
-  						"data": [
-  							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-  							{ "name": "process", "value": "@event.process" },
-  							{ "name": "destination", "value": "@event.destination" },
-  							{ "name": "source", "value": "@event.source" },
-  							{ "name": "time", "value": "@event.time" },
-  							{ "name": "tickTime", "value": "@event.tickTime" },
-  							{ "name": "hitCount", "value": "@event.hitCount" },
-  							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-  						]
-  					}
-  				}
-  			},
-
-  			// Step 4a (fallback): Fast Lane evaluation - rawPath variant
+  			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit)
   			{
   				"eventType": "MLE_RANSOM_EVALUATE",
   				"rule": {
@@ -1289,29 +1198,9 @@
   								"args": [ "@event.hitCount", 0 ]
   							},
   							{
-  								"$operation": "or",
-  								"args": [
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.abstractPath" ]
-  									},
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.rawPath" ]
-  									},
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.path" ]
-  									},
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.file.path" ]
-  									}
-  								]
+  								"$operation": "imatch",
+  								"pattern": "*\\users\\*",
+  								"args": [ "@event.destination.path" ]
   							},
   							{
   								"$operation": "!imatch",
@@ -1328,7 +1217,6 @@
   							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
   							{ "name": "process", "value": "@event.process" },
   							{ "name": "destination", "value": "@event.destination" },
-  							{ "name": "source", "value": "@event.source" },
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
   							{ "name": "hitCount", "value": "@event.hitCount" },
@@ -1338,7 +1226,7 @@
   				}
   			},
 
-  			// Step 4b: Slow Lane evaluation (Non-User Profile files -> 5 hits) - abstractPath variant
+  			// Step 4b: Slow Lane evaluation (Non-User Profile files -> 5 hits)
   			{
   				"eventType": "MLE_RANSOM_EVALUATE",
   				"rule": {
@@ -1384,63 +1272,6 @@
   							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
   							{ "name": "process", "value": "@event.process" },
   							{ "name": "destination", "value": "@event.destination" },
-  							{ "name": "source", "value": "@event.source" },
-  							{ "name": "time", "value": "@event.time" },
-  							{ "name": "tickTime", "value": "@event.tickTime" },
-  							{ "name": "hitCount", "value": "@event.hitCount" },
-  							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-  						]
-  					}
-  				}
-  			},
-
-  			// Step 4b (fallback): Slow Lane evaluation - rawPath variant
-  			{
-  				"eventType": "MLE_RANSOM_EVALUATE",
-  				"rule": {
-  					"condition": {
-  						"$operation": "and",
-  						"args": [
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.process.imagePath" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.destination.path" ]
-  							},
-  							{
-  								"$operation": "greater",
-  								"args": [ "@event.hitCount", 4 ]
-  							},
-  							{
-  								"$operation": "or",
-  								"args": [
-  									{
-  										"$operation": "!imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.path" ]
-  									},
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\appdata\\*",
-  										"args": [ "@event.destination.path" ]
-  									}
-  								]
-  							}
-  						]
-  					},
-  					"createEvent": {
-  						"eventType": "MLE_RANSOM_BEHAVIOR",
-  						"destination": "OUT",
-  						"clone": false,
-  						"data": [
-  							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-  							{ "name": "process", "value": "@event.process" },
-  							{ "name": "destination", "value": "@event.destination" },
-  							{ "name": "source", "value": "@event.source" },
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
   							{ "name": "hitCount", "value": "@event.hitCount" },
