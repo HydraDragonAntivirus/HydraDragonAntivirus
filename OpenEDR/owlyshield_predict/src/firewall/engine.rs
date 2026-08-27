@@ -1976,26 +1976,34 @@ impl FirewallEngine {
         use windows::Win32::Security::Cryptography::{
             CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
             CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, CertAddCertificateContextToStore,
-            CertCloseStore, CertCreateCertificateContext, CertEnumCertificatesInStore,
-            CertFreeCertificateContext, CertGetNameStringW, CertOpenSystemStoreA,
-            X509_ASN_ENCODING,
+            CertCloseStore, CertCreateCertificateContext, CertDeleteCertificateFromStore,
+            CertDuplicateCertificateContext, CertEnumCertificatesInStore, CertGetNameStringW,
+            CertOpenSystemStoreA, X509_ASN_ENCODING,
         };
         use windows::core::PCSTR;
 
         unsafe {
+            let cert = CertCreateCertificateContext(X509_ASN_ENCODING, der);
+            if cert.is_null() {
+                return Err(format!(
+                    "CertCreateCertificateContext failed: {}",
+                    windows::Win32::Foundation::GetLastError().0
+                ));
+            }
+
             let store = CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr()))
                 .map_err(|e| format!("CertOpenSystemStoreA: {:?}", e))?;
 
-            // Idempotency: enumerate every cert in the ROOT store and compare its
-            // simple display name. CERT_FIND_SUBJECT_STR can miss due to X.500
-            // subject formatting differences; this enumeration is authoritative.
-            let mut existing_found = false;
+            // Remove any old/stale "HydraDragon Firewall CA" certs that don't match the new DER bytes
             let mut prev: Option<*const CERT_CONTEXT> = None;
-            loop {
-                let current = CertEnumCertificatesInStore(store, prev);
-                if current.is_null() {
-                    break;
+            while let Some(current) = {
+                let c = CertEnumCertificatesInStore(store, prev);
+                if c.is_null() {
+                    None
+                } else {
+                    Some(c)
                 }
+            } {
                 let mut buf = [0u16; 256];
                 let n = CertGetNameStringW(
                     current,
@@ -2009,29 +2017,24 @@ impl FirewallEngine {
                         .trim()
                         .to_string();
                     if name == "HydraDragon Firewall CA" {
-                        existing_found = true;
+                        let is_identical = (*current).cbCertEncoded == (*cert).cbCertEncoded
+                            && std::slice::from_raw_parts(
+                                (*current).pbCertEncoded,
+                                (*current).cbCertEncoded as usize,
+                            ) == std::slice::from_raw_parts(
+                                (*cert).pbCertEncoded,
+                                (*cert).cbCertEncoded as usize,
+                            );
+
+                        if !is_identical {
+                            let dup = CertDuplicateCertificateContext(Some(current));
+                            let _ = CertDeleteCertificateFromStore(dup);
+                            prev = None;
+                            continue;
+                        }
                     }
                 }
-                if existing_found {
-                    CertFreeCertificateContext(Some(current));
-                    break;
-                }
                 prev = Some(current);
-            }
-
-            if existing_found {
-                let _ = CertCloseStore(store, 0);
-                return Ok(());
-            }
-
-            let cert = CertCreateCertificateContext(X509_ASN_ENCODING, der);
-
-            if cert.is_null() {
-                let _ = CertCloseStore(store, 0);
-                return Err(format!(
-                    "CertCreateCertificateContext failed: {}",
-                    windows::Win32::Foundation::GetLastError().0
-                ));
             }
 
             let result = CertAddCertificateContextToStore(
