@@ -622,11 +622,22 @@ void EventEnricher::put(const Variant& vEventRef)
 		if (eEventType == Event::LLE_FILE_DATA_CHANGE)
 			vParams.put("cmdModify", true);
 
-		// Update file info
+		// Update file info with fallback to raw vParams if provider fails (e.g. sharing violation)
 		vEvent.put("file", variant::createLambdaProxy([vParams]() -> Variant 
 		{
-			auto pFileInformation = queryInterface<sys::win::IFileInformation>(queryService("fileDataProvider"));
-			return pFileInformation->getFileInfo(vParams);
+			try
+			{
+				auto pFileInformation = queryInterface<sys::win::IFileInformation>(queryService("fileDataProvider"));
+				auto res = pFileInformation->getFileInfo(vParams);
+				if (res.isDictionaryLike() && !res.isEmpty())
+				{
+					if (!res.has("path") && vParams.has("path"))
+						res.put("path", vParams["path"]);
+					return res;
+				}
+			}
+			catch (...) {}
+			return vParams;
 		}, true));
 
 		break;
@@ -644,8 +655,19 @@ void EventEnricher::put(const Variant& vEventRef)
 		vParams.put("security", vToken);
 		vEvent.put("file", variant::createLambdaProxy([vParams]() -> Variant
 		{
-			auto pFileInformation = queryInterface<sys::win::IFileInformation>(queryService("fileDataProvider"));
-			return pFileInformation->getFileInfo(vParams);
+			try
+			{
+				auto pFileInformation = queryInterface<sys::win::IFileInformation>(queryService("fileDataProvider"));
+				auto res = pFileInformation->getFileInfo(vParams);
+				if (res.isDictionaryLike() && !res.isEmpty())
+				{
+					if (!res.has("path") && vParams.has("path"))
+						res.put("path", vParams["path"]);
+					return res;
+				}
+			}
+			catch (...) {}
+			return vParams;
 		}, true));
 		break;
 	}
