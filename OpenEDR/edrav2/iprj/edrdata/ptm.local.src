@@ -709,7 +709,7 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
 						]
 					}
 				}
@@ -744,7 +744,7 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
 						]
 					}
 				}
@@ -779,7 +779,7 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
 						]
 					}
 				}
@@ -814,7 +814,7 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
 						]
 					}
 				}
@@ -849,7 +849,7 @@
 							{ "name": "destination", "value": "@event.file" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
 						]
 					}
 				}
