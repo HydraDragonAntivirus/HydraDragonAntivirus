@@ -10,7 +10,6 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -1979,10 +1978,13 @@ impl FirewallEngine {
             CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, CertAddCertificateContextToStore,
             CertCloseStore, CertCreateCertificateContext, CertDeleteCertificateFromStore,
             CertDuplicateCertificateContext, CertEnumCertificatesInStore, CertFreeCertificateContext,
-            CertGetNameStringW, CertOpenStore, CERT_STORE_PROV_SYSTEM_A, CERT_SYSTEM_STORE_CURRENT_USER,
-            CERT_SYSTEM_STORE_FLAGS, CERT_SYSTEM_STORE_LOCAL_MACHINE, X509_ASN_ENCODING,
+            CertGetNameStringW, CertOpenStore, CERT_STORE_PROV_SYSTEM_A, CERT_QUERY_ENCODING_TYPE,
+            CERT_OPEN_STORE_FLAGS, HCRYPTPROV_LEGACY,
         };
-        use windows::core::PCSTR;
+
+        const CERT_SYSTEM_STORE_LOCAL_MACHINE: u32 = 0x00020000;
+        const X509_ASN_ENCODING: u32 = 0x00000001;
+        const PKCS_7_ASN_ENCODING: u32 = 0x00010000;
 
         // Persist DER file to C:\ProgramData\edrsvc\ca\hydradragon_ca.der
         let ca_path = std::path::PathBuf::from(r"C:\ProgramData\edrsvc\ca\hydradragon_ca.der");
@@ -1993,7 +1995,10 @@ impl FirewallEngine {
 
         let sync_to_store = |location_flags: u32, store_name: &str| -> Result<(), String> {
             unsafe {
-                let cert = CertCreateCertificateContext(X509_ASN_ENCODING, der);
+                let cert = CertCreateCertificateContext(
+                    CERT_QUERY_ENCODING_TYPE(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING),
+                    der,
+                );
                 if cert.is_null() {
                     return Err(format!(
                         "CertCreateCertificateContext failed: {}",
@@ -2004,17 +2009,25 @@ impl FirewallEngine {
                 let mut name_bytes = store_name.as_bytes().to_vec();
                 name_bytes.push(0);
 
-                let store = CertOpenStore(
+                let store_res = CertOpenStore(
                     CERT_STORE_PROV_SYSTEM_A,
-                    0,
-                    None,
-                    CERT_SYSTEM_STORE_FLAGS(location_flags),
-                    Some(PCSTR(name_bytes.as_ptr())),
+                    CERT_QUERY_ENCODING_TYPE(0),
+                    HCRYPTPROV_LEGACY(0),
+                    CERT_OPEN_STORE_FLAGS(location_flags),
+                    Some(name_bytes.as_ptr() as *const _),
                 );
 
-                if store.is_invalid() || store.0.is_null() {
-                    let _ = CertFreeCertificateContext(cert);
-                    return Err(format!("CertOpenStore failed for {}", store_name));
+                let store = match store_res {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let _ = CertFreeCertificateContext(Some(cert));
+                        return Err(format!("CertOpenStore failed for {}: {}", store_name, e));
+                    }
+                };
+
+                if store.is_invalid() {
+                    let _ = CertFreeCertificateContext(Some(cert));
+                    return Err(format!("CertOpenStore returned invalid store for {}", store_name));
                 }
 
                 // Remove old/stale "HydraDragon Firewall CA" certs that don't match the new DER bytes
@@ -2068,7 +2081,7 @@ impl FirewallEngine {
                 );
 
                 let _ = CertCloseStore(store, 0);
-                let _ = CertFreeCertificateContext(cert);
+                let _ = CertFreeCertificateContext(Some(cert));
 
                 if result.as_bool() {
                     Ok(())
@@ -2083,7 +2096,7 @@ impl FirewallEngine {
         };
 
         // Install to System-Wide LocalMachine\Root store natively via CryptoAPI (covers all users & browsers with 0 prompts)
-        let _ = sync_to_store(CERT_SYSTEM_STORE_LOCAL_MACHINE.0, "ROOT");
+        let _ = sync_to_store(CERT_SYSTEM_STORE_LOCAL_MACHINE, "ROOT");
 
         Ok(())
     }
@@ -2092,12 +2105,14 @@ impl FirewallEngine {
         use windows::Win32::Security::Cryptography::{
             CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CertCloseStore, CertDeleteCertificateFromStore,
             CertDuplicateCertificateContext, CertEnumCertificatesInStore,
-            CertGetNameStringW, CertOpenStore, CERT_STORE_PROV_SYSTEM_A, CERT_SYSTEM_STORE_CURRENT_USER,
-            CERT_SYSTEM_STORE_FLAGS, CERT_SYSTEM_STORE_LOCAL_MACHINE,
+            CertGetNameStringW, CertOpenStore, CERT_STORE_PROV_SYSTEM_A, CERT_QUERY_ENCODING_TYPE,
+            CERT_OPEN_STORE_FLAGS, HCRYPTPROV_LEGACY,
         };
-        use windows::core::PCSTR;
 
-        let locations = [CERT_SYSTEM_STORE_LOCAL_MACHINE.0, CERT_SYSTEM_STORE_CURRENT_USER.0];
+        const CERT_SYSTEM_STORE_LOCAL_MACHINE: u32 = 0x00020000;
+        const CERT_SYSTEM_STORE_CURRENT_USER: u32 = 0x00010000;
+
+        let locations = [CERT_SYSTEM_STORE_LOCAL_MACHINE, CERT_SYSTEM_STORE_CURRENT_USER];
         let store_names = ["ROOT", "CA", "My", "TrustedPublisher"];
 
         unsafe {
@@ -2106,15 +2121,20 @@ impl FirewallEngine {
                     let mut name_bytes = store_name.as_bytes().to_vec();
                     name_bytes.push(0);
 
-                    let store = CertOpenStore(
+                    let store_res = CertOpenStore(
                         CERT_STORE_PROV_SYSTEM_A,
-                        0,
-                        None,
-                        CERT_SYSTEM_STORE_FLAGS(loc),
-                        Some(PCSTR(name_bytes.as_ptr())),
+                        CERT_QUERY_ENCODING_TYPE(0),
+                        HCRYPTPROV_LEGACY(0),
+                        CERT_OPEN_STORE_FLAGS(loc),
+                        Some(name_bytes.as_ptr() as *const _),
                     );
 
-                    if store.is_invalid() || store.0.is_null() {
+                    let store = match store_res {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+
+                    if store.is_invalid() {
                         continue;
                     }
 
