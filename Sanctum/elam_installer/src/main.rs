@@ -343,7 +343,7 @@ fn trigger_auto_reboot() {
         .args([
             "/r",
             "/t",
-            "10",
+            "0",
             "/c",
             "HydraDragon Antivirus ELAM Installation Complete. Restarting...",
         ])
