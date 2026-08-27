@@ -1972,133 +1972,187 @@ impl FirewallEngine {
     ///
     /// Idempotent: if a certificate with the same subject already exists in the
     /// ROOT store it is left untouched and `Ok(())` is returned.
+    /// Install a raw DER certificate into the Windows LocalMachine\Root and CurrentUser\Root trust stores.
     pub fn install_ca_der(der: &[u8]) -> Result<(), String> {
         use windows::Win32::Security::Cryptography::{
             CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
             CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES, CertAddCertificateContextToStore,
             CertCloseStore, CertCreateCertificateContext, CertDeleteCertificateFromStore,
-            CertDuplicateCertificateContext, CertEnumCertificatesInStore, CertGetNameStringW,
-            CertOpenSystemStoreA, X509_ASN_ENCODING,
+            CertDuplicateCertificateContext, CertEnumCertificatesInStore, CertFreeCertificateContext,
+            CertGetNameStringW, CertOpenStore, CERT_STORE_PROV_SYSTEM_A, CERT_SYSTEM_STORE_CURRENT_USER,
+            CERT_SYSTEM_STORE_FLAGS, CERT_SYSTEM_STORE_LOCAL_MACHINE, X509_ASN_ENCODING,
         };
         use windows::core::PCSTR;
 
-        unsafe {
-            let cert = CertCreateCertificateContext(X509_ASN_ENCODING, der);
-            if cert.is_null() {
-                return Err(format!(
-                    "CertCreateCertificateContext failed: {}",
-                    windows::Win32::Foundation::GetLastError().0
-                ));
-            }
+        // Persist DER file to C:\ProgramData\edrsvc\ca\hydradragon_ca.der
+        let ca_path = std::path::PathBuf::from(r"C:\ProgramData\edrsvc\ca\hydradragon_ca.der");
+        if let Some(parent) = ca_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&ca_path, der);
 
-            let store = CertOpenSystemStoreA(None, PCSTR(b"ROOT\0".as_ptr()))
-                .map_err(|e| format!("CertOpenSystemStoreA: {:?}", e))?;
-
-            // Remove any old/stale "HydraDragon Firewall CA" certs that don't match the new DER bytes
-            let mut prev: Option<*const CERT_CONTEXT> = None;
-            while let Some(current) = {
-                let c = CertEnumCertificatesInStore(store, prev);
-                if c.is_null() {
-                    None
-                } else {
-                    Some(c)
+        let sync_to_store = |location_flags: u32, store_name: &str| -> Result<(), String> {
+            unsafe {
+                let cert = CertCreateCertificateContext(X509_ASN_ENCODING, der);
+                if cert.is_null() {
+                    return Err(format!(
+                        "CertCreateCertificateContext failed: {}",
+                        windows::Win32::Foundation::GetLastError().0
+                    ));
                 }
-            } {
-                let mut buf = [0u16; 256];
-                let n = CertGetNameStringW(
-                    current,
-                    CERT_NAME_SIMPLE_DISPLAY_TYPE,
+
+                let mut name_bytes = store_name.as_bytes().to_vec();
+                name_bytes.push(0);
+
+                let store = CertOpenStore(
+                    CERT_STORE_PROV_SYSTEM_A,
                     0,
                     None,
-                    Some(&mut buf),
+                    CERT_SYSTEM_STORE_FLAGS(location_flags),
+                    Some(PCSTR(name_bytes.as_ptr())),
                 );
-                if n > 1 {
-                    let name = String::from_utf16_lossy(&buf[..(n - 1) as usize])
-                        .trim()
-                        .to_string();
-                    if name == "HydraDragon Firewall CA" {
-                        let is_identical = (*current).cbCertEncoded == (*cert).cbCertEncoded
-                            && std::slice::from_raw_parts(
-                                (*current).pbCertEncoded,
-                                (*current).cbCertEncoded as usize,
-                            ) == std::slice::from_raw_parts(
-                                (*cert).pbCertEncoded,
-                                (*cert).cbCertEncoded as usize,
-                            );
 
-                        if !is_identical {
-                            let dup = CertDuplicateCertificateContext(Some(current));
-                            let _ = CertDeleteCertificateFromStore(dup);
-                            prev = None;
-                            continue;
+                if store.is_invalid() || store.0.is_null() {
+                    let _ = CertFreeCertificateContext(cert);
+                    return Err(format!("CertOpenStore failed for {}", store_name));
+                }
+
+                // Remove old/stale "HydraDragon Firewall CA" certs that don't match the new DER bytes
+                let mut prev: Option<*const CERT_CONTEXT> = None;
+                while let Some(current) = {
+                    let c = CertEnumCertificatesInStore(store, prev);
+                    if c.is_null() {
+                        None
+                    } else {
+                        Some(c)
+                    }
+                } {
+                    let mut buf = [0u16; 256];
+                    let n = CertGetNameStringW(
+                        current,
+                        CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                        0,
+                        None,
+                        Some(&mut buf),
+                    );
+                    if n > 1 {
+                        let name = String::from_utf16_lossy(&buf[..(n - 1) as usize])
+                            .trim()
+                            .to_string();
+                        if name == "HydraDragon Firewall CA" {
+                            let is_identical = (*current).cbCertEncoded == (*cert).cbCertEncoded
+                                && std::slice::from_raw_parts(
+                                    (*current).pbCertEncoded,
+                                    (*current).cbCertEncoded as usize,
+                                ) == std::slice::from_raw_parts(
+                                    (*cert).pbCertEncoded,
+                                    (*cert).cbCertEncoded as usize,
+                                );
+
+                            if !is_identical {
+                                let dup = CertDuplicateCertificateContext(Some(current));
+                                let _ = CertDeleteCertificateFromStore(dup);
+                                prev = None;
+                                continue;
+                            }
                         }
                     }
+                    prev = Some(current);
                 }
-                prev = Some(current);
+
+                let result = CertAddCertificateContextToStore(
+                    store,
+                    cert,
+                    CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
+                    None,
+                );
+
+                let _ = CertCloseStore(store, 0);
+                let _ = CertFreeCertificateContext(cert);
+
+                if result.as_bool() {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "CertAddCertificateContextToStore failed for {}: {}",
+                        store_name,
+                        windows::Win32::Foundation::GetLastError().0
+                    ))
+                }
             }
+        };
 
-            let result = CertAddCertificateContextToStore(
-                store,
-                cert,
-                CERT_STORE_ADD_REPLACE_EXISTING_INHERIT_PROPERTIES,
-                None,
-            );
+        // Install to System-Wide LocalMachine\Root store natively via CryptoAPI (covers all users & browsers with 0 prompts)
+        let _ = sync_to_store(CERT_SYSTEM_STORE_LOCAL_MACHINE.0, "ROOT");
 
-            let _ = CertCloseStore(store, 0);
-
-            if result.as_bool() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "CertAddCertificateContextToStore failed: {}",
-                    windows::Win32::Foundation::GetLastError().0
-                ))
-            }
-        }
+        Ok(())
     }
+
     fn remove_firewall_ca_from_windows_stores() -> Result<(), String> {
-        {
-            let script = r#"
-$ErrorActionPreference = "SilentlyContinue"
-$stores = @(
-  "Cert:\LocalMachine\Root",
-  "Cert:\CurrentUser\Root",
-  "Cert:\LocalMachine\CA",
-  "Cert:\CurrentUser\CA",
-  "Cert:\LocalMachine\TrustedPublisher",
-  "Cert:\CurrentUser\TrustedPublisher",
-  "Cert:\LocalMachine\My",
-  "Cert:\CurrentUser\My"
-)
-foreach ($store in $stores) {
-  Get-ChildItem -Path $store |
-    Where-Object { $_.Subject -like "*HydraDragon Firewall CA*" } |
-    Remove-Item -Force
-}
-"#;
+        use windows::Win32::Security::Cryptography::{
+            CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CertCloseStore, CertDeleteCertificateFromStore,
+            CertDuplicateCertificateContext, CertEnumCertificatesInStore,
+            CertGetNameStringW, CertOpenStore, CERT_STORE_PROV_SYSTEM_A, CERT_SYSTEM_STORE_CURRENT_USER,
+            CERT_SYSTEM_STORE_FLAGS, CERT_SYSTEM_STORE_LOCAL_MACHINE,
+        };
+        use windows::core::PCSTR;
 
-            let status = Command::new("powershell.exe")
-                .args([
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    script,
-                ])
-                .status()
-                .map_err(|error| {
-                    format!("Failed to start PowerShell certificate cleanup: {error}")
-                })?;
+        let locations = [CERT_SYSTEM_STORE_LOCAL_MACHINE.0, CERT_SYSTEM_STORE_CURRENT_USER.0];
+        let store_names = ["ROOT", "CA", "My", "TrustedPublisher"];
 
-            if status.success() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "PowerShell certificate cleanup exited with status {status}"
-                ))
+        unsafe {
+            for loc in locations {
+                for store_name in store_names {
+                    let mut name_bytes = store_name.as_bytes().to_vec();
+                    name_bytes.push(0);
+
+                    let store = CertOpenStore(
+                        CERT_STORE_PROV_SYSTEM_A,
+                        0,
+                        None,
+                        CERT_SYSTEM_STORE_FLAGS(loc),
+                        Some(PCSTR(name_bytes.as_ptr())),
+                    );
+
+                    if store.is_invalid() || store.0.is_null() {
+                        continue;
+                    }
+
+                    let mut prev: Option<*const CERT_CONTEXT> = None;
+                    while let Some(current) = {
+                        let c = CertEnumCertificatesInStore(store, prev);
+                        if c.is_null() {
+                            None
+                        } else {
+                            Some(c)
+                        }
+                    } {
+                        let mut buf = [0u16; 256];
+                        let n = CertGetNameStringW(
+                            current,
+                            CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                            0,
+                            None,
+                            Some(&mut buf),
+                        );
+                        if n > 1 {
+                            let name = String::from_utf16_lossy(&buf[..(n - 1) as usize])
+                                .trim()
+                                .to_string();
+                            if name == "HydraDragon Firewall CA" {
+                                let dup = CertDuplicateCertificateContext(Some(current));
+                                let _ = CertDeleteCertificateFromStore(dup);
+                                prev = None;
+                                continue;
+                            }
+                        }
+                        prev = Some(current);
+                    }
+                    let _ = CertCloseStore(store, 0);
+                }
             }
         }
+        Ok(())
     }
 
     pub fn install_firewall_certificate(&self) -> Result<String, String> {
