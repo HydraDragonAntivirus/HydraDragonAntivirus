@@ -110,6 +110,7 @@
 					<RegistryValue Name="REPORTS_PATH" Value="[CommonAppDataFolder]edrsvc\log\reports" Type="string" />
 					<RegistryValue Name="ALWAYS_AUTO_REVERT" Value="1" Type="string" />
 					<RegistryValue Name="TRUST_COMODO_CLOUD" Value="1" Type="string" />
+					<RegistryValue Name="MONITOR_ALL_APIS" Value="1" Type="string" />
 				</RegistryKey>
 				<!-- Firewall SDK rule path (the only RULES_PATH kept) -->
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
