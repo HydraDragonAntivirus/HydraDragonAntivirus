@@ -695,7 +695,12 @@
 						"lifetime": 120000,
 						"data": {
 							"file": "@event.file"
-					// Step 1b: Process memory-maps a file for read -> save context to ransomBasket
+						}
+					}
+				}
+			},
+
+			// Step 1b: Process memory-maps a file for read -> save context to ransomBasket
 		{
 			"eventType": "LLE_FILE_MAP_READ",
 			"rule": {
@@ -1146,7 +1151,7 @@
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
   							{ "name": "hitCount", "value": "@event.hitCount" },
-  							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+  							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
   						]
   					}
   				}
@@ -1162,12 +1167,12 @@
   							{
   								"$operation": "!imatch",
   								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.process.imageFile.rawPath" ]
+  								"args": [ "@event.process.imagePath" ]
   							},
   							{
   								"$operation": "!imatch",
   								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.destination.rawPath" ]
+  								"args": [ "@event.destination.path" ]
   							},
   							{
   								"$operation": "greater",
@@ -1201,7 +1206,7 @@
   							{
   								"$operation": "!imatch",
   								"pattern": "*\\appdata\\*",
-  								"args": [ "@event.destination.rawPath" ]
+  								"args": [ "@event.destination.path" ]
   							}
   						]
   					},
@@ -1217,7 +1222,7 @@
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
   							{ "name": "hitCount", "value": "@event.hitCount" },
-  							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
+  							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
   						]
   					}
   				}
@@ -1233,12 +1238,12 @@
   							{
   								"$operation": "!imatch",
   								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.process.imageFile.abstractPath" ]
+  								"args": [ "@event.process.imagePath" ]
   							},
   							{
   								"$operation": "!imatch",
   								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.destination.abstractPath" ]
+  								"args": [ "@event.destination.path" ]
   							},
   							{
   								"$operation": "greater",
@@ -1250,19 +1255,14 @@
   									{
   										"$operation": "!imatch",
   										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.abstractPath" ]
+  										"args": [ "@event.destination.path" ]
   									},
   									{
   										"$operation": "imatch",
   										"pattern": "*\\appdata\\*",
-  										"args": [ "@event.destination.abstractPath" ]
+  										"args": [ "@event.destination.path" ]
   									}
   								]
-  							},
-  							{
-  								"$operation": "imatch",
-  								"pattern": "?*",
-  								"args": [ "@event.process.imageFile.abstractPath" ]
   							}
   						]
   					},
@@ -1278,7 +1278,7 @@
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
   							{ "name": "hitCount", "value": "@event.hitCount" },
-  							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+  							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
   						]
   					}
   				}
@@ -1294,12 +1294,12 @@
   							{
   								"$operation": "!imatch",
   								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.process.imageFile.rawPath" ]
+  								"args": [ "@event.process.imagePath" ]
   							},
   							{
   								"$operation": "!imatch",
   								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.destination.rawPath" ]
+  								"args": [ "@event.destination.path" ]
   							},
   							{
   								"$operation": "greater",
@@ -1311,19 +1311,14 @@
   									{
   										"$operation": "!imatch",
   										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.rawPath" ]
+  										"args": [ "@event.destination.path" ]
   									},
   									{
   										"$operation": "imatch",
   										"pattern": "*\\appdata\\*",
-  										"args": [ "@event.destination.rawPath" ]
+  										"args": [ "@event.destination.path" ]
   									}
   								]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "?*",
-  								"args": [ "@event.process.imageFile.abstractPath" ]
   							}
   						]
   					},
@@ -1339,7 +1334,7 @@
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
   							{ "name": "hitCount", "value": "@event.hitCount" },
-  							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
+  							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
   						]
   					}
   				}
