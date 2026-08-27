@@ -751,6 +751,41 @@
 			}
 		},
 
+		// Step 2a: Low-level file create -> trigger Candidate
+		{
+			"eventType": "LLE_FILE_CREATE",
+			"rule": {
+				"condition": {
+					"$operation": "and",
+					"args": [
+						{
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.process.imagePath" ]
+						},
+						{
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.file.path" ]
+						}
+					]
+				},
+				"createEvent": {
+					"eventType": "MLE_RANSOM_CANDIDATE",
+					"destination": "IN",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "destination", "value": "@event.file" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
+					]
+				}
+			}
+		},
+
 		// Step 2a: File write -> trigger Candidate
 		{
 			"eventType": "LLE_FILE_DATA_WRITE_FULL",
@@ -759,34 +794,14 @@
 					"$operation": "and",
 					"args": [
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.process.imagePath" ]
 						},
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.file.path" ]
 						}
 					]
 				},
@@ -814,34 +829,14 @@
 					"$operation": "and",
 					"args": [
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.process.imagePath" ]
 						},
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.file.path" ]
 						}
 					]
 				},
@@ -869,34 +864,14 @@
 					"$operation": "and",
 					"args": [
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.process.imagePath" ]
 						},
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.file.path" ]
 						}
 					]
 				},
@@ -924,34 +899,14 @@
 					"$operation": "and",
 					"args": [
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.process.imagePath" ]
 						},
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.file.path" ]
 						}
 					]
 				},
@@ -979,34 +934,14 @@
 					"$operation": "and",
 					"args": [
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.process.imagePath" ]
 						},
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.file.path" ]
 						}
 					]
 				},
@@ -1034,34 +969,14 @@
 					"$operation": "and",
 					"args": [
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.process.imagePath" ]
 						},
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.file.path" ]
 						}
 					]
 				},
@@ -1089,34 +1004,14 @@
 					"$operation": "and",
 					"args": [
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.process.imagePath" ]
 						},
 						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.file.path" ]
 						}
 					]
 				},
