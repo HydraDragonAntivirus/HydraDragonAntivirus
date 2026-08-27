@@ -164,6 +164,8 @@ void PatternSeacher::put(const Variant& vEvent)
 	for (auto event : vEvents)
 		m_pReceiver->put(event);
 
+	m_pReceiver->put(vEvent);
+
 	// Purge items in async thread
 	if (((++m_nCounter) & m_nPurgeMask) == 0)
 		run(&PatternSeacher::purgeItems, getPtrFromThis(this));
