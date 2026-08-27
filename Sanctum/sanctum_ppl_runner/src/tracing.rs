@@ -24,7 +24,9 @@ use windows::{
             },
             EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE},
             ProcessStatus::GetProcessImageFileNameW,
-            Threading::{OpenProcess, PROCESS_ALL_ACCESS},
+            Threading::{
+                OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+            },
         },
     },
     core::{PCWSTR, PWSTR},
@@ -845,40 +847,34 @@ unsafe fn extract_u32_property(record: *mut EVENT_RECORD, name: &str) -> Option<
 /// # Errors
 /// This function will return an error if it cannot get a handle to the pid, or there was a string conversion error from the image buffer.
 /// This function is unable to get a handle to SYSTEM processes.
-fn get_process_image_from_pid(pid: u32, event_header: &EVENT_HEADER) -> Result<String, ()> {
-    let process_handle = match unsafe { OpenProcess(PROCESS_ALL_ACCESS, false, pid) } {
+fn get_process_image_from_pid(pid: u32, _event_header: &EVENT_HEADER) -> Result<String, ()> {
+    if pid == 0 {
+        return Ok("Idle".to_string());
+    }
+    if pid == 4 {
+        return Ok("System".to_string());
+    }
+
+    let process_handle = match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }
+    {
         Ok(h) => h,
-        Err(e) => {
-            event_log(
-                &format!(
-                    "Failed to open process for pid: {pid} from event information: {:?}. Error: {e}",
-                    event_header.EventDescriptor
-                ),
-                EVENTLOG_ERROR_TYPE,
-                EventID::GeneralError,
-            );
-            return Err(());
-        }
+        Err(_) => match unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, false, pid) } {
+            Ok(h) => h,
+            Err(_) => {
+                return Err(());
+            }
+        },
     };
 
     let mut process_img_buffer: Vec<u16> = vec![0u16; MAX_PATH as _];
     let len =
         unsafe { GetProcessImageFileNameW(process_handle, process_img_buffer.as_mut_slice()) };
+    let _ = unsafe { windows::Win32::Foundation::CloseHandle(process_handle) };
+
     if len == 0 {
-        event_log(
-            &format!(
-                "Failed to get process image for pid: {pid} from event information: {:?}. Win32 Error: {}",
-                event_header.EventDescriptor,
-                unsafe { GetLastError().0 }
-            ),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        );
         return Err(());
     }
 
     let process_image = String::from_utf16_lossy(&process_img_buffer[..len as usize]);
-    let _ = unsafe { windows::Win32::Foundation::CloseHandle(process_handle) };
-
     Ok(process_image)
 }
