@@ -570,7 +570,9 @@ void EventEnricher::put(const Variant& vEventRef)
 	if (!pReceiver)
 		error::InvalidArgument(SL, "Receiver interface is undefined").throwException();
 
-	Event eEventType = vEvent.get("baseType");
+	Event eEventType = vEvent.has("baseEventType") && !vEvent.get("baseEventType").isEmpty() ? 
+		static_cast<Event>(static_cast<int>(vEvent.get("baseEventType"))) : 
+		static_cast<Event>(static_cast<int>(vEvent.get("baseType")));
 	vEvent.put("type", getEventTypeString(eEventType));
 
 	// Calculate event "time"
