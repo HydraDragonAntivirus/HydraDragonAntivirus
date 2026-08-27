@@ -895,7 +895,7 @@
 			},
 
 
-  			// Step 4a: Fast Lane evaluation (User Profile files -> 2 hits) - abstractPath variant
+  			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit) - abstractPath/rawPath/path variant
   			{
   				"eventType": "MLE_RANSOM_EVALUATE",
   				"rule": {
@@ -913,8 +913,18 @@
   								"args": [ "@event.destination.abstractPath" ]
   							},
   							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.destination.path" ]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.file.path" ]
+  							},
+  							{
   								"$operation": "greater",
-  								"args": [ "@event.hitCount", 1 ]
+  								"args": [ "@event.hitCount", 0 ]
   							},
   							{
   								"$operation": "or",
@@ -928,6 +938,16 @@
   										"$operation": "imatch",
   										"pattern": "*\\users\\*",
   										"args": [ "@event.destination.rawPath" ]
+  									},
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.destination.path" ]
+  									},
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.file.path" ]
   									}
   								]
   							},
@@ -937,9 +957,14 @@
   								"args": [ "@event.destination.abstractPath" ]
   							},
   							{
-  								"$operation": "imatch",
-  								"pattern": "?*",
-  								"args": [ "@event.process.imageFile.abstractPath" ]
+  								"$operation": "!imatch",
+  								"pattern": "*\\appdata\\*",
+  								"args": [ "@event.destination.path" ]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "*\\appdata\\*",
+  								"args": [ "@event.file.path" ]
   							}
   						]
   					},
@@ -980,7 +1005,7 @@
   							},
   							{
   								"$operation": "greater",
-  								"args": [ "@event.hitCount", 1 ]
+  								"args": [ "@event.hitCount", 0 ]
   							},
   							{
   								"$operation": "or",
@@ -994,6 +1019,16 @@
   										"$operation": "imatch",
   										"pattern": "*\\users\\*",
   										"args": [ "@event.destination.rawPath" ]
+  									},
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.destination.path" ]
+  									},
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.file.path" ]
   									}
   								]
   							},
@@ -1001,11 +1036,6 @@
   								"$operation": "!imatch",
   								"pattern": "*\\appdata\\*",
   								"args": [ "@event.destination.rawPath" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "?*",
-  								"args": [ "@event.process.imageFile.abstractPath" ]
   							}
   						]
   					},
