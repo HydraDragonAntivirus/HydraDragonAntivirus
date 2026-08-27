@@ -600,9 +600,7 @@ void EventEnricher::put(const Variant& vEventRef)
 	auto vProcess = m_pProcProvider->enrichProcessInfo(vRawProcess);
 	if (vProcess.isEmpty())
 	{
-		LOGLVL(Detailed, "Process <" << vRawProcess["pid"] << "> not found for event <" <<
-			Enum(eEventType) << ">, dropping event");
-		return;
+		vProcess = vRawProcess;
 	}
 	vEvent.put("process", vProcess);
 	Variant vToken = getByPath(vProcess, "token.tokenObj", {});
