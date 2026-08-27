@@ -23,8 +23,18 @@ namespace {
 
 	std::string NtPathToDosPathString(const std::string& sNt)
 	{
-		std::wstring wsNt;
-		wsNt.assign(sNt.begin(), sNt.end());
+		if (sNt.empty())
+			return sNt;
+
+		int cchW = ::MultiByteToWideChar(CP_UTF8, 0, sNt.c_str(), -1, NULL, 0);
+		if (cchW <= 0)
+			return sNt;
+
+		std::wstring wsNt(static_cast<size_t>(cchW), 0);
+		::MultiByteToWideChar(CP_UTF8, 0, sNt.c_str(), -1, &wsNt[0], cchW);
+		if (!wsNt.empty() && wsNt.back() == L'\0')
+			wsNt.pop_back();
+
 		wchar_t sDrives[27 * 4] = {};
 		if (::GetLogicalDriveStringsW(DWORD(std::size(sDrives)), sDrives) == 0)
 			return sNt;
@@ -43,9 +53,16 @@ namespace {
 					std::wstring sDrive(sDrv);
 					sDrive.resize(2); // "C:"
 					std::wstring wsRes = sDrive + wsNt.substr(wsDevice.size());
-					std::string sRes;
-					sRes.assign(wsRes.begin(), wsRes.end());
-					return sRes;
+
+					int cchA = ::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, NULL, 0, NULL, NULL);
+					if (cchA > 0)
+					{
+						std::string sRes(static_cast<size_t>(cchA), 0);
+						::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, &sRes[0], cchA, NULL, NULL);
+						if (!sRes.empty() && sRes.back() == '\0')
+							sRes.pop_back();
+						return sRes;
+					}
 				}
 			}
 			sDrv += 4;
