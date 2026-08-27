@@ -916,9 +916,119 @@
 			}
 		},
 
+		// Step 2c-RF: Mapped RF10 events (e.g. RF10.7) -> trigger Candidate
+		{
+			"eventType": "RF10*",
+			"rule": {
+				"condition": {
+					"$operation": "and",
+					"args": [
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "!imatch",
+									"pattern": "@const.ransomSystemExclusions",
+									"args": [ "@event.process.imageFile.abstractPath" ]
+								},
+								{
+									"$operation": "!imatch",
+									"pattern": "@const.ransomSystemExclusions",
+									"args": [ "@event.process.imagePath" ]
+								}
+							]
+						},
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "!imatch",
+									"pattern": "@const.ransomSystemExclusions",
+									"args": [ "@event.file.abstractPath" ]
+								},
+								{
+									"$operation": "!imatch",
+									"pattern": "@const.ransomSystemExclusions",
+									"args": [ "@event.file.path" ]
+								}
+							]
+						}
+					]
+				},
+				"createEvent": {
+					"eventType": "MLE_RANSOM_CANDIDATE",
+					"destination": "IN",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "destination", "value": "@event.file" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
+					]
+				}
+			}
+		},
+
 		// Step 2d: File rename -> trigger Candidate
 		{
 			"eventType": "LLE_FILE_RENAME",
+			"rule": {
+				"condition": {
+					"$operation": "and",
+					"args": [
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "!imatch",
+									"pattern": "@const.ransomSystemExclusions",
+									"args": [ "@event.process.imageFile.abstractPath" ]
+								},
+								{
+									"$operation": "!imatch",
+									"pattern": "@const.ransomSystemExclusions",
+									"args": [ "@event.process.imagePath" ]
+								}
+							]
+						},
+						{
+							"$operation": "or",
+							"args": [
+								{
+									"$operation": "!imatch",
+									"pattern": "@const.ransomSystemExclusions",
+									"args": [ "@event.file.abstractPath" ]
+								},
+								{
+									"$operation": "!imatch",
+									"pattern": "@const.ransomSystemExclusions",
+									"args": [ "@event.file.path" ]
+								}
+							]
+						}
+					]
+				},
+				"createEvent": {
+					"eventType": "MLE_RANSOM_CANDIDATE",
+					"destination": "IN",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "destination", "value": "@event.file" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
+					]
+				}
+			}
+		},
+
+		// Step 2e-RF: Mapped RF4 events (e.g. RF4.8) -> trigger Candidate
+		{
+			"eventType": "RF4*",
 			"rule": {
 				"condition": {
 					"$operation": "and",
