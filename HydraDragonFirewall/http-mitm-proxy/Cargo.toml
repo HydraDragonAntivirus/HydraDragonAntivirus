@@ -15,7 +15,7 @@ resolver = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["native-tls-client"]
+default = ["rustls-client"]
 
 # You can choose one of the following TLS backends for DefaultClient.
 # Or you can drop DefaultClient with setting no-default-features = true
