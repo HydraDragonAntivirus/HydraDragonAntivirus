@@ -447,10 +447,6 @@
 						"$operation": "and",
 						"args": [
 							{
-								"$operation": "!equal",
-								"args": [ "@event.process.imageFile.verdict", 1 ]
-							},
-							{
 								"$operation": "!imatch",
 								"pattern": "@const.ransomSystemExclusions",
 								"args": [ "@event.process.imageFile.abstractPath" ]
@@ -481,10 +477,6 @@
 					"condition": {
 						"$operation": "and",
 						"args": [
-							{
-								"$operation": "!equal",
-								"args": [ "@event.process.imageFile.verdict", 1 ]
-							},
 							{
 								"$operation": "!imatch",
 								"pattern": "@const.ransomSystemExclusions",
@@ -700,10 +692,6 @@
 					"condition": {
 						"$operation": "and",
 						"args": [
-							{
-								"$operation": "!equal",
-								"args": [ "@event.process.imageFile.verdict", 1 ]
-							},
 							{
 								"$operation": "!imatch",
 								"pattern": "@const.ransomSystemExclusions",
