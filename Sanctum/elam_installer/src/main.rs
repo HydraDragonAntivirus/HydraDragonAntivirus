@@ -147,6 +147,49 @@ fn run_installer() {
     // driver there black-screens the machine at next reboot.
     let kernel_svc_name = to_wstring("Sanctum");
 
+    let kernel_driver_path =
+        installed_path("AppData\\sanctum.sys").unwrap_or_else(|_| fallback_driver_path());
+    let kernel_path_w = path_to_wstring(&kernel_driver_path);
+    let kernel_svc_display = to_wstring("Sanctum Kernel Driver");
+
+    let install_elam_cert = || {
+        println!(
+            "[i] Installing ELAM certificate from: {}",
+            kernel_driver_path.display()
+        );
+        log_step("opening driver file for ELAM certificate");
+
+        let result = unsafe {
+            CreateFileW(
+                PCWSTR(kernel_path_w.as_ptr()),
+                FILE_READ_DATA.0,
+                FILE_SHARE_READ,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                None,
+            )
+        };
+
+        match result {
+            Ok(handle) => {
+                log_step("calling InstallELAMCertificateInfo");
+                if let Err(e) = unsafe { InstallELAMCertificateInfo(handle) } {
+                    println!("[!] Warning: Failed to install ELAM certificate info: {e}");
+                    log_step("InstallELAMCertificateInfo FAILED");
+                } else {
+                    println!("[+] ELAM certificate installed successfully!");
+                    log_step("InstallELAMCertificateInfo succeeded");
+                }
+                let _ = unsafe { windows::Win32::Foundation::CloseHandle(handle) };
+            }
+            Err(e) => {
+                println!("[!] Warning: Could not open driver file for ELAM certificate: {e}");
+                log_step("could not open driver file for ELAM certificate");
+            }
+        }
+    };
+
     // First check if the service already exists to avoid redundant create requests
     if let Ok(h_existing) = unsafe {
         windows::Win32::System::Services::OpenServiceW(
@@ -156,9 +199,16 @@ fn run_installer() {
         )
     } {
         println!("[+] 2nd boot detected. Starting services...");
-        log_step("kernel driver service exists -> starting it");
+        log_step("kernel driver service exists -> installing ELAM cert and starting it");
 
-        let _ = unsafe { windows::Win32::System::Services::StartServiceW(h_existing, None) };
+        // CRITICAL: Install ELAM certificate into kernel RAM memory on 2nd boot too!
+        install_elam_cert();
+
+        if let Err(e) = unsafe { windows::Win32::System::Services::StartServiceW(h_existing, None) } {
+            println!("[!] StartServiceW for Sanctum kernel driver failed: {e}");
+        } else {
+            println!("[+] Sanctum kernel driver service started successfully.");
+        }
         let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_existing) };
 
         // Ensure PPL runner is started on subsequent boots
@@ -171,7 +221,11 @@ fn run_installer() {
             )
         } {
             log_step("starting sanctum_ppl_runner...");
-            let _ = unsafe { windows::Win32::System::Services::StartServiceW(h_ppl, None) };
+            if let Err(e) = unsafe { windows::Win32::System::Services::StartServiceW(h_ppl, None) } {
+                println!("[!] StartServiceW for sanctum_ppl_runner failed: {e}");
+            } else {
+                println!("[+] sanctum_ppl_runner service started successfully!");
+            }
             let _ = unsafe { windows::Win32::System::Services::CloseServiceHandle(h_ppl) };
         }
 
@@ -179,10 +233,6 @@ fn run_installer() {
     }
 
     println!("[i] Configuring Sanctum kernel driver service.");
-    let kernel_driver_path =
-        installed_path("AppData\\sanctum.sys").unwrap_or_else(|_| fallback_driver_path());
-    let kernel_path_w = path_to_wstring(&kernel_driver_path);
-    let kernel_svc_display = to_wstring("Sanctum Kernel Driver");
 
     let h_kernel_svc = unsafe {
         CreateServiceW(
@@ -214,40 +264,7 @@ fn run_installer() {
     }
 
     // Step 2: Install ELAM Certificate Info
-    println!(
-        "[i] Installing ELAM certificate from: {}",
-        kernel_driver_path.display()
-    );
-    log_step("opening driver file for ELAM certificate");
-
-    let result = unsafe {
-        CreateFileW(
-            PCWSTR(kernel_path_w.as_ptr()),
-            FILE_READ_DATA.0,
-            FILE_SHARE_READ,
-            None,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            None,
-        )
-    };
-
-    match result {
-        Ok(handle) => {
-            log_step("calling InstallELAMCertificateInfo");
-            if let Err(e) = unsafe { InstallELAMCertificateInfo(handle) } {
-                println!("[!] Warning: Failed to install ELAM certificate info: {e}");
-                log_step("InstallELAMCertificateInfo FAILED");
-            } else {
-                println!("[+] ELAM certificate installed successfully!");
-                log_step("InstallELAMCertificateInfo succeeded");
-            }
-        }
-        Err(e) => {
-            println!("[!] Warning: Could not open driver file for ELAM certificate: {e}");
-            log_step("could not open driver file for ELAM certificate");
-        }
-    }
+    install_elam_cert();
 
     // Step 3: Register Sanctum PPL Runner Service
     println!("[i] Attempting to create the PPL service.");

@@ -85,6 +85,7 @@
 
 	"patterns": {
 		"POWERSHELL_LONG_BASE64": [
+			// Case 1: abstractPath available
 			{
 				"eventType": "LLE_PROCESS_CREATE",
 				"rule": {
@@ -92,8 +93,23 @@
 						"$operation": "and",
 						"args": [
 							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "*powershell*.exe*",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*powershell*.exe*",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									}
+								]
+							},
+							{
 								"$operation": "imatch",
-								"pattern": "*powershell*.exe*",
+								"pattern": "?*",
 								"args": [ "@event.process.imageFile.abstractPath" ]
 							},
 							{
@@ -133,6 +149,74 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+						]
+					}
+				}
+			},
+			// Case 2: abstractPath missing -> use rawPath
+			{
+				"eventType": "LLE_PROCESS_CREATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "*powershell*.exe*",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*powershell*.exe*",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "*-e *??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????*",
+										"args": [ "@event.process.cmdLine" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*-en *??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????*",
+										"args": [ "@event.process.cmdLine" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*-enc *??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????*",
+										"args": [ "@event.process.cmdLine" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*-encodedcommand *??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????*",
+										"args": [ "@event.process.cmdLine" ]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_POWERSHELL_MALICIOUS",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.powershellEventBaseType.MLE_POWERSHELL_MALICIOUS" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
 						]
 					}
 				}
@@ -340,11 +424,15 @@
 				}
 			},
 
-			// 2) Outbound network connect from a process that previously
-			//    read credential files = exfiltration attempt
+			// 2a) Outbound network connect - abstractPath available
 			{
 				"eventType": "LLE_NETWORK_CONNECT_OUT",
 				"rule": {
+					"condition": {
+						"$operation": "imatch",
+						"pattern": "?*",
+						"args": [ "@event.process.imageFile.abstractPath" ]
+					},
 					"loadContext": {
 						"basket": "@const.pswBasket.pswCredRead",
 						"key": "@event.process.id"
@@ -359,6 +447,33 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+						]
+					}
+				}
+			},
+			// 2b) Outbound network connect - rawPath fallback
+			{
+				"eventType": "LLE_NETWORK_CONNECT_OUT",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "?*",
+						"args": [ "@event.process.imageFile.abstractPath" ]
+					},
+					"loadContext": {
+						"basket": "@const.pswBasket.pswCredRead",
+						"key": "@event.process.id"
+					},
+					"createEvent": {
+						"eventType": "MLE_PSW_STEALER",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.pswEventBaseType.MLE_PSW_STEALER" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
 						]
 					}
 				}
@@ -381,13 +496,24 @@
 		// volume shadow copies is a near-zero-FP destructive footprint.
 		//
 		"RANSOM_SHADOW_COPY_DELETE": [
+			// Case 1: abstractPath available
 			{
 				"eventType": "LLE_PROCESS_CREATE",
 				"rule": {
 					"condition": {
-						"$operation": "imatch",
-						"pattern": "@const.ransomShadowDeleteCmdLines",
-						"args": [ "@event.process.cmdLine" ]
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.ransomShadowDeleteCmdLines",
+								"args": [ "@event.process.cmdLine" ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							}
+						]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_SHADOW_COPY_DELETE",
@@ -399,6 +525,39 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+						]
+					}
+				}
+			},
+			// Case 2: rawPath fallback
+			{
+				"eventType": "LLE_PROCESS_CREATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.ransomShadowDeleteCmdLines",
+								"args": [ "@event.process.cmdLine" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_SHADOW_COPY_DELETE",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomShadowEventBaseType.MLE_RANSOM_SHADOW_COPY_DELETE" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
 						]
 					}
 				}
@@ -685,112 +844,260 @@
 				}
 			},
 
-			// Step 4a: Fast Lane evaluation (User Profile files -> 2 hits)
-			{
-				"eventType": "MLE_RANSOM_EVALUATE",
-				"rule": {
-					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.process.imageFile.abstractPath" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.destination.abstractPath" ]
-							},
-							{
-								"$operation": "greater",
-								"args": [ "@event.hitCount", 1 ]
-							},
-							{
-								"$operation": "imatch",
-								"pattern": "*\\users\\*",
-								"args": [ "@event.destination.abstractPath" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "*\\appdata\\*",
-								"args": [ "@event.destination.abstractPath" ]
-							}
-						]
-					},
-					"createEvent": {
-						"eventType": "MLE_RANSOM_BEHAVIOR",
-						"destination": "OUT",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-							{ "name": "process", "value": "@event.process" },
-							{ "name": "destination", "value": "@event.destination" },
-							{ "name": "source", "value": "@event.source" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "hitCount", "value": "@event.hitCount" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
-						]
-					}
-				}
-			},
 
-			// Step 4b: Slow Lane evaluation (Non-User Profile files -> 5 hits)
-			{
-				"eventType": "MLE_RANSOM_EVALUATE",
-				"rule": {
-					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.process.imageFile.abstractPath" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.destination.abstractPath" ]
-							},
-							{
-								"$operation": "greater",
-								"args": [ "@event.hitCount", 4 ]
-							},
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "!imatch",
-										"pattern": "*\\users\\*",
-								"args": [ "@event.destination.abstractPath" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "*\\appdata\\*",
-								"args": [ "@event.destination.abstractPath" ]
-									}
-								]
-							}
-						]
-					},
-					"createEvent": {
-						"eventType": "MLE_RANSOM_BEHAVIOR",
-						"destination": "OUT",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-							{ "name": "process", "value": "@event.process" },
-							{ "name": "destination", "value": "@event.destination" },
-							{ "name": "source", "value": "@event.source" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "hitCount", "value": "@event.hitCount" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
-						]
-					}
-				}
-			},
+  			// Step 4a: Fast Lane evaluation (User Profile files -> 2 hits) - abstractPath variant
+  			{
+  				"eventType": "MLE_RANSOM_EVALUATE",
+  				"rule": {
+  					"condition": {
+  						"$operation": "and",
+  						"args": [
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.process.imageFile.abstractPath" ]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.destination.abstractPath" ]
+  							},
+  							{
+  								"$operation": "greater",
+  								"args": [ "@event.hitCount", 1 ]
+  							},
+  							{
+  								"$operation": "or",
+  								"args": [
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.destination.abstractPath" ]
+  									},
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.destination.rawPath" ]
+  									}
+  								]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "*\\appdata\\*",
+  								"args": [ "@event.destination.abstractPath" ]
+  							},
+  							{
+  								"$operation": "imatch",
+  								"pattern": "?*",
+  								"args": [ "@event.process.imageFile.abstractPath" ]
+  							}
+  						]
+  					},
+  					"createEvent": {
+  						"eventType": "MLE_RANSOM_BEHAVIOR",
+  						"destination": "OUT",
+  						"clone": false,
+  						"data": [
+  							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+  							{ "name": "process", "value": "@event.process" },
+  							{ "name": "destination", "value": "@event.destination" },
+  							{ "name": "source", "value": "@event.source" },
+  							{ "name": "time", "value": "@event.time" },
+  							{ "name": "tickTime", "value": "@event.tickTime" },
+  							{ "name": "hitCount", "value": "@event.hitCount" },
+  							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+  						]
+  					}
+  				}
+  			},
+
+  			// Step 4a (fallback): Fast Lane evaluation - rawPath variant
+  			{
+  				"eventType": "MLE_RANSOM_EVALUATE",
+  				"rule": {
+  					"condition": {
+  						"$operation": "and",
+  						"args": [
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.process.imageFile.rawPath" ]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.destination.rawPath" ]
+  							},
+  							{
+  								"$operation": "greater",
+  								"args": [ "@event.hitCount", 1 ]
+  							},
+  							{
+  								"$operation": "or",
+  								"args": [
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.destination.abstractPath" ]
+  									},
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.destination.rawPath" ]
+  									}
+  								]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "*\\appdata\\*",
+  								"args": [ "@event.destination.rawPath" ]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "?*",
+  								"args": [ "@event.process.imageFile.abstractPath" ]
+  							}
+  						]
+  					},
+  					"createEvent": {
+  						"eventType": "MLE_RANSOM_BEHAVIOR",
+  						"destination": "OUT",
+  						"clone": false,
+  						"data": [
+  							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+  							{ "name": "process", "value": "@event.process" },
+  							{ "name": "destination", "value": "@event.destination" },
+  							{ "name": "source", "value": "@event.source" },
+  							{ "name": "time", "value": "@event.time" },
+  							{ "name": "tickTime", "value": "@event.tickTime" },
+  							{ "name": "hitCount", "value": "@event.hitCount" },
+  							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
+  						]
+  					}
+  				}
+  			},
+
+  			// Step 4b: Slow Lane evaluation (Non-User Profile files -> 5 hits) - abstractPath variant
+  			{
+  				"eventType": "MLE_RANSOM_EVALUATE",
+  				"rule": {
+  					"condition": {
+  						"$operation": "and",
+  						"args": [
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.process.imageFile.abstractPath" ]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.destination.abstractPath" ]
+  							},
+  							{
+  								"$operation": "greater",
+  								"args": [ "@event.hitCount", 4 ]
+  							},
+  							{
+  								"$operation": "or",
+  								"args": [
+  									{
+  										"$operation": "!imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.destination.abstractPath" ]
+  									},
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\appdata\\*",
+  										"args": [ "@event.destination.abstractPath" ]
+  									}
+  								]
+  							},
+  							{
+  								"$operation": "imatch",
+  								"pattern": "?*",
+  								"args": [ "@event.process.imageFile.abstractPath" ]
+  							}
+  						]
+  					},
+  					"createEvent": {
+  						"eventType": "MLE_RANSOM_BEHAVIOR",
+  						"destination": "OUT",
+  						"clone": false,
+  						"data": [
+  							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+  							{ "name": "process", "value": "@event.process" },
+  							{ "name": "destination", "value": "@event.destination" },
+  							{ "name": "source", "value": "@event.source" },
+  							{ "name": "time", "value": "@event.time" },
+  							{ "name": "tickTime", "value": "@event.tickTime" },
+  							{ "name": "hitCount", "value": "@event.hitCount" },
+  							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+  						]
+  					}
+  				}
+  			},
+
+  			// Step 4b (fallback): Slow Lane evaluation - rawPath variant
+  			{
+  				"eventType": "MLE_RANSOM_EVALUATE",
+  				"rule": {
+  					"condition": {
+  						"$operation": "and",
+  						"args": [
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.process.imageFile.rawPath" ]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "@const.ransomSystemExclusions",
+  								"args": [ "@event.destination.rawPath" ]
+  							},
+  							{
+  								"$operation": "greater",
+  								"args": [ "@event.hitCount", 4 ]
+  							},
+  							{
+  								"$operation": "or",
+  								"args": [
+  									{
+  										"$operation": "!imatch",
+  										"pattern": "*\\users\\*",
+  										"args": [ "@event.destination.rawPath" ]
+  									},
+  									{
+  										"$operation": "imatch",
+  										"pattern": "*\\appdata\\*",
+  										"args": [ "@event.destination.rawPath" ]
+  									}
+  								]
+  							},
+  							{
+  								"$operation": "!imatch",
+  								"pattern": "?*",
+  								"args": [ "@event.process.imageFile.abstractPath" ]
+  							}
+  						]
+  					},
+  					"createEvent": {
+  						"eventType": "MLE_RANSOM_BEHAVIOR",
+  						"destination": "OUT",
+  						"clone": false,
+  						"data": [
+  							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+  							{ "name": "process", "value": "@event.process" },
+  							{ "name": "destination", "value": "@event.destination" },
+  							{ "name": "source", "value": "@event.source" },
+  							{ "name": "time", "value": "@event.time" },
+  							{ "name": "tickTime", "value": "@event.tickTime" },
+  							{ "name": "hitCount", "value": "@event.hitCount" },
+  							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
+  						]
+  					}
+  				}
+  			},
 
 			// Step 5: Cleanup context when process exits
 			{
@@ -808,12 +1115,23 @@
 		// Pattern for cloud FLS malicious verdict
 		//
 		"FLS_MALICIOUS_VERDICT": [
+			// Case 1: file.verdict is 2, abstractPath is available
 			{
 				"eventType": "*",
 				"rule": {
 					"condition": {
-						"$operation": "equal",
-						"args": [ "@event.file.verdict", 2 ]
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.file.verdict", 2 ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
 					},
 					"createEvent": {
 						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
@@ -831,12 +1149,57 @@
 					}
 				}
 			},
+			// Case 2: file.verdict is 2, abstractPath is missing -> use rawPath
 			{
 				"eventType": "*",
 				"rule": {
 					"condition": {
-						"$operation": "equal",
-						"args": [ "@event.process.imageFile.verdict", 2 ]
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.file.verdict", 2 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "?*",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "network", "value": "@event.network" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" }
+						]
+					}
+				}
+			},
+			// Case 3: process.imageFile.verdict is 2, abstractPath is available
+			{
+				"eventType": "*",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.process.imageFile.verdict", 2 ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							}
+						]
 					},
 					"createEvent": {
 						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
@@ -850,6 +1213,40 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+						]
+					}
+				}
+			},
+			// Case 4: process.imageFile.verdict is 2, abstractPath is missing -> use rawPath
+			{
+				"eventType": "*",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.process.imageFile.verdict", 2 ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_FLS_MALICIOUS_VERDICT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "network", "value": "@event.network" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
 						]
 					}
 				}
