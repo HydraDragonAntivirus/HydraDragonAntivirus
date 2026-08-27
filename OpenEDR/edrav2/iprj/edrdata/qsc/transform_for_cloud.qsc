@@ -102,7 +102,7 @@
 					{
 						"item": "quarantineTarget",
 						"localPath": "quarantineTarget",
-						"default": "<undefined>"
+						"default": ""
 					}
 				],
 				"args": [

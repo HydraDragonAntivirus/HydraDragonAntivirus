@@ -149,12 +149,54 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					sTitle = std::string(optBaseType.value());
 			}
 
-			// Quarantine target is set explicitly by the PTM rule.
-			// Never guess from process/file fields — that causes victim file false positives.
-			std::string sPath = vEvent.get("quarantineTarget", std::string());
-			if (sPath == "<undefined>" || sPath == "null")
-				sPath.clear();
+			auto extractValidPath = [&](const std::string_view& pathKey) -> std::string {
+				if (auto optP = getByPathSafe(vEvent, pathKey)) {
+					std::string str = std::string(optP.value());
+					if (!str.empty() && str != "<undefined>" && str != "null")
+						return str;
+				}
+				return {};
+			};
 
+			std::string sPath = extractValidPath("quarantineTarget");
+
+			if (sPath.empty())
+			{
+				if (std::string p = extractValidPath("childProcess.imageFile.abstractPath"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("childProcess.imageFile.rawPath"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("childProcess.imagePath"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("process.imageFile.abstractPath"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("process.imageFile.rawPath"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("process.imagePath"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("processes[0].imagePath"); !p.empty())
+					sPath = p;
+				else
+				{
+					int64_t fv = 0;
+					if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
+						try { fv = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
+					if (fv == 2)
+					{
+						if (std::string p = extractValidPath("file.abstractPath"); !p.empty())
+							sPath = p;
+						else if (std::string p = extractValidPath("file.rawPath"); !p.empty())
+							sPath = p;
+						else if (std::string p = extractValidPath("file.path"); !p.empty())
+							sPath = p;
+					}
+				}
+			}
+
+
+			// Update vEvent so quarantineTarget is explicitly populated in the event JSON dictionary
+			if (!sPath.empty())
+				vEvent.put("quarantineTarget", sPath);
 
 			if (!sPath.empty())
 				sTitle += (sTitle.empty() ? "" : ": ") + sPath;
