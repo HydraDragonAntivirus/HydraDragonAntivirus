@@ -616,84 +616,21 @@
 
 		//
 		// Pattern for Ransomware destructive overwrite / in-place encryption behavior
-		// Detects a process reading a file (sequential or mmap) and subsequently overwriting, modifying, renaming or deleting it.
 		//
 		"RANSOM_BEHAVIOR": [
 
-			// Step 1a: Process reads a full file -> save context to ransomBasket
-		{
-			"eventType": "LLE_FILE_DATA_READ_FULL",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
-						},
-						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
-						}
-					]
-				},
-				"saveContext": {
-					"basket": "@const.ransomBasket.readWrite",
-					"key": "@var.ransomPathKey",
-					"group": "@event.process.id",
-					"lifetime": 120000,
-					"data": {
-						"file": "@event.file"
-					}
-				}
-			}
-		},
-
-			// Step 1b: Process memory-maps a file for read -> save context to ransomBasket
+			// Step 1a: File Read -> save context
 			{
-				"eventType": "LLE_FILE_MAP_READ",
+				"eventType": "LLE_FILE_DATA_READ_FULL",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.process.imageFile.abstractPath" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.abstractPath" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"saveContext": {
 						"basket": "@const.ransomBasket.readWrite",
-						"key": "@var.ransomPathKey",
-						"group": "@event.process.id",
+						"key": "@event.file.path",
 						"lifetime": 120000,
 						"data": {
 							"file": "@event.file"
@@ -702,367 +639,238 @@
 				}
 			},
 
-			// Step 1b: Process memory-maps a file for read -> save context to ransomBasket
-		{
-			"eventType": "LLE_FILE_MAP_READ",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imageFile.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.process.imagePath" ]
-								}
-							]
-						},
-						{
-							"$operation": "or",
-							"args": [
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.abstractPath" ]
-								},
-								{
-									"$operation": "!imatch",
-									"pattern": "@const.ransomSystemExclusions",
-									"args": [ "@event.file.path" ]
-								}
-							]
+			// Step 1b: Memory-mapped file read (mmap) -> save context
+			{
+				"eventType": "LLE_FILE_MAP_READ",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"saveContext": {
+						"basket": "@const.ransomBasket.readWrite",
+						"key": "@event.file.path",
+						"lifetime": 120000,
+						"data": {
+							"file": "@event.file"
 						}
-					]
-				},
-				"saveContext": {
-					"basket": "@const.ransomBasket.readWrite",
-					"key": "@var.ransomPathKey",
-					"group": "@event.process.id",
-					"lifetime": 120000,
-					"data": {
-						"file": "@event.file"
 					}
 				}
-			}
-		},
+			},
 
-		// Step 2a: Low-level file create -> trigger Candidate
-		{
-			"eventType": "LLE_FILE_CREATE",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.process.imagePath" ]
-						},
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.file.path" ]
-						}
-					]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_CANDIDATE",
-					"destination": "IN",
-					"clone": false,
-					"data": [
-						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-						{ "name": "process", "value": "@event.process" },
+			// Step 2a: File Create -> trigger Candidate
+			{
+				"eventType": "LLE_FILE_CREATE",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-						{ "name": "destination", "value": "@event.file" },
-						{ "name": "time", "value": "@event.time" },
-						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-					]
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.path" }
+						]
+					}
 				}
-			}
-		},
+			},
 
-		// Step 2a: File write -> trigger Candidate
-		{
-			"eventType": "LLE_FILE_DATA_WRITE_FULL",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.process.imagePath" ]
-						},
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.file.path" ]
-						}
-					]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_CANDIDATE",
-					"destination": "IN",
-					"clone": false,
-					"data": [
-						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-						{ "name": "process", "value": "@event.process" },
+			// Step 2b: File Write Full -> trigger Candidate
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-						{ "name": "destination", "value": "@event.file" },
-						{ "name": "time", "value": "@event.time" },
-						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-					]
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.path" }
+						]
+					}
 				}
-			}
-		},
+			},
 
-		// Step 2b: Memory-mapped write -> trigger Candidate
-		{
-			"eventType": "LLE_FILE_MAP_WRITE",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.process.imagePath" ]
-						},
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.file.path" ]
-						}
-					]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_CANDIDATE",
-					"destination": "IN",
-					"clone": false,
-					"data": [
-						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-						{ "name": "process", "value": "@event.process" },
+			// Step 2c: Memory-mapped write (mmap flush) -> trigger Candidate
+			{
+				"eventType": "LLE_FILE_MAP_WRITE",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-						{ "name": "destination", "value": "@event.file" },
-						{ "name": "time", "value": "@event.time" },
-						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-					]
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.path" }
+						]
+					}
 				}
-			}
-		},
+			},
 
-		// Step 2c: File data change (RF10) -> trigger Candidate
-		{
-			"eventType": "LLE_FILE_DATA_CHANGE",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.process.imagePath" ]
-						},
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.file.path" ]
-						}
-					]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_CANDIDATE",
-					"destination": "IN",
-					"clone": false,
-					"data": [
-						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-						{ "name": "process", "value": "@event.process" },
+			// Step 2d: File Data Change (LLE_FILE_DATA_CHANGE) -> trigger Candidate
+			{
+				"eventType": "LLE_FILE_DATA_CHANGE",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-						{ "name": "destination", "value": "@event.file" },
-						{ "name": "time", "value": "@event.time" },
-						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-					]
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.path" }
+						]
+					}
 				}
-			}
-		},
+			},
 
-		// Step 2c-RF: Mapped RF10 events (e.g. RF10.7) -> trigger Candidate
-		{
-			"eventType": "RF10*",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.process.imagePath" ]
-						},
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.file.path" ]
-						}
-					]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_CANDIDATE",
-					"destination": "IN",
-					"clone": false,
-					"data": [
-						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-						{ "name": "process", "value": "@event.process" },
+			// Step 2e: Raw RF10* Events (RF10.7) -> trigger Candidate
+			{
+				"eventType": "RF10*",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-						{ "name": "destination", "value": "@event.file" },
-						{ "name": "time", "value": "@event.time" },
-						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-					]
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.path" }
+						]
+					}
 				}
-			}
-		},
+			},
 
-		// Step 2d: File rename -> trigger Candidate
-		{
-			"eventType": "LLE_FILE_RENAME",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.process.imagePath" ]
-						},
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.file.path" ]
-						}
-					]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_CANDIDATE",
-					"destination": "IN",
-					"clone": false,
-					"data": [
-						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-						{ "name": "process", "value": "@event.process" },
+			// Step 2f: File Rename -> trigger Candidate
+			{
+				"eventType": "LLE_FILE_RENAME",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-						{ "name": "destination", "value": "@event.file" },
-						{ "name": "time", "value": "@event.time" },
-						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-					]
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.path" }
+						]
+					}
 				}
-			}
-		},
+			},
 
-		// Step 2e-RF: Mapped RF4 events (e.g. RF4.8) -> trigger Candidate
-		{
-			"eventType": "RF4*",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.process.imagePath" ]
-						},
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.file.path" ]
-						}
-					]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_CANDIDATE",
-					"destination": "IN",
-					"clone": false,
-					"data": [
-						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-						{ "name": "process", "value": "@event.process" },
+			// Step 2g: File Delete -> trigger Candidate
+			{
+				"eventType": "LLE_FILE_DELETE",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-						{ "name": "destination", "value": "@event.file" },
-						{ "name": "time", "value": "@event.time" },
-						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-					]
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.path" }
+						]
+					}
 				}
-			}
-		},
+			},
 
-		// Step 2e: File delete (RF4) -> trigger Candidate
-		{
-			"eventType": "LLE_FILE_DELETE",
-			"rule": {
-				"condition": {
-					"$operation": "and",
-					"args": [
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.process.imagePath" ]
-						},
-						{
-							"$operation": "!imatch",
-							"pattern": "@const.ransomSystemExclusions",
-							"args": [ "@event.file.path" ]
-						}
-					]
-				},
-				"createEvent": {
-					"eventType": "MLE_RANSOM_CANDIDATE",
-					"destination": "IN",
-					"clone": false,
-					"data": [
-						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-						{ "name": "process", "value": "@event.process" },
+			// Step 2h: Raw RF4* Events (RF4.8) -> trigger Candidate
+			{
+				"eventType": "RF4*",
+				"rule": {
+					"condition": {
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_CANDIDATE",
+						"destination": "IN",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-						{ "name": "destination", "value": "@event.file" },
-						{ "name": "time", "value": "@event.time" },
-						{ "name": "tickTime", "value": "@event.tickTime" },
-						{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
-					]
+							{ "name": "destination", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.path" }
+						]
+					}
 				}
-			}
-		},
+			},
 
-			// Step 3: Count the distinct candidate hits per process and forward to evaluation
+			// Step 3: Forward candidate to evaluation
 			{
 				"eventType": "MLE_RANSOM_CANDIDATE",
 				"rule": {
-					"loadContext": {
-						"basket": "@const.ransomBasket.processCounter",
-						"key": "@event.process.id"
-					},
-					"saveContext": {
-						"basket": "@const.ransomBasket.processCounter",
-						"key": "@event.process.id",
-						"lifetime": 86400000,
-						"data": {
-							"hitCount": {
-								"$operation": "add",
-								"args": [
-									"@context.hitCount",
-									1
-								]
-							}
-						}
-					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_EVALUATE",
 						"destination": "IN",
@@ -1074,108 +882,86 @@
 							{ "name": "destination", "value": "@event.destination" },
 							{ "name": "source", "value": "@event.source" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "hitCount", "value": { "$operation": "add", "args": [ "@context.hitCount", 1 ] } }
+							{ "name": "tickTime", "value": "@event.tickTime" }
 						]
 					}
 				}
 			},
 
-
-  			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit)
-  			{
-  				"eventType": "MLE_RANSOM_EVALUATE",
-  				"rule": {
-  					"condition": {
-  						"$operation": "and",
-  						"args": [
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.destination.path" ]
-  							},
-  							{
-  								"$operation": "greater",
-  								"args": [ "@event.hitCount", 0 ]
-  							},
-  							{
-  								"$operation": "imatch",
-  								"pattern": "*\\users\\*",
-  								"args": [ "@event.destination.path" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "*\\appdata\\*",
-  								"args": [ "@event.destination.path" ]
-  							}
-  						]
-  					},
-  					"createEvent": {
-  						"eventType": "MLE_RANSOM_BEHAVIOR",
-  						"destination": "OUT",
-  						"clone": false,
-  						"data": [
-  							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-  							{ "name": "process", "value": "@event.process" },
+			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit detection)
+			{
+				"eventType": "MLE_RANSOM_EVALUATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.destination.path" ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "*\\users\\*",
+								"args": [ "@event.destination.path" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "*\\appdata\\*",
+								"args": [ "@event.destination.path" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-  							{ "name": "destination", "value": "@event.destination" },
-  							{ "name": "time", "value": "@event.time" },
-  							{ "name": "tickTime", "value": "@event.tickTime" },
-  							{ "name": "hitCount", "value": "@event.hitCount" }
-  						]
-  					}
-  				}
-  			},
+							{ "name": "destination", "value": "@event.destination" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
 
-  			// Step 4b: Slow Lane evaluation (Non-User Profile files -> 5 hits)
-  			{
-  				"eventType": "MLE_RANSOM_EVALUATE",
-  				"rule": {
-  					"condition": {
-  						"$operation": "and",
-  						"args": [
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.destination.path" ]
-  							},
-  							{
-  								"$operation": "greater",
-  								"args": [ "@event.hitCount", 4 ]
-  							},
-  							{
-  								"$operation": "or",
-  								"args": [
-  									{
-  										"$operation": "!imatch",
-  										"pattern": "*\\users\\*",
-  										"args": [ "@event.destination.path" ]
-  									},
-  									{
-  										"$operation": "imatch",
-  										"pattern": "*\\appdata\\*",
-  										"args": [ "@event.destination.path" ]
-  									}
-  								]
-  							}
-  						]
-  					},
-  					"createEvent": {
-  						"eventType": "MLE_RANSOM_BEHAVIOR",
-  						"destination": "OUT",
-  						"clone": false,
-  						"data": [
-  							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-  							{ "name": "process", "value": "@event.process" },
+			// Step 4b: General evaluation for files outside AppData
+			{
+				"eventType": "MLE_RANSOM_EVALUATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.destination.path" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "*\\appdata\\*",
+								"args": [ "@event.destination.path" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
 							{ "name": "processes", "value": "@event.processes" },
-  							{ "name": "destination", "value": "@event.destination" },
-  							{ "name": "time", "value": "@event.time" },
-  							{ "name": "tickTime", "value": "@event.tickTime" },
-  							{ "name": "hitCount", "value": "@event.hitCount" }
-  						]
-  					}
-  				}
-  			},
+							{ "name": "destination", "value": "@event.destination" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
 
 			// Step 5: Cleanup context when process exits
 			{
