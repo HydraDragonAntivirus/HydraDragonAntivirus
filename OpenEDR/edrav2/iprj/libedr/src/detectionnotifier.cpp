@@ -97,13 +97,19 @@ bool DetectionNotifier::isDetectionEvent(const Variant& vEvent)
 	if (!vEvent.isDictionaryLike())
 		return false;
 
-	// Detection events MUST have a baseType in the MLE detection range (>= 1000000).
-	// Raw EVM events (e.g. RF12.11 with baseType=11) are telemetry events, not threat detections.
-	auto vBaseType = vEvent.getSafe("baseType");
-	if (vBaseType.has_value() && vBaseType->getType() == variant::ValueType::Integer)
-		return (static_cast<int64_t>(vBaseType.value()) >= c_nMinMleBaseType);
+	// Threat detections MUST have baseType or baseEventType in the MLE detection range (>= 1000000).
+	// Raw EVM events (e.g. RF12.11 with baseEventType=11) are telemetry events, not threat detections.
+	int64_t nBaseType = 0;
+	if (auto optBt = vEvent.getSafe("baseType"))
+	{
+		try { nBaseType = static_cast<int64_t>(optBt.value()); } catch (...) {}
+	}
+	else if (auto optBet = vEvent.getSafe("baseEventType"))
+	{
+		try { nBaseType = static_cast<int64_t>(optBet.value()); } catch (...) {}
+	}
 
-	return false;
+	return (nBaseType >= c_nMinMleBaseType);
 }
 
 //
