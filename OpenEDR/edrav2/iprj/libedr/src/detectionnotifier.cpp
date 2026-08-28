@@ -175,22 +175,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					sPath = p;
 				else if (std::string p = extractValidPath("process.imagePath"); !p.empty())
 					sPath = p;
-				else if (vEvent.has("processes"))
-				{
-					try {
-						auto vSeq = vEvent.get("processes");
-						if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
-						{
-							auto vLeaf = vSeq[vSeq.getSize() - 1];
-							if (vLeaf.has("imagePath"))
-							{
-								std::string p = std::string(vLeaf["imagePath"]);
-								if (!p.empty() && p != "<undefined>" && p != "null")
-									sPath = p;
-							}
-						}
-					} catch (...) {}
-				}
 
 				if (sPath.empty())
 				{
@@ -244,18 +228,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			else if (auto optGidP = getByPathSafe(vEvent, "process.id"))
 			{
 				try { nGid = std::stoull(std::string(optGidP.value())); } catch (...) {}
-			}
-			else if (vEvent.has("processes"))
-			{
-				try {
-					auto vSeq = vEvent.get("processes");
-					if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
-					{
-						auto vLeaf = vSeq[vSeq.getSize() - 1];
-						if (vLeaf.has("id"))
-							nGid = std::stoull(std::string(vLeaf["id"]));
-					}
-				} catch (...) {}
 			}
 			
 			if (nGid > 0)
