@@ -70,7 +70,7 @@
 			"*\\Windows\\*",
 			"*\\Program Files\\*",
 			"*\\Program Files (x86)\\*",
-			"*\\ProgramData\\Microsoft\\*",
+			"*\\ProgramData\\*",
 			"*\\AppData\\Local\\Packages\\*",
 			"*\\AppData\\Local\\Microsoft\\Edge\\User Data\\EBWebView\\*",
 			"*\\AppData\\Local\\Temp\\*",

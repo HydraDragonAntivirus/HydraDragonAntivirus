@@ -259,7 +259,9 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 	try
 	{
 		Variant vFile = vEvent.get("file");
-		wsFilePath = vFile.get("rawPath", L"");
+		wsFilePath = vFile.get("path", L"");
+		if (wsFilePath.empty())
+			wsFilePath = vFile.get("rawPath", L"");
 		if (wsFilePath.empty())
 			wsFilePath = vFile.get("uniquePath", L"");
 		if (wsFilePath.empty())
@@ -932,7 +934,21 @@ void EventEnricher::put(const Variant& vEventRef)
 	// Shadow-backup shield: record pre-images under %PROGRAMDATA%\HydraDragonBackups\<pid>
 	try
 	{
-		const int64_t nShieldPid = getByPath(vEvent, "process.pid", int64_t(0));
+		int64_t nShieldPid = getByPath(vEvent, "process.pid", int64_t(0));
+		if (nShieldPid <= 0 && vEvent.has("processes"))
+		{
+			try {
+				auto vSeq = vEvent.get("processes");
+				if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
+				{
+					auto vLeaf = vSeq[vSeq.getSize() - 1];
+					if (vLeaf.has("pid"))
+						nShieldPid = static_cast<int64_t>(vLeaf["pid"]);
+					else if (vLeaf.has("id"))
+						nShieldPid = static_cast<int64_t>(vLeaf["id"]);
+				}
+			} catch (...) {}
+		}
 		recordShadowBackup(nShieldPid, eEventType, vEvent);
 
 		// If policy generated any detection/threat event, execute universal remediation (file rollback + terminate + quarantine)
