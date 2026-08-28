@@ -53,14 +53,11 @@ public:
 		std::wstring wsNewName;    ///< rename target (removed on rollback)
 	};
 
-	// Called from DetectionNotifier AFTER kill IOCTL succeeds.
-	static void rollbackRansomBackups(int64_t nPid);
+	static void rollbackRansomBackups(int64_t nPid = 0);
 
 private:
 	void recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent);
 	void handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName);
-
-public:
 
 	///
 	/// Object final construction
