@@ -511,6 +511,13 @@ void EventEnricher::start()
 		LOGINF("Event Enricher already started");
 		return;
 	}
+
+	{
+		std::scoped_lock _lockQueue(m_mtxQueue);
+		if (m_threadPool.getThreadsCount() == 0)
+			m_threadPool.addThreads(1);
+	}
+
 	m_fInitialized = true;
 
 	LOGLVL(Detailed, "Event Enricher is started");
@@ -545,7 +552,6 @@ void EventEnricher::shutdown()
 		std::scoped_lock _lock(m_mtxQueue);
 		m_threadPool.stop(true);
 		m_pProvider.reset();
-		m_pReceiver.reset();
 	}
 
 	LOGLVL(Detailed, "Event Enricher is shutdowned");
@@ -1066,6 +1072,7 @@ void EventEnricher::notifyAddQueueData(Variant vTag)
 	std::scoped_lock _lock(m_mtxQueue);
 	if (!m_fInitialized)
 		return;
+
 	if (m_threadPool.getThreadsCount() == 0)
 	{
 		error::InvalidUsage(SL, "Thread pool is empty").log();
