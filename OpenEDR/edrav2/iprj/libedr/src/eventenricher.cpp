@@ -334,10 +334,15 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 					(eEventType == Event::LLE_FILE_DELETE) ? 1 : 2;
 				entry.wsNewName = wsNewName;
 
-				if (eEventType == Event::LLE_FILE_PREIMAGE_SAVED)
+				std::wstring wsBkInEvent;
+				try {
+					wsBkInEvent = vFile.get("backupPath", L"");
+				} catch (...) {}
+
+				if (!wsBkInEvent.empty())
 				{
-					Variant vFile = vEvent.get("file");
-					entry.wsBackup = NormalizeToDosPath(vFile.get("backupPath", L""));
+					entry.wsBackup = NormalizeToDosPath(wsBkInEvent);
+					readMap[wsFilePath] = entry.wsBackup;
 				}
 				else
 				{
