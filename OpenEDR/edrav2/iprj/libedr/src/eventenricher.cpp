@@ -552,6 +552,7 @@ void EventEnricher::shutdown()
 		std::scoped_lock _lock(m_mtxQueue);
 		m_threadPool.stop(true);
 		m_pProvider.reset();
+		m_pReceiver.reset();
 	}
 
 	LOGLVL(Detailed, "Event Enricher is shutdowned");
