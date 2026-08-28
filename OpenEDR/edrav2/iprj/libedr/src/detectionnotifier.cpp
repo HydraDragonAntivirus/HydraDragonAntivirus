@@ -172,8 +172,10 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 
 			std::string sPath = extractValidPath("quarantineTarget");
 
+			// If quarantineTarget is not set, resolve based on detection type
 			if (sPath.empty())
 			{
+				// 1. If childProcess exists (Process Creation Detection), target the child
 				if (std::string p = extractValidPath("childProcess.imageFile.rawPath"); !p.empty())
 					sPath = p;
 				else if (std::string p = extractValidPath("childProcess.imageFile.path"); !p.empty())
@@ -184,17 +186,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					sPath = p;
 				else if (std::string p = extractValidPath("childProcess.imageFile.abstractPath"); !p.empty())
 					sPath = p;
-				else if (std::string p = extractValidPath("process.imageFile.rawPath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("process.imageFile.path"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("process.imagePath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("process.path"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("process.imageFile.abstractPath"); !p.empty())
-					sPath = p;
 
+				// 2. If it's a File Detection (FLS or file verdict == 2), target the malicious file itself
 				if (sPath.empty())
 				{
 					int64_t fv = 0;
@@ -209,6 +202,21 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						else if (std::string p = extractValidPath("file.abstractPath"); !p.empty())
 							sPath = p;
 					}
+				}
+
+				// 3. If it's a direct Process Behavioral Detection (and not a pure file detection)
+				if (sPath.empty())
+				{
+					if (std::string p = extractValidPath("process.imageFile.rawPath"); !p.empty())
+						sPath = p;
+					else if (std::string p = extractValidPath("process.imageFile.path"); !p.empty())
+						sPath = p;
+					else if (std::string p = extractValidPath("process.imagePath"); !p.empty())
+						sPath = p;
+					else if (std::string p = extractValidPath("process.path"); !p.empty())
+						sPath = p;
+					else if (std::string p = extractValidPath("process.imageFile.abstractPath"); !p.empty())
+						sPath = p;
 				}
 			}
 
@@ -239,14 +247,24 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			}
 			
 			// Kill the offending process FIRST via kernel driver (edrdrv)
+			// Priority: childProcess.id (the spawned malware) -> process.id (only if not a pure file scan event)
 			uint64_t nGid = 0;
 			if (auto optGid = getByPathSafe(vEvent, "childProcess.id"))
 			{
 				try { nGid = std::stoull(std::string(optGid.value())); } catch (...) {}
 			}
-			else if (auto optGidP = getByPathSafe(vEvent, "process.id"))
+			else
 			{
-				try { nGid = std::stoull(std::string(optGidP.value())); } catch (...) {}
+				// If this is purely a file verdict (FLS scanning a file on disk), do NOT kill the reader/parent process
+				int64_t nFileVerdict = 0;
+				if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
+					try { nFileVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
+
+				if (nFileVerdict != 2)
+				{
+					if (auto optGidP = getByPathSafe(vEvent, "process.id"))
+						try { nGid = std::stoull(std::string(optGidP.value())); } catch (...) {}
+				}
 			}
 			
 			if (nGid > 0)
