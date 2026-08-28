@@ -15,26 +15,9 @@ pub static UTILS_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static PROTECTION_PAUSED: AtomicBool = AtomicBool::new(false);
 static LAST_PAUSE_CHECK_MS: AtomicU64 = AtomicU64::new(0);
 
-/// Returns true when protection enforcement is paused. Cheap: registry is
-/// polled at most once per second, otherwise the cached value is returned.
+/// Returns true when protection enforcement is paused in memory.
 pub fn is_protection_paused() -> bool {
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    let last = LAST_PAUSE_CHECK_MS.load(Ordering::Relaxed);
-    if now_ms.saturating_sub(last) >= 1000 {
-        LAST_PAUSE_CHECK_MS.store(now_ms, Ordering::Relaxed);
-        let paused = crate::config::ConfigReader::read_param_from_registry(
-            "PROTECTION_PAUSED",
-            r"SOFTWARE\Owlyshield",
-        )
-        .trim()
-            == "1";
-        PROTECTION_PAUSED.store(paused, Ordering::Relaxed);
-        return paused;
-    }
-    PROTECTION_PAUSED.load(Ordering::Relaxed)
+    crate::ffi::is_protection_stopped()
 }
 
 /// Initialize global path variables from the configuration

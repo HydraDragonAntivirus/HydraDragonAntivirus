@@ -12,6 +12,7 @@
 #include "detectionnotifier.h"
 
 #include <deque>
+#include <atomic>
 
 // Set component for logging
 #undef CMD_COMPONENT
@@ -20,6 +21,8 @@
 namespace cmd {
 
 namespace {
+
+	static std::atomic<bool> s_fProtectionPaused = false;
 
 	static std::string NtPathToDosPathString(const std::string& sNt)
 	{
@@ -246,113 +249,143 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				try { nVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
 			}
 			
-			// Kill the offending process FIRST via kernel driver (edrdrv)
-			// Priority: childProcess.id (the spawned malware) -> process.id (only if not a pure file scan event)
-			uint64_t nGid = 0;
-			if (auto optGid = getByPathSafe(vEvent, "childProcess.id"))
+			if (!s_fProtectionPaused.load())
 			{
-				try { nGid = std::stoull(std::string(optGid.value())); } catch (...) {}
-			}
-			else
-			{
-				// If this is purely a file verdict (FLS scanning a file on disk), do NOT kill the reader/parent process
-				int64_t nFileVerdict = 0;
-				if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
-					try { nFileVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
+				auto extractId = [&](const std::string_view& pathKey) -> uint64_t {
+					if (auto opt = getByPathSafe(vEvent, pathKey)) {
+						try {
+							if (opt.value().getType() == variant::ValueType::Integer)
+								return static_cast<uint64_t>(opt.value());
+							else if (opt.value().getType() == variant::ValueType::String) {
+								std::string s = std::string(opt.value());
+								if (!s.empty() && s != "<undefined>" && s != "null")
+									return std::stoull(s);
+							}
+							else {
+								return static_cast<uint64_t>(opt.value());
+							}
+						} catch (...) {}
+					}
+					return 0;
+				};
 
-				if (nFileVerdict != 2)
+				uint64_t nGid = extractId("childProcess.id");
+				if (nGid == 0) nGid = extractId("childProcess.pid");
+				if (nGid == 0)
 				{
-					if (auto optGidP = getByPathSafe(vEvent, "process.id"))
-						try { nGid = std::stoull(std::string(optGidP.value())); } catch (...) {}
-				}
-			}
-			
-			if (nGid > 0)
-			{
-				HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}", 
-					GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
-					NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-				if (hDev != INVALID_HANDLE_VALUE)
-				{
-					#pragma pack(push, 1)
-					struct COM_MESSAGE {
-						uint32_t msgType;
-						uint32_t pid;
-						uint64_t gid;
-						WCHAR path[260];
-						WCHAR quarantinePath[260];
-					};
-					#pragma pack(pop)
-					
-					COM_MESSAGE msg = {0};
-					msg.msgType = 6; // MESSAGE_KILL_ONLY_GID
-					msg.gid = nGid;
-					
-					DWORD retBytes = 0;
-					uint32_t output = 0;
-					DWORD IOCTL_OWLY = (0x00000022 << 16) | (0 << 14) | (0x921 << 2) | 0; // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x921, METHOD_BUFFERED, FILE_ANY_ACCESS)
-					
-					if (::DeviceIoControl(hDev, IOCTL_OWLY, &msg, sizeof(msg), &output, sizeof(output), &retBytes, NULL))
-						LOGLVL(Critical, FMT("detnotif: successfully KILLED malicious process GID=" << nGid << " via edrdrv IOCTL"));
-					else
-						LOGLVL(Critical, FMT("detnotif: FAILED to kill malicious process GID=" << nGid << " via edrdrv IOCTL. err=" << ::GetLastError()));
-						
-					::CloseHandle(hDev);
-				}
-				else
-				{
-					LOGLVL(Critical, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
-				}
-			}
-				
-			// Use owlyshield_ransom.dll to quarantine the malicious file ONLY IF verdict != 1
-			if (!sPath.empty())
-			{
-				if (nVerdict == 1)
-				{
-					LOGLVL(Detailed, FMT("detnotif: Target <" << sPath << "> is Trusted (verdict=1). KILL ONLY. Skipping quarantine."));
-				}
-				else
-				{
-					HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-					if (hDll != nullptr)
+					// If this is purely a file verdict (FLS scanning a file on disk), do NOT kill the reader/parent process
+					int64_t nFileVerdict = 0;
+					if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
+						try { nFileVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
+
+					if (nFileVerdict != 2)
 					{
-						typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-						auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
-						if (fnQ != nullptr)
+						nGid = extractId("process.id");
+						if (nGid == 0) nGid = extractId("process.pid");
+						if (nGid == 0 && vEvent.has("processes"))
 						{
-							std::string sDos = NtPathToDosPathString(sPath);
-							int32_t qRes = -1;
-							for (int retry = 0; retry < 6; ++retry)
+							try {
+								auto vSeq = vEvent.get("processes");
+								if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
+								{
+									auto vLeaf = vSeq[vSeq.getSize() - 1];
+									if (vLeaf.has("id"))
+										nGid = static_cast<uint64_t>(vLeaf["id"]);
+									else if (vLeaf.has("pid"))
+										nGid = static_cast<uint64_t>(vLeaf["pid"]);
+								}
+							} catch (...) {}
+						}
+					}
+				}
+				
+				if (nGid > 0)
+				{
+					HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}", 
+						GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
+						NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+					if (hDev != INVALID_HANDLE_VALUE)
+					{
+						#pragma pack(push, 1)
+						struct COM_MESSAGE {
+							uint32_t msgType;
+							uint32_t pid;
+							uint64_t gid;
+							WCHAR path[260];
+							WCHAR quarantinePath[260];
+						};
+						#pragma pack(pop)
+						
+						COM_MESSAGE msg = {0};
+						msg.msgType = 6; // MESSAGE_KILL_ONLY_GID
+						msg.gid = nGid;
+						
+						DWORD retBytes = 0;
+						uint32_t output = 0;
+						DWORD IOCTL_OWLY = (0x00000022 << 16) | (0 << 14) | (0x921 << 2) | 0; // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x921, METHOD_BUFFERED, FILE_ANY_ACCESS)
+						
+						if (::DeviceIoControl(hDev, IOCTL_OWLY, &msg, sizeof(msg), &output, sizeof(output), &retBytes, NULL))
+							LOGLVL(Critical, FMT("detnotif: successfully KILLED malicious process GID=" << nGid << " via edrdrv IOCTL"));
+						else
+							LOGLVL(Critical, FMT("detnotif: FAILED to kill malicious process GID=" << nGid << " via edrdrv IOCTL. err=" << ::GetLastError()));
+							
+						::CloseHandle(hDev);
+					}
+					else
+					{
+						LOGLVL(Critical, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
+					}
+				}
+
+				// Restore victim files & delete encrypted ransomware artifacts
+				EventEnricher::rollbackRansomBackups(nGid);
+					
+				// Use owlyshield_ransom.dll to quarantine the malicious file ONLY IF verdict != 1
+				if (!sPath.empty())
+				{
+					if (nVerdict == 1)
+					{
+						LOGLVL(Detailed, FMT("detnotif: Target <" << sPath << "> is Trusted (verdict=1). KILL ONLY. Skipping quarantine."));
+					}
+					else
+					{
+						HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+						if (hDll != nullptr)
+						{
+							typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+							auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+							if (fnQ != nullptr)
 							{
-								qRes = fnQ(
+								std::string sDos = NtPathToDosPathString(sPath);
+								int32_t qRes = fnQ(
 									reinterpret_cast<const uint8_t*>(sDos.data()),
 									static_cast<uint32_t>(sDos.size()));
-								if (qRes == 0)
-									break;
-								::Sleep(50);
-							}
 
-							if (qRes == 0)
-								LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
+								if (qRes == 0)
+									LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
+								else
+									LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
+							}
 							else
-								LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
+							{
+								LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found!");
+							}
+							::FreeLibrary(hDll);
 						}
 						else
 						{
-							LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found!");
+							LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Cannot quarantine malware.");
 						}
-						::FreeLibrary(hDll);
 					}
-					else
-					{
-						LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Cannot quarantine malware.");
-					}
+				}
+				else
+				{
+					LOGLVL(Critical, "detnotif: quarantineTarget path is empty! Cannot quarantine anything.");
 				}
 			}
 			else
 			{
-				LOGLVL(Critical, "detnotif: quarantineTarget path is empty! Cannot quarantine anything.");
+				LOGLVL(Detailed, "detnotif: Protection is PAUSED. Suppressed kill, quarantine, and rollback.");
 			}
 		}
 
@@ -360,12 +393,11 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			std::scoped_lock _lock(m_mtxStorage);
 
 			int64_t nId = ++m_nLastId;
-		Variant vEntry = Dictionary({ {"id", nId}, {"event", vEvent} });
-		m_storage.push_back(std::move(vEntry));
+			Variant vEntry = Dictionary({ {"id", nId}, {"event", vEvent} });
+			m_storage.push_back(std::move(vEntry));
 
-
-		while (m_storage.size() > m_nMaxSize)
-			m_storage.pop_front();
+			while (m_storage.size() > m_nMaxSize)
+				m_storage.pop_front();
 		}
 
 		LOGLVL(Detailed, "Detection event <" << vEvent.get("type", "<undefined>") << "> is stored (id <" << m_nLastId << ">)");
@@ -396,6 +428,40 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 	{
 		std::scoped_lock _lock(m_mtxStorage);
 		return Dictionary({ {"lastId", m_nLastId} });
+	}
+
+	if (vCommand == "setProtectionPaused")
+	{
+		bool fPaused = false;
+		if (vParams.isDictionaryLike())
+			fPaused = vParams.get("paused", false);
+
+		s_fProtectionPaused.store(fPaused);
+
+		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (hDll)
+		{
+			if (fPaused)
+			{
+				typedef int32_t (*StopFn)();
+				if (auto fn = (StopFn)::GetProcAddress(hDll, "owlyshield_dll_stop_protection"))
+					fn();
+			}
+			else
+			{
+				typedef int32_t (*StartFn)();
+				if (auto fn = (StartFn)::GetProcAddress(hDll, "owlyshield_dll_start_protection"))
+					fn();
+			}
+		}
+
+		LOGLVL(Critical, FMT("detnotif RPC: protection PAUSED state set to " << (fPaused ? "TRUE" : "FALSE")));
+		return Dictionary({ {"success", true}, {"paused", fPaused} });
+	}
+
+	if (vCommand == "getProtectionStatus")
+	{
+		return Dictionary({ {"paused", s_fProtectionPaused.load()} });
 	}
 
 	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();

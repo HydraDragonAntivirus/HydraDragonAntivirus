@@ -56,6 +56,7 @@ type
     FRestartPending: Boolean;
     FNotifier: TGuiNotifierThread;
     FHiPPipe: THipPipeListener;
+    FProtectionPaused: Boolean;
     function ReadProtectionPaused: Boolean;
     procedure WriteProtectionPaused(APaused: Boolean);
     procedure SetPauseCaption(APaused: Boolean);
@@ -349,67 +350,42 @@ end;
 // ---------------------------------------------------------------------------
 
 function TForm1.ReadProtectionPaused: Boolean;
-var
-  Reg: TRegistry;
 begin
-  Result := False;
-  Reg := TRegistry.Create(KEY_READ);
-  try
-    Reg.RootKey := HKEY_LOCAL_MACHINE;
-    if Reg.OpenKeyReadOnly('Software\Owlyshield') then
-    try
-      if Reg.ValueExists('PROTECTION_PAUSED') then
-        Result := Trim(Reg.ReadString('PROTECTION_PAUSED')) = '1';
-    finally
-      Reg.CloseKey;
-    end;
-  finally
-    Reg.Free;
-  end;
+  Result := FProtectionPaused;
 end;
 
 procedure TForm1.WriteProtectionPaused(APaused: Boolean);
 var
-  Reg: TRegistry;
+  Req, Resp: string;
 begin
-  Reg := TRegistry.Create(KEY_WRITE);
-  try
-    Reg.RootKey := HKEY_LOCAL_MACHINE;
-    if not Reg.OpenKey('Software\Owlyshield', True) then
-    begin
-      TAlertForm.ShowAlert('Pause failed',
-        'Could not open HKLM\Software\Owlyshield. Run the agent as administrator.',
-        asCritical, 0);
-      Exit;
-    end;
-    try
-      if APaused then
-        Reg.WriteString('PROTECTION_PAUSED', '1')
-      else
-        Reg.WriteString('PROTECTION_PAUSED', '0');
-    finally
-      Reg.CloseKey;
-    end;
+  if APaused then
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setProtectionPaused","params":{"paused":true}}'
+  else
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setProtectionPaused","params":{"paused":false}}';
 
-    SetPauseCaption(APaused);
-    if APaused then
-    begin
-      LoadStateIcon('off');
-      TrayIcon1.Hint := 'HydraDragon EDR Agent' + LineEnding +
-        'Status: Protection PAUSED';
-      TAlertForm.ShowAlert('Protection paused',
-        'Detection and quarantine actions are suspended. Monitoring continues.',
-        asWarning, 6000);
-    end
-    else
-    begin
-      RefreshStatus(False);
-      TAlertForm.ShowAlert('Protection resumed',
-        'Detection and quarantine actions are active again.',
-        asSuccess, 5000);
-    end;
-  finally
-    Reg.Free;
+  // Send directly to edrsvc in-memory via JSON-RPC
+  HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp);
+
+  FProtectionPaused := APaused;
+  SetPauseCaption(APaused);
+
+  if APaused then
+  begin
+    LoadStateIcon('off');
+    TrayIcon1.Hint := 'HydraDragon EDR Agent' + LineEnding +
+      'Status: Protection PAUSED';
+    TAlertForm.ShowAlert('Protection paused',
+      'Detection and quarantine actions are suspended in edrsvc.',
+      asWarning, 4000);
+  end
+  else
+  begin
+    LoadStateIcon('on');
+    TrayIcon1.Hint := 'HydraDragon EDR Agent' + LineEnding +
+      'Status: Protected';
+    TAlertForm.ShowAlert('Protection resumed',
+      'Detection and quarantine actions are active again.',
+      asSuccess, 3000);
   end;
 end;
 
