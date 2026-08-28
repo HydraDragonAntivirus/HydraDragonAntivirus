@@ -124,6 +124,9 @@ NtPathToDosPath(
         SIZE_T targetChars = target.Length / sizeof(WCHAR);
         targetBuf[targetChars] = L'\0';
 
+        if (pathLen < targetChars)
+            continue;
+
         // NtPath must start with this target, followed by '\' or end-of-string.
         if (_wcsnicmp(NtPath, targetBuf, targetChars) != 0)
             continue;
