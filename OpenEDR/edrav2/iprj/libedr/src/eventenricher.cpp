@@ -229,13 +229,6 @@ static bool IsSystemArea(const std::wstring& wsPath)
 	return false;
 }
 
-namespace {
-	std::mutex s_mtxRansomShield;
-	std::unordered_map<int64_t, std::unordered_map<std::wstring, std::wstring>> s_readFiles;
-	std::unordered_map<int64_t, std::vector<EventEnricher::ShadowBackupEntry>> s_backups;
-	std::unordered_map<int64_t, std::unordered_set<std::wstring>> s_backedUpFiles;
-}
-
 void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent)
 {
 	if (nPid <= 0)
@@ -245,10 +238,9 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 	{
 	case Event::LLE_PROCESS_DELETE:
 	{
-		std::scoped_lock _lock(s_mtxRansomShield);
-		s_readFiles.erase(nPid);
-		s_backups.erase(nPid);
-		s_backedUpFiles.erase(nPid);
+		std::scoped_lock _lock(m_mtxRansomShield);
+		m_readFiles.erase(nPid);
+		m_backups.erase(nPid);
 		return;
 	}
 	default:
@@ -283,16 +275,22 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		return;
 
 	{
-		std::scoped_lock _lock(s_mtxRansomShield);
-		auto& backedUpSet = s_backedUpFiles[nPid];
-		auto& vec = s_backups[nPid];
+		std::scoped_lock _lock(m_mtxRansomShield);
+		auto& readMap = m_readFiles[nPid];
 
 		switch (eEventType)
 		{
 		case Event::LLE_FILE_DATA_READ_FULL:
 		case Event::LLE_FILE_MAP_READ:
 		{
-			s_readFiles[nPid][wsFilePath] = L"";
+			std::wstring wsBk;
+			try
+			{
+				Variant vF = vEvent.get("file");
+				wsBk = vF.get("backupPath", L"");
+			}
+			catch (...) {}
+			readMap[wsFilePath] = std::move(wsBk);
 			return;
 		}
 
@@ -304,23 +302,8 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		case Event::LLE_FILE_RENAME:
 		{
 			constexpr size_t c_nMaxBackupsPerProcess = 500;
-
-			// On rename: update rename target on existing backup entry
-			if (eEventType == Event::LLE_FILE_RENAME && !wsNewName.empty())
-			{
-				for (auto& b : vec)
-				{
-					if (b.wsOriginal == wsFilePath)
-					{
-						b.wsNewName = wsNewName;
-						b.nOp = 2;
-						return;
-					}
-				}
-			}
-
-			// Anti-duplicate: only back up the clean pristine original once before any modifications
-			if (backedUpSet.find(wsFilePath) == backedUpSet.end() && vec.size() < c_nMaxBackupsPerProcess)
+			auto& vec = m_backups[nPid];
+			if (vec.size() < c_nMaxBackupsPerProcess)
 			{
 				ShadowBackupEntry entry;
 				entry.wsOriginal = wsFilePath;
@@ -330,24 +313,18 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 					(eEventType == Event::LLE_FILE_DELETE) ? 1 : 2;
 				entry.wsNewName = wsNewName;
 
-				// Save pre-image to %PROGRAMDATA%\HydraDragonBackups\<pid>\...
-				wchar_t szProgData[MAX_PATH] = {};
-				::GetEnvironmentVariableW(L"PROGRAMDATA", szProgData, MAX_PATH);
-				std::wstring wsBkDir = std::wstring(szProgData) + L"\\HydraDragonBackups\\" + std::to_wstring(nPid);
-				std::error_code ec;
-				std::filesystem::create_directories(wsBkDir, ec);
-
-				std::wstring wsFileName = std::filesystem::path(wsFilePath).filename().wstring();
-				auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-				std::wstring wsBkPath = wsBkDir + L"\\" + std::to_wstring(now) + L"_" + wsFileName;
-
-				if (::CopyFileW(wsFilePath.c_str(), wsBkPath.c_str(), TRUE))
+				if (eEventType == Event::LLE_FILE_PREIMAGE_SAVED)
 				{
-					entry.wsBackup = wsBkPath;
-					backedUpSet.insert(wsFilePath);
-					vec.push_back(std::move(entry));
-					LOGLVL(Detailed, FMT("RansomShield: captured clean pre-image of <" << Narrow(wsFilePath) << ">"));
+					Variant vFile = vEvent.get("file");
+					entry.wsBackup = vFile.get("backupPath", L"");
 				}
+				else
+				{
+					auto itBk = readMap.find(wsFilePath);
+					if (itBk != readMap.end())
+						entry.wsBackup = itBk->second;
+				}
+				vec.push_back(std::move(entry));
 			}
 			break;
 		}
@@ -368,6 +345,7 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& sI
 
 	// 1. File rollback from pre-images
 	rollbackRansomBackups(nPid);
+
 }
 
 //
@@ -378,38 +356,14 @@ void EventEnricher::rollbackRansomBackups(int64_t nPid)
 {
 	std::vector<ShadowBackupEntry> vec;
 	{
-		std::scoped_lock _lock(s_mtxRansomShield);
-		if (nPid > 0)
-		{
-			auto it = s_backups.find(nPid);
-			if (it != s_backups.end())
-			{
-				vec = it->second;
-				s_backups.erase(it);
-				s_readFiles.erase(nPid);
-				s_backedUpFiles.erase(nPid);
-			}
-		}
-		else
-		{
-			// Drain all active ransomware backups across all PIDs
-			for (auto& [pid, list] : s_backups)
-			{
-				vec.insert(vec.end(), list.begin(), list.end());
-			}
-			s_backups.clear();
-			s_readFiles.clear();
-			s_backedUpFiles.clear();
-		}
+		std::scoped_lock _lock(m_mtxRansomShield);
+		auto it = m_backups.find(nPid);
+		if (it == m_backups.end())
+			return;
+		vec = it->second;
+		m_backups.erase(it);
+		m_readFiles.erase(nPid);
 	}
-
-	if (vec.empty())
-	{
-		LOGLVL(Normal, FMT("RansomShield: no active backups to restore for pid=" << nPid));
-		return;
-	}
-
-	LOGLVL(Critical, FMT("RansomShield: rolling back " << vec.size() << " victim file(s) for pid=" << nPid));
 
 	// Roll back newest-first so chained renames unwind correctly.
 	for (auto itEntry = vec.rbegin(); itEntry != vec.rend(); ++itEntry)
@@ -419,27 +373,25 @@ void EventEnricher::rollbackRansomBackups(int64_t nPid)
 		if (IsSystemArea(entry.wsOriginal))
 			continue; // never touch OS/browser internals during remediation
 
-		// 1. Delete encrypted/renamed artifact (e.g. file.txt.winball)
-		if (entry.nOp == 2 && !entry.wsNewName.empty())
+		if (entry.nOp == 2 && !entry.wsNewName.empty() &&
+			!::DeleteFileW(entry.wsNewName.c_str()))
 		{
-			if (::DeleteFileW(entry.wsNewName.c_str()))
-			{
-				LOGLVL(Critical, FMT("RansomShield: deleted encrypted artifact <" << Narrow(entry.wsNewName) << ">"));
-			}
+			LOGLVL(Detailed, "RansomShield: rollback rename target already gone");
 		}
 
-		// 2. Restore pristine original
-		if (!entry.wsBackup.empty())
+		if (entry.wsBackup.empty())
 		{
-			if (::CopyFileW(entry.wsBackup.c_str(), entry.wsOriginal.c_str(), FALSE))
-			{
-				LOGLVL(Critical, FMT("RansomShield: RESTORED <" << Narrow(entry.wsOriginal) << "> from clean backup"));
-			}
-			else
-			{
-				LOGLVL(Critical, FMT("RansomShield: restore FAILED for <" << Narrow(entry.wsOriginal) << "> err=" << ::GetLastError()));
-			}
+			LOGLVL(Critical,"RansomShield: no pre-image captured, cannot restore");
+			continue;
 		}
+
+		if (::CopyFileW(entry.wsBackup.c_str(), entry.wsOriginal.c_str(), FALSE))
+		{
+			if (IsVerboseLoggingEnabled())
+				LOGLVL(Normal, FMT("RansomShield: restored <" << Narrow(entry.wsOriginal) << ">"));
+		}
+		else
+			LOGLVL(Critical, FMT("RansomShield: restore FAILED for <" << Narrow(entry.wsOriginal) << ">"));
 	}
 }
 

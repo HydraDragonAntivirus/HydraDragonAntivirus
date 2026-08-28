@@ -10,7 +10,6 @@
 /// @{
 #include "pch.h"
 #include "detectionnotifier.h"
-#include "eventenricher.h"
 
 #include <deque>
 
@@ -304,9 +303,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				{
 					LOGLVL(Critical, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
 				}
-
-				// Automatically restore any files modified/renamed/encrypted by the malicious process
-				EventEnricher::rollbackRansomBackups(nGid);
 			}
 				
 			// Use owlyshield_ransom.dll to quarantine the malicious file ONLY IF verdict != 1
