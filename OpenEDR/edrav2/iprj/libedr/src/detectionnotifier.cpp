@@ -307,15 +307,13 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 					if (hDev != INVALID_HANDLE_VALUE)
 					{
-						#pragma pack(push, 1)
 						struct COM_MESSAGE {
-							uint32_t msgType;
-							uint32_t pid;
-							uint64_t gid;
-							WCHAR path[260];
-							WCHAR quarantinePath[260];
+							ULONG msgType;
+							ULONG pid;
+							ULONGLONG gid;
+							WCHAR path[520];
+							WCHAR quarantinePath[520];
 						};
-						#pragma pack(pop)
 						
 						COM_MESSAGE msg = {0};
 						msg.msgType = 6; // MESSAGE_KILL_ONLY_GID
