@@ -322,9 +322,17 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						if (fnQ != nullptr)
 						{
 							std::string sDos = NtPathToDosPathString(sPath);
-							int32_t qRes = fnQ(
-								reinterpret_cast<const uint8_t*>(sDos.data()),
-								static_cast<uint32_t>(sDos.size()));
+							int32_t qRes = -1;
+							for (int retry = 0; retry < 6; ++retry)
+							{
+								qRes = fnQ(
+									reinterpret_cast<const uint8_t*>(sDos.data()),
+									static_cast<uint32_t>(sDos.size()));
+								if (qRes == 0)
+									break;
+								::Sleep(50);
+							}
+
 							if (qRes == 0)
 								LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
 							else

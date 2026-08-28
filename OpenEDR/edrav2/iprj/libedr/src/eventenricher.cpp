@@ -214,24 +214,17 @@ static bool IsSystemArea(const std::wstring& wsPath)
 		L"/windows/",
 		L"/program files/",
 		L"/program files (x86)/",
-		L"/programdata/microsoft",
+		L"/programdata/",
+		L"/appdata/local/packages/",
+		L"/appdata/local/microsoft/",
+		L"/ebwebview/",
+		L"/temp/"
 	};
 	for (const wchar_t* pszPrefix : c_pPrefixes)
 	{
-		const size_t nLen = wcslen(pszPrefix);
-		if (p.size() >= nLen && p.compare(0, nLen, pszPrefix) == 0)
+		if (p.find(pszPrefix) != std::wstring::npos)
 			return true;
 	}
-
-	// UWP/app-container and Edge WebView cache data
-	if (p.find(L"/appdata/local/packages/") != std::wstring::npos ||
-		p.find(L"/ebwebview/") != std::wstring::npos)
-		return true;
-
-	// Temporary directories: installers/updaters churn files here constantly
-	if (p.find(L"/temp/") != std::wstring::npos ||
-		(p.size() >= 5 && p.compare(p.size() - 5, 5, L"/temp") == 0))
-		return true;
 
 	return false;
 }
