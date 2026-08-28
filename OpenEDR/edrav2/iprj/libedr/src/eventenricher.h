@@ -37,13 +37,11 @@ private:
 	std::wstring getRegistryPath(std::wstring sPath);
 	std::wstring getRegistryAbstractPath(std::wstring sPath);
 
+	void recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent);
+	void handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName);
+
+public:
 	// --- Ransomware shadow-backup shield + remediation ---
-	// Tracks files fully read by each process; when that process then
-	// overwrites / deletes / renames one of them, the ORIGINAL content is
-	// backed up to %PROGRAMDATA%\HydraDragonBackups\<pid>\ first (rule-independent).
-	// After 5 distinct victim files the process is reported as
-	// ransomware and ALL captured originals are rolled back to their places
-	// (Kaspersky-style file remediation: modified/deleted/renamed restored).
 	struct ShadowBackupEntry
 	{
 		std::wstring wsOriginal;   ///< pre-image location (restore target)
@@ -52,10 +50,6 @@ private:
 		std::wstring wsNewName;    ///< rename target (removed on rollback)
 	};
 
-	void recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent);
-	void handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName);
-
-public:
 	static void rollbackRansomBackups(int64_t nPid);
 
 public:

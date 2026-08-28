@@ -10,6 +10,7 @@
 /// @{
 #include "pch.h"
 #include "detectionnotifier.h"
+#include "eventenricher.h"
 
 #include <deque>
 #include <atomic>
