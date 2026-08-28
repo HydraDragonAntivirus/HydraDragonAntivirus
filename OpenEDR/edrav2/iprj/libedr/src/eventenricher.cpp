@@ -605,9 +605,9 @@ void EventEnricher::put(const Variant& vEventRef)
 	// Calculate event "time"
 	vEvent.put("time", Time(vEvent["tickTime"]) + (getCurrentTime() - getTickCount()));
 
-	// Put process info to event
-	auto vRawProcess = vEvent.get("process");
-	if (vRawProcess.isEmpty() && vEvent.has("processes"))
+	// Put process info to event (prioritize the leaf actor process over parent)
+	Variant vRawProcess;
+	if (vEvent.has("processes"))
 	{
 		try
 		{
@@ -619,9 +619,13 @@ void EventEnricher::put(const Variant& vEventRef)
 		}
 		catch (...) {}
 	}
-	if (vRawProcess.isEmpty() && vEvent.has("childProcess"))
+	if (vRawProcess.isEmpty() && vEvent.has("childProcess") && !vEvent.get("childProcess").isEmpty())
 	{
 		vRawProcess = vEvent.get("childProcess");
+	}
+	if (vRawProcess.isEmpty())
+	{
+		vRawProcess = vEvent.get("process");
 	}
 
 	auto vProcess = m_pProcProvider->enrichProcessInfo(vRawProcess);

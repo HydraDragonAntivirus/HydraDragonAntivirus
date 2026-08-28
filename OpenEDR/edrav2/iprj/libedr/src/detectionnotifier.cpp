@@ -191,7 +191,34 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				else if (std::string p = extractValidPath("childProcess.imageFile.abstractPath"); !p.empty())
 					sPath = p;
 
-				// 2. If it's a File Detection (FLS or file verdict == 2), target the malicious file itself
+				// 2. Leaf process from the processes chain (deepest descendant = the actual actor)
+				//    This avoids flagging the parent (e.g. explorer.exe) when the child was the threat.
+				if (sPath.empty() && vEvent.has("processes"))
+				{
+					try
+					{
+						auto vSeq = vEvent.get("processes");
+						if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
+						{
+							auto vLeaf = vSeq[vSeq.getSize() - 1];
+							for (const char* field : {"imageFile.rawPath", "imageFile.path", "imagePath", "path", "imageFile.abstractPath"})
+							{
+								if (auto optP = variant::getByPathSafe(vLeaf, field))
+								{
+									std::string s = std::string(optP.value());
+									if (!s.empty() && s != "<undefined>" && s != "null")
+									{
+										sPath = s;
+										break;
+									}
+								}
+							}
+						}
+					}
+					catch (...) {}
+				}
+
+				// 3. If it's a File Detection (FLS or file verdict == 2), target the malicious file itself
 				if (sPath.empty())
 				{
 					int64_t fv = 0;
@@ -208,7 +235,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					}
 				}
 
-				// 3. If it's a direct Process Behavioral Detection (and not a pure file detection)
+				// 4. Direct process behavioral detection - use process.imageFile ONLY as last resort
+				//    NEVER flag parent processes (e.g. explorer.exe) when the child was the malicious actor
 				if (sPath.empty())
 				{
 					if (std::string p = extractValidPath("process.imageFile.rawPath"); !p.empty())
@@ -337,15 +365,10 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				}
 
 				// Restore victim files & delete encrypted ransomware artifacts
+				// Use the LEAF process PID (actual malicious actor) for rollback.
+				// Prefer: processes[-1] > childProcess > process  (same priority as GID resolution above)
 				int64_t nShieldPid = 0;
-				if (auto opt = getByPathSafe(vEvent, "process.pid"))
-					try { nShieldPid = static_cast<int64_t>(opt.value()); } catch (...) {}
-				if (nShieldPid <= 0)
-				{
-					if (auto opt = getByPathSafe(vEvent, "childProcess.pid"))
-						try { nShieldPid = static_cast<int64_t>(opt.value()); } catch (...) {}
-				}
-				if (nShieldPid <= 0 && vEvent.has("processes"))
+				if (vEvent.has("processes"))
 				{
 					try {
 						auto vSeq = vEvent.get("processes");
@@ -356,6 +379,16 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 								nShieldPid = static_cast<int64_t>(vLeaf["pid"]);
 						}
 					} catch (...) {}
+				}
+				if (nShieldPid <= 0)
+				{
+					if (auto opt = getByPathSafe(vEvent, "childProcess.pid"))
+						try { nShieldPid = static_cast<int64_t>(opt.value()); } catch (...) {}
+				}
+				if (nShieldPid <= 0)
+				{
+					if (auto opt = getByPathSafe(vEvent, "process.pid"))
+						try { nShieldPid = static_cast<int64_t>(opt.value()); } catch (...) {}
 				}
 
 				if (nShieldPid > 0)
