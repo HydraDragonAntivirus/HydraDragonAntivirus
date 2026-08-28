@@ -922,7 +922,8 @@
 							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "destination", "value": "@event.destination" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
 						]
 					}
 				}
@@ -957,7 +958,8 @@
 							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "destination", "value": "@event.destination" },
 							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
 						]
 					}
 				}

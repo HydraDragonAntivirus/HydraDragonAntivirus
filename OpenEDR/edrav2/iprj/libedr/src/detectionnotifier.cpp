@@ -21,23 +21,34 @@ namespace cmd {
 
 namespace {
 
-	std::string NtPathToDosPathString(const std::string& sNt)
+	static std::string NtPathToDosPathString(const std::string& sNt)
 	{
 		if (sNt.empty())
 			return sNt;
 
-		int cchW = ::MultiByteToWideChar(CP_UTF8, 0, sNt.c_str(), -1, NULL, 0);
+		std::string sClean = sNt;
+		if (sClean.rfind("\\??\\", 0) == 0)
+			sClean = sClean.substr(4);
+
+		int cchW = ::MultiByteToWideChar(CP_UTF8, 0, sClean.c_str(), -1, NULL, 0);
 		if (cchW <= 0)
-			return sNt;
+			return sClean;
 
 		std::wstring wsNt(static_cast<size_t>(cchW), 0);
-		::MultiByteToWideChar(CP_UTF8, 0, sNt.c_str(), -1, &wsNt[0], cchW);
+		::MultiByteToWideChar(CP_UTF8, 0, sClean.c_str(), -1, &wsNt[0], cchW);
 		if (!wsNt.empty() && wsNt.back() == L'\0')
 			wsNt.pop_back();
 
+		if (wsNt.find(L'%') != std::wstring::npos)
+		{
+			wchar_t szExp[MAX_PATH * 2] = {};
+			if (::ExpandEnvironmentStringsW(wsNt.c_str(), szExp, static_cast<DWORD>(std::size(szExp))) > 0)
+				wsNt = szExp;
+		}
+
 		wchar_t sDrives[27 * 4] = {};
 		if (::GetLogicalDriveStringsW(DWORD(std::size(sDrives)), sDrives) == 0)
-			return sNt;
+			return sClean;
 
 		wchar_t* sDrv = sDrives;
 		while (sDrv[0])
@@ -67,7 +78,7 @@ namespace {
 			}
 			sDrv += 4;
 		}
-		return sNt;
+		return sClean;
 	}
 
 } // namespace
@@ -163,17 +174,25 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 
 			if (sPath.empty())
 			{
-				if (std::string p = extractValidPath("childProcess.imageFile.abstractPath"); !p.empty())
+				if (std::string p = extractValidPath("childProcess.imageFile.rawPath"); !p.empty())
 					sPath = p;
-				else if (std::string p = extractValidPath("childProcess.imageFile.rawPath"); !p.empty())
+				else if (std::string p = extractValidPath("childProcess.imageFile.path"); !p.empty())
 					sPath = p;
 				else if (std::string p = extractValidPath("childProcess.imagePath"); !p.empty())
 					sPath = p;
-				else if (std::string p = extractValidPath("process.imageFile.abstractPath"); !p.empty())
+				else if (std::string p = extractValidPath("childProcess.path"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("childProcess.imageFile.abstractPath"); !p.empty())
 					sPath = p;
 				else if (std::string p = extractValidPath("process.imageFile.rawPath"); !p.empty())
 					sPath = p;
+				else if (std::string p = extractValidPath("process.imageFile.path"); !p.empty())
+					sPath = p;
 				else if (std::string p = extractValidPath("process.imagePath"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("process.path"); !p.empty())
+					sPath = p;
+				else if (std::string p = extractValidPath("process.imageFile.abstractPath"); !p.empty())
 					sPath = p;
 
 				if (sPath.empty())
@@ -183,11 +202,11 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						try { fv = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
 					if (fv == 2)
 					{
-						if (std::string p = extractValidPath("file.abstractPath"); !p.empty())
-							sPath = p;
-						else if (std::string p = extractValidPath("file.rawPath"); !p.empty())
+						if (std::string p = extractValidPath("file.rawPath"); !p.empty())
 							sPath = p;
 						else if (std::string p = extractValidPath("file.path"); !p.empty())
+							sPath = p;
+						else if (std::string p = extractValidPath("file.abstractPath"); !p.empty())
 							sPath = p;
 					}
 				}
