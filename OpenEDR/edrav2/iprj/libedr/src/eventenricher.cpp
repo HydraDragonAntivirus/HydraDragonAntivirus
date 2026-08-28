@@ -336,7 +336,7 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 
 				std::wstring wsBkInEvent;
 				try {
-					wsBkInEvent = vFile.get("backupPath", L"");
+					wsBkInEvent = vEvent.get("file").get("backupPath", L"");
 				} catch (...) {}
 
 				if (!wsBkInEvent.empty())
