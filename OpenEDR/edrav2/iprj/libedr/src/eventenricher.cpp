@@ -1051,6 +1051,11 @@ void EventEnricher::notifyAddQueueData(Variant vTag)
 	std::scoped_lock _lock(m_mtxQueue);
 	if (!m_fInitialized)
 		return;
+	if (m_threadPool.getThreadsCount() == 0)
+	{
+		error::InvalidUsage(SL, "Thread pool is empty").log();
+		return;
+	}
 
 	if (m_pProvider.expired())
 	{
