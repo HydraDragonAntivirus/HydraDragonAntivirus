@@ -464,6 +464,7 @@
 						"data": [
 							{ "name": "baseType", "value": "@const.pswEventBaseType.MLE_PSW_STEALER" },
 							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
@@ -491,6 +492,7 @@
 						"data": [
 							{ "name": "baseType", "value": "@const.pswEventBaseType.MLE_PSW_STEALER" },
 							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
@@ -777,6 +779,7 @@
 					"data": [
 						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 						{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 						{ "name": "destination", "value": "@event.file" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
@@ -812,6 +815,7 @@
 					"data": [
 						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 						{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 						{ "name": "destination", "value": "@event.file" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
@@ -847,6 +851,7 @@
 					"data": [
 						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 						{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 						{ "name": "destination", "value": "@event.file" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
@@ -882,6 +887,7 @@
 					"data": [
 						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 						{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 						{ "name": "destination", "value": "@event.file" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
@@ -917,6 +923,7 @@
 					"data": [
 						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 						{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 						{ "name": "destination", "value": "@event.file" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
@@ -952,6 +959,7 @@
 					"data": [
 						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 						{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 						{ "name": "destination", "value": "@event.file" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
@@ -987,6 +995,7 @@
 					"data": [
 						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 						{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 						{ "name": "destination", "value": "@event.file" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
@@ -1022,6 +1031,7 @@
 					"data": [
 						{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 						{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 						{ "name": "destination", "value": "@event.file" },
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
@@ -1060,6 +1070,7 @@
 						"data": [
 							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
 							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "destination", "value": "@event.destination" },
 							{ "name": "source", "value": "@event.source" },
 							{ "name": "time", "value": "@event.time" },
@@ -1111,6 +1122,7 @@
   						"data": [
   							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
   							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
   							{ "name": "destination", "value": "@event.destination" },
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
@@ -1166,6 +1178,7 @@
   						"data": [
   							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
   							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
   							{ "name": "destination", "value": "@event.destination" },
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
@@ -1217,6 +1230,7 @@
 						"data": [
 							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
 							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "file", "value": "@event.file" },
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
@@ -1251,6 +1265,7 @@
 						"data": [
 							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
 							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "file", "value": "@event.file" },
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
@@ -1285,6 +1300,7 @@
 						"data": [
 							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
 							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "file", "value": "@event.file" },
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
@@ -1319,6 +1335,7 @@
 						"data": [
 							{ "name": "baseType", "value": "@const.flsEventBaseType.MLE_FLS_MALICIOUS_VERDICT" },
 							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "file", "value": "@event.file" },
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
