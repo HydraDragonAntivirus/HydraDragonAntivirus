@@ -23,18 +23,6 @@ class EventEnricher : public ObjectBase<CLSID_EventEnricher>,
 	public IDataReceiver,
 	public IQueueNotificationAcceptor
 {
-public:
-	// --- Ransomware shadow-backup shield + remediation entry ---
-	struct ShadowBackupEntry
-	{
-		std::wstring wsOriginal;   ///< pre-image location (restore target)
-		std::wstring wsBackup;     ///< saved pre-image under HydraDragonBackups
-		int nOp = 0;               ///< 0=overwritten, 1=deleted, 2=renamed
-		std::wstring wsNewName;    ///< rename target (removed on rollback)
-	};
-
-	static void rollbackRansomBackups(int64_t nPid);
-
 private:
 	std::mutex m_mtxStartStop;
 	bool m_fInitialized = false;
@@ -49,10 +37,31 @@ private:
 	std::wstring getRegistryPath(std::wstring sPath);
 	std::wstring getRegistryAbstractPath(std::wstring sPath);
 
+	// --- Ransomware shadow-backup shield + remediation ---
+	// Tracks files fully read by each process; when that process then
+	// overwrites / deletes / renames one of them, the ORIGINAL content is
+	// backed up to %PROGRAMDATA%\HydraDragonBackups\<pid>\ first (rule-independent).
+	// After 5 distinct victim files the process is reported as
+	// ransomware and ALL captured originals are rolled back to their places
+	// (Kaspersky-style file remediation: modified/deleted/renamed restored).
+	struct ShadowBackupEntry
+	{
+		std::wstring wsOriginal;   ///< pre-image location (restore target)
+		std::wstring wsBackup;     ///< saved pre-image under HydraDragonBackups
+		int nOp = 0;               ///< 0=overwritten, 1=deleted, 2=renamed
+		std::wstring wsNewName;    ///< rename target (removed on rollback)
+	};
+
+	std::mutex m_mtxRansomShield;
+	// pid -> { victim path -> kernel-saved pre-image path }
+	std::unordered_map<int64_t, std::unordered_map<std::wstring, std::wstring>> m_readFiles;
+	std::unordered_map<int64_t, std::vector<ShadowBackupEntry>> m_backups;
 	void recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent);
 	void handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName);
+	void rollbackRansomBackups(int64_t nPid);
 
 public:
+
 	///
 	/// Object final construction
 	///

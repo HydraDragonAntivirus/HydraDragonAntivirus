@@ -624,19 +624,9 @@
 				"eventType": "LLE_FILE_DATA_READ_FULL",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"saveContext": {
 						"basket": "@const.ransomBasket.readWrite",
@@ -654,19 +644,9 @@
 				"eventType": "LLE_FILE_MAP_READ",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"saveContext": {
 						"basket": "@const.ransomBasket.readWrite",
@@ -684,19 +664,9 @@
 				"eventType": "LLE_FILE_CREATE",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -720,19 +690,9 @@
 				"eventType": "LLE_FILE_DATA_WRITE_FULL",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -756,19 +716,9 @@
 				"eventType": "LLE_FILE_MAP_WRITE",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -792,19 +742,9 @@
 				"eventType": "LLE_FILE_DATA_CHANGE",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -828,19 +768,9 @@
 				"eventType": "RF10*",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -864,19 +794,9 @@
 				"eventType": "LLE_FILE_RENAME",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -900,19 +820,9 @@
 				"eventType": "LLE_FILE_DELETE",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -936,19 +846,9 @@
 				"eventType": "RF4*",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.file.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.file.path" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.file.path" ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_CANDIDATE",
@@ -988,7 +888,7 @@
 				}
 			},
 
-			// Step 4: Ransomware Evaluation - Requires non-empty destination path in User space
+			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit detection)
 			{
 				"eventType": "MLE_RANSOM_EVALUATE",
 				"rule": {
@@ -996,15 +896,45 @@
 						"$operation": "and",
 						"args": [
 							{
-								"$operation": "imatch",
-								"pattern": "?*",
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
 								"args": [ "@event.destination.path" ]
 							},
 							{
 								"$operation": "imatch",
-								"pattern": "*\\Users\\*",
+								"pattern": "*\\users\\*",
 								"args": [ "@event.destination.path" ]
 							},
+							{
+								"$operation": "!imatch",
+								"pattern": "*\\appdata\\*",
+								"args": [ "@event.destination.path" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_RANSOM_BEHAVIOR",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "destination", "value": "@event.destination" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" }
+						]
+					}
+				}
+			},
+
+			// Step 4b: General evaluation for files outside AppData
+			{
+				"eventType": "MLE_RANSOM_EVALUATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
 							{
 								"$operation": "!imatch",
 								"pattern": "@const.ransomSystemExclusions",
@@ -1012,7 +942,7 @@
 							},
 							{
 								"$operation": "!imatch",
-								"pattern": "*\\AppData\\*",
+								"pattern": "*\\appdata\\*",
 								"args": [ "@event.destination.path" ]
 							}
 						]
