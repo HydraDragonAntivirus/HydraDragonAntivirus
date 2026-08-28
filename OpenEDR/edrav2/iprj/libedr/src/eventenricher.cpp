@@ -370,7 +370,6 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& sI
 	LOGLVL(Critical, FMT("ThreatRemediation: executing complete rollback & kill for pid="
 		<< nPid << " threat=" << sThreatName));
 
-	// 1. File rollback from pre-images
 	rollbackRansomBackups(nPid);
 }
 
@@ -511,13 +510,6 @@ void EventEnricher::start()
 		LOGINF("Event Enricher already started");
 		return;
 	}
-
-	{
-		std::scoped_lock _lockQueue(m_mtxQueue);
-		if (m_threadPool.getThreadsCount() == 0)
-			m_threadPool.addThreads(1);
-	}
-
 	m_fInitialized = true;
 
 	LOGLVL(Detailed, "Event Enricher is started");
@@ -633,7 +625,7 @@ void EventEnricher::put(const Variant& vEventRef)
 	TRACE_BEGIN;
 	auto pReceiver = m_pReceiver;
 	if (!pReceiver)
-		return;
+		error::InvalidArgument(SL, "Receiver interface is undefined").throwException();
 
 	Event eEventType = vEvent.has("baseEventType") && !vEvent.get("baseEventType").isEmpty() ? 
 		static_cast<Event>(static_cast<int>(vEvent.get("baseEventType"))) : 
@@ -1013,21 +1005,6 @@ void EventEnricher::put(const Variant& vEventRef)
 			} catch (...) {}
 		}
 		recordShadowBackup(nShieldPid, eEventType, vEvent);
-
-		// If policy generated any detection/threat event, execute universal remediation (file rollback + terminate + quarantine)
-		const int64_t nBaseType = vEvent.get("baseType", int64_t(0));
-		if (nBaseType >= 1000000 || vEvent.has("threat"))
-		{
-			std::wstring sImage;
-			try
-			{
-				Variant vImage = getByPath(vProcess, "imageFile");
-				sImage = vImage.get("uniquePath", L"");
-			}
-			catch (...) {}
-			std::string sThreatName = "THREAT_BASE_TYPE_" + std::to_string(nBaseType);
-			handleThreatRemediation(nShieldPid, sImage, sThreatName);
-		}
 	}
 	catch (...)
 	{
@@ -1073,7 +1050,6 @@ void EventEnricher::notifyAddQueueData(Variant vTag)
 	std::scoped_lock _lock(m_mtxQueue);
 	if (!m_fInitialized)
 		return;
-
 	if (m_threadPool.getThreadsCount() == 0)
 	{
 		error::InvalidUsage(SL, "Thread pool is empty").log();
