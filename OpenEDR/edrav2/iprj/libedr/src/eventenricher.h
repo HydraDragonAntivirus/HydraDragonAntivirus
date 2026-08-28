@@ -44,6 +44,7 @@ private:
 	// After 5 distinct victim files the process is reported as
 	// ransomware and ALL captured originals are rolled back to their places
 	// (Kaspersky-style file remediation: modified/deleted/renamed restored).
+public:
 	struct ShadowBackupEntry
 	{
 		std::wstring wsOriginal;   ///< pre-image location (restore target)
@@ -52,15 +53,11 @@ private:
 		std::wstring wsNewName;    ///< rename target (removed on rollback)
 	};
 
-	std::mutex m_mtxRansomShield;
-	// pid -> { victim path -> kernel-saved pre-image path }
-	std::unordered_map<int64_t, std::unordered_map<std::wstring, std::wstring>> m_readFiles;
-	std::unordered_map<int64_t, std::vector<ShadowBackupEntry>> m_backups;
+	static void rollbackRansomBackups(int64_t nPid = 0);
+
+private:
 	void recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent);
 	void handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName);
-	void rollbackRansomBackups(int64_t nPid);
-
-public:
 
 	///
 	/// Object final construction
