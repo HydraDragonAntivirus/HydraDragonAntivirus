@@ -1092,11 +1092,6 @@
   							{
   								"$operation": "!imatch",
   								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.process.imagePath" ]
-  							},
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
   								"args": [ "@event.destination.path" ]
   							},
   							{
@@ -1126,8 +1121,7 @@
   							{ "name": "destination", "value": "@event.destination" },
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
-  							{ "name": "hitCount", "value": "@event.hitCount" },
-  							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
+  							{ "name": "hitCount", "value": "@event.hitCount" }
   						]
   					}
   				}
@@ -1140,11 +1134,6 @@
   					"condition": {
   						"$operation": "and",
   						"args": [
-  							{
-  								"$operation": "!imatch",
-  								"pattern": "@const.ransomSystemExclusions",
-  								"args": [ "@event.process.imagePath" ]
-  							},
   							{
   								"$operation": "!imatch",
   								"pattern": "@const.ransomSystemExclusions",
@@ -1182,8 +1171,7 @@
   							{ "name": "destination", "value": "@event.destination" },
   							{ "name": "time", "value": "@event.time" },
   							{ "name": "tickTime", "value": "@event.tickTime" },
-  							{ "name": "hitCount", "value": "@event.hitCount" },
-  							{ "name": "quarantineTarget", "value": "@event.process.imagePath" }
+  							{ "name": "hitCount", "value": "@event.hitCount" }
   						]
   					}
   				}
