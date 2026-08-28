@@ -10,6 +10,7 @@
 /// @{
 #include "pch.h"
 #include "detectionnotifier.h"
+#include "eventenricher.h"
 
 #include <deque>
 
@@ -163,19 +164,23 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 
 			if (sPath.empty())
 			{
-				if (std::string p = extractValidPath("childProcess.imageFile.abstractPath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("childProcess.imageFile.rawPath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("childProcess.imagePath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("process.imageFile.abstractPath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("process.imageFile.rawPath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("process.imagePath"); !p.empty())
-					sPath = p;
-				else if (vEvent.has("processes"))
+				static const std::string_view candidateKeys[] = {
+					"childProcess.imageFile.abstractPath",
+					"childProcess.imageFile.rawPath",
+					"childProcess.imagePath",
+					"process.imageFile.abstractPath",
+					"process.imageFile.rawPath",
+					"process.imagePath"
+				};
+
+				for (const auto& key : candidateKeys)
+				{
+					sPath = extractValidPath(key);
+					if (!sPath.empty())
+						break;
+				}
+
+				if (sPath.empty() && vEvent.has("processes"))
 				{
 					try {
 						auto vSeq = vEvent.get("processes");
@@ -184,9 +189,9 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							auto vLeaf = vSeq[vSeq.getSize() - 1];
 							if (vLeaf.has("imagePath"))
 							{
-								std::string p = std::string(vLeaf["imagePath"]);
-								if (!p.empty() && p != "<undefined>" && p != "null")
-									sPath = p;
+								std::string leafPath = std::string(vLeaf["imagePath"]);
+								if (!leafPath.empty() && leafPath != "<undefined>" && leafPath != "null")
+									sPath = leafPath;
 							}
 						}
 					} catch (...) {}
@@ -199,12 +204,17 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						try { fv = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
 					if (fv == 2)
 					{
-						if (std::string p = extractValidPath("file.abstractPath"); !p.empty())
-							sPath = p;
-						else if (std::string p = extractValidPath("file.rawPath"); !p.empty())
-							sPath = p;
-						else if (std::string p = extractValidPath("file.path"); !p.empty())
-							sPath = p;
+						static const std::string_view fileKeys[] = {
+							"file.abstractPath",
+							"file.rawPath",
+							"file.path"
+						};
+						for (const auto& key : fileKeys)
+						{
+							sPath = extractValidPath(key);
+							if (!sPath.empty())
+								break;
+						}
 					}
 				}
 			}
@@ -260,6 +270,22 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			
 			if (nGid > 0)
 			{
+				{
+					std::scoped_lock lock(m_mtxKilledGids);
+					if (m_killedGids.count(nGid))
+					{
+						LOGLVL(Detailed, FMT("detnotif: GID=" << nGid << " already killed, skipping duplicate kill"));
+						nGid = 0;
+					}
+					else
+					{
+						m_killedGids.insert(nGid);
+					}
+				}
+			}
+
+			if (nGid > 0)
+			{
 				HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}", 
 					GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
 					NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -294,6 +320,30 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				{
 					LOGLVL(Critical, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
 				}
+			}
+
+			// Execute automatic file rollback for victim files
+			int64_t nThreatPid = 0;
+			if (auto optPid = getByPathSafe(vEvent, "childProcess.pid"))
+				try { nThreatPid = std::stoll(std::string(optPid.value())); } catch (...) {}
+			else if (auto optPidP = getByPathSafe(vEvent, "process.pid"))
+				try { nThreatPid = std::stoll(std::string(optPidP.value())); } catch (...) {}
+			else if (vEvent.has("processes"))
+			{
+				try {
+					auto vSeq = vEvent.get("processes");
+					if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
+					{
+						auto vLeaf = vSeq[vSeq.getSize() - 1];
+						if (vLeaf.has("pid"))
+							nThreatPid = std::stoll(std::string(vLeaf["pid"]));
+					}
+				} catch (...) {}
+			}
+
+			if (nThreatPid > 0)
+			{
+				EventEnricher::rollbackRansomBackups(nThreatPid);
 			}
 				
 			// Use owlyshield_ransom.dll to quarantine the malicious file ONLY IF verdict != 1

@@ -11,6 +11,7 @@
 #pragma once
 #include <deque>
 #include <mutex>
+#include <unordered_set>
 #include <objects.h>
 
 namespace cmd {
@@ -32,6 +33,12 @@ private:
 	std::mutex m_mtxStorage; ///< Storage mutex
 	int64_t m_nLastId = 0; ///< Id of the last stored event
 	Size m_nMaxSize = 1000; ///< Maximum number of stored events
+
+	// Tracks GIDs that have already been killed so that stale MLE_RANSOM_BEHAVIOR
+	// events (buffered before the kill completed) do not re-trigger a kill on
+	// an innocent process (e.g. explorer.exe) that happens to be the new leaf.
+	std::unordered_set<uint64_t> m_killedGids;
+	std::mutex m_mtxKilledGids;
 
 	// MLE cloud base type range (see common.src: MLE_FILE_COPY = 1000001, ...)
 	static constexpr int64_t c_nMinMleBaseType = 1000000;
