@@ -338,7 +338,31 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				}
 
 				// Restore victim files & delete encrypted ransomware artifacts
-				EventEnricher::rollbackRansomBackups(nGid);
+				int64_t nShieldPid = 0;
+				if (auto opt = getByPathSafe(vEvent, "process.pid"))
+					try { nShieldPid = static_cast<int64_t>(opt.value()); } catch (...) {}
+				if (nShieldPid <= 0)
+				{
+					if (auto opt = getByPathSafe(vEvent, "childProcess.pid"))
+						try { nShieldPid = static_cast<int64_t>(opt.value()); } catch (...) {}
+				}
+				if (nShieldPid <= 0 && vEvent.has("processes"))
+				{
+					try {
+						auto vSeq = vEvent.get("processes");
+						if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
+						{
+							auto vLeaf = vSeq[vSeq.getSize() - 1];
+							if (vLeaf.has("pid"))
+								nShieldPid = static_cast<int64_t>(vLeaf["pid"]);
+						}
+					} catch (...) {}
+				}
+
+				if (nShieldPid > 0)
+					EventEnricher::rollbackRansomBackups(nShieldPid);
+				if (nGid > 0 && nGid != static_cast<uint64_t>(nShieldPid))
+					EventEnricher::rollbackRansomBackups(static_cast<int64_t>(nGid));
 					
 				// Use owlyshield_ransom.dll to quarantine the malicious file ONLY IF verdict != 1
 				if (!sPath.empty())
