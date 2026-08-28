@@ -97,16 +97,11 @@ bool DetectionNotifier::isDetectionEvent(const Variant& vEvent)
 	if (!vEvent.isDictionaryLike())
 		return false;
 
-	// MLE detection events in the cloud output format have 'baseType' in
-	// the MLE range (>= 1000000, see common.src constants).
+	// Detection events MUST have a baseType in the MLE detection range (>= 1000000).
+	// Raw EVM events (e.g. RF12.11 with baseType=11) are telemetry events, not threat detections.
 	auto vBaseType = vEvent.getSafe("baseType");
 	if (vBaseType.has_value() && vBaseType->getType() == variant::ValueType::Integer)
 		return (static_cast<int64_t>(vBaseType.value()) >= c_nMinMleBaseType);
-
-	// Fallback for non-cloud (raw) events with 'scheme' field.
-	auto vScheme = vEvent.getSafe("scheme");
-	if (vScheme.has_value() && vScheme->getType() == variant::ValueType::String)
-		return (std::string(vScheme.value()) == "mle");
 
 	return false;
 }
