@@ -1520,6 +1520,13 @@ return STATUS_SUCCESS;
 }
 
 //
+// Forward declaration (defined later in this file) so destructive rename/delete
+// pre-image capture in preSetFileInfo can shadow-copy the original file content.
+//
+NTSTATUS BackupPreImage(_In_ PCFLT_RELATED_OBJECTS pFltObjects,
+	_Inout_ StreamHandleContext* pCtx);
+
+//
 //
 //
 FLT_PREOP_CALLBACK_STATUS FLTAPI preSetFileInfo(_Inout_ PFLT_CALLBACK_DATA pData,
@@ -1529,15 +1536,18 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preSetFileInfo(_Inout_ PFLT_CALLBACK_DATA pData
 	if (!g_pCommonData->fEnableMonitoring)
 		return FLT_PREOP_SUCCESS_NO_CALLBACK;
 
-	// Skip if it is not delete
+	// Handle destructive rename and delete for the general RansomShield pre-image.
 	auto eInfoClass = pData->Iopb->Parameters.SetFileInformation.FileInformationClass;
-	if (eInfoClass != FileDispositionInformation && 
-		eInfoClass != FileDispositionInformationEx)
-			return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	const bool fDelete = (eInfoClass == FileDispositionInformation ||
+		eInfoClass == FileDispositionInformationEx);
+	const bool fRename = (eInfoClass == FileRenameInformation ||
+		eInfoClass == FileRenameInformationEx);
+	if (!fDelete && !fRename)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
 
 	// if no context - skip post operation
 	StreamHandleContext* pStreamHandleContext = nullptr;
-	NTSTATUS ns = FltGetStreamHandleContext(pFltObjects->Instance, 
+	NTSTATUS ns = FltGetStreamHandleContext(pFltObjects->Instance,
 		pFltObjects->FileObject, (PFLT_CONTEXT*)&pStreamHandleContext);
 	if (!NT_SUCCESS(ns) || pStreamHandleContext == nullptr)
 		return FLT_PREOP_SUCCESS_NO_CALLBACK;
@@ -1545,6 +1555,21 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preSetFileInfo(_Inout_ PFLT_CALLBACK_DATA pData
 	if(!pStreamHandleContext->fSkipItem)
 		LOGINFO4("filemon: preSetFileInfo: id: %05Iu:%p:%p, infoclass: %u.\r\n",
 			(ULONG_PTR)pStreamHandleContext->nOpeningProcessId, pStreamHandleContext, pFltObjects->FileObject, (ULONG)eInfoClass);
+
+	// RansomShield: shadow-copy the (original) file's current content BEFORE the
+	// destructive rename/delete so it can be restored later. This is the GENERAL
+	// guard against EVERY ransomware family, including those that write a new
+	// encrypted file and then rename/delete the original (no in-place overwrite,
+	// so the read-then-write heuristic in preWrite never fires). Pre-image is taken
+	// for any file (not path-scoped) except explicitly skipped items, and at most
+	// once per handle.
+	if (!pStreamHandleContext->fSkipItem &&
+		!pStreamHandleContext->fPreImageSaved &&
+		pStreamHandleContext->pNameInfo != nullptr &&
+		pStreamHandleContext->pNameInfo->Name.Buffer != nullptr)
+	{
+		BackupPreImage(pFltObjects, pStreamHandleContext);
+	}
 
 	BOOLEAN fSkipItem = pStreamHandleContext->fSkipItem;
 	FltReleaseContext(pStreamHandleContext);

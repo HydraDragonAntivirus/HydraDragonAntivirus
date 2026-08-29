@@ -212,32 +212,6 @@ namespace {
 // components rewrite their own databases/logs constantly and would
 // otherwise trip the shield (evtx, EBWebView cache, ...).
 //
-static bool IsSystemArea(const std::wstring& wsPath)
-{
-	std::wstring p = wsPath;
-	std::transform(p.begin(), p.end(), p.begin(), ::towlower);
-	std::replace(p.begin(), p.end(), L'\\', L'/');
-
-	static const wchar_t* c_pPrefixes[] =
-	{
-		L"/windows/",
-		L"/program files/",
-		L"/program files (x86)/",
-		L"/programdata/",
-		L"/appdata/local/packages/",
-		L"/appdata/local/microsoft/",
-		L"/ebwebview/",
-		L"/temp/"
-	};
-	for (const wchar_t* pszPrefix : c_pPrefixes)
-	{
-		if (p.find(pszPrefix) != std::wstring::npos)
-			return true;
-	}
-
-	return false;
-}
-
 namespace {
 	std::mutex s_mtxRansomShield;
 	// pid -> { victim path -> kernel-saved pre-image path }
@@ -291,7 +265,7 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		return;
 	}
 
-	if (wsFilePath.empty() || IsSystemArea(wsFilePath))
+	if (wsFilePath.empty())
 		return;
 
 	{
@@ -400,9 +374,6 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& sI
 	for (auto itEntry = vec.rbegin(); itEntry != vec.rend(); ++itEntry)
 	{
 		const ShadowBackupEntry& entry = *itEntry;
-
-		if (IsSystemArea(entry.wsOriginal))
-			continue; // never touch OS/browser internals during remediation
 
 		if (entry.nOp == 2 && !entry.wsNewName.empty())
 		{
