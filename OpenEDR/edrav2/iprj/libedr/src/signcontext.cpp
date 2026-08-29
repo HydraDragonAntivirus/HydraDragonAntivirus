@@ -470,9 +470,9 @@ Variant ContextService::distinctCounter(Variant vParams)
 			if (v.isSequenceLike())
 				for (auto e : v)
 					if (!e.isEmpty())
-						setScope.insert(e.getString());
+						setScope.insert(std::string(e));
 			else if (!v.isEmpty())
-				setScope.insert(v.getString());
+				setScope.insert(std::string(v));
 		};
 		if (vScope.isSequenceLike())
 			for (auto s : vScope)
@@ -498,7 +498,7 @@ Variant ContextService::distinctCounter(Variant vParams)
 		{
 			if (v.isEmpty() || v.isNull())
 				continue;
-			if (!setScope.count(v.getString()))
+			if (!setScope.count(std::string(v)))
 				continue;
 			vFiltered.push_back(v);
 		}
@@ -542,7 +542,7 @@ Variant ContextService::distinctCounter(Variant vParams)
 //
 void ContextService::loadState(Variant vState)
 {
-
+	(void)vState;
 }
 
 //

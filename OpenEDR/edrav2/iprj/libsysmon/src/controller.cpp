@@ -512,21 +512,6 @@ void SystemMonitorController::sanctumPipeServerLoop()
 					try
 					{
 						auto vEvent = variant::deserializeFromJson(sLine);
-						// Normalize Sanctum syscall telemetry into the OpenEDR event schema
-						// so the shared distinct counter (ptm v2 distinctCounter directive)
-						// can merge it with owlyHook events on the same process. The distinct
-						// syscall name is the NtFunction variant key inside "data"
-						// (e.g. NtWriteVirtualMemory).
-						if (vEvent.isDictionaryLike())
-						{
-							if (!vEvent.has("type"))
-								vEvent.put("type", "LLE_DEVICE_IOCTL");
-							if (vEvent.has("pid") && !vEvent.has("process.pid"))
-								vEvent.put("process.pid", vEvent.get("pid"));
-							auto vData = vEvent.get("data");
-							if (vData.isDictionaryLike() && vData.size() == 1)
-								vEvent.put("sanctum.functionName", vData.getKeys()[0].convertToStr());
-						}
 						if (m_pReceiver)
 							m_pReceiver->put(vEvent);
 					}

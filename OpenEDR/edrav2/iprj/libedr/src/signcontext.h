@@ -13,6 +13,8 @@
 /// @{
 #pragma once
 #include <objects.h>
+#include <list>
+#include <unordered_map>
 
 namespace cmd {
 
@@ -92,6 +94,17 @@ private:
 	ThreadPool m_threadPool{ "ContextServicePool" };
 	Variant m_vConfig;
 
+	struct DistinctValue
+	{
+		Time expireTime = 0;
+		Variant value;
+	};
+
+	struct DistinctCounterState
+	{
+		std::unordered_map<Hash, std::list<DistinctValue>> mapKeys;
+	};
+
 	std::unordered_map<Size, DistinctCounterState> m_distinctCounters;
 
 	inline Hash getKeyId(Variant vParams);
@@ -114,17 +127,6 @@ private:
 	// is hardcoded to a specific detection.
 	//
 	Variant distinctCounter(Variant vParams);
-
-	struct DistinctValue
-	{
-		Time expireTime = 0;
-		Variant value;
-	};
-
-	struct DistinctCounterState
-	{
-		std::unordered_map<Hash, std::list<DistinctValue>> mapKeys;
-	};
 
 	Variant getStatistic();
 
