@@ -689,6 +689,20 @@ impl ProcessRecord {
 
     fn update_kernel_event_features(&mut self, iomsg: &IOMessage, _raw_irp: &IrpMajorOp) {
         let effective_irp = IrpMajorOp::from_sysmonevent(effective_hypervisor_irp_byte(iomsg));
+        // Verbose observability: with VERBOSE_LOGGING=1 each user-mode API hook
+        // event is written to owlyshield.jsonl so the actual API calls (and the
+        // process that issued them) are visible — otherwise only the hook
+        // registration count ("how many apis monitored") is observable.
+        if effective_irp == IrpMajorOp::IrpUserModeHookEvent
+            && crate::logging::is_verbose_logging_enabled()
+        {
+            crate::logging::Logging::debug(&format!(
+                "[API HOOK] function={} src_pid={} tgt_pid={}",
+                iomsg.kernel_event_info.object_name,
+                iomsg.kernel_event_info.source_process_id,
+                iomsg.kernel_event_info.target_process_id,
+            ));
+        }
         self.record_kernel_event_feature(effective_irp, &iomsg.kernel_event_info.object_name);
     }
 
