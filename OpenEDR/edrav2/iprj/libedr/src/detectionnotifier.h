@@ -33,9 +33,6 @@ private:
 	int64_t m_nLastId = 0; ///< Id of the last stored event
 	Size m_nMaxSize = 1000; ///< Maximum number of stored events
 
-	// MLE cloud base type range (see common.src: MLE_FILE_COPY = 1000001, ...)
-	static constexpr int64_t c_nMinMleBaseType = 1000000;
-
 	///
 	/// Checks whether an event is a detection (MLE) event.
 	///

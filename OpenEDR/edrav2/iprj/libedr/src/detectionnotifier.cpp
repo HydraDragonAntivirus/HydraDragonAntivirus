@@ -112,19 +112,18 @@ bool DetectionNotifier::isDetectionEvent(const Variant& vEvent)
 	if (!vEvent.isDictionaryLike())
 		return false;
 
-	// Threat detections MUST have baseType or baseEventType in the MLE detection range (>= 1000000).
-	// Raw EVM events (e.g. RF12.11 with baseEventType=11) are telemetry events, not threat detections.
-	int64_t nBaseType = 0;
-	if (auto optBt = vEvent.getSafe("baseType"))
-	{
-		try { nBaseType = static_cast<int64_t>(optBt.value()); } catch (...) {}
-	}
-	else if (auto optBet = vEvent.getSafe("baseEventType"))
-	{
-		try { nBaseType = static_cast<int64_t>(optBet.value()); } catch (...) {}
-	}
+	// Threat detections are identified by an "MLE_"-prefixed identifier (the
+	// "type" or "eventType" field), e.g. MLE_RANSOM_BEHAVIOR,
+	// MLE_FLS_MALICIOUS_VERDICT, MLE_PSW_STEALER, ...
+	// Raw EVM telemetry (e.g. RF12.11 / RF11 / RF13 with baseEventType 11/10/13) must
+	// NOT be treated as malware just because their baseType happens to be in the
+	// MLE range (>= 1000000). Gate detection on the MLE_ marker instead.
+	auto isMleType = [&](const char* key) -> bool {
+		std::string s = vEvent.get(key, std::string());
+		return s.compare(0, 4, "MLE_") == 0;
+	};
 
-	return (nBaseType >= c_nMinMleBaseType);
+	return isMleType("type") || isMleType("eventType");
 }
 
 //
@@ -158,6 +157,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		if (!vEvent.has("title") || std::string(vEvent["title"]).empty())
 		{
 			std::string sTitle = vEvent.get("type", std::string());
+			if (sTitle.empty())
+				sTitle = vEvent.get("eventType", std::string());
 			if (sTitle.empty())
 			{
 				auto optBaseType = getByPathSafe(vEvent, "baseType");
