@@ -1601,7 +1601,7 @@
 			"*\\AppData\\Local\\Microsoft\\Edge\\User Data\\EBWebView\\*",
 			"*\\AppData\\Local\\Temp\\*",
 			"*\\Temp\\*"
-		],
+		]
 		
 	},
 
