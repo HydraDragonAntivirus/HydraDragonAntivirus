@@ -1382,7 +1382,7 @@ pub mod worker_instance {
 
             let mut more = unsafe { Module32FirstW(snapshot, &mut me).as_bool() };
             while more {
-                let path = unsafe {
+                let path = {
                     let len = me
                         .szExePath
                         .iter()
