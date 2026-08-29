@@ -29,6 +29,7 @@ constexpr char c_sDeleteContext[] = "deleteContext";
 constexpr char c_sCreateEvent[] = "createEvent";
 constexpr char c_sDiscard[] = "discard";
 constexpr char c_sDebug[] = "debug";
+constexpr char c_sDistinctCounter[] = "distinctCounter";
 
 constexpr char c_sOperationMarker[] = "$operation";
 
@@ -46,6 +47,7 @@ const char* getDirectiveString(Directive directive)
 		case Directive::CreateEvent: return c_sCreateEvent;
 		case Directive::Discard: return c_sDiscard;
 		case Directive::Debug: return c_sDebug;
+		case Directive::DistinctCounter: return c_sDistinctCounter;
 	}
 	error::InvalidArgument(SL, FMT("Directive <" << +(std::uint8_t)directive <<
 		"> has no text string")).throwException();
@@ -63,6 +65,7 @@ Directive getDirectiveFromString(std::string_view sDirective)
 	if (sDirective == c_sCreateEvent) return Directive::CreateEvent;
 	if (sDirective == c_sDiscard) return Directive::Discard;
 	if (sDirective == c_sDebug) return Directive::Debug;
+	if (sDirective == c_sDistinctCounter) return Directive::DistinctCounter;
 	error::InvalidArgument(SL, FMT("Unknown directive <" << sDirective << ">")).throwException();
 }
 
@@ -379,6 +382,120 @@ public:
 
 		return Sequence({ vCodeLine });
 		TRACE_END("Failed to compile <saveContext> directive");
+	}
+};
+
+//
+//
+//
+class DistinctCounterDirective : public IDirective
+{
+private:
+	std::string m_sBasketName;
+	Variant m_vKey;
+	Variant m_vValues;
+	Size m_nThreshold = 2;
+	Size m_nWindow = 0;
+	std::string m_sFlagDst;
+	Variant m_vScope;
+
+	//
+	// Wrap a value/key in MakeSequenceCtxCmd when it is a sequence, so it is
+	// resolved against the live event at runtime. Mirrors SaveContextDirective.
+	//
+	static Variant wrapSeq(const Variant& v)
+	{
+		if (v.isSequenceLike())
+			return Dictionary({
+				{"$$proxy", "cachedObj"},
+				{"clsid", CLSID_MakeSequenceCtxCmd},
+				{"data", v}
+				});
+		return v;
+	}
+
+public:
+	DistinctCounterDirective() {}
+	virtual ~DistinctCounterDirective() {}
+
+	//
+	//
+	//
+	static DirectivePtr create()
+	{
+		return std::make_shared<DistinctCounterDirective>();
+	}
+
+	//
+	//
+	//
+	void parse(const Variant& vData, Context& ctx) override
+	{
+		TRACE_BEGIN;
+		if (!vData.has("basket"))
+			error::CompileError(SL, ctx.location, "Missing <basket> field").throwException();
+		m_sBasketName = ctx.resolveValue(vData["basket"]);
+
+		if (!vData.has("key"))
+			error::CompileError(SL, ctx.location, "Missing <key> field").throwException();
+		m_vKey = ctx.resolveValue(vData["key"]);
+
+		if (!vData.has("values"))
+			error::CompileError(SL, ctx.location, "Missing <values> field").throwException();
+		m_vValues = ctx.resolveValue(vData["values"]);
+
+		if (!vData.has("threshold"))
+			error::CompileError(SL, ctx.location, "Missing <threshold> field").throwException();
+		m_nThreshold = vData["threshold"];
+		m_nWindow = vData.get("window", 0);
+		m_sFlagDst = ctx.resolveValue(vData.get("flag", "@event.distinctCounterThresholdMet"),
+			false /* fRuntime */);
+		if (vData.has("scope"))
+			m_vScope = ctx.resolveValue(vData["scope"]);
+		TRACE_END("Failed to parse <distinctCounter> directive");
+	}
+
+	//
+	//
+	//
+	Variant compile([[maybe_unused]] Context& ctx) const override
+	{
+		TRACE_BEGIN;
+		Variant vCodeLine = Dictionary({
+			{"clsid", CLSID_CallCtxCmd},
+			{"command", Dictionary({
+				{"$$proxy", "cachedObj"},
+				{"clsid", CLSID_Command},
+				{"processor", "objects.contextService"},
+				{"command", "distinctCount"}
+				})},
+			{"ctxParams", Dictionary({
+				{"id", Dictionary({
+					{"$val", Dictionary({
+						{"$$proxy", "cachedCmd"},
+						{"processor", "objects.contextService"},
+						{"command", "getBasketId"},
+						{"params", Dictionary({ {"name", m_sBasketName} })}
+						})}
+					})},
+				{"key", wrapSeq(m_vKey)},
+				{"value", wrapSeq(m_vValues)},
+				{"scope", wrapSeq(m_vScope)},
+			{"threshold", m_nThreshold},
+			{"timeout", m_nWindow}
+			})},
+		// ExecAction (scenario.cpp) writes the boolean result into the flag path.
+		// Rules reference the event as @event.*, but the scenario context stores it
+		// under the "event" key, so convert the @event. prefix to event.
+		{"$dst", [this]() {
+			std::string sDst = m_sFlagDst;
+			if (sDst.rfind("@event.", 0) == 0)
+				sDst = "event." + sDst.substr(std::string("@event.").size());
+			return sDst;
+		}()}
+		});
+		return Sequence({ vCodeLine });
+		TRACE_END("Failed to compile <distinctCounter> directive");
 	}
 };
 
@@ -922,6 +1039,7 @@ DirectivePtr createDirective(Directive directive)
 		case Directive::DeleteContext: return DeleteContextDirective::create();
 		case Directive::CreateEvent: return CreateEventDirective::create();
 		case Directive::Discard: return DiscardDirective::create();
+		case Directive::DistinctCounter: return DistinctCounterDirective::create();
 	}
 	error::OperationNotSupported(SL, FMT("Directive <" << getDirectiveString(directive) <<
 		"> is not supported")).throwException();
@@ -944,7 +1062,8 @@ const std::vector<Directive> c_directiveList{
 	Directive::DeleteContext,
 	Directive::SaveContext,
 	Directive::CreateEvent,
-	Directive::Discard
+	Directive::Discard,
+	Directive::DistinctCounter
 };
 
 //
@@ -1001,6 +1120,13 @@ Variant RuleImpl::compile(Context& ctx)
 
 	for (const auto& vCodeLine : Sequence(vPeekContextCode))
 		vResultCode.push_back(vCodeLine);
+
+	auto pDistinctCounter = directives.find(Directive::DistinctCounter);
+	if (pDistinctCounter != directives.end())
+	{
+		for (const auto& vCodeLine : Sequence(pDistinctCounter->second->compile(ctx)))
+			vResultCode.push_back(vCodeLine);
+	}
 
 	auto pCondition = directives.find(Directive::Condition);
 	if (pCondition != directives.end())

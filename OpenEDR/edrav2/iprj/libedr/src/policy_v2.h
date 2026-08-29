@@ -35,6 +35,7 @@ enum class Directive : std::uint8_t
 	CreateEvent = 5,
 	Discard = 6,
 	Debug = 7,
+	DistinctCounter = 8,
 };
 
 ///

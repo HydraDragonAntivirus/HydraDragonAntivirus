@@ -83,6 +83,7 @@ private:
 	typedef std::vector<BasketPtr> Storage;
 
 	std::mutex m_mtxData;
+	std::mutex m_mtxDistinct;
 	Storage m_pStorage;
 	std::map<std::string, Size> m_pNames;
 
@@ -90,6 +91,8 @@ private:
 	std::atomic_bool m_fInitialized = false;
 	ThreadPool m_threadPool{ "ContextServicePool" };
 	Variant m_vConfig;
+
+	std::unordered_map<Size, DistinctCounterState> m_distinctCounters;
 
 	inline Hash getKeyId(Variant vParams);
 
@@ -102,6 +105,26 @@ private:
 	void save(Variant vParams);
 	void remove(Variant vParam);
 	void purge(Variant vParams);
+
+	//
+	// Generic distinct-value counter. Maintains, per (basket, key), a sliding
+	// window set of distinct values. Returns true when the number of distinct
+	// values reaches the configured threshold. The field names / threshold /
+	// window come entirely from policy config (ptm.local.src) -- nothing here
+	// is hardcoded to a specific detection.
+	//
+	Variant distinctCounter(Variant vParams);
+
+	struct DistinctValue
+	{
+		Time expireTime = 0;
+		Variant value;
+	};
+
+	struct DistinctCounterState
+	{
+		std::unordered_map<Hash, std::list<DistinctValue>> mapKeys;
+	};
 
 	Variant getStatistic();
 

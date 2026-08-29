@@ -451,6 +451,95 @@ void ContextService::purge(Variant vParams)
 //
 //
 //
+Variant ContextService::distinctCounter(Variant vParams)
+{
+	TRACE_BEGIN;
+	Size nBasketId = vParams.has("id") ? (Size)vParams["id"] : getBasketId(vParams.get("name", ""));
+	Hash nKeyId = getKeyId(vParams["key"]);
+	Size nThreshold = vParams.get("threshold", 2);
+	Time nTimeout = Time(vParams.get("timeout", 0));
+
+	// Optional scope filter: only count values matching the allowed list.
+	// The scope may itself be a sequence of sequences (e.g. several @const lists),
+	// so flatten into a single set of allowed strings.
+	std::set<std::string> setScope;
+	Variant vScope = vParams.get("scope", Variant());
+	if (!vScope.isEmpty())
+	{
+		auto addScope = [&](const Variant& v) {
+			if (v.isSequenceLike())
+				for (auto e : v)
+					if (!e.isEmpty())
+						setScope.insert(e.getString());
+			else if (!v.isEmpty())
+				setScope.insert(v.getString());
+		};
+		if (vScope.isSequenceLike())
+			for (auto s : vScope)
+				addScope(s);
+		else
+			addScope(vScope);
+	}
+
+	// Collect non-empty values from the (possibly sequence) value field.
+	std::vector<Variant> vValues;
+	Variant vRaw = vParams["value"];
+	if (vRaw.isSequenceLike())
+		for (auto v : vRaw)
+			vValues.push_back(v);
+	else if (!vRaw.isEmpty())
+		vValues.push_back(vRaw);
+
+	// Apply the scope filter (if any).
+	if (!setScope.empty())
+	{
+		std::vector<Variant> vFiltered;
+		for (auto& v : vValues)
+		{
+			if (v.isEmpty() || v.isNull())
+				continue;
+			if (!setScope.count(v.getString()))
+				continue;
+			vFiltered.push_back(v);
+		}
+		vValues.swap(vFiltered);
+	}
+
+	// Lock the whole operation so the per-basket state pointer cannot be
+	// invalidated by a concurrent map insertion/rehash.
+	std::scoped_lock _lock(m_mtxDistinct);
+	auto& dc = m_distinctCounters[nBasketId];
+	auto now = getCurrentTime();
+
+	auto& lst = dc.mapKeys[nKeyId];
+
+	// Prune expired entries (sliding window).
+	if (nTimeout > 0)
+		for (auto it = lst.begin(); it != lst.end(); )
+			it = (it->expireTime <= now) ? lst.erase(it) : std::next(it);
+
+	for (auto& v : vValues)
+	{
+		if (v.isEmpty() || v.isNull())
+			continue;
+		bool fFound = false;
+		for (auto& dv : lst)
+			if (dv.value == v) { fFound = true; break; }
+		if (!fFound)
+			lst.push_back({ now + nTimeout, v });
+	}
+
+	// Bound memory.
+	while (lst.size() > c_nBasketMaxSize)
+		lst.pop_front();
+
+	return (Size)lst.size() >= nThreshold;
+	TRACE_END("Failed to process <distinctCounter> command");
+}
+
+//
+//
+//
 void ContextService::loadState(Variant vState)
 {
 
@@ -653,6 +742,21 @@ Variant ContextService::execute(Variant vCommand, Variant vParams)
 	///
 	if (vCommand == "getStatistic")
 		return getStatistic();
+
+	///
+	/// @fn Variant ContextService::execute()
+	///
+	/// ##### distinctCounter()
+	/// Generic sliding-window distinct-value counter.
+	///   * id [int] / name [string] - basket identifier (just a namespace).
+	///   * key [var] - Variant with data for key calculation (e.g. process pid).
+	///   * value [var|seq] - one or more event field values to count distinct.
+	///   * threshold [int] - number of distinct values to reach.
+	///   * timeout [int] - sliding window in ms (0 = no expiry).
+	/// Returns true when the number of distinct non-empty values reaches threshold.
+	///
+	if (vCommand == "distinctCount")
+		return distinctCounter(vParams);
 
 	///
 	/// @fn Variant ContextService::execute()
