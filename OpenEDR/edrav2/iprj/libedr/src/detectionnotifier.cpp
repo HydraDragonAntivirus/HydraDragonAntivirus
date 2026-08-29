@@ -175,22 +175,30 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				return {};
 			};
 
+			// Returns the first non-empty valid path among the given keys.
+			auto tryPaths = [&](std::initializer_list<const char*> keys) -> std::string {
+				for (const char* k : keys)
+				{
+					std::string v = extractValidPath(k);
+					if (!v.empty())
+						return v;
+				}
+				return {};
+			};
+
 			std::string sPath = extractValidPath("quarantineTarget");
 
 			// If quarantineTarget is not set, resolve based on detection type
 			if (sPath.empty())
 			{
 				// 1. If childProcess exists (Process Creation Detection), target the child
-				if (std::string p = extractValidPath("childProcess.imageFile.rawPath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("childProcess.imageFile.path"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("childProcess.imagePath"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("childProcess.path"); !p.empty())
-					sPath = p;
-				else if (std::string p = extractValidPath("childProcess.imageFile.abstractPath"); !p.empty())
-					sPath = p;
+				sPath = tryPaths({
+					"childProcess.imageFile.rawPath",
+					"childProcess.imageFile.path",
+					"childProcess.imagePath",
+					"childProcess.path",
+					"childProcess.imageFile.abstractPath"
+				});
 
 				// 2. Leaf process from the processes chain (deepest descendant = the actual actor)
 				//    This avoids flagging the parent (e.g. explorer.exe) when the child was the threat.
@@ -227,12 +235,11 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						try { fv = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
 					if (fv == 2)
 					{
-						if (std::string p = extractValidPath("file.rawPath"); !p.empty())
-							sPath = p;
-						else if (std::string p = extractValidPath("file.path"); !p.empty())
-							sPath = p;
-						else if (std::string p = extractValidPath("file.abstractPath"); !p.empty())
-							sPath = p;
+						sPath = tryPaths({
+							"file.rawPath",
+							"file.path",
+							"file.abstractPath"
+						});
 					}
 				}
 
@@ -240,16 +247,13 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				//    NEVER flag parent processes (e.g. explorer.exe) when the child was the malicious actor
 				if (sPath.empty())
 				{
-					if (std::string p = extractValidPath("process.imageFile.rawPath"); !p.empty())
-						sPath = p;
-					else if (std::string p = extractValidPath("process.imageFile.path"); !p.empty())
-						sPath = p;
-					else if (std::string p = extractValidPath("process.imagePath"); !p.empty())
-						sPath = p;
-					else if (std::string p = extractValidPath("process.path"); !p.empty())
-						sPath = p;
-					else if (std::string p = extractValidPath("process.imageFile.abstractPath"); !p.empty())
-						sPath = p;
+					sPath = tryPaths({
+						"process.imageFile.rawPath",
+						"process.imageFile.path",
+						"process.imagePath",
+						"process.path",
+						"process.imageFile.abstractPath"
+					});
 				}
 			}
 
