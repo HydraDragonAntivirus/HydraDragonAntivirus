@@ -2477,21 +2477,25 @@
 
 			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit detection)
 			{
-				"eventType": "MLE_RANSOM_EVALUATE",
-				"rule": {
-					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.destination.path" ]
-							},
-							{
-								"$operation": "imatch",
-								"pattern": "*\\users\\*",
-								"args": [ "@event.destination.path" ]
-							},
+			"eventType": "MLE_RANSOM_EVALUATE",
+			"rule": {
+				"loadContext": {
+					"basket": "@const.cryptoBasket.mass",
+					"key": "@event.process.id"
+				},
+				"condition": {
+					"$operation": "and",
+					"args": [
+						{
+							"$operation": "!imatch",
+							"pattern": "@const.ransomSystemExclusions",
+							"args": [ "@event.destination.path" ]
+						},
+						{
+							"$operation": "imatch",
+							"pattern": "*\\users\\*",
+							"args": [ "@event.destination.path" ]
+						},
 							{
 								"$operation": "!imatch",
 								"pattern": "*\\appdata\\*",

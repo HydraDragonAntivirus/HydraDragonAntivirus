@@ -1349,11 +1349,77 @@ pub mod worker_instance {
         }
 
         /// Monitor every user-mode API exposed to the driver, if MONITOR_ALL_APIS is enabled.
-        fn collect_dynamic_hook_api_targets(&mut self, _pid: u32) -> Vec<String> {
+        /// The driver cannot match a wildcard module/function, so instead of registering the
+        /// non-functional "*!*" spec we enumerate every DLL currently loaded in the process and
+        /// emit a concrete `module!function` spec for each exported API (resolved via goblin).
+        fn collect_dynamic_hook_api_targets(&mut self, pid: u32) -> Vec<String> {
             if crate::config::is_monitor_all_apis_enabled() {
-                vec!["*!*".to_string()]
+                self.enumerate_all_exported_api_specs(pid)
             } else {
                 vec![]
+            }
+        }
+
+        /// Enumerate every module loaded in `pid` and collect a concrete `module!function`
+        /// spec for each exported symbol. This is the goblin-based replacement for the
+        /// broken "*!*" wildcard hooking: it detects all API calls of all DLLs.
+        fn enumerate_all_exported_api_specs(&self, pid: u32) -> Vec<String> {
+            use windows::Win32::System::Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W,
+                TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32,
+            };
+            use windows::Win32::Foundation::CloseHandle;
+
+            let mut specs: Vec<String> = Vec::new();
+            let snapshot = match unsafe {
+                CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
+            } {
+                Ok(s) => s,
+                Err(_) => return specs,
+            };
+            let mut me: MODULEENTRY32W = unsafe { std::mem::zeroed() };
+            me.dwSize = std::mem::size_of::<MODULEENTRY32W>() as u32;
+
+            let mut more = unsafe { Module32FirstW(snapshot, &mut me).as_bool() };
+            while more {
+                let path = unsafe {
+                    let len = me
+                        .szExePath
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(me.szExePath.len());
+                    String::from_utf16_lossy(&me.szExePath[..len])
+                };
+                if !path.is_empty() {
+                    Self::collect_export_specs_from_dll(&path, &mut specs);
+                }
+                more = unsafe { Module32NextW(snapshot, &mut me).as_bool() };
+            }
+            unsafe {
+                let _ = CloseHandle(snapshot);
+            }
+            specs
+        }
+
+        /// Parse one DLL's export table with goblin and append `module!function` specs.
+        fn collect_export_specs_from_dll(dll_path: &str, out: &mut Vec<String>) {
+            let module_name =
+                match std::path::Path::new(dll_path).file_name().and_then(|s| s.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => return,
+                };
+            let bytes = match std::fs::read(dll_path) {
+                Ok(b) => b,
+                Err(_) => return,
+            };
+            let pe = match goblin::pe::PE::parse(&bytes) {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            for export in pe.exports {
+                if let Some(name) = export.name {
+                    out.push(format!("{}!{}", module_name, name));
+                }
             }
         }
 
