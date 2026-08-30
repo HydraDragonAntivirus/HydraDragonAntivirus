@@ -136,7 +136,7 @@ void SystemMonitorController::finalConstruct(Variant vConfig)
 //
 //
 //
-void SystemMonitorController::loadState(Variant vState)
+void SystemMonitorController::loadState(Variant /* vState */)
 {
 }
 
