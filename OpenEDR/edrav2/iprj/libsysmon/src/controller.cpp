@@ -891,8 +891,8 @@ void SystemMonitorController::updateUserModeHooks(Variant vParams)
 		uint32_t type;
 		uint32_t pid;
 		uint64_t gid;
-		wchar_t path[260];
-		wchar_t quarantine_path[260];
+		wchar_t path[520];
+		wchar_t quarantine_path[520];
 	};
 #pragma pack(pop)
 
