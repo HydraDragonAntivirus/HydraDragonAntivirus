@@ -914,6 +914,8 @@ void EventEnricher::put(const Variant& vEventRef)
 				}
 				vEvent.put("owlyHook", vHook);
 			}
+			LOGLVL(Detailed, FMT("Enriched OwlyHook event: func=" << Narrow(sName)
+				<< " pid=" << getByPath(vEvent, "process.pid", uint32_t(0))));
 		}
 		break;
 	}
