@@ -112,37 +112,32 @@ bool DetectionNotifier::isDetectionEvent(const Variant& vEvent)
 	if (!vEvent.isDictionaryLike())
 		return false;
 
-	auto isDetectionTypeName = [&](const std::string& s) -> bool {
+	std::string sType = vEvent.get("type", std::string());
+	std::string sEventType = vEvent.get("eventType", std::string());
+
+	auto isRawTelemetryPrefix = [](const std::string& s) -> bool {
 		if (s.empty())
 			return false;
-		if (s.compare(0, 4, "MLE_") == 0)
-			return true;
-		// Any custom policy/PTM detection event (not a raw sensor telemetry prefix)
-		if (s.compare(0, 2, "RP") != 0 && s.compare(0, 2, "RF") != 0 &&
-		    s.compare(0, 2, "RR") != 0 && s.compare(0, 2, "RN") != 0 &&
-		    s.compare(0, 2, "RE") != 0 && s.compare(0, 4, "LLE_") != 0)
+		if (s.compare(0, 2, "RP") == 0 || s.compare(0, 2, "RF") == 0 ||
+		    s.compare(0, 2, "RR") == 0 || s.compare(0, 2, "RN") == 0 ||
+		    s.compare(0, 2, "RE") == 0 || s.compare(0, 4, "LLE_") == 0)
 		{
 			return true;
 		}
 		return false;
 	};
 
-	std::string sType = vEvent.get("type", std::string());
-	if (isDetectionTypeName(sType))
-		return true;
+	// Raw telemetry events (RP, RF, RR, RN, RE, LLE) are NEVER detections
+	if (isRawTelemetryPrefix(sType) || isRawTelemetryPrefix(sEventType))
+	{
+		return false;
+	}
 
-	std::string sEventType = vEvent.get("eventType", std::string());
-	if (isDetectionTypeName(sEventType))
-		return true;
-
-	if (vEvent.has("quarantineTarget") && !std::string(vEvent.get("quarantineTarget", "")).empty())
+	// 1. Explicit detection type name (MLE_* or any custom policy output rule name)
+	if (!sType.empty() || !sEventType.empty())
 		return true;
 
 	if (vEvent.has("threat") || vEvent.has("alert") || vEvent.has("detection"))
-		return true;
-
-	int64_t nBaseType = vEvent.get("baseType", int64_t(0));
-	if (nBaseType >= 1000000)
 		return true;
 
 	return false;
