@@ -335,7 +335,7 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 	}
 }
 
-void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName)
+void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /* sImage */, const std::string& sThreatName)
 {
 	if (nPid <= 0)
 		return;

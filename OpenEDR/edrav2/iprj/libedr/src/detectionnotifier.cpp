@@ -118,9 +118,9 @@ bool DetectionNotifier::isDetectionEvent(const Variant& vEvent)
 		if (s.compare(0, 4, "MLE_") == 0)
 			return true;
 		// Any custom policy/PTM detection event (not a raw sensor telemetry prefix)
-		if (s.compare(0, 2) != "RP" && s.compare(0, 2) != "RF" &&
-		    s.compare(0, 2) != "RR" && s.compare(0, 2) != "RN" &&
-		    s.compare(0, 2) != "RE" && s.compare(0, 4) != "LLE_")
+		if (s.compare(0, 2, "RP") != 0 && s.compare(0, 2, "RF") != 0 &&
+		    s.compare(0, 2, "RR") != 0 && s.compare(0, 2, "RN") != 0 &&
+		    s.compare(0, 2, "RE") != 0 && s.compare(0, 4, "LLE_") != 0)
 		{
 			return true;
 		}
