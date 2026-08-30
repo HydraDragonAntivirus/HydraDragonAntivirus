@@ -616,7 +616,7 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 				// (which overwrites "type" from baseType) emits LLE_DEVICE_IOCTL
 				// and Owlyshield dispatches them via the owlyHook sub-dict.
 				eEvent = Event::LLE_DEVICE_IOCTL;
-				LOGLVL(Detailed, FMT("Parsed OwlyHook event: func=" << string::convertWCharToUtf8(vEvent.get("owlyHookFunctionName", L""))
+				LOGLVL(Debug, FMT("Parsed OwlyHook event: func=" << string::convertWCharToUtf8(vEvent.get("owlyHookFunctionName", L""))
 					<< " srcPid=" << vEvent.get("owlyHookSourcePid", uint32_t(0))
 					<< " tgtPid=" << vEvent.get("owlyHookTargetPid", uint32_t(0))));
 			}

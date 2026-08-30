@@ -267,6 +267,13 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 
 			if (!sTitle.empty())
 				vEvent.put("title", sTitle);
+
+			std::string sMatchedPid = "0";
+			if (auto optPid = getByPathSafe(vEvent, "process.pid"))
+				sMatchedPid = std::string(optPid.value());
+			else if (auto optPid2 = getByPathSafe(vEvent, "process.id"))
+				sMatchedPid = std::string(optPid2.value());
+			LOGLVL(Filtered, FMT("[MATCHED PID DETECTION] Threat=" << sTitle << " PID=" << sMatchedPid));
 				
 			// Determine action based on verdict
 			int64_t nVerdict = 0;
