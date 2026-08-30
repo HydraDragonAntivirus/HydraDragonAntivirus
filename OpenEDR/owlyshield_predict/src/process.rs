@@ -703,20 +703,6 @@ impl ProcessRecord {
                 iomsg.kernel_event_info.target_process_id,
             ));
         }
-        // The kernel driver delivers API-hook telemetry only to the Owlyshield
-        // engine (it is the single usermode fltport/IOCTL client), so edrsvc's
-        // OpenEDR pipeline never sees these events. Re-inject each hook event as
-        // a JSON LLE_DEVICE_IOCTL event into OpenEDR so PTM rules such as
-        // CRYPTO_API_MASS (which key on @event.owlyHook.functionName) can fire.
-        if effective_irp == IrpMajorOp::IrpUserModeHookEvent {
-            let function = iomsg.kernel_event_info.object_name.replace('\\', "\\\\").replace('"', "\\\"");
-            let src = iomsg.kernel_event_info.source_process_id;
-            let tgt = iomsg.kernel_event_info.target_process_id;
-            let payload = format!(
-                "{{\"rawEventId\":14,\"process\":{{\"pid\":{src}}},\"owlyHook\":{{\"eventType\":16,\"functionName\":\"{function}\",\"sourcePid\":{src},\"targetPid\":{tgt},\"arg1\":0,\"arg2\":0,\"arg3\":0,\"arg4\":0}}}}"
-            );
-            crate::ffi::publish_openedr_event(payload.as_bytes());
-        }
         self.record_kernel_event_feature(effective_irp, &iomsg.kernel_event_info.object_name);
     }
 

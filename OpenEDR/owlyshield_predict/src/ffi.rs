@@ -93,34 +93,6 @@ pub fn send_telemetry_line(line: TelemetryLine) -> bool {
     }
 }
 
-/// Callback (provided by edrsvc.exe at startup) used to republish an OpenEDR
-/// event — serialized as UTF-8 JSON — back into OpenEDR's own event pipeline.
-///
-/// This is how hook/`LLE_DEVICE_IOCTL` events observed by the Owlyshield engine
-/// (which is the only usermode client the kernel driver delivers API-hook
-/// telemetry to) are re-injected into edrsvc so PTM rules such as
-/// `CRYPTO_API_MASS` can evaluate `@event.owlyHook.functionName`.
-type PublishCallback = extern "C" fn(*const u8, u32);
-
-static PUBLISH_CB: OnceLock<PublishCallback> = OnceLock::new();
-
-/// Register the host-provided callback that forwards a JSON event into OpenEDR.
-/// Called by edrsvc during `InitOwlyshield` after the engine starts.
-#[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_dll_set_publish_callback(cb: Option<PublishCallback>) {
-    if let Some(cb) = cb {
-        let _ = PUBLISH_CB.set(cb);
-    }
-}
-
-/// Republish a serialized OpenEDR event (UTF-8 JSON) into the host pipeline.
-/// No-op until a callback has been registered.
-pub(crate) fn publish_openedr_event(payload: &[u8]) {
-    if let Some(cb) = PUBLISH_CB.get() {
-        cb(payload.as_ptr(), payload.len() as u32);
-    }
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_dll_start() -> i32 {
     if SENDER.get().is_some() {

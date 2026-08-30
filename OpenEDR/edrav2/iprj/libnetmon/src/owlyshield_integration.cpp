@@ -31,41 +31,7 @@ static OwlyshieldDllIngestOpenedrEventFn g_owlyshield_dll_ingest_openedr_event =
 static OwlyshieldDllIngestFirewallPackedDataFn g_owlyshield_dll_ingest_firewall_packed_data = nullptr;
 static OwlyshieldDllStopFn g_owlyshield_dll_stop = nullptr;
 
-// Callback the Owlyshield engine invokes to republish a hook/LLE_DEVICE_IOCTL
-// event (UTF-8 JSON) into OpenEDR. Resolved from the DLL and registered after
-// the engine starts.
-typedef void (*OwlyshieldDllSetPublishCallbackFn)(void(*cb)(const uint8_t*, uint32_t));
-static OwlyshieldDllSetPublishCallbackFn g_owlyshield_dll_set_publish_callback = nullptr;
-
-// Forward an Owlyshield-published event into libsysmon's injection path.
-extern "C" static void OwlyshieldPublishCallback(const uint8_t* data, uint32_t len)
-{
-	owlyshield_publish_openedr_event_impl(data, len);
-}
-
-///
-/// Load owlyshield_ransom.dll and initialize function pointers
-///
-bool InitOwlyshield()
-{
-	if (g_hOwlyshieldDll != nullptr)
-		return true; // Already loaded
-
-	// Load the DLL from the same directory as edrsvc.exe
-	g_hOwlyshieldDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-	if (g_hOwlyshieldDll == nullptr)
-	{
-		LOGLVL(Debug, "Failed to load owlyshield_ransom.dll (error: " << ::GetLastError() << ")");
-		return false;
-	}
-
-	// Get function pointers
-	g_owlyshield_dll_start = (OwlyshieldDllStartFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_start");
-	g_owlyshield_dll_ingest = (OwlyshieldDllIngestFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest");
-	g_owlyshield_dll_ingest_openedr_event = (OwlyshieldDllIngestOpenedrEventFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest_openedr_event");
-	g_owlyshield_dll_ingest_firewall_packed_data = (OwlyshieldDllIngestFirewallPackedDataFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest_firewall_packed_data");
 	g_owlyshield_dll_stop = (OwlyshieldDllStopFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_stop");
-	g_owlyshield_dll_set_publish_callback = (OwlyshieldDllSetPublishCallbackFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_set_publish_callback");
 
 	if (g_owlyshield_dll_start == nullptr || 
 	    g_owlyshield_dll_ingest == nullptr || 
@@ -97,12 +63,6 @@ bool InitOwlyshield()
 	}
 
 	g_bOwlyshieldStarted.store(true, std::memory_order_release);
-
-	// Register the hook-event republish callback so API-hook telemetry observed by
-	// the Owlyshield engine is re-injected into OpenEDR's pipeline (enables PTM
-	// rules such as CRYPTO_API_MASS). Optional: ignore if the export is absent.
-	if (g_owlyshield_dll_set_publish_callback != nullptr)
-		g_owlyshield_dll_set_publish_callback(OwlyshieldPublishCallback);
 
 	LOGLVL(Debug, "Owlyshield ransomware protection initialized successfully");
 	return true;
