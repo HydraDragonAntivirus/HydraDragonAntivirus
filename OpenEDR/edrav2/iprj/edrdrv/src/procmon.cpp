@@ -17,6 +17,7 @@
 #include "fltport.h"
 #include "dllinj.h"
 #include "config.h"
+#include "UserModeHookEngine.h"
 
 namespace cmd {
 namespace procmon {
@@ -1339,6 +1340,7 @@ VOID notifyOnCreateProcess(_Inout_ PEPROCESS pProcess,
 				if (!pCreateInfo->IsSubsystemProcess)
 				{
 					dllinj::detail::notifyOnProcessCreation(pNewProcessCtx, pParentProcessCtx);
+					UserModeHookProcess((ULONG)(ULONG_PTR)nProcessId);
 				}
 			}
 
@@ -1379,6 +1381,7 @@ VOID notifyOnCreateProcess(_Inout_ PEPROCESS pProcess,
 				objmon::detail::notifyOnProcessTermination(pCtx);
 				// dllinj
 				dllinj::detail::notifyOnProcessTermination(pCtx);
+				UserModeUnhookProcess((ULONG)(ULONG_PTR)nProcessId);
 			}
 
 			LOGINFO3("Process %Id destroyed\r\n", (ULONG_PTR)nProcessId);
