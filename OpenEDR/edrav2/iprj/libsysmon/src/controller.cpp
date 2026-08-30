@@ -15,6 +15,8 @@
 
 #include <mutex>
 #include <string_view>
+#include <windows.h>
+#include <tlhelp32.h>
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "libsysmon"
