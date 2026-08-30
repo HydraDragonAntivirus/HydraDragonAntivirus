@@ -158,6 +158,18 @@ public:
 	void stop() override;
 	/// @copydoc IService::shutdown()
 	void shutdown() override;
+
+	/// Checks if a function name matches any dynamically registered JSON hook target.
+	bool isMatchingJsonHook(const std::wstring& sFullFuncName) const;
+
+private:
+	mutable std::mutex m_mtxJsonHooks;
+	struct JsonHookEntry {
+		std::wstring sModule;
+		std::wstring sFunction;
+		uint64_t nEventId;
+	};
+	std::vector<JsonHookEntry> m_vJsonHooks;
 };
 
 } // namespace win

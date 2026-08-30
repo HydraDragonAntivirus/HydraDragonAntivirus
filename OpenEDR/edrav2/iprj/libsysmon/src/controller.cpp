@@ -603,19 +603,31 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 			if (vEvent.has("owlyHookEventType"))
 			{
 				Dictionary vHook;
+				std::wstring sFuncName = vEvent.get("owlyHookFunctionName", L"");
 				vHook.put("eventType",    vEvent.get("owlyHookEventType", 0));
-				vHook.put("functionName", vEvent.get("owlyHookFunctionName", L""));
+				vHook.put("functionName", sFuncName);
 				vHook.put("arg1",         vEvent.get("owlyHookArg1", uint64_t(0)));
 				vHook.put("arg2",         vEvent.get("owlyHookArg2", uint64_t(0)));
 				vHook.put("arg3",         vEvent.get("owlyHookArg3", uint64_t(0)));
 				vHook.put("arg4",         vEvent.get("owlyHookArg4", uint64_t(0)));
 				vHook.put("sourcePid",    vEvent.get("owlyHookSourcePid", uint32_t(0)));
 				vHook.put("targetPid",    vEvent.get("owlyHookTargetPid", uint32_t(0)));
+
+				bool fJsonMatched = isMatchingJsonHook(sFuncName);
+				vHook.put("isJsonMatched", fJsonMatched);
 				vEvent.put("owlyHook", vHook);
+
 				// Kernel hook events share the IOCTL baseType so EventEnricher
 				// (which overwrites "type" from baseType) emits LLE_DEVICE_IOCTL
 				// and Owlyshield dispatches them via the owlyHook sub-dict.
 				eEvent = Event::LLE_DEVICE_IOCTL;
+
+				if (fJsonMatched)
+				{
+					LOGLVL(Filtered, FMT("[MATCHED JSON API HOOK] func=" << string::convertWCharToUtf8(sFuncName)
+						<< " srcPid=" << vEvent.get("owlyHookSourcePid", uint32_t(0))
+						<< " tgtPid=" << vEvent.get("owlyHookTargetPid", uint32_t(0))));
+				}
 			}
 
 			// Build the owlyHv sub-dict from the nested owlyHv.* dict (hypervisor
@@ -880,6 +892,11 @@ void SystemMonitorController::updateUserModeHooks(Variant vParams)
 
 	static constexpr DWORD c_nIoctlOwlyCompat = 0x00222484; // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x921, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+	{
+		std::lock_guard<std::mutex> lock(m_mtxJsonHooks);
+		m_vJsonHooks.clear();
+	}
+
 	ULONG nEventIdBase = 0x6000;
 	for (Size i = 0; i < vHooks.getSize(); ++i)
 	{
@@ -893,6 +910,11 @@ void SystemMonitorController::updateUserModeHooks(Variant vParams)
 			continue;
 
 		uint64_t nEventId = vItem.get("eventId", uint64_t(nEventIdBase + (ULONG)i));
+
+		{
+			std::lock_guard<std::mutex> lock(m_mtxJsonHooks);
+			m_vJsonHooks.push_back({ wsModule, wsFunction, nEventId });
+		}
 
 		OwlyHookMsg msg = {};
 		msg.type = 9; // MESSAGE_ADD_HOOK
@@ -945,6 +967,40 @@ void SystemMonitorController::updateUserModeHooks(Variant vParams)
 	}
 
 	TRACE_END("Can't update user-mode hooks.");
+}
+
+//
+//
+//
+bool SystemMonitorController::isMatchingJsonHook(const std::wstring& sFullFuncName) const
+{
+	if (sFullFuncName.empty())
+		return false;
+
+	std::lock_guard<std::mutex> lock(m_mtxJsonHooks);
+	if (m_vJsonHooks.empty())
+		return false;
+
+	std::wstring sIncomingModule;
+	std::wstring sIncomingFunc = sFullFuncName;
+	auto nPos = sFullFuncName.rfind(L'!');
+	if (nPos != std::wstring::npos)
+	{
+		sIncomingModule = sFullFuncName.substr(0, nPos);
+		sIncomingFunc = sFullFuncName.substr(nPos + 1);
+	}
+
+	for (const auto& entry : m_vJsonHooks)
+	{
+		if (_wcsicmp(sIncomingFunc.c_str(), entry.sFunction.c_str()) == 0)
+		{
+			if (entry.sModule == L"*" || sIncomingModule.empty() || _wcsicmp(sIncomingModule.c_str(), entry.sModule.c_str()) == 0)
+			{
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 ///
