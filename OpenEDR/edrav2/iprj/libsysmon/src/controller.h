@@ -107,6 +107,7 @@ private:
 	void setProcessInfo(Variant vParams);
 	void updateFileRules(Variant vParams);
 	void updateRegRules(Variant vParams);
+	void updateUserModeHooks(Variant vParams);
 
 protected:
 	/// Constructor.

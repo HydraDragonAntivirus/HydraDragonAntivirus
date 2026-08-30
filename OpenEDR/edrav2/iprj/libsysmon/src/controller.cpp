@@ -323,6 +323,11 @@ bool SystemMonitorController::startInt()
 		if (!vRegRules.isNull())
 			updateRegRules(vRegRules);
 
+		// updateUserModeHooks from JSON
+		Variant vHookRules = m_vSelfProtectConfig.get("userModeHooks", m_vSelfProtectConfig.get("hookRules", nullptr));
+		if (!vHookRules.isNull())
+			updateUserModeHooks(vHookRules);
+
 		// curProcessInfo
 		Variant vCurProcessInfo = m_vSelfProtectConfig.get("curProcessInfo", nullptr);
 		if (!vCurProcessInfo.isNull())
@@ -854,6 +859,65 @@ void SystemMonitorController::updateRegRules(Variant vParams)
 	TRACE_END("Can't update registry rules.");
 }
 
+//
+//
+//
+void SystemMonitorController::updateUserModeHooks(Variant vParams)
+{
+	TRACE_BEGIN;
+	Variant vHooks = vParams.isSequenceLike() ? vParams : vParams.get("hooks", vParams.get("rules", vParams));
+	if (!vHooks.isSequenceLike())
+		return;
+
+#pragma pack(push, 8)
+	struct OwlyHookMsg {
+		uint32_t type;
+		uint32_t pid;
+		uint64_t gid;
+		wchar_t path[260];
+		wchar_t quarantine_path[260];
+	};
+#pragma pack(pop)
+
+	static constexpr DWORD c_nIoctlOwlyCompat = 0x00222484; // CTL_CODE(FILE_DEVICE_UNKNOWN, 0x921, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+	ULONG nEventIdBase = 0x6000;
+	for (Size i = 0; i < vHooks.getSize(); ++i)
+	{
+		Variant vItem = vHooks[i];
+		if (!vItem.isDictionaryLike())
+			continue;
+
+		std::wstring wsModule = vItem.get("module", L"*");
+		std::wstring wsFunction = vItem.get("function", vItem.get("name", L""));
+		if (wsFunction.empty())
+			continue;
+
+		uint64_t nEventId = vItem.get("eventId", uint64_t(nEventIdBase + (ULONG)i));
+
+		OwlyHookMsg msg = {};
+		msg.type = 9; // MESSAGE_ADD_HOOK
+		msg.pid = 0;
+		msg.gid = nEventId;
+		wcsncpy_s(msg.path, wsModule.c_str(), _TRUNCATE);
+		wcsncpy_s(msg.quarantine_path, wsFunction.c_str(), _TRUNCATE);
+
+		try
+		{
+			sendIoctl(c_nIoctlOwlyCompat, &msg, sizeof(msg), nullptr, 0);
+			LOGLVL(Detailed, FMT("Registered JSON user-mode hook: " << string::convertWCharToUtf8(wsModule)
+				<< "!" << string::convertWCharToUtf8(wsFunction) << " (id=" << nEventId << ")"));
+		}
+		catch (error::Exception& e)
+		{
+			LOGLVL(Filtered, FMT("Failed to register JSON user-mode hook "
+				<< string::convertWCharToUtf8(wsModule) << "!" << string::convertWCharToUtf8(wsFunction)
+				<< ": " << e.what()));
+		}
+	}
+	TRACE_END("Can't update user-mode hooks.");
+}
+
 ///
 /// @copydoc ICommandProcessor::execute() 
 ///
@@ -1051,6 +1115,11 @@ Variant SystemMonitorController::execute(Variant vCommand, Variant vParams)
 	else if (vCommand == "updateRegRules")
 	{
 		updateRegRules(vParams);
+		return {};
+	}
+	else if (vCommand == "updateUserModeHooks")
+	{
+		updateUserModeHooks(vParams);
 		return {};
 	}
 
