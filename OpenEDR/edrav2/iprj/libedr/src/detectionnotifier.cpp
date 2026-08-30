@@ -24,6 +24,15 @@ namespace cmd {
 namespace {
 
 	static std::atomic<bool> s_fProtectionPaused = false;
+	static std::mutex s_mtxQuarantineLock;
+	static std::unordered_map<uint64_t, std::string> s_quarantinedPids; // pid/gid -> original quarantined malware path
+	static std::unordered_set<std::string> s_quarantinedPaths;          // lowercase paths already quarantined
+
+	static std::string toLowerStr(std::string s)
+	{
+		std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return s;
+	}
 
 	static std::string NtPathToDosPathString(const std::string& sNt)
 	{
@@ -203,7 +212,76 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				return {};
 			};
 
+			auto extractId = [&](const std::string_view& pathKey) -> uint64_t {
+				if (auto opt = getByPathSafe(vEvent, pathKey)) {
+					try {
+						if (opt.value().getType() == variant::ValueType::Integer)
+							return static_cast<uint64_t>(opt.value());
+						else if (opt.value().getType() == variant::ValueType::String) {
+							std::string s = std::string(opt.value());
+							if (!s.empty() && s != "<undefined>" && s != "null")
+								return std::stoull(s);
+						}
+						else {
+							return static_cast<uint64_t>(opt.value());
+						}
+					} catch (...) {}
+				}
+				return 0;
+			};
+
+			uint64_t nGid = extractId("childProcess.id");
+			if (nGid == 0) nGid = extractId("childProcess.pid");
+			if (nGid == 0 && vEvent.has("processes"))
+			{
+				try {
+					auto vSeq = vEvent.get("processes");
+					if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
+					{
+						auto vLeaf = vSeq[vSeq.getSize() - 1];
+						if (vLeaf.has("id"))
+							nGid = static_cast<uint64_t>(vLeaf["id"]);
+						else if (vLeaf.has("pid"))
+							nGid = static_cast<uint64_t>(vLeaf["pid"]);
+					}
+				} catch (...) {}
+			}
+			if (nGid == 0)
+			{
+				int64_t nFileVerdict = 0;
+				if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
+					try { nFileVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
+
+				if (nFileVerdict != 2)
+				{
+					nGid = extractId("process.id");
+					if (nGid == 0) nGid = extractId("process.pid");
+				}
+			}
+
 			std::string sPath = extractValidPath("quarantineTarget");
+
+			// Check if this process or threat was already quarantined, lock sPath to the original threat
+			if (sPath.empty())
+			{
+				std::scoped_lock _lock(s_mtxQuarantineLock);
+				if (nGid != 0)
+				{
+					auto it = s_quarantinedPids.find(nGid);
+					if (it != s_quarantinedPids.end())
+						sPath = it->second;
+				}
+				if (sPath.empty())
+				{
+					uint64_t procPid = extractId("process.pid");
+					if (procPid != 0)
+					{
+						auto it = s_quarantinedPids.find(procPid);
+						if (it != s_quarantinedPids.end())
+							sPath = it->second;
+					}
+				}
+			}
 
 			// If quarantineTarget is not set, resolve based on detection type
 			if (sPath.empty())
@@ -260,20 +338,30 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					}
 				}
 
-				// 4. Direct process behavioral detection - use process.imageFile ONLY as last resort
-				//    NEVER flag parent processes (e.g. explorer.exe) when the child was the malicious actor
+				// 4. Direct process behavioral detection - only if processes sequence was NOT a multi-process chain
 				if (sPath.empty())
 				{
-					sPath = tryPaths({
-						"process.imageFile.rawPath",
-						"process.imageFile.path",
-						"process.imagePath",
-						"process.path",
-						"process.imageFile.abstractPath"
-					});
+					bool isMultiProcessChain = false;
+					if (vEvent.has("processes"))
+					{
+						try {
+							auto vSeq = vEvent.get("processes");
+							if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 1)
+								isMultiProcessChain = true;
+						} catch (...) {}
+					}
+					if (!isMultiProcessChain)
+					{
+						sPath = tryPaths({
+							"process.imageFile.rawPath",
+							"process.imageFile.path",
+							"process.imagePath",
+							"process.path",
+							"process.imageFile.abstractPath"
+						});
+					}
 				}
 			}
-
 
 			// Update vEvent so quarantineTarget is explicitly populated in the event JSON dictionary
 			if (!sPath.empty())
@@ -302,54 +390,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			
 			if (!s_fProtectionPaused.load())
 			{
-				auto extractId = [&](const std::string_view& pathKey) -> uint64_t {
-					if (auto opt = getByPathSafe(vEvent, pathKey)) {
-						try {
-							if (opt.value().getType() == variant::ValueType::Integer)
-								return static_cast<uint64_t>(opt.value());
-							else if (opt.value().getType() == variant::ValueType::String) {
-								std::string s = std::string(opt.value());
-								if (!s.empty() && s != "<undefined>" && s != "null")
-									return std::stoull(s);
-							}
-							else {
-								return static_cast<uint64_t>(opt.value());
-							}
-						} catch (...) {}
-					}
-					return 0;
-				};
-
-				uint64_t nGid = extractId("childProcess.id");
-				if (nGid == 0) nGid = extractId("childProcess.pid");
-				if (nGid == 0)
-				{
-					// If this is purely a file verdict (FLS scanning a file on disk), do NOT kill the reader/parent process
-					int64_t nFileVerdict = 0;
-					if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
-						try { nFileVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
-
-					if (nFileVerdict != 2)
-					{
-						nGid = extractId("process.id");
-						if (nGid == 0) nGid = extractId("process.pid");
-						if (nGid == 0 && vEvent.has("processes"))
-						{
-							try {
-								auto vSeq = vEvent.get("processes");
-								if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
-								{
-									auto vLeaf = vSeq[vSeq.getSize() - 1];
-									if (vLeaf.has("id"))
-										nGid = static_cast<uint64_t>(vLeaf["id"]);
-									else if (vLeaf.has("pid"))
-										nGid = static_cast<uint64_t>(vLeaf["pid"]);
-								}
-							} catch (...) {}
-						}
-					}
-				}
-				
 				if (nGid > 0)
 				{
 					HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}", 
@@ -427,32 +467,59 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					}
 					else
 					{
-						HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-						if (hDll != nullptr)
+						std::string sDos = NtPathToDosPathString(sPath);
+						std::string sLower = toLowerStr(sDos);
+						bool bAlreadyQuarantined = false;
 						{
-							typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-							auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
-							if (fnQ != nullptr)
-							{
-								std::string sDos = NtPathToDosPathString(sPath);
-								int32_t qRes = fnQ(
-									reinterpret_cast<const uint8_t*>(sDos.data()),
-									static_cast<uint32_t>(sDos.size()));
+							std::scoped_lock _lock(s_mtxQuarantineLock);
+							bAlreadyQuarantined = (s_quarantinedPaths.count(sLower) > 0);
+						}
 
-								if (qRes == 0)
-									LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
-								else
-									LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
-							}
-							else
-							{
-								LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found!");
-							}
-							::FreeLibrary(hDll);
+						if (bAlreadyQuarantined)
+						{
+							LOGLVL(Detailed, FMT("detnotif: Target <" << sDos << "> already quarantined previously. Skipping duplicate action."));
 						}
 						else
 						{
-							LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Cannot quarantine malware.");
+							HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+							if (hDll != nullptr)
+							{
+								typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+								auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+								if (fnQ != nullptr)
+								{
+									int32_t qRes = fnQ(
+										reinterpret_cast<const uint8_t*>(sDos.data()),
+										static_cast<uint32_t>(sDos.size()));
+
+									if (qRes == 0)
+									{
+										LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
+										std::scoped_lock _lock(s_mtxQuarantineLock);
+										s_quarantinedPaths.insert(sLower);
+										if (nGid != 0) s_quarantinedPids[nGid] = sDos;
+										if (nShieldPid > 0) s_quarantinedPids[static_cast<uint64_t>(nShieldPid)] = sDos;
+									}
+									else
+									{
+										LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
+										if (qRes == 6) // Already gone / quarantined
+										{
+											std::scoped_lock _lock(s_mtxQuarantineLock);
+											s_quarantinedPaths.insert(sLower);
+										}
+									}
+								}
+								else
+								{
+									LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found!");
+								}
+								::FreeLibrary(hDll);
+							}
+							else
+							{
+								LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Cannot quarantine malware.");
+							}
 						}
 					}
 				}

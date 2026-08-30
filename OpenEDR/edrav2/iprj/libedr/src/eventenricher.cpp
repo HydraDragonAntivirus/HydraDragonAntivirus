@@ -358,24 +358,111 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 		return;
 
 	std::vector<ShadowBackupEntry> vec;
+	std::unordered_map<std::wstring, std::wstring> readMapCopy;
 	{
 		std::scoped_lock _lock(s_mtxRansomShield);
 		auto it = s_backups.find(nPid);
-		if (it == s_backups.end())
-			return;
-		vec = it->second;
-		s_backups.erase(it);
-		s_readFiles.erase(nPid);
+		if (it != s_backups.end())
+		{
+			vec = it->second;
+			s_backups.erase(it);
+		}
+		auto itR = s_readFiles.find(nPid);
+		if (itR != s_readFiles.end())
+		{
+			readMapCopy = itR->second;
+			s_readFiles.erase(itR);
+		}
 	}
+
+	if (vec.empty() && readMapCopy.empty())
+		return;
 
 	LOGLVL(Critical, FMT("RansomShield: rolling back " << vec.size() << " recorded victim file(s) for pid=" << nPid));
 
+	// Helper to find a pre-image backup on disk across all PID folders in C:\ProgramData\HydraDragonBackups\
+	auto findPreImageOnDisk = [&](const std::wstring& wsOrig) -> std::wstring {
+		std::wstring wsBaseName = wsOrig;
+		auto pos = wsBaseName.find_last_of(L"\\/");
+		if (pos != std::wstring::npos)
+			wsBaseName = wsBaseName.substr(pos + 1);
+
+		if (wsBaseName.empty())
+			return {};
+
+		std::wstring wsStripped;
+		auto dotPos = wsBaseName.find_last_of(L'.');
+		if (dotPos != std::wstring::npos && dotPos > 0)
+			wsStripped = wsBaseName.substr(0, dotPos);
+
+		auto checkDir = [&](const std::wstring& wsDirPath) -> std::wstring {
+			// Direct check
+			std::wstring wsSearchPattern = wsDirPath + L"\\*_" + wsBaseName;
+			WIN32_FIND_DATAW fd = {};
+			HANDLE hFind = ::FindFirstFileW(wsSearchPattern.c_str(), &fd);
+			if (hFind != INVALID_HANDLE_VALUE)
+			{
+				std::wstring wsFound = wsDirPath + L"\\" + fd.cFileName;
+				::FindClose(hFind);
+				return wsFound;
+			}
+			// Stripped check (e.g. without custom .winball / .locked extension)
+			if (!wsStripped.empty())
+			{
+				wsSearchPattern = wsDirPath + L"\\*_" + wsStripped;
+				hFind = ::FindFirstFileW(wsSearchPattern.c_str(), &fd);
+				if (hFind != INVALID_HANDLE_VALUE)
+				{
+					std::wstring wsFound = wsDirPath + L"\\" + fd.cFileName;
+					::FindClose(hFind);
+					return wsFound;
+				}
+			}
+			return {};
+		};
+
+		// 1. Primary check: Current PID's backup directory
+		std::wstring wsPrimaryDir = L"C:\\ProgramData\\HydraDragonBackups\\" + std::to_wstring(nPid);
+		std::wstring wsFound = checkDir(wsPrimaryDir);
+		if (!wsFound.empty())
+			return wsFound;
+
+		// 2. Global search: Check all other PID subdirectories under C:\ProgramData\HydraDragonBackups\
+		WIN32_FIND_DATAW fdDir = {};
+		HANDLE hDirFind = ::FindFirstFileW(L"C:\\ProgramData\\HydraDragonBackups\\*", &fdDir);
+		if (hDirFind != INVALID_HANDLE_VALUE)
+		{
+			do
+			{
+				if ((fdDir.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+					wcscmp(fdDir.cFileName, L".") != 0 &&
+					wcscmp(fdDir.cFileName, L"..") != 0)
+				{
+					std::wstring wsSubDir = L"C:\\ProgramData\\HydraDragonBackups\\" + std::wstring(fdDir.cFileName);
+					if (wsSubDir != wsPrimaryDir)
+					{
+						std::wstring wsRes = checkDir(wsSubDir);
+						if (!wsRes.empty())
+						{
+							::FindClose(hDirFind);
+							return wsRes;
+						}
+					}
+				}
+			} while (::FindNextFileW(hDirFind, &fdDir));
+			::FindClose(hDirFind);
+		}
+
+		return {};
+	};
+
 	// Roll back newest-first so chained renames unwind correctly.
+	std::unordered_set<std::wstring> restoredPaths;
 	for (auto itEntry = vec.rbegin(); itEntry != vec.rend(); ++itEntry)
 	{
 		const ShadowBackupEntry& entry = *itEntry;
 
-		if (entry.nOp == 2 && !entry.wsNewName.empty())
+		if (!entry.wsNewName.empty())
 		{
 			if (::DeleteFileW(entry.wsNewName.c_str()))
 				LOGLVL(Critical, FMT("RansomShield: DELETED ransomware rename target <" << Narrow(entry.wsNewName) << ">"));
@@ -383,18 +470,57 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 				LOGLVL(Detailed, FMT("RansomShield: rollback rename target already gone or delete failed <" << Narrow(entry.wsNewName) << ">"));
 		}
 
-		if (entry.wsBackup.empty())
+		std::wstring wsBackup = entry.wsBackup;
+		std::wstring wsRestoreTarget = entry.wsOriginal;
+
+		if (wsBackup.empty())
 		{
-			LOGLVL(Critical, FMT("RansomShield: no pre-image captured for <" << Narrow(entry.wsOriginal) << ">, cannot restore"));
+			auto itR = readMapCopy.find(entry.wsOriginal);
+			if (itR != readMapCopy.end() && !itR->second.empty())
+				wsBackup = itR->second;
+		}
+
+		if (wsBackup.empty())
+			wsBackup = findPreImageOnDisk(entry.wsOriginal);
+
+		if (wsBackup.empty())
+		{
+			// If no pre-image exists and this file was created by ransomware (e.g. .winball or newly dropped artifact), delete it
+			if (::DeleteFileW(entry.wsOriginal.c_str()))
+			{
+				LOGLVL(Critical, FMT("RansomShield: DELETED newly created ransomware artifact <" << Narrow(entry.wsOriginal) << ">"));
+			}
+			else
+			{
+				LOGLVL(Critical, FMT("RansomShield: no pre-image captured for <" << Narrow(entry.wsOriginal) << ">, cannot restore"));
+			}
 			continue;
 		}
 
-		if (::CopyFileW(entry.wsBackup.c_str(), entry.wsOriginal.c_str(), FALSE))
+		// If entry.wsOriginal ends with a ransomware extension and backup exists for stripped path, restore to stripped path
+		auto dotPos = wsRestoreTarget.find_last_of(L'.');
+		if (dotPos != std::wstring::npos)
 		{
-			LOGLVL(Critical, FMT("RansomShield: restored <" << Narrow(entry.wsOriginal) << "> from <" << Narrow(entry.wsBackup) << ">"));
+			std::wstring wsBeforeDot = wsRestoreTarget.substr(0, dotPos);
+			if (wsBeforeDot.find(L'.') != std::wstring::npos)
+			{
+				// Delete the encrypted file
+				::DeleteFileW(wsRestoreTarget.c_str());
+				wsRestoreTarget = wsBeforeDot;
+			}
 		}
-		else
-			LOGLVL(Critical, FMT("RansomShield: restore FAILED for <" << Narrow(entry.wsOriginal) << "> from <" << Narrow(entry.wsBackup) << "> err=" << ::GetLastError()));
+
+		if (restoredPaths.insert(wsRestoreTarget).second)
+		{
+			if (::CopyFileW(wsBackup.c_str(), wsRestoreTarget.c_str(), FALSE))
+			{
+				LOGLVL(Critical, FMT("RansomShield: restored <" << Narrow(wsRestoreTarget) << "> from <" << Narrow(wsBackup) << ">"));
+			}
+			else
+			{
+				LOGLVL(Critical, FMT("RansomShield: restore FAILED for <" << Narrow(wsRestoreTarget) << "> from <" << Narrow(wsBackup) << "> err=" << ::GetLastError()));
+			}
+		}
 	}
 }
 
