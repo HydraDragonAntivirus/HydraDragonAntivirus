@@ -713,7 +713,7 @@ impl ProcessRecord {
             let src = iomsg.kernel_event_info.source_process_id;
             let tgt = iomsg.kernel_event_info.target_process_id;
             let payload = format!(
-                "{{\"rawEventId\":12,\"process\":{{\"pid\":{src}}},\"owlyHook\":{{\"eventType\":16,\"functionName\":\"{function}\",\"sourcePid\":{src},\"targetPid\":{tgt},\"arg1\":0,\"arg2\":0,\"arg3\":0,\"arg4\":0}}}}"
+                "{{\"rawEventId\":14,\"process\":{{\"pid\":{src}}},\"owlyHook\":{{\"eventType\":16,\"functionName\":\"{function}\",\"sourcePid\":{src},\"targetPid\":{tgt},\"arg1\":0,\"arg2\":0,\"arg3\":0,\"arg4\":0}}}}"
             );
             crate::ffi::publish_openedr_event(payload.as_bytes());
         }
