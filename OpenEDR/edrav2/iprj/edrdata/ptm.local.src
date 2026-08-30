@@ -2127,23 +2127,23 @@
 			{
 				"eventType": "LLE_DEVICE_IOCTL",
 				"rule": {
-				"distinctCounter": {
-					"basket": "cryptoApiDistinct",
-					"key": "@event.process.pid",
-					"values": ["@event.owlyHook.functionName"],
-					"scope": ["@const.cryptoApiList"],
-					"threshold": 2,
-					"window": 60000,
-					"flag": "@event.CryptoApiThresholdMet"
-				},
-				"condition": {
-					"$operation": "equal",
-					"args": [ "@event.CryptoApiThresholdMet", true ]
-				},
+					"distinctCounter": {
+						"basket": "cryptoApiDistinct",
+						"key": "@event.process.pid",
+						"values": ["@event.owlyHook.functionName"],
+						"scope": "@const.cryptoApiList",
+						"threshold": 2,
+						"window": 60000,
+						"flag": "@event.CryptoApiThresholdMet"
+					},
+					"condition": {
+						"$operation": "equal",
+						"args": [ "@event.CryptoApiThresholdMet", true ]
+					},
 					"saveContext": {
 						"basket": "@const.cryptoBasket.mass",
-						"key": "@event.process.id",
-						"group": "@event.process.id",
+						"key": "@event.process.pid",
+						"group": "@event.process.pid",
 						"lifetime": 60000
 					},
 					"createEvent": {
@@ -2169,7 +2169,7 @@
 				"rule": {
 					"deleteContext": {
 						"basket": "@const.cryptoBasket.mass",
-						"group": "@event.process.id"
+						"group": "@event.process.pid"
 					}
 				}
 			}
@@ -2453,98 +2453,6 @@
 					}
 				}
 			},
-
-			// Step 3: Forward candidate to evaluation
-			{
-				"eventType": "MLE_RANSOM_CANDIDATE",
-				"rule": {
-					"createEvent": {
-						"eventType": "MLE_RANSOM_EVALUATE",
-						"destination": "IN",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-							{ "name": "process", "value": "@event.process" },
-							{ "name": "processes", "value": "@event.processes" },
-							{ "name": "destination", "value": "@event.destination" },
-							{ "name": "source", "value": "@event.source" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" }
-						]
-					}
-				}
-			},
-
-			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit detection)
-			{
-				"eventType": "MLE_RANSOM_EVALUATE",
-				"rule": {
-					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "!imatch",
-								"pattern": "@const.ransomSystemExclusions",
-								"args": [ "@event.destination.path" ]
-							},
-							{
-								"$operation": "imatch",
-								"pattern": "*\\users\\*",
-								"args": [ "@event.destination.path" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "*\\appdata\\*",
-								"args": [ "@event.destination.path" ]
-							},
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "imatch",
-										"pattern": "@const.ransomFileExtensions",
-										"args": [ "@event.destination.path" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "@const.ransomFileExtensions",
-										"args": [ "@event.source.path" ]
-									}
-								]
-							}
-						]
-					},
-					"createEvent": {
-						"eventType": "MLE_RANSOM_BEHAVIOR",
-						"destination": "OUT",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-							{ "name": "process", "value": "@event.process" },
-							{ "name": "processes", "value": "@event.processes" },
-							{ "name": "destination", "value": "@event.destination" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
-						]
-					}
-				}
-			},
-
-			// Step 5: Cleanup context when process exits
-			{
-				"eventType": "LLE_PROCESS_DELETE",
-				"rule": {
-					"deleteContext": {
-						"basket": "@const.ransomBasket.readWrite",
-						"group": "@event.process.id"
-					}
-				}
-			}
-		], // RANSOM_BEHAVIOR
-				}
-			},
-
 			// Step 2f: File Rename -> trigger Candidate
 			{
 				"eventType": "LLE_FILE_RENAME",

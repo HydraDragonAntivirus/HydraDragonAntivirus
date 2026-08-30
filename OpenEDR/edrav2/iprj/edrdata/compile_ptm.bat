@@ -3,6 +3,10 @@ echo [i] Starting PTM compilation process...
 
 cd /d "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrav2\out\bin\win-Release-x64"
 
+:: Copy latest source files from iprj\edrdata
+copy /Y "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrav2\iprj\edrdata\common.src" "common.src" >nul
+copy /Y "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrav2\iprj\edrdata\ptm.local.src" "ptm.local.src" >nul
+
 :: Terminate any stuck edrcon instances
 taskkill /F /IM edrcon.exe >nul 2>&1
 
