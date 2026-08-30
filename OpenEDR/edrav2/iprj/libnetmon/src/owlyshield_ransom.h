@@ -49,6 +49,15 @@ __declspec(dllimport) int32_t owlyshield_dll_ingest_firewall_packed_data(const u
 // Stop the Owlyshield engine and cleanup resources
 __declspec(dllimport) void owlyshield_dll_stop();
 
+// Register the host callback the Owlyshield engine calls to republish a hook /
+// LLE_DEVICE_IOCTL event (UTF-8 JSON) back into OpenEDR's event pipeline.
+// cb: function pointer (data, len). Provided by edrsvc, resolved from the DLL.
+__declspec(dllimport) void owlyshield_dll_set_publish_callback(void(*cb)(const uint8_t*, uint32_t));
+
+// C-linkage entry point (implemented by libsysmon) that parses a UTF-8 JSON
+// OpenEDR event and injects it via SystemMonitorController::injectEvent.
+extern "C" void owlyshield_publish_openedr_event_impl(const uint8_t* data, uint32_t len);
+
 #ifdef __cplusplus
 }
 #endif

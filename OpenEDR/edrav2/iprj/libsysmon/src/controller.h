@@ -58,6 +58,10 @@ private:
 
 	bool m_fStopDriverOnShutdown = false;
 
+	// Owlyshield republishes API-hook events into OpenEDR via this instance, so
+	// PTM rules (e.g. CRYPTO_API_MASS) can evaluate @event.owlyHook.functionName.
+	static SystemMonitorController* s_pInstance;
+
 	//
 	ObjPtr<IDataReceiver> m_pReceiver;
 
@@ -153,6 +157,12 @@ public:
 	void stop() override;
 	/// @copydoc IService::shutdown()
 	void shutdown() override;
+
+	/// Re-inject an already-built OpenEDR event (e.g. an API-hook event
+	/// republished by the Owlyshield engine) into the OpenEDR pipeline via the
+	/// configured receiver. Sets the LLE_DEVICE_IOCTL type/source so PTM rules
+	/// see it exactly as if it had arrived from the driver fltport.
+	static void injectEvent(Variant vEvent);
 };
 
 } // namespace win

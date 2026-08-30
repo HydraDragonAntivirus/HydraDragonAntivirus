@@ -44,9 +44,12 @@ const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventTyp
 //
 //
 //
+SystemMonitorController* SystemMonitorController::s_pInstance = nullptr;
+
 SystemMonitorController::SystemMonitorController()
 	: m_hFltPortReceiver(c_sPortName, c_nTreadsCount, edrdrv::c_nReplyMode, "SysMon::EventsPool")
 {
+	s_pInstance = this;
 }
 
 //
@@ -710,6 +713,45 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 		return false;
 	}
 	return true;
+}
+
+//
+// Re-inject an OpenEDR event (built by the Owlyshield engine) into the pipeline.
+// Mirrors the tail of parseEvent() so PTM rules see the same shape as a driver
+// event: an LLE_DEVICE_IOCTL with the owlyHook sub-dict already present.
+//
+void SystemMonitorController::injectEvent(Variant vEvent)
+{
+	if (s_pInstance == nullptr)
+		return;
+	vEvent.put("baseType", (int)Event::LLE_DEVICE_IOCTL);
+	vEvent.put("type", getOpenEdrWireEventType(edrdrv::SysmonEvent::DeviceIoControl, Event::LLE_DEVICE_IOCTL));
+	vEvent.put("source", "openedr");
+	if (!s_pInstance->m_pReceiver)
+		return;
+	try
+	{
+		s_pInstance->m_pReceiver->put(vEvent);
+	}
+	catch (error::LimitExceeded& e)
+	{
+		LOGWRN(FMT("System monitor receiver queue limit exceeded (inject): " << e.what()));
+	}
+}
+
+//
+// C-linkage entry point called by the Owlyshield engine (owlyshield_ransom.dll)
+// to republish a hook/LLE_DEVICE_IOCTL event (UTF-8 JSON) into OpenEDR.
+//
+extern "C" void owlyshield_publish_openedr_event_impl(const uint8_t* data, uint32_t len)
+{
+	if (data == nullptr || len == 0)
+		return;
+	std::string_view sv(reinterpret_cast<const char*>(data), len);
+	Variant vEvent = variant::deserializeFromJson(sv);
+	if (vEvent.isNull())
+		return;
+	SystemMonitorController::injectEvent(vEvent);
 }
 
 // 
