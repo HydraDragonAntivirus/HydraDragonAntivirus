@@ -610,8 +610,14 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 				vHook.put("arg2",         vEvent.get("owlyHookArg2", uint64_t(0)));
 				vHook.put("arg3",         vEvent.get("owlyHookArg3", uint64_t(0)));
 				vHook.put("arg4",         vEvent.get("owlyHookArg4", uint64_t(0)));
-				vHook.put("sourcePid",    vEvent.get("owlyHookSourcePid", uint32_t(0)));
-				vHook.put("targetPid",    vEvent.get("owlyHookTargetPid", uint32_t(0)));
+				uint32_t nSourcePid = vEvent.get("owlyHookSourcePid", uint32_t(0));
+				uint32_t nTargetPid = vEvent.get("owlyHookTargetPid", uint32_t(0));
+				vHook.put("sourcePid",    nSourcePid);
+				vHook.put("targetPid",    nTargetPid);
+
+				Dictionary vProc;
+				vProc.put("pid", nSourcePid);
+				vEvent.put("process", vProc);
 
 				bool fJsonMatched = isMatchingJsonHook(sFuncName);
 				vHook.put("isJsonMatched", fJsonMatched);

@@ -112,18 +112,40 @@ bool DetectionNotifier::isDetectionEvent(const Variant& vEvent)
 	if (!vEvent.isDictionaryLike())
 		return false;
 
-	// Threat detections are identified by an "MLE_"-prefixed identifier (the
-	// "type" or "eventType" field), e.g. MLE_RANSOM_BEHAVIOR,
-	// MLE_FLS_MALICIOUS_VERDICT, MLE_PSW_STEALER, ...
-	// Raw EVM telemetry (e.g. RF12.11 / RF11 / RF13 with baseEventType 11/10/13) must
-	// NOT be treated as malware just because their baseType happens to be in the
-	// MLE range (>= 1000000). Gate detection on the MLE_ marker instead.
-	auto isMleType = [&](const char* key) -> bool {
-		std::string s = vEvent.get(key, std::string());
-		return s.compare(0, 4, "MLE_") == 0;
+	auto isDetectionTypeName = [&](const std::string& s) -> bool {
+		if (s.empty())
+			return false;
+		if (s.compare(0, 4, "MLE_") == 0)
+			return true;
+		// Any custom policy/PTM detection event (not a raw sensor telemetry prefix)
+		if (s.compare(0, 2) != "RP" && s.compare(0, 2) != "RF" &&
+		    s.compare(0, 2) != "RR" && s.compare(0, 2) != "RN" &&
+		    s.compare(0, 2) != "RE" && s.compare(0, 4) != "LLE_")
+		{
+			return true;
+		}
+		return false;
 	};
 
-	return isMleType("type") || isMleType("eventType");
+	std::string sType = vEvent.get("type", std::string());
+	if (isDetectionTypeName(sType))
+		return true;
+
+	std::string sEventType = vEvent.get("eventType", std::string());
+	if (isDetectionTypeName(sEventType))
+		return true;
+
+	if (vEvent.has("quarantineTarget") && !std::string(vEvent.get("quarantineTarget", "")).empty())
+		return true;
+
+	if (vEvent.has("threat") || vEvent.has("alert") || vEvent.has("detection"))
+		return true;
+
+	int64_t nBaseType = vEvent.get("baseType", int64_t(0));
+	if (nBaseType >= 1000000)
+		return true;
+
+	return false;
 }
 
 //

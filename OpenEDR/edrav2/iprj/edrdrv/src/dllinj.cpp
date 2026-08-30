@@ -9,6 +9,7 @@
 
 #include "common.h"
 #include "dllinj.h"
+#include "UserModeHookEngine.h"
 
 namespace cmd {
 namespace dllinj {
@@ -29,6 +30,12 @@ static VOID ImageCallback(PUNICODE_STRING FullImageName, HANDLE ProcessId, PIMAG
 	if (ProcessId != 0 && ProcessId != PsGetProcessId(PsInitialSystemProcess))
 	{
 		g_pCommonData->injector->onImageLoad(g_pDeviceObjectForWorkItem, ProcessId, FullImageName, ImageInfo);
+
+		// When user-mode DLLs are mapped into target processes, apply/refresh hooks
+		if (ImageInfo != NULL && !ImageInfo->SystemModeImage)
+		{
+			UserModeHookProcess((ULONG)(ULONG_PTR)ProcessId);
+		}
 	}
 }
 

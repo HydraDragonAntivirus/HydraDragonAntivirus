@@ -899,6 +899,20 @@ void EventEnricher::put(const Variant& vEventRef)
 		if (vEvent.has("owlyHook"))
 		{
 			Variant vHook = vEvent.get("owlyHook");
+			uint32_t srcPid = vHook.get("sourcePid", uint32_t(0));
+			if (srcPid != 0 && m_pProcProvider)
+			{
+				auto vProcInfo = m_pProcProvider->enrichProcessInfo(Dictionary({{"pid", srcPid}}));
+				if (!vProcInfo.isEmpty())
+				{
+					vEvent.put("process", vProcInfo);
+					if (!vEvent.has("processes") || vEvent.get("processes").isEmpty())
+					{
+						vEvent.put("processes", Sequence({ vProcInfo }));
+					}
+				}
+			}
+
 			std::wstring sName = vHook.get("functionName", L"");
 			auto nPos = sName.rfind(L'!');
 			if (!sName.empty())
