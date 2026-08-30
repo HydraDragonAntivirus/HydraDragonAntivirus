@@ -915,6 +915,36 @@ void SystemMonitorController::updateUserModeHooks(Variant vParams)
 				<< ": " << e.what()));
 		}
 	}
+
+	// Scan and hook all existing running processes on initial setup
+	HANDLE hSnapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (hSnapshot != INVALID_HANDLE_VALUE)
+	{
+		PROCESSENTRY32W pe = {};
+		pe.dwSize = sizeof(pe);
+		if (::Process32FirstW(hSnapshot, &pe))
+		{
+			do
+			{
+				if (pe.th32ProcessID <= 4 || pe.th32ProcessID == (DWORD)m_nSelfPid)
+					continue;
+
+				OwlyHookMsg hookMsg = {};
+				hookMsg.type = 10; // MESSAGE_HOOK_PROCESS
+				hookMsg.pid = pe.th32ProcessID;
+				try
+				{
+					sendIoctl(c_nIoctlOwlyCompat, &hookMsg, sizeof(hookMsg), nullptr, 0);
+				}
+				catch (...)
+				{
+					// Best-effort for existing processes
+				}
+			} while (::Process32NextW(hSnapshot, &pe));
+		}
+		::CloseHandle(hSnapshot);
+	}
+
 	TRACE_END("Can't update user-mode hooks.");
 }
 
