@@ -2552,7 +2552,7 @@
 				}
 			},
 
-			// Step 4a: Fast Lane evaluation (User Profile files -> 1 hit detection)
+			// Step 4a: Mass file evaluation (distinct target files threshold: 3 within 60s)
 			{
 				"eventType": "MLE_RANSOM_EVALUATE",
 				"rule": {
@@ -2590,6 +2590,18 @@
 								]
 							}
 						]
+					},
+					"distinctCounter": {
+						"basket": "ransomFileDistinct",
+						"key": "@event.process.pid",
+						"values": ["@event.destination.path"],
+						"threshold": 3,
+						"window": 60000,
+						"flag": "@event.RansomThresholdMet"
+					},
+					"condition": {
+						"$operation": "equal",
+						"args": [ "@event.RansomThresholdMet", true ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_BEHAVIOR",

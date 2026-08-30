@@ -216,7 +216,99 @@ namespace {
 	std::mutex s_mtxRansomShield;
 	// pid -> { victim path -> kernel-saved pre-image path }
 	std::unordered_map<int64_t, std::unordered_map<std::wstring, std::wstring>> s_readFiles;
+	std::unordered_map<std::wstring, std::wstring> s_allPreImages; // global victim path -> backup path
 	std::unordered_map<int64_t, std::vector<EventEnricher::ShadowBackupEntry>> s_backups;
+
+	static std::wstring findPreImageOnDisk(int64_t nPid, const std::wstring& wsOrig)
+	{
+		std::wstring wsBaseName = wsOrig;
+		auto pos = wsBaseName.find_last_of(L"\\/");
+		if (pos != std::wstring::npos)
+			wsBaseName = wsBaseName.substr(pos + 1);
+
+		if (wsBaseName.empty())
+			return L"";
+
+		std::wstring wsStripped;
+		auto dotPos = wsBaseName.find_last_of(L'.');
+		if (dotPos != std::wstring::npos && dotPos > 0)
+			wsStripped = wsBaseName.substr(0, dotPos);
+
+		// 1. In-memory global pre-image index
+		{
+			std::scoped_lock _lock(s_mtxRansomShield);
+			auto it = s_allPreImages.find(wsOrig);
+			if (it != s_allPreImages.end() && !it->second.empty())
+				return it->second;
+
+			if (!wsStripped.empty())
+			{
+				for (const auto& [victim, bk] : s_allPreImages)
+				{
+					if (victim.find(wsStripped) != std::wstring::npos && !bk.empty())
+						return bk;
+				}
+			}
+		}
+
+		// 2. Disk search under C:\ProgramData\HydraDragonBackups
+		try
+		{
+			std::filesystem::path rootDir = L"C:\\ProgramData\\HydraDragonBackups";
+			if (!std::filesystem::exists(rootDir))
+				return L"";
+
+			auto checkDir = [&](const std::filesystem::path& dirPath) -> std::wstring {
+				if (!std::filesystem::exists(dirPath) || !std::filesystem::is_directory(dirPath))
+					return L"";
+
+				for (const auto& entry : std::filesystem::directory_iterator(dirPath))
+				{
+					if (!entry.is_regular_file()) continue;
+
+					std::wstring fn = entry.path().filename().wstring();
+					if (fn.size() > wsBaseName.size() &&
+						fn.compare(fn.size() - wsBaseName.size(), wsBaseName.size(), wsBaseName) == 0 &&
+						fn[fn.size() - wsBaseName.size() - 1] == L'_')
+					{
+						return entry.path().wstring();
+					}
+					if (!wsStripped.empty() && fn.size() > wsStripped.size() &&
+						fn.compare(fn.size() - wsStripped.size(), wsStripped.size(), wsStripped) == 0 &&
+						fn[fn.size() - wsStripped.size() - 1] == L'_')
+					{
+						return entry.path().wstring();
+					}
+				}
+				return L"";
+			};
+
+			// Primary check: Current PID's backup directory
+			std::filesystem::path primaryDir = rootDir / std::to_wstring(nPid);
+			std::wstring wsFound = checkDir(primaryDir);
+			if (!wsFound.empty())
+				return wsFound;
+
+			// Global search: Check all other PID subdirectories
+			if (std::filesystem::is_directory(rootDir))
+			{
+				for (const auto& subDir : std::filesystem::directory_iterator(rootDir))
+				{
+					if (subDir.is_directory() && subDir.path() != primaryDir)
+					{
+						std::wstring wsRes = checkDir(subDir.path());
+						if (!wsRes.empty())
+							return wsRes;
+					}
+				}
+			}
+		}
+		catch (...)
+		{
+		}
+
+		return L"";
+	}
 }
 
 void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent)
@@ -285,6 +377,8 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 				wsBk = NormalizeToDosPath(wsBk);
 			}
 			catch (...) {}
+			if (!wsBk.empty())
+				s_allPreImages[wsFilePath] = wsBk;
 			readMap[wsFilePath] = std::move(wsBk);
 			return;
 		}
@@ -317,12 +411,19 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 				{
 					entry.wsBackup = NormalizeToDosPath(wsBkInEvent);
 					readMap[wsFilePath] = entry.wsBackup;
+					s_allPreImages[wsFilePath] = entry.wsBackup;
 				}
 				else
 				{
 					auto itBk = readMap.find(wsFilePath);
 					if (itBk != readMap.end())
 						entry.wsBackup = itBk->second;
+					else
+					{
+						auto itGlobal = s_allPreImages.find(wsFilePath);
+						if (itGlobal != s_allPreImages.end())
+							entry.wsBackup = itGlobal->second;
+					}
 				}
 				vec.push_back(std::move(entry));
 			}
@@ -380,82 +481,6 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 
 	LOGLVL(Critical, FMT("RansomShield: rolling back " << vec.size() << " recorded victim file(s) for pid=" << nPid));
 
-	// Helper to find a pre-image backup on disk across all PID folders in C:\ProgramData\HydraDragonBackups\
-	auto findPreImageOnDisk = [&](const std::wstring& wsOrig) -> std::wstring {
-		std::wstring wsBaseName = wsOrig;
-		auto pos = wsBaseName.find_last_of(L"\\/");
-		if (pos != std::wstring::npos)
-			wsBaseName = wsBaseName.substr(pos + 1);
-
-		if (wsBaseName.empty())
-			return {};
-
-		std::wstring wsStripped;
-		auto dotPos = wsBaseName.find_last_of(L'.');
-		if (dotPos != std::wstring::npos && dotPos > 0)
-			wsStripped = wsBaseName.substr(0, dotPos);
-
-		auto checkDir = [&](const std::wstring& wsDirPath) -> std::wstring {
-			// Direct check
-			std::wstring wsSearchPattern = wsDirPath + L"\\*_" + wsBaseName;
-			WIN32_FIND_DATAW fd = {};
-			HANDLE hFind = ::FindFirstFileW(wsSearchPattern.c_str(), &fd);
-			if (hFind != INVALID_HANDLE_VALUE)
-			{
-				std::wstring wsFound = wsDirPath + L"\\" + fd.cFileName;
-				::FindClose(hFind);
-				return wsFound;
-			}
-			// Stripped check (e.g. without custom .winball / .locked extension)
-			if (!wsStripped.empty())
-			{
-				wsSearchPattern = wsDirPath + L"\\*_" + wsStripped;
-				hFind = ::FindFirstFileW(wsSearchPattern.c_str(), &fd);
-				if (hFind != INVALID_HANDLE_VALUE)
-				{
-					std::wstring wsFound = wsDirPath + L"\\" + fd.cFileName;
-					::FindClose(hFind);
-					return wsFound;
-				}
-			}
-			return {};
-		};
-
-		// 1. Primary check: Current PID's backup directory
-		std::wstring wsPrimaryDir = L"C:\\ProgramData\\HydraDragonBackups\\" + std::to_wstring(nPid);
-		std::wstring wsFound = checkDir(wsPrimaryDir);
-		if (!wsFound.empty())
-			return wsFound;
-
-		// 2. Global search: Check all other PID subdirectories under C:\ProgramData\HydraDragonBackups\
-		WIN32_FIND_DATAW fdDir = {};
-		HANDLE hDirFind = ::FindFirstFileW(L"C:\\ProgramData\\HydraDragonBackups\\*", &fdDir);
-		if (hDirFind != INVALID_HANDLE_VALUE)
-		{
-			do
-			{
-				if ((fdDir.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
-					wcscmp(fdDir.cFileName, L".") != 0 &&
-					wcscmp(fdDir.cFileName, L"..") != 0)
-				{
-					std::wstring wsSubDir = L"C:\\ProgramData\\HydraDragonBackups\\" + std::wstring(fdDir.cFileName);
-					if (wsSubDir != wsPrimaryDir)
-					{
-						std::wstring wsRes = checkDir(wsSubDir);
-						if (!wsRes.empty())
-						{
-							::FindClose(hDirFind);
-							return wsRes;
-						}
-					}
-				}
-			} while (::FindNextFileW(hDirFind, &fdDir));
-			::FindClose(hDirFind);
-		}
-
-		return {};
-	};
-
 	// Roll back newest-first so chained renames unwind correctly.
 	std::unordered_set<std::wstring> restoredPaths;
 	for (auto itEntry = vec.rbegin(); itEntry != vec.rend(); ++itEntry)
@@ -481,7 +506,7 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 		}
 
 		if (wsBackup.empty())
-			wsBackup = findPreImageOnDisk(entry.wsOriginal);
+			wsBackup = findPreImageOnDisk(nPid, entry.wsOriginal);
 
 		if (wsBackup.empty())
 		{
@@ -512,9 +537,17 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 
 		if (restoredPaths.insert(wsRestoreTarget).second)
 		{
+			// Reset readonly/hidden/system attributes on target to prevent ERROR_ACCESS_DENIED (err=5)
+			::SetFileAttributesW(wsRestoreTarget.c_str(), FILE_ATTRIBUTE_NORMAL);
+			::DeleteFileW(wsRestoreTarget.c_str());
+
 			if (::CopyFileW(wsBackup.c_str(), wsRestoreTarget.c_str(), FALSE))
 			{
 				LOGLVL(Critical, FMT("RansomShield: restored <" << Narrow(wsRestoreTarget) << "> from <" << Narrow(wsBackup) << ">"));
+			}
+			else if (::MoveFileExW(wsBackup.c_str(), wsRestoreTarget.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+			{
+				LOGLVL(Critical, FMT("RansomShield: restored (via MoveFileEx) <" << Narrow(wsRestoreTarget) << "> from <" << Narrow(wsBackup) << ">"));
 			}
 			else
 			{
