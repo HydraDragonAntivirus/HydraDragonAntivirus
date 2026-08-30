@@ -31,6 +31,27 @@ static OwlyshieldDllIngestOpenedrEventFn g_owlyshield_dll_ingest_openedr_event =
 static OwlyshieldDllIngestFirewallPackedDataFn g_owlyshield_dll_ingest_firewall_packed_data = nullptr;
 static OwlyshieldDllStopFn g_owlyshield_dll_stop = nullptr;
 
+///
+/// Load owlyshield_ransom.dll and initialize function pointers
+///
+bool InitOwlyshield()
+{
+	if (g_hOwlyshieldDll != nullptr)
+		return true; // Already loaded
+
+	// Load the DLL from the same directory as edrsvc.exe
+	g_hOwlyshieldDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+	if (g_hOwlyshieldDll == nullptr)
+	{
+		LOGLVL(Debug, "Failed to load owlyshield_ransom.dll (error: " << ::GetLastError() << ")");
+		return false;
+	}
+
+	// Get function pointers
+	g_owlyshield_dll_start = (OwlyshieldDllStartFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_start");
+	g_owlyshield_dll_ingest = (OwlyshieldDllIngestFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest");
+	g_owlyshield_dll_ingest_openedr_event = (OwlyshieldDllIngestOpenedrEventFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest_openedr_event");
+	g_owlyshield_dll_ingest_firewall_packed_data = (OwlyshieldDllIngestFirewallPackedDataFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_ingest_firewall_packed_data");
 	g_owlyshield_dll_stop = (OwlyshieldDllStopFn)::GetProcAddress(g_hOwlyshieldDll, "owlyshield_dll_stop");
 
 	if (g_owlyshield_dll_start == nullptr || 
