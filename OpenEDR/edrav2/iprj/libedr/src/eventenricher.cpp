@@ -383,6 +383,7 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 			return;
 		}
 
+		case Event::LLE_FILE_CREATE:
 		case Event::LLE_FILE_PREIMAGE_SAVED:
 		case Event::LLE_FILE_DATA_WRITE_FULL:
 		case Event::LLE_FILE_DATA_CHANGE:
@@ -390,15 +391,16 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		case Event::LLE_FILE_DELETE:
 		case Event::LLE_FILE_RENAME:
 		{
-			constexpr size_t c_nMaxBackupsPerProcess = 500;
+			constexpr size_t c_nMaxBackupsPerProcess = 1000;
 			auto& vec = s_backups[nPid];
 			if (vec.size() < c_nMaxBackupsPerProcess)
 			{
 				ShadowBackupEntry entry;
 				entry.wsOriginal = wsFilePath;
-				entry.nOp = (eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
-						eEventType == Event::LLE_FILE_DATA_CHANGE ||
-						eEventType == Event::LLE_FILE_MAP_WRITE) ? 0 :
+				entry.nOp = (eEventType == Event::LLE_FILE_CREATE) ? 3 :
+					(eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
+					 eEventType == Event::LLE_FILE_DATA_CHANGE ||
+					 eEventType == Event::LLE_FILE_MAP_WRITE) ? 0 :
 					(eEventType == Event::LLE_FILE_DELETE) ? 1 : 2;
 				entry.wsNewName = wsNewName;
 
@@ -510,14 +512,20 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 
 		if (wsBackup.empty())
 		{
-			// If no pre-image exists and this file was created by ransomware (e.g. .winball or newly dropped artifact), delete it
+			// If no pre-image exists and this file was created by ransomware (e.g. .winball, C:\encrypted.txt, ransom notes), delete it!
+			::SetFileAttributesW(entry.wsOriginal.c_str(), FILE_ATTRIBUTE_NORMAL);
 			if (::DeleteFileW(entry.wsOriginal.c_str()))
 			{
 				LOGLVL(Critical, FMT("RansomShield: DELETED newly created ransomware artifact <" << Narrow(entry.wsOriginal) << ">"));
 			}
 			else
 			{
-				LOGLVL(Critical, FMT("RansomShield: no pre-image captured for <" << Narrow(entry.wsOriginal) << ">, cannot restore"));
+				DWORD err = ::GetLastError();
+				if (err != ERROR_FILE_NOT_FOUND && err != ERROR_PATH_NOT_FOUND)
+				{
+					::MoveFileExW(entry.wsOriginal.c_str(), NULL, MOVEFILE_DELAY_UNTIL_REBOOT);
+					LOGLVL(Critical, FMT("RansomShield: delete failed for newly created artifact <" << Narrow(entry.wsOriginal) << "> err=" << err << ", scheduled reboot delete"));
+				}
 			}
 			continue;
 		}

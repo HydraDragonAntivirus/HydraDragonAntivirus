@@ -338,6 +338,12 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		if (!isDetectionEvent(vEvent))
 			return {};
 
+		if (s_fProtectionPaused.load())
+		{
+			LOGLVL(Detailed, "detnotif: Protection is PAUSED. Suppressing all alerts, notifications and storage.");
+			return {};
+		}
+
 		// Provide X mark critical severity flag in any detection (that is not a HIPS alert)
 		// as requested by the user, so the GUI can parse it as a critical threat.
 		vEvent.put("severity", int64_t(3)); // 3 maps to asCritical (X mark)
