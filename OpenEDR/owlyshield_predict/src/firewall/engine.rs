@@ -723,7 +723,7 @@ impl Default for FirewallSettings {
 
         Self {
             kernel_block_paths: Vec::new(),
-            late_blocking_mode: false,
+            late_blocking_mode: true,
             headless_mode: false,
             log_mode: false,
             show_blocked_logs_only: false,
