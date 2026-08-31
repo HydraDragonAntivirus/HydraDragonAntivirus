@@ -707,7 +707,7 @@ void SystemMonitorController::mbrFilterPipeServerLoop()
 			if (::ReadFile(hPipe, buffer.data(), (DWORD)(buffer.size() * sizeof(wchar_t)), &dwRead, NULL) && dwRead > 0)
 			{
 				std::wstring alertMsg(buffer.data(), dwRead / sizeof(wchar_t));
-				LOGLVL(Critical, "[MBR ALERT] Sector 0 write attempt: " << std::string(alertMsg.begin(), alertMsg.end()));
+				LOGLVL(Critical, "[MBR ALERT] Sector 0 write attempt: " << string::convertWCharToUtf8(alertMsg));
 			}
 		}
 
@@ -874,9 +874,18 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 
 				if (fJsonMatched)
 				{
-					LOGLVL(Filtered, FMT("[MATCHED JSON API HOOK] func=" << string::convertWCharToUtf8(sFuncName)
-						<< " srcPid=" << vEvent.get("owlyHookSourcePid", uint32_t(0))
-						<< " tgtPid=" << vEvent.get("owlyHookTargetPid", uint32_t(0))));
+					uint64_t a1 = vEvent.get("owlyHookArg1", uint64_t(0));
+					uint64_t a2 = vEvent.get("owlyHookArg2", uint64_t(0));
+					uint64_t a3 = vEvent.get("owlyHookArg3", uint64_t(0));
+					uint64_t a4 = vEvent.get("owlyHookArg4", uint64_t(0));
+
+					LOGLVL(Debug, "[MATCHED API HOOK DEBUG] PID=" << nSourcePid
+						<< " TargetPID=" << nTargetPid
+						<< " API=" << string::convertWCharToUtf8(sFuncName)
+						<< " Args=[0x" << std::hex << a1
+						<< ", 0x" << a2
+						<< ", 0x" << a3
+						<< ", 0x" << a4 << std::dec << "]");
 				}
 			}
 
