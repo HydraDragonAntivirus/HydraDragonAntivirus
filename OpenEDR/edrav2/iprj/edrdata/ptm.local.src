@@ -2127,12 +2127,37 @@
 			{
 				"eventType": "LLE_DEVICE_IOCTL",
 				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "*\\windows\\*",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "*\\program files\\*",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "*\\program files (x86)\\*",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "*\\programdata\\*",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							}
+						]
+					},
 					"distinctCounter": {
 						"basket": "cryptoApiDistinct",
 						"key": "@event.process.pid",
 						"values": ["@event.owlyHook.functionName"],
 						"scope": "@const.cryptoApiList",
-						"threshold": 2,
+						"threshold": 3,
 						"window": 60000,
 						"flag": "@event.CryptoApiThresholdMet"
 					},
@@ -2145,21 +2170,6 @@
 						"key": "@event.process.pid",
 						"group": "@event.process.pid",
 						"lifetime": 60000
-					},
-					"createEvent": {
-						"eventType": "MLE_RANSOM_CANDIDATE",
-						"destination": "IN",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR" },
-							{ "name": "process", "value": "@event.process" },
-							{ "name": "processes", "value": "@event.processes" },
-							{ "name": "destination", "value": "@event.process.imageFile" },
-							{ "name": "subtype", "value": "crypto_api_mass" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
-						]
 					}
 				}
 			},
