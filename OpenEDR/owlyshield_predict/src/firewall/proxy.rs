@@ -16,6 +16,7 @@ use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DnType, DnValue, IsCa, KeyPair,
     KeyUsagePurpose,
 };
+use std::io::Read;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -190,6 +191,38 @@ fn validate_request(
     }
 
     Ok(())
+}
+
+/// Safely decompress gzip, brotli, or deflate payload for inspection in RAM.
+/// Caps the maximum decompressed size to prevent decompression zip-bombs.
+fn decompress_payload(data: &[u8], encoding: Option<&str>, max_decompressed_bytes: usize) -> Option<Vec<u8>> {
+    let enc = encoding?.to_ascii_lowercase();
+    let enc = enc.trim();
+
+    if enc == "gzip" || enc == "x-gzip" {
+        let mut decoder = flate2::read::GzDecoder::new(data);
+        let mut buffer = Vec::new();
+        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
+        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
+            return Some(buffer);
+        }
+    } else if enc == "deflate" {
+        let mut decoder = flate2::read::ZlibDecoder::new(data);
+        let mut buffer = Vec::new();
+        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
+        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
+            return Some(buffer);
+        }
+    } else if enc == "br" {
+        let mut decoder = brotli::Decompressor::new(data, 4096);
+        let mut buffer = Vec::new();
+        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
+        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
+            return Some(buffer);
+        }
+    }
+
+    None
 }
 
 // ── Helper: build the CA `CertificateParams` with a fixed DN.
@@ -688,13 +721,18 @@ async fn handle_proxy_request(
         raw_res_body.clone()
     };
 
-    let response_body = if res_body_bytes.is_empty() {
+    let content_encoding = response_headers.get("content-encoding").map(|s| s.as_str());
+    let decompressed_bytes = decompress_payload(&res_body_bytes, content_encoding, max_body);
+    let bytes_for_inspection = decompressed_bytes.as_deref().unwrap_or(&res_body_bytes);
+
+    let response_body = if bytes_for_inspection.is_empty() {
         None
     } else {
-        Some(match String::from_utf8(res_body_bytes.to_vec()) {
+        Some(match String::from_utf8(bytes_for_inspection.to_vec()) {
             Ok(s) => s,
-            Err(_) => res_body_bytes
+            Err(_) => bytes_for_inspection
                 .iter()
+                .take(1024)
                 .map(|b| format!("{:02X}", b))
                 .collect::<Vec<_>>()
                 .join(" "),
