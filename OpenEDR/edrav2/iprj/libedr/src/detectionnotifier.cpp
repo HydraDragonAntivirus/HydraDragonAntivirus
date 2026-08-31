@@ -14,6 +14,10 @@
 
 #include <deque>
 #include <atomic>
+#include <fstream>
+#include <string>
+#include <algorithm>
+#include <cctype>
 
 // Set component for logging
 #undef CMD_COMPONENT
@@ -641,11 +645,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					{
 						std::string sDos = NtPathToDosPathString(sPath);
 						std::string sLower = toLowerStr(sDos);
-						bool bAlreadyQuarantined = false;
-						{
-							std::scoped_lock _lock(s_mtxQuarantineLock);
-							bAlreadyQuarantined = (s_quarantinedPaths.count(sLower) > 0);
-						}
 
 						std::string sHash;
 						for (const char* hField : {
@@ -669,54 +668,48 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							}
 						}
 
-						// Persistently remember this malware across restarts
+						// Persistently remember this malware across restarts & blacklist in driver
 						recordMalwareDetection(sDos, sHash);
 
-						if (bAlreadyQuarantined)
+						// Always execute quarantine on detected malware
+						HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+						if (hDll != nullptr)
 						{
-							LOGLVL(Detailed, FMT("detnotif: Target <" << sDos << "> already quarantined previously. Skipping duplicate action."));
-						}
-						else
-						{
-							HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-							if (hDll != nullptr)
+							typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+							auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+							if (fnQ != nullptr)
 							{
-								typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-								auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
-								if (fnQ != nullptr)
-								{
-									int32_t qRes = fnQ(
-										reinterpret_cast<const uint8_t*>(sDos.data()),
-										static_cast<uint32_t>(sDos.size()));
+								int32_t qRes = fnQ(
+									reinterpret_cast<const uint8_t*>(sDos.data()),
+									static_cast<uint32_t>(sDos.size()));
 
-									if (qRes == 0)
-									{
-										LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
-										std::scoped_lock _lock(s_mtxQuarantineLock);
-										s_quarantinedPaths.insert(sLower);
-										if (nGid != 0) s_quarantinedPids[nGid] = sDos;
-										if (nShieldPid > 0) s_quarantinedPids[static_cast<uint64_t>(nShieldPid)] = sDos;
-									}
-									else
-									{
-										LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
-										if (qRes == 6) // Already gone / quarantined
-										{
-											std::scoped_lock _lock(s_mtxQuarantineLock);
-											s_quarantinedPaths.insert(sLower);
-										}
-									}
+								if (qRes == 0)
+								{
+									LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
+									std::scoped_lock _lock(s_mtxQuarantineLock);
+									s_quarantinedPaths.insert(sLower);
+									if (nGid != 0) s_quarantinedPids[nGid] = sDos;
+									if (nShieldPid > 0) s_quarantinedPids[static_cast<uint64_t>(nShieldPid)] = sDos;
 								}
 								else
 								{
-									LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found!");
+									LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
+									if (qRes == 6) // Already gone / quarantined
+									{
+										std::scoped_lock _lock(s_mtxQuarantineLock);
+										s_quarantinedPaths.insert(sLower);
+									}
 								}
-								::FreeLibrary(hDll);
 							}
 							else
 							{
-								LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Cannot quarantine malware.");
+								LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found!");
 							}
+							::FreeLibrary(hDll);
+						}
+						else
+						{
+							LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Cannot quarantine malware.");
 						}
 					}
 				}

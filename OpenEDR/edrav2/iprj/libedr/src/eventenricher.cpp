@@ -8,6 +8,7 @@
 //
 #include "pch.h"
 #include "eventenricher.h"
+#include "detectionnotifier.h"
 #include <fstream>
 #include <mutex>
 #include <atomic>
