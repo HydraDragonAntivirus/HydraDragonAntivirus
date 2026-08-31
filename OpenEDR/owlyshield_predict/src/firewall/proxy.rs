@@ -290,13 +290,23 @@ pub async fn run_proxy(
                             match handle_proxy_request(client, sdk, settings, req).await {
                                 Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
                                 Err(e) => {
-                                    let ts = now_ts();
-                                    emit_log_event(LogEntry {
-                                        id: format!("{}-proxy-err", ts),
-                                        timestamp: ts,
-                                        level: LogLevel::Error,
-                                        message: format!("Proxy error: {}", e),
-                                    });
+                                    let is_ignorable = e.contains("10054")
+                                        || e.contains("connection error")
+                                        || e.contains("http2 error")
+                                        || e.contains("Request body read failed")
+                                        || e.contains("Response body read failed")
+                                        || e.contains("timed out")
+                                        || e.contains("Broken pipe");
+
+                                    if !is_ignorable {
+                                        let ts = now_ts();
+                                        emit_log_event(LogEntry {
+                                            id: format!("{}-proxy-err", ts),
+                                            timestamp: ts,
+                                            level: LogLevel::Warning,
+                                            message: format!("Proxy warning: {}", e),
+                                        });
+                                    }
                                     Ok::<_, http_mitm_proxy::default_client::Error>(
                                         error_response_502(),
                                     )
@@ -460,19 +470,23 @@ async fn handle_proxy_request(
 
     // ── Collect request body with timeout ───────────────────────────────────
     let (parts, body) = req.into_parts();
+    let is_bodiless = parts.method == http_mitm_proxy::hyper::Method::GET
+        || parts.method == http_mitm_proxy::hyper::Method::HEAD
+        || parts.method == http_mitm_proxy::hyper::Method::OPTIONS;
+
     let req_content_length = request_headers.get("content-length").map(|s| s.as_str());
-    let raw_body: Bytes = match tokio::time::timeout(
-        adaptive_body_timeout(request_timeout, req_content_length),
-        body.collect(),
-    )
-    .await
-    {
-        Ok(Ok(collected)) => collected.to_bytes(),
-        Ok(Err(e)) => {
-            return Err(format!("Request body read failed: {}", e));
-        }
-        Err(_) => {
-            return Err("Request body timeout".to_string());
+    let raw_body: Bytes = if is_bodiless && req_content_length.map_or(true, |l| l == "0") {
+        Bytes::new()
+    } else {
+        match tokio::time::timeout(
+            adaptive_body_timeout(request_timeout, req_content_length),
+            body.collect(),
+        )
+        .await
+        {
+            Ok(Ok(collected)) => collected.to_bytes(),
+            Ok(Err(_)) => Bytes::new(),
+            Err(_) => Bytes::new(),
         }
     };
     let body_truncated = raw_body.len() > max_body;
@@ -589,12 +603,6 @@ async fn handle_proxy_request(
     if let Ok(new_uri) = http_mitm_proxy::hyper::Uri::try_from(&absolute_uri_str) {
         req_parts.uri = new_uri;
     }
-
-    // Strip Accept-Encoding so the upstream server sends plain text. This allows
-    // our proxy to read/modify the body safely without breaking compression.
-    req_parts
-        .headers
-        .remove(http_mitm_proxy::hyper::header::ACCEPT_ENCODING);
 
     let req_body_obj = if let Some(new_body) = req_body_override {
         let new_bytes = Bytes::from(new_body.into_bytes());
