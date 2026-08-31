@@ -1597,9 +1597,7 @@
 			"*\\Program Files\\*",
 			"*\\Program Files (x86)\\*",
 			"*\\ProgramData\\*",
-			"*\\AppData\\Local\\Packages\\*",
-			"*\\AppData\\Local\\Microsoft\\Edge\\User Data\\EBWebView\\*",
-			"*\\AppData\\Local\\Temp\\*",
+			"*\\AppData\\*",
 			"*\\Temp\\*"
 		]
 		
@@ -2128,29 +2126,9 @@
 				"eventType": "LLE_DEVICE_IOCTL",
 				"rule": {
 					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "!imatch",
-								"pattern": "*\\windows\\*",
-								"args": [ "@event.process.imageFile.rawPath" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "*\\program files\\*",
-								"args": [ "@event.process.imageFile.rawPath" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "*\\program files (x86)\\*",
-								"args": [ "@event.process.imageFile.rawPath" ]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "*\\programdata\\*",
-								"args": [ "@event.process.imageFile.rawPath" ]
-							}
-						]
+						"$operation": "!imatch",
+						"pattern": "@const.ransomSystemExclusions",
+						"args": [ "@event.process.imageFile.rawPath" ]
 					},
 					"distinctCounter": {
 						"basket": "cryptoApiDistinct",
@@ -2569,6 +2547,11 @@
 					"condition": {
 						"$operation": "and",
 						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
 							{
 								"$operation": "!imatch",
 								"pattern": "@const.ransomSystemExclusions",
