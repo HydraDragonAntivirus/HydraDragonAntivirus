@@ -313,7 +313,33 @@ void launchAsInteractiveUser(const std::filesystem::path& pathProgram,
 	// Obtain user token for the active session.
 	HANDLE hUserToken = NULL;
 	if (!::WTSQueryUserToken(nSessionId, &hUserToken))
-		error::win::WinApiError(SL, "WTSQueryUserToken failed for session").throwException();
+	{
+		// Fallback to direct CreateProcessW if not running as SYSTEM
+		std::wstring cmdLine = L'"' + pathProgram.wstring() + L'"';
+		if (!sParams.empty())
+		{
+			cmdLine += L' ';
+			cmdLine += sParams;
+		}
+
+		STARTUPINFOW si{};
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_SHOWNOACTIVATE;
+		PROCESS_INFORMATION pi{};
+		std::wstring workDir = pathProgram.parent_path().wstring();
+
+		if (::CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE,
+			CREATE_NEW_CONSOLE | NORMAL_PRIORITY_CLASS, nullptr,
+			workDir.empty() ? nullptr : workDir.c_str(), &si, &pi))
+		{
+			::CloseHandle(pi.hThread);
+			::CloseHandle(pi.hProcess);
+			return;
+		}
+
+		error::win::WinApiError(SL, "WTSQueryUserToken and CreateProcess fallback failed for session").throwException();
+	}
 	win::ScopedHandle hScopedToken(hUserToken);
 
 	// Duplicate to primary token with maximum allowed rights

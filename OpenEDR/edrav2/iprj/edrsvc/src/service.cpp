@@ -42,6 +42,10 @@ WinService::~WinService()
 //
 void WinService::launchEdrGui()
 {
+	std::string sMode = getCatalogData("app.mode", std::string());
+	if (sMode == "uninstall" || sMode == "install" || sMode == "stop" || sMode == "unprot")
+		return;
+
 	try
 	{
 		wchar_t szPath[MAX_PATH] = { 0 };
