@@ -40,11 +40,6 @@ pub fn run() {
     // Run connectors and the worker thread
     Connectors::on_startup(&config);
 
-    // Install + start the MBRFilter kernel driver and listen for MBR write
-    // alerts (best effort; failures are logged, never fatal).
-    crate::windows::mbrfilter::ensure_mbrfilter_driver();
-    crate::windows::mbrfilter::spawn_mbr_alert_listener();
-
     // Spawn the worker thread that consumes IO messages and performs analysis
     let thread_config = config; // moved into thread
     let thread_driver = driver.clone();
@@ -117,11 +112,6 @@ pub fn run_worker_loop(
 ) {
     let config = crate::config::Config::new();
     crate::globals::init_globals(&config);
-
-    // Install + start the MBRFilter kernel driver and listen for MBR write
-    // alerts (best effort; failures are logged, never fatal).
-    crate::windows::mbrfilter::ensure_mbrfilter_driver();
-    crate::windows::mbrfilter::spawn_mbr_alert_listener();
 
     let mut worker = crate::worker::worker_instance::Worker::new(&config).driver(driver.clone());
 

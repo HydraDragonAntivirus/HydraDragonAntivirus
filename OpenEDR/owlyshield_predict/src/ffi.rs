@@ -255,15 +255,7 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_firewall_packed_data(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn owlyshield_dll_stop() {
-    Logging::info("[Owlyshield FFI] Stop requested — cleaning up MBRFilter UpperFilters");
-    crate::windows::mbrfilter::remove_disk_class_upper_filter();
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_dll_uninstall() -> i32 {
-    Logging::info("[Owlyshield FFI] Uninstall requested — removing MBRFilter UpperFilters");
-    crate::windows::mbrfilter::remove_disk_class_upper_filter();
-    OWLY_OK
+    Logging::info("[Owlyshield FFI] Stop requested — worker will exit on channel close");
 }
 
 /// Install the HydraDragon firewall CA into the Windows ROOT trust store.

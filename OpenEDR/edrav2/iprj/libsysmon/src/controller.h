@@ -152,6 +152,12 @@ public:
 	std::atomic<bool> m_fStopSanctumPipe{false};
 	void sanctumPipeServerLoop();
 
+	std::thread m_mbrFilterPipeThread;
+	std::atomic<bool> m_fStopMbrFilterPipe{false};
+	void mbrFilterPipeServerLoop();
+	void ensureMbrFilterDriver();
+	void uninstallMbrFilterDriver();
+
 	/// @copydoc ObjectBase::finalConstruct()
 	void start() override;
 	/// @copydoc IService::stop()

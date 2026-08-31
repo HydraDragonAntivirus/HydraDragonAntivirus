@@ -227,66 +227,202 @@ void SystemMonitorController::install(Variant vParams)
 
 //
 //
-void owlyshield_integration_uninstall();
-
-//
-void SystemMonitorController::uninstall(Variant vParams)
+void SystemMonitorController::ensureMbrFilterDriver()
 {
-	// Call Rust DLL uninstaller to clean up MBRFilter UpperFilters from the Rust engine
-	owlyshield_integration_uninstall();
+	namespace fs = std::filesystem;
+	wchar_t szSysDir[MAX_PATH] = { 0 };
+	::GetSystemDirectoryW(szSysDir, MAX_PATH);
+	fs::path destPath = fs::path(szSysDir) / L"drivers" / L"MBRFilter.sys";
 
-	// FIXME: I'm not sure that it is correct to call shutdown here because teoretically the controller
-	// can be even not started
-	shutdown();
+	// Search for staged source MBRFilter.sys
+	wchar_t szModule[MAX_PATH] = { 0 };
+	::GetModuleFileNameW(NULL, szModule, MAX_PATH);
+	fs::path appDir = fs::path(szModule).parent_path();
+	fs::path srcPath = appDir / L"MBRFilter.sys";
 
-	// Clean up MBRFilter disk UpperFilters to prevent 0x7B INACCESSIBLE_BOOT_DEVICE BSOD
+	if (fs::exists(srcPath) && !fs::exists(destPath))
 	{
-		HKEY hClassKey = NULL;
-		if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
-			L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e967-e325-11ce-bfc1-08002be10318}", 
-			0, KEY_READ | KEY_WRITE, &hClassKey) == ERROR_SUCCESS)
+		std::error_code ec;
+		fs::copy_file(srcPath, destPath, fs::copy_options::overwrite_existing, ec);
+		if (!ec)
 		{
-			DWORD dwType = 0;
-			DWORD dwSize = 0;
-			if (::RegQueryValueExW(hClassKey, L"UpperFilters", NULL, &dwType, NULL, &dwSize) == ERROR_SUCCESS && dwSize > 0)
+			LOGINF("[MBR] Staged MBRFilter.sys to " << destPath.string());
+		}
+	}
+
+	if (!fs::exists(destPath))
+	{
+		LOGWRN("[MBR] MBRFilter.sys not found at " << destPath.string());
+		return;
+	}
+
+	// Add MBRFilter to UpperFilters
+	HKEY hClassKey = NULL;
+	if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+		L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e967-e325-11ce-bfc1-08002be10318}", 
+		0, KEY_READ | KEY_WRITE, &hClassKey) == ERROR_SUCCESS)
+	{
+		DWORD dwType = 0;
+		DWORD dwSize = 0;
+		bool bAlreadyPresent = false;
+		if (::RegQueryValueExW(hClassKey, L"UpperFilters", NULL, &dwType, NULL, &dwSize) == ERROR_SUCCESS && dwSize > 0)
+		{
+			std::vector<wchar_t> buffer(dwSize / sizeof(wchar_t) + 2, 0);
+			if (::RegQueryValueExW(hClassKey, L"UpperFilters", NULL, &dwType, (LPBYTE)buffer.data(), &dwSize) == ERROR_SUCCESS)
+			{
+				const wchar_t* p = buffer.data();
+				while (*p)
+				{
+					std::wstring item(p);
+					std::wstring lowerItem = item;
+					std::transform(lowerItem.begin(), lowerItem.end(), lowerItem.begin(), ::towlower);
+					if (lowerItem == L"mbrfilter")
+					{
+						bAlreadyPresent = true;
+						break;
+					}
+					p += item.length() + 1;
+				}
+			}
+		}
+
+		if (!bAlreadyPresent)
+		{
+			std::vector<wchar_t> newMultiSz;
+			if (dwSize > 0)
 			{
 				std::vector<wchar_t> buffer(dwSize / sizeof(wchar_t) + 2, 0);
 				if (::RegQueryValueExW(hClassKey, L"UpperFilters", NULL, &dwType, (LPBYTE)buffer.data(), &dwSize) == ERROR_SUCCESS)
 				{
-					std::vector<wchar_t> newMultiSz;
 					const wchar_t* p = buffer.data();
 					while (*p)
 					{
 						std::wstring item(p);
-						std::wstring lowerItem = item;
-						std::transform(lowerItem.begin(), lowerItem.end(), lowerItem.begin(), ::towlower);
-						if (lowerItem != L"mbrfilter")
-						{
-							newMultiSz.insert(newMultiSz.end(), item.begin(), item.end());
-							newMultiSz.push_back(L'\0');
-						}
-						p += item.length() + 1;
-					}
-					if (newMultiSz.empty())
-					{
-						::RegDeleteValueW(hClassKey, L"UpperFilters");
-					}
-					else
-					{
+						newMultiSz.insert(newMultiSz.end(), item.begin(), item.end());
 						newMultiSz.push_back(L'\0');
-						::RegSetValueExW(hClassKey, L"UpperFilters", 0, REG_MULTI_SZ, 
-							(const BYTE*)newMultiSz.data(), (DWORD)(newMultiSz.size() * sizeof(wchar_t)));
+						p += item.length() + 1;
 					}
 				}
 			}
-			::RegCloseKey(hClassKey);
+			std::wstring mbrItem = L"MBRFilter";
+			newMultiSz.insert(newMultiSz.end(), mbrItem.begin(), mbrItem.end());
+			newMultiSz.push_back(L'\0');
+			newMultiSz.push_back(L'\0');
+
+			::RegSetValueExW(hClassKey, L"UpperFilters", 0, REG_MULTI_SZ, 
+				(const BYTE*)newMultiSz.data(), (DWORD)(newMultiSz.size() * sizeof(wchar_t)));
+			LOGINF("[MBR] Added MBRFilter to disk class UpperFilters");
+		}
+		::RegCloseKey(hClassKey);
+	}
+
+	// Register and start service
+	SC_HANDLE hSCM = ::OpenSCManagerW(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if (hSCM != NULL)
+	{
+		SC_HANDLE hSvc = ::OpenServiceW(hSCM, L"MBRFilter", SERVICE_ALL_ACCESS);
+		if (hSvc == NULL)
+		{
+			hSvc = ::CreateServiceW(
+				hSCM,
+				L"MBRFilter",
+				L"MBRFilter Driver",
+				SERVICE_ALL_ACCESS,
+				SERVICE_KERNEL_DRIVER,
+				SERVICE_BOOT_START,
+				SERVICE_ERROR_NORMAL,
+				destPath.c_str(),
+				L"PnP Filter",
+				NULL, NULL, NULL, NULL
+			);
+			if (hSvc != NULL)
+			{
+				LOGINF("[MBR] Created MBRFilter kernel driver service");
+			}
 		}
 
-		(void)execCommand(createObject(CLSID_WinServiceController), "stop",
-			Dictionary({ { "name", "MBRFilter" } }));
-		(void)execCommand(createObject(CLSID_WinServiceController), "delete",
-			Dictionary({ { "name", "MBRFilter" } }));
+		if (hSvc != NULL)
+		{
+			if (::StartServiceW(hSvc, 0, NULL))
+			{
+				LOGINF("[MBR] MBRFilter driver service started");
+			}
+			::CloseServiceHandle(hSvc);
+		}
+		::CloseServiceHandle(hSCM);
 	}
+}
+
+void SystemMonitorController::uninstallMbrFilterDriver()
+{
+	// Clean up UpperFilters
+	HKEY hClassKey = NULL;
+	if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+		L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e967-e325-11ce-bfc1-08002be10318}", 
+		0, KEY_READ | KEY_WRITE, &hClassKey) == ERROR_SUCCESS)
+	{
+		DWORD dwType = 0;
+		DWORD dwSize = 0;
+		if (::RegQueryValueExW(hClassKey, L"UpperFilters", NULL, &dwType, NULL, &dwSize) == ERROR_SUCCESS && dwSize > 0)
+		{
+			std::vector<wchar_t> buffer(dwSize / sizeof(wchar_t) + 2, 0);
+			if (::RegQueryValueExW(hClassKey, L"UpperFilters", NULL, &dwType, (LPBYTE)buffer.data(), &dwSize) == ERROR_SUCCESS)
+			{
+				std::vector<wchar_t> newMultiSz;
+				const wchar_t* p = buffer.data();
+				while (*p)
+				{
+					std::wstring item(p);
+					std::wstring lowerItem = item;
+					std::transform(lowerItem.begin(), lowerItem.end(), lowerItem.begin(), ::towlower);
+					if (lowerItem != L"mbrfilter")
+					{
+						newMultiSz.insert(newMultiSz.end(), item.begin(), item.end());
+						newMultiSz.push_back(L'\0');
+					}
+					p += item.length() + 1;
+				}
+				if (newMultiSz.empty())
+				{
+					::RegDeleteValueW(hClassKey, L"UpperFilters");
+				}
+				else
+				{
+					newMultiSz.push_back(L'\0');
+					::RegSetValueExW(hClassKey, L"UpperFilters", 0, REG_MULTI_SZ, 
+						(const BYTE*)newMultiSz.data(), (DWORD)(newMultiSz.size() * sizeof(wchar_t)));
+				}
+			}
+		}
+		::RegCloseKey(hClassKey);
+	}
+
+	// Stop & delete service
+	(void)execCommand(createObject(CLSID_WinServiceController), "stop",
+		Dictionary({ { "name", "MBRFilter" } }));
+	(void)execCommand(createObject(CLSID_WinServiceController), "delete",
+		Dictionary({ { "name", "MBRFilter" } }));
+
+	// Delete binary
+	wchar_t szSysDir[MAX_PATH] = { 0 };
+	::GetSystemDirectoryW(szSysDir, MAX_PATH);
+	std::filesystem::path destPath = std::filesystem::path(szSysDir) / L"drivers" / L"MBRFilter.sys";
+	if (std::filesystem::exists(destPath))
+	{
+		std::error_code ec;
+		std::filesystem::remove(destPath, ec);
+	}
+}
+
+//
+void SystemMonitorController::uninstall(Variant vParams)
+{
+	// Clean up MBRFilter driver completely in C++
+	uninstallMbrFilterDriver();
+
+	// FIXME: I'm not sure that it is correct to call shutdown here because teoretically the controller
+	// can be even not started
+	shutdown();
 
 	(void)execCommand(createObject(CLSID_WinServiceController), "stop",
 		Dictionary({ { "name", c_sDrvSrvName } }));
@@ -507,6 +643,12 @@ void SystemMonitorController::startThreads()
 
 	m_fStopSanctumPipe = false;
 	m_sanctumPipeThread = std::thread(&SystemMonitorController::sanctumPipeServerLoop, this);
+
+	// Ensure MBRFilter driver is staged, registered, and active
+	ensureMbrFilterDriver();
+
+	m_fStopMbrFilterPipe = false;
+	m_mbrFilterPipeThread = std::thread(&SystemMonitorController::mbrFilterPipeServerLoop, this);
 }
 
 //
@@ -525,6 +667,54 @@ void SystemMonitorController::stopThreads()
 	}
 	if (m_sanctumPipeThread.joinable())
 		m_sanctumPipeThread.join();
+
+	m_fStopMbrFilterPipe = true;
+	auto hMbrWake = ::CreateFileW(L"\\\\.\\pipe\\Global\\mbr_filter_alerts", GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+	if (hMbrWake != INVALID_HANDLE_VALUE) {
+		::CloseHandle(hMbrWake);
+	}
+	if (m_mbrFilterPipeThread.joinable())
+		m_mbrFilterPipeThread.join();
+}
+
+void SystemMonitorController::mbrFilterPipeServerLoop()
+{
+	LOGINF("[MBR] Starting MBRFilter alert pipe listener on \\\\.\\pipe\\Global\\mbr_filter_alerts");
+	const LPCWSTR pipeName = L"\\\\.\\pipe\\Global\\mbr_filter_alerts";
+
+	while (!m_fStopMbrFilterPipe)
+	{
+		HANDLE hPipe = ::CreateNamedPipeW(
+			pipeName,
+			PIPE_ACCESS_INBOUND,
+			PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+			PIPE_UNLIMITED_INSTANCES,
+			262144, 262144,
+			0, NULL
+		);
+
+		if (hPipe == INVALID_HANDLE_VALUE)
+		{
+			::Sleep(1000);
+			continue;
+		}
+
+		BOOL bConnected = ::ConnectNamedPipe(hPipe, NULL) ? TRUE : (::GetLastError() == ERROR_PIPE_CONNECTED);
+		if (bConnected && !m_fStopMbrFilterPipe)
+		{
+			std::vector<wchar_t> buffer(65536, 0);
+			DWORD dwRead = 0;
+			if (::ReadFile(hPipe, buffer.data(), (DWORD)(buffer.size() * sizeof(wchar_t)), &dwRead, NULL) && dwRead > 0)
+			{
+				std::wstring alertMsg(buffer.data(), dwRead / sizeof(wchar_t));
+				LOGLVL(Critical, "[MBR ALERT] Sector 0 write attempt: " << std::string(alertMsg.begin(), alertMsg.end()));
+			}
+		}
+
+		::DisconnectNamedPipe(hPipe);
+		::CloseHandle(hPipe);
+	}
+	LOGINF("[MBR] MBRFilter alert pipe listener stopped");
 }
 
 void SystemMonitorController::sanctumPipeServerLoop()
