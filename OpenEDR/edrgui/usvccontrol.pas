@@ -231,6 +231,7 @@ var
   Buffer: array[0..4095] of AnsiChar;
   BytesRead: DWORD;
   Output: string;
+  hInst: PtrUInt;
 begin
   FSuccess := False;
   FExitCode := DWORD(-1);
@@ -245,27 +246,22 @@ begin
 
   if FCmd in [scUninstall, scInstall] then
   begin
-    FillChar(ShExecInfo, SizeOf(ShExecInfo), 0);
-    ShExecInfo.cbSize := SizeOf(ShExecInfo);
-    ShExecInfo.fMask := SEE_MASK_NOCLOSEPROCESS;
-    ShExecInfo.lpVerb := 'runas';
-    ShExecInfo.lpFile := PWideChar(UnicodeString(FExePath));
-    ShExecInfo.lpParameters := PWideChar(UnicodeString(FArg));
-    ShExecInfo.lpDirectory := PWideChar(UnicodeString(ExtractFilePath(FExePath)));
-    ShExecInfo.nShow := SW_SHOWNORMAL;
+    hInst := ShellExecuteW(0, PWideChar(UnicodeString('runas')),
+      PWideChar(UnicodeString(FExePath)),
+      PWideChar(UnicodeString(FArg)),
+      PWideChar(UnicodeString(ExtractFilePath(FExePath))),
+      SW_SHOWNORMAL);
 
-    if ShellExecuteExW(@ShExecInfo) then
+    if hInst > 32 then
     begin
-      WaitForSingleObject(ShExecInfo.hProcess, INFINITE);
-      GetExitCodeProcess(ShExecInfo.hProcess, FExitCode);
-      CloseHandle(ShExecInfo.hProcess);
-      FSuccess := (FExitCode = 0);
-      FOutput := 'Operation finished with exit code: ' + IntToStr(FExitCode);
+      FSuccess := True;
+      FExitCode := 0;
+      FOutput := 'Operation started.';
     end
     else
     begin
-      FExitCode := GetLastError;
-      FOutput := 'ShellExecuteEx failed (error ' + IntToStr(FExitCode) + ')';
+      FExitCode := DWORD(hInst);
+      FOutput := 'ShellExecute hatası (kod ' + IntToStr(hInst) + ')';
     end;
     Synchronize(@DoSync);
     Exit;
