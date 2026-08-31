@@ -111,6 +111,19 @@ void DetectionNotifier::loadPersistentMalwareDb()
 	if (s_bMalwareDbLoaded.load())
 		return;
 
+	HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}", 
+		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
+		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	struct COM_BLOCK_MSG {
+		ULONG msgType;
+		ULONG pid;
+		ULONGLONG gid;
+		WCHAR path[520];
+		WCHAR quarantinePath[520];
+	};
+	DWORD IOCTL_OWLY = (0x00000022 << 16) | (0 << 14) | (0x921 << 2) | 0;
+
 	for (const auto* szDir : c_szMalwareDbDirs)
 	{
 		std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szMalwareDbFile;
@@ -133,7 +146,20 @@ void DetectionNotifier::loadPersistentMalwareDb()
 					if (!h.empty())
 						s_quarantinedHashes.insert(toLowerStr(h));
 					if (!p.empty())
+					{
 						s_quarantinedPaths.insert(toLowerStr(p));
+						if (hDev != INVALID_HANDLE_VALUE)
+						{
+							COM_BLOCK_MSG blockMsg = {0};
+							blockMsg.msgType = 11; // MESSAGE_ADD_BLOCK_PATH
+							if (::MultiByteToWideChar(CP_UTF8, 0, p.c_str(), -1, blockMsg.path, 519) > 0)
+							{
+								DWORD retBytes = 0;
+								uint32_t output = 0;
+								::DeviceIoControl(hDev, IOCTL_OWLY, &blockMsg, sizeof(blockMsg), &output, sizeof(output), &retBytes, NULL);
+							}
+						}
+					}
 				}
 				else
 				{
@@ -142,6 +168,10 @@ void DetectionNotifier::loadPersistentMalwareDb()
 			}
 		}
 	}
+
+	if (hDev != INVALID_HANDLE_VALUE)
+		::CloseHandle(hDev);
+
 	s_bMalwareDbLoaded.store(true);
 }
 
@@ -160,6 +190,39 @@ void DetectionNotifier::recordMalwareDetection(const std::string& sPath, const s
 			s_quarantinedPaths.insert(sLowerPath);
 		if (!sLowerHash.empty())
 			s_quarantinedHashes.insert(sLowerHash);
+	}
+
+	// Blacklist and block the malware file path in the edrdrv kernel driver minifilter
+	if (!sDos.empty())
+	{
+		HANDLE hDevBlock = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}", 
+			GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, 
+			NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (hDevBlock != INVALID_HANDLE_VALUE)
+		{
+			struct COM_BLOCK_MSG {
+				ULONG msgType;
+				ULONG pid;
+				ULONGLONG gid;
+				WCHAR path[520];
+				WCHAR quarantinePath[520];
+			};
+			
+			COM_BLOCK_MSG blockMsg = {0};
+			blockMsg.msgType = 11; // MESSAGE_ADD_BLOCK_PATH
+			
+			if (::MultiByteToWideChar(CP_UTF8, 0, sDos.c_str(), -1, blockMsg.path, 519) > 0)
+			{
+				DWORD retBytes = 0;
+				uint32_t output = 0;
+				DWORD IOCTL_OWLY = (0x00000022 << 16) | (0 << 14) | (0x921 << 2) | 0;
+				if (::DeviceIoControl(hDevBlock, IOCTL_OWLY, &blockMsg, sizeof(blockMsg), &output, sizeof(output), &retBytes, NULL))
+				{
+					LOGLVL(Critical, FMT("detnotif: successfully added malware path to kernel driver block list <" << sDos << ">"));
+				}
+			}
+			::CloseHandle(hDevBlock);
+		}
 	}
 
 	::CreateDirectoryW(L"C:\\ProgramData\\HydraDragonBackups", NULL);
