@@ -48,7 +48,8 @@ object AlertForm: TAlertForm
     Left = 62
     Height = 20
     Top = 14
-    Width = 360
+    Width = 356
+    Anchors = [akTop, akLeft, akRight]
     Caption = ''
     Font.Color = clWhite
     Font.Height = -15
@@ -58,9 +59,10 @@ object AlertForm: TAlertForm
   end
   object LblMessage: TLabel
     Left = 62
-    Height = 140
+    Height = 126
     Top = 38
-    Width = 360
+    Width = 372
+    Anchors = [akTop, akLeft, akRight, akBottom]
     AutoSize = False
     Caption = ''
     Font.Color = 12500670
@@ -70,10 +72,11 @@ object AlertForm: TAlertForm
     WordWrap = True
   end
   object BtnClose: TLabel
-    Left = 336
+    Left = 422
     Height = 18
     Top = 10
     Width = 14
+    Anchors = [akTop, akRight]
     Caption = 'X'
     Cursor = crHandPoint
     Font.Color = 12500670

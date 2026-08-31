@@ -191,7 +191,12 @@ begin
   Position := poDesigned;
   Color := $00302518;
   LblTitle.Caption := '';
+  LblTitle.Anchors := [akTop, akLeft, akRight];
   LblMessage.Caption := '';
+  LblMessage.Anchors := [akTop, akLeft, akRight, akBottom];
+  BtnClose.Anchors := [akTop, akRight];
+  BtnClose.Left := ClientWidth - BtnClose.Width - 14;
+  BtnClose.Top := 10;
   FInstance := Self;
 
   BtnPrev := TButton.Create(Self);
