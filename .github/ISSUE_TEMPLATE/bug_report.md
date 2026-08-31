@@ -7,11 +7,6 @@ assignees: ''
 
 ---
 
-**Note: Feature Requests**
-> 🚀 **Feature requests belong in Discussions!**
-> To keep our issue tracker focused on bugs and stability, we ask that you submit all feature requests and ideas through the [Discussions](https://github.com/semae/HydraDragonAntivirus/discussions) tab. Issues opened for feature requests may be closed and redirected there.
-
----
 
 **Note on Contributions**
 HydraDragon is a community-driven project. As resources and developer time are limited, we encourage you to contribute by submitting pull requests (PRs) whenever possible. While we will address issues created by users, we greatly appreciate your efforts to resolve issues independently.
