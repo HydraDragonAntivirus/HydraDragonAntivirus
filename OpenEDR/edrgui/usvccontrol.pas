@@ -27,7 +27,7 @@ unit USvcControl;
 interface
 
 uses
-  Classes, SysUtils, Windows;
+  Classes, SysUtils, Windows, ShellAPI;
 
 const
   // Registered service name for HydraDragonAntivirus. MUST match the
@@ -226,6 +226,7 @@ var
   StdOutRead, StdOutWrite: THandle;
   StartInfo: TStartupInfo;
   ProcInfo: TProcessInformation;
+  ShExecInfo: TShellExecuteInfoW;
   CmdLine: string;
   Buffer: array[0..4095] of AnsiChar;
   BytesRead: DWORD;
@@ -238,6 +239,34 @@ begin
   if not FileExists(FExePath) then
   begin
     FOutput := 'edrsvc.exe not found: ' + FExePath;
+    Synchronize(@DoSync);
+    Exit;
+  end;
+
+  if FCmd in [scUninstall, scInstall] then
+  begin
+    FillChar(ShExecInfo, SizeOf(ShExecInfo), 0);
+    ShExecInfo.cbSize := SizeOf(ShExecInfo);
+    ShExecInfo.fMask := SEE_MASK_NOCLOSEPROCESS;
+    ShExecInfo.lpVerb := 'runas';
+    ShExecInfo.lpFile := PWideChar(UnicodeString(FExePath));
+    ShExecInfo.lpParameters := PWideChar(UnicodeString(FArg));
+    ShExecInfo.lpDirectory := PWideChar(UnicodeString(ExtractFilePath(FExePath)));
+    ShExecInfo.nShow := SW_SHOWNORMAL;
+
+    if ShellExecuteExW(@ShExecInfo) then
+    begin
+      WaitForSingleObject(ShExecInfo.hProcess, INFINITE);
+      GetExitCodeProcess(ShExecInfo.hProcess, FExitCode);
+      CloseHandle(ShExecInfo.hProcess);
+      FSuccess := (FExitCode = 0);
+      FOutput := 'Operation finished with exit code: ' + IntToStr(FExitCode);
+    end
+    else
+    begin
+      FExitCode := GetLastError;
+      FOutput := 'ShellExecuteEx failed (error ' + IntToStr(FExitCode) + ')';
+    end;
     Synchronize(@DoSync);
     Exit;
   end;
