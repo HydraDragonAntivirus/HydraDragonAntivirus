@@ -1588,6 +1588,12 @@ impl FirewallEngine {
             return false;
         };
 
+        // 1. Dynamic fallback cache for certificate pinning & custom cert apps (WFP Method A Fallback)
+        if super::proxy::is_host_in_pinning_fallback(&target) {
+            return true;
+        }
+
+        // 2. User-configured bypass hosts
         tls_proxy.bypass_hosts.iter().any(|entry| {
             Self::normalize_proxy_bypass_entry(entry).is_some_and(|normalized| {
                 Self::proxy_bypass_entry_matches_target(&normalized, &target)

@@ -42,6 +42,39 @@ fn ca_dir() -> PathBuf {
     dir
 }
 
+lazy_static::lazy_static! {
+    /// Thread-safe dynamic cache for hosts that use Certificate Pinning or custom CA validation.
+    /// When a host fails TLS handshake or MITM interception, it is cached here so subsequent traffic
+    /// automatically falls back to WFP Method A (kernel-level passive SNI/IP monitoring in Late Blocking Mode).
+    pub static ref PINNING_FALLBACK_CACHE: Cache<String, bool> = Cache::builder()
+        .max_capacity(4096)
+        .time_to_live(std::time::Duration::from_secs(3600))
+        .build();
+}
+
+/// Mark a host or domain for automatic WFP Method A fallback.
+pub fn mark_host_as_pinning_fallback(host_or_ip: &str) {
+    let clean = host_or_ip.trim().trim_start_matches('.').to_ascii_lowercase();
+    if !clean.is_empty() {
+        PINNING_FALLBACK_CACHE.insert(clean, true);
+    }
+}
+
+/// Check if a host is in the dynamic WFP Method A fallback cache.
+pub fn is_host_in_pinning_fallback(host_or_ip: &str) -> bool {
+    let clean = host_or_ip.trim().trim_start_matches('.').to_ascii_lowercase();
+    if clean.is_empty() {
+        return false;
+    }
+    if PINNING_FALLBACK_CACHE.contains_key(&clean) {
+        return true;
+    }
+    // Suffix match for subdomains
+    PINNING_FALLBACK_CACHE.iter().any(|(cached_host, _)| {
+        clean == *cached_host || clean.ends_with(&format!(".{}", cached_host))
+    })
+}
+
 // ── CA generation ──────────────────────────────────────────────────────────────
 
 /// A self-signed root CA bundle: the `Issuer` for signing child certs, plus the
@@ -662,6 +695,16 @@ async fn handle_proxy_request(
     let (res, _) = match client.send_request(req).await {
         Ok(response) => response,
         Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("10054")
+                || err_str.contains("certificate")
+                || err_str.contains("tls")
+                || err_str.contains("handshake")
+                || err_str.contains("http2")
+                || err_str.contains("connection error")
+            {
+                mark_host_as_pinning_fallback(&host);
+            }
             return Err(format!("Upstream failed: {}", e));
         }
     };
