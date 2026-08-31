@@ -27,6 +27,15 @@ namespace {
 	static std::mutex s_mtxQuarantineLock;
 	static std::unordered_map<uint64_t, std::string> s_quarantinedPids; // pid/gid -> original quarantined malware path
 	static std::unordered_set<std::string> s_quarantinedPaths;          // lowercase paths already quarantined
+	static std::unordered_set<std::string> s_quarantinedHashes;         // lowercase hashes (SHA1/MD5) of detected malware
+	static std::mutex s_mtxMalwareDb;
+	static std::atomic<bool> s_bMalwareDbLoaded = false;
+
+	static const wchar_t* const c_szMalwareDbDirs[] = {
+		L"C:\\ProgramData\\HydraDragonBackups",
+		L"C:\\ProgramData\\edrsvc"
+	};
+	static const wchar_t* const c_szMalwareDbFile = L"detected_malware.db";
 
 	static std::string toLowerStr(std::string s)
 	{
@@ -96,6 +105,98 @@ namespace {
 
 } // namespace
 
+void DetectionNotifier::loadPersistentMalwareDb()
+{
+	std::scoped_lock lock(s_mtxMalwareDb);
+	if (s_bMalwareDbLoaded.load())
+		return;
+
+	for (const auto* szDir : c_szMalwareDbDirs)
+	{
+		std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szMalwareDbFile;
+		std::ifstream ifs(wsDb);
+		if (ifs.is_open())
+		{
+			std::string line;
+			while (std::getline(ifs, line))
+			{
+				if (line.empty() || line[0] == '#')
+					continue;
+				size_t sep1 = line.find('|');
+				if (sep1 != std::string::npos)
+				{
+					std::string h = line.substr(0, sep1);
+					std::string p = line.substr(sep1 + 1);
+					size_t sep2 = p.find('|');
+					if (sep2 != std::string::npos)
+						p = p.substr(0, sep2);
+					if (!h.empty())
+						s_quarantinedHashes.insert(toLowerStr(h));
+					if (!p.empty())
+						s_quarantinedPaths.insert(toLowerStr(p));
+				}
+				else
+				{
+					s_quarantinedPaths.insert(toLowerStr(line));
+				}
+			}
+		}
+	}
+	s_bMalwareDbLoaded.store(true);
+}
+
+void DetectionNotifier::recordMalwareDetection(const std::string& sPath, const std::string& sHash)
+{
+	if (sPath.empty() && sHash.empty())
+		return;
+
+	std::string sDos = NtPathToDosPathString(sPath);
+	std::string sLowerPath = toLowerStr(sDos);
+	std::string sLowerHash = toLowerStr(sHash);
+
+	{
+		std::scoped_lock lock(s_mtxMalwareDb);
+		if (!sLowerPath.empty())
+			s_quarantinedPaths.insert(sLowerPath);
+		if (!sLowerHash.empty())
+			s_quarantinedHashes.insert(sLowerHash);
+	}
+
+	::CreateDirectoryW(L"C:\\ProgramData\\HydraDragonBackups", NULL);
+	::CreateDirectoryW(L"C:\\ProgramData\\edrsvc", NULL);
+
+	for (const auto* szDir : c_szMalwareDbDirs)
+	{
+		std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szMalwareDbFile;
+		std::ofstream ofs(wsDb, std::ios::app);
+		if (ofs.is_open())
+		{
+			auto now = std::chrono::duration_cast<std::chrono::seconds>(
+				std::chrono::system_clock::now().time_since_epoch()).count();
+			ofs << sLowerHash << "|" << sLowerPath << "|" << now << "\n";
+		}
+	}
+}
+
+bool DetectionNotifier::isKnownMalware(const std::string& sPath, const std::string& sHash)
+{
+	if (!s_bMalwareDbLoaded.load())
+		loadPersistentMalwareDb();
+
+	std::scoped_lock lock(s_mtxMalwareDb);
+	if (!sHash.empty() && s_quarantinedHashes.count(toLowerStr(sHash)) > 0)
+		return true;
+
+	if (!sPath.empty())
+	{
+		std::string sDos = NtPathToDosPathString(sPath);
+		if (s_quarantinedPaths.count(toLowerStr(sDos)) > 0)
+			return true;
+	}
+
+	return false;
+}
+
 //
 //
 //
@@ -109,6 +210,8 @@ void DetectionNotifier::finalConstruct(Variant vConfig)
 	m_nMaxSize = vConfig.get("maxSize", m_nMaxSize);
 	if (m_nMaxSize == 0)
 		m_nMaxSize = 1;
+
+	loadPersistentMalwareDb();
 
 	TRACE_END("Error during configuration");
 }
@@ -474,6 +577,31 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							std::scoped_lock _lock(s_mtxQuarantineLock);
 							bAlreadyQuarantined = (s_quarantinedPaths.count(sLower) > 0);
 						}
+
+						std::string sHash;
+						for (const char* hField : {
+							"childProcess.imageHash",
+							"process.imageFile.imageHash",
+							"process.imageHash",
+							"file.rawHash",
+							"file.hash",
+							"imageHash",
+							"hash"
+						})
+						{
+							if (auto optH = getByPathSafe(vEvent, hField))
+							{
+								std::string h = std::string(optH.value());
+								if (!h.empty() && h != "<undefined>" && h != "null")
+								{
+									sHash = h;
+									break;
+								}
+							}
+						}
+
+						// Persistently remember this malware across restarts
+						recordMalwareDetection(sDos, sHash);
 
 						if (bAlreadyQuarantined)
 						{

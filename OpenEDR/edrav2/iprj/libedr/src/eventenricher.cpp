@@ -763,6 +763,22 @@ void EventEnricher::put(const Variant& vEventRef)
 	{
 		vProcess = vRawProcess;
 	}
+
+	std::string sProcPath;
+	if (vProcess.has("imagePath")) sProcPath = std::string(vProcess["imagePath"]);
+	else if (vProcess.has("path")) sProcPath = std::string(vProcess["path"]);
+	else if (vProcess.has("rawPath")) sProcPath = std::string(vProcess["rawPath"]);
+
+	std::string sProcHash;
+	if (vProcess.has("imageHash")) sProcHash = std::string(vProcess["imageHash"]);
+	else if (vProcess.has("hash")) sProcHash = std::string(vProcess["hash"]);
+
+	if (DetectionNotifier::isKnownMalware(sProcPath, sProcHash))
+	{
+		vProcess.put("flsVerdict", 3);
+		vProcess.put("verdict", 2);
+	}
+
 	vEvent.put("process", vProcess);
 	Variant vToken = getByPath(vProcess, "token.tokenObj", {});
 
@@ -938,6 +954,23 @@ void EventEnricher::put(const Variant& vEventRef)
 	{
 		auto processInfo = vEvent.get("process");
 		auto enrichedProcessInfo = m_pProcProvider->enrichProcessInfo(processInfo);
+
+		std::string sImgPath;
+		if (enrichedProcessInfo.has("imagePath")) sImgPath = std::string(enrichedProcessInfo["imagePath"]);
+		else if (enrichedProcessInfo.has("path")) sImgPath = std::string(enrichedProcessInfo["path"]);
+		else if (enrichedProcessInfo.has("rawPath")) sImgPath = std::string(enrichedProcessInfo["rawPath"]);
+
+		std::string sImgHash;
+		if (enrichedProcessInfo.has("imageHash")) sImgHash = std::string(enrichedProcessInfo["imageHash"]);
+		else if (enrichedProcessInfo.has("hash")) sImgHash = std::string(enrichedProcessInfo["hash"]);
+
+		if (DetectionNotifier::isKnownMalware(sImgPath, sImgHash))
+		{
+			LOGLVL(Critical, FMT("enricher: Process <" << sImgPath << "> matches KNOWN MALWARE in persistent database! Stamping Malicious verdict."));
+			enrichedProcessInfo.put("flsVerdict", 3);
+			enrichedProcessInfo.put("verdict", 2);
+		}
+
 		vEvent.put("process", enrichedProcessInfo);
 
 		const std::wstring cmdLine = enrichedProcessInfo["cmdLine"];

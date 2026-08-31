@@ -11,6 +11,9 @@
 #pragma once
 #include <deque>
 #include <mutex>
+#include <unordered_set>
+#include <unordered_map>
+#include <string>
 #include <objects.h>
 
 namespace cmd {
@@ -20,7 +23,8 @@ namespace cmd {
 ///
 /// Stores MLE detection events (in cloud output format) in a bounded ring
 /// buffer with monotonically increasing identifiers so external GUI clients
-/// (edrgui.exe) can poll for new detections via JSON-RPC.
+/// (edrgui.exe) can poll for new detections via JSON-RPC. Persists known
+/// detected malware on disk so repeat file drops/runs are immediately remembered.
 ///
 class DetectionNotifier : public ObjectBase<CLSID_DetectionNotifier>,
 	public ICommandProcessor
@@ -46,6 +50,21 @@ public:
 	///   **maxSize** [int, opt] - maximum number of stored events (default: 1000).
 	///
 	void finalConstruct(Variant vConfig);
+
+	///
+	/// Records a detected malware path and hash to the persistent database.
+	///
+	static void recordMalwareDetection(const std::string& sPath, const std::string& sHash);
+
+	///
+	/// Checks if a path or hash corresponds to previously detected malware.
+	///
+	static bool isKnownMalware(const std::string& sPath, const std::string& sHash);
+
+	///
+	/// Loads the persistent malware database from disk on startup.
+	///
+	static void loadPersistentMalwareDb();
 
 	// ICommandProcessor
 
