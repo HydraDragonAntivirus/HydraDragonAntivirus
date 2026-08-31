@@ -227,9 +227,14 @@ void SystemMonitorController::install(Variant vParams)
 
 //
 //
+void owlyshield_integration_uninstall();
+
 //
 void SystemMonitorController::uninstall(Variant vParams)
 {
+	// Call Rust DLL uninstaller to clean up MBRFilter UpperFilters from the Rust engine
+	owlyshield_integration_uninstall();
+
 	// FIXME: I'm not sure that it is correct to call shutdown here because teoretically the controller
 	// can be even not started
 	shutdown();

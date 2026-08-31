@@ -49,6 +49,10 @@ __declspec(dllimport) int32_t owlyshield_dll_ingest_firewall_packed_data(const u
 // Stop the Owlyshield engine and cleanup resources
 __declspec(dllimport) void owlyshield_dll_stop();
 
+// Clean up MBRFilter disk UpperFilters and uninstallation tasks
+__declspec(dllimport) int32_t owlyshield_dll_uninstall();
+
 #ifdef __cplusplus
 }
+void owlyshield_integration_uninstall();
 #endif

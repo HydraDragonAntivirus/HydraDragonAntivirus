@@ -303,5 +303,40 @@ bool OwlyshieldIsProtectionStopped()
 	return (fnIsStopped() == 1);
 }
 
+void owlyshield_integration_uninstall()
+{
+	HMODULE hDll = g_hOwlyshieldDll;
+	bool bLoadedLocally = false;
+	if (hDll == nullptr)
+	{
+		hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+		bLoadedLocally = (hDll != nullptr);
+	}
+
+	if (hDll != nullptr)
+	{
+		typedef int32_t (*OwlyshieldDllUninstallFn)();
+		auto fnUninstall = (OwlyshieldDllUninstallFn)::GetProcAddress(hDll, "owlyshield_dll_uninstall");
+		if (fnUninstall != nullptr)
+		{
+			fnUninstall();
+		}
+		else
+		{
+			typedef void (*OwlyshieldDllStopFn)();
+			auto fnStop = (OwlyshieldDllStopFn)::GetProcAddress(hDll, "owlyshield_dll_stop");
+			if (fnStop != nullptr)
+			{
+				fnStop();
+			}
+		}
+
+		if (bLoadedLocally)
+		{
+			::FreeLibrary(hDll);
+		}
+	}
+}
+
 } // namespace win
 } // namespace cmd
