@@ -232,31 +232,49 @@ void WriteRegistryValue(HKEY rootKey, const std::wstring& sKey, const std::wstri
 uint32_t executeApplication(const std::filesystem::path& pathProgram,
 	std::wstring_view sParams, bool fElevatePrivileges, Size nTimeout)
 {
-	if (FAILED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)))
+	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	if (FAILED(hr) && hr != RPC_E_CHANGED_MODE)
 		error::RuntimeError(SL, "Can't initialize COM").throwException();
+
+	std::wstring strParams(sParams);
+
 	SHELLEXECUTEINFOW sinfo { };
-	sinfo.cbSize = sizeof(SHELLEXECUTEINFOA);
-	sinfo.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NO_CONSOLE;
-	sinfo.lpVerb = fElevatePrivileges? L"runas" : L"open";
+	sinfo.cbSize = sizeof(SHELLEXECUTEINFOW);
+	sinfo.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NO_CONSOLE;
+	if (!fElevatePrivileges)
+		sinfo.fMask |= SEE_MASK_FLAG_NO_UI;
+	sinfo.lpVerb = fElevatePrivileges ? L"runas" : L"open";
 	sinfo.lpFile = pathProgram.c_str();
-	sinfo.lpParameters = sParams.data();
-	sinfo.nShow = SW_HIDE;
+	sinfo.lpParameters = strParams.empty() ? nullptr : strParams.c_str();
+	sinfo.nShow = fElevatePrivileges ? SW_NORMAL : SW_HIDE;
 
 	if (!::ShellExecuteExW(&sinfo))
 		error::win::WinApiError(SL, "Can't start process").throwException();	
 
 	if (nTimeout == 0)
+	{
+		if (sinfo.hProcess != NULL)
+			::CloseHandle(sinfo.hProcess);
 		return 0;
+	}
 
 	if (sinfo.hProcess == NULL)
 		error::win::WinApiError(SL, "Can't get started process").throwException();
 
 	if (WAIT_FAILED == ::WaitForSingleObject(sinfo.hProcess, (DWORD)nTimeout))
+	{
+		::CloseHandle(sinfo.hProcess);
 		error::win::WinApiError(SL, "Can't wait started process").throwException();
+	}
 
 	DWORD dwExitCode = 0;
 	if (!GetExitCodeProcess(sinfo.hProcess, &dwExitCode))
+	{
+		::CloseHandle(sinfo.hProcess);
 		error::win::WinApiError(SL, "Can't get process exit code").throwException();
+	}
+
+	::CloseHandle(sinfo.hProcess);
 	return dwExitCode;
 }
 
