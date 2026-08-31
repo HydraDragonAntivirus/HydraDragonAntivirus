@@ -122,6 +122,31 @@ fn set_disk_class_upper_filter() -> bool {
     }
 }
 
+/// Remove `MBRFilter` from the disk-class `UpperFilters` multi-string to ensure
+/// Windows boots cleanly even if MBRFilter is stopped or deleted.
+pub fn remove_disk_class_upper_filter() -> bool {
+    use winreg::RegKey;
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
+
+    let result = (|| -> Result<bool, Box<dyn std::error::Error>> {
+        let class_key = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey_with_flags(DISK_CLASS_FILTERS_KEY, KEY_READ | KEY_WRITE)?;
+        let filters: Vec<String> = class_key.get_value("UpperFilters").unwrap_or_default();
+        let new_filters: Vec<String> = filters
+            .into_iter()
+            .filter(|f| !f.eq_ignore_ascii_case(DRIVER_SERVICE_NAME))
+            .collect();
+        if new_filters.is_empty() {
+            let _ = class_key.delete_value("UpperFilters");
+        } else {
+            class_key.set_value("UpperFilters", &new_filters)?;
+        }
+        Ok(true)
+    })();
+
+    result.unwrap_or(false)
+}
+
 /// Create (if missing) and start the `MBRFilter` kernel driver service.
 /// Returns true if the service was created (i.e. a restart is needed).
 fn register_and_start_driver_service(driver_path: &str) -> bool {

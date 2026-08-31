@@ -234,6 +234,55 @@ void SystemMonitorController::uninstall(Variant vParams)
 	// can be even not started
 	shutdown();
 
+	// Clean up MBRFilter disk UpperFilters to prevent 0x7B INACCESSIBLE_BOOT_DEVICE BSOD
+	{
+		HKEY hClassKey = NULL;
+		if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+			L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e967-e325-11ce-bfc1-08002be10318}", 
+			0, KEY_READ | KEY_WRITE, &hClassKey) == ERROR_SUCCESS)
+		{
+			DWORD dwType = 0;
+			DWORD dwSize = 0;
+			if (::RegQueryValueExW(hClassKey, L"UpperFilters", NULL, &dwType, NULL, &dwSize) == ERROR_SUCCESS && dwSize > 0)
+			{
+				std::vector<wchar_t> buffer(dwSize / sizeof(wchar_t) + 2, 0);
+				if (::RegQueryValueExW(hClassKey, L"UpperFilters", NULL, &dwType, (LPBYTE)buffer.data(), &dwSize) == ERROR_SUCCESS)
+				{
+					std::vector<wchar_t> newMultiSz;
+					const wchar_t* p = buffer.data();
+					while (*p)
+					{
+						std::wstring item(p);
+						std::wstring lowerItem = item;
+						std::transform(lowerItem.begin(), lowerItem.end(), lowerItem.begin(), ::towlower);
+						if (lowerItem != L"mbrfilter")
+						{
+							newMultiSz.insert(newMultiSz.end(), item.begin(), item.end());
+							newMultiSz.push_back(L'\0');
+						}
+						p += item.length() + 1;
+					}
+					if (newMultiSz.empty())
+					{
+						::RegDeleteValueW(hClassKey, L"UpperFilters");
+					}
+					else
+					{
+						newMultiSz.push_back(L'\0');
+						::RegSetValueExW(hClassKey, L"UpperFilters", 0, REG_MULTI_SZ, 
+							(const BYTE*)newMultiSz.data(), (DWORD)(newMultiSz.size() * sizeof(wchar_t)));
+					}
+				}
+			}
+			::RegCloseKey(hClassKey);
+		}
+
+		(void)execCommand(createObject(CLSID_WinServiceController), "stop",
+			Dictionary({ { "name", "MBRFilter" } }));
+		(void)execCommand(createObject(CLSID_WinServiceController), "delete",
+			Dictionary({ { "name", "MBRFilter" } }));
+	}
+
 	(void)execCommand(createObject(CLSID_WinServiceController), "stop",
 		Dictionary({ { "name", c_sDrvSrvName } }));
 
