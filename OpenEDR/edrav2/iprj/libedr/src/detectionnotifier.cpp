@@ -299,7 +299,8 @@ bool DetectionNotifier::isDetectionEvent(const Variant& vEvent)
 			return false;
 		if (s.compare(0, 2, "RP") == 0 || s.compare(0, 2, "RF") == 0 ||
 		    s.compare(0, 2, "RR") == 0 || s.compare(0, 2, "RN") == 0 ||
-		    s.compare(0, 2, "RE") == 0 || s.compare(0, 4, "LLE_") == 0)
+		    s.compare(0, 2, "RE") == 0 || s.compare(0, 2, "RD") == 0 ||
+		    s.compare(0, 2, "RB") == 0 || s.compare(0, 4, "LLE_") == 0)
 		{
 			return true;
 		}
