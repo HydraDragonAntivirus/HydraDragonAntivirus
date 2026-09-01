@@ -2599,6 +2599,27 @@
 												"args": [ "@event.source.path" ]
 											}
 										]
+									},
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "greater",
+												"args": [ "@event.destination.owlyEntropy", 6.8 ]
+											},
+											{
+												"$operation": "greater",
+												"args": [ "@event.destination.entropy", 6.8 ]
+											},
+											{
+												"$operation": "greater",
+												"args": [ "@event.owlyEntropy", 6.8 ]
+											},
+											{
+												"$operation": "greater",
+												"args": [ "@event.entropy", 6.8 ]
+											}
+										]
 									}
 								]
 							}
