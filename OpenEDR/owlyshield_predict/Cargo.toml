@@ -47,6 +47,7 @@ moka = { version = "0.12", features = ["sync"] }
 url = "2.5.8"
 http-body-util = "0.1"
 hydradragon-shared = { path = "../../HydraDragonFirewall/hydradragon-shared" }
+hydradragonxorfilter = { path = "hydradragonxorfilter" }
 http-mitm-proxy = { path = "../../HydraDragonFirewall/http-mitm-proxy" }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

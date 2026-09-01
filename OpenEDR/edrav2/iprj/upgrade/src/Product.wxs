@@ -53,6 +53,7 @@
                     <?if $(var.Platform) = "x64" ?>
                         <Directory Id="INSTALLDIR_PLATFORM" Name="x64">
                             <Directory Id="MODELSDIR_X64" Name="models" />
+                            <Directory Id="THREATINTELDIR_X64" Name="threat_intel" />
                             <Directory Id="SANCTUMDIR_X64" Name="Sanctum" />
                         </Directory>
                     <?endif?>

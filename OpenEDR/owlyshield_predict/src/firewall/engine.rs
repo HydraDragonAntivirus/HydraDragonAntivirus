@@ -974,6 +974,7 @@ pub struct AppManager {
     pub suspicious_pids: RwLock<HashSet<u32>>,
     pub cloud_trusted_pids: RwLock<HashSet<u32>>,
     pub openedr_verdicts: RwLock<HashMap<u32, String>>,
+    pub threat_intel: Arc<crate::threat_intel::ThreatIntelScanner>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
 }
@@ -992,6 +993,7 @@ impl AppManager {
             suspicious_pids: RwLock::new(HashSet::new()),
             cloud_trusted_pids: RwLock::new(HashSet::new()),
             openedr_verdicts: RwLock::new(HashMap::new()),
+            threat_intel: Arc::new(crate::threat_intel::ThreatIntelScanner::load_default()),
             view_index: AtomicU64::new(0),
         }
     }
@@ -3017,6 +3019,62 @@ impl FirewallEngine {
                 recalc_checksums: false,
                 _reason: "Self-traffic (edrsvc.exe) allowed, not intercepted".to_string(),
             };
+        }
+
+        // 1c. THREAT INTELLIGENCE ENGINE SCAN (CIDR Blacklist & XorFilter .xf)
+        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
+        let mut threat_match = am.threat_intel.check_ip(remote_ip);
+        if threat_match.is_none() {
+            if let Some(ref host) = info.hostname {
+                threat_match = am.threat_intel.check_domain(host);
+            } else if let Some(ref dns_domain) = info.dns_query {
+                threat_match = am.threat_intel.check_domain(dns_domain);
+            }
+        }
+
+        if let Some(reason) = threat_match {
+            let openedr_verdicts = am.openedr_verdicts.read().unwrap();
+            let verdict = openedr_verdicts.get(&pid).map(|s| s.as_str()).unwrap_or("0");
+
+            match verdict {
+                "1" => {
+                    // SAFE (verdict == 1): Drop traffic ONLY. DO NOT KILL / DO NOT QUARANTINE.
+                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                    stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+                    return PacketDecision {
+                        packet_data: data_vec,
+                        address_data: address_data.to_vec(),
+                        should_forward: false,
+                        recalc_checksums: false,
+                        _reason: format!("ThreatIntel Block (SAFE process pid={}, reason={})", pid, reason),
+                    };
+                }
+                "4" => {
+                    // FAIL/ERROR (verdict == 4): Drop traffic ONLY. Queue for retry until FLS recovers.
+                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                    stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+                    return PacketDecision {
+                        packet_data: data_vec,
+                        address_data: address_data.to_vec(),
+                        should_forward: false,
+                        recalc_checksums: false,
+                        _reason: format!("ThreatIntel Block (FLS ERROR/OFFLINE pid={}, reason={})", pid, reason),
+                    };
+                }
+                _ => {
+                    // MALWARE / UNKNOWN (verdict == 2, 3 or absent): Drop traffic + QUARANTINE & KILL!
+                    am.suspicious_pids.write().unwrap().insert(pid);
+                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                    stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+                    return PacketDecision {
+                        packet_data: data_vec,
+                        address_data: address_data.to_vec(),
+                        should_forward: false,
+                        recalc_checksums: false,
+                        _reason: format!("ThreatIntel Block & Kill (MALWARE/UNKNOWN pid={}, reason={})", pid, reason),
+                    };
+                }
+            }
         }
 
         // 2. Resolve Process Metadata

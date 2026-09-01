@@ -1,0 +1,12 @@
+[package]
+name = "hydradragonxorfilter"
+version = "0.1.0"
+edition = "2024"
+description = "Shared binary-fuse (xor) filter container: built offline by xorfilter_writer, queried on-device by hydradragonandroid. One crate => the bytes are byte-for-byte compatible across build host and arm64 device."
+license = "GPL-2.0-or-later"
+
+[dependencies]
+# Binary Fuse filters (Bf8/Bf16/Bf32). The `bitcode` feature is only used by
+# the crate's own benches/examples — our on-disk format (v2) is a plain
+# repr(C)-style header, so it is left disabled.
+jdb_xorf = { version = "0.13" }

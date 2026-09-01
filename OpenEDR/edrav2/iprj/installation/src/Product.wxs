@@ -52,6 +52,7 @@
 				<Directory Id="INSTALLDIR" Name="OpenEDR">
 					<!--<Directory Id="QSC_DIR" Name="qsc"></Directory>-->
 					<Directory Id="MODELSDIR" Name="models" />
+					<Directory Id="THREATINTELDIR" Name="threat_intel" />
 					<Directory Id="SANCTUMDIR" Name="Sanctum">
 						<Directory Id="SANCTUMAPPDATA" Name="AppData" />
 					</Directory>
@@ -115,6 +116,7 @@
 				<!-- Firewall SDK rule path (the only RULES_PATH kept) -->
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
 					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]firewall-rules" Type="string" KeyPath="no" />
+					<RegistryValue Name="THREAT_INTEL_PATH" Value="[INSTALLDIR]threat_intel" Type="string" KeyPath="no" />
 					<RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR]Sanctum" Type="string" KeyPath="no" />
 				</RegistryKey>
 			</Component>

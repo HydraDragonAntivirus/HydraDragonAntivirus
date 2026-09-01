@@ -649,18 +649,16 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				} catch (...) {}
 			}
 
-			// If should_trust_comodo_fls_cloud is true, verify sPath is not a SAFE system process (verdict == 1)
+			// If should_trust_comodo_fls_cloud is true, verify target process is not a SAFE process (verdict == 1)
 			if (bShouldTrustFlsCloud && !sPath.empty())
 			{
-				std::string sLowerPath = toLowerStr(sPath);
-				bool isSystemSafeProc = (sLowerPath.find("explorer.exe") != std::string::npos ||
-					                     sLowerPath.find("svchost.exe") != std::string::npos ||
-					                     sLowerPath.find("winlogon.exe") != std::string::npos ||
-					                     sLowerPath.find("userinit.exe") != std::string::npos ||
-					                     sLowerPath.find("services.exe") != std::string::npos ||
-					                     sLowerPath.find("csrss.exe") != std::string::npos);
-
-				if (isSystemSafeProc || nVerdict == 1)
+				if (nVerdict == 4)
+				{
+					LOGLVL(Critical, FMT("detnotif: FLS Verdict is FAIL/ERROR (4). Suppressing immediate kill/quarantine for <" << sPath << "> until FLS cloud recovers."));
+					sPath.clear();
+					nGid = 0;
+				}
+				else if (nVerdict == 1)
 				{
 					// Do not kill or quarantine the SAFE process! Look for an untrusted ancestor process instead.
 					if (!sRootMalwarePath.empty())
@@ -674,6 +672,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					{
 						LOGLVL(Critical, FMT("detnotif: should_trust_comodo_fls_cloud ACTIVE. Suppressing quarantine/kill for SAFE process <" << sPath << ">"));
 						sPath.clear();
+						nGid = 0;
 					}
 				}
 			}
