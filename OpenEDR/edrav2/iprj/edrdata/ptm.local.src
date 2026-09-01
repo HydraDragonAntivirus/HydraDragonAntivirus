@@ -2568,17 +2568,37 @@
 								"args": [ "@event.destination.path" ]
 							},
 							{
-								"$operation": "or",
+								"$operation": "and",
 								"args": [
 									{
-										"$operation": "imatch",
-										"pattern": "@const.ransomFileExtensions",
-										"args": [ "@event.destination.path" ]
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "*\\*.*.*",
+												"args": [ "@event.destination.path" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "*\\*.*.*",
+												"args": [ "@event.source.path" ]
+											}
+										]
 									},
 									{
-										"$operation": "imatch",
-										"pattern": "@const.ransomFileExtensions",
-										"args": [ "@event.source.path" ]
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.ransomFileExtensions",
+												"args": [ "@event.destination.path" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.ransomFileExtensions",
+												"args": [ "@event.source.path" ]
+											}
+										]
 									}
 								]
 							}
