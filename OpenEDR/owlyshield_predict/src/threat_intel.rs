@@ -373,21 +373,35 @@ impl ThreatIntelScanner {
             return self.check_ip(ip);
         }
 
-        // Target is a Domain: Query DOMAIN filters ONLY
+        // Target is a Domain: Query DOMAIN filters using psl (Public Suffix List) eTLD+1 boundary
+        use psl::Psl;
+
+        let root_domain = psl::List.domain(clean_domain.as_bytes())
+            .and_then(|d| std::str::from_utf8(d.as_bytes()).ok())
+            .unwrap_or(&clean_domain);
+
         let parts: Vec<&str> = clean_domain.split('.').collect();
-        if parts.len() == 1 {
+        if parts.len() <= 1 {
             for (name, filter) in &self.domain_filters {
                 if filter.contains(&clean_domain) {
                     return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
                 }
             }
         } else {
-            for i in 0..parts.len().saturating_sub(1) {
+            for i in 0..parts.len() {
                 let sub_candidate = parts[i..].join(".");
+                if sub_candidate.len() < root_domain.len() {
+                    break;
+                }
+
                 for (name, filter) in &self.domain_filters {
                     if filter.contains(&sub_candidate) {
                         return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
                     }
+                }
+
+                if sub_candidate == root_domain {
+                    break; // Stop at eTLD+1 root registered domain to prevent False Positives (FP)
                 }
             }
         }

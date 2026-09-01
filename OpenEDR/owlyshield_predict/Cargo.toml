@@ -45,6 +45,7 @@ bytes = "1"
 rcgen = "0.14.8"
 moka = { version = "0.12", features = ["sync"] }
 url = "2.5.8"
+psl = "2.1.226"
 http-body-util = "0.1"
 hydradragon-shared = { path = "../../HydraDragonFirewall/hydradragon-shared" }
 hydradragonxorfilter = { path = "hydradragonxorfilter" }

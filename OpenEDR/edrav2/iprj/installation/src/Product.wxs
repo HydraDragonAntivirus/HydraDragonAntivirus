@@ -120,8 +120,16 @@
 					<RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR]Sanctum" Type="string" KeyPath="no" />
 				</RegistryKey>
 			</Component>
+			<Component Id="ThreatIntelBinaries" Guid="{B1E34A79-8D1F-4B9C-A25E-3F127B04C5A1}" Directory="THREATINTELDIR">
+				<Files Include="$(var.SourceBinDir)threat_intel\**" />
+				<Files Include="$(var.SourceBinDir)*.xf" />
+				<Files Include="$(var.SourceBinDir)CIDR*.txt" />
+			</Component>
 			<Files Include="$(var.SourceBinDir)**">
 				<Exclude Files="$(var.SourceBinDir)models\**" />
+				<Exclude Files="$(var.SourceBinDir)threat_intel\**" />
+				<Exclude Files="$(var.SourceBinDir)*.xf" />
+				<Exclude Files="$(var.SourceBinDir)CIDR*.txt" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.sys" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\AppData\sanctum.sys" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.dll" />

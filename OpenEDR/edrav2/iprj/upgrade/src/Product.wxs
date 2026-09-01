@@ -115,8 +115,16 @@
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
                     </RegistryKey>
                 </Component>
+                <Component Id="ThreatIntelBinariesX64" Guid="{B1E34A79-8D1F-4B9C-A25E-3F127B04C5A2}" Directory="THREATINTELDIR_X64">
+                    <Files Include="$(var.SourceBinDir64)threat_intel\**" />
+                    <Files Include="$(var.SourceBinDir64)*.xf" />
+                    <Files Include="$(var.SourceBinDir64)CIDR*.txt" />
+                </Component>
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
+                    <Exclude Files="$(var.SourceBinDir64)threat_intel\**" />
+                    <Exclude Files="$(var.SourceBinDir64)*.xf" />
+                    <Exclude Files="$(var.SourceBinDir64)CIDR*.txt" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.sys" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.dll" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\elam_installer.exe" />
