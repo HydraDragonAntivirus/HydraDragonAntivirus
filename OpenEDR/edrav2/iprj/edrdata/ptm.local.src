@@ -1673,6 +1673,31 @@
 										"$operation": "imatch",
 										"pattern": "*pwsh*",
 										"args": [ "@event.childProcess.cmdLine" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*cmd*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*cmd*",
+										"args": [ "@event.childProcess.cmdLine" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*wscript*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*cscript*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*mshta*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
 									}
 								]
 							},
@@ -1744,7 +1769,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
-							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}
@@ -1810,7 +1835,7 @@
 								"value": "@event.tickTime"
 							},
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}
@@ -1997,7 +2022,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}
@@ -2026,7 +2051,7 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
-							{ "name": "should_trust_comodo_fls_cloud", "value": true }
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}

@@ -242,12 +242,27 @@ pub fn get_threat_intel_path() -> std::path::PathBuf {
         }
     }
 
-    let default_path = std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel");
-    if default_path.exists() {
-        default_path
-    } else {
-        std::path::PathBuf::from(r"edrdata\threat_intel")
+fn get_threat_intel_path() -> std::path::PathBuf {
+    let candidate_paths = [
+        std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel"),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("threat_intel")))
+            .unwrap_or_default(),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join(r"edrdata\threat_intel")))
+            .unwrap_or_default(),
+        std::path::PathBuf::from(r"edrdata\threat_intel"),
+    ];
+
+    for path in candidate_paths {
+        if path.exists() && path.is_dir() {
+            return path;
+        }
     }
+
+    std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel")
 }
 
 impl ThreatIntelScanner {
@@ -281,9 +296,10 @@ impl ThreatIntelScanner {
                                     let mut bytes = Vec::new();
                                     if file.read_to_end(&mut bytes).is_ok() {
                                         if let Some(filter) = XorFilter::from_bytes(&bytes) {
-                                            if file_name_lower.starts_with("ip") {
-                                                scanner.ip_filters.insert(file_name_lower, filter);
-                                            } else {
+                                            if file_name_lower.starts_with("ip") || file_name_lower.contains("abuse") {
+                                                scanner.ip_filters.insert(file_name_lower.clone(), filter.clone());
+                                            }
+                                            if !file_name_lower.starts_with("ip") {
                                                 scanner.domain_filters.insert(file_name_lower, filter);
                                             }
                                         }
