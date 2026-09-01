@@ -472,8 +472,11 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					"childProcess.imageFile.abstractPath"
 				});
 
-				// 2. Leaf process from the processes chain (deepest descendant = the actual actor)
-				//    This avoids flagging the parent (e.g. explorer.exe) when the child was the threat.
+				// 2. Deep Process Ancestry Trace (Root Cause & Initial Dropper Discovery)
+				//    Walk the processes chain backwards (from leaf to root) to identify:
+				//    a) Any explicit malware/untrusted ancestor process (verdict == 3 or verdict == 2, or known malware)
+				//    b) If the leaf was a LOLBIN/system proxy (e.g. msiexec, wscript, powershell, cmd), find the non-system user binary that launched it!
+				int64_t nRootMalwarePid = 0;
 				if (sPath.empty() && vEvent.has("processes"))
 				{
 					try
@@ -481,18 +484,99 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						auto vSeq = vEvent.get("processes");
 						if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
 						{
-							auto vLeaf = vSeq[vSeq.getSize() - 1];
-							for (const char* field : {"imageFile.rawPath", "imageFile.path", "imagePath", "path", "imageFile.abstractPath"})
+							std::string sRootMalwarePath;
+							std::string sRootMalwareHash;
+							int64_t nRootMalwareVerdict = 0;
+
+							std::string sLeafPath;
+							int64_t nLeafVerdict = 0;
+
+							for (int i = static_cast<int>(vSeq.getSize()) - 1; i >= 0; --i)
 							{
-								if (auto optP = variant::getByPathSafe(vLeaf, field))
-								{
-									std::string s = std::string(optP.value());
-									if (!s.empty() && s != "<undefined>" && s != "null")
-									{
-										sPath = s;
-										break;
+								auto vProc = vSeq[i];
+								int64_t vVal = 0;
+								if (vProc.has("verdict")) {
+									try { vVal = static_cast<int64_t>(vProc["verdict"]); } catch (...) {}
+								}
+
+								std::string pPath;
+								for (const char* field : {"imageFile.rawPath", "imageFile.path", "imagePath", "path", "imageFile.abstractPath"}) {
+									if (auto optP = variant::getByPathSafe(vProc, field)) {
+										std::string s = std::string(optP.value());
+										if (!s.empty() && s != "<undefined>" && s != "null") {
+											pPath = s;
+											break;
+										}
 									}
 								}
+
+								std::string pHash;
+								for (const char* hField : {"imageHash", "hash", "imageFile.imageHash"}) {
+									if (auto optH = variant::getByPathSafe(vProc, hField)) {
+										std::string h = std::string(optH.value());
+										if (!h.empty() && h != "<undefined>" && h != "null") {
+											pHash = h;
+											break;
+										}
+									}
+								}
+
+								int64_t pPid = 0;
+								if (vProc.has("pid")) {
+									try { pPid = static_cast<int64_t>(vProc["pid"]); } catch (...) {}
+								}
+
+								if (i == static_cast<int>(vSeq.getSize()) - 1)
+								{
+									sLeafPath = pPath;
+									nLeafVerdict = vVal;
+								}
+
+								// Check if this ancestor is explicit malware or known malware
+								if (vVal == 3 || vVal == 2 || (!pPath.empty() && isKnownMalware(pPath, pHash)))
+								{
+									sRootMalwarePath = pPath;
+									sRootMalwareHash = pHash;
+									nRootMalwarePid = pPid;
+									nRootMalwareVerdict = (vVal != 0 ? vVal : 3);
+									break; // Found root malicious attacker!
+								}
+
+								// Check if ancestor is a user/temp/desktop binary launching a LOLBIN
+								if (sRootMalwarePath.empty() && !pPath.empty())
+								{
+									std::string sLower = toLowerStr(pPath);
+									if (sLower.find("\\users\\") != std::string::npos ||
+										sLower.find("\\temp\\") != std::string::npos ||
+										sLower.find("\\appdata\\") != std::string::npos)
+									{
+										if (sLower.find("explorer.exe") == std::string::npos &&
+											sLower.find("svchost.exe") == std::string::npos &&
+											sLower.find("winlogon.exe") == std::string::npos &&
+											sLower.find("userinit.exe") == std::string::npos)
+										{
+											sRootMalwarePath = pPath;
+											sRootMalwareHash = pHash;
+											nRootMalwarePid = pPid;
+											nRootMalwareVerdict = 3;
+										}
+									}
+								}
+							}
+
+							if (!sRootMalwarePath.empty())
+							{
+								sPath = sRootMalwarePath;
+								if (nVerdict == 0 || nVerdict == 1)
+									nVerdict = nRootMalwareVerdict;
+								LOGLVL(Critical, FMT("detnotif: Deep Trace identified ROOT MALICIOUS PAYLOAD <" 
+									<< sRootMalwarePath << "> (pid=" << nRootMalwarePid << ", verdict=" << nRootMalwareVerdict << ")"));
+							}
+							else if (sPath.empty() && !sLeafPath.empty())
+							{
+								sPath = sLeafPath;
+								if (nVerdict == 0)
+									nVerdict = nLeafVerdict;
 							}
 						}
 					}
@@ -672,6 +756,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							s_quarantinedPaths.insert(sLower);
 							if (nGid != 0) s_quarantinedPids[nGid] = sDos;
 							if (nShieldPid > 0) s_quarantinedPids[static_cast<uint64_t>(nShieldPid)] = sDos;
+							if (nRootMalwarePid > 0) s_quarantinedPids[static_cast<uint64_t>(nRootMalwarePid)] = sDos;
 						}
 
 						// Always execute quarantine on detected malware
@@ -709,9 +794,11 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				}
 
 				// 2. Second: Execute rollback for victim files (now aware that the malware binary is blacklisted)
-				if (nShieldPid > 0)
+				if (nRootMalwarePid > 0)
+					EventEnricher::rollbackRansomBackups(nRootMalwarePid);
+				if (nShieldPid > 0 && nShieldPid != nRootMalwarePid)
 					EventEnricher::rollbackRansomBackups(nShieldPid);
-				if (nGid > 0 && nGid != static_cast<uint64_t>(nShieldPid))
+				if (nGid > 0 && nGid != static_cast<uint64_t>(nShieldPid) && nGid != static_cast<uint64_t>(nRootMalwarePid))
 					EventEnricher::rollbackRansomBackups(static_cast<int64_t>(nGid));
 				else
 				{
