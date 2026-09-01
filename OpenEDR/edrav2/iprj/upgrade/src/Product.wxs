@@ -115,8 +115,7 @@
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
                     </RegistryKey>
                 </Component>
-                <Files Include="..\..\edrdata\threat_intel\*.xf" Directory="THREATINTELDIR_X64" />
-                <Files Include="..\..\edrdata\threat_intel\CIDR*.txt" Directory="THREATINTELDIR_X64" />
+                <Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
                     <Exclude Files="$(var.SourceBinDir64)*.xf" />
