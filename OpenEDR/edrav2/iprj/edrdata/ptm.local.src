@@ -1743,7 +1743,8 @@
 							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" }
+							{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
 				}
@@ -1808,7 +1809,8 @@
 								"name": "tickTime",
 								"value": "@event.tickTime"
 							},
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
 				}
@@ -1994,7 +1996,8 @@
 							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
 				}
@@ -2022,7 +2025,8 @@
 							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
 				}
@@ -2073,7 +2077,8 @@
 							{ "name": "process", "value": "@event.childProcess" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.abstractPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
 				}
@@ -2106,7 +2111,8 @@
 							{ "name": "process", "value": "@event.childProcess" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.rawPath" }
+							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.rawPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
 				}
@@ -2650,7 +2656,8 @@
 							{ "name": "destination", "value": "@event.destination" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": true }
 						]
 					}
 				}
@@ -2702,7 +2709,8 @@
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}
@@ -2737,7 +2745,8 @@
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.file.rawPath" }
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}
@@ -2772,7 +2781,8 @@
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}
@@ -2807,7 +2817,8 @@
 							{ "name": "network", "value": "@event.network" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" }
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}

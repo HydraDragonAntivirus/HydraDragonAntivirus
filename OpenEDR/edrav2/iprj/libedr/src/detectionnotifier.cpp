@@ -452,6 +452,9 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			}
 
 			int64_t nRootMalwarePid = 0;
+			int64_t nRootMalwareVerdict = 0;
+			std::string sRootMalwarePath;
+			std::string sRootMalwareHash;
 			std::string sPath = extractValidPath("quarantineTarget");
 
 			// Check if this process or threat was already quarantined, lock sPath to the original threat
@@ -499,10 +502,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						auto vSeq = vEvent.get("processes");
 						if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
 						{
-							std::string sRootMalwarePath;
-							std::string sRootMalwareHash;
-							int64_t nRootMalwareVerdict = 0;
-
 							std::string sLeafPath;
 							int64_t nLeafVerdict = 0;
 
@@ -635,6 +634,45 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							"process.path",
 							"process.imageFile.abstractPath"
 						});
+				}
+			}
+
+			// Check should_trust_comodo_fls_cloud rule flag (default: true)
+			bool bShouldTrustFlsCloud = true;
+			if (auto optTrust = variant::getByPathSafe(vEvent, "should_trust_comodo_fls_cloud"))
+			{
+				try {
+					auto vTrust = optTrust.value();
+					if (vTrust.getType() == variant::ValueType::Boolean)
+						bShouldTrustFlsCloud = static_cast<bool>(vTrust);
+				} catch (...) {}
+			}
+
+			// If should_trust_comodo_fls_cloud is true, verify sPath is not a SAFE system process (verdict == 1)
+			if (bShouldTrustFlsCloud && !sPath.empty())
+			{
+				std::string sLowerPath = toLowerStr(sPath);
+				bool isSystemSafeProc = (sLowerPath.find("explorer.exe") != std::string::npos ||
+					                     sLowerPath.find("svchost.exe") != std::string::npos ||
+					                     sLowerPath.find("winlogon.exe") != std::string::npos ||
+					                     sLowerPath.find("userinit.exe") != std::string::npos ||
+					                     sLowerPath.find("services.exe") != std::string::npos ||
+					                     sLowerPath.find("csrss.exe") != std::string::npos);
+
+				if (isSystemSafeProc || nVerdict == 1)
+				{
+					// Do not kill or quarantine the SAFE process! Look for an untrusted ancestor process instead.
+					if (!sRootMalwarePath.empty())
+					{
+						LOGLVL(Critical, FMT("detnotif: should_trust_comodo_fls_cloud ACTIVE. Bypassing SAFE target <" 
+							<< sPath << "> and redirecting quarantine to untrusted ancestor <" << sRootMalwarePath << ">"));
+						sPath = sRootMalwarePath;
+						nVerdict = nRootMalwareVerdict;
+					}
+					else
+					{
+						LOGLVL(Critical, FMT("detnotif: should_trust_comodo_fls_cloud ACTIVE. Suppressing quarantine/kill for SAFE process <" << sPath << ">"));
+						sPath.clear();
 					}
 				}
 			}
