@@ -1610,7 +1610,6 @@
 
 	"patterns": {
 		"POWERSHELL_LONG_BASE64": [
-			// Case 1: abstractPath available
 			{
 				"eventType": "LLE_PROCESS_CREATE",
 				"rule": {
@@ -1623,12 +1622,37 @@
 									{
 										"$operation": "imatch",
 										"pattern": "*powershell*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*powershell*.exe*",
+										"args": [ "@event.childProcess.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*powershell*.exe*",
+										"args": [ "@event.childProcess.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*powershell*.exe*",
 										"args": [ "@event.childProcess.imageFile.abstractPath" ]
 									},
 									{
 										"$operation": "imatch",
 										"pattern": "*powershell*.exe*",
 										"args": [ "@event.childProcess.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*pwsh*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*pwsh*.exe*",
+										"args": [ "@event.childProcess.path" ]
 									},
 									{
 										"$operation": "imatch",
@@ -1653,11 +1677,6 @@
 								]
 							},
 							{
-								"$operation": "imatch",
-								"pattern": "?*",
-								"args": [ "@event.childProcess.imageFile.abstractPath" ]
-							},
-							{
 								"$operation": "or",
 								"args": [
 									{
@@ -1679,93 +1698,35 @@
 										"$operation": "imatch",
 										"pattern": "* /e* *",
 										"args": [ "@event.childProcess.cmdLine" ]
-									}
-								]
-							}
-						]
-					},
-					"createEvent": {
-						"eventType": "MLE_POWERSHELL_MALICIOUS",
-						"destination": "OUT",
-						"clone": false,
-						"data": [
-							{ "name": "baseType", "value": "@const.powershellEventBaseType.MLE_POWERSHELL_MALICIOUS" },
-							{ "name": "process", "value": "@event.childProcess" },
-							{ "name": "time", "value": "@event.time" },
-							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.abstractPath" }
-						]
-					}
-				}
-			},
-			// Case 2: abstractPath missing -> use rawPath
-			{
-				"eventType": "LLE_PROCESS_CREATE",
-				"rule": {
-					"condition": {
-						"$operation": "and",
-						"args": [
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "imatch",
-										"pattern": "*powershell*.exe*",
-										"args": [ "@event.childProcess.imageFile.abstractPath" ]
 									},
 									{
 										"$operation": "imatch",
-										"pattern": "*powershell*.exe*",
-										"args": [ "@event.childProcess.imageFile.rawPath" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "*pwsh*.exe*",
-										"args": [ "@event.childProcess.imageFile.abstractPath" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "*pwsh*.exe*",
-										"args": [ "@event.childProcess.imageFile.rawPath" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "*powershell*",
+										"pattern": "*-enc*",
 										"args": [ "@event.childProcess.cmdLine" ]
 									},
 									{
 										"$operation": "imatch",
-										"pattern": "*pwsh*",
-										"args": [ "@event.childProcess.cmdLine" ]
-									}
-								]
-							},
-							{
-								"$operation": "!imatch",
-								"pattern": "?*",
-								"args": [ "@event.childProcess.imageFile.abstractPath" ]
-							},
-							{
-								"$operation": "or",
-								"args": [
-									{
-										"$operation": "imatch",
-										"pattern": "*????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????*",
+										"pattern": "*-encoded*",
 										"args": [ "@event.childProcess.cmdLine" ]
 									},
 									{
 										"$operation": "imatch",
-										"pattern": "*????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????*",
-										"args": [ "@event.childProcess.scriptContent" ]
-									},
-									{
-										"$operation": "imatch",
-										"pattern": "* -e* *",
+										"pattern": "*-e *",
 										"args": [ "@event.childProcess.cmdLine" ]
 									},
 									{
 										"$operation": "imatch",
-										"pattern": "* /e* *",
+										"pattern": "*-en *",
+										"args": [ "@event.childProcess.cmdLine" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "* -c *",
+										"args": [ "@event.childProcess.cmdLine" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "* -command *",
 										"args": [ "@event.childProcess.cmdLine" ]
 									}
 								]
@@ -1779,9 +1740,10 @@
 						"data": [
 							{ "name": "baseType", "value": "@const.powershellEventBaseType.MLE_POWERSHELL_MALICIOUS" },
 							{ "name": "process", "value": "@event.childProcess" },
+							{ "name": "processes", "value": "@event.processes" },
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
-							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.rawPath" }
+							{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" }
 						]
 					}
 				}

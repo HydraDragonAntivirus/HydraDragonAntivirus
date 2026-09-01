@@ -436,6 +436,22 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				}
 			}
 
+			// Determine initial action based on verdict
+			int64_t nVerdict = 0;
+			if (auto optVerdict = getByPathSafe(vEvent, "childProcess.verdict"))
+			{
+				try { nVerdict = std::stoll(std::string(optVerdict.value())); } catch (...) {}
+			}
+			else if (auto optVerdictP = getByPathSafe(vEvent, "process.imageFile.verdict"))
+			{
+				try { nVerdict = std::stoll(std::string(optVerdictP.value())); } catch (...) {}
+			}
+			else if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
+			{
+				try { nVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
+			}
+
+			int64_t nRootMalwarePid = 0;
 			std::string sPath = extractValidPath("quarantineTarget");
 
 			// Check if this process or threat was already quarantined, lock sPath to the original threat
@@ -476,7 +492,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				//    Walk the processes chain backwards (from leaf to root) to identify:
 				//    a) Any explicit malware/untrusted ancestor process (verdict == 3 or verdict == 2, or known malware)
 				//    b) If the leaf was a LOLBIN/system proxy (e.g. msiexec, wscript, powershell, cmd), find the non-system user binary that launched it!
-				int64_t nRootMalwarePid = 0;
 				if (sPath.empty() && vEvent.has("processes"))
 				{
 					try
@@ -633,21 +648,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 
 			if (!sTitle.empty())
 				vEvent.put("title", sTitle);
-
-			// Determine action based on verdict
-			int64_t nVerdict = 0;
-			if (auto optVerdict = getByPathSafe(vEvent, "childProcess.verdict"))
-			{
-				try { nVerdict = std::stoll(std::string(optVerdict.value())); } catch (...) {}
-			}
-			else if (auto optVerdictP = getByPathSafe(vEvent, "process.imageFile.verdict"))
-			{
-				try { nVerdict = std::stoll(std::string(optVerdictP.value())); } catch (...) {}
-			}
-			else if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
-			{
-				try { nVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
-			}
 			
 			if (!s_fProtectionPaused.load())
 			{

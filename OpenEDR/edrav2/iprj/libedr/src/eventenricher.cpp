@@ -203,6 +203,36 @@ namespace {
 			return;
 		stream << sJsonLine << "\n";
 	}
+
+	// Forward enriched event to Owlyshield FastDetect ML engine
+	static void ForwardToOwlyshieldMlEngine(const Variant& vEvent)
+	{
+		static HMODULE s_hOwlyDll = nullptr;
+		typedef int32_t (*IngestOpenedrEventFn)(const uint8_t*, uint32_t);
+		static IngestOpenedrEventFn s_fnIngest = nullptr;
+		static std::once_flag s_initFlag;
+
+		std::call_once(s_initFlag, []() {
+			s_hOwlyDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			if (s_hOwlyDll != nullptr)
+			{
+				s_fnIngest = (IngestOpenedrEventFn)::GetProcAddress(s_hOwlyDll, "owlyshield_dll_ingest_openedr_event");
+			}
+		});
+
+		if (s_fnIngest != nullptr)
+		{
+			try
+			{
+				std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+				if (!sJson.empty())
+				{
+					s_fnIngest(reinterpret_cast<const uint8_t*>(sJson.data()), static_cast<uint32_t>(sJson.size()));
+				}
+			}
+			catch (...) {}
+		}
+	}
 }
 
 //
@@ -1294,6 +1324,9 @@ void EventEnricher::put(const Variant& vEventRef)
 	catch (...)
 	{
 	}
+
+	// Feed all enriched events (files, processes, registry, etc.) to Owlyshield FastDetect ML engine
+	ForwardToOwlyshieldMlEngine(vEvent);
 
 	return pReceiver->put(vEvent);
 	TRACE_END(FMT("Fail to parse event <" << vEvent.get("baseType", 0) << ">"))
