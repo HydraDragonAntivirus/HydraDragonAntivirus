@@ -634,6 +634,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							"process.path",
 							"process.imageFile.abstractPath"
 						});
+					}
 				}
 			}
 
