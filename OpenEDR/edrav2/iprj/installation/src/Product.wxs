@@ -120,7 +120,8 @@
 					<RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR]Sanctum" Type="string" KeyPath="no" />
 				</RegistryKey>
 			</Component>
-			<Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR" />
+			<Files Include="..\..\edrdata\threat_intel\*.xf" Directory="THREATINTELDIR" />
+			<Files Include="..\..\edrdata\threat_intel\CIDR*.txt" Directory="THREATINTELDIR" />
 			<Files Include="$(var.SourceBinDir)**">
 				<Exclude Files="$(var.SourceBinDir)models\**" />
 				<Exclude Files="$(var.SourceBinDir)*.xf" />
