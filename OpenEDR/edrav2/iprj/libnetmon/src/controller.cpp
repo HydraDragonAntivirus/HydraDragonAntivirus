@@ -237,6 +237,7 @@ void NetworkMonitorController::finalConstruct(Variant vConfig)
 //
 void NetworkMonitorController::loadState(Variant vState)
 {
+	(void)vState;
 }
 
 //

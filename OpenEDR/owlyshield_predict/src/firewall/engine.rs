@@ -3042,11 +3042,11 @@ impl FirewallEngine {
                 threat_match = am.threat_intel.check_domain(dns_domain);
             }
         }
-        if threat_match.is_none() && info.outbound {
-            threat_match = am.threat_intel.check_port(info.dst_port);
-        }
 
-        if let Some(reason) = threat_match {
+        if let Some(mut reason) = threat_match {
+            if info.outbound && crate::threat_intel::is_restricted_port(info.dst_port) {
+                reason = format!("{}:restricted_port_{}", reason, info.dst_port);
+            }
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
             stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
 

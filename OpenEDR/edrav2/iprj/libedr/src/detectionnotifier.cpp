@@ -656,20 +656,14 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 					catch (...) {}
 				}
 
-				// 3. If it's a File Detection (FLS or file verdict == 2), target the malicious file itself
+				// 3. If it's a File Event or File Detection, resolve target file path
 				if (sPath.empty())
 				{
-					int64_t fv = 0;
-					if (auto optVerdictF = getByPathSafe(vEvent, "file.verdict"))
-						try { fv = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
-					if (fv == 2)
-					{
-						sPath = tryPaths({
-							"file.rawPath",
-							"file.path",
-							"file.abstractPath"
-						});
-					}
+					sPath = tryPaths({
+						"file.rawPath",
+						"file.path",
+						"file.abstractPath"
+					});
 				}
 
 				// 4. Direct process behavioral detection - only if processes sequence was NOT a multi-process chain
