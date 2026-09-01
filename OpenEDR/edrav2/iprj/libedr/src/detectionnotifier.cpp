@@ -15,6 +15,7 @@
 #include <deque>
 #include <atomic>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <algorithm>
 #include <cctype>
@@ -45,6 +46,60 @@ namespace {
 	{
 		std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		return s;
+	}
+
+	// Sanitizes C:\Windows\System32\drivers\etc\hosts to ensure it remains 100% clean (comments only).
+	// Returns true if active (non-comment) entries were found and sanitized.
+	static bool sanitizeHostsFile()
+	{
+		const wchar_t* wsHostsPath = L"C:\\Windows\\System32\\drivers\\etc\\hosts";
+		std::ifstream ifs(wsHostsPath);
+		if (!ifs.is_open()) return false;
+
+		std::vector<std::string> cleanLines;
+		std::string line;
+		bool bModified = false;
+
+		while (std::getline(ifs, line))
+		{
+			std::string trimmed = line;
+			size_t first = trimmed.find_first_not_of(" \t\r\n");
+			if (first == std::string::npos) {
+				cleanLines.push_back(line);
+				continue;
+			}
+			trimmed = trimmed.substr(first);
+
+			if (trimmed.empty() || trimmed[0] == '#') {
+				cleanLines.push_back(line);
+			} else {
+				// Active mapping entry with 2 entries/tokens (Token 1 = IPv4 '.' or IPv6 ':', Token 2 = Domain)
+				std::istringstream iss(trimmed);
+				std::string t1, t2;
+				if (iss >> t1 && iss >> t2) {
+					if (t1.find('.') != std::string::npos || t1.find(':') != std::string::npos) {
+						bModified = true;
+					} else {
+						cleanLines.push_back(line);
+					}
+				} else {
+					cleanLines.push_back(line);
+				}
+			}
+		}
+		ifs.close();
+
+		if (bModified)
+		{
+			std::ofstream ofs(wsHostsPath, std::ios::trunc);
+			if (ofs.is_open()) {
+				for (const auto& l : cleanLines) {
+					ofs << l << "\n";
+				}
+			}
+			LOGLVL(Critical, "detnotif: Sanitized malicious active entry in C:\\Windows\\System32\\drivers\\etc\\hosts");
+		}
+		return bModified;
 	}
 
 	static std::string NtPathToDosPathString(const std::string& sNt)
@@ -348,6 +403,10 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			LOGLVL(Detailed, "detnotif: Protection is PAUSED. Suppressing all alerts, notifications and storage.");
 			return {};
 		}
+
+		// Hosts File Self-Defense & Behavioral Protection:
+		// Always sanitize Hosts file so active non-comment entries are deleted!
+		(void)sanitizeHostsFile();
 
 		// Provide X mark critical severity flag in any detection (that is not a HIPS alert)
 		// as requested by the user, so the GUI can parse it as a critical threat.
