@@ -97,7 +97,7 @@ def main():
     output_dir = Path(sys.argv[2])
     writer_exe = Path(sys.argv[3]) if len(sys.argv) >= 4 else None
 
-    stage_dir = output_dir / "stage_txt"
+    stage_dir = datasets_dir / "stage_txt"
     stage_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
