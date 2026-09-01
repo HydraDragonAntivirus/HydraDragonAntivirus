@@ -3,7 +3,7 @@
 //! and CIDR Blacklists with public IP scoping and XorFilter False Positive protection.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
@@ -30,6 +30,97 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
                 && (v6.segments()[0] & 0xffc0) != 0xfe80
         }
     }
+}
+
+/// Mozilla Gecko / Chromium restricted ports (Cross-Protocol Slipstream / SSRF / NAT Pinning protection).
+/// Reference: https://github.com/mozilla/gecko-dev/blob/771bc161e016e2bd1f7982a88d387916fdf350dd/netwerk/base/nsIOService.cpp#L117
+pub const RESTRICTED_BAD_PORTS: &[u16] = &[
+    1,      // tcpmux - TCP Port Service Multiplexer
+    7,      // echo - Echo Protocol
+    9,      // discard - Discard Protocol
+    11,     // systat - Active Users Protocol
+    13,     // daytime - Daytime Protocol
+    15,     // netstat - Netstat Service
+    17,     // qotd - Quote of the Day
+    19,     // chargen - Character Generator Protocol
+    20,     // ftp-data - FTP Data Transfer (FileZilla, TotalCmd, FTP clients)
+    21,     // ftp - FTP Control Command (FileZilla, WinSCP, FTP clients)
+    22,     // ssh - Secure Shell (OpenSSH, PuTTY, Git, VSCode, WinSCP)
+    23,     // telnet - Telnet Protocol
+    25,     // smtp - Simple Mail Transfer Protocol (Outlook, Thunderbird, Mail clients)
+    37,     // time - Time Protocol
+    42,     // name - Host Name Server
+    43,     // nicname - Whois Protocol
+    53,     // domain - Domain Name System (System DNS Resolvers, Windows DNS)
+    69,     // tftp - Trivial File Transfer Protocol
+    77,     // priv-rjs - Private Remote Job Service
+    79,     // finger - Finger Protocol
+    87,     // ttylink - TTY Link Service
+    95,     // supdup - SUPDUP Protocol
+    101,    // hostname - NIC Host Name Server
+    102,    // iso-tsap - ISO-TSAP Class 0 Protocol
+    103,    // gppitnp - Genesis Point-to-Point Trans Net
+    104,    // acr-nema - Digital Imaging & Communications in Medicine
+    109,    // pop2 - Post Office Protocol v2
+    110,    // pop3 - Post Office Protocol v3 (Outlook, Thunderbird, Mail clients)
+    111,    // sunrpc - SUN Remote Procedure Call
+    113,    // auth - Authentication Service / Ident
+    115,    // sftp - Simple File Transfer Protocol
+    117,    // uucp-path - UUCP Path Service
+    119,    // nntp - Network News Transfer Protocol
+    123,    // ntp - Network Time Protocol (Windows Time Service)
+    135,    // loc-srv / epmap - RPC Endpoint Mapper (Windows System, SMB)
+    137,    // netbios - NetBIOS Name Service (Windows System, Explorer)
+    139,    // netbios - NetBIOS Session Service (Windows System, Explorer)
+    143,    // imap2 - Internet Message Access Protocol (Outlook, Thunderbird)
+    161,    // snmp - Simple Network Management Protocol
+    179,    // bgp - Border Gateway Protocol
+    389,    // ldap - Lightweight Directory Access Protocol (Active Directory)
+    427,    // afp (alternate) - Apple Filing Protocol
+    465,    // smtp (alternate) - SMTPS Secure Mail (Outlook, Thunderbird)
+    512,    // print / exec - Remote Process Execution
+    513,    // login - Remote Login
+    514,    // shell - Remote Shell
+    515,    // printer - Line Printer Daemon
+    526,    // tempo - Tempo Protocol
+    530,    // courier - RPC Courier
+    531,    // chat - IRC Chat / Conference
+    532,    // netnews - Readnews
+    540,    // uucp - UUCP Daemon
+    548,    // afp - Apple Filing Protocol
+    554,    // rtsp - Real Time Streaming Protocol (VLC, Media Players)
+    556,    // remotefs - Remote File System
+    563,    // nntp+ssl - NNTPS Secure News
+    587,    // smtp (outgoing) - SMTP Submission (Outlook, Thunderbird)
+    601,    // syslog-conn - Reliable Syslog Service
+    636,    // ldap+ssl - LDAPS Secure Active Directory
+    989,    // ftps-data - FTPS Secure Data
+    990,    // ftps - FTPS Secure Control (FileZilla, WinSCP)
+    993,    // imap+ssl - IMAPS Secure Mail (Outlook, Thunderbird)
+    995,    // pop3+ssl - POP3S Secure Mail (Outlook, Thunderbird)
+    1719,   // h323gatestat - H.323 Gatekeeper Status
+    1720,   // h323hostcall - H.323 Call Setup
+    1723,   // pptp - Point-to-Point Tunneling Protocol (VPN)
+    2049,   // nfs - Network File System
+    3659,   // apple-sasl - Apple SASL Service
+    4045,   // lockd - NFS Lock Daemon
+    4190,   // sieve - ManageSieve Mail Filter
+    5060,   // sip - Session Initiation Protocol (VoIP, Softphones)
+    5061,   // sips - SIPS Secure VoIP
+    6000,   // x11 - X11 Display Server
+    6566,   // sane-port - SANE Network Scanner
+    6665,   // irc (alternate) - Internet Relay Chat (HexChat, mIRC)
+    6666,   // irc (alternate) - Internet Relay Chat
+    6667,   // irc (default) - Internet Relay Chat
+    6668,   // irc (alternate) - Internet Relay Chat
+    6669,   // irc (alternate) - Internet Relay Chat
+    6679,   // osaut - IRC SSL Alternate
+    6697,   // irc+tls - Secure IRC TLS (HexChat, mIRC)
+    10080,  // amanda - Amanda Backup Protocol
+];
+
+pub fn is_restricted_port(port: u16) -> bool {
+    RESTRICTED_BAD_PORTS.binary_search(&port).is_ok()
 }
 
 /// Fast CIDR Subnet Index (IPv4 & IPv6).
@@ -138,16 +229,25 @@ pub struct ThreatIntelScanner {
 pub fn get_threat_intel_path() -> std::path::PathBuf {
     #[cfg(target_os = "windows")]
     {
-        use winreg::RegKey;
         use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         if let Ok(key) = hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK") {
             if let Ok(p) = key.get_value::<String, _>("THREAT_INTEL_PATH") {
-                return std::path::PathBuf::from(p);
+                let path = std::path::PathBuf::from(p);
+                if path.exists() {
+                    return path;
+                }
             }
         }
     }
-    std::path::PathBuf::from(r"C:\ProgramData\edrsvc\threat_intel")
+
+    let default_path = std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel");
+    if default_path.exists() {
+        default_path
+    } else {
+        std::path::PathBuf::from(r"edrdata\threat_intel")
+    }
 }
 
 impl ThreatIntelScanner {
@@ -168,23 +268,28 @@ impl ThreatIntelScanner {
         scanner.cidr_index.load_v4_file(dir_path.join("CIDRBlackListIPv4.txt"));
         scanner.cidr_index.load_v6_file(dir_path.join("CIDRBlackListIPv6.txt"));
 
-        // Load `.xf` filters using hydradragonxorfilter (jdb_xorf) crate
-        let xf_names = [
-            "ipmalware.xf", "ipbruteforce.xf", "ipddos.xf", "ipphishing.xf", "ipspam.xf",
-            "malicious.xf", "malwareurl.xf", "phishingurl.xf", "phishing.xf",
-            "malicious_mail.xf", "spam.xf", "abuse.xf", "mining.xf"
-        ];
-
-        for name in xf_names {
-            let path = dir_path.join(name);
-            if let Ok(mut file) = File::open(&path) {
-                let mut bytes = Vec::new();
-                if file.read_to_end(&mut bytes).is_ok() {
-                    if let Some(filter) = XorFilter::from_bytes(&bytes) {
-                        if name.starts_with("ip") {
-                            scanner.ip_filters.insert(name.to_string(), filter);
-                        } else {
-                            scanner.domain_filters.insert(name.to_string(), filter);
+        // Dynamically scan directory for ALL `.xf` files
+        if let Ok(entries) = fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext.eq_ignore_ascii_case("xf") {
+                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                                let file_name_lower = file_name.to_ascii_lowercase();
+                                if let Ok(mut file) = File::open(&path) {
+                                    let mut bytes = Vec::new();
+                                    if file.read_to_end(&mut bytes).is_ok() {
+                                        if let Some(filter) = XorFilter::from_bytes(&bytes) {
+                                            if file_name_lower.starts_with("ip") {
+                                                scanner.ip_filters.insert(file_name_lower, filter);
+                                            } else {
+                                                scanner.domain_filters.insert(file_name_lower, filter);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -217,19 +322,70 @@ impl ThreatIntelScanner {
         None
     }
 
-    /// Check if domain matches any Domain XorFilter.
+    /// Check if domain or any of its parent subdomains matches any Domain XorFilter.
+    /// If target string is actually an IP address, it is routed to check_ip automatically.
     pub fn check_domain(&self, domain: &str) -> Option<String> {
-        let domain_lower = domain.trim().to_ascii_lowercase();
-        if domain_lower.is_empty() {
+        let mut clean_domain = domain.trim().to_ascii_lowercase();
+        if clean_domain.is_empty() {
             return None;
         }
 
-        for (name, filter) in &self.domain_filters {
-            if filter.contains(&domain_lower) {
-                return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
+        // Strip protocol prefix (e.g. "https://example.com/path" -> "example.com/path")
+        if let Some(pos) = clean_domain.find("://") {
+            clean_domain = clean_domain[pos + 3..].to_string();
+        }
+
+        // Strip path, query params, or fragments (e.g. "example.com/path?id=1" -> "example.com")
+        if let Some(pos) = clean_domain.find('/') {
+            clean_domain = clean_domain[..pos].to_string();
+        }
+
+        // Strip port if present (e.g. "example.com:443" -> "example.com")
+        if let Some((host, _port)) = clean_domain.split_once(':') {
+            clean_domain = host.to_string();
+        }
+
+        // Strip trailing dot
+        if clean_domain.ends_with('.') {
+            clean_domain.pop();
+        }
+
+        if clean_domain.is_empty() {
+            return None;
+        }
+
+        // If target is an IP address, route strictly to IP scanner
+        if let Ok(ip) = clean_domain.parse::<IpAddr>() {
+            return self.check_ip(ip);
+        }
+
+        // Target is a Domain: Query DOMAIN filters ONLY
+        let parts: Vec<&str> = clean_domain.split('.').collect();
+        if parts.len() == 1 {
+            for (name, filter) in &self.domain_filters {
+                if filter.contains(&clean_domain) {
+                    return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
+                }
+            }
+        } else {
+            for i in 0..parts.len().saturating_sub(1) {
+                let sub_candidate = parts[i..].join(".");
+                for (name, filter) in &self.domain_filters {
+                    if filter.contains(&sub_candidate) {
+                        return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
+                    }
+                }
             }
         }
 
+        None
+    }
+
+    /// Check if target port is a Mozilla Gecko / Chromium restricted port (gBadPortList).
+    pub fn check_port(&self, port: u16) -> Option<String> {
+        if is_restricted_port(port) {
+            return Some(format!("RESTRICTED_BAD_PORT_MATCH:port_{}", port));
+        }
         None
     }
 }

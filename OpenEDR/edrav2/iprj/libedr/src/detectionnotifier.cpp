@@ -638,6 +638,22 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				}
 			}
 
+			// Sync process verdict to OwlyShield Rust engine
+			if (nGid > 0 && nVerdict > 0)
+			{
+				HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+				if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
+				if (hOwly)
+				{
+					typedef int32_t (*UpdateVerdictFn)(uint32_t, uint8_t);
+					auto fnUpdate = (UpdateVerdictFn)::GetProcAddress(hOwly, "owlyshield_update_process_verdict");
+					if (fnUpdate)
+					{
+						fnUpdate(static_cast<uint32_t>(nGid), static_cast<uint8_t>(nVerdict));
+					}
+				}
+			}
+
 			// Check should_trust_comodo_fls_cloud rule flag (default: true)
 			bool bShouldTrustFlsCloud = true;
 			if (auto optTrust = variant::getByPathSafe(vEvent, "should_trust_comodo_fls_cloud"))

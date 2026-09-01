@@ -3021,62 +3021,6 @@ impl FirewallEngine {
             };
         }
 
-        // 1c. THREAT INTELLIGENCE ENGINE SCAN (CIDR Blacklist & XorFilter .xf)
-        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
-        let mut threat_match = am.threat_intel.check_ip(remote_ip);
-        if threat_match.is_none() {
-            if let Some(ref host) = info.hostname {
-                threat_match = am.threat_intel.check_domain(host);
-            } else if let Some(ref dns_domain) = info.dns_query {
-                threat_match = am.threat_intel.check_domain(dns_domain);
-            }
-        }
-
-        if let Some(reason) = threat_match {
-            let openedr_verdicts = am.openedr_verdicts.read().unwrap();
-            let verdict = openedr_verdicts.get(&pid).map(|s| s.as_str()).unwrap_or("0");
-
-            match verdict {
-                "1" => {
-                    // SAFE (verdict == 1): Drop traffic ONLY. DO NOT KILL / DO NOT QUARANTINE.
-                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
-                    stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-                    return PacketDecision {
-                        packet_data: data_vec,
-                        address_data: address_data.to_vec(),
-                        should_forward: false,
-                        recalc_checksums: false,
-                        _reason: format!("ThreatIntel Block (SAFE process pid={}, reason={})", pid, reason),
-                    };
-                }
-                "4" => {
-                    // FAIL/ERROR (verdict == 4): Drop traffic ONLY. Queue for retry until FLS recovers.
-                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
-                    stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-                    return PacketDecision {
-                        packet_data: data_vec,
-                        address_data: address_data.to_vec(),
-                        should_forward: false,
-                        recalc_checksums: false,
-                        _reason: format!("ThreatIntel Block (FLS ERROR/OFFLINE pid={}, reason={})", pid, reason),
-                    };
-                }
-                _ => {
-                    // MALWARE / UNKNOWN (verdict == 2, 3 or absent): Drop traffic + QUARANTINE & KILL!
-                    am.suspicious_pids.write().unwrap().insert(pid);
-                    stats.packets_total.fetch_add(1, Ordering::Relaxed);
-                    stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-                    return PacketDecision {
-                        packet_data: data_vec,
-                        address_data: address_data.to_vec(),
-                        should_forward: false,
-                        recalc_checksums: false,
-                        _reason: format!("ThreatIntel Block & Kill (MALWARE/UNKNOWN pid={}, reason={})", pid, reason),
-                    };
-                }
-            }
-        }
-
         // 2. Resolve Process Metadata
         let app_info = am.info_cache.get_info(pid);
         let sdk_context = super::sdk::PacketContext {
@@ -3084,6 +3028,49 @@ impl FirewallEngine {
             process_name: app_info.name.clone(),
             process_path: app_info.path.clone(),
         };
+
+        // 1c. THREAT INTELLIGENCE ENGINE SCAN (CIDR Blacklist & XorFilter .xf)
+        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
+        let mut threat_match = am.threat_intel.check_ip(remote_ip);
+        if threat_match.is_none() {
+            if let Some(ref host) = info.hostname {
+                threat_match = am.threat_intel.check_domain(host);
+            }
+        }
+        if threat_match.is_none() {
+            if let Some(ref dns_domain) = info.dns_query {
+                threat_match = am.threat_intel.check_domain(dns_domain);
+            }
+        }
+        if threat_match.is_none() && info.outbound {
+            threat_match = am.threat_intel.check_port(info.dst_port);
+        }
+
+        if let Some(reason) = threat_match {
+            stats.packets_total.fetch_add(1, Ordering::Relaxed);
+            stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+
+            let now = Self::now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-threatintel-{}", now, pid),
+                timestamp: now,
+                level: LogLevel::Warning,
+                message: format!(
+                    "ThreatIntel Event: {} (pid={}) -> {}:{} reason={}",
+                    app_info.name, pid, remote_ip, info.dst_port, reason
+                ),
+            });
+
+            // Rust drops the network packet immediately (<5ns).
+            // Process quarantine & kill decisions are delegated directly to OpenEDR C++ engine.
+            return PacketDecision {
+                packet_data: data_vec,
+                address_data: address_data.to_vec(),
+                should_forward: false,
+                recalc_checksums: false,
+                _reason: format!("ThreatIntel Packet Drop (Delegated to OpenEDR C++ Engine, pid={}, reason={})", pid, reason),
+            };
+        }
 
         // Initialize decision state
         let mut should_forward = true;

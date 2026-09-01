@@ -341,3 +341,24 @@ pub extern "C" fn owlyshield_dll_quarantine_file(file_path: *const u8, len: u32)
         }
     }
 }
+
+/// Called by OpenEDR C++ layer to register/update FLS verdict for a process PID.
+/// `verdict`: 0=Absent, 1=Safe, 2=Malicious, 3=Unknown, 4=Fail/Error
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_update_process_verdict(pid: u32, verdict: u8) -> i32 {
+    if pid == 0 {
+        return -1;
+    }
+    if let Some(eng) = crate::firewall::headless::engine() {
+        let mut verdicts = eng.app_manager.openedr_verdicts.write().unwrap();
+        verdicts.insert(pid, verdict.to_string());
+        Logging::info(&format!(
+            "[Owlyshield FFI] Updated PID {} verdict to {}",
+            pid, verdict
+        ));
+        OWLY_OK
+    } else {
+        -1
+    }
+}
+
