@@ -118,6 +118,7 @@
                 <Files Include="$(var.SourceBinDir64)threat_intel\**" Directory="THREATINTELDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)*.xf" Directory="THREATINTELDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)CIDR*.txt" Directory="THREATINTELDIR_X64" />
+                <Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
                     <Exclude Files="$(var.SourceBinDir64)threat_intel\**" />

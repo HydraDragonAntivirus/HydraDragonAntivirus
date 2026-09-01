@@ -1,0 +1,16 @@
+[package]
+name = "xorfilter_writer"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "xorfilter_writer"
+path = "src/main.rs"
+
+[dependencies]
+# Shared crate: same key derivation, width selection and on-disk format the
+# device loads => the .xf built here is queryable byte-for-byte on arm64.
+hydradragonxorfilter = { path = "../../hydradragonxorfilter" }
+
+[profile.release]
+opt-level = 3

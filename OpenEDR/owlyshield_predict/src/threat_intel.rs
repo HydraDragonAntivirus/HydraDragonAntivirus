@@ -221,8 +221,7 @@ impl CidrBlacklistIndex {
 
 /// Unified Threat Intelligence Scanner using `hydradragonxorfilter` (`jdb_xorf` BinaryFuse16).
 pub struct ThreatIntelScanner {
-    ip_filters: HashMap<String, XorFilter>,
-    domain_filters: HashMap<String, XorFilter>,
+    filters: HashMap<String, XorFilter>,
     cidr_index: CidrBlacklistIndex,
 }
 
@@ -271,8 +270,7 @@ impl ThreatIntelScanner {
 
     pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Self {
         let mut scanner = Self {
-            ip_filters: HashMap::new(),
-            domain_filters: HashMap::new(),
+            filters: HashMap::new(),
             cidr_index: CidrBlacklistIndex::new(),
         };
 
@@ -295,11 +293,7 @@ impl ThreatIntelScanner {
                                     let mut bytes = Vec::new();
                                     if file.read_to_end(&mut bytes).is_ok() {
                                         if let Some(filter) = XorFilter::from_bytes(&bytes) {
-                                            if file_name_lower.starts_with("ip") || file_name_lower.contains("abuse") {
-                                                scanner.ip_filters.insert(file_name_lower, filter);
-                                            } else {
-                                                scanner.domain_filters.insert(file_name_lower, filter);
-                                            }
+                                            scanner.filters.insert(file_name_lower, filter);
                                         }
                                     }
                                 }
@@ -327,7 +321,7 @@ impl ThreatIntelScanner {
 
         // 2. IP XorFilter match using jdb_xorf key derivation
         let ip_str = ip.to_string();
-        for (name, filter) in &self.ip_filters {
+        for (name, filter) in &self.filters {
             if filter.contains(&ip_str) {
                 return Some(format!("XORFILTER_IP_MATCH:{}", name));
             }
@@ -382,7 +376,7 @@ impl ThreatIntelScanner {
 
         let parts: Vec<&str> = clean_domain.split('.').collect();
         if parts.len() <= 1 {
-            for (name, filter) in &self.domain_filters {
+            for (name, filter) in &self.filters {
                 if filter.contains(&clean_domain) {
                     return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
                 }
@@ -394,7 +388,7 @@ impl ThreatIntelScanner {
                     break;
                 }
 
-                for (name, filter) in &self.domain_filters {
+                for (name, filter) in &self.filters {
                     if filter.contains(&sub_candidate) {
                         return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
                     }

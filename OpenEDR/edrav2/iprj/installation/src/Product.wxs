@@ -123,6 +123,7 @@
 			<Files Include="$(var.SourceBinDir)threat_intel\**" Directory="THREATINTELDIR" />
 			<Files Include="$(var.SourceBinDir)*.xf" Directory="THREATINTELDIR" />
 			<Files Include="$(var.SourceBinDir)CIDR*.txt" Directory="THREATINTELDIR" />
+			<Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR" />
 			<Files Include="$(var.SourceBinDir)**">
 				<Exclude Files="$(var.SourceBinDir)models\**" />
 				<Exclude Files="$(var.SourceBinDir)threat_intel\**" />
