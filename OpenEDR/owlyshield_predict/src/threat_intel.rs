@@ -242,7 +242,6 @@ pub fn get_threat_intel_path() -> std::path::PathBuf {
         }
     }
 
-fn get_threat_intel_path() -> std::path::PathBuf {
     let candidate_paths = [
         std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel"),
         std::env::current_exe()
@@ -297,9 +296,8 @@ impl ThreatIntelScanner {
                                     if file.read_to_end(&mut bytes).is_ok() {
                                         if let Some(filter) = XorFilter::from_bytes(&bytes) {
                                             if file_name_lower.starts_with("ip") || file_name_lower.contains("abuse") {
-                                                scanner.ip_filters.insert(file_name_lower.clone(), filter.clone());
-                                            }
-                                            if !file_name_lower.starts_with("ip") {
+                                                scanner.ip_filters.insert(file_name_lower, filter);
+                                            } else {
                                                 scanner.domain_filters.insert(file_name_lower, filter);
                                             }
                                         }
