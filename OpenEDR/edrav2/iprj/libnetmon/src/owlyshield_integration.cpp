@@ -149,6 +149,10 @@ bool OwlyshieldInstallCa()
 	HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 	if (hDll == nullptr)
 	{
+		hDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\owlyshield_ransom.dll");
+	}
+	if (hDll == nullptr)
+	{
 		LOGLVL(Debug, "Failed to load owlyshield_ransom.dll for CA install (error: " << ::GetLastError() << ")");
 		return false;
 	}

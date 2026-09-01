@@ -334,7 +334,9 @@ Variant NetworkMonitorController::execute(Variant vCommand, Variant vParams)
 	else if (vCommand == "installFirewallCa")
 	{
 		if (!cmd::win::OwlyshieldInstallCa())
-			error::RuntimeError(SL, "Failed to install HydraDragon firewall CA certificate").throwException();
+		{
+			LOGLVL(Detailed, "installFirewallCa: CA certificate installation deferred or failed. Service installation continues.");
+		}
 		return {};
 	}
 
