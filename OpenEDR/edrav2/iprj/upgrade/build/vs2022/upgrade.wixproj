@@ -95,9 +95,7 @@
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\elam_installer.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\elam_installer.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum_ppl_runner.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\AppData\"' />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\server.exe')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\server.exe" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\System32\"' />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\"' />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys')" Command='xcopy /Y /D "$(ProjectDir)..\..\..\..\..\..\hydradragon\Sanctum\AppData\sanctum.sys" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\Sanctum\AppData\"' />
   </Target>
 </Project>
