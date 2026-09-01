@@ -220,6 +220,20 @@ namespace {
 	std::unordered_map<std::wstring, std::wstring> s_allPreImages; // global victim path -> backup path
 	std::unordered_map<int64_t, std::vector<EventEnricher::ShadowBackupEntry>> s_backups;
 
+	static bool endsWithCaseInsensitive(const std::wstring& str, const std::wstring& suffix)
+	{
+		if (str.size() < suffix.size()) return false;
+		return _wcsicmp(str.c_str() + str.size() - suffix.size(), suffix.c_str()) == 0;
+	}
+
+	static bool containsCaseInsensitive(const std::wstring& str, const std::wstring& sub)
+	{
+		if (sub.empty() || str.empty() || str.size() < sub.size()) return false;
+		auto it = std::search(str.begin(), str.end(), sub.begin(), sub.end(),
+			[](wchar_t ch1, wchar_t ch2) { return towlower(ch1) == towlower(ch2); });
+		return it != str.end();
+	}
+
 	static std::wstring findPreImageOnDisk(int64_t nPid, const std::wstring& wsOrig)
 	{
 		std::wstring wsBaseName = wsOrig;
@@ -235,18 +249,20 @@ namespace {
 		if (dotPos != std::wstring::npos && dotPos > 0)
 			wsStripped = wsBaseName.substr(0, dotPos);
 
-		// 1. In-memory global pre-image index
+		// 1. In-memory global pre-image index (case-insensitive)
 		{
 			std::scoped_lock _lock(s_mtxRansomShield);
-			auto it = s_allPreImages.find(wsOrig);
-			if (it != s_allPreImages.end() && !it->second.empty())
-				return it->second;
+			for (const auto& [victim, bk] : s_allPreImages)
+			{
+				if (_wcsicmp(victim.c_str(), wsOrig.c_str()) == 0 && !bk.empty())
+					return bk;
+			}
 
 			if (!wsStripped.empty())
 			{
 				for (const auto& [victim, bk] : s_allPreImages)
 				{
-					if (victim.find(wsStripped) != std::wstring::npos && !bk.empty())
+					if (containsCaseInsensitive(victim, wsStripped) && !bk.empty())
 						return bk;
 				}
 			}
@@ -268,17 +284,18 @@ namespace {
 					if (!entry.is_regular_file()) continue;
 
 					std::wstring fn = entry.path().filename().wstring();
-					if (fn.size() > wsBaseName.size() &&
-						fn.compare(fn.size() - wsBaseName.size(), wsBaseName.size(), wsBaseName) == 0 &&
-						fn[fn.size() - wsBaseName.size() - 1] == L'_')
+					std::wstring target1 = L"_" + wsBaseName;
+					if (endsWithCaseInsensitive(fn, target1))
 					{
 						return entry.path().wstring();
 					}
-					if (!wsStripped.empty() && fn.size() > wsStripped.size() &&
-						fn.compare(fn.size() - wsStripped.size(), wsStripped.size(), wsStripped) == 0 &&
-						fn[fn.size() - wsStripped.size() - 1] == L'_')
+					if (!wsStripped.empty())
 					{
-						return entry.path().wstring();
+						std::wstring target2 = L"_" + wsStripped;
+						if (endsWithCaseInsensitive(fn, target2))
+						{
+							return entry.path().wstring();
+						}
 					}
 				}
 				return L"";
@@ -344,8 +361,6 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 			wsFilePath = vFile.get("abstractPath", L"");
 
 		wsFilePath = NormalizeToDosPath(wsFilePath);
-		std::transform(wsFilePath.begin(), wsFilePath.end(),
-			wsFilePath.begin(), ::towlower);
 
 		if (vFile.has("renameTarget"))
 		{
@@ -423,9 +438,31 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 						entry.wsBackup = itBk->second;
 					else
 					{
+						for (const auto& [rf, bk] : readMap)
+						{
+							if (_wcsicmp(rf.c_str(), wsFilePath.c_str()) == 0 && !bk.empty())
+							{
+								entry.wsBackup = bk;
+								break;
+							}
+						}
+					}
+					if (entry.wsBackup.empty())
+					{
 						auto itGlobal = s_allPreImages.find(wsFilePath);
 						if (itGlobal != s_allPreImages.end())
 							entry.wsBackup = itGlobal->second;
+						else
+						{
+							for (const auto& [victim, bk] : s_allPreImages)
+							{
+								if (_wcsicmp(victim.c_str(), wsFilePath.c_str()) == 0 && !bk.empty())
+								{
+									entry.wsBackup = bk;
+									break;
+								}
+							}
+						}
 					}
 				}
 				vec.push_back(std::move(entry));
@@ -465,24 +502,28 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 	std::unordered_map<std::wstring, std::wstring> readMapCopy;
 	{
 		std::scoped_lock _lock(s_mtxRansomShield);
+		// 1. Drain primary PID backups
 		auto it = s_backups.find(nPid);
 		if (it != s_backups.end())
 		{
-			vec = it->second;
+			vec.insert(vec.end(), it->second.begin(), it->second.end());
 			s_backups.erase(it);
 		}
-		auto itR = s_readFiles.find(nPid);
-		if (itR != s_readFiles.end())
+		// 2. Drain ALL other PIDs currently tracked in s_backups (child/helper processes)
+		for (auto itOther = s_backups.begin(); itOther != s_backups.end(); )
 		{
-			readMapCopy = itR->second;
-			s_readFiles.erase(itR);
+			vec.insert(vec.end(), itOther->second.begin(), itOther->second.end());
+			itOther = s_backups.erase(itOther);
+		}
+		// 3. Drain all read maps across all PIDs
+		for (auto itR = s_readFiles.begin(); itR != s_readFiles.end(); )
+		{
+			readMapCopy.insert(itR->second.begin(), itR->second.end());
+			itR = s_readFiles.erase(itR);
 		}
 	}
 
-	if (vec.empty() && readMapCopy.empty())
-		return;
-
-	LOGLVL(Critical, FMT("RansomShield: rolling back " << vec.size() << " recorded victim file(s) for pid=" << nPid));
+	LOGLVL(Critical, FMT("RansomShield: rolling back " << vec.size() << " recorded victim file(s) across all active PIDs (triggered by PID=" << nPid << ")"));
 
 	// Roll back newest-first so chained renames unwind correctly.
 	std::unordered_set<std::wstring> restoredPaths;
@@ -546,6 +587,17 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 
 		if (restoredPaths.insert(wsRestoreTarget).second)
 		{
+			// Block restore if the target or backup is known detected malware (e.g. Winball501Ransom.exe)
+			std::string sNarrowTarget = Narrow(wsRestoreTarget);
+			std::string sNarrowBackup = Narrow(wsBackup);
+			if (DetectionNotifier::isKnownMalware(sNarrowTarget, "") || DetectionNotifier::isKnownMalware(sNarrowBackup, ""))
+			{
+				LOGLVL(Critical, FMT("RansomShield: BLOCKED restore of detected malware binary <" << sNarrowTarget << ">"));
+				::SetFileAttributesW(wsRestoreTarget.c_str(), FILE_ATTRIBUTE_NORMAL);
+				::DeleteFileW(wsRestoreTarget.c_str());
+				continue;
+			}
+
 			// Reset readonly/hidden/system attributes on target to prevent ERROR_ACCESS_DENIED (err=5)
 			::SetFileAttributesW(wsRestoreTarget.c_str(), FILE_ATTRIBUTE_NORMAL);
 			::DeleteFileW(wsRestoreTarget.c_str());
@@ -564,6 +616,64 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 			}
 		}
 	}
+
+	// Multi-PID disk sweep: Check ALL PID subdirectories in C:\ProgramData\HydraDragonBackups for remaining backups
+	try
+	{
+		std::filesystem::path rootDir = L"C:\\ProgramData\\HydraDragonBackups";
+		if (std::filesystem::exists(rootDir) && std::filesystem::is_directory(rootDir))
+		{
+			for (const auto& pidDir : std::filesystem::directory_iterator(rootDir))
+			{
+				if (!pidDir.is_directory()) continue;
+				for (const auto& entry : std::filesystem::directory_iterator(pidDir.path()))
+				{
+					if (!entry.is_regular_file()) continue;
+					std::wstring bkPath = entry.path().wstring();
+					std::wstring fn = entry.path().filename().wstring();
+
+					auto uPos = fn.find(L'_');
+					if (uPos == std::wstring::npos || uPos + 1 >= fn.size()) continue;
+					std::wstring originalName = fn.substr(uPos + 1);
+
+					std::wstring wsTarget;
+					{
+						std::scoped_lock _lock(s_mtxRansomShield);
+						for (const auto& [vPath, bPath] : s_allPreImages)
+						{
+							if (_wcsicmp(bPath.c_str(), bkPath.c_str()) == 0 || endsWithCaseInsensitive(vPath, originalName))
+							{
+								wsTarget = vPath;
+								break;
+							}
+						}
+					}
+
+					if (!wsTarget.empty() && restoredPaths.insert(wsTarget).second)
+					{
+						std::string sNarrowTarget = Narrow(wsTarget);
+						std::string sNarrowBk = Narrow(bkPath);
+						if (DetectionNotifier::isKnownMalware(sNarrowTarget, "") || DetectionNotifier::isKnownMalware(sNarrowBk, ""))
+						{
+							LOGLVL(Critical, FMT("RansomShield (Sweep): BLOCKED restore of detected malware binary <" << sNarrowTarget << ">"));
+							::SetFileAttributesW(wsTarget.c_str(), FILE_ATTRIBUTE_NORMAL);
+							::DeleteFileW(wsTarget.c_str());
+							continue;
+						}
+
+						::SetFileAttributesW(wsTarget.c_str(), FILE_ATTRIBUTE_NORMAL);
+						::DeleteFileW(wsTarget.c_str());
+						if (::CopyFileW(bkPath.c_str(), wsTarget.c_str(), FALSE) ||
+							::MoveFileExW(bkPath.c_str(), wsTarget.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+						{
+							LOGLVL(Critical, FMT("RansomShield (Multi-PID Disk Sweep): restored <" << Narrow(wsTarget) << "> from <" << Narrow(bkPath) << ">"));
+						}
+					}
+				}
+			}
+		}
+	}
+	catch (...) {}
 }
 
 //

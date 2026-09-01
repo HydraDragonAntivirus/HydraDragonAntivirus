@@ -630,12 +630,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						try { nShieldPid = static_cast<int64_t>(opt.value()); } catch (...) {}
 				}
 
-				if (nShieldPid > 0)
-					EventEnricher::rollbackRansomBackups(nShieldPid);
-				if (nGid > 0 && nGid != static_cast<uint64_t>(nShieldPid))
-					EventEnricher::rollbackRansomBackups(static_cast<int64_t>(nGid));
-					
-				// Use owlyshield_ransom.dll to quarantine the malicious file ONLY IF verdict != 1
+				// 1. First: Quarantine the malicious binary and register it in the malware database
 				if (!sPath.empty())
 				{
 					if (nVerdict == 1)
@@ -672,6 +667,13 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						// Persistently remember this malware across restarts & blacklist in driver
 						recordMalwareDetection(sDos, sHash);
 
+						{
+							std::scoped_lock _lock(s_mtxQuarantineLock);
+							s_quarantinedPaths.insert(sLower);
+							if (nGid != 0) s_quarantinedPids[nGid] = sDos;
+							if (nShieldPid > 0) s_quarantinedPids[static_cast<uint64_t>(nShieldPid)] = sDos;
+						}
+
 						// Always execute quarantine on detected malware
 						HMODULE hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
 						if (hDll != nullptr)
@@ -687,19 +689,10 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 								if (qRes == 0)
 								{
 									LOGLVL(Critical, FMT("detnotif: owlyshield quarantined malware <" << sDos << ">"));
-									std::scoped_lock _lock(s_mtxQuarantineLock);
-									s_quarantinedPaths.insert(sLower);
-									if (nGid != 0) s_quarantinedPids[nGid] = sDos;
-									if (nShieldPid > 0) s_quarantinedPids[static_cast<uint64_t>(nShieldPid)] = sDos;
 								}
 								else
 								{
 									LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
-									if (qRes == 6) // Already gone / quarantined
-									{
-										std::scoped_lock _lock(s_mtxQuarantineLock);
-										s_quarantinedPaths.insert(sLower);
-									}
 								}
 							}
 							else
@@ -714,6 +707,12 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						}
 					}
 				}
+
+				// 2. Second: Execute rollback for victim files (now aware that the malware binary is blacklisted)
+				if (nShieldPid > 0)
+					EventEnricher::rollbackRansomBackups(nShieldPid);
+				if (nGid > 0 && nGid != static_cast<uint64_t>(nShieldPid))
+					EventEnricher::rollbackRansomBackups(static_cast<int64_t>(nGid));
 				else
 				{
 					LOGLVL(Critical, "detnotif: quarantineTarget path is empty! Cannot quarantine anything.");
