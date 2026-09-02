@@ -55,13 +55,3 @@ rules:
       pattern: "powershell.*-enc"
       case_insensitive: true
 
-  # Monitor Traffic Routine (Feature 27)
-  - name: "Monitor Gateway Traffic"
-    description: "Watch traffic going through the gateway"
-    enabled: true
-    protocol: any
-    action: allow
-    routine:
-      from_ip: "any"
-      to_ip: "192.168.1.1"
-      to_port: 53
