@@ -1404,6 +1404,37 @@ fn tcp_is_fin_or_rst(data: &[u8]) -> bool {
     }
 }
 
+fn tcp_is_syn(data: &[u8]) -> bool {
+    if data.is_empty() {
+        return false;
+    }
+    match data[0] >> 4 {
+        4 => {
+            if data.len() < 20 || data[9] != 6 {
+                return false;
+            }
+            let ihl = ((data[0] & 0x0F) as usize) * 4;
+            if data.len() < ihl + 14 {
+                return false;
+            }
+            let flags = data[ihl + 13];
+            (flags & 0x02) != 0
+        }
+        6 => {
+            if data.len() < 40 || data[6] != 6 {
+                return false;
+            }
+            let tcp_header_start = 40;
+            if data.len() < tcp_header_start + 14 {
+                return false;
+            }
+            let flags = data[tcp_header_start + 13];
+            (flags & 0x02) != 0
+        }
+        _ => false,
+    }
+}
+
 // ============================================================================
 // PACKET PROCESSING RESULT - Using raw bytes for cross-thread safety
 // ============================================================================
@@ -2505,7 +2536,8 @@ impl FirewallEngine {
         // not via WinDivert, so we don't need to compete with another WinDivert handle.
         // Priority 0 is fine.
         let divert_priority: i16 = 0;
-        let divert = match WinDivert::network("true", divert_priority, WinDivertFlags::new()) {
+        let filter = "!loopback || tcp.DstPort == 8877 || tcp.SrcPort == 8877";
+        let divert = match WinDivert::network(filter, divert_priority, WinDivertFlags::new()) {
             Ok(d) => WinDivertArc(Arc::new(d)),
             Err(e) => {
                 let ts = Self::now_ts();
@@ -2691,18 +2723,19 @@ impl FirewallEngine {
                                     let is_tcp =
                                         matches!(p_info.protocol, super::engine::Protocol::TCP);
 
-                                    // WinDivert native PID already set above (step 1).
-                                    // Fall through to TCP/UDP table if it returned 0.
+                                    // 1. Fast cache lookup: check mapped ports first (O(1), zero syscalls)
                                     if pid == 0 {
-                                        pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                        if let Some(cached_pid) = am_w.get_pid_for_port(lookup_port) {
+                                            pid = cached_pid;
+                                        }
                                     }
 
-                                    // Fallback: Hook DLL mapping (if native lookup failed)
-                                    if pid == 0 {
-                                        if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port)
-                                        {
-                                            pid = mapped_pid;
-                                        }
+                                    // 2. Only query expensive GetExtendedTcpTable on connection establishment (SYN) or DNS
+                                    // NEVER on streaming data packets!
+                                    let is_syn = is_tcp && tcp_is_syn(&packet.data);
+                                    let is_dns = lookup_port == 53;
+                                    if pid == 0 && (is_syn || is_dns) {
+                                        pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
                                     }
 
                                     // Cache the resolved port->PID mapping for future
@@ -3714,7 +3747,7 @@ impl FirewallEngine {
         let mut http_content_type = None;
         let mut http_referer = None;
         let payload_entropy = None;
-        let mut payload_sample = None;
+        let payload_sample = None;
         let mut payload_bytes: Option<&[u8]> = None;
         let mut payload_urls: Vec<String> = Vec::new();
         let mut payload_domains: Vec<String> = Vec::new();
@@ -3774,16 +3807,20 @@ impl FirewallEngine {
 
         if let Some(bytes) = payload_bytes {
             if !bytes.is_empty() {
-                let preview: Vec<String> = bytes
-                    .iter()
-                    .take(32)
-                    .map(|b| format!("{:02X}", b))
-                    .collect();
-                payload_sample = Some(preview.join(" "));
+                // Only inspect payload for URLs/domains if it looks like plaintext HTTP text protocol,
+                // and NEVER on encrypted TLS Application Data (0x17 0x03) or pure binary payloads.
+                let is_tls_encrypted = bytes.len() >= 3 && bytes[0] == 0x17 && bytes[1] == 0x03;
+                let is_http_text = bytes.starts_with(b"GET ")
+                    || bytes.starts_with(b"POST ")
+                    || bytes.starts_with(b"HEAD ")
+                    || bytes.starts_with(b"PUT ")
+                    || bytes.starts_with(b"HTTP/");
 
-                let (urls, domains) = Self::discover_urls_and_domains(bytes);
-                payload_urls = urls;
-                payload_domains = domains;
+                if is_http_text && !is_tls_encrypted {
+                    let (urls, domains) = Self::discover_urls_and_domains(bytes);
+                    payload_urls = urls;
+                    payload_domains = domains;
+                }
             }
         }
 
