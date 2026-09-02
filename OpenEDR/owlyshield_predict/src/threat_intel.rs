@@ -1,17 +1,14 @@
 //! High-performance Threat Intelligence Scanner for OwlyShield Rust Engine.
-//! Uses `hydradragonxorfilter` (`jdb_xorf` BinaryFuse16) crate directly
-//! and CIDR Blacklists with public IP scoping and XorFilter False Positive protection.
+//! Uses strictly verified CIDR Blacklists with public IP scoping and zero false positives.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Mutex;
 use lru::LruCache;
-
-pub use hydradragonxorfilter::{key, XorFilter};
 
 /// Fast std::net bitwise check for Public IP addresses.
 /// Returns false for Loopback, Private (RFC 1918), Link-Local, Broadcast, and Unspecified addresses.
@@ -146,13 +143,15 @@ impl CidrBlacklistIndex {
                 if trimmed.is_empty() || trimmed.starts_with('#') {
                     continue;
                 }
-                if let Some((addr_str, prefix_str)) = trimmed.split_once('/') {
-                    if let (Ok(ipv4), Ok(prefix)) = (addr_str.parse::<Ipv4Addr>(), prefix_str.parse::<u32>()) {
-                        if prefix <= 32 {
-                            let mask = if prefix == 0 { 0 } else { !0u32 << (32 - prefix) };
-                            let net = u32::from(ipv4) & mask;
-                            self.v4.entry(prefix).or_default().insert(net);
-                        }
+                let (addr_str, prefix) = match trimmed.split_once('/') {
+                    Some((a, p)) => (a, p.parse::<u32>().unwrap_or(32)),
+                    None => (trimmed, 32),
+                };
+                if let Ok(ipv4) = addr_str.parse::<Ipv4Addr>() {
+                    if prefix <= 32 {
+                        let mask = if prefix == 0 { 0 } else { !0u32 << (32 - prefix) };
+                        let net = u32::from(ipv4) & mask;
+                        self.v4.entry(prefix).or_default().insert(net);
                     }
                 }
             }
@@ -167,12 +166,14 @@ impl CidrBlacklistIndex {
                 if trimmed.is_empty() || trimmed.starts_with('#') {
                     continue;
                 }
-                if let Some((addr_str, prefix_str)) = trimmed.split_once('/') {
-                    if let (Ok(ipv6), Ok(prefix)) = (addr_str.parse::<Ipv6Addr>(), prefix_str.parse::<u32>()) {
-                        if prefix <= 128 {
-                            let key = Self::masked_key_v6(&ipv6.octets(), prefix);
-                            self.v6.entry(prefix).or_default().insert(key);
-                        }
+                let (addr_str, prefix) = match trimmed.split_once('/') {
+                    Some((a, p)) => (a, p.parse::<u32>().unwrap_or(128)),
+                    None => (trimmed, 128),
+                };
+                if let Ok(ipv6) = addr_str.parse::<Ipv6Addr>() {
+                    if prefix <= 128 {
+                        let key = Self::masked_key_v6(&ipv6.octets(), prefix);
+                        self.v6.entry(prefix).or_default().insert(key);
                     }
                 }
             }
@@ -222,13 +223,10 @@ impl CidrBlacklistIndex {
     }
 }
 
-///// Unified Threat Intelligence Scanner using `hydradragonxorfilter` (`jdb_xorf` BinaryFuse16).
+/// Unified Threat Intelligence Scanner using strictly verified CIDR Blacklists.
 pub struct ThreatIntelScanner {
-    ip_filters: HashMap<String, XorFilter>,
-    domain_filters: HashMap<String, XorFilter>,
     cidr_index: CidrBlacklistIndex,
     clean_ip_cache: Mutex<LruCache<IpAddr, bool>>,
-    clean_domain_cache: Mutex<LruCache<String, bool>>,
 }
 
 pub fn get_threat_intel_path() -> std::path::PathBuf {
@@ -271,51 +269,20 @@ impl ThreatIntelScanner {
 
     pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Self {
         let mut scanner = Self {
-            ip_filters: HashMap::new(),
-            domain_filters: HashMap::new(),
             cidr_index: CidrBlacklistIndex::new(),
             clean_ip_cache: Mutex::new(LruCache::new(NonZeroUsize::new(16384).unwrap())),
-            clean_domain_cache: Mutex::new(LruCache::new(NonZeroUsize::new(16384).unwrap())),
         };
 
         let dir_path = dir.as_ref();
 
-        // Load CIDR files
+        // Load curated CIDR files
         scanner.cidr_index.load_v4_file(dir_path.join("CIDRBlackListIPv4.txt"));
         scanner.cidr_index.load_v6_file(dir_path.join("CIDRBlackListIPv6.txt"));
-
-        // Dynamically scan directory for ALL `.xf` files
-        if let Ok(entries) = fs::read_dir(dir_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    if let Some(ext) = path.extension() {
-                        if ext.eq_ignore_ascii_case("xf") {
-                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                                let file_name_lower = file_name.to_ascii_lowercase();
-                                if let Ok(mut file) = File::open(&path) {
-                                    let mut bytes = Vec::new();
-                                    if file.read_to_end(&mut bytes).is_ok() {
-                                        if let Some(filter) = XorFilter::from_bytes(&bytes) {
-                                            if file_name_lower.starts_with("ip") {
-                                                scanner.ip_filters.insert(file_name_lower, filter);
-                                            } else {
-                                                scanner.domain_filters.insert(file_name_lower, filter);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         scanner
     }
 
-    /// Check if IP matches any CIDR or IP XorFilter.
+    /// Check if IP matches any CIDR range.
     /// Only public IPs are evaluated. Loopback/Private IPs return None.
     pub fn check_ip(&self, ip: IpAddr) -> Option<String> {
         if !is_public_ip(ip) {
@@ -329,20 +296,12 @@ impl ThreatIntelScanner {
             }
         }
 
-        // 1. CIDR match
+        // CIDR match (strictly curated IP ranges, zero CDN false-positives)
         if self.cidr_index.contains(ip) {
             return Some("CIDR_BLACKLIST_MATCH".to_string());
         }
 
-        // 2. IP XorFilter match using jdb_xorf key derivation (strictly IP filters)
-        let ip_str = ip.to_string();
-        for (name, filter) in &self.ip_filters {
-            if filter.contains(&ip_str) {
-                return Some(format!("XORFILTER_IP_MATCH:{}", name));
-            }
-        }
-
-        // Remember verified clean IP in cache so subsequent packets never touch CIDR/XorFilters
+        // Remember verified clean IP in cache
         if let Ok(mut cache) = self.clean_ip_cache.lock() {
             cache.put(ip, true);
         }
@@ -350,25 +309,24 @@ impl ThreatIntelScanner {
         None
     }
 
-    /// Check if domain or any of its parent subdomains matches any Domain XorFilter.
-    /// If target string is actually an IP address, it is routed to check_ip automatically.
+    /// Check if domain or string is an IP matching CIDR.
     pub fn check_domain(&self, domain: &str) -> Option<String> {
         let mut clean_domain = domain.trim().to_ascii_lowercase();
         if clean_domain.is_empty() {
             return None;
         }
 
-        // Strip protocol prefix (e.g. "https://example.com/path" -> "example.com/path")
+        // Strip protocol prefix
         if let Some(pos) = clean_domain.find("://") {
             clean_domain = clean_domain[pos + 3..].to_string();
         }
 
-        // Strip path, query params, or fragments (e.g. "example.com/path?id=1" -> "example.com")
+        // Strip path, query params, or fragments
         if let Some(pos) = clean_domain.find('/') {
             clean_domain = clean_domain[..pos].to_string();
         }
 
-        // Strip port if present (e.g. "example.com:443" -> "example.com")
+        // Strip port if present
         if let Some((host, _port)) = clean_domain.split_once(':') {
             clean_domain = host.to_string();
         }
@@ -382,54 +340,9 @@ impl ThreatIntelScanner {
             return None;
         }
 
-        // If target is an IP address, route strictly to IP scanner
+        // If target is an IP address, route strictly to CIDR IP scanner
         if let Ok(ip) = clean_domain.parse::<IpAddr>() {
             return self.check_ip(ip);
-        }
-
-        // Fast path: Clean Domain Cache (O(1) in ~5 nanoseconds)
-        if let Ok(mut cache) = self.clean_domain_cache.lock() {
-            if cache.get(&clean_domain).is_some() {
-                return None;
-            }
-        }
-
-        // Target is a Domain: Query DOMAIN filters using psl (Public Suffix List) eTLD+1 boundary
-        use psl::Psl;
-
-        let root_domain = psl::List.domain(clean_domain.as_bytes())
-            .and_then(|d| std::str::from_utf8(d.as_bytes()).ok())
-            .unwrap_or(&clean_domain);
-
-        let parts: Vec<&str> = clean_domain.split('.').collect();
-        if parts.len() <= 1 {
-            for (name, filter) in &self.domain_filters {
-                if filter.contains(&clean_domain) {
-                    return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
-                }
-            }
-        } else {
-            for i in 0..parts.len() {
-                let sub_candidate = parts[i..].join(".");
-                if sub_candidate.len() < root_domain.len() {
-                    break;
-                }
-
-                for (name, filter) in &self.domain_filters {
-                    if filter.contains(&sub_candidate) {
-                        return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
-                    }
-                }
-
-                if sub_candidate == root_domain {
-                    break; // Stop at eTLD+1 root registered domain to prevent False Positives (FP)
-                }
-            }
-        }
-
-        // Remember verified clean domain in cache
-        if let Ok(mut cache) = self.clean_domain_cache.lock() {
-            cache.put(clean_domain, true);
         }
 
         None

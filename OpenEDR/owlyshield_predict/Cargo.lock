@@ -3258,13 +3258,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hydradragonxorfilter"
-version = "0.1.0"
-dependencies = [
- "jdb_xorf",
-]
-
-[[package]]
 name = "hyper"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3563,16 +3556,6 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
-
-[[package]]
-name = "jdb_xorf"
-version = "0.13.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af0659bf5455dacc567510e40aa3e4246b5cd74f1656fad6987f0d2ec19df66a"
-dependencies = [
- "libm",
- "rapidhash",
-]
 
 [[package]]
 name = "jni-sys"
@@ -4382,7 +4365,6 @@ dependencies = [
  "http-body-util",
  "http-mitm-proxy",
  "hydradragon-shared",
- "hydradragonxorfilter",
  "lazy_static",
  "log",
  "lru",
@@ -4394,7 +4376,6 @@ dependencies = [
  "oxc_ast",
  "oxc_parser",
  "oxc_span",
- "psl",
  "rcgen",
  "regex",
  "registry",
@@ -4887,21 +4868,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "psl"
-version = "2.1.226"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bc88482eea924ca3a2f56a547454169af58deef35567965eb4fc2392a834841"
-dependencies = [
- "psl-types",
-]
-
-[[package]]
-name = "psl-types"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
-
-[[package]]
 name = "pulp"
 version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5160,15 +5126,6 @@ name = "range-alloc"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
-
-[[package]]
-name = "rapidhash"
-version = "4.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5da7e78a036ce858e8d55b7e7dc8ba3a88b78350fd2155d3591bbd966b58589e"
-dependencies = [
- "rustversion",
-]
 
 [[package]]
 name = "rav1e"
