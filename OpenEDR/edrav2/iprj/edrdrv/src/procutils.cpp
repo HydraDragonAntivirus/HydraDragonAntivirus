@@ -13,6 +13,10 @@
 #include "procutils.h"
 #include "osutils.h"
 
+#ifndef PROCESS_QUERY_INFORMATION
+#define PROCESS_QUERY_INFORMATION 0x0400
+#endif
+
 namespace cmd {
 
 //
