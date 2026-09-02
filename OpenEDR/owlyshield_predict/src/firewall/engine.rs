@@ -3052,6 +3052,8 @@ impl FirewallEngine {
 
             let target_desc = if let Some(ref domain) = info.dns_query {
                 format!("{} ({}:{})", domain, remote_ip, info.dst_port)
+            } else if let Some(ref host) = info.hostname {
+                format!("{} ({}:{})", host, remote_ip, info.dst_port)
             } else {
                 format!("{}:{}", remote_ip, info.dst_port)
             };
@@ -3748,8 +3750,8 @@ impl FirewallEngine {
                 let payload = &data[payload_start..];
                 payload_bytes = Some(payload);
 
-                // Check for HTTPS (port 443) - TLS SNI extraction
-                if dst_port == 443 || src_port == 443 {
+                // Check for HTTPS (port 443 or any TLS Client Hello handshake) - TLS SNI extraction
+                if dst_port == 443 || src_port == 443 || super::tls_parser::is_tls_handshake(payload) {
                     tls_handshake = super::tls_parser::is_tls_handshake(payload);
                     if let Some(sni_host) = super::tls_parser::extract_sni(payload) {
                         // Treat HTTPS SNI as a URL root so downstream hostname/url
