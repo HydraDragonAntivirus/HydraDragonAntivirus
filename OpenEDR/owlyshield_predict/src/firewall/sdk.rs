@@ -2231,6 +2231,57 @@ impl SdkRegistry {
             })
     }
 
+    /// Check if any SDK rule targets this domain, URL, or IP address.
+    /// Used by transparent NAT to strictly limit TLS proxy MITM interception only to targets that have rules.
+    pub fn has_target_rule(&self, domain: Option<&str>, ip: Option<IpAddr>) -> bool {
+        if self.rules.is_empty() {
+            return false;
+        }
+
+        let dom_lower = domain.map(|d| d.to_ascii_lowercase());
+
+        // 1. Fast path: check Daachorse Aho-Corasick domain index
+        if let (Some(scanner), Some(h)) = (&self.domain_index, &dom_lower) {
+            if scanner.find_overlapping_iter(h.as_bytes()).next().is_some() {
+                return true;
+            }
+        }
+
+        // 2. Fast path: check Daachorse Aho-Corasick URL index
+        if let (Some(scanner), Some(h)) = (&self.url_index, &dom_lower) {
+            if scanner.find_overlapping_iter(h.as_bytes()).next().is_some() {
+                return true;
+            }
+        }
+
+        // 3. Check individual rules for domain, IP, or wildcard patterns
+        for rule in &self.rules {
+            if let Some(ref d_matcher) = rule.domain {
+                if let Some(ref d) = dom_lower {
+                    if d_matcher.matches(Some(d)) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(ref u_matcher) = rule.url {
+                if let Some(ref d) = dom_lower {
+                    if u_matcher.matches(Some(d)) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(ref ip_matcher) = rule.dst_ip {
+                if let Some(target_ip) = ip {
+                    if ip_matcher.matches(target_ip) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
     /// Extract domain and subdomain information from packet if domain matching was used
     /// Returns: (domain, subdomain, used_public_suffix_list)
     fn extract_domain_info(

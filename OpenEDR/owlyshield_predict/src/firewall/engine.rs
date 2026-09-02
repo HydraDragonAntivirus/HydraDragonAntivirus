@@ -1410,6 +1410,37 @@ fn tcp_is_fin_or_rst(data: &[u8]) -> bool {
     }
 }
 
+fn tcp_is_syn(data: &[u8]) -> bool {
+    if data.is_empty() {
+        return false;
+    }
+    match data[0] >> 4 {
+        4 => {
+            if data.len() < 20 || data[9] != 6 {
+                return false;
+            }
+            let ihl = ((data[0] & 0x0F) as usize) * 4;
+            if data.len() < ihl + 14 {
+                return false;
+            }
+            let flags = data[ihl + 13];
+            (flags & 0x02) != 0
+        }
+        6 => {
+            if data.len() < 40 || data[6] != 6 {
+                return false;
+            }
+            let tcp_header_start = 40;
+            if data.len() < tcp_header_start + 14 {
+                return false;
+            }
+            let flags = data[tcp_header_start + 13];
+            (flags & 0x02) != 0
+        }
+        _ => false,
+    }
+}
+
 // ============================================================================
 // PACKET PROCESSING RESULT - Using raw bytes for cross-thread safety
 // ============================================================================
@@ -2502,11 +2533,15 @@ impl FirewallEngine {
         // not via WinDivert, so we don't need to compete with another WinDivert handle.
         // Priority 0 is fine.
         let divert_priority: i16 = 0;
-        let divert = match WinDivert::network("true", divert_priority, WinDivertFlags::new()) {
+        // KERNEL FILTER OPTIMIZATION:
+        // Only intercept non-loopback packets, OR loopback packets destined to/from the TLS proxy (port 8877).
+        // All other Windows internal loopback IPC/RPC/database traffic bypasses user-space entirely in kernel.
+        let filter = "!loopback || tcp.DstPort == 8877 || tcp.SrcPort == 8877";
+        let divert = match WinDivert::network(filter, divert_priority, WinDivertFlags::new()) {
             Ok(d) => {
-                let _ = d.set_param(WinDivertParam::QueueLength, 16384);
-                let _ = d.set_param(WinDivertParam::QueueSize, 67108864);
-                let _ = d.set_param(WinDivertParam::QueueTime, 2000);
+                let _ = d.set_param(WinDivertParam::QueueLength, 32768);
+                let _ = d.set_param(WinDivertParam::QueueSize, 134217728);
+                let _ = d.set_param(WinDivertParam::QueueTime, 4000);
                 WinDivertArc(Arc::new(d))
             }
             Err(e) => {
@@ -2678,9 +2713,13 @@ impl FirewallEngine {
                                     if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port) {
                                         pid = mapped_pid;
                                     } else {
-                                        // 2. Only if unknown (brand new socket), query Windows TCP/UDP table ONCE and cache
-                                        pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
-                                        am_w.update_port_mapping(lookup_port, pid);
+                                        // Only query Windows TCP/UDP table on connection setup (SYN) or DNS to prevent queue freezing during bulk data flow
+                                        let is_syn = is_tcp && tcp_is_syn(&packet.data);
+                                        let is_dns = lookup_port == 53;
+                                        if is_syn || is_dns {
+                                            pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                            am_w.update_port_mapping(lookup_port, pid);
+                                        }
                                     }
 
                                     if pid != 0 {
@@ -2820,11 +2859,22 @@ impl FirewallEngine {
                                                 if let (Some(orig_dst), Some(orig_src)) =
                                                     (dst_ip, src_ip)
                                                 {
-                                                    if !Self::is_loopback(orig_dst)
+                                                    let is_active_nat_flow = nat_table_w.get(src_port).is_some();
+                                                    let should_intercept = is_active_nat_flow || {
+                                                        let host_resolved = dns_w.resolve_ip(&orig_dst.to_string());
+                                                        let host_candidate = pre_parsed.as_ref()
+                                                            .and_then(|(p, _)| p.hostname.as_deref())
+                                                            .or(host_resolved.as_deref());
+                                                        let sdk_guard = sdk_w.read().unwrap();
+                                                        sdk_guard.has_target_rule(host_candidate, Some(orig_dst))
+                                                    };
+
+                                                    if should_intercept
+                                                        && !Self::is_loopback(orig_dst)
                                                         && !orig_dst.is_unspecified()
                                                         && !orig_dst.is_multicast()
                                                     {
-                                                        if nat_table_w.get(src_port).is_none() {
+                                                        if !is_active_nat_flow {
                                                             nat_table_w.insert(
                                                                 src_port,
                                                                 (orig_dst, 443, orig_src),
