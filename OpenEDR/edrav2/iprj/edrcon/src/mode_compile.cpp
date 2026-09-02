@@ -171,9 +171,9 @@ private:
 			// Basic heuristic to ensure the required quarantine fields are present in the final compiled JSON
 			error::InvalidArgument(SL, "CRITICAL ERROR: The compiled rules are missing the 'quarantineTarget' field! You must add { \"name\": \"quarantineTarget\", \"value\": \"...\" } to the MLE event data array.").throwException();
 		}
-		if (sJson.find("should_trust_comodo_fls_cloud") == std::string::npos)
+		if (sJson.find("should_trust_company_whitelist") == std::string::npos && sJson.find("should_trust_comodo_fls_cloud") == std::string::npos)
 		{
-			error::InvalidArgument(SL, "CRITICAL ERROR: The compiled rules are missing the 'should_trust_comodo_fls_cloud' field! You must add { \"name\": \"should_trust_comodo_fls_cloud\", \"value\": true/false } to your rule data array.").throwException();
+			error::InvalidArgument(SL, "CRITICAL ERROR: The compiled rules are missing trust fields ('should_trust_company_whitelist' or 'should_trust_comodo_fls_cloud')! You must add them to your rule data array.").throwException();
 		}
 
 		saveResult(compiledData);

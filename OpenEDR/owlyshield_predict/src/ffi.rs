@@ -362,3 +362,28 @@ pub extern "C" fn owlyshield_update_process_verdict(pid: u32, verdict: u8) -> i3
     }
 }
 
+/// Called by OpenEDR C++ layer (`detectionnotifier.cpp`) to verify if an executable path
+/// is signed by a trusted company publisher from trusted_signers.yaml.
+/// Returns 1 if signed & trusted, 0 if untrusted/unsigned.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_is_trusted_company_signer(path_ptr: *const u16, path_len: u32) -> i32 {
+    if path_ptr.is_null() || path_len == 0 {
+        return 0;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
+
+    let sig_info = crate::signature_verification::verify_signature(&path_buf);
+    if !sig_info.is_trusted {
+        return 0;
+    }
+
+    if let Some(signer) = sig_info.signer_name {
+        if crate::trusted_signers::is_trusted_signer(&signer) {
+            return 1;
+        }
+    }
+
+    0
+}
+

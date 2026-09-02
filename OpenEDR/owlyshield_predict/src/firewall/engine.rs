@@ -3030,16 +3030,20 @@ impl FirewallEngine {
         };
 
         // 1c. THREAT INTELLIGENCE ENGINE SCAN (CIDR Blacklist & XorFilter .xf)
-        // Scan on connection establishment (SYN, TLS SNI, HTTP Host, DNS) to avoid latency on established TCP streams.
-        let should_scan_threat_intel = info.tcp_syn
+        // Scan on connection establishment (TLS Handshake, TLS SNI, HTTP Host/Method, DNS, or UDP/ICMP)
+        // to avoid repetitive scanning latency on established TCP stream bulk transfers.
+        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
+
+        let should_scan_threat_intel = info.tls_handshake
             || info.hostname.is_some()
             || info.dns_query.is_some()
+            || info.http_method.is_some()
             || info.dst_port == 53
-            || info.src_port == 53;
+            || info.src_port == 53
+            || !matches!(info.protocol, Protocol::TCP);
 
         let mut threat_match = None;
         if should_scan_threat_intel {
-            let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
             threat_match = am.threat_intel.check_ip(remote_ip);
             if threat_match.is_none() {
                 if let Some(ref host) = info.hostname {

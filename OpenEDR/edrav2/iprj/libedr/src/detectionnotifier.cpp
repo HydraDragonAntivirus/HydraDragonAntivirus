@@ -707,42 +707,84 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				}
 			}
 
-			// Check should_trust_comodo_fls_cloud rule flag (default: true)
-			bool bShouldTrustFlsCloud = true;
-			if (auto optTrust = variant::getByPathSafe(vEvent, "should_trust_comodo_fls_cloud"))
+			// Check trust flags: should_trust_company_whitelist & should_trust_comodo_fls_cloud
+			bool bShouldTrustCompanyWhitelist = true;
+			if (auto optTrustCompany = variant::getByPathSafe(vEvent, "should_trust_company_whitelist"))
 			{
 				try {
-					auto vTrust = optTrust.value();
+					auto vTrust = optTrustCompany.value();
+					if (vTrust.getType() == variant::ValueType::Boolean)
+						bShouldTrustCompanyWhitelist = static_cast<bool>(vTrust);
+				} catch (...) {}
+			}
+
+			bool bShouldTrustFlsCloud = true;
+			if (auto optTrustFls = variant::getByPathSafe(vEvent, "should_trust_comodo_fls_cloud"))
+			{
+				try {
+					auto vTrust = optTrustFls.value();
 					if (vTrust.getType() == variant::ValueType::Boolean)
 						bShouldTrustFlsCloud = static_cast<bool>(vTrust);
 				} catch (...) {}
 			}
 
-			// If should_trust_comodo_fls_cloud is true, verify target process is not a SAFE process (verdict == 1)
-			if (bShouldTrustFlsCloud && !sPath.empty())
+			if ((bShouldTrustCompanyWhitelist || bShouldTrustFlsCloud) && !sPath.empty())
 			{
-				if (nVerdict == 4)
+				bool bIsTrustedByCompanyWhitelist = false;
+				if (bShouldTrustCompanyWhitelist)
 				{
-					LOGLVL(Critical, FMT("detnotif: FLS Verdict is FAIL/ERROR (4). Suppressing immediate kill/quarantine for <" << sPath << "> until FLS cloud recovers."));
-					sPath.clear();
-					nGid = 0;
+					HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+					if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
+					if (hOwly)
+					{
+						typedef int32_t (*IsTrustedSignerFn)(const wchar_t*, uint32_t);
+						auto fnCheckTrusted = (IsTrustedSignerFn)::GetProcAddress(hOwly, "owlyshield_is_trusted_company_signer");
+						if (fnCheckTrusted)
+						{
+							std::wstring wsPath;
+							int nWideLen = ::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), static_cast<int>(sPath.length()), nullptr, 0);
+							if (nWideLen > 0)
+							{
+								wsPath.resize(nWideLen);
+								::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), static_cast<int>(sPath.length()), &wsPath[0], nWideLen);
+							}
+							else
+							{
+								wsPath.assign(sPath.begin(), sPath.end());
+							}
+
+							if (fnCheckTrusted(wsPath.c_str(), static_cast<uint32_t>(wsPath.length())) == 1)
+							{
+								bIsTrustedByCompanyWhitelist = true;
+							}
+						}
+					}
 				}
-				else if (nVerdict == 1)
+
+				bool bIsTrustedByFlsCloud = (bShouldTrustFlsCloud && nVerdict == 1);
+
+				if (bIsTrustedByCompanyWhitelist || bIsTrustedByFlsCloud)
 				{
 					// Do not kill or quarantine the SAFE process! Look for an untrusted ancestor process instead.
 					if (!sRootMalwarePath.empty())
 					{
-						LOGLVL(Critical, FMT("detnotif: should_trust_comodo_fls_cloud ACTIVE. Bypassing SAFE target <" 
+						LOGLVL(Critical, FMT("detnotif: Trust check ACTIVE (CompanyWhitelist=" << bIsTrustedByCompanyWhitelist << ", FlsCloud=" << bIsTrustedByFlsCloud << "). Bypassing SAFE target <" 
 							<< sPath << "> and redirecting quarantine to untrusted ancestor <" << sRootMalwarePath << ">"));
 						sPath = sRootMalwarePath;
 						nVerdict = nRootMalwareVerdict;
 					}
 					else
 					{
-						LOGLVL(Critical, FMT("detnotif: should_trust_comodo_fls_cloud ACTIVE. Suppressing quarantine/kill for SAFE process <" << sPath << ">"));
+						LOGLVL(Critical, FMT("detnotif: Trust check ACTIVE (CompanyWhitelist=" << bIsTrustedByCompanyWhitelist << ", FlsCloud=" << bIsTrustedByFlsCloud << "). Suppressing quarantine/kill for SAFE process <" << sPath << ">"));
 						sPath.clear();
 						nGid = 0;
 					}
+				}
+				else if (bShouldTrustFlsCloud && nVerdict == 4)
+				{
+					LOGLVL(Critical, FMT("detnotif: FLS Verdict is FAIL/ERROR (4). Suppressing immediate kill/quarantine for <" << sPath << "> until FLS cloud recovers."));
+					sPath.clear();
+					nGid = 0;
 				}
 			}
 

@@ -54,6 +54,7 @@
                         <Directory Id="INSTALLDIR_PLATFORM" Name="x64">
                             <Directory Id="MODELSDIR_X64" Name="models" />
                             <Directory Id="THREATINTELDIR_X64" Name="threat_intel" />
+                            <Directory Id="TRUSTEDSIGNERSDIR_X64" Name="trusted_signer_rules" />
                             <Directory Id="SANCTUMDIR_X64" Name="Sanctum" />
                         </Directory>
                     <?endif?>
@@ -103,8 +104,7 @@
                     <RemoveFile Id="RemovingDriverX64" Directory="DRIVERSDIR" Name="edrdrv.sys" On="uninstall" />
                     <RemoveFile Id="RemovingMbrFilterDriverX64" Directory="DRIVERSDIR" Name="MBRFilter.sys" On="uninstall" />
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield">
-                        <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]rules" Type="string" KeyPath="yes" />
-                        <RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" />
+                        <RegistryValue Name="VERBOSE_LOGGING" Value="0" Type="string" KeyPath="yes" />
                         <RegistryValue Name="LOG_PATH" Value="[INSTALLDIR_PLATFORM]log" Type="string" />
                         <RegistryValue Name="REPORTS_PATH" Value="[INSTALLDIR_PLATFORM]reports" Type="string" />
                         <RegistryValue Name="ALWAYS_AUTO_REVERT" Value="1" Type="string" />
@@ -113,9 +113,13 @@
                     </RegistryKey>
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
+                        <RegistryValue Name="THREAT_INTEL_PATH" Value="[INSTALLDIR_PLATFORM]threat_intel" Type="string" />
+                        <RegistryValue Name="TRUSTED_SIGNERS_PATH" Value="[INSTALLDIR_PLATFORM]trusted_signer_rules" Type="string" />
+                        <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
                     </RegistryKey>
                 </Component>
                 <Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR_X64" />
+                <Files Include="..\..\edrdata\trusted_signer_rules\**" Directory="TRUSTEDSIGNERSDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
                     <Exclude Files="$(var.SourceBinDir64)*.xf" />

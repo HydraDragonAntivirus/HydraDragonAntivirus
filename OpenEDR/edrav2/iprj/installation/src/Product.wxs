@@ -53,6 +53,7 @@
 					<!--<Directory Id="QSC_DIR" Name="qsc"></Directory>-->
 					<Directory Id="MODELSDIR" Name="models" />
 					<Directory Id="THREATINTELDIR" Name="threat_intel" />
+					<Directory Id="TRUSTEDSIGNERSDIR" Name="trusted_signer_rules" />
 					<Directory Id="SANCTUMDIR" Name="Sanctum">
 						<Directory Id="SANCTUMAPPDATA" Name="AppData" />
 					</Directory>
@@ -117,10 +118,12 @@
 				<RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
 					<RegistryValue Name="RULES_PATH" Value="[INSTALLDIR]firewall-rules" Type="string" KeyPath="no" />
 					<RegistryValue Name="THREAT_INTEL_PATH" Value="[INSTALLDIR]threat_intel" Type="string" KeyPath="no" />
+					<RegistryValue Name="TRUSTED_SIGNERS_PATH" Value="[INSTALLDIR]trusted_signer_rules" Type="string" KeyPath="no" />
 					<RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR]Sanctum" Type="string" KeyPath="no" />
 				</RegistryKey>
 			</Component>
 			<Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR" />
+			<Files Include="..\..\edrdata\trusted_signer_rules\**" Directory="TRUSTEDSIGNERSDIR" />
 			<Files Include="$(var.SourceBinDir)**">
 				<Exclude Files="$(var.SourceBinDir)models\**" />
 				<Exclude Files="$(var.SourceBinDir)*.xf" />
