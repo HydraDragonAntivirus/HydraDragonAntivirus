@@ -8,6 +8,7 @@ pub mod proxy;
 pub mod quarantine;
 pub mod sdk;
 pub mod tls_parser;
+pub mod web_filter;
 pub mod windivert_api;
 
 use self::engine::{FirewallEngine, LogEntry, LogLevel, emit_log_event};

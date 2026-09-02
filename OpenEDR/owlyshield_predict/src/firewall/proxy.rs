@@ -28,10 +28,6 @@ use tokio::sync::oneshot;
 use super::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
 use super::sdk::{PacketContext, RuleAction, SdkRegistry};
 
-lazy_static::lazy_static! {
-    static ref THREAT_INTEL: Arc<crate::threat_intel::ThreatIntelScanner> = Arc::new(crate::threat_intel::ThreatIntelScanner::load_default());
-}
-
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
 /// Directory-relative filenames used to persist the CA across restarts.
@@ -206,6 +202,20 @@ fn error_response_502() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynEr
         })
 }
 
+/// Build a 403 Forbidden response when CIDR blacklist blocks the request.
+fn error_response_403() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
+    let body = boxed_full(Bytes::from_static(b"Blocked by HydraDragon CIDR Blacklist"));
+    http_mitm_proxy::hyper::Response::builder()
+        .status(StatusCode::FORBIDDEN)
+        .body(body)
+        .unwrap_or_else(|_| {
+            http_mitm_proxy::hyper::Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(boxed_full(Bytes::new()))
+                .unwrap()
+        })
+}
+
 /// Validates that the request has a valid URI and method before forwarding.
 fn validate_request(
     req: &http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
@@ -332,6 +342,7 @@ pub async fn run_proxy(
     ca: rcgen::Issuer<'static, KeyPair>,
     sdk: Arc<RwLock<SdkRegistry>>,
     settings: Arc<RwLock<FirewallSettings>>,
+    web_filter: Arc<super::web_filter::WebFilter>,
     mut stop_rx: oneshot::Receiver<()>,
 ) {
     let handshake_timeout = {
@@ -354,10 +365,11 @@ pub async fn run_proxy(
                         let client = client.clone();
                         let sdk = sdk.clone();
                         let settings = settings.clone();
+                        let web_filter = web_filter.clone();
 
                         async move {
                             // Wrap in generic error handler: all errors return 502
-                            match handle_proxy_request(client, sdk, settings, req).await {
+                            match handle_proxy_request(client, sdk, settings, web_filter, req).await {
                                 Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
                                 Err(e) => {
                                     let is_ignorable = e.contains("10054")
@@ -470,6 +482,7 @@ async fn handle_proxy_request(
     client: DefaultClient,
     sdk: Arc<RwLock<SdkRegistry>>,
     settings: Arc<RwLock<FirewallSettings>>,
+    web_filter: Arc<super::web_filter::WebFilter>,
     req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
 ) -> Result<http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>>, String> {
     // ── Validate request ────────────────────────────────────────────────────
@@ -491,7 +504,7 @@ async fn handle_proxy_request(
     let method = req.method().to_string();
     let uri = req.uri().clone();
 
-    let raw_host = if let Some(h) = uri.host() {
+    let host = if let Some(h) = uri.host() {
         h.to_string()
     } else {
         let host_header = req
@@ -513,44 +526,72 @@ async fn handle_proxy_request(
 
     let scheme = uri.scheme_str().unwrap_or("https").to_string();
 
-    let (host, port) = {
-        let default_port = if scheme == "http" { 80 } else { 443 };
-        if let Some(p) = uri.port_u16() {
-            let clean = if let Some(idx) = raw_host.rfind(':') {
-                if raw_host.matches(':').count() == 1 {
-                    raw_host[..idx].to_string()
-                } else if let Some(cb) = raw_host.rfind(']') {
-                    if idx > cb {
-                        raw_host[..idx].trim_matches('[').trim_matches(']').to_string()
-                    } else {
-                        raw_host.trim_matches('[').trim_matches(']').to_string()
-                    }
-                } else {
-                    raw_host.clone()
-                }
-            } else {
-                raw_host.trim_matches('[').trim_matches(']').to_string()
-            };
-            (clean, p)
-        } else if let Some(p) = extract_port_from_host(&raw_host) {
-            let clean = if let Some(idx) = raw_host.rfind(':') {
-                raw_host[..idx].trim_matches('[').trim_matches(']').to_string()
-            } else {
-                raw_host.trim_matches('[').trim_matches(']').to_string()
-            };
-            (clean, p)
+    let port = uri.port_u16().unwrap_or_else(|| {
+        if let Some(p) = extract_port_from_host(&host) {
+            p
+        } else if scheme == "http" {
+            80
         } else {
-            (raw_host.trim_matches('[').trim_matches(']').to_string(), default_port)
+            443
         }
-    };
+    });
+
+    let clean_host = if host.starts_with('[') {
+        if let Some(end) = host.find(']') {
+            &host[1..end]
+        } else {
+            &host
+        }
+    } else if let Some(idx) = host.find(':') {
+        &host[..idx]
+    } else {
+        &host
+    }
+    .trim();
+
+    // ── CIDR Blacklist Check in Proxy (Prevents Cloudflare / Reverse Proxy / Direct IP Bypass) ──
+    if let Ok(ip) = clean_host.parse::<IpAddr>() {
+        if web_filter.is_blocked_ip(ip) {
+            let ts = now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-proxy-cidr", ts),
+                timestamp: ts,
+                level: LogLevel::Warning,
+                message: format!("Proxy CIDR Blocked: {} (Blocked Malicious CIDR: {})", host, ip),
+            });
+            return Ok(error_response_403());
+        }
+    } else {
+        // Asynchronous DNS check with a tight timeout (500ms) to prevent proxy latency
+        let lookup_target = format!("{}:{}", clean_host, port);
+        if let Ok(Ok(addrs)) = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            tokio::net::lookup_host(lookup_target),
+        )
+        .await
+        {
+            for addr in addrs {
+                if web_filter.is_blocked_ip(addr.ip()) {
+                    let ts = now_ts();
+                    emit_log_event(LogEntry {
+                        id: format!("{}-proxy-dns-cidr", ts),
+                        timestamp: ts,
+                        level: LogLevel::Warning,
+                        message: format!(
+                            "Proxy CIDR Blocked: {} resolved to {} (Blocked Malicious CIDR)",
+                            clean_host,
+                            addr.ip()
+                        ),
+                    });
+                    return Ok(error_response_403());
+                }
+            }
+        }
+    }
 
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
     let path = path_and_query.to_string();
-    let full_url = if (scheme == "https" && port == 443) || (scheme == "http" && port == 80) {
-        format!("{}://{}{}", scheme, host, path)
-    } else {
-        format!("{}://{}:{}{}", scheme, host, port, path)
-    };
+    let full_url = format!("{}://{}{}", scheme, host, path);
 
     let mut request_headers: HashMap<String, String> = HashMap::new();
     for (name, value) in req.headers().iter() {
@@ -663,26 +704,6 @@ async fn handle_proxy_request(
         process_path: app_path,
     };
 
-    // ── Threat Intelligence Scanner Check (Strictly CIDR IP Blocklist) ───
-    let mut threat_match = None;
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        threat_match = THREAT_INTEL.check_ip(ip);
-    }
-
-    if let Some(reason) = threat_match {
-        let now = now_ts();
-        emit_log_event(LogEntry {
-            id: format!("{}-proxy-threatintel-{}", now, resolved_pid),
-            timestamp: now,
-            level: LogLevel::Warning,
-            message: format!(
-                "ThreatIntel Blocked via Proxy: {} (pid={}) -> {} reason={}",
-                _mock_context.process_name, resolved_pid, host, reason
-            ),
-        });
-        return Err(format!("Blocked by Threat Intelligence: {}", reason));
-    }
-
     // ── SDK Rule Evaluation (request) ───────────────────────────────────────
     let (blocked, req_body_override) = {
         let sdk_guard = sdk.read().unwrap();
@@ -714,11 +735,7 @@ async fn handle_proxy_request(
     let mut req_parts = parts;
 
     // Rewrite URI to be absolute for hyper client
-    let absolute_uri_str = if (scheme == "https" && port == 443) || (scheme == "http" && port == 80) {
-        format!("{}://{}{}", scheme, host, path)
-    } else {
-        format!("{}://{}:{}{}", scheme, host, port, path)
-    };
+    let absolute_uri_str = format!("{}://{}{}", scheme, host, path);
     if let Ok(new_uri) = http_mitm_proxy::hyper::Uri::try_from(&absolute_uri_str) {
         req_parts.uri = new_uri;
     }

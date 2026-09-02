@@ -19,7 +19,6 @@ pub mod report;
 pub mod shared_def;
 pub mod signature_verification;
 pub mod threat_handler;
-pub mod threat_intel;
 pub mod signer_rules;
 pub mod utils;
 pub mod watchlist;

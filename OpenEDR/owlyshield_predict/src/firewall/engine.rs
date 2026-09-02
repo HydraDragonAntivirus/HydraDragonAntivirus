@@ -973,7 +973,6 @@ pub struct AppManager {
     pub suspicious_pids: RwLock<HashSet<u32>>,
     pub cloud_trusted_pids: RwLock<HashSet<u32>>,
     pub openedr_verdicts: RwLock<HashMap<u32, String>>,
-    pub threat_intel: Arc<crate::threat_intel::ThreatIntelScanner>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
 }
@@ -992,19 +991,15 @@ impl AppManager {
             suspicious_pids: RwLock::new(HashSet::new()),
             cloud_trusted_pids: RwLock::new(HashSet::new()),
             openedr_verdicts: RwLock::new(HashMap::new()),
-            threat_intel: Arc::new(crate::threat_intel::ThreatIntelScanner::load_default()),
             view_index: AtomicU64::new(0),
         }
     }
 
     pub fn update_port_mapping(&self, port: u16, pid: u32) {
-        if port == 0 {
+        if port == 0 || pid == 0 {
             return;
         }
         let mut map = self.port_map.write().unwrap();
-        if map.len() > 16384 {
-            map.clear();
-        }
         map.insert(port, pid);
     }
 
@@ -1231,11 +1226,10 @@ impl TransparentNatTable {
     }
 
     pub fn insert(&self, client_src_port: u16, original_dst: (IpAddr, u16, IpAddr)) {
-        let mut guard = self.inner.write().unwrap();
-        if guard.len() > 16384 {
-            guard.clear();
-        }
-        guard.insert(client_src_port, original_dst);
+        self.inner
+            .write()
+            .unwrap()
+            .insert(client_src_port, original_dst);
     }
 
     pub fn get(&self, client_src_port: u16) -> Option<(IpAddr, u16, IpAddr)> {
@@ -1410,37 +1404,6 @@ fn tcp_is_fin_or_rst(data: &[u8]) -> bool {
     }
 }
 
-fn tcp_is_syn(data: &[u8]) -> bool {
-    if data.is_empty() {
-        return false;
-    }
-    match data[0] >> 4 {
-        4 => {
-            if data.len() < 20 || data[9] != 6 {
-                return false;
-            }
-            let ihl = ((data[0] & 0x0F) as usize) * 4;
-            if data.len() < ihl + 14 {
-                return false;
-            }
-            let flags = data[ihl + 13];
-            (flags & 0x02) != 0
-        }
-        6 => {
-            if data.len() < 40 || data[6] != 6 {
-                return false;
-            }
-            let tcp_header_start = 40;
-            if data.len() < tcp_header_start + 14 {
-                return false;
-            }
-            let flags = data[tcp_header_start + 13];
-            (flags & 0x02) != 0
-        }
-        _ => false,
-    }
-}
-
 // ============================================================================
 // PACKET PROCESSING RESULT - Using raw bytes for cross-thread safety
 // ============================================================================
@@ -1465,6 +1428,7 @@ pub struct FirewallEngine {
     pub windows_root_trust_ready: Arc<AtomicBool>,
     pub browser_mitm_warning_cache: Arc<Mutex<HashSet<String>>>,
     network_whitelist_index: Arc<RwLock<CidrIndex>>,
+    pub web_filter: Arc<super::web_filter::WebFilter>,
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
     pub divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::NetworkLayer>>>>,
     pub hydranet_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>,
@@ -1501,6 +1465,7 @@ impl FirewallEngine {
         // We do NOT hardcode them here to allow user to override/remove them.
 
         let network_whitelist_index = Arc::new(RwLock::new(CidrIndex::from_cidrs(&[])));
+        let web_filter = Arc::new(super::web_filter::WebFilter::load_default());
         let app_manager = Arc::new(AppManager::new(HashMap::new()));
         let settings = Arc::new(RwLock::new(settings_data));
         let sdk = Arc::new(RwLock::new(super::sdk::SdkRegistry::with_defaults()));
@@ -1515,6 +1480,7 @@ impl FirewallEngine {
             stats,
             dns_handler,
             app_manager,
+            web_filter,
             settings,
             stop_signal,
             sdk,
@@ -1529,27 +1495,11 @@ impl FirewallEngine {
         }
     }
 
-    pub fn settings_path() -> PathBuf {
-        PathBuf::from("json/settings.json")
-    }
-
     pub fn load_settings() -> Option<FirewallSettings> {
-        let path = Self::settings_path();
-        if path.exists() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(settings) = serde_json::from_str::<FirewallSettings>(&content) {
-                    return Some(settings);
-                }
-            }
-        }
-
-        // Create and save settings.json directly with default settings if it doesn't exist
-        let default_settings = FirewallSettings::default();
-        if let Ok(json_str) = serde_json::to_string_pretty(&default_settings) {
-            let _ = fs::create_dir_all("json");
-            let _ = fs::write(&path, json_str);
-        }
-        Some(default_settings)
+        let path = PathBuf::from("json/settings.json");
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
     }
 
     pub fn apply_settings(&self, new_settings: FirewallSettings) {
@@ -1689,10 +1639,29 @@ impl FirewallEngine {
 
     pub fn save_settings(&self) {
         let current_settings = self.settings.read().unwrap().clone();
-        if let Ok(json_str) = serde_json::to_string_pretty(&current_settings) {
-            let path = Self::settings_path();
+
+        let settings = FirewallSettings {
+            kernel_block_paths: current_settings.kernel_block_paths.clone(),
+            late_blocking_mode: current_settings.late_blocking_mode,
+            headless_mode: current_settings.headless_mode,
+            log_mode: current_settings.log_mode,
+            show_blocked_logs_only: current_settings.show_blocked_logs_only,
+            show_blocked_graphics_only: current_settings.show_blocked_graphics_only,
+            show_blocked_http_inspector_only: current_settings.show_blocked_http_inspector_only,
+            no_alert_mode: current_settings.no_alert_mode,
+            save_all_logs: current_settings.save_all_logs,
+            prune_old_logs: current_settings.prune_old_logs,
+            max_visible_logs: current_settings.max_visible_logs,
+            prune_http_history: current_settings.prune_http_history,
+            max_visible_http_events: current_settings.max_visible_http_events,
+            log_full_bodies: current_settings.log_full_bodies,
+            tls_proxy: current_settings.tls_proxy.clone(),
+            metadata: current_settings.metadata.clone(),
+        };
+
+        if let Ok(content) = serde_json::to_string_pretty(&settings) {
             let _ = fs::create_dir_all("json");
-            let _ = fs::write(&path, json_str);
+            let _ = fs::write("json/settings.json", content);
         }
     }
 
@@ -1750,15 +1719,17 @@ impl FirewallEngine {
             return;
         }
 
-        // Only block QUIC (UDP/443) if explicitly configured in settings.json.
-        // Default in settings.json is false (never block) so browsers don't encounter ERR_TIMED_OUT.
+        // Block QUIC/UDP:443 — the embedded http-mitm-proxy handles TCP only.
         if matches!(info.protocol, Protocol::UDP)
             && info.dst_port == 443
             && tls_proxy.block_quic_udp_443
         {
             *should_forward = false;
+            // Always override reason — get_or_insert_with would silently retain a
+            // stale "App Allowed: <name>" reason from the app-decision step and
+            // make firewall activity logs misleading.
             *reason = Some(
-                "Transparent TLS Proxy mode: blocked QUIC (UDP/443) as configured in settings.json; the local proxy handles TCP only"
+                "Transparent TLS Proxy mode: blocked QUIC (UDP/443); the local proxy handles TCP only"
                     .to_string(),
             );
         }
@@ -1903,6 +1874,7 @@ impl FirewallEngine {
             ca_bundle.issuer,
             sdk,
             settings,
+            self.web_filter.clone(),
             stop_rx_main,
         ));
 
@@ -2533,17 +2505,8 @@ impl FirewallEngine {
         // not via WinDivert, so we don't need to compete with another WinDivert handle.
         // Priority 0 is fine.
         let divert_priority: i16 = 0;
-        // KERNEL FILTER OPTIMIZATION:
-        // Only intercept non-loopback packets, OR loopback packets destined to/from the TLS proxy (port 8877).
-        // All other Windows internal loopback IPC/RPC/database traffic bypasses user-space entirely in kernel.
-        let filter = "!loopback || tcp.DstPort == 8877 || tcp.SrcPort == 8877";
-        let divert = match WinDivert::network(filter, divert_priority, WinDivertFlags::new()) {
-            Ok(d) => {
-                let _ = d.set_param(WinDivertParam::QueueLength, 32768);
-                let _ = d.set_param(WinDivertParam::QueueSize, 134217728);
-                let _ = d.set_param(WinDivertParam::QueueTime, 4000);
-                WinDivertArc(Arc::new(d))
-            }
+        let divert = match WinDivert::network("true", divert_priority, WinDivertFlags::new()) {
+            Ok(d) => WinDivertArc(Arc::new(d)),
             Err(e) => {
                 let ts = Self::now_ts();
                 emit_log_event(LogEntry {
@@ -2652,6 +2615,7 @@ impl FirewallEngine {
             let fcheck_w = Arc::clone(&self.file_checker);
             let browser_mitm_warning_cache_w = Arc::clone(&self.browser_mitm_warning_cache);
             let network_whitelist_index_w = Arc::clone(&self.network_whitelist_index);
+            let web_filter_w = Arc::clone(&self.web_filter);
             let divert_w = divert.clone();
             let net_ev_tx = net_event_tx.clone();
             let nat_table_w = self.nat_table.clone();
@@ -2660,12 +2624,29 @@ impl FirewallEngine {
                 .name(format!("packet_worker_{}", worker_id))
                 .spawn(move || {
                     let mut buffer = vec![0u8; 65535];
+                    let mut packet_count = 0u64;
                     // Per-worker dedup: only send one NET_EVENT per PID per session
                     let mut notified_pids: HashSet<u32> = HashSet::new();
                     while !stop_w.load(Ordering::Relaxed) {
                         // Each thread competition for packets on the shared handle
                         match divert_w.recv(Some(&mut buffer)) {
                             Ok(packet) => {
+                                packet_count += 1;
+                                if packet_count % 100 == 0
+                                    && !settings_w.read().unwrap().show_blocked_logs_only
+                                {
+                                    let ts = Self::now_ts();
+                                    emit_log_event(LogEntry {
+                                        id: format!("{}-worker-{}-count", ts, worker_id),
+                                        timestamp: ts,
+                                        level: LogLevel::Info,
+                                        message: format!(
+                                            "Worker {} received {} packets",
+                                            worker_id, packet_count
+                                        ),
+                                    });
+                                }
+                                // println!("DEBUG: Worker Recv Packet len={}", packet.data.len());
                                 let outbound = packet.address.outbound();
 
                                 // Skip packets reinjected by the embedded proxy (or any other
@@ -2697,8 +2678,9 @@ impl FirewallEngine {
                                 // NetworkLayer addresses do NOT carry process_id;
                                 // start at 0 and resolve via TCP/UDP table below.
                                 let mut pid: u32 = 0;
+                                let data_vec = packet.data.to_vec();
                                 let mut pre_parsed =
-                                    Self::parse_packet(&packet.data, outbound, 0, &am_w.info_cache);
+                                    Self::parse_packet(&data_vec, outbound, 0, &am_w.info_cache);
 
                                 if let Some((ref mut p_info, _)) = pre_parsed {
                                     let lookup_port = if outbound {
@@ -2709,20 +2691,23 @@ impl FirewallEngine {
                                     let is_tcp =
                                         matches!(p_info.protocol, super::engine::Protocol::TCP);
 
-                                    // 1. Check in-memory port-to-PID mapping first (<5ns, zero OS syscalls)
-                                    if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port) {
-                                        pid = mapped_pid;
-                                    } else {
-                                        // Only query Windows TCP/UDP table on connection setup (SYN) or DNS to prevent queue freezing during bulk data flow
-                                        let is_syn = is_tcp && tcp_is_syn(&packet.data);
-                                        let is_dns = lookup_port == 53;
-                                        if is_syn || is_dns {
-                                            pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
-                                            am_w.update_port_mapping(lookup_port, pid);
+                                    // WinDivert native PID already set above (step 1).
+                                    // Fall through to TCP/UDP table if it returned 0.
+                                    if pid == 0 {
+                                        pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                    }
+
+                                    // Fallback: Hook DLL mapping (if native lookup failed)
+                                    if pid == 0 {
+                                        if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port)
+                                        {
+                                            pid = mapped_pid;
                                         }
                                     }
 
+                                    // Cache the resolved port->PID mapping for future
                                     if pid != 0 {
+                                        am_w.update_port_mapping(lookup_port, pid);
                                         p_info.process_id = pid;
                                         p_info.image_path = am_w.info_cache.get_info(pid).path;
                                     }
@@ -2742,6 +2727,7 @@ impl FirewallEngine {
                                     &pre_parsed,
                                     &browser_mitm_warning_cache_w,
                                     &network_whitelist_index_w,
+                                    &web_filter_w,
                                 );
 
                                 // Firewall activity telemetry. Network blocks stay in the
@@ -2853,45 +2839,20 @@ impl FirewallEngine {
                                                 }
                                             } else if outbound
                                                 && dst_port == 443
+                                                && pid != std::process::id()
                                                 && !http_mitm_proxy::is_registered_upstream_local_port(src_port)
-                                                && {
-                                                    let current_pid = std::process::id();
-                                                    let effective_pid = if pid != 0 {
-                                                        pid
-                                                    } else {
-                                                        let resolved = Self::resolve_pid_from_port(src_port, true);
-                                                        if resolved != 0 {
-                                                            am_w.update_port_mapping(src_port, resolved);
-                                                        }
-                                                        resolved
-                                                    };
-                                                    effective_pid != current_pid
-                                                }
                                             {
                                                 if let (Some(orig_dst), Some(orig_src)) =
                                                     (dst_ip, src_ip)
                                                 {
-                                                    let is_active_nat_flow = nat_table_w.get(src_port).is_some();
-                                                    let should_intercept = is_active_nat_flow || {
-                                                        let host_resolved = dns_w.resolve_ip(&orig_dst.to_string());
-                                                        let host_candidate = pre_parsed.as_ref()
-                                                            .and_then(|(p, _)| p.hostname.as_deref())
-                                                            .or(host_resolved.as_deref());
-                                                        let sdk_guard = sdk_w.read().unwrap();
-                                                        sdk_guard.has_target_rule(host_candidate, Some(orig_dst))
-                                                    };
-
-                                                    if should_intercept
-                                                        && !Self::is_loopback(orig_dst)
+                                                    if !Self::is_loopback(orig_dst)
                                                         && !orig_dst.is_unspecified()
                                                         && !orig_dst.is_multicast()
                                                     {
-                                                        if !is_active_nat_flow {
-                                                            nat_table_w.insert(
-                                                                src_port,
-                                                                (orig_dst, 443, orig_src),
-                                                            );
-                                                        }
+                                                        nat_table_w.insert(
+                                                            src_port,
+                                                            (orig_dst, 443, orig_src),
+                                                        );
                                                         let ok = match orig_dst {
                                                             IpAddr::V4(_v4) => {
                                                                 let ok_dst = nat_rewrite_dst_ipv4(
@@ -2967,12 +2928,15 @@ impl FirewallEngine {
                                 } else {
                                     let ts = Self::now_ts();
                                     emit_log_event(LogEntry {
-                                        id: format!("{}-worker-{}-err", ts, worker_id),
+                                        id: format!(
+                                            "{}-worker-{}-err-{}",
+                                            ts, worker_id, packet_count
+                                        ),
                                         timestamp: ts,
                                         level: LogLevel::Error,
                                         message: format!(
-                                            "Worker {} Recv Error: {}",
-                                            worker_id, err_str
+                                            "Worker {} Recv Error: {} (count: {})",
+                                            worker_id, err_str, packet_count
                                         ),
                                     });
                                     std::thread::sleep(Duration::from_millis(100));
@@ -2999,6 +2963,7 @@ impl FirewallEngine {
         pre_parsed: &Option<(PacketInfo, usize)>,
         browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
         network_whitelist_index: &Arc<RwLock<CidrIndex>>,
+        web_filter: &Arc<super::web_filter::WebFilter>,
     ) -> PacketDecision {
         let (mut info, mut payload_offset) = match pre_parsed {
             Some(p) => (p.0.clone(), p.1),
@@ -3064,7 +3029,6 @@ impl FirewallEngine {
             process_path: app_info.path.clone(),
         };
 
-
         // Initialize decision state
         let mut should_forward = true;
         let mut reason: Option<String> = None;
@@ -3094,31 +3058,29 @@ impl FirewallEngine {
             }
         }
 
-        // ── Clean CIDR IP Threat Intelligence Scan ─────────────────────────
-        // Evaluates remote IP against curated CIDR ranges (CIDRBlackListIPv4/v6.txt).
-        // Works in all modes (MetadataOnly, TlsProxy, or direct). Zero false positives.
+        // --- Pure CIDR Blacklist Scan (WebFilter) ---
         let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
-        if let Some(reason_str) = am.threat_intel.check_ip(remote_ip) {
+        if let Some(web_match) = web_filter.find_match(remote_ip) {
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
             stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
 
             let now = Self::now_ts();
             emit_log_event(LogEntry {
-                id: format!("{}-cidr-threatintel-{}", now, pid),
+                id: format!("{}-cidr-{}", now, pid),
                 timestamp: now,
                 level: LogLevel::Warning,
                 message: format!(
-                    "ThreatIntel Event: {} (pid={}) -> {}:{} reason={}",
-                    app_info.name, pid, remote_ip, info.dst_port, reason_str
+                    "CIDR Blocked: {} (pid={}) -> {}:{} ({})",
+                    app_info.name, pid, remote_ip, info.dst_port, web_match.reason
                 ),
             });
 
             return PacketDecision {
-                packet_data: data_vec,
+                packet_data: data.to_vec(),
                 address_data: address_data.to_vec(),
                 should_forward: false,
                 recalc_checksums: false,
-                _reason: format!("CIDR ThreatIntel Block: {}", reason_str),
+                _reason: web_match.reason,
             };
         }
 
@@ -3752,7 +3714,7 @@ impl FirewallEngine {
         let mut http_content_type = None;
         let mut http_referer = None;
         let payload_entropy = None;
-        let payload_sample = None;
+        let mut payload_sample = None;
         let mut payload_bytes: Option<&[u8]> = None;
         let mut payload_urls: Vec<String> = Vec::new();
         let mut payload_domains: Vec<String> = Vec::new();
@@ -3763,8 +3725,8 @@ impl FirewallEngine {
                 let payload = &data[payload_start..];
                 payload_bytes = Some(payload);
 
-                // Check for HTTPS (port 443 or any TLS Client Hello handshake) - TLS SNI extraction
-                if dst_port == 443 || src_port == 443 || super::tls_parser::is_tls_handshake(payload) {
+                // Check for HTTPS (port 443) - TLS SNI extraction
+                if dst_port == 443 || src_port == 443 {
                     tls_handshake = super::tls_parser::is_tls_handshake(payload);
                     if let Some(sni_host) = super::tls_parser::extract_sni(payload) {
                         // Treat HTTPS SNI as a URL root so downstream hostname/url
@@ -3812,20 +3774,16 @@ impl FirewallEngine {
 
         if let Some(bytes) = payload_bytes {
             if !bytes.is_empty() {
-                // Only inspect payload for URLs/domains if it looks like plaintext HTTP text protocol,
-                // and NEVER on encrypted TLS Application Data (0x17 0x03) or pure binary payloads.
-                let is_tls_encrypted = bytes.len() >= 3 && bytes[0] == 0x17 && bytes[1] == 0x03;
-                let is_http_text = bytes.starts_with(b"GET ")
-                    || bytes.starts_with(b"POST ")
-                    || bytes.starts_with(b"HEAD ")
-                    || bytes.starts_with(b"PUT ")
-                    || bytes.starts_with(b"HTTP/");
+                let preview: Vec<String> = bytes
+                    .iter()
+                    .take(32)
+                    .map(|b| format!("{:02X}", b))
+                    .collect();
+                payload_sample = Some(preview.join(" "));
 
-                if is_http_text && !is_tls_encrypted {
-                    let (urls, domains) = Self::discover_urls_and_domains(bytes);
-                    payload_urls = urls;
-                    payload_domains = domains;
-                }
+                let (urls, domains) = Self::discover_urls_and_domains(bytes);
+                payload_urls = urls;
+                payload_domains = domains;
             }
         }
 
