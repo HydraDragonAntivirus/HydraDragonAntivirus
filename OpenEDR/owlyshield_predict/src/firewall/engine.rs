@@ -2536,7 +2536,7 @@ impl FirewallEngine {
         // not via WinDivert, so we don't need to compete with another WinDivert handle.
         // Priority 0 is fine.
         let divert_priority: i16 = 0;
-        let filter = "!loopback || tcp.DstPort == 8877 || tcp.SrcPort == 8877";
+        let filter = "(!loopback || tcp.DstPort == 8877 || tcp.SrcPort == 8877) && !impostor";
         let divert = match WinDivert::network(filter, divert_priority, WinDivertFlags::new()) {
             Ok(d) => WinDivertArc(Arc::new(d)),
             Err(e) => {
@@ -2788,6 +2788,7 @@ impl FirewallEngine {
                                     let mut packet_data = decision.packet_data;
                                     let mut recalc_checksums = decision.recalc_checksums;
                                     let mut loopback_flag = None;
+                                    let mut outbound_flag = None;
 
                                     let tls_proxy_cfg =
                                         settings_w.read().unwrap().tls_proxy.clone();
@@ -2865,6 +2866,7 @@ impl FirewallEngine {
                                                     if ok {
                                                         recalc_checksums = true;
                                                         loopback_flag = Some(false);
+                                                        outbound_flag = Some(false);
                                                         if tcp_is_fin_or_rst(&packet_data) {
                                                             nat_table_w.remove(dst_port);
                                                         }
@@ -2932,6 +2934,9 @@ impl FirewallEngine {
                                     let mut reinject_address = packet.address.clone();
                                     if let Some(val) = loopback_flag {
                                         reinject_address.as_mut().set_loopback(val);
+                                    }
+                                    if let Some(val) = outbound_flag {
+                                        reinject_address.as_mut().set_outbound(val);
                                     }
                                     let mut reinject_packet = windivert::packet::WinDivertPacket {
                                         address: reinject_address,
