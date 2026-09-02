@@ -1715,17 +1715,15 @@ impl FirewallEngine {
             return;
         }
 
-        // Block QUIC/UDP:443 — the embedded http-mitm-proxy handles TCP only.
+        // Only block QUIC (UDP/443) if explicitly configured in settings.json.
+        // Default in settings.json is false (never block) so browsers don't encounter ERR_TIMED_OUT.
         if matches!(info.protocol, Protocol::UDP)
             && info.dst_port == 443
             && tls_proxy.block_quic_udp_443
         {
             *should_forward = false;
-            // Always override reason — get_or_insert_with would silently retain a
-            // stale "App Allowed: <name>" reason from the app-decision step and
-            // make firewall activity logs misleading.
             *reason = Some(
-                "Transparent TLS Proxy mode: blocked QUIC (UDP/443); the local proxy handles TCP only"
+                "Transparent TLS Proxy mode: blocked QUIC (UDP/443) as configured in settings.json; the local proxy handles TCP only"
                     .to_string(),
             );
         }
