@@ -73,7 +73,9 @@ pub fn is_registered_upstream_local_port(port: u16) -> bool {
 
     let now = Instant::now();
     let mut ports = upstream_local_ports().lock().unwrap();
-    prune_upstream_local_ports(&mut ports, now);
+    if ports.len() > 1000 {
+        prune_upstream_local_ports(&mut ports, now);
+    }
     if let Some(seen_at) = ports.get_mut(&port) {
         *seen_at = now;
         true
@@ -85,7 +87,12 @@ pub fn is_registered_upstream_local_port(port: u16) -> bool {
 pub async fn connect_registered_tcp(host: &str, port: u16) -> std::io::Result<TcpStream> {
     let mut last_error = None;
 
-    for addr in lookup_host((host, port)).await? {
+    let addrs: Vec<SocketAddr> = lookup_host((host, port)).await?.collect();
+    // Prioritize IPv4 addresses first to avoid multi-second IPv6 connection timeouts in VMs/IPv4 environments
+    let (mut v4, v6): (Vec<_>, Vec<_>) = addrs.into_iter().partition(|a| a.is_ipv4());
+    v4.extend(v6);
+
+    for addr in v4 {
         let socket = if addr.is_ipv4() {
             TcpSocket::new_v4()
         } else {

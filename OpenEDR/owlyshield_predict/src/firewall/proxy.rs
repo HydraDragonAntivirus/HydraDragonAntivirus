@@ -487,7 +487,7 @@ async fn handle_proxy_request(
     let method = req.method().to_string();
     let uri = req.uri().clone();
 
-    let host = if let Some(h) = uri.host() {
+    let raw_host = if let Some(h) = uri.host() {
         h.to_string()
     } else {
         let host_header = req
@@ -509,19 +509,44 @@ async fn handle_proxy_request(
 
     let scheme = uri.scheme_str().unwrap_or("https").to_string();
 
-    let port = uri.port_u16().unwrap_or_else(|| {
-        if let Some(p) = extract_port_from_host(&host) {
-            p
-        } else if scheme == "http" {
-            80
+    let (host, port) = {
+        let default_port = if scheme == "http" { 80 } else { 443 };
+        if let Some(p) = uri.port_u16() {
+            let clean = if let Some(idx) = raw_host.rfind(':') {
+                if raw_host.matches(':').count() == 1 {
+                    raw_host[..idx].to_string()
+                } else if let Some(cb) = raw_host.rfind(']') {
+                    if idx > cb {
+                        raw_host[..idx].trim_matches('[').trim_matches(']').to_string()
+                    } else {
+                        raw_host.trim_matches('[').trim_matches(']').to_string()
+                    }
+                } else {
+                    raw_host.clone()
+                }
+            } else {
+                raw_host.trim_matches('[').trim_matches(']').to_string()
+            };
+            (clean, p)
+        } else if let Some(p) = extract_port_from_host(&raw_host) {
+            let clean = if let Some(idx) = raw_host.rfind(':') {
+                raw_host[..idx].trim_matches('[').trim_matches(']').to_string()
+            } else {
+                raw_host.trim_matches('[').trim_matches(']').to_string()
+            };
+            (clean, p)
         } else {
-            443
+            (raw_host.trim_matches('[').trim_matches(']').to_string(), default_port)
         }
-    });
+    };
 
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
     let path = path_and_query.to_string();
-    let full_url = format!("{}://{}{}", scheme, host, path);
+    let full_url = if (scheme == "https" && port == 443) || (scheme == "http" && port == 80) {
+        format!("{}://{}{}", scheme, host, path)
+    } else {
+        format!("{}://{}:{}{}", scheme, host, port, path)
+    };
 
     let mut request_headers: HashMap<String, String> = HashMap::new();
     for (name, value) in req.headers().iter() {
@@ -665,7 +690,11 @@ async fn handle_proxy_request(
     let mut req_parts = parts;
 
     // Rewrite URI to be absolute for hyper client
-    let absolute_uri_str = format!("{}://{}{}", scheme, host, path);
+    let absolute_uri_str = if (scheme == "https" && port == 443) || (scheme == "http" && port == 80) {
+        format!("{}://{}{}", scheme, host, path)
+    } else {
+        format!("{}://{}:{}{}", scheme, host, port, path)
+    };
     if let Ok(new_uri) = http_mitm_proxy::hyper::Uri::try_from(&absolute_uri_str) {
         req_parts.uri = new_uri;
     }

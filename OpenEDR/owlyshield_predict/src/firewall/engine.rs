@@ -998,10 +998,13 @@ impl AppManager {
     }
 
     pub fn update_port_mapping(&self, port: u16, pid: u32) {
-        if port == 0 || pid == 0 {
+        if port == 0 {
             return;
         }
         let mut map = self.port_map.write().unwrap();
+        if map.len() > 16384 {
+            map.clear();
+        }
         map.insert(port, pid);
     }
 
@@ -1228,10 +1231,11 @@ impl TransparentNatTable {
     }
 
     pub fn insert(&self, client_src_port: u16, original_dst: (IpAddr, u16, IpAddr)) {
-        self.inner
-            .write()
-            .unwrap()
-            .insert(client_src_port, original_dst);
+        let mut guard = self.inner.write().unwrap();
+        if guard.len() > 16384 {
+            guard.clear();
+        }
+        guard.insert(client_src_port, original_dst);
     }
 
     pub fn get(&self, client_src_port: u16) -> Option<(IpAddr, u16, IpAddr)> {
@@ -2621,29 +2625,12 @@ impl FirewallEngine {
                 .name(format!("packet_worker_{}", worker_id))
                 .spawn(move || {
                     let mut buffer = vec![0u8; 65535];
-                    let mut packet_count = 0u64;
                     // Per-worker dedup: only send one NET_EVENT per PID per session
                     let mut notified_pids: HashSet<u32> = HashSet::new();
                     while !stop_w.load(Ordering::Relaxed) {
                         // Each thread competition for packets on the shared handle
                         match divert_w.recv(Some(&mut buffer)) {
                             Ok(packet) => {
-                                packet_count += 1;
-                                if packet_count % 100 == 0
-                                    && !settings_w.read().unwrap().show_blocked_logs_only
-                                {
-                                    let ts = Self::now_ts();
-                                    emit_log_event(LogEntry {
-                                        id: format!("{}-worker-{}-count", ts, worker_id),
-                                        timestamp: ts,
-                                        level: LogLevel::Info,
-                                        message: format!(
-                                            "Worker {} received {} packets",
-                                            worker_id, packet_count
-                                        ),
-                                    });
-                                }
-                                // println!("DEBUG: Worker Recv Packet len={}", packet.data.len());
                                 let outbound = packet.address.outbound();
 
                                 // Skip packets reinjected by the embedded proxy (or any other
@@ -2688,18 +2675,12 @@ impl FirewallEngine {
                                         matches!(p_info.protocol, super::engine::Protocol::TCP);
 
                                     // 1. Check in-memory port-to-PID mapping first (<5ns, zero OS syscalls)
-                                    if pid == 0 {
-                                        if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port) {
-                                            pid = mapped_pid;
-                                        }
-                                    }
-
-                                    // 2. Only if unknown (brand new socket), query Windows TCP/UDP table
-                                    if pid == 0 {
+                                    if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port) {
+                                        pid = mapped_pid;
+                                    } else {
+                                        // 2. Only if unknown (brand new socket), query Windows TCP/UDP table ONCE and cache
                                         pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
-                                        if pid != 0 {
-                                            am_w.update_port_mapping(lookup_port, pid);
-                                        }
+                                        am_w.update_port_mapping(lookup_port, pid);
                                     }
 
                                     if pid != 0 {
@@ -2843,10 +2824,12 @@ impl FirewallEngine {
                                                         && !orig_dst.is_unspecified()
                                                         && !orig_dst.is_multicast()
                                                     {
-                                                        nat_table_w.insert(
-                                                            src_port,
-                                                            (orig_dst, 443, orig_src),
-                                                        );
+                                                        if nat_table_w.get(src_port).is_none() {
+                                                            nat_table_w.insert(
+                                                                src_port,
+                                                                (orig_dst, 443, orig_src),
+                                                            );
+                                                        }
                                                         let ok = match orig_dst {
                                                             IpAddr::V4(_v4) => {
                                                                 let ok_dst = nat_rewrite_dst_ipv4(
@@ -2922,15 +2905,12 @@ impl FirewallEngine {
                                 } else {
                                     let ts = Self::now_ts();
                                     emit_log_event(LogEntry {
-                                        id: format!(
-                                            "{}-worker-{}-err-{}",
-                                            ts, worker_id, packet_count
-                                        ),
+                                        id: format!("{}-worker-{}-err", ts, worker_id),
                                         timestamp: ts,
                                         level: LogLevel::Error,
                                         message: format!(
-                                            "Worker {} Recv Error: {} (count: {})",
-                                            worker_id, err_str, packet_count
+                                            "Worker {} Recv Error: {}",
+                                            worker_id, err_str
                                         ),
                                     });
                                     std::thread::sleep(Duration::from_millis(100));
@@ -3115,8 +3095,8 @@ impl FirewallEngine {
             }
         }
 
-        // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
-        if info.hostname.is_none() {
+        // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules, only for handshake/DNS)
+        if info.hostname.is_none() && should_scan_threat_intel {
             if outbound {
                 info.hostname = dns_handler.resolve_ip(&info.dst_ip.to_string());
             } else {
@@ -3199,7 +3179,7 @@ impl FirewallEngine {
         // Cache URLs by PID for subsequent packets in the same flow.
         if let Some(ref url) = info.full_url {
             am.url_cache.write().unwrap().insert(pid, url.clone());
-        } else {
+        } else if should_scan_threat_intel {
             if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
                 info.full_url = Some(url.clone());
             } else if let Some(url) = am.ghost_urls.read().unwrap().get(&pid) {

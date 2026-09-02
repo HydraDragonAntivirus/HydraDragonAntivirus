@@ -186,9 +186,12 @@ impl DefaultClient {
 
     #[cfg(feature = "native-tls-client")]
     pub fn try_new() -> Result<Self, Error> {
-        let tls_connector_no_alpn = native_tls::TlsConnector::builder().build().map_err(|e| {
-            Error::TlsConnectorError(format!("Failed to build no-ALPN connector: {e}"))
-        })?;
+        let tls_connector_no_alpn = native_tls::TlsConnector::builder()
+            .request_alpns(&["http/1.1"])
+            .build()
+            .map_err(|e| {
+                Error::TlsConnectorError(format!("Failed to build HTTP/1.1 connector: {e}"))
+            })?;
         let tls_connector_alpn_h2 = native_tls::TlsConnector::builder()
             .request_alpns(&["h2", "http/1.1"])
             .build()
@@ -218,9 +221,10 @@ impl DefaultClient {
         let mut root_cert_store = tokio_rustls::rustls::RootCertStore::empty();
         root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-        let tls_connector_no_alpn = tokio_rustls::rustls::ClientConfig::builder()
+        let mut tls_connector_no_alpn = tokio_rustls::rustls::ClientConfig::builder()
             .with_root_certificates(root_cert_store.clone())
             .with_no_client_auth();
+        tls_connector_no_alpn.alpn_protocols = vec![b"http/1.1".to_vec()];
         let mut tls_connector_alpn_h2 = tokio_rustls::rustls::ClientConfig::builder()
             .with_root_certificates(root_cert_store.clone())
             .with_no_client_auth();
