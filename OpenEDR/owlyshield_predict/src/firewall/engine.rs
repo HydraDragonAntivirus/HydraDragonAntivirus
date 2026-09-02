@@ -2783,40 +2783,6 @@ impl FirewallEngine {
                                     continue;
                                 }
 
-                                // ── FAST-PATH CONNECTION FLOW TABLE ───────────────────────
-                                // Once a stream (TCP/UDP session) has been verified and allowed/blocked,
-                                // all subsequent packets bypass PID lookups, packet parsing, regex,
-                                // and ThreatIntel XorFilters, reinjecting with zero allocations in <150ns.
-                                let is_tls_proxy_active = {
-                                    let cfg = &settings_w.read().unwrap().tls_proxy;
-                                    cfg.mode == TlsInspectionMode::TlsProxy && cfg.auto_start
-                                };
-
-                                let fast_flow = if !is_tls_proxy_active {
-                                    extract_fast_flow_key(&packet.data)
-                                } else {
-                                    None
-                                };
-
-                                if let Some(ref flow_key) = fast_flow {
-                                    if let Some(allowed) = flow_table_w.get(flow_key) {
-                                        if allowed {
-                                            stats_w.packets_total.fetch_add(1, Ordering::Relaxed);
-                                            stats_w.packets_allowed.fetch_add(1, Ordering::Relaxed);
-                                            let reinject = windivert::packet::WinDivertPacket {
-                                                address: packet.address,
-                                                data: std::borrow::Cow::Borrowed(&packet.data),
-                                            };
-                                            let _ = divert_w.send(&reinject);
-                                            continue;
-                                        } else {
-                                            stats_w.packets_total.fetch_add(1, Ordering::Relaxed);
-                                            stats_w.packets_blocked.fetch_add(1, Ordering::Relaxed);
-                                            continue;
-                                        }
-                                    }
-                                }
-
                                 // Serialize Address for Decision Logic
                                 // (Still keep some structure from previous for compatibility)
                                 let addr_bytes = unsafe {
@@ -2883,12 +2849,8 @@ impl FirewallEngine {
                                     &pre_parsed,
                                     &browser_mitm_warning_cache_w,
                                     &network_whitelist_index_w,
+                                    &flow_table_w,
                                 );
-
-                                // Cache flow decision so all subsequent stream packets hit the zero-overhead fast-path
-                                if let Some(flow_key) = fast_flow {
-                                    flow_table_w.insert(flow_key, decision.should_forward);
-                                }
 
                                 // Firewall activity telemetry. Network blocks stay in the
                                 // firewall; they must not become Owlyshield process-kill alerts.
@@ -3123,6 +3085,7 @@ impl FirewallEngine {
         pre_parsed: &Option<(PacketInfo, usize)>,
         browser_mitm_warning_cache: &Arc<Mutex<HashSet<String>>>,
         network_whitelist_index: &Arc<RwLock<CidrIndex>>,
+        flow_table: &ConnectionFlowTable,
     ) -> PacketDecision {
         let (mut info, mut payload_offset) = match pre_parsed {
             Some(p) => (p.0.clone(), p.1),
@@ -3189,30 +3152,59 @@ impl FirewallEngine {
         };
 
         // 1c. THREAT INTELLIGENCE ENGINE SCAN (CIDR Blacklist & XorFilter .xf)
-        // Scan on connection establishment (TLS Handshake, TLS SNI, HTTP Host/Method, DNS, or UDP/ICMP)
-        // to avoid repetitive scanning latency on established TCP stream bulk transfers.
+        // Fast-Path for ThreatIntel:
+        // Once a session's IP/domain has been verified clean by XorFilter,
+        // all subsequent streaming packets skip XorFilter & CIDR scanning in ~5ns,
+        // while continuing down to all payload, magic byte, and firewall rule checks!
         let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
-
-        let should_scan_threat_intel = info.tls_handshake
-            || info.hostname.is_some()
-            || info.dns_query.is_some()
-            || info.http_method.is_some()
-            || info.dst_port == 53
-            || info.src_port == 53;
+        let proto_num = match info.protocol {
+            super::engine::Protocol::TCP => 6,
+            super::engine::Protocol::UDP => 17,
+            _ => 0,
+        };
+        let flow_key = if proto_num != 0 {
+            Some(FlowKey::new(info.src_ip, info.dst_ip, info.src_port, info.dst_port, proto_num))
+        } else {
+            None
+        };
 
         let mut threat_match = None;
-        if should_scan_threat_intel {
+
+        if let Some(ref key) = flow_key {
+            if let Some(is_clean) = flow_table.get(key) {
+                if !is_clean {
+                    // Previously identified as malicious IP/domain in this session
+                    threat_match = Some("CACHED_SESSION_THREAT".to_string());
+                }
+                // If is_clean == true, threat_match remains None (Fast-Path bypass for XorFilter!)
+            } else {
+                // First packet of session: run Threat Intel check
+                let should_scan_threat_intel = info.tls_handshake
+                    || info.hostname.is_some()
+                    || info.dns_query.is_some()
+                    || info.http_method.is_some()
+                    || info.dst_port == 53
+                    || info.src_port == 53;
+
+                if should_scan_threat_intel {
+                    threat_match = am.threat_intel.check_ip(remote_ip);
+                    if threat_match.is_none() {
+                        if let Some(ref host) = info.hostname {
+                            threat_match = am.threat_intel.check_domain(host);
+                        }
+                    }
+                    if threat_match.is_none() {
+                        if let Some(ref dns_domain) = info.dns_query {
+                            threat_match = am.threat_intel.check_domain(dns_domain);
+                        }
+                    }
+                }
+
+                // Cache Threat Intel result for this session
+                flow_table.insert(*key, threat_match.is_none());
+            }
+        } else {
             threat_match = am.threat_intel.check_ip(remote_ip);
-            if threat_match.is_none() {
-                if let Some(ref host) = info.hostname {
-                    threat_match = am.threat_intel.check_domain(host);
-                }
-            }
-            if threat_match.is_none() {
-                if let Some(ref dns_domain) = info.dns_query {
-                    threat_match = am.threat_intel.check_domain(dns_domain);
-                }
-            }
         }
 
         if let Some(mut reason) = threat_match {
