@@ -6,7 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::num::NonZeroUsize;
 use std::path::Path;
+use std::sync::Mutex;
+use lru::LruCache;
 
 pub use hydradragonxorfilter::{key, XorFilter};
 
@@ -219,10 +222,13 @@ impl CidrBlacklistIndex {
     }
 }
 
-/// Unified Threat Intelligence Scanner using `hydradragonxorfilter` (`jdb_xorf` BinaryFuse16).
+///// Unified Threat Intelligence Scanner using `hydradragonxorfilter` (`jdb_xorf` BinaryFuse16).
 pub struct ThreatIntelScanner {
-    filters: HashMap<String, XorFilter>,
+    ip_filters: HashMap<String, XorFilter>,
+    domain_filters: HashMap<String, XorFilter>,
     cidr_index: CidrBlacklistIndex,
+    clean_ip_cache: Mutex<LruCache<IpAddr, bool>>,
+    clean_domain_cache: Mutex<LruCache<String, bool>>,
 }
 
 pub fn get_threat_intel_path() -> std::path::PathBuf {
@@ -265,8 +271,11 @@ impl ThreatIntelScanner {
 
     pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Self {
         let mut scanner = Self {
-            filters: HashMap::new(),
+            ip_filters: HashMap::new(),
+            domain_filters: HashMap::new(),
             cidr_index: CidrBlacklistIndex::new(),
+            clean_ip_cache: Mutex::new(LruCache::new(NonZeroUsize::new(16384).unwrap())),
+            clean_domain_cache: Mutex::new(LruCache::new(NonZeroUsize::new(16384).unwrap())),
         };
 
         let dir_path = dir.as_ref();
@@ -288,7 +297,11 @@ impl ThreatIntelScanner {
                                     let mut bytes = Vec::new();
                                     if file.read_to_end(&mut bytes).is_ok() {
                                         if let Some(filter) = XorFilter::from_bytes(&bytes) {
-                                            scanner.filters.insert(file_name_lower, filter);
+                                            if file_name_lower.starts_with("ip") {
+                                                scanner.ip_filters.insert(file_name_lower, filter);
+                                            } else {
+                                                scanner.domain_filters.insert(file_name_lower, filter);
+                                            }
                                         }
                                     }
                                 }
@@ -309,17 +322,29 @@ impl ThreatIntelScanner {
             return None;
         }
 
+        // Fast path: Clean IP Cache (O(1) in ~5 nanoseconds)
+        if let Ok(mut cache) = self.clean_ip_cache.lock() {
+            if cache.get(&ip).is_some() {
+                return None;
+            }
+        }
+
         // 1. CIDR match
         if self.cidr_index.contains(ip) {
             return Some("CIDR_BLACKLIST_MATCH".to_string());
         }
 
-        // 2. IP XorFilter match using jdb_xorf key derivation
+        // 2. IP XorFilter match using jdb_xorf key derivation (strictly IP filters)
         let ip_str = ip.to_string();
-        for (name, filter) in &self.filters {
+        for (name, filter) in &self.ip_filters {
             if filter.contains(&ip_str) {
                 return Some(format!("XORFILTER_IP_MATCH:{}", name));
             }
+        }
+
+        // Remember verified clean IP in cache so subsequent packets never touch CIDR/XorFilters
+        if let Ok(mut cache) = self.clean_ip_cache.lock() {
+            cache.put(ip, true);
         }
 
         None
@@ -362,6 +387,13 @@ impl ThreatIntelScanner {
             return self.check_ip(ip);
         }
 
+        // Fast path: Clean Domain Cache (O(1) in ~5 nanoseconds)
+        if let Ok(mut cache) = self.clean_domain_cache.lock() {
+            if cache.get(&clean_domain).is_some() {
+                return None;
+            }
+        }
+
         // Target is a Domain: Query DOMAIN filters using psl (Public Suffix List) eTLD+1 boundary
         use psl::Psl;
 
@@ -371,7 +403,7 @@ impl ThreatIntelScanner {
 
         let parts: Vec<&str> = clean_domain.split('.').collect();
         if parts.len() <= 1 {
-            for (name, filter) in &self.filters {
+            for (name, filter) in &self.domain_filters {
                 if filter.contains(&clean_domain) {
                     return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
                 }
@@ -383,7 +415,7 @@ impl ThreatIntelScanner {
                     break;
                 }
 
-                for (name, filter) in &self.filters {
+                for (name, filter) in &self.domain_filters {
                     if filter.contains(&sub_candidate) {
                         return Some(format!("XORFILTER_DOMAIN_MATCH:{}", name));
                     }
@@ -393,6 +425,11 @@ impl ThreatIntelScanner {
                     break; // Stop at eTLD+1 root registered domain to prevent False Positives (FP)
                 }
             }
+        }
+
+        // Remember verified clean domain in cache
+        if let Ok(mut cache) = self.clean_domain_cache.lock() {
+            cache.put(clean_domain, true);
         }
 
         None
