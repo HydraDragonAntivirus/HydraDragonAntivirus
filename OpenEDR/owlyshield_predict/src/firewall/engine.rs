@@ -1,6 +1,5 @@
 use super::file_magic::FileMagicChecker;
 use super::quarantine::{compute_sha256, quarantine_file as write_quarantine_file};
-use bincode_next::serde::{decode_from_slice, encode_to_vec};
 use hydradragon_shared::{QUARANTINE_PATH, TlsInspectionMode, TlsProxyConfig};
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -1495,15 +1494,27 @@ impl FirewallEngine {
         }
     }
 
+    pub fn settings_path() -> PathBuf {
+        PathBuf::from("json/settings.json")
+    }
+
     pub fn load_settings() -> Option<FirewallSettings> {
-        let path = PathBuf::from("json/settings.bin");
-        fs::read(&path)
-            .ok()
-            .and_then(|bytes| {
-                decode_from_slice::<FirewallSettings, _>(&bytes, bincode_next::config::standard())
-                    .ok()
-            })
-            .map(|(settings, _)| settings)
+        let path = Self::settings_path();
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(settings) = serde_json::from_str::<FirewallSettings>(&content) {
+                    return Some(settings);
+                }
+            }
+        }
+
+        // Create and save settings.json directly with default settings if it doesn't exist
+        let default_settings = FirewallSettings::default();
+        if let Ok(json_str) = serde_json::to_string_pretty(&default_settings) {
+            let _ = fs::create_dir_all("json");
+            let _ = fs::write(&path, json_str);
+        }
+        Some(default_settings)
     }
 
     pub fn apply_settings(&self, new_settings: FirewallSettings) {
@@ -1643,29 +1654,10 @@ impl FirewallEngine {
 
     pub fn save_settings(&self) {
         let current_settings = self.settings.read().unwrap().clone();
-
-        let settings = FirewallSettings {
-            kernel_block_paths: current_settings.kernel_block_paths.clone(),
-            late_blocking_mode: current_settings.late_blocking_mode,
-            headless_mode: current_settings.headless_mode,
-            log_mode: current_settings.log_mode,
-            show_blocked_logs_only: current_settings.show_blocked_logs_only,
-            show_blocked_graphics_only: current_settings.show_blocked_graphics_only,
-            show_blocked_http_inspector_only: current_settings.show_blocked_http_inspector_only,
-            no_alert_mode: current_settings.no_alert_mode,
-            save_all_logs: current_settings.save_all_logs,
-            prune_old_logs: current_settings.prune_old_logs,
-            max_visible_logs: current_settings.max_visible_logs,
-            prune_http_history: current_settings.prune_http_history,
-            max_visible_http_events: current_settings.max_visible_http_events,
-            log_full_bodies: current_settings.log_full_bodies,
-            tls_proxy: current_settings.tls_proxy.clone(),
-            metadata: current_settings.metadata.clone(),
-        };
-
-        if let Ok(content) = encode_to_vec(&settings, bincode_next::config::standard()) {
+        if let Ok(json_str) = serde_json::to_string_pretty(&current_settings) {
+            let path = Self::settings_path();
             let _ = fs::create_dir_all("json");
-            let _ = fs::write("json/settings.bin", content);
+            let _ = fs::write(&path, json_str);
         }
     }
 

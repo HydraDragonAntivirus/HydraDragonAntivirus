@@ -1,0 +1,33 @@
+{
+  "kernel_block_paths": [],
+  "late_blocking_mode": true,
+  "headless_mode": false,
+  "log_mode": false,
+  "show_blocked_logs_only": false,
+  "show_blocked_http_inspector_only": false,
+  "show_blocked_graphics_only": false,
+  "no_alert_mode": false,
+  "save_all_logs": true,
+  "prune_old_logs": true,
+  "max_visible_logs": 2000,
+  "prune_http_history": true,
+  "max_visible_http_events": 1000,
+  "log_full_bodies": false,
+  "tls_proxy": {
+    "mode": "tls_proxy",
+    "listen_host": "127.0.0.1",
+    "listen_port": 8877,
+    "block_quic_udp_443": false,
+    "auto_start": true,
+    "bypass_hosts": [],
+    "cert_install_consent": true,
+    "handshake_timeout_ms": 5000,
+    "request_timeout_secs": 30,
+    "response_timeout_secs": 30,
+    "show_blocked_only": false
+  },
+  "metadata": {
+    "version": "2.0.0",
+    "description": "HydraDragon Next-Gen Firewall Configuration"
+  }
+}
