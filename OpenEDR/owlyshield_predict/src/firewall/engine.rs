@@ -2509,7 +2509,12 @@ impl FirewallEngine {
         // Priority 0 is fine.
         let divert_priority: i16 = 0;
         let divert = match WinDivert::network("true", divert_priority, WinDivertFlags::new()) {
-            Ok(d) => WinDivertArc(Arc::new(d)),
+            Ok(d) => {
+                let _ = d.set_param(WinDivertParam::QueueLength, 16384);
+                let _ = d.set_param(WinDivertParam::QueueSize, 67108864);
+                let _ = d.set_param(WinDivertParam::QueueTime, 2000);
+                WinDivertArc(Arc::new(d))
+            }
             Err(e) => {
                 let ts = Self::now_ts();
                 emit_log_event(LogEntry {
@@ -2680,9 +2685,8 @@ impl FirewallEngine {
                                 // NetworkLayer addresses do NOT carry process_id;
                                 // start at 0 and resolve via TCP/UDP table below.
                                 let mut pid: u32 = 0;
-                                let data_vec = packet.data.to_vec();
                                 let mut pre_parsed =
-                                    Self::parse_packet(&data_vec, outbound, 0, &am_w.info_cache);
+                                    Self::parse_packet(&packet.data, outbound, 0, &am_w.info_cache);
 
                                 if let Some((ref mut p_info, _)) = pre_parsed {
                                     let lookup_port = if outbound {
@@ -2693,23 +2697,22 @@ impl FirewallEngine {
                                     let is_tcp =
                                         matches!(p_info.protocol, super::engine::Protocol::TCP);
 
-                                    // WinDivert native PID already set above (step 1).
-                                    // Fall through to TCP/UDP table if it returned 0.
+                                    // 1. Check in-memory port-to-PID mapping first (<5ns, zero OS syscalls)
                                     if pid == 0 {
-                                        pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
-                                    }
-
-                                    // Fallback: Hook DLL mapping (if native lookup failed)
-                                    if pid == 0 {
-                                        if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port)
-                                        {
+                                        if let Some(mapped_pid) = am_w.get_pid_for_port(lookup_port) {
                                             pid = mapped_pid;
                                         }
                                     }
 
-                                    // Cache the resolved port->PID mapping for future
+                                    // 2. Only if unknown (brand new socket), query Windows TCP/UDP table
+                                    if pid == 0 {
+                                        pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
+                                        if pid != 0 {
+                                            am_w.update_port_mapping(lookup_port, pid);
+                                        }
+                                    }
+
                                     if pid != 0 {
-                                        am_w.update_port_mapping(lookup_port, pid);
                                         p_info.process_id = pid;
                                         p_info.image_path = am_w.info_cache.get_info(pid).path;
                                     }
