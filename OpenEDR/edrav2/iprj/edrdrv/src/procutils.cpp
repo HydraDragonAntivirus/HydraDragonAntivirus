@@ -235,8 +235,13 @@ NTSTATUS getProcessTimes(PEPROCESS pProcess, KERNEL_USER_TIMES* pTimes)
 
 	__try
 	{
-		IFERR_RET(ObOpenObjectByPointer(pProcess, OBJ_KERNEL_HANDLE, NULL, 
-			0, *PsProcessType, KernelMode, &hProcess));
+		NTSTATUS status = ObOpenObjectByPointer(pProcess, OBJ_KERNEL_HANDLE, NULL, 
+			PROCESS_QUERY_INFORMATION, *PsProcessType, KernelMode, &hProcess);
+		if (!NT_SUCCESS(status))
+		{
+			hProcess = nullptr;
+			return status;
+		}
 
 		KERNEL_USER_TIMES Times = {};
 		IFERR_RET(g_pCommonData->fnZwQueryInformationProcess(hProcess,
@@ -353,8 +358,13 @@ NTSTATUS getProcessToken(PEPROCESS pProcess, HANDLE* phToken)
 
 	__try
 	{
-		IFERR_RET(ObOpenObjectByPointer(pProcess, OBJ_KERNEL_HANDLE, NULL, 
-			0, *PsProcessType, KernelMode, &hProcess));
+		NTSTATUS status = ObOpenObjectByPointer(pProcess, OBJ_KERNEL_HANDLE, NULL, 
+			PROCESS_QUERY_INFORMATION, *PsProcessType, KernelMode, &hProcess);
+		if (!NT_SUCCESS(status))
+		{
+			hProcess = nullptr;
+			return status;
+		}
 		IFERR_RET(getProcessToken(hProcess, phToken));
 	}
 	__finally
