@@ -3002,69 +3002,6 @@ impl FirewallEngine {
             process_path: app_info.path.clone(),
         };
 
-        // 1c. THREAT INTELLIGENCE ENGINE SCAN (CIDR Blacklist & XorFilter .xf)
-        // Strictly connection-initiation (TLS Handshake SNI, HTTP Request, DNS, Port 53).
-        // For all streaming bulk data packets, this evaluates to false in CPU registers in <0.2ns (zero locks, zero blocking).
-        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
-
-        let should_scan_threat_intel = info.tls_handshake
-            || info.hostname.is_some()
-            || info.dns_query.is_some()
-            || info.http_method.is_some()
-            || info.dst_port == 53
-            || info.src_port == 53;
-
-        let mut threat_match = None;
-        if should_scan_threat_intel {
-            threat_match = am.threat_intel.check_ip(remote_ip);
-            if threat_match.is_none() {
-                if let Some(ref host) = info.hostname {
-                    threat_match = am.threat_intel.check_domain(host);
-                }
-            }
-            if threat_match.is_none() {
-                if let Some(ref dns_domain) = info.dns_query {
-                    threat_match = am.threat_intel.check_domain(dns_domain);
-                }
-            }
-        }
-
-        if let Some(mut reason) = threat_match {
-            if info.outbound && crate::threat_intel::is_restricted_port(info.dst_port) {
-                reason = format!("{}:restricted_port_{}", reason, info.dst_port);
-            }
-            stats.packets_total.fetch_add(1, Ordering::Relaxed);
-            stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
-
-            let target_desc = if let Some(ref domain) = info.dns_query {
-                format!("{} ({}:{})", domain, remote_ip, info.dst_port)
-            } else if let Some(ref host) = info.hostname {
-                format!("{} ({}:{})", host, remote_ip, info.dst_port)
-            } else {
-                format!("{}:{}", remote_ip, info.dst_port)
-            };
-
-            let now = Self::now_ts();
-            emit_log_event(LogEntry {
-                id: format!("{}-threatintel-{}", now, pid),
-                timestamp: now,
-                level: LogLevel::Warning,
-                message: format!(
-                    "ThreatIntel Event: {} (pid={}) -> {} reason={}",
-                    app_info.name, pid, target_desc, reason
-                ),
-            });
-
-            // Rust drops the network packet immediately (<5ns).
-            // Process quarantine & kill decisions are delegated directly to OpenEDR C++ engine.
-            return PacketDecision {
-                packet_data: data_vec,
-                address_data: address_data.to_vec(),
-                should_forward: false,
-                recalc_checksums: false,
-                _reason: format!("ThreatIntel Packet Drop (Delegated to OpenEDR C++ Engine, pid={}, reason={})", pid, reason),
-            };
-        }
 
         // Initialize decision state
         let mut should_forward = true;
@@ -3095,8 +3032,36 @@ impl FirewallEngine {
             }
         }
 
-        // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules, only for handshake/DNS)
-        if info.hostname.is_none() && should_scan_threat_intel {
+        // ── Clean CIDR IP Threat Intelligence Scan ─────────────────────────
+        // Evaluates remote IP against curated CIDR ranges (CIDRBlackListIPv4/v6.txt).
+        // Works in all modes (MetadataOnly, TlsProxy, or direct). Zero false positives.
+        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
+        if let Some(reason_str) = am.threat_intel.check_ip(remote_ip) {
+            stats.packets_total.fetch_add(1, Ordering::Relaxed);
+            stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+
+            let now = Self::now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-cidr-threatintel-{}", now, pid),
+                timestamp: now,
+                level: LogLevel::Warning,
+                message: format!(
+                    "ThreatIntel Event: {} (pid={}) -> {}:{} reason={}",
+                    app_info.name, pid, remote_ip, info.dst_port, reason_str
+                ),
+            });
+
+            return PacketDecision {
+                packet_data: data_vec,
+                address_data: address_data.to_vec(),
+                should_forward: false,
+                recalc_checksums: false,
+                _reason: format!("CIDR ThreatIntel Block: {}", reason_str),
+            };
+        }
+
+        // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
+        if info.hostname.is_none() {
             if outbound {
                 info.hostname = dns_handler.resolve_ip(&info.dst_ip.to_string());
             } else {
@@ -3179,7 +3144,7 @@ impl FirewallEngine {
         // Cache URLs by PID for subsequent packets in the same flow.
         if let Some(ref url) = info.full_url {
             am.url_cache.write().unwrap().insert(pid, url.clone());
-        } else if should_scan_threat_intel {
+        } else {
             if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
                 info.full_url = Some(url.clone());
             } else if let Some(url) = am.ghost_urls.read().unwrap().get(&pid) {

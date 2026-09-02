@@ -309,45 +309,6 @@ impl ThreatIntelScanner {
         None
     }
 
-    /// Check if domain or string is an IP matching CIDR.
-    pub fn check_domain(&self, domain: &str) -> Option<String> {
-        let mut clean_domain = domain.trim().to_ascii_lowercase();
-        if clean_domain.is_empty() {
-            return None;
-        }
-
-        // Strip protocol prefix
-        if let Some(pos) = clean_domain.find("://") {
-            clean_domain = clean_domain[pos + 3..].to_string();
-        }
-
-        // Strip path, query params, or fragments
-        if let Some(pos) = clean_domain.find('/') {
-            clean_domain = clean_domain[..pos].to_string();
-        }
-
-        // Strip port if present
-        if let Some((host, _port)) = clean_domain.split_once(':') {
-            clean_domain = host.to_string();
-        }
-
-        // Strip trailing dot
-        if clean_domain.ends_with('.') {
-            clean_domain.pop();
-        }
-
-        if clean_domain.is_empty() {
-            return None;
-        }
-
-        // If target is an IP address, route strictly to CIDR IP scanner
-        if let Ok(ip) = clean_domain.parse::<IpAddr>() {
-            return self.check_ip(ip);
-        }
-
-        None
-    }
-
     /// Check if target port is a Mozilla Gecko / Chromium restricted port (gBadPortList).
     pub fn check_port(&self, port: u16) -> Option<String> {
         if is_restricted_port(port) {

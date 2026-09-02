@@ -28,6 +28,10 @@ use tokio::sync::oneshot;
 use super::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
 use super::sdk::{PacketContext, RuleAction, SdkRegistry};
 
+lazy_static::lazy_static! {
+    static ref THREAT_INTEL: Arc<crate::threat_intel::ThreatIntelScanner> = Arc::new(crate::threat_intel::ThreatIntelScanner::load_default());
+}
+
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
 /// Directory-relative filenames used to persist the CA across restarts.
@@ -659,28 +663,24 @@ async fn handle_proxy_request(
         process_path: app_path,
     };
 
-    // ── Threat Intelligence Scanner Check (Malicious Domains & IPs) ────────
-    if let Some(engine) = super::headless::engine() {
-        let mut threat_match = engine.app_manager.threat_intel.check_domain(&host);
-        if threat_match.is_none() {
-            if let Ok(ip) = host.parse::<IpAddr>() {
-                threat_match = engine.app_manager.threat_intel.check_ip(ip);
-            }
-        }
+    // ── Threat Intelligence Scanner Check (Strictly CIDR IP Blocklist) ───
+    let mut threat_match = None;
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        threat_match = THREAT_INTEL.check_ip(ip);
+    }
 
-        if let Some(reason) = threat_match {
-            let now = now_ts();
-            emit_log_event(LogEntry {
-                id: format!("{}-proxy-threatintel-{}", now, resolved_pid),
-                timestamp: now,
-                level: LogLevel::Warning,
-                message: format!(
-                    "ThreatIntel Blocked via Proxy: {} (pid={}) -> {} reason={}",
-                    _mock_context.process_name, resolved_pid, host, reason
-                ),
-            });
-            return Err(format!("Blocked by Threat Intelligence: {}", reason));
-        }
+    if let Some(reason) = threat_match {
+        let now = now_ts();
+        emit_log_event(LogEntry {
+            id: format!("{}-proxy-threatintel-{}", now, resolved_pid),
+            timestamp: now,
+            level: LogLevel::Warning,
+            message: format!(
+                "ThreatIntel Blocked via Proxy: {} (pid={}) -> {} reason={}",
+                _mock_context.process_name, resolved_pid, host, reason
+            ),
+        });
+        return Err(format!("Blocked by Threat Intelligence: {}", reason));
     }
 
     // ── SDK Rule Evaluation (request) ───────────────────────────────────────
