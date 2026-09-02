@@ -30,6 +30,9 @@ def clean_item(raw: str, is_ip: bool = False) -> str:
         raw = raw.split(":", 1)[0]
     if raw.endswith("."):
         raw = raw[:-1]
+    raw = raw.strip()
+    if not is_ip and raw.startswith("www."):
+        raw = raw[4:]
     return raw.strip()
 
 

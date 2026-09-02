@@ -3030,16 +3030,26 @@ impl FirewallEngine {
         };
 
         // 1c. THREAT INTELLIGENCE ENGINE SCAN (CIDR Blacklist & XorFilter .xf)
-        let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
-        let mut threat_match = am.threat_intel.check_ip(remote_ip);
-        if threat_match.is_none() {
-            if let Some(ref host) = info.hostname {
-                threat_match = am.threat_intel.check_domain(host);
+        // Scan on connection establishment (SYN, TLS SNI, HTTP Host, DNS) to avoid latency on established TCP streams.
+        let should_scan_threat_intel = info.tcp_syn
+            || info.hostname.is_some()
+            || info.dns_query.is_some()
+            || info.dst_port == 53
+            || info.src_port == 53;
+
+        let mut threat_match = None;
+        if should_scan_threat_intel {
+            let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
+            threat_match = am.threat_intel.check_ip(remote_ip);
+            if threat_match.is_none() {
+                if let Some(ref host) = info.hostname {
+                    threat_match = am.threat_intel.check_domain(host);
+                }
             }
-        }
-        if threat_match.is_none() {
-            if let Some(ref dns_domain) = info.dns_query {
-                threat_match = am.threat_intel.check_domain(dns_domain);
+            if threat_match.is_none() {
+                if let Some(ref dns_domain) = info.dns_query {
+                    threat_match = am.threat_intel.check_domain(dns_domain);
+                }
             }
         }
 

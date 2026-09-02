@@ -241,26 +241,21 @@ pub fn get_threat_intel_path() -> std::path::PathBuf {
         }
     }
 
-    let candidate_paths = [
-        std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel"),
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("threat_intel")))
-            .unwrap_or_default(),
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join(r"edrdata\threat_intel")))
-            .unwrap_or_default(),
-        std::path::PathBuf::from(r"edrdata\threat_intel"),
-    ];
+    let canonical_path = std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel");
+    if canonical_path.exists() && canonical_path.is_dir() {
+        return canonical_path;
+    }
 
-    for path in candidate_paths {
-        if path.exists() && path.is_dir() {
-            return path;
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let relative_path = exe_dir.join("threat_intel");
+            if relative_path.exists() && relative_path.is_dir() {
+                return relative_path;
+            }
         }
     }
 
-    std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\threat_intel")
+    canonical_path
 }
 
 impl ThreatIntelScanner {
