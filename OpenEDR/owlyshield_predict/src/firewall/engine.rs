@@ -3050,14 +3050,20 @@ impl FirewallEngine {
             stats.packets_total.fetch_add(1, Ordering::Relaxed);
             stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
 
+            let target_desc = if let Some(ref domain) = info.dns_query {
+                format!("{} ({}:{})", domain, remote_ip, info.dst_port)
+            } else {
+                format!("{}:{}", remote_ip, info.dst_port)
+            };
+
             let now = Self::now_ts();
             emit_log_event(LogEntry {
                 id: format!("{}-threatintel-{}", now, pid),
                 timestamp: now,
                 level: LogLevel::Warning,
                 message: format!(
-                    "ThreatIntel Event: {} (pid={}) -> {}:{} reason={}",
-                    app_info.name, pid, remote_ip, info.dst_port, reason
+                    "ThreatIntel Event: {} (pid={}) -> {} reason={}",
+                    app_info.name, pid, target_desc, reason
                 ),
             });
 
