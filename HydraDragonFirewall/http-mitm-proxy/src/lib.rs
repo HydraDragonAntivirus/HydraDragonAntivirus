@@ -116,7 +116,13 @@ pub async fn connect_registered_tcp(host: &str, port: u16) -> std::io::Result<Tc
         });
 
         match socket.connect(addr).await {
-            Ok(stream) => return Ok(stream),
+            Ok(stream) => {
+                if let Ok(local_addr) = stream.local_addr() {
+                    let port = local_addr.port();
+                    register_upstream_local_port(port);
+                }
+                return Ok(stream);
+            }
             Err(err) => {
                 if let Some(port) = registered_port {
                     unregister_upstream_local_port(port);

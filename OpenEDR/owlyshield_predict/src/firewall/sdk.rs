@@ -1237,6 +1237,83 @@ impl SdkRule {
         }
     }
 
+    /// Returns true if this rule specifically requires HTTP/HTTPS layer inspection via TLS proxy MITM.
+    pub fn requires_mitm_proxy(&self) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        // Must have HTTP-specific inspection requirements
+        let has_http_requirements = self.url.is_some()
+            || self.json_match.is_some()
+            || self.http_request_body.is_some()
+            || self.http_response_body.is_some()
+            || self.change_request_body.is_some()
+            || self.change_response_body.is_some()
+            || matches!(self.action, RuleAction::ChangeRequestBody | RuleAction::ChangeResponseBody)
+            || matches!(self.protocol, RuleProtocol::HTTPS);
+
+        if !has_http_requirements {
+            return false;
+        }
+
+        // Must have an explicit, specific target (domain or IP), not a wildcard or empty
+        let has_specific_domain = self.domain.as_ref().is_some_and(|d| {
+            d.domains.iter().any(|pattern| pattern != "*" && pattern != "any" && !pattern.is_empty())
+        });
+
+        let has_specific_ip = self.dst_ip.as_ref().is_some_and(|ip_m| {
+            ip_m.addresses.iter().any(|a| a != "*" && a != "any" && !a.is_empty())
+                || !ip_m.cidr_ranges.is_empty()
+        });
+
+        has_specific_domain || has_specific_ip
+    }
+
+    /// Checks if this MITM rule specifically targets the given domain or destination IP
+    pub fn matches_mitm_target(&self, domain: Option<&str>, ip: Option<IpAddr>) -> bool {
+        if !self.requires_mitm_proxy() {
+            return false;
+        }
+
+        if let (Some(d_matcher), Some(target_domain)) = (&self.domain, domain) {
+            let dom_lower = target_domain.to_ascii_lowercase();
+            for pat in &d_matcher.domains {
+                if pat == "*" || pat == "any" || pat.is_empty() {
+                    continue;
+                }
+                let pat_lower = pat.to_ascii_lowercase();
+                // Exact match
+                if pat_lower == dom_lower {
+                    return true;
+                }
+                // Subdomain match: *.discord.com matching api.discord.com or discord.com
+                if pat_lower.starts_with("*.") {
+                    let suffix = &pat_lower[1..];
+                    if dom_lower.ends_with(suffix) || dom_lower == &pat_lower[2..] {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if let (Some(ip_matcher), Some(target_ip)) = (&self.dst_ip, ip) {
+            let target_ip_str = target_ip.to_string();
+            for addr in &ip_matcher.addresses {
+                if addr != "*" && addr != "any" && !addr.is_empty() && addr == &target_ip_str {
+                    return true;
+                }
+            }
+            for cidr in &ip_matcher.cidr_ranges {
+                if ip_matcher.ip_in_cidr(target_ip, cidr) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// Evaluate if this rule matches the packet (no flow context).
     pub fn matches(&self, packet: &PacketInfo, payload: &[u8]) -> bool {
         self.matches_impl(packet, payload, None)
@@ -2231,51 +2308,16 @@ impl SdkRegistry {
             })
     }
 
-    /// Check if any SDK rule targets this domain, URL, or IP address.
-    /// Used by transparent NAT to strictly limit TLS proxy MITM interception only to targets that have rules.
+    /// Check if any SDK rule specifically targets this domain or destination IP for TLS MITM inspection.
+    /// Used by transparent NAT to strictly limit TLS proxy MITM interception ONLY to targets with specific rules.
     pub fn has_target_rule(&self, domain: Option<&str>, ip: Option<IpAddr>) -> bool {
         if self.rules.is_empty() {
             return false;
         }
 
-        let dom_lower = domain.map(|d| d.to_ascii_lowercase());
-
-        // 1. Fast path: check Daachorse Aho-Corasick domain index
-        if let (Some(scanner), Some(h)) = (&self.domain_index, &dom_lower) {
-            if scanner.find_overlapping_iter(h.as_bytes()).next().is_some() {
-                return true;
-            }
-        }
-
-        // 2. Fast path: check Daachorse Aho-Corasick URL index
-        if let (Some(scanner), Some(h)) = (&self.url_index, &dom_lower) {
-            if scanner.find_overlapping_iter(h.as_bytes()).next().is_some() {
-                return true;
-            }
-        }
-
-        // 3. Check individual rules for domain, IP, or wildcard patterns
         for rule in &self.rules {
-            if let Some(ref d_matcher) = rule.domain {
-                if let Some(ref d) = dom_lower {
-                    if d_matcher.matches(Some(d)) {
-                        return true;
-                    }
-                }
-            }
-            if let Some(ref u_matcher) = rule.url {
-                if let Some(ref d) = dom_lower {
-                    if u_matcher.matches(Some(d)) {
-                        return true;
-                    }
-                }
-            }
-            if let Some(ref ip_matcher) = rule.dst_ip {
-                if let Some(target_ip) = ip {
-                    if ip_matcher.matches(target_ip) {
-                        return true;
-                    }
-                }
+            if rule.matches_mitm_target(domain, ip) {
+                return true;
             }
         }
 

@@ -2853,8 +2853,20 @@ impl FirewallEngine {
                                                 }
                                             } else if outbound
                                                 && dst_port == 443
-                                                && pid != std::process::id()
                                                 && !http_mitm_proxy::is_registered_upstream_local_port(src_port)
+                                                && {
+                                                    let current_pid = std::process::id();
+                                                    let effective_pid = if pid != 0 {
+                                                        pid
+                                                    } else {
+                                                        let resolved = Self::resolve_pid_from_port(src_port, true);
+                                                        if resolved != 0 {
+                                                            am_w.update_port_mapping(src_port, resolved);
+                                                        }
+                                                        resolved
+                                                    };
+                                                    effective_pid != current_pid
+                                                }
                                             {
                                                 if let (Some(orig_dst), Some(orig_src)) =
                                                     (dst_ip, src_ip)
