@@ -771,6 +771,7 @@ rules:
       - type: signature_signer_contains
         value: "YY Inc."
         nocase: true
+      # Zemana has vulnerable driver and no longer active.
       # - type: signature_signer_contains
       #  value: "Zemana Ltd."
       #  nocase: true
