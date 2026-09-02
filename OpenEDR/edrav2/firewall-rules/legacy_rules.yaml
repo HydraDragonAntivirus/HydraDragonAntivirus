@@ -44,14 +44,4 @@ rules:
       # Empty value intentionally means any value for this key in the current SDK matcher.
       value: ""
 
-  # Detect Base64 Encoded PowerShell (Features 2, 6, 15, 18)
-  - name: "Detect Encoded PowerShell"
-    description: "Detects base64-encoded PowerShell commands in traffic"
-    enabled: true
-    protocol: any
-    action: traffic_attack
-    encoding: base64
-    regex:
-      pattern: "powershell.*-enc"
-      case_insensitive: true
 
