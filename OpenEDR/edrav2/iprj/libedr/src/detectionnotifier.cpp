@@ -509,6 +509,22 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			{
 				try { nVerdict = std::stoll(std::string(optVerdictF.value())); } catch (...) {}
 			}
+			else if (vEvent.has("processes"))
+			{
+				try
+				{
+					auto vSeq = vEvent.get("processes");
+					if (vSeq.getType() == variant::ValueType::Sequence && vSeq.getSize() > 0)
+					{
+						auto lastProc = vSeq[vSeq.getSize() - 1];
+						if (lastProc.has("verdict"))
+						{
+							nVerdict = static_cast<int64_t>(lastProc["verdict"]);
+						}
+					}
+				}
+				catch (...) {}
+			}
 
 			int64_t nRootMalwarePid = 0;
 			int64_t nRootMalwareVerdict = 0;
@@ -737,16 +753,18 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
 				if (hOwly)
 				{
+					std::string sDosCheck = NtPathToDosPathString(sPath);
+					const std::string& sPathForSig = sDosCheck.empty() ? sPath : sDosCheck;
 					std::wstring wsPath;
-					int nWideLen = ::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), static_cast<int>(sPath.length()), nullptr, 0);
+					int nWideLen = ::MultiByteToWideChar(CP_UTF8, 0, sPathForSig.c_str(), static_cast<int>(sPathForSig.length()), nullptr, 0);
 					if (nWideLen > 0)
 					{
 						wsPath.resize(nWideLen);
-						::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), static_cast<int>(sPath.length()), &wsPath[0], nWideLen);
+						::MultiByteToWideChar(CP_UTF8, 0, sPathForSig.c_str(), static_cast<int>(sPathForSig.length()), &wsPath[0], nWideLen);
 					}
 					else
 					{
-						wsPath.assign(sPath.begin(), sPath.end());
+						wsPath.assign(sPathForSig.begin(), sPathForSig.end());
 					}
 
 					// 1. Check if the signer belongs to known malicious or PUA vendors

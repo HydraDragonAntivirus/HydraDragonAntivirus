@@ -1598,7 +1598,8 @@
 			"*\\Program Files (x86)\\*",
 			"*\\ProgramData\\*",
 			"*\\AppData\\*",
-			"*\\Temp\\*"
+			"*\\Temp\\*",
+			"*:Zone.Identifier*"
 		]
 		
 	},
@@ -2605,6 +2606,15 @@
 								"$operation": "!imatch",
 								"pattern": "*\\appdata\\*",
 								"args": [ "@event.destination.path" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "*:Zone.Identifier*",
+								"args": [ "@event.destination.path" ]
+							},
+							{
+								"$operation": "equal",
+								"args": [ "@event.destination.type", "OTHER" ]
 							},
 							{
 								"$operation": "and",
