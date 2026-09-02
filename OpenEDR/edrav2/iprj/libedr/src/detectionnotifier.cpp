@@ -728,40 +728,50 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 				} catch (...) {}
 			}
 
-			if ((bShouldTrustCompanyWhitelist || bShouldTrustFlsCloud) && !sPath.empty())
+			if (!sPath.empty())
 			{
 				bool bIsTrustedByCompanyWhitelist = false;
-				if (bShouldTrustCompanyWhitelist)
+				bool bIsMaliciousVendor = false;
+
+				HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+				if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
+				if (hOwly)
 				{
-					HMODULE hOwly = ::GetModuleHandleW(L"owlyshield_ransom.dll");
-					if (!hOwly) hOwly = ::LoadLibraryW(L"owlyshield_ransom.dll");
-					if (hOwly)
+					std::wstring wsPath;
+					int nWideLen = ::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), static_cast<int>(sPath.length()), nullptr, 0);
+					if (nWideLen > 0)
+					{
+						wsPath.resize(nWideLen);
+						::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), static_cast<int>(sPath.length()), &wsPath[0], nWideLen);
+					}
+					else
+					{
+						wsPath.assign(sPath.begin(), sPath.end());
+					}
+
+					// 1. Check if the signer belongs to known malicious or PUA vendors
+					typedef int32_t (*IsMaliciousSignerFn)(const wchar_t*, uint32_t);
+					auto fnCheckMalicious = (IsMaliciousSignerFn)::GetProcAddress(hOwly, "owlyshield_is_malicious_company_signer");
+					if (fnCheckMalicious && fnCheckMalicious(wsPath.c_str(), static_cast<uint32_t>(wsPath.length())) == 1)
+					{
+						bIsMaliciousVendor = true;
+						nVerdict = 2; // Strict malware verdict
+						LOGLVL(Critical, FMT("detnotif: MALICIOUS/PUA VENDOR SIGNATURE DETECTED for <" << sPath << ">. Strict enforcement active."));
+					}
+
+					// 2. Check if the signer is in trusted company whitelist (only if not malicious and rule permits)
+					if (bShouldTrustCompanyWhitelist && !bIsMaliciousVendor)
 					{
 						typedef int32_t (*IsTrustedSignerFn)(const wchar_t*, uint32_t);
 						auto fnCheckTrusted = (IsTrustedSignerFn)::GetProcAddress(hOwly, "owlyshield_is_trusted_company_signer");
-						if (fnCheckTrusted)
+						if (fnCheckTrusted && fnCheckTrusted(wsPath.c_str(), static_cast<uint32_t>(wsPath.length())) == 1)
 						{
-							std::wstring wsPath;
-							int nWideLen = ::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), static_cast<int>(sPath.length()), nullptr, 0);
-							if (nWideLen > 0)
-							{
-								wsPath.resize(nWideLen);
-								::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), static_cast<int>(sPath.length()), &wsPath[0], nWideLen);
-							}
-							else
-							{
-								wsPath.assign(sPath.begin(), sPath.end());
-							}
-
-							if (fnCheckTrusted(wsPath.c_str(), static_cast<uint32_t>(wsPath.length())) == 1)
-							{
-								bIsTrustedByCompanyWhitelist = true;
-							}
+							bIsTrustedByCompanyWhitelist = true;
 						}
 					}
 				}
 
-				bool bIsTrustedByFlsCloud = (bShouldTrustFlsCloud && nVerdict == 1);
+				bool bIsTrustedByFlsCloud = (bShouldTrustFlsCloud && nVerdict == 1 && !bIsMaliciousVendor);
 
 				if (bIsTrustedByCompanyWhitelist || bIsTrustedByFlsCloud)
 				{

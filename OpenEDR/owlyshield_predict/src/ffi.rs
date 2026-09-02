@@ -387,3 +387,25 @@ pub extern "C" fn owlyshield_is_trusted_company_signer(path_ptr: *const u16, pat
     0
 }
 
+/// Called by OpenEDR or external tools to check if an executable path
+/// is signed by a known malicious or PUA certificate authority.
+/// Returns 1 if malicious/PUA vendor, 0 if clean/unmatched.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_is_malicious_company_signer(path_ptr: *const u16, path_len: u32) -> i32 {
+    if path_ptr.is_null() || path_len == 0 {
+        return 0;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
+
+    let sig_info = crate::signature_verification::verify_signature(&path_buf);
+    if let Some(signer) = sig_info.signer_name {
+        if crate::trusted_signers::is_malicious_vendor(&signer) || crate::trusted_signers::is_pua_vendor(&signer) {
+            return 1;
+        }
+    }
+
+    0
+}
+
+
