@@ -152,7 +152,9 @@ pub fn resolve_rule_file_path(filename: &str) -> Option<PathBuf> {
         use winreg::RegKey;
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         if let Ok(key) = hklm.open_subkey(r"SOFTWARE\Owlyshield\SDK") {
-            if let Ok(p) = key.get_value::<String, _>("TRUSTED_SIGNERS_PATH") {
+            if let Ok(p) = key.get_value::<String, _>("SIGNER_RULES_PATH")
+                .or_else(|_| key.get_value::<String, _>("TRUSTED_SIGNERS_PATH"))
+            {
                 let path = PathBuf::from(p).join(filename);
                 if path.is_file() {
                     return Some(path);
@@ -161,14 +163,14 @@ pub fn resolve_rule_file_path(filename: &str) -> Option<PathBuf> {
         }
     }
 
-    let canonical_path = PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\trusted_signer_rules").join(filename);
+    let canonical_path = PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\signer_rules").join(filename);
     if canonical_path.is_file() {
         return Some(canonical_path);
     }
 
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            let relative_path = exe_dir.join("trusted_signer_rules").join(filename);
+            let relative_path = exe_dir.join("signer_rules").join(filename);
             if relative_path.is_file() {
                 return Some(relative_path);
             }

@@ -379,7 +379,7 @@ pub extern "C" fn owlyshield_is_trusted_company_signer(path_ptr: *const u16, pat
     }
 
     if let Some(signer) = sig_info.signer_name {
-        if crate::trusted_signers::is_trusted_signer(&signer) {
+        if crate::signer_rules::is_trusted_signer(&signer) {
             return 1;
         }
     }
@@ -400,7 +400,7 @@ pub extern "C" fn owlyshield_is_malicious_company_signer(path_ptr: *const u16, p
 
     let sig_info = crate::signature_verification::verify_signature(&path_buf);
     if let Some(signer) = sig_info.signer_name {
-        if crate::trusted_signers::is_malicious_vendor(&signer) || crate::trusted_signers::is_pua_vendor(&signer) {
+        if crate::signer_rules::is_malicious_vendor(&signer) || crate::signer_rules::is_pua_vendor(&signer) {
             return 1;
         }
     }

@@ -54,7 +54,7 @@
                         <Directory Id="INSTALLDIR_PLATFORM" Name="x64">
                             <Directory Id="MODELSDIR_X64" Name="models" />
                             <Directory Id="THREATINTELDIR_X64" Name="threat_intel" />
-                            <Directory Id="TRUSTEDSIGNERSDIR_X64" Name="trusted_signer_rules" />
+                            <Directory Id="SIGNERRULESDIR_X64" Name="signer_rules" />
                             <Directory Id="SANCTUMDIR_X64" Name="Sanctum" />
                         </Directory>
                     <?endif?>
@@ -114,12 +114,12 @@
                     <RegistryKey Root="HKLM" Key="Software\Owlyshield\SDK">
                         <RegistryValue Name="RULES_PATH" Value="[INSTALLDIR_PLATFORM]firewall-rules" Type="string" />
                         <RegistryValue Name="THREAT_INTEL_PATH" Value="[INSTALLDIR_PLATFORM]threat_intel" Type="string" />
-                        <RegistryValue Name="TRUSTED_SIGNERS_PATH" Value="[INSTALLDIR_PLATFORM]trusted_signer_rules" Type="string" />
+                        <RegistryValue Name="SIGNER_RULES_PATH" Value="[INSTALLDIR_PLATFORM]signer_rules" Type="string" />
                         <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
                     </RegistryKey>
                 </Component>
                 <Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR_X64" />
-                <Files Include="..\..\edrdata\trusted_signer_rules\**" Directory="TRUSTEDSIGNERSDIR_X64" />
+                <Files Include="..\..\edrdata\signer_rules\**" Directory="SIGNERRULESDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
                     <Exclude Files="$(var.SourceBinDir64)*.xf" />
