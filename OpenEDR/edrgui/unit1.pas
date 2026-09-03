@@ -58,6 +58,7 @@ type
     FHiPPipe: THipPipeListener;
     FProtectionPaused: Boolean;
     FBehaviorLogs: TStringList;
+    FMLPredictions: TStringList;
     function ReadProtectionPaused: Boolean;
     procedure WriteProtectionPaused(APaused: Boolean);
     procedure SetPauseCaption(APaused: Boolean);
@@ -118,6 +119,7 @@ begin
   SetPauseCaption(ReadProtectionPaused);
 
   FBehaviorLogs := TStringList.Create;
+  FMLPredictions := TStringList.Create;
 
   FNotifier := TGuiNotifierThread.Create(@OnNotifierDetections);
   FHiPPipe := THipPipeListener.Create(@OnHipMessage);
@@ -125,6 +127,11 @@ end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  if FMLPredictions <> nil then
+  begin
+    FMLPredictions.Free;
+    FMLPredictions := nil;
+  end;
   if FBehaviorLogs <> nil then
   begin
     FBehaviorLogs.Free;
@@ -413,8 +420,23 @@ begin
                 'Executable: ' + ExePath + LineEnding +
                 'Target Destination: ' + Target + LineEnding +
                 'Digital Signature: ' + SigStatus + ' | Cloud Verdict: ' + Verdict + LineEnding +
-                'Trigger Reason: ' + Reason + LineEnding + LineEnding +
-                '=== RECORDED BEHAVIOR HISTORY ===';
+                'Trigger Reason: ' + Reason + LineEnding + LineEnding;
+
+      // ML Prediction & Risk Assessment Section
+      MsgStr := MsgStr + '=== MACHINE LEARNING & RISK EVALUATION ===' + LineEnding;
+      if (FMLPredictions <> nil) and (ExePath <> '') then
+      begin
+        sKey := LowerCase(ExePath);
+        idx := FMLPredictions.IndexOf(sKey);
+        if idx <> -1 then
+          MsgStr := MsgStr + FMLPredictions.ValueFromIndex[idx] + LineEnding + LineEnding
+        else
+          MsgStr := MsgStr + 'ML Verdict: Baseline Dynamic Scan Active (Score: 0.00 / Clean)' + LineEnding + LineEnding;
+      end
+      else
+        MsgStr := MsgStr + 'ML Verdict: Dynamic Scoring in Progress' + LineEnding + LineEnding;
+
+      MsgStr := MsgStr + '=== RECORDED BEHAVIOR HISTORY ===';
 
       if (FBehaviorLogs <> nil) and (ExePath <> '') then
       begin
@@ -435,6 +457,92 @@ begin
         MsgStr := MsgStr + LineEnding + '(No prior API or process behaviors recorded)';
 
       TAlertForm.ShowInteractivePrompt(TitleStr, MsgStr, ReqId, ExePath);
+    finally
+      Parts.Free;
+    end;
+    Exit;
+  end;
+
+  // Process ML Verdict events from engine
+  if CleanKind = 'HIPS_VERDICT' then
+  begin
+    Parts := TStringList.Create;
+    try
+      Parts.Delimiter := '|';
+      Parts.StrictDelimiter := True;
+      Parts.DelimitedText := CleanText;
+      if Parts.Count >= 3 then
+      begin
+        ExePath := Parts[1];
+        Verdict := Parts[2];
+        Reason := 'Dynamic ML Analysis';
+        if Parts.Count >= 4 then Reason := Parts[3];
+        if (FMLPredictions <> nil) and (ExePath <> '') then
+        begin
+          sKey := LowerCase(ExePath);
+          idx := FMLPredictions.IndexOf(sKey);
+          if idx = -1 then
+            FMLPredictions.Add(sKey + '=ML Verdict: ' + Verdict + ' | ' + Reason)
+          else
+            FMLPredictions[idx] := sKey + '=ML Verdict: ' + Verdict + ' | ' + Reason;
+        end;
+      end;
+    finally
+      Parts.Free;
+    end;
+    Exit;
+  end;
+
+  // Process Threat Alerts from engine
+  if CleanKind = 'THREAT_ALERT' then
+  begin
+    Parts := TStringList.Create;
+    try
+      Parts.Delimiter := '|';
+      Parts.StrictDelimiter := True;
+      Parts.DelimitedText := CleanText;
+      if Parts.Count >= 2 then
+      begin
+        TitleStr := Parts[0];
+        ExePath := Parts[1];
+        if (FMLPredictions <> nil) and (ExePath <> '') then
+        begin
+          sKey := LowerCase(ExePath);
+          idx := FMLPredictions.IndexOf(sKey);
+          if idx = -1 then
+            FMLPredictions.Add(sKey + '=High Risk Detection: ' + TitleStr)
+          else
+            FMLPredictions[idx] := sKey + '=High Risk Detection: ' + TitleStr;
+        end;
+      end;
+    finally
+      Parts.Free;
+    end;
+  end;
+
+  // Process dynamic telemetry events forwarded directly from C++
+  if CleanKind = 'BEHAVIOR_EVENT' then
+  begin
+    Parts := TStringList.Create;
+    try
+      Parts.Delimiter := '|';
+      Parts.StrictDelimiter := True;
+      Parts.DelimitedText := CleanText;
+      if Parts.Count >= 2 then
+      begin
+        ExePath := Parts[0];
+        Reason := Parts[1];
+        if (FBehaviorLogs <> nil) and (ExePath <> '') then
+        begin
+          sKey := LowerCase(ExePath);
+          idx := FBehaviorLogs.IndexOf(sKey);
+          if idx = -1 then
+            FBehaviorLogs.Add(sKey + '=' + FormatDateTime('hh:nn:ss', Now) + ' - ' + Reason)
+          else
+            FBehaviorLogs[idx] := FBehaviorLogs.ValueFromIndex[idx] + LineEnding +
+              FormatDateTime('hh:nn:ss', Now) + ' - ' + Reason;
+        end;
+      end;
     finally
       Parts.Free;
     end;

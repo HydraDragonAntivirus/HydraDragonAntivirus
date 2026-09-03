@@ -377,12 +377,14 @@ begin
 
   if Item.IsPrompt then
   begin
-    Width := 520;
-    Height := 310;
+    Width := 580;
+    Height := 420;
     LblMessage.Visible := False;
     if MemoPromptLog <> nil then
     begin
       MemoPromptLog.Visible := True;
+      MemoPromptLog.Font.Name := 'Consolas';
+      MemoPromptLog.Font.Height := -12;
       MemoPromptLog.Text := Item.Msg;
     end;
     BtnAllowAlways.Visible := True;
