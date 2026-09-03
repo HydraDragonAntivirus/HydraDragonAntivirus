@@ -57,6 +57,7 @@ type
     FNotifier: TGuiNotifierThread;
     FHiPPipe: THipPipeListener;
     FProtectionPaused: Boolean;
+    FBehaviorLogs: TStringList;
     function ReadProtectionPaused: Boolean;
     procedure WriteProtectionPaused(APaused: Boolean);
     procedure SetPauseCaption(APaused: Boolean);
@@ -116,12 +117,19 @@ begin
     MenuPauseResume);
   SetPauseCaption(ReadProtectionPaused);
 
+  FBehaviorLogs := TStringList.Create;
+
   FNotifier := TGuiNotifierThread.Create(@OnNotifierDetections);
   FHiPPipe := THipPipeListener.Create(@OnHipMessage);
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  if FBehaviorLogs <> nil then
+  begin
+    FBehaviorLogs.Free;
+    FBehaviorLogs := nil;
+  end;
   if FNotifier <> nil then
   begin
     FNotifier.Terminate;
@@ -285,11 +293,35 @@ procedure TForm1.OnNotifierDetections(Sender: TObject;
   const Detections: TDetInfoArray);
 var
   sMsg, sTitle: string;
-  i: Integer;
+  i, idx: Integer;
+  sKey, sEntry: string;
   Sev: TAlertSeverity;
 begin
   if Length(Detections) = 0 then
     Exit;
+
+  // Record each detection into behavior history by image path
+  if FBehaviorLogs <> nil then
+  begin
+    for i := 0 to High(Detections) do
+    begin
+      if Detections[i].ImagePath <> '' then
+      begin
+        sKey := LowerCase(Detections[i].ImagePath);
+        sEntry := FormatDateTime('hh:nn:ss', Now) + ' - ' + Detections[i].EventType;
+        if Detections[i].Title <> '' then
+          sEntry := sEntry + ' (' + Detections[i].Title + ')';
+        if Detections[i].AttackChain <> '' then
+          sEntry := sEntry + ' [Chain: ' + Detections[i].AttackChain + ']';
+
+        idx := FBehaviorLogs.IndexOf(sKey);
+        if idx = -1 then
+          FBehaviorLogs.Add(sKey + '=' + sEntry)
+        else
+          FBehaviorLogs[idx] := sKey + '=' + FBehaviorLogs.ValueFromIndex[idx] + LineEnding + sEntry;
+      end;
+    end;
+  end;
 
   sTitle := Trim(Detections[0].Title);
   if sTitle = '' then
@@ -325,7 +357,7 @@ begin
   TAlertForm.ShowAlert(sTitle, sMsg, Sev, 0);
 end;
 
-// Runs on the main thread (via Synchronize) whenever the Rust behavior engine
+// Runs on the main thread (via Synchronize) whenever the behavior engine
 // writes a message to the HydraHipEvent pipe (threat alert, HIPS prompt,
 // verdict, ...).
 procedure TForm1.OnHipMessage(Sender: TObject; const AKind, AText: string);
@@ -334,6 +366,9 @@ var
   Parts: TStringList;
   ReqId, Pid, AppName, ExePath, Target, Verdict, SigStatus, Reason: string;
   TitleStr, MsgStr: string;
+  sKey: string;
+  idx: Integer;
+  Hist: string;
 begin
   CleanKind := Trim(AKind);
   CleanText := Trim(AText);
@@ -360,12 +395,44 @@ begin
       if Parts.Count > 6 then SigStatus := Parts[6];
       if Parts.Count > 7 then Reason := Parts[7];
 
-      TitleStr := 'Firewall: ' + AppName;
-      MsgStr := 'Process: ' + AppName + ' (PID: ' + Pid + ')' + LineEnding +
-                'Path: ' + ExePath + LineEnding +
-                'Target: ' + Target + LineEnding +
-                'Signature: ' + SigStatus + ' | Verdict: ' + Verdict + LineEnding +
-                'Reason: ' + Reason;
+      // Record current request into behavior history
+      if (FBehaviorLogs <> nil) and (ExePath <> '') then
+      begin
+        sKey := LowerCase(ExePath);
+        idx := FBehaviorLogs.IndexOf(sKey);
+        if idx = -1 then
+          FBehaviorLogs.Add(sKey + '=' + FormatDateTime('hh:nn:ss', Now) + ' - Outbound Connection to ' + Target)
+        else
+          FBehaviorLogs[idx] := sKey + '=' + FBehaviorLogs.ValueFromIndex[idx] + LineEnding +
+            FormatDateTime('hh:nn:ss', Now) + ' - Outbound Connection to ' + Target;
+      end;
+
+      TitleStr := 'Firewall / HIPS: ' + AppName;
+      MsgStr := '=== PROCESS SUMMARY ===' + LineEnding +
+                'Application: ' + AppName + ' (PID: ' + Pid + ')' + LineEnding +
+                'Executable: ' + ExePath + LineEnding +
+                'Target Destination: ' + Target + LineEnding +
+                'Digital Signature: ' + SigStatus + ' | Cloud Verdict: ' + Verdict + LineEnding +
+                'Trigger Reason: ' + Reason + LineEnding + LineEnding +
+                '=== RECORDED BEHAVIOR HISTORY ===';
+
+      if (FBehaviorLogs <> nil) and (ExePath <> '') then
+      begin
+        sKey := LowerCase(ExePath);
+        idx := FBehaviorLogs.IndexOf(sKey);
+        if idx <> -1 then
+        begin
+          Hist := FBehaviorLogs.ValueFromIndex[idx];
+          if Hist <> '' then
+            MsgStr := MsgStr + LineEnding + Hist
+          else
+            MsgStr := MsgStr + LineEnding + '(No prior API or process behaviors recorded)';
+        end
+        else
+          MsgStr := MsgStr + LineEnding + '(No prior API or process behaviors recorded)';
+      end
+      else
+        MsgStr := MsgStr + LineEnding + '(No prior API or process behaviors recorded)';
 
       TAlertForm.ShowInteractivePrompt(TitleStr, MsgStr, ReqId, ExePath);
     finally

@@ -56,6 +56,7 @@ type
   BtnAllowOnce: TButton;
   BtnBlock: TButton;
   BtnQuarantine: TButton;
+  MemoPromptLog: TMemo;
     FSeverity: TAlertSeverity;
     FAutoCloseMs: Integer;
     procedure ApplySeverityStyle;
@@ -290,6 +291,22 @@ begin
   BtnQuarantine.Anchors := [akLeft, akBottom];
   BtnQuarantine.Visible := False;
   BtnQuarantine.OnClick := @BtnQuarantineClick;
+
+  MemoPromptLog := TMemo.Create(Self);
+  MemoPromptLog.Parent := Self;
+  MemoPromptLog.Left := 62;
+  MemoPromptLog.Top := 38;
+  MemoPromptLog.Width := ClientWidth - 76;
+  MemoPromptLog.Height := ClientHeight - 38 - 44;
+  MemoPromptLog.Anchors := [akTop, akLeft, akRight, akBottom];
+  MemoPromptLog.ReadOnly := True;
+  MemoPromptLog.ScrollBars := ssAutoBoth;
+  MemoPromptLog.WordWrap := True;
+  MemoPromptLog.Color := $00241B10;
+  MemoPromptLog.Font.Color := $00E0D0C0;
+  MemoPromptLog.Font.Height := -11;
+  MemoPromptLog.BorderStyle := bsNone;
+  MemoPromptLog.Visible := False;
 end;
 
 procedure TAlertForm.FormDestroy(Sender: TObject);
@@ -360,8 +377,14 @@ begin
 
   if Item.IsPrompt then
   begin
-    Width := 460;
-    Height := 250;
+    Width := 520;
+    Height := 310;
+    LblMessage.Visible := False;
+    if MemoPromptLog <> nil then
+    begin
+      MemoPromptLog.Visible := True;
+      MemoPromptLog.Text := Item.Msg;
+    end;
     BtnAllowAlways.Visible := True;
     BtnAllowOnce.Visible := True;
     BtnBlock.Visible := True;
@@ -375,6 +398,9 @@ begin
   begin
     Width := 450;
     Height := 200;
+    if MemoPromptLog <> nil then
+      MemoPromptLog.Visible := False;
+    LblMessage.Visible := True;
     BtnAllowAlways.Visible := False;
     BtnAllowOnce.Visible := False;
     BtnBlock.Visible := False;
