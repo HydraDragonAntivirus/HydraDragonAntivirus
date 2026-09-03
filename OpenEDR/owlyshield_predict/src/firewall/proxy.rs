@@ -721,6 +721,7 @@ async fn handle_proxy_request(
         detected_file_type: None,
         http_request_body: request_body.clone(),
         http_response_body: None,
+        tcp_flags: None,
     };
 
     let _mock_context = PacketContext {

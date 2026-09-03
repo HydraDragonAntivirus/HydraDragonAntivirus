@@ -191,7 +191,7 @@ pub enum Protocol {
 }
 
 impl Protocol {
-    fn label(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
             Protocol::TCP => "TCP",
             Protocol::UDP => "UDP",
@@ -249,6 +249,8 @@ pub struct PacketInfo {
     pub http_request_body: Option<String>,
     /// Decrypted HTTP response body captured by the Transparent TLS Proxy (UTF-8 text or hex)
     pub http_response_body: Option<String>,
+    /// Raw TCP flags byte (SYN, ACK, FIN, RST, PSH, URG)
+    pub tcp_flags: Option<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -3801,9 +3803,13 @@ impl FirewallEngine {
             (0, 0)
         };
 
+        let mut tcp_flags_byte = None;
         let mut payload_start = header_len;
         if matches!(protocol, Protocol::TCP) {
             let tcp_header_start = header_len;
+            if tcp_header_start + 13 < data.len() {
+                tcp_flags_byte = Some(data[tcp_header_start + 13]);
+            }
             let tcp_data_offset = if tcp_header_start + 12 < data.len() {
                 ((data[tcp_header_start + 12] >> 4) as usize) * 4
             } else {
@@ -3940,6 +3946,7 @@ impl FirewallEngine {
                 detected_file_type: None,
                 http_request_body: None,
                 http_response_body: None,
+                tcp_flags: tcp_flags_byte,
             },
             payload_start,
         ))

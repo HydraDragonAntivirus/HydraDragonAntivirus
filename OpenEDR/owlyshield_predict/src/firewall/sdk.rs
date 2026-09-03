@@ -553,6 +553,43 @@ fn percent_decode(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+pub fn matches_tcp_flags(actual_flags: u8, rule_flags: &str) -> bool {
+    let s = rule_flags.trim();
+    if s.is_empty() {
+        return true;
+    }
+    let (modifier, flag_chars) = if s.starts_with('+') || s.starts_with('*') || s.starts_with('!') {
+        (Some(&s[0..1]), &s[1..])
+    } else if s.ends_with('+') || s.ends_with('*') || s.ends_with('!') {
+        (Some(&s[s.len() - 1..]), &s[..s.len() - 1])
+    } else {
+        (None, s)
+    };
+
+    let mut target_mask = 0u8;
+    for ch in flag_chars.chars() {
+        match ch.to_ascii_uppercase() {
+            'F' => target_mask |= 0x01, // FIN
+            'S' => target_mask |= 0x02, // SYN
+            'R' => target_mask |= 0x04, // RST
+            'P' => target_mask |= 0x08, // PSH
+            'A' => target_mask |= 0x10, // ACK
+            'U' => target_mask |= 0x20, // URG
+            'E' => target_mask |= 0x40, // ECE
+            'C' => target_mask |= 0x80, // CWR
+            _ => {}
+        }
+    }
+
+    match modifier {
+        Some("!") => (actual_flags & target_mask) == 0,
+        Some("*") => (actual_flags & target_mask) != 0,
+        Some("+") => (actual_flags & target_mask) == target_mask,
+        None => (actual_flags & 0x3F) == (target_mask & 0x3F),
+        _ => (actual_flags & target_mask) == target_mask,
+    }
+}
+
 impl HexContent {
     /// Finds the match position (match_start, match_end) in `payload`.
     /// `anchor_pos` is the end offset of the previous content match when chaining multiple patterns.
@@ -1719,6 +1756,37 @@ impl SdkRule {
                                     if let Some((_, m_end)) = c.find_match_in(target_buf, last_end) {
                                         if !c.negated {
                                             last_end = Some(m_end);
+                                            for bj in &self.byte_jump {
+                                                let offset = if bj.relative {
+                                                    m_end as isize + bj.offset
+                                                } else {
+                                                    bj.offset
+                                                };
+                                                if offset >= 0 && (offset as usize) + bj.count <= target_buf.len() {
+                                                    let slice = &target_buf[offset as usize..(offset as usize) + bj.count];
+                                                    let val: usize = if bj.string {
+                                                        std::str::from_utf8(slice).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0)
+                                                    } else if bj.count == 1 {
+                                                        slice[0] as usize
+                                                    } else if bj.count == 2 {
+                                                        if bj.big_endian {
+                                                            u16::from_be_bytes([slice[0], slice[1]]) as usize
+                                                        } else {
+                                                            u16::from_le_bytes([slice[0], slice[1]]) as usize
+                                                        }
+                                                    } else if bj.count == 4 {
+                                                        if bj.big_endian {
+                                                            u32::from_be_bytes([slice[0], slice[1], slice[2], slice[3]]) as usize
+                                                        } else {
+                                                            u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as usize
+                                                        }
+                                                    } else {
+                                                        0
+                                                    };
+                                                    let mult = if bj.multiplier > 0 { bj.multiplier } else { 1 };
+                                                    last_end = Some(last_end.unwrap_or(0).saturating_add(val * mult));
+                                                }
+                                            }
                                         }
                                     } else {
                                         all_matched = false;
@@ -1810,7 +1878,23 @@ impl SdkRule {
                         18 => {
                             step += 1;
                             if let Some(proto) = self.ip_proto {
-                                return Some(packet.ip_proto == proto);
+                                if packet.ip_proto != proto {
+                                    return Some(false);
+                                }
+                            }
+                            if let Some(ref tf) = self.tcp_flags {
+                                if packet.ip_proto == 6 {
+                                    let actual = packet.tcp_flags.unwrap_or(0);
+                                    if !matches_tcp_flags(actual, tf) {
+                                        return Some(false);
+                                    }
+                                }
+                            }
+                            if let Some(ref app) = self.app_proto {
+                                let label = packet.protocol.label().to_lowercase();
+                                if !label.contains(&app.to_lowercase()) {
+                                    return Some(false);
+                                }
                             }
                         }
                         19 => {
@@ -3178,5 +3262,114 @@ references:
         assert!(rule.domain.unwrap().subdomains);
         assert_eq!(rule.bsize.unwrap().exact, Some(1));
         assert!(rule.metadata.is_some());
+    }
+
+    #[test]
+    fn test_tcp_flags_matching() {
+        let syn_flags = 0x02;
+        assert!(matches_tcp_flags(syn_flags, "S"));
+        assert!(matches_tcp_flags(syn_flags, "+S"));
+        assert!(!matches_tcp_flags(syn_flags, "SA"));
+        assert!(!matches_tcp_flags(syn_flags, "!S"));
+
+        let syn_ack_flags = 0x12; // ACK (0x10) | SYN (0x02)
+        assert!(matches_tcp_flags(syn_ack_flags, "SA"));
+        assert!(matches_tcp_flags(syn_ack_flags, "+S"));
+        assert!(matches_tcp_flags(syn_ack_flags, "+A"));
+        assert!(!matches_tcp_flags(syn_ack_flags, "*F"));
+        assert!(matches_tcp_flags(syn_ack_flags, "*S"));
+        assert!(matches_tcp_flags(syn_ack_flags, "!F"));
+    }
+
+    #[test]
+    fn test_url_decode_percent_decoding() {
+        // Hex "2E 2E 2F" is ASCII "../"
+        let dot_dot_rule = HexContent {
+            hex: "2E 2E 2F".to_string(),
+            url_decode: true,
+            ..Default::default()
+        };
+
+        // URL encoded payload: "%2e%2e%2fetc/passwd"
+        let encoded_payload = b"GET /download?file=%2e%2e%2fetc/passwd HTTP/1.1\r\n";
+        assert!(dot_dot_rule.matches(encoded_payload));
+
+        // Space decoding: Hex "20 61 64 6D 69 6E" is " admin"
+        let admin_rule = HexContent {
+            hex: "20 61 64 6D 69 6E".to_string(),
+            url_decode: true,
+            ..Default::default()
+        };
+        let encoded_space_payload = b"GET /api?user=%20admin HTTP/1.1\r\n";
+        assert!(admin_rule.matches(encoded_space_payload));
+    }
+
+    #[test]
+    fn test_full_rule_evaluation_bounds_and_flags() {
+        let yaml_str = r#"
+name: "sid:999999"
+description: "Test Rule with Bounds, TCP Flags, and Size"
+enabled: true
+protocol: tcp
+action: traffic_attack
+tcp_flags: "+S"
+urilen:
+  min: 5
+  max: 30
+isdataat:
+  - offset: 10
+    negated: false
+stream_size:
+  operator: "<"
+  size: 500
+contents:
+  - hex: "47 45 54" # "GET"
+    startswith: true
+"#;
+        let rule: SdkRule = serde_yaml::from_str(yaml_str).expect("Failed to deserialize SdkRule");
+
+        let packet = PacketInfo {
+            timestamp: 0,
+            protocol: Protocol::TCP,
+            ip_proto: 6,
+            src_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 50)),
+            dst_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+            src_port: 54321,
+            dst_port: 80,
+            size: 250,
+            outbound: true,
+            process_id: 1234,
+            dns_query: None,
+            hostname: Some("example.com".to_string()),
+            full_url: Some("http://example.com/api/test".to_string()),
+            tls_handshake: false,
+            http_method: Some("GET".to_string()),
+            http_path: Some("/api/test".to_string()),
+            http_user_agent: None,
+            http_content_type: None,
+            http_referer: None,
+            payload_entropy: None,
+            payload_sample: None,
+            payload_urls: vec![],
+            payload_domains: vec![],
+            image_path: "C:\\test.exe".to_string(),
+            detected_file_type: None,
+            http_request_body: None,
+            http_response_body: None,
+            tcp_flags: Some(0x02), // SYN flag
+        };
+
+        let payload = b"GET /api/test HTTP/1.1\r\nHost: example.com\r\n\r\n";
+        assert!(rule.matches(&packet, payload));
+
+        // Test non-matching TCP flags (ACK instead of SYN)
+        let mut bad_packet = packet.clone();
+        bad_packet.tcp_flags = Some(0x10); // ACK only
+        assert!(!rule.matches(&bad_packet, payload));
+
+        // Test failing stream_size (> 500)
+        let mut big_packet = packet.clone();
+        big_packet.size = 600;
+        assert!(!rule.matches(&big_packet, payload));
     }
 }
