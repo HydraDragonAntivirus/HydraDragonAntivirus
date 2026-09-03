@@ -98,9 +98,39 @@ BUFFER_MODIFIERS = {
     "http.uri": "http_path",
     "http_uri": "http_path",
     "http.uri.raw": "http_path",
+    "http.start": "http_path",
+    "http.method": "http_method",
+    "http.header": "http_header",
+    "http.content_len": "http_header",
+    "http.accept": "http_header",
+    "http.connection": "http_header",
+    "http.request_header": "http_header",
+    "http.accept_enc": "http_header",
+    "http.server": "http_header",
+    "http.location": "http_header",
+    "http.accept_lang": "http_header",
+    "http.protocol": "http_header",
+    "http.header.raw": "http_header",
+    "http.response_header": "http_header",
+    "http.response_line": "http_path",
+    "http.host.raw": "http_host",
+    "tls.version": "tls_certs",
     "tls.cert_subject": "tls_cert_subject",
     "tls.cert_issuer": "tls_cert_issuer",
     "tls.certs": "tls_certs",
+    "tls.cert_serial": "tls_certs",
+    "ja3s.hash": "ja3s_hash",
+    "ja3.string": "ja3_string",
+    "file.magic": "file_magic",
+    "icmpv6.hdr": "payload",
+    "icmpv4.hdr": "payload",
+    "ipv6.hdr": "payload",
+    "ssh.software": "payload",
+    "ssh_proto": "payload",
+    "tls_cert_issuer": "tls_cert_issuer",
+    "tls.cert_fingerprint": "tls_certs",
+    "tls.random": "tls_certs",
+    "http_header": "http_header",
 }
 
 DISABLED_SIDS = {2100640, 2009247, 2009285}
@@ -205,6 +235,47 @@ def parse_stream_size(value: str):
     return None
 
 
+def parse_byte_jump(value: str):
+    parts = [p.strip() for p in value.split(",")]
+    if len(parts) < 2:
+        return None
+    try:
+        count = int(parts[0])
+        offset = int(parts[1])
+    except ValueError:
+        return None
+    flags = {p.lower() for p in parts[2:]}
+    return {
+        "count": count,
+        "offset": offset,
+        "relative": "relative" in flags,
+        "big_endian": "little_endian" not in flags,
+        "string": "string" in flags,
+        "hex": "hex" in flags,
+        "dec": "dec" in flags,
+    }
+
+
+def parse_byte_extract(value: str):
+    parts = [p.strip() for p in value.split(",")]
+    if len(parts) < 3:
+        return None
+    try:
+        count = int(parts[0])
+        offset = int(parts[1])
+    except ValueError:
+        return None
+    name = parts[2]
+    flags = {p.lower() for p in parts[3:]}
+    return {
+        "count": count,
+        "offset": offset,
+        "name": name,
+        "relative": "relative" in flags,
+        "big_endian": "little_endian" not in flags,
+    }
+
+
 def emit_metadata(indent: str, metadata: dict) -> list:
     lines = ["%smetadata:" % indent]
     for k in sorted(metadata.keys()):
@@ -286,6 +357,10 @@ def emit_rule(rule: dict) -> list:
                 lines.append("        negated: true")
             if content.get("buffer"):
                 lines.append("        buffer: %s" % yaml_quote(content["buffer"]))
+            if content.get("url_decode"):
+                lines.append("        url_decode: true")
+            if content.get("strip_whitespace"):
+                lines.append("        strip_whitespace: true")
     if rule.get("regex"):
         lines.append("    regex:")
         lines.append("      pattern: %s" % yaml_quote(rule["regex"]["pattern"]))
@@ -329,6 +404,31 @@ def emit_rule(rule: dict) -> list:
         lines.append("    itype: %d" % rule["itype"])
     if rule.get("icode") is not None:
         lines.append("    icode: %d" % rule["icode"])
+    if rule.get("byte_jump"):
+        lines.append("    byte_jump:")
+        for bj in rule["byte_jump"]:
+            lines.append("      - count: %d" % bj["count"])
+            lines.append("        offset: %d" % bj["offset"])
+            if bj.get("relative"):
+                lines.append("        relative: true")
+            if not bj.get("big_endian", True):
+                lines.append("        big_endian: false")
+            if bj.get("string"):
+                lines.append("        string: true")
+            if bj.get("hex"):
+                lines.append("        hex: true")
+            if bj.get("dec"):
+                lines.append("        dec: true")
+    if rule.get("byte_extract"):
+        lines.append("    byte_extract:")
+        for be in rule["byte_extract"]:
+            lines.append("      - count: %d" % be["count"])
+            lines.append("        offset: %d" % be["offset"])
+            lines.append("        name: %s" % yaml_quote(be["name"]))
+            if be.get("relative"):
+                lines.append("        relative: true")
+            if not be.get("big_endian", True):
+                lines.append("        big_endian: false")
     if rule.get("byte_test"):
         lines.append("    byte_test:")
         for bt in rule["byte_test"]:
@@ -352,6 +452,39 @@ def emit_rule(rule: dict) -> list:
         for op in rule["flowbits"]:
             lines.append("      - op: %s" % op["op"])
             lines.append("        flag: %s" % yaml_quote(op["flag"]))
+    if rule.get("tcp_flags"):
+        lines.append("    tcp_flags: %s" % yaml_quote(rule["tcp_flags"]))
+    if rule.get("ja3_hash"):
+        lines.append("    ja3_hash: %s" % yaml_quote(rule["ja3_hash"]))
+    if rule.get("xbits"):
+        lines.append("    xbits:")
+        for op in rule["xbits"]:
+            lines.append("      - op: %s" % op["op"])
+            lines.append("        flag: %s" % yaml_quote(op["flag"]))
+    if rule.get("flowint"):
+        lines.append("    flowint:")
+        for fi in rule["flowint"]:
+            lines.append("      - %s" % yaml_quote(fi))
+    if rule.get("app_proto"):
+        lines.append("    app_proto: %s" % yaml_quote(rule["app_proto"]))
+    if rule.get("app_event"):
+        lines.append("    app_event: %s" % yaml_quote(rule["app_event"]))
+    if rule.get("tag"):
+        lines.append("    tag: %s" % yaml_quote(rule["tag"]))
+    if rule.get("asn1"):
+        lines.append("    asn1: %s" % yaml_quote(rule["asn1"]))
+    if rule.get("byte_math"):
+        lines.append("    byte_math: %s" % yaml_quote(rule["byte_math"]))
+    if rule.get("icmp_id") is not None:
+        lines.append("    icmp_id: %d" % rule["icmp_id"])
+    if rule.get("icmp_seq") is not None:
+        lines.append("    icmp_seq: %d" % rule["icmp_seq"])
+    if rule.get("ftpbounce"):
+        lines.append("    ftpbounce: true")
+    if rule.get("window") is not None:
+        lines.append("    window: %d" % rule["window"])
+    if rule.get("snmp_version"):
+        lines.append("    snmp_version: %s" % yaml_quote(rule["snmp_version"]))
     if rule.get("target"):
         lines.append("    target: %s" % yaml_quote(rule["target"]))
     if rule.get("classtype"):
@@ -762,6 +895,22 @@ def convert_line(line: str, rule_index: int = 0, raw_line: str = None):
     stream_size = None
     itype = None
     icode = None
+    byte_jumps = []
+    byte_extracts = []
+    tcp_flags = None
+    ja3_hash = None
+    xbits_ops = []
+    flowint_ops = []
+    app_proto = None
+    app_event = None
+    tag = None
+    asn1 = None
+    byte_math = None
+    icmp_id = None
+    icmp_seq = None
+    ftpbounce = False
+    window = None
+    snmp_version = None
     regex_terms = []
     ip_proto = None
     dsize = None
@@ -794,6 +943,10 @@ def convert_line(line: str, rule_index: int = 0, raw_line: str = None):
                 sticky_buffer = {opt}
             elif opt in ("to_lowercase", "header_lowercase"):
                 sticky_buffer.add("to_lowercase")
+            elif opt in ("rawbytes", "to_sha1"):
+                sticky_buffer.add(opt)
+            elif opt == "ftpbounce":
+                ftpbounce = True
             elif opt == "dotprefix":
                 dotprefix = True
                 sticky_buffer.add("dotprefix")
@@ -895,8 +1048,56 @@ def convert_line(line: str, rule_index: int = 0, raw_line: str = None):
                 icode = int(value)
             except ValueError:
                 pass
-        elif key == "threshold":
+        elif key == "byte_jump":
+            parsed = parse_byte_jump(value)
+            if parsed is not None:
+                byte_jumps.append(parsed)
+        elif key == "byte_extract":
+            parsed = parse_byte_extract(value)
+            if parsed is not None:
+                byte_extracts.append(parsed)
+        elif key in ("flags", "tcp_flags", "tcp.flags"):
+            tcp_flags = value
+        elif key in ("ja3_hash", "ja3.hash"):
+            ja3_hash = value
+        elif key == "xbits":
+            noalert_fb, ops = parse_flowbits(value)
+            xbits_ops.extend(ops)
+        elif key == "flowint":
+            flowint_ops.append(value)
+        elif key == "app-layer-protocol":
+            app_proto = value
+        elif key == "app-layer-event":
+            app_event = value
+        elif key in ("detection_filter", "threshold"):
             threshold = value
+        elif key == "tag":
+            tag = value
+        elif key == "asn1":
+            asn1 = value
+        elif key == "byte_math":
+            byte_math = value
+        elif key == "icmp_id":
+            try:
+                icmp_id = int(value)
+            except ValueError:
+                pass
+        elif key == "icmp_seq":
+            try:
+                icmp_seq = int(value)
+            except ValueError:
+                pass
+        elif key == "window":
+            try:
+                window = int(value)
+            except ValueError:
+                pass
+        elif key == "filesize":
+            parsed = parse_dsize(value)
+            if parsed is not None:
+                dsize = parsed
+        elif key in ("snmp.version", "snmp_version"):
+            snmp_version = value
         elif key == "metadata":
             raw_metadata = parse_metadata(value)
             # Extract EmergingThreats `signature_severity` from metadata:
@@ -944,6 +1145,10 @@ def convert_line(line: str, rule_index: int = 0, raw_line: str = None):
             if mod in BUFFER_MODIFIERS:
                 item["buffer"] = BUFFER_MODIFIERS[mod]
                 break
+        if "url_decode" in lower_mods:
+            item["url_decode"] = True
+        if "strip_whitespace" in lower_mods:
+            item["strip_whitespace"] = True
 
         content_patterns.append(item)
         stats["content_patterns"] += 1
@@ -1010,10 +1215,42 @@ def convert_line(line: str, rule_index: int = 0, raw_line: str = None):
         rule["icode"] = icode
     if byte_tests:
         rule["byte_test"] = byte_tests
+    if byte_jumps:
+        rule["byte_jump"] = byte_jumps
+    if byte_extracts:
+        rule["byte_extract"] = byte_extracts
     if flow is not None:
         rule["flow"] = flow
     if flowbits_ops:
         rule["flowbits"] = flowbits_ops
+    if tcp_flags:
+        rule["tcp_flags"] = tcp_flags
+    if ja3_hash:
+        rule["ja3_hash"] = ja3_hash
+    if xbits_ops:
+        rule["xbits"] = xbits_ops
+    if flowint_ops:
+        rule["flowint"] = flowint_ops
+    if app_proto:
+        rule["app_proto"] = app_proto
+    if app_event:
+        rule["app_event"] = app_event
+    if tag:
+        rule["tag"] = tag
+    if asn1:
+        rule["asn1"] = asn1
+    if byte_math:
+        rule["byte_math"] = byte_math
+    if icmp_id is not None:
+        rule["icmp_id"] = icmp_id
+    if icmp_seq is not None:
+        rule["icmp_seq"] = icmp_seq
+    if ftpbounce:
+        rule["ftpbounce"] = True
+    if window is not None:
+        rule["window"] = window
+    if snmp_version:
+        rule["snmp_version"] = snmp_version
     if target:
         rule["target"] = target
     if classtype:

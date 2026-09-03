@@ -477,6 +477,43 @@ pub struct HexContent {
     /// Target buffer name (e.g. "http_user_agent", "http_referer", "http_content_type", "http_request_body", "http_response_body")
     #[serde(default)]
     pub buffer: Option<String>,
+    /// Suricata `url_decode` modifier
+    #[serde(default)]
+    pub url_decode: bool,
+    /// Suricata `strip_whitespace` modifier
+    #[serde(default)]
+    pub strip_whitespace: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ByteJump {
+    pub count: usize,
+    pub offset: isize,
+    #[serde(default)]
+    pub relative: bool,
+    #[serde(default)]
+    pub multiplier: usize,
+    #[serde(default)]
+    pub big_endian: bool,
+    #[serde(default)]
+    pub string: bool,
+    #[serde(default)]
+    pub hex: bool,
+    #[serde(default)]
+    pub dec: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ByteExtract {
+    pub count: usize,
+    pub offset: isize,
+    pub name: String,
+    #[serde(default)]
+    pub relative: bool,
+    #[serde(default)]
+    pub multiplier: usize,
+    #[serde(default)]
+    pub big_endian: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -499,10 +536,35 @@ pub struct StreamSizeMatcher {
     pub size: usize,
 }
 
+fn percent_decode(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(b) = u8::from_str_radix(std::str::from_utf8(&bytes[i+1..i+3]).unwrap_or(""), 16) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    out
+}
+
 impl HexContent {
     /// Finds the match position (match_start, match_end) in `payload`.
     /// `anchor_pos` is the end offset of the previous content match when chaining multiple patterns.
     pub fn find_match_in(&self, payload: &[u8], anchor_pos: Option<usize>) -> Option<(usize, usize)> {
+        let decoded_storage;
+        let payload = if self.url_decode {
+            decoded_storage = percent_decode(payload);
+            &decoded_storage[..]
+        } else {
+            payload
+        };
+
         let needle = decode_hex(&self.hex)?;
         if needle.is_empty() {
             return if self.negated { None } else { Some((0, 0)) };
@@ -1450,6 +1512,54 @@ pub struct SdkRule {
     /// ICMP code (Suricata `icode`)
     #[serde(default)]
     pub icode: Option<u8>,
+    /// Byte jump operations (Suricata `byte_jump`)
+    #[serde(default)]
+    pub byte_jump: Vec<ByteJump>,
+    /// Byte extract operations (Suricata `byte_extract`)
+    #[serde(default)]
+    pub byte_extract: Vec<ByteExtract>,
+    /// TCP flags matcher (Suricata `flags`)
+    #[serde(default)]
+    pub tcp_flags: Option<String>,
+    /// TLS JA3 fingerprint hash (Suricata `ja3_hash`)
+    #[serde(default)]
+    pub ja3_hash: Option<String>,
+    /// Host-level persistent bits (Suricata `xbits`)
+    #[serde(default)]
+    pub xbits: Vec<FlowbitOp>,
+    /// Flow integer operations (Suricata `flowint`)
+    #[serde(default)]
+    pub flowint: Vec<String>,
+    /// Application layer protocol (Suricata `app-layer-protocol`)
+    #[serde(default)]
+    pub app_proto: Option<String>,
+    /// Application layer event (Suricata `app-layer-event`)
+    #[serde(default)]
+    pub app_event: Option<String>,
+    /// Logging tag (Suricata `tag`)
+    #[serde(default)]
+    pub tag: Option<String>,
+    /// ASN.1 decoding check (Suricata `asn1`)
+    #[serde(default)]
+    pub asn1: Option<String>,
+    /// Byte math operation (Suricata `byte_math`)
+    #[serde(default)]
+    pub byte_math: Option<String>,
+    /// ICMP ID (Suricata `icmp_id`)
+    #[serde(default)]
+    pub icmp_id: Option<u16>,
+    /// ICMP Sequence (Suricata `icmp_seq`)
+    #[serde(default)]
+    pub icmp_seq: Option<u16>,
+    /// FTP bounce attack check (Suricata `ftpbounce`)
+    #[serde(default)]
+    pub ftpbounce: bool,
+    /// TCP window size (Suricata `window`)
+    #[serde(default)]
+    pub window: Option<u16>,
+    /// SNMP version (Suricata `snmp.version`)
+    #[serde(default)]
+    pub snmp_version: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -2944,14 +3054,9 @@ mod tests {
         let underscore_rule = HexContent {
             hex: "5F".to_string(), // ASCII '_'
             case_insensitive: false,
-            offset: None,
-            depth: None,
             startswith: true,
             endswith: true,
-            distance: None,
-            within: None,
-            negated: false,
-            buffer: None,
+            ..Default::default()
         };
 
         // Normal HTTP/TLS payload containing an underscore inside
@@ -2965,14 +3070,9 @@ mod tests {
         let ms_rule = HexContent {
             hex: "6D 73".to_string(), // "ms"
             case_insensitive: false,
-            offset: None,
-            depth: None,
             startswith: true,
             endswith: true,
-            distance: None,
-            within: None,
-            negated: false,
-            buffer: None,
+            ..Default::default()
         };
 
         let normal_payload2 = b"Host: checksum.forms.example.com\r\n";
