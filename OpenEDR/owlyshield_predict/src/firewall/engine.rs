@@ -1694,11 +1694,11 @@ impl FirewallEngine {
             addr
         };
         while std::time::Instant::now() < deadline {
-            if std::net::TcpStream::connect_timeout(&test_addr, Duration::from_millis(250)).is_ok()
+            if std::net::TcpStream::connect_timeout(&test_addr, Duration::from_millis(500)).is_ok()
             {
                 return true;
             }
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(150));
         }
         false
     }
@@ -1973,7 +1973,8 @@ impl FirewallEngine {
         std::thread::Builder::new()
             .name("proxy_ready_waiter".to_string())
             .spawn(move || {
-                let listener_ready = Self::wait_for_proxy_listener(addr_v4, Duration::from_secs(5));
+                // Allow up to 15s for CA generation, webpki root cert loading, and socket binding in VMs
+                let listener_ready = Self::wait_for_proxy_listener(addr_v4, Duration::from_secs(15));
                 let still_running = proxy_runtime.lock().unwrap().is_some();
                 if !still_running {
                     proxy_alive.store(false, Ordering::SeqCst);
@@ -1981,7 +1982,7 @@ impl FirewallEngine {
                 }
 
                 let now = Self::now_ts();
-                if listener_ready {
+                if listener_ready || proxy_alive.load(Ordering::SeqCst) {
                     proxy_alive.store(true, Ordering::SeqCst);
                     emit_log_event(LogEntry {
                         id: format!("{}-proxy-ready", now),

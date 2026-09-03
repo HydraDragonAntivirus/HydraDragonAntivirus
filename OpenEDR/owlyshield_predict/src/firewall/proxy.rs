@@ -299,16 +299,52 @@ pub fn generate_ca() -> Result<CaBundle, String> {
     let cert_path = dir.join(CA_CERT_FILE);
 
     // ── Try to load an existing CA ─────────────────────────────────────────
-    if let (Ok(key_der_bytes), Ok(cert_der)) = (std::fs::read(&key_path), std::fs::read(&cert_path))
-    {
-        if let Ok(key) = KeyPair::try_from(key_der_bytes.as_slice()) {
-            let params = ca_params();
-            let issuer = rcgen::Issuer::new(params, key);
-            return Ok(CaBundle { issuer, cert_der });
+    if key_path.exists() && cert_path.exists() {
+        let key_bytes = std::fs::read(&key_path)
+            .map_err(|e| format!("Failed to read existing CA key from {}: {}", key_path.display(), e))?;
+        let cert_der = std::fs::read(&cert_path)
+            .map_err(|e| format!("Failed to read existing CA cert from {}: {}", cert_path.display(), e))?;
+
+        // Attempt TryFrom (DER PKCS#8), then PEM parsing
+        let key: Result<KeyPair, String> = KeyPair::try_from(key_bytes.as_slice())
+            .map_err(|e| e.to_string())
+            .or_else(|_der_err| {
+                if let Ok(s) = std::str::from_utf8(&key_bytes) {
+                    if let Ok(k) = KeyPair::from_pem(s) {
+                        return Ok(k);
+                    }
+                }
+                Err(format!("KeyPair::try_from(DER) failed ({}), and PEM parse failed", _der_err))
+            });
+
+        match key {
+            Ok(key) => {
+                let params = ca_params();
+                let issuer = rcgen::Issuer::new(params, key);
+                let now = now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-ca-loaded-existing", now),
+                    timestamp: now,
+                    level: LogLevel::Info,
+                    message: format!(
+                        "Loaded existing HydraDragon CA from {} (DER size: {} bytes). No new CA generated.",
+                        dir.display(),
+                        cert_der.len()
+                    ),
+                });
+                return Ok(CaBundle { issuer, cert_der });
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Existing CA key at {} failed to parse: {}. Refusing to overwrite existing trusted CA with a new key!",
+                    key_path.display(),
+                    e
+                ));
+            }
         }
     }
 
-    // ── Generate a fresh CA ────────────────────────────────────────────────
+    // ── Generate a fresh CA ONLY when no existing CA files exist ───────────
     let params = ca_params();
     let key = KeyPair::generate().map_err(|e| format!("failed to generate CA key: {e}"))?;
     let cert: Certificate = params
@@ -320,6 +356,17 @@ pub fn generate_ca() -> Result<CaBundle, String> {
     let key_der_bytes = key.serialize_der();
     let _ = std::fs::write(&key_path, &key_der_bytes);
     let _ = std::fs::write(&cert_path, &cert_der);
+
+    let now = now_ts();
+    emit_log_event(LogEntry {
+        id: format!("{}-ca-created-new", now),
+        timestamp: now,
+        level: LogLevel::Info,
+        message: format!(
+            "First-time setup: Created new HydraDragon CA and saved to {}.",
+            dir.display()
+        ),
+    });
 
     let params = ca_params();
     let issuer = rcgen::Issuer::new(params, key);
