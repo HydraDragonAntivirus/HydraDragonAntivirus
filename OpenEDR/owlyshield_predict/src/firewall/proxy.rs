@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, atomic::{AtomicBool, Ordering}};
 use std::task::Poll;
 use tokio::sync::oneshot;
 
@@ -343,6 +343,7 @@ pub async fn run_proxy(
     sdk: Arc<RwLock<SdkRegistry>>,
     settings: Arc<RwLock<FirewallSettings>>,
     web_filter: Arc<super::web_filter::WebFilter>,
+    proxy_alive: Arc<AtomicBool>,
     mut stop_rx: oneshot::Receiver<()>,
 ) {
     let handshake_timeout = {
@@ -402,6 +403,7 @@ pub async fn run_proxy(
 
     match bind_result {
         Ok(server) => {
+            proxy_alive.store(true, Ordering::SeqCst);
             let ts = now_ts();
             emit_log_event(LogEntry {
                 id: format!("{}-proxy-ready", ts),
@@ -430,8 +432,10 @@ pub async fn run_proxy(
                     });
                 }
             }
+            proxy_alive.store(false, Ordering::SeqCst);
         }
         Err(e) => {
+            proxy_alive.store(false, Ordering::SeqCst);
             let ts = now_ts();
             emit_log_event(LogEntry {
                 id: format!("{}-proxy-bind-err", ts),
@@ -549,7 +553,7 @@ async fn handle_proxy_request(
     }
     .trim();
 
-    // ── CIDR Blacklist Check in Proxy (Prevents Cloudflare / Reverse Proxy / Direct IP Bypass) ──
+    // ── Direct IP Blacklist Check (Fast, in-memory string parse, zero network queries) ──
     if let Ok(ip) = clean_host.parse::<IpAddr>() {
         if web_filter.is_blocked_ip(ip) {
             let ts = now_ts();
@@ -560,32 +564,6 @@ async fn handle_proxy_request(
                 message: format!("Proxy CIDR Blocked: {} (Blocked Malicious CIDR: {})", host, ip),
             });
             return Ok(error_response_403());
-        }
-    } else {
-        // Asynchronous DNS check with a tight timeout (500ms) to prevent proxy latency
-        let lookup_target = format!("{}:{}", clean_host, port);
-        if let Ok(Ok(addrs)) = tokio::time::timeout(
-            std::time::Duration::from_millis(500),
-            tokio::net::lookup_host(lookup_target),
-        )
-        .await
-        {
-            for addr in addrs {
-                if web_filter.is_blocked_ip(addr.ip()) {
-                    let ts = now_ts();
-                    emit_log_event(LogEntry {
-                        id: format!("{}-proxy-dns-cidr", ts),
-                        timestamp: ts,
-                        level: LogLevel::Warning,
-                        message: format!(
-                            "Proxy CIDR Blocked: {} resolved to {} (Blocked Malicious CIDR)",
-                            clean_host,
-                            addr.ip()
-                        ),
-                    });
-                    return Ok(error_response_403());
-                }
-            }
         }
     }
 

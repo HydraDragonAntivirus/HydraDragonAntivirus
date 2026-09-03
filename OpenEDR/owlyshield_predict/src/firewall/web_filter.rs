@@ -1,8 +1,10 @@
+use moka::sync::Cache;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 #[derive(Clone, Debug, Default)]
 struct CidrIndex {
@@ -142,6 +144,7 @@ enum CidrInterval {
 #[derive(Clone)]
 pub struct WebFilter {
     cidr_blocklist: Arc<RwLock<CidrIndex>>,
+    clean_flow_cache: Cache<(IpAddr, IpAddr, u16), ()>,
 }
 
 impl Default for WebFilter {
@@ -154,6 +157,27 @@ impl WebFilter {
     pub fn new() -> Self {
         Self {
             cidr_blocklist: Arc::new(RwLock::new(CidrIndex::default())),
+            clean_flow_cache: Cache::builder()
+                .max_capacity(65536)
+                .time_to_live(Duration::from_secs(300))
+                .build(),
+        }
+    }
+
+    pub fn find_match_cached(
+        &self,
+        flow_key: (IpAddr, IpAddr, u16),
+        remote_ip: IpAddr,
+    ) -> Option<WebThreatMatch> {
+        if self.clean_flow_cache.contains_key(&flow_key) {
+            return None;
+        }
+        match self.find_match(remote_ip) {
+            Some(m) => Some(m),
+            None => {
+                self.clean_flow_cache.insert(flow_key, ());
+                None
+            }
         }
     }
 

@@ -100,6 +100,12 @@ pub struct TlsProxyConfig {
     /// Whether to auto-start the embedded proxy when the firewall starts.
     #[serde(default = "default_auto_start")]
     pub auto_start: bool,
+    /// Whether to MITM intercept all port 443 traffic (true) or only monitored sites (false). Default false.
+    #[serde(default = "default_mitm_all_traffic")]
+    pub mitm_all_traffic: bool,
+    /// Monitored host patterns when mitm_all_traffic is false.
+    #[serde(default = "default_monitored_hosts")]
+    pub monitored_hosts: Vec<String>,
     #[serde(default)]
     pub bypass_hosts: Vec<String>,
     /// Whether user has consented to certificate installation for transparent TLS proxy interception.
@@ -116,6 +122,16 @@ pub struct TlsProxyConfig {
     pub show_blocked_only: bool,
 }
 
+fn default_mitm_all_traffic() -> bool {
+    false
+}
+
+fn default_monitored_hosts() -> Vec<String> {
+    // Host list is managed exclusively in firewall-rules/monitored_sites.yaml.
+    // Do not add defaults here to avoid duplication.
+    Vec::new()
+}
+
 impl Default for TlsProxyConfig {
     fn default() -> Self {
         Self {
@@ -124,6 +140,8 @@ impl Default for TlsProxyConfig {
             listen_port: DEFAULT_TLS_LISTEN_PORT,
             block_quic_udp_443: DEFAULT_BLOCK_QUIC_UDP_443,
             auto_start: DEFAULT_TLS_AUTO_START,
+            mitm_all_traffic: default_mitm_all_traffic(),
+            monitored_hosts: default_monitored_hosts(),
             bypass_hosts: Vec::new(),
             cert_install_consent: DEFAULT_CERT_INSTALL_CONSENT,
             handshake_timeout_ms: DEFAULT_HANDSHAKE_TIMEOUT_MS,

@@ -1,2 +1,3 @@
-!include emerging-all.yaml
+!include emerging-all.yaml metadata_only
 !include legacy_rules.yaml
+!include monitored_sites.yaml

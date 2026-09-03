@@ -1,0 +1,11 @@
+# HydraDragonFirewall - Targeted Monitored Sites
+# When mitm_all_traffic is false, ONLY connections to these domains
+# (and domains configured in active rules) are intercepted by the TLS proxy.
+# All other traffic bypasses the proxy and connects directly with zero overhead.
+
+monitored_sites:
+  - "api.telegram.org"
+  - "discord.com"
+  - "*.discord.com"
+  - "discordapp.com"
+  - "*.discordapp.com"

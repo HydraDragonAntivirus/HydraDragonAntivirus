@@ -420,6 +420,71 @@ impl ContentMatcher {
 }
 
 // ============================================================================
+// HEX CONTENT MATCHING (Suricata `content:` with hex segments |xx xx|)
+// Matches the `contents: [{ hex: "AA BB CC", case_insensitive: bool }]` YAML
+// format produced by convert_emerging_rules.py.  All items must match (AND).
+// ============================================================================
+
+/// Decode a space-separated uppercase hex string like "41 42 43" to raw bytes.
+fn decode_hex(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    for tok in s.split_whitespace() {
+        let byte = u8::from_str_radix(tok, 16).ok()?;
+        out.push(byte);
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
+/// One Suricata `content:` pattern expressed as a hex string.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct HexContent {
+    /// Space-separated uppercase hex bytes, e.g. `"41 42 43"` for "ABC".
+    #[serde(default)]
+    pub hex: String,
+    /// True when the Suricata `content:` had a `nocase` modifier.
+    #[serde(default)]
+    pub case_insensitive: bool,
+    /// Suricata `offset` — search starts at this byte offset in the payload.
+    #[serde(default)]
+    pub offset: Option<usize>,
+    /// Suricata `depth` — search ends at this byte offset in the payload.
+    #[serde(default)]
+    pub depth: Option<usize>,
+}
+
+impl HexContent {
+    /// Returns true when this pattern is present anywhere in `payload`
+    /// (or within the offset/depth window when those modifiers are set).
+    pub fn matches(&self, payload: &[u8]) -> bool {
+        let Some(needle) = decode_hex(&self.hex) else {
+            // Empty or unparseable hex → treat as "always match".
+            return true;
+        };
+        if needle.is_empty() {
+            return true;
+        }
+
+        // Apply offset / depth window.
+        let start = self.offset.unwrap_or(0).min(payload.len());
+        let end = self
+            .depth
+            .map(|d| d.min(payload.len()))
+            .unwrap_or(payload.len());
+        let window = &payload[start..end];
+
+        if self.case_insensitive {
+            let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
+            window
+                .windows(needle_lower.len())
+                .any(|w| w.iter().map(|b| b.to_ascii_lowercase()).collect::<Vec<_>>() == needle_lower)
+        } else {
+            window.windows(needle.len()).any(|w| w == needle.as_slice())
+        }
+    }
+}
+
+
+// ============================================================================
 // REGEX MATCHING (Feature 15)
 // ============================================================================
 
@@ -1139,6 +1204,11 @@ pub struct SdkRule {
     // Feature 33: Content (literal substring) matching — cheap no-regex path
     #[serde(default)]
     pub content: Option<ContentMatcher>,
+    /// Suricata-style hex content patterns produced by convert_emerging_rules.py.
+    /// Each `{ hex: "AA BB CC", case_insensitive: bool }` item is matched
+    /// byte-exactly against the payload; ALL items must match (AND logic).
+    #[serde(default)]
+    pub contents: Vec<HexContent>,
     // Feature 15: Regex matching
     #[serde(default)]
     pub regex: Option<RegexMatcher>,
@@ -1339,6 +1409,14 @@ impl SdkRule {
                         }
                         9 => {
                             step += 1;
+                            // `contents: [{ hex, case_insensitive, offset, depth }]`
+                            // All items must match (Suricata AND-logic for ordered content patterns).
+                            if !self.contents.is_empty() {
+                                return Some(self.contents.iter().all(|c| c.matches(payload)));
+                            }
+                        }
+                        10 => {
+                            step += 1;
                             if let Some(ref matcher) = self.regex {
                                 if decoded_payload.is_none() {
                                     decoded_payload = Some(
@@ -1350,7 +1428,7 @@ impl SdkRule {
                                 return Some(matcher.matches(decoded_payload.as_ref().unwrap()));
                             }
                         }
-                        10 => {
+                        11 => {
                             step += 1;
                             if let Some(ref localhost_type) = self.localhost_type {
                                 return Some(if packet.outbound {
@@ -1360,13 +1438,13 @@ impl SdkRule {
                                 });
                             }
                         }
-                        11 => {
+                        12 => {
                             step += 1;
                             if let Some(ref routine) = self.routine {
                                 return Some(routine.matches(packet));
                             }
                         }
-                        12 => {
+                        13 => {
                             if conditions_idx < self.conditions.len() {
                                 if decoded_payload.is_none() {
                                     decoded_payload = Some(
@@ -1382,13 +1460,13 @@ impl SdkRule {
                             }
                             step += 1;
                         }
-                        13 => {
+                        14 => {
                             step += 1;
                             if let Some(threshold) = self.entropy_threshold {
                                 return Some(packet.payload_entropy.unwrap_or(0.0) >= threshold);
                             }
                         }
-                        14 => {
+                        15 => {
                             step += 1;
                             if let Some(ref patterns) = self.http_request_body {
                                 if !patterns.is_empty() {
@@ -1399,7 +1477,7 @@ impl SdkRule {
                                 }
                             }
                         }
-                        15 => {
+                        16 => {
                             step += 1;
                             if let Some(ref patterns) = self.http_response_body {
                                 if !patterns.is_empty() {
@@ -1410,25 +1488,25 @@ impl SdkRule {
                                 }
                             }
                         }
-                        16 => {
+                        17 => {
                             step += 1;
                             if let Some(ref matcher) = self.json_match {
                                 return Some(matcher.matches(payload));
                             }
                         }
-                        17 => {
+                        18 => {
                             step += 1;
                             if let Some(proto) = self.ip_proto {
                                 return Some(packet.ip_proto == proto);
                             }
                         }
-                        18 => {
+                        19 => {
                             step += 1;
                             if let Some(ref matcher) = self.dsize {
                                 return Some(matcher.matches(packet.size));
                             }
                         }
-                        19 => {
+                        20 => {
                             if byte_test_idx < self.byte_test.len() {
                                 let res = self.byte_test[byte_test_idx].matches(payload);
                                 byte_test_idx += 1;
@@ -1436,7 +1514,7 @@ impl SdkRule {
                             }
                             step += 1;
                         }
-                        20 => {
+                        21 => {
                             step += 1;
                             if let Some(ref fm) = self.flow {
                                 if fm.to_server && !packet.outbound {
@@ -1457,7 +1535,7 @@ impl SdkRule {
                                 }
                             }
                         }
-                        21 => {
+                        22 => {
                             while flowbit_idx < self.flowbits.len() {
                                 let op = &self.flowbits[flowbit_idx];
                                 flowbit_idx += 1;
@@ -1635,6 +1713,13 @@ impl SdkRule {
 pub struct SdkRuleFile {
     #[serde(default)]
     pub rules: Vec<SdkRule>,
+    /// When true this file is loaded for metadata/index purposes only.
+    /// Rules are still imported; the flag is informational for the loader.
+    #[serde(default)]
+    pub metadata_only: bool,
+    /// Targeted hosts/domains for TLS proxy inspection.
+    #[serde(default)]
+    pub monitored_sites: Vec<String>,
 }
 
 impl SdkRuleFile {
@@ -1645,6 +1730,7 @@ impl SdkRuleFile {
             .map_err(|e| format!("Failed to read rules file {}: {}", path_ref.display(), e))?;
 
         let mut final_rules = Vec::new();
+        let mut final_monitored_sites = Vec::new();
         let base_dir = path_ref.parent().unwrap_or(Path::new("."));
 
         // Pre-process: Filter out !include lines to parse the rest as valid YAML
@@ -1658,24 +1744,37 @@ impl SdkRuleFile {
             let current_file: SdkRuleFile = serde_yaml::from_str(&sanitized_content)
                 .map_err(|e| format!("Failed to parse rules YAML {}: {}", path_ref.display(), e))?;
             final_rules.extend(current_file.rules);
+            final_monitored_sites.extend(current_file.monitored_sites);
         }
 
         // Process includes
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("!include ") {
-                let include_path_str = trimmed["!include ".len()..]
-                    .trim()
+                // Take only the first whitespace-separated token as the filename
+                // so optional trailing modifiers like "metadata_only" are ignored.
+                // Example: `!include emerging-all.yaml metadata_only`
+                //   → filename: "emerging-all.yaml"
+                let rest = trimmed["!include ".len()..].trim();
+                let include_path_str = rest
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or(rest)
                     .trim_matches('"')
                     .trim_matches('\'');
                 let include_path = base_dir.join(include_path_str);
 
                 let included_file = Self::load_from_file(&include_path)?;
                 final_rules.extend(included_file.rules);
+                final_monitored_sites.extend(included_file.monitored_sites);
             }
         }
 
-        Ok(Self { rules: final_rules })
+        Ok(Self {
+            rules: final_rules,
+            metadata_only: false,
+            monitored_sites: final_monitored_sites,
+        })
     }
 
     /// Load rules from YAML string (legacy support)
@@ -1731,6 +1830,7 @@ pub struct RuleMatchResult {
 
 pub struct SdkRegistry {
     pub rules: Vec<SdkRule>,
+    pub monitored_sites: Vec<String>,
     domain_index: Option<DoubleArrayAhoCorasick<u32>>,
     url_index: Option<DoubleArrayAhoCorasick<u32>>,
     content_index: Option<DoubleArrayAhoCorasick<u32>>,
@@ -1748,6 +1848,7 @@ impl SdkRegistry {
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
+            monitored_sites: Vec::new(),
             domain_index: None,
             url_index: None,
             content_index: None,
@@ -1792,6 +1893,7 @@ impl SdkRegistry {
         match SdkRuleFile::load_from_file("firewall-rules/rules.yaml") {
             Ok(rule_file) => {
                 let rule_count = rule_file.rules.len();
+                self.monitored_sites = rule_file.monitored_sites;
                 self.rules = Self::sanitize_rules(rule_file.rules);
                 self.rebuild_match_index();
                 println!(
@@ -1803,13 +1905,69 @@ impl SdkRegistry {
                 eprintln!("[SDK] Failed to load firewall-rules/rules.yaml: {}", e);
             }
         }
+
+        // Fallback for monitored_sites if not included via rules.yaml
+        if self.monitored_sites.is_empty() {
+            for fallback in &[
+                "firewall-rules/monitored_sites.yaml",
+                "edrav2/firewall-rules/monitored_sites.yaml",
+                "../edrav2/firewall-rules/monitored_sites.yaml",
+            ] {
+                if let Ok(file) = SdkRuleFile::load_from_file(fallback) {
+                    if !file.monitored_sites.is_empty() {
+                        self.monitored_sites = file.monitored_sites;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     pub fn load_rules_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), String> {
         let rule_file = SdkRuleFile::load_from_file(path)?;
+        self.monitored_sites = rule_file.monitored_sites;
         self.rules = Self::sanitize_rules(rule_file.rules);
         self.rebuild_match_index();
         Ok(())
+    }
+
+    /// Checks whether `host` is targeted by monitored_sites.yaml or any active SDK domain rule.
+    pub fn is_monitored_site(&self, host: &str) -> bool {
+        let clean = host.trim().trim_start_matches('.').to_ascii_lowercase();
+        if clean.is_empty() {
+            return false;
+        }
+
+        for pattern in &self.monitored_sites {
+            let pat = pattern.trim().trim_start_matches('.').to_ascii_lowercase();
+            if pat == clean {
+                return true;
+            }
+            if let Some(suffix) = pat.strip_prefix("*.") {
+                if clean == suffix || clean.ends_with(&format!(".{}", suffix)) {
+                    return true;
+                }
+            } else if let Some(suffix) = pat.strip_prefix('*') {
+                if clean.ends_with(suffix) {
+                    return true;
+                }
+            } else if clean.ends_with(&format!(".{}", pat)) {
+                return true;
+            }
+        }
+
+        for rule in &self.rules {
+            if !rule.enabled {
+                continue;
+            }
+            if let Some(ref d) = rule.domain {
+                if d.matches(Some(&clean)) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     pub fn add_rule(&mut self, rule: SdkRule) {
