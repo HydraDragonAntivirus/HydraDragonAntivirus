@@ -226,6 +226,8 @@ pub struct DomainMatcher {
     pub domains: Vec<String>,
     #[serde(default)]
     pub case_insensitive: bool,
+    #[serde(default)]
+    pub subdomains: bool,
 }
 
 impl DomainMatcher {
@@ -268,6 +270,13 @@ impl DomainMatcher {
         if pattern.starts_with("*.") {
             let suffix = &pattern[1..];
             return text.ends_with(suffix) || text == &pattern[2..];
+        }
+
+        // Handle subdomains flag (e.g. from Suricata dotprefix)
+        if self.subdomains {
+            if text == pattern || text.ends_with(&format!(".{}", pattern)) {
+                return true;
+            }
         }
 
         // Handle *keyword*
@@ -462,6 +471,32 @@ pub struct HexContent {
     /// Suricata `within` — maximum byte range from previous match.
     #[serde(default)]
     pub within: Option<usize>,
+    /// Suricata `content:!"..."` — pattern must NOT match in the window.
+    #[serde(default)]
+    pub negated: bool,
+    /// Target buffer name (e.g. "http_user_agent", "http_referer", "http_content_type", "http_request_body", "http_response_body")
+    #[serde(default)]
+    pub buffer: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct IsDataAt {
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default)]
+    pub relative: bool,
+    #[serde(default)]
+    pub negated: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct StreamSizeMatcher {
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub operator: String,
+    #[serde(default)]
+    pub size: usize,
 }
 
 impl HexContent {
@@ -470,7 +505,7 @@ impl HexContent {
     pub fn find_match_in(&self, payload: &[u8], anchor_pos: Option<usize>) -> Option<(usize, usize)> {
         let needle = decode_hex(&self.hex)?;
         if needle.is_empty() {
-            return Some((0, 0));
+            return if self.negated { None } else { Some((0, 0)) };
         }
 
         // Determine start offset
@@ -485,7 +520,11 @@ impl HexContent {
         };
 
         if base_start >= payload.len() {
-            return None;
+            return if self.negated {
+                Some((anchor_pos.unwrap_or(0), anchor_pos.unwrap_or(0)))
+            } else {
+                None
+            };
         }
 
         // Determine end offset
@@ -497,76 +536,84 @@ impl HexContent {
             payload.len()
         };
 
-        if base_start >= end {
-            return None;
-        }
-
-        let window = &payload[base_start..end];
-        if window.len() < needle.len() {
-            return None;
-        }
-
-        if self.startswith && self.endswith {
-            let matched = if self.case_insensitive {
-                window.eq_ignore_ascii_case(&needle)
-            } else {
-                window == needle.as_slice()
-            };
-            return if matched {
-                Some((base_start, base_start + needle.len()))
+        if base_start >= end || (end - base_start) < needle.len() {
+            return if self.negated {
+                Some((anchor_pos.unwrap_or(0), anchor_pos.unwrap_or(0)))
             } else {
                 None
             };
         }
 
-        if self.startswith {
+        let window = &payload[base_start..end];
+
+        let found = if self.startswith && self.endswith {
+            let matched = if self.case_insensitive {
+                window.eq_ignore_ascii_case(&needle)
+            } else {
+                window == needle.as_slice()
+            };
+            if matched {
+                Some((base_start, base_start + needle.len()))
+            } else {
+                None
+            }
+        } else if self.startswith {
             let prefix = &window[..needle.len()];
             let matched = if self.case_insensitive {
                 prefix.eq_ignore_ascii_case(&needle)
             } else {
                 prefix == needle.as_slice()
             };
-            return if matched {
+            if matched {
                 Some((base_start, base_start + needle.len()))
             } else {
                 None
-            };
-        }
-
-        if self.endswith {
+            }
+        } else if self.endswith {
             let suffix = &window[window.len() - needle.len()..];
             let matched = if self.case_insensitive {
                 suffix.eq_ignore_ascii_case(&needle)
             } else {
                 suffix == needle.as_slice()
             };
-            return if matched {
+            if matched {
                 let start_idx = end - needle.len();
                 Some((start_idx, end))
             } else {
                 None
-            };
-        }
-
-        // Search within window
-        if self.case_insensitive {
+            }
+        } else if self.case_insensitive {
             let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
+            let mut res = None;
             for (idx, w) in window.windows(needle_lower.len()).enumerate() {
                 if w.iter().map(|b| b.to_ascii_lowercase()).eq(needle_lower.iter().cloned()) {
                     let match_start = base_start + idx;
-                    return Some((match_start, match_start + needle.len()));
+                    res = Some((match_start, match_start + needle.len()));
+                    break;
                 }
             }
+            res
         } else {
+            let mut res = None;
             for (idx, w) in window.windows(needle.len()).enumerate() {
                 if w == needle.as_slice() {
                     let match_start = base_start + idx;
-                    return Some((match_start, match_start + needle.len()));
+                    res = Some((match_start, match_start + needle.len()));
+                    break;
                 }
             }
-        }
+            res
+        };
 
-        None
+        if self.negated {
+            if found.is_some() {
+                None
+            } else {
+                Some((anchor_pos.unwrap_or(0), anchor_pos.unwrap_or(0)))
+            }
+        } else {
+            found
+        }
     }
 
     /// Returns true when this pattern is present anywhere in `payload`
@@ -626,10 +673,16 @@ pub struct PortMatcher {
     pub ports: Vec<u16>,
     #[serde(default)]
     pub ranges: Vec<(u16, u16)>,
+    #[serde(default)]
+    pub excluded_ports: Vec<u16>,
 }
 
 impl PortMatcher {
     pub fn matches(&self, port: u16) -> bool {
+        if self.excluded_ports.contains(&port) {
+            return false;
+        }
+
         if self.ports.is_empty() && self.ranges.is_empty() {
             return true;
         }
@@ -1361,6 +1414,42 @@ pub struct SdkRule {
     /// set/unset/toggle are applied when the rule matches.
     #[serde(default)]
     pub flowbits: Vec<FlowbitOp>,
+    /// Buffer size matcher (Suricata `bsize`)
+    #[serde(default)]
+    pub bsize: Option<DsizeMatcher>,
+    /// Victim target endpoint (Suricata `target`, e.g. "src_ip", "dest_ip")
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Attack classification (Suricata `classtype`)
+    #[serde(default)]
+    pub classtype: Option<String>,
+    /// Signature revision (Suricata `rev`)
+    #[serde(default)]
+    pub rev: Option<u32>,
+    /// Alert rate-limiting threshold (Suricata `threshold`)
+    #[serde(default)]
+    pub threshold: Option<String>,
+    /// External documentation and CVE references (Suricata `reference`)
+    #[serde(default)]
+    pub references: Vec<String>,
+    /// Structured rule metadata tags
+    #[serde(default)]
+    pub metadata: Option<serde_yaml::Value>,
+    /// URI length matcher (Suricata `urilen`)
+    #[serde(default)]
+    pub urilen: Option<DsizeMatcher>,
+    /// Payload length checks (Suricata `isdataat`)
+    #[serde(default)]
+    pub isdataat: Vec<IsDataAt>,
+    /// Stream size limiter (Suricata `stream_size`)
+    #[serde(default)]
+    pub stream_size: Option<StreamSizeMatcher>,
+    /// ICMP type (Suricata `itype`)
+    #[serde(default)]
+    pub itype: Option<u8>,
+    /// ICMP code (Suricata `icode`)
+    #[serde(default)]
+    pub icode: Option<u8>,
 }
 
 fn default_true() -> bool {
@@ -1508,8 +1597,19 @@ impl SdkRule {
                                 let mut last_end = None;
                                 let mut all_matched = true;
                                 for c in &self.contents {
-                                    if let Some((_, m_end)) = c.find_match_in(payload, last_end) {
-                                        last_end = Some(m_end);
+                                    let target_buf: &[u8] = match c.buffer.as_deref() {
+                                        Some("http_user_agent") => packet.http_user_agent.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
+                                        Some("http_referer") => packet.http_referer.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
+                                        Some("http_content_type") => packet.http_content_type.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
+                                        Some("http_request_body") => packet.http_request_body.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
+                                        Some("http_response_body") => packet.http_response_body.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
+                                        Some("http_path") => packet.http_path.as_deref().map(|s| s.as_bytes()).unwrap_or(b""),
+                                        _ => payload,
+                                    };
+                                    if let Some((_, m_end)) = c.find_match_in(target_buf, last_end) {
+                                        if !c.negated {
+                                            last_end = Some(m_end);
+                                        }
                                     } else {
                                         all_matched = false;
                                         break;
@@ -1606,7 +1706,56 @@ impl SdkRule {
                         19 => {
                             step += 1;
                             if let Some(ref matcher) = self.dsize {
-                                return Some(matcher.matches(packet.size));
+                                if !matcher.matches(packet.size) {
+                                    return Some(false);
+                                }
+                            }
+                            if let Some(ref matcher) = self.bsize {
+                                if !matcher.matches(payload.len()) {
+                                    return Some(false);
+                                }
+                            }
+                            if let Some(ref matcher) = self.urilen {
+                                let url_len = packet.full_url.as_deref().map(|u| u.len())
+                                    .or_else(|| packet.http_path.as_deref().map(|p| p.len()))
+                                    .unwrap_or(0);
+                                if !matcher.matches(url_len) {
+                                    return Some(false);
+                                }
+                            }
+                            for ida in &self.isdataat {
+                                let has_data = payload.len() > ida.offset;
+                                if ida.negated {
+                                    if has_data {
+                                        return Some(false);
+                                    }
+                                } else if !has_data {
+                                    return Some(false);
+                                }
+                            }
+                            if let Some(ref sm) = self.stream_size {
+                                let stream_len = packet.size;
+                                let matched = match sm.operator.as_str() {
+                                    "<" => stream_len < sm.size,
+                                    ">" => stream_len > sm.size,
+                                    "=" | "==" => stream_len == sm.size,
+                                    _ => true,
+                                };
+                                if !matched {
+                                    return Some(false);
+                                }
+                            }
+                            if packet.ip_proto == 1 && !payload.is_empty() {
+                                if let Some(it) = self.itype {
+                                    if payload[0] != it {
+                                        return Some(false);
+                                    }
+                                }
+                                if let Some(ic) = self.icode {
+                                    if payload.len() > 1 && payload[1] != ic {
+                                        return Some(false);
+                                    }
+                                }
                             }
                         }
                         20 => {
@@ -2801,6 +2950,8 @@ mod tests {
             endswith: true,
             distance: None,
             within: None,
+            negated: false,
+            buffer: None,
         };
 
         // Normal HTTP/TLS payload containing an underscore inside
@@ -2820,10 +2971,112 @@ mod tests {
             endswith: true,
             distance: None,
             within: None,
+            negated: false,
+            buffer: None,
         };
 
         let normal_payload2 = b"Host: checksum.forms.example.com\r\n";
         assert!(!ms_rule.matches(normal_payload2));
         assert!(ms_rule.matches(b"ms"));
+    }
+
+    #[test]
+    fn test_hex_content_negated() {
+        let not_pwhdr = HexContent {
+            hex: "50 57 48 44 52".to_string(), // "PWHDR"
+            case_insensitive: false,
+            offset: None,
+            depth: Some(5),
+            negated: true,
+            ..Default::default()
+        };
+
+        // Payload that DOES NOT contain PWHDR in first 5 bytes -> matches
+        assert!(not_pwhdr.matches(b"HELLO WORLD"));
+
+        // Payload that DOES contain PWHDR at start -> does NOT match
+        assert!(!not_pwhdr.matches(b"PWHDR12345"));
+    }
+
+    #[test]
+    fn test_port_matcher_excluded_ports() {
+        let matcher = PortMatcher {
+            ports: vec![],
+            ranges: vec![],
+            excluded_ports: vec![80, 443],
+        };
+
+        assert!(!matcher.matches(80));
+        assert!(!matcher.matches(443));
+        assert!(matcher.matches(8080));
+        assert!(matcher.matches(53));
+    }
+
+    #[test]
+    fn test_domain_matcher_subdomains() {
+        let matcher = DomainMatcher {
+            domains: vec!["example.com".to_string()],
+            case_insensitive: true,
+            subdomains: true,
+        };
+
+        // Exact match
+        assert!(matcher.matches(Some("example.com")));
+        // Subdomain
+        assert!(matcher.matches(Some("api.example.com")));
+        assert!(matcher.matches(Some("sub.api.example.com")));
+        // Other domain
+        assert!(!matcher.matches(Some("notexample.com")));
+        assert!(!matcher.matches(Some("google.com")));
+    }
+
+    #[test]
+    fn test_sdk_rule_deserialization_with_all_metadata() {
+        let yaml_str = r#"
+name: "sid:2018432"
+description: "ET HUNTING SUSPICIOUS Possible automated connectivity check"
+severity: "major"
+enabled: true
+protocol: tcp
+action: traffic_attack
+domain:
+  domains: ["www.bing.com"]
+  case_insensitive: false
+  subdomains: true
+contents:
+  - hex: "47 45 54"
+    case_insensitive: false
+    startswith: true
+  - hex: "0D 0A 75 73 65 72 2D 61 67 65 6E 74 0D 0A"
+    case_insensitive: true
+    negated: true
+flow:
+  established: true
+  to_server: true
+classtype: "bad-unknown"
+rev: 4
+threshold: "type limit, count 1, seconds 300, track by_src"
+target: "dest_ip"
+bsize:
+  exact: 1
+metadata:
+  affected_product:
+    - "Web_Browsers"
+    - "Web_Browser_Plugins"
+  attack_target: "Client_Endpoint"
+  confidence: "Medium"
+references:
+  - "url,www.bing.com"
+"#;
+        let rule: SdkRule = serde_yaml::from_str(yaml_str).expect("Failed to deserialize SdkRule");
+        assert_eq!(rule.name, "sid:2018432");
+        assert_eq!(rule.classtype.as_deref(), Some("bad-unknown"));
+        assert_eq!(rule.rev, Some(4));
+        assert_eq!(rule.target.as_deref(), Some("dest_ip"));
+        assert_eq!(rule.threshold.as_deref(), Some("type limit, count 1, seconds 300, track by_src"));
+        assert_eq!(rule.references, vec!["url,www.bing.com"]);
+        assert!(rule.domain.unwrap().subdomains);
+        assert_eq!(rule.bsize.unwrap().exact, Some(1));
+        assert!(rule.metadata.is_some());
     }
 }

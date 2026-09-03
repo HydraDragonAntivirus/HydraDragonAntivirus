@@ -42,10 +42,10 @@ Best-effort mapping (documented limitations):
     that has no preceding content, or offset/depth on a non-first content,
     cannot be expressed and fall back to '.*?'.
   * bidirectional '<>' rules -> kept forward-only
+  * negated content (content:!"..") -> contents.negated: true
+  * negated ports (!80, ![80,443], [!80,!443]) -> port.excluded_ports
 
-Every well-formed rule is converted. Negated content (content:!"..") cannot be
-expressed in the SDK, so the negated term is dropped and the rule is kept with
-its remaining positive matchers. Only lines that are not valid Suricata rules
+Every well-formed rule is converted. Only lines that are not valid Suricata rules
 (unparseable header/action) are skipped.
 
 Usage:
@@ -56,28 +56,58 @@ import re
 import sys
 from pathlib import Path
 
+_LOCAL_RULES = Path(__file__).resolve().parent / "emerging-all.rules"
 DEFAULT_INPUT = (
-    Path(__file__).resolve().parent.parent.parent
-    /"emerging-all.rules"
+    _LOCAL_RULES if _LOCAL_RULES.exists()
+    else Path(__file__).resolve().parent.parent.parent / "emerging-all.rules"
 )
 DEFAULT_OUTPUT = (
-    Path(__file__).resolve().parent.parent
-    / "rules.yaml"
+    Path(__file__).resolve().parent.parent.parent
+    / "edrav2" / "firewall-rules" / "emerging-all.yaml"
 )
 
 ACTION_MAP = {"alert": "traffic_attack", "drop": "block", "reject": "block", "pass": "allow"}
 
-PROTO_MAP = {"tcp": "tcp", "udp": "udp", "icmp": "icmp",
-             "tcp-pkt": "tcp", "udp-pkt": "udp"}
+PROTO_MAP = {
+    "tcp": "tcp", "udp": "udp", "icmp": "icmp",
+    "tcp-pkt": "tcp", "udp-pkt": "udp",
+    "http": "tcp", "https": "tcp", "tls": "tcp", "ssl": "tcp",
+    "ftp": "tcp", "smtp": "tcp", "imap": "tcp", "pop3": "tcp",
+    "ssh": "tcp", "smb": "tcp", "dcerpc": "tcp", "dns": "udp",
+}
 
 # Host-like content modifiers -> domain matcher
-HOST_MODIFIERS = {"http.host", "host", "dns.query", "tls.sni"}
+HOST_MODIFIERS = {
+    "http.host", "host", "dns.query", "tls.sni",
+    "http_host", "dns_query", "tls_sni",
+}
+
+BUFFER_MODIFIERS = {
+    "http.user_agent": "http_user_agent",
+    "http_user_agent": "http_user_agent",
+    "http.referer": "http_referer",
+    "http_referer": "http_referer",
+    "http.content_type": "http_content_type",
+    "http_content_type": "http_content_type",
+    "http.cookie": "http_cookie",
+    "http_cookie": "http_cookie",
+    "http.request_body": "http_request_body",
+    "http.response_body": "http_response_body",
+    "http_client_body": "http_request_body",
+    "http.request_line": "http_path",
+    "http.uri": "http_path",
+    "http_uri": "http_path",
+    "http.uri.raw": "http_path",
+    "tls.cert_subject": "tls_cert_subject",
+    "tls.cert_issuer": "tls_cert_issuer",
+    "tls.certs": "tls_certs",
+}
 
 DISABLED_SIDS = {2100640, 2009247, 2009285}
 
 stats = {"lines": 0, "rules": 0, "skipped_header": 0, "skipped_action": 0,
          "dropped_negated": 0, "dropped_bad_content": 0, "no_matchers": 0,
-         "content_patterns": 0, "pcre_rules": 0, "overridden": 0}
+         "content_patterns": 0, "pcre_rules": 0, "comment_lines": 0, "overridden": 0}
 
 # No content-to-regex overrides. Binary Suricata `content:` is kept byte-native.
 
@@ -124,10 +154,77 @@ def emit_ip_matcher(indent: str, key: str, matcher) -> list:
     return lines
 
 
+def parse_metadata(raw: str):
+    m = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parts = item.split(None, 1)
+        if len(parts) == 2:
+            k, v = parts[0].strip(), parts[1].strip()
+            if k in m:
+                if isinstance(m[k], list):
+                    m[k].append(v)
+                else:
+                    m[k] = [m[k], v]
+            else:
+                m[k] = v
+        elif len(parts) == 1:
+            m[parts[0]] = True
+    return m
+
+
+def parse_isdataat(value: str):
+    negated = False
+    v = value.strip()
+    if v.startswith("!"):
+        negated = True
+        v = v[1:].strip()
+    parts = [p.strip() for p in v.split(",")]
+    try:
+        offset = int(parts[0])
+    except ValueError:
+        return None
+    relative = ("relative" in parts)
+    return {"offset": offset, "relative": relative, "negated": negated}
+
+
+def parse_stream_size(value: str):
+    parts = [p.strip() for p in value.split(",")]
+    if len(parts) >= 3:
+        try:
+            return {"direction": parts[0], "operator": parts[1], "size": int(parts[2])}
+        except ValueError:
+            return None
+    elif len(parts) == 2:
+        try:
+            return {"operator": parts[0], "size": int(parts[1])}
+        except ValueError:
+            return None
+    return None
+
+
+def emit_metadata(indent: str, metadata: dict) -> list:
+    lines = ["%smetadata:" % indent]
+    for k in sorted(metadata.keys()):
+        v = metadata[k]
+        if isinstance(v, list):
+            lines.append("%s  %s:" % (indent, k))
+            for item in v:
+                lines.append("%s    - %s" % (indent, yaml_quote(item)))
+        elif isinstance(v, bool):
+            lines.append("%s  %s: %s" % (indent, k, "true" if v else "false"))
+        else:
+            lines.append("%s  %s: %s" % (indent, k, yaml_quote(str(v))))
+    return lines
+
+
 def emit_port_matcher(indent: str, key: str, matcher) -> list:
     lines = ["%s%s:" % (indent, key)]
     ports = matcher.get("ports", [])
     ranges = matcher.get("ranges", [])
+    excluded = matcher.get("excluded_ports", [])
     if ports:
         lines.append("%s  ports: [%s]" % (indent, ", ".join(str(p) for p in ports)))
     else:
@@ -137,6 +234,9 @@ def emit_port_matcher(indent: str, key: str, matcher) -> list:
             indent, ", ".join("[%d, %d]" % (a, b) for a, b in ranges)))
     else:
         lines.append("%s  ranges: []" % indent)
+    if excluded:
+        lines.append("%s  excluded_ports: [%s]" % (
+            indent, ", ".join(str(p) for p in excluded)))
     return lines
 
 
@@ -163,6 +263,8 @@ def emit_rule(rule: dict) -> list:
         lines.append("    domain:")
         lines.append("      domains: [%s]" % ", ".join(yaml_quote(d) for d in rule["domain"]["domains"]))
         lines.append("      case_insensitive: %s" % ("true" if rule["domain"].get("case_insensitive") else "false"))
+        if rule["domain"].get("subdomains"):
+            lines.append("      subdomains: true")
     if rule.get("contents"):
         lines.append("    contents:")
         for content in rule["contents"]:
@@ -180,6 +282,10 @@ def emit_rule(rule: dict) -> list:
                 lines.append("        startswith: true")
             if content.get("endswith"):
                 lines.append("        endswith: true")
+            if content.get("negated"):
+                lines.append("        negated: true")
+            if content.get("buffer"):
+                lines.append("        buffer: %s" % yaml_quote(content["buffer"]))
     if rule.get("regex"):
         lines.append("    regex:")
         lines.append("      pattern: %s" % yaml_quote(rule["regex"]["pattern"]))
@@ -192,6 +298,37 @@ def emit_rule(rule: dict) -> list:
         for k in ("exact", "min", "max", "mod_divisor", "mod_offset"):
             if d.get(k) is not None:
                 lines.append("      %s: %d" % (k, d[k]))
+    if rule.get("bsize"):
+        b = rule["bsize"]
+        lines.append("    bsize:")
+        for k in ("exact", "min", "max"):
+            if b.get(k) is not None:
+                lines.append("      %s: %d" % (k, b[k]))
+    if rule.get("urilen"):
+        u = rule["urilen"]
+        lines.append("    urilen:")
+        for k in ("exact", "min", "max"):
+            if u.get(k) is not None:
+                lines.append("      %s: %d" % (k, u[k]))
+    if rule.get("isdataat"):
+        lines.append("    isdataat:")
+        for ida in rule["isdataat"]:
+            lines.append("      - offset: %d" % ida["offset"])
+            if ida.get("relative"):
+                lines.append("        relative: true")
+            if ida.get("negated"):
+                lines.append("        negated: true")
+    if rule.get("stream_size"):
+        sm = rule["stream_size"]
+        lines.append("    stream_size:")
+        if sm.get("direction"):
+            lines.append("      direction: %s" % yaml_quote(sm["direction"]))
+        lines.append("      operator: %s" % yaml_quote(sm["operator"]))
+        lines.append("      size: %d" % sm["size"])
+    if rule.get("itype") is not None:
+        lines.append("    itype: %d" % rule["itype"])
+    if rule.get("icode") is not None:
+        lines.append("    icode: %d" % rule["icode"])
     if rule.get("byte_test"):
         lines.append("    byte_test:")
         for bt in rule["byte_test"]:
@@ -215,6 +352,23 @@ def emit_rule(rule: dict) -> list:
         for op in rule["flowbits"]:
             lines.append("      - op: %s" % op["op"])
             lines.append("        flag: %s" % yaml_quote(op["flag"]))
+    if rule.get("target"):
+        lines.append("    target: %s" % yaml_quote(rule["target"]))
+    if rule.get("classtype"):
+        lines.append("    classtype: %s" % yaml_quote(rule["classtype"]))
+    if rule.get("rev") is not None:
+        lines.append("    rev: %d" % rule["rev"])
+    if rule.get("threshold"):
+        lines.append("    threshold: %s" % yaml_quote(rule["threshold"]))
+    if rule.get("metadata"):
+        if isinstance(rule["metadata"], dict):
+            lines += emit_metadata("    ", rule["metadata"])
+        else:
+            lines.append("    metadata: %s" % yaml_quote(rule["metadata"]))
+    if rule.get("references"):
+        lines.append("    references:")
+        for ref in rule["references"]:
+            lines.append("      - %s" % yaml_quote(ref))
     if rule.get("private"):
         lines.append("    private: true")
     return lines
@@ -313,33 +467,50 @@ def parse_ip_list(token: str):
 
 
 def parse_port_list(token: str):
-    """Return (any, ports, ranges). $vars/negations -> any."""
+    """Return (any, ports, ranges, excluded_ports)."""
     token = token.strip()
-    if token == "any" or token.startswith("$") or token.startswith("!"):
-        return True, [], []
-    if token.startswith("[") and token.endswith("]"):
+    if token == "any" or token.startswith("$"):
+        return True, [], [], []
+    all_negated = False
+    if token.startswith("![") and token.endswith("]"):
+        all_negated = True
+        token = token[2:-1]
+    elif token.startswith("[") and token.endswith("]"):
         token = token[1:-1]
-    ports, ranges = [], []
+    ports, ranges, excluded = [], [], []
     for item in token.split(","):
         item = item.strip()
-        if not item or item == "any" or item.startswith("$") or item.startswith("!"):
-            return True, [], []
+        if not item or item == "any" or item.startswith("$"):
+            return True, [], [], []
+        is_neg = all_negated or item.startswith("!")
+        if item.startswith("!"):
+            item = item[1:].strip()
+        if not item:
+            continue
         if ":" in item:
             low, _, high = item.partition(":")
             try:
                 a = int(low) if low else 0
                 b = int(high) if high else 65535
             except ValueError:
-                return True, [], []
-            ranges.append((a, b))
+                return True, [], [], []
+            if is_neg:
+                if b >= a and (b - a) <= 256:
+                    for p in range(a, b + 1):
+                        excluded.append(p)
+            else:
+                ranges.append((a, b))
         else:
             try:
-                ports.append(int(item))
+                p_val = int(item)
+                if is_neg:
+                    excluded.append(p_val)
+                else:
+                    ports.append(p_val)
             except ValueError:
-                return True, [], []
-    if not ports and not ranges:
-        return True, [], []
-    return False, ports, ranges
+                return True, [], [], []
+    is_any = not ports and not ranges
+    return is_any, ports, ranges, excluded
 
 
 IP_PROTO_MAP = {
@@ -542,7 +713,7 @@ def bytes_to_hex(data: bytes) -> str:
 # Rule conversion
 # ---------------------------------------------------------------------------
 
-def convert_line(line: str, rule_index: int = 0):
+def convert_line(line: str, rule_index: int = 0, raw_line: str = None):
     lp = line.find("(")
     rp = line.rfind(")")
     if lp == -1 or rp == -1 or rp < lp:
@@ -570,14 +741,27 @@ def convert_line(line: str, rule_index: int = 0):
 
     any_src_ip, src_ips, src_cidrs = parse_ip_list(src_ip_tok)
     any_dst_ip, dst_ips, dst_cidrs = parse_ip_list(dst_ip_tok)
-    any_src_port, src_ports, src_ranges = parse_port_list(src_port_tok)
-    any_dst_port, dst_ports, dst_ranges = parse_port_list(dst_port_tok)
+    any_src_port, src_ports, src_ranges, src_excluded = parse_port_list(src_port_tok)
+    any_dst_port, dst_ports, dst_ranges, dst_excluded = parse_port_list(dst_port_tok)
 
     description = ""
     sid = None
     severity = None
+    target = None
+    classtype = None
+    rev = None
+    threshold = None
+    raw_metadata = None
+    references = []
     domains = []
     domain_case_insensitive = False
+    dotprefix = False
+    bsize = None
+    urilen = None
+    isdataat = []
+    stream_size = None
+    itype = None
+    icode = None
     regex_terms = []
     ip_proto = None
     dsize = None
@@ -593,9 +777,7 @@ def convert_line(line: str, rule_index: int = 0):
     # http.header, http.request_body, dns.query, tls.sni, file.data, ...)
     # SELECT which buffer subsequent content/pcre terms match against, and
     # stay active until another sticky buffer keyword (or pkt_data/file_data
-    # reset) appears. They normally appear BEFORE the content(s) they apply
-    # to, so they must be remembered and applied at content-creation time,
-    # not just attached to whatever content happened to precede them.
+    # reset) appears. They apply to SUBSEQUENT contents, NEVER preceding ones.
     sticky_buffer = set()
 
     for opt_raw in split_options(body):
@@ -608,13 +790,13 @@ def convert_line(line: str, rule_index: int = 0):
                 sticky_buffer = set()
                 continue
             if "." in opt or opt == "file_data":
-                # Sticky buffer selector: applies going forward, and also
-                # to the immediately preceding content if one is already
-                # open (covers rules that mix legacy post-modifiers with a
-                # sticky buffer on the same content).
+                # Sticky buffer selector: applies forward to subsequent contents.
                 sticky_buffer = {opt}
-                if current is not None:
-                    current[2].add(opt)
+            elif opt in ("to_lowercase", "header_lowercase"):
+                sticky_buffer.add("to_lowercase")
+            elif opt == "dotprefix":
+                dotprefix = True
+                sticky_buffer.add("dotprefix")
             else:
                 # Legacy per-content modifier (nocase, startswith, endswith,
                 # fast_pattern, http_uri, http_host, dns_query, ...):
@@ -676,9 +858,48 @@ def convert_line(line: str, rule_index: int = 0):
             if noalert_fb:
                 noalert = True
             flowbits_ops.extend(ops)
+        elif key == "classtype":
+            classtype = value
+        elif key == "rev":
+            try:
+                rev = int(value)
+            except ValueError:
+                pass
+        elif key == "reference":
+            references.append(value)
+        elif key == "target":
+            target = value
+        elif key == "bsize":
+            parsed = parse_dsize(value)
+            if parsed is not None:
+                bsize = parsed
+        elif key == "urilen":
+            parsed = parse_dsize(value)
+            if parsed is not None:
+                urilen = parsed
+        elif key == "isdataat":
+            parsed = parse_isdataat(value)
+            if parsed is not None:
+                isdataat.append(parsed)
+        elif key == "stream_size":
+            parsed = parse_stream_size(value)
+            if parsed is not None:
+                stream_size = parsed
+        elif key == "itype":
+            try:
+                itype = int(value)
+            except ValueError:
+                pass
+        elif key == "icode":
+            try:
+                icode = int(value)
+            except ValueError:
+                pass
+        elif key == "threshold":
+            threshold = value
         elif key == "metadata":
+            raw_metadata = parse_metadata(value)
             # Extract EmergingThreats `signature_severity` from metadata:
-            # metadata:..., signature_severity Informational, ... (case-insensitive)
             m = re.search(
                 r"\bsignature_severity\s+([A-Za-z]+)",
                 value,
@@ -687,34 +908,42 @@ def convert_line(line: str, rule_index: int = 0):
             if m:
                 severity = m.group(1).lower()
         else:
-            # classtype, reference, metadata, threshold, etc.
             continue
 
     # Dispatch contents. Suricata `content:` stays byte-native.
     content_patterns = []
     for raw, negated, mods, pos in contents:
         lower_mods = {m.lower() for m in mods}
-        if negated:
-            stats["dropped_negated"] += 1
-            continue
-
         if lower_mods & HOST_MODIFIERS:
-            domains.append(lossy(raw))
-            if "nocase" in lower_mods:
-                domain_case_insensitive = True
+            if not negated:
+                domains.append(lossy(raw))
+                if "nocase" in lower_mods:
+                    domain_case_insensitive = True
             continue
 
         item = {
             "hex": bytes_to_hex(raw),
-            "case_insensitive": "nocase" in lower_mods,
+            "case_insensitive": ("nocase" in lower_mods or "to_lowercase" in lower_mods),
         }
+        if negated:
+            item["negated"] = True
+
         for key in ("offset", "depth", "within", "distance"):
             if key in pos:
                 item[key] = pos[key]
-        if "startswith" in lower_mods:
+        if "startswith" in lower_mods or lower_mods & {"http.method", "http_method"}:
             item["startswith"] = True
         if "endswith" in lower_mods:
             item["endswith"] = True
+        if lower_mods & {"http.stat_code", "http_stat_code"}:
+            if "offset" not in pos:
+                item["offset"] = 8
+            if "depth" not in pos:
+                item["depth"] = 7
+        for mod in lower_mods:
+            if mod in BUFFER_MODIFIERS:
+                item["buffer"] = BUFFER_MODIFIERS[mod]
+                break
 
         content_patterns.append(item)
         stats["content_patterns"] += 1
@@ -724,8 +953,8 @@ def convert_line(line: str, rule_index: int = 0):
         regex_terms = [({"pattern": pat, "case_insensitive": ci}) for pat, ci in pcres]
         stats["pcre_rules"] += 1
 
-    has_matchers = bool(domains or content_patterns or regex_terms or src_ports or src_ranges
-                        or dst_ports or dst_ranges or src_ips or src_cidrs
+    has_matchers = bool(domains or content_patterns or regex_terms or src_ports or src_ranges or src_excluded
+                        or dst_ports or dst_ranges or dst_excluded or src_ips or src_cidrs
                         or dst_ips or dst_cidrs
                         or ip_proto is not None or dsize is not None
                         or byte_tests or flow is not None or flowbits_ops)
@@ -751,12 +980,14 @@ def convert_line(line: str, rule_index: int = 0):
         rule["src_ip"] = {"addresses": src_ips, "cidr_ranges": src_cidrs}
     if not any_dst_ip and (dst_ips or dst_cidrs):
         rule["dst_ip"] = {"addresses": dst_ips, "cidr_ranges": dst_cidrs}
-    if not any_src_port and (src_ports or src_ranges):
-        rule["src_port"] = {"ports": src_ports, "ranges": src_ranges}
-    if not any_dst_port and (dst_ports or dst_ranges):
-        rule["dst_port"] = {"ports": dst_ports, "ranges": dst_ranges}
+    if not any_src_port or src_excluded:
+        rule["src_port"] = {"ports": src_ports, "ranges": src_ranges, "excluded_ports": src_excluded}
+    if not any_dst_port or dst_excluded:
+        rule["dst_port"] = {"ports": dst_ports, "ranges": dst_ranges, "excluded_ports": dst_excluded}
     if domains:
         rule["domain"] = {"domains": domains, "case_insensitive": domain_case_insensitive}
+        if dotprefix:
+            rule["domain"]["subdomains"] = True
     if content_patterns:
         rule["contents"] = content_patterns
     if regex_terms:
@@ -765,12 +996,38 @@ def convert_line(line: str, rule_index: int = 0):
         rule["ip_proto"] = ip_proto
     if dsize is not None:
         rule["dsize"] = dsize
+    if bsize is not None:
+        rule["bsize"] = bsize
+    if urilen is not None:
+        rule["urilen"] = urilen
+    if isdataat:
+        rule["isdataat"] = isdataat
+    if stream_size is not None:
+        rule["stream_size"] = stream_size
+    if itype is not None:
+        rule["itype"] = itype
+    if icode is not None:
+        rule["icode"] = icode
     if byte_tests:
         rule["byte_test"] = byte_tests
     if flow is not None:
         rule["flow"] = flow
     if flowbits_ops:
         rule["flowbits"] = flowbits_ops
+    if target:
+        rule["target"] = target
+    if classtype:
+        rule["classtype"] = classtype
+    if rev is not None:
+        rule["rev"] = rev
+    if threshold:
+        rule["threshold"] = threshold
+    if raw_metadata:
+        rule["metadata"] = raw_metadata
+    if references:
+        rule["references"] = references
+    if raw_line:
+        rule["raw"] = raw_line
     if noalert:
         rule["private"] = True
 
@@ -778,6 +1035,10 @@ def convert_line(line: str, rule_index: int = 0):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0)
+
     input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_INPUT
     output_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_OUTPUT
 
@@ -798,7 +1059,10 @@ def main():
         for raw_line in fh:
             line = raw_line.strip()
             stats["lines"] += 1
-            if not line or line.startswith("#"):
+            if not line:
+                continue
+            if line.startswith("#"):
+                out_lines.append(line)
                 continue
             rule = convert_line(line, rule_count)
             if rule is None:
