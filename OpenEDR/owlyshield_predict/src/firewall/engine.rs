@@ -1683,26 +1683,6 @@ impl FirewallEngine {
         sdk.is_monitored_site(&target)
     }
 
-    fn wait_for_proxy_listener(addr: std::net::SocketAddr, timeout: Duration) -> bool {
-        let deadline = std::time::Instant::now() + timeout;
-        let test_addr = if addr.ip().is_unspecified() || addr.ip().is_loopback() {
-            std::net::SocketAddr::new(
-                std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
-                addr.port(),
-            )
-        } else {
-            addr
-        };
-        while std::time::Instant::now() < deadline {
-            if std::net::TcpStream::connect_timeout(&test_addr, Duration::from_millis(500)).is_ok()
-            {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(150));
-        }
-        false
-    }
-
     pub fn sync_proxy_runtime(&self) {
         let tls_proxy_cfg = {
             let settings = self.settings.read().unwrap();
@@ -1973,17 +1953,23 @@ impl FirewallEngine {
         std::thread::Builder::new()
             .name("proxy_ready_waiter".to_string())
             .spawn(move || {
-                // Allow up to 15s for CA generation, webpki root cert loading, and socket binding in VMs
-                let listener_ready = Self::wait_for_proxy_listener(addr_v4, Duration::from_secs(15));
-                let still_running = proxy_runtime.lock().unwrap().is_some();
-                if !still_running {
-                    proxy_alive.store(false, Ordering::SeqCst);
-                    return;
+                let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                while std::time::Instant::now() < deadline {
+                    if proxy_alive.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if !proxy_runtime.lock().unwrap().is_some() {
+                        // Proxy stop signal was sent or channel dropped
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
                 }
 
+                let still_running = proxy_runtime.lock().unwrap().is_some();
+                let is_alive = proxy_alive.load(Ordering::SeqCst);
                 let now = Self::now_ts();
-                if listener_ready || proxy_alive.load(Ordering::SeqCst) {
-                    proxy_alive.store(true, Ordering::SeqCst);
+
+                if is_alive && still_running {
                     emit_log_event(LogEntry {
                         id: format!("{}-proxy-ready", now),
                         timestamp: now,
@@ -1993,7 +1979,7 @@ impl FirewallEngine {
                             addr_string
                         ),
                     });
-                } else {
+                } else if still_running {
                     proxy_alive.store(false, Ordering::SeqCst);
                     proxy_runtime.lock().unwrap().take();
                     emit_log_event(LogEntry {
@@ -2672,7 +2658,6 @@ impl FirewallEngine {
                         .into(),
             });
         }
-        self.sync_proxy_runtime();
 
         // ── NETWORK EVENT PIPE WRITER ────────────────────────────────────────────
         // Sends real network I/O events to the AV behavior engine so it can track
@@ -3068,6 +3053,8 @@ impl FirewallEngine {
                 })
                 .expect("failed to spawn packet worker");
         }
+
+        self.sync_proxy_runtime();
     }
 
     fn process_packet_decision(

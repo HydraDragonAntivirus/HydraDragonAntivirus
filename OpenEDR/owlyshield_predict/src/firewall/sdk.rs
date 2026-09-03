@@ -464,13 +464,27 @@ impl HexContent {
             return true;
         }
 
-        // Apply offset / depth window.
-        let start = self.offset.unwrap_or(0).min(payload.len());
-        let end = self
-            .depth
-            .map(|d| d.min(payload.len()))
-            .unwrap_or(payload.len());
+        // Suricata specification:
+        // - `offset`: start searching at this byte in payload.
+        // - `depth`: search at most this many bytes from `offset` (i.e. window is [start .. start + depth]).
+        let start = self.offset.unwrap_or(0);
+        if start >= payload.len() {
+            return false;
+        }
+
+        let end = match self.depth {
+            Some(d) => start.saturating_add(d).min(payload.len()),
+            None => payload.len(),
+        };
+
+        if start >= end {
+            return false;
+        }
+
         let window = &payload[start..end];
+        if window.len() < needle.len() {
+            return false;
+        }
 
         if self.case_insensitive {
             let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
@@ -2656,5 +2670,32 @@ impl RawPacket {
             rule: rule.into(),
             hostname: info.hostname.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hex_content_offset_depth_no_panic() {
+        let matcher = HexContent {
+            hex: "AA BB".to_string(),
+            case_insensitive: false,
+            offset: Some(12),
+            depth: Some(4),
+        };
+
+        // Short payload (< 12 bytes)
+        assert!(!matcher.matches(&[0u8; 8]));
+        // Payload with 12 bytes exactly (window empty)
+        assert!(!matcher.matches(&[0u8; 12]));
+        // Payload with 16 bytes, does not contain AA BB
+        assert!(!matcher.matches(&[0u8; 16]));
+        // Payload with AA BB at offset 12
+        let mut payload = vec![0u8; 20];
+        payload[12] = 0xAA;
+        payload[13] = 0xBB;
+        assert!(matcher.matches(&payload));
     }
 }
