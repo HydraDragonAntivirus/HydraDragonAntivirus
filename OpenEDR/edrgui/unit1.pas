@@ -331,11 +331,48 @@ end;
 procedure TForm1.OnHipMessage(Sender: TObject; const AKind, AText: string);
 var
   CleanKind, CleanText: string;
+  Parts: TStringList;
+  ReqId, Pid, AppName, ExePath, Target, Verdict, SigStatus, Reason: string;
+  TitleStr, MsgStr: string;
 begin
   CleanKind := Trim(AKind);
   CleanText := Trim(AText);
   if (CleanKind = '') and (CleanText = '') then
     Exit;
+
+  if CleanKind = 'HIPS_ASK' then
+  begin
+    Parts := TStringList.Create;
+    try
+      Parts.Delimiter := '|';
+      Parts.StrictDelimiter := True;
+      Parts.DelimitedText := CleanText;
+
+      ReqId := ''; Pid := '0'; AppName := 'Unknown Application'; ExePath := '';
+      Target := ''; Verdict := 'unknown'; SigStatus := 'unsigned'; Reason := 'Default Deny';
+
+      if Parts.Count > 0 then ReqId := Parts[0];
+      if Parts.Count > 1 then Pid := Parts[1];
+      if Parts.Count > 2 then AppName := Parts[2];
+      if Parts.Count > 3 then ExePath := Parts[3];
+      if Parts.Count > 4 then Target := Parts[4];
+      if Parts.Count > 5 then Verdict := Parts[5];
+      if Parts.Count > 6 then SigStatus := Parts[6];
+      if Parts.Count > 7 then Reason := Parts[7];
+
+      TitleStr := 'Firewall: ' + AppName;
+      MsgStr := 'Process: ' + AppName + ' (PID: ' + Pid + ')' + LineEnding +
+                'Path: ' + ExePath + LineEnding +
+                'Target: ' + Target + LineEnding +
+                'Signature: ' + SigStatus + ' | Verdict: ' + Verdict + LineEnding +
+                'Reason: ' + Reason;
+
+      TAlertForm.ShowInteractivePrompt(TitleStr, MsgStr, ReqId, ExePath);
+    finally
+      Parts.Free;
+    end;
+    Exit;
+  end;
 
   TAlertForm.ShowAlert(CleanKind, CleanText, asInfo, 0);
 end;

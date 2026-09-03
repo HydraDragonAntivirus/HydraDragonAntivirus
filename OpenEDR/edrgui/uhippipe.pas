@@ -32,7 +32,7 @@ const
 type
   THipPipeMessage = procedure(Sender: TObject; const AKind, AText: string) of object;
 
-  { THipPipeConnection - handles a single connected client (one message) }
+  { THipPipeConnection - handles a single connected client }
 
   THipPipeConnection = class(TThread)
   private
@@ -47,7 +47,7 @@ type
     constructor Create(AHandle: THandle; AOnMessage: THipPipeMessage);
   end;
 
-  { THipPipeListener - accepts connections on the HIPS pipe }
+  { THipPipeListener - accepts duplex connections on the HIPS pipe }
 
   THipPipeListener = class(TThread)
   private
@@ -58,10 +58,118 @@ type
     constructor Create(AOnMessage: THipPipeMessage);
   end;
 
+function SendHipDecision(const ARequestId, ADecision, AExePath: string): Boolean;
+
 implementation
 
 uses
   UAlert;
+
+type
+  TPendingPrompt = record
+    RequestId: string;
+    PipeHandle: THandle;
+  end;
+
+var
+  PendingPrompts: array of TPendingPrompt;
+  PendingCS: TRTLCriticalSection;
+
+procedure InitPendingCS;
+begin
+  InitCriticalSection(PendingCS);
+end;
+
+procedure DonePendingCS;
+begin
+  DoneCriticalSection(PendingCS);
+end;
+
+procedure RegisterPendingPrompt(const ARequestId: string; AHandle: THandle);
+var
+  i, n: Integer;
+begin
+  EnterCriticalSection(PendingCS);
+  try
+    n := Length(PendingPrompts);
+    for i := 0 to n - 1 do
+      if PendingPrompts[i].RequestId = ARequestId then
+      begin
+        PendingPrompts[i].PipeHandle := AHandle;
+        Exit;
+      end;
+    SetLength(PendingPrompts, n + 1);
+    PendingPrompts[n].RequestId := ARequestId;
+    PendingPrompts[n].PipeHandle := AHandle;
+  finally
+    LeaveCriticalSection(PendingCS);
+  end;
+end;
+
+function TakePendingPromptHandle(const ARequestId: string): THandle;
+var
+  i, n: Integer;
+begin
+  Result := INVALID_HANDLE_VALUE;
+  EnterCriticalSection(PendingCS);
+  try
+    n := Length(PendingPrompts);
+    for i := 0 to n - 1 do
+      if PendingPrompts[i].RequestId = ARequestId then
+      begin
+        Result := PendingPrompts[i].PipeHandle;
+        // Swap with last
+        PendingPrompts[i] := PendingPrompts[n - 1];
+        SetLength(PendingPrompts, n - 1);
+        Exit;
+      end;
+  finally
+    LeaveCriticalSection(PendingCS);
+  end;
+end;
+
+function SendHipDecision(const ARequestId, ADecision, AExePath: string): Boolean;
+var
+  hPipe: THandle;
+  msg: UTF8String;
+  written: DWORD;
+  RulesFile: string;
+  F: TextFile;
+  RulesJson: string;
+begin
+  Result := False;
+  hPipe := TakePendingPromptHandle(ARequestId);
+  msg := 'HIPS_DECISION:' + ARequestId + '|' + ADecision + #10;
+
+  if (hPipe <> 0) and (hPipe <> INVALID_HANDLE_VALUE) then
+  begin
+    WriteFile(hPipe, msg[1], Length(msg), written, nil);
+    FlushFileBuffers(hPipe);
+    CloseHandle(hPipe);
+    Result := True;
+  end;
+
+  // Persist permanent decisions to C:\ProgramData\edrsvc\firewall_rules.json
+  if (ADecision = 'allow_always') or (ADecision = 'block') then
+  begin
+    RulesFile := 'C:\ProgramData\edrsvc\firewall_rules.json';
+    try
+      ForceDirectories(ExtractFilePath(RulesFile));
+      // Append entry or write timestamped rule
+      AssignFile(F, RulesFile);
+      if FileExists(RulesFile) then
+        Append(F)
+      else
+        Rewrite(F);
+      WriteLn(F, Format('{"action":"%s","path":"%s","time":"%s"}',
+        [ADecision, StringReplace(AExePath, '\', '\\', [rfReplaceAll]),
+         DateTimeToStr(Now)]));
+      CloseFile(F);
+    except
+      // Ignore write errors if service currently locks it
+    end;
+  end;
+end;
 
 { THipPipeConnection }
 
@@ -85,6 +193,9 @@ var
   nRead, total: DWORD;
   data: string;
   i: Integer;
+  IsAskPrompt: Boolean;
+  ReqId: string;
+  parts: TStringList;
 begin
   total := 0;
   data := '';
@@ -94,12 +205,12 @@ begin
     SetLength(data, Length(data) + Integer(nRead));
     Move(buf[0], data[Length(data) - Integer(nRead) + 1], nRead);
     Inc(total, nRead);
-    // A message is one line: break only when newline (#10) is received
     if Pos(#10, data) > 0 then
       Break;
   until False;
 
   data := Trim(data);
+  IsAskPrompt := False;
   if data <> '' then
   begin
     i := Pos(':', data);
@@ -114,11 +225,25 @@ begin
       FText := data;
     end;
 
+    if FKind = 'HIPS_ASK' then
+    begin
+      IsAskPrompt := True;
+      // Extract RequestId (first field before '|')
+      i := Pos('|', FText);
+      if i > 0 then
+        ReqId := Copy(FText, 1, i - 1)
+      else
+        ReqId := FText;
+      RegisterPendingPrompt(ReqId, FHandle);
+    end;
+
     if (Trim(FKind) <> '') and (Trim(FText) <> '') then
       Synchronize(@DoNotify);
   end;
 
-  CloseHandle(FHandle);
+  // If this was an ask prompt, keep handle open until SendHipDecision responds!
+  if not IsAskPrompt then
+    CloseHandle(FHandle);
 end;
 
 { THipPipeListener }
@@ -138,7 +263,7 @@ begin
   begin
     hPipe := CreateNamedPipeA(
       PAnsiChar(HIPS_PIPE_NAME),
-      PIPE_ACCESS_INBOUND,
+      PIPE_ACCESS_DUPLEX,
       PIPE_TYPE_MESSAGE or PIPE_READMODE_MESSAGE or PIPE_WAIT,
       PIPE_UNLIMITED_INSTANCES,
       4096,
@@ -157,9 +282,14 @@ begin
     else
       CloseHandle(hPipe);
 
-    // Small pause so the loop yields CPU while waiting for clients.
     Sleep(20);
   end;
 end;
+
+initialization
+  InitPendingCS;
+
+finalization
+  DonePendingCS;
 
 end.

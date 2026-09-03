@@ -25,6 +25,9 @@ type
     Msg: string;
     Severity: TAlertSeverity;
     AutoCloseMs: Integer;
+    IsPrompt: Boolean;
+    RequestId: string;
+    ExePath: string;
   end;
 
   TAlertForm = class(TForm)
@@ -49,6 +52,10 @@ type
   BtnPrev: TButton;
   BtnNext: TButton;
   LblCount: TLabel;
+  BtnAllowAlways: TButton;
+  BtnAllowOnce: TButton;
+  BtnBlock: TButton;
+  BtnQuarantine: TButton;
     FSeverity: TAlertSeverity;
     FAutoCloseMs: Integer;
     procedure ApplySeverityStyle;
@@ -58,14 +65,22 @@ type
     procedure UpdateNavigation;
     procedure BtnPrevClick(Sender: TObject);
     procedure BtnNextClick(Sender: TObject);
+    procedure BtnAllowAlwaysClick(Sender: TObject);
+    procedure BtnAllowOnceClick(Sender: TObject);
+    procedure BtnBlockClick(Sender: TObject);
+    procedure BtnQuarantineClick(Sender: TObject);
   public
     class procedure ShowAlert(const ATitle, AMsg: string;
       ASeverity: TAlertSeverity = asInfo; AAutoCloseMs: Integer = 6000);
+    class procedure ShowInteractivePrompt(const ATitle, AMsg, ARequestId, AExePath: string);
     class procedure LoadHistory;
     class procedure SaveHistory;
   end;
 
 implementation
+
+uses
+  UHipPipe;
 
 {$R *.lfm}
 
@@ -232,9 +247,49 @@ begin
   LblCount.ParentColor := False;
   LblCount.ParentFont := False;
 
-  // NOTE: do NOT reset FHistory/FCurrentIndex here; class vars are already
-  // initialized in the initialization section and ShowAlert may have queued
-  // an item before this form was first created.
+  BtnAllowAlways := TButton.Create(Self);
+  BtnAllowAlways.Parent := Self;
+  BtnAllowAlways.Caption := 'Allow Always';
+  BtnAllowAlways.Width := 95;
+  BtnAllowAlways.Height := 28;
+  BtnAllowAlways.Left := 10;
+  BtnAllowAlways.Top := ClientHeight - BtnAllowAlways.Height - 8;
+  BtnAllowAlways.Anchors := [akLeft, akBottom];
+  BtnAllowAlways.Visible := False;
+  BtnAllowAlways.OnClick := @BtnAllowAlwaysClick;
+
+  BtnAllowOnce := TButton.Create(Self);
+  BtnAllowOnce.Parent := Self;
+  BtnAllowOnce.Caption := 'Allow Once';
+  BtnAllowOnce.Width := 90;
+  BtnAllowOnce.Height := 28;
+  BtnAllowOnce.Left := BtnAllowAlways.Left + BtnAllowAlways.Width + 6;
+  BtnAllowOnce.Top := ClientHeight - BtnAllowOnce.Height - 8;
+  BtnAllowOnce.Anchors := [akLeft, akBottom];
+  BtnAllowOnce.Visible := False;
+  BtnAllowOnce.OnClick := @BtnAllowOnceClick;
+
+  BtnBlock := TButton.Create(Self);
+  BtnBlock.Parent := Self;
+  BtnBlock.Caption := 'Block';
+  BtnBlock.Width := 85;
+  BtnBlock.Height := 28;
+  BtnBlock.Left := BtnAllowOnce.Left + BtnAllowOnce.Width + 6;
+  BtnBlock.Top := ClientHeight - BtnBlock.Height - 8;
+  BtnBlock.Anchors := [akLeft, akBottom];
+  BtnBlock.Visible := False;
+  BtnBlock.OnClick := @BtnBlockClick;
+
+  BtnQuarantine := TButton.Create(Self);
+  BtnQuarantine.Parent := Self;
+  BtnQuarantine.Caption := 'Quarantine';
+  BtnQuarantine.Width := 105;
+  BtnQuarantine.Height := 28;
+  BtnQuarantine.Left := BtnBlock.Left + BtnBlock.Width + 6;
+  BtnQuarantine.Top := ClientHeight - BtnQuarantine.Height - 8;
+  BtnQuarantine.Anchors := [akLeft, akBottom];
+  BtnQuarantine.Visible := False;
+  BtnQuarantine.OnClick := @BtnQuarantineClick;
 end;
 
 procedure TAlertForm.FormDestroy(Sender: TObject);
@@ -303,7 +358,100 @@ begin
   ApplySeverityStyle;
   UpdateNavigation;
 
-  TimerAutoClose.Enabled := False;
+  if Item.IsPrompt then
+  begin
+    Width := 460;
+    Height := 250;
+    BtnAllowAlways.Visible := True;
+    BtnAllowOnce.Visible := True;
+    BtnBlock.Visible := True;
+    BtnQuarantine.Visible := True;
+    BtnPrev.Visible := False;
+    BtnNext.Visible := False;
+    LblCount.Visible := False;
+    TimerAutoClose.Enabled := False;
+  end
+  else
+  begin
+    Width := 450;
+    Height := 200;
+    BtnAllowAlways.Visible := False;
+    BtnAllowOnce.Visible := False;
+    BtnBlock.Visible := False;
+    BtnQuarantine.Visible := False;
+    BtnPrev.Visible := True;
+    BtnNext.Visible := True;
+    LblCount.Visible := True;
+    TimerAutoClose.Enabled := False;
+  end;
+  PositionAtCorner;
+end;
+
+class procedure TAlertForm.ShowInteractivePrompt(const ATitle, AMsg, ARequestId, AExePath: string);
+var
+  Item: TAlertItem;
+  NewIndex: Integer;
+begin
+  Item.Title := Trim(ATitle);
+  Item.Msg := Trim(AMsg);
+  Item.Severity := asCritical;
+  Item.AutoCloseMs := 0;
+  Item.IsPrompt := True;
+  Item.RequestId := ARequestId;
+  Item.ExePath := AExePath;
+
+  if FInstance = nil then
+    FInstance := TAlertForm.Create(Application);
+
+  NewIndex := Length(FHistory);
+  SetLength(FHistory, NewIndex + 1);
+  FHistory[NewIndex] := Item;
+  FCurrentIndex := NewIndex;
+
+  FInstance.ShowCurrentAlert;
+  FInstance.PositionAtCorner;
+  FInstance.AlphaBlend := True;
+  FInstance.AlphaBlendValue := 255;
+  FInstance.Show;
+  FInstance.BringToFront;
+  SetWindowPos(FInstance.Handle, HWND_TOPMOST, 0, 0, 0, 0,
+    SWP_NOMOVE or SWP_NOSIZE or SWP_SHOWWINDOW);
+end;
+
+procedure TAlertForm.BtnAllowAlwaysClick(Sender: TObject);
+begin
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+  begin
+    SendHipDecision(FHistory[FCurrentIndex].RequestId, 'allow_always', FHistory[FCurrentIndex].ExePath);
+    CloseAlert;
+  end;
+end;
+
+procedure TAlertForm.BtnAllowOnceClick(Sender: TObject);
+begin
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+  begin
+    SendHipDecision(FHistory[FCurrentIndex].RequestId, 'allow_once', FHistory[FCurrentIndex].ExePath);
+    CloseAlert;
+  end;
+end;
+
+procedure TAlertForm.BtnBlockClick(Sender: TObject);
+begin
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+  begin
+    SendHipDecision(FHistory[FCurrentIndex].RequestId, 'block', FHistory[FCurrentIndex].ExePath);
+    CloseAlert;
+  end;
+end;
+
+procedure TAlertForm.BtnQuarantineClick(Sender: TObject);
+begin
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+  begin
+    SendHipDecision(FHistory[FCurrentIndex].RequestId, 'quarantine', FHistory[FCurrentIndex].ExePath);
+    CloseAlert;
+  end;
 end;
 
 procedure TAlertForm.UpdateNavigation;

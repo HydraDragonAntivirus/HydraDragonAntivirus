@@ -1500,7 +1500,8 @@ impl FirewallEngine {
 
         let network_whitelist_index = Arc::new(RwLock::new(CidrIndex::from_cidrs(&[])));
         let web_filter = Arc::new(super::web_filter::WebFilter::load_default());
-        let app_manager = Arc::new(AppManager::new(HashMap::new()));
+        let initial_decisions = Self::load_persisted_decisions();
+        let app_manager = Arc::new(AppManager::new(initial_decisions));
         let settings = Arc::new(RwLock::new(settings_data));
         let sdk = Arc::new(RwLock::new(super::sdk::SdkRegistry::with_defaults()));
 
@@ -1545,7 +1546,43 @@ impl FirewallEngine {
         }
     }
 
+    pub fn load_persisted_decisions() -> HashMap<String, AppDecision> {
+        let mut map = HashMap::new();
+        let rules_path = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_rules.json");
+        if let Ok(content) = fs::read_to_string(&rules_path) {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let (Some(action), Some(path)) = (
+                        v.get("action").and_then(|s| s.as_str()),
+                        v.get("path").and_then(|s| s.as_str()),
+                    ) {
+                        let dec = match action {
+                            "allow_always" | "allow" => AppDecision::Allow,
+                            "allow_once" => AppDecision::AllowOnce,
+                            "block" | "quarantine" => AppDecision::Block,
+                            _ => AppDecision::Allow,
+                        };
+                        map.insert(path.to_lowercase(), dec);
+                    }
+                }
+            }
+        }
+        map
+    }
+
     pub fn load_settings() -> Option<FirewallSettings> {
+        let pdata = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_settings.json");
+        if pdata.exists() {
+            if let Ok(content) = fs::read_to_string(&pdata) {
+                if let Ok(s) = serde_json::from_str(&content) {
+                    return Some(s);
+                }
+            }
+        }
         let path = PathBuf::from("json/settings.json");
         fs::read_to_string(&path)
             .ok()
@@ -3432,6 +3469,74 @@ impl FirewallEngine {
             }
         }
 
+        // --- 11. DEFAULT DENY & INTERACTIVE USER PROMPTING ---
+        // If traffic was not blocked by an explicit rule, check digital signature and cloud verdict:
+        if should_forward && outbound && pid != 0 && pid != std::process::id() {
+            let app_path = app_info.path.clone();
+            let app_name = app_info.name.clone();
+            let app_path_lower = app_path.to_lowercase();
+
+            let existing_decision = {
+                let decisions = am.decisions.read().unwrap();
+                decisions.get(&app_path_lower).cloned()
+            };
+
+            match existing_decision {
+                Some(AppDecision::Allow) | Some(AppDecision::AllowOnce) => {
+                    // Allowed by user decision
+                }
+                Some(AppDecision::Block) => {
+                    should_forward = false;
+                    reason = Some(format!("Blocked by user decision for {}", app_name));
+                }
+                Some(AppDecision::Pending) => {
+                    // Awaiting user decision: drop silently to prevent outbound traffic while prompt is displayed
+                    should_forward = false;
+                    reason = Some(format!("Default Deny: Awaiting user decision for {}", app_name));
+                }
+                None => {
+                    // Evaluate Default Deny criteria:
+                    // 1. Digital signature verification
+                    let sig_info = crate::signature_verification::verify_signature(Path::new(&app_path));
+                    let is_sig_untrusted = sig_info.status != crate::signature_verification::SignatureStatus::Trusted;
+
+                    // 2. OpenEDR cloud / FLS verdict verification
+                    let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
+                    let is_verdict_safe = match verdict_raw.as_deref() {
+                        Some("1") | Some("0x1") | Some("safe") => true,
+                        _ => false,
+                    };
+
+                    // Default Deny trigger: Unknown/untrusted signature AND non-safe verdict
+                    if is_sig_untrusted && !is_verdict_safe {
+                        should_forward = false;
+                        let target_str = format!("{}:{}", info.dst_ip, info.dst_port);
+                        let sig_label = sig_info.status.as_str().to_string();
+                        let verdict_label = verdict_raw.unwrap_or_else(|| "unknown".to_string());
+                        let ask_reason = "Default Deny: Unsigned/untrusted binary with non-safe cloud verdict".to_string();
+
+                        reason = Some(ask_reason.clone());
+
+                        // Cache as Pending so we only send one prompt for this executable
+                        am.resolve_decision(&app_path_lower, AppDecision::Pending);
+
+                        let req_id = format!("ask_{}_{}", pid, Self::now_ts());
+                        Self::send_hips_ask_prompt(
+                            req_id,
+                            pid,
+                            app_name,
+                            app_path,
+                            target_str,
+                            verdict_label,
+                            sig_label,
+                            ask_reason,
+                            Arc::clone(am),
+                        );
+                    }
+                }
+            }
+        }
+
         if should_forward {
             stats.packets_allowed.fetch_add(1, Ordering::Relaxed);
 
@@ -3689,6 +3794,124 @@ impl FirewallEngine {
             }
             let _ = fs::remove_file(src);
         }
+    }
+
+    pub fn send_hips_ask_prompt(
+        request_id: String,
+        pid: u32,
+        app_name: String,
+        exe_path: String,
+        target: String,
+        verdict: String,
+        sig_status: String,
+        reason: String,
+        am: Arc<AppManager>,
+    ) {
+        std::thread::Builder::new()
+            .name(format!("hips_ask_{}", pid))
+            .spawn(move || {
+                use windows::Win32::Foundation::{CloseHandle, HANDLE};
+                use windows::Win32::Storage::FileSystem::{
+                    CreateFileW, FlushFileBuffers, ReadFile, WriteFile, FILE_ATTRIBUTE_NORMAL,
+                    FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING,
+                };
+                use windows::Win32::System::Pipes::WaitNamedPipeW;
+                use windows::core::PCWSTR;
+
+                const PIPE: &str = r"\\.\pipe\HydraHipEvent";
+                let mut pipe_wide: Vec<u16> = PIPE.encode_utf16().collect();
+                pipe_wide.push(0);
+
+                let message = format!(
+                    "HIPS_ASK:{}|{}|{}|{}|{}|{}|{}|{}\n",
+                    request_id, pid, app_name, exe_path, target, verdict, sig_status, reason
+                );
+
+                let wait_ok = unsafe { WaitNamedPipeW(PCWSTR(pipe_wide.as_ptr()), 1000) };
+                if !wait_ok.as_bool() {
+                    return;
+                }
+
+                let handle = match unsafe {
+                    CreateFileW(
+                        PCWSTR(pipe_wide.as_ptr()),
+                        (FILE_GENERIC_READ | FILE_GENERIC_WRITE).0,
+                        FILE_SHARE_NONE,
+                        None,
+                        OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL,
+                        HANDLE::default(),
+                    )
+                } {
+                    Ok(h) if !h.is_invalid() => h,
+                    _ => return,
+                };
+
+                let mut written = 0u32;
+                let msg_bytes = message.as_bytes();
+                let _ = unsafe {
+                    WriteFile(
+                        handle,
+                        Some(msg_bytes),
+                        Some(&mut written as *mut u32),
+                        None,
+                    )
+                };
+                let _ = unsafe { FlushFileBuffers(handle) };
+
+                let mut read_buf = [0u8; 1024];
+                let mut bytes_read = 0u32;
+                let read_ok = unsafe {
+                    ReadFile(
+                        handle,
+                        Some(read_buf.as_mut_ptr() as *mut _),
+                        read_buf.len() as u32,
+                        Some(&mut bytes_read as *mut u32),
+                        None,
+                    )
+                };
+                let _ = unsafe { CloseHandle(handle) };
+
+                if read_ok.as_bool() && bytes_read > 0 {
+                    let response = String::from_utf8_lossy(&read_buf[..bytes_read as usize]);
+                    if let Some(rest) = response.trim().strip_prefix("HIPS_DECISION:") {
+                        let mut parts = rest.splitn(2, '|');
+                        let _rid = parts.next().unwrap_or("");
+                        let decision = parts.next().unwrap_or("").trim();
+                        let path_lower = exe_path.to_lowercase();
+                        match decision {
+                            "allow_always" => {
+                                am.resolve_decision(&path_lower, AppDecision::Allow);
+                                let rules_file = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_rules.json");
+                                if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(rules_file) {
+                                    use std::io::Write;
+                                    let _ = writeln!(file, r#"{{"action":"allow_always","path":"{}","time":"{}"}}"#,
+                                        path_lower.replace('\\', "\\\\"), Self::now_ts());
+                                }
+                            }
+                            "allow_once" => {
+                                am.resolve_decision(&path_lower, AppDecision::AllowOnce);
+                            }
+                            "block" => {
+                                am.resolve_decision(&path_lower, AppDecision::Block);
+                                let rules_file = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_rules.json");
+                                if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(rules_file) {
+                                    use std::io::Write;
+                                    let _ = writeln!(file, r#"{{"action":"block","path":"{}","time":"{}"}}"#,
+                                        path_lower.replace('\\', "\\\\"), Self::now_ts());
+                                }
+                            }
+                            "quarantine" => {
+                                am.resolve_decision(&path_lower, AppDecision::Block);
+                                Self::terminate_process(pid);
+                                Self::quarantine_file(&exe_path, "Quarantined by User via EDRGUI");
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            })
+            .expect("failed to spawn hips_ask thread");
     }
 
     fn extract_payload_text(bytes: &[u8]) -> Option<String> {
