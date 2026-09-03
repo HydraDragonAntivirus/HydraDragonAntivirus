@@ -368,21 +368,23 @@ impl DefaultClient {
 
         if is_tls {
             #[cfg(feature = "native-tls-client")]
-            let tls = self
-                .tls_connector()
-                .connect(&host, tcp)
-                .await
-                .map_err(|err| Error::TlsConnectError(Box::new(uri.clone()), err))?;
+            let tls_fut = self.tls_connector().connect(&host, tcp);
             #[cfg(feature = "rustls-client")]
-            let tls = self
-                .tls_connector()
-                .connect(
-                    host.to_string()
-                        .try_into()
-                        .map_err(|_| Error::InvalidHost(Box::new(uri.clone())))?,
-                    tcp,
-                )
+            let server_name = host
+                .to_string()
+                .try_into()
+                .map_err(|_| Error::InvalidHost(Box::new(uri.clone())))?;
+            #[cfg(feature = "rustls-client")]
+            let tls_fut = self.tls_connector().connect(server_name, tcp);
+
+            let tls = tokio::time::timeout(std::time::Duration::from_secs(8), tls_fut)
                 .await
+                .map_err(|_| {
+                    Error::TlsConnectError(
+                        Box::new(uri.clone()),
+                        std::io::Error::new(std::io::ErrorKind::TimedOut, "TLS handshake timed out after 8s"),
+                    )
+                })?
                 .map_err(|err| Error::TlsConnectError(Box::new(uri.clone()), err))?;
 
             #[cfg(feature = "native-tls-client")]
@@ -397,9 +399,16 @@ impl DefaultClient {
             let is_h2 = tls.get_ref().1.alpn_protocol() == Some(b"h2");
 
             if is_h2 {
-                let (sender, conn) = client::conn::http2::Builder::new(TokioExecutor::new())
-                    .handshake(TokioIo::new(tls))
+                let handshake_fut = client::conn::http2::Builder::new(TokioExecutor::new())
+                    .handshake(TokioIo::new(tls));
+                let (sender, conn) = tokio::time::timeout(std::time::Duration::from_secs(5), handshake_fut)
                     .await
+                    .map_err(|_| {
+                        Error::IoError(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "HTTP/2 handshake timed out after 5s",
+                        ))
+                    })?
                     .map_err(|err| Error::ConnectError(Box::new(uri.clone()), err))?;
 
                 tokio::spawn(conn);
@@ -414,11 +423,18 @@ impl DefaultClient {
 
                 Ok(SendRequest::Http2(sender))
             } else {
-                let (sender, conn) = client::conn::http1::Builder::new()
+                let handshake_fut = client::conn::http1::Builder::new()
                     .preserve_header_case(true)
                     .title_case_headers(true)
-                    .handshake(TokioIo::new(tls))
+                    .handshake(TokioIo::new(tls));
+                let (sender, conn) = tokio::time::timeout(std::time::Duration::from_secs(5), handshake_fut)
                     .await
+                    .map_err(|_| {
+                        Error::IoError(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "HTTP/1 handshake timed out after 5s",
+                        ))
+                    })?
                     .map_err(|err| Error::ConnectError(Box::new(uri.clone()), err))?;
 
                 tokio::spawn(conn.with_upgrades());
@@ -426,11 +442,18 @@ impl DefaultClient {
                 Ok(SendRequest::Http1(sender))
             }
         } else {
-            let (sender, conn) = client::conn::http1::Builder::new()
+            let handshake_fut = client::conn::http1::Builder::new()
                 .preserve_header_case(true)
                 .title_case_headers(true)
-                .handshake(TokioIo::new(tcp))
+                .handshake(TokioIo::new(tcp));
+            let (sender, conn) = tokio::time::timeout(std::time::Duration::from_secs(5), handshake_fut)
                 .await
+                .map_err(|_| {
+                    Error::IoError(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "HTTP/1 handshake timed out after 5s",
+                    ))
+                })?
                 .map_err(|err| Error::ConnectError(Box::new(uri.clone()), err))?;
             tokio::spawn(conn.with_upgrades());
             Ok(SendRequest::Http1(sender))

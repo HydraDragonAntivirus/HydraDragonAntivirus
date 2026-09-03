@@ -739,10 +739,11 @@ async fn handle_proxy_request(
     };
     let req = http_mitm_proxy::hyper::Request::from_parts(req_parts, req_body_obj);
 
-    // ── Forward upstream ────────────────────────────────────────────────────
-    let (res, _) = match client.send_request(req).await {
-        Ok(response) => response,
-        Err(e) => {
+    // ── Forward upstream with timeout ──────────────────────────────────────
+    let upstream_timeout = std::time::Duration::from_secs(request_timeout.max(5));
+    let (res, _) = match tokio::time::timeout(upstream_timeout, client.send_request(req)).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(e)) => {
             let err_str = e.to_string();
             if err_str.contains("10054")
                 || err_str.contains("certificate")
@@ -754,6 +755,14 @@ async fn handle_proxy_request(
                 mark_host_as_pinning_fallback(&host);
             }
             return Err(format!("Upstream failed: {}", e));
+        }
+        Err(_) => {
+            mark_host_as_pinning_fallback(&host);
+            return Err(format!(
+                "Upstream connect/handshake timed out after {}s for host '{}'",
+                upstream_timeout.as_secs(),
+                host
+            ));
         }
     };
 

@@ -115,19 +115,29 @@ pub async fn connect_registered_tcp(host: &str, port: u16) -> std::io::Result<Tc
             port
         });
 
-        match socket.connect(addr).await {
-            Ok(stream) => {
+        let connect_fut = socket.connect(addr);
+        match tokio::time::timeout(std::time::Duration::from_secs(5), connect_fut).await {
+            Ok(Ok(stream)) => {
                 if let Ok(local_addr) = stream.local_addr() {
                     let port = local_addr.port();
                     register_upstream_local_port(port);
                 }
                 return Ok(stream);
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 if let Some(port) = registered_port {
                     unregister_upstream_local_port(port);
                 }
                 last_error = Some(err);
+            }
+            Err(_) => {
+                if let Some(port) = registered_port {
+                    unregister_upstream_local_port(port);
+                }
+                last_error = Some(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("connection to {} timed out after 5s", addr),
+                ));
             }
         }
     }

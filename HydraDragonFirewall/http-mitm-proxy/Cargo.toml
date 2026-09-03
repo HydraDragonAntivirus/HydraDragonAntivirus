@@ -30,6 +30,7 @@ tokio = { version = "1.44.1", features = [
     "parking_lot",
     "io-util",
     "net",
+    "time",
 ] }
 hyper = { version = "1.0.1", features = ["http1", "http2", "server", "client"] }
 futures = "0.3.29"
