@@ -649,6 +649,9 @@ void SystemMonitorController::startThreads()
 
 	m_fStopMbrFilterPipe = false;
 	m_mbrFilterPipeThread = std::thread(&SystemMonitorController::mbrFilterPipeServerLoop, this);
+
+	m_fStopHipsDecisionPipe = false;
+	m_hipsDecisionPipeThread = std::thread(&SystemMonitorController::hipsDecisionPipeServerLoop, this);
 }
 
 //
@@ -675,6 +678,14 @@ void SystemMonitorController::stopThreads()
 	}
 	if (m_mbrFilterPipeThread.joinable())
 		m_mbrFilterPipeThread.join();
+
+	m_fStopHipsDecisionPipe = true;
+	auto hHipsWake = ::CreateFileW(L"\\\\.\\pipe\\HydraHipDecision", GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+	if (hHipsWake != INVALID_HANDLE_VALUE) {
+		::CloseHandle(hHipsWake);
+	}
+	if (m_hipsDecisionPipeThread.joinable())
+		m_hipsDecisionPipeThread.join();
 }
 
 void SystemMonitorController::mbrFilterPipeServerLoop()
@@ -707,7 +718,23 @@ void SystemMonitorController::mbrFilterPipeServerLoop()
 			if (::ReadFile(hPipe, buffer.data(), (DWORD)(buffer.size() * sizeof(wchar_t)), &dwRead, NULL) && dwRead > 0)
 			{
 				std::wstring alertMsg(buffer.data(), dwRead / sizeof(wchar_t));
-				LOGLVL(Critical, "[MBR ALERT] Sector 0 write attempt: " << string::convertWCharToUtf8(alertMsg));
+				std::string sAlertUtf8 = string::convertWCharToUtf8(alertMsg);
+				LOGLVL(Critical, "[MBR ALERT] Sector 0 write attempt: " << sAlertUtf8);
+
+				// Forward MBR Alert to Pascal GUI
+				try
+				{
+					HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+						GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+					if (hGuiPipe != INVALID_HANDLE_VALUE)
+					{
+						std::string pipeMsg = "BEHAVIOR_EVENT:PhysicalDrive0|MBR_SECTOR0_RAW_WRITE [Alert: " + sAlertUtf8 + "]\n";
+						DWORD written = 0;
+						::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+						::CloseHandle(hGuiPipe);
+					}
+				}
+				catch (...) {}
 			}
 		}
 
@@ -715,6 +742,104 @@ void SystemMonitorController::mbrFilterPipeServerLoop()
 		::CloseHandle(hPipe);
 	}
 	LOGINF("[MBR] MBRFilter alert pipe listener stopped");
+}
+
+void SystemMonitorController::killProcessViaDriver(uint32_t pid)
+{
+	if (pid == 0 || pid == 4)
+		return;
+
+	// edrdrv.sys COM_MESSAGE protocol for MESSAGE_KILL_ONLY_GID (6)
+	// Byte layout: ULONG type (6), ULONG pid (0), ULONGLONG gid (pid | 0x8000000000000000)
+	#pragma pack(push, 1)
+	struct ComKillMessage {
+		uint32_t type;
+		uint32_t pid;
+		uint64_t gid;
+		wchar_t path[520];
+		wchar_t quarantine_path[520];
+	} msg = {};
+	#pragma pack(pop)
+
+	msg.type = 6; // MESSAGE_KILL_ONLY_GID
+	msg.pid = 0;
+	msg.gid = (static_cast<uint64_t>(pid)) | 0x8000000000000000ULL;
+
+	LOGLVL(Critical, "[HIPS KILL] Executing Ring-0 kernel driver kill for PID: " << pid);
+
+	HANDLE hDevice = ::CreateFileW(
+		L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}",
+		GENERIC_READ | GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		nullptr,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		nullptr
+	);
+
+	if (hDevice != INVALID_HANDLE_VALUE)
+	{
+		uint32_t outputRes = 0;
+		DWORD bytesReturned = 0;
+		// IOCTL_OWLY_COMPAT_MESSAGE = 0x222484
+		::DeviceIoControl(hDevice, 0x222484, &msg, sizeof(msg), &outputRes, sizeof(outputRes), &bytesReturned, nullptr);
+		::CloseHandle(hDevice);
+	}
+}
+
+void SystemMonitorController::hipsDecisionPipeServerLoop()
+{
+	LOGINF("[HIPS] Starting HIPS Decision pipe listener on \\\\.\\pipe\\HydraHipDecision");
+	const LPCWSTR pipeName = L"\\\\.\\pipe\\HydraHipDecision";
+
+	while (!m_fStopHipsDecisionPipe)
+	{
+		HANDLE hPipe = ::CreateNamedPipeW(
+			pipeName,
+			PIPE_ACCESS_INBOUND,
+			PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+			PIPE_UNLIMITED_INSTANCES,
+			65536, 65536,
+			0, NULL
+		);
+
+		if (hPipe == INVALID_HANDLE_VALUE)
+		{
+			::Sleep(500);
+			continue;
+		}
+
+		BOOL bConnected = ::ConnectNamedPipe(hPipe, NULL) ? TRUE : (::GetLastError() == ERROR_PIPE_CONNECTED);
+		if (bConnected && !m_fStopHipsDecisionPipe)
+		{
+			std::vector<char> buffer(4096, 0);
+			DWORD dwRead = 0;
+			if (::ReadFile(hPipe, buffer.data(), (DWORD)(buffer.size() - 1), &dwRead, NULL) && dwRead > 0)
+			{
+				std::string sCmd(buffer.data(), dwRead);
+				// Format: HIPS_KILL:<PID>|<DECISION>|<EXE_PATH>
+				// Example: HIPS_KILL:1234|block|C:\malware.exe
+				if (sCmd.rfind("HIPS_KILL:", 0) == 0)
+				{
+					std::string sPayload = sCmd.substr(10);
+					size_t sep1 = sPayload.find('|');
+					if (sep1 != std::string::npos)
+					{
+						std::string sPidStr = sPayload.substr(0, sep1);
+						uint32_t targetPid = static_cast<uint32_t>(std::strtoul(sPidStr.c_str(), nullptr, 10));
+						if (targetPid != 0)
+						{
+							killProcessViaDriver(targetPid);
+						}
+					}
+				}
+			}
+		}
+
+		::DisconnectNamedPipe(hPipe);
+		::CloseHandle(hPipe);
+	}
+	LOGINF("[HIPS] HIPS Decision pipe listener stopped");
 }
 
 void SystemMonitorController::sanctumPipeServerLoop()
@@ -768,6 +893,36 @@ void SystemMonitorController::sanctumPipeServerLoop()
 						auto vEvent = variant::deserializeFromJson(sLine);
 						if (m_pReceiver)
 							m_pReceiver->put(vEvent);
+
+						// Also broadcast Rust/Sanctum events directly to Pascal GUI
+						try
+						{
+							std::string sSrcPath;
+							if (auto optP = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
+								sSrcPath = std::string(optP.value());
+							else if (auto optP2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
+								sSrcPath = std::string(optP2.value());
+							else if (auto optP3 = variant::getByPathSafe(vEvent, "process.path"))
+								sSrcPath = std::string(optP3.value());
+
+							std::string sEvtType = vEvent.get("type", std::string());
+							if (sEvtType.empty()) sEvtType = vEvent.get("eventType", std::string());
+							if (sEvtType.empty()) sEvtType = "SANCTUM_TELEMETRY";
+
+							if (!sSrcPath.empty())
+							{
+								HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+									GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+								if (hGuiPipe != INVALID_HANDLE_VALUE)
+								{
+									std::string pipeMsg = "BEHAVIOR_EVENT:" + sSrcPath + "|" + sEvtType + " [Sanctum/Rust]\n";
+									DWORD written = 0;
+									::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+									::CloseHandle(hGuiPipe);
+								}
+							}
+						}
+						catch (...) {}
 					}
 					catch (...)
 					{
@@ -975,6 +1130,35 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 		{
 			LOGWRN(FMT("System monitor receiver queue limit exceeded: " << e.what()));
 		}
+
+		// Broadcast ALL raw events (process, memory, threads, file, registry, hooks) to Pascal GUI
+		try
+		{
+			std::string sSrcPath;
+			if (auto optP = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
+				sSrcPath = std::string(optP.value());
+			else if (auto optP2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
+				sSrcPath = std::string(optP2.value());
+			else if (auto optP3 = variant::getByPathSafe(vEvent, "process.path"))
+				sSrcPath = std::string(optP3.value());
+
+			std::string sEvtType = vEvent.get("type", std::string());
+			if (sEvtType.empty()) sEvtType = vEvent.get("eventType", std::string());
+
+			if (!sSrcPath.empty() && !sEvtType.empty())
+			{
+				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+				if (hPipe != INVALID_HANDLE_VALUE)
+				{
+					std::string pipeMsg = "BEHAVIOR_EVENT:" + sSrcPath + "|" + sEvtType + "\n";
+					DWORD written = 0;
+					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+					::CloseHandle(hPipe);
+				}
+			}
+		}
+		catch (...) {}
 #ifdef ENABLE_EVENT_TIMINGS
 		auto t2 = steady_clock::now();
 		milliseconds lbvsTime(duration_cast<milliseconds>(t1 - t0));

@@ -415,28 +415,24 @@ begin
       end;
 
       TitleStr := 'Firewall / HIPS: ' + AppName;
-      MsgStr := '=== PROCESS SUMMARY ===' + LineEnding +
+      MsgStr := '=== 1. PROCESS SUMMARY ===' + LineEnding +
                 'Application: ' + AppName + ' (PID: ' + Pid + ')' + LineEnding +
-                'Executable: ' + ExePath + LineEnding +
-                'Target Destination: ' + Target + LineEnding +
-                'Digital Signature: ' + SigStatus + ' | Cloud Verdict: ' + Verdict + LineEnding +
-                'Trigger Reason: ' + Reason + LineEnding + LineEnding;
+                'Binary Path: ' + ExePath + LineEnding +
+                'Network Target: ' + Target + LineEnding +
+                'Interception Trigger: ' + Reason + LineEnding + LineEnding +
+                '=== 2. STATIC PE ML & SIGNATURE STATUS ===' + LineEnding +
+                'Digital Signature: ' + SigStatus + LineEnding +
+                'Cloud & Static ML Verdict: ' + Verdict + LineEnding;
 
-      // ML Prediction & Risk Assessment Section
-      MsgStr := MsgStr + '=== MACHINE LEARNING & RISK EVALUATION ===' + LineEnding;
-      if (FMLPredictions <> nil) and (ExePath <> '') then
-      begin
-        sKey := LowerCase(ExePath);
-        idx := FMLPredictions.IndexOf(sKey);
-        if idx <> -1 then
-          MsgStr := MsgStr + FMLPredictions.ValueFromIndex[idx] + LineEnding + LineEnding
-        else
-          MsgStr := MsgStr + 'ML Verdict: Baseline Dynamic Scan Active (Score: 0.00 / Clean)' + LineEnding + LineEnding;
-      end
+      // Extract static trust level & publisher
+      if (Pos('trusted', LowerCase(SigStatus)) > 0) or (Pos('valid', LowerCase(SigStatus)) > 0) then
+        MsgStr := MsgStr + 'Static Assessment: Valid Trusted Certificate' + LineEnding + LineEnding
+      else if Pos('unsigned', LowerCase(SigStatus)) > 0 then
+        MsgStr := MsgStr + 'Static Assessment: UNTRUSTED / UNSIGNED BINARY (Zero Trust Alert)' + LineEnding + LineEnding
       else
-        MsgStr := MsgStr + 'ML Verdict: Dynamic Scoring in Progress' + LineEnding + LineEnding;
+        MsgStr := MsgStr + 'Static Assessment: ' + SigStatus + LineEnding + LineEnding;
 
-      MsgStr := MsgStr + '=== RECORDED BEHAVIOR HISTORY ===';
+      MsgStr := MsgStr + '=== 3. RECORDED BEHAVIOR & API TIMELINE ===';
 
       if (FBehaviorLogs <> nil) and (ExePath <> '') then
       begin

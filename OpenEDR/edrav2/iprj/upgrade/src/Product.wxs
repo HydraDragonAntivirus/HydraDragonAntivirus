@@ -120,6 +120,7 @@
                         <RegistryValue Name="THREAT_INTEL_PATH" Value="[INSTALLDIR_PLATFORM]threat_intel" Type="string" />
                         <RegistryValue Name="SIGNER_RULES_PATH" Value="[INSTALLDIR_PLATFORM]signer_rules" Type="string" />
                         <RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR_PLATFORM]Sanctum" Type="string" />
+                        <RegistryValue Name="TRAINING_MODE" Value="1" Type="string" />
                     </RegistryKey>
                 </Component>
                 <Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR_X64" />

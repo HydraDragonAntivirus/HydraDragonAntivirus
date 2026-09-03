@@ -14,6 +14,10 @@ pub type InferBackend = NdArray<f32>;
 static PE_MODEL: OnceLock<Option<super::model::MalwareNet<InferBackend>>> = OnceLock::new();
 static JS_MODEL: OnceLock<Option<super::model::MalwareNet<InferBackend>>> = OnceLock::new();
 
+pub(crate) fn get_pe_model_ref() -> Option<&'static super::model::MalwareNet<InferBackend>> {
+    get_pe_model().as_ref()
+}
+
 fn get_pe_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
     PE_MODEL.get_or_init(|| {
         let path = Path::new("models/pe_model.mpk");

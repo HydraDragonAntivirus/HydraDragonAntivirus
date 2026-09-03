@@ -158,6 +158,11 @@ public:
 	void ensureMbrFilterDriver();
 	void uninstallMbrFilterDriver();
 
+	std::thread m_hipsDecisionPipeThread;
+	std::atomic<bool> m_fStopHipsDecisionPipe{false};
+	void hipsDecisionPipeServerLoop();
+	void killProcessViaDriver(uint32_t pid);
+
 	/// @copydoc ObjectBase::finalConstruct()
 	void start() override;
 	/// @copydoc IService::stop()

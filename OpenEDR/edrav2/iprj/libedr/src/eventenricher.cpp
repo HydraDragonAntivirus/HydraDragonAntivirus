@@ -177,6 +177,64 @@ namespace {
 		return s_cached.load(std::memory_order_relaxed);
 	}
 
+	// HKLM\SOFTWARE\Owlyshield\SDK!TRAINING_MODE ("1") enables persistent
+	// unknown behavior telemetry recording for offline ML training.
+	bool IsTrainingModeEnabled()
+	{
+		static std::atomic<bool> s_cached{ true };
+		static std::atomic<uint64_t> s_last{ 0 };
+
+		const uint64_t nNow = (uint64_t)std::chrono::duration_cast<
+			std::chrono::milliseconds>(std::chrono::steady_clock::now()
+				.time_since_epoch()).count();
+		const uint64_t nLast = s_last.load(std::memory_order_relaxed);
+
+		if (nNow - nLast >= 2000)
+		{
+			s_last.store(nNow, std::memory_order_relaxed);
+			char sz[8] = "";
+			ULONG cb = sizeof(sz);
+			const LONG rc = ::RegGetValueA(HKEY_LOCAL_MACHINE,
+				"SOFTWARE\\Owlyshield\\SDK", "TRAINING_MODE",
+				RRF_RT_REG_SZ, nullptr, sz, &cb);
+			s_cached.store(rc == ERROR_SUCCESS ? (std::string(sz) == "1") : true,
+				std::memory_order_relaxed);
+		}
+		return s_cached.load(std::memory_order_relaxed);
+	}
+
+	// Save unknown process behavior killchain telemetry into training dataset
+	void AppendToTrainingDataset(const std::string& sExePath, const std::string& sEventType, const std::string& sDetails, const std::string& sJson)
+	{
+		char szProgramData[MAX_PATH] = "";
+		DWORD nLen = ::GetEnvironmentVariableA("PROGRAMDATA", szProgramData, MAX_PATH);
+		if (nLen == 0 || nLen >= MAX_PATH)
+			return;
+
+		SYSTEMTIME st = {};
+		::GetLocalTime(&st);
+
+		std::filesystem::path dir = std::filesystem::path(szProgramData) /
+			"edrsvc" / "training_data";
+		std::error_code ec;
+		std::filesystem::create_directories(dir, ec);
+
+		wchar_t szFile[64] = L"";
+		swprintf_s(szFile, L"unknown_killchain_%04u%02u%02u.jsonl",
+			st.wYear, st.wMonth, st.wDay);
+
+		std::ofstream stream(dir / szFile, std::ios::app);
+		if (!stream)
+			return;
+
+		char szTime[32] = "";
+		sprintf_s(szTime, "%02u:%02u:%02u.%03u", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+
+		// Record formatted killchain sequence line
+		stream << "{\"time\":\"" << szTime << "\",\"exe\":\"" << sExePath << "\",\"event\":\""
+		       << sEventType << "\",\"details\":\"" << sDetails << "\",\"raw\":" << sJson << "}\n";
+	}
+
 	// Append a JSON line into ProgramData\edrsvc\log\output_events\
 	// (same stream the Owlyshield behavioral alerts use).
 	void AppendToOutputEvents(const std::string& sJsonLine)
@@ -232,6 +290,62 @@ namespace {
 			}
 			catch (...) {}
 		}
+
+		// Also send rich event telemetry to the Pascal GUI via HydraHipEvent named pipe
+		try
+		{
+			std::string sPath;
+			if (auto optP = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
+				sPath = std::string(optP.value());
+			else if (auto optP2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
+				sPath = std::string(optP2.value());
+			else if (auto optP3 = variant::getByPathSafe(vEvent, "childProcess.imageFile.abstractPath"))
+				sPath = std::string(optP3.value());
+
+			std::string sType = vEvent.get("type", std::string());
+			if (sType.empty()) sType = vEvent.get("eventType", std::string());
+
+			if (!sPath.empty() && !sType.empty())
+			{
+				std::string sDetails;
+				// Extract file target
+				if (auto optF = variant::getByPathSafe(vEvent, "file.path"))
+					sDetails = " [File: " + std::string(optF.value()) + "]";
+				else if (auto optF2 = variant::getByPathSafe(vEvent, "file.rawPath"))
+					sDetails = " [File: " + std::string(optF2.value()) + "]";
+				// Extract registry target
+				else if (auto optR = variant::getByPathSafe(vEvent, "registry.path"))
+					sDetails = " [Reg: " + std::string(optR.value()) + "]";
+				// Extract API hook function
+				else if (auto optA = variant::getByPathSafe(vEvent, "owlyHook.apiFunction"))
+					sDetails = " [API: " + std::string(optA.value()) + "]";
+				// Extract network destination
+				else if (auto optN = variant::getByPathSafe(vEvent, "network.destinationAddress"))
+					sDetails = " [Net: " + std::string(optN.value()) + "]";
+
+				// Save telemetry to persistent training dataset for offline Dynamic ML model training
+				if (IsTrainingModeEnabled())
+				{
+					try
+					{
+						std::string sJson = variant::serializeToJson(vEvent, variant::JsonFormat::SingleLine);
+						AppendToTrainingDataset(sPath, sType, sDetails, sJson);
+					}
+					catch (...) {}
+				}
+
+				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+				if (hPipe != INVALID_HANDLE_VALUE)
+				{
+					std::string pipeMsg = "BEHAVIOR_EVENT:" + sPath + "|" + sType + sDetails + "\n";
+					DWORD written = 0;
+					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+					::CloseHandle(hPipe);
+				}
+			}
+		}
+		catch (...) {}
 	}
 }
 

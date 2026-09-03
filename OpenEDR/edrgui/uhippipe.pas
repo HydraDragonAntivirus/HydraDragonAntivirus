@@ -130,12 +130,13 @@ end;
 
 function SendHipDecision(const ARequestId, ADecision, AExePath: string): Boolean;
 var
-  hPipe: THandle;
-  msg: UTF8String;
+  hPipe, hDrvPipe: THandle;
+  msg, killMsg: UTF8String;
   written: DWORD;
-  RulesFile: string;
+  RulesFile, pidStr: string;
   F: TextFile;
   RulesJson: string;
+  parts: TStringList;
 begin
   Result := False;
   hPipe := TakePendingPromptHandle(ARequestId);
@@ -147,6 +148,32 @@ begin
     FlushFileBuffers(hPipe);
     CloseHandle(hPipe);
     Result := True;
+  end;
+
+  // Signal C++ Sysmon Controller to execute Ring-0 kernel driver kill immediately
+  if (ADecision = 'block') or (ADecision = 'quarantine') then
+  begin
+    hDrvPipe := CreateFileW('\\.\pipe\HydraHipDecision',
+      GENERIC_WRITE, 0, nil, OPEN_EXISTING, 0, 0);
+    if (hDrvPipe <> 0) and (hDrvPipe <> INVALID_HANDLE_VALUE) then
+    begin
+      // Extract PID from RequestId (format: ask_<PID>_<TIMESTAMP>)
+      pidStr := '0';
+      parts := TStringList.Create;
+      try
+        parts.Delimiter := '_';
+        parts.StrictDelimiter := True;
+        parts.DelimitedText := ARequestId;
+        if parts.Count >= 2 then
+          pidStr := parts[1];
+      finally
+        parts.Free;
+      end;
+
+      killMsg := 'HIPS_KILL:' + pidStr + '|' + ADecision + '|' + AExePath + #10;
+      WriteFile(hDrvPipe, killMsg[1], Length(killMsg), written, nil);
+      CloseHandle(hDrvPipe);
+    end;
   end;
 
   // Persist permanent decisions to C:\ProgramData\edrsvc\firewall_rules.json

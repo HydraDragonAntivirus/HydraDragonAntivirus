@@ -3520,8 +3520,41 @@ impl FirewallEngine {
                     if is_sig_untrusted && !is_verdict_safe {
                         should_forward = false;
                         let target_str = format!("{}:{}", info.dst_ip, info.dst_port);
-                        let sig_label = sig_info.status.as_str().to_string();
-                        let verdict_label = verdict_raw.unwrap_or_else(|| "unknown".to_string());
+                        let signer_desc = match &sig_info.signer_name {
+                            Some(s) if !s.is_empty() => format!(" | Signer: {}", s),
+                            _ => String::new(),
+                        };
+                        let cert_kind = if sig_info.is_catalog_signed {
+                            " (Catalog Signed)"
+                        } else if sig_info.is_attached_signed {
+                            " (Embedded Authenticode)"
+                        } else {
+                            ""
+                        };
+                        let sig_label = format!("{}{}{}", sig_info.status.as_str(), cert_kind, signer_desc);
+
+                        // Run Static ML PE Model on the binary if available
+                        let ml_desc = if let Ok(bytes) = std::fs::read(Path::new(&app_path)) {
+                            if bytes.len() >= 2 && &bytes[0..2] == b"MZ" {
+                                if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
+                                    let device = burn::backend::ndarray::NdArrayDevice::default();
+                                    if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
+                                        format!("ML Score: {:.3}", prob)
+                                    } else {
+                                        "ML: Insufficient PE features".to_string()
+                                    }
+                                } else {
+                                    "ML: Model not loaded".to_string()
+                                }
+                            } else {
+                                "ML: Non-PE Binary".to_string()
+                            }
+                        } else {
+                            "ML: File unreadable".to_string()
+                        };
+
+                        let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
+                        let verdict_label = format!("{} | {}", raw_verdict, ml_desc);
                         let ask_reason = "Default Deny: Unsigned/untrusted binary with non-safe cloud verdict".to_string();
 
                         reason = Some(ask_reason.clone());
@@ -3743,13 +3776,12 @@ impl FirewallEngine {
         if pid == 0 || pid == 4 {
             return;
         }
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
-        unsafe {
-            if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
-                let _ = TerminateProcess(handle, 1);
-                let _ = CloseHandle(handle);
-            }
+
+        // PURE RING-0 KERNEL DRIVER KILL ONLY (Bans usermode TerminateProcess/OpenProcess)
+        // Dispatches MESSAGE_KILL_ONLY_GID directly via edrdrv.sys IOCTL device.
+        if let Ok(driver) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
+            let gid_with_mask = (pid as u64) | 0x8000_0000_0000_0000;
+            let _ = driver.try_kill(gid_with_mask);
         }
     }
 
@@ -3903,6 +3935,7 @@ impl FirewallEngine {
                             }
                             "block" => {
                                 am.resolve_decision(&path_lower, AppDecision::Block);
+                                Self::terminate_process(pid);
                                 let rules_file = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_rules.json");
                                 if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(rules_file) {
                                     use std::io::Write;
