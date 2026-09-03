@@ -447,53 +447,132 @@ pub struct HexContent {
     /// Suricata `offset` — search starts at this byte offset in the payload.
     #[serde(default)]
     pub offset: Option<usize>,
-    /// Suricata `depth` — search ends at this byte offset in the payload.
+    /// Suricata `depth` — search at most this many bytes from offset.
     #[serde(default)]
     pub depth: Option<usize>,
+    /// Suricata `startswith` — pattern must match at the start of the window / payload.
+    #[serde(default)]
+    pub startswith: bool,
+    /// Suricata `endswith` — pattern must match at the end of the window / payload.
+    #[serde(default)]
+    pub endswith: bool,
+    /// Suricata `distance` — relative offset from previous match.
+    #[serde(default)]
+    pub distance: Option<isize>,
+    /// Suricata `within` — maximum byte range from previous match.
+    #[serde(default)]
+    pub within: Option<usize>,
 }
 
 impl HexContent {
-    /// Returns true when this pattern is present anywhere in `payload`
-    /// (or within the offset/depth window when those modifiers are set).
-    pub fn matches(&self, payload: &[u8]) -> bool {
-        let Some(needle) = decode_hex(&self.hex) else {
-            // Empty or unparseable hex → treat as "always match".
-            return true;
-        };
+    /// Finds the match position (match_start, match_end) in `payload`.
+    /// `anchor_pos` is the end offset of the previous content match when chaining multiple patterns.
+    pub fn find_match_in(&self, payload: &[u8], anchor_pos: Option<usize>) -> Option<(usize, usize)> {
+        let needle = decode_hex(&self.hex)?;
         if needle.is_empty() {
-            return true;
+            return Some((0, 0));
         }
 
-        // Suricata specification:
-        // - `offset`: start searching at this byte in payload.
-        // - `depth`: search at most this many bytes from `offset` (i.e. window is [start .. start + depth]).
-        let start = self.offset.unwrap_or(0);
-        if start >= payload.len() {
-            return false;
-        }
-
-        let end = match self.depth {
-            Some(d) => start.saturating_add(d).min(payload.len()),
-            None => payload.len(),
+        // Determine start offset
+        let base_start = if let (Some(anchor), Some(dist)) = (anchor_pos, self.distance) {
+            if dist < 0 {
+                anchor.saturating_sub(dist.unsigned_abs())
+            } else {
+                anchor.saturating_add(dist as usize)
+            }
+        } else {
+            self.offset.unwrap_or(0)
         };
 
-        if start >= end {
-            return false;
+        if base_start >= payload.len() {
+            return None;
         }
 
-        let window = &payload[start..end];
+        // Determine end offset
+        let end = if let (Some(anchor), Some(w)) = (anchor_pos, self.within) {
+            anchor.saturating_add(w).min(payload.len())
+        } else if let Some(d) = self.depth {
+            base_start.saturating_add(d).min(payload.len())
+        } else {
+            payload.len()
+        };
+
+        if base_start >= end {
+            return None;
+        }
+
+        let window = &payload[base_start..end];
         if window.len() < needle.len() {
-            return false;
+            return None;
         }
 
+        if self.startswith && self.endswith {
+            let matched = if self.case_insensitive {
+                window.eq_ignore_ascii_case(&needle)
+            } else {
+                window == needle.as_slice()
+            };
+            return if matched {
+                Some((base_start, base_start + needle.len()))
+            } else {
+                None
+            };
+        }
+
+        if self.startswith {
+            let prefix = &window[..needle.len()];
+            let matched = if self.case_insensitive {
+                prefix.eq_ignore_ascii_case(&needle)
+            } else {
+                prefix == needle.as_slice()
+            };
+            return if matched {
+                Some((base_start, base_start + needle.len()))
+            } else {
+                None
+            };
+        }
+
+        if self.endswith {
+            let suffix = &window[window.len() - needle.len()..];
+            let matched = if self.case_insensitive {
+                suffix.eq_ignore_ascii_case(&needle)
+            } else {
+                suffix == needle.as_slice()
+            };
+            return if matched {
+                let start_idx = end - needle.len();
+                Some((start_idx, end))
+            } else {
+                None
+            };
+        }
+
+        // Search within window
         if self.case_insensitive {
             let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
-            window
-                .windows(needle_lower.len())
-                .any(|w| w.iter().map(|b| b.to_ascii_lowercase()).collect::<Vec<_>>() == needle_lower)
+            for (idx, w) in window.windows(needle_lower.len()).enumerate() {
+                if w.iter().map(|b| b.to_ascii_lowercase()).eq(needle_lower.iter().cloned()) {
+                    let match_start = base_start + idx;
+                    return Some((match_start, match_start + needle.len()));
+                }
+            }
         } else {
-            window.windows(needle.len()).any(|w| w == needle.as_slice())
+            for (idx, w) in window.windows(needle.len()).enumerate() {
+                if w == needle.as_slice() {
+                    let match_start = base_start + idx;
+                    return Some((match_start, match_start + needle.len()));
+                }
+            }
         }
+
+        None
+    }
+
+    /// Returns true when this pattern is present anywhere in `payload`
+    /// (or within the offset/depth/startswith/endswith window).
+    pub fn matches(&self, payload: &[u8]) -> bool {
+        self.find_match_in(payload, None).is_some()
     }
 }
 
@@ -1423,10 +1502,20 @@ impl SdkRule {
                         }
                         9 => {
                             step += 1;
-                            // `contents: [{ hex, case_insensitive, offset, depth }]`
-                            // All items must match (Suricata AND-logic for ordered content patterns).
+                            // `contents: [{ hex, case_insensitive, offset, depth, startswith, endswith, distance, within }]`
+                            // All items must match in sequential order (Suricata AND-logic with distance/within anchoring).
                             if !self.contents.is_empty() {
-                                return Some(self.contents.iter().all(|c| c.matches(payload)));
+                                let mut last_end = None;
+                                let mut all_matched = true;
+                                for c in &self.contents {
+                                    if let Some((_, m_end)) = c.find_match_in(payload, last_end) {
+                                        last_end = Some(m_end);
+                                    } else {
+                                        all_matched = false;
+                                        break;
+                                    }
+                                }
+                                return Some(all_matched);
                             }
                         }
                         10 => {
@@ -2684,6 +2773,7 @@ mod tests {
             case_insensitive: false,
             offset: Some(12),
             depth: Some(4),
+            ..Default::default()
         };
 
         // Short payload (< 12 bytes)
@@ -2697,5 +2787,43 @@ mod tests {
         payload[12] = 0xAA;
         payload[13] = 0xBB;
         assert!(matcher.matches(&payload));
+    }
+
+    #[test]
+    fn test_hex_content_startswith_endswith_false_positive_prevention() {
+        // sid:2007942: content:"_"; startswith; endswith;
+        let underscore_rule = HexContent {
+            hex: "5F".to_string(), // ASCII '_'
+            case_insensitive: false,
+            offset: None,
+            depth: None,
+            startswith: true,
+            endswith: true,
+            distance: None,
+            within: None,
+        };
+
+        // Normal HTTP/TLS payload containing an underscore inside
+        let normal_payload = b"GET /api_v1/endpoint HTTP/1.1\r\nHost: example.com\r\n\r\n";
+        assert!(!underscore_rule.matches(normal_payload));
+
+        // Exact match
+        assert!(underscore_rule.matches(b"_"));
+
+        // sid:2003497: content:"ms"; startswith; endswith;
+        let ms_rule = HexContent {
+            hex: "6D 73".to_string(), // "ms"
+            case_insensitive: false,
+            offset: None,
+            depth: None,
+            startswith: true,
+            endswith: true,
+            distance: None,
+            within: None,
+        };
+
+        let normal_payload2 = b"Host: checksum.forms.example.com\r\n";
+        assert!(!ms_rule.matches(normal_payload2));
+        assert!(ms_rule.matches(b"ms"));
     }
 }
