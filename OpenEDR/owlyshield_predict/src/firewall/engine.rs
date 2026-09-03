@@ -3498,7 +3498,16 @@ impl FirewallEngine {
                     // Evaluate Default Deny criteria:
                     // 1. Digital signature verification
                     let sig_info = crate::signature_verification::verify_signature(Path::new(&app_path));
-                    let is_sig_untrusted = sig_info.status != crate::signature_verification::SignatureStatus::Trusted;
+                    let mut is_sig_untrusted = sig_info.status != crate::signature_verification::SignatureStatus::Trusted;
+
+                    // Also treat as trusted if signer name matches trusted_signers.yaml (e.g. Comodo, Microsoft)
+                    if is_sig_untrusted {
+                        if let Some(ref signer) = sig_info.signer_name {
+                            if crate::signer_rules::is_trusted_signer(signer) {
+                                is_sig_untrusted = false;
+                            }
+                        }
+                    }
 
                     // 2. OpenEDR cloud / FLS verdict verification
                     let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
