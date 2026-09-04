@@ -3115,71 +3115,50 @@ impl FirewallEngine {
                                                     && pid != std::process::id()
                                                     && !http_mitm_proxy::is_registered_upstream_local_port(src_port)
                                                 {
-                                                    let target_host = if let Some((ref p_info, _)) = pre_parsed {
-                                                        p_info.hostname.clone()
-                                                    } else {
-                                                        None
-                                                    }.or_else(|| dst_ip.and_then(|ip| dns_w.resolve_ip(&ip.to_string())));
-
-                                                    let target_url = if let Some((ref p_info, _)) = pre_parsed {
-                                                        p_info.full_url.clone()
-                                                    } else {
-                                                        None
-                                                    };
-
-                                                    let should_intercept = Self::should_proxy_intercept(
-                                                        &tls_proxy_cfg,
-                                                        target_host.as_deref(),
-                                                        target_url.as_deref(),
-                                                        &sdk_w.read().unwrap(),
-                                                    );
-
-                                                    if should_intercept {
-                                                        if let (Some(orig_dst), Some(orig_src)) =
-                                                            (dst_ip, src_ip)
+                                                    if let (Some(orig_dst), Some(orig_src)) =
+                                                        (dst_ip, src_ip)
+                                                    {
+                                                        if !Self::is_loopback(orig_dst)
+                                                            && !orig_dst.is_unspecified()
+                                                            && !orig_dst.is_multicast()
                                                         {
-                                                            if !Self::is_loopback(orig_dst)
-                                                                && !orig_dst.is_unspecified()
-                                                                && !orig_dst.is_multicast()
-                                                            {
-                                                                nat_table_w.insert(
-                                                                    src_port,
-                                                                    (orig_dst, 443, orig_src),
-                                                                );
-                                                                let ok = match orig_dst {
-                                                                    IpAddr::V4(_v4) => {
-                                                                        let ok_dst = nat_rewrite_dst_ipv4(
-                                                                            &mut packet_data,
-                                                                            Ipv4Addr::new(127, 0, 0, 1),
-                                                                            tls_proxy_cfg.listen_port,
-                                                                        );
-                                                                        let ok_src = nat_rewrite_src_ipv4(
-                                                                            &mut packet_data,
-                                                                            Ipv4Addr::new(127, 0, 0, 1),
-                                                                            src_port,
-                                                                        );
-                                                                        ok_dst && ok_src
-                                                                    }
-                                                                    IpAddr::V6(_v6) => {
-                                                                        let ok_dst = nat_rewrite_dst_ipv6(
-                                                                            &mut packet_data,
-                                                                            std::net::Ipv6Addr::LOCALHOST,
-                                                                            tls_proxy_cfg.listen_port,
-                                                                        );
-                                                                        let ok_src = nat_rewrite_src_ipv6(
-                                                                            &mut packet_data,
-                                                                            std::net::Ipv6Addr::LOCALHOST,
-                                                                            src_port,
-                                                                        );
-                                                                        ok_dst && ok_src
-                                                                    }
-                                                                };
-                                                                if ok {
-                                                                    recalc_checksums = true;
-                                                                    loopback_flag = Some(true);
-                                                                    if tcp_is_fin_or_rst(&packet_data) {
-                                                                        nat_table_w.remove(src_port);
-                                                                    }
+                                                            nat_table_w.insert(
+                                                                src_port,
+                                                                (orig_dst, 443, orig_src),
+                                                            );
+                                                            let ok = match orig_dst {
+                                                                IpAddr::V4(_v4) => {
+                                                                    let ok_dst = nat_rewrite_dst_ipv4(
+                                                                        &mut packet_data,
+                                                                        Ipv4Addr::new(127, 0, 0, 1),
+                                                                        tls_proxy_cfg.listen_port,
+                                                                    );
+                                                                    let ok_src = nat_rewrite_src_ipv4(
+                                                                        &mut packet_data,
+                                                                        Ipv4Addr::new(127, 0, 0, 1),
+                                                                        src_port,
+                                                                    );
+                                                                    ok_dst && ok_src
+                                                                }
+                                                                IpAddr::V6(_v6) => {
+                                                                    let ok_dst = nat_rewrite_dst_ipv6(
+                                                                        &mut packet_data,
+                                                                        std::net::Ipv6Addr::LOCALHOST,
+                                                                        tls_proxy_cfg.listen_port,
+                                                                    );
+                                                                    let ok_src = nat_rewrite_src_ipv6(
+                                                                        &mut packet_data,
+                                                                        std::net::Ipv6Addr::LOCALHOST,
+                                                                        src_port,
+                                                                    );
+                                                                    ok_dst && ok_src
+                                                                }
+                                                            };
+                                                            if ok {
+                                                                recalc_checksums = true;
+                                                                loopback_flag = Some(true);
+                                                                if tcp_is_fin_or_rst(&packet_data) {
+                                                                    nat_table_w.remove(src_port);
                                                                 }
                                                             }
                                                         }
