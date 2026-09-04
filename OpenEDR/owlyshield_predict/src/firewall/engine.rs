@@ -3157,6 +3157,8 @@ impl FirewallEngine {
                                                             if ok {
                                                                 recalc_checksums = true;
                                                                 loopback_flag = Some(true);
+                                                                // Local listeners only receive inbound packets; must clear outbound flag
+                                                                outbound_flag = Some(false);
                                                                 if tcp_is_fin_or_rst(&packet_data) {
                                                                     nat_table_w.remove(src_port);
                                                                 }
