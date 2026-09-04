@@ -201,6 +201,10 @@ fn classify_wintrust_result(path: &Path, result: i32) -> SignatureStatus {
 }
 
 pub fn verify_signature(path: &Path) -> SignatureInfo {
+    if path.as_os_str().is_empty() || !path.is_file() {
+        return SignatureInfo::default();
+    }
+
     let mut raw_hresult: u32;
     let mut status: SignatureStatus;
     let mut signer_name = None;
@@ -232,7 +236,7 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
             dwStateAction: WTD_STATEACTION_VERIFY,
             hWVTStateData: windows::Win32::Foundation::HANDLE::default(),
             pwszURLReference: PWSTR::null(),
-            dwProvFlags: windows::Win32::Security::WinTrust::WINTRUST_DATA_PROVIDER_FLAGS(0),
+            dwProvFlags: windows::Win32::Security::WinTrust::WINTRUST_DATA_PROVIDER_FLAGS(0x00000010 | 0x00001000),
             dwUIContext: WINTRUST_DATA_UICONTEXT(0),
             pSignatureSettings: std::ptr::null_mut(),
             Anonymous: windows::Win32::Security::WinTrust::WINTRUST_DATA_0 {

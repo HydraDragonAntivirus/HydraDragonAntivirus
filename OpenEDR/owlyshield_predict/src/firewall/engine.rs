@@ -695,6 +695,8 @@ impl FirewallRule {
 pub struct FirewallSettings {
     #[serde(default)]
     pub kernel_block_paths: Vec<String>,
+    #[serde(default)]
+    pub default_deny: bool,
     pub late_blocking_mode: bool,
     #[serde(default)]
     pub headless_mode: bool,
@@ -736,6 +738,7 @@ impl Default for FirewallSettings {
 
         Self {
             kernel_block_paths: Vec::new(),
+            default_deny: false,
             late_blocking_mode: true,
             headless_mode: false,
             log_mode: false,
@@ -987,6 +990,7 @@ pub struct AppManager {
     pub suspicious_pids: RwLock<HashSet<u32>>,
     pub cloud_trusted_pids: RwLock<HashSet<u32>>,
     pub openedr_verdicts: RwLock<HashMap<u32, String>>,
+    pub sig_cache: RwLock<HashMap<String, crate::signature_verification::SignatureInfo>>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
 }
@@ -1005,8 +1009,25 @@ impl AppManager {
             suspicious_pids: RwLock::new(HashSet::new()),
             cloud_trusted_pids: RwLock::new(HashSet::new()),
             openedr_verdicts: RwLock::new(HashMap::new()),
+            sig_cache: RwLock::new(HashMap::new()),
             view_index: AtomicU64::new(0),
         }
+    }
+
+    pub fn get_or_verify_sig(&self, app_path: &str) -> crate::signature_verification::SignatureInfo {
+        if app_path.is_empty() {
+            return crate::signature_verification::SignatureInfo::default();
+        }
+        {
+            let cache = self.sig_cache.read().unwrap();
+            if let Some(info) = cache.get(app_path) {
+                return info.clone();
+            }
+        }
+        let info = crate::signature_verification::verify_signature(Path::new(app_path));
+        let mut cache = self.sig_cache.write().unwrap();
+        cache.insert(app_path.to_string(), info.clone());
+        info
     }
 
     pub fn update_port_mapping(&self, port: u16, pid: u32) {
@@ -1767,6 +1788,7 @@ impl FirewallEngine {
 
         let settings = FirewallSettings {
             kernel_block_paths: current_settings.kernel_block_paths.clone(),
+            default_deny: current_settings.default_deny,
             late_blocking_mode: current_settings.late_blocking_mode,
             headless_mode: current_settings.headless_mode,
             log_mode: current_settings.log_mode,
@@ -3615,83 +3637,86 @@ impl FirewallEngine {
         }
 
         // --- 11. DEFAULT DENY & INTERACTIVE USER PROMPTING ---
-        // If traffic was not blocked by an explicit rule, check digital signature and cloud verdict:
-        if should_forward && outbound && pid != 0 && pid != std::process::id() {
+        // If default deny is enabled and traffic was not blocked by an explicit rule, check digital signature and cloud verdict:
+        let default_deny = settings.read().map(|s| s.default_deny).unwrap_or(false);
+        if default_deny && should_forward && outbound && pid != 0 && pid != std::process::id() {
             let app_path = app_info.path.clone();
-            let app_name = app_info.name.clone();
-            let app_path_lower = app_path.to_lowercase();
+            if !app_path.is_empty() {
+                let app_name = app_info.name.clone();
+                let app_path_lower = app_path.to_lowercase();
 
-            let existing_decision = {
-                let decisions = am.decisions.read().unwrap();
-                decisions.get(&app_path_lower).cloned()
-            };
+                let existing_decision = {
+                    let decisions = am.decisions.read().unwrap();
+                    decisions.get(&app_path_lower).cloned()
+                };
 
-            match existing_decision {
-                Some(AppDecision::Allow) | Some(AppDecision::AllowOnce) => {
-                    // Allowed by user decision
-                }
-                Some(AppDecision::Block) => {
-                    should_forward = false;
-                    reason = Some(format!("Blocked by user decision for {}", app_name));
-                }
-                Some(AppDecision::Pending) => {
-                    // Awaiting user decision: allow flow to continue without killing host internet while prompt is evaluated
-                }
-                None => {
-                    // Evaluate criteria for interactive HIPS prompting:
-                    // 1. Digital signature verification
-                    let sig_info = crate::signature_verification::verify_signature(Path::new(&app_path));
-                    let mut is_sig_untrusted = sig_info.status != crate::signature_verification::SignatureStatus::Trusted;
+                match existing_decision {
+                    Some(AppDecision::Allow) | Some(AppDecision::AllowOnce) => {
+                        // Allowed by user decision
+                    }
+                    Some(AppDecision::Block) => {
+                        should_forward = false;
+                        reason = Some(format!("Blocked by user decision for {}", app_name));
+                    }
+                    Some(AppDecision::Pending) => {
+                        // Awaiting user decision: allow flow to continue without killing host internet while prompt is evaluated
+                    }
+                    None => {
+                        // Evaluate criteria for interactive HIPS prompting:
+                        // 1. Digital signature verification (cached)
+                        let sig_info = am.get_or_verify_sig(&app_path);
+                        let mut is_sig_untrusted = sig_info.status != crate::signature_verification::SignatureStatus::Trusted;
 
-                    // Also treat as trusted if signer name matches trusted_signers.yaml (e.g. Comodo, Microsoft)
-                    if is_sig_untrusted {
-                        if let Some(ref signer) = sig_info.signer_name {
-                            if crate::signer_rules::is_trusted_signer(signer) {
-                                is_sig_untrusted = false;
+                        // Also treat as trusted if signer name matches trusted_signers.yaml (e.g. Comodo, Microsoft)
+                        if is_sig_untrusted {
+                            if let Some(ref signer) = sig_info.signer_name {
+                                if crate::signer_rules::is_trusted_signer(signer) {
+                                    is_sig_untrusted = false;
+                                }
                             }
                         }
-                    }
 
-                    // 2. OpenEDR cloud / FLS verdict verification
-                    let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
-                    let is_verdict_safe = match verdict_raw.as_deref() {
-                        Some("1") | Some("0x1") | Some("safe") => true,
-                        _ => false,
-                    };
-
-                    // Untrusted binary: dispatch interactive prompt to edrgui, fail-open during prompt
-                    if is_sig_untrusted && !is_verdict_safe {
-                        let target_str = format!("{}:{}", info.dst_ip, info.dst_port);
-                        let signer_desc = match &sig_info.signer_name {
-                            Some(s) if !s.is_empty() => format!(" | Signer: {}", s),
-                            _ => String::new(),
+                        // 2. OpenEDR cloud / FLS verdict verification
+                        let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
+                        let is_verdict_safe = match verdict_raw.as_deref() {
+                            Some("1") | Some("0x1") | Some("safe") => true,
+                            _ => false,
                         };
-                        let cert_kind = if sig_info.is_catalog_signed {
-                            " (Catalog Signed)"
-                        } else if sig_info.is_attached_signed {
-                            " (Embedded Authenticode)"
-                        } else {
-                            ""
-                        };
-                        let sig_label = format!("{}{}{}", sig_info.status.as_str(), cert_kind, signer_desc);
-                        let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
-                        let ask_reason = "Unsigned/untrusted binary with non-safe cloud verdict".to_string();
 
-                        // Cache as Pending so we only send one prompt for this executable
-                        am.resolve_decision(&app_path_lower, AppDecision::Pending);
+                        // Untrusted binary: dispatch interactive prompt to edrgui, fail-open during prompt
+                        if is_sig_untrusted && !is_verdict_safe {
+                            let target_str = format!("{}:{}", info.dst_ip, info.dst_port);
+                            let signer_desc = match &sig_info.signer_name {
+                                Some(s) if !s.is_empty() => format!(" | Signer: {}", s),
+                                _ => String::new(),
+                            };
+                            let cert_kind = if sig_info.is_catalog_signed {
+                                " (Catalog Signed)"
+                            } else if sig_info.is_attached_signed {
+                                " (Embedded Authenticode)"
+                            } else {
+                                ""
+                            };
+                            let sig_label = format!("{}{}{}", sig_info.status.as_str(), cert_kind, signer_desc);
+                            let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
+                            let ask_reason = "Unsigned/untrusted binary with non-safe cloud verdict".to_string();
 
-                        let req_id = format!("ask_{}_{}", pid, Self::now_ts());
-                        Self::send_hips_ask_prompt(
-                            req_id,
-                            pid,
-                            app_name,
-                            app_path,
-                            target_str,
-                            raw_verdict,
-                            sig_label,
-                            ask_reason,
-                            Arc::clone(am),
-                        );
+                            // Cache as Pending so we only send one prompt for this executable
+                            am.resolve_decision(&app_path_lower, AppDecision::Pending);
+
+                            let req_id = format!("ask_{}_{}", pid, Self::now_ts());
+                            Self::send_hips_ask_prompt(
+                                req_id,
+                                pid,
+                                app_name,
+                                app_path,
+                                target_str,
+                                raw_verdict,
+                                sig_label,
+                                ask_reason,
+                                Arc::clone(am),
+                            );
+                        }
                     }
                 }
             }

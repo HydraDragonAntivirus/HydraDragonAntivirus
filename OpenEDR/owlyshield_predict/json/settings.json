@@ -9,6 +9,7 @@
     "c:\\program files\\hydradragonantivirus\\openedr\\edrgui.exe": "Allow"
   },
   "kernel_block_paths": [],
+  "default_deny": true,
   "late_blocking_mode": true,
   "headless_mode": false,
   "log_mode": false,
