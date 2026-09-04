@@ -3716,6 +3716,9 @@ impl FirewallEngine {
                                 ask_reason,
                                 Arc::clone(am),
                             );
+                        } else {
+                            // Trusted binary or safe cloud verdict: cache as Allow so future packets for this binary bypass checks instantly
+                            am.resolve_decision(&app_path_lower, AppDecision::Allow);
                         }
                     }
                 }
