@@ -13,24 +13,18 @@ use windows::{
     Win32::{
         Foundation::ERROR_SUCCESS,
         System::{
-            EventLog::{EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE, EVENTLOG_SUCCESS},
+            EventLog::EVENTLOG_INFORMATION_TYPE,
             Services::{
                 RegisterServiceCtrlHandlerW, SERVICE_CONTROL_STOP, SERVICE_RUNNING,
                 SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE,
                 SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW,
                 SERVICE_WIN32_OWN_PROCESS, SetServiceStatus, StartServiceCtrlDispatcherW,
             },
-            Threading::{
-                CREATE_PROTECTED_PROCESS, CreateProcessW, EXTENDED_STARTUPINFO_PRESENT,
-                InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-                PROC_THREAD_ATTRIBUTE_PROTECTION_LEVEL, PROCESS_INFORMATION, STARTUPINFOEXW,
-                UpdateProcThreadAttribute,
-            },
-            WindowsProgramming::PROTECTION_LEVEL_SAME,
         },
     },
     core::{PCWSTR, PWSTR},
 };
+
 
 mod ipc;
 mod logging;

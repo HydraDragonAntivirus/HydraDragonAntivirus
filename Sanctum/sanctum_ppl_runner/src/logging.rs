@@ -1,15 +1,8 @@
 //! A basic event log module to log any errors / events in the Windows Event Log making debugging
 //! easier.
 
-use windows::{
-    Win32::{
-        Foundation::CloseHandle,
-        System::EventLog::{
-            DeregisterEventSource, REPORT_EVENT_TYPE, RegisterEventSourceW, ReportEventW,
-        },
-    },
-    core::PCWSTR,
-};
+use windows::Win32::System::EventLog::REPORT_EVENT_TYPE;
+
 
 /// A C style enum, event identifiers used in the Event Log to help filter / correlate by dictionary
 #[repr(u32)]

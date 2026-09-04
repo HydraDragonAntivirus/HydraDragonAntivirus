@@ -19,28 +19,16 @@ pub fn send_etw_info_ipc(data: Syscall) {
     }
 }
 
-/// Report ETW tamper / blinding attempt directly to OpenEDR's Ring-0 driver controller and GUI
-pub fn report_tamper_attempt(pid: u32, exe_path: &str) {
-    if pid == 0 || pid == 4 || pid == std::process::id() {
-        return;
-    }
 
-    // 1. Send Ring-0 immediate kernel driver kill order to libsysmon (edrdrv.sys)
-    if let Ok(mut pipe) = OpenOptions::new()
-        .write(true)
-        .open(r"\\.\pipe\HydraHipDecision")
-    {
-        let msg = format!("HIPS_KILL:{}|block|{}\n", pid, exe_path);
-        let _ = pipe.write_all(msg.as_bytes());
-        let _ = pipe.flush();
-    }
-
-    // 2. Broadcast Threat Alert to Pascal GUI (edrgui.exe)
+/// Report an ETW blinding attempt to the GUI without attributing it to a specific PID.
+/// This avoids false positives caused by guessing the wrong process from a recent-PID ring buffer.
+/// The watchdog loop will automatically restart the trace session.
+pub fn report_etw_blinding_attempt() {
     if let Ok(mut pipe) = OpenOptions::new()
         .write(true)
         .open(r"\\.\pipe\HydraHipEvent")
     {
-        let msg = format!("THREAT_ALERT:ETW_Blinding_Defense (Killed)|{}\n", exe_path);
+        let msg = "THREAT_ALERT:ETW_Blinding_Attempt|ETW:TI trace session was interrupted and auto-revived by watchdog\n";
         let _ = pipe.write_all(msg.as_bytes());
         let _ = pipe.flush();
     }

@@ -1,8 +1,6 @@
 //! This module is dedicated to tracing via ETW from a PPL security context.
 
-use std::{collections::VecDeque, ptr::copy_nonoverlapping, sync::Mutex};
-
-static RECENT_PIDS: Mutex<VecDeque<(u32, String)>> = Mutex::new(VecDeque::new());
+use std::ptr::copy_nonoverlapping;
 
 use crate::{
     ipc::send_etw_info_ipc,
@@ -459,69 +457,6 @@ fn send_threat_intel_to_engine(
     }
 }
 
-#[link(name = "advapi32")]
-unsafe extern "system" {
-    fn TraceSetInformation(
-        session_handle: CONTROLTRACE_HANDLE,
-        information_class: u32,
-        trace_information: *const std::ffi::c_void,
-        information_length: u32,
-    ) -> u32;
-
-    fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
-        string_security_descriptor: PCWSTR,
-        string_sd_revision: u32,
-        security_descriptor: *mut *mut std::ffi::c_void,
-        security_descriptor_size: *mut u32,
-    ) -> i32;
-
-    fn LocalFree(hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-}
-
-const TRACE_SECURITY_TRACING: u32 = 9;
-const SDDL_REVISION_1: u32 = 1;
-
-/// Locks down the trace session security descriptor so that external processes (even elevated with token manipulation)
-/// cannot call ControlTrace(STOP) on our session.
-fn protect_trace_session(handle: CONTROLTRACE_HANDLE) {
-    // SDDL:
-    // D:P -> Protected DACL (no inheritance)
-    // (A;;0x120fff;;;SY) -> SYSTEM full access (for PPL service execution)
-    // (A;;0x120fff;;;BA) -> Built-in Administrators
-    // (A;;0x120fff;;;LS) -> LocalService
-    let sddl_wide: Vec<u16> = "D:P(A;;0x120fff;;;SY)(A;;0x120fff;;;BA)(A;;0x120fff;;;LS)\0"
-        .encode_utf16()
-        .collect();
-    let mut p_sd: *mut std::ffi::c_void = std::ptr::null_mut();
-    let mut sd_size = 0u32;
-
-    let res = unsafe {
-        ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            PCWSTR::from_raw(sddl_wide.as_ptr()),
-            SDDL_REVISION_1,
-            &mut p_sd,
-            &mut sd_size,
-        )
-    };
-
-    if res != 0 && !p_sd.is_null() {
-        let ret = unsafe { TraceSetInformation(handle, TRACE_SECURITY_TRACING, p_sd, sd_size) };
-        if ret == 0 {
-            event_log(
-                "Successfully applied hardened DACL to ETW:TI trace session.",
-                EVENTLOG_INFORMATION_TYPE,
-                EventID::Info,
-            );
-        } else {
-            event_log(
-                &format!("TraceSetInformation status: {:#x}", ret),
-                EVENTLOG_INFORMATION_TYPE,
-                EventID::Info,
-            );
-        }
-        unsafe { LocalFree(p_sd) };
-    }
-}
 
 /// Public entrypoint to starting the threat intelligence trace routine with a resilient watchdog loop.
 pub fn start_threat_intel_trace() {
@@ -610,8 +545,6 @@ fn register_ti_session() {
         }
     }
 
-    // Apply hardened DACL to prevent external callers from terminating the trace
-    protect_trace_session(handle);
 
     event_log(
         "Successfully registered ETW trace.",
@@ -680,35 +613,15 @@ fn register_ti_session() {
         stop_trace(handle, session_name, properties);
     } else {
         event_log(
-            "ETW:TI trace unblocked unexpectedly (external stop detected). Investigating and neutralizing tamperer...",
+            "CRITICAL SECURITY ALERT: ETW:TI trace was interrupted externally (blinding attempt). Watchdog will auto-revive the session.",
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         );
 
-        // Identify the culprit from recent active processes
-        let candidates: Vec<(u32, String)> = {
-            if let Ok(lock) = RECENT_PIDS.lock() {
-                lock.iter().cloned().collect()
-            } else {
-                Vec::new()
-            }
-        };
-
-        for (cand_pid, cand_path) in candidates.into_iter().rev() {
-            if !cand_path.is_empty() {
-                event_log(
-                    &format!(
-                        "Tampering detected. Reporting candidate to OpenEDR: PID {} ({})",
-                        cand_pid, cand_path
-                    ),
-                    EVENTLOG_INFORMATION_TYPE,
-                    EventID::Info,
-                );
-                // OpenEDR evaluates cloud verdict, digital signatures, and executes kill if untrusted
-                crate::ipc::report_tamper_attempt(cand_pid, &cand_path);
-                break;
-            }
-        }
+        // Notify GUI about the blinding attempt without attributing it to a specific PID.
+        // Attributing to RECENT_PIDS would cause false positives (e.g., edrsvc.exe self-accusation).
+        // The watchdog loop in start_threat_intel_trace will restart the session automatically.
+        crate::ipc::report_etw_blinding_attempt();
 
         let _ = unsafe { StopTraceW(handle, session_name, properties) };
     }
@@ -802,16 +715,6 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
         }
     };
 
-    if pid != 0 && pid != 4 && pid != std::process::id() {
-        if let Ok(mut lock) = RECENT_PIDS.lock() {
-            if !lock.iter().any(|(p, _)| *p == pid) {
-                if lock.len() >= 64 {
-                    lock.pop_front();
-                }
-                lock.push_back((pid, process_image.clone()));
-            }
-        }
-    }
 
     if event_header.ProviderId == ETW_TI_GUID {
         let target_pid = unsafe { extract_u32_property(record, "TargetProcessId") }
