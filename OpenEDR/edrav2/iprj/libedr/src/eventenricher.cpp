@@ -179,9 +179,10 @@ namespace {
 
 	// HKLM\SOFTWARE\Owlyshield\SDK!TRAINING_MODE ("1") enables persistent
 	// unknown behavior telemetry recording for offline ML training.
+	// Defaults to FALSE (disabled) unless explicitly set to "1" in the registry.
 	bool IsTrainingModeEnabled()
 	{
-		static std::atomic<bool> s_cached{ true };
+		static std::atomic<bool> s_cached{ false };
 		static std::atomic<uint64_t> s_last{ 0 };
 
 		const uint64_t nNow = (uint64_t)std::chrono::duration_cast<
@@ -197,10 +198,61 @@ namespace {
 			const LONG rc = ::RegGetValueA(HKEY_LOCAL_MACHINE,
 				"SOFTWARE\\Owlyshield\\SDK", "TRAINING_MODE",
 				RRF_RT_REG_SZ, nullptr, sz, &cb);
-			s_cached.store(rc == ERROR_SUCCESS ? (std::string(sz) == "1") : true,
+			s_cached.store(rc == ERROR_SUCCESS ? (std::string(sz) == "1") : false,
 				std::memory_order_relaxed);
 		}
 		return s_cached.load(std::memory_order_relaxed);
+	}
+
+	// Read watched training directory from HKLM\SOFTWARE\Owlyshield\SDK!TRAINING_WATCH_DIR
+	// Defaults to empty ("") if not explicitly set, ensuring NO logging unless specified.
+	std::string GetTrainingWatchDir()
+	{
+		static std::string s_cachedDir = "";
+		static std::atomic<uint64_t> s_lastDirCheck{ 0 };
+
+		const uint64_t nNow = (uint64_t)std::chrono::duration_cast<
+			std::chrono::milliseconds>(std::chrono::steady_clock::now()
+				.time_since_epoch()).count();
+		const uint64_t nLast = s_lastDirCheck.load(std::memory_order_relaxed);
+
+		if (nNow - nLast >= 3000)
+		{
+			s_lastDirCheck.store(nNow, std::memory_order_relaxed);
+			char szPath[MAX_PATH] = "";
+			ULONG cb = sizeof(szPath);
+			const LONG rc = ::RegGetValueA(HKEY_LOCAL_MACHINE,
+				"SOFTWARE\\Owlyshield\\SDK", "TRAINING_WATCH_DIR",
+				RRF_RT_REG_SZ, nullptr, szPath, &cb);
+			if (rc == ERROR_SUCCESS && szPath[0] != '\0')
+			{
+				std::string s(szPath);
+				for (auto& c : s) c = (char)::tolower((unsigned char)c);
+				s_cachedDir = s;
+			}
+			else
+			{
+				s_cachedDir = "";
+			}
+		}
+		return s_cachedDir;
+	}
+
+	// Check if the process path resides within the designated training directory
+	bool IsProcessInTrainingDir(const std::string& sExePath)
+	{
+		if (sExePath.empty())
+			return false;
+
+		std::string sLowerExe = sExePath;
+		for (auto& c : sLowerExe) c = (char)::tolower((unsigned char)c);
+
+		std::string sWatch = GetTrainingWatchDir();
+		if (sWatch.empty())
+			return false;
+
+		// Direct path match or contained inside watched directory
+		return (sLowerExe.find(sWatch) != std::string::npos);
 	}
 
 	// Save unknown process behavior killchain telemetry into training dataset
@@ -324,7 +376,8 @@ namespace {
 					sDetails = " [Net: " + std::string(optN.value()) + "]";
 
 				// Save telemetry to persistent training dataset for offline Dynamic ML model training
-				if (IsTrainingModeEnabled())
+				// ONLY record if process originates from the dedicated TRAINING_WATCH_DIR
+				if (IsTrainingModeEnabled() && IsProcessInTrainingDir(sPath))
 				{
 					try
 					{

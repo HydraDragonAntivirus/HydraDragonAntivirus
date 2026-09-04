@@ -285,7 +285,16 @@ end;
 procedure THipPipeListener.Execute;
 var
   hPipe: THandle;
+  SA: SECURITY_ATTRIBUTES;
+  SD: SECURITY_DESCRIPTOR;
 begin
+  // Initialize NULL DACL allowing unrestricted access from SYSTEM (Session 0) and any user account
+  InitializeSecurityDescriptor(@SD, SECURITY_DESCRIPTOR_REVISION);
+  SetSecurityDescriptorDacl(@SD, True, nil, False);
+  SA.nLength := SizeOf(SECURITY_ATTRIBUTES);
+  SA.lpSecurityDescriptor := @SD;
+  SA.bInheritHandle := False;
+
   while not Terminated do
   begin
     hPipe := CreateNamedPipeA(
@@ -293,10 +302,10 @@ begin
       PIPE_ACCESS_DUPLEX,
       PIPE_TYPE_MESSAGE or PIPE_READMODE_MESSAGE or PIPE_WAIT,
       PIPE_UNLIMITED_INSTANCES,
-      4096,
-      4096,
+      65536,
+      65536,
       0,
-      nil);
+      @SA);
 
     if hPipe = INVALID_HANDLE_VALUE then
     begin

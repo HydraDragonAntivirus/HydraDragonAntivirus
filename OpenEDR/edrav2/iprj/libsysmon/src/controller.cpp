@@ -794,13 +794,21 @@ void SystemMonitorController::hipsDecisionPipeServerLoop()
 
 	while (!m_fStopHipsDecisionPipe)
 	{
+		SECURITY_DESCRIPTOR sd;
+		::InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+		::SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE);
+		SECURITY_ATTRIBUTES sa;
+		sa.nLength = sizeof(sa);
+		sa.lpSecurityDescriptor = &sd;
+		sa.bInheritHandle = FALSE;
+
 		HANDLE hPipe = ::CreateNamedPipeW(
 			pipeName,
 			PIPE_ACCESS_INBOUND,
 			PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
 			PIPE_UNLIMITED_INSTANCES,
 			65536, 65536,
-			0, NULL
+			0, &sa
 		);
 
 		if (hPipe == INVALID_HANDLE_VALUE)

@@ -1548,29 +1548,67 @@ impl FirewallEngine {
 
     pub fn load_persisted_decisions() -> HashMap<String, AppDecision> {
         let mut map = HashMap::new();
+
+        // Baseline immutable OS & EDR components (Default Allowed to protect internet connectivity)
+        map.insert("system".to_string(), AppDecision::Allow);
+        map.insert(r"c:\windows\system32\svchost.exe".to_string(), AppDecision::Allow);
+        map.insert(r"c:\windows\syswow64\svchost.exe".to_string(), AppDecision::Allow);
+        map.insert(r"c:\windows\system32\webviewhost.exe".to_string(), AppDecision::Allow);
+        map.insert(r"c:\windows\explorer.exe".to_string(), AppDecision::Allow);
+        map.insert(r"c:\program files\hydradragonantivirus\openedr\edrsvc.exe".to_string(), AppDecision::Allow);
+        map.insert(r"c:\program files\hydradragonantivirus\openedr\edrgui.exe".to_string(), AppDecision::Allow);
+
         let rules_path = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_rules.json");
-        if let Ok(content) = fs::read_to_string(&rules_path) {
-            for line in content.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
+        let settings_path = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_settings.json");
+        let local_settings = PathBuf::from("json/settings.json");
+
+        // Helper to ingest decisions from JSON files
+        let mut try_load_file = |path: &PathBuf| {
+            if let Ok(content) = fs::read_to_string(path) {
+                // Try 1: Full JSON structure with "app_decisions": { "path": "Allow" }
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(decisions_obj) = v.get("app_decisions").and_then(|d| d.as_object()) {
+                        for (app_key, dec_val) in decisions_obj {
+                            if let Some(act) = dec_val.as_str() {
+                                let dec = match act {
+                                    "Allow" | "allow" | "allow_always" => AppDecision::Allow,
+                                    "AllowOnce" | "allow_once" => AppDecision::AllowOnce,
+                                    "Block" | "block" | "quarantine" => AppDecision::Block,
+                                    _ => AppDecision::Allow,
+                                };
+                                map.insert(app_key.to_lowercase(), dec);
+                            }
+                        }
+                    }
                 }
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                    if let (Some(action), Some(path)) = (
-                        v.get("action").and_then(|s| s.as_str()),
-                        v.get("path").and_then(|s| s.as_str()),
-                    ) {
-                        let dec = match action {
-                            "allow_always" | "allow" => AppDecision::Allow,
-                            "allow_once" => AppDecision::AllowOnce,
-                            "block" | "quarantine" => AppDecision::Block,
-                            _ => AppDecision::Allow,
-                        };
-                        map.insert(path.to_lowercase(), dec);
+                // Try 2: Line-by-line JSON format {"action":"allow","path":"..."}
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                        if let (Some(action), Some(p)) = (
+                            v.get("action").and_then(|s| s.as_str()),
+                            v.get("path").and_then(|s| s.as_str()),
+                        ) {
+                            let dec = match action {
+                                "allow_always" | "allow" | "Allow" => AppDecision::Allow,
+                                "allow_once" | "AllowOnce" => AppDecision::AllowOnce,
+                                "block" | "quarantine" | "Block" => AppDecision::Block,
+                                _ => AppDecision::Allow,
+                            };
+                            map.insert(p.to_lowercase(), dec);
+                        }
                     }
                 }
             }
-        }
+        };
+
+        try_load_file(&local_settings);
+        try_load_file(&settings_path);
+        try_load_file(&rules_path);
+
         map
     }
 

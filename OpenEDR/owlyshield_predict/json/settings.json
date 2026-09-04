@@ -1,4 +1,13 @@
 {
+  "app_decisions": {
+    "system": "Allow",
+    "c:\\windows\\system32\\svchost.exe": "Allow",
+    "c:\\windows\\syswow64\\svchost.exe": "Allow",
+    "c:\\windows\\system32\\webviewhost.exe": "Allow",
+    "c:\\windows\\explorer.exe": "Allow",
+    "c:\\program files\\hydradragonantivirus\\openedr\\edrsvc.exe": "Allow",
+    "c:\\program files\\hydradragonantivirus\\openedr\\edrgui.exe": "Allow"
+  },
   "kernel_block_paths": [],
   "late_blocking_mode": true,
   "headless_mode": false,
