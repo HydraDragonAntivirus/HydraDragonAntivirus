@@ -321,7 +321,7 @@ begin
         if Detections[i].AttackChain <> '' then
           sEntry := sEntry + ' [Chain: ' + Detections[i].AttackChain + ']';
 
-        idx := FBehaviorLogs.IndexOf(sKey);
+        idx := FBehaviorLogs.IndexOfName(sKey);
         if idx = -1 then
           FBehaviorLogs.Add(sKey + '=' + sEntry)
         else
@@ -406,7 +406,7 @@ begin
       if (FBehaviorLogs <> nil) and (ExePath <> '') then
       begin
         sKey := LowerCase(ExePath);
-        idx := FBehaviorLogs.IndexOf(sKey);
+        idx := FBehaviorLogs.IndexOfName(sKey);
         if idx = -1 then
           FBehaviorLogs.Add(sKey + '=' + FormatDateTime('hh:nn:ss', Now) + ' - Outbound Connection to ' + Target)
         else
@@ -437,7 +437,7 @@ begin
       if (FBehaviorLogs <> nil) and (ExePath <> '') then
       begin
         sKey := LowerCase(ExePath);
-        idx := FBehaviorLogs.IndexOf(sKey);
+        idx := FBehaviorLogs.IndexOfName(sKey);
         if idx <> -1 then
         begin
           Hist := FBehaviorLogs.ValueFromIndex[idx];
@@ -476,7 +476,7 @@ begin
         if (FMLPredictions <> nil) and (ExePath <> '') then
         begin
           sKey := LowerCase(ExePath);
-          idx := FMLPredictions.IndexOf(sKey);
+          idx := FMLPredictions.IndexOfName(sKey);
           if idx = -1 then
             FMLPredictions.Add(sKey + '=ML Verdict: ' + Verdict + ' | ' + Reason)
           else
@@ -504,16 +504,18 @@ begin
         if (FMLPredictions <> nil) and (ExePath <> '') then
         begin
           sKey := LowerCase(ExePath);
-          idx := FMLPredictions.IndexOf(sKey);
+          idx := FMLPredictions.IndexOfName(sKey);
           if idx = -1 then
             FMLPredictions.Add(sKey + '=High Risk Detection: ' + TitleStr)
           else
             FMLPredictions[idx] := sKey + '=High Risk Detection: ' + TitleStr;
         end;
+        TAlertForm.ShowAlert('Threat Alert: ' + TitleStr, ExePath, asCritical, 7000);
       end;
     finally
       Parts.Free;
     end;
+    Exit;
   end;
 
   // Process dynamic telemetry events forwarded directly from C++
@@ -531,11 +533,11 @@ begin
         if (FBehaviorLogs <> nil) and (ExePath <> '') then
         begin
           sKey := LowerCase(ExePath);
-          idx := FBehaviorLogs.IndexOf(sKey);
+          idx := FBehaviorLogs.IndexOfName(sKey);
           if idx = -1 then
             FBehaviorLogs.Add(sKey + '=' + FormatDateTime('hh:nn:ss', Now) + ' - ' + Reason)
           else
-            FBehaviorLogs[idx] := FBehaviorLogs.ValueFromIndex[idx] + LineEnding +
+            FBehaviorLogs[idx] := sKey + '=' + FBehaviorLogs.ValueFromIndex[idx] + LineEnding +
               FormatDateTime('hh:nn:ss', Now) + ' - ' + Reason;
         end;
       end;

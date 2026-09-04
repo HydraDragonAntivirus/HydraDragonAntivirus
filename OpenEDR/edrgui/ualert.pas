@@ -76,6 +76,7 @@ type
     class procedure ShowInteractivePrompt(const ATitle, AMsg, ARequestId, AExePath: string);
     class procedure LoadHistory;
     class procedure SaveHistory;
+    class procedure AppendLastHistoryItem;
   end;
 
 implementation
@@ -144,26 +145,56 @@ var
   F: TextFile;
   i: Integer;
   HistFile: string;
-  Lines: TStringList;
 begin
   HistFile := 'C:\ProgramData\HydraDragonQuarantine\alerts_history.txt';
-  ForceDirectories(ExtractFilePath(HistFile));
-  
-  AssignFile(F, HistFile);
-  {$I-} Rewrite(F); {$I+}
-  if IOResult <> 0 then Exit;
-  
-  for i := 0 to High(FHistory) do
-  begin
-    WriteLn(F, FHistory[i].Title);
-    WriteLn(F, IntToStr(Ord(FHistory[i].Severity)));
-    WriteLn(F, FHistory[i].Msg);
-    WriteLn(F, '====');
+  try
+    ForceDirectories(ExtractFilePath(HistFile));
+    AssignFile(F, HistFile);
+    {$I-} Rewrite(F); {$I+}
+    if IOResult <> 0 then Exit;
+    
+    for i := 0 to High(FHistory) do
+    begin
+      WriteLn(F, FHistory[i].Title);
+      WriteLn(F, IntToStr(Ord(FHistory[i].Severity)));
+      WriteLn(F, FHistory[i].Msg);
+      WriteLn(F, '====');
+    end;
+    CloseFile(F);
+  except
   end;
-  CloseFile(F);
 end;
 
-
+class procedure TAlertForm.AppendLastHistoryItem;
+var
+  F: TextFile;
+  HistFile: string;
+  n: Integer;
+begin
+  n := High(FHistory);
+  if n < 0 then Exit;
+  HistFile := 'C:\ProgramData\HydraDragonQuarantine\alerts_history.txt';
+  try
+    ForceDirectories(ExtractFilePath(HistFile));
+    AssignFile(F, HistFile);
+    if FileExists(HistFile) then
+    begin
+      {$I-} Append(F); {$I+}
+    end
+    else
+    begin
+      {$I-} Rewrite(F); {$I+}
+    end;
+    if IOResult <> 0 then Exit;
+    
+    WriteLn(F, FHistory[n].Title);
+    WriteLn(F, IntToStr(Ord(FHistory[n].Severity)));
+    WriteLn(F, FHistory[n].Msg);
+    WriteLn(F, '====');
+    CloseFile(F);
+  except
+  end;
+end;
 
 class procedure TAlertForm.ShowAlert(const ATitle, AMsg: string;
   ASeverity: TAlertSeverity; AAutoCloseMs: Integer);
@@ -183,11 +214,18 @@ begin
   if FInstance = nil then
     FInstance := TAlertForm.Create(Application);
 
+  // Cap in-memory history to 100 items to avoid memory explosion
+  if Length(FHistory) > 100 then
+  begin
+    Move(FHistory[1], FHistory[0], (Length(FHistory) - 1) * SizeOf(TAlertItem));
+    SetLength(FHistory, Length(FHistory) - 1);
+  end;
+
   NewIndex := Length(FHistory);
   SetLength(FHistory, NewIndex + 1);
   FHistory[NewIndex] := Item;
   FCurrentIndex := NewIndex;
-  SaveHistory;
+  AppendLastHistoryItem;
 
   FInstance.ShowCurrentAlert;
   FInstance.PositionAtCorner;
@@ -430,6 +468,13 @@ begin
 
   if FInstance = nil then
     FInstance := TAlertForm.Create(Application);
+
+  // Cap in-memory history to 100 items
+  if Length(FHistory) > 100 then
+  begin
+    Move(FHistory[1], FHistory[0], (Length(FHistory) - 1) * SizeOf(TAlertItem));
+    SetLength(FHistory, Length(FHistory) - 1);
+  end;
 
   NewIndex := Length(FHistory);
   SetLength(FHistory, NewIndex + 1);
