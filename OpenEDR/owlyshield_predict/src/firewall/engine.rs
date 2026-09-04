@@ -1623,6 +1623,7 @@ impl FirewallEngine {
 
     pub fn load_settings() -> Option<FirewallSettings> {
         let pdata = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_settings.json");
+        // 1. ProgramData override wins when present and valid.
         if pdata.exists() {
             if let Ok(content) = fs::read_to_string(&pdata) {
                 if let Ok(s) = serde_json::from_str(&content) {
@@ -1630,10 +1631,37 @@ impl FirewallEngine {
                 }
             }
         }
+        // 2. Shipped template in Program Files.
         let path = PathBuf::from("json/settings.json");
-        fs::read_to_string(&path)
-            .ok()
-            .and_then(|content| serde_json::from_str(&content).ok())
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(s) = serde_json::from_str(&content) {
+                return Some(s);
+            }
+        }
+        // 3. Program Files json is gone (deleted): seed the ProgramData copy
+        // with defaults so the file exists going forward, and use it.
+        // The ProgramData file is created ONLY in this case — never while
+        // the shipped template is present.
+        let defaults = FirewallSettings::default();
+        Self::ensure_pdata_settings(&defaults);
+        Some(defaults)
+    }
+
+    /// Create the ProgramData settings file if missing. Called only when the
+    /// Program Files template is absent; never overwrites an existing file.
+    fn ensure_pdata_settings(settings: &FirewallSettings) {
+        let pdata = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_settings.json");
+        if pdata.exists() {
+            return;
+        }
+        if let Some(parent) = pdata.parent() {
+            if fs::create_dir_all(parent).is_err() {
+                return;
+            }
+        }
+        if let Ok(content) = serde_json::to_string_pretty(settings) {
+            let _ = fs::write(&pdata, content);
+        }
     }
 
     pub fn apply_settings(&self, new_settings: FirewallSettings) {
