@@ -489,7 +489,9 @@ fn protect_trace_session(handle: CONTROLTRACE_HANDLE) {
     // (A;;0x120fff;;;SY) -> SYSTEM full access (for PPL service execution)
     // (A;;0x120fff;;;BA) -> Built-in Administrators
     // (A;;0x120fff;;;LS) -> LocalService
-    let sddl_wide: Vec<u16> = "D:P(A;;0x120fff;;;SY)(A;;0x120fff;;;BA)(A;;0x120fff;;;LS)\0".encode_utf16().collect();
+    let sddl_wide: Vec<u16> = "D:P(A;;0x120fff;;;SY)(A;;0x120fff;;;BA)(A;;0x120fff;;;LS)\0"
+        .encode_utf16()
+        .collect();
     let mut p_sd: *mut std::ffi::c_void = std::ptr::null_mut();
     let mut sd_size = 0u32;
 
@@ -503,14 +505,7 @@ fn protect_trace_session(handle: CONTROLTRACE_HANDLE) {
     };
 
     if res != 0 && !p_sd.is_null() {
-        let ret = unsafe {
-            TraceSetInformation(
-                handle,
-                TRACE_SECURITY_TRACING,
-                p_sd,
-                sd_size,
-            )
-        };
+        let ret = unsafe { TraceSetInformation(handle, TRACE_SECURITY_TRACING, p_sd, sd_size) };
         if ret == 0 {
             event_log(
                 "Successfully applied hardened DACL to ETW:TI trace session.",
@@ -773,10 +768,7 @@ fn process_trace_events(session_name: &mut Vec<u16>) {
     let _ = unsafe { CloseTrace(trace_handle) };
     if status != ERROR_SUCCESS {
         event_log(
-            &format!(
-                "ProcessTrace ended with status: {}",
-                status.0
-            ),
+            &format!("ProcessTrace ended with status: {}", status.0),
             EVENTLOG_INFORMATION_TYPE,
             EventID::Info,
         );
