@@ -1465,6 +1465,7 @@ pub struct FirewallEngine {
     pub web_filter: Arc<super::web_filter::WebFilter>,
     /// Retained so stop() can call shutdown() and unblock all recv() threads.
     pub divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::NetworkLayer>>>>,
+    pub flow_divert_handle: Arc<Mutex<Option<WinDivertArc<windivert::prelude::FlowLayer>>>>,
     pub hydranet_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>,
     /// Transparent NAT table for WinDivert-based TLS proxy redirection.
     pub nat_table: TransparentNatTable,
@@ -1523,6 +1524,7 @@ impl FirewallEngine {
         let windows_root_trust_ready = Arc::new(AtomicBool::new(false));
         let browser_mitm_warning_cache = Arc::new(Mutex::new(HashSet::new()));
         let divert_handle = Arc::new(Mutex::new(None));
+        let flow_divert_handle = Arc::new(Mutex::new(None));
         let hydranet_tx = Arc::new(Mutex::new(None));
         let nat_table = TransparentNatTable::new();
 
@@ -1541,6 +1543,7 @@ impl FirewallEngine {
             browser_mitm_warning_cache,
             network_whitelist_index,
             divert_handle,
+            flow_divert_handle,
             hydranet_tx,
             nat_table,
         }
@@ -2610,6 +2613,42 @@ impl FirewallEngine {
                         }
                     }
                 }
+
+                // TCP IPv6 lookup fallback
+                let mut size6: u32 = 0;
+                let _ = windows::Win32::NetworkManagement::IpHelper::GetExtendedTcpTable(
+                    None,
+                    &mut size6,
+                    false,
+                    windows::Win32::Networking::WinSock::AF_INET6.0 as u32,
+                    windows::Win32::NetworkManagement::IpHelper::TCP_TABLE_OWNER_PID_ALL,
+                    0,
+                );
+
+                if size6 > 0 {
+                    let mut buffer6 = vec![0u8; size6 as usize];
+                    if windows::Win32::NetworkManagement::IpHelper::GetExtendedTcpTable(
+                        Some(buffer6.as_mut_ptr() as *mut _),
+                        &mut size6,
+                        false,
+                        windows::Win32::Networking::WinSock::AF_INET6.0 as u32,
+                        windows::Win32::NetworkManagement::IpHelper::TCP_TABLE_OWNER_PID_ALL,
+                        0,
+                    ) == 0
+                    {
+                        let table = buffer6.as_ptr() as *const windows::Win32::NetworkManagement::IpHelper::MIB_TCP6TABLE_OWNER_PID;
+                        let num_entries = (*table).dwNumEntries as usize;
+                        let entries =
+                            std::slice::from_raw_parts((*table).table.as_ptr(), num_entries);
+
+                        for entry in entries {
+                            let local_port = u16::from_be(entry.dwLocalPort as u16);
+                            if local_port == port {
+                                return entry.dwOwningPid;
+                            }
+                        }
+                    }
+                }
             } else {
                 // UDP lookup
                 let mut size: u32 = 0;
@@ -2634,6 +2673,42 @@ impl FirewallEngine {
                     ) == 0
                     {
                         let table = buffer.as_ptr() as *const windows::Win32::NetworkManagement::IpHelper::MIB_UDPTABLE_OWNER_PID;
+                        let num_entries = (*table).dwNumEntries as usize;
+                        let entries =
+                            std::slice::from_raw_parts((*table).table.as_ptr(), num_entries);
+
+                        for entry in entries {
+                            let local_port = u16::from_be(entry.dwLocalPort as u16);
+                            if local_port == port {
+                                return entry.dwOwningPid;
+                            }
+                        }
+                    }
+                }
+
+                // UDP IPv6 lookup fallback
+                let mut size6: u32 = 0;
+                let _ = windows::Win32::NetworkManagement::IpHelper::GetExtendedUdpTable(
+                    None,
+                    &mut size6,
+                    false,
+                    windows::Win32::Networking::WinSock::AF_INET6.0 as u32,
+                    windows::Win32::NetworkManagement::IpHelper::UDP_TABLE_OWNER_PID,
+                    0,
+                );
+
+                if size6 > 0 {
+                    let mut buffer6 = vec![0u8; size6 as usize];
+                    if windows::Win32::NetworkManagement::IpHelper::GetExtendedUdpTable(
+                        Some(buffer6.as_mut_ptr() as *mut _),
+                        &mut size6,
+                        false,
+                        windows::Win32::Networking::WinSock::AF_INET6.0 as u32,
+                        windows::Win32::NetworkManagement::IpHelper::UDP_TABLE_OWNER_PID,
+                        0,
+                    ) == 0
+                    {
+                        let table = buffer6.as_ptr() as *const windows::Win32::NetworkManagement::IpHelper::MIB_UDP6TABLE_OWNER_PID;
                         let num_entries = (*table).dwNumEntries as usize;
                         let entries =
                             std::slice::from_raw_parts((*table).table.as_ptr(), num_entries);
@@ -2771,6 +2846,42 @@ impl FirewallEngine {
                 .expect("failed to spawn net_event_telemetry_writer thread");
         }
 
+        // WinDivert FLOW Layer Tracker:
+        // Captures flow creation events directly from Windows kernel via WinDivert FLOW layer.
+        // Immediately records local_port -> PID mappings so packet workers resolve PIDs in O(1).
+        {
+            let am_flow = Arc::clone(&am);
+            let stop_flow = Arc::clone(&stop);
+            let flow_divert_handle = Arc::clone(&self.flow_divert_handle);
+            std::thread::Builder::new()
+                .name("windivert_flow_tracker".to_string())
+                .spawn(move || {
+                    if let Ok(flow_divert) = WinDivert::flow("true", 0, WinDivertFlags::new()) {
+                        let flow_arc = WinDivertArc(Arc::new(flow_divert));
+                        *flow_divert_handle.lock().unwrap() = Some(flow_arc.clone());
+                        let mut flow_buf = [0u8; 1024];
+                        while !stop_flow.load(Ordering::Relaxed) {
+                            match flow_arc.0.recv(Some(&mut flow_buf)) {
+                                Ok(flow_packet) => {
+                                    let pid = flow_packet.address.process_id();
+                                    let local_port = flow_packet.address.local_port();
+                                    if pid != 0 && local_port != 0 {
+                                        am_flow.update_port_mapping(local_port, pid);
+                                    }
+                                }
+                                Err(_) => {
+                                    if stop_flow.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    std::thread::sleep(Duration::from_millis(5));
+                                }
+                            }
+                        }
+                    }
+                })
+                .expect("failed to spawn windivert_flow_tracker thread");
+        }
+
         // Worker Pool - Single worker ensures strict in-order packet delivery without TCP reordering or retransmission storms
         let num_workers = 1;
         for worker_id in 0..num_workers {
@@ -2852,11 +2963,8 @@ impl FirewallEngine {
                                         }
                                     }
 
-                                    // 2. Only query expensive GetExtendedTcpTable on connection establishment (SYN) or DNS
-                                    // NEVER on streaming data packets!
-                                    let is_syn = is_tcp && tcp_is_syn(&packet.data);
-                                    let is_dns = lookup_port == 53;
-                                    if pid == 0 && (is_syn || is_dns) {
+                                    // 2. Fall through to Windows extended TCP/UDP table whenever PID is not cached (matching original engine)
+                                    if pid == 0 {
                                         pid = Self::resolve_pid_from_port(lookup_port, is_tcp);
                                     }
 
@@ -3528,12 +3636,10 @@ impl FirewallEngine {
                     reason = Some(format!("Blocked by user decision for {}", app_name));
                 }
                 Some(AppDecision::Pending) => {
-                    // Awaiting user decision: drop silently to prevent outbound traffic while prompt is displayed
-                    should_forward = false;
-                    reason = Some(format!("Default Deny: Awaiting user decision for {}", app_name));
+                    // Awaiting user decision: allow flow to continue without killing host internet while prompt is evaluated
                 }
                 None => {
-                    // Evaluate Default Deny criteria:
+                    // Evaluate criteria for interactive HIPS prompting:
                     // 1. Digital signature verification
                     let sig_info = crate::signature_verification::verify_signature(Path::new(&app_path));
                     let mut is_sig_untrusted = sig_info.status != crate::signature_verification::SignatureStatus::Trusted;
@@ -3554,9 +3660,8 @@ impl FirewallEngine {
                         _ => false,
                     };
 
-                    // Default Deny trigger: Unknown/untrusted signature AND non-safe verdict
+                    // Untrusted binary: dispatch interactive prompt to edrgui, fail-open during prompt
                     if is_sig_untrusted && !is_verdict_safe {
-                        should_forward = false;
                         let target_str = format!("{}:{}", info.dst_ip, info.dst_port);
                         let signer_desc = match &sig_info.signer_name {
                             Some(s) if !s.is_empty() => format!(" | Signer: {}", s),
@@ -3593,9 +3698,7 @@ impl FirewallEngine {
 
                         let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
                         let verdict_label = format!("{} | {}", raw_verdict, ml_desc);
-                        let ask_reason = "Default Deny: Unsigned/untrusted binary with non-safe cloud verdict".to_string();
-
-                        reason = Some(ask_reason.clone());
+                        let ask_reason = "Unsigned/untrusted binary with non-safe cloud verdict".to_string();
 
                         // Cache as Pending so we only send one prompt for this executable
                         am.resolve_decision(&app_path_lower, AppDecision::Pending);
@@ -4481,6 +4584,14 @@ impl FirewallEngine {
         if let Some(d) = self.divert_handle.lock().unwrap().take() {
             let ptr =
                 Arc::as_ptr(&d.0) as *mut windivert::WinDivert<windivert::prelude::NetworkLayer>;
+            unsafe {
+                let _ = (*ptr).shutdown(WinDivertShutdownMode::Both);
+            }
+        }
+
+        if let Some(d) = self.flow_divert_handle.lock().unwrap().take() {
+            let ptr =
+                Arc::as_ptr(&d.0) as *mut windivert::WinDivert<windivert::prelude::FlowLayer>;
             unsafe {
                 let _ = (*ptr).shutdown(WinDivertShutdownMode::Both);
             }
