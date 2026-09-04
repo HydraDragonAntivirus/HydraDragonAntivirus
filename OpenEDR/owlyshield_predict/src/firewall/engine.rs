@@ -3644,29 +3644,7 @@ impl FirewallEngine {
                             ""
                         };
                         let sig_label = format!("{}{}{}", sig_info.status.as_str(), cert_kind, signer_desc);
-
-                        // Run Static ML PE Model on the binary if available
-                        let ml_desc = if let Ok(bytes) = std::fs::read(Path::new(&app_path)) {
-                            if bytes.len() >= 2 && &bytes[0..2] == b"MZ" {
-                                if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
-                                    let device = burn::backend::ndarray::NdArrayDevice::default();
-                                    if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
-                                        format!("ML Score: {:.3}", prob)
-                                    } else {
-                                        "ML: Insufficient PE features".to_string()
-                                    }
-                                } else {
-                                    "ML: Model not loaded".to_string()
-                                }
-                            } else {
-                                "ML: Non-PE Binary".to_string()
-                            }
-                        } else {
-                            "ML: File unreadable".to_string()
-                        };
-
                         let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
-                        let verdict_label = format!("{} | {}", raw_verdict, ml_desc);
                         let ask_reason = "Unsigned/untrusted binary with non-safe cloud verdict".to_string();
 
                         // Cache as Pending so we only send one prompt for this executable
@@ -3679,7 +3657,7 @@ impl FirewallEngine {
                             app_name,
                             app_path,
                             target_str,
-                            verdict_label,
+                            raw_verdict,
                             sig_label,
                             ask_reason,
                             Arc::clone(am),
@@ -3953,7 +3931,7 @@ impl FirewallEngine {
         app_name: String,
         exe_path: String,
         target: String,
-        verdict: String,
+        raw_verdict: String,
         sig_status: String,
         reason: String,
         am: Arc<AppManager>,
@@ -3968,6 +3946,27 @@ impl FirewallEngine {
                 };
                 use windows::Win32::System::Pipes::WaitNamedPipeW;
                 use windows::core::PCWSTR;
+
+                // Compute PE ML analysis in this background thread so packet routing is never delayed
+                let ml_desc = if let Ok(bytes) = std::fs::read(Path::new(&exe_path)) {
+                    if bytes.len() >= 2 && &bytes[0..2] == b"MZ" {
+                        if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
+                            let device = burn::backend::ndarray::NdArrayDevice::default();
+                            if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
+                                format!("ML Score: {:.3}", prob)
+                            } else {
+                                "ML: Insufficient PE features".to_string()
+                            }
+                        } else {
+                            "ML: Model not loaded".to_string()
+                        }
+                    } else {
+                        "ML: Non-PE Binary".to_string()
+                    }
+                } else {
+                    "ML: File unreadable".to_string()
+                };
+                let verdict = format!("{} | {}", raw_verdict, ml_desc);
 
                 const PIPE: &str = r"\\.\pipe\HydraHipEvent";
                 let mut pipe_wide: Vec<u16> = PIPE.encode_utf16().collect();

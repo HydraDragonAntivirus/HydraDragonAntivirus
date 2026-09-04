@@ -131,6 +131,8 @@
 			<Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR" />
 			<Files Include="..\..\edrdata\signer_rules\**" Directory="SIGNERRULESDIR" />
 			<Files Include="$(var.SourceBinDir)**">
+				<Exclude Files="$(var.SourceBinDir)**\*.pdb" />
+				<Exclude Files="$(var.SourceBinDir)*.pdb" />
 				<Exclude Files="$(var.SourceBinDir)models\**" />
 				<Exclude Files="$(var.SourceBinDir)*.xf" />
 				<Exclude Files="$(var.SourceBinDir)CIDR*.txt" />
