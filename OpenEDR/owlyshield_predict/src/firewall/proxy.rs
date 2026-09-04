@@ -203,6 +203,9 @@ fn error_response_502() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynEr
 }
 
 /// Build a 403 Forbidden response when CIDR blacklist blocks the request.
+/// Kept for parity with hydradragonfirewall-gui; currently unused because
+/// CIDR is enforced at packet layer (see working-internet fix above).
+#[allow(dead_code)]
 fn error_response_403() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
     let body = boxed_full(Bytes::from_static(b"Blocked by HydraDragon CIDR Blacklist"));
     http_mitm_proxy::hyper::Response::builder()
@@ -335,11 +338,21 @@ pub fn generate_ca() -> Result<CaBundle, String> {
                 return Ok(CaBundle { issuer, cert_der });
             }
             Err(e) => {
-                return Err(format!(
-                    "Existing CA key at {} failed to parse: {}. Refusing to overwrite existing trusted CA with a new key!",
-                    key_path.display(),
-                    e
-                ));
+                // Working-internet fix (matches hydradragonfirewall-gui/src/proxy.rs):
+                // Old working proxy regenerates on corrupt key instead of aborting.
+                // Aborting here kills proxy start in engine.rs and blackholes
+                // redirected traffic. Fall through to fresh generation.
+                let now = now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-ca-corrupt-regen", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "Existing CA key at {} unparsable ({}). Regenerating fresh CA like GUI version.",
+                        key_path.display(),
+                        e
+                    ),
+                });
             }
         }
     }
@@ -587,32 +600,13 @@ async fn handle_proxy_request(
         }
     });
 
-    let clean_host = if host.starts_with('[') {
-        if let Some(end) = host.find(']') {
-            &host[1..end]
-        } else {
-            &host
-        }
-    } else if let Some(idx) = host.find(':') {
-        &host[..idx]
-    } else {
-        &host
-    }
-    .trim();
-
-    // ── Direct IP Blacklist Check (Fast, in-memory string parse, zero network queries) ──
-    if let Ok(ip) = clean_host.parse::<IpAddr>() {
-        if web_filter.is_blocked_ip(ip) {
-            let ts = now_ts();
-            emit_log_event(LogEntry {
-                id: format!("{}-proxy-cidr", ts),
-                timestamp: ts,
-                level: LogLevel::Warning,
-                message: format!("Proxy CIDR Blocked: {} (Blocked Malicious CIDR: {})", host, ip),
-            });
-            return Ok(error_response_403());
-        }
-    }
+    // NOTE (working-internet fix, matches hydradragonfirewall-gui/src/proxy.rs):
+    // No direct-IP CIDR fast-block here. The old working proxy has no such
+    // check — CIDR is enforced at the packet layer in engine.rs. Blocking
+    // direct-IP hosts in the TLS proxy 403s CDN/DoH/Microsoft edge IPs
+    // (e.g. 150.171.x.x, 20.184.x.x, 64.7.118.x, 104.18.x.x) and breaks
+    // normal browsing. Keep the param for API compat but do not enforce.
+    let _ = &web_filter;
 
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
     let path = path_and_query.to_string();
@@ -766,6 +760,13 @@ async fn handle_proxy_request(
         req_parts.uri = new_uri;
     }
 
+    // Working-internet fix (matches hydradragonfirewall-gui/src/proxy.rs):
+    // Strip Accept-Encoding so upstream sends plain text. This lets the proxy
+    // read/modify bodies safely without breaking compression framing.
+    req_parts
+        .headers
+        .remove(http_mitm_proxy::hyper::header::ACCEPT_ENCODING);
+
     let req_body_obj = if let Some(new_body) = req_body_override {
         let new_bytes = Bytes::from(new_body.into_bytes());
         update_request_content_length_header(&mut req_parts, new_bytes.len());
@@ -787,11 +788,14 @@ async fn handle_proxy_request(
     };
     let req = http_mitm_proxy::hyper::Request::from_parts(req_parts, req_body_obj);
 
-    // ── Forward upstream with timeout ──────────────────────────────────────
-    let upstream_timeout = std::time::Duration::from_secs(request_timeout.max(5));
-    let (res, _) = match tokio::time::timeout(upstream_timeout, client.send_request(req)).await {
-        Ok(Ok(response)) => response,
-        Ok(Err(e)) => {
+    // ── Forward upstream (matches working GUI proxy: no aggressive timeout) ──
+    // The old working proxy does `client.send_request(req).await` with no
+    // connect timeout. A short timeout 502s slow sites and then poisons the
+    // pinning-fallback cache, breaking internet. Only mark pinning fallback
+    // on real cert/TLS/handshake failures, never on timeouts.
+    let (res, _) = match client.send_request(req).await {
+        Ok(response) => response,
+        Err(e) => {
             let err_str = e.to_string();
             if err_str.contains("10054")
                 || err_str.contains("certificate")
@@ -803,14 +807,6 @@ async fn handle_proxy_request(
                 mark_host_as_pinning_fallback(&host);
             }
             return Err(format!("Upstream failed: {}", e));
-        }
-        Err(_) => {
-            mark_host_as_pinning_fallback(&host);
-            return Err(format!(
-                "Upstream connect/handshake timed out after {}s for host '{}'",
-                upstream_timeout.as_secs(),
-                host
-            ));
         }
     };
 
