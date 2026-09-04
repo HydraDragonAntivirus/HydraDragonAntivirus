@@ -1600,8 +1600,37 @@
 			"*\\AppData\\*",
 			"*\\Temp\\*",
 			"*:Zone.Identifier*"
+		],
+		"tokenTheftEventBaseType": {
+			"MLE_TOKEN_THEFT_ATTEMPT": 1000013,
+			"MLE_PROCESS_INJECTION_TAMPERING": 1000014
+		},
+		"securitySubsystemProcesses": [
+			"*\\winlogon.exe*",
+			"*\\lsass.exe*",
+			"*\\csrss.exe*",
+			"*\\services.exe*",
+			"*\\sanctum_ppl_runner.exe*"
+		],
+		"trustedSecurityCallers": [
+			"*\\Windows\\System32\\*",
+			"*\\Windows\\SysWOW64\\*",
+			"*\\Windows\\WinSxS\\*",
+			"*\\Program Files\\HydraDragonAntivirus\\*",
+			"*\\Program Files\\OpenEDR\\*",
+			"*\\Sanctum\\*",
+			"*\\sanctum_ppl_runner.exe*"
+		],
+		"untrustedSecurityCallers": [
+			"*\\cmd.exe*",
+			"*\\powershell.exe*",
+			"*\\pwsh.exe*",
+			"*\\wscript.exe*",
+			"*\\cscript.exe*",
+			"*\\mshta.exe*",
+			"*\\rundll32.exe*",
+			"*\\regsvr32.exe*"
 		]
-		
 	},
 
 	"variables": {
@@ -2870,5 +2899,218 @@
 				}
 			}
 		] // FLS_MALICIOUS_VERDICT
+,
+		//
+		// Pattern for Token Theft, LSASS/Winlogon/Sanctum tampering, and Cross-Process Injection
+		//
+		"SECURITY_SUBSYSTEM_TAMPERING": [
+			// Case 1: LLE_PROCESS_OPEN on winlogon/lsass/csrss/sanctum by untrusted process (abstractPath available)
+			{
+				"eventType": "LLE_PROCESS_OPEN",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imagePath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_TOKEN_THEFT_ATTEMPT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.tokenTheftEventBaseType.MLE_TOKEN_THEFT_ATTEMPT" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			// Case 2: LLE_PROCESS_OPEN on winlogon/lsass/csrss/sanctum - rawPath fallback
+			{
+				"eventType": "LLE_PROCESS_OPEN",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.securitySubsystemProcesses",
+										"args": [ "@event.target.imagePath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!imatch",
+										"pattern": "@const.trustedSecurityCallers",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.untrustedSecurityCallers",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_TOKEN_THEFT_ATTEMPT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.tokenTheftEventBaseType.MLE_TOKEN_THEFT_ATTEMPT" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			// Case 3: Foreign Process Memory Write (Injection / Memory Tampering / ETW Patch) - abstractPath
+			{
+				"eventType": "LLE_PROCESS_MEMORY_WRITE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.trustedSecurityCallers",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.id", "@event.target.id" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_PROCESS_INJECTION_TAMPERING",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.tokenTheftEventBaseType.MLE_PROCESS_INJECTION_TAMPERING" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			// Case 4: Foreign Process Memory Write - rawPath fallback
+			{
+				"eventType": "LLE_PROCESS_MEMORY_WRITE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							},
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.trustedSecurityCallers",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.id", "@event.target.id" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_PROCESS_INJECTION_TAMPERING",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.tokenTheftEventBaseType.MLE_PROCESS_INJECTION_TAMPERING" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.rawPath" },
+							{ "name": "should_trust_company_whitelist", "value": true },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		] // SECURITY_SUBSYSTEM_TAMPERING
 	}
 }

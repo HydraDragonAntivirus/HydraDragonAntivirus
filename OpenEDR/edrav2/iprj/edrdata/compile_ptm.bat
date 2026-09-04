@@ -34,4 +34,4 @@ if exist "..\..\srcBinUpgrade\win-Release-x64\x64" (
 
 echo.
 echo [OK] All tasks completed successfully!
-pause
+if "%~1" neq "--nopause" pause
