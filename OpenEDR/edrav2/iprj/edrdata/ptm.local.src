@@ -1617,9 +1617,14 @@
 			"*\\Windows\\SysWOW64\\*",
 			"*\\Windows\\WinSxS\\*",
 			"*\\Program Files\\HydraDragonAntivirus\\*",
-			"*\\Program Files\\OpenEDR\\*",
-			"*\\Sanctum\\*",
-			"*\\sanctum_ppl_runner.exe*"
+			// VM guest agents - legitimate OS integration, suppress token theft FPs
+			"*\\VMware\\VMware Tools\\vmtoolsd.exe*",
+			"*\\VMware\\VMware Tools\\VMwareResolutionSet.exe*",
+			"*\\VMware\\VMware Tools\\vmacthlp.exe*",
+			"*\\Oracle\\VirtualBox Guest Additions\\VBoxService.exe*",
+			"*\\Oracle\\VirtualBox Guest Additions\\VBoxTray.exe*",
+			"*\\Parallels\\Parallels Tools\\prl_tools.exe*",
+			"*\\Parallels\\Parallels Tools\\prl_cc.exe*"
 		],
 		"untrustedSecurityCallers": [
 			"*\\cmd.exe*",
