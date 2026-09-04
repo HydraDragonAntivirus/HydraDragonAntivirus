@@ -4110,6 +4110,7 @@ impl FirewallEngine {
                                     let mut packet_data = decision.packet_data;
                                     let mut recalc_checksums = decision.recalc_checksums;
                                     let mut loopback_flag = None;
+                                    let mut outbound_flag = None;
 
                                     let tls_proxy_cfg =
                                         settings_w.read().unwrap().tls_proxy.clone();
@@ -4187,6 +4188,7 @@ impl FirewallEngine {
                                                     if ok {
                                                         recalc_checksums = true;
                                                         loopback_flag = Some(false);
+                                                        outbound_flag = Some(false);
                                                         if tcp_is_fin_or_rst(&packet_data) {
                                                             nat_table_w.remove(dst_port);
                                                         }
@@ -4239,6 +4241,8 @@ impl FirewallEngine {
                                                         if ok {
                                                             recalc_checksums = true;
                                                             loopback_flag = Some(true);
+                                                            // Local listeners only receive inbound packets; must clear outbound flag
+                                                            outbound_flag = Some(false);
                                                             if tcp_is_fin_or_rst(&packet_data) {
                                                                 nat_table_w.remove(src_port);
                                                             }
@@ -4254,6 +4258,9 @@ impl FirewallEngine {
                                     let mut reinject_address = packet.address.clone();
                                     if let Some(val) = loopback_flag {
                                         reinject_address.as_mut().set_loopback(val);
+                                    }
+                                    if let Some(val) = outbound_flag {
+                                        reinject_address.as_mut().set_outbound(val);
                                     }
                                     let mut reinject_packet = windivert::packet::WinDivertPacket {
                                         address: reinject_address,
@@ -4491,19 +4498,34 @@ impl FirewallEngine {
         }
 
         // Cache URLs by PID for subsequent packets in the same flow.
+        // Never cache for PID <= 4 (System, Idle) or non-TCP traffic to prevent sticky global URL pollution.
         if let Some(ref url) = info.full_url {
-            am.url_cache.write().unwrap().insert(pid, url.clone());
-        } else {
-            if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
-                info.full_url = Some(url.clone());
-            } else if let Some(url) = am.ghost_urls.read().unwrap().get(&pid) {
-                info.full_url = Some(url.clone());
+            if pid > 4 && matches!(info.protocol, Protocol::TCP) {
                 am.url_cache.write().unwrap().insert(pid, url.clone());
-                if info.hostname.is_none()
-                    && let Ok(parsed_url) = url::Url::parse(url)
-                    && let Some(host) = parsed_url.host_str()
-                {
-                    info.hostname = Some(host.to_string());
+            }
+        } else if pid > 4 && matches!(info.protocol, Protocol::TCP) {
+            if let Some(url) = am.url_cache.read().unwrap().get(&pid) {
+                if let Ok(parsed_url) = url::Url::parse(url) {
+                    let matches_host = info
+                        .hostname
+                        .as_deref()
+                        .map(|h| h.eq_ignore_ascii_case(parsed_url.host_str().unwrap_or("")))
+                        .unwrap_or(false);
+                    if matches_host {
+                        info.full_url = Some(url.clone());
+                    }
+                }
+            } else if let Some(url) = am.ghost_urls.read().unwrap().get(&pid) {
+                if let Ok(parsed_url) = url::Url::parse(url) {
+                    let matches_host = info
+                        .hostname
+                        .as_deref()
+                        .map(|h| h.eq_ignore_ascii_case(parsed_url.host_str().unwrap_or("")))
+                        .unwrap_or(false);
+                    if matches_host {
+                        info.full_url = Some(url.clone());
+                        am.url_cache.write().unwrap().insert(pid, url.clone());
+                    }
                 }
             }
         }
