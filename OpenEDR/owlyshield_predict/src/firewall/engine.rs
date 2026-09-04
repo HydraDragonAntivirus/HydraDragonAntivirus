@@ -1844,10 +1844,12 @@ impl FirewallEngine {
             return;
         }
 
-        // Block QUIC/UDP:443 — the embedded http-mitm-proxy handles TCP only.
+        // Block QUIC/UDP:443 ONLY when full MITM is explicitly enabled across all traffic.
+        // Default mode is targeted; blocking QUIC globally breaks YouTube, Google, and Chrome.
         if matches!(info.protocol, Protocol::UDP)
             && info.dst_port == 443
             && tls_proxy.block_quic_udp_443
+            && tls_proxy.mitm_all_traffic
         {
             *should_forward = false;
             // Always override reason — get_or_insert_with would silently retain a
@@ -2727,9 +2729,9 @@ impl FirewallEngine {
         let filter = "(!loopback || tcp.DstPort == 8877 || tcp.SrcPort == 8877) && !impostor";
         let divert = match WinDivert::network(filter, divert_priority, WinDivertFlags::new()) {
             Ok(d) => {
-                let _ = d.set_param(WinDivertParam::QueueLength, 16384);
-                let _ = d.set_param(WinDivertParam::QueueTime, 2000);
-                let _ = d.set_param(WinDivertParam::QueueSize, 16 * 1024 * 1024);
+                let _ = d.set_param(WinDivertParam::QueueLength, 32768);
+                let _ = d.set_param(WinDivertParam::QueueTime, 8000);
+                let _ = d.set_param(WinDivertParam::QueueSize, 32 * 1024 * 1024);
                 WinDivertArc(Arc::new(d))
             }
             Err(e) => {
@@ -2957,203 +2959,205 @@ impl FirewallEngine {
                                     }
                                 }
 
-                                let decision = Self::process_packet_decision(
-                                    &packet.data,
-                                    &addr_bytes,
-                                    outbound,
-                                    &stats_w,
-                                    &am_w,
-                                    &settings_w,
-                                    &dns_w,
-                                    &sdk_w,
-                                    &fcheck_w,
-                                    pid,
-                                    &pre_parsed,
-                                    &browser_mitm_warning_cache_w,
-                                    &network_whitelist_index_w,
-                                    &web_filter_w,
-                                );
+                                let worker_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    let decision = Self::process_packet_decision(
+                                        &packet.data,
+                                        &addr_bytes,
+                                        outbound,
+                                        &stats_w,
+                                        &am_w,
+                                        &settings_w,
+                                        &dns_w,
+                                        &sdk_w,
+                                        &fcheck_w,
+                                        pid,
+                                        &pre_parsed,
+                                        &browser_mitm_warning_cache_w,
+                                        &network_whitelist_index_w,
+                                        &web_filter_w,
+                                    );
 
-                                // Firewall activity telemetry. Network blocks stay in the
-                                // firewall; they must not become Owlyshield process-kill alerts.
-                                let mut decision_info: Option<PacketInfo> = None;
-                                if let Some((ref p_info, _)) = pre_parsed {
-                                    decision_info = Some(p_info.clone());
-                                }
+                                    // Firewall activity telemetry. Network blocks stay in the
+                                    // firewall; they must not become Owlyshield process-kill alerts.
+                                    let mut decision_info: Option<PacketInfo> = None;
+                                    if let Some((ref p_info, _)) = pre_parsed {
+                                        decision_info = Some(p_info.clone());
+                                    }
 
-                                if outbound && pid != 0 {
-                                    if let Some(ref parsed_info) = decision_info {
-                                        // NET_EVENT records observed network activity only.
-                                        if !notified_pids.contains(&pid) {
-                                            let msg = format!(
-                                                "NET_EVENT:{}:{}:{}\n",
-                                                pid, parsed_info.dst_ip, parsed_info.dst_port
-                                            );
-                                            let _ = net_ev_tx.send(msg);
-                                            notified_pids.insert(pid);
+                                    if outbound && pid != 0 {
+                                        if let Some(ref parsed_info) = decision_info {
+                                            // NET_EVENT records observed network activity only.
+                                            if !notified_pids.contains(&pid) {
+                                                let msg = format!(
+                                                    "NET_EVENT:{}:{}:{}\n",
+                                                    pid, parsed_info.dst_ip, parsed_info.dst_port
+                                                );
+                                                let _ = net_ev_tx.send(msg);
+                                                notified_pids.insert(pid);
+                                            }
                                         }
                                     }
-                                }
 
-                                if decision.should_forward {
-                                    let mut packet_data = decision.packet_data;
-                                    let mut recalc_checksums = decision.recalc_checksums;
-                                    let mut loopback_flag = None;
-                                    let mut outbound_flag = None;
+                                    if decision.should_forward {
+                                        let mut packet_data = decision.packet_data;
+                                        let mut recalc_checksums = decision.recalc_checksums;
+                                        let mut loopback_flag = None;
+                                        let mut outbound_flag = None;
 
-                                    let tls_proxy_cfg =
-                                        settings_w.read().unwrap().tls_proxy.clone();
-                                    let proxy_alive = proxy_alive_w.load(Ordering::SeqCst);
-                                    // CRITICAL FIX: Only redirect to proxy if enabled, auto-started, AND proxy listener is verified alive
-                                    if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
-                                        && tls_proxy_cfg.auto_start
-                                        && proxy_alive
-                                    {
-                                        let mut is_tcp = false;
-                                        let mut src_port = 0;
-                                        let mut dst_port = 0;
-                                        let mut src_ip = None;
-                                        let mut dst_ip = None;
-                                        if let Some((ref p_info, _)) = pre_parsed {
-                                            is_tcp = matches!(
-                                                p_info.protocol,
-                                                super::engine::Protocol::TCP
-                                            );
-                                            src_port = p_info.src_port;
-                                            dst_port = p_info.dst_port;
-                                            src_ip = Some(p_info.src_ip);
-                                            dst_ip = Some(p_info.dst_ip);
-                                        }
+                                        let tls_proxy_cfg =
+                                            settings_w.read().unwrap().tls_proxy.clone();
+                                        let proxy_alive = proxy_alive_w.load(Ordering::SeqCst);
+                                        // CRITICAL FIX: Only redirect to proxy if enabled, auto-started, AND proxy listener is verified alive
+                                        if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
+                                            && tls_proxy_cfg.auto_start
+                                            && proxy_alive
+                                        {
+                                            let mut is_tcp = false;
+                                            let mut src_port = 0;
+                                            let mut dst_port = 0;
+                                            let mut src_ip = None;
+                                            let mut dst_ip = None;
+                                            if let Some((ref p_info, _)) = pre_parsed {
+                                                is_tcp = matches!(
+                                                    p_info.protocol,
+                                                    super::engine::Protocol::TCP
+                                                );
+                                                src_port = p_info.src_port;
+                                                dst_port = p_info.dst_port;
+                                                src_ip = Some(p_info.src_ip);
+                                                dst_ip = Some(p_info.dst_ip);
+                                            }
 
-                                        if is_tcp {
-                                            let proxy_return_flow = src_ip
-                                                .is_some_and(Self::is_loopback)
-                                                && src_port == tls_proxy_cfg.listen_port;
+                                            if is_tcp {
+                                                let proxy_return_flow = src_ip
+                                                    .is_some_and(Self::is_loopback)
+                                                    && src_port == tls_proxy_cfg.listen_port;
 
-                                            if proxy_return_flow {
-                                                if let Some((orig_ip, orig_port, orig_src)) =
-                                                    nat_table_w.get(dst_port)
-                                                {
-                                                    let ok = match orig_ip {
-                                                        IpAddr::V4(v4) => {
-                                                            let ok_src = nat_rewrite_src_ipv4(
-                                                                &mut packet_data,
-                                                                v4,
-                                                                orig_port,
-                                                            );
-                                                            let ok_dst =
-                                                                if let IpAddr::V4(orig_client_ip) =
-                                                                    orig_src
-                                                                {
-                                                                    nat_rewrite_dst_ipv4(
-                                                                        &mut packet_data,
-                                                                        orig_client_ip,
-                                                                        dst_port,
-                                                                    )
-                                                                } else {
-                                                                    false
-                                                                };
-                                                            ok_src && ok_dst
-                                                        }
-                                                        IpAddr::V6(v6) => {
-                                                            let ok_src = nat_rewrite_src_ipv6(
-                                                                &mut packet_data,
-                                                                v6,
-                                                                orig_port,
-                                                            );
-                                                            let ok_dst =
-                                                                if let IpAddr::V6(orig_client_ip) =
-                                                                    orig_src
-                                                                {
-                                                                    nat_rewrite_dst_ipv6(
-                                                                        &mut packet_data,
-                                                                        orig_client_ip,
-                                                                        dst_port,
-                                                                    )
-                                                                } else {
-                                                                    false
-                                                                };
-                                                            ok_src && ok_dst
-                                                        }
-                                                    };
-                                                    if ok {
-                                                        recalc_checksums = true;
-                                                        loopback_flag = Some(false);
-                                                        outbound_flag = Some(false);
-                                                        if tcp_is_fin_or_rst(&packet_data) {
-                                                            nat_table_w.remove(dst_port);
+                                                if proxy_return_flow {
+                                                    if let Some((orig_ip, orig_port, orig_src)) =
+                                                        nat_table_w.get(dst_port)
+                                                    {
+                                                        let ok = match orig_ip {
+                                                            IpAddr::V4(v4) => {
+                                                                let ok_src = nat_rewrite_src_ipv4(
+                                                                    &mut packet_data,
+                                                                    v4,
+                                                                    orig_port,
+                                                                );
+                                                                let ok_dst =
+                                                                    if let IpAddr::V4(orig_client_ip) =
+                                                                        orig_src
+                                                                    {
+                                                                        nat_rewrite_dst_ipv4(
+                                                                            &mut packet_data,
+                                                                            orig_client_ip,
+                                                                            dst_port,
+                                                                        )
+                                                                    } else {
+                                                                        false
+                                                                    };
+                                                                ok_src && ok_dst
+                                                            }
+                                                            IpAddr::V6(v6) => {
+                                                                let ok_src = nat_rewrite_src_ipv6(
+                                                                    &mut packet_data,
+                                                                    v6,
+                                                                    orig_port,
+                                                                );
+                                                                let ok_dst =
+                                                                    if let IpAddr::V6(orig_client_ip) =
+                                                                        orig_src
+                                                                    {
+                                                                        nat_rewrite_dst_ipv6(
+                                                                            &mut packet_data,
+                                                                            orig_client_ip,
+                                                                            dst_port,
+                                                                        )
+                                                                    } else {
+                                                                        false
+                                                                    };
+                                                                ok_src && ok_dst
+                                                            }
+                                                        };
+                                                        if ok {
+                                                            recalc_checksums = true;
+                                                            loopback_flag = Some(false);
+                                                            outbound_flag = Some(false);
+                                                            if tcp_is_fin_or_rst(&packet_data) {
+                                                                nat_table_w.remove(dst_port);
+                                                            }
                                                         }
                                                     }
-                                                }
-                                            } else if outbound
-                                                && dst_port == 443
-                                                && pid != std::process::id()
-                                                && !http_mitm_proxy::is_registered_upstream_local_port(src_port)
-                                            {
-                                                let target_host = if let Some((ref p_info, _)) = pre_parsed {
-                                                    p_info.hostname.clone()
-                                                } else {
-                                                    None
-                                                }.or_else(|| dst_ip.and_then(|ip| dns_w.resolve_ip(&ip.to_string())));
+                                                } else if outbound
+                                                    && dst_port == 443
+                                                    && pid != std::process::id()
+                                                    && !http_mitm_proxy::is_registered_upstream_local_port(src_port)
+                                                {
+                                                    let target_host = if let Some((ref p_info, _)) = pre_parsed {
+                                                        p_info.hostname.clone()
+                                                    } else {
+                                                        None
+                                                    }.or_else(|| dst_ip.and_then(|ip| dns_w.resolve_ip(&ip.to_string())));
 
-                                                let target_url = if let Some((ref p_info, _)) = pre_parsed {
-                                                    p_info.full_url.clone()
-                                                } else {
-                                                    None
-                                                };
+                                                    let target_url = if let Some((ref p_info, _)) = pre_parsed {
+                                                        p_info.full_url.clone()
+                                                    } else {
+                                                        None
+                                                    };
 
-                                                let should_intercept = Self::should_proxy_intercept(
-                                                    &tls_proxy_cfg,
-                                                    target_host.as_deref(),
-                                                    target_url.as_deref(),
-                                                    &sdk_w.read().unwrap(),
-                                                );
+                                                    let should_intercept = Self::should_proxy_intercept(
+                                                        &tls_proxy_cfg,
+                                                        target_host.as_deref(),
+                                                        target_url.as_deref(),
+                                                        &sdk_w.read().unwrap(),
+                                                    );
 
-                                                if should_intercept {
-                                                    if let (Some(orig_dst), Some(orig_src)) =
-                                                        (dst_ip, src_ip)
-                                                    {
-                                                        if !Self::is_loopback(orig_dst)
-                                                            && !orig_dst.is_unspecified()
-                                                            && !orig_dst.is_multicast()
+                                                    if should_intercept {
+                                                        if let (Some(orig_dst), Some(orig_src)) =
+                                                            (dst_ip, src_ip)
                                                         {
-                                                            nat_table_w.insert(
-                                                                src_port,
-                                                                (orig_dst, 443, orig_src),
-                                                            );
-                                                            let ok = match orig_dst {
-                                                                IpAddr::V4(_v4) => {
-                                                                    let ok_dst = nat_rewrite_dst_ipv4(
-                                                                        &mut packet_data,
-                                                                        Ipv4Addr::new(127, 0, 0, 1),
-                                                                        tls_proxy_cfg.listen_port,
-                                                                    );
-                                                                    let ok_src = nat_rewrite_src_ipv4(
-                                                                        &mut packet_data,
-                                                                        Ipv4Addr::new(127, 0, 0, 1),
-                                                                        src_port,
-                                                                    );
-                                                                    ok_dst && ok_src
-                                                                }
-                                                                IpAddr::V6(_v6) => {
-                                                                    let ok_dst = nat_rewrite_dst_ipv6(
-                                                                        &mut packet_data,
-                                                                        std::net::Ipv6Addr::LOCALHOST,
-                                                                        tls_proxy_cfg.listen_port,
-                                                                    );
-                                                                    let ok_src = nat_rewrite_src_ipv6(
-                                                                        &mut packet_data,
-                                                                        std::net::Ipv6Addr::LOCALHOST,
-                                                                        src_port,
-                                                                    );
-                                                                    ok_dst && ok_src
-                                                                }
-                                                            };
-                                                            if ok {
-                                                                recalc_checksums = true;
-                                                                loopback_flag = Some(true);
-                                                                if tcp_is_fin_or_rst(&packet_data) {
-                                                                    nat_table_w.remove(src_port);
+                                                            if !Self::is_loopback(orig_dst)
+                                                                && !orig_dst.is_unspecified()
+                                                                && !orig_dst.is_multicast()
+                                                            {
+                                                                nat_table_w.insert(
+                                                                    src_port,
+                                                                    (orig_dst, 443, orig_src),
+                                                                );
+                                                                let ok = match orig_dst {
+                                                                    IpAddr::V4(_v4) => {
+                                                                        let ok_dst = nat_rewrite_dst_ipv4(
+                                                                            &mut packet_data,
+                                                                            Ipv4Addr::new(127, 0, 0, 1),
+                                                                            tls_proxy_cfg.listen_port,
+                                                                        );
+                                                                        let ok_src = nat_rewrite_src_ipv4(
+                                                                            &mut packet_data,
+                                                                            Ipv4Addr::new(127, 0, 0, 1),
+                                                                            src_port,
+                                                                        );
+                                                                        ok_dst && ok_src
+                                                                    }
+                                                                    IpAddr::V6(_v6) => {
+                                                                        let ok_dst = nat_rewrite_dst_ipv6(
+                                                                            &mut packet_data,
+                                                                            std::net::Ipv6Addr::LOCALHOST,
+                                                                            tls_proxy_cfg.listen_port,
+                                                                        );
+                                                                        let ok_src = nat_rewrite_src_ipv6(
+                                                                            &mut packet_data,
+                                                                            std::net::Ipv6Addr::LOCALHOST,
+                                                                            src_port,
+                                                                        );
+                                                                        ok_dst && ok_src
+                                                                    }
+                                                                };
+                                                                if ok {
+                                                                    recalc_checksums = true;
+                                                                    loopback_flag = Some(true);
+                                                                    if tcp_is_fin_or_rst(&packet_data) {
+                                                                        nat_table_w.remove(src_port);
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -3161,31 +3165,40 @@ impl FirewallEngine {
                                                 }
                                             }
                                         }
-                                    }
 
-                                    // REINJECT IMMEDIATELY from the SAME thread
-                                    // CRITICAL OPTIMIZATION: If packet was unmodified (no NAT rewrite), pass original packet directly!
-                                    if !recalc_checksums {
-                                        let _ = divert_w.send(&packet);
+                                        // REINJECT IMMEDIATELY from the SAME thread
+                                        // CRITICAL OPTIMIZATION: If packet was unmodified (no NAT rewrite), pass original packet directly!
+                                        if !recalc_checksums {
+                                            let _ = divert_w.send(&packet);
+                                        } else {
+                                            let mut reinject_address = packet.address.clone();
+                                            if let Some(val) = loopback_flag {
+                                                reinject_address.as_mut().set_loopback(val);
+                                            }
+                                            if let Some(val) = outbound_flag {
+                                                reinject_address.as_mut().set_outbound(val);
+                                            }
+                                            let mut reinject_packet = windivert::packet::WinDivertPacket {
+                                                address: reinject_address,
+                                                data: std::borrow::Cow::Owned(packet_data),
+                                            };
+                                            let _ = reinject_packet
+                                                .recalculate_checksums(Default::default());
+                                            if divert_w.send(&reinject_packet).is_err() {
+                                                // CRITICAL FAIL-OPEN: If NAT reinjection fails (e.g. invalid interface flags),
+                                                // forward unmodified original packet so connection never drops!
+                                                let _ = divert_w.send(&packet);
+                                            }
+                                        }
                                     } else {
-                                        let mut reinject_address = packet.address.clone();
-                                        if let Some(val) = loopback_flag {
-                                            reinject_address.as_mut().set_loopback(val);
-                                        }
-                                        if let Some(val) = outbound_flag {
-                                            reinject_address.as_mut().set_outbound(val);
-                                        }
-                                        let mut reinject_packet = windivert::packet::WinDivertPacket {
-                                            address: reinject_address,
-                                            data: std::borrow::Cow::Owned(packet_data),
-                                        };
-                                        let _ = reinject_packet
-                                            .recalculate_checksums(Default::default());
-                                        let _ = divert_w.send(&reinject_packet);
+                                        // Packet is blocked - only if confirmed malicious
                                     }
-                                } else {
-                                    // Packet is blocked - we just don't call divert.send()
-                                    // WinDivert drops it automatically since we didn't send it.
+                                }));
+
+                                if worker_res.is_err() {
+                                    // CRITICAL FAIL-OPEN GUARD: If any panic occurred in worker logic,
+                                    // immediately reinject raw packet so internet connectivity NEVER drops!
+                                    let _ = divert_w.send(&packet);
                                 }
                             }
                             Err(_e) => {
@@ -3333,29 +3346,35 @@ impl FirewallEngine {
 
         // --- Pure CIDR Blacklist Scan (WebFilter) ---
         let remote_ip = if info.outbound { info.dst_ip } else { info.src_ip };
-        let flow_key = (info.src_ip, info.dst_ip, info.dst_port);
-        if let Some(web_match) = web_filter.find_match_cached(flow_key, remote_ip) {
-            stats.packets_total.fetch_add(1, Ordering::Relaxed);
-            stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+        let is_private_or_local = match remote_ip {
+            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_broadcast() || v4.is_unspecified(),
+            IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+        };
+        if !is_private_or_local {
+            let flow_key = (info.src_ip, info.dst_ip, info.dst_port);
+            if let Some(web_match) = web_filter.find_match_cached(flow_key, remote_ip) {
+                stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
 
-            let now = Self::now_ts();
-            emit_log_event(LogEntry {
-                id: format!("{}-cidr-{}", now, pid),
-                timestamp: now,
-                level: LogLevel::Warning,
-                message: format!(
-                    "CIDR Blocked: {} (pid={}) -> {}:{} ({})",
-                    app_info.name, pid, remote_ip, info.dst_port, web_match.reason
-                ),
-            });
+                let now = Self::now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-cidr-{}", now, pid),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "CIDR Blocked: {} (pid={}) -> {}:{} ({})",
+                        app_info.name, pid, remote_ip, info.dst_port, web_match.reason
+                    ),
+                });
 
-            return PacketDecision {
-                packet_data: data.to_vec(),
-                address_data: address_data.to_vec(),
-                should_forward: false,
-                recalc_checksums: false,
-                _reason: web_match.reason,
-            };
+                return PacketDecision {
+                    packet_data: data.to_vec(),
+                    address_data: address_data.to_vec(),
+                    should_forward: false,
+                    recalc_checksums: false,
+                    _reason: web_match.reason,
+                };
+            }
         }
 
         // 3. DNS Snooping Enrichment (CRITICAL: Do this before rules!)
