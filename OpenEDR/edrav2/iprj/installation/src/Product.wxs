@@ -126,6 +126,7 @@
 					<RegistryValue Name="SANCTUM_PATH" Value="[INSTALLDIR]Sanctum" Type="string" KeyPath="no" />
 					<RegistryValue Name="TRAINING_MODE" Value="0" Type="string" KeyPath="no" />
 					<RegistryValue Name="TRAINING_WATCH_DIR" Value="" Type="string" KeyPath="no" />
+					<RegistryValue Name="TRAINING_WATCH_DLL_DIR" Value="" Type="string" KeyPath="no" />
 				</RegistryKey>
 			</Component>
 			<Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR" />

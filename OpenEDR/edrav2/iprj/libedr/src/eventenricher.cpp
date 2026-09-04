@@ -244,15 +244,119 @@ namespace {
 		if (sExePath.empty())
 			return false;
 
-		std::string sLowerExe = sExePath;
-		for (auto& c : sLowerExe) c = (char)::tolower((unsigned char)c);
-
 		std::string sWatch = GetTrainingWatchDir();
 		if (sWatch.empty())
 			return false;
 
-		// Direct path match or contained inside watched directory
-		return (sLowerExe.find(sWatch) != std::string::npos);
+		// Trim whitespace and quotation marks
+		size_t first = sWatch.find_first_not_of(" \t\r\n\"'");
+		size_t last = sWatch.find_last_not_of(" \t\r\n\"'");
+		std::string sTrimmed = (first != std::string::npos && last != std::string::npos)
+			? sWatch.substr(first, last - first + 1)
+			: sWatch;
+
+		// Wildcard "*.*" or "*" means ignore path restriction and capture all processes in training mode
+		if (sTrimmed == "*.*" || sTrimmed == "*" || sTrimmed.find("*.*") != std::string::npos)
+			return true;
+
+		std::string sLowerExe = sExePath;
+		for (auto& c : sLowerExe) c = (char)::tolower((unsigned char)c);
+
+	// Direct path match or contained inside watched directory
+		return (sLowerExe.find(sTrimmed) != std::string::npos);
+	}
+
+	// Read watched training DLL directory from HKLM\SOFTWARE\Owlyshield\SDK!TRAINING_WATCH_DLL_DIR
+	// Defaults to empty ("") if not explicitly set (meaning no DLL folder restriction).
+	std::string GetTrainingWatchDllDir()
+	{
+		static std::string s_cachedDllDir = "";
+		static std::atomic<uint64_t> s_lastDllDirCheck{ 0 };
+
+		const uint64_t nNow = (uint64_t)std::chrono::duration_cast<
+			std::chrono::milliseconds>(std::chrono::steady_clock::now()
+				.time_since_epoch()).count();
+		const uint64_t nLast = s_lastDllDirCheck.load(std::memory_order_relaxed);
+
+		if (nNow - nLast >= 3000)
+		{
+			s_lastDllDirCheck.store(nNow, std::memory_order_relaxed);
+			char szPath[MAX_PATH] = "";
+			ULONG cb = sizeof(szPath);
+			const LONG rc = ::RegGetValueA(HKEY_LOCAL_MACHINE,
+				"SOFTWARE\\Owlyshield\\SDK", "TRAINING_WATCH_DLL_DIR",
+				RRF_RT_REG_SZ, nullptr, szPath, &cb);
+			if (rc == ERROR_SUCCESS && szPath[0] != '\0')
+			{
+				std::string s(szPath);
+				for (auto& c : s) c = (char)::tolower((unsigned char)c);
+				s_cachedDllDir = s;
+			}
+			else
+			{
+				s_cachedDllDir = "";
+			}
+		}
+		return s_cachedDllDir;
+	}
+
+	// Check if an API hook or module event originated from the watched DLL directory
+	bool IsApiDllInTrainingWatchDir(const Variant& vEvent)
+	{
+		std::string sWatchDll = GetTrainingWatchDllDir();
+		if (sWatchDll.empty())
+			return true; // No DLL folder restriction specified: allow all
+
+		// Trim whitespace and quotation marks
+		size_t first = sWatchDll.find_first_not_of(" \t\r\n\"'");
+		size_t last = sWatchDll.find_last_not_of(" \t\r\n\"'");
+		std::string sTrimmed = (first != std::string::npos && last != std::string::npos)
+			? sWatchDll.substr(first, last - first + 1)
+			: sWatchDll;
+
+		// Wildcard "*.*" or "*" means ignore DLL folder restriction
+		if (sTrimmed == "*.*" || sTrimmed == "*" || sTrimmed.find("*.*") != std::string::npos)
+			return true;
+
+		// Extract DLL / module path or name from the event
+		std::string sDll;
+		if (auto optM = variant::getByPathSafe(vEvent, "owlyHook.apiModule"))
+			sDll = std::string(optM.value());
+		else if (auto optFn = variant::getByPathSafe(vEvent, "owlyHook.functionName"))
+		{
+			std::string sFn = std::string(optFn.value());
+			auto pos = sFn.rfind('!');
+			if (pos != std::string::npos)
+				sDll = sFn.substr(0, pos);
+			else
+				sDll = sFn;
+		}
+		else if (auto optModPath = variant::getByPathSafe(vEvent, "module.imageFile.abstractPath"))
+			sDll = std::string(optModPath.value());
+		else if (auto optModRaw = variant::getByPathSafe(vEvent, "module.imageFile.rawPath"))
+			sDll = std::string(optModRaw.value());
+		else if (auto optModP = variant::getByPathSafe(vEvent, "module.path"))
+			sDll = std::string(optModP.value());
+
+		// If this is not an API hook or module event, pass through
+		if (sDll.empty())
+			return true;
+
+		std::string sLowerDll = sDll;
+		for (auto& c : sLowerDll) c = (char)::tolower((unsigned char)c);
+
+		// Direct substring / folder path match
+		if (sLowerDll.find(sTrimmed) != std::string::npos)
+			return true;
+
+		// Handle bare system DLL names (e.g. "kernel32.dll", "ntdll.dll") when watching System32
+		if ((sTrimmed.find("system32") != std::string::npos || sTrimmed.find("syswow64") != std::string::npos)
+			&& sLowerDll.find('\\') == std::string::npos && sLowerDll.find('/') == std::string::npos)
+		{
+			return true;
+		}
+
+		return false;
 	}
 
 	// Save unknown process behavior killchain telemetry into training dataset
@@ -368,16 +472,22 @@ namespace {
 				// Extract registry target
 				else if (auto optR = variant::getByPathSafe(vEvent, "registry.path"))
 					sDetails = " [Reg: " + std::string(optR.value()) + "]";
-				// Extract API hook function
+				// Extract API hook function and module
 				else if (auto optA = variant::getByPathSafe(vEvent, "owlyHook.apiFunction"))
-					sDetails = " [API: " + std::string(optA.value()) + "]";
+				{
+					if (auto optM = variant::getByPathSafe(vEvent, "owlyHook.apiModule"))
+						sDetails = " [API: " + std::string(optM.value()) + "!" + std::string(optA.value()) + "]";
+					else
+						sDetails = " [API: " + std::string(optA.value()) + "]";
+				}
 				// Extract network destination
 				else if (auto optN = variant::getByPathSafe(vEvent, "network.destinationAddress"))
 					sDetails = " [Net: " + std::string(optN.value()) + "]";
 
 				// Save telemetry to persistent training dataset for offline Dynamic ML model training
 				// ONLY record if process originates from the dedicated TRAINING_WATCH_DIR
-				if (IsTrainingModeEnabled() && IsProcessInTrainingDir(sPath))
+				// and API hook / module matches TRAINING_WATCH_DLL_DIR (if specified)
+				if (IsTrainingModeEnabled() && IsProcessInTrainingDir(sPath) && IsApiDllInTrainingWatchDir(vEvent))
 				{
 					try
 					{
