@@ -2904,6 +2904,10 @@ impl FirewallEngine {
             let net_ev_tx = net_event_tx.clone();
             let nat_table_w = self.nat_table.clone();
             let proxy_alive_w = Arc::clone(&self.proxy_listener_alive);
+            // Fail-open: without trusted CA, redirecting 443 to the proxy
+            // breaks browsing (browsers reject the proxy cert) while logs
+            // still show Allows. Gate redirection on CA trust.
+            let trust_ready_w = Arc::clone(&self.windows_root_trust_ready);
 
             std::thread::Builder::new()
                 .name(format!("packet_worker_{}", worker_id))
@@ -3029,10 +3033,15 @@ impl FirewallEngine {
                                         let tls_proxy_cfg =
                                             settings_w.read().unwrap().tls_proxy.clone();
                                         let proxy_alive = proxy_alive_w.load(Ordering::SeqCst);
+                                        let ca_trusted = trust_ready_w.load(Ordering::SeqCst);
                                         // CRITICAL FIX: Only redirect to proxy if enabled, auto-started, AND proxy listener is verified alive
+                                        // Fail-open: skip redirection while CA is untrusted so
+                                        // browsing keeps working direct (inspection resumes
+                                        // once installFirewallCa completes).
                                         if tls_proxy_cfg.mode == TlsInspectionMode::TlsProxy
                                             && tls_proxy_cfg.auto_start
                                             && proxy_alive
+                                            && ca_trusted
                                         {
                                             let mut is_tcp = false;
                                             let mut src_port = 0;
