@@ -3,7 +3,6 @@
 
 use windows::Win32::System::EventLog::REPORT_EVENT_TYPE;
 
-
 /// A C style enum, event identifiers used in the Event Log to help filter / correlate by dictionary
 #[repr(u32)]
 #[allow(dead_code)]
