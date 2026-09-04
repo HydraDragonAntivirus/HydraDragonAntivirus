@@ -202,23 +202,6 @@ fn error_response_502() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynEr
         })
 }
 
-/// Build a 403 Forbidden response when CIDR blacklist blocks the request.
-/// Kept for parity with hydradragonfirewall-gui; currently unused because
-/// CIDR is enforced at packet layer (see working-internet fix above).
-#[allow(dead_code)]
-fn error_response_403() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
-    let body = boxed_full(Bytes::from_static(b"Blocked by HydraDragon CIDR Blacklist"));
-    http_mitm_proxy::hyper::Response::builder()
-        .status(StatusCode::FORBIDDEN)
-        .body(body)
-        .unwrap_or_else(|_| {
-            http_mitm_proxy::hyper::Response::builder()
-                .status(StatusCode::FORBIDDEN)
-                .body(boxed_full(Bytes::new()))
-                .unwrap()
-        })
-}
-
 /// Validates that the request has a valid URI and method before forwarding.
 fn validate_request(
     req: &http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
