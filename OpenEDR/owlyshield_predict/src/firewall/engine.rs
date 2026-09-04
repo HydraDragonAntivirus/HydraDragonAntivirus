@@ -1406,37 +1406,6 @@ fn tcp_is_fin_or_rst(data: &[u8]) -> bool {
     }
 }
 
-fn tcp_is_syn(data: &[u8]) -> bool {
-    if data.is_empty() {
-        return false;
-    }
-    match data[0] >> 4 {
-        4 => {
-            if data.len() < 20 || data[9] != 6 {
-                return false;
-            }
-            let ihl = ((data[0] & 0x0F) as usize) * 4;
-            if data.len() < ihl + 14 {
-                return false;
-            }
-            let flags = data[ihl + 13];
-            (flags & 0x02) != 0
-        }
-        6 => {
-            if data.len() < 40 || data[6] != 6 {
-                return false;
-            }
-            let tcp_header_start = 40;
-            if data.len() < tcp_header_start + 14 {
-                return false;
-            }
-            let flags = data[tcp_header_start + 13];
-            (flags & 0x02) != 0
-        }
-        _ => false,
-    }
-}
-
 // ============================================================================
 // PACKET PROCESSING RESULT - Using raw bytes for cross-thread safety
 // ============================================================================

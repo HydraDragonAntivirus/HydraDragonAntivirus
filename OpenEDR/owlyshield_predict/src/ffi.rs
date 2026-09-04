@@ -146,10 +146,7 @@ pub extern "C" fn owlyshield_dll_start() -> i32 {
 pub unsafe extern "C" fn owlyshield_dll_ingest(data: *const u8, len: u32) -> i32 {
     let sender = match SENDER.get() {
         Some(s) => s,
-        None => {
-            Logging::error("[Owlyshield FFI] owlyshield_dll_ingest called before start");
-            return OWLY_NOT_STARTED;
-        }
+        None => return OWLY_NOT_STARTED,
     };
 
     if data.is_null() || len == 0 {
@@ -178,14 +175,10 @@ pub unsafe extern "C" fn owlyshield_dll_ingest(data: *const u8, len: u32) -> i32
 /// pipe has been removed so no other usermode process can inject events.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn owlyshield_dll_ingest_openedr_event(data: *const u8, len: u32) -> i32 {
+    init_telemetry_channel();
     let sender = match TELEMETRY_SENDER.get() {
         Some(s) => s,
-        None => {
-            Logging::error(
-                "[Owlyshield FFI] owlyshield_dll_ingest_openedr_event called before start",
-            );
-            return OWLY_NOT_STARTED;
-        }
+        None => return OWLY_NOT_STARTED,
     };
 
     if data.is_null() || len == 0 {
@@ -195,12 +188,7 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_openedr_event(data: *const u8, le
     let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
     let payload = match std::str::from_utf8(bytes) {
         Ok(s) => s.to_string(),
-        Err(e) => {
-            Logging::error(&format!(
-                "[Owlyshield FFI] owlyshield_dll_ingest_openedr_event: invalid UTF-8: {e}"
-            ));
-            return OWLY_DESERIALIZE_ERROR;
-        }
+        Err(_) => return OWLY_DESERIALIZE_ERROR,
     };
 
     if sender.send(TelemetryLine::OpenedrEvent(payload)).is_err() {
@@ -218,14 +206,10 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_firewall_packed_data(
     data: *const u8,
     len: u32,
 ) -> i32 {
+    init_telemetry_channel();
     let sender = match TELEMETRY_SENDER.get() {
         Some(s) => s,
-        None => {
-            Logging::error(
-                "[Owlyshield FFI] owlyshield_dll_ingest_firewall_packed_data called before start",
-            );
-            return OWLY_NOT_STARTED;
-        }
+        None => return OWLY_NOT_STARTED,
     };
 
     if data.is_null() || len == 0 {
@@ -235,12 +219,7 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_firewall_packed_data(
     let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
     let payload = match std::str::from_utf8(bytes) {
         Ok(s) => s.to_string(),
-        Err(e) => {
-            Logging::error(&format!(
-                "[Owlyshield FFI] owlyshield_dll_ingest_firewall_packed_data: invalid UTF-8: {e}"
-            ));
-            return OWLY_DESERIALIZE_ERROR;
-        }
+        Err(_) => return OWLY_DESERIALIZE_ERROR,
     };
 
     if sender
