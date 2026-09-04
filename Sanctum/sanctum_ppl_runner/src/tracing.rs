@@ -457,9 +457,89 @@ fn send_threat_intel_to_engine(
     }
 }
 
-/// Public entrypoint to starting the threat intelligence trace routine.
+#[link(name = "advapi32")]
+unsafe extern "system" {
+    fn TraceSetInformation(
+        session_handle: CONTROLTRACE_HANDLE,
+        information_class: u32,
+        trace_information: *const std::ffi::c_void,
+        information_length: u32,
+    ) -> u32;
+
+    fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        string_security_descriptor: PCWSTR,
+        string_sd_revision: u32,
+        security_descriptor: *mut *mut std::ffi::c_void,
+        security_descriptor_size: *mut u32,
+    ) -> i32;
+
+    fn LocalFree(hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+}
+
+const TRACE_SECURITY_TRACING: u32 = 9;
+const SDDL_REVISION_1: u32 = 1;
+
+/// Locks down the trace session security descriptor so that external processes (even elevated with token manipulation)
+/// cannot call ControlTrace(STOP) on our session.
+fn protect_trace_session(handle: CONTROLTRACE_HANDLE) {
+    // SDDL:
+    // D:P -> Protected DACL (no inheritance)
+    // (A;;0x120fff;;;SY) -> SYSTEM full access (for PPL service execution)
+    // (A;;0x120fff;;;BA) -> Built-in Administrators
+    // (A;;0x120fff;;;LS) -> LocalService
+    let sddl_wide: Vec<u16> = "D:P(A;;0x120fff;;;SY)(A;;0x120fff;;;BA)(A;;0x120fff;;;LS)\0".encode_utf16().collect();
+    let mut p_sd: *mut std::ffi::c_void = std::ptr::null_mut();
+    let mut sd_size = 0u32;
+
+    let res = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            PCWSTR::from_raw(sddl_wide.as_ptr()),
+            SDDL_REVISION_1,
+            &mut p_sd,
+            &mut sd_size,
+        )
+    };
+
+    if res != 0 && !p_sd.is_null() {
+        let ret = unsafe {
+            TraceSetInformation(
+                handle,
+                TRACE_SECURITY_TRACING,
+                p_sd,
+                sd_size,
+            )
+        };
+        if ret == 0 {
+            event_log(
+                "Successfully applied hardened DACL to ETW:TI trace session.",
+                EVENTLOG_INFORMATION_TYPE,
+                EventID::Info,
+            );
+        } else {
+            event_log(
+                &format!("TraceSetInformation status: {:#x}", ret),
+                EVENTLOG_INFORMATION_TYPE,
+                EventID::Info,
+            );
+        }
+        unsafe { LocalFree(p_sd) };
+    }
+}
+
+/// Public entrypoint to starting the threat intelligence trace routine with a resilient watchdog loop.
 pub fn start_threat_intel_trace() {
-    register_ti_session();
+    while !crate::is_service_stopping() {
+        register_ti_session();
+        if crate::is_service_stopping() {
+            break;
+        }
+        event_log(
+            "CRITICAL SECURITY ALERT: ETW:TI trace was interrupted or terminated externally! Watchdog reviving trace session immediately...",
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 /// Internal function which starts the tracing of the ETW: Threat Intelligence module.
@@ -492,7 +572,7 @@ fn register_ti_session() {
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         );
-        std::process::exit(1);
+        return;
     }
 
     // allocate the correct parameters for the EVENT_TRACE_PROPERTIES in the buffer.
@@ -514,18 +594,27 @@ fn register_ti_session() {
     };
     let embedded_session_name = PCWSTR::from_raw(logger_name_ptr);
 
-    let status = unsafe { StartTraceW(&mut handle, embedded_session_name, properties) };
+    let mut status = unsafe { StartTraceW(&mut handle, embedded_session_name, properties) };
     if status.is_err() {
-        event_log(
-            &format!(
-                "Unable to register ETW:TI session. Failed with Win32 error: {:?}",
-                status
-            ),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
-        );
-        std::process::exit(1);
+        // Attempt clean stop in case a previous dirty session exists
+        let _ = unsafe { StopTraceW(handle, embedded_session_name, properties) };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        status = unsafe { StartTraceW(&mut handle, embedded_session_name, properties) };
+        if status.is_err() {
+            event_log(
+                &format!(
+                    "Unable to register ETW:TI session. Win32 error: {:?}",
+                    status
+                ),
+                EVENTLOG_ERROR_TYPE,
+                EventID::GeneralError,
+            );
+            return;
+        }
     }
+
+    // Apply hardened DACL to prevent external callers from terminating the trace
+    protect_trace_session(handle);
 
     event_log(
         "Successfully registered ETW trace.",
@@ -552,7 +641,7 @@ fn register_ti_session() {
             EventID::GeneralError,
         );
         stop_trace(handle, session_name, properties);
-        std::process::exit(1);
+        return;
     }
 
     let _ = unsafe {
@@ -589,11 +678,17 @@ fn register_ti_session() {
 
     process_trace_events(&mut wide_name);
 
-    // Stop the trace as we are completing the function.
-    // If we reach here, an unrecoverable error has probably happened, so we can exit the service.
-    // todo do we really want to exit the service?
-    stop_trace(handle, session_name, properties);
-    std::process::exit(2);
+    // If we reach here, process_trace_events has unblocked
+    if crate::is_service_stopping() {
+        stop_trace(handle, session_name, properties);
+    } else {
+        event_log(
+            "ETW:TI trace unblocked unexpectedly (external stop detected). Watchdog reviving trace...",
+            EVENTLOG_ERROR_TYPE,
+            EventID::GeneralError,
+        );
+        let _ = unsafe { StopTraceW(handle, session_name, properties) };
+    }
 }
 
 /// Stops the tracing session
@@ -639,7 +734,7 @@ fn process_trace_events(session_name: &mut Vec<u16>) {
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         );
-        std::process::exit(1);
+        return;
     }
 
     //
@@ -647,17 +742,16 @@ fn process_trace_events(session_name: &mut Vec<u16>) {
     // Trace consumers call this function to process the events from one or more trace processing sessions.
     //
     let status = unsafe { ProcessTrace(&[trace_handle], None, None) };
+    let _ = unsafe { CloseTrace(trace_handle) };
     if status != ERROR_SUCCESS {
         event_log(
             &format!(
-                "Failed to run ProcessTrace. Failed with Win32 error: {}",
-                unsafe { GetLastError().0 }
+                "ProcessTrace ended with status: {}",
+                status.0
             ),
-            EVENTLOG_ERROR_TYPE,
-            EventID::GeneralError,
+            EVENTLOG_INFORMATION_TYPE,
+            EventID::Info,
         );
-        let _ = unsafe { CloseTrace(trace_handle) };
-        std::process::exit(1);
     }
 }
 

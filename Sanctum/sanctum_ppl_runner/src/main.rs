@@ -36,7 +36,13 @@ mod ipc;
 mod logging;
 mod tracing;
 
-static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
+pub static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
+
+/// Check if the service was requested to stop by SCM or EDRGUI
+pub fn is_service_stopping() -> bool {
+    SERVICE_STOP.load(Ordering::SeqCst)
+}
+
 const EXPECTED_RUNNER_PATH: &str =
     r"C:\Program Files\HydraDragonAntivirus\OpenEDR\Sanctum\AppData\sanctum_ppl_runner.exe";
 
