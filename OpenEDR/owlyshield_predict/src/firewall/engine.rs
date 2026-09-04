@@ -2748,7 +2748,7 @@ impl FirewallEngine {
         // not via WinDivert, so we don't need to compete with another WinDivert handle.
         // Priority 0 is fine.
         let divert_priority: i16 = 0;
-        let filter = "(!loopback || tcp.DstPort == 8877 || tcp.SrcPort == 8877) && !impostor";
+        let filter = "true";
         let divert = match WinDivert::network(filter, divert_priority, WinDivertFlags::new()) {
             Ok(d) => {
                 let _ = d.set_param(WinDivertParam::QueueLength, 32768);
@@ -3189,28 +3189,25 @@ impl FirewallEngine {
                                         }
 
                                         // REINJECT IMMEDIATELY from the SAME thread
-                                        // CRITICAL OPTIMIZATION: If packet was unmodified (no NAT rewrite), pass original packet directly!
-                                        if !recalc_checksums {
-                                            let _ = divert_w.send(&packet);
-                                        } else {
-                                            let mut reinject_address = packet.address.clone();
-                                            if let Some(val) = loopback_flag {
-                                                reinject_address.as_mut().set_loopback(val);
-                                            }
-                                            if let Some(val) = outbound_flag {
-                                                reinject_address.as_mut().set_outbound(val);
-                                            }
-                                            let mut reinject_packet = windivert::packet::WinDivertPacket {
-                                                address: reinject_address,
-                                                data: std::borrow::Cow::Owned(packet_data),
-                                            };
+                                        // Legacy-proven packet reinjection: Always construct WinDivertPacket with cloned address
+                                        let mut reinject_address = packet.address.clone();
+                                        if let Some(val) = loopback_flag {
+                                            reinject_address.as_mut().set_loopback(val);
+                                        }
+                                        if let Some(val) = outbound_flag {
+                                            reinject_address.as_mut().set_outbound(val);
+                                        }
+                                        let mut reinject_packet = windivert::packet::WinDivertPacket {
+                                            address: reinject_address,
+                                            data: std::borrow::Cow::Owned(packet_data),
+                                        };
+                                        if recalc_checksums {
                                             let _ = reinject_packet
                                                 .recalculate_checksums(Default::default());
-                                            if divert_w.send(&reinject_packet).is_err() {
-                                                // CRITICAL FAIL-OPEN: If NAT reinjection fails (e.g. invalid interface flags),
-                                                // forward unmodified original packet so connection never drops!
-                                                let _ = divert_w.send(&packet);
-                                            }
+                                        }
+                                        if divert_w.send(&reinject_packet).is_err() {
+                                            // CRITICAL FAIL-OPEN fallback
+                                            let _ = divert_w.send(&packet);
                                         }
                                     } else {
                                         // Packet is blocked - only if confirmed malicious
