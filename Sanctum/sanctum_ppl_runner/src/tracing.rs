@@ -457,7 +457,6 @@ fn send_threat_intel_to_engine(
     }
 }
 
-
 /// Public entrypoint to starting the threat intelligence trace routine with a resilient watchdog loop.
 pub fn start_threat_intel_trace() {
     while !crate::is_service_stopping() {
@@ -544,7 +543,6 @@ fn register_ti_session() {
             return;
         }
     }
-
 
     event_log(
         "Successfully registered ETW trace.",
@@ -714,7 +712,6 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
             Err(_) => return,
         }
     };
-
 
     if event_header.ProviderId == ETW_TI_GUID {
         let target_pid = unsafe { extract_u32_property(record, "TargetProcessId") }

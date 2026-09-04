@@ -25,7 +25,6 @@ use windows::{
     core::{PCWSTR, PWSTR},
 };
 
-
 mod ipc;
 mod logging;
 mod tracing;

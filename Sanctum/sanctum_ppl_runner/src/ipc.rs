@@ -19,7 +19,6 @@ pub fn send_etw_info_ipc(data: Syscall) {
     }
 }
 
-
 /// Report an ETW blinding attempt to the GUI without attributing it to a specific PID.
 /// This avoids false positives caused by guessing the wrong process from a recent-PID ring buffer.
 /// The watchdog loop will automatically restart the trace session.
