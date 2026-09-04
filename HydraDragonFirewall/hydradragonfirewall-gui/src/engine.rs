@@ -51,6 +51,15 @@ impl CidrIndex {
     }
 
     fn add(&mut self, cidr: &str) -> bool {
+        let trimmed = cidr.trim();
+        if trimmed == "0.0.0.0/0"
+            || trimmed == "0.0.0.0"
+            || trimmed == "::/0"
+            || trimmed == "::"
+            || trimmed.ends_with("/0")
+        {
+            return false;
+        }
         match Self::parse_interval(cidr) {
             Some(CidrInterval::V4(start, end)) => {
                 self.v4.push((start, end));
@@ -70,6 +79,9 @@ impl CidrIndex {
     }
 
     fn contains(&self, ip: IpAddr) -> bool {
+        if ip.is_unspecified() || ip.is_loopback() {
+            return false;
+        }
         match ip {
             IpAddr::V4(ipv4) => Self::contains_value(&self.v4, u32::from(ipv4)),
             IpAddr::V6(ipv6) => Self::contains_value(&self.v6, u128::from(ipv6)),
@@ -82,28 +94,22 @@ impl CidrIndex {
             let prefix_len = prefix.parse::<u32>().ok()?;
 
             if let Ok(ipv4) = network.parse::<Ipv4Addr>() {
-                if prefix_len > 32 {
+                // 0.0.0.0/0 protection: prefix_len == 0 or unspecified IP matches entire IPv4 space
+                if prefix_len == 0 || prefix_len > 32 || ipv4.is_unspecified() {
                     return None;
                 }
-                let mask = if prefix_len == 0 {
-                    0
-                } else {
-                    !0u32 << (32 - prefix_len)
-                };
+                let mask = !0u32 << (32 - prefix_len);
                 let start = u32::from(ipv4) & mask;
                 let end = start | !mask;
                 return Some(CidrInterval::V4(start, end));
             }
 
             if let Ok(ipv6) = network.parse::<Ipv6Addr>() {
-                if prefix_len > 128 {
+                // ::/0 protection: prefix_len == 0 or unspecified IP matches entire IPv6 space
+                if prefix_len == 0 || prefix_len > 128 || ipv6.is_unspecified() {
                     return None;
                 }
-                let mask = if prefix_len == 0 {
-                    0
-                } else {
-                    !0u128 << (128 - prefix_len)
-                };
+                let mask = !0u128 << (128 - prefix_len);
                 let start = u128::from(ipv6) & mask;
                 let end = start | !mask;
                 return Some(CidrInterval::V6(start, end));
@@ -114,10 +120,16 @@ impl CidrIndex {
 
         match cidr.parse::<IpAddr>().ok()? {
             IpAddr::V4(ipv4) => {
+                if ipv4.is_unspecified() || ipv4.is_broadcast() {
+                    return None;
+                }
                 let value = u32::from(ipv4);
                 Some(CidrInterval::V4(value, value))
             }
             IpAddr::V6(ipv6) => {
+                if ipv6.is_unspecified() {
+                    return None;
+                }
                 let value = u128::from(ipv6);
                 Some(CidrInterval::V6(value, value))
             }

@@ -22,10 +22,14 @@
   <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki">
     <img src="https://img.shields.io/badge/Wiki-Hydra%20Dragon-red?style=for-the-badge&logo=github" alt="Project Wiki" />
   </a>
+  <a href="https://www.youtube.com/watch?v=2ZxJmZ3XTEM&t">
+    <img src="https://img.shields.io/badge/POC-YouTube%20Video-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="POC Video" />
+  </a>
 </p>
 
 <p align="center" style="font-size: 18px; font-weight: bold;">
-  📚 For detailed documentation, architecture diagrams, and component guides, visit our <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki">Project Wiki</a>.
+  📚 For detailed documentation, architecture diagrams, and component guides, visit our <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/wiki">Project Wiki</a>.<br>
+  🎥 <b>POC:</b> <a href="https://www.youtube.com/watch?v=2ZxJmZ3XTEM&t">https://www.youtube.com/watch?v=2ZxJmZ3XTEM&t</a>
 </p>
 
 <p align="center">
@@ -75,6 +79,10 @@ It contains low-level system components and experimental security drivers that r
 > 1. **Manual Deletion**: The antivirus **WILL NOT** stop you from running commands like `rd C: /s /q` or manually deleting your own files. It recognizes that if you (the Administrator) are explicitly deleting something, it is a **real user mistake** rather than a malware intrusion. The system is designed to permit intentional administrative decisions without interference.
 > 2. **Driver/System Misconfiguration**: The software does not protect against manual installation of incompatible drivers or incorrect system settings. A "Inaccessible Boot Device" or other system failures caused by manual registry edits or driver experiments are **NOT** considered malware behavior and are not blocked.
 > 3. **Experimental Nature**: You are responsible for any data loss or system instability caused by using this experimental software. **Always test in a Virtual Machine (VM) first.**
+
+## POC
+
+- 📺 **Proof of Concept (POC) Video**: [https://www.youtube.com/watch?v=2ZxJmZ3XTEM&t](https://www.youtube.com/watch?v=2ZxJmZ3XTEM&t)
 
 ## One Man Project
 
