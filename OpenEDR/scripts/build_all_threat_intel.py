@@ -28,15 +28,12 @@ def clean_item(raw: str, is_ip: bool = False) -> str:
         raw = raw.split("/", 1)[0]
     if ":" in raw and not is_ip:
         raw = raw.split(":", 1)[0]
-    if raw.endswith("."):
+    if raw.ends_with("."):
         raw = raw[:-1]
-    raw = raw.strip()
-    if not is_ip and raw.startswith("www."):
-        raw = raw[4:]
     return raw.strip()
 
 
-def extract_csv_items(filepath: Path, skip_zero: bool = False, is_ip: bool = False) -> set:
+def extract_csv_items(filepath: Path, skip_zero: bool = True, is_ip: bool = False) -> set:
     items = set()
     if not filepath.exists():
         return items
@@ -100,78 +97,86 @@ def main():
     output_dir = Path(sys.argv[2])
     writer_exe = Path(sys.argv[3]) if len(sys.argv) >= 4 else None
 
-    stage_dir = datasets_dir / "stage_txt"
+    stage_dir = output_dir / "stage_txt"
     stage_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=== Processing websitenobloom Datasets (Full Pipeline) ===")
 
-    # Extract Per-Category Threat Datasets
+    # 1. Load Whitelists
+    print("\n--- Loading Whitelists ---")
+    whitelist = set()
+    wl_files = [
+        "WhiteListDomains.optimized.csv",
+        "WhiteListSubDomains.optimized.csv",
+        "WhiteListIPv4.optimized.csv",
+        "WhiteListIPv6.optimized.csv",
+        "DomainsPopularityWhiteList.optimized.csv",
+        "SubDomainsPopularityWhiteList.optimized.csv",
+    ]
+    for wl_file in wl_files:
+        p = datasets_dir / wl_file
+        if p.exists():
+            w_items = extract_csv_items(p, skip_zero=False)
+            whitelist |= w_items
+            print(f"  [WHITELIST] {p.name}: {len(w_items):,} items")
+    print(f"Total Unique Whitelist Entries: {len(whitelist):,}")
+
+    # 2. Extract Per-Category Sets
     print("\n--- Extracting Category Threat Datasets ---")
     categories = {}
 
     # Phishing
     categories["phishing"] = (
-        extract_csv_items(datasets_dir / "PhishingDomains.optimized.csv", skip_zero=False) |
-        extract_csv_items(datasets_dir / "PhishingSubDomains.optimized.csv", skip_zero=False)
-    )
+        extract_csv_items(datasets_dir / "PhishingDomains.optimized.csv") |
+        extract_csv_items(datasets_dir / "PhishingSubDomains.optimized.csv")
+    ) - whitelist
 
-    # Malware (ONLY category where skip_zero=True is applied)
+    # Malware
     categories["malware"] = (
-        extract_csv_items(datasets_dir / "MalwareDomains.optimized.csv", skip_zero=True) |
         extract_csv_items(datasets_dir / "MalwareSubDomains.optimized.csv", skip_zero=True)
-    )
+    ) - whitelist
 
     # Abuse
     categories["abuse"] = (
-        extract_csv_items(datasets_dir / "AbuseDomains.optimized.csv", skip_zero=False) |
-        extract_csv_items(datasets_dir / "AbuseSubDomains.optimized.csv", skip_zero=False)
-    )
+        extract_csv_items(datasets_dir / "AbuseDomains.optimized.csv") |
+        extract_csv_items(datasets_dir / "AbuseSubDomains.optimized.csv")
+    ) - whitelist
 
     # Mining
     categories["mining"] = (
-        extract_csv_items(datasets_dir / "MiningDomains.optimized.csv", skip_zero=False) |
-        extract_csv_items(datasets_dir / "MiningSubDomains.optimized.csv", skip_zero=False)
-    )
+        extract_csv_items(datasets_dir / "MiningDomains.optimized.csv") |
+        extract_csv_items(datasets_dir / "MiningSubDomains.optimized.csv")
+    ) - whitelist
 
     # Spam
     categories["spam"] = (
-        extract_csv_items(datasets_dir / "SpamDomains.optimized.csv", skip_zero=False) |
-        extract_csv_items(datasets_dir / "SpamSubDomains.optimized.csv", skip_zero=False)
-    )
+        extract_csv_items(datasets_dir / "SpamDomains.optimized.csv") |
+        extract_csv_items(datasets_dir / "SpamSubDomains.optimized.csv")
+    ) - whitelist
 
     # Malicious Mail
     categories["malicious_mail"] = (
-        extract_csv_items(datasets_dir / "MaliciousMailDomains.optimized.csv", skip_zero=False) |
-        extract_csv_items(datasets_dir / "MaliciousMailSubDomains.optimized.csv", skip_zero=False)
-    )
+        extract_csv_items(datasets_dir / "MaliciousMailDomains.optimized.csv") |
+        extract_csv_items(datasets_dir / "MaliciousMailSubDomains.optimized.csv")
+    ) - whitelist
 
-    # IP Malware (ONLY malware uses skip_zero=True)
-    categories["ip_malware"] = (
+    # IP Malware & Threats
+    categories["ipmalware"] = (
         extract_csv_items(datasets_dir / "IPv4Malware.optimized.csv", skip_zero=True, is_ip=True) |
-        extract_csv_items(datasets_dir / "IPv6Malware.optimized.csv", skip_zero=True, is_ip=True)
-    )
+        extract_csv_items(datasets_dir / "IPv6Malware.optimized.csv", skip_zero=True, is_ip=True) |
+        extract_csv_items(datasets_dir / "IPv4PhishingActive.optimized.csv", skip_zero=True, is_ip=True) |
+        extract_csv_items(datasets_dir / "IPv4BruteForce.optimized.csv", skip_zero=True, is_ip=True) |
+        extract_csv_items(datasets_dir / "IPv4DDoS.optimized.csv", skip_zero=True, is_ip=True) |
+        extract_csv_items(datasets_dir / "IPv4Spam.optimized.csv", skip_zero=True, is_ip=True) |
+        extract_csv_items(datasets_dir / "IPv6DDoS.optimized.csv", skip_zero=True, is_ip=True) |
+        extract_csv_items(datasets_dir / "IPv6Spam.optimized.csv", skip_zero=True, is_ip=True)
+    ) - whitelist
 
-    # IP Phishing
-    categories["ip_phishing"] = (
-        extract_csv_items(datasets_dir / "IPv4PhishingActive.optimized.csv", skip_zero=False, is_ip=True) |
-        extract_csv_items(datasets_dir / "IPv4PhishingInActive.optimized.csv", skip_zero=False, is_ip=True)
-    )
-
-    # IP Brute Force
-    categories["ip_bruteforce"] = extract_csv_items(datasets_dir / "IPv4BruteForce.optimized.csv", skip_zero=False, is_ip=True)
-
-    # IP DDoS
-    categories["ip_ddos"] = (
-        extract_csv_items(datasets_dir / "IPv4DDoS.optimized.csv", skip_zero=False, is_ip=True) |
-        extract_csv_items(datasets_dir / "IPv6DDoS.optimized.csv", skip_zero=False, is_ip=True)
-    )
-
-    # IP Spam
-    categories["ip_spam"] = (
-        extract_csv_items(datasets_dir / "IPv4Spam.optimized.csv", skip_zero=False, is_ip=True) |
-        extract_csv_items(datasets_dir / "IPv6Spam.optimized.csv", skip_zero=False, is_ip=True)
-    )
+    # Combined Malicious Set
+    combined = set()
+    for cat_name, cat_set in categories.items():
+        combined |= cat_set
 
     # 3. CIDR Subnets
     print("\n--- Processing CIDR Subnets ---")
@@ -191,13 +196,19 @@ def main():
         stage_files[cat_name] = txt_path
         print(f"  {txt_path.name}: {len(items):,} items")
 
+    # Combined malicious.txt
+    comb_path = stage_dir / "malicious.txt"
+    with open(comb_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(sorted(combined)))
+        if combined:
+            f.write("\n")
+    stage_files["malicious"] = comb_path
+    print(f"  malicious.txt (combined): {len(combined):,} items")
+
     # 5. Generate .xf Filters via xorfilter_writer
     if writer_exe and writer_exe.exists():
         print("\n--- Generating BinaryFuse16 (.xf) Filters ---")
         for stem, txt_file in stage_files.items():
-            if not txt_file.exists() or txt_file.stat().st_size == 0:
-                print(f"  [SKIP] {txt_file.name} is empty (0 items), skipping .xf build")
-                continue
             xf_out = output_dir / f"{stem}.xf"
             cmd = [str(writer_exe), str(txt_file), str(xf_out)]
             try:
