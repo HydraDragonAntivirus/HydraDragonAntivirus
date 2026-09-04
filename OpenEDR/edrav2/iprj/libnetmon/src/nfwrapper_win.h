@@ -13,6 +13,8 @@
 #pragma once
 #include <windows.h>
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 
 #include "objects.h"
@@ -49,6 +51,10 @@ private:
 	FnHydraDragonFirewallGetLastErrorMessage m_fnFirewallGetLastErrorMessage = nullptr;
 	std::atomic_bool m_fStarted = false;
 	std::atomic_bool m_fStopRequested = false;
+	std::atomic<HANDLE> m_hCurrentPipe = INVALID_HANDLE_VALUE;
+	mutable std::mutex m_mutex;
+	std::condition_variable m_cvReady;
+	bool m_fPipeReady = false;
 	std::thread m_pListenerThread;
 	std::atomic_uint64_t m_nConnectionId = 1;
 

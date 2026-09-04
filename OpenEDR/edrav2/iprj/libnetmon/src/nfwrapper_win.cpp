@@ -15,6 +15,8 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <algorithm>
+#include <cctype>
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "netmon"
@@ -244,16 +246,37 @@ void NetFilterWrapper::stopFirewallBridge()
 
 void NetFilterWrapper::wakeListener() const
 {
-	auto hPipe = ::CreateFileW(
-		m_sPipeName.c_str(),
-		GENERIC_WRITE,
-		0,
-		nullptr,
-		OPEN_EXISTING,
-		0,
-		nullptr);
+	// 1. Cancel pending I/O on the active server pipe handle if any
+	HANDLE hPipe = m_hCurrentPipe.load(std::memory_order_acquire);
 	if (hPipe != INVALID_HANDLE_VALUE)
-		::CloseHandle(hPipe);
+	{
+		::CancelIoEx(hPipe, nullptr);
+	}
+
+	// 2. Also cancel synchronous I/O on the listener thread directly
+	if (m_pListenerThread.joinable())
+	{
+		::CancelSynchronousIo(const_cast<NetFilterWrapper*>(this)->m_pListenerThread.native_handle());
+	}
+
+	// 3. Connect to the pipe server to unblock ConnectNamedPipe if it is waiting
+	for (int i = 0; i < 8; ++i)
+	{
+		auto hWake = ::CreateFileW(
+			m_sPipeName.c_str(),
+			GENERIC_WRITE,
+			0,
+			nullptr,
+			OPEN_EXISTING,
+			0,
+			nullptr);
+		if (hWake != INVALID_HANDLE_VALUE)
+		{
+			::CloseHandle(hWake);
+			break;
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds(25));
+	}
 }
 
 void NetFilterWrapper::dispatchConnection(std::shared_ptr<ConnectionInfo> pInfo)
@@ -267,18 +290,94 @@ void NetFilterWrapper::dispatchConnection(std::shared_ptr<ConnectionInfo> pInfo)
 void NetFilterWrapper::processNetEventLine(const std::string& sPayload)
 {
 	const auto nFirstSep = sPayload.find(':');
-	const auto nLastSep = sPayload.rfind(':');
-	if (nFirstSep == std::string::npos || nLastSep == std::string::npos || nFirstSep == nLastSep)
+	if (nFirstSep == std::string::npos)
 	{
-		LOGWRN("Invalid HydraNetEvent NET_EVENT payload <" << sPayload << ">");
+		LOGWRN("Invalid HydraNetEvent NET_EVENT payload (missing PID delimiter) <" << sPayload << ">");
 		return;
 	}
 
 	try
 	{
 		const auto nPid = static_cast<uint32_t>(std::stoul(sPayload.substr(0, nFirstSep)));
-		const auto sRemoteIp = sPayload.substr(nFirstSep + 1, nLastSep - nFirstSep - 1);
-		const auto nRemotePort = static_cast<uint16_t>(std::stoul(sPayload.substr(nLastSep + 1)));
+		auto sRest = sPayload.substr(nFirstSep + 1);
+		boost::algorithm::trim(sRest);
+		if (sRest.empty())
+		{
+			LOGWRN("Invalid HydraNetEvent NET_EVENT payload (empty endpoint) <" << sPayload << ">");
+			return;
+		}
+
+		std::string sRemoteIp;
+		uint16_t nRemotePort = 0;
+
+		if (sRest.front() == '[')
+		{
+			// Bracketed IPv6: [2001:db8::1]:443 or [fe80::1%12]:80 or [::1]
+			const auto nBracketClose = sRest.find(']');
+			if (nBracketClose != std::string::npos)
+			{
+				sRemoteIp = sRest.substr(1, nBracketClose - 1);
+				if (nBracketClose + 1 < sRest.size() && sRest[nBracketClose + 1] == ':')
+				{
+					const auto sPortCandidate = sRest.substr(nBracketClose + 2);
+					if (!sPortCandidate.empty())
+						nRemotePort = static_cast<uint16_t>(std::stoul(sPortCandidate));
+				}
+			}
+			else
+			{
+				sRemoteIp = sRest;
+			}
+		}
+		else
+		{
+			// Unbracketed IPv4 (8.8.8.8:443) or IPv6 (2001:db8::1:443)
+			const auto nLastSep = sRest.rfind(':');
+			if (nLastSep != std::string::npos)
+			{
+				const auto sPortCandidate = sRest.substr(nLastSep + 1);
+				bool fIsNumericPort = !sPortCandidate.empty() &&
+					std::all_of(sPortCandidate.begin(), sPortCandidate.end(), [](unsigned char c) { return ::isdigit(c); });
+
+				if (fIsNumericPort)
+				{
+					try
+					{
+						const unsigned long ulPort = std::stoul(sPortCandidate);
+						if (ulPort <= 65535)
+						{
+							nRemotePort = static_cast<uint16_t>(ulPort);
+							sRemoteIp = sRest.substr(0, nLastSep);
+						}
+						else
+						{
+							sRemoteIp = sRest;
+						}
+					}
+					catch (...)
+					{
+						sRemoteIp = sRest;
+					}
+				}
+				else
+				{
+					sRemoteIp = sRest;
+				}
+			}
+			else
+			{
+				sRemoteIp = sRest;
+			}
+		}
+
+		// Strip surrounding brackets if any remain and trim whitespace
+		boost::algorithm::trim(sRemoteIp);
+		if (sRemoteIp.size() >= 2 && sRemoteIp.front() == '[' && sRemoteIp.back() == ']')
+		{
+			sRemoteIp = sRemoteIp.substr(1, sRemoteIp.size() - 2);
+			boost::algorithm::trim(sRemoteIp);
+		}
+
 		const auto sLocalIp = detectAddressFamily(sRemoteIp) == AddressFamily::Inet6 ? "::" : "0.0.0.0";
 
 		auto pInfo = createConnectionInfo(
@@ -341,6 +440,9 @@ void NetFilterWrapper::processFullPacketLine(const std::string& sPayload)
 
 void NetFilterWrapper::processHttpBodyLine(const std::string& sPayload)
 {
+	// Forward HTTP_BODY telemetry to Owlyshield via in-process FFI channel
+	forwardRawTelemetryToOwlyshield("HTTP_BODY:" + sPayload);
+
 	try
 	{
 		// Format: hash|method|url||hex_data
@@ -379,6 +481,7 @@ void NetFilterWrapper::processLine(const std::string& sLine)
 {
 	if (boost::algorithm::starts_with(sLine, "NET_EVENT:"))
 	{
+		forwardRawTelemetryToOwlyshield(sLine);
 		processNetEventLine(sLine.substr(std::strlen("NET_EVENT:")));
 		return;
 	}
@@ -399,12 +502,17 @@ void NetFilterWrapper::processLine(const std::string& sLine)
 		boost::algorithm::starts_with(sLine, "TCP_DATA:") ||
 		boost::algorithm::starts_with(sLine, "DOMAIN_NAME:"))
 	{
-		// Suppress warnings for known but currently unhandled types
+		// Forward TLS/TCP/DNS telemetry to Owlyshield behavior engine
+		forwardRawTelemetryToOwlyshield(sLine);
 		return;
 	}
 
 	if (boost::algorithm::starts_with(sLine, "BLOCK_EXE:"))
+	{
+		// Forward firewall block events to Owlyshield behavior engine
+		forwardRawTelemetryToOwlyshield(sLine);
 		return;
+	}
 
 	// HIPS user decision from the GUI (edrgui). Forward the full line to
 	// Owlyshield via the in-process FFI channel so the behavior engine can
@@ -420,6 +528,8 @@ void NetFilterWrapper::processLine(const std::string& sLine)
 
 void NetFilterWrapper::listenLoop()
 {
+	bool fFirstInstance = true;
+
 	while (!m_fStopRequested)
 	{
 		auto hPipe = ::CreateNamedPipeW(
@@ -435,13 +545,33 @@ void NetFilterWrapper::listenLoop()
 		if (hPipe == INVALID_HANDLE_VALUE)
 		{
 			LOGWRN("Failed to create HydraNetEvent pipe server <" << std::string(string::convertWCharToUtf8(m_sPipeName)) << ">");
+			if (fFirstInstance)
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+				m_fPipeReady = true;
+				m_cvReady.notify_all();
+				fFirstInstance = false;
+			}
 			std::this_thread::sleep_for(std::chrono::milliseconds(250));
 			continue;
 		}
 
-		const BOOL fConnected = ::ConnectNamedPipe(hPipe, nullptr) ? TRUE : (::GetLastError() == ERROR_PIPE_CONNECTED);
-		if (!fConnected)
+		m_hCurrentPipe.store(hPipe, std::memory_order_release);
+
+		if (fFirstInstance)
 		{
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+				m_fPipeReady = true;
+			}
+			m_cvReady.notify_all();
+			fFirstInstance = false;
+		}
+
+		const BOOL fConnected = ::ConnectNamedPipe(hPipe, nullptr) ? TRUE : (::GetLastError() == ERROR_PIPE_CONNECTED);
+		if (!fConnected || m_fStopRequested)
+		{
+			m_hCurrentPipe.store(INVALID_HANDLE_VALUE, std::memory_order_release);
 			::CloseHandle(hPipe);
 			if (!m_fStopRequested)
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -473,6 +603,7 @@ void NetFilterWrapper::listenLoop()
 			}
 		}
 
+		m_hCurrentPipe.store(INVALID_HANDLE_VALUE, std::memory_order_release);
 		::DisconnectNamedPipe(hPipe);
 		::CloseHandle(hPipe);
 	}
@@ -484,6 +615,11 @@ void NetFilterWrapper::start()
 		return;
 
 	m_fStopRequested = false;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_fPipeReady = false;
+	}
+
 	m_pListenerThread = std::thread([this]()
 	{
 		CMD_TRY
@@ -501,6 +637,14 @@ void NetFilterWrapper::start()
 		}
 	});
 
+	// Wait for listener thread to open the named pipe before starting the firewall engine
+	{
+		std::unique_lock<std::mutex> lock(m_mutex);
+		m_cvReady.wait_for(lock, std::chrono::seconds(5), [this] {
+			return m_fPipeReady || m_fStopRequested.load();
+		});
+	}
+
 	startFirewallBridge();
 }
 
@@ -514,6 +658,11 @@ void NetFilterWrapper::stop()
 	wakeListener();
 	if (m_pListenerThread.joinable())
 		m_pListenerThread.join();
+
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_fPipeReady = false;
+	}
 }
 
 void NetFilterWrapper::shutdown()
