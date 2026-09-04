@@ -583,13 +583,39 @@ async fn handle_proxy_request(
         }
     });
 
-    // NOTE (working-internet fix, matches hydradragonfirewall-gui/src/proxy.rs):
-    // No direct-IP CIDR fast-block here. The old working proxy has no such
-    // check — CIDR is enforced at the packet layer in engine.rs. Blocking
-    // direct-IP hosts in the TLS proxy 403s CDN/DoH/Microsoft edge IPs
-    // (e.g. 150.171.x.x, 20.184.x.x, 64.7.118.x, 104.18.x.x) and breaks
-    // normal browsing. Keep the param for API compat but do not enforce.
-    let _ = &web_filter;
+    // CIDR feeds the RuleAction::Block channel below (unified stop path).
+    let clean_host = if host.starts_with('[') {
+        if let Some(end) = host.find(']') {
+            &host[1..end]
+        } else {
+            &host
+        }
+    } else if let Some(idx) = host.find(':') {
+        &host[..idx]
+    } else {
+        &host
+    }
+    .trim();
+
+    let cidr_hit = if let Ok(ip) = clean_host.parse::<IpAddr>() {
+        if web_filter.is_blocked_ip(ip) {
+            let ts = now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-attack", ts),
+                timestamp: ts,
+                level: LogLevel::Warning,
+                message: format!(
+                    "Attack detected by [CIDRBlacklist]: {} (Listed CIDR: {})",
+                    host, ip
+                ),
+            });
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
 
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
     let path = path_and_query.to_string();
@@ -711,10 +737,27 @@ async fn handle_proxy_request(
     let (blocked, req_body_override) = {
         let sdk_guard = sdk.read().unwrap();
         let first_match = sdk_guard.evaluate_first_match(&mock_packet, &[], false);
+        // CIDR hits enter as a synthetic RuleAction::Block finding so the
+        // stop below goes through the Block arm, not a separate raw return.
+        let cidr_finding = cidr_hit.then(|| super::sdk::RuleMatchResult {
+            rule_name: "CIDRBlacklist".to_string(),
+            action: RuleAction::Block,
+            description: format!("Listed CIDR host: {}", host),
+            severity: Some("high".to_string()),
+            change_data: None,
+            change_request_body: None,
+            change_response_body: None,
+            is_private_rule_match: false,
+            detected_subdomain: None,
+            detected_domain: None,
+            used_public_suffix_list: false,
+            matched_private_rules: Vec::new(),
+        });
+        let effective_match = first_match.or(cidr_finding);
         let mut b = false;
         let mut override_body: Option<String> = None;
 
-        if let Some(finding) = first_match {
+        if let Some(finding) = effective_match {
             match finding.action {
                 RuleAction::Block => {
                     b = true;
