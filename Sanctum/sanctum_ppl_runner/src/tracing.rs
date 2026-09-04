@@ -1,6 +1,8 @@
 //! This module is dedicated to tracing via ETW from a PPL security context.
 
-use std::ptr::copy_nonoverlapping;
+use std::{collections::VecDeque, ptr::copy_nonoverlapping, sync::Mutex};
+
+static RECENT_PIDS: Mutex<VecDeque<(u32, String)>> = Mutex::new(VecDeque::new());
 
 use crate::{
     ipc::send_etw_info_ipc,
@@ -683,10 +685,36 @@ fn register_ti_session() {
         stop_trace(handle, session_name, properties);
     } else {
         event_log(
-            "ETW:TI trace unblocked unexpectedly (external stop detected). Watchdog reviving trace...",
+            "ETW:TI trace unblocked unexpectedly (external stop detected). Investigating and neutralizing tamperer...",
             EVENTLOG_ERROR_TYPE,
             EventID::GeneralError,
         );
+
+        // Identify the culprit from recent active processes
+        let candidates: Vec<(u32, String)> = {
+            if let Ok(lock) = RECENT_PIDS.lock() {
+                lock.iter().cloned().collect()
+            } else {
+                Vec::new()
+            }
+        };
+
+        for (cand_pid, cand_path) in candidates.into_iter().rev() {
+            if !cand_path.is_empty() {
+                event_log(
+                    &format!(
+                        "Tampering detected. Reporting candidate to OpenEDR: PID {} ({})",
+                        cand_pid, cand_path
+                    ),
+                    EVENTLOG_INFORMATION_TYPE,
+                    EventID::Info,
+                );
+                // OpenEDR evaluates cloud verdict, digital signatures, and executes kill if untrusted
+                crate::ipc::report_tamper_attempt(cand_pid, &cand_path);
+                break;
+            }
+        }
+
         let _ = unsafe { StopTraceW(handle, session_name, properties) };
     }
 }
@@ -781,6 +809,17 @@ unsafe extern "system" fn trace_callback(record: *mut EVENT_RECORD) {
             Err(_) => return,
         }
     };
+
+    if pid != 0 && pid != 4 && pid != std::process::id() {
+        if let Ok(mut lock) = RECENT_PIDS.lock() {
+            if !lock.iter().any(|(p, _)| *p == pid) {
+                if lock.len() >= 64 {
+                    lock.pop_front();
+                }
+                lock.push_back((pid, process_image.clone()));
+            }
+        }
+    }
 
     if event_header.ProviderId == ETW_TI_GUID {
         let target_pid = unsafe { extract_u32_property(record, "TargetProcessId") }
