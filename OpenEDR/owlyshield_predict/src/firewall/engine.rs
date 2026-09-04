@@ -1250,7 +1250,11 @@ impl AppManager {
 /// so the client's TCP stack accepts them.
 #[derive(Clone)]
 pub struct TransparentNatTable {
-    inner: Arc<std::sync::RwLock<HashMap<u16, (IpAddr, u16, IpAddr)>>>,
+    // (orig_server_ip, orig_port, orig_client_ip, orig_if_index, orig_sub_if_index)
+    // Interface indexes are stored so reinjected packets go out on the same
+    // interface they arrived on; otherwise the stack drops them as martians
+    // ("Bad source address").
+    inner: Arc<std::sync::RwLock<HashMap<u16, (IpAddr, u16, IpAddr, u32, u32)>>>,
 }
 
 impl TransparentNatTable {
@@ -1260,14 +1264,14 @@ impl TransparentNatTable {
         }
     }
 
-    pub fn insert(&self, client_src_port: u16, original_dst: (IpAddr, u16, IpAddr)) {
+    pub fn insert(&self, client_src_port: u16, original_dst: (IpAddr, u16, IpAddr, u32, u32)) {
         self.inner
             .write()
             .unwrap()
             .insert(client_src_port, original_dst);
     }
 
-    pub fn get(&self, client_src_port: u16) -> Option<(IpAddr, u16, IpAddr)> {
+    pub fn get(&self, client_src_port: u16) -> Option<(IpAddr, u16, IpAddr, u32, u32)> {
         self.inner.read().unwrap().get(&client_src_port).copied()
     }
 
@@ -3029,6 +3033,12 @@ impl FirewallEngine {
                                         let mut recalc_checksums = decision.recalc_checksums;
                                         let mut loopback_flag = None;
                                         let mut outbound_flag = None;
+                                        // Interface override for reinjection: loopback-bound
+                                        // packets must egress on the loopback interface (1),
+                                        // rewritten return packets on their original ingress
+                                        // interface — else the stack drops them ("Bad source
+                                        // address"). None = keep the captured interface.
+                                        let mut ifidx_override: Option<(u32, u32)> = None;
 
                                         let tls_proxy_cfg =
                                             settings_w.read().unwrap().tls_proxy.clone();
@@ -3065,7 +3075,7 @@ impl FirewallEngine {
                                                     && src_port == tls_proxy_cfg.listen_port;
 
                                                 if proxy_return_flow {
-                                                    if let Some((orig_ip, orig_port, orig_src)) =
+                                                    if let Some((orig_ip, orig_port, orig_src, orig_ifidx, orig_subifidx)) =
                                                         nat_table_w.get(dst_port)
                                                     {
                                                         let ok = match orig_ip {
@@ -3114,6 +3124,9 @@ impl FirewallEngine {
                                                             recalc_checksums = true;
                                                             loopback_flag = Some(false);
                                                             outbound_flag = Some(false);
+                                                            // Return to the original ingress interface so the
+                                                            // public-IP packet is not seen arriving on loopback.
+                                                            ifidx_override = Some((orig_ifidx, orig_subifidx));
                                                             if tcp_is_fin_or_rst(&packet_data) {
                                                                 nat_table_w.remove(dst_port);
                                                             }
@@ -3133,7 +3146,13 @@ impl FirewallEngine {
                                                         {
                                                             nat_table_w.insert(
                                                                 src_port,
-                                                                (orig_dst, 443, orig_src),
+                                                                (
+                                                                    orig_dst,
+                                                                    443,
+                                                                    orig_src,
+                                                                    packet.address.interface_index(),
+                                                                    packet.address.subinterface_index(),
+                                                                ),
                                                             );
                                                             let ok = match orig_dst {
                                                                 IpAddr::V4(_v4) => {
@@ -3168,6 +3187,10 @@ impl FirewallEngine {
                                                                 loopback_flag = Some(true);
                                                                 // Local listeners only receive inbound packets; must clear outbound flag
                                                                 outbound_flag = Some(false);
+                                                                // Loopback-bound packets must egress on the loopback
+                                                                // interface (1); arriving on the physical NIC's
+                                                                // ifindex the stack drops them ("Bad source address").
+                                                                ifidx_override = Some((1, 0));
                                                                 if tcp_is_fin_or_rst(&packet_data) {
                                                                     nat_table_w.remove(src_port);
                                                                 }
@@ -3186,6 +3209,10 @@ impl FirewallEngine {
                                         }
                                         if let Some(val) = outbound_flag {
                                             reinject_address.as_mut().set_outbound(val);
+                                        }
+                                        if let Some((ifidx, subifidx)) = ifidx_override {
+                                            reinject_address.set_interface_index(ifidx);
+                                            reinject_address.set_subinterface_index(subifidx);
                                         }
                                         let mut reinject_packet = windivert::packet::WinDivertPacket {
                                             address: reinject_address,
