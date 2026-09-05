@@ -5376,8 +5376,8 @@
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "registryDeleteTarget", "value": "@event.registry.abstractPath" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
-						{ "name": "should_trust_company_whitelist", "value": false },
-						{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						{ "name": "should_trust_company_whitelist", "value": true },
+						{ "name": "should_trust_comodo_fls_cloud", "value": true }
 					]
 				}
 			}
