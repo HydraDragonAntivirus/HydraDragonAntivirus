@@ -34,13 +34,23 @@ pub extern "system" fn HydraDragonFirewall_Start() -> i32 {
             .as_millis() as u64
     }
 
-    // Forced start on every launch: tear down any previous instance first,
-    // no liveness checks. A previous engine (healthy or zombie) never blocks
-    // a fresh start.
-    let was_started = super::headless::engine()
-        .map(|e| e.is_started())
-        .unwrap_or(false);
-    super::headless::unregister_and_stop();
+    // Single-start rule: nfwrapper must start owlyshield once, then the
+    // firewall with it — never twice. A healthy registered engine is left
+    // alone (tearing it down per call flaps traffic); only a zombie
+    // (registered but never started) is cleared for a fresh start.
+    if let Some(engine) = super::headless::engine() {
+        if engine.is_started() {
+            clear_last_error();
+            return 1;
+        }
+        emit_log_event(LogEntry {
+            id: format!("{}-startup-zombie", now_ms()),
+            timestamp: now_ms(),
+            level: LogLevel::Warning,
+            message: "Firewall engine was registered but never started; clearing zombie and starting fresh.".to_string(),
+        });
+        super::headless::unregister_and_stop();
+    }
 
     let engine = Arc::new(FirewallEngine::new());
     if !super::headless::register(Arc::clone(&engine)) {
@@ -53,10 +63,7 @@ pub extern "system" fn HydraDragonFirewall_Start() -> i32 {
         id: "startup-0".to_string(),
         timestamp: now_ms(),
         level: LogLevel::Info,
-        message: format!(
-            "--- HydraDragon Firewall Starting (in-process, previous started={}) ---",
-            was_started
-        ),
+        message: "--- HydraDragon Firewall Starting (in-process) ---".to_string(),
     });
 
     // Never let a start() panic cross the FFI boundary (process abort) or
