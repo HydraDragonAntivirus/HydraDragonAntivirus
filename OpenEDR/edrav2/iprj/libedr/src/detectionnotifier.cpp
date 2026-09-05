@@ -379,6 +379,109 @@ bool DetectionNotifier::isDetectionEvent(const Variant& vEvent)
 }
 
 //
+// Second-layer PUA or Malware registry cleanup (backstop for cases where
+// revert_registry missed the key). Driven solely by the PTM
+// "registryDeleteTarget" event field (abstractPath form produced by the
+// event enricher, e.g. "%hklm%\software\gameo").
+//
+// Safety: never acts without that field; never deletes a hive root
+// (empty subkey is refused); ERROR_FILE_NOT_FOUND counts as success
+// (the key is already gone — exactly the backstop semantic).
+//
+static std::string toLowerAsciiLocal(const std::string& s)
+{
+	std::string out(s);
+	for (std::string::iterator it = out.begin(); it != out.end(); ++it)
+		*it = static_cast<char>(std::tolower(static_cast<unsigned char>(*it)));
+	return out;
+}
+
+static std::wstring widenUtf8Local(const std::string& s)
+{
+	if (s.empty())
+		return std::wstring();
+	const int need = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, NULL, 0);
+	if (need <= 0)
+		return std::wstring();
+	std::wstring out(static_cast<size_t>(need) - 1, L'\0');
+	::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &out[0], need);
+	return out;
+}
+
+static bool splitRegDeleteTarget(const std::string& sTarget, HKEY& hRoot, std::wstring& sSubKey)
+{
+	hRoot = nullptr;
+	sSubKey.clear();
+
+	std::string sLow = toLowerAsciiLocal(sTarget);
+	// Trim surrounding whitespace.
+	const char* ws = " \t\r\n";
+	const std::string::size_type b = sLow.find_first_not_of(ws);
+	if (b == std::string::npos)
+		return false;
+	const std::string::size_type e = sLow.find_last_not_of(ws);
+	const std::string s = sLow.substr(b, e - b + 1);
+
+	struct PrefixMap { const char* prefix; HKEY root; };
+	static const PrefixMap maps[] = {
+		{ "%hklm%\\", HKEY_LOCAL_MACHINE },
+		{ "%hkcu%\\", HKEY_CURRENT_USER },
+		{ "hkey_local_machine\\", HKEY_LOCAL_MACHINE },
+		{ "hkey_current_user\\", HKEY_CURRENT_USER },
+		{ "hkey_classes_root\\", HKEY_CLASSES_ROOT },
+		{ "hkey_users\\", HKEY_USERS },
+		{ "hkey_current_config\\", HKEY_CURRENT_CONFIG },
+		{ "\\registry\\machine\\", HKEY_LOCAL_MACHINE },
+		{ "\\registry\\user\\", HKEY_USERS },
+	};
+
+	std::string sRest;
+	for (size_t i = 0; i < sizeof(maps) / sizeof(maps[0]); ++i)
+	{
+		const std::string pre(maps[i].prefix);
+		if (s.compare(0, pre.size(), pre) == 0)
+		{
+			hRoot = maps[i].root;
+			sRest = sTarget.substr(b + pre.size());
+			break;
+		}
+	}
+	if (hRoot == nullptr)
+		return false;
+
+	// Never allow deleting a hive root itself.
+	std::string::size_type nb = sRest.find_first_not_of("\\");
+	if (nb == std::string::npos)
+		return false;
+	sSubKey = widenUtf8Local(sRest.substr(nb));
+	return !sSubKey.empty();
+}
+
+static bool deleteRegistryTreeKey(const std::string& sTarget)
+{
+	HKEY hRoot = nullptr;
+	std::wstring sSubKey;
+	if (!splitRegDeleteTarget(sTarget, hRoot, sSubKey))
+	{
+		LOGLVL(Critical, FMT("detnotif: refusing registry delete of unmapped/empty target <" << sTarget << ">"));
+		return false;
+	}
+	const LSTATUS st = ::RegDeleteTreeW(hRoot, sSubKey.c_str());
+	if (st == ERROR_SUCCESS)
+	{
+		LOGLVL(Critical, FMT("detnotif: deleted PUA or Malware registry key <" << sTarget << ">"));
+		return true;
+	}
+	if (st == ERROR_FILE_NOT_FOUND)
+	{
+		LOGLVL(Critical, FMT("detnotif: PUA or Malware registry key already gone (revert_registry handled it) <" << sTarget << ">"));
+		return true;
+	}
+	LOGLVL(Critical, FMT("detnotif: FAILED to delete PUA or Malware registry key <" << sTarget << "> err=" << st));
+	return false;
+}
+
+//
 //
 //
 Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
@@ -767,7 +870,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						wsPath.assign(sPathForSig.begin(), sPathForSig.end());
 					}
 
-					// 1. Check if the signer belongs to known malicious or PUA vendors
+					// 1. Check if the signer belongs to known malicious or PUA or Malware vendors
 					typedef int32_t (*IsMaliciousSignerFn)(const wchar_t*, uint32_t);
 					auto fnCheckMalicious = (IsMaliciousSignerFn)::GetProcAddress(hOwly, "owlyshield_is_malicious_company_signer");
 					if (fnCheckMalicious && fnCheckMalicious(wsPath.c_str(), static_cast<uint32_t>(wsPath.length())) == 1)
@@ -858,13 +961,29 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							
 						::CloseHandle(hDev);
 					}
-					else
-					{
-						LOGLVL(Critical, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
-					}
+				else
+				{
+					LOGLVL(Critical, FMT("detnotif: Could not open edrdrv IOCTL device to kill GID=" << nGid));
 				}
+			}
 
-				// Restore victim files & delete encrypted ransomware artifacts
+			// 1b. Second-layer PUA or Malware registry cleanup: delete the offending key
+			// when revert_registry missed it. Driven solely by the PTM
+			// "registryDeleteTarget" event field; independent of file quarantine.
+			// Skipped for trusted verdicts (nVerdict == 1), mirroring the
+			// quarantine trust gate above.
+			if (nVerdict != 1 && vEvent.has("registryDeleteTarget"))
+			{
+				try
+				{
+					const std::string sRegTarget = std::string(vEvent["registryDeleteTarget"]);
+					if (!sRegTarget.empty() && sRegTarget != "<undefined>" && sRegTarget != "null")
+						deleteRegistryTreeKey(sRegTarget);
+				}
+				catch (...) {}
+			}
+
+			// Restore victim files & delete encrypted ransomware artifacts
 				// Use the LEAF process PID (actual malicious actor) for rollback.
 				// Prefer: processes[-1] > childProcess > process  (same priority as GID resolution above)
 				int64_t nShieldPid = 0;
