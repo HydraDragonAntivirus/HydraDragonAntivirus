@@ -927,14 +927,24 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			sTitle += (sTitle.empty() ? "" : ": ") + sPath;
 
 		// Surface the flagged registry key itself (virus/PUA persistence):
-		// operators must see WHICH key, not just which process.
-		if (vEvent.has("registryDeleteTarget"))
+		// operators must see WHICH key, not just which process. Falls back
+		// to the raw path when abstractPath is empty.
+		if (vEvent.has("registryDeleteTarget") || vEvent.has("registryDeleteTargetRaw"))
 		{
 			try
 			{
-				const std::string sRegTarget = std::string(vEvent["registryDeleteTarget"]);
-				if (!sRegTarget.empty() && sRegTarget != "<undefined>" && sRegTarget != "null")
-					sTitle += (sTitle.empty() ? "" : " | reg: ") + sRegTarget;
+				std::string sRegTitle;
+				if (vEvent.has("registryDeleteTarget"))
+					sRegTitle = std::string(vEvent["registryDeleteTarget"]);
+				if ((sRegTitle.empty() || sRegTitle == "<undefined>" || sRegTitle == "null")
+					&& vEvent.has("registryDeleteTargetRaw"))
+				{
+					const std::string sRawTitle = std::string(vEvent["registryDeleteTargetRaw"]);
+					if (!sRawTitle.empty() && sRawTitle != "<undefined>" && sRawTitle != "null")
+						sRegTitle = sRawTitle;
+				}
+				if (!sRegTitle.empty() && sRegTitle != "<undefined>" && sRegTitle != "null")
+					sTitle += (sTitle.empty() ? "" : " | reg: ") + sRegTitle;
 			}
 			catch (...) {}
 		}
@@ -981,15 +991,24 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			}
 
 			// 1b. Second-layer PUA or Malware registry cleanup: delete the offending key
-			// when revert_registry missed it. Driven solely by the PTM
-			// "registryDeleteTarget" event field; independent of file quarantine.
-			// Skipped for trusted verdicts (nVerdict == 1), mirroring the
-			// quarantine trust gate above.
-			if (nVerdict != 1 && vEvent.has("registryDeleteTarget"))
+			// when revert_registry missed it. Driven by the PTM
+			// "registryDeleteTarget" event field, falling back to
+			// "registryDeleteTargetRaw" when abstractPath is empty;
+			// independent of file quarantine.
+			if (vEvent.has("registryDeleteTarget") || vEvent.has("registryDeleteTargetRaw"))
 			{
 				try
 				{
-					const std::string sRegTarget = std::string(vEvent["registryDeleteTarget"]);
+					std::string sRegTarget;
+					if (vEvent.has("registryDeleteTarget"))
+						sRegTarget = std::string(vEvent["registryDeleteTarget"]);
+					if ((sRegTarget.empty() || sRegTarget == "<undefined>" || sRegTarget == "null")
+						&& vEvent.has("registryDeleteTargetRaw"))
+					{
+						const std::string sRaw = std::string(vEvent["registryDeleteTargetRaw"]);
+						if (!sRaw.empty() && sRaw != "<undefined>" && sRaw != "null")
+							sRegTarget = sRaw;
+					}
 					if (!sRegTarget.empty() && sRegTarget != "<undefined>" && sRegTarget != "null")
 						deleteRegistryTreeKey(sRegTarget);
 				}
