@@ -923,11 +923,24 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			if (!sPath.empty())
 				vEvent.put("quarantineTarget", sPath);
 
-			if (!sPath.empty())
-				sTitle += (sTitle.empty() ? "" : ": ") + sPath;
+		if (!sPath.empty())
+			sTitle += (sTitle.empty() ? "" : ": ") + sPath;
 
-			if (!sTitle.empty())
-				vEvent.put("title", sTitle);
+		// Surface the flagged registry key itself (virus/PUA persistence):
+		// operators must see WHICH key, not just which process.
+		if (vEvent.has("registryDeleteTarget"))
+		{
+			try
+			{
+				const std::string sRegTarget = std::string(vEvent["registryDeleteTarget"]);
+				if (!sRegTarget.empty() && sRegTarget != "<undefined>" && sRegTarget != "null")
+					sTitle += (sTitle.empty() ? "" : " | reg: ") + sRegTarget;
+			}
+			catch (...) {}
+		}
+
+		if (!sTitle.empty())
+			vEvent.put("title", sTitle);
 			
 			if (!s_fProtectionPaused.load())
 			{

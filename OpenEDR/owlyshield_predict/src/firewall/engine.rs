@@ -1475,6 +1475,9 @@ pub struct FirewallEngine {
     pub hydranet_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>,
     /// Transparent NAT table for WinDivert-based TLS proxy redirection.
     pub nat_table: TransparentNatTable,
+    /// Set once start() has spawned workers and kicked the proxy runtime.
+    /// Lets Start distinguish a live engine from a zombie registration.
+    started: AtomicBool,
 }
 
 // RADICAL REFACTOR: Wrapper to make WinDivert Send + Sync (Safe for WinDivert handles)
@@ -1552,7 +1555,13 @@ impl FirewallEngine {
             flow_divert_handle,
             hydranet_tx,
             nat_table,
+            started: AtomicBool::new(false),
         }
+    }
+
+    /// True once start() has spawned workers and kicked the proxy runtime.
+    pub(crate) fn is_started(&self) -> bool {
+        self.started.load(Ordering::SeqCst)
     }
 
     pub fn load_persisted_decisions() -> HashMap<String, AppDecision> {
@@ -3357,6 +3366,9 @@ impl FirewallEngine {
         }
 
         self.sync_proxy_runtime();
+        // Mark started LAST: a registered-but-unstarted engine is a zombie
+        // that blocks future Start calls, so this flag is the liveness proof.
+        self.started.store(true, Ordering::SeqCst);
     }
 
     fn process_packet_decision(

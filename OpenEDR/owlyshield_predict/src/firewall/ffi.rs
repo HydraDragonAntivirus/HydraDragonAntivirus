@@ -27,30 +27,59 @@ pub extern "system" fn HydraDragonFirewall_IsRunning() -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn HydraDragonFirewall_Start() -> i32 {
-    if super::headless::engine().is_some() {
-        clear_last_error();
-        return 1;
+    fn now_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
     }
+
+    // Forced start on every launch: tear down any previous instance first,
+    // no liveness checks. A previous engine (healthy or zombie) never blocks
+    // a fresh start.
+    let was_started = super::headless::engine()
+        .map(|e| e.is_started())
+        .unwrap_or(false);
+    super::headless::unregister_and_stop();
 
     let engine = Arc::new(FirewallEngine::new());
     if !super::headless::register(Arc::clone(&engine)) {
+        // Lost a race with a concurrent starter; the winner owns startup now.
         set_last_error("Firewall engine is already registered");
         return 0;
     }
 
     emit_log_event(LogEntry {
         id: "startup-0".to_string(),
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64,
+        timestamp: now_ms(),
         level: LogLevel::Info,
-        message: "--- HydraDragon Firewall Starting (in-process) ---".to_string(),
+        message: format!(
+            "--- HydraDragon Firewall Starting (in-process, previous started={}) ---",
+            was_started
+        ),
     });
 
-    engine.start();
-    clear_last_error();
-    1
+    // Never let a start() panic cross the FFI boundary (process abort) or
+    // leave a zombie registration behind: clean up and report instead.
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        engine.start();
+    })) {
+        Ok(()) => {
+            clear_last_error();
+            1
+        }
+        Err(_) => {
+            super::headless::unregister_and_stop();
+            set_last_error("Firewall engine start panicked; registry cleared, retry allowed");
+            emit_log_event(LogEntry {
+                id: format!("{}-startup-panic", now_ms()),
+                timestamp: now_ms(),
+                level: LogLevel::Error,
+                message: "Firewall engine start panicked; registry cleared.".to_string(),
+            });
+            0
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
