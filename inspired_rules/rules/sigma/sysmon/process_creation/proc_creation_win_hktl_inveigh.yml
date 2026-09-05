@@ -1,0 +1,41 @@
+title: HackTool - Inveigh Execution
+id: d4776263-7100-4668-469c-ece024599068
+related:
+    - id: b99a1518-1ad5-4f65-bc95-1ffff97a8fd0
+      type: derived
+status: test
+description: Detects the use of Inveigh a cross-platform .NET IPv4/IPv6 machine-in-the-middle tool
+references:
+    - https://github.com/Kevin-Robertson/Inveigh
+    - https://thedfirreport.com/2020/11/23/pysa-mespinoza-ransomware/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-24
+modified: 2023-02-04
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Image|endswith: \Inveigh.exe
+        - OriginalFileName:
+              - \Inveigh.exe
+              - \Inveigh.dll
+        - Description: Inveigh
+        - CommandLine|contains:
+              - ' -SpooferIP'
+              - ' -ReplyToIPs '
+              - ' -ReplyToDomains '
+              - ' -ReplyToMACs '
+              - ' -SnifferIP'
+    condition: process_creation and selection
+falsepositives:
+    - Very unlikely
+level: critical
+ruletype: Sigma

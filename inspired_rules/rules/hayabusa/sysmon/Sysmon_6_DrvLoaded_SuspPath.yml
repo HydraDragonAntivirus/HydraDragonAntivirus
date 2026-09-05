@@ -1,0 +1,61 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2025-02-10
+
+title: 'Driver Loaded (Suspicious Path)'
+description: 
+
+id: 92fe5e3e-6a23-4aa8-a41d-30feea4dd16b
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 6
+        Signed: 'true' #Unsigned drivers will be alerted on regardless of path.
+    filter:
+        - ImageLoaded|startswith: 'C:\Windows\System32'    # Majority of drivers will run from C:\Windows\System32\drivers but also in the directories below
+        - ImageLoaded|startswith: 'C:\Program Files'
+        - ImageLoaded|startswith: 'C:\ProgramData\Microsoft\Windows Defender'
+    condition: selection and not filter
+falsepositives:
+tags:
+    - attack.defense-evasion
+    - attack.t1553.002
+    - sysmon
+references:
+    - https://attack.mitre.org/techniques/T1553/002/
+ruletype: Hayabusa
+
+sample-evtx: | 
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>6</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>6</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2018-09-07T21:11:46.510082800Z"/>
+            <EventRecordID>25912</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="1564" ThreadID="1900"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>dmz-ftp</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName"/>
+            <Data Name="UtcTime">2018-09-07 21:11:46.510</Data>
+            <Data Name="ImageLoaded">C:\Windows\winusb.sys</Data>
+            <Data Name="Hashes">MD5=955DC6B491F3270F49A2B2E24970B30D,SHA256=2CCD04383DC2F1F777B7712C6F8EE6D05AFAC98D22CAD8E96F5172BA9C5C53B0,IMPHASH=3E12578D2B7CA27A9A11986FC68A64BD</Data>
+            <Data Name="Signed">true</Data>
+            <Data Name="Signature">Akuma Security LLC</Data>
+            <Data Name="SignatureStatus">Valid</Data>
+        </EventData>
+    </Event>

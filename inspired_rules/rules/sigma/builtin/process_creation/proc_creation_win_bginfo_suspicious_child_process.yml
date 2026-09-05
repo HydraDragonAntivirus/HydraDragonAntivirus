@@ -1,0 +1,53 @@
+title: Suspicious Child Process Of BgInfo.EXE
+id: c5a82926-ad38-8cac-850a-dcc4d26f5660
+related:
+    - id: aaf46cdc-934e-4284-b329-34aa701e3771
+      type: similar
+    - id: 811f459f-9231-45d4-959a-0266c6311987
+      type: derived
+status: test
+description: Detects suspicious child processes of "BgInfo.exe" which could be a sign of potential abuse of the binary to proxy execution via external VBScript
+references:
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/Bginfo/
+    - https://oddvar.moe/2017/05/18/bypassing-application-whitelisting-with-bginfo/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-16
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1059.005
+    - attack.t1218
+    - attack.t1202
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_parent:
+        ParentProcessName|endswith:
+            - \bginfo.exe
+            - \bginfo64.exe
+    selection_child:
+        - NewProcessName|endswith:
+              - \calc.exe
+              - \cmd.exe
+              - \cscript.exe
+              - \mshta.exe
+              - \notepad.exe
+              - \powershell.exe
+              - \pwsh.exe
+              - \wscript.exe
+        - NewProcessName|contains:
+              - \AppData\Local\
+              - \AppData\Roaming\
+              - :\Users\Public\
+              - :\Temp\
+              - :\Windows\Temp\
+              - :\PerfLogs\
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

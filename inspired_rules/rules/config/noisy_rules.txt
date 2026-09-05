@@ -1,0 +1,13 @@
+#Hayabusa rules
+0090ea60-f4a2-43a8-8657-3a9a4ddcf547 # Sysmon 6 Driver Loaded - Unknown Signature. It is not possible to list up all good signatures so will be many false positives.
+8b8db936-172e-4bb7-9f84-ccc954d51d93 # Sysmon 7 DLL Loaded - No Alerts
+1703ba97-b2c2-4071-a241-a16d017d25d3 # Sysmon 12 Registry Key Create/Delete
+9f5663ce-6205-4753-b486-fb8498d1fae5 # Sysmon 13 Registry Key Value Set
+3546ce10-19b4-4c4c-9658-f4f3b5d27ae9 # Sysmon 15 Registry Key Value Rename
+6dbed1df-f08a-47ab-9a58-999c0787d034 # RemoteConnectionManager_Op 261 RDS Connection
+320e2cb0-a56a-476f-a299-79dc45644fee # LocalSessionManager_Op 22 RDS Sess Start
+a5b3ebf0-141a-4264-b2ff-400c0d515fca # Security 4648 Explicit Logon (System Noise)
+b1782e40-d247-4de1-86d1-37392cb62e3b # Security 4624 Type 2 Interactive Logon (System Noise)
+0266af4f-8825-495e-959c-bff801094349 # Security 4624 Type 3 Network Logon (System Noise)
+84e5ff02-5f8f-48c4-a7e9-88aa1fb888f7 # Security 4624 Type 5 Service Logon (System Noise)
+84288799-8b61-4d98-bad0-4043c40cf992 # Security 4634 Logoff

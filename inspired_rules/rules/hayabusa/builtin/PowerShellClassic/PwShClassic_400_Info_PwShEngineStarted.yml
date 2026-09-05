@@ -1,0 +1,53 @@
+author: Zach Mathis, Fukusuke Takahashi
+date: 2023-11-09
+modified: 2023-12-02
+
+title: 'PwSh Engine Started'
+details: 'HostApplication: %HostApplication%'
+description: 'Engine state is changed from None to Available.'
+
+id: ac2ae63b-83e6-4d06-aeaf-07409bda92c9
+level: informational
+status: test
+logsource:
+    product: windows
+    service: powershell-classic
+    category: ps_classic_start
+detection:
+    selection:
+        Channel: 'Windows PowerShell'
+        EventID: 400
+    filter_just_start_ps:
+        Data|re: 'powershell.exe\r\n\tEngineVersion'
+    condition: selection and not filter_just_start_ps
+falsepositives:
+    - normal system usage
+tags:
+    - PwShClassic
+references:
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="PowerShell" /> 
+            <EventID Qualifiers="0">400</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>4</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x80000000000000</Keywords> 
+            <TimeCreated SystemTime="2023-10-09T13:24:55.2952147Z" /> 
+            <EventRecordID>1643</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="4684" ThreadID="0" /> 
+            <Channel>Windows PowerShell</Channel> 
+            <Computer>HOSTA</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data>Available</Data> 
+            <Data>None</Data> 
+            <Data>NewEngineState=Available PreviousEngineState=None SequenceNumber=13 HostName=ConsoleHost HostVersion=5.1.22621.963 HostId=e2a4b19b-92ef-407b-9fe0-b646489b66c5 HostApplication=C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -Command Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -eq 'C:\Users\alice\AppData\Local\Programs\Microsoft VS Code\bin\code-tunnel.exe' } | Select @{Name='Id'; Expression={$_.ProcessId}} | Stop-Process -Force EngineVersion=5.1.22621.963 RunspaceId=e1518a29-e3b8-41d3-931a-ff4db039a628 PipelineId= CommandName= CommandType= ScriptName= CommandPath= CommandLine=</Data> 
+        </EventData>
+    </Event>

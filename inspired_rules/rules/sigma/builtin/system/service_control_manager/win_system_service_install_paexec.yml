@@ -1,0 +1,31 @@
+title: PAExec Service Installation
+id: 19b4e2a1-4499-8c65-e93a-5f675df202d8
+related:
+    - id: de7ce410-b3fb-4e8a-b38c-3b999e2c3420
+      type: derived
+status: test
+description: Detects PAExec service installation
+references:
+    - https://www.poweradmin.com/paexec/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-26
+tags:
+    - attack.execution
+    - attack.t1569.002
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection_eid:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+    selection_image:
+        - ServiceName|startswith: PAExec-
+        - ImagePath|startswith: C:\WINDOWS\PAExec-
+    condition: system and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

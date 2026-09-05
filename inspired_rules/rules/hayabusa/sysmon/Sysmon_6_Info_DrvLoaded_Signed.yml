@@ -1,0 +1,57 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2023-01-13
+
+title: 'Signed Driver Loaded'
+description: 
+
+id: 6a67e65e-e414-44ed-94b2-72f8e3107c92
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 6
+    selection_signed:
+        Signed: 'true'
+    condition: selection_basic and selection_signed
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://github.com/trustedsec/SysmonCommunityGuide/blob/master/chapters/driver-loading.md
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>6</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>6</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2020-02-11T11:05:37.148401000Z"/>
+            <EventRecordID>24350</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="2844" ThreadID="4000"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>MSEDGEWIN10</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName"/>
+            <Data Name="UtcTime">2020-02-11 11:05:36.955</Data>
+            <Data Name="ImageLoaded">C:\Windows\System32\drivers\RwDrv.sys</Data>
+            <Data Name="Hashes">SHA1=66E95DAEE3D1244A029D7F3D91915F1F233D1916,MD5=60E84516C6EC6DFDAE7B422D1F7CAB06,SHA256=D969845EF6ACC8E5D3421A7CE7E244F419989710871313B04148F9B322751E5D,IMPHASH=955E7B12A8FA06444C68E54026C45DE1</Data>
+            <Data Name="Signed">true</Data>
+            <Data Name="Signature">ChongKim Chan</Data>
+            <Data Name="SignatureStatus">Valid</Data>
+        </EventData>
+    </Event>

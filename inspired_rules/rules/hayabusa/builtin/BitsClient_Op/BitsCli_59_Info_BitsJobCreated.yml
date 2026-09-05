@@ -1,0 +1,30 @@
+author: 'Zach Mathis'
+date: 2020-11-08
+modified: 2025-02-10
+
+title: 'Bits Job Created'
+details: 'JobTitle: %JobTitle% ¦ URL: %Url%'
+description: 'Adversaries may abuse BITS jobs to persistently execute or clean up after malicious payloads.'
+
+id: 18e6fa4a-353d-42b6-975c-bb05dbf4a004
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: bits-client
+detection:
+    selection:
+        Channel: Microsoft-Windows-Bits-Client/Operational
+        EventID: 59
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+    - attack.defense-evasion
+    - attack.persistence
+    - attack.t1197
+    - lolbas
+references:
+    - https://attack.mitre.org/techniques/T1197/
+    - https://lolbas-project.github.io/lolbas/Binaries/Bitsadmin/
+ruletype: Hayabusa

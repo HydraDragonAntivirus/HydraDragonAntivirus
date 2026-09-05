@@ -1,0 +1,68 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: Logon Failure (Wrong Password)
+description: Prints logon information. 
+
+id: e87bd730-df45-4ae9-85de-6c75369c5d29
+level: low
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_basic:
+        Channel: Security
+        EventID: 4625
+    selection_wrong_password:
+        SubStatus: "0xc000006a" #Wrong password
+    condition: selection_basic and selection_wrong_password
+falsepositives:
+    - user mistypes password
+tags:
+references:
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}"/>
+            <EventID>4625</EventID>
+            <Version>0</Version>
+            <Level>0</Level>
+            <Task>12544</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8010000000000000</Keywords>
+            <TimeCreated SystemTime="2016-09-19T16:52:49.399674600Z"/>
+            <EventRecordID>6016</EventRecordID>
+            <Correlation ActivityID="{B864D168-0B7B-0000-89D1-64B87B0BD201}"/>
+            <Execution ProcessID="752" ThreadID="496"/>
+            <Channel>Security</Channel>
+            <Computer>DESKTOP-M5SN04R</Computer>
+            <Security/>
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-0-0</Data>
+            <Data Name="SubjectUserName">-</Data>
+            <Data Name="SubjectDomainName">-</Data>
+            <Data Name="SubjectLogonId">0x0</Data>
+            <Data Name="TargetUserSid">S-1-0-0</Data>
+            <Data Name="TargetUserName">Administrator</Data>
+            <Data Name="TargetDomainName">.</Data>
+            <Data Name="Status">0xc000006d</Data>
+            <Data Name="FailureReason">%%2313</Data>
+            <Data Name="SubStatus">0xc000006a</Data>
+            <Data Name="LogonType">3</Data>
+            <Data Name="LogonProcessName">NtLmSsp</Data>
+            <Data Name="AuthenticationPackageName">NTLM</Data>
+            <Data Name="WorkstationName">fpEbpiox2Q3Qf8av</Data>
+            <Data Name="TransmittedServices">-</Data>
+            <Data Name="LmPackageName">-</Data>
+            <Data Name="KeyLength">0</Data>
+            <Data Name="ProcessId">0x0</Data>
+            <Data Name="ProcessName">-</Data>
+            <Data Name="IpAddress">192.168.198.149</Data>
+            <Data Name="IpPort">33083</Data>
+        </EventData>
+    </Event>

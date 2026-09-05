@@ -1,0 +1,25 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: 'Logon (CachedRemoteInteractive) *Creds in memory*'
+description: Type 12 logons can be dangerous as the credentials (plaintext or hashed passwords) are stored in memory (lsass process) and can be stolen by tools like mimikatz.
+
+id: f4b46dd3-63d6-4c75-a54c-9f6bd095cd6f
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4624
+        LogonType: 12
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx: 
+ruletype: Hayabusa

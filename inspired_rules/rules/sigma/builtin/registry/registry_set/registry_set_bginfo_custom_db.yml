@@ -1,0 +1,29 @@
+title: New BgInfo.EXE Custom DB Path Registry Configuration
+id: 1bb96a94-8ab5-69b5-8366-2ab8e23877f2
+related:
+    - id: 53330955-dc52-487f-a3a2-da24dcff99b5
+      type: derived
+status: test
+description: Detects setting of a new registry database value related to BgInfo configuration. Attackers can for example set this value to save the results of the commands executed by BgInfo in order to exfiltrate information.
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-16
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|endswith: \Software\Winternals\BGInfo\Database
+    condition: registry_set and selection
+falsepositives:
+    - Legitimate use of external DB to save the results
+level: medium
+ruletype: Sigma

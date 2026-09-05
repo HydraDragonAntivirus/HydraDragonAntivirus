@@ -1,0 +1,42 @@
+title: Windows Update Client LOLBIN
+id: 40dc7545-d13a-ae11-f15f-85a53a57b7c2
+related:
+    - id: d7825193-b70a-48a4-b992-8b5b3015cc11
+      type: derived
+status: deprecated
+description: Detects code execution via the Windows Update client (wuauclt)
+references:
+    - https://dtm.uk/wuauclt/
+author: FPT.EagleEye Team
+date: 2020-10-17
+modified: 2023-11-11
+tags:
+    - attack.command-and-control
+    - attack.defense-evasion
+    - attack.t1105
+    - attack.t1218
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \wuauclt.exe
+        - OriginalFileName: wuauclt.exe
+    selection_cli:
+        CommandLine|contains|all:
+            - /UpdateDeploymentProvider
+            - /RunHandlerComServer
+            - .dll
+    filter:
+        CommandLine|contains:
+            - ' /ClassId '
+            - ' wuaueng.dll '
+    condition: process_creation and (all of selection* and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,36 @@
+title: WinSxS Executable File Creation By Non-System Process
+id: c07428e6-817a-64fb-f683-bd0b4d56e96d
+related:
+    - id: 64827580-e4c3-4c64-97eb-c72325d45399
+      type: derived
+    - id: 34746e8c-5fb8-415a-b135-0abc167e912a
+      type: derived
+status: test
+description: Detects the creation of binaries in the WinSxS folder by non-system processes
+references:
+    - https://media.defense.gov/2023/May/09/2003218554/-1/-1/0/JOINT_CSA_HUNTING_RU_INTEL_SNAKE_MALWARE_20230509.PDF
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-11
+tags:
+    - attack.execution
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|startswith: C:\Windows\WinSxS\
+        TargetFilename|endswith: .exe
+    filter_main_system_location:
+        Image|startswith:
+            - C:\Windows\Systems32\
+            - C:\Windows\SysWOW64\
+            - C:\Windows\WinSxS\
+    condition: file_event and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

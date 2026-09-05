@@ -1,0 +1,30 @@
+title: Suspicious Splwow64 Without Params
+id: a3eb659a-2a75-984c-1dd1-a034449b5d3a
+related:
+    - id: 1f1a8509-2cbb-44f5-8751-8e1571518ce2
+      type: derived
+status: test
+description: Detects suspicious Splwow64.exe process without any command line parameters
+references:
+    - https://twitter.com/sbousseaden/status/1429401053229891590?s=12
+author: Florian Roth (Nextron Systems)
+date: 2021-08-23
+modified: 2022-12-25
+tags:
+    - attack.stealth
+    - attack.t1202
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|endswith: splwow64.exe
+        NewProcessName|endswith: \splwow64.exe
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

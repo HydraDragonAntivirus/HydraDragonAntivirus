@@ -1,0 +1,33 @@
+title: CrackMapExecWin
+id: 9fcbb5dc-f858-0445-bcf4-ade441a89dc3
+related:
+    - id: 04d9079e-3905-4b70-ad37-6bdf11304965
+      type: derived
+status: deprecated
+description: Detects CrackMapExecWin Activity as Described by NCSC
+references:
+    - https://www.ncsc.gov.uk/alerts/hostile-state-actors-compromising-uk-organisations-focus-engineering-and-industrial-control
+    - https://attack.mitre.org/software/S0488/
+author: Markus Neis
+date: 2018-04-08
+modified: 2023-03-08
+tags:
+    - attack.g0035
+    - attack.credential-access
+    - attack.discovery
+    - attack.t1110
+    - attack.t1087
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        NewProcessName|endswith: \crackmapexec.exe
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

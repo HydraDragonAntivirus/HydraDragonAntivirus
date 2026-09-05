@@ -1,0 +1,48 @@
+title: Firewall Disabled via Netsh.EXE
+id: 87f5ceb7-47fd-4205-c8a5-3e58affe1a30
+related:
+    - id: 57c4bf16-227f-4394-8ec7-1b745ee061c3
+      type: derived
+status: test
+description: Detects netsh commands that turns off the Windows firewall
+references:
+    - https://www.winhelponline.com/blog/enable-and-disable-windows-firewall-quickly-using-command-line/
+    - https://app.any.run/tasks/210244b9-0b6b-4a2c-83a3-04bd3175d017/
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.004/T1562.004.md#atomic-test-1---disable-microsoft-defender-firewall
+author: Fatih Sirin
+date: 2019-11-01
+modified: 2023-02-13
+tags:
+    - attack.defense-impairment
+    - attack.t1686.003
+    - attack.s0108
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \netsh.exe
+        - OriginalFileName: netsh.exe
+    selection_cli_1:
+        # Example: netsh firewall set opmode disable
+        CommandLine|contains|all:
+            - firewall
+            - set
+            - opmode
+            - disable
+    selection_cli_2:
+        # Example: netsh advfirewall set currentprofile state off
+        CommandLine|contains|all:
+            - advfirewall
+            - set
+            - state
+            - off
+    condition: process_creation and (selection_img and 1 of selection_cli_*)
+falsepositives:
+    - Legitimate administration activity
+level: medium
+ruletype: Sigma

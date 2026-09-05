@@ -1,0 +1,24 @@
+author: Zach Mathis
+date: 2023-06-30
+modified: 2023-06-30
+
+title: 'Net Conn Blocked'
+description: 'The Windows Filtering Platform has blocked a connection.'
+
+id: b793a8e6-28a4-4fb8-816e-17a99e4e7b40
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+    description: Logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 5157
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa

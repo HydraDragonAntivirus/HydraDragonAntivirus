@@ -1,0 +1,33 @@
+title: Winlogon Notify Key Logon Persistence
+id: 16505b6b-b744-b451-e1cc-2bf1ecc9e7df
+related:
+    - id: bbf59793-6efb-4fa1-95ca-a7d288e52c88
+      type: derived
+status: test
+description: |
+    Adversaries may abuse features of Winlogon to execute DLLs and/or executables when a user logs in.
+    Winlogon.exe is a Windows component responsible for actions at logon/logoff as well as the secure attention sequence (SAS) triggered by Ctrl-Alt-Delete.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.004/T1547.004.md#atomic-test-3---winlogon-notify-key-logon-persistence---powershell
+author: frack113
+date: 2021-12-30
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.004
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|endswith: \SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify\logon
+        NewValue|endswith: .dll
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

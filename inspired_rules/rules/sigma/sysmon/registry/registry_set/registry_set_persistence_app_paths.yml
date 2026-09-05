@@ -1,0 +1,59 @@
+title: Potential Persistence Via App Paths Default Property
+id: 140df4ae-d66c-c984-2165-595d754d0424
+related:
+    - id: 707e097c-e20f-4f67-8807-1f72ff4500d6
+      type: derived
+status: test
+description: |
+    Detects changes to the "Default" property for keys located in the \Software\Microsoft\Windows\CurrentVersion\App Paths\ registry. Which might be used as a method of persistence
+    The entries found under App Paths are used primarily for the following purposes.
+    First, to map an application's executable file name to that file's fully qualified path.
+    Second, to prepend information to the PATH environment variable on a per-application, per-process basis.
+references:
+    - https://www.hexacorn.com/blog/2013/01/19/beyond-good-ol-run-key-part-3/
+    - https://learn.microsoft.com/en-us/windows/win32/shell/app-registration
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-10
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1546.012
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains: \SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+        TargetObject|endswith:
+            - (Default)
+            - Path
+        Details|contains:
+            # Add more suspicious paths or binaries as you see fit.
+            - \Users\Public
+            - \AppData\Local\Temp\
+            - \Windows\Temp\
+            - \Desktop\
+            - \Downloads\
+            - '%temp%'
+            - '%tmp%'
+            - iex
+            - Invoke-
+            - rundll32
+            - regsvr32
+            - mshta
+            - cscript
+            - wscript
+            - .bat
+            - .hta
+            - .dll
+            - .ps1
+    condition: registry_set and selection
+falsepositives:
+    - Legitimate applications registering their binary from on of the suspicious locations mentioned above (tune it)
+level: high
+ruletype: Sigma

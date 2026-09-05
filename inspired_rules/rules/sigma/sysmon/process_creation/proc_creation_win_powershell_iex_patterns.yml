@@ -1,0 +1,52 @@
+title: Suspicious PowerShell IEX Execution Patterns
+id: e6906ed1-e580-2412-216d-9e8f304fb929
+related:
+    - id: 09576804-7a05-458e-a817-eb718ca91f54
+      type: derived
+status: test
+description: Detects suspicious ways to run Invoke-Execution using IEX alias
+references:
+    - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-expression?view=powershell-7.2
+    - https://www.huntress.com/blog/slashandgrab-screen-connect-post-exploitation-in-the-wild-cve-2024-1709-cve-2024-1708
+author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
+date: 2022-03-24
+modified: 2022-11-28
+tags:
+    - attack.execution
+    - attack.t1059.001
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_combined_1:
+        Image|endswith:
+            - \powershell.exe
+            - \pwsh.exe
+        CommandLine|contains:
+            - ' | iex;'
+            - ' | iex '
+            - ' | iex}'
+            - ' | IEX ;'
+            - ' | IEX -Error'
+            - ' | IEX (new'
+            - ');IEX '
+    selection_combined_2:
+        CommandLine|contains:
+            - ::FromBase64String
+            - '.GetString([System.Convert]::'
+    selection_standalone:
+        CommandLine|contains:
+            - )|iex;$
+            - );iex($
+            - );iex $
+            - ' | IEX | '
+            - ' | iex\"'
+    condition: process_creation and (all of selection_combined_* or selection_standalone)
+falsepositives:
+    - Legitimate scripts that use IEX
+level: high
+ruletype: Sigma

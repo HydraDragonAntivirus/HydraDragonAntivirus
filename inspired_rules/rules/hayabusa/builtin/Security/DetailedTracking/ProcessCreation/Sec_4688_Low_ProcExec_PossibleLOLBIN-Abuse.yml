@@ -1,0 +1,150 @@
+author: Zach Mathis
+date: 2022-02-05
+modified: 2022-12-16
+
+title: 'Possible LOLBIN'
+description: 
+
+id: 6c34b782-a5b5-4298-80f3-1918caf1f558
+level: low
+status: stable
+logsource:
+    product: windows
+    service: security
+    description: Process Creation with command line option logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 4688
+        CommandLine|contains: ' ' #We are not looking at GUI programs, etc... that do not have any arguments to lower false positives.
+    selection_process_name:
+        - NewProcessName|endswith: 'AppInstaller.exe'
+        - NewProcessName|endswith: 'Aspnet_Compiler.exe'
+        - NewProcessName|endswith: 'At.exe'
+        - NewProcessName|endswith: 'AtBroker.exe'
+        - NewProcessName|endswith: 'Bash.exe'
+        - NewProcessName|endswith: 'BitsAdmin.exe'
+        - NewProcessName|endswith: 'CertOC.exe'
+        - NewProcessName|endswith: 'CertReq.exe'
+        - NewProcessName|endswith: 'CertUtil.exe'
+        - NewProcessName|endswith: 'Cmd.exe'
+        - NewProcessName|endswith: 'Cmdkey.exe'
+        - NewProcessName|endswith: 'cmdl32.exe'
+        - NewProcessName|endswith: 'Cmstp.exe'
+        - NewProcessName|endswith: 'ConfigSecurityPolicy.exe'
+        - NewProcessName|endswith: 'Control.exe'
+        - NewProcessName|endswith: 'Csc.exe'
+        - NewProcessName|endswith: 'Cscript.exe'
+        - NewProcessName|endswith: 'DataSvcUtil.exe'
+        - NewProcessName|endswith: 'DesktopImgDownldr.exe'
+        - NewProcessName|endswith: 'DfSvc.exe'
+        - NewProcessName|endswith: 'Diantz.exe'
+        - NewProcessName|endswith: 'DiskShadow.exe'
+        - NewProcessName|endswith: 'dllhost.exe'
+        - NewProcessName|endswith: 'DnsCmd.exe'
+        - NewProcessName|endswith: 'EsentUtl.exe'
+        - NewProcessName|endswith: 'EventVwr.exe'
+        - NewProcessName|endswith: 'Expand.exe'
+        - NewProcessName|endswith: 'ExtExport.exe'
+        - NewProcessName|endswith: 'Extrac32.exe'
+        - NewProcessName|endswith: 'FindStr.exe'
+        - NewProcessName|endswith: 'Finger.exe'
+        - NewProcessName|endswith: 'FltMC.exe'
+        - NewProcessName|endswith: 'ForFiles.exe'
+        - NewProcessName|endswith: 'FTP.exe'
+        - NewProcessName|endswith: 'GfxDownloadWrapper.exe'
+        - NewProcessName|endswith: 'GpScript.exe'
+        - NewProcessName|endswith: 'HH.exe'
+        - NewProcessName|endswith: 'IMEWDBLD.exe'
+        - NewProcessName|endswith: 'Ie4uInit.exe'
+        - NewProcessName|endswith: 'IeExec.exe'
+        - NewProcessName|endswith: 'ILASM.exe'
+        - NewProcessName|endswith: 'InfDefaultInstall.exe'
+        - NewProcessName|endswith: 'InstallUtil.exe'
+        - NewProcessName|endswith: 'Jsc.exe'
+        - NewProcessName|endswith: 'MakeCab.exe'
+        - NewProcessName|endswith: 'MavInject.exe'
+        - NewProcessName|endswith: 'Microsoft.Workflow.Compiler.exe'
+        - NewProcessName|endswith: 'Mmc.exe'
+        - NewProcessName|endswith: 'MpCmdRun.exe'
+        - NewProcessName|endswith: 'Msbuild.exe'
+        - NewProcessName|endswith: 'MsConfig.exe'
+        - NewProcessName|endswith: 'Msdt.exe'
+        - NewProcessName|endswith: 'Mshta.exe'
+        - NewProcessName|endswith: 'MsiExec.exe'
+        - NewProcessName|endswith: 'NetSh.exe'
+        - NewProcessName|endswith: 'OdbcConf.exe'
+        - NewProcessName|endswith: 'OfflineScannerShell.exe'
+        - NewProcessName|endswith: 'OneDriveStandaloneUpdater.exe'
+        - NewProcessName|endswith: 'Pcalua.exe'
+        - NewProcessName|endswith: 'PcwRun.exe'
+        - NewProcessName|endswith: 'PktMon.exe'
+        - NewProcessName|endswith: 'PnpUtil.exe'
+        - NewProcessName|endswith: 'PresentationHost.exe'
+        - NewProcessName|endswith: 'Print.exe'
+        - NewProcessName|endswith: 'PrintBrm.exe'
+        - NewProcessName|endswith: 'Psr.exe'
+        - NewProcessName|endswith: 'Rasautou.exe'
+        - NewProcessName|endswith: 'Reg.exe'
+        - NewProcessName|endswith: 'Regasm.exe'
+        - NewProcessName|endswith: 'RegEdit.exe'
+        - NewProcessName|endswith: 'RegIni.exe'
+        - NewProcessName|endswith: 'Register-CimProvider.exe'
+        - NewProcessName|endswith: 'RegSvcs.exe'
+        - NewProcessName|endswith: 'RegSvr32.exe'
+        - NewProcessName|endswith: 'Replace.exe'
+        - NewProcessName|endswith: 'RpcPing.exe'
+        - NewProcessName|endswith: 'RunDll32.exe'
+        - NewProcessName|endswith: 'RunOnce.exe'
+        - NewProcessName|endswith: 'RunScriptHelper.exe'
+        - NewProcessName|endswith: 'Sc.exe'
+        - NewProcessName|endswith: 'SchTasks.exe'
+        - NewProcessName|endswith: 'ScriptRunner.exe'
+        - NewProcessName|endswith: 'SettingSyncHost.exe'
+        - NewProcessName|endswith: 'StorDiag.exe'
+        - NewProcessName|endswith: 'SyncAppvPublishingServer.exe'
+        - NewProcessName|endswith: 'TtdInject.exe'
+        - NewProcessName|endswith: 'TtTracer.exe'
+        - NewProcessName|endswith: 'VBC.exe'
+        - NewProcessName|endswith: 'Verclsid.exe'
+        - NewProcessName|endswith: 'ping.exe'
+        - NewProcessName|endswith: 'ipconfig.exe'
+        - NewProcessName|endswith: 'Wab.exe'
+        - NewProcessName|endswith: 'Wmic.exe'
+        - NewProcessName|endswith: 'WorkFolders.exe'
+        - NewProcessName|endswith: 'Wscript.exe'
+        - NewProcessName|endswith: 'WsReset.exe'
+        - NewProcessName|endswith: 'Wuauclt.exe'
+        - NewProcessName|endswith: 'Xwizard.exe'
+        - NewProcessName|endswith: 'ADPlus.exe'
+        - NewProcessName|endswith: 'AgentExecutor.exe'
+        - NewProcessName|endswith: 'Appvlp.exe'
+        - NewProcessName|endswith: 'Bginfo.exe'
+        - NewProcessName|endswith: 'Cdb.exe'
+        - NewProcessName|endswith: 'CoreGen.exe'
+        - NewProcessName|endswith: 'CSI.exe'
+        - NewProcessName|endswith: 'DefaultPack.exe'
+        - NewProcessName|endswith: 'DevtoolsLauncher.exe'
+        - NewProcessName|endswith: 'DNX.exe'
+        - NewProcessName|endswith: 'Dotnet.exe'
+        - NewProcessName|endswith: 'Dxcap.exe'
+        - NewProcessName|endswith: 'NTDSUtil.exe'
+        - NewProcessName|endswith: 'procdump.exe'
+        - NewProcessName|endswith: 'psexec.exe'
+        - NewProcessName|endswith: 'SqlDumper.exe'
+        - NewProcessName|endswith: 'winrm.vbs.exe'
+        - NewProcessName|endswith: 'powershell.exe'
+        - NewProcessName|endswith: 'xcopy.exe'
+        - NewProcessName|endswith: 'RoboCopy.exe'
+    condition: selection and selection_process_name
+falsepositives:
+    - normal system usage
+    - most likely high false positive rate
+tags:
+    - lolbas
+references:
+    - https://lolbas-project.github.io/
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/windows-defender-application-control/microsoft-recommended-block-rules
+ruletype: Hayabusa
+
+sample-evtx: 

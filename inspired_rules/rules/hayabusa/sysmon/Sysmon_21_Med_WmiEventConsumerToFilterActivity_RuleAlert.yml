@@ -1,0 +1,31 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'WMI Event Consumer To Filter (Sysmon Alert)'
+description: 'When a consumer binds to a filter, this event logs the consumer name and filter path.'
+details: 'Rule: %RuleName% ¦ Op: %Operation% ¦ Consumer: %Consumer% ¦ Filter: %Filter%'
+
+id: 6464ba9e-a285-42f8-a1ea-419ef4c867e1
+level: medium
+status: test
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 21
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: # No example yet.

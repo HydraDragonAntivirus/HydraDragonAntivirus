@@ -1,0 +1,35 @@
+title: Potential DLL Sideloading Via JsSchHlp
+id: cb761ade-510c-edcd-0929-2c609a00e446
+related:
+    - id: 68654bf0-4412-43d5-bfe8-5eaa393cd939
+      type: derived
+status: test
+description: Detects potential DLL sideloading using JUSTSYSTEMS Japanese word processor
+references:
+    - https://www.welivesecurity.com/2022/12/14/unmasking-mirrorface-operation-liberalface-targeting-japanese-political-entities/
+    - http://www.windowexe.com/bbs/board.php?q=jsschhlp-exe-c-program-files-common-files-justsystem-jsschhlp-jsschhlp
+author: frack113
+date: 2022-12-14
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \JSESPR.dll
+    filter:
+        ImageLoaded|startswith: C:\Program Files\Common Files\Justsystem\JsSchHlp\
+    condition: image_load and (selection and not filter)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

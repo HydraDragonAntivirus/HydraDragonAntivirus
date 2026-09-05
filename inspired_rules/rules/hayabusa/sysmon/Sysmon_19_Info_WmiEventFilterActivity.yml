@@ -1,0 +1,60 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'WMI Event Filter'
+description: |
+    When a WMI event filter is registered, which is a method used by malware to execute, this event logs the WMI namespace, 
+    filter name and filter expression.
+
+id: 7636985e-6ceb-42bd-946b-282b6e4ff65b
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 19
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and selection_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>19</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>19</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2019-07-19T14:54:57.044623600Z"/>
+            <EventRecordID>4055</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="2796" ThreadID="1776"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>MSEDGEWIN10</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName"/>
+            <Data Name="EventType">WmiFilterEvent</Data>
+            <Data Name="UtcTime">2019-07-19 14:54:57.041</Data>
+            <Data Name="Operation">Created</Data>
+            <Data Name="User">MSEDGEWIN10\IEUser</Data>
+            <Data Name="EventNamespace">"root\\CimV2"</Data>
+            <Data Name="Name">"AtomicRedTeam-WMIPersistence-Example"</Data>
+            <Data Name="Query">"SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System' AND TargetInstance.SystemUpTime >= 240 AND TargetInstance.SystemUpTime < 325"</Data>
+        </EventData>
+    </Event>

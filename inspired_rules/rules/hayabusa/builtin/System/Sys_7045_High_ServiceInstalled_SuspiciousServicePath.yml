@@ -1,0 +1,43 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2024-10-01
+
+title: Suspicious Service Path
+details: 'Svc: %ServiceName% ¦ Path: %ImagePath%'
+description: Malware will often create services for persistence and use BASE64 encoded strings to execute malicious code or abuse legitimate binaries like cmd.exe, powershell, etc... inside the path to execute. Normally, services will not run built-in binaries, run from user or temp folders or contain encoded data.
+id: dbbfd9f3-9508-478b-887e-03ddb9236909
+level: high
+status: test
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 7045
+    selection_SuspiciousPathNames:
+        - ImagePath|re: '[a-zA-Z0-9\/+=]{50}' # Looks for 50 characters or more of base64 encoded strings
+        - ImagePath|contains: 'powershell'
+        - ImagePath|contains: 'cmd.exe'
+        - ImagePath|contains: 'csc.exe'
+        - ImagePath|contains: 'mshta.exe'
+        - ImagePath|contains: 'regsvr32.exe'
+        - ImagePath|contains: 'rundll32.exe'
+        - ImagePath|contains: 'wscript.exe'
+        - ImagePath|contains: 'cscript.exe'
+        - ImagePath|contains: 'msiexec.exe'
+        - ImagePath|contains: 'certutil.exe'
+        - ImagePath|contains: 'bitsadmin.exe'
+        - ImagePath|contains: 'appdata'
+        - ImagePath|contains: '%SYSTEMROOT%'
+    condition: selection and selection_SuspiciousPathNames
+falsepositives:
+    - Some legitimate drivers
+    - Zoom Sharing Service
+    - Epson Printer Drivers
+tags:
+    - attack.persistence
+    - attack.t1543.003
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+ruletype: Hayabusa

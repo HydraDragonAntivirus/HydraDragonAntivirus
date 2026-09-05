@@ -1,0 +1,31 @@
+author: Zach Mathis
+date: 2023-06-08
+modified: 2023-06-08
+
+title: 'Logon (Network) (Noisy)'
+description: 'Outputs system noise'
+
+id: 0266af4f-8825-495e-959c-bff801094349
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    select_basic:
+        Channel: Security
+        EventID: 4624
+        LogonType: 3
+    selection_local_ip_address:
+        - IpAddress: "-"
+        - IpAddress: "127.0.0.1"
+        - IpAddress: "::1"
+    selection_target_computer:
+        TargetUserName|endswith: '$'
+    condition: select_basic and 1 of selection*
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx:
+ruletype: Hayabusa

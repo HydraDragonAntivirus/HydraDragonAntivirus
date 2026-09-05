@@ -1,0 +1,28 @@
+title: Certificate Private Key Acquired
+id: dadaca47-d760-88a9-fd35-cbe8a6237499
+related:
+    - id: e2b5163d-7deb-4566-9af3-40afea6858c3
+      type: derived
+status: test
+description: Detects when an application acquires a certificate private key
+references:
+    - https://www.splunk.com/en_us/blog/security/breaking-the-chain-defending-against-certificate-services-abuse.html
+author: Zach Mathis
+date: 2023-05-13
+tags:
+    - attack.credential-access
+    - attack.t1649
+logsource:
+    product: windows
+    service: capi2
+    definition: 'Requirements: The CAPI2 Operational log needs to be enabled'
+detection:
+    capi2:
+        Channel: Microsoft-Windows-CAPI2/Operational
+    selection:
+        EventID: 70 # Acquire Certificate Private Key
+    condition: capi2 and selection
+falsepositives:
+    - Legitimate application requesting certificate exports will trigger this. Apply additional filters as needed
+level: medium
+ruletype: Sigma

@@ -1,0 +1,32 @@
+title: SAM Registry Hive Handle Request
+id: d7742b08-730d-3624-df95-cc3c6eaa3a39
+related:
+    - id: f8748f2c-89dc-4d95-afb0-5a2dfdbad332
+      type: derived
+status: test
+description: Detects handles requested to SAM registry hive
+references:
+    - https://threathunterplaybook.com/hunts/windows/190725-SAMRegistryHiveHandleRequest/notebook.html
+author: Roberto Rodriguez @Cyb3rWard0g
+date: 2019-08-12
+modified: 2021-11-27
+tags:
+    - attack.discovery
+    - attack.t1012
+    - attack.credential-access
+    - attack.t1552.002
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 4656
+        ObjectType: Key
+        ObjectName|endswith: \SAM
+    condition: security and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

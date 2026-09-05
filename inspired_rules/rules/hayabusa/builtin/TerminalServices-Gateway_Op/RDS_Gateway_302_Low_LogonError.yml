@@ -1,0 +1,61 @@
+author: Zach Mathis
+date: 2024-11-05
+modified: 2025-02-10
+
+title: RDS GTW Logon Error
+details: 'TgtUser: %RdsGtwUsername% ¦ Resource: %RdsGtwResource% ¦ SrcIP: %RdsGtwIpAddress% ¦ Proto: %RdsGtwConnectionProtocol% ¦ AuthType: %RdsGtwAuthType% ¦ ErrorCode: %RdsGtwErrorCode%'
+description: 
+
+id: 24a04758-729d-4c43-9bd5-cccd31db80d0
+level: low
+status: test
+logsource:
+    product: windows
+detection:
+    selection:
+        Channel: 'Microsoft-Windows-TerminalServices-Gateway/Operational'
+        EventID: 302
+    filter:
+        RdsGtwErrorCode: 0
+    condition: selection and not filter
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+    - attack.initial-access
+references:
+ruletype: Hayabusa
+
+sample-message: |
+    Remote Desktop Services: User connected to gateway:
+    
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TerminalServices-Gateway" Guid="{4d5ae6a1-c7c8-4e6d-b840-4d8080b42e1b}" /> 
+            <EventID>302</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>3</Task> 
+            <Opcode>30</Opcode> 
+            <Keywords>0x4000000001000000</Keywords> 
+            <TimeCreated SystemTime="2024-08-12T13:15:48.0992354Z" /> 
+            <EventRecordID>22806</EventRecordID> 
+            <Correlation ActivityID="{03a72536-be12-4040-bd8d-1b379a9d0000}" /> 
+            <Execution ProcessID="195148" ThreadID="184800" /> 
+            <Channel>Microsoft-Windows-TerminalServices-Gateway/Operational</Channel> 
+            <Computer>RDS.domain.com</Computer> 
+            <Security UserID="S-1-5-20" /> 
+        </System>
+        <UserData>
+            <EventInfo xmlns="aag">
+                <Username>DOMAIN\Administrator</Username> 
+                <IpAddress>x.x.x.x</IpAddress> 
+                <AuthType /> 
+                <Resource>HOST.DOMAIN.COM</Resource> 
+                <ConnectionProtocol>HTTP</ConnectionProtocol> 
+                <ErrorCode>10</ErrorCode> 
+            </EventInfo>
+        </UserData>
+    </Event>

@@ -1,0 +1,38 @@
+title: Registry Persistence via Explorer Run Key
+id: 2c5460e8-fa5b-2a17-1e53-f6f3789de52d
+related:
+    - id: b7916c2a-fa2f-4795-9477-32b731f70f11
+      type: derived
+status: test
+description: Detects a possible persistence mechanism using RUN key for Windows Explorer and pointing to a suspicious folder
+references:
+    - https://researchcenter.paloaltonetworks.com/2018/07/unit42-upatre-continues-evolve-new-anti-analysis-techniques/
+author: Florian Roth (Nextron Systems), oscd.community
+date: 2018-07-18
+modified: 2023-12-11
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|endswith: \Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+        NewValue|contains:
+            - :\$Recycle.bin\
+            - :\ProgramData\
+            - :\Temp\
+            - :\Users\Default\
+            - :\Users\Public\
+            - :\Windows\Temp\
+            - \AppData\Local\Temp\
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

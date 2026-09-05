@@ -1,0 +1,29 @@
+author: Zach Mathis
+date: 2022-02-06
+modified: 2024-10-01
+
+title: 'Suspicious Service Name'
+details: 'Svc: %ServiceName% ¦ Path: %ImagePath% ¦ Acct: %AccountName% ¦ StartType: %StartType%'
+description: Tries to look for random-looking service names that are often used by malware for persistence.
+
+id: cc429813-21db-4019-b520-2f19648e1ef1
+level: high
+status: stable
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: 'System'
+        EventID: 7045
+    selection_SuspiciousServiceNames:
+        ServiceName|re: '^[a-zA-Z]{16}'
+    condition: selection and selection_SuspiciousServiceNames
+falsepositives:
+    - Expect false positives are legitimate services will use names that look random.
+tags:
+    - attack.persistence
+    - attack.t1543.003
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+ruletype: Hayabusa

@@ -1,0 +1,27 @@
+author: Zach Mathis
+date: 2023-06-08
+modified: 2023-06-08
+
+title: Logoff (Noisy)
+details: 'User: %TargetUserName% ¦ LID: %TargetLogonId% ¦ Type: %LogonType%'
+description: 'Prints logon information.'
+
+id: 84288799-8b61-4d98-bad0-4043c40cf992
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4634
+    selection_noisy:
+        - TargetUserName|endswith: "$"    #Computer/machine accounts
+        - TargetUserName|re: "(DWM|UMFD)-([0-9]|1[0-2])$" #System users
+    condition: selection and selection_noisy
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa

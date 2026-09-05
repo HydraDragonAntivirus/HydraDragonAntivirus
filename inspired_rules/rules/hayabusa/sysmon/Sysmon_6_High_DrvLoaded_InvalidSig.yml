@@ -1,0 +1,31 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2023-02-10
+
+title: 'Driver Loaded (Invalid Signature)'
+description: 'Loaded driver was signed with an invalid signature.'
+
+id: 1f666722-3948-40a2-9d78-d9d374477a90
+level: high
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 6
+        Signed: 'true'
+    filter:
+        SignatureStatus: 'Valid'
+    condition: selection and not filter
+falsepositives:
+tags:
+    - attack.defense-evasion
+    - attack.t1553.002
+    - sysmon
+references:
+    - https://attack.mitre.org/techniques/T1553/002/
+sample-evtx: 
+ruletype: Hayabusa

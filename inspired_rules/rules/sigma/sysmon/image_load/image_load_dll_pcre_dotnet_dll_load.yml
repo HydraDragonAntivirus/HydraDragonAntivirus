@@ -1,0 +1,31 @@
+title: PCRE.NET Package Image Load
+id: cb8c7cf0-f00a-4648-1dc6-5725c54ed406
+related:
+    - id: 84b0a8f3-680b-4096-a45b-e9a89221727c
+      type: derived
+status: test
+description: Detects processes loading modules related to PCRE.NET package
+references:
+    - https://twitter.com/rbmaslen/status/1321859647091970051
+    - https://twitter.com/tifkin_/status/1321916444557365248
+author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)
+date: 2020-10-29
+modified: 2022-10-09
+tags:
+    - attack.execution
+    - attack.t1059
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|contains: \AppData\Local\Temp\ba9ea7344a4a5f591d6e5dc32a13494b\
+    condition: image_load and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

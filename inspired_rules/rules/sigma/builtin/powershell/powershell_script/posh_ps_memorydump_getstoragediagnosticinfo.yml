@@ -1,0 +1,34 @@
+title: Live Memory Dump Using Powershell
+id: f279fcb8-4560-0d0c-3bee-043b32f9b3fb
+related:
+    - id: cd185561-4760-45d6-a63e-a51325112cae
+      type: derived
+status: test
+description: Detects usage of a PowerShell command to dump the live memory of a Windows machine
+references:
+    - https://learn.microsoft.com/en-us/powershell/module/storage/get-storagediagnosticinfo?view=windowsserver2022-ps
+author: Max Altgelt (Nextron Systems)
+date: 2021-09-21
+modified: 2022-12-25
+tags:
+    - attack.credential-access
+    - attack.t1003
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains|all:
+            - Get-StorageDiagnosticInfo
+            - -IncludeLiveDump
+    condition: ps_script and selection
+falsepositives:
+    - Diagnostics
+level: high
+ruletype: Sigma

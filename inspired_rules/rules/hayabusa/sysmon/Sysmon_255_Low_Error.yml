@@ -1,0 +1,27 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'Sysmon Error'
+description: 'Sysmon error.'
+
+id: f9a0bb41-a47a-4acb-875b-d64da687ee91
+level: low
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 255
+    condition: selection_basic
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: 

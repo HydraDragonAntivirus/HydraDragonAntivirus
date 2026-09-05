@@ -1,0 +1,63 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'DNS Query'
+details: 'Query: %QueryName% ¦ Result: %QueryResults% ¦ Proc: %Image% ¦ PID: %ProcessId% ¦ PGUID: %ProcessGuid%' 
+         #The Status field gives by status codes like 0, 123, and 1460. 0 seems to mean success but I am not sure what 123 and 1460 mean so we will omit this for now.
+description: |
+    This event is generated when a process executes a DNS query, whether the result is successful or fails, cached or not. 
+    DNS Queries using the Windows DnsQuery_* API calls in dnsapi.dll will be logged but not applications that do their own DNS resolution.
+
+id: d98f628c-2579-4388-bacc-381433b28e5b
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Requires Sysmon 10+ (Released 2019/06/12) and Windows 8.1+.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 22
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and selection_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://github.com/trustedsec/SysmonCommunityGuide/blob/master/chapters/dns-query.md
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>22</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>22</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2021-12-04T21:19:17.757697800Z"/>
+            <EventRecordID>48607</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="1048" ThreadID="1700"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>fs03vuln.offsec.lan</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">-</Data>
+            <Data Name="UtcTime">2021-12-04 21:19:10.604</Data>
+            <Data Name="ProcessGuid">{A57649D1-DB54-61AB-775C-DC0100000000}</Data>
+            <Data Name="ProcessId">2124</Data>
+            <Data Name="QueryName">fs03vuln</Data>
+            <Data Name="QueryStatus">0</Data>
+            <Data Name="QueryResults">10.23.42.38;</Data>
+            <Data Name="Image">C:\TOOLS\PsExec64.exe</Data>
+        </EventData>
+    </Event>

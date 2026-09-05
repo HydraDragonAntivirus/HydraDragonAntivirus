@@ -1,0 +1,30 @@
+title: Invocation of Active Directory Diagnostic Tool (ntdsutil.exe)
+id: 8808e80e-3083-09b7-f45e-9e30c5eaa797
+related:
+    - id: 2afafd61-6aae-4df4-baed-139fa1f4c345
+      type: derived
+status: test
+description: Detects execution of ntdsutil.exe, which can be used for various attacks against the NTDS database (NTDS.DIT)
+references:
+    - https://jpcertcc.github.io/ToolAnalysisResultSheet/details/ntdsutil.htm
+author: Thomas Patzke
+date: 2019-01-16
+modified: 2022-03-11
+tags:
+    - attack.credential-access
+    - attack.t1003.003
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \ntdsutil.exe
+    condition: process_creation and selection
+falsepositives:
+    - NTDS maintenance
+level: medium
+ruletype: Sigma

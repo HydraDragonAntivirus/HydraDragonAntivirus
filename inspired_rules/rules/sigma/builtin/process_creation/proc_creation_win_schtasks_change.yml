@@ -1,0 +1,80 @@
+title: Suspicious Modification Of Scheduled Tasks
+id: 687367a8-d423-cb00-4753-adfcbf3ef580
+related:
+    - id: 614cf376-6651-47c4-9dcc-6b9527f749f4 # Security-Audting Eventlog
+      type: similar
+    - id: 1c0e41cd-21bb-4433-9acc-4a2cd6367b9b
+      type: derived
+status: test
+description: |
+    Detects when an attacker tries to modify an already existing scheduled tasks to run from a suspicious location
+    Attackers can create a simple looking task in order to avoid detection on creation as it's often the most focused on
+    Instead they modify the task after creation to include their malicious payload
+references:
+    - Internal Research
+    - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/schtasks
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-07-28
+modified: 2022-11-18
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.execution
+    - attack.t1053.005
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_schtasks:
+        CommandLine|contains|all:
+            - ' /Change '
+            - ' /TN '
+        NewProcessName|endswith: \schtasks.exe
+    selection_susp_locations:
+        CommandLine|contains:
+            - \AppData\Local\Temp
+            - \AppData\Roaming\
+            - \Users\Public\
+            - \WINDOWS\Temp\
+            - \Desktop\
+            - \Downloads\
+            - \Temporary Internet
+            - C:\ProgramData\
+            - C:\Perflogs\
+            - '%ProgramData%'
+            - '%appdata%'
+            - '%comspec%'
+            - '%localappdata%'
+    selection_susp_images:
+        CommandLine|contains:
+            - regsvr32
+            - rundll32
+            - 'cmd /c '
+            - 'cmd /k '
+            - 'cmd /r '
+            - 'cmd.exe /c '
+            - 'cmd.exe /k '
+            - 'cmd.exe /r '
+            - powershell
+            - mshta
+            - wscript
+            - cscript
+            - certutil
+            - bitsadmin
+            - bash.exe
+            - 'bash '
+            - scrcons
+            - 'wmic '
+            - wmic.exe
+            - forfiles
+            - scriptrunner
+            - hh.exe
+            - 'hh '
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

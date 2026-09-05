@@ -1,0 +1,72 @@
+author: Zach Mathis
+date: 2021-12-20
+modified: 2025-02-10
+
+title: PW Guessing
+description: Search for many 4625 wrong password failed logon attempts in a short period of time.
+
+id: 35e8a0fc-60c2-46d7-ba39-aafb15b9854e
+level: medium
+status: deprecated
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4625
+        SubStatus: "0xc000006a" #Wrong password
+    filter:
+       IpAddress: "-"
+    condition: selection and not filter | count() by IpAddress >= 5
+    timeframe: 5m
+falsepositives:
+    - User mistyping password
+tags:
+    - attack.t1110.003
+    - attack.credential-access
+references: https://attack.mitre.org/techniques/T1110/003/
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}"/>
+            <EventID>4625</EventID>
+            <Version>0</Version>
+            <Level>0</Level>
+            <Task>12544</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8010000000000000</Keywords>
+            <TimeCreated SystemTime="2016-09-19T16:52:49.161271000Z"/>
+            <EventRecordID>6011</EventRecordID>
+            <Correlation ActivityID="{B864D168-0B7B-0000-89D1-64B87B0BD201}"/>
+            <Execution ProcessID="752" ThreadID="496"/>
+            <Channel>Security</Channel>
+            <Computer>DESKTOP-M5SN04R</Computer>
+            <Security/>
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-0-0</Data>
+            <Data Name="SubjectUserName">-</Data>
+            <Data Name="SubjectDomainName">-</Data>
+            <Data Name="SubjectLogonId">0x0</Data>
+            <Data Name="TargetUserSid">S-1-0-0</Data>
+            <Data Name="TargetUserName">Administrator</Data>
+            <Data Name="TargetDomainName">.</Data>
+            <Data Name="Status">0xc000006d</Data>
+            <Data Name="FailureReason">%%2313</Data>
+            <Data Name="SubStatus">0xc000006a</Data>
+            <Data Name="LogonType">3</Data>
+            <Data Name="LogonProcessName">NtLmSsp</Data>
+            <Data Name="AuthenticationPackageName">NTLM</Data>
+            <Data Name="WorkstationName">z4lSo9BMWdcPLfLb</Data>
+            <Data Name="TransmittedServices">-</Data>
+            <Data Name="LmPackageName">-</Data>
+            <Data Name="KeyLength">0</Data>
+            <Data Name="ProcessId">0x0</Data>
+            <Data Name="ProcessName">-</Data>
+            <Data Name="IpAddress">192.168.198.149</Data>
+            <Data Name="IpPort">50311</Data>
+        </EventData>
+    </Event>

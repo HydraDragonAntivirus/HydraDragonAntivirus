@@ -1,0 +1,46 @@
+title: Potential CobaltStrike Service Installations - Registry
+id: 22ff751c-b2ff-1cd8-3e5b-3bd123b3a93e
+related:
+    - id: 61a7697c-cb79-42a8-a2ff-5f0cdfae0130
+      type: derived
+status: test
+description: |
+    Detects known malicious service installs that appear in cases in which a Cobalt Strike beacon elevates privileges or lateral movement.
+references:
+    - https://www.sans.org/webcasts/tech-tuesday-workshop-cobalt-strike-detection-log-analysis-119395
+author: Wojciech Lesicki
+date: 2021-06-29
+modified: 2024-03-25
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.privilege-escalation
+    - attack.lateral-movement
+    - attack.t1021.002
+    - attack.t1543.003
+    - attack.t1569.002
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection_key:
+        - ObjectName|contains: \System\CurrentControlSet\Services
+        - ObjectName|contains|all:
+              - \System\ControlSet
+              - \Services
+    selection_details:
+        - NewValue|contains|all:
+              - ADMIN$
+              - .exe
+        - NewValue|contains|all:
+              - '%COMSPEC%'
+              - start
+              - powershell
+    condition: registry_set and (all of selection_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

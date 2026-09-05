@@ -1,0 +1,24 @@
+author: Zach Mathis
+date: 2022-02-05
+modified: 2022-12-16
+
+title: 'Proc Exec'
+description: 'Process execution.'
+
+id: ac933178-c222-430d-8dcf-17b4f3a2fed8
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+    description: Process Creation with command line option logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 4688
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa

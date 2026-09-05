@@ -1,0 +1,41 @@
+title: Change Winevt Channel Access Permission Via Registry
+id: 69cb5d0b-48e9-4795-d7bf-3b3051750973
+related:
+    - id: 7d9263bd-dc47-4a58-bc92-5474abab390c
+      type: derived
+status: test
+description: Detects tampering with the "ChannelAccess" registry key in order to change access to Windows event channel.
+references:
+    - https://app.any.run/tasks/77b2e328-8f36-46b2-b2e2-8a80398217ab/
+    - https://learn.microsoft.com/en-us/windows/win32/api/winevt/
+    - https://itconnect.uw.edu/tools-services-support/it-systems-infrastructure/msinf/other-help/understanding-sddl-syntax/
+author: frack113
+date: 2022-09-17
+modified: 2024-03-25
+tags:
+    - attack.defense-impairment
+    - attack.t1685.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \Microsoft\Windows\CurrentVersion\WINEVT\Channels\
+        ObjectName|endswith: \ChannelAccess
+        NewValue|contains:
+            - (A;;0x1;;;LA)   # Local administrator having GENERIC ALL
+            - (A;;0x1;;;SY)   # Local System having GENERIC ALL
+            - (A;;0x5;;;BA)   # Built-in administrators having GENERIC ALL and  GENERIC WRITE
+    filter_main_trustedinstaller:
+        ProcessName: C:\Windows\servicing\TrustedInstaller.exe
+    filter_main_tiworker:
+        ProcessName|startswith: C:\Windows\WinSxS\
+        ProcessName|endswith: \TiWorker.exe
+    condition: registry_set and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

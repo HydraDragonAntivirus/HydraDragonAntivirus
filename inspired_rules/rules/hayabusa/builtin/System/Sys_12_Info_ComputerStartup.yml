@@ -1,0 +1,54 @@
+author: Zach Mathis
+date: 2025-04-01
+modified: 2025-04-11
+
+title: Computer Startup
+description: 'The system has booted up. It also contains information about the OS version even though this information is not present in the event message. You can tell if the system was started up normally or in safe mode depending on the value of the BootMode. 0 for normal boot. 1 for Safe Mode. 2 for Safe Mode with networking.'
+
+id: a225cc36-bfdc-4e7a-ad01-f544b90e2d2a
+level: informational
+status: test
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: 'System'
+        Provider_Name: 'Microsoft-Windows-Kernel-General'
+        EventID: 12
+        BootMode: 0
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa
+
+sample-message: 'The operating system started at system time 2025-03-30T06:11:15.500000000Z.'
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Kernel-General" Guid="{a68ca8b7-004f-d7b6-a698-07e2de0f1f5d}" /> 
+            <EventID>12</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>1</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8000000000000080</Keywords> 
+            <TimeCreated SystemTime="2025-03-30T06:11:16.2028367Z" /> 
+            <EventRecordID>35499</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="4" ThreadID="8" /> 
+            <Channel>System</Channel> 
+            <Computer>Sec504Student</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <EventData>
+            <Data Name="MajorVersion">10</Data> 
+            <Data Name="MinorVersion">0</Data> 
+            <Data Name="BuildVersion">19041</Data> 
+            <Data Name="QfeVersion">1682</Data> 
+            <Data Name="ServiceVersion">0</Data> 
+            <Data Name="BootMode">0</Data> 
+            <Data Name="StartTime">2025-03-30T06:11:15.5000000Z</Data> 
+        </EventData>
+    </Event>

@@ -1,0 +1,59 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2023-02-10
+
+title: 'Driver Loaded (Expired/Revoked Cert)'
+description: ''
+
+id: c837dd6d-0c91-4593-aeab-f6a1f3ca1961
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: Sysmon needs to be installed and configured.
+detection:
+    selection:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 6
+        SignatureStatus: 'Expired'
+    filter:
+        Signed: 'true'
+    condition: selection and not filter
+falsepositives:
+    - 'Software with expired/revoked certs'
+tags:
+    - attack.defense-evasion
+    - attack.t1553.002
+    - sysmon
+references:
+    - https://attack.mitre.org/techniques/T1553/002/ 
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>6</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>6</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2020-07-29T01:02:51.104197900Z"/>
+            <EventRecordID>14255459</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="2960" ThreadID="2988"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>ftp-server.domain.co.jp</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="UtcTime">2020-07-29 01:02:51.088</Data>
+            <Data Name="ImageLoaded">C:\Users\ADMINI~1\AppData\Local\Temp\1\ad_driver.sys</Data>
+            <Data Name="Hashes">MD5=87CDA9FCD14759EA4F30347E7D1539A1</Data>
+            <Data Name="Signed">false</Data>
+            <Data Name="Signature"/>
+            <Data Name="SignatureStatus">Expired</Data>
+        </EventData>
+    </Event>

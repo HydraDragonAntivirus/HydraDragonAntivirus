@@ -1,0 +1,32 @@
+author: Zach Mathis
+date: 2021-12-16
+modified: 2022-12-16
+
+title: NetShare File Access
+description: 
+
+id: 8c6ec2b2-8dad-4996-9aba-d659afc1b919
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+    description: Logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 5145
+    filter:
+        - ShareLocalPath: ''
+        - ShareLocalPath: 'null'
+        - ShareName: '\\*\IPC$'
+        - RelativeTargetName: '\'
+    condition: selection and not filter
+falsepositives:
+    - normal system usage
+tags:
+    - attack.t1039 # Data from network shared drive
+    - attack.collection
+references:
+sample-evtx: ./EVTX-to-MITRE-Attack/TA0007-Discovery/T1135.xxx-Network Share Discovery/ID5140-5145-Bloodhound-SharpHound enumeration via SMB.evtx
+ruletype: Hayabusa

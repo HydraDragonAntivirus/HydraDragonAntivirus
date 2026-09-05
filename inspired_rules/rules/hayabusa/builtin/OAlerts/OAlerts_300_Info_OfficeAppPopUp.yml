@@ -1,0 +1,49 @@
+author: Zach Mathis
+date: 2022-06-13
+modified: 2022-06-14
+
+title: Office App PopUp
+details: 'App: %Data[1]% ¦ Msg: %Data[2]% ¦ Ver: %Data[4]%' 
+description: Displays the dialog box message that popped up in Office Activated App for the user.
+
+id: 8cab5688-ca77-483d-a295-56dd6c1db944
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_basic:
+        Channel: OAlerts
+        EventID: 300
+    condition: selection_basic
+falsepositives:
+tags:
+references:
+    - https://bromiley.medium.com/oalerts-the-microsoft-office-event-log-ad164e1eec0f
+ruletype: Hayabusa
+
+sample-message: 
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft Office 16 Alerts" /> 
+            <EventID Qualifiers="0">300</EventID> 
+            <Level>4</Level> 
+            <Task>0</Task> 
+            <Keywords>0x80000000000000</Keywords> 
+            <TimeCreated SystemTime="2017-04-18T18:32:09.000000000Z" /> 
+            <EventRecordID>85</EventRecordID> 
+            <Channel>OAlerts</Channel> 
+            <Computer>Computer</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data>Microsoft Word</Data> 
+            <Data>Want to save your changes to "Akatsuki.docx"?</Data> 
+            <Data>200054</Data> 
+            <Data>16.0.4535.1000</Data> 
+            <Data /> 
+            <Data /> 
+        </EventData>
+    </Event>

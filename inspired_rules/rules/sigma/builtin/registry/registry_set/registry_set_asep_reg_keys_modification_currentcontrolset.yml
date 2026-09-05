@@ -1,0 +1,68 @@
+title: CurrentControlSet Autorun Keys Modification
+id: 94a78414-5302-4e88-7c59-1d5d0de11a5f
+related:
+    - id: 17f878b8-9968-4578-b814-c4217fc5768c
+      type: obsolete
+    - id: f674e36a-4b91-431e-8aef-f8a96c2aca35
+      type: derived
+status: test
+description: Detects modification of autostart extensibility point (ASEP) in registry.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.001/T1547.001.md
+    - https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
+    - https://gist.github.com/GlebSukhodolskiy/0fc5fa5f482903064b448890db1eaf9d # a list with registry keys
+author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur Zinniatullin, oscd.community, Tim Shelton, frack113 (split)
+date: 2019-10-25
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    system_control_base:
+        ObjectName|contains: \SYSTEM\CurrentControlSet\Control
+    system_control_keys:
+        ObjectName|contains:
+            - \Terminal Server\WinStations\RDP-Tcp\InitialProgram
+            - \Terminal Server\Wds\rdpwd\StartupPrograms
+            - \SecurityProviders\SecurityProviders
+            - \SafeBoot\AlternateShell
+            - \Print\Providers
+            - \Print\Monitors
+            - \NetworkProvider\Order
+            - \Lsa\Notification Packages
+            - \Lsa\Authentication Packages
+            - \BootVerificationProgram\ImagePath
+    filter_empty:
+        NewValue: (Empty)
+    filter_cutepdf:
+        ProcessName: C:\Windows\System32\spoolsv.exe
+        ObjectName|contains: \Print\Monitors\CutePDF Writer Monitor
+        NewValue:
+            - cpwmon64_v40.dll
+            - CutePDF Writer
+    filter_onenote:
+        ProcessName: C:\Windows\System32\spoolsv.exe
+        ObjectName|contains: Print\Monitors\Appmon\Ports\Microsoft.Office.OneNote_
+        SubjectUserName|contains: # covers many language settings
+            - AUTHORI
+            - AUTORI
+    filter_poqexec:
+        ProcessName: C:\Windows\System32\poqexec.exe
+        ObjectName|endswith: \NetworkProvider\Order\ProviderOrder
+    filter_realvnc:
+        ProcessName: C:\Windows\System32\spoolsv.exe
+        ObjectName|endswith: \Print\Monitors\MONVNC\Driver
+        NewValue: VNCpm.dll
+    condition: registry_set and (all of system_control_* and not 1 of filter_*)
+falsepositives:
+    - Legitimate software automatically (mostly, during installation) sets up autorun keys for legitimate reason
+    - Legitimate administrator sets up autorun keys for legitimate reason
+level: medium
+ruletype: Sigma

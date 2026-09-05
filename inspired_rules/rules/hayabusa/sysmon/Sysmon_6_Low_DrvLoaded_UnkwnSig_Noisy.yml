@@ -1,0 +1,42 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2025-02-10
+
+title: 'Driver Loaded (Unknown Signature) (Noisy)'
+description: 'This rule is marked as noisy by default due to a high probability of false positives.'
+
+id: 0090ea60-f4a2-43a8-8657-3a9a4ddcf547
+level: low
+status: experimental
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 6
+        Signed: 'true'
+    filter:
+        - Signature: 'Microsoft Windows'
+        - Signature: 'VMware'
+        - Signature: 'VMware, Inc.'
+        - Signature: 'OpenVPN Technologies, Inc.'
+        - Signature: 'Insecure.Com LLC'             # NMap
+        - Signature: 'Wireshark Foundation, Inc.'
+        - Signature: 'Trend Micro'
+        - Signature: 'McAfee, Inc.'
+        - Signature: 'Riverbed Technology, Inc.'
+        - Signature: 'Oracle Corporation'
+        - Signature: 'innotek GmbH'                 #Virtual Box
+    condition: selection and not filter
+falsepositives:
+tags:
+    - attack.defense-evasion
+    - attack.t1553.002
+    - sysmon
+references:
+    - https://attack.mitre.org/techniques/T1553/002/
+ruletype: Hayabusa
+
+sample-evtx: # No example evtx yet.

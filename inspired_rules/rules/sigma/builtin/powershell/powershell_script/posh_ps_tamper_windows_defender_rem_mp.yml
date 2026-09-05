@@ -1,0 +1,39 @@
+title: Tamper Windows Defender Remove-MpPreference - ScriptBlockLogging
+id: 97e928f0-6985-66cd-fd2d-3783904a3c7c
+related:
+    - id: 07e3cb2c-0608-410d-be4b-1511cb1a0448
+      type: similar
+    - id: ae2bdd58-0681-48ac-be7f-58ab4e593458
+      type: derived
+status: test
+description: Detects attempts to remove Windows Defender configuration using the 'MpPreference' cmdlet
+references:
+    - https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/windows-10-controlled-folder-access-event-search/ba-p/2326088
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-05
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection_remove:
+        ScriptBlockText|contains: Remove-MpPreference
+    selection_tamper:
+        ScriptBlockText|contains:
+            - '-ControlledFolderAccessProtectedFolders '
+            - '-AttackSurfaceReductionRules_Ids '
+            - '-AttackSurfaceReductionRules_Actions '
+            - '-CheckForSignaturesBeforeRunningScan '
+    condition: ps_script and (all of selection_*)
+falsepositives:
+    - Legitimate PowerShell scripts
+level: high
+ruletype: Sigma

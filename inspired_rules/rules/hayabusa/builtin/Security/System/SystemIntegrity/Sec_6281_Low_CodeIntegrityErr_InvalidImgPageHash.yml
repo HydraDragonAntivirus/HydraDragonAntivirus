@@ -1,0 +1,29 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2022-02-10
+
+title: Code Integrity Error (Invalid Image Page Hash)
+details: 'Path: %param1%'
+description: Detects when hashes are not correct or a file does not meet Windows' security requirements.
+
+id: d4757f63-cc0e-448e-8b5b-6cb02aeb918a
+level: low  # This should be high but is set as low due to almost all false positives & negatives.
+status: test
+logsource:
+    product: windows
+    service: security
+    description: Logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 6281
+    condition: selection
+falsepositives:
+    - most likely not malicious
+    - disk device error
+tags:
+    - attack.defense-evasion
+references:
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-6281
+sample-evtx: 
+ruletype: Hayabusa

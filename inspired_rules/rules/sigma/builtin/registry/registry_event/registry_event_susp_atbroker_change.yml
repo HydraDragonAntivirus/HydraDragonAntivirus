@@ -1,0 +1,42 @@
+title: Atbroker Registry Change
+id: 5c5490c6-68eb-786c-e6b0-12374dce833f
+related:
+    - id: 9577edbb-851f-4243-8c91-1d5b50c1a39b
+      type: derived
+status: test
+description: Detects creation/modification of Assistive Technology applications and persistence with usage of 'at'
+references:
+    - http://www.hexacorn.com/blog/2016/07/22/beyond-good-ol-run-key-part-42/
+    - https://lolbas-project.github.io/lolbas/Binaries/Atbroker/
+author: Mateusz Wydra, oscd.community
+date: 2020-10-13
+modified: 2023-01-19
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1218
+    - attack.persistence
+    - attack.t1547
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains:
+            - Software\Microsoft\Windows NT\CurrentVersion\Accessibility\ATs
+            - Software\Microsoft\Windows NT\CurrentVersion\Accessibility\Configuration
+    filter_atbroker:
+        ProcessName: C:\Windows\system32\atbroker.exe
+        ObjectName|contains: \Microsoft\Windows NT\CurrentVersion\Accessibility\Configuration
+        NewValue: (Empty)
+    filter_uninstallers:
+        ProcessName|startswith: C:\Windows\Installer\MSI
+        ObjectName|contains: Software\Microsoft\Windows NT\CurrentVersion\Accessibility\ATs
+    condition: registry_event and (selection and not 1 of filter_*)
+falsepositives:
+    - Creation of non-default, legitimate at usage
+level: medium
+ruletype: Sigma

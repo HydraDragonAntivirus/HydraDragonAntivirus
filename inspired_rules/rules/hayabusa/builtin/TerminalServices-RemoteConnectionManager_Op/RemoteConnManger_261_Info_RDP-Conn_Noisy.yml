@@ -1,0 +1,33 @@
+author: Zach Mathis
+date: 2022-12-07
+modified: 2025-02-10
+
+title: 'RDP Conn (Noisy)'
+details: ''
+description: |
+    This event is generated when anyone connects to RDP and sends data. It does not need to be a legitimate RDP connection.
+    Unfortunately, there are no details about the remote machine.
+    This event is noisy and will generate a lot of logs and is of limited investigative value.
+    If you see a large number of these events, but not successful logon events with EID 1149, etc... then it may indicate a brute force attack.
+    The Security event log will have more information so this event is only useful if the Security event logs are not available.
+
+id: 6dbed1df-f08a-47ab-9a58-999c0787d034
+level: informational
+status: stable
+logsource:
+    product: windows
+detection:
+    selection:
+        Channel: 'Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational'
+        EventID: 261
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+references:
+    - https://www.cybertriage.com/artifact/terminalservices_remoteconnectionmanager_log/terminalservices_remoteconnectionmanager_operational_261/
+ruletype: Hayabusa
+
+sample-message: 'Listener RDP-Tcp received a connection'

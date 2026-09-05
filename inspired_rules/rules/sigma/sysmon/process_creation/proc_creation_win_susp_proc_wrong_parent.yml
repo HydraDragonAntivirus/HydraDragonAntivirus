@@ -1,0 +1,59 @@
+title: Windows Processes Suspicious Parent Directory
+id: c7828dcc-0e52-e278-3ef2-ec6735a42d45
+related:
+    - id: 96036718-71cc-4027-a538-d1587e0006a7
+      type: derived
+status: test
+description: Detect suspicious parent processes of well-known Windows processes
+references:
+    - https://web.archive.org/web/20180718061628/https://securitybytes.io/blue-team-fundamentals-part-two-windows-processes-759fe15965e2
+    - https://www.carbonblack.com/2014/06/10/screenshot-demo-hunt-evil-faster-than-ever-with-carbon-black/
+    - https://www.13cubed.com/downloads/windows_process_genealogy_v2.pdf
+author: vburov
+date: 2019-02-23
+modified: 2025-03-06
+tags:
+    - attack.stealth
+    - attack.t1036.003
+    - attack.t1036.005
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith:
+            - \svchost.exe
+            - \taskhost.exe
+            - \lsm.exe
+            - \lsass.exe
+            - \services.exe
+            - \lsaiso.exe
+            - \csrss.exe
+            - \wininit.exe
+            - \winlogon.exe
+    filter_sys:
+        - ParentImage|endswith:
+              - \SavService.exe
+              - \ngen.exe
+        - ParentImage|contains:
+              - \System32\
+              - \SysWOW64\
+    filter_msmpeng:
+        ParentImage|contains:
+            - \Windows Defender\
+            - \Microsoft Security Client\
+        ParentImage|endswith: \MsMpEng.exe
+    filter_null:
+        - ParentImage: null
+        - ParentImage:
+              - ''
+              - '-'
+    condition: process_creation and (selection and not 1 of filter_*)
+falsepositives:
+    - Some security products seem to spawn these
+level: low
+ruletype: Sigma

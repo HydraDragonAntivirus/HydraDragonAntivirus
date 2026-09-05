@@ -1,0 +1,59 @@
+title: Suspicious Startup Folder Persistence
+id: 42eda6ab-d3b1-98fa-2f6a-5ff1382daca6
+related:
+    - id: 2aa0a6b4-a865-495b-ab51-c28249537b75
+      type: similar
+    - id: 28208707-fe31-437f-9a7f-4b1108b94d2e
+      type: derived
+status: test
+description: |
+    Detects the creation of potentially malicious script and executable files in Windows startup folders, which is a common persistence technique used by threat actors.
+    These files (.ps1, .vbs, .js, .bat, etc.) are automatically executed when a user logs in, making the Startup folder an attractive target for attackers.
+    This technique is frequently observed in malvertising campaigns and malware distribution where attackers attempt to maintain long-term access to compromised systems.
+references:
+    - https://github.com/last-byte/PersistenceSniper
+    - https://www.microsoft.com/en-us/security/blog/2025/03/06/malvertising-campaign-leads-to-info-stealers-hosted-on-github/
+    - https://github.com/redcanaryco/atomic-red-team/blob/5ede8f21e42ebe37e0a6eff757dba60bcfa85859/atomics/T1547.001/T1547.001.md
+author: Nasreddine Bencherchali (Nextron Systems), Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2022-08-10
+modified: 2025-10-12
+tags:
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.t1204.002
+    - attack.persistence
+    - attack.t1547.001
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|contains: \Windows\Start Menu\Programs\Startup\
+        TargetFilename|endswith:
+            # Add or remove suspicious extensions according to your env needs
+            - .bat
+            - .cmd
+            - .dll
+            - .hta
+            - .jar
+            - .js
+            - .jse
+            - .msi
+            - .ps1
+            - .psd1
+            - .psm1
+            - .scr
+            - .url
+            - .vba
+            - .vbe
+            - .vbs
+            - .wsf
+    condition: file_event and selection
+falsepositives:
+    - Rare legitimate usage of some of the extensions mentioned in the rule
+level: high
+ruletype: Sigma

@@ -1,0 +1,33 @@
+title: Port Forwarding Activity Via SSH.EXE
+id: 9f52bf0b-cd07-33a3-f9c1-6cf08889812a
+related:
+    - id: 327f48c1-a6db-4eb8-875a-f6981f1b0183
+      type: derived
+status: test
+description: Detects port forwarding activity via SSH.exe
+references:
+    - https://www.absolomb.com/2018-01-26-Windows-Privilege-Escalation-Guide/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-12
+modified: 2024-03-05
+tags:
+    - attack.command-and-control
+    - attack.lateral-movement
+    - attack.t1572
+    - attack.t1021.001
+    - attack.t1021.004
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains|windash: ' -R '
+        NewProcessName|endswith: \ssh.exe
+    condition: process_creation and selection
+falsepositives:
+    - Administrative activity using a remote port forwarding to a local port
+level: medium
+ruletype: Sigma

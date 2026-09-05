@@ -1,0 +1,38 @@
+title: Lace Tempest PowerShell Launcher
+id: 47fec53e-ab09-f2b7-fc9a-c7364aefc12f
+related:
+    - id: 37dc5463-f7e3-4f61-ad76-ba59cd02a651
+      type: derived
+status: test
+description: |
+    Detects a PowerShell script used by Lace Tempest APT to launch their malware loader by exploiting CVE-2023-47246 as reported by SysAid Team
+references:
+    - https://www.sysaid.com/blog/service-desk/on-premise-software-security-vulnerability-notification
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-11-09
+tags:
+    - attack.execution
+    - attack.t1059.001
+    - detection.emerging-threats
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains|all:
+            - \SysAidServer\tomcat\webapps
+            - Starting user.exe
+            - \usersfiles\user.exe
+            - Remove-Item -Force "$wapps
+            - (Sophos).
+    condition: ps_script and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

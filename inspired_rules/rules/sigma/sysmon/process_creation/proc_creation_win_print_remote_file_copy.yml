@@ -1,0 +1,37 @@
+title: Abusing Print Executable
+id: f508dd94-4930-ec87-1a9c-e0afc87efd6e
+related:
+    - id: bafac3d6-7de9-4dd9-8874-4a1194b493ed
+      type: derived
+status: test
+description: Attackers can use print.exe for remote file copy
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Print/
+    - https://twitter.com/Oddvarmoe/status/985518877076541440
+author: Furkan CALISKAN, @caliskanfurkan_, @oscd_initiative
+date: 2020-10-05
+modified: 2022-07-07
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \print.exe
+        CommandLine|startswith: print
+        CommandLine|contains|all:
+            - /D
+            - .exe
+    filter_print:
+        CommandLine|contains: print.exe
+    condition: process_creation and (selection and not filter_print)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

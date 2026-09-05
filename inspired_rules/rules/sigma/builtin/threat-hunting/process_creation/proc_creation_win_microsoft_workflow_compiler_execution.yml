@@ -1,0 +1,36 @@
+title: Microsoft Workflow Compiler Execution
+id: 592e613b-8b20-792b-c8be-b55cf0bbe6a4
+related:
+    - id: 419dbf2b-8a9b-4bea-bf99-7544b050ec8d
+      type: derived
+status: test
+description: |
+    Detects the execution of Microsoft Workflow Compiler, which may permit the execution of arbitrary unsigned code.
+references:
+    - https://posts.specterops.io/arbitrary-unsigned-code-execution-vector-in-microsoft-workflow-compiler-exe-3d9294bc5efb
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1218/T1218.md
+    - https://lolbas-project.github.io/lolbas/Binaries/Microsoft.Workflow.Compiler/
+author: Nik Seetharaman, frack113
+date: 2019-01-16
+modified: 2023-02-03
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1127
+    - attack.t1218
+    - detection.threat-hunting
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        - NewProcessName|endswith: \Microsoft.Workflow.Compiler.exe
+        - OriginalFileName: Microsoft.Workflow.Compiler.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate MWC use (unlikely in modern enterprise environments)
+level: medium
+ruletype: Sigma

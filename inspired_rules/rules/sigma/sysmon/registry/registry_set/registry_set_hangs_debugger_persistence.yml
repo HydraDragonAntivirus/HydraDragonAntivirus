@@ -1,0 +1,30 @@
+title: Add Debugger Entry To Hangs Key For Persistence
+id: c9c8f6d5-53bf-7247-c031-17e60770f3d8
+related:
+    - id: 833ef470-fa01-4631-a79b-6f291c9ac498
+      type: derived
+status: test
+description: Detects when an attacker adds a new "Debugger" value to the "Hangs" key in order to achieve persistence which will get invoked when an application crashes
+references:
+    - https://persistence-info.github.io/Data/wer_debugger.html
+    - https://www.hexacorn.com/blog/2019/09/20/beyond-good-ol-run-key-part-116/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-07-21
+modified: 2023-08-17
+tags:
+    - attack.persistence
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains: \SOFTWARE\Microsoft\Windows\Windows Error Reporting\Hangs\Debugger
+    condition: registry_set and selection
+falsepositives:
+    - This value is not set by default but could be rarly used by administrators
+level: high
+ruletype: Sigma

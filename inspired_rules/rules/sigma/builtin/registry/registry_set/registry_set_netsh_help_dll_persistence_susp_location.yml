@@ -1,0 +1,55 @@
+title: New Netsh Helper DLL Registered From A Suspicious Location
+id: 57fba93d-7938-c3fd-109b-6d1fb6037e2c
+related:
+    - id: 56321594-9087-49d9-bf10-524fe8479452
+      type: similar
+    - id: c90362e0-2df3-4e61-94fe-b37615814cb1
+      type: similar
+    - id: e7b18879-676e-4a0e-ae18-27039185a8e7
+      type: derived
+status: test
+description: |
+    Detects changes to the Netsh registry key to add a new DLL value that is located on a suspicious location. This change might be an indication of a potential persistence attempt by adding a malicious Netsh helper
+references:
+    - https://www.ired.team/offensive-security/persistence/t1128-netsh-helper-dll
+    - https://pentestlab.blog/2019/10/29/persistence-netsh-helper-dll/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-11-28
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1546.007
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection_target:
+        ObjectName|contains: \SOFTWARE\Microsoft\NetSh
+    selection_folders_1:
+        NewValue|contains:
+            - :\Perflogs\
+            - :\Users\Public\
+            - :\Windows\Temp\
+            - \AppData\Local\Temp\
+            - \Temporary Internet
+    selection_folders_2:
+        - NewValue|contains|all:
+              - :\Users\
+              - \Favorites\
+        - NewValue|contains|all:
+              - :\Users\
+              - \Favourites\
+        - NewValue|contains|all:
+              - :\Users\
+              - \Contacts\
+        - NewValue|contains|all:
+              - :\Users\
+              - \Pictures\
+    condition: registry_set and (selection_target and 1 of selection_folders_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

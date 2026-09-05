@@ -1,0 +1,42 @@
+title: Execution From Webserver Root Folder
+id: 1389b61b-b580-1994-5cae-0e184ec8dbba
+related:
+    - id: 35efb964-e6a5-47ad-bbcd-19661854018d
+      type: derived
+status: test
+description: |
+    Detects a program executing from a web server root folder. Use this rule to hunt for potential interesting activity such as webshell or backdoors
+references:
+    - Internal Research
+author: Florian Roth (Nextron Systems)
+date: 2019-01-16
+modified: 2024-01-18
+tags:
+    - attack.persistence
+    - attack.t1505.003
+    - detection.threat-hunting
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|contains:
+            - \wwwroot\
+            - \wmpub\
+            - \htdocs\
+    filter_main_generic:
+        Image|contains:
+            - bin\
+            - \Tools\
+            - \SMSComponent\
+        ParentImage|endswith: \services.exe
+    condition: process_creation and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Various applications
+    - Tools that include ping or nslookup command invocations
+level: medium
+ruletype: Sigma

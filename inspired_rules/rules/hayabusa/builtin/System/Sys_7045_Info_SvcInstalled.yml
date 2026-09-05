@@ -1,0 +1,25 @@
+author: Zach Mathis
+date: 2022-02-06
+modified: 2022-06-21
+
+title: Svc Installed
+details: 'Svc: %ServiceName% ¦ Path: %ImagePath% ¦ Acct: %AccountName% ¦ StartType: %StartType%'
+description: A new service was installed. (Possibly malware.)
+
+id: 64c5d39d-10a7-44f4-b5d6-fd0d93d0a69f
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 7045
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+    - attack.persistence
+references:
+ruletype: Hayabusa

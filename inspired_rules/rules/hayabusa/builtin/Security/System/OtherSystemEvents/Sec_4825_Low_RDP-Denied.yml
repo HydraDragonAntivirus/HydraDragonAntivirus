@@ -1,0 +1,24 @@
+author: Zach Mathis
+date: 2023-06-30
+modified: 2023-06-30
+
+title: 'RDP Denied'
+description: 'A user was denied the access to Remote Desktop. By default, users are allowed to connect only if they are members of the Remote Desktop Users group or Administrators group.'
+
+id: f97a152e-753c-4975-9375-19087fb66f8c
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+    description: Logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 4825
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa

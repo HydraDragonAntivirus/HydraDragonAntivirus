@@ -1,0 +1,25 @@
+author: Zach Mathis
+date: 2022-10-17
+modified: 2022-10-17
+
+title: Service Crashed
+details: 'Svc: %param1% ¦ CrashCount: %param2%'
+description: 
+
+id: f5dc6a6d-fdf1-441a-a10c-aa10e2908aa4
+level: low
+status: test
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 7034
+    condition: selection
+falsepositives:
+tags:
+    - attack.impact
+    - attack.t1499
+references:
+ruletype: Hayabusa

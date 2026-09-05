@@ -1,0 +1,50 @@
+author: Zach Mathis
+date: 2022-03-29
+modified: 2025-02-10
+
+title: RDP Attempt
+details: 'TgtIP: %Value%'
+description:
+
+id: 1a850b71-6aef-4f31-a509-f31b2c778476
+level: informational
+status: stable
+logsource:
+    product: windows
+detection:
+    selection:
+        Channel: Microsoft-Windows-TerminalServices-RDPClient/Operational
+        EventID: 1102
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+references:
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TerminalServices-ClientActiveXCore" Guid="{28AA95BB-D444-4719-A36F-40462168127E}"/>
+            <EventID>1102</EventID>
+            <Version>0</Version>
+            <Level>4</Level>
+            <Task>101</Task>
+            <Opcode>10</Opcode>
+            <Keywords>0x4000000000000000</Keywords>
+            <TimeCreated SystemTime="2020-07-27T23:02:23.953724300Z"/>
+            <EventRecordID>7738</EventRecordID>
+            <Correlation ActivityID="{26D1B6F0-2A5B-498F-A444-FBFB55B30000}"/>
+            <Execution ProcessID="4872" ThreadID="4904"/>
+            <Channel>Microsoft-Windows-TerminalServices-RDPClient/Operational</Channel>
+            <Computer>server.domain.co.jp</Computer>
+            <Security UserID="S-1-5-21-3134360630-2145529444-3452631993-5639"/>
+        </System>
+        <EventData>
+            <Data Name="Name">ServerAddress</Data>
+            <Data Name="Value">172.17.7.161</Data>
+            <Data Name="CustomLevel">Info</Data>
+        </EventData>
+    </Event>

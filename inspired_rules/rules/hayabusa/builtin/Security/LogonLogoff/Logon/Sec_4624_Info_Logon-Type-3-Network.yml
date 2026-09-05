@@ -1,0 +1,31 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2023-12-16
+
+title: 'Logon (Network)'
+description: 'Prints logon information'
+
+id: c7b22878-e5d8-4c30-b245-e51fd354359e
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4624
+        LogonType: 3
+    filter_local_ip_address:
+        - IpAddress: "-"
+        - IpAddress: "127.0.0.1"
+        - IpAddress: "::1"
+    filter_computer_accounts:
+        TargetUserName|endswith: '$'
+    condition: selection and not 1 of filter*
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx:
+ruletype: Hayabusa

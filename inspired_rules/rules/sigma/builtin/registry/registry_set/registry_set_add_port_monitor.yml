@@ -1,0 +1,53 @@
+title: Add Port Monitor Persistence in Registry
+id: a41b0618-1e99-30df-5b32-d040dd4ca439
+related:
+    - id: 944e8941-f6f6-4ee8-ac05-1c224e923c0e
+      type: derived
+status: test
+description: |
+    Adversaries may use port monitors to run an attacker supplied DLL during system boot for persistence or privilege escalation.
+    A port monitor can be set through the AddMonitor API call to set a DLL to be loaded at startup.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.010/T1547.010.md
+author: frack113
+date: 2021-12-30
+modified: 2024-03-25
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.010
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \Control\Print\Monitors\
+        NewValue|endswith: .dll
+    filter_optional_cutepdf:
+        ProcessName: C:\Windows\System32\spoolsv.exe
+        ObjectName|contains: \Control\Print\Monitors\CutePDF Writer Monitor v4.0\Driver
+        NewValue: cpwmon64_v40.dll
+        SubjectUserName|contains: # covers many language settings
+            - AUTHORI
+            - AUTORI
+    filter_optional_monvnc:
+        ObjectName|contains: \Control\Print\Monitors\MONVNC\Driver
+    filter_optional_vnc:
+        ObjectName|contains|all:
+            - Control\Print\Environments\
+            - \Drivers\
+            - \VNC Printer
+    condition: registry_set and (selection and not 1 of filter_optional_*)
+falsepositives:
+    - Unknown
+level: medium
+regression_tests_path: regression_data/rules/windows/registry/registry_set/registry_set_add_port_monitor/info.yml
+simulation:
+    - type: atomic-red-team
+      name: Add Port Monitor persistence in Registry
+      technique: T1547.010
+      atomic_guid: d34ef297-f178-4462-871e-9ce618d44e50
+ruletype: Sigma

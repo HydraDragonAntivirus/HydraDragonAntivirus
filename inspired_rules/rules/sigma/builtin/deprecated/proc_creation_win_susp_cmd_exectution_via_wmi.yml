@@ -1,0 +1,35 @@
+title: Suspicious Cmd Execution via WMI
+id: 83f40f59-3ad9-6e41-f40d-b0c6cba08720
+related:
+    - id: e31f89f7-36fb-4697-8ab6-48823708353b
+      type: derived
+status: deprecated
+description: Detects suspicious command execution (cmd) via Windows Management Instrumentation (WMI) on a remote host. This could be indicative of adversary lateral movement.
+references:
+    - https://www.elastic.co/guide/en/security/current/suspicious-cmd-execution-via-wmi.html
+author: Tim Rauch
+date: 2022-09-27
+modified: 2023-01-19
+tags:
+    - attack.execution
+    - attack.t1047
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains: \\\\127.0.0.1\\
+        NewProcessName|endswith: \cmd.exe
+        ParentProcessName|endswith: \WmiPrvSE.exe
+    selection_opt:
+        CommandLine|contains:
+            - 2>&1
+            - 1>
+    condition: process_creation and (all of selection*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

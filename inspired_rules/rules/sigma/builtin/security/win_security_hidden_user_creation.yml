@@ -1,0 +1,31 @@
+title: Hidden Local User Creation
+id: 23013005-3d59-4dbe-dabd-d17a54e6c6cf
+related:
+    - id: 7b449a5e-1db5-4dd0-a2dc-4e3a67282538
+      type: derived
+status: test
+description: Detects the creation of a local hidden user account which should not happen for event ID 4720.
+references:
+    - https://twitter.com/SBousseaden/status/1387743867663958021
+author: Christian Burkard (Nextron Systems)
+date: 2021-05-03
+modified: 2024-01-16
+tags:
+    - attack.persistence
+    - attack.t1136.001
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 4720
+        TargetUserName|endswith: $
+    filter_main_homegroup:
+        TargetUserName: HomeGroupUser$
+    condition: security and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

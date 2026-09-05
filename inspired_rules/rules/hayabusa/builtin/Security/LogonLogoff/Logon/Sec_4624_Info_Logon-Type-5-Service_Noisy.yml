@@ -1,0 +1,30 @@
+author: Zach Mathis
+date: 2022-06-08
+modified: 2023-06-08
+
+title: 'Logon (Service) (Noisy)'
+description: 'System Noise'
+
+id: 84e5ff02-5f8f-48c4-a7e9-88aa1fb888f7
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4624
+        LogonType: 5
+    selection_system_noise:
+        TargetUserName:
+            - "SYSTEM"
+            - "NETWORK SERVICE"
+            - "LOCAL SERVICE"
+    condition: selection and selection_system_noise
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx:
+ruletype: Hayabusa

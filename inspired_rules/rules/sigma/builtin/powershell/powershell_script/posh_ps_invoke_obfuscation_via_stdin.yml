@@ -1,0 +1,34 @@
+title: Invoke-Obfuscation Via Stdin - Powershell
+id: e355cee1-576c-66ad-ccaf-3f4dfa5b541e
+related:
+    - id: 86b896ba-ffa1-4fea-83e3-ee28a4c915c7
+      type: derived
+status: test
+description: Detects Obfuscated Powershell via Stdin in Scripts
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009  # (Task28)
+author: Nikita Nazarov, oscd.community
+date: 2020-10-12
+modified: 2024-04-05
+tags:
+    - attack.stealth
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection_4104:
+        ScriptBlockText|re: (?i)(set).*&&\s?set.*(environment|invoke|\$\{?input).*&&.*"
+    condition: ps_script and selection_4104
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

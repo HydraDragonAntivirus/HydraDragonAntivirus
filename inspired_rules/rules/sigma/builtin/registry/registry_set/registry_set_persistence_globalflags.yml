@@ -1,0 +1,44 @@
+title: Potential Persistence Via GlobalFlags
+id: f8423558-5803-e6d5-bd1e-0094253e8d41
+related:
+    - id: c81fe886-cac0-4913-a511-2822d72ff505
+      type: obsolete
+    - id: 36803969-5421-41ec-b92f-8500f79c23b0
+      type: derived
+status: test
+description: Detects registry persistence technique using the GlobalFlags and SilentProcessExit keys
+references:
+    - https://oddvar.moe/2018/04/10/persistence-using-globalflags-in-image-file-execution-options-hidden-from-autoruns-exe/
+    - https://www.deepinstinct.com/2021/02/16/lsass-memory-dumps-are-stealthier-than-ever-before-part-2/
+author: Karneades, Jonhnathan Ribeiro, Florian Roth
+date: 2018-04-11
+modified: 2023-06-05
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1546.012
+    - car.2013-01-002
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection_global_flag:
+        ObjectName|contains|all:
+            - \Microsoft\Windows NT\CurrentVersion\
+            - \Image File Execution Options\
+            - \GlobalFlag
+    selection_silent_process:
+        ObjectName|contains|all:
+            - \Microsoft\Windows NT\CurrentVersion\
+            - \SilentProcessExit\
+        ObjectName|contains:
+            - \ReportingMode
+            - \MonitorProcess
+    condition: registry_set and (1 of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

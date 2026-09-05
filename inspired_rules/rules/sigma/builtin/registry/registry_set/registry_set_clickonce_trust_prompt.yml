@@ -1,0 +1,38 @@
+title: ClickOnce Trust Prompt Tampering
+id: 6dbd4cbc-13d1-1d53-1ce4-5ad27813a654
+related:
+    - id: ac9159cc-c364-4304-8f0a-d63fc1a0aabb
+      type: derived
+status: test
+description: Detects changes to the ClickOnce trust prompt registry key in order to enable an installation from different locations such as the Internet.
+references:
+    - https://posts.specterops.io/less-smartscreen-more-caffeine-ab-using-clickonce-for-trusted-code-execution-1446ea8051c5
+    - https://learn.microsoft.com/en-us/visualstudio/deployment/how-to-configure-the-clickonce-trust-prompt-behavior
+author: '@SerkinValery, Nasreddine Bencherchali (Nextron Systems)'
+date: 2023-06-12
+modified: 2023-08-17
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \SOFTWARE\MICROSOFT\.NETFramework\Security\TrustManager\PromptingLevel\
+        ObjectName|endswith:
+            - \Internet
+            - \LocalIntranet
+            - \MyComputer
+            - \TrustedSites
+            - \UntrustedSites
+        NewValue: Enabled
+    condition: registry_set and selection
+falsepositives:
+    - Legitimate internal requirements.
+level: medium
+ruletype: Sigma

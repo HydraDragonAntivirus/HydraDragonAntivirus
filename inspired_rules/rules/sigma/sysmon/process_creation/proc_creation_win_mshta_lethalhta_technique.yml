@@ -1,0 +1,31 @@
+title: Potential LethalHTA Technique Execution
+id: 4086389a-e5fe-7938-132a-67697f4bac1d
+related:
+    - id: ed5d72a6-f8f4-479d-ba79-02f6a80d7471
+      type: derived
+status: test
+description: Detects potential LethalHTA technique where the "mshta.exe" is spawned by an "svchost.exe" process
+references:
+    - https://codewhitesec.blogspot.com/2018/07/lethalhta.html
+author: Markus Neis
+date: 2018-06-07
+modified: 2023-02-07
+tags:
+    - attack.stealth
+    - attack.t1218.005
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith: \svchost.exe
+        Image|endswith: \mshta.exe
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,25 @@
+author: Zach Mathis
+date: 2022-02-10
+modified: 2022-06-21
+
+title: USB Plugged In
+details: 'InstanceID: %InstanceId%'
+description:
+
+id: b39b18a5-cece-4e7d-a438-827d0b0e8a82
+level: informational
+status: experimental
+logsource:
+    product: windows
+    service: driver-framework
+    description: Logging needs to be turned on.
+detection:
+    selection:
+        Channel: Microsoft-Windows-DriverFrameworks-UserMode/Operational
+        EventID: 2003
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa

@@ -1,0 +1,65 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2023-01-13
+
+title: 'DLL Loaded (Sysmon Alert)'
+description: The Image Loaded event logs when a module (usually DLL) is loaded in a specific process. 
+details: 'Rule: %RuleName% ¦ Image: %ImageLoaded% ¦ Proc: %Image% ¦ Description: %Description% ¦ Product: %Product% ¦ Company: %Company% ¦ Signed: %Signed% ¦ Sig: %SignatureStatus% ¦ PID: %ProcessId% ¦ PGUID: %ProcessGuid% ¦ Hash: %Hashes% ¦ OrigFilename: %OriginalFilename%'
+
+id: 5e0a0e46-0e0e-4f44-9bb6-156b09812a47
+level: low
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 7
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>7</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>7</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2021-11-30T22:05:50.065567800Z"/>
+            <EventRecordID>48103</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="1048" ThreadID="1688"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>fs03vuln.offsec.lan</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">technique_id=T1047,technique_name=Windows Management Instrumentation</Data>
+            <Data Name="UtcTime">2021-11-30 22:05:50.049</Data>
+            <Data Name="ProcessGuid">{A57649D1-A03B-61A6-2F23-8D0000000000}</Data>
+            <Data Name="ProcessId">2668</Data>
+            <Data Name="Image">C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe</Data>
+            <Data Name="ImageLoaded">C:\Windows\System32\wbem\wmiutils.dll</Data>
+            <Data Name="FileVersion">6.3.9600.17415 (winblue_r4.141028-1500)</Data>
+            <Data Name="Description">WMI</Data>
+            <Data Name="Product">Microsoft&#xAE; Windows&#xAE; Operating System</Data>
+            <Data Name="Company">Microsoft Corporation</Data>
+            <Data Name="OriginalFileName">wmiutils.dll</Data>
+            <Data Name="Hashes">SHA1=1663A59FF35A01F612C878AB83F2AD242BB46FB6,MD5=FC2036AB90490D8FDFB3B3F3B90AF56F,SHA256=E293B79E4C06E8DEFD95F3CB9B70BA1CC50E83C37930DA802B50066AC6DF0509,IMPHASH=77B4BD4D7F94DBB1235EEE9E8C0737DC</Data>
+            <Data Name="Signed">true</Data>
+            <Data Name="Signature">Microsoft Windows</Data>
+            <Data Name="SignatureStatus">Valid</Data>
+        </EventData>
+    </Event>

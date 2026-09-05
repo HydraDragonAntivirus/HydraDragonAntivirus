@@ -1,0 +1,42 @@
+title: Potential Command Line Path Traversal Evasion Attempt
+id: 50b6f2a5-5a97-67e9-d501-c4ed201634a2
+related:
+    - id: 1327381e-6ab0-4f38-b583-4c1b8346a56b
+      type: derived
+status: test
+description: Detects potential evasion or obfuscation attempts using bogus path traversal via the commandline
+references:
+    - https://twitter.com/hexacorn/status/1448037865435320323
+    - https://twitter.com/Gal_B1t/status/1062971006078345217
+author: Christian Burkard (Nextron Systems)
+date: 2021-10-26
+modified: 2023-03-29
+tags:
+    - attack.stealth
+    - attack.t1036
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_1:
+        Image|contains: \Windows\
+        CommandLine|contains:
+            - \..\Windows\
+            - \..\System32\
+            - \..\..\
+    selection_2:
+        CommandLine|contains: .exe\..\
+    filter_optional_google_drive:
+        CommandLine|contains: \Google\Drive\googledrivesync.exe\..\
+    filter_optional_citrix:
+        CommandLine|contains: \Citrix\Virtual Smart Card\Citrix.Authentication.VirtualSmartcard.Launcher.exe\..\
+    condition: process_creation and (1 of selection_* and not 1 of filter_optional_*)
+falsepositives:
+    - Google Drive
+    - Citrix
+level: medium
+ruletype: Sigma

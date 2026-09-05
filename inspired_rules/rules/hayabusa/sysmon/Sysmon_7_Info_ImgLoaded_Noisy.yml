@@ -1,0 +1,72 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2023-01-13
+
+title: 'DLL Loaded (Noisy)'
+description: |
+    The Image Loaded event logs when a module (usually DLL) is loaded in a specific process.
+    This event is disabled by default and needs to be configured with the –l option.
+    It indicates the process in which the module is loaded, hashes and signature information.
+    The signature is created asynchronously for performance reasons and indicates if the file was removed after loading.
+    This event should be configured carefully, as monitoring all image load events will generate a large number of events.
+    Marked as noisy due to many events.
+
+id: 8b8db936-172e-4bb7-9f84-ccc954d51d93
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 7
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and selection_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://github.com/trustedsec/SysmonCommunityGuide/blob/master/chapters/image-loading.md
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>7</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>7</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2020-10-20T11:51:19.470522600Z"/>
+            <EventRecordID>1150</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="7212" ThreadID="5064"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>DESKTOP-NTSSLJD</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">-</Data>
+            <Data Name="UtcTime">2020-10-20 11:51:19.439</Data>
+            <Data Name="ProcessGuid">{23F38D93-AE9D-5F8E-9501-000000000C00}</Data>
+            <Data Name="ProcessId">5420</Data>
+            <Data Name="Image">C:\Windows\explorer.exe</Data>
+            <Data Name="ImageLoaded">C:\Windows\System32\Windows.System.Launcher.dll</Data>
+            <Data Name="FileVersion">10.0.18362.959 (WinBuild.160101.0800)</Data>
+            <Data Name="Description">Windows.System.Launcher</Data>
+            <Data Name="Product">Microsoft&#xAE; Windows&#xAE; Operating System</Data>
+            <Data Name="Company">Microsoft Corporation</Data>
+            <Data Name="OriginalFileName">Windows.System.Launcher.dll</Data>
+            <Data Name="Hashes">SHA1=DF7ABA8C9426332688DF3884CB9811FC40FECA78,MD5=D92F0AD63E9193733273CD01065E3A6D,SHA256=BCA9D05FB4BD544AD33B6EA4506A6C7E80FB892C52557E464BC09A92AF75C0E5,IMPHASH=DDC12AE08B9EC80BE7CBECCDAF370F32</Data>
+            <Data Name="Signed">true</Data>
+            <Data Name="Signature">Microsoft Windows</Data>
+            <Data Name="SignatureStatus">Valid</Data>
+        </EventData>
+    </Event>

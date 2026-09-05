@@ -1,0 +1,37 @@
+title: Process Memory Dumped Via RdrLeakDiag.EXE
+id: 87d124f9-427c-19ae-1d96-58413c82d7f2
+related:
+    - id: 6355a919-2e97-4285-a673-74645566340d
+      type: derived
+status: deprecated
+description: Detects uses of the rdrleakdiag.exe LOLOBIN utility to dump process memory
+references:
+    - https://www.crowdstrike.com/blog/overwatch-exposes-aquatic-panda-in-possession-of-log-4-shell-exploit-tools/
+author: Florian Roth (Nextron Systems)
+date: 2022-01-04
+modified: 2023-04-24
+tags:
+    - attack.defense-evasion
+    - attack.t1036
+    - attack.t1003.001
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection1:
+        Image|endswith: \rdrleakdiag.exe
+        CommandLine|contains: /fullmemdmp
+    selection2:
+        CommandLine|contains|all:
+            - /fullmemdmp
+            - ' /o '
+            - ' /p '
+    condition: process_creation and (selection1 or selection2)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

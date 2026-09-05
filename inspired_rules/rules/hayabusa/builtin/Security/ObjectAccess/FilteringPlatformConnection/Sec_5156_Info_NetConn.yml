@@ -1,0 +1,24 @@
+author: Zach Mathis
+date: 2023-06-30
+modified: 2023-06-30
+
+title: 'Net Conn'
+description: 'The Windows Filtering Platform has allowed a connection.'
+
+id: d0a61a11-57c9-4afc-b940-3f19b60db08e
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+    description: Logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 5156
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa

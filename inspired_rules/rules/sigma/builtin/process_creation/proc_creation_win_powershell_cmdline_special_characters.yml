@@ -1,0 +1,49 @@
+title: Potential PowerShell Command Line Obfuscation
+id: 8f07f78d-22f4-9cc9-b3fb-8d8c7b056395
+related:
+    - id: d7bcd677-645d-4691-a8d4-7a5602b780d1
+      type: derived
+status: test
+description: Detects the PowerShell command lines with special characters
+references:
+    - https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse?slide=64
+author: Teymur Kheirkhabarov (idea), Vasiliy Burov (rule), oscd.community, Tim Shelton (fp)
+date: 2020-10-15
+modified: 2024-04-15
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1027
+    - attack.t1059.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith:
+              - \powershell.exe
+              - \pwsh.exe
+        - OriginalFileName:
+              - PowerShell.EXE
+              - pwsh.dll
+    selection_re:
+        # TODO: Optimize for PySIGMA
+        - CommandLine|re: \+.*\+.*\+.*\+.*\+.*\+.*\+.*\+.*\+.*\+.*\+.*\+.*\+.*\+
+        - CommandLine|re: \{.*\{.*\{.*\{.*\{.*\{.*\{.*\{.*\{.*\{
+        - CommandLine|re: \^.*\^.*\^.*\^.*\^
+        - CommandLine|re: '`.*`.*`.*`.*`'
+    filter_optional_amazonSSM:
+        ParentProcessName: C:\Program Files\Amazon\SSM\ssm-document-worker.exe
+    filter_optional_defender_atp:
+        CommandLine|contains:
+            - new EventSource("Microsoft.Windows.Sense.Client.Management"
+            - public static extern bool InstallELAMCertificateInfo(SafeFileHandle handle);
+    condition: process_creation and (all of selection_* and not 1 of filter_optional_*)
+falsepositives:
+    - Amazon SSM Document Worker
+    - Windows Defender ATP
+level: high
+ruletype: Sigma

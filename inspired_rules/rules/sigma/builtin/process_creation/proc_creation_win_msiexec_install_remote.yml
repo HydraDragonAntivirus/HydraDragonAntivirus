@@ -1,0 +1,50 @@
+title: Suspicious Msiexec Quiet Install From Remote Location
+id: fb65baaf-fbef-b775-a0f1-03268c7e5fa5
+related:
+    - id: f7b5f842-a6af-4da5-9e95-e32478f3cd2f
+      type: similar
+    - id: 8150732a-0c9d-4a99-82b9-9efb9b90c40c
+      type: derived
+status: test
+description: Detects usage of Msiexec.exe to install packages hosted remotely quietly
+references:
+    - https://www.microsoft.com/en-us/security/blog/2022/10/27/raspberry-robin-worm-part-of-larger-ecosystem-facilitating-pre-ransomware-activity/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-28
+modified: 2025-10-07
+tags:
+    - attack.stealth
+    - attack.t1218.007
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \msiexec.exe
+        - OriginalFileName: msiexec.exe
+    selection_cli:
+        # Note that there is no space before and after the arguments because it's possible to write a commandline as such
+        # Example: msiexec -q/i [MSI Package]
+        CommandLine|contains|windash:
+            - -i
+            - -package
+            - -a
+            - -j
+    selection_quiet:
+        CommandLine|contains|windash: -q
+    selection_remote:
+        CommandLine|contains:
+            - http
+            - \\\\
+    filter_optional_openoffice:
+        CommandLine|contains|all:
+            - \AppData\Local\Temp\OpenOffice
+            - Installation Files\openoffice
+    condition: process_creation and (all of selection_* and not 1 of filter_optional_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

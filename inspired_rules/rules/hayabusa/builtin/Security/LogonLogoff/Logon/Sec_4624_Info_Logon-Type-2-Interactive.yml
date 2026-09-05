@@ -1,0 +1,27 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: 'Logon (Interactive) *Creds in memory*'
+description: 'Type 2 Interactive logons can be dangerous as the credentials (plaintext or hashed passwords) are stored in memory (lsass process) and can be stolen by tools like mimikatz.'
+
+id: 7beb4832-f357-47a4-afd8-803d69a5c85c
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4624
+        LogonType: 2
+    filter:
+        IpAddress: "-"
+    condition: selection and not filter
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx: 
+ruletype: Hayabusa

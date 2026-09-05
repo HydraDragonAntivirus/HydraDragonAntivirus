@@ -1,0 +1,41 @@
+title: Always Install Elevated MSI Spawned Cmd And Powershell
+id: 3679f255-d90a-49da-389c-bb16db65853c
+related:
+    - id: 1e53dd56-8d83-4eb4-a43e-b790a05510aa
+      type: derived
+status: test
+description: Detects Windows Installer service (msiexec.exe) spawning "cmd" or "powershell"
+references:
+    - https://image.slidesharecdn.com/kheirkhabarovoffzonefinal-181117201458/95/hunting-for-privilege-escalation-in-windows-environment-50-638.jpg
+author: Teymur Kheirkhabarov (idea), Mangatas Tondang (rule), oscd.community
+date: 2020-10-13
+modified: 2022-10-20
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith:
+              - \cmd.exe
+              - \powershell.exe
+              - \pwsh.exe
+        - OriginalFileName:
+              - Cmd.Exe
+              - PowerShell.EXE
+              - pwsh.dll
+    selection_parent:
+        ParentProcessName|contains|all:
+            - \Windows\Installer\
+            - msi
+        ParentProcessName|endswith: tmp
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

@@ -1,0 +1,40 @@
+title: Uncommon AddinUtil.EXE CommandLine Execution
+id: 5139400c-0a53-d802-9187-cd5a90a2b9d5
+related:
+    - id: 4f2cd9b6-4a17-440f-bb2a-687abb65993a
+      type: derived
+status: test
+description: |
+    Detects execution of the Add-In deployment cache updating utility (AddInutil.exe) with uncommon Addinroot or Pipelineroot paths. An adversary may execute AddinUtil.exe with uncommon Addinroot/Pipelineroot paths that point to the adversaries Addins.Store payload.
+references:
+    - https://www.blue-prints.blog/content/blog/posts/lolbin/addinutil-lolbas.html
+author: Michael McKinley (@McKinleyMike), Tony Latteri (@TheLatteri)
+date: 2023-09-18
+tags:
+    - attack.stealth
+    - attack.t1218
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \addinutil.exe
+        - OriginalFileName: AddInUtil.exe
+    selection_cli:
+        CommandLine|contains:
+            - '-AddInRoot:'
+            - '-PipelineRoot:'
+    filter_main_addinroot:
+        CommandLine|contains:
+            - -AddInRoot:"C:\Program Files (x86)\Common Files\Microsoft Shared\VSTA
+            - -AddInRoot:C:\Program Files (x86)\Common Files\Microsoft Shared\VSTA
+            - -PipelineRoot:"C:\Program Files (x86)\Common Files\Microsoft Shared\VSTA
+            - -PipelineRoot:C:\Program Files (x86)\Common Files\Microsoft Shared\VSTA
+    condition: process_creation and (all of selection_* and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

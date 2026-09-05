@@ -1,0 +1,36 @@
+title: Potential KamiKakaBot Activity - Winlogon Shell Persistence
+id: 396c509f-60dd-659f-6cd4-7e6e45322d5e
+related:
+    - id: c9b86500-1ec2-4de6-9120-d744c8fb5caf
+      type: derived
+status: test
+description: |
+    Detects changes to the "Winlogon" registry key where a process will set the value of the "Shell" to a value that was observed being used by KamiKakaBot samples in order to achieve persistence.
+references:
+    - https://www.nextron-systems.com/2024/03/22/unveiling-kamikakabot-malware-analysis/
+author: Nasreddine Bencherchali (Nextron Systems), X__Junior
+date: 2024-03-22
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+    - detection.emerging-threats
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|endswith: \Microsoft\Windows NT\CurrentVersion\Winlogon\Shell
+        NewValue|contains|all:
+            - -nop -w h
+            - $env
+            - explorer.exe
+            - Start-Process
+    condition: registry_set and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

@@ -1,0 +1,55 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2024-04-29
+
+title: PwSh Pipeline Exec
+description: Powershell Module Loggong. Displays powershell execution
+
+id: d3fb8f7b-88b0-4ff4-bf9b-ca286ce19031
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: powershell
+    category: ps_module
+    description: Powershell module logging needs to be turned on.
+detection:
+    select_channel:
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    select_eid:
+        EventID: 4103
+    condition: select_channel and select_eid
+falsepositives:
+    - normal system usage
+tags:
+    - PwSh
+references:
+ruletype: Hayabusa
+
+sample-message: Rendered XML
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-PowerShell" Guid="{A0C1853B-5C40-4B15-8766-3CF1C58F985A}" /> 
+            <EventID>4103</EventID> 
+            <Version>1</Version> 
+            <Level>4</Level> 
+            <Task>106</Task> 
+            <Opcode>20</Opcode> 
+            <Keywords>0x0</Keywords> 
+            <TimeCreated SystemTime="2021-12-19T15:13:49.026022800Z" /> 
+            <EventRecordID>153160</EventRecordID> 
+            <Correlation ActivityID="{7882B73A-E5EC-0000-C5B2-BF78ECE5D701}" /> 
+            <Execution ProcessID="2392" ThreadID="3520" /> 
+            <Channel>Microsoft-Windows-PowerShell/Operational</Channel> 
+            <Computer>FS03.offsec.lan</Computer> 
+            <Security UserID="S-1-5-21-4230534742-2542757381-3142984815-1111" /> 
+        </System>
+        <EventData>
+            <Data Name="ContextInfo">Severity = Informational Host Name = ConsoleHost Host Version = 4.0 Host ID = e16c2105-d67f-4bd5-b52f-ba22bff6ffac Host Application = C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe Engine Version = 4.0 Runspace ID = 20dcb711-97b2-47ff-9947-2c346e212ef7 Pipeline ID = 25 Command Name = Get-WmiObject Command Type = Cmdlet Script Name = Command Path = Sequence Number = 54 User = OFFSEC\admmig Shell ID = Microsoft.PowerShell</Data> 
+            <Data Name="UserData" /> 
+            <Data Name="Payload">CommandInvocation(Get-WmiObject): "Get-WmiObject" ParameterBinding(Get-WmiObject): name="Class"; value="Win32_Shadowcopy" CommandInvocation(ForEach-Object): "ForEach-Object" ParameterBinding(ForEach-Object): name="Process"; value="$_.Delete();"</Data> 
+        </EventData>
+    </Event>

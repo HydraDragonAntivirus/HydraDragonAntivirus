@@ -1,0 +1,70 @@
+author: Zach Mathis
+date: 2022-03-22
+modified: 2023-01-13
+
+title: 'Net Conn'
+description: 'Display network connection without sysmon rule alerts. Disabled by default.'
+
+id: a87defd7-1f87-4a34-8864-415ccb2ef21c
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: Sysmon needs to be installed and configured.
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 3
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and selection_no_alerts
+falsepositives:
+    - unknown
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://github.com/trustedsec/SysmonCommunityGuide/blob/master/chapters/network-connections.md
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>3</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>3</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2020-07-09T22:00:27.033040900Z"/>
+            <EventRecordID>311356</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="3280" ThreadID="3892"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>MSEDGEWIN10</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName"/>
+            <Data Name="UtcTime">2020-07-09 22:00:24.591</Data>
+            <Data Name="ProcessGuid">{747F3D96-85F1-5F07-0000-001074CB0000}</Data>
+            <Data Name="ProcessId">428</Data>
+            <Data Name="Image">C:\Windows\System32\svchost.exe</Data>
+            <Data Name="User">NT AUTHORITY\NETWORK SERVICE</Data>
+            <Data Name="Protocol">tcp</Data>
+            <Data Name="Initiated">false</Data>
+            <Data Name="SourceIsIpv6">false</Data>
+            <Data Name="SourceIp">192.168.56.1</Data>
+            <Data Name="SourceHostname">LAPTOP-JU4M3I0E</Data>
+            <Data Name="SourcePort">52545</Data>
+            <Data Name="SourcePortName"/>
+            <Data Name="DestinationIsIpv6">false</Data>
+            <Data Name="DestinationIp">192.168.56.101</Data>
+            <Data Name="DestinationHostname">MSEDGEWIN10</Data>
+            <Data Name="DestinationPort">3389</Data>
+            <Data Name="DestinationPortName">ms-wbt-server</Data>
+        </EventData>
+    </Event>

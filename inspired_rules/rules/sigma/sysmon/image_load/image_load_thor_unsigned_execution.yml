@@ -1,0 +1,41 @@
+title: Suspicious Unsigned Thor Scanner Execution
+id: becdb7b4-228f-acd5-1e6a-f98cd99239f7
+related:
+    - id: ea5c131b-380d-49f9-aeb3-920694da4d4b
+      type: derived
+status: stable
+description: Detects loading and execution of an unsigned thor scanner binary.
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-10-29
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith:
+            - \thor.exe
+            - \thor64.exe
+        ImageLoaded|endswith:
+            - \thor.exe
+            - \thor64.exe
+    filter_main:
+        Signed: 'true'
+        SignatureStatus: valid
+        Signature: Nextron Systems GmbH
+    condition: image_load and (selection and not filter_main)
+falsepositives:
+    - Other legitimate binaries named "thor.exe" that aren't published by Nextron Systems
+level: high
+ruletype: Sigma

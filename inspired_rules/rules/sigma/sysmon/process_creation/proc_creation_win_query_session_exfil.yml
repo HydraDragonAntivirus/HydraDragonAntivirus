@@ -1,0 +1,32 @@
+title: Query Usage To Exfil Data
+id: ec2266a7-55ff-4257-e79f-4c715cbd18be
+related:
+    - id: 53ef0cef-fa24-4f25-a34a-6c72dfa2e6e2
+      type: derived
+status: test
+description: Detects usage of "query.exe" a system binary to exfil information such as "sessions" and "processes" for later use
+references:
+    - https://twitter.com/MichalKoczwara/status/1553634816016498688
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-01
+modified: 2023-01-19
+tags:
+    - attack.execution
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: :\Windows\System32\query.exe
+        CommandLine|contains:
+            - session >
+            - process >
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

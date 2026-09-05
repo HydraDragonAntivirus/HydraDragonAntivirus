@@ -1,0 +1,33 @@
+title: Regedit as Trusted Installer
+id: 5a8217dd-7384-d352-e6cf-29d65280ffc8
+related:
+    - id: 883835a7-df45-43e4-bf1d-4268768afda4
+      type: derived
+status: test
+description: Detects a regedit started with TrustedInstaller privileges or by ProcessHacker.exe
+references:
+    - https://twitter.com/1kwpeter/status/1397816101455765504
+author: Florian Roth (Nextron Systems)
+date: 2021-05-27
+modified: 2022-10-09
+tags:
+    - attack.privilege-escalation
+    - attack.t1548
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \regedit.exe
+        ParentImage|endswith:
+            - \TrustedInstaller.exe
+            - \ProcessHacker.exe
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

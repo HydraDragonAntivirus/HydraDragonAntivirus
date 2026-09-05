@@ -1,0 +1,32 @@
+title: Disabled Volume Snapshots
+id: 3295bf0f-b0dc-d954-b13a-7cc6992de637
+related:
+    - id: dee4af55-1f22-4e1d-a9d2-4bdc7ecb472a
+      type: derived
+status: test
+description: Detects commands that temporarily turn off Volume Snapshots
+references:
+    - https://twitter.com/0gtweet/status/1354766164166115331
+author: Florian Roth (Nextron Systems)
+date: 2021-01-28
+modified: 2023-12-15
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|contains|all:
+            - \Services\VSS\Diag
+            - /d Disabled
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate administration
+level: high
+ruletype: Sigma

@@ -1,0 +1,54 @@
+author: Zach Mathis
+date: 2022-03-22
+modified: 2023-01-13
+
+title: 'Proc Terminated'
+description: ''
+
+id: 02353fdd-522c-48f8-9243-28d4830ebc1e
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 5
+    condition: selection_basic
+falsepositives:
+    - unknown
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://github.com/trustedsec/SysmonCommunityGuide/blob/master/chapters/process-termination.md
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>5</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>5</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2020-10-20T11:50:56.590682300Z"/>
+            <EventRecordID>1007</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="7212" ThreadID="9748"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>DESKTOP-NTSSLJD</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">-</Data>
+            <Data Name="UtcTime">2020-10-20 11:50:56.497</Data>
+            <Data Name="ProcessGuid">{23F38D93-CF20-5F8E-CE08-000000000C00}</Data>
+            <Data Name="ProcessId">6896</Data>
+            <Data Name="Image">C:\Users\den\AppData\Local\Temp\IDC1.tmp\[1]consent.exe</Data>
+        </EventData>
+    </Event>

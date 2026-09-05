@@ -1,0 +1,34 @@
+title: Renamed BrowserCore.EXE Execution
+id: b13f3e55-2e8f-40ca-58ca-c83bcc1560ca
+related:
+    - id: 8a4519e8-e64a-40b6-ae85-ba8ad2177559
+      type: derived
+status: test
+description: Detects process creation with a renamed BrowserCore.exe (used to extract Azure tokens)
+references:
+    - https://twitter.com/mariuszbit/status/1531631015139102720
+author: Max Altgelt (Nextron Systems)
+date: 2022-06-02
+modified: 2023-02-03
+tags:
+    - attack.credential-access
+    - attack.stealth
+    - attack.t1528
+    - attack.t1036.003
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        OriginalFileName: BrowserCore.exe
+    filter_realbrowsercore:
+        Image|endswith: \BrowserCore.exe
+    condition: process_creation and (selection and not 1 of filter_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

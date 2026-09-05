@@ -1,0 +1,23 @@
+author: Zach Mathis
+date: 2022-02-06
+modified: 2022-12-07
+
+title: Event Log Svc Stopped
+details: '-'
+description: Shutdown, reboot, event log service stopped, etc...
+
+id: b6d53116-36b2-4413-a99b-e6708f9c3027
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 6006
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa

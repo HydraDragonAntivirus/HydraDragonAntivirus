@@ -1,0 +1,61 @@
+author: Zach Mathis
+date: 2022-04-06
+modified: 2024-04-20
+
+title: Temporary WMI Event Consumer
+details: 'Namespace: %UserDataNamespaceName% ¦ Query: %UserDataQuery% ¦ User: %WMI-UserDataUser% ¦ PID: %UserDataProcessid%'
+description: 
+
+id: d96164c4-9e15-4d48-964f-153ac0dab6e9
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: wmi
+    definition: Default in 10/2012-R2+
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-WMI-Activity/Operational
+        EventID: 5860
+    condition: selection_basic
+falsepositives:
+    - unknown
+tags:
+    - WMI
+references:
+    - https://attack.mitre.org/techniques/T1546/003/
+    - https://www.varonis.com/blog/wmi-windows-management-instrumentation
+    - https://pentestlab.blog/2020/01/21/persistence-wmi-event-subscription/
+    - https://isc.sans.edu/forums/diary/Keep+an+Eye+on+Your+WMI+Logs/25012/
+ruletype: Hayabusa
+
+sample-message: Namespace = ROOT\SecurityCenter; NotificationQuery = SELECT * FROM __InstanceOperationEvent WHERE TargetInstance ISA 'AntiVirusProduct' OR TargetInstance ISA 'FirewallProduct' OR TargetInstance ISA 'AntiSpywareProduct'; UserName = NT AUTHORITY\LOCAL SERVICE; ClientProcessID = 6060, ClientMachine = COMPUTER; PossibleCause = Temporary
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-WMI-Activity" Guid="{1418EF04-B0B4-4623-BF7E-D74AB47BBDAA}" /> 
+            <EventID>5860</EventID> 
+            <Version>0</Version> 
+            <Level>0</Level> 
+            <Task>0</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x4000000000000000</Keywords> 
+            <TimeCreated SystemTime="2022-02-08T10:05:02.008274100Z" /> 
+            <EventRecordID>2223</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="2396" ThreadID="6128" /> 
+            <Channel>Microsoft-Windows-WMI-Activity/Operational</Channel> 
+            <Computer>Computer</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <UserData>
+            <Operation_TemporaryEssStarted xmlns="http://manifests.microsoft.com/win/2006/windows/WMI">
+                <NamespaceName>ROOT\SecurityCenter</NamespaceName> 
+                <Query>SELECT * FROM __InstanceOperationEvent WHERE TargetInstance ISA 'AntiVirusProduct' OR TargetInstance ISA 'FirewallProduct' OR TargetInstance ISA 'AntiSpywareProduct'</Query> 
+                <User>NT AUTHORITY\LOCAL SERVICE</User> 
+                <Processid>6060</Processid> 
+                <ClientMachine>COMPUTER</ClientMachine> 
+                <PossibleCause>Temporary</PossibleCause> 
+            </Operation_TemporaryEssStarted>
+        </UserData>
+    </Event>

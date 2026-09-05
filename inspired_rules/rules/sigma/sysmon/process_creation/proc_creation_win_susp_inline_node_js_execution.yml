@@ -1,0 +1,39 @@
+title: Potentially Suspicious Inline JavaScript Execution via NodeJS Binary
+id: 84b9936a-9f65-60b3-e3a2-d782fa8dc290
+related:
+    - id: 8537c866-072e-460d-bfff-aaf39cbd73d3
+      type: derived
+status: experimental
+description: Detects potentially suspicious inline JavaScript execution using Node.js with specific keywords in the command line.
+references:
+    - https://www.microsoft.com/en-us/security/blog/2025/04/15/threat-actors-misuse-node-js-to-deliver-malware-and-other-malicious-payloads/
+author: Microsoft (idea), Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-04-21
+tags:
+    - attack.execution
+    - attack.t1059.007
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \node.exe
+        - OriginalFileName: node.exe
+        - Product: Node.js
+    selection_cmd:
+        CommandLine|contains|all:
+            - http
+            - execSync
+            - spawn
+            - fs
+            - path
+            - zlib
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate scripts using Node.js with these modules
+level: medium
+ruletype: Sigma

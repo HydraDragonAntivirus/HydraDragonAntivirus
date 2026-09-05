@@ -1,0 +1,66 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2023-01-13
+
+title: 'Proc Access (Sysmon Alert)'
+description: |
+    The process accessed event reports when a process opens another process, an operation that is often followed by information queries or reading and writing the address space of the target process. 
+    This enables detection of hacking tools that read the memory contents of processes like Local Security Authority (Lsass.exe) in order to steal credentials for use in Pass-the-Hash attacks. 
+    Enabling it can generate significant amounts of logging if there are diagnostic utilities active that repeatedly open processes to query their state, so it generally should only be done so with filters that remove expected accesses.
+details: 'Rule: %RuleName% ¦ SrcProc: %SourceImage% ¦ TgtProc: %TargetImage% ¦ SrcUser: %SourceUser% ¦ TgtUser: %TargetUser% ¦ Access: %GrantedAccess% ¦ SrcPID: %SourceProcessId% ¦ SrcPGUID: %SourceProcessGUID% ¦ TgtPID: %TargetProcessId% ¦ TgtPGUID: %TargetProcessGUID%'
+
+id: 58cb366b-9246-4d60-b6e4-d0723d2d9d97
+level: high
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Src User and Tgt User information will not be present in older versions of Sysmon.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 10
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://github.com/trustedsec/SysmonCommunityGuide/blob/master/chapters/process-access.md
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>10</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>10</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2019-04-18T17:01:35.720774400Z"/>
+            <EventRecordID>30</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="3192" ThreadID="3288"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>IEWIN7</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">technique_id=T1003,technique_name=Credential Dumping</Data>
+            <Data Name="UtcTime">2019-04-18 17:01:35.680</Data>
+            <Data Name="SourceProcessGUID">{365ABB72-AC28-5CB8-0000-0010F3F70700}</Data>
+            <Data Name="SourceProcessId">1200</Data>
+            <Data Name="SourceThreadId">3996</Data>
+            <Data Name="SourceImage">C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe</Data>
+            <Data Name="TargetProcessGUID">{365ABB72-29B3-5CB9-0000-001087490000}</Data>
+            <Data Name="TargetProcessId">472</Data>
+            <Data Name="TargetImage">C:\Windows\system32\lsass.exe</Data>
+            <Data Name="GrantedAccess">0x1010</Data>
+            <Data Name="CallTrace">C:\Windows\SYSTEM32\ntdll.dll+4595c|C:\Windows\system32\KERNELBASE.dll+8185</Data>
+        </EventData>
+    </Event>

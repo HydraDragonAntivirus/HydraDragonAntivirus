@@ -1,0 +1,32 @@
+title: Insecure Transfer Via Curl.EXE
+id: 4308f710-0e58-712f-6781-9323b7dc779e
+related:
+    - id: cb9cc1d1-e84e-4bdc-b7ad-c31b1b7908ec
+      type: derived
+status: test
+description: Detects execution of "curl.exe" with the "--insecure" flag.
+references:
+    - https://curl.se/docs/manpage.html
+author: X__Junior (Nextron Systems)
+date: 2023-06-30
+tags:
+    - attack.execution
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \curl.exe
+        - OriginalFileName: curl.exe
+    selection_cli:
+        - CommandLine|re: \s-k\s
+        - CommandLine|contains: --insecure
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Access to badly maintained internal or development systems
+level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_curl_insecure_connection/info.yml
+ruletype: Sigma

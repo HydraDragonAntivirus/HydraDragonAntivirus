@@ -1,0 +1,38 @@
+title: Suspicious CodePage Switch Via CHCP
+id: cb1cfe0e-5561-53fd-9c94-ab43c3826cf5
+related:
+    - id: c7942406-33dd-4377-a564-0f62db0593a3
+      type: derived
+status: test
+description: Detects a code page switch in command line or batch scripts to a rare language
+references:
+    - https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers
+    - https://twitter.com/cglyer/status/1183756892952248325
+author: Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community
+date: 2019-10-14
+modified: 2023-03-07
+tags:
+    - attack.stealth
+    - attack.t1036
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|endswith:
+            - ' 936'    # Chinese
+            # - ' 1256' # Arabic
+            - ' 1258'   # Vietnamese
+            # - ' 855'  # Russian
+            # - ' 866'  # Russian
+            # - ' 864'  # Arabic
+        NewProcessName|endswith: \chcp.com
+    condition: process_creation and selection
+falsepositives:
+    - Administrative activity (adjust code pages according to your organization's region)
+level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_chcp_codepage_switch/info.yml
+ruletype: Sigma

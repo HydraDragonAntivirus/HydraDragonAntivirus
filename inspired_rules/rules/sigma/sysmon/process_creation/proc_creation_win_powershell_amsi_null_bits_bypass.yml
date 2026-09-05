@@ -1,0 +1,34 @@
+title: Potential AMSI Bypass Using NULL Bits
+id: 7dd3a8d9-0501-af64-76c6-52fc729b7384
+related:
+    - id: fa2559c8-1197-471d-9cdd-05a0273d4522
+      type: similar
+    - id: 92a974db-ab84-457f-9ec0-55db83d7a825
+      type: derived
+status: test
+description: Detects usage of special strings/null bits in order to potentially bypass AMSI functionalities
+references:
+    - https://github.com/r00t-3xp10it/hacking-material-books/blob/43cb1e1932c16ff1f58b755bc9ab6b096046853f/obfuscation/simple_obfuscation.md#amsi-bypass-using-null-bits-satoshi
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-01-04
+modified: 2023-05-09
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|contains:
+            - if(0){{{0}}}' -f $(0 -as [char]) +
+            - '#<NULL>'
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

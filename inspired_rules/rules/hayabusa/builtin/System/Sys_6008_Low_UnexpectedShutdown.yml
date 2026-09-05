@@ -1,0 +1,25 @@
+author: Zach Mathis
+date: 2022-02-06
+modified: 2022-05-21
+
+title: Unexpected Shutdown
+details: 
+description: The shutdown operation is initiated automatically by a program that uses the InitiateSystemShutdownEx function with the force flag.
+
+id: 517c0b15-d2bf-48a3-926c-f7b4a96dcec3
+level: low
+status: stable
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 6008
+    condition: selection
+falsepositives:
+tags:
+    - attack.impact
+    - attack.t1499
+references:
+ruletype: Hayabusa

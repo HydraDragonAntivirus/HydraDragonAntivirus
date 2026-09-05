@@ -1,0 +1,33 @@
+title: Potential Cookies Session Hijacking
+id: fa52bf52-8477-2ed1-ddd2-b255351a0084
+related:
+    - id: 5a6e1e16-07de-48d8-8aae-faa766c05e88
+      type: derived
+status: test
+description: Detects execution of "curl.exe" with the "-c" flag in order to save cookie data.
+references:
+    - https://curl.se/docs/manpage.html
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-07-27
+tags:
+    - attack.execution
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \curl.exe
+        - OriginalFileName: curl.exe
+    selection_cli:
+        - CommandLine|re: \s-c\s
+        - CommandLine|contains: --cookie-jar
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_curl_cookie_hijacking/info.yml
+ruletype: Sigma

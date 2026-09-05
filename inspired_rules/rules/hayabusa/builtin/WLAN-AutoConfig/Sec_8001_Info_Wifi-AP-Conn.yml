@@ -1,0 +1,24 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-06-21
+
+title: Wifi AP Conn
+details: 'SSID: %SSID% ¦ Type: %AuthenticationAlgorithm% ¦ BSSType: %BSSType%'
+description: Prints connection info to wireless access points.
+
+id: 90dd0797-f481-453d-a97e-dd78436893f9
+level: informational
+status: stable
+logsource:
+    product: windows
+detection:
+    selection:
+        Channel: Microsoft-Windows-WLAN-AutoConfig
+        EventID: 8001
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx: 
+ruletype: Hayabusa

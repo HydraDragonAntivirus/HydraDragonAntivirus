@@ -1,0 +1,63 @@
+title: Potential Dropper Script Execution Via WScript/CScript/MSHTA
+id: be0d9a46-d61c-a6a5-f99c-8a263c95037a
+related:
+    - id: 1e33157c-53b1-41ad-bbcc-780b80b58288
+      type: similar
+    - id: cea72823-df4d-4567-950c-0b579eaf0846
+      type: derived
+status: test
+description: Detects wscript/cscript/mshta executions of scripts located in user directories
+references:
+    - https://thedfirreport.com/2023/10/30/netsupport-intrusion-results-in-domain-compromise/
+    - https://redcanary.com/blog/gootloader/
+    - https://www.microsoft.com/en-us/security/blog/2025/03/06/malvertising-campaign-leads-to-info-stealers-hosted-on-github/
+author: Margaritis Dimitrios (idea), Florian Roth (Nextron Systems), oscd.community, Nasreddine Bencherchali (Nextron Systems), Dave Johnson
+date: 2019-01-16
+modified: 2026-02-17
+tags:
+    - attack.execution
+    - attack.t1059.005
+    - attack.t1059.007
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_exec:
+        Image|endswith:
+            - \wscript.exe
+            - \cscript.exe
+            - \mshta.exe
+    selection_paths:
+        CommandLine|contains:
+            - :\Perflogs\
+            - :\Temp\
+            - :\Tmp\
+            - :\Users\Public\
+            - :\Windows\Temp\
+            - \AppData\Local\Temp\
+            - \AppData\Roaming\Temp\
+            - \Start Menu\Programs\Startup\
+            - \Temporary Internet
+            - \Windows\Temp
+            - '%LocalAppData%\Temp\'
+            - '%TEMP%'
+            - '%TMP%'
+    selection_ext:
+        CommandLine|contains:
+            - .hta
+            - .js
+            - .jse
+            - .vba
+            - .vbe
+            - .vbs
+            - .wsf
+            - .wsh
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Some installers might generate a similar behavior. An initial baseline is required
+level: medium
+ruletype: Sigma

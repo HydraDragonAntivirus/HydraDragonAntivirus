@@ -1,0 +1,39 @@
+title: Windows Internet Hosted WebDav Share Mount Via Net.EXE
+id: 036ae2ff-0a48-fcf6-b553-dce1292d85ab
+related:
+    - id: 7e6237fe-3ddb-438f-9381-9bf9de5af8d0
+      type: derived
+status: test
+description: Detects when an internet hosted webdav share is mounted using the "net.exe" utility
+references:
+    - https://drive.google.com/file/d/1lKya3_mLnR3UQuCoiYruO3qgu052_iS_/view
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-21
+modified: 2023-07-25
+tags:
+    - attack.lateral-movement
+    - attack.t1021.002
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith:
+              - \net.exe
+              - \net1.exe
+        - OriginalFileName:
+              - net.exe
+              - net1.exe
+    selection_cli:
+        CommandLine|contains|all:
+            - ' use '
+            - ' http'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

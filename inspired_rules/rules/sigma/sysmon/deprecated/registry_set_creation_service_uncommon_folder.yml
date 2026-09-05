@@ -1,0 +1,52 @@
+title: Service Binary in Uncommon Folder
+id: 83017020-efdf-8698-f7bc-b68ab1301c30
+related:
+    - id: c625c4c2-515d-407f-8bb6-456f65955669
+      type: derived
+status: deprecated
+description: Detect the creation of a service with a service binary located in a uncommon directory
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
+author: Florian Roth (Nextron Systems)
+date: 2022-05-02
+modified: 2024-03-25
+tags:
+    - attack.defense-evasion
+    - attack.t1112
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_1:
+        TargetObject|startswith: HKLM\System\CurrentControlSet\Services\
+        TargetObject|endswith: \Start
+        Image|contains:
+            - \AppData\Local\
+            - \AppData\Roaming\
+        Details:
+            - DWORD (0x00000000)    # boot
+            - DWORD (0x00000001)    # System
+            - DWORD (0x00000002)    # Automatic
+            # 3 - Manual , 4 - Disabled
+    selection_2:
+        TargetObject|startswith: HKLM\System\CurrentControlSet\Services\
+        TargetObject|endswith: \ImagePath
+        Details|contains:
+            - \AppData\Local\
+            - \AppData\Roaming\
+    filter:
+        - Image|contains:
+              - \AppData\Roaming\Zoom
+              - \AppData\Local\Zoom
+        - Details|contains:
+              - \AppData\Roaming\Zoom
+              - \AppData\Local\Zoom
+    condition: registry_set and (1 of selection_* and not filter)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

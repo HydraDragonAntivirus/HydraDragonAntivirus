@@ -1,0 +1,34 @@
+title: Vulnerable HackSys Extreme Vulnerable Driver Load
+id: e8bc3c58-0a9f-59f4-1a98-a5cf4c3a60ee
+related:
+    - id: 295c9289-acee-4503-a571-8eacaef36b28
+      type: derived
+status: test
+description: Detects the load of HackSys Extreme Vulnerable Driver which is an intentionally vulnerable Windows driver developed for security enthusiasts to learn and polish their exploitation skills at Kernel level and often abused by threat actors
+references:
+    - https://github.com/hacksysteam/HackSysExtremeVulnerableDriver
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-18
+modified: 2024-11-23
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543.003
+    - sysmon
+logsource:
+    product: windows
+    category: driver_load
+detection:
+    driver_load:
+        EventID: 6
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - ImageLoaded|endswith: \HEVD.sys
+        - Hashes|contains:
+              - IMPHASH=f26d0b110873a1c7d8c4f08fbeab89c5   # Version 3.0
+              - IMPHASH=c46ea2e651fd5f7f716c8867c6d13594   # Version 3.0
+    condition: driver_load and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

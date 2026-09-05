@@ -1,0 +1,34 @@
+title: PrintBrm ZIP Creation of Extraction
+id: 4a4019b6-8a20-2ab9-24a3-bf6544ea50af
+related:
+    - id: cafeeba3-01da-4ab4-b6c4-a31b1d9730c7
+      type: derived
+status: test
+description: Detects the execution of the LOLBIN PrintBrm.exe, which can be used to create or extract ZIP files. PrintBrm.exe should not be run on a normal workstation.
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/PrintBrm/
+author: frack113
+date: 2022-05-02
+tags:
+    - attack.command-and-control
+    - attack.stealth
+    - attack.t1105
+    - attack.t1564.004
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \PrintBrm.exe
+        CommandLine|contains|all:
+            - ' -f'
+            - .zip
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

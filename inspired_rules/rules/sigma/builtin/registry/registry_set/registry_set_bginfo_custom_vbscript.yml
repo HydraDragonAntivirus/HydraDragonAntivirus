@@ -1,0 +1,32 @@
+title: New BgInfo.EXE Custom VBScript Registry Configuration
+id: d3e621d9-17c0-c31c-1daf-8247438baa83
+related:
+    - id: cd277474-5c52-4423-a52b-ac2d7969902f
+      type: similar
+    - id: 992dd79f-dde8-4bb0-9085-6350ba97cfb3
+      type: derived
+status: test
+description: Detects setting of a new registry value related to BgInfo configuration, which can be abused to execute custom VBScript via "BgInfo.exe"
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-16
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \Software\Winternals\BGInfo\UserFields\
+        NewValue|startswith: '4'
+    condition: registry_set and selection
+falsepositives:
+    - Legitimate VBScript
+level: medium
+ruletype: Sigma

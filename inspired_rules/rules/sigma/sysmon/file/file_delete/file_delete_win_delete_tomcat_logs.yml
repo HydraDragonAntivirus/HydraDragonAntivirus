@@ -1,0 +1,39 @@
+title: Tomcat WebServer Logs Deleted
+id: 4a77260f-afe4-df56-e753-19d0d113817c
+related:
+    - id: 270185ff-5f50-4d6d-a27f-24c3b8c9fef8
+      type: derived
+status: test
+description: Detects the deletion of tomcat WebServer logs which may indicate an attempt to destroy forensic evidence
+references:
+    - Internal Research
+    - https://linuxhint.com/view-tomcat-logs-windows/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-16
+tags:
+    - attack.stealth
+    - attack.t1070
+    - sysmon
+logsource:
+    category: file_delete
+    product: windows
+detection:
+    file_delete:
+        EventID:
+            - 23
+            - 26
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|contains|all:
+            - \Tomcat
+            - \logs\
+        TargetFilename|contains:
+            - catalina.
+            - _access_log.
+            - localhost.
+    condition: file_delete and selection
+falsepositives:
+    - During uninstallation of the tomcat server
+    - During log rotation
+level: medium
+ruletype: Sigma

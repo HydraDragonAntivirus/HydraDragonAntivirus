@@ -1,0 +1,34 @@
+title: Explorer NOUACCHECK Flag
+id: b408292c-4fa0-410a-a192-4228c81af02e
+related:
+    - id: 534f2ef7-e8a2-4433-816d-c91bccde289b
+      type: derived
+status: test
+description: Detects suspicious starts of explorer.exe that use the /NOUACCHECK flag that allows to run all sub processes of that newly started explorer.exe without any UAC checks
+references:
+    - https://twitter.com/ORCA6665/status/1496478087244095491
+author: Florian Roth (Nextron Systems)
+date: 2022-02-23
+modified: 2022-04-21
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains: /NOUACCHECK
+        NewProcessName|endswith: \explorer.exe
+    filter_dc_logon:
+        - ParentCommandLine: C:\Windows\system32\svchost.exe -k netsvcs -p -s Schedule
+        - ParentProcessName: C:\Windows\System32\svchost.exe
+    condition: process_creation and (selection and not 1 of filter_*)
+falsepositives:
+    - Domain Controller User Logon
+    - Unknown how many legitimate software products use that method
+level: high
+ruletype: Sigma

@@ -1,0 +1,33 @@
+title: Use of VisualUiaVerifyNative.exe
+id: 46f69664-0fb9-1718-1125-c063562aa57e
+related:
+    - id: b30a8bc5-e21b-4ca2-9420-0a94019ac56a
+      type: derived
+status: test
+description: VisualUiaVerifyNative.exe is a Windows SDK that can be used for AWL bypass and is listed in Microsoft's recommended block rules.
+references:
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/VisualUiaVerifyNative/
+    - https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/design/applications-that-can-bypass-wdac
+    - https://bohops.com/2020/10/15/exploring-the-wdac-microsoft-recommended-block-rules-visualuiaverifynative/
+    - https://github.com/MicrosoftDocs/windows-itpro-docs/commit/937db704b9148e9cee7c7010cad4d00ce9c4fdad
+author: Christopher Peacock @SecurePeacock, SCYTHE @scythe_io
+date: 2022-06-01
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Image|endswith: \VisualUiaVerifyNative.exe
+        - OriginalFileName: VisualUiaVerifyNative.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate testing of Microsoft UI parts.
+level: medium
+ruletype: Sigma

@@ -1,0 +1,66 @@
+author: Zach Mathis
+date: 2023-05-05
+modified: 2023-05-05
+
+title: 'ISO Mounted'
+details: 'Path: %VhdFile% ¦ ReadOnly: %ReadOnly%'
+description: |
+    An ISO disk image was mounted. The original event is for when the handle is created. 
+    There is an event ID 1 for when it is mounted but this happens at the same time and this event contains more detailed information 
+    so I am using this instead of EID 1 for VHD mounting.
+    Attackers have started to place malware instead .iso files now that office documents downloaded from the internet have their macros blocked by default since 2022.
+
+id: f9915ff9-17ce-4524-9851-cc4bdd9bb35e
+level: low
+status: stable
+logsource:
+    product: windows
+    service: vhdmp
+    description: Built-in event.
+detection:
+    selection: 
+        Channel: 'Microsoft-Windows-VHDMP-Operational'
+        EventID: 12
+        VhdType: 3 # ISO
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa
+
+sample-message: |
+    Handle for virtual disk '\\?\C:\Users\user\Downloads\test.iso' created successfully. VM ID = {00000000-0000-0000-0000-000000000000}, Type = ISO, Version = 1, Flags = 0x0, AccessMask = 0xD0000, WriteDepth = 0, GetInfoOnly = false, ReadOnly = false, HandleContext = 0xffff878acf3bf680, VirtualDisk = 0xffff878ad4aa2040.
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-VHDMP" Guid="{e2816346-87f4-4f85-95c3-0c79409aa89d}" /> 
+            <EventID>12</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>1201</Task> 
+            <Opcode>2</Opcode> 
+            <Keywords>0x8000000000000001</Keywords> 
+            <TimeCreated SystemTime="2021-03-26T11:33:00.8862354Z" /> 
+            <EventRecordID>9</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="9600" ThreadID="7212" /> 
+            <Channel>Microsoft-Windows-VHDMP-Operational</Channel> 
+            <Computer>COMPUTER.domain.local</Computer> 
+            <Security UserID="S-1-5-21-1969078375-2107178271-2384556859-1127" /> 
+        </System>
+        <EventData>
+            <Data Name="Status">0</Data> 
+            <Data Name="VhdFile">\\?\C:\Users\user\Downloads\test.iso</Data> 
+            <Data Name="VmId">{00000000-0000-0000-0000-000000000000}</Data> 
+            <Data Name="VhdType">3</Data> 
+            <Data Name="Version">1</Data> 
+            <Data Name="Flags">0</Data> 
+            <Data Name="AccessMask">851968</Data> 
+            <Data Name="WriteDepth">0</Data> 
+            <Data Name="GetInfoOnly">false</Data> 
+            <Data Name="ReadOnly">false</Data> 
+            <Data Name="HandleContext">0xffff878acf3bf680</Data> 
+            <Data Name="VirtualDisk">0xffff878ad4aa2040</Data> 
+            <Data Name="FileObject">0xffff878acf3aa340</Data> 
+        </EventData>
+    </Event>

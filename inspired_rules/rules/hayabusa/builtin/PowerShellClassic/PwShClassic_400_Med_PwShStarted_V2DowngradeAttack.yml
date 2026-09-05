@@ -1,0 +1,31 @@
+author: Yusuke Matsui, Zach Mathis
+date: 2020-11-08
+modified: 2025-02-10
+
+title: PwSh 2.0 Downgrade Attack
+details: 'Data: %Data[3]%' # %Data[1]% is the new engine state. %Data[2]% is the previous engine state. This info is also in %Data[3]% so is unneeded.
+description: 'An attacker may have started Powershell 2.0 to evade detection.'
+
+id: bc082394-73e6-4d00-a9af-e7b524ef5085
+level: medium
+status: test
+logsource:
+    product: windows
+    service: powershell-classic
+    category: ps_classic_start
+detection:
+    selection:
+        Channel: 'Windows PowerShell'
+        EventID: 400
+        Data|contains: 'EngineVersion=2'
+    condition: selection
+falsepositives:
+    - legacy applications
+tags:
+    - attack.defense-evasion
+    - attack.t1562.010
+    - lolbas
+references:
+    - https://attack.mitre.org/techniques/T1562/010/
+    - https://kurtroggen.wordpress.com/2017/05/17/powershell-security-powershell-downgrade-attacks/
+ruletype: Hayabusa

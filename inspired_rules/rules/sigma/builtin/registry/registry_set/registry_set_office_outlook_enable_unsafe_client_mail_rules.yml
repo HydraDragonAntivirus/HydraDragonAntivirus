@@ -1,0 +1,36 @@
+title: Outlook EnableUnsafeClientMailRules Setting Enabled - Registry
+id: f3359b54-f4f9-b8da-0ddb-ef16968c70e7
+related:
+    - id: c3cefdf4-6703-4e1c-bad8-bf422fc5015a
+      type: similar
+    - id: 55f0a3a1-846e-40eb-8273-677371b8d912 # ProcCreation variation
+      type: similar
+    - id: 6763c6c8-bd01-4687-bc8d-4fa52cf8ba08
+      type: derived
+status: test
+description: Detects an attacker trying to enable the outlook security setting "EnableUnsafeClientMailRules" which allows outlook to run applications or execute macros
+references:
+    - https://support.microsoft.com/en-us/topic/how-to-control-the-rule-actions-to-start-an-application-or-run-a-macro-in-outlook-2016-and-outlook-2013-e4964b72-173c-959d-5d7b-ead562979048
+    - https://speakerdeck.com/heirhabarov/hunting-for-persistence-via-microsoft-exchange-server-or-outlook?slide=44
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-08
+modified: 2023-08-17
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|endswith: \Outlook\Security\EnableUnsafeClientMailRules
+        NewValue: DWORD (0x00000001)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,70 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'Clipboard Change (Sysmon Alert)'
+description: |
+    The main DFIR purpose is to capture files that attackers copy over via RDP, attacker commands that were copied and pasted, etc...
+    This event is generated when the system clipboard contents change.
+    Passwords and other sensitive information may be leaked when copied into the clipboard so heavy filtering to prevent this is necessary.
+    The copied contents are not saved in the event log but archived to the same protected folder as the File Delete event does. (C:\Sysmon)
+    SYSTEM privileges are required to access this folder. 
+    Hashes of the files can also be saved.
+    Session is where the process writing to clipboard is running: System(0), Interactive, Remote, etc...
+    ClientInfo will store originating hostname and IP address in the case of a remote session. (i.e. Attacker using RDP.)
+details: 'Rule: %RuleName% ¦ Proc: %Image% ¦ User: %User% ¦ CliInfo: %ClientInfo% ¦ PID: %ProcessId% ¦ PGUID: %ProcessGuid%'
+
+id: 48ee073d-8109-4622-aa29-73f2b378683e
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Requires Sysmon 12+ (Released 2020/09/18)'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 24
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}" />
+            <EventID>24</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>24</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2021-04-16T03:57:35.124166400Z" />
+            <EventRecordID>13339</EventRecordID>
+            <Correlation />
+            <Execution ProcessID="3500" ThreadID="3824" />
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>w19-ex-111.Win2019.local</Computer>
+            <Security UserID="S-1-5-18" />
+        </System>
+        <EventData>
+            <Data Name="RuleName">Something bad happened!</Data>
+            <Data Name="UtcTime">2021-04-16 03:57:35.123</Data>
+            <Data Name="ProcessGuid">{ff9115ad-7aff-6078-4000-000000002c00}</Data>
+            <Data Name="ProcessId">4832</Data>
+            <Data Name="User"> NT AUTHORITY\SYSTEM</Data>
+            <Data Name="Image">C:\Windows\System32\rdpclip.exe</Data>
+            <Data Name="Session">2</Data>
+            <Data Name="ClientInfo">user: WIN2019\admin hostname: EndPoint342</Data>
+            <Data Name="Hashes">SHA1=9EB203E8CD0DA806D91D6C2EB9669C28E29D5330,MD5=234A0C813539AB6B2CCAE02EAD314381,SHA256=48ED6A8C89DB330140D82BA0FE8F1D901645A0E18262172E6CDACE57C18B9720,IMPHASH=00000000000000000000000000000000</Data>
+            <Data Name="IsExecutable">false</Data>
+            <Data Name="Archived">true</Data>
+        </EventData>
+    </Event>

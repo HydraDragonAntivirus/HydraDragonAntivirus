@@ -1,0 +1,95 @@
+author: Thomas DIOT (Qazeer)
+date: 2024-10-12
+modified: 2024-10-12
+
+title: 'NTFS volume mounted'
+details: 'VolumeId: %VolumeId% ¦ VolumeLabel: %VolumeLabel% ¦ VendorId: %VendorId% ¦ ProductId: %ProductId% ¦ DeviceSerialNumber: %DeviceSerialNumber%'
+description: 'A NTFS volume has been successfully mounted. Introduced in Windows 10 / Windows Server 2016 (Build 14393), with more fields logged (including information on the underlying device) starting with Windows 11 / Windows Server 2022 (Build 22000).'
+
+id: af127790-5563-473e-8d3a-43b3509572b1
+level: informational
+status: test
+logsource:
+  product: windows
+  service: ntfs
+detection:
+  selection:
+    Channel: 'Microsoft-Windows-Ntfs/Operational'
+    EventID: 4
+  filter:
+        - VolumeGuid: '{00000000-0000-0000-0000-000000000000}'
+        - VolumeLabel: boot
+        - VolumeLabel: System Reserved
+        - VolumeLabel: Réservé au système
+        - VolumeId: 'C:'
+        - VolumeId: Windows-SSD
+        - IsBootVolume: true
+  condition: selection and not filter
+falsepositives:
+    - normal user and system usage
+tags:
+references:
+  - https://artefacts.help/windows_etw_usb_activity.html#microsoft-windows-ntfsoperational
+ruletype: Hayabusa
+
+sample-evtx: |
+  <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+      <System>
+          <Provider Name="Microsoft-Windows-Ntfs" Guid="{3ff37a1c-a68d-4d6e-8c9b-f79e8b16c482}" />
+          <EventID>4</EventID>
+          <Version>1</Version>
+          <Level>4</Level>
+          <Task>6</Task>
+          <Opcode>0</Opcode>
+          <Keywords>0x4001000000000020</Keywords>
+          <TimeCreated SystemTime="2024-10-09T20:22:44.3820289Z" />
+          <EventRecordID>14431</EventRecordID>
+          <Correlation />
+          <Execution ProcessID="4" ThreadID="20888" />
+          <Channel>Microsoft-Windows-Ntfs/Operational</Channel>
+          <Computer>redacted</Computer>
+          <Security UserID="S-1-5-18" />
+      </System>
+      <EventData>
+          <Data Name="VolumeCorrelationId">{0b687fe9-af6a-4a3f-87da-98e0d75b3b68}</Data>
+          <Data Name="VolumeIdLength">2</Data>
+          <Data Name="VolumeId">E:</Data>
+          <Data Name="VolumeLabelLength">11</Data>
+          <Data Name="VolumeLabel">redacted</Data>
+          <Data Name="DeviceNameLength">23</Data>
+          <Data Name="DeviceName">\Device\HarddiskVolume7</Data>
+          <Data Name="DeviceGuid">{ad69d0c0-75c7-4e17-821c-296b7af8eabd}</Data>
+          <Data Name="VendorIdLength">8</Data>
+          <Data Name="VendorId">WD</Data>
+          <Data Name="ProductIdLength">16</Data>
+          <Data Name="ProductId">redacted</Data>
+          <Data Name="ProductRevisionLength">4</Data>
+          <Data Name="ProductRevision">1034</Data>
+          <Data Name="DeviceSerialNumberLength">16</Data>
+          <Data Name="DeviceSerialNumber">redacted</Data>
+          <Data Name="BusType">7</Data>
+          <Data Name="AdapterSerialNumberLength">0</Data>
+          <Data Name="AdapterSerialNumber" />
+          <Data Name="Vcb">0xffffcf8112ed71b0</Data>
+          <Data Name="MountDurationUs">2075197</Data>
+          <Data Name="MountDuration">2 s</Data>
+          <Data Name="LongestStage">7</Data>
+          <Data Name="LongestStageDuration">1 s</Data>
+          <Data Name="LongestStagePercentage">84</Data>
+          <Data Name="SecondLongestStage">1</Data>
+          <Data Name="SecondLongestStageDuration">152 ms</Data>
+          <Data Name="SecondLongestStagePercentage">7</Data>
+          <Data Name="RestartApplied">true</Data>
+          <Data Name="IsBootVolume">false</Data>
+          <Data Name="Stage1DurationUs">152980</Data>
+          <Data Name="Stage2DurationUs">27738</Data>
+          <Data Name="Stage3DurationUs">0</Data>
+          <Data Name="Stage4DurationUs">72542</Data>
+          <Data Name="Stage5DurationUs">2831</Data>
+          <Data Name="Stage6DurationUs">1032</Data>
+          <Data Name="Stage7DurationUs">1743143</Data>
+          <Data Name="Stage8DurationUs">74928</Data>
+          <Data Name="Stage9DurationUs">0</Data>
+          <Data Name="Stage10DurationUs">0</Data>
+    </EventData>
+  </Event>

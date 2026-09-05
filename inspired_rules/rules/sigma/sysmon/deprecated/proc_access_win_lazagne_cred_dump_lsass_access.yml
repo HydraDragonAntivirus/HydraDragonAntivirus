@@ -1,0 +1,37 @@
+title: Credential Dumping by LaZagne
+id: 27b30e6e-16ce-9736-fb38-a7e3ce4a693b
+related:
+    - id: 4b9a8556-99c4-470b-a40c-9c8d02c77ed0
+      type: derived
+status: stable
+description: Detects LSASS process access by LaZagne for credential dumping.
+references:
+    - https://twitter.com/bh4b3sh/status/1303674603819081728
+author: Bhabesh Raj, Jonhnathan Ribeiro
+date: 2020-09-09
+modified: 2022-08-13
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - attack.s0349
+    - sysmon
+logsource:
+    category: process_access
+    product: windows
+detection:
+    process_access:
+        EventID: 10
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetImage|endswith: \lsass.exe
+        CallTrace|contains|all:
+            - C:\Windows\SYSTEM32\ntdll.dll+
+            - '|C:\Windows\System32\KERNELBASE.dll+'
+            - _ctypes.pyd+
+            - python27.dll+
+        GrantedAccess: '0x1FFFFF'
+    condition: process_access and selection
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

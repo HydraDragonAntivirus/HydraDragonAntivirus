@@ -1,0 +1,39 @@
+title: Suspicious Outlook Macro Created
+id: 1fec0244-ade6-9891-24fd-922fba780f4d
+related:
+    - id: 8c31f563-f9a7-450c-bfa8-35f8f32f1f61
+      type: derived
+    - id: 117d3d3a-755c-4a61-b23e-9171146d094c
+      type: derived
+status: test
+description: Detects the creation of a macro file for Outlook.
+references:
+    - https://www.mdsec.co.uk/2020/11/a-fresh-outlook-on-mail-based-persistence/
+    - https://speakerdeck.com/heirhabarov/hunting-for-persistence-via-microsoft-exchange-server-or-outlook?slide=53
+    - https://www.linkedin.com/pulse/outlook-backdoor-using-vba-samir-b-/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-08
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.command-and-control
+    - attack.t1137
+    - attack.t1008
+    - attack.t1546
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: \Microsoft\Outlook\VbaProject.OTM
+    filter:
+        Image|endswith: \outlook.exe
+    condition: file_event and (selection and not filter)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

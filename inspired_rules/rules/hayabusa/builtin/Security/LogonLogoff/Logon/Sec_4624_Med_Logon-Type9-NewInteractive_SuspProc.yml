@@ -1,0 +1,137 @@
+author: Zach Mathis
+date: 2022-04-18
+modified: 2022-12-16
+
+title: NewInteractive Logon (Suspicious Process)
+description: Tries to detect token impersonation by tools like Cobalt Strike.
+
+id: 9e8b6cdb-9991-488b-a7b3-2eec7aa64679
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_basic:
+        Channel: Security
+        EventID: 4624       # Logon Succesful
+        LogonType: 9
+    filter_ProcessAllowlist:  # This should usually be svchost.exe. Add more to the list below if you have any false positives.
+        ProcessName:
+            - 'C:\Windows\System32\svchost.exe'
+    condition: selection_basic and not filter_ProcessAllowlist
+falsepositives:
+    - uncommon tools used for admin
+tags:
+references:
+    - https://www.youtube.com/watch?v=borfuQGrB8g (Cobalt Strike Threat Hunting - Chad Tilbury)
+ruletype: Hayabusa
+
+sample-message: |
+    An account was successfully logged on.
+
+    Subject:
+        Security ID:		S-1-5-21-3445421715-2530690580-3149308974-1193
+        Account Name:		user
+        Account Domain:		domain
+        Logon ID:		0x6ABE62
+
+    Logon Information:
+        Logon Type:		9
+        Restricted Admin Mode:	-
+        Virtual Account:		No
+        Elevated Token:		Yes
+
+    Impersonation Level:		Impersonation
+
+    New Logon:
+        Security ID:		S-1-5-21-3445421715-2530690580-3149308974-1193
+        Account Name:		user
+        Account Domain:		domain
+        Logon ID:		0xD7F582C
+        Linked Logon ID:		0x0
+        Network Account Name:	user
+        Network Account Domain:	domain.lan
+        Logon GUID:		{00000000-0000-0000-0000-000000000000}
+
+    Process Information:
+        Process ID:		0x2044
+        Process Name:		C:\Windows\Temp\temp.exe
+
+    Network Information:
+        Workstation Name:	-
+        Source Network Address:	-
+        Source Port:		-
+
+    Detailed Authentication Information:
+        Logon Process:		Advapi  
+        Authentication Package:	Negotiate
+        Transited Services:	-
+        Package Name (NTLM only):	-
+        Key Length:		0
+
+    This event is generated when a logon session is created. It is generated on the computer that was accessed.
+
+    The subject fields indicate the account on the local system which requested the logon. This is most commonly a service such as the Server service, or a local process such as Winlogon.exe or Services.exe.
+
+    The logon type field indicates the kind of logon that occurred. The most common types are 2 (interactive) and 3 (network).
+
+    The New Logon fields indicate the account for whom the new logon was created, i.e. the account that was logged on.
+
+    The network fields indicate where a remote logon request originated. Workstation name is not always available and may be left blank in some cases.
+
+    The impersonation level field indicates the extent to which a process in the logon session can impersonate.
+
+    The authentication information fields provide detailed information about this specific logon request.
+        - Logon GUID is a unique identifier that can be used to correlate this event with a KDC event.
+        - Transited services indicate which intermediate services have participated in this logon request.
+        - Package name indicates which sub-protocol was used among the NTLM protocols.
+        - Key length indicates the length of the generated session key. This will be 0 if no session key was requested.
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}" /> 
+            <EventID>4624</EventID> 
+            <Version>2</Version> 
+            <Level>0</Level> 
+            <Task>12544</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8020000000000000</Keywords> 
+            <TimeCreated SystemTime="2018-09-05T12:13:26.091418500Z" /> 
+            <EventRecordID>55257</EventRecordID> 
+            <Correlation ActivityID="{9A36294F-4068-0000-FD29-369A6840D401}" /> 
+            <Execution ProcessID="772" ThreadID="8436" /> 
+            <Channel>Security</Channel> 
+            <Computer>computer.domain.lan</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-21-3445421715-2530690580-3149308974-1193</Data> 
+            <Data Name="SubjectUserName">user</Data> 
+            <Data Name="SubjectDomainName">domain</Data> 
+            <Data Name="SubjectLogonId">0x6abe62</Data> 
+            <Data Name="TargetUserSid">S-1-5-21-3445421715-2530690580-3149308974-1193</Data> 
+            <Data Name="TargetUserName">user</Data> 
+            <Data Name="TargetDomainName">domain</Data> 
+            <Data Name="TargetLogonId">0xd7f582c</Data> 
+            <Data Name="LogonType">9</Data> 
+            <Data Name="LogonProcessName">Advapi</Data> 
+            <Data Name="AuthenticationPackageName">Negotiate</Data> 
+            <Data Name="WorkstationName">-</Data> 
+            <Data Name="LogonGuid">{00000000-0000-0000-0000-000000000000}</Data> 
+            <Data Name="TransmittedServices">-</Data> 
+            <Data Name="LmPackageName">-</Data> 
+            <Data Name="KeyLength">0</Data> 
+            <Data Name="ProcessId">0x2044</Data> 
+            <Data Name="ProcessName">C:\Windows\Temp\temp.exe</Data> 
+            <Data Name="IpAddress">-</Data> 
+            <Data Name="IpPort">-</Data> 
+            <Data Name="ImpersonationLevel">%%1833</Data> 
+            <Data Name="RestrictedAdminMode">-</Data> 
+            <Data Name="TargetOutboundUserName">user</Data> 
+            <Data Name="TargetOutboundDomainName">domain.lan</Data> 
+            <Data Name="VirtualAccount">%%1843</Data> 
+            <Data Name="TargetLinkedLogonId">0x0</Data> 
+            <Data Name="ElevatedToken">%%1842</Data> 
+        </EventData>
+    </Event>

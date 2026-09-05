@@ -1,0 +1,50 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-06-21
+
+title: Logoff (User Initiated)
+details: 'User: %TargetUserName% ¦ LID: %TargetLogonId%'
+description: Prints logon information.
+
+id: 6bad16f1-02c4-4075-b414-3cd16944bc65
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4647
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-a5ba-3e3b0328c30d}" />
+            <EventID>4647</EventID>
+            <Version>0</Version>
+            <Level>0</Level>
+            <Task>12545</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8020000000000000</Keywords>
+            <TimeCreated SystemTime="2023-06-01T11:58:49.1060121Z" />
+            <EventRecordID>44540</EventRecordID>
+            <Correlation ActivityID="{f0e9a169-7313-0001-eea1-e9f01373d901}" />
+            <Execution ProcessID="632" ThreadID="5396" />
+            <Channel>Security</Channel>
+            <Computer>Sec504Student</Computer>
+            <Security />
+        </System>
+        <EventData>
+            <Data Name="TargetUserSid">S-1-5-21-2977773840-2930198165-1551093962-1000</Data>
+            <Data Name="TargetUserName">Sec504</Data>
+            <Data Name="TargetDomainName">SEC504STUDENT</Data>
+            <Data Name="TargetLogonId">0xbb8593</Data>
+        </EventData>
+    </Event>

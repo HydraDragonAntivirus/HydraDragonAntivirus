@@ -1,0 +1,33 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2025-02-10
+
+title: 'Driver Loaded (Unsigned)'
+description: 
+
+id: 42316be5-5732-40cc-8685-03e7c7f2c6ea
+level: medium
+status: test
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 6
+    filter:
+        Signed: 'true'
+        SignatureStatus: 'Expired'
+    condition: selection and not filter
+falsepositives:
+    - 'Expired/revoked certs'
+tags:
+    - attack.defense-evasion
+    - attack.t1553.002
+    - sysmon
+references:
+    - https://attack.mitre.org/techniques/T1553/002/
+ruletype: Hayabusa
+
+sample-evtx: #No sample yet

@@ -1,0 +1,34 @@
+title: Potential BOINC Software Execution (UC-Berkeley Signature)
+id: 9dc2257a-5f9b-6b41-14ad-5a36958df48e
+related:
+    - id: 0090b851-3543-42db-828c-02fee986ff0b
+      type: derived
+status: test
+description: |
+    Detects the use of software that is related to the University of California, Berkeley via metadata information.
+    This indicates it may be related to BOINC software and can be used maliciously if unauthorized.
+references:
+    - https://boinc.berkeley.edu/
+    - https://www.huntress.com/blog/fake-browser-updates-lead-to-boinc-volunteer-computing-software
+author: Matt Anderson (Huntress)
+date: 2024-07-23
+tags:
+    - attack.execution
+    - attack.defense-impairment
+    - attack.t1553
+    - detection.threat-hunting
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Description: University of California, Berkeley
+    condition: process_creation and selection
+falsepositives:
+    - This software can be used for legitimate purposes when installed intentionally.
+level: informational
+ruletype: Sigma

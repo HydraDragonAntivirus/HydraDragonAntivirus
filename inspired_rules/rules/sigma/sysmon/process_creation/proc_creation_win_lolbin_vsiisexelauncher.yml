@@ -1,0 +1,35 @@
+title: Use of VSIISExeLauncher.exe
+id: 052021b2-51cb-5c29-8554-640020599432
+related:
+    - id: 18749301-f1c5-4efc-a4c3-276ff1f5b6f8
+      type: derived
+status: test
+description: The "VSIISExeLauncher.exe" binary part of the Visual Studio/VS Code can be used to execute arbitrary binaries
+references:
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/VSIISExeLauncher/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-06-09
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1127
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \VSIISExeLauncher.exe
+        - OriginalFileName: VSIISExeLauncher.exe
+    selection_cli:
+        CommandLine|contains:
+            - ' -p '
+            - ' -a '
+    condition: process_creation and (all of selection*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

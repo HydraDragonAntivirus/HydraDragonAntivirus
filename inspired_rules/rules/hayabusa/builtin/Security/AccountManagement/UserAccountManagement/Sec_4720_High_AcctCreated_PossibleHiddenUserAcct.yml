@@ -1,0 +1,28 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: 'Hidden User Account Created'
+description: 'A computer account (an account that ends with a $) was created. These accounts are not displayed by default so will be hidden.'
+
+id: 70b8b1bd-c107-4b1a-8b1e-5b0f9f57930a
+level: high
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4720
+        TargetUserName|endswith: '$' #Any user account that ends with a $ will be treated as a machine account and be hidden by default.
+    condition: selection
+falsepositives:
+    - machine/computer accounts being created
+tags:
+    - attack.persistence
+    - attack.11136.001
+references:
+    - https://attack.mitre.org/techniques/T1136/001/
+sample-evtx: ./sample-evtx/EVTX-to-MITRE-Attack/TA0003-Persistence/T1136-Create account/ID4720-Fake computer account created.evtx
+ruletype: Hayabusa

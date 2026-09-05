@@ -1,0 +1,51 @@
+title: Control Panel Items
+id: 08006f8d-2f34-e7df-3601-ee4947714e2c
+related:
+    - id: 0ba863e6-def5-4e50-9cea-4dd8c7dc46a4
+      type: derived
+status: test
+description: Detects the malicious use of a control panel item
+references:
+    - https://ired.team/offensive-security/code-execution/code-execution-through-control-panel-add-ins
+author: Kyaw Min Thein, Furkan Caliskan (@caliskanfurkan_)
+date: 2020-06-22
+modified: 2023-10-11
+tags:
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1218.002
+    - attack.persistence
+    - attack.t1546
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_reg_img:
+        - Image|endswith: \reg.exe
+        - OriginalFileName: reg.exe
+    selection_reg_cli:
+        CommandLine|contains|all:
+            - add
+            - CurrentVersion\Control Panel\CPLs
+    selection_cpl:
+        CommandLine|endswith: .cpl
+    filter_cpl_sys:
+        CommandLine|contains:
+            - \System32\
+            - '%System%'
+            - '|C:\Windows\system32|'
+    filter_cpl_igfx:
+        CommandLine|contains|all:
+            - 'regsvr32 '
+            - ' /s '
+            - igfxCPL.cpl
+    condition: process_creation and (all of selection_reg_* or (selection_cpl and not 1 of filter_cpl_*))
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,59 @@
+title: Suspicious Child Process Of Veeam Dabatase
+id: 7bd8a2ea-35dd-53a4-4dfa-cf5f3e09490c
+related:
+    - id: 869b9ca7-9ea2-4a5a-8325-e80e62f75445
+      type: similar
+    - id: d55b793d-f847-4eea-b59a-5ab09908ac90
+      type: derived
+status: test
+description: Detects suspicious child processes of the Veeam service process. This could indicate potential RCE or SQL Injection.
+references:
+    - https://labs.withsecure.com/publications/fin7-target-veeam-servers
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-04
+tags:
+    - attack.initial-access
+    - attack.persistence
+    - attack.privilege-escalation
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_parent:
+        ParentImage|endswith: \sqlservr.exe
+        ParentCommandLine|contains: VEEAMSQL
+    selection_child_1:
+        Image|endswith:
+            - \cmd.exe
+            - \powershell.exe
+            - \pwsh.exe
+            - \wsl.exe
+            - \wt.exe
+        CommandLine|contains:
+            - '-ex '
+            - bypass
+            - cscript
+            - DownloadString
+            - http://
+            - https://
+            - mshta
+            - regsvr32
+            - rundll32
+            - wscript
+            - 'copy '
+    selection_child_2:
+        Image|endswith:
+            - \net.exe
+            - \net1.exe
+            - \netstat.exe
+            - \nltest.exe
+            - \ping.exe
+            - \tasklist.exe
+            - \whoami.exe
+    condition: process_creation and (selection_parent and 1 of selection_child_*)
+level: critical
+ruletype: Sigma

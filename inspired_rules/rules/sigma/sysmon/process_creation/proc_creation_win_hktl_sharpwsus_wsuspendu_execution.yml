@@ -1,0 +1,51 @@
+title: HackTool - SharpWSUS/WSUSpendu Execution
+id: 3416ced1-c7d5-b5d5-dc34-1a6abf7b4175
+related:
+    - id: b0ce780f-10bd-496d-9067-066d23dc3aa5
+      type: derived
+status: test
+description: |
+    Detects the execution of SharpWSUS or WSUSpendu, utilities that allow for lateral movement through WSUS.
+    Windows Server Update Services (WSUS) is a critical component of Windows systems and is frequently configured in a way that allows an attacker to circumvent internal networking limitations.
+references:
+    - https://labs.nettitude.com/blog/introducing-sharpwsus/
+    - https://github.com/nettitude/SharpWSUS
+    - https://web.archive.org/web/20210512154016/https://github.com/AlsidOfficial/WSUSpendu/blob/master/WSUSpendu.ps1
+author: '@Kostastsale, Nasreddine Bencherchali (Nextron Systems)'
+date: 2022-10-07
+modified: 2024-08-23
+tags:
+    - attack.execution
+    - attack.lateral-movement
+    - attack.t1210
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_wsuspendu_inject:
+        CommandLine|contains: ' -Inject '
+    selection_wsuspendu_payload:
+        CommandLine|contains:
+            - ' -PayloadArgs '
+            - ' -PayloadFile '
+    selection_sharpwsus_commands:
+        CommandLine|contains:
+            - ' approve '
+            - ' create '
+            - ' check '
+            - ' delete '
+    selection_sharpwsus_flags:
+        CommandLine|contains:
+            - ' /payload:'
+            - ' /payload='
+            - ' /updateid:'
+            - ' /updateid='
+    condition: process_creation and (all of selection_wsuspendu_* or all of selection_sharpwsus_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

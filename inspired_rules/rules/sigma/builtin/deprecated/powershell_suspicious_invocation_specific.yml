@@ -1,0 +1,75 @@
+title: Suspicious PowerShell Invocations - Specific
+id: 3db961f4-6217-4957-b717-e5955c82d6e5
+related:
+    - id: fce5f582-cc00-41e1-941a-c6fabf0fdb8c
+      type: derived
+status: deprecated
+description: Detects suspicious PowerShell invocation command parameters
+tags:
+    - attack.execution
+    - attack.t1059.001
+author: Florian Roth (Nextron Systems), Jonhnathan Ribeiro
+date: 2017-03-05
+modified: 2023-05-04
+logsource:
+    product: windows
+    service: powershell
+    definition: Script block logging must be enabled for 4104, Module Logging must be enabled for 4103
+detection:
+    powershell:
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection_convert_b64:
+        '|all':
+            - -nop
+            - ' -w '
+            - hidden
+            - ' -c '
+            - '[Convert]::FromBase64String'
+    selection_iex:
+        '|all':
+            - ' -w '
+            - hidden
+            - -noni
+            - -nop
+            - ' -c '
+            - iex
+            - New-Object
+    selection_enc:
+        '|all':
+            - ' -w '
+            - hidden
+            - -ep
+            - bypass
+            - -Enc
+    selection_reg:
+        '|all':
+            - powershell
+            - reg
+            - add
+            - HKCU\software\microsoft\windows\currentversion\run
+    selection_webclient:
+        '|all':
+            - bypass
+            - -noprofile
+            - -windowstyle
+            - hidden
+            - new-object
+            - system.net.webclient
+            - .download
+    selection_iex_webclient:
+        '|all':
+            - iex
+            - New-Object
+            - Net.WebClient
+            - .Download
+    filter_chocolatey:
+        - (New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1
+        - (New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1')
+        - Write-ChocolateyWarning
+    condition: powershell and (1 of selection_* and not 1 of filter_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

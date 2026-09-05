@@ -1,0 +1,31 @@
+title: Uncommon Child Processes Of SndVol.exe
+id: e27998e6-026c-208a-9f77-9d0dce30f98f
+related:
+    - id: ba42babc-0666-4393-a4f7-ceaf5a69191e
+      type: derived
+status: test
+description: Detects potentially uncommon child processes of SndVol.exe (the Windows volume mixer)
+references:
+    - https://twitter.com/Max_Mal_/status/1661322732456353792
+author: X__Junior (Nextron Systems)
+date: 2023-06-09
+tags:
+    - attack.execution
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith: \SndVol.exe
+    filter_main_rundll32:
+        Image|endswith: \rundll32.exe
+        CommandLine|contains: ' shell32.dll,Control_RunDLL '
+    condition: process_creation and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

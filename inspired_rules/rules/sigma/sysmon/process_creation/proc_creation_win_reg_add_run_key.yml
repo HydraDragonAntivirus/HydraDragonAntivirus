@@ -1,0 +1,43 @@
+title: Potential Persistence Attempt Via Run Keys Using Reg.EXE
+id: 7f2f1ee8-50e3-cffb-315b-824441de4f87
+related:
+    - id: de587dce-915e-4218-aac4-835ca6af6f70
+      type: derived
+status: test
+description: Detects suspicious command line reg.exe tool adding key to RUN key in Registry
+references:
+    - https://app.any.run/tasks/9c0f37bc-867a-4314-b685-e101566766d7/
+    - https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys
+    - https://github.com/HackTricks-wiki/hacktricks/blob/e4c7b21b8f36c97c35b7c622732b38a189ce18f7/src/windows-hardening/windows-local-privilege-escalation/privilege-escalation-with-autorun-binaries.md
+author: Florian Roth (Nextron Systems), Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2021-06-28
+modified: 2025-02-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \reg.exe
+        CommandLine|contains|all:
+            - reg
+            - ' add '
+        CommandLine|contains:
+            - Software\Microsoft\Windows\CurrentVersion\Run
+            - \Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run
+            - \Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate software automatically (mostly, during installation) sets up autorun keys for legitimate reasons.
+    - Legitimate administrator sets up autorun keys for legitimate reasons.
+    - Discord
+level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_reg_add_run_key/info.yml
+ruletype: Sigma

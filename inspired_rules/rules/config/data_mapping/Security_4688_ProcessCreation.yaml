@@ -1,0 +1,60 @@
+Title: 'Process Creation'
+Channel: Security
+EventID: 4688
+RewriteFieldData:
+    MandatoryLabel:
+        - 'S-1-16-0': 'UNTRUSTED'
+        - 'S-1-16-4096': 'LOW_INTEGRITY'
+        - 'S-1-16-8192': 'MEDIUM_INTEGRITY'
+        - 'S-1-16-8448': 'MEDIUM_HIGH_INTEGRITY'
+        - 'S-1-16-12288': 'HIGH_INTEGRITY'
+        - 'S-1-16-16384': 'SYSTEM_INTEGRITY'
+        - 'S-1-16-20480': 'PROTECTED_PROCESS'
+    TokenElevationType:
+        - '%%1936': 'FULL_TOKEN' # No privileges removed or groups disabled. Only used if UAC is disabled or if user is the built-in admin (b/c UAC is disabled by default), a service account or local system account
+        - '%%1937': 'ELEVATED_TOKEN' # No privileges removed or groups disabled. UAC is enabled but the user ran the process as an admin.
+        - '%%1938': 'LIMITED_TOKEN' # UAC is enabled and process was run without admin privileges.
+HexToDecimal:
+    - 'NewProcessId'
+    - 'ProcessId'
+
+sample-evtx: |
+  <?xml version="1.0"?>
+  <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+    <System>
+      <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}"/>
+      <EventID>4688</EventID>
+      <Version>2</Version>
+      <Level>0</Level>
+      <Task>13312</Task>
+      <Opcode>0</Opcode>
+      <Keywords>0x8020000000000000</Keywords>
+      <TimeCreated SystemTime="2022-02-08T20:33:15.159387500Z"/>
+      <EventRecordID>284391</EventRecordID>
+      <Correlation/>
+      <Execution ProcessID="4" ThreadID="6292"/>
+      <Channel>Security</Channel>
+      <Computer>wef.windomain.local</Computer>
+      <Security/>
+    </System>
+    <EventData>
+      <Data Name="SubjectUserSid">S-1-5-18</Data>
+      <Data Name="SubjectUserName">WEF$</Data>
+      <Data Name="SubjectDomainName">WINDOMAIN</Data>
+      <Data Name="SubjectLogonId">0x3e7</Data>
+      <Data Name="NewProcessId">0x1980</Data>
+      <Data Name="NewProcessName">C:\Windows\System32\cmd.exe</Data>
+      <Data Name="TokenElevationType">%%1936</Data>
+      <Data Name="ProcessId">0x24c</Data>
+      <Data Name="CommandLine">cmd.exe /k tscon 2 /dest rdp-tcp#14</Data>
+      <Data Name="TargetUserSid">S-1-0-0</Data>
+      <Data Name="TargetUserName">-</Data>
+      <Data Name="TargetDomainName">-</Data>
+      <Data Name="TargetLogonId">0x0</Data>
+      <Data Name="ParentProcessName">C:\Windows\System32\services.exe</Data>
+      <Data Name="MandatoryLabel">S-1-16-16384</Data>
+    </EventData>
+  </Event>
+
+references:
+    - 'https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4688'

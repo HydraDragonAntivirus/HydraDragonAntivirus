@@ -1,0 +1,31 @@
+title: Windows Defender Threat Detected
+id: c70d7033-8146-fe73-8430-90b23c296f9d
+related:
+    - id: 57b649ef-ff42-4fb0-8bf6-62da243a1708
+      type: derived
+status: stable
+description: Detects actions taken by Windows Defender malware detection engines
+references:
+    - https://learn.microsoft.com/en-us/defender-endpoint/troubleshoot-microsoft-defender-antivirus
+author: Ján Trenčanský
+date: 2020-07-28
+tags:
+    - attack.execution
+    - attack.t1059
+logsource:
+    product: windows
+    service: windefend
+detection:
+    windefend:
+        Channel: Microsoft-Windows-Windows Defender/Operational
+    selection:
+        EventID:
+            - 1006 # The antimalware engine found malware or other potentially unwanted software.
+            - 1015 # The antimalware platform detected suspicious behavior.
+            - 1116 # The antimalware platform detected malware or other potentially unwanted software.
+            - 1117 # he antimalware platform performed an action to protect your system from malware or other potentially unwanted software.
+    condition: windefend and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

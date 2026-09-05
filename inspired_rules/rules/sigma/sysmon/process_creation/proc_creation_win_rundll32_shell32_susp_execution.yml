@@ -1,0 +1,44 @@
+title: Shell32 DLL Execution in Suspicious Directory
+id: 1a39ab2f-0227-4770-e859-5387cf73589d
+related:
+    - id: 32b96012-7892-429e-b26c-ac2bf46066ff
+      type: derived
+status: test
+description: Detects shell32.dll executing a DLL in a suspicious directory
+references:
+    - https://www.group-ib.com/resources/threat-research/red-curl-2.html
+author: Christian Burkard (Nextron Systems)
+date: 2021-11-24
+modified: 2023-02-09
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1218.011
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \rundll32.exe
+        - OriginalFileName: RUNDLL32.EXE
+    selection_cli:
+        CommandLine|contains|all:
+            - shell32.dll
+            - Control_RunDLL
+        CommandLine|contains:
+            - '%AppData%'
+            - '%LocalAppData%'
+            - '%Temp%'
+            - '%tmp%'
+            - \AppData\
+            - \Temp\
+            - \Users\Public\
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

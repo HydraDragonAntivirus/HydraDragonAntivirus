@@ -1,0 +1,110 @@
+author: Zach Mathis
+date: 2021-12-17
+modified: 2025-02-10
+
+title: Explicit Logon Attempt
+description: |
+    (From ultimatewindowsecurity.com)
+    This log is generated when
+    1. A user connects to a server or runs a program locally using alternate credentials.
+       For instance a user maps a drive to a server but specifies a different user's credentials or opens a shortcut under RunAs by shift-control-right-clicking on the shortcut,
+       selecting Run as..., and then filling in a different user's credentials in the dialog box that appears.  Or a user logs on to a web site using new specific credentials.
+    2. When a process logs on as a different account such as when the Scheduled Tasks service starts a task as the specified user.
+    3. With User Account Control enabled, an end user runs a program requiring admin authority.  You will get this event where the process information is consent.exe.
+       Unfortunately the Subject does not identify the end user.
+    4. Logging on interactively to a server with a domain account. (Two 4624 events will also be generated.)
+    This logon event is unique in that it is logged on the source computer and not the target computer like most other logon events.
+    Also, it will be logged regardless of the logon being successful or not so consider it an attempt and not necessarily an actual successful logon.
+
+id: 8c1899fe-493d-4faf-aae1-0853a33a3278
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_basic:
+        Channel: Security
+        EventID: 4648
+    filter_ComputerAccounts:
+        - TargetUserName|endswith: '$'
+        - SubjectUserName|endswith: '$'
+    filter_SystemAccounts:
+        TargetUserName|re: '(DWM|UMFD)-([0-9]|1[0-3])$' #Filter out default Desktop Windows Manager and User Mode Driver Framework accounts
+        IpAddress: '-'                                  #Don't filter if the IP address is remote to catch attackers who created backdoor accounts that look like DWM-12, etc..
+    filter_SuspiciousProcess:
+        - ProcessName|endswith: 'powershell.exe'
+        - ProcessName|endswith: 'WMIC.exe'
+    condition: selection_basic and not 1 of filter*
+falsepositives:
+    - normal system usage
+tags:
+    - attack.privilege-escalation
+    - attack.lateral-movement
+references:
+    - https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventID=4648
+ruletype: Hayabusa
+
+sample-message: |
+    A logon was attempted using explicit credentials.
+
+    Subject:
+        Security ID:		S-1-5-21-2977773840-2930198165-1551093962-1000
+        Account Name:		SEC504STUDENT
+        Account Domain:		SEC504
+        Logon ID:		0x3E7
+        Logon GUID:		{00000000-0000-0000-0000-000000000000}
+
+    Account Whose Credentials Were Used:
+        Account Name:		Sec504
+        Account Domain:		SEC504STUDENT
+        Logon GUID:		{00000000-0000-0000-0000-000000000000}
+
+    Target Server:
+        Target Server Name:	localhost
+        Additional Information:	localhost
+
+    Process Information:
+        Process ID:		0x514
+        Process Name:		C:\Windows\System32\svchost.exe
+
+    Network Information:
+        Network Address:	127.0.0.1
+        Port:			0
+
+    This event is generated when a process attempts to log on an account by explicitly specifying that accounts credentials.  This most commonly occurs in batch-type configurations such as scheduled tasks, or when using the RUNAS command.
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}" />
+            <EventID>4648</EventID>
+            <Version>0</Version>
+            <Level>0</Level>
+            <Task>12544</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8020000000000000</Keywords>
+            <TimeCreated SystemTime="2022-05-24T13:35:54.901743400Z" />
+            <EventRecordID>59158</EventRecordID>
+            <Correlation ActivityID="{174ED261-6F73-0000-02D3-4E17736FD801}" />
+            <Execution ProcessID="612" ThreadID="672" />
+            <Channel>Security</Channel>
+            <Computer>Sec504Student</Computer>
+            <Security />
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-21-2977773840-2930198165-1551093962-1000</Data>
+            <Data Name="SubjectUserName">SEC504STUDENT</Data>
+            <Data Name="SubjectDomainName">SEC504</Data>
+            <Data Name="SubjectLogonId">0x3e7</Data>
+            <Data Name="LogonGuid">{00000000-0000-0000-0000-000000000000}</Data>
+            <Data Name="TargetUserName">Sec504</Data>
+            <Data Name="TargetDomainName">SEC504STUDENT</Data>
+            <Data Name="TargetLogonGuid">{00000000-0000-0000-0000-000000000000}</Data>
+            <Data Name="TargetServerName">localhost</Data>
+            <Data Name="TargetInfo">localhost</Data>
+            <Data Name="ProcessId">0x514</Data>
+            <Data Name="ProcessName">C:\Windows\System32\svchost.exe</Data>
+            <Data Name="IpAddress">127.0.0.1</Data>
+            <Data Name="IpPort">0</Data>
+        </EventData>
+    </Event>

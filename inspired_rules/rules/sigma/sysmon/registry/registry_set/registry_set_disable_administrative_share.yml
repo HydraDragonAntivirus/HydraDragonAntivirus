@@ -1,0 +1,40 @@
+title: Disable Administrative Share Creation at Startup
+id: a3a93478-4b87-358f-2143-77a4018080f9
+related:
+    - id: c7dcacd0-cc59-4004-b0a4-1d6cdebe6f3e
+      type: derived
+status: test
+description: Administrative shares are hidden network shares created by Microsoft Windows NT operating systems that grant system administrators remote access to every disk volume on a network-connected system
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1070.005/T1070.005.md#atomic-test-4---disable-administrative-share-creation-at-startup
+author: frack113
+date: 2022-01-16
+modified: 2024-03-25
+tags:
+    - attack.stealth
+    - attack.t1070.005
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains: \Services\LanmanServer\Parameters\
+        TargetObject|endswith:
+            - \AutoShareWks
+            - \AutoShareServer
+        Details: DWORD (0x00000000)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: medium
+regression_tests_path: regression_data/rules/windows/registry/registry_set/registry_set_disable_administrative_share/info.yml
+simulation:
+    - type: atomic-red-team
+      name: Disable Administrative Share Creation at Startup
+      technique: T1070.005
+      atomic_guid: 99c657aa-ebeb-4179-a665-69288fdd12b8
+ruletype: Sigma

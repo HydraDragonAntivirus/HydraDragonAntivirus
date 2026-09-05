@@ -1,0 +1,35 @@
+title: PowerShell Web Download
+id: 0b1811c8-8c1e-c6bb-1af2-2fe3b42a6b56
+related:
+    - id: 6e897651-f157-4d8f-aaeb-df8151488385
+      type: derived
+status: deprecated
+description: Detects suspicious ways to download files or content using PowerShell
+references:
+    - https://github.com/VirtualAlllocEx/Payload-Download-Cradles/blob/88e8eca34464a547c90d9140d70e9866dcbc6a12/Download-Cradles.cmd
+author: Florian Roth (Nextron Systems)
+date: 2022-03-24
+modified: 2025-07-18
+tags:
+    - attack.command-and-control
+    - attack.execution
+    - attack.t1059.001
+    - attack.t1105
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains:
+            - .DownloadString(
+            - .DownloadFile(
+            - 'Invoke-WebRequest '
+            - 'iwr '
+    condition: process_creation and selection
+falsepositives:
+    - Scripts or tools that download files
+level: medium
+ruletype: Sigma

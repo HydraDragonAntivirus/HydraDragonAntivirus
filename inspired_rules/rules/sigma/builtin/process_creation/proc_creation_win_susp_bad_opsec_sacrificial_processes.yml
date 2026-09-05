@@ -1,0 +1,66 @@
+title: Bad Opsec Defaults Sacrificial Processes With Improper Arguments
+id: 79657164-232b-d42a-7eab-1d9b88196e7a
+related:
+    - id: f5647edc-a7bf-4737-ab50-ef8c60dc3add
+      type: obsolete
+    - id: a7c3d773-caef-227e-a7e7-c2f13c622329
+      type: derived
+status: test
+description: |
+    Detects attackers using tooling with bad opsec defaults.
+    E.g. spawning a sacrificial process to inject a capability into the process without taking into account how the process is normally run.
+    One trivial example of this is using rundll32.exe without arguments as a sacrificial process (default in CS, now highlighted by c2lint), running WerFault without arguments (Kraken - credit am0nsec), and other examples.
+references:
+    - https://blog.malwarebytes.com/malwarebytes-news/2020/10/kraken-attack-abuses-wer-service/
+    - https://www.cobaltstrike.com/help-opsec
+    - https://twitter.com/CyberRaiju/status/1251492025678983169
+    - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/regsvr32
+    - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/rundll32
+    - https://learn.microsoft.com/en-us/dotnet/framework/tools/regasm-exe-assembly-registration-tool
+    - https://learn.microsoft.com/en-us/dotnet/framework/tools/regsvcs-exe-net-services-installation-tool
+author: Oleg Kolesnikov @securonix invrep_de, oscd.community, Florian Roth (Nextron Systems), Christian Burkard (Nextron Systems)
+date: 2020-10-23
+modified: 2024-08-15
+tags:
+    - attack.stealth
+    - attack.t1218.011
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_werfault:
+        CommandLine|endswith: WerFault.exe
+        NewProcessName|endswith: \WerFault.exe
+    selection_rundll32:
+        CommandLine|endswith: rundll32.exe
+        NewProcessName|endswith: \rundll32.exe
+    selection_regsvcs:
+        CommandLine|endswith: regsvcs.exe
+        NewProcessName|endswith: \regsvcs.exe
+    selection_regasm:
+        CommandLine|endswith: regasm.exe
+        NewProcessName|endswith: \regasm.exe
+    selection_regsvr32:
+        CommandLine|endswith: regsvr32.exe
+        NewProcessName|endswith: \regsvr32.exe
+    filter_optional_edge_update:
+        CommandLine|endswith: rundll32.exe
+        ParentProcessName|contains: \AppData\Local\Microsoft\EdgeUpdate\Install\{
+        NewProcessName|endswith: \rundll32.exe
+    filter_optional_chromium_installer:
+        # As reported in https://github.com/SigmaHQ/sigma/issues/4570 and others
+        ParentCommandLine|contains: '--uninstall '
+        CommandLine|endswith: rundll32.exe
+        ParentProcessName|contains:
+            - \AppData\Local\BraveSoftware\Brave-Browser\Application\
+            - \AppData\Local\Google\Chrome\Application\
+        ParentProcessName|endswith: \Installer\setup.exe
+        NewProcessName|endswith: \rundll32.exe
+    condition: process_creation and (1 of selection_* and not 1 of filter_optional_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

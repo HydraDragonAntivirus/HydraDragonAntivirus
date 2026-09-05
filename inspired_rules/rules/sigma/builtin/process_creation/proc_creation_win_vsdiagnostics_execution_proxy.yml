@@ -1,0 +1,35 @@
+title: Potential Binary Proxy Execution Via VSDiagnostics.EXE
+id: ef5024d5-3303-f180-2b6c-186303099c26
+related:
+    - id: ac1c92b4-ac81-405a-9978-4604d78cc47e
+      type: derived
+status: test
+description: Detects execution of "VSDiagnostics.exe" with the "start" command in order to launch and proxy arbitrary binaries.
+references:
+    - https://twitter.com/0xBoku/status/1679200664013135872
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-03
+tags:
+    - attack.stealth
+    - attack.t1218
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \VSDiagnostics.exe
+        - OriginalFileName: VSDiagnostics.exe
+    selection_cli_start:
+        CommandLine|contains: start
+    selection_cli_launch:
+        CommandLine|contains:
+            - ' /launch:'
+            - ' -launch:'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate usage for tracing and diagnostics purposes
+level: medium
+ruletype: Sigma
