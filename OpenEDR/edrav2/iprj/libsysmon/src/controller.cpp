@@ -17,6 +17,9 @@
 #include <string_view>
 #include <windows.h>
 #include <tlhelp32.h>
+#include <cctype>
+#include <fstream>
+#include <string>
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "libsysmon"
@@ -39,6 +42,48 @@ const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventTyp
 		default:
 			return getEventTypeString(eventType);
 	}
+}
+
+// HIPS verdict gate (hips_rules.json — separate from firewall rules):
+// a persistent user "allow" verdict vetoes the kernel kill below.
+// Missing/unparseable file or any non-allow verdict falls through to kill.
+static std::string toLowerAsciiStr(const std::string& s)
+{
+	std::string out(s);
+	for (std::string::iterator it = out.begin(); it != out.end(); ++it)
+		*it = static_cast<char>(std::tolower(static_cast<unsigned char>(*it)));
+	return out;
+}
+
+static bool hipsUserAllows(const std::string& sExePath)
+{
+	if (sExePath.empty())
+		return false;
+	const std::string key = toLowerAsciiStr(sExePath);
+	std::ifstream file("C:\\ProgramData\\edrsvc\\hips_rules.json", std::ios::binary);
+	if (!file)
+		return false;
+	// Append-log format: {"action":"...","path":"...","time":"..."}.
+	// Last matching line wins.
+	std::string lastAction;
+	std::string line;
+	while (std::getline(file, line))
+	{
+		if (!line.empty() && line[line.size() - 1] == '\r')
+			line.erase(line.size() - 1);
+		if (line.empty())
+			continue;
+		try
+		{
+			auto vEvent = variant::deserializeFromJson(line);
+			const std::string sPath = vEvent.get("path", std::string());
+			if (sPath.empty() || toLowerAsciiStr(sPath) != key)
+				continue;
+			lastAction = toLowerAsciiStr(vEvent.get("action", std::string()));
+		}
+		catch (...) {}
+	}
+	return lastAction == "allow" || lastAction == "allow_always";
 }
 
 } // namespace
@@ -837,7 +882,19 @@ void SystemMonitorController::hipsDecisionPipeServerLoop()
 						uint32_t targetPid = static_cast<uint32_t>(std::strtoul(sPidStr.c_str(), nullptr, 10));
 						if (targetPid != 0)
 						{
-							killProcessViaDriver(targetPid);
+							// HIPS verdict gate: a persistent user "allow" in
+							// hips_rules.json vetoes the kill (firewall-independent).
+							std::string sRest = sPayload.substr(sep1 + 1);
+							size_t sep2 = sRest.find('|');
+							std::string sExePath = (sep2 == std::string::npos) ? "" : sRest.substr(sep2 + 1);
+							if (!sExePath.empty() && hipsUserAllows(sExePath))
+							{
+								LOGINF("[HIPS] Kill vetoed by persistent user allow verdict for: " << sExePath);
+							}
+							else
+							{
+								killProcessViaDriver(targetPid);
+							}
 						}
 					}
 				}

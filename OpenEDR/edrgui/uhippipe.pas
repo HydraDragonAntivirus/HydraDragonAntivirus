@@ -185,10 +185,11 @@ begin
     end;
   end;
 
-  // Persist permanent decisions to C:\ProgramData\edrsvc\firewall_rules.json
+  // Persist permanent HIPS decisions to the dedicated HIPS file, separate
+  // from firewall rules: C:\ProgramData\edrsvc\hips_rules.json
   if (ADecision = 'allow_always') or (ADecision = 'block') then
   begin
-    RulesFile := 'C:\ProgramData\edrsvc\firewall_rules.json';
+    RulesFile := 'C:\ProgramData\edrsvc\hips_rules.json';
     try
       ForceDirectories(ExtractFilePath(RulesFile));
       AssignFile(F, RulesFile);
