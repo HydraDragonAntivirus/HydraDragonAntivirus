@@ -786,9 +786,8 @@ async fn handle_proxy_request(
         req_parts.uri = new_uri;
     }
 
-    // Working-internet fix (matches hydradragonfirewall-gui/src/proxy.rs):
-    // Strip Accept-Encoding so upstream sends plain text. This lets the proxy
-    // read/modify bodies safely without breaking compression framing.
+    // Strip Accept-Encoding so the upstream server sends plain text. This allows
+    // our proxy to read/modify the body safely without breaking compression.
     req_parts
         .headers
         .remove(http_mitm_proxy::hyper::header::ACCEPT_ENCODING);

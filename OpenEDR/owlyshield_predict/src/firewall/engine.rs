@@ -1250,11 +1250,7 @@ impl AppManager {
 /// so the client's TCP stack accepts them.
 #[derive(Clone)]
 pub struct TransparentNatTable {
-    // (orig_server_ip, orig_port, orig_client_ip, orig_if_index, orig_sub_if_index)
-    // Interface indexes are stored so reinjected packets go out on the same
-    // interface they arrived on; otherwise the stack drops them as martians
-    // ("Bad source address").
-    inner: Arc<std::sync::RwLock<HashMap<u16, (IpAddr, u16, IpAddr, u32, u32)>>>,
+    inner: Arc<std::sync::RwLock<HashMap<u16, (IpAddr, u16, IpAddr)>>>,
 }
 
 impl TransparentNatTable {
@@ -1264,14 +1260,14 @@ impl TransparentNatTable {
         }
     }
 
-    pub fn insert(&self, client_src_port: u16, original_dst: (IpAddr, u16, IpAddr, u32, u32)) {
+    pub fn insert(&self, client_src_port: u16, original_dst: (IpAddr, u16, IpAddr)) {
         self.inner
             .write()
             .unwrap()
             .insert(client_src_port, original_dst);
     }
 
-    pub fn get(&self, client_src_port: u16) -> Option<(IpAddr, u16, IpAddr, u32, u32)> {
+    pub fn get(&self, client_src_port: u16) -> Option<(IpAddr, u16, IpAddr)> {
         self.inner.read().unwrap().get(&client_src_port).copied()
     }
 
@@ -1896,25 +1892,6 @@ impl FirewallEngine {
                 && Self::is_proxy_host(info.src_ip, tls_proxy))
     }
 
-    /// Redirect target for transparent interception, resolved per address family.
-    /// A concrete listen_host (e.g. the machine's LAN IP) moves redirected
-    /// traffic off the loopback path entirely; otherwise loopback is kept
-    /// (legacy behavior, zero change by default).
-    fn proxy_redirect_target(tls_proxy: &TlsProxyConfig, v6: bool) -> IpAddr {
-        if let Ok(ip) = tls_proxy.listen_host.parse::<IpAddr>() {
-            match (ip, v6) {
-                (IpAddr::V4(v4), false) => return IpAddr::V4(v4),
-                (IpAddr::V6(v6), true) => return IpAddr::V6(v6),
-                _ => {}
-            }
-        }
-        if v6 {
-            IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
-        } else {
-            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
-        }
-    }
-
     fn enforce_tls_proxy_mode(
         info: &PacketInfo,
         outbound: bool,
@@ -2029,28 +2006,11 @@ impl FirewallEngine {
         }
 
         let listen_port = tls_proxy.listen_port;
-        // Bind the configured listen_host (defaults to 127.0.0.1). A LAN-IP
-        // redirect target needs a listener on that address; loopback default
-        // keeps legacy behavior with zero change.
-        let bind_ip: IpAddr = tls_proxy
-            .listen_host
-            .parse()
-            .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
-        if !bind_ip.is_loopback() {
-            let now = Self::now_ts();
-            emit_log_event(LogEntry {
-                id: format!("{}-proxy-lan-bind", now),
-                timestamp: now,
-                level: LogLevel::Warning,
-                message: format!(
-                    "Transparent TLS proxy listening on LAN address {} — reachable from the local network. Restrict via host firewall if undesired.",
-                    bind_ip
-                ),
-            });
-        }
         // CRITICAL FIX: Only spawn ONE proxy listener instead of two conflicting ones
-        let addr_v4: std::net::SocketAddr = std::net::SocketAddr::new(bind_ip, listen_port);
-        let addr_string = addr_v4.to_string();
+        let addr_v4: std::net::SocketAddr = format!("127.0.0.1:{}", listen_port)
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
+        let addr_string = format!("127.0.0.1:{}", listen_port);
 
         // CA installation is performed only during the dedicated install step
         // (edrsvc.cfg installScript "installFirewallCa"). At proxy startup we
@@ -3102,12 +3062,6 @@ impl FirewallEngine {
                                         let mut recalc_checksums = decision.recalc_checksums;
                                         let mut loopback_flag = None;
                                         let mut outbound_flag = None;
-                                        // Interface override for reinjection: loopback-bound
-                                        // packets must egress on the loopback interface (1),
-                                        // rewritten return packets on their original ingress
-                                        // interface — else the stack drops them ("Bad source
-                                        // address"). None = keep the captured interface.
-                                        let mut ifidx_override: Option<(u32, u32)> = None;
 
                                         let tls_proxy_cfg =
                                             settings_w.read().unwrap().tls_proxy.clone();
@@ -3134,19 +3088,12 @@ impl FirewallEngine {
                                             }
 
                                             if is_tcp {
-                                                // Return leg counts when the source is the proxy
-                                                // listener: loopback covers 127.0.0.1/::1, the
-                                                // listen_ip comparison covers a LAN-IP listener.
-                                                let listen_ip =
-                                                    tls_proxy_cfg.listen_host.parse::<IpAddr>().ok();
-                                                let proxy_return_flow = src_port
-                                                    == tls_proxy_cfg.listen_port
-                                                    && src_ip.is_some_and(|ip| {
-                                                        Self::is_loopback(ip) || Some(ip) == listen_ip
-                                                    });
+                                                let proxy_return_flow = src_ip
+                                                    .is_some_and(Self::is_loopback)
+                                                    && src_port == tls_proxy_cfg.listen_port;
 
                                                 if proxy_return_flow {
-                                                    if let Some((orig_ip, orig_port, orig_src, orig_ifidx, orig_subifidx)) =
+                                                    if let Some((orig_ip, orig_port, orig_src)) =
                                                         nat_table_w.get(dst_port)
                                                     {
                                                         let ok = match orig_ip {
@@ -3195,9 +3142,6 @@ impl FirewallEngine {
                                                             recalc_checksums = true;
                                                             loopback_flag = Some(false);
                                                             outbound_flag = Some(false);
-                                                            // Return to the original ingress interface so the
-                                                            // public-IP packet is not seen arriving on loopback.
-                                                            ifidx_override = Some((orig_ifidx, orig_subifidx));
                                                             if tcp_is_fin_or_rst(&packet_data) {
                                                                 nat_table_w.remove(dst_port);
                                                             }
@@ -3217,41 +3161,18 @@ impl FirewallEngine {
                                                         {
                                                             nat_table_w.insert(
                                                                 src_port,
-                                                                (
-                                                                    orig_dst,
-                                                                    443,
-                                                                    orig_src,
-                                                                    packet.address.interface_index(),
-                                                                    packet.address.subinterface_index(),
-                                                                ),
+                                                                (orig_dst, 443, orig_src),
                                                             );
-                                                            // Redirect target comes from listen_host: a LAN IP
-                                                            // dodges broken loopback reinjection, loopback is
-                                                            // the default (zero behavior change).
-                                                            let target_v4 = match Self::proxy_redirect_target(
-                                                                &tls_proxy_cfg,
-                                                                false,
-                                                            ) {
-                                                                IpAddr::V4(v4) => v4,
-                                                                _ => Ipv4Addr::new(127, 0, 0, 1),
-                                                            };
-                                                            let target_v6 = match Self::proxy_redirect_target(
-                                                                &tls_proxy_cfg,
-                                                                true,
-                                                            ) {
-                                                                IpAddr::V6(v6) => v6,
-                                                                _ => std::net::Ipv6Addr::LOCALHOST,
-                                                            };
                                                             let ok = match orig_dst {
                                                                 IpAddr::V4(_v4) => {
                                                                     let ok_dst = nat_rewrite_dst_ipv4(
                                                                         &mut packet_data,
-                                                                        target_v4,
+                                                                        Ipv4Addr::new(127, 0, 0, 1),
                                                                         tls_proxy_cfg.listen_port,
                                                                     );
                                                                     let ok_src = nat_rewrite_src_ipv4(
                                                                         &mut packet_data,
-                                                                        target_v4,
+                                                                        Ipv4Addr::new(127, 0, 0, 1),
                                                                         src_port,
                                                                     );
                                                                     ok_dst && ok_src
@@ -3259,12 +3180,12 @@ impl FirewallEngine {
                                                                 IpAddr::V6(_v6) => {
                                                                     let ok_dst = nat_rewrite_dst_ipv6(
                                                                         &mut packet_data,
-                                                                        target_v6,
+                                                                        std::net::Ipv6Addr::LOCALHOST,
                                                                         tls_proxy_cfg.listen_port,
                                                                     );
                                                                     let ok_src = nat_rewrite_src_ipv6(
                                                                         &mut packet_data,
-                                                                        target_v6,
+                                                                        std::net::Ipv6Addr::LOCALHOST,
                                                                         src_port,
                                                                     );
                                                                     ok_dst && ok_src
@@ -3272,22 +3193,9 @@ impl FirewallEngine {
                                                             };
                                                             if ok {
                                                                 recalc_checksums = true;
-                                                                let target_is_loopback = match orig_dst {
-                                                                    IpAddr::V4(_) => target_v4.is_loopback(),
-                                                                    IpAddr::V6(_) => target_v6.is_loopback(),
-                                                                };
-                                                                loopback_flag = Some(target_is_loopback);
+                                                                loopback_flag = Some(true);
                                                                 // Local listeners only receive inbound packets; must clear outbound flag
                                                                 outbound_flag = Some(false);
-                                                                // Loopback-bound packets must egress on the loopback
-                                                                // interface (1); LAN targets keep the captured NIC
-                                                                // interface. Wrong interface => stack drops the packet
-                                                                // ("Bad source address").
-                                                                ifidx_override = if target_is_loopback {
-                                                                    Some((1, 0))
-                                                                } else {
-                                                                    None
-                                                                };
                                                                 if tcp_is_fin_or_rst(&packet_data) {
                                                                     nat_table_w.remove(src_port);
                                                                 }
@@ -3306,10 +3214,6 @@ impl FirewallEngine {
                                         }
                                         if let Some(val) = outbound_flag {
                                             reinject_address.as_mut().set_outbound(val);
-                                        }
-                                        if let Some((ifidx, subifidx)) = ifidx_override {
-                                            reinject_address.set_interface_index(ifidx);
-                                            reinject_address.set_subinterface_index(subifidx);
                                         }
                                         let mut reinject_packet = windivert::packet::WinDivertPacket {
                                             address: reinject_address,
