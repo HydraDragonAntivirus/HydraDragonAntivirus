@@ -16,53 +16,17 @@ use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DnType, DnValue, IsCa, KeyPair,
     KeyUsagePurpose,
 };
-use serde::Serialize;
-use std::collections::HashMap;
 use std::io::Read;
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, atomic::{AtomicBool, Ordering}};
 use std::task::Poll;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::oneshot;
 
-use crate::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
-use crate::sdk::{PacketContext, RuleAction, SdkRegistry};
-
-// ── Rich HTTP event emitted by the Transparent TLS Proxy ───────────────────
-
-/// Full HTTP-level detail for every intercepted request/response.
-/// Emitted as a `"proxy_http"` Tauri event so the UI can show decrypted traffic.
-#[derive(Clone, Debug, Serialize)]
-pub struct ProxyHttpEvent {
-    pub id: String,
-    pub timestamp: u64,
-    pub method: String,
-    pub host: String,
-    pub port: u16,
-    pub path: String,
-    pub full_url: String,
-    pub status: u16,
-    pub request_headers: HashMap<String, String>,
-    pub response_headers: HashMap<String, String>,
-    /// Selected well-known request fields for quick display
-    pub user_agent: Option<String>,
-    pub content_type: Option<String>,
-    pub referer: Option<String>,
-    /// Response content-type
-    pub response_content_type: Option<String>,
-    /// Response content-length (if advertised)
-    pub response_content_length: Option<String>,
-    /// Raw request body — UTF-8 text if decodable, hex otherwise. Capped at 64 KB.
-    pub request_body: Option<String>,
-    /// True if the request body was truncated to the 64 KB cap.
-    pub request_body_truncated: bool,
-    /// Raw response body — UTF-8 text if decodable, hex otherwise. Capped at 64 KB.
-    pub response_body: Option<String>,
-    /// True if the response body was truncated to the 64 KB cap.
-    pub response_body_truncated: bool,
-}
+use super::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
+use super::sdk::{PacketContext, RuleAction, SdkRegistry};
 
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
@@ -71,11 +35,44 @@ const CA_KEY_FILE: &str = "hydradragon_ca.key.der";
 const CA_CERT_FILE: &str = "hydradragon_ca.der";
 
 fn ca_dir() -> PathBuf {
-    // Store next to the running executable so the same cert is reused.
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
+    // Store under ProgramData so the CA persists across reinstalls/upgrades and
+    // is not tied to the (read-mostly, self-protected) Program Files install dir.
+    let dir = PathBuf::from(r"C:\ProgramData\edrsvc\ca");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+lazy_static::lazy_static! {
+    /// Thread-safe dynamic cache for hosts that use Certificate Pinning or custom CA validation.
+    /// When a host fails TLS handshake or MITM interception, it is cached here so subsequent traffic
+    /// automatically falls back to WFP Method A (kernel-level passive SNI/IP monitoring in Late Blocking Mode).
+    pub static ref PINNING_FALLBACK_CACHE: Cache<String, bool> = Cache::builder()
+        .max_capacity(4096)
+        .time_to_live(std::time::Duration::from_secs(3600))
+        .build();
+}
+
+/// Mark a host or domain for automatic WFP Method A fallback.
+pub fn mark_host_as_pinning_fallback(host_or_ip: &str) {
+    let clean = host_or_ip.trim().trim_start_matches('.').to_ascii_lowercase();
+    if !clean.is_empty() {
+        PINNING_FALLBACK_CACHE.insert(clean, true);
+    }
+}
+
+/// Check if a host is in the dynamic WFP Method A fallback cache.
+pub fn is_host_in_pinning_fallback(host_or_ip: &str) -> bool {
+    let clean = host_or_ip.trim().trim_start_matches('.').to_ascii_lowercase();
+    if clean.is_empty() {
+        return false;
+    }
+    if PINNING_FALLBACK_CACHE.contains_key(&clean) {
+        return true;
+    }
+    // Suffix match for subdomains
+    PINNING_FALLBACK_CACHE.iter().any(|(cached_host, _)| {
+        clean == *cached_host || clean.ends_with(&format!(".{}", cached_host))
+    })
 }
 
 // ── CA generation ──────────────────────────────────────────────────────────────
@@ -114,51 +111,15 @@ fn is_bodiless_status(status: u16) -> bool {
     (status >= 100 && status < 200) || status == 204 || status == 304
 }
 
-/// Safely decompress gzip, brotli, or deflate payload for inspection in RAM.
-/// Caps the maximum decompressed size to prevent decompression zip-bombs.
-///
-/// Used only to feed the SDK/malware-inspection rules with the real content of
-/// compressed response bodies — without this, gzip/br/deflate-compressed
-/// malicious payloads would silently bypass response-body rule inspection.
-/// The bytes actually forwarded to the client are never touched by this.
-fn decompress_payload(data: &[u8], encoding: Option<&str>, max_decompressed_bytes: usize) -> Option<Vec<u8>> {
-    let enc = encoding?.to_ascii_lowercase();
-    let enc = enc.trim();
-
-    if enc == "gzip" || enc == "x-gzip" {
-        let mut decoder = flate2::read::GzDecoder::new(data);
-        let mut buffer = Vec::new();
-        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
-        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
-            return Some(buffer);
-        }
-    } else if enc == "deflate" {
-        let mut decoder = flate2::read::ZlibDecoder::new(data);
-        let mut buffer = Vec::new();
-        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
-        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
-            return Some(buffer);
-        }
-    } else if enc == "br" {
-        let mut decoder = brotli::Decompressor::new(data, 4096);
-        let mut buffer = Vec::new();
-        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
-        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
-            return Some(buffer);
-        }
-    }
-
-    None
-}
-
 /// Computes a body-collection timeout that scales with the declared Content-Length.
 /// Fixed 30s caps fail large downloads (>64 KB) on slower links, so larger bodies
 /// are given proportionally more time while still bounding runaway transfers.
-fn adaptive_body_timeout(base_secs: u64, content_length_header: Option<&str>) -> std::time::Duration {
+fn adaptive_body_timeout(
+    base_secs: u64,
+    content_length_header: Option<&str>,
+) -> std::time::Duration {
     let base = std::time::Duration::from_secs(base_secs.max(1));
-    let Some(len) = content_length_header
-        .and_then(|v| v.trim().parse::<u64>().ok())
-    else {
+    let Some(len) = content_length_header.and_then(|v| v.trim().parse::<u64>().ok()) else {
         return base;
     };
     // Allow roughly 1 second of extra time per 64 KB of declared payload.
@@ -265,6 +226,38 @@ fn validate_request(
     Ok(())
 }
 
+/// Safely decompress gzip, brotli, or deflate payload for inspection in RAM.
+/// Caps the maximum decompressed size to prevent decompression zip-bombs.
+fn decompress_payload(data: &[u8], encoding: Option<&str>, max_decompressed_bytes: usize) -> Option<Vec<u8>> {
+    let enc = encoding?.to_ascii_lowercase();
+    let enc = enc.trim();
+
+    if enc == "gzip" || enc == "x-gzip" {
+        let mut decoder = flate2::read::GzDecoder::new(data);
+        let mut buffer = Vec::new();
+        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
+        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
+            return Some(buffer);
+        }
+    } else if enc == "deflate" {
+        let mut decoder = flate2::read::ZlibDecoder::new(data);
+        let mut buffer = Vec::new();
+        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
+        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
+            return Some(buffer);
+        }
+    } else if enc == "br" {
+        let mut decoder = brotli::Decompressor::new(data, 4096);
+        let mut buffer = Vec::new();
+        let mut take = (&mut decoder).take(max_decompressed_bytes as u64);
+        if take.read_to_end(&mut buffer).is_ok() && !buffer.is_empty() {
+            return Some(buffer);
+        }
+    }
+
+    None
+}
+
 // ── Helper: build the CA `CertificateParams` with a fixed DN.
 fn ca_params() -> CertificateParams {
     let mut params = CertificateParams::default();
@@ -282,25 +275,77 @@ fn ca_params() -> CertificateParams {
 ///
 /// By reusing the same CA across restarts the user only needs to install the
 /// certificate into the trust store **once**.
-pub fn generate_ca() -> CaBundle {
+///
+/// Returns an error (rather than panicking) if the persisted CA is unusable and
+/// a fresh key/certificate cannot be produced, so callers such as the installer
+/// can abort setup instead of crashing across the FFI boundary.
+pub fn generate_ca() -> Result<CaBundle, String> {
     let dir = ca_dir();
     let key_path = dir.join(CA_KEY_FILE);
     let cert_path = dir.join(CA_CERT_FILE);
 
     // ── Try to load an existing CA ─────────────────────────────────────────
-    if let (Ok(key_der_bytes), Ok(cert_der)) = (std::fs::read(&key_path), std::fs::read(&cert_path))
-    {
-        if let Ok(key) = KeyPair::try_from(key_der_bytes.as_slice()) {
-            let params = ca_params();
-            let issuer = rcgen::Issuer::new(params, key);
-            return CaBundle { issuer, cert_der };
+    if key_path.exists() && cert_path.exists() {
+        let key_bytes = std::fs::read(&key_path)
+            .map_err(|e| format!("Failed to read existing CA key from {}: {}", key_path.display(), e))?;
+        let cert_der = std::fs::read(&cert_path)
+            .map_err(|e| format!("Failed to read existing CA cert from {}: {}", cert_path.display(), e))?;
+
+        // Attempt TryFrom (DER PKCS#8), then PEM parsing
+        let key: Result<KeyPair, String> = KeyPair::try_from(key_bytes.as_slice())
+            .map_err(|e| e.to_string())
+            .or_else(|_der_err| {
+                if let Ok(s) = std::str::from_utf8(&key_bytes) {
+                    if let Ok(k) = KeyPair::from_pem(s) {
+                        return Ok(k);
+                    }
+                }
+                Err(format!("KeyPair::try_from(DER) failed ({}), and PEM parse failed", _der_err))
+            });
+
+        match key {
+            Ok(key) => {
+                let params = ca_params();
+                let issuer = rcgen::Issuer::new(params, key);
+                let now = now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-ca-loaded-existing", now),
+                    timestamp: now,
+                    level: LogLevel::Info,
+                    message: format!(
+                        "Loaded existing HydraDragon CA from {} (DER size: {} bytes). No new CA generated.",
+                        dir.display(),
+                        cert_der.len()
+                    ),
+                });
+                return Ok(CaBundle { issuer, cert_der });
+            }
+            Err(e) => {
+                // Working-internet fix (matches hydradragonfirewall-gui/src/proxy.rs):
+                // Old working proxy regenerates on corrupt key instead of aborting.
+                // Aborting here kills proxy start in engine.rs and blackholes
+                // redirected traffic. Fall through to fresh generation.
+                let now = now_ts();
+                emit_log_event(LogEntry {
+                    id: format!("{}-ca-corrupt-regen", now),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "Existing CA key at {} unparsable ({}). Regenerating fresh CA like GUI version.",
+                        key_path.display(),
+                        e
+                    ),
+                });
+            }
         }
     }
 
-    // ── Generate a fresh CA ────────────────────────────────────────────────
+    // ── Generate a fresh CA ONLY when no existing CA files exist ───────────
     let params = ca_params();
-    let key = KeyPair::generate().unwrap();
-    let cert: Certificate = params.self_signed(&key).unwrap();
+    let key = KeyPair::generate().map_err(|e| format!("failed to generate CA key: {e}"))?;
+    let cert: Certificate = params
+        .self_signed(&key)
+        .map_err(|e| format!("failed to self-sign CA certificate: {e}"))?;
     let cert_der = cert.der().to_vec();
 
     // Serialize the private key to PKCS#8 DER bytes for persistence.
@@ -308,10 +353,21 @@ pub fn generate_ca() -> CaBundle {
     let _ = std::fs::write(&key_path, &key_der_bytes);
     let _ = std::fs::write(&cert_path, &cert_der);
 
+    let now = now_ts();
+    emit_log_event(LogEntry {
+        id: format!("{}-ca-created-new", now),
+        timestamp: now,
+        level: LogLevel::Info,
+        message: format!(
+            "First-time setup: Created new HydraDragon CA and saved to {}.",
+            dir.display()
+        ),
+    });
+
     let params = ca_params();
     let issuer = rcgen::Issuer::new(params, key);
 
-    CaBundle { issuer, cert_der }
+    Ok(CaBundle { issuer, cert_der })
 }
 
 // ── Proxy runner ───────────────────────────────────────────────────────────────
@@ -324,12 +380,13 @@ fn now_ts() -> u64 {
 }
 
 /// Start the Transparent TLS Proxy on `addr`, drive it until `stop_rx` fires.
-pub async fn run_proxy<R: Runtime>(
+pub async fn run_proxy(
     addr: SocketAddr,
     ca: rcgen::Issuer<'static, KeyPair>,
-    app_handle: AppHandle<R>,
     sdk: Arc<RwLock<SdkRegistry>>,
     settings: Arc<RwLock<FirewallSettings>>,
+    web_filter: Arc<super::web_filter::WebFilter>,
+    proxy_alive: Arc<AtomicBool>,
     mut stop_rx: oneshot::Receiver<()>,
 ) {
     let handshake_timeout = {
@@ -340,7 +397,6 @@ pub async fn run_proxy<R: Runtime>(
         MitmProxy::new(Some(ca), Some(Cache::new(512))).with_handshake_timeout(handshake_timeout);
 
     let client = DefaultClient::new();
-    let app_handle_cloned = app_handle.clone();
 
     let bind_result =
         proxy
@@ -351,27 +407,32 @@ pub async fn run_proxy<R: Runtime>(
                         http_mitm_proxy::hyper::body::Incoming,
                     >| {
                         let client = client.clone();
-                        let app = app_handle_cloned.clone();
                         let sdk = sdk.clone();
                         let settings = settings.clone();
+                        let web_filter = web_filter.clone();
 
                         async move {
                             // Wrap in generic error handler: all errors return 502
-                            match handle_proxy_request(client, app.clone(), sdk, settings, req)
-                                .await
-                            {
+                            match handle_proxy_request(client, sdk, settings, web_filter, req).await {
                                 Ok(res) => Ok::<_, http_mitm_proxy::default_client::Error>(res),
                                 Err(e) => {
-                                    let ts = now_ts();
-                                    emit_log_event(
-                                        &app,
-                                        LogEntry {
+                                    let is_ignorable = e.contains("10054")
+                                        || e.contains("connection error")
+                                        || e.contains("http2 error")
+                                        || e.contains("Request body read failed")
+                                        || e.contains("Response body read failed")
+                                        || e.contains("timed out")
+                                        || e.contains("Broken pipe");
+
+                                    if !is_ignorable {
+                                        let ts = now_ts();
+                                        emit_log_event(LogEntry {
                                             id: format!("{}-proxy-err", ts),
                                             timestamp: ts,
-                                            level: LogLevel::Error,
-                                            message: format!("Proxy error: {}", e),
-                                        },
-                                    );
+                                            level: LogLevel::Warning,
+                                            message: format!("Proxy warning: {}", e),
+                                        });
+                                    }
                                     Ok::<_, http_mitm_proxy::default_client::Error>(
                                         error_response_502(),
                                     )
@@ -385,21 +446,19 @@ pub async fn run_proxy<R: Runtime>(
 
     match bind_result {
         Ok(server) => {
+            proxy_alive.store(true, Ordering::SeqCst);
             let ts = now_ts();
-            emit_log_event(
-                &app_handle,
-                LogEntry {
-                    id: format!("{}-proxy-ready", ts),
-                    timestamp: ts,
-                    level: LogLevel::Success,
-                    message: format!("Transparent TLS Proxy active on {}", addr),
-                },
-            );
+            emit_log_event(LogEntry {
+                id: format!("{}-proxy-ready", ts),
+                timestamp: ts,
+                level: LogLevel::Success,
+                message: format!("Transparent TLS Proxy active on {}", addr),
+            });
 
             tokio::select! {
                 _ = server => {
                     let ts = now_ts();
-                    emit_log_event(&app_handle, LogEntry {
+                    emit_log_event(LogEntry {
                         id: format!("{}-proxy-exit", ts),
                         timestamp: ts,
                         level: LogLevel::Warning,
@@ -408,7 +467,7 @@ pub async fn run_proxy<R: Runtime>(
                 }
                 _ = &mut stop_rx => {
                     let ts = now_ts();
-                    emit_log_event(&app_handle, LogEntry {
+                    emit_log_event(LogEntry {
                         id: format!("{}-proxy-shutdown", ts),
                         timestamp: ts,
                         level: LogLevel::Info,
@@ -416,18 +475,17 @@ pub async fn run_proxy<R: Runtime>(
                     });
                 }
             }
+            proxy_alive.store(false, Ordering::SeqCst);
         }
         Err(e) => {
+            proxy_alive.store(false, Ordering::SeqCst);
             let ts = now_ts();
-            emit_log_event(
-                &app_handle,
-                LogEntry {
-                    id: format!("{}-proxy-bind-err", ts),
-                    timestamp: ts,
-                    level: LogLevel::Error,
-                    message: format!("Proxy bind failed on {}: {}", addr, e),
-                },
-            );
+            emit_log_event(LogEntry {
+                id: format!("{}-proxy-bind-err", ts),
+                timestamp: ts,
+                level: LogLevel::Error,
+                message: format!("Proxy bind failed on {}: {}", addr, e),
+            });
         }
     }
 }
@@ -467,11 +525,11 @@ fn extract_port_from_host(host: &str) -> Option<u16> {
 
 /// All request/response streams go through this single generic handler.
 /// Centralizes error handling, timeout management, and protocol safety.
-async fn handle_proxy_request<R: Runtime>(
+async fn handle_proxy_request(
     client: DefaultClient,
-    app: AppHandle<R>,
     sdk: Arc<RwLock<SdkRegistry>>,
     settings: Arc<RwLock<FirewallSettings>>,
+    web_filter: Arc<super::web_filter::WebFilter>,
     req: http_mitm_proxy::hyper::Request<http_mitm_proxy::hyper::body::Incoming>,
 ) -> Result<http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>>, String> {
     // ── Validate request ────────────────────────────────────────────────────
@@ -525,48 +583,33 @@ async fn handle_proxy_request<R: Runtime>(
         }
     });
 
-    let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
-    let path = path_and_query.to_string();
-    let full_url = format!("{}://{}{}", scheme, host, path);
-
-    // Look up the engine once; reused below both for the CIDR blacklist check
-    // and for PID resolution.
-    let engine_state = app.try_state::<Arc<crate::engine::FirewallEngine>>();
-
-    // ── CIDR Blacklist check (attack detection) ─────────────────────────────
+    // CIDR feeds the RuleAction::Block channel below (unified stop path).
     let clean_host = if host.starts_with('[') {
         if let Some(end) = host.find(']') {
             &host[1..end]
         } else {
-            host.as_str()
+            &host
         }
     } else if let Some(idx) = host.find(':') {
         &host[..idx]
     } else {
-        host.as_str()
+        &host
     }
     .trim();
 
     let cidr_hit = if let Ok(ip) = clean_host.parse::<IpAddr>() {
-        if let Some(engine) = engine_state.as_ref() {
-            if engine.web_filter.is_blocked_ip(ip) {
-                let ts = now_ts();
-                emit_log_event(
-                    &app,
-                    LogEntry {
-                        id: format!("{}-attack", ts),
-                        timestamp: ts,
-                        level: LogLevel::Warning,
-                        message: format!(
-                            "Attack detected by [CIDRBlacklist]: {} (Listed CIDR: {})",
-                            host, ip
-                        ),
-                    },
-                );
-                true
-            } else {
-                false
-            }
+        if web_filter.is_blocked_ip(ip) {
+            let ts = now_ts();
+            emit_log_event(LogEntry {
+                id: format!("{}-attack", ts),
+                timestamp: ts,
+                level: LogLevel::Warning,
+                message: format!(
+                    "Attack detected by [CIDRBlacklist]: {} (Listed CIDR: {})",
+                    host, ip
+                ),
+            });
+            true
         } else {
             false
         }
@@ -574,34 +617,9 @@ async fn handle_proxy_request<R: Runtime>(
         false
     };
 
-    if cidr_hit {
-        let ts = now_ts();
-        let _ = app.emit(
-            "proxy_http",
-            ProxyHttpEvent {
-                id: format!("{}-http-cidr-{}-{}", ts, host, port),
-                timestamp: ts,
-                method: method.clone(),
-                host: host.clone(),
-                port,
-                path: path.clone(),
-                full_url: full_url.clone(),
-                status: 403,
-                request_headers: HashMap::new(),
-                response_headers: HashMap::new(),
-                user_agent: None,
-                content_type: None,
-                referer: None,
-                response_content_type: None,
-                response_content_length: None,
-                request_body: None,
-                request_body_truncated: false,
-                response_body: None,
-                response_body_truncated: false,
-            },
-        );
-        return Err(format!("Blocked by CIDRBlacklist: {}", clean_host));
-    }
+    let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
+    let path = path_and_query.to_string();
+    let full_url = format!("{}://{}{}", scheme, host, path);
 
     let mut request_headers: HashMap<String, String> = HashMap::new();
     for (name, value) in req.headers().iter() {
@@ -616,99 +634,25 @@ async fn handle_proxy_request<R: Runtime>(
 
     // ── Collect request body with timeout ───────────────────────────────────
     let (parts, body) = req.into_parts();
+    let is_bodiless = parts.method == http_mitm_proxy::hyper::Method::GET
+        || parts.method == http_mitm_proxy::hyper::Method::HEAD
+        || parts.method == http_mitm_proxy::hyper::Method::OPTIONS;
+
     let req_content_length = request_headers.get("content-length").map(|s| s.as_str());
-    let raw_body: Bytes = match tokio::time::timeout(
-        adaptive_body_timeout(request_timeout, req_content_length),
-        body.collect(),
-    )
-    .await
-    {
-        Ok(Ok(collected)) => collected.to_bytes(),
-        Ok(Err(e)) => {
-            let ts = now_ts();
-            let err = e.to_string();
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-request-error-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status: 400,
-                    request_headers: request_headers.clone(),
-                    response_headers: HashMap::new(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: Some("text/plain".to_string()),
-                    response_content_length: None,
-                    request_body: None,
-                    request_body_truncated: false,
-                    response_body: Some(format!("Request body read failed: {}", err)),
-                    response_body_truncated: false,
-                },
-            );
-            emit_log_event(
-                &app,
-                LogEntry {
-                    id: format!("{}-proxy-request-body-err", ts),
-                    timestamp: ts,
-                    level: LogLevel::Warning,
-                    message: format!(
-                        "Request body read failed (continuing with empty body): {}",
-                        err
-                    ),
-                },
-            );
-            // Non-fatal: continue with an empty body so the request can still be
-            // forwarded and response rules (e.g. body changers) still apply.
-            Bytes::new()
-        }
-        Err(_) => {
-            let ts = now_ts();
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-request-timeout-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status: 408,
-                    request_headers: request_headers.clone(),
-                    response_headers: HashMap::new(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: Some("text/plain".to_string()),
-                    response_content_length: None,
-                    request_body: None,
-                    request_body_truncated: false,
-                    response_body: Some("Request body timeout".to_string()),
-                    response_body_truncated: false,
-                },
-            );
-            emit_log_event(
-                &app,
-                LogEntry {
-                    id: format!("{}-proxy-request-body-timeout", ts),
-                    timestamp: ts,
-                    level: LogLevel::Warning,
-                    message: "Request body read timed out (continuing with empty body)"
-                        .to_string(),
-                },
-            );
-            // Non-fatal: continue with an empty body.
-            Bytes::new()
+    let raw_body: Bytes = if is_bodiless && req_content_length.map_or(true, |l| l == "0") {
+        Bytes::new()
+    } else {
+        match tokio::time::timeout(
+            adaptive_body_timeout(request_timeout, req_content_length),
+            body.collect(),
+        )
+        .await
+        {
+            Ok(Ok(collected)) => collected.to_bytes(),
+            Ok(Err(_)) => Bytes::new(),
+            Err(_) => Bytes::new(),
         }
     };
-    let _raw_request_body_len = raw_body.len();
-
     let body_truncated = raw_body.len() > max_body;
     let body_bytes = if body_truncated {
         raw_body.slice(..max_body)
@@ -741,7 +685,7 @@ async fn handle_proxy_request<R: Runtime>(
     let mut app_path = String::new();
 
     if client_port != 0 {
-        if let Some(engine) = engine_state.as_ref() {
+        if let Some(engine) = super::headless::engine() {
             if let Some(pid) = engine.app_manager.get_pid_for_port(client_port) {
                 resolved_pid = pid;
                 let info = engine.app_manager.info_cache.get_info(pid);
@@ -755,6 +699,7 @@ async fn handle_proxy_request<R: Runtime>(
     let mock_packet = PacketInfo {
         timestamp: now_ts(),
         protocol: Protocol::TCP,
+        ip_proto: 6,
         src_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         dst_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         src_port: client_port,
@@ -779,6 +724,7 @@ async fn handle_proxy_request<R: Runtime>(
         detected_file_type: None,
         http_request_body: request_body.clone(),
         http_response_body: None,
+        tcp_flags: None,
     };
 
     let _mock_context = PacketContext {
@@ -791,10 +737,27 @@ async fn handle_proxy_request<R: Runtime>(
     let (blocked, req_body_override) = {
         let sdk_guard = sdk.read().unwrap();
         let first_match = sdk_guard.evaluate_first_match(&mock_packet, &[], false);
+        // CIDR hits enter as a synthetic RuleAction::Block finding so the
+        // stop below goes through the Block arm, not a separate raw return.
+        let cidr_finding = cidr_hit.then(|| super::sdk::RuleMatchResult {
+            rule_name: "CIDRBlacklist".to_string(),
+            action: RuleAction::Block,
+            description: format!("Listed CIDR host: {}", host),
+            severity: Some("high".to_string()),
+            change_data: None,
+            change_request_body: None,
+            change_response_body: None,
+            is_private_rule_match: false,
+            detected_subdomain: None,
+            detected_domain: None,
+            used_public_suffix_list: false,
+            matched_private_rules: Vec::new(),
+        });
+        let effective_match = first_match.or(cidr_finding);
         let mut b = false;
         let mut override_body: Option<String> = None;
 
-        if let Some(finding) = first_match {
+        if let Some(finding) = effective_match {
             match finding.action {
                 RuleAction::Block => {
                     b = true;
@@ -811,31 +774,6 @@ async fn handle_proxy_request<R: Runtime>(
     };
 
     if blocked {
-        let ts = now_ts();
-        let _ = app.emit(
-            "proxy_http",
-            ProxyHttpEvent {
-                id: format!("{}-http-{}-{}", ts, host, port),
-                timestamp: ts,
-                method: method.clone(),
-                host: host.clone(),
-                port,
-                path: path.clone(),
-                full_url: full_url.clone(),
-                status: 403,
-                request_headers: request_headers.clone(),
-                response_headers: HashMap::new(),
-                user_agent: user_agent.clone(),
-                content_type: content_type.clone(),
-                referer: referer.clone(),
-                response_content_type: None,
-                response_content_length: None,
-                request_body: request_body.clone(),
-                request_body_truncated: body_truncated,
-                response_body: None,
-                response_body_truncated: false,
-            },
-        );
         return Err("Blocked by SDK rule (request)".to_string());
     }
 
@@ -875,37 +813,25 @@ async fn handle_proxy_request<R: Runtime>(
     };
     let req = http_mitm_proxy::hyper::Request::from_parts(req_parts, req_body_obj);
 
-    // ── Forward upstream ────────────────────────────────────────────────────
+    // ── Forward upstream (matches working GUI proxy: no aggressive timeout) ──
+    // The old working proxy does `client.send_request(req).await` with no
+    // connect timeout. A short timeout 502s slow sites and then poisons the
+    // pinning-fallback cache, breaking internet. Only mark pinning fallback
+    // on real cert/TLS/handshake failures, never on timeouts.
     let (res, _) = match client.send_request(req).await {
         Ok(response) => response,
         Err(e) => {
-            let ts = now_ts();
-            let err = format!("Upstream failed: {}", e);
-            let _ = app.emit(
-                "proxy_http",
-                ProxyHttpEvent {
-                    id: format!("{}-http-upstream-error-{}-{}", ts, host, port),
-                    timestamp: ts,
-                    method: method.clone(),
-                    host: host.clone(),
-                    port,
-                    path: path.clone(),
-                    full_url: full_url.clone(),
-                    status: 502,
-                    request_headers: request_headers.clone(),
-                    response_headers: HashMap::new(),
-                    user_agent: user_agent.clone(),
-                    content_type: content_type.clone(),
-                    referer: referer.clone(),
-                    response_content_type: Some("text/plain".to_string()),
-                    response_content_length: None,
-                    request_body: request_body.clone(),
-                    request_body_truncated: body_truncated,
-                    response_body: Some(err.clone()),
-                    response_body_truncated: false,
-                },
-            );
-            return Err(err);
+            let err_str = e.to_string();
+            if err_str.contains("10054")
+                || err_str.contains("certificate")
+                || err_str.contains("tls")
+                || err_str.contains("handshake")
+                || err_str.contains("http2")
+                || err_str.contains("connection error")
+            {
+                mark_host_as_pinning_fallback(&host);
+            }
+            return Err(format!("Upstream failed: {}", e));
         }
     };
 
@@ -918,8 +844,6 @@ async fn handle_proxy_request<R: Runtime>(
             value.to_str().unwrap_or("<binary>").to_string(),
         );
     }
-    let response_content_type = response_headers.get("content-type").cloned();
-    let response_content_length = response_headers.get("content-length").cloned();
 
     // ── Collect response head + stream the rest ─────────────────────────────
     // Large bodies are never fully buffered: we read only the first `max_body`
@@ -955,38 +879,6 @@ async fn handle_proxy_request<R: Runtime>(
     }
 
     if let Some(err) = head_error {
-        let ts = now_ts();
-        let is_timeout = err == "Response body timeout";
-        let _ = app.emit(
-            "proxy_http",
-            ProxyHttpEvent {
-                id: format!(
-                    "{}-http-response-{}-{}-{}",
-                    ts,
-                    if is_timeout { "timeout" } else { "error" },
-                    host,
-                    port
-                ),
-                timestamp: ts,
-                method: method.clone(),
-                host: host.clone(),
-                port,
-                path: path.clone(),
-                full_url: full_url.clone(),
-                status: if is_timeout { 504 } else { status },
-                request_headers: request_headers.clone(),
-                response_headers: response_headers.clone(),
-                user_agent: user_agent.clone(),
-                content_type: content_type.clone(),
-                referer: referer.clone(),
-                response_content_type: response_content_type.clone(),
-                response_content_length: response_content_length.clone(),
-                request_body: request_body.clone(),
-                request_body_truncated: body_truncated,
-                response_body: Some(err.clone()),
-                response_body_truncated: false,
-            },
-        );
         return Err(err);
     }
 
@@ -998,10 +890,6 @@ async fn handle_proxy_request<R: Runtime>(
         raw_res_body.clone()
     };
 
-    // Decompress (capped, zip-bomb safe) so SDK rule inspection sees real
-    // content instead of opaque gzip/br/deflate bytes. This only affects what
-    // gets inspected/displayed — the bytes actually forwarded to the client
-    // below are always the original `raw_res_body`.
     let content_encoding = response_headers.get("content-encoding").map(|s| s.as_str());
     let decompressed_bytes = decompress_payload(&res_body_bytes, content_encoding, max_body);
     let bytes_for_inspection = decompressed_bytes.as_deref().unwrap_or(&res_body_bytes);
@@ -1013,6 +901,7 @@ async fn handle_proxy_request<R: Runtime>(
             Ok(s) => s,
             Err(_) => bytes_for_inspection
                 .iter()
+                .take(1024)
                 .map(|b| format!("{:02X}", b))
                 .collect::<Vec<_>>()
                 .join(" "),
@@ -1045,31 +934,6 @@ async fn handle_proxy_request<R: Runtime>(
     };
 
     if resp_blocked {
-        let ts = now_ts();
-        let _ = app.emit(
-            "proxy_http",
-            ProxyHttpEvent {
-                id: format!("{}-http-{}-{}", ts, host, port),
-                timestamp: ts,
-                method: method.clone(),
-                host: host.clone(),
-                port,
-                path: path.clone(),
-                full_url: full_url.clone(),
-                status: 403,
-                request_headers: request_headers.clone(),
-                response_headers: response_headers.clone(),
-                user_agent: user_agent.clone(),
-                content_type: content_type.clone(),
-                referer: referer.clone(),
-                response_content_type: response_content_type.clone(),
-                response_content_length: response_content_length.clone(),
-                request_body: request_body.clone(),
-                request_body_truncated: body_truncated,
-                response_body: response_body.clone(),
-                response_body_truncated: res_body_truncated,
-            },
-        );
         return Err("Blocked by SDK rule (response)".to_string());
     }
 
@@ -1123,45 +987,17 @@ async fn handle_proxy_request<R: Runtime>(
         boxed_full(raw_res_body)
     };
 
-    // ── Emit events ─────────────────────────────────────────────────────────
+    // ── Emit activity log ────────────────────────────────────────────────────
     let ts = now_ts();
     let show_blocked_http_only = settings.read().unwrap().show_blocked_http_inspector_only;
     if !show_blocked_http_only {
-        emit_log_event(
-            &app,
-            LogEntry {
-                id: format!("{}-intercept-{}-{}", ts, host, port),
-                timestamp: ts,
-                level: LogLevel::Info,
-                message: format!("Proxy: {} {}:{}{} → {}", method, host, port, path, status),
-            },
-        );
-    }
-
-    let _ = app.emit(
-        "proxy_http",
-        ProxyHttpEvent {
-            id: format!("{}-http-{}-{}", ts, host, port),
+        emit_log_event(LogEntry {
+            id: format!("{}-intercept-{}-{}", ts, host, port),
             timestamp: ts,
-            method,
-            host,
-            port,
-            path,
-            full_url,
-            status,
-            request_headers,
-            response_headers,
-            user_agent,
-            content_type,
-            referer,
-            response_content_type,
-            response_content_length,
-            request_body,
-            request_body_truncated: body_truncated,
-            response_body,
-            response_body_truncated: res_body_truncated,
-        },
-    );
+            level: LogLevel::Info,
+            message: format!("Proxy: {} {}:{}{} → {}", method, host, port, path, status),
+        });
+    }
 
     Ok(http_mitm_proxy::hyper::Response::from_parts(
         res_parts,
