@@ -31,7 +31,7 @@
     "auto_start": true,
     "mitm_all_traffic": false,
     "monitored_hosts": [],
-    "bypass_hosts": [],
+    "bypass_hosts": ["127.0.0.1:5890", "127.0.0.1:8877"],
     "cert_install_consent": true,
     "handshake_timeout_ms": 5000,
     "request_timeout_secs": 30,
