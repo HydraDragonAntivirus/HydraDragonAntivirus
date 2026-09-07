@@ -1276,6 +1276,19 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		return Dictionary({ {"paused", s_fProtectionPaused.load()} });
 	}
 
+	if (vCommand == "getMitmStatus")
+	{
+		bool fEnabled = false;
+		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (hDll)
+		{
+			typedef int32_t (*GetMitmFn)();
+			if (auto fn = (GetMitmFn)::GetProcAddress(hDll, "owlyshield_firewall_get_mitm_enabled"))
+				fEnabled = (fn() == 1);
+		}
+		return Dictionary({ {"enabled", fEnabled} });
+	}
+
 	if (vCommand == "setMitmEnabled")
 	{
 		bool fEnabled = true;

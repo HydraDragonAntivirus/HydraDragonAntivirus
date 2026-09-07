@@ -672,14 +672,43 @@ end;
 procedure TForm1.WriteMitmEnabled(AEnabled: Boolean);
 var
   Req, Resp: string;
+  j, d: TJSONData;
+  Applied: Boolean;
 begin
   if AEnabled then
     Req := '{"jsonrpc":"2.0","id":1,"method":"setMitmEnabled","params":{"enabled":true}}'
   else
     Req := '{"jsonrpc":"2.0","id":1,"method":"setMitmEnabled","params":{"enabled":false}}';
 
-  // Send directly to edrsvc in-memory via JSON-RPC
-  HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp);
+  // Send directly to edrsvc in-memory via JSON-RPC, and verify the engine
+  // actually applied it. Never mirror a rejected state: an old DLL/service
+  // answers success=false (or nothing), and the previous code toasted
+  // success anyway, making the toggle look dead.
+  Applied := False;
+  try
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.success');
+        Applied := (d <> nil) and d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    Applied := False;
+  end;
+
+  if not Applied then
+  begin
+    FMitmEnabled := ReadMitmEnabled;
+    SetMitmCaption(FMitmEnabled);
+    TAlertForm.ShowAlert('MITM toggle failed',
+      'The engine did not apply the change (service or DLL may be outdated).',
+      asCritical, 5000);
+    Exit;
+  end;
 
   FMitmEnabled := AEnabled;
   SetMitmCaption(AEnabled);
