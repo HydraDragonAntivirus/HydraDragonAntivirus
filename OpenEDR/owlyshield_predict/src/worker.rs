@@ -402,8 +402,6 @@ pub mod worker_instance {
 
         const DYNAMIC_HOOK_EVENT_ID_START: u32 = 0x6000;
 
-        const DYNAMIC_HOOK_MAX_FAILURES: u32 = 3;
-
         fn is_internal_service_pid(pid: u32) -> bool {
             if pid == std::process::id() {
                 return true;
@@ -1467,7 +1465,6 @@ pub mod worker_instance {
             ));
 
             let mut added = 0;
-            let driver_opt = self.driver.clone();
 
             for api_spec in new_apis {
                 if self.is_api_already_registered(&api_spec) {
@@ -1482,35 +1479,28 @@ pub mod worker_instance {
                     break;
                 };
 
-                let norm_module = Self::normalize_hook_module_name(&module_name);
-                let (module, function) = if let Some(idx) = api_spec.find('!') {
-                    (norm_module, api_spec[idx + 1..].to_string())
-                } else {
+                let Some(idx) = api_spec.find('!') else {
                     continue;
                 };
+                let (module, function) = (&api_spec[..idx], &api_spec[idx + 1..]);
 
+                // SharedDefs.HOOK_CONFIG_DATA limits (ModuleName[64], FunctionName[256]).
                 if module.len() >= 64 || function.len() >= 256 {
                     continue;
                 }
 
-                if let Some(driver) = driver_opt.as_ref() {
-                    if driver.add_hook_target(&module, &function, event_id).is_ok() {
-                        self.dynamic_registered_apis
-                            .insert(api_spec.to_ascii_lowercase());
-                        self.dynamic_hook_event_map.insert(event_id, api_spec);
-                        added += 1;
-                    }
-                }
+                // Map-only: driver registration/apply is owned by OpenEDR.
+                self.dynamic_registered_apis
+                    .insert(api_spec.to_ascii_lowercase());
+                self.dynamic_hook_event_map.insert(event_id, api_spec);
+                added += 1;
             }
 
             if added > 0 {
                 Logging::info(&format!(
-                    "[DYNAMIC HOOK] Registered {} new APIs from {}. Triggering hook apply for PID {}",
+                    "[DYNAMIC HOOK] Mapped {} new APIs from {} for PID {} (apply owned by OpenEDR)",
                     added, module_name, pid
                 ));
-                if let Some(driver) = driver_opt.as_ref() {
-                    let _ = driver.hook_process(pid);
-                }
             }
         }
 
@@ -1595,117 +1585,26 @@ pub mod worker_instance {
                     continue;
                 }
 
-                match driver.add_hook_target(&module, &function, event_id) {
-                    Ok(_) => {
-                        self.dynamic_registered_apis
-                            .insert(api_spec.to_ascii_lowercase());
-                        self.dynamic_hook_event_map.insert(event_id, api_spec);
-                        registered_count += 1;
-                    }
-                    Err(e) => {
-                        let hr = e.code().0 as u32;
-                        if hr == 0x800705AA || hr == 0x8007000E {
-                            self.dynamic_hook_registration_blocked = true;
-                            Logging::error(&format!(
-                                "[DYNAMIC HOOK] Resource exhaustion while registering PID {} (hr=0x{:08X}); pausing new hooks",
-                                pid, hr
-                            ));
-                            break;
-                        }
-                        failed_count += 1;
-                        Logging::error(&format!(
-                            "[DYNAMIC HOOK] Failed registration PID {} event {} {}!{}: {}",
-                            pid, event_id, module, function, e
-                        ));
-                    }
-                }
+                // Map-only: the driver registration itself is owned by OpenEDR
+                // (same 0x6000+order id scheme, so ids stay in sync).
+                self.dynamic_registered_apis
+                    .insert(api_spec.to_ascii_lowercase());
+                self.dynamic_hook_event_map.insert(event_id, api_spec);
+                registered_count += 1;
             }
 
-            let has_any_targets = registered_count > 0 || already_registered_count > 0;
-            // Always apply when targets exist. The old generation timeline
-            // (applied_generation < target_generation) skipped the apply for
-            // processes created after startup, so those processes were never
-            // hooked until a new API was registered globally.
-            let needs_apply = has_any_targets;
-            let mut apply_attempted = false;
-            let mut apply_succeeded = false;
-
-            if needs_apply {
-                apply_attempted = true;
-                if let Err(e) = driver.hook_process(pid) {
-                    let hr = e.code().0 as u32;
-                    let low_word = hr & 0xFFFF;
-                    let is_access_denied = hr == 0x80070005 || hr == 0x80070000 || low_word == 5;
-                    let is_noaccess_like =
-                        hr == 0x800703E6 || hr == 0xC0000005 || low_word == 0x03E6;
-                    if hr == 0x80070677 {
-                        self.dynamic_hook_apply_failures.remove(&pid);
-                        Logging::debug(&format!(
-                            "[DYNAMIC HOOK] PID {} apply skipped: process mitigation blocks dynamic code (hr=0x{:08X})",
-                            pid, hr
-                        ));
-                    } else if is_access_denied {
-                        self.dynamic_hook_apply_failures.remove(&pid);
-                        Logging::debug(&format!(
-                            "[DYNAMIC HOOK] PID {} apply skipped: access denied (likely protected/critical process) (hr=0x{:08X})",
-                            pid, hr
-                        ));
-                    } else if is_noaccess_like {
-                        self.dynamic_hook_apply_failures.remove(&pid);
-                        Logging::debug(&format!(
-                            "[DYNAMIC HOOK] PID {} apply skipped: NOACCESS while patching hooks (hr=0x{:08X})",
-                            pid, hr
-                        ));
-                    } else if hr == 0x80070016 {
-                        self.dynamic_hook_apply_failures.remove(&pid);
-                        Logging::debug(&format!(
-                            "[DYNAMIC HOOK] PID {} apply skipped: driver command not recognized for this target (hr=0x{:08X})",
-                            pid, hr
-                        ));
-                    } else if hr == 0x8007001F {
-                        let failures = self.dynamic_hook_apply_failures.entry(pid).or_insert(0);
-                        *failures = failures.saturating_add(1);
-                        Logging::error(&format!(
-                            "[DYNAMIC HOOK] PID {} apply failed: generic driver failure (hr=0x{:08X}); inspect kernel 'UserModeHook' / 'MESSAGE_HOOK_PROCESS' debug output for the exact NTSTATUS",
-                            pid, hr
-                        ));
-                    } else {
-                        let failures = self.dynamic_hook_apply_failures.entry(pid).or_insert(0);
-                        *failures = failures.saturating_add(1);
-                        if *failures >= Self::DYNAMIC_HOOK_MAX_FAILURES
-                            && (*failures).is_multiple_of(Self::DYNAMIC_HOOK_MAX_FAILURES)
-                        {
-                            Logging::warning(&format!(
-                                "[DYNAMIC HOOK] PID {} still failing to apply hooks (count={}, hr=0x{:08X})",
-                                pid, failures, hr
-                            ));
-                        } else {
-                            Logging::error(&format!(
-                                "[DYNAMIC HOOK] Failed to apply hooks to PID {} (attempt {}/{} hr=0x{:08X}): {}",
-                                pid,
-                                failures,
-                                Self::DYNAMIC_HOOK_MAX_FAILURES,
-                                hr,
-                                e
-                            ));
-                        }
-                    }
-                } else {
-                    self.dynamic_hook_apply_failures.remove(&pid);
-                    apply_succeeded = true;
-                }
-            }
-
+            // Applying hooks to the process (hook_process) is owned by OpenEDR,
+            // not by owlyshield: edrsvc issues it for every new process after
+            // registering the same ptm.local.src target list. Nothing to do
+            // here beyond the id map above.
             self.dynamic_hooks_registered = true;
             let message = format!(
-                "[DYNAMIC HOOK] PID {} => registered={} already={} failed={} wildcard={} apply_attempted={} apply_succeeded={}",
+                "[DYNAMIC HOOK] PID {} => mapped={} already={} failed={} wildcard={} (apply owned by OpenEDR)",
                 pid,
                 registered_count,
                 already_registered_count,
                 failed_count,
-                wildcard_count,
-                apply_attempted,
-                apply_succeeded
+                wildcard_count
             );
             Logging::debug(&message);
         }

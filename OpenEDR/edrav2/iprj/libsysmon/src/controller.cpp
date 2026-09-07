@@ -21,6 +21,8 @@
 #include <cctype>
 #include <fstream>
 #include <string>
+#include <vector>
+#include <algorithm>
 
 #undef CMD_COMPONENT
 #define CMD_COMPONENT "libsysmon"
@@ -29,6 +31,242 @@ namespace cmd {
 namespace win {
 
 namespace {
+
+//
+// Dynamic hook ownership (OpenEDR side).
+//
+// owlyshield only maintains the event-id map for interpreting hook events;
+// registration (MESSAGE_ADD_HOOK) and per-process apply (MESSAGE_HOOK_PROCESS)
+// are issued here, straight to edrdrv, from the ptm.local.src cryptoApiList.
+// Event ids are 0x6000 + file order on both sides so the maps stay in sync.
+//
+namespace hookmgr {
+
+	constexpr uint32_t c_nHookEventIdStart = 0x6000;
+	constexpr size_t c_nMaxTargets = 512; // hard cap: driver table is bounded
+
+	struct HookTarget
+	{
+		std::wstring module;
+		std::wstring function;
+	};
+
+	static std::mutex s_mtxHook;
+	static std::vector<HookTarget> s_targets;
+	static bool s_targetsLoaded = false;
+	static bool s_targetsRegistered = false;
+
+	struct ComMessage
+	{
+		uint32_t type;
+		uint32_t pid;
+		uint64_t gid;
+		wchar_t path[520];
+		wchar_t quarantine_path[520];
+	};
+	static_assert(sizeof(ComMessage) == 2096, "COM_MESSAGE wire layout must stay 2096 bytes");
+
+	constexpr uint32_t MSG_ADD_HOOK = 9;
+	constexpr uint32_t MSG_HOOK_PROCESS = 10;
+	constexpr uint32_t IOCTL_OWLY = (0x00000022u << 16) | (0u << 14) | (0x921u << 2) | 0u;
+
+	static bool sendDriverMessage(const ComMessage& msg)
+	{
+		HANDLE hDev = ::CreateFileW(L"\\\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA}",
+			GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+			nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (hDev == INVALID_HANDLE_VALUE)
+			return false;
+		DWORD nRet = 0;
+		const BOOL ok = ::DeviceIoControl(hDev, IOCTL_OWLY,
+			const_cast<ComMessage*>(&msg), sizeof(msg), nullptr, 0, &nRet, nullptr);
+		::CloseHandle(hDev);
+		return ok != FALSE;
+	}
+
+	static void fillWideField(wchar_t* dst, size_t cap, const std::wstring& src)
+	{
+		if (cap == 0)
+			return;
+		size_t n = src.size();
+		if (n >= cap)
+			n = cap - 1;
+		for (size_t i = 0; i < n; ++i)
+			dst[i] = src[i];
+		dst[n] = 0;
+	}
+
+	// Mirror of the Rust normalize_hook_module_name: full paths and dotted
+	// names pass through, bare names gain ".dll" (driver matches BaseDllName).
+	static std::wstring normalizeModule(const std::wstring& raw)
+	{
+		if (raw.empty() || raw == L"*")
+			return L"";
+		if (raw.find(L'\\') != std::wstring::npos || raw.find(L'/') != std::wstring::npos)
+			return raw;
+		if (raw.find(L'.') != std::wstring::npos)
+			return raw;
+		return raw + L".dll";
+	}
+
+	static std::vector<std::wstring> ptmCandidatePaths()
+	{
+		std::vector<std::wstring> out;
+		wchar_t wsExe[MAX_PATH] = {};
+		if (::GetModuleFileNameW(nullptr, wsExe, MAX_PATH) > 0)
+		{
+			std::wstring s(wsExe);
+			size_t pos = s.find_last_of(L"\\/");
+			if (pos != std::wstring::npos)
+				out.push_back(s.substr(0, pos + 1) + L"ptm.local.src");
+		}
+		out.push_back(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\ptm.local.src");
+		out.push_back(L"ptm.local.src");
+		return out;
+	}
+
+	// Targeted scan for `"cryptoApiList": [ "mod!func", ... ]`: bracket
+	// matched with string awareness, so brackets or // inside literals and
+	// //-comments elsewhere in the policy file cannot confuse it.
+	static std::vector<HookTarget> extractApiList(const std::string& content)
+	{
+		std::vector<HookTarget> out;
+		const std::string key = "\"cryptoApiList\"";
+		size_t keyPos = content.find(key);
+		if (keyPos == std::string::npos)
+			return out;
+		size_t i = keyPos + key.size();
+		const size_t n = content.size();
+		// Seek array open.
+		size_t depth = 0;
+		bool started = false;
+		for (; i < n; ++i)
+		{
+			if (content[i] == '[') { started = true; depth = 1; ++i; break; }
+		}
+		if (!started)
+			return out;
+		std::string cur;
+		bool inStr = false, esc = false;
+		for (; i < n && depth > 0 && out.size() < c_nMaxTargets; ++i)
+		{
+			const char c = content[i];
+			if (inStr)
+			{
+				if (esc) { cur.push_back(c); esc = false; }
+				else if (c == '\\') esc = true;
+				else if (c == '"')
+				{
+					inStr = false;
+					size_t bang = cur.find('!');
+					if (bang != std::string::npos && bang > 0 && bang + 1 < cur.size())
+					{
+						HookTarget t;
+						// UTF-8 policy file is ASCII here (module/function names).
+						t.module.assign(cur.begin(), cur.begin() + bang);
+						t.function.assign(cur.begin() + bang + 1, cur.end());
+						// narrow->wide: names are ASCII by construction.
+						std::wstring wmod(t.module.begin(), t.module.end());
+						std::wstring wfn(t.function.begin(), t.function.end());
+						wmod = normalizeModule(wmod);
+						if (!wmod.empty() && !wfn.empty() && wmod.size() < 64 && wfn.size() < 256)
+						{
+							t.module = wmod;
+							t.function = wfn;
+							out.push_back(std::move(t));
+						}
+					}
+					cur.clear();
+				}
+				else cur.push_back(c);
+				continue;
+			}
+			if (c == '"') { inStr = true; cur.clear(); }
+			else if (c == '[') ++depth;
+			else if (c == ']')
+			{
+				if (--depth == 0) break;
+			}
+		}
+		return out;
+	}
+
+	static std::vector<HookTarget> loadTargetsLocked()
+	{
+		for (const auto& path : ptmCandidatePaths())
+		{
+			std::ifstream ifs(path, std::ios::binary);
+			if (!ifs.is_open())
+				continue;
+			std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+			if (content.empty())
+				continue;
+			auto specs = extractApiList(content);
+			if (!specs.empty())
+				return specs;
+		}
+		return {};
+	}
+
+	// Register the whole list (0x6000 + file order, mirroring the Rust id
+	// map). Marked done only on full success so a not-yet-ready driver is
+	// retried on the next process sighting; re-sending is idempotent
+	// (same id overwrites the same target).
+	static void ensureRegisteredLocked()
+	{
+		if (s_targetsRegistered)
+			return;
+		if (s_targets.empty())
+			return;
+		size_t ok = 0;
+		for (size_t i = 0; i < s_targets.size(); ++i)
+		{
+			ComMessage msg = {};
+			msg.type = MSG_ADD_HOOK;
+			msg.pid = 0;
+			msg.gid = (uint64_t)(c_nHookEventIdStart + i);
+			fillWideField(msg.path, 520, s_targets[i].module);
+			fillWideField(msg.quarantine_path, 520, s_targets[i].function);
+			if (sendDriverMessage(msg))
+				++ok;
+		}
+		if (ok == s_targets.size())
+		{
+			s_targetsRegistered = true;
+			LOGLVL(Critical, FMT("hookmgr: registered " << ok << "/" << s_targets.size()
+				<< " hook targets from ptm.local.src cryptoApiList"));
+		}
+	}
+
+	// Called for every new process (raw ProcessCreate). Skips non-hookeable
+	// identities; failures are silent by design (driver refuses protected
+	// targets; retry happens naturally on next sighting paths).
+	static void applyHooksToProcess(uint32_t pid)
+	{
+		if (pid == 0 || pid == 4)
+			return;
+		if (pid == ::GetCurrentProcessId())
+			return;
+		{
+			std::scoped_lock _lock(s_mtxHook);
+			if (!s_targetsLoaded)
+			{
+				s_targets = loadTargetsLocked();
+				s_targetsLoaded = true;
+				LOGLVL(Critical, FMT("hookmgr: loaded " << s_targets.size()
+					<< " hook targets from ptm.local.src cryptoApiList"));
+			}
+			if (s_targets.empty())
+				return;
+			ensureRegisteredLocked();
+		}
+		ComMessage msg = {};
+		msg.type = MSG_HOOK_PROCESS;
+		msg.pid = pid;
+		sendDriverMessage(msg);
+	}
+
+} // namespace hookmgr
 
 const char* getOpenEdrWireEventType(edrdrv::SysmonEvent rawEvent, Event eventType)
 {
@@ -1051,6 +1289,23 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 		edrdrv::SysmonEvent nRawEventId = vEvent["rawEventId"];
 		LOGLVL(Trace, "Parse raw event <" << size_t(nRawEventId) <<
 			"> from process <" << getByPath(vEvent, "process.pid", -1) << ">");
+
+		// Dynamic hook ownership lives here (OpenEDR), not in owlyshield:
+		// every new process gets MESSAGE_HOOK_PROCESS after the ptm.local.src
+		// target list is registered once via MESSAGE_ADD_HOOK. Event ids are
+		// 0x6000 + file order, mirroring the Rust id map so hook events keep
+		// resolving to API names on both sides. Best-effort: failures never
+		// break event parsing.
+		try
+		{
+			if (nRawEventId == edrdrv::SysmonEvent::ProcessCreate)
+			{
+				int64_t nNewPid = getByPath(vEvent, "process.pid", int64_t(0));
+				if (nNewPid > 0)
+					hookmgr::applyHooksToProcess((uint32_t)nNewPid);
+			}
+		}
+		catch (...) {}
 
 		// Kernel-stack attribution at parse time (not at notify time) so
 		// every downstream consumer — enricher, pattern engine
