@@ -6,12 +6,12 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{mpsc, Arc, Mutex, OnceLock, RwLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use windivert::prelude::*;
 
@@ -330,40 +330,110 @@ fn firewall_log_file_path() -> PathBuf {
         .join("firewall_activity.jsonl")
 }
 
-fn persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) {
+/// Filter-only decision: should this entry be written to firewall_activity.jsonl
+/// at all? No I/O here — this stays cheap enough to run inline on the
+/// WinDivert packet-worker threads.
+fn should_persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings>) -> bool {
     // save_all_logs only controls routine telemetry. Blocked/actionable events
     // (Warning/Error) are always persisted so the UI can show dropped traffic
     // even when verbose telemetry logging is disabled.
     if settings.is_some_and(|current| !current.save_all_logs) && !entry.level.is_actionable() {
-        return;
+        return false;
     }
 
     // When verbose logging is off, persist only actionable (malicious) events so
     // firewall_activity.jsonl stays small instead of writing every I/O event.
     if !crate::logging::is_verbose_logging_enabled() && !entry.level.is_actionable() {
-        return;
+        return false;
     }
 
-    let log_path = firewall_log_file_path();
-    if let Some(parent) = log_path.parent() {
-        if fs::create_dir_all(parent).is_err() {
-            return;
-        }
-    }
+    true
+}
 
-    let Ok(mut file) = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-    else {
-        return;
-    };
-
+/// Actual disk write for one entry, given an already-open, buffered file
+/// handle. Only ever called from the dedicated `firewall_log_writer` thread —
+/// never from a WinDivert packet-worker thread.
+fn write_log_entry_line(writer: &mut BufWriter<fs::File>, entry: &LogEntry) {
     let Ok(line) = serde_json::to_string(entry) else {
         return;
     };
+    let _ = writeln!(writer, "{line}");
+}
 
-    let _ = writeln!(file, "{line}");
+/// Sender half of the async log-write channel. Sending onto this channel is
+/// just an in-memory push (no syscalls, no disk I/O), so it can never block
+/// or stall a caller the way opening+writing the file inline used to.
+fn log_writer_tx() -> &'static Mutex<mpsc::Sender<LogEntry>> {
+    static LOG_TX: OnceLock<Mutex<mpsc::Sender<LogEntry>>> = OnceLock::new();
+    LOG_TX.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<LogEntry>();
+        std::thread::Builder::new()
+            .name("firewall_log_writer".to_string())
+            .spawn(move || firewall_log_writer_loop(rx))
+            .expect("failed to spawn firewall_log_writer thread");
+        Mutex::new(tx)
+    })
+}
+
+/// Single dedicated thread that owns firewall_activity.jsonl. Keeps the file
+/// handle open across writes (instead of a fresh CreateFile per line) and
+/// flushes on a short interval, so slow/blocked disk I/O only ever delays
+/// this one background thread — never the WinDivert recv()/send() loop on
+/// the packet-worker threads. This mirrors the existing
+/// net_event_telemetry_writer pattern used for the HydraNetEvent pipe.
+fn firewall_log_writer_loop(rx: mpsc::Receiver<LogEntry>) {
+    let mut open_path: Option<PathBuf> = None;
+    let mut writer: Option<BufWriter<fs::File>> = None;
+    let mut last_flush = Instant::now();
+    const FLUSH_INTERVAL: Duration = Duration::from_millis(200);
+
+    loop {
+        match rx.recv_timeout(FLUSH_INTERVAL) {
+            Ok(entry) => {
+                let log_path = firewall_log_file_path();
+                if writer.is_none() || open_path.as_deref() != Some(log_path.as_path()) {
+                    if let Some(parent) = log_path.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    match fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&log_path)
+                    {
+                        Ok(file) => {
+                            writer = Some(BufWriter::new(file));
+                            open_path = Some(log_path);
+                        }
+                        Err(_) => {
+                            // Couldn't open the log file (e.g. directory
+                            // temporarily unavailable). Drop this entry and
+                            // retry on the next one rather than blocking or
+                            // panicking the writer thread.
+                            continue;
+                        }
+                    }
+                }
+
+                if let Some(w) = writer.as_mut() {
+                    write_log_entry_line(w, &entry);
+                }
+
+                if last_flush.elapsed() >= FLUSH_INTERVAL {
+                    if let Some(w) = writer.as_mut() {
+                        let _ = w.flush();
+                    }
+                    last_flush = Instant::now();
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(w) = writer.as_mut() {
+                    let _ = w.flush();
+                }
+                last_flush = Instant::now();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
 }
 
 pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
@@ -397,7 +467,24 @@ pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
 pub fn emit_log_event(entry: LogEntry) {
     let settings_snapshot =
         super::headless::engine().map(|engine| engine.settings.read().unwrap().clone());
-    persist_log_entry(&entry, settings_snapshot.as_ref());
+
+    // Only the filter check runs inline (cheap: no I/O). The actual disk
+    // write is handed off to firewall_log_writer_loop over an in-memory
+    // channel. This function is called directly from the WinDivert
+    // packet-worker threads (see FirewallEngine::start), so it must never
+    // block on file I/O — a stalled/slow write there used to be able to
+    // starve all 8 workers' divert.recv() calls simultaneously, filling the
+    // WinDivert kernel queue and cutting off all network traffic on the
+    // machine (filter is "true" — everything is diverted).
+    if !should_persist_log_entry(&entry, settings_snapshot.as_ref()) {
+        return;
+    }
+
+    if let Ok(tx) = log_writer_tx().lock() {
+        // A closed receiver (writer thread died) is the only way this can
+        // fail; silently drop rather than panic the caller.
+        let _ = tx.send(entry);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
