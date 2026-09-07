@@ -132,6 +132,9 @@
     <ClInclude Include="..\..\src\filemon.h">
       <Filter>monitors</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\kstack.h">
+      <Filter>monitors</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\objmon.h">
       <Filter>monitors</Filter>
     </ClInclude>

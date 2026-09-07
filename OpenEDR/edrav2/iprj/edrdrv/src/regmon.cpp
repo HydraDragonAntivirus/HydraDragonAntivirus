@@ -10,6 +10,7 @@
 /// @addtogroup edrdrv
 /// @{
 #include "common.h"
+#include "kstack.h"
 #include "osutils.h"
 #include "fltport.h"
 #include "procmon.h"
@@ -972,6 +973,10 @@ NTSTATUS sendEventData(SysmonEvent eEvent, PVOID pRegistryObject, procmon::Conte
 
 	LOGINFO2("sendEvent: %u (registry), pid: %Iu, key: <%wZ>.\r\n", (ULONG)eEvent,
 		(ULONG_PTR)PsGetCurrentProcessId(), RegKeyName().initPrintable(pRegistryObject));
+
+	// Kernel-stack attribution (see kstack.h): best-effort, never fails the event.
+	if (!kstack::writeKernelStack(serializer))
+		return STATUS_NO_MEMORY;
 
 	IFERR_RET(fltport::sendRawEvent(serializer));
 

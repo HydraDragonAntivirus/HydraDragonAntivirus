@@ -12,6 +12,7 @@
 #include <initguid.h>
 
 #include "common.h"
+#include "kstack.h"
 #include "osutils.h"
 #include "filemon.h"
 #include "diskutils.h"
@@ -804,6 +805,14 @@ NTSTATUS sendFileEvent(SysmonEvent eEvent, ULONG_PTR nProcessId, StreamHandleCon
 
 	#pragma warning(suppress : 4127)
 	IFERR_RET(fnWriteAdditionalData(&serializer));
+
+	// Kernel stack capture (stall diagnostics): comma-separated hex return
+	// addresses so a stall inside the filesystem filter stack can later be
+	// attributed to a module (usermode resolves them to module!export via
+	// EnumDeviceDrivers). Strictly best-effort: any failure silently omits
+	// the field, never the event itself.
+	if (!kstack::writeKernelStack(serializer))
+		return STATUS_NO_MEMORY;
 
 	return fltport::sendRawEvent(serializer);
 }

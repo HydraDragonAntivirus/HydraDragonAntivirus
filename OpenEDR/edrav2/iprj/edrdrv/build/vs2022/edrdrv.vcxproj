@@ -63,6 +63,7 @@
     <ClInclude Include="..\..\src\filemon.h" />
     <ClInclude Include="..\..\src\fltport.h" />
     <ClInclude Include="..\..\src\ioctl.h" />
+    <ClInclude Include="..\..\src\kstack.h" />
     <ClInclude Include="..\..\src\kernelcmnlib.hpp" />
     <ClInclude Include="..\..\src\kernelcmnlib\kernelstl.hpp" />
     <ClInclude Include="..\..\src\kernelcmnlib\kernelstl\atomic.hpp" />

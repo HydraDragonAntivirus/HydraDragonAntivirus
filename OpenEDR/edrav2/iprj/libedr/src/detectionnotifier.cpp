@@ -12,6 +12,8 @@
 #include "detectionnotifier.h"
 #include "eventenricher.h"
 
+#include <libcore/inc/kstack_resolve.hpp>
+
 #include <deque>
 #include <atomic>
 #include <fstream>
@@ -47,6 +49,8 @@ namespace {
 		std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		return s;
 	}
+
+
 
 	// Sanitizes C:\Windows\System32\drivers\etc\hosts to ensure it remains 100% clean (comments only).
 	// Returns true if active (non-comment) entries were found and sanitized.
@@ -961,6 +965,48 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 						sRegTitle += " [" + sRegValue + "]";
 					sTitle += (sTitle.empty() ? "" : " | reg: ") + sRegTitle;
 				}
+			}
+			catch (...) {}
+		}
+
+		// Kernel-stack attribution (stall diagnostics): the driver ships raw
+		// return addresses in file.kernelStack; resolve them to
+		// module!export chains (no PDB engine needed) so a file stall names
+		// its filter right in the title. Raw hex stays in the event for
+		// offline forensics; resolution runs only here (detections), never
+		// per telemetry packet.
+		{
+			try
+			{
+				// Preferred: parse-time resolution (libsysmon) already stored
+				// the flat kernelStackSymbols string. Fall back to resolving
+				// the raw hex here for events that bypassed parse (e.g.
+				// pattern-created or directly injected detections).
+				std::string sResolved;
+				if (auto optS = variant::getByPathSafe(vEvent, "kernelStackSymbols"))
+					sResolved = std::string(optS.value());
+				if ((sResolved.empty() || sResolved == "<undefined>" || sResolved == "null"))
+				{
+					std::string sRawStack;
+					if (auto optK = variant::getByPathSafe(vEvent, "file.kernelStack"))
+						sRawStack = std::string(optK.value());
+					if (!sRawStack.empty() && sRawStack != "<undefined>" && sRawStack != "null")
+					{
+						uint32_t nStackPid = 0;
+						if (nGid != 0)
+							nStackPid = static_cast<uint32_t>(nGid);
+						else if (auto optPid = variant::getByPathSafe(vEvent, "process.pid"))
+						{
+							try { nStackPid = static_cast<uint32_t>(optPid.value()); }
+							catch (...) {}
+						}
+						sResolved = kstack::resolveStackForPid(sRawStack, nStackPid, 6);
+						if (!sResolved.empty())
+							vEvent.put("kernelStackSymbols", sResolved);
+					}
+				}
+				if (!sResolved.empty() && sResolved != "<undefined>" && sResolved != "null")
+					sTitle += (sTitle.empty() ? "" : " | kstack: ") + sResolved;
 			}
 			catch (...) {}
 		}

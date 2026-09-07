@@ -165,6 +165,7 @@ enum class EventField : variant::lbvs::FieldId
 	FileRenameTarget = 126,         ///< str - new file name (target) of a rename operation
 	ThreadId = 127,                ///< uint32 - target thread ID (thread handle open)
 	FileBackupPath = 128,          ///< str - where the pre-image backup was saved
+	KernelStack = 129,             ///< str (wide) - comma-separated hex kernel return addresses (RtlWalkFrameChain)
 };
 
 ///
@@ -301,7 +302,8 @@ constexpr char c_sEventSchema[] = R"json({
 	{ "name": "owlyHookTargetPid" },
 	{ "name": "file.renameTarget" },
 	{ "name": "thread.id" },
-	{ "name": "file.backupPath" }
+	{ "name": "file.backupPath" },
+	{ "name": "file.kernelStack" }
 ]})json";
 
 //////////////////////////////////////////////////////////////////////////

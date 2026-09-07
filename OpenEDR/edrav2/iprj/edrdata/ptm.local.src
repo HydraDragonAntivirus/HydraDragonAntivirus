@@ -3861,7 +3861,16 @@
 		],
 		"godmodeEventBaseType": {
 			"MLE_GODMODE_ACTIVITY": 1000016
-		}
+		},
+		"rootkitEventBaseType": {
+			"MLE_ROOTKIT_KERNEL_FRAME": 1000017
+		},
+		// Matches resolved kernel-stack chains containing at least one frame
+		// with no owning module (manually mapped driver / rootkit code).
+		// The resolver marks those "unknown!0x...".
+		"rootkitUnknownKstack": [
+			"*unknown!*"
+		]
 	},
 
 	"variables": {
@@ -5791,6 +5800,137 @@
 						{ "name": "time", "value": "@event.time" },
 						{ "name": "tickTime", "value": "@event.tickTime" },
 						{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_comodo_fls_cloud", "value": false }
+					]
+				}
+			}
+		}
+		],
+		// Rootkit signal: any file/process/registry operation whose kernel
+		// stack contains a frame owned by NO loaded driver (manually mapped
+		// code). The resolver marks such frames "unknown!0x...". Raw hex
+		// stays in @event.file.kernelStack for forensics; the resolved chain
+		// is in @event.kernelStackSymbols.
+		"ROOTKIT_UNKNOWN_KERNEL_FRAME": [
+		{
+			"eventType": "LLE_FILE_CREATE",
+			"rule": {
+				"condition": {
+						"$operation": "imatch",
+						"pattern": "@const.rootkitUnknownKstack",
+						"args": [ "@event.kernelStackSymbols" ]
+					},
+				"createEvent": {
+					"eventType": "MLE_ROOTKIT_KERNEL_FRAME",
+					"destination": "OUT",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.rootkitEventBaseType.MLE_ROOTKIT_KERNEL_FRAME" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "processes", "value": "@event.processes" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
+						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_comodo_fls_cloud", "value": false }
+					]
+				}
+			}
+		},
+		{
+			"eventType": "LLE_FILE_MAP_WRITE",
+			"rule": {
+				"condition": {
+						"$operation": "imatch",
+						"pattern": "@const.rootkitUnknownKstack",
+						"args": [ "@event.kernelStackSymbols" ]
+					},
+				"createEvent": {
+					"eventType": "MLE_ROOTKIT_KERNEL_FRAME",
+					"destination": "OUT",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.rootkitEventBaseType.MLE_ROOTKIT_KERNEL_FRAME" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "processes", "value": "@event.processes" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
+						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_comodo_fls_cloud", "value": false }
+					]
+				}
+			}
+		},
+		{
+			"eventType": "LLE_FILE_DATA_WRITE_FULL",
+			"rule": {
+				"condition": {
+						"$operation": "imatch",
+						"pattern": "@const.rootkitUnknownKstack",
+						"args": [ "@event.kernelStackSymbols" ]
+					},
+				"createEvent": {
+					"eventType": "MLE_ROOTKIT_KERNEL_FRAME",
+					"destination": "OUT",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.rootkitEventBaseType.MLE_ROOTKIT_KERNEL_FRAME" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "processes", "value": "@event.processes" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
+						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_comodo_fls_cloud", "value": false }
+					]
+				}
+			}
+		},
+		{
+			"eventType": "LLE_FILE_RENAME",
+			"rule": {
+				"condition": {
+						"$operation": "imatch",
+						"pattern": "@const.rootkitUnknownKstack",
+						"args": [ "@event.kernelStackSymbols" ]
+					},
+				"createEvent": {
+					"eventType": "MLE_ROOTKIT_KERNEL_FRAME",
+					"destination": "OUT",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.rootkitEventBaseType.MLE_ROOTKIT_KERNEL_FRAME" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "processes", "value": "@event.processes" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "should_trust_company_whitelist", "value": false },
+						{ "name": "should_trust_comodo_fls_cloud", "value": false }
+					]
+				}
+			}
+		},
+		{
+			"eventType": "LLE_FILE_DELETE",
+			"rule": {
+				"condition": {
+						"$operation": "imatch",
+						"pattern": "@const.rootkitUnknownKstack",
+						"args": [ "@event.kernelStackSymbols" ]
+					},
+				"createEvent": {
+					"eventType": "MLE_ROOTKIT_KERNEL_FRAME",
+					"destination": "OUT",
+					"clone": false,
+					"data": [
+						{ "name": "baseType", "value": "@const.rootkitEventBaseType.MLE_ROOTKIT_KERNEL_FRAME" },
+						{ "name": "process", "value": "@event.process" },
+						{ "name": "processes", "value": "@event.processes" },
+						{ "name": "time", "value": "@event.time" },
+						{ "name": "tickTime", "value": "@event.tickTime" },
+						{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
 						{ "name": "should_trust_company_whitelist", "value": false },
 						{ "name": "should_trust_comodo_fls_cloud", "value": false }
 					]

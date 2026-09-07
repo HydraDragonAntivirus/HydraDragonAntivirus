@@ -12,6 +12,7 @@
 #include "pch.h"
 #include "controller.h"
 #include "../../libprocmon/inc/procmonevent.h"
+#include <libcore/inc/kstack_resolve.hpp>
 
 #include <mutex>
 #include <string_view>
@@ -1048,8 +1049,36 @@ bool SystemMonitorController::parseEvent(const Byte* pBuffer, const Size nBuffer
 #endif
 		Variant vEvent = variant::deserializeFromLbvs(pBuffer, nBufferSize, m_vEventSchema);
 		edrdrv::SysmonEvent nRawEventId = vEvent["rawEventId"];
-		LOGLVL(Trace, "Parse raw event <" << size_t(nRawEventId) << 
+		LOGLVL(Trace, "Parse raw event <" << size_t(nRawEventId) <<
 			"> from process <" << getByPath(vEvent, "process.pid", -1) << ">");
+
+		// Kernel-stack attribution at parse time (not at notify time) so
+		// every downstream consumer — enricher, pattern engine
+		// (ptm.local.src imatch on file.kernelStackSymbols), notifier, GUI —
+		// sees the resolved module!export chain. Raw hex stays in
+		// file.kernelStack for offline forensics. Best-effort: failures
+		// leave the event untouched.
+		try
+		{
+			if (auto optK = variant::getByPathSafe(vEvent, "file.kernelStack"))
+			{
+				const std::string sRaw = std::string(optK.value());
+				if (!sRaw.empty() && sRaw != "<undefined>" && sRaw != "null")
+				{
+					uint32_t nStackPid = 0;
+					if (auto optP = variant::getByPathSafe(vEvent, "process.pid"))
+					{
+						try { nStackPid = static_cast<uint32_t>(optP.value()); }
+						catch (...) {}
+					}
+					const std::string sResolved =
+						cmd::kstack::resolveStackForPid(sRaw, nStackPid, 6);
+					if (!sResolved.empty())
+						vEvent.put("kernelStackSymbols", sResolved);
+				}
+			}
+		}
+		catch (...) {}
 #ifdef ENABLE_EVENT_TIMINGS
 		auto t1 = steady_clock::now();
 #endif

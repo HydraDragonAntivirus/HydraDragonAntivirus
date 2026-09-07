@@ -10,6 +10,7 @@
 /// @addtogroup edrdrv
 /// @{
 #include "common.h"
+#include "kstack.h"
 #include "procmon.h"
 #include "objmon.h"
 #include "procutils.h"
@@ -1271,6 +1272,10 @@ NTSTATUS sendProcessCreate(PEPROCESS pProcess, HANDLE nProcessId,
 		}
 	}
 
+	// Kernel-stack attribution (see kstack.h): best-effort, never fails the event.
+	if (!kstack::writeKernelStack(serializer))
+		return STATUS_NO_MEMORY;
+
 	return fltport::sendRawEvent(serializer);
 }
 
@@ -1296,6 +1301,10 @@ NTSTATUS sendProcessDelete(PEPROCESS pProcess, HANDLE nProcessId)
 	if (!serializer.write(EvFld::ProcessDeletionTime, (Times.ExitTime.QuadPart - 116444736000000000LL) / 10000)) return STATUS_NO_MEMORY;
 	if (!serializer.write(EvFld::ProcessPid, (uint32_t)(ULONG_PTR)nProcessId)) return STATUS_NO_MEMORY;
 	if (!serializer.write(EvFld::ProcessExitCode, (uint32_t)PsGetProcessExitStatus(pProcess))) return STATUS_NO_MEMORY;
+
+	// Kernel-stack attribution (see kstack.h): best-effort, never fails the event.
+	if (!kstack::writeKernelStack(serializer))
+		return STATUS_NO_MEMORY;
 
 	return fltport::sendRawEvent(serializer);
 }

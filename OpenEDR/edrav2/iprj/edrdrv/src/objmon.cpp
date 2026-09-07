@@ -10,6 +10,7 @@
 /// @addtogroup edrdrv
 /// @{
 #include "common.h"
+#include "kstack.h"
 #include "osutils.h"
 #include "objmon.h"
 #include "fltport.h"
@@ -41,6 +42,10 @@ NTSTATUS sendObjectEvent(SysmonEvent eEvent, ULONG_PTR nProcessId, Fn fnWriteAdd
 	if (!serializer.write(EvFld::ProcessPid, (uint32_t)nProcessId)) return STATUS_NO_MEMORY;
 
 	IFERR_RET(fnWriteAdditionalData(&serializer));
+
+	// Kernel-stack attribution (see kstack.h): best-effort, never fails the event.
+	if (!kstack::writeKernelStack(serializer))
+		return STATUS_NO_MEMORY;
 
 	return fltport::sendRawEvent(serializer);
 }
