@@ -1523,14 +1523,11 @@ pub mod worker_instance {
                 return;
             }
 
-            let Some(driver) = self.driver.clone() else {
-                Logging::warning(&format!(
-                    "[DYNAMIC HOOK] Driver not available, cannot hook PID {}",
-                    pid
-                ));
-                return;
-            };
-
+            // NOTE: driver calls are owned by OpenEDR (edrsvc/libsysmon), not
+            // by owlyshield. This side only maintains the event-id map
+            // (0x6000 + ptm-list order, mirroring the C++ registrar) so
+            // incoming hook events resolve to API names. No driver handle is
+            // needed here.
             let monitored_apis = self.collect_dynamic_hook_api_targets(pid);
             Logging::debug(&format!(
                 "[DYNAMIC HOOK] PID {} resolved {} monitored API(s): {:?}",
