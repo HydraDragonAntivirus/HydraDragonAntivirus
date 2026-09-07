@@ -73,9 +73,7 @@ pub fn is_registered_upstream_local_port(port: u16) -> bool {
 
     let now = Instant::now();
     let mut ports = upstream_local_ports().lock().unwrap();
-    if ports.len() > 1000 {
-        prune_upstream_local_ports(&mut ports, now);
-    }
+    prune_upstream_local_ports(&mut ports, now);
     if let Some(seen_at) = ports.get_mut(&port) {
         *seen_at = now;
         true
@@ -87,12 +85,7 @@ pub fn is_registered_upstream_local_port(port: u16) -> bool {
 pub async fn connect_registered_tcp(host: &str, port: u16) -> std::io::Result<TcpStream> {
     let mut last_error = None;
 
-    let addrs: Vec<SocketAddr> = lookup_host((host, port)).await?.collect();
-    // Prioritize IPv4 addresses first to avoid multi-second IPv6 connection timeouts in VMs/IPv4 environments
-    let (mut v4, v6): (Vec<_>, Vec<_>) = addrs.into_iter().partition(|a| a.is_ipv4());
-    v4.extend(v6);
-
-    for addr in v4 {
+    for addr in lookup_host((host, port)).await? {
         let socket = if addr.is_ipv4() {
             TcpSocket::new_v4()
         } else {
@@ -115,29 +108,13 @@ pub async fn connect_registered_tcp(host: &str, port: u16) -> std::io::Result<Tc
             port
         });
 
-        let connect_fut = socket.connect(addr);
-        match tokio::time::timeout(std::time::Duration::from_secs(5), connect_fut).await {
-            Ok(Ok(stream)) => {
-                if let Ok(local_addr) = stream.local_addr() {
-                    let port = local_addr.port();
-                    register_upstream_local_port(port);
-                }
-                return Ok(stream);
-            }
-            Ok(Err(err)) => {
+        match socket.connect(addr).await {
+            Ok(stream) => return Ok(stream),
+            Err(err) => {
                 if let Some(port) = registered_port {
                     unregister_upstream_local_port(port);
                 }
                 last_error = Some(err);
-            }
-            Err(_) => {
-                if let Some(port) = registered_port {
-                    unregister_upstream_local_port(port);
-                }
-                last_error = Some(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    format!("connection to {} timed out after 5s", addr),
-                ));
             }
         }
     }

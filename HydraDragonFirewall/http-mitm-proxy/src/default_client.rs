@@ -155,10 +155,14 @@ async fn sender_alive_http2(sender: &mut Http2Sender) -> bool {
 /// Default HTTP client for this crate
 pub struct DefaultClient {
     #[cfg(feature = "native-tls-client")]
-    tls_connector: tokio_native_tls::TlsConnector,
+    tls_connector_no_alpn: tokio_native_tls::TlsConnector,
+    #[cfg(feature = "native-tls-client")]
+    tls_connector_alpn_h2: tokio_native_tls::TlsConnector,
 
     #[cfg(feature = "rustls-client")]
-    tls_connector: tokio_rustls::TlsConnector,
+    tls_connector_no_alpn: tokio_rustls::TlsConnector,
+    #[cfg(feature = "rustls-client")]
+    tls_connector_alpn_h2: tokio_rustls::TlsConnector,
 
     /// If true, send_request will returns an Upgraded struct when the response is an upgrade
     /// If false, send_request never returns an Upgraded struct and just copy bidirectional when the response is an upgrade
@@ -182,15 +186,19 @@ impl DefaultClient {
 
     #[cfg(feature = "native-tls-client")]
     pub fn try_new() -> Result<Self, Error> {
-        let tls_connector = native_tls::TlsConnector::builder()
+        let tls_connector_no_alpn = native_tls::TlsConnector::builder().build().map_err(|e| {
+            Error::TlsConnectorError(format!("Failed to build no-ALPN connector: {e}"))
+        })?;
+        let tls_connector_alpn_h2 = native_tls::TlsConnector::builder()
             .request_alpns(&["h2", "http/1.1"])
             .build()
             .map_err(|e| {
-                Error::TlsConnectorError(format!("Failed to build TLS connector: {e}"))
+                Error::TlsConnectorError(format!("Failed to build ALPN-H2 connector: {e}"))
             })?;
 
         Ok(Self {
-            tls_connector: tokio_native_tls::TlsConnector::from(tls_connector),
+            tls_connector_no_alpn: tokio_native_tls::TlsConnector::from(tls_connector_no_alpn),
+            tls_connector_alpn_h2: tokio_native_tls::TlsConnector::from(tls_connector_alpn_h2),
             with_upgrades: false,
             pool: ConnectionPool::default(),
         })
@@ -210,13 +218,21 @@ impl DefaultClient {
         let mut root_cert_store = tokio_rustls::rustls::RootCertStore::empty();
         root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-        let mut tls_config = tokio_rustls::rustls::ClientConfig::builder()
-            .with_root_certificates(root_cert_store)
+        let tls_connector_no_alpn = tokio_rustls::rustls::ClientConfig::builder()
+            .with_root_certificates(root_cert_store.clone())
             .with_no_client_auth();
-        tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        let mut tls_connector_alpn_h2 = tokio_rustls::rustls::ClientConfig::builder()
+            .with_root_certificates(root_cert_store.clone())
+            .with_no_client_auth();
+        tls_connector_alpn_h2.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
         Ok(Self {
-            tls_connector: tokio_rustls::TlsConnector::from(Arc::new(tls_config)),
+            tls_connector_no_alpn: tokio_rustls::TlsConnector::from(Arc::new(
+                tls_connector_no_alpn,
+            )),
+            tls_connector_alpn_h2: tokio_rustls::TlsConnector::from(Arc::new(
+                tls_connector_alpn_h2,
+            )),
             with_upgrades: false,
             pool: ConnectionPool::default(),
         })
@@ -230,13 +246,19 @@ impl DefaultClient {
     }
 
     #[cfg(feature = "native-tls-client")]
-    fn tls_connector(&self) -> &tokio_native_tls::TlsConnector {
-        &self.tls_connector
+    fn tls_connector(&self, http_version: Version) -> &tokio_native_tls::TlsConnector {
+        match http_version {
+            Version::HTTP_2 => &self.tls_connector_alpn_h2,
+            _ => &self.tls_connector_no_alpn,
+        }
     }
 
     #[cfg(feature = "rustls-client")]
-    fn tls_connector(&self) -> &tokio_rustls::TlsConnector {
-        &self.tls_connector
+    fn tls_connector(&self, http_version: Version) -> &tokio_rustls::TlsConnector {
+        match http_version {
+            Version::HTTP_2 => &self.tls_connector_alpn_h2,
+            _ => &self.tls_connector_no_alpn,
+        }
     }
 
     /// Send a request and return a response.
@@ -357,7 +379,7 @@ impl DefaultClient {
     async fn connect(
         &self,
         uri: &Uri,
-        _http_version: Version,
+        http_version: Version,
         key: Option<ConnectionKey>,
     ) -> Result<SendRequest, Error> {
         let (host, port, is_tls) = host_port(uri)?;
@@ -368,23 +390,21 @@ impl DefaultClient {
 
         if is_tls {
             #[cfg(feature = "native-tls-client")]
-            let tls_fut = self.tls_connector().connect(&host, tcp);
-            #[cfg(feature = "rustls-client")]
-            let server_name = host
-                .to_string()
-                .try_into()
-                .map_err(|_| Error::InvalidHost(Box::new(uri.clone())))?;
-            #[cfg(feature = "rustls-client")]
-            let tls_fut = self.tls_connector().connect(server_name, tcp);
-
-            let tls = tokio::time::timeout(std::time::Duration::from_secs(8), tls_fut)
+            let tls = self
+                .tls_connector(http_version)
+                .connect(&host, tcp)
                 .await
-                .map_err(|_| {
-                    Error::TlsConnectError(
-                        Box::new(uri.clone()),
-                        std::io::Error::new(std::io::ErrorKind::TimedOut, "TLS handshake timed out after 8s"),
-                    )
-                })?
+                .map_err(|err| Error::TlsConnectError(Box::new(uri.clone()), err))?;
+            #[cfg(feature = "rustls-client")]
+            let tls = self
+                .tls_connector(http_version)
+                .connect(
+                    host.to_string()
+                        .try_into()
+                        .map_err(|_| Error::InvalidHost(Box::new(uri.clone())))?,
+                    tcp,
+                )
+                .await
                 .map_err(|err| Error::TlsConnectError(Box::new(uri.clone()), err))?;
 
             #[cfg(feature = "native-tls-client")]
@@ -399,16 +419,9 @@ impl DefaultClient {
             let is_h2 = tls.get_ref().1.alpn_protocol() == Some(b"h2");
 
             if is_h2 {
-                let handshake_fut = client::conn::http2::Builder::new(TokioExecutor::new())
-                    .handshake(TokioIo::new(tls));
-                let (sender, conn) = tokio::time::timeout(std::time::Duration::from_secs(5), handshake_fut)
+                let (sender, conn) = client::conn::http2::Builder::new(TokioExecutor::new())
+                    .handshake(TokioIo::new(tls))
                     .await
-                    .map_err(|_| {
-                        Error::IoError(std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "HTTP/2 handshake timed out after 5s",
-                        ))
-                    })?
                     .map_err(|err| Error::ConnectError(Box::new(uri.clone()), err))?;
 
                 tokio::spawn(conn);
@@ -423,18 +436,11 @@ impl DefaultClient {
 
                 Ok(SendRequest::Http2(sender))
             } else {
-                let handshake_fut = client::conn::http1::Builder::new()
+                let (sender, conn) = client::conn::http1::Builder::new()
                     .preserve_header_case(true)
                     .title_case_headers(true)
-                    .handshake(TokioIo::new(tls));
-                let (sender, conn) = tokio::time::timeout(std::time::Duration::from_secs(5), handshake_fut)
+                    .handshake(TokioIo::new(tls))
                     .await
-                    .map_err(|_| {
-                        Error::IoError(std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "HTTP/1 handshake timed out after 5s",
-                        ))
-                    })?
                     .map_err(|err| Error::ConnectError(Box::new(uri.clone()), err))?;
 
                 tokio::spawn(conn.with_upgrades());
@@ -442,18 +448,11 @@ impl DefaultClient {
                 Ok(SendRequest::Http1(sender))
             }
         } else {
-            let handshake_fut = client::conn::http1::Builder::new()
+            let (sender, conn) = client::conn::http1::Builder::new()
                 .preserve_header_case(true)
                 .title_case_headers(true)
-                .handshake(TokioIo::new(tcp));
-            let (sender, conn) = tokio::time::timeout(std::time::Duration::from_secs(5), handshake_fut)
+                .handshake(TokioIo::new(tcp))
                 .await
-                .map_err(|_| {
-                    Error::IoError(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "HTTP/1 handshake timed out after 5s",
-                    ))
-                })?
                 .map_err(|err| Error::ConnectError(Box::new(uri.clone()), err))?;
             tokio::spawn(conn.with_upgrades());
             Ok(SendRequest::Http1(sender))
