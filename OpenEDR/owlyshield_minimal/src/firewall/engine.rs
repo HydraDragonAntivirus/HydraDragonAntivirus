@@ -3503,7 +3503,7 @@ impl FirewallEngine {
                                                                             timestamp: now,
                                                                             level: LogLevel::Info,
                                                                             message: format!(
-                                                                                "Proxy steer: {}:{} -> 127.0.0.1:{} ({}) [dst-only]",
+                                                                                "Proxy steer: {}:{} -> 127.0.0.1:{} ({})",
                                                                                 target,
                                                                                 dst_port,
                                                                                 tls_proxy_cfg
