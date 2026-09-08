@@ -71,6 +71,14 @@ Export-relative offset hesabı: `baz_adres + offset = hedef`, sonra `laddr hedef
   `SYN_RECEIVED` yığılması = SYN-ACK gidemiyor. Sebebi steer'da SRC'yi de
   127.0.0.1'e yazmaktı (o porta bağlı soket yok) — SADECE DST yazılır,
   dönüş bacağı NAT tablosuyla düzelir.
+- Kök neden zinciri (Eyl 2026, 2 hafta): ① `emerging-all.yaml` (50k kural)
+  `metadata_only` yok sayılıp her pakette koşuyordu → DNS sürünmesi + CPU.
+  ② Steer SRC'yi 127.0.0.1'e yazıyordu → SYN-ACK sahipsiz sokete → SYN_RECEIVED.
+  ③ DST-only + LAN-redirect sonrası SYN-ACK istemciye çıplak gidiyordu
+  (beklenen `internet:443` yerine `LAN:8877`) → istemci RST → el sıkışma hiç
+  bitmiyordu. Çözüm: listen portundan çıkan + NAT'ta kaydı olan her paketin
+  src'sini un-rewrite et (loopback şartı yok). Kanıt: pktmon'da SYN-ACK+RST
+  dizisi + `steer/accept stats` sayacı (steer var, parsed 0).
 - `Cargo.lock` sessizce eski haline dönebilir; derlemeden önce `aws-lc-rs`/`aws-lc-sys`
   sürümlerini kilitte doğrula.
 - 2026-09 vakası: `rules.yaml` içindeki `!include emerging-all.yaml metadata_only`

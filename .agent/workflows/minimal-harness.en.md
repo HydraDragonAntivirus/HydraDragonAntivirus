@@ -75,6 +75,14 @@ E.g.: `set_mitm(0x141a070)+0x4f1210 = 0x190B280` → `laddr 190B280`.
   `SYN_RECEIVED` pileup means the SYN-ACK can't get back. Cause was rewriting
   SRC to 127.0.0.1 in the steer (no socket bound there) — rewrite DST ONLY,
   the return leg is fixed via the NAT table.
+- Root-cause chain (Sep 2026, 2 weeks): ① `emerging-all.yaml` (50k rules) ran
+  per packet (`metadata_only` ignored) → crawling DNS + CPU. ② Steer rewrote
+  SRC to 127.0.0.1 → SYN-ACK to an unbound socket → SYN_RECEIVED pileup.
+  ③ After DST-only + LAN-redirect the SYN-ACK reached the client naked
+  (`LAN:8877` instead of expected `internet:443`) → client RST, handshake never
+  completed. Fix: un-rewrite src of EVERY packet from the listen port with a
+  NAT entry (no loopback condition). Proof: pktmon SYN-ACK+RST sequence +
+  `steer/accept stats` counter (steers present, parsed 0).
 - `Cargo.lock` can silently revert; verify `aws-lc-rs`/`aws-lc-sys` versions in the
   lock before building.
 - Sep-2026 case: the `metadata_only` modifier on `!include emerging-all.yaml` in
