@@ -3339,11 +3339,15 @@ impl FirewallEngine {
                                             }
 
                                             if is_tcp {
-                                                let proxy_return_flow = src_ip
-                                                    .is_some_and(Self::is_loopback)
-                                                    && src_port == tls_proxy_cfg.listen_port;
-
-                                                if proxy_return_flow {
+                                                // Proxy return leg: ANY packet FROM listen_port
+                                                // whose dst port has a NAT entry is the proxy
+                                                // answering a steered client (LAN-redirect or
+                                                // loopback). Un-rewrite src to the original
+                                                // internet endpoint so the client's TCB matches;
+                                                // without this the client RSTs the SYN-ACK
+                                                // (SYN-ACK from an unexpected source) and the
+                                                // handshake never completes.
+                                                if src_port == tls_proxy_cfg.listen_port {
                                                     if let Some((orig_ip, orig_port, orig_src)) =
                                                         nat_table_w.get(dst_port)
                                                     {
