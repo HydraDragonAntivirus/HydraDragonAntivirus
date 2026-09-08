@@ -71,6 +71,10 @@ E.g.: `set_mitm(0x141a070)+0x4f1210 = 0x190B280` → `laddr 190B280`.
   `[env] AWS_LC_SYS_NO_JITTER_ENTROPY = "1"` in `owlyshield_predict/.cargo/config.toml`,
   then delete aws-lc-sys fingerprints and `cargo build --release`.
   Verify: `x *jent_read_entropy*` empty, `x *opt_out_cpu_jitter_get_seed*` present in new PDB.
+- For steered SYNs with no accept, `netstat -ano | findstr 8877`: a
+  `SYN_RECEIVED` pileup means the SYN-ACK can't get back. Cause was rewriting
+  SRC to 127.0.0.1 in the steer (no socket bound there) — rewrite DST ONLY,
+  the return leg is fixed via the NAT table.
 - `Cargo.lock` can silently revert; verify `aws-lc-rs`/`aws-lc-sys` versions in the
   lock before building.
 - Sep-2026 case: the `metadata_only` modifier on `!include emerging-all.yaml` in

@@ -67,6 +67,10 @@ Export-relative offset hesabı: `baz_adres + offset = hedef`, sonra `laddr hedef
   `owlyshield_predict/.cargo/config.toml` içinde `[env] AWS_LC_SYS_NO_JITTER_ENTROPY = "1"`,
   sonra aws-lc-sys fingerprintlerini silip `cargo build --release`.
   Doğrulama: yeni PDB'de `x *jent_read_entropy*` boş, `x *opt_out_cpu_jitter_get_seed*` dolu dönmeli.
+- Steer edilip accept'e dönmeyen SYN'lerde `netstat -ano | findstr 8877`:
+  `SYN_RECEIVED` yığılması = SYN-ACK gidemiyor. Sebebi steer'da SRC'yi de
+  127.0.0.1'e yazmaktı (o porta bağlı soket yok) — SADECE DST yazılır,
+  dönüş bacağı NAT tablosuyla düzelir.
 - `Cargo.lock` sessizce eski haline dönebilir; derlemeden önce `aws-lc-rs`/`aws-lc-sys`
   sürümlerini kilitte doğrula.
 - 2026-09 vakası: `rules.yaml` içindeki `!include emerging-all.yaml metadata_only`

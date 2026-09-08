@@ -3456,17 +3456,19 @@ impl FirewallEngine {
                                                             );
                                                             let ok = match orig_dst {
                                                                 IpAddr::V4(_v4) => {
-                                                                    let ok_dst = nat_rewrite_dst_ipv4(
+                                                                    // DST-ONLY rewrite. Rewriting SRC to
+                                                                    // 127.0.0.1 strands the SYN-ACK: no socket
+                                                                    // is bound to 127.0.0.1:client_port, so the
+                                                                    // handshake wedges in SYN_RECEIVED forever
+                                                                    // (steer logged, proxy silent, client
+                                                                    // retransmits). The proxy_return_flow leg
+                                                                    // un-rewrites the return packets via the
+                                                                    // NAT table entry.
+                                                                    nat_rewrite_dst_ipv4(
                                                                         &mut packet_data,
                                                                         Ipv4Addr::new(127, 0, 0, 1),
                                                                         tls_proxy_cfg.listen_port,
-                                                                    );
-                                                                    let ok_src = nat_rewrite_src_ipv4(
-                                                                        &mut packet_data,
-                                                                        Ipv4Addr::new(127, 0, 0, 1),
-                                                                        src_port,
-                                                                    );
-                                                                    ok_dst && ok_src
+                                                                    )
                                                                 }
                                                                 _ => false,
                                                             };
@@ -3505,7 +3507,7 @@ impl FirewallEngine {
                                                                             timestamp: now,
                                                                             level: LogLevel::Info,
                                                                             message: format!(
-                                                                                "Proxy steer: {}:{} -> 127.0.0.1:{} ({})",
+                                                                                "Proxy steer: {}:{} -> 127.0.0.1:{} ({}) [dst-only]",
                                                                                 target,
                                                                                 dst_port,
                                                                                 tls_proxy_cfg
