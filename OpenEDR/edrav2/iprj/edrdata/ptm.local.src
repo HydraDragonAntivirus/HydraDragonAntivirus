@@ -1817,7 +1817,7 @@
 			"*software\\classes\\appid\\{f48fc5b2-094a-44c7-b48c-289738c9582d}*",
 			"*software\\classes\\applications\\ilividsetupv1.exe*",
 			"*software\\classes\\applications\\lollipop.exe*",
-			"*software\\classes\\b*",
+			// "*software\\classes\\b*", // FP: matches legit BannerNotificationHandler (OneDrive)
 			"*software\\classes\\babydict*",
 			"*software\\classes\\babygloss*",
 			"*software\\classes\\babylon.dskbnd*",
@@ -2068,7 +2068,7 @@
 			"*software\\classes\\crossriderapp0048292.bho.1*",
 			"*software\\classes\\crossriderapp0048292.sandbox*",
 			"*software\\classes\\crossriderapp0048292.sandbox.1*",
-			"*software\\classes\\d*",
+			// "*software\\classes\\d*", // FP: overbroad single-letter wildcard
 			"*software\\classes\\dealplylive.oneclickctrl.9*",
 			"*software\\classes\\dealplylive.oneclickprocesslaunchermachine*",
 			"*software\\classes\\dealplylive.oneclickprocesslaunchermachine.1.0*",
@@ -2165,7 +2165,7 @@
 			"*software\\classes\\globalupdateupdate.update3webmachinefallback.1.0*",
 			"*software\\classes\\globalupdateupdate.update3websvc*",
 			"*software\\classes\\globalupdateupdate.update3websvc.1.0*",
-			"*software\\classes\\i*",
+			// "*software\\classes\\i*", // FP: matches legit Interface\{OneDrive IFileSyncClient*} COM registrations
 			"*software\\classes\\incredibar.dskbnd*",
 			"*software\\classes\\incredibar.dskbnd.1*",
 			"*software\\classes\\incredibar.incredibarhlpr*",
@@ -2448,7 +2448,7 @@
 			"*software\\classes\\rei_axcontrol.reiengine*",
 			"*software\\classes\\rei_axcontrol.reiengine.1*",
 			"*software\\classes\\rei_axcontrol.reiengine.a*",
-			"*software\\classes\\s*",
+			// "*software\\classes\\s*", // FP: matches legit SyncEngineStorageProviderHandlerProxy (OneDrive)
 			"*software\\classes\\scripthelper.scripthelperapi*",
 			"*software\\classes\\scripthelper.scripthelperapi.1*",
 			"*software\\classes\\scripthost.tool*",
