@@ -21,12 +21,17 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, RwLock, atomic::{AtomicBool, AtomicU64, Ordering}};
 use std::task::Poll;
 use tokio::sync::oneshot;
 
 use super::engine::{FirewallSettings, LogEntry, LogLevel, PacketInfo, Protocol, emit_log_event};
 use super::sdk::{PacketContext, RuleAction, SdkRegistry};
+
+/// Steer/accept counters: steer increments in engine.rs, accept increments at
+/// the doorbell below (post-TLS-HTTP-parse). No per-event logging (flood).
+pub(crate) static STEER_COUNT: AtomicU64 = AtomicU64::new(0);
+pub(crate) static ACCEPT_COUNT: AtomicU64 = AtomicU64::new(0);
 
 // ── CA persistence paths ───────────────────────────────────────────────────────
 
@@ -455,6 +460,7 @@ pub async fn run_proxy(
                             .map(|r| r.0.to_string())
                             .unwrap_or_else(|| "unknown".to_string());
                         let accept_ts = now_ts();
+                        ACCEPT_COUNT.fetch_add(1, Ordering::SeqCst);
                         emit_log_event(LogEntry {
                             id: format!("{}-proxy-accept", accept_ts),
                             timestamp: accept_ts,

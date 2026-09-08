@@ -2233,11 +2233,12 @@ impl FirewallEngine {
         }
 
         let listen_port = tls_proxy.listen_port;
-        // CRITICAL FIX: Only spawn ONE proxy listener instead of two conflicting ones
-        let addr_v4: std::net::SocketAddr = format!("127.0.0.1:{}", listen_port)
+        // Bind the configured listen_host (0.0.0.0 for LAN-redirect delivery).
+        // Was hardcoded 127.0.0.1, which silently ignored the setting.
+        let addr_v4: std::net::SocketAddr = format!("{}:{}", tls_proxy.listen_host, listen_port)
             .parse()
             .unwrap_or_else(|_| "127.0.0.1:8877".parse().unwrap());
-        let addr_string = format!("127.0.0.1:{}", listen_port);
+        let addr_string = format!("{}:{}", tls_proxy.listen_host, listen_port);
 
         // CA installation is performed only during the dedicated install step
         // (edrsvc.cfg installScript "installFirewallCa"). At proxy startup we
@@ -3444,45 +3445,64 @@ impl FirewallEngine {
                                                                 && fresh_pid
                                                                     != std::process::id()
                                                         };
+                                                        // LAN-redirect target: our own source IP.
+                                                        // 127.0.0.1 delivery is broken both ways
+                                                        // (SYN dies pre-TCP with LAN src; SYN-ACK
+                                                        // strands with loopback src). LAN->LAN is
+                                                        // ordinary local traffic; the proxy must
+                                                        // bind 0.0.0.0:listen_port for this
+                                                        // (tls_proxy.listen_host = "0.0.0.0").
+                                                        let steer_dst = match orig_src {
+                                                            IpAddr::V4(v4) => Some(v4),
+                                                            _ => None,
+                                                        };
                                                         if !Self::is_loopback(orig_dst)
                                                             && !orig_dst.is_unspecified()
                                                             && !orig_dst.is_multicast()
                                                             && orig_dst.is_ipv4()
                                                             && owner_ok
+                                                            && steer_dst.is_some()
                                                         {
                                                             nat_table_w.insert(
                                                                 src_port,
                                                                 (orig_dst, 443, orig_src),
                                                             );
-                                                            let ok = match orig_dst {
-                                                                IpAddr::V4(_v4) => {
-                                                                    // DST-ONLY rewrite. Rewriting SRC to
-                                                                    // 127.0.0.1 strands the SYN-ACK: no socket
-                                                                    // is bound to 127.0.0.1:client_port, so the
-                                                                    // handshake wedges in SYN_RECEIVED forever
-                                                                    // (steer logged, proxy silent, client
-                                                                    // retransmits). The proxy_return_flow leg
-                                                                    // un-rewrites the return packets via the
-                                                                    // NAT table entry.
-                                                                    nat_rewrite_dst_ipv4(
-                                                                        &mut packet_data,
-                                                                        Ipv4Addr::new(127, 0, 0, 1),
-                                                                        tls_proxy_cfg.listen_port,
-                                                                    )
-                                                                }
-                                                                _ => false,
+                                                            let ok = match steer_dst {
+                                                                Some(ip) => nat_rewrite_dst_ipv4(
+                                                                    &mut packet_data,
+                                                                    ip,
+                                                                    tls_proxy_cfg.listen_port,
+                                                                ),
+                                                                None => false,
                                                             };
                                                             if ok {
+                                                                let steer_n = super::proxy::STEER_COUNT
+                                                                    .fetch_add(1, Ordering::SeqCst)
+                                                                    + 1;
+                                                                if steer_n % 200 == 0 {
+                                                                    let accept_n =
+                                                                        super::proxy::ACCEPT_COUNT
+                                                                            .load(Ordering::SeqCst);
+                                                                    emit_log_event(LogEntry {
+                                                                        id: format!(
+                                                                            "{}-steer-stats",
+                                                                            Self::now_ts()
+                                                                        ),
+                                                                        timestamp: Self::now_ts(),
+                                                                        level: LogLevel::Warning,
+                                                                        message: format!(
+                                                                            "steer/accept stats: {} steers, {} parsed requests",
+                                                                            steer_n, accept_n
+                                                                        ),
+                                                                    });
+                                                                }
                                                                 recalc_checksums = true;
-                                                                loopback_flag = Some(true);
-                                                                // Keep outbound=true: local delivery happens on
-                                                                // the outbound/loopback path, exactly like every
-                                                                // working 127.0.0.1 flow (status page loads;
-                                                                // 5890 RPC flows). Clearing outbound misroutes
-                                                                // the packet into the inbound path where no
-                                                                // socket ever answers it (steer logged, proxy
-                                                                // silent, client retransmits). IfIdx is ignored
-                                                                // for outbound injection, so it is left alone.
+                                                                // Leave loopback/outbound flags as captured:
+                                                                // the driver ignores Loopback on reinject and
+                                                                // outbound+local-dst delivers locally. Keep
+                                                                // outbound=true (clearing it misroutes into
+                                                                // the inbound path). IfIdx is ignored for
+                                                                // outbound injection.
                                                                 // Audit (SYN only => once per steered flow):
                                                                 // name the exact cause so "false still
                                                                 // touches traffic" cases are traceable
@@ -3507,9 +3527,10 @@ impl FirewallEngine {
                                                                             timestamp: now,
                                                                             level: LogLevel::Info,
                                                                             message: format!(
-                                                                                "Proxy steer: {}:{} -> 127.0.0.1:{} ({})",
+                                                                                "Proxy steer: {}:{} -> {}:{} ({}) [lan-redirect]",
                                                                                 target,
                                                                                 dst_port,
+                                                                                steer_dst.unwrap_or(Ipv4Addr::new(0, 0, 0, 0)),
                                                                                 tls_proxy_cfg
                                                                                     .listen_port,
                                                                                 why

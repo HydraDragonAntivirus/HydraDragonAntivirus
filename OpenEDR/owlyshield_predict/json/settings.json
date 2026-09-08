@@ -25,7 +25,7 @@
   "log_full_bodies": false,
   "tls_proxy": {
     "mode": "tls_proxy",
-    "listen_host": "127.0.0.1",
+    "listen_host": "0.0.0.0",
     "listen_port": 8877,
     "block_quic_udp_443": false,
     "auto_start": true,
