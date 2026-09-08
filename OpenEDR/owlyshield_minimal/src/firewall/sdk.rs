@@ -2650,7 +2650,7 @@ impl SdkRegistry {
     /// side can correlate it with its own policy matches. Public rule matches
     /// are handled by the firewall itself and are NOT forwarded here.
     fn send_private_match_to_openedr(rule: &SdkRule, packet: &PacketInfo) {
-        let event = serde_json::json!({
+        let _event = serde_json::json!({
             "type": "FIREWALL_PRIVATE_MATCH",
             "rule": rule.name,
             "severity": rule.severity,
@@ -2670,14 +2670,11 @@ impl SdkRegistry {
                 .unwrap_or(0),
         });
 
-        if crate::ffi::send_telemetry_line(crate::ffi::TelemetryLine::OpenedrEvent(
-            event.to_string(),
-        )) {
-            tracing::debug!(
-                "Private rule '{}' forwarded to OpenEDR for further matching",
-                rule.name
-            );
-        }
+        // MINIMAL BUILD: telemetry forward stubbed (was crate::ffi).
+        tracing::debug!(
+            "Private rule '{}' matched (minimal: not forwarded to OpenEDR)",
+            rule.name
+        );
     }
 
     /// Evaluate all rules against packet, return first matching rule

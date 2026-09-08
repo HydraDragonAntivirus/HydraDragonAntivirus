@@ -187,24 +187,24 @@ pub fn resolve_trusted_signers_path() -> Option<PathBuf> {
 
 fn load_matcher_or_empty(filename: &str, log_prefix: &str) -> SignerRuleMatcher {
     if let Some(path) = resolve_rule_file_path(filename) {
-        crate::Logging::info(&format!("[{}] Loading rules from: {}", log_prefix, path.display()));
+        tracing::info!("[{}] Loading rules from: {}", log_prefix, path.display());
         match SignerRuleMatcher::from_file(&path) {
             Ok(m) => {
-                crate::Logging::info(&format!(
+                tracing::info!(
                     "[{}] Loaded {} signer patterns from {}",
                     log_prefix, m.count(), path.display()
-                ));
+                );
                 return m;
             }
             Err(e) => {
-                crate::Logging::error(&format!(
+                tracing::error!(
                     "[{}] Failed to parse YAML from {}: {}",
                     log_prefix, path.display(), e
-                ));
+                );
             }
         }
     } else {
-        crate::Logging::warning(&format!("[{}] No {} file found in search paths", log_prefix, filename));
+        tracing::warn!("[{}] No {} file found in search paths", log_prefix, filename);
     }
     SignerRuleMatcher::empty()
 }

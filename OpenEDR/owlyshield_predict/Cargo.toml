@@ -104,5 +104,10 @@ features = [
     "Win32_Networking_WinSock"
 ]
 
+# Line tables only: precise stack traces without giving up optimizations.
+# Lets debuggers/profilers attribute hot addresses to exact functions.
+[profile.release]
+debug = "line-tables-only"
+
 
 

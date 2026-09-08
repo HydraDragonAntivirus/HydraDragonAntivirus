@@ -341,9 +341,8 @@ fn should_persist_log_entry(entry: &LogEntry, settings: Option<&FirewallSettings
         return false;
     }
 
-    // When verbose logging is off, persist only actionable (malicious) events so
-    // firewall_activity.jsonl stays small instead of writing every I/O event.
-    if !crate::logging::is_verbose_logging_enabled() && !entry.level.is_actionable() {
+    // MINIMAL BUILD: verbose logging stubbed off (was crate::logging).
+    if !entry.level.is_actionable() {
         return false;
     }
 
@@ -3115,11 +3114,8 @@ impl FirewallEngine {
                 .spawn(move || {
                     while !stop_pipe.load(Ordering::Relaxed) {
                         match net_event_rx.recv_timeout(Duration::from_millis(50)) {
-                            Ok(msg) => {
-                                crate::ffi::send_telemetry_line(
-                                    crate::ffi::TelemetryLine::FirewallPackedData(msg),
-                                );
-                            }
+                            // MINIMAL BUILD: telemetry channel stubbed (was crate::ffi).
+                            Ok(_msg) => {}
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                         }
@@ -4309,17 +4305,8 @@ impl FirewallEngine {
             .as_millis() as u64
     }
 
-    fn terminate_process(pid: u32) {
-        if pid == 0 || pid == 4 {
-            return;
-        }
-
-        // PURE RING-0 KERNEL DRIVER KILL ONLY (Bans usermode TerminateProcess/OpenProcess)
-        // Dispatches MESSAGE_KILL_ONLY_GID directly via edrdrv.sys IOCTL device.
-        if let Ok(driver) = crate::windows::edrsvc_client::Driver::open_kernel_driver_com() {
-            let gid_with_mask = (pid as u64) | 0x8000_0000_0000_0000;
-            let _ = driver.try_kill(gid_with_mask);
-        }
+    fn terminate_process(_pid: u32) {
+        // MINIMAL BUILD: kernel-driver kill stubbed (was crate::windows::edrsvc_client).
     }
 
     fn build_quarantine_destination(src: &Path, qdir: &Path) -> PathBuf {
@@ -4396,25 +4383,9 @@ impl FirewallEngine {
                 use windows::Win32::System::Pipes::WaitNamedPipeW;
                 use windows::core::PCWSTR;
 
-                // Compute PE ML analysis in this background thread so packet routing is never delayed
-                let ml_desc = if let Ok(bytes) = std::fs::read(Path::new(&exe_path)) {
-                    if bytes.len() >= 2 && &bytes[0..2] == b"MZ" {
-                        if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
-                            let device = burn::backend::ndarray::NdArrayDevice::default();
-                            if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
-                                format!("ML Score: {:.3}", prob)
-                            } else {
-                                "ML: Insufficient PE features".to_string()
-                            }
-                        } else {
-                            "ML: Model not loaded".to_string()
-                        }
-                    } else {
-                        "ML: Non-PE Binary".to_string()
-                    }
-                } else {
-                    "ML: File unreadable".to_string()
-                };
+                // MINIMAL BUILD: PE ML inference stubbed (was crate::ml + burn).
+                let _ = &exe_path;
+                let ml_desc = "ML: disabled (minimal)".to_string();
                 let verdict = format!("{} | {}", raw_verdict, ml_desc);
 
                 const PIPE: &str = r"\\.\pipe\HydraHipEvent";

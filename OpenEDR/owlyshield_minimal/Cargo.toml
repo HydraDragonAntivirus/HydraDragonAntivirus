@@ -13,34 +13,18 @@ crate-type = ["cdylib", "rlib"]
 default = []
 service = []
 
+# MINIMAL firewall-only build: ML/burn/disassembly/ransomware deps removed.
 [dependencies]
-slc-paths = { path = "slc-paths" }
-wchar = "0.11.0"
-registry = "1.2.0"
-strum = "0.24.1"
-strum_macros = "0.24.2"
-byteorder = "1.4.3"
-chrono = { version = "0.4.19", features = ["serde"] }
-num = "0.4.0"
-num-derive = "0.4.2"
-num-traits = "0.2.15"
 serde = { version = "1.0.140", features = ["derive"] }
 serde_json = "1.0.82"
 serde_yaml = "0.9.17"
 log = "0.4.17"
-rmp-serde = "1.1.0"
-hostname = "0.3.1"
-configparser = "3.0.2"
 regex = "1.12.2"
 sha2 = "0.11.0"
 hex = "0.4.3"
-sysinfo = "0.38.0"
-lru = "0.16"
-bson = "2"
 base64 = "0.21"
 bs58 = "0.4"
 lazy_static = "1.4"
-crossbeam-channel = "0.5"
 bytes = "1"
 rcgen = "0.14.8"
 moka = { version = "0.12", features = ["sync"] }
@@ -53,25 +37,12 @@ tracing = "0.1"
 flate2 = "1.0"
 brotli = "8.0"
 
-# ML / Burn / Disassembly / JavaScript parser
-goblin = "0.10.5"
-capstone = "0.12"
-oxc_parser = "0.135"
-oxc_ast = "0.135"
-oxc_allocator = "0.135"
-oxc_span = "0.135"
-burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
-burn-ndarray = "0.21"
-burn-dataset = "0.21"
-
 #Windows
 [target.'cfg(target_os = "windows")'.dependencies]
-winlog = { version = "0.2.6", features=["env_logger"] }
-widestring = "1.0.2"
 winreg = "0.55.0"
 windivert = { path = "../../HydraDragonFirewall/windivert-rust/windivert", features = ["vendored"] }
 
-#Aho-Corsaick
+#Aho-Corasick
 daachorse = "5.0.0"
 
 [target.'cfg(target_os = "windows")'.dependencies.windows]
@@ -108,6 +79,3 @@ features = [
 # Lets debuggers/profilers attribute hot addresses to exact functions.
 [profile.release]
 debug = "line-tables-only"
-
-
-
