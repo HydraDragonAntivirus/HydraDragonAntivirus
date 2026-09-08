@@ -1566,6 +1566,15 @@
 		"flsEventBaseType": {
 			"MLE_FLS_MALICIOUS_VERDICT": 1000010
 		},
+		// Offline EICAR test-file (no cloud, no file IO).
+		// SHA1 only, imatch is case-insensitive. Size 68 (69/70 with LF/CRLF).
+		"eicarHashes": [
+			"*3395856ce81f2b7382dee72602f798b642f14140"
+		],
+		"eicarFileSize": 68,
+		"eicarEventBaseType": {
+			"MLE_EICAR_FILE_SHA1": 1000018
+		},
 		"pswEventBaseType": {
 			"MLE_PSW_STEALER": 1000011
 		},
@@ -5139,6 +5148,180 @@
 				}
 			}
 		] // FLS_MALICIOUS_VERDICT
+,
+		// Offline EICAR test-file (no cloud, no file IO).
+		// Hash lives here (non-hardcoded): @const.eicarHashes (SHA1 only).
+		// File cases require size 68/69/70 + hash match; process cases hash-only.
+		"EICAR_FILE_DETECT": [
+			// Case 1: file.hash match + size 68/69/70
+			{
+				"eventType": "*",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.eicarHashes",
+								"args": [ "@event.file.hash" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{ "$operation": "equal", "args": [ "@event.file.size", 68 ] },
+									{ "$operation": "equal", "args": [ "@event.file.size", 69 ] },
+									{ "$operation": "equal", "args": [ "@event.file.size", 70 ] }
+								]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_EICAR_FILE_SHA1",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.eicarEventBaseType.MLE_EICAR_FILE_SHA1" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "network", "value": "@event.network" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			// Case 2: file.rawHash match + size 68/69/70
+			{
+				"eventType": "*",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.eicarHashes",
+								"args": [ "@event.file.rawHash" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{ "$operation": "equal", "args": [ "@event.file.size", 68 ] },
+									{ "$operation": "equal", "args": [ "@event.file.size", 69 ] },
+									{ "$operation": "equal", "args": [ "@event.file.size", 70 ] }
+								]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.file.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_EICAR_FILE_SHA1",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.eicarEventBaseType.MLE_EICAR_FILE_SHA1" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "network", "value": "@event.network" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			// Case 3: process.imageFile.imageHash match (hash-only, no size)
+			{
+				"eventType": "*",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.eicarHashes",
+								"args": [ "@event.process.imageFile.imageHash" ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.process.imageFile.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_EICAR_FILE_SHA1",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.eicarEventBaseType.MLE_EICAR_FILE_SHA1" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "network", "value": "@event.network" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			// Case 4: childProcess.imageHash match (hash-only, no size)
+			{
+				"eventType": "*",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.eicarHashes",
+								"args": [ "@event.childProcess.imageHash" ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "?*",
+								"args": [ "@event.childProcess.imageFile.abstractPath" ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_EICAR_FILE_SHA1",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.eicarEventBaseType.MLE_EICAR_FILE_SHA1" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "network", "value": "@event.network" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.childProcess.imageFile.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		] // EICAR_FILE_DETECT
 ,
 		//
 		// Pattern for Token Theft, LSASS/Winlogon/Sanctum tampering, and Cross-Process Injection
