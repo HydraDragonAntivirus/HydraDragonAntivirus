@@ -14,7 +14,8 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tracing;
 
 /// Millis timestamp for diagnostics. Diagnostics go through emit_log_event,
@@ -25,6 +26,11 @@ fn sdk_now_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+
+// MINIMAL DEBUG: per-packet eval counters (module level; statics can't live in impl).
+static EVAL_CALLS: AtomicU64 = AtomicU64::new(0);
+static EVAL_MICROS: AtomicU64 = AtomicU64::new(0);
+static EVAL_MATCHES: AtomicU64 = AtomicU64::new(0);
 
 // ============================================================================
 // ENCODING SUPPORT (Features 1-4)
@@ -2818,10 +2824,12 @@ impl SdkRegistry {
         payload: &[u8],
         defer_heavy_rules: bool,
     ) -> Option<RuleMatchResult> {
+        // MINIMAL DEBUG counters: per-packet eval cost + match rate, logged every 20k calls.
+        let t0 = Instant::now();
         let mut matched_private_rules = Vec::new();
         let mut flow = self.flow_guard(packet);
 
-        self.indexed_rule_ids(packet, payload)
+        let result = self.indexed_rule_ids(packet, payload)
             .into_iter()
             .filter_map(|rule_id| self.rules.get(rule_id))
             .filter(|rule| !defer_heavy_rules || !rule.requires_deferred_inspection())
@@ -2867,7 +2875,30 @@ impl SdkRegistry {
                 } else {
                     None
                 }
-            })
+            });
+        let us = t0.elapsed().as_micros() as u64;
+        let n = EVAL_CALLS.fetch_add(1, Ordering::Relaxed) + 1;
+        EVAL_MICROS.fetch_add(us, Ordering::Relaxed);
+        if result.is_some() {
+            EVAL_MATCHES.fetch_add(1, Ordering::Relaxed);
+        }
+        if n == 1 || n % 200 == 0 {
+            let total_us = EVAL_MICROS.load(Ordering::Relaxed);
+            let matches = EVAL_MATCHES.load(Ordering::Relaxed);
+            emit_log_event(LogEntry {
+                id: format!("{}-sdk-eval-stats", sdk_now_ms()),
+                timestamp: sdk_now_ms(),
+                level: LogLevel::Warning,
+                message: format!(
+                    "SDK eval stats: {} calls, {} matches, {} rules, avg {}us/call",
+                    n,
+                    matches,
+                    self.rules.len(),
+                    total_us / n.max(1)
+                ),
+            });
+        }
+        result
     }
 
     /// Extract domain and subdomain information from packet if domain matching was used

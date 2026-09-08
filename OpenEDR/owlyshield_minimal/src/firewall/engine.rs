@@ -3052,8 +3052,18 @@ impl FirewallEngine {
         emit_log_event(LogEntry {
             id: format!("{}-sdk-init", ts),
             timestamp: ts,
-            level: LogLevel::Info,
+            level: LogLevel::Warning,
             message: format!("SDK Registry: {} rules active.", sdk_count),
+        });
+
+        // MINIMAL DEBUG build tag: proves EXACTLY which binary is running.
+        // Bump MINIMAL_BUILD_TAG on every instrumented build.
+        const MINIMAL_BUILD_TAG: &str = "minimal-1944e-evalcounters-dstonly-notrafficattacklog";
+        emit_log_event(LogEntry {
+            id: format!("{}-minimal-build", ts),
+            timestamp: ts,
+            level: LogLevel::Warning,
+            message: format!("MINIMAL BUILD {}", MINIMAL_BUILD_TAG),
         });
 
         emit_log_event(LogEntry {
@@ -3923,23 +3933,17 @@ impl FirewallEngine {
                         reason = Some(format!("SDK Rule [{}]: Allowed", finding.rule_name));
                     }
                     super::sdk::RuleAction::TrafficAttack => {
-                        // Log as attack but still forward (monitoring).
-                        // Skip informational-severity rules (e.g. ET P2P
-                        // detections) to reduce alert noise.
-                        let is_informational = finding
+                        // MINIMAL DEBUG: disk log flood off (was emit_log_event per match).
+                        // Keeps forwarding (monitoring) semantics, drops the channel+disk cost.
+                        if !finding
                             .severity
                             .as_deref()
-                            .is_some_and(|s| s.eq_ignore_ascii_case("informational"));
-                        if !is_informational {
-                            emit_log_event(LogEntry {
-                                id: format!("{}-attack", Self::now_ts()),
-                                timestamp: Self::now_ts(),
-                                level: LogLevel::Warning,
-                                message: format!(
-                                    "Attack detected by [{}]: {}",
-                                    finding.rule_name, finding.description
-                                ),
-                            });
+                            .is_some_and(|s| s.eq_ignore_ascii_case("informational"))
+                        {
+                            tracing::debug!(
+                                "Attack detected by [{}]: {}",
+                                finding.rule_name, finding.description
+                            );
                         }
                     }
                     super::sdk::RuleAction::Terminate => {
