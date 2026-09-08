@@ -69,3 +69,8 @@ Export-relative offset hesabı: `baz_adres + offset = hedef`, sonra `laddr hedef
   Doğrulama: yeni PDB'de `x *jent_read_entropy*` boş, `x *opt_out_cpu_jitter_get_seed*` dolu dönmeli.
 - `Cargo.lock` sessizce eski haline dönebilir; derlemeden önce `aws-lc-rs`/`aws-lc-sys`
   sürümlerini kilitte doğrula.
+- 2026-09 vakası: `rules.yaml` içindeki `!include emerging-all.yaml metadata_only`
+  satırındaki modifier kodda yok sayılıyordu → 50.422 ET kuralı her pakette koşuyor,
+  worker'lar yetişemeyip kernel kuyruğu taşıyordu (`allowed` ama ölü trafik + DNS
+  sürünmesi). Çözüm: `sdk.rs` include ayrıştırıcı modifier'a uyuyor (kural
+  eklemiyor, sadece `monitored_sites` birleştiriyor).

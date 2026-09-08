@@ -73,3 +73,8 @@ E.g.: `set_mitm(0x141a070)+0x4f1210 = 0x190B280` → `laddr 190B280`.
   Verify: `x *jent_read_entropy*` empty, `x *opt_out_cpu_jitter_get_seed*` present in new PDB.
 - `Cargo.lock` can silently revert; verify `aws-lc-rs`/`aws-lc-sys` versions in the
   lock before building.
+- Sep-2026 case: the `metadata_only` modifier on `!include emerging-all.yaml` in
+  `rules.yaml` was ignored by the parser → 50,422 ET rules evaluated per packet,
+  workers starved and the kernel queue overflowed (`allowed` yet dead traffic +
+  crawling DNS). Fix: the `sdk.rs` include parser honors the modifier (skips its
+  rules, still merges `monitored_sites`).

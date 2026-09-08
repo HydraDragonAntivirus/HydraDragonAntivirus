@@ -2206,10 +2206,10 @@ impl SdkRuleFile {
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("!include ") {
-                // Take only the first whitespace-separated token as the filename
-                // so optional trailing modifiers like "metadata_only" are ignored.
+                // First whitespace-separated token is the filename; a trailing
+                // `metadata_only` modifier means: merge monitored_sites but do
+                // NOT enforce its rules per packet (index/metadata only).
                 // Example: `!include emerging-all.yaml metadata_only`
-                //   → filename: "emerging-all.yaml"
                 let rest = trimmed["!include ".len()..].trim();
                 let include_path_str = rest
                     .split_whitespace()
@@ -2217,10 +2217,13 @@ impl SdkRuleFile {
                     .unwrap_or(rest)
                     .trim_matches('"')
                     .trim_matches('\'');
+                let metadata_only = rest.split_whitespace().skip(1).any(|t| t == "metadata_only");
                 let include_path = base_dir.join(include_path_str);
 
                 let included_file = Self::load_from_file(&include_path)?;
-                final_rules.extend(included_file.rules);
+                if !metadata_only {
+                    final_rules.extend(included_file.rules);
+                }
                 final_monitored_sites.extend(included_file.monitored_sites);
             }
         }
