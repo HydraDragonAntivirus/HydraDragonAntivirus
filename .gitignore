@@ -1,6 +1,9 @@
 # Filtered ClamAV Files
 clamav_database_filterme/
 
+# Filtered ClamAV Windows Database Files
+clamav_database_windows/
+
 # Filtered Website Files
 websitenobloom/
 

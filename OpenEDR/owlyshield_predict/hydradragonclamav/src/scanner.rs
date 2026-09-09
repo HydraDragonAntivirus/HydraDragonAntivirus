@@ -829,10 +829,26 @@ impl Engine {
         });
 
         // ── Container metadata signatures (.cdb) ──────────────────────────
+        // Only evaluated for extracted children (the simple scan_bytes path
+        // provides no container metadata, so top-level objects skip this).
+        // `container_type` arrives extractor-style ("zip", "gz", …) — the same
+        // vocabulary `ContainerType::Format` uses.
         if let (Some(sr), Some(fp)) = (ctx.container_size_real, ctx.container_file_pos) {
             for sig in &self.database.container {
-                if sig.has_filename && ctx.container_entry_name.is_none() {
+                // Unobservable constraints: the extractor exposes no encryption
+                // flag, no compressed size, and no archive-total size. Firing
+                // without them would be a guess, so skip (never a false positive).
+                if sig.encrypted.is_some()
+                    || sig.size_in_container.is_constrained()
+                    || sig.container_size.is_constrained()
+                {
                     continue;
+                }
+                if let Some(re) = sig.filename.as_ref() {
+                    match ctx.container_entry_name.as_deref() {
+                        Some(name) if re.is_match(name) => {}
+                        _ => continue,
+                    }
                 }
                 if !sig.container_type.matches_container(ctx.container_type) {
                     continue;
@@ -1065,9 +1081,11 @@ impl Engine {
             // ClamAV: the immediate parent container type must match (or the sig
             // accepts any container via CL_TYPE_ANY). A top-level object has no
             // parent container, so a container-constrained sig can't fire on it.
+            // `want` is `CL_TYPE_*` while `container_type` arrives
+            // extractor-style ("zip", …) — compare through the mapper.
             let parent = ctx.container_type;
             let ok = match parent {
-                Some(t) => want == "CL_TYPE_ANY" || want == t,
+                Some(t) => want == "CL_TYPE_ANY" || cl_type_to_format(want) == Some(t),
                 None => false,
             };
             if !ok {
@@ -1081,7 +1099,8 @@ impl Engine {
             // checked against it; a multi-level chain we cannot confirm and so do
             // not fire on (avoids a false positive, never alerts spuriously).
             let inner = signature.intermediates.last().map(String::as_str).unwrap_or("");
-            let inner_ok = inner == "CL_TYPE_ANY" || ctx.container_type == Some(inner);
+            let inner_ok = inner == "CL_TYPE_ANY"
+                || ctx.container_type.is_some_and(|t| cl_type_to_format(inner) == Some(t));
             if !inner_ok || signature.intermediates.len() > 1 {
                 return;
             }
@@ -1681,6 +1700,22 @@ fn clamav_type_to_target(clamav_type: &str) -> Option<u32> {
     })
 }
 
+/// Map a ClamAV `CL_TYPE_*` container name (as stored in logical signatures'
+/// `Container:`/`Intermediates:` TDB fields) to the extractor-style format tag
+/// (`detect_format` vocabulary) carried in `ScanContext::container_type.
+/// Returns `None` for container types the extractor cannot produce — a sig
+/// requiring those can never match here (no false positive).
+fn cl_type_to_format(cl_type: &str) -> Option<&'static str> {
+    Some(match cl_type {
+        "CL_TYPE_ZIP" => "zip",
+        "CL_TYPE_GZ" => "gz",
+        "CL_TYPE_XZ" => "xz",
+        "CL_TYPE_7Z" => "7z",
+        "CL_TYPE_POSIX_TAR" | "CL_TYPE_OLD_TAR" | "CL_TYPE_TAR" => "tar",
+        _ => return None,
+    })
+}
+
 /// Whether the first 256 bytes look like human-readable text (ASCII or UTF-8).
 pub fn is_text_like(data: &[u8]) -> bool {
     let sample = if data.len() > 256 { &data[..256] } else { data };
@@ -2049,7 +2084,7 @@ mod tests {
             name: "Test.Cdb".into(),
             container_type: ContainerType::Format("zip"),
             container_size: NumSpec::Any,
-            has_filename: true,
+            filename: Some(regex::Regex::new("child\\.bin$").unwrap()),
             size_in_container: NumSpec::Any,
             size_real: NumSpec::Exact(7),
             encrypted: None,

@@ -4,6 +4,7 @@ extern crate num;
 extern crate num_derive;
 
 pub mod actions_on_kill;
+pub mod clamscan;
 pub mod config;
 pub mod connectors;
 pub mod extensions;

@@ -118,6 +118,41 @@ class ComprehensiveFilter:
                 "12",
             ],  # Any, HTML, Graphics, ASCII, PDF, Java
         },
+        "windows-exe": {
+            "description": "Windows workstation: PE executables ( NOT Android ). "
+            "Keeps Win/W32 + Eicar/Heuristics names; NDB targets Any+PE; LDB "
+            "targets Any+PE; .ftm/.idb/.crb kept whole (first field is not a "
+            "platform name there); hash DBs + container metadata dropped "
+            "(the engine evaluates neither on the simple scan path).",
+            "include_platforms": ["Win", "W32"],
+            "exclude_platforms": [],
+            # Twin = TwinWave/TwinClams Windows set (Target 0/1, e.g. mimikatz
+            # reflections); ditekSHen = author tag on 100+ Target-1 PE
+            # indicators in clamav.ldb / indicator_rmm.ldb; Foxhole =
+            # Sanesecurity malicious-attachment archive sigs (filename-based,
+            # evaluable once member names are wired). All would fire in the
+            # engine, so dropping them by name would lose real Windows
+            # detections (the type/target gates still drop non-PE lines).
+            "keep_if_contains": ["Eicar", "Heuristics", "Twin", "ditekSHen", "Foxhole"],
+            # Hash DBs: engine skips them (xor-filter pipeline owns hashes).
+            # cvd/cld/sign: carriers the engine cannot read (bytecode.cvd is
+            # unpacked to .cbc instead, see below). .cdb IS kept (Win/Foxhole
+            # names): the extractor wiring feeds member metadata, so archive
+            # member size/position/name signatures evaluate.
+            "exclude_types": ["hdb", "hdu", "hsb", "hsu", "mdb", "mdu",
+                              "msb", "msu", "imp", "fp", "sfp",
+                              "cvd", "cld", "sign"],
+            "ndb_types": ["0", "1"],  # Any, PE ("*" normalized to Any)
+            "ldb_targets": ["0", "1"],  # Any, PE (missing Target = generic)
+            # First field is NOT a signature name here: ftm starts with the
+            # magictype, crb with a serial label, idb names are tiny anyway.
+            "keep_files_unfiltered": ["ftm", "idb", "crb"],
+            # Do not drop javascript.ndb / phish.ndb wholesale: per-line
+            # type+platform filters already decide (unlike the Android flow).
+            "exclude_files": [],
+            "drop_extensions": ["cvd", "cld", "sign"],
+            "unpack_bytecode_cvd": True,
+        },
     }
 
     def __init__(self, verbose=False):
@@ -236,6 +271,10 @@ class ComprehensiveFilter:
                 if len(parts) >= 4:
                     name = parts[0]
                     sig_type = parts[1]
+                    # "*" / "" target = generic Any (engine treats both as
+                    # target None -> matches every file type, incl. PE).
+                    if sig_type in ("*", ""):
+                        sig_type = "0"
 
                     keep_platform = self.should_keep_signature(
                         name, exclude_platforms, include_platforms, keep_if_contains
@@ -392,8 +431,28 @@ class ComprehensiveFilter:
         self.stats[ext]["filtered"] += filtered_count
         self.log(f"{ext.upper()}: kept {filtered_count}/{original_count}")
 
-    def filter_ldb(self, file_path, exclude_platforms, include_platforms, keep_if_contains=None):
-        """Filter .ldb logical signature file."""
+    @staticmethod
+    def _ldb_target(line):
+        """Extract the `Target:` value from an .ldb TDB block.
+
+        Returns the raw value ("0".."14", "*") or None when the line carries
+        no Target field — the engine treats that as generic (matches every
+        file type, incl. PE), so callers must keep it.
+        """
+        import re
+        segments = line.split(";")
+        if len(segments) < 2:
+            return None
+        m = re.search(r"(?:^|,)Target:(\*|\d+)", segments[1])
+        return m.group(1) if m else None
+
+    def filter_ldb(self, file_path, exclude_platforms, include_platforms, keep_if_contains=None, ldb_targets=None):
+        """Filter .ldb logical signature file.
+
+        When `ldb_targets` is given (e.g. ["0", "1"] for Windows PE), a line
+        is additionally required to target one of those types; lines without
+        a Target field (generic) are always kept.
+        """
         if not os.path.exists(file_path):
             return
 
@@ -417,8 +476,12 @@ class ComprehensiveFilter:
                     if self.should_keep_signature(
                         name, exclude_platforms, include_platforms, keep_if_contains
                     ):
-                        filtered_lines.append(line)
-                        filtered_count += 1
+                        target = self._ldb_target(line)
+                        if target in ("*", ""):
+                            target = "0"
+                        if ldb_targets is None or target is None or target in ldb_targets:
+                            filtered_lines.append(line)
+                            filtered_count += 1
                 else:
                     filtered_lines.append(line)
                     filtered_count += 1
@@ -500,9 +563,18 @@ class ComprehensiveFilter:
         self.log(f"Bytecode: kept {kept}/{total}")
 
     def _filter_dir(self, src_dir, dst_dir, exclude_platforms, include_platforms,
-                    ndb_types, exclude_file_types, keep_if_contains=None):
+                    ndb_types, exclude_file_types, keep_if_contains=None,
+                    exclude_files=None, ldb_targets=None,
+                    keep_unfiltered=None, drop_extensions=None,
+                    unpack_bytecode=False):
         """Filter files in src_dir and copy results to dst_dir."""
         os.makedirs(dst_dir, exist_ok=True)
+        if exclude_files is None:
+            exclude_files = self.EXCLUDE_FILES
+        else:
+            exclude_files = {e.lower() for e in exclude_files}
+        keep_unfiltered = {e.lower() for e in (keep_unfiltered or [])}
+        drop_extensions = {e.lower() for e in (drop_extensions or [])}
 
         # Load ignore list from .ign and .ign2 files in the source directory
         self.ignore_names = set()
@@ -514,10 +586,15 @@ class ComprehensiveFilter:
                     self._load_ignore_file(file_path, is_ign2=item_lower.endswith(".ign2"))
 
         # Copy all files first, skipping databases that are dropped entirely.
-        # javascript.ndb / phish.ndb are excluded: JavaScript and email/phish
-        # formats are not meaningfully scannable on Android.
+        # Default (Android flow): javascript.ndb / phish.ndb are excluded since
+        # JavaScript and email/phish formats are not meaningfully scannable on
+        # Android. Profiles may override via `exclude_files` / `drop_extensions`
+        # (e.g. windows-exe drops unreadable .cvd/.cld/.sign carriers).
         for item in os.listdir(src_dir):
-            if item.lower() in self.EXCLUDE_FILES:
+            if item.lower() in exclude_files:
+                continue
+            if "." in item and item.rsplit(".", 1)[-1].lower() in drop_extensions:
+                self.log(f"Dropping carrier file: {item}")
                 continue
             src = os.path.join(src_dir, item)
             dst = os.path.join(dst_dir, item)
@@ -547,7 +624,7 @@ class ComprehensiveFilter:
             if "ldb" in exclude_file_types:
                 self.exclude_file_type(str(ldb_file))
             else:
-                self.filter_ldb(str(ldb_file), exclude_platforms, include_platforms, keep_if_contains)
+                self.filter_ldb(str(ldb_file), exclude_platforms, include_platforms, keep_if_contains, ldb_targets)
 
         # Update files (same format as base)
         for ext in ("ndu", "ldu", "hdu", "hsu", "mdu"):
@@ -561,14 +638,22 @@ class ComprehensiveFilter:
                         continue
                     if ext_base == "ndb":
                         fn(str(f), exclude_platforms, include_platforms, ndb_types, keep_if_contains)
+                    elif ext_base == "ldb":
+                        fn(str(f), exclude_platforms, include_platforms, keep_if_contains, ldb_targets)
                     else:
                         fn(str(f), exclude_platforms, include_platforms, keep_if_contains)
 
-        # Additional formats where first colon-field is the name
+        # Additional formats where first colon-field is the name.
+        # NOTE: .ftm (first field = magictype) and .crb (first field = serial
+        # label) do NOT carry platform names there — name-filtering them would
+        # wipe the whole file. Profiles list such extensions in
+        # `keep_files_unfiltered` (windows-exe does for ftm/idb/crb).
         for ext in ("cdb", "crb", "idb", "ign", "ign2", "ftm", "msb"):
             for f in Path(dst_dir).glob(f"*.{ext}"):
                 if ext in exclude_file_types:
                     self.exclude_file_type(str(f))
+                elif ext in keep_unfiltered:
+                    self.log(f"Keeping {f.name} whole (first field is not a platform name)")
                 else:
                     self.filter_first_field(str(f), exclude_platforms, include_platforms, keep_if_contains)
 
@@ -584,6 +669,14 @@ class ComprehensiveFilter:
             self.filter_bytecode_dir(src_bc, dst_bc, exclude_platforms,
                                      include_platforms, keep_if_contains)
 
+        # Unpack *.cvd carriers (512-byte header + gzip tar) and keep only
+        # platform-relevant .cbc programs. The engine reads loose *.cbc files
+        # only — raw .cvd/.cld files are unreadable to it, so profiles that
+        # drop those carriers (windows-exe) still recover their bytecode here.
+        if unpack_bytecode:
+            self._unpack_bytecode_cvds(src_dir, dst_bc, exclude_platforms,
+                                       include_platforms, keep_if_contains)
+
         # Remove empty database files
         self._remove_empty_dbs(dst_dir)
 
@@ -598,6 +691,84 @@ class ComprehensiveFilter:
                         os.unlink(file_path)
                     except Exception as e:
                         self.error(f"Failed to remove ignore file {file_path}: {e}")
+
+    def _iter_cvd_members(self, cvd_path):
+        """Yield (name, bytes) for members of a .cvd/.cld carrier.
+
+        Layout: 512-byte `ClamAV-VDB:` header + gzip-compressed tar. Falls
+        back to `sigtool --unpack` when the Python path fails.
+        """
+        import gzip
+        import tarfile
+        import io
+        with open(cvd_path, "rb") as f:
+            blob = f.read()
+        if len(blob) <= 512:
+            return
+        body = blob[512:]
+        try:
+            raw = gzip.decompress(body)
+            tar = tarfile.open(fileobj=io.BytesIO(raw))
+            for member in tar.getmembers():
+                if not member.isfile():
+                    continue
+                fh = tar.extractfile(member)
+                if fh is not None:
+                    yield member.name, fh.read()
+            return
+        except Exception as e:
+            self.log(f"Python CVD unpack failed for {os.path.basename(cvd_path)}: {e}")
+        # Fallback: sigtool, when installed.
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                self.run_command(["sigtool", "--unpack", cvd_path], cwd=tmp)
+                for root, _, files in os.walk(tmp):
+                    for fn in files:
+                        p = os.path.join(root, fn)
+                        with open(p, "rb") as fh:
+                            yield fn, fh.read()
+            except Exception as e:
+                self.error(f"sigtool unpack failed for {cvd_path}: {e}")
+
+    def _unpack_bytecode_cvds(self, src_dir, dst_bc_dir, exclude_platforms,
+                              include_platforms, keep_if_contains=None):
+        """Extract platform-relevant .cbc programs from *.cvd carriers."""
+        os.makedirs(dst_bc_dir, exist_ok=True)
+        total = kept = 0
+        for item in sorted(os.listdir(src_dir)):
+            if not item.lower().endswith((".cvd", ".cld")):
+                continue
+            for name, data in self._iter_cvd_members(os.path.join(src_dir, item)):
+                if not name.endswith(".cbc"):
+                    continue
+                total += 1
+                try:
+                    text = data.decode("latin-1")
+                except Exception:
+                    continue
+                import re
+                m = re.search(r"BC\.(\w+)", text[:500])
+                platform = m.group(1) if m else None
+                keep = False
+                if platform is None:
+                    keep = True
+                elif exclude_platforms and platform in exclude_platforms:
+                    keep = False
+                elif include_platforms and platform in include_platforms:
+                    keep = True
+                elif keep_if_contains and any(
+                    kw.lower() in text.lower() for kw in keep_if_contains
+                ):
+                    keep = True
+                elif not include_platforms:
+                    keep = True
+                if keep:
+                    with open(os.path.join(dst_bc_dir, os.path.basename(name)), "wb") as f:
+                        f.write(data)
+                    kept += 1
+        self.stats["cbc"]["original"] += total
+        self.stats["cbc"]["filtered"] += kept
+        self.log(f"Bytecode from CVD: kept {kept}/{total}")
 
     def _remove_empty_dbs(self, directory):
         """Delete database files that contain no real signatures."""
@@ -627,6 +798,11 @@ class ComprehensiveFilter:
         ndb_types=None,
         exclude_file_types=None,
         keep_if_contains=None,
+        exclude_files=None,
+        ldb_targets=None,
+        keep_unfiltered=None,
+        drop_extensions=None,
+        unpack_bytecode=False,
     ):
         """Main filtering workflow for CVD files."""
 
@@ -640,7 +816,8 @@ class ComprehensiveFilter:
             self.unpack_cvd(input_path, temp_dir)
             self._filter_dir(temp_dir, output_dir, exclude_platforms,
                              include_platforms, ndb_types, exclude_file_types,
-                             keep_if_contains)
+                             keep_if_contains, exclude_files, ldb_targets,
+                             keep_unfiltered, drop_extensions, unpack_bytecode)
 
     def filter_directory(
         self,
@@ -651,6 +828,11 @@ class ComprehensiveFilter:
         ndb_types=None,
         exclude_file_types=None,
         keep_if_contains=None,
+        exclude_files=None,
+        ldb_targets=None,
+        keep_unfiltered=None,
+        drop_extensions=None,
+        unpack_bytecode=False,
     ):
         """Filter an already-extracted database directory."""
 
@@ -661,7 +843,8 @@ class ComprehensiveFilter:
 
         self._filter_dir(src_dir, output_dir, exclude_platforms,
                          include_platforms, ndb_types, exclude_file_types,
-                         keep_if_contains)
+                         keep_if_contains, exclude_files, ldb_targets,
+                         keep_unfiltered, drop_extensions, unpack_bytecode)
 
         # Print statistics
         self.print_statistics()
@@ -730,7 +913,15 @@ Filtering Profiles:
   web-server     - Web server scanning uploads
                    Excludes Windows PE, keeps web-relevant formats
 
+  windows-exe    - Windows workstation: PE executables (NOT Android)
+                   Keeps Win/W32 + Eicar/Heuristics, NDB/LDB targets Any+PE,
+                   icons/certs/ftm whole, drops hash DBs + .cdb + .cvd carriers
+                   (bytecode.cvd is unpacked to filtered .cbc instead)
+
 Examples:
+  # Windows-EXE filtering from an extracted database directory
+  %(prog)s --directory ./clamav_database_filterme --output ./clamav_database_windows --profile windows-exe
+
   # Android-only filtering from CVD
   %(prog)s --input main.cvd --output ./filtered --profile android-only
 
@@ -833,8 +1024,14 @@ File Types:
                 print(f"  Excluded file types: {', '.join(profile['exclude_types'])}")
             if profile.get("ndb_types"):
                 print(f"  NDB types: {', '.join(profile['ndb_types'])}")
+            if profile.get("ldb_targets"):
+                print(f"  LDB targets: {', '.join(profile['ldb_targets'])}")
             if profile.get("keep_if_contains"):
                 print(f"  Keep if name contains: {', '.join(profile['keep_if_contains'])}")
+            if profile.get("keep_files_unfiltered"):
+                print(f"  Kept whole: {', '.join(profile['keep_files_unfiltered'])}")
+            if profile.get("drop_extensions"):
+                print(f"  Dropped carriers: {', '.join(profile['drop_extensions'])}")
             print()
         return
 
@@ -860,9 +1057,17 @@ File Types:
         exclude_types = profile.get("exclude_types", [])
         ndb_types = profile.get("ndb_types")
         keep_if_contains = profile.get("keep_if_contains")
+        extra_opts = {
+            "exclude_files": profile.get("exclude_files"),
+            "ldb_targets": profile.get("ldb_targets"),
+            "keep_unfiltered": profile.get("keep_files_unfiltered"),
+            "drop_extensions": profile.get("drop_extensions"),
+            "unpack_bytecode": profile.get("unpack_bytecode_cvd", False),
+        }
         print(f"Using profile: {args.profile}")
         print(f"Description: {profile['description']}\n")
     else:
+        extra_opts = {}
         if (
             not args.exclude_platforms
             and not args.include_platforms
@@ -906,6 +1111,7 @@ File Types:
                 ndb_types=ndb_types,
                 exclude_file_types=exclude_types,
                 keep_if_contains=keep_if_contains,
+                **extra_opts,
             )
         else:
             filter_tool.filter_database(
@@ -916,6 +1122,7 @@ File Types:
                 ndb_types=ndb_types,
                 exclude_file_types=exclude_types,
                 keep_if_contains=keep_if_contains,
+                **extra_opts,
             )
     except Exception as e:  # pylint: disable=broad-exception-caught
         print(f"Error: {e}", file=sys.stderr)

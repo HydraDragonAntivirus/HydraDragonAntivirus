@@ -79,6 +79,10 @@ daachorse = "5.0.0"
 # Scan with `ScanOptions::default()` = max first 100MB, 8MB chunks with 64KB
 # overlap, zero-runs >= 1MB skipped.
 hydradragonclamav = { path = "hydradragonclamav" }
+# Archive extractor feeding the scanner (see src/clamscan.rs): member bytes +
+# container metadata (parent type, real size, 1-based position, name) is what
+# makes `.cdb` signatures and `Container:`-gated logical signatures evaluate.
+hydradragonextractor = { path = "hydradragonextractor" }
 
 [target.'cfg(target_os = "windows")'.dependencies.windows]
 version = "0.48.0"

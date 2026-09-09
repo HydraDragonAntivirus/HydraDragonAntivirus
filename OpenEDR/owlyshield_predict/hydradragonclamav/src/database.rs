@@ -1,6 +1,7 @@
 use crate::logical::{parse_logical_signature, LogicalSignature};
 use crate::pattern::{compile_pattern_variants, Modifiers, Pattern};
 use crate::pe::PeInfo;
+use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
@@ -96,20 +97,19 @@ pub struct ExtendedSignature {
 
 /// Container metadata (`.cdb`) signature.
 ///
-/// Only the fields HydraDragon can observe from `hydradragonextractor` are
-/// matched: container type/size, member real size, and member position. Fields
-/// that need archive member metadata we don't expose (`filename`, `encrypted`,
-/// compressed `size_in_container`, CRC) are parsed but cause the signature to be
+/// Matched fields: container type, member real size, member position, and —
+/// once the extractor hands over member names — the filename regex. Fields
+/// the extractor cannot observe (`encrypted`, compressed `size_in_container`,
+/// container total size when constrained, CRC) cause the signature to be
 /// skipped when constrained, so it never false-positives on unknowable data.
 #[derive(Clone, Debug)]
 pub struct ContainerSignature {
     pub name: Box<str>,
     pub container_type: ContainerType,
     pub container_size: NumSpec,
-    /// True when the signature constrains the archive member filename.
-    /// We can't observe filenames inside archives, so any such sig is skipped
-    /// at scan time. Stored as a bool — no need to compile and hold the Regex.
-    pub has_filename: bool,
+    /// Compiled member-filename regex, or `None` for a wildcard (`*`/`.*`/empty).
+    /// Evaluated against the extractor-provided entry name at scan time.
+    pub filename: Option<Regex>,
     pub size_in_container: NumSpec,
     pub size_real: NumSpec,
     pub encrypted: Option<bool>,
@@ -640,7 +640,7 @@ fn parse_container_signature(
         name: parts[0].into(),
         container_type: cl_type_to_container(parts[1]),
         container_size: NumSpec::parse(parts[2])?,
-        has_filename: has_filename_constraint(parts[3]),
+        filename: parse_filename_regex(parts[3])?,
         size_in_container: NumSpec::parse(parts[4])?,
         size_real: NumSpec::parse(parts[5])?,
         encrypted: parse_encrypted(parts[6])?,
@@ -683,12 +683,19 @@ fn cl_type_to_container(raw: &str) -> ContainerType {
     }
 }
 
-/// Returns true when the filename field constrains to a specific pattern
-/// (i.e. it is not a wildcard). We skip such sigs at scan time since we
-/// cannot observe archive member filenames — no need to compile the Regex.
-fn has_filename_constraint(raw: &str) -> bool {
+/// Compile a `.cdb` filename field to a regex, or `None` for a wildcard
+/// (`*`/empty/`.*` — matches any member name). ClamAV filename regexes use the
+/// same POSIX-ish dialect as the other regex fields, so they go through the
+/// same sanitizer. A pattern that still won't compile drops the whole line
+/// with an error (never silently widened to "match everything").
+fn parse_filename_regex(raw: &str) -> Result<Option<Regex>, String> {
     let raw = raw.trim();
-    !raw.is_empty() && raw != "*" && raw != ".*"
+    if raw.is_empty() || raw == "*" || raw == ".*" {
+        return Ok(None);
+    }
+    Regex::new(&sanitize_clamav_regex(raw))
+        .map(Some)
+        .map_err(|err| format!("invalid .cdb filename regex: {err}"))
 }
 
 /// Translate a ClamAV / POSIX-ish regex into one Rust's `regex` crate accepts.
