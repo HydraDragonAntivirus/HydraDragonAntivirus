@@ -456,12 +456,18 @@
 						"localPath": "file.type",
 						"default": "OTHER"
 					},
-					// Copy 'verdict' - FLS status to file
-					//{
-					//	"item": "verdict",
-					//	"localPath": "file.verdict",
-					//	"default": 3 // FLS_UNKNOWN
-					//},
+				// Copy 'verdict' - FLS status to file
+				{
+					"item": "verdict",
+					"localPath": "file.verdict",
+					"default": 3 // FLS_UNKNOWN
+				},
+				// Copy 'flsVerdict' - FLS service verdict for file
+				{
+					"item": "flsVerdict",
+					"localPath": "file.fls.verdict",
+					"default": 3 // FLS_UNKNOWN
+				},
 					// Copy 'path' - path to file
 					{
 						"item": "path",

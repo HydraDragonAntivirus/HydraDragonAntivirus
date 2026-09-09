@@ -318,6 +318,85 @@
 		// Put event to result queue
 		//
 		"putToResultQueue": [
+			// Verdict the event file itself (process walk above never touches it)
+			{
+				"$goto": "calcForFile",
+				"$if": {
+					"$$proxy": "cachedObj",
+					"clsid": "0x3C365C39", // CLSID_VariantCtxCmd
+					"operation": "and",
+					"args": [
+						{
+							"$$proxy": "cachedObj",
+							"clsid": "0x3C365C39", // CLSID_VariantCtxCmd
+							"operation": "has",
+							"path": "file.hash",
+							"args": [ { "$path": "event" } ]
+						},
+						{
+							"$$proxy": "cachedObj",
+							"clsid": "0x3C365C39", // CLSID_VariantCtxCmd
+							"operation": "not",
+							"args": [
+								{
+									"$$proxy": "cachedObj",
+									"clsid": "0x3C365C39", // CLSID_VariantCtxCmd
+									"operation": "has",
+									"path": "file.fls.verdict",
+									"args": [ { "$path": "event" } ]
+								}
+							]
+						}
+					]
+				}
+			},
+			{ "$goto": "doPutResult" }
+		],
+
+		//
+		// Append FLS verdict into the event file descriptor
+		//
+		"calcForFile": [
+			// Alias event.file as 'file' (same alias mechanism as calcForProcess)
+			{
+				"$set": {
+					"$path": "event.file",
+					"$default": {}
+				},
+				"$dst": "file"
+			},
+			// fls.enrichFileVerdict
+			// Adds "fls" (no-op Unknown when hash is empty)
+			{
+				"clsid": "0x59D2EF6E", // CLSID_CallCtxCmd
+				"command": {
+					"$$proxy": "cachedObj",
+					"clsid": "0xACE892B6", // CLSID_Command
+					"processor": "objects.flsService",
+					"command": "enrichFileVerdict"
+				},
+				"ctxParams": {
+					"file": { "$path": "file" }
+				}
+			},
+			// Set verdict based on FLS
+			{
+				"$set": {
+					"$path": "file.fls.verdict",
+					"$default": 3 // FileVerdict::Unknown
+				},
+				"$dst": "file.verdict"
+			},
+			// Goto result processing
+			{
+				"$goto": "doPutResult"
+			}
+		],
+
+		//
+		// Put event to result queue
+		//
+		"doPutResult": [
 			// Put data to queue for file hash calculation
 			{
 				"clsid": "0x59D2EF6E", // CLSID_CallCtxCmd
