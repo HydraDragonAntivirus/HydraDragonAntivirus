@@ -53,6 +53,10 @@ type
     procedure RefreshAll(Sender: TObject);
     procedure RefreshItems;
     procedure RefreshExclusions;
+    procedure ItemsDrawItem(Sender: TCustomListView; Item: TListItem;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
+    procedure ExclDrawItem(Sender: TCustomListView; Item: TListItem;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
     procedure RestoreBtnClick(Sender: TObject);
     procedure DeleteBtnClick(Sender: TObject);
     procedure ExclAddBtnClick(Sender: TObject);
@@ -64,6 +68,25 @@ type
   end;
 
 implementation
+
+{ ---- modern UI helpers (same language as the verdict screen) ------------- }
+
+function RowColorForQuar(AIndex: Integer): TColor;
+begin
+  // Contained threats: calm red tint, zebra-striped for readability.
+  if (AIndex mod 2) = 1 then
+    Result := RGBToColor(253, 231, 230)
+  else
+    Result := RGBToColor(250, 221, 220);
+end;
+
+function RowColorForExcl(AIndex: Integer): TColor;
+begin
+  if (AIndex mod 2) = 1 then
+    Result := RGBToColor(247, 248, 250)
+  else
+    Result := clWhite;
+end;
 
 { TQuarForm }
 
@@ -101,6 +124,7 @@ begin
   ItemsView.Anchors := [akTop, akLeft, akRight];
   ItemsView.ViewStyle := vsReport;
   ItemsView.MultiSelect := True;
+  ItemsView.OnCustomDrawItem := @ItemsDrawItem;
   with ItemsView.Columns.Add do
   begin
     Caption := 'File';
@@ -158,6 +182,7 @@ begin
   ExclView.Anchors := [akTop, akLeft, akRight, akBottom];
   ExclView.ViewStyle := vsReport;
   ExclView.MultiSelect := True;
+  ExclView.OnCustomDrawItem := @ExclDrawItem;
   with ExclView.Columns.Add do
   begin
     Caption := 'Kind';
@@ -259,8 +284,7 @@ end;
 
 procedure TQuarForm.RefreshItems;
 var
-  s: string;
-  j, arr, it, d: TJSONData;
+  s: string;  j, arr, it, d: TJSONData;
   i: Integer;
   item: TListItem;
 begin
@@ -362,6 +386,21 @@ begin
   finally
     j.Free;
   end;
+end;
+
+procedure TQuarForm.ItemsDrawItem(Sender: TCustomListView; Item: TListItem;
+  State: TCustomDrawState; var DefaultDraw: Boolean);
+begin
+  // Row tints from the shared palette; keep system highlight selected.
+  if (Item <> nil) and not (cdsSelected in State) then
+    Sender.Canvas.Brush.Color := RowColorForQuar(Item.Index);
+end;
+
+procedure TQuarForm.ExclDrawItem(Sender: TCustomListView; Item: TListItem;
+  State: TCustomDrawState; var DefaultDraw: Boolean);
+begin
+  if (Item <> nil) and not (cdsSelected in State) then
+    Sender.Canvas.Brush.Color := RowColorForExcl(Item.Index);
 end;
 
 procedure TQuarForm.RefreshAll(Sender: TObject);

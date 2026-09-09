@@ -93,6 +93,8 @@ type
     procedure ProcWalkDone(Sender: TObject);
     procedure DetItemClick(Sender: TObject);
     procedure WalkDone(Sender: TObject);
+    procedure ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
     procedure FormShowed(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FinishScan(const AMsg: string);
@@ -157,6 +159,41 @@ begin
   Result := (e = 'exe') or (e = 'dll') or (e = 'sys') or (e = 'msi') or
     (e = 'scr') or (e = 'cpl') or (e = 'ocx') or (e = 'ps1') or
     (e = 'js') or (e = 'vbs') or (e = 'bat') or (e = 'cmd') or (e = 'msc');
+end;
+
+{ ---- modern UI helpers -------------------------------------------------- }
+
+function RowColorForVerdict(AVerdict, AIndex: Integer): TColor;
+begin
+  case AVerdict of
+    2: Result := RGBToColor(253, 231, 230); // malicious - soft red tint
+    1: Result := RGBToColor(224, 249, 232); // safe - soft green tint
+    4: Result := RGBToColor(255, 244, 214); // lookup failed - soft amber tint
+  else
+    if (AIndex mod 2) = 1 then
+      Result := RGBToColor(247, 248, 250)    // unknown - faint zebra stripe
+    else
+      Result := clWhite;
+  end;
+end;
+
+procedure ApplySummaryStyle(Frm: TRepForm);
+begin
+  if Frm.FMali > 0 then
+  begin
+    Frm.SummaryLbl.Font.Color := RGBToColor(196, 43, 28);
+    Frm.SummaryLbl.Font.Style := [fsBold];
+  end
+  else if Frm.FUnk > 0 then
+  begin
+    Frm.SummaryLbl.Font.Color := RGBToColor(30, 41, 59);
+    Frm.SummaryLbl.Font.Style := [];
+  end
+  else
+  begin
+    Frm.SummaryLbl.Font.Color := RGBToColor(16, 124, 16);
+    Frm.SummaryLbl.Font.Style := [fsBold];
+  end;
 end;
 
 { TRepWalkThread }
@@ -248,14 +285,16 @@ begin
             InterlockedIncrement(Frm.FUnk);
           end;
         end;
+        item.Data := Pointer(PtrUInt(v));
         Inc(FCount);
       end;
     finally
       Frm.ResultsView.Items.EndUpdate;
     end;
     Frm.SummaryLbl.Caption := Format(
-      'Malicious: %d, Safe: %d, Unknown: %d, Failed: %d',
+      'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d',
       [Frm.FMali, Frm.FSafe, Frm.FUnk, Frm.FFail]);
+    ApplySummaryStyle(Frm);
   finally
     j.Free;
   end;
@@ -351,72 +390,113 @@ end;
 
 procedure TRepForm.BuildUi;
 const
-  M = 12;
-  W = 700;
+  M = 16;
+  W = 760;
+  HeaderH = 76;
 var
-  y: Integer;
+  HeaderPnl: TPanel;
+  SubtitleLbl: TLabel;
+  Divider: TBevel;
+  y, y2, y3, y4, y5, y6, y7: Integer;
 begin
   Caption := 'HydraDragon File Verdict';
   Width := W;
-  Height := 554;
+  Height := 640;
   Position := poScreenCenter;
-  Constraints.MinWidth := 560;
-  Constraints.MinHeight := 400;
+  Constraints.MinWidth := 620;
+  Constraints.MinHeight := 460;
+  Color := RGBToColor(243, 244, 246);
+  Font.Name := 'Segoe UI';
+  Font.Size := 9;
+
+  { Branded header bar }
+  HeaderPnl := TPanel.Create(Self);
+  HeaderPnl.Parent := Self;
+  HeaderPnl.Align := alTop;
+  HeaderPnl.Height := HeaderH;
+  HeaderPnl.BevelOuter := bvNone;
+  HeaderPnl.Color := RGBToColor(30, 41, 59);
 
   TitleLbl := TLabel.Create(Self);
-  TitleLbl.Parent := Self;
-  TitleLbl.SetBounds(M, 10, 560, 22);
-  TitleLbl.Caption := 'File verdicts (FLS cloud) — display only, no actions taken';
+  TitleLbl.Parent := HeaderPnl;
+  TitleLbl.SetBounds(M, 14, 600, 26);
+  TitleLbl.Caption := 'File Reputation Check';
+  TitleLbl.Font.Name := 'Segoe UI';
+  TitleLbl.Font.Size := 14;
   TitleLbl.Font.Style := [fsBold];
+  TitleLbl.Font.Color := clWhite;
 
+  SubtitleLbl := TLabel.Create(Self);
+  SubtitleLbl.Parent := HeaderPnl;
+  SubtitleLbl.SetBounds(M, 44, 680, 20);
+  SubtitleLbl.Caption := 'FLS cloud lookup — display only, no actions taken';
+  SubtitleLbl.Font.Name := 'Segoe UI';
+  SubtitleLbl.Font.Size := 9;
+  SubtitleLbl.Font.Color := RGBToColor(148, 163, 184);
+
+  { Path picker row }
+  y := HeaderH + M;
   PathEdit := TEdit.Create(Self);
   PathEdit.Parent := Self;
-  PathEdit.SetBounds(M, 40, W - M * 2 - 120, 28);
+  PathEdit.SetBounds(M, y, W - M * 2 - 130, 30);
   PathEdit.Anchors := [akTop, akLeft, akRight];
+  PathEdit.Font.Name := 'Segoe UI';
+  PathEdit.Font.Size := 9;
 
   BrowseBtn := TButton.Create(Self);
   BrowseBtn.Parent := Self;
-  BrowseBtn.SetBounds(W - M - 110, 40, 110, 28);
+  BrowseBtn.SetBounds(W - M - 120, y, 120, 30);
   BrowseBtn.Anchors := [akTop, akRight];
   BrowseBtn.Caption := 'Browse...';
+  BrowseBtn.Font.Name := 'Segoe UI';
   BrowseBtn.OnClick := @BrowseBtnClick;
 
-  y := 76;
+  { Primary action row }
+  y2 := y + 30 + M;
   StartBtn := TButton.Create(Self);
   StartBtn.Parent := Self;
-  StartBtn.SetBounds(M, y, 110, 30);
+  StartBtn.SetBounds(M, y2, 110, 34);
   StartBtn.Caption := 'Check';
+  StartBtn.Font.Name := 'Segoe UI';
+  StartBtn.Font.Style := [fsBold];
   StartBtn.OnClick := @StartBtnClick;
 
   CancelBtn := TButton.Create(Self);
   CancelBtn.Parent := Self;
-  CancelBtn.SetBounds(M + 118, y, 110, 30);
+  CancelBtn.SetBounds(M + 120, y2, 110, 34);
   CancelBtn.Caption := 'Cancel';
+  CancelBtn.Font.Name := 'Segoe UI';
   CancelBtn.Enabled := False;
   CancelBtn.OnClick := @CancelBtnClick;
 
   CopyBtn := TButton.Create(Self);
   CopyBtn.Parent := Self;
-  CopyBtn.SetBounds(M + 236, y, 110, 30);
+  CopyBtn.SetBounds(M + 240, y2, 110, 34);
   CopyBtn.Caption := 'Copy hash';
+  CopyBtn.Font.Name := 'Segoe UI';
   CopyBtn.OnClick := @CopyBtnClick;
 
   ValkBtn := TButton.Create(Self);
   ValkBtn.Parent := Self;
-  ValkBtn.SetBounds(M + 354, y, 140, 30);
+  ValkBtn.SetBounds(M + 360, y2, 150, 34);
   ValkBtn.Caption := 'Upload to Valkyrie';
+  ValkBtn.Font.Name := 'Segoe UI';
   ValkBtn.OnClick := @ValkBtnClick;
 
   ForumBtn := TButton.Create(Self);
   ForumBtn.Parent := Self;
-  ForumBtn.SetBounds(M + 502, y, 130, 30);
+  ForumBtn.SetBounds(M + 520, y2, 130, 34);
   ForumBtn.Caption := 'Forums';
+  ForumBtn.Font.Name := 'Segoe UI';
   ForumBtn.OnClick := @ForumBtnClick;
 
+  { Secondary action row }
+  y3 := y2 + 34 + 10;
   ProcBtn := TButton.Create(Self);
   ProcBtn.Parent := Self;
-  ProcBtn.SetBounds(M, y + 34, 190, 26);
+  ProcBtn.SetBounds(M, y3, 200, 30);
   ProcBtn.Caption := 'Running processes';
+  ProcBtn.Font.Name := 'Segoe UI';
   ProcBtn.OnClick := @ProcBtnClick;
 
   DetPopup := TPopupMenu.Create(Self);
@@ -425,40 +505,62 @@ begin
   DetItem.OnClick := @DetItemClick;
   DetPopup.Items.Add(DetItem);
 
+  { Hairline divider separating controls from status/results }
+  Divider := TBevel.Create(Self);
+  Divider.Parent := Self;
+  Divider.SetBounds(M, y3 + 30 + M, W - M * 2, 1);
+  Divider.Shape := bsTopLine;
+  Divider.Anchors := [akTop, akLeft, akRight];
+
+  y4 := y3 + 30 + M + 12;
   ScanProgress := TProgressBar.Create(Self);
   ScanProgress.Parent := Self;
-  ScanProgress.SetBounds(M, y + 72, W - M * 2, 18);
+  ScanProgress.SetBounds(M, y4, W - M * 2, 10);
   ScanProgress.Anchors := [akTop, akLeft, akRight];
   ScanProgress.Style := pbstMarquee;
 
+  y5 := y4 + 10 + 12;
   StatusLbl := TLabel.Create(Self);
   StatusLbl.Parent := Self;
-  StatusLbl.SetBounds(M, y + 96, W - M * 2, 20);
+  StatusLbl.SetBounds(M, y5, W - M * 2, 20);
   StatusLbl.Anchors := [akTop, akLeft, akRight];
   StatusLbl.Caption := 'Idle.';
+  StatusLbl.Font.Name := 'Segoe UI';
+  StatusLbl.Font.Color := RGBToColor(100, 116, 139);
 
+  y6 := y5 + 24;
   SummaryLbl := TLabel.Create(Self);
   SummaryLbl.Parent := Self;
-  SummaryLbl.SetBounds(M, y + 118, W - M * 2, 20);
+  SummaryLbl.SetBounds(M, y6, W - M * 2, 22);
   SummaryLbl.Anchors := [akTop, akLeft, akRight];
   SummaryLbl.Caption := '';
+  SummaryLbl.Font.Name := 'Segoe UI';
+  SummaryLbl.Font.Size := 10;
 
+  y7 := y6 + 30;
   ResultsView := TListView.Create(Self);
   ResultsView.Parent := Self;
-  ResultsView.SetBounds(M, y + 142, W - M * 2, 554 - (y + 142) - M);
+  ResultsView.SetBounds(M, y7, W - M * 2, 640 - y7 - M);
   ResultsView.PopupMenu := DetPopup;
+  ResultsView.OnCustomDrawItem := @ResultsDrawItem;
   ResultsView.Anchors := [akTop, akLeft, akRight, akBottom];
   ResultsView.ViewStyle := vsReport;
   ResultsView.MultiSelect := True;
+  ResultsView.ReadOnly := True;
+  ResultsView.RowSelect := True;
+  ResultsView.HideSelection := False;
+  ResultsView.GridLines := False;
+  ResultsView.Font.Name := 'Segoe UI';
+  ResultsView.Font.Size := 9;
   with ResultsView.Columns.Add do
   begin
     Caption := 'File';
-    Width := 300;
+    Width := 340;
   end;
   with ResultsView.Columns.Add do
   begin
     Caption := 'SHA1';
-    Width := 260;
+    Width := 300;
   end;
   with ResultsView.Columns.Add do
   begin
@@ -521,6 +623,15 @@ begin
   FinishScan('Done.');
 end;
 
+procedure TRepForm.ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
+  State: TCustomDrawState; var DefaultDraw: Boolean);
+begin
+  // Row tints from the user's own palette; keep system highlight selected.
+  if (Item <> nil) and not (cdsSelected in State) then
+    Sender.Canvas.Brush.Color :=
+      RowColorForVerdict(Integer(PtrUInt(Item.Data)), Item.Index);
+end;
+
 procedure TRepForm.FinishScan(const AMsg: string);
 begin
   ScanProgress.Style := pbstNormal;
@@ -528,8 +639,9 @@ begin
   CancelBtn.Enabled := False;
   StatusLbl.Caption := AMsg;
   SummaryLbl.Caption := Format(
-    'Malicious: %d, Safe: %d, Unknown: %d, Failed: %d',
+    'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d',
     [FMali, FSafe, FUnk, FFail]);
+  ApplySummaryStyle(Self);
 end;
 
 procedure TRepForm.CopyBtnClick(Sender: TObject);
@@ -672,13 +784,15 @@ begin
             InterlockedIncrement(Frm.FUnk);
           end;
         end;
+        item.Data := Pointer(PtrUInt(v));
       end;
     finally
       Frm.ResultsView.Items.EndUpdate;
     end;
     Frm.SummaryLbl.Caption := Format(
-      'Malicious: %d, Safe: %d, Unknown: %d, Failed: %d',
+      'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d',
       [Frm.FMali, Frm.FSafe, Frm.FUnk, Frm.FFail]);
+    ApplySummaryStyle(Frm);
   finally
     j.Free;
   end;
@@ -698,8 +812,9 @@ begin
   ScanProgress.Style := pbstNormal;
   StatusLbl.Caption := 'Done.';
   SummaryLbl.Caption := Format(
-    'Malicious: %d, Safe: %d, Unknown: %d, Failed: %d',
+    'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d',
     [FMali, FSafe, FUnk, FFail]);
+  ApplySummaryStyle(Self);
 end;
 
 procedure TRepForm.DetItemClick(Sender: TObject);
