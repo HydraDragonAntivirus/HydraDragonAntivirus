@@ -814,7 +814,18 @@ static std::string sha1HexOfFile(const std::wstring& wsPath)
 		std::ifstream f(wsPath, std::ios::binary);
 		if (!f)
 			return {};
-		auto h = crypt::sha1::getHash(f);
+		crypt::sha1::Hasher hasher;
+		char buf[65536];
+		while (f)
+		{
+			f.read(buf, sizeof(buf));
+			std::streamsize n = f.gcount();
+			if (n > 0)
+				hasher.update(buf, static_cast<size_t>(n));
+		}
+		if (f.bad())
+			return {};
+		auto h = hasher.finalize();
 		std::ostringstream oss;
 		oss << std::hex << std::setfill('0');
 		for (size_t i = 0; i < sizeof(h.byte); ++i)
