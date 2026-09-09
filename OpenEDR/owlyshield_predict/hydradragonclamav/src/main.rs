@@ -14,6 +14,7 @@ struct Cli {
     max_scan_bytes: usize,
     chunk_size: usize,
     blank_skip: usize,
+    zero_pad_heuristic: usize,
     show_unsupported: bool,
 }
 
@@ -127,6 +128,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         max_scan_bytes: cli.max_scan_bytes,
         chunk_size: cli.chunk_size,
         blank_skip: cli.blank_skip,
+        zero_pad_heuristic: cli.zero_pad_heuristic,
         ..ScanOptions::default()
     };
     let mut files = Vec::new();
@@ -168,6 +170,7 @@ fn parse_args() -> Result<Cli, String> {
         max_scan_bytes: 100 * 1024 * 1024,
         chunk_size: 8 * 1024 * 1024,
         blank_skip: 1024 * 1024,
+        zero_pad_heuristic: 50 * 1024 * 1024,
         show_unsupported: false,
     };
 
@@ -215,6 +218,10 @@ fn parse_args() -> Result<Cli, String> {
                 index += 1;
                 cli.blank_skip = parse_size_arg(&args, index, "--blank-skip")?;
             }
+            "--zero-pad-heuristic" => {
+                index += 1;
+                cli.zero_pad_heuristic = parse_size_arg(&args, index, "--zero-pad-heuristic")?;
+            }
             "--list-unsupported" => cli.show_unsupported = true,
             other if cli.scan.is_none() => cli.scan = Some(PathBuf::from(other)),
             other => return Err(format!("unknown argument '{other}'")),
@@ -227,7 +234,7 @@ fn parse_args() -> Result<Cli, String> {
 
 fn print_help() {
     println!(
-        "hydradragonclamav\n\n  --database, -d <path>     ClamAV database directory\n  --scan, -s <path>         File or directory to scan\n  --no-archives             Disable recursive archive scanning\n  --max-recursion <n>       Archive recursion depth, default 16\n  --max-child-size <size>   Child size limit, supports K/M/G suffixes\n  --max-scan-bytes <size>   Scan only the first N bytes of each file, default 100M\n  --chunk-size <size>       Scan unit size (split + overlap), default 8M; 0 disables chunking\n  --blank-skip <size>       Skip zero runs this long or longer, default 1M; 0 disables\n  --list-unsupported        Print unsupported database records\n\nWithout --scan, the command loads the database and prints coverage stats."
+        "hydradragonclamav\n\n  --database, -d <path>     ClamAV database directory\n  --scan, -s <path>         File or directory to scan\n  --no-archives             Disable recursive archive scanning\n  --max-recursion <n>       Archive recursion depth, default 16\n  --max-child-size <size>   Child size limit, supports K/M/G suffixes\n  --max-scan-bytes <size>   Scan only the first N bytes of each file, default 100M\n  --chunk-size <size>       Scan unit size (split + overlap), default 8M; 0 disables chunking\n  --blank-skip <size>       Skip zero runs this long or longer, default 1M; 0 disables\n  --zero-pad-heuristic <size>  Flag trailing zero runs this long, default 50M; 0 disables\n  --list-unsupported        Print unsupported database records\n\nWithout --scan, the command loads the database and prints coverage stats."
     );
 }
 

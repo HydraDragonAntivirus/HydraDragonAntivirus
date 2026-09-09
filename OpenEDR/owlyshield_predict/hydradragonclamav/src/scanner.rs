@@ -68,6 +68,11 @@ pub struct ScanOptions {
     /// overlays, disk images) matches nothing real but costs gap-matching
     /// time. Default 1 MiB.
     pub blank_skip: usize,
+    /// Signature-independent evasive-padding tripwire: a TRAILING `00…` run
+    /// this long or longer (hash-busting overlays, size-inflated droppers)
+    /// emits `Heuristics.Evasive.ZeroPadding` on its own. Default 50 MiB,
+    /// 0 disables. Runs on the whole truncated file, not per chunk.
+    pub zero_pad_heuristic: usize,
 }
 
 impl Default for ScanOptions {
@@ -79,6 +84,7 @@ impl Default for ScanOptions {
             max_scan_bytes: 100 * 1024 * 1024,
             chunk_size: 8 * 1024 * 1024,
             blank_skip: 1024 * 1024,
+            zero_pad_heuristic: 50 * 1024 * 1024,
         }
     }
 }
@@ -176,6 +182,9 @@ pub enum SignatureKind {
     Phishing,
     /// YARA-x rule match.
     Yara,
+    /// Engine-native heuristic, no database signature involved (e.g. evasive
+    /// zero padding). Verdict consumers should treat it like any detection.
+    Heuristic,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -674,6 +683,25 @@ impl Engine {
                 && looks_like_html(data)
             {
                 self.scan_phishing(data, object_path, &mut state.matches);
+            }
+
+            // Evasive-padding heuristic (signature-independent): a huge trailing
+            // `00…` run is suspicious by itself. Runs once on the whole
+            // truncated file (never per chunk).
+            if options.zero_pad_heuristic > 0
+                && trailing_zero_run_capped(data, options.zero_pad_heuristic as u64)
+                    >= options.zero_pad_heuristic as u64
+            {
+                state.matches.push(ScanMatch {
+                    name: "Heuristics.Evasive.ZeroPadding".to_string(),
+                    kind: SignatureKind::Heuristic,
+                    source: crate::database::SourceLocation {
+                        path: std::sync::Arc::from(std::path::PathBuf::from("heuristic")),
+                        line: 0,
+                    },
+                    object_path: object_path.to_string(),
+                    view: ScanView::Raw,
+                });
             }
         }
 
@@ -1793,6 +1821,20 @@ fn looks_like_html(data: &[u8]) -> bool {
     false
 }
 
+/// Length of the trailing `00…` run, stopping early at `cap` (the caller only
+/// needs to know ">= threshold", so there is no point counting past it).
+/// Normal files pay exactly one byte comparison here.
+fn trailing_zero_run_capped(data: &[u8], cap: u64) -> u64 {
+    let mut n = 0u64;
+    for &b in data.iter().rev() {
+        if b != 0 || n >= cap {
+            break;
+        }
+        n += 1;
+    }
+    n
+}
+
 fn is_unsupported_archive(data: &[u8]) -> bool {
     data.len() >= 8 && data[..8] == [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00] // RAR v5
     || data.len() >= 7 && data[..7] == [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00] // RAR v1.5
@@ -1898,6 +1940,7 @@ fn kind_rank(k: SignatureKind) -> u8 {
         SignatureKind::Container => 2,
         SignatureKind::Phishing => 3,
         SignatureKind::Yara => 4,
+        SignatureKind::Heuristic => 5,
     }
 }
 

@@ -401,7 +401,8 @@ const EICAR_SHA1_HEX: &str = "3395856ce81f2b7382dee72602f798b642f14140";
 const ML_THRESHOLD: f32 = 0.875;
 const MAX_ML_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Static-indicator file verdict: EICAR, vendor signatures, PE/JS ML models.
+/// Static-indicator file verdict: EICAR, vendor signatures, ClamAV content
+/// signatures (+ archives), PE/JS ML models.
 /// `path_ptr`/`path_len`: UTF-16 path (WCHAR count, no NUL).
 /// Returns 2=malicious, 1=safe (trusted signer), 0=unknown, -1=bad arguments.
 /// No cloud, no execution. Used by the C++ local-verdict path.
@@ -456,7 +457,9 @@ pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i
     if let Ok(bytes) = std::fs::read(&path_buf) {
         if (bytes.len() as u64) <= MAX_ML_BYTES {
             let device = burn::backend::ndarray::NdArrayDevice::default();
-            if bytes.len() >= 2 && &bytes[0..2] == b"MZ" {
+            // File typing comes from the ClamAV engine (single authority) —
+            // every KNOWN type is routed to its model: PE and JS alike.
+            if crate::clamscan::is_pe_bytes(&bytes) {
                 if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
                     if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
                         if prob > ML_THRESHOLD {
@@ -465,10 +468,7 @@ pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i
                     }
                 }
             }
-            if path_buf
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("js"))
-            {
+            if crate::clamscan::is_js_candidate(&bytes) {
                 if let Ok(content) = std::str::from_utf8(&bytes) {
                     if let Some(model) = crate::ml::fast_detect::get_js_model_ref() {
                         if let Some(prob) =
@@ -482,6 +482,14 @@ pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i
                 }
             }
         }
+    }
+
+    // Content scan LAST (ClamAV-compatible signatures, archives included):
+    // precise and content-typed, runs for EVERY file type — not just MZ/JS.
+    // Any hit is a real verdict. No database installed -> skipped
+    // transparently, verdict stays 0 (unknown) as before.
+    if let Some(v) = crate::clamscan::verdict_scan_file(&path_buf) {
+        return v;
     }
 
     0

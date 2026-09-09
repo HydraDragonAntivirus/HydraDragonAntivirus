@@ -91,7 +91,9 @@ pub fn is_ml_detection_name(name: &str) -> bool {
     name == PE_ML_DETECTION_NAME || name == JS_ML_DETECTION_NAME
 }
 
-/// Detects MZ executables and JavaScript files, applying the respective ML model if matched.
+/// Detects PE executables and JavaScript by CONTENT (never by extension —
+/// renamed samples must not escape). File typing comes from the ClamAV engine;
+/// JS additionally requires an ASCII body that trial-parses as code.
 /// Uses 0.875 threshold and no custom whitelisting/signature rules as explicitly requested.
 pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetectionResult> {
     let path = Path::new(path_str);
@@ -99,17 +101,9 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
         return None;
     }
 
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .unwrap_or_default();
-
-    // Read the file bytes to check the magic MZ header
+    // Read the file bytes; gates below are content-based (ClamAV typing).
     if let Ok(bytes) = std::fs::read(path) {
-        let is_mz = bytes.len() >= 2 && &bytes[0..2] == b"MZ";
-
-        if is_mz {
+        if crate::clamscan::is_pe_bytes(&bytes) {
             // Run PE ML model prediction.
             if let Some(model) = get_pe_model() {
                 let device = NdArrayDevice::default();
@@ -129,7 +123,8 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
                     }
                 }
             }
-        } else if extension == "js" {
+        }
+        if crate::clamscan::is_js_candidate(&bytes) {
             // Run JS ML model prediction.
             if let Some(model) = get_js_model() {
                 if let Ok(content) = std::str::from_utf8(&bytes) {
