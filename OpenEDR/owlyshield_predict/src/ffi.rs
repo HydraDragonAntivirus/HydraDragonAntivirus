@@ -370,7 +370,8 @@ pub extern "C" fn owlyshield_is_trusted_company_signer(path_ptr: *const u16, pat
 /// is signed by a known malicious or PUA certificate authority.
 /// Returns 1 if malicious/PUA vendor, 0 if clean/unmatched.
 #[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_is_malicious_company_signer(path_ptr: *const u16, path_len: u32) -> i32 {    if path_ptr.is_null() || path_len == 0 {
+pub extern "C" fn owlyshield_is_malicious_company_signer(path_ptr: *const u16, path_len: u32) -> i32 {
+    if path_ptr.is_null() || path_len == 0 {
         return 0;
     }
     let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
@@ -384,102 +385,6 @@ pub extern "C" fn owlyshield_is_malicious_company_signer(path_ptr: *const u16, p
     }
 
     0
-}
-
-/// EICAR standard test file (68 bytes). Hash cross-checks the literal so a
-/// transcription typo fails loudly in unit tests instead of silently missing.
-const EICAR_STR: &str = r"X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
-const EICAR_SHA1_HEX: &str = "3395856ce81f2b7382dee72602f798b642f14140";
-
-/// Static-indicator file scan for the GUI scanner screen (no cloud, no execution).
-///
-/// `path_ptr`/`path_len`: UTF-16 path (WCHAR count, no NUL).
-/// Returns: 2=malicious (EICAR test file or malicious/PUA vendor signature),
-/// 1=safe (trusted-vendor signature), 0=unknown/unscannable, -1=bad arguments.
-///
-/// Called by `edrgui.exe` directly via LoadLibrary; the service is not required.
-#[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i32 {
-    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
-        return -1;
-    }
-    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
-    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
-    if !path_buf.is_file() {
-        return 0;
-    }
-
-    // EICAR offline check: size gate first (cheap), then literal or SHA1.
-    // 69/70-byte variants carry a trailing LF/CRLF.
-    if let Ok(meta) = std::fs::metadata(&path_buf) {
-        if matches!(meta.len(), 68 | 69 | 70) {
-            if let Ok(bytes) = std::fs::read(&path_buf) {
-                let body = bytes.strip_prefix(EICAR_STR.as_bytes()).unwrap_or(&bytes[..]);
-                let is_eicar = !body.is_empty()
-                    && body.len() <= 2
-                    && body.iter().all(|&b| b == b'\r' || b == b'\n')
-                    || bytes.as_slice() == EICAR_STR.as_bytes();
-                if is_eicar {
-                    return 2;
-                }
-                if meta.len() == 68 {
-                    use sha1::Digest;
-                    let mut hasher = sha1::Sha1::new();
-                    hasher.update(&bytes);
-                    if hex::encode(hasher.finalize()) == EICAR_SHA1_HEX {
-                        return 2;
-                    }
-                }
-            }
-        }
-    }
-
-    // Vendor signature indicators (header-only read inside verify_signature).
-    let sig_info = crate::signature_verification::verify_signature(&path_buf);
-    if let Some(signer) = sig_info.signer_name {
-        if crate::signer_rules::is_malicious_vendor(&signer)
-            || crate::signer_rules::is_pua_vendor(&signer)
-        {
-            return 2;
-        }
-        if sig_info.is_trusted && crate::signer_rules::is_trusted_signer(&signer) {
-            return 1;
-        }
-    }
-
-    // ML static indicator for executables (project-wide 0.875 threshold).
-    // Skipped silently when models are absent; capped to avoid monster reads.
-    if let Ok(bytes) = std::fs::read(&path_buf) {
-        if bytes.len() >= 2
-            && &bytes[0..2] == b"MZ"
-            && bytes.len() <= 64 * 1024 * 1024
-        {
-            if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
-                let device = burn::backend::ndarray::NdArrayDevice::default();
-                if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
-                    if prob > 0.875 {
-                        return 2;
-                    }
-                }
-            }
-        }
-    }
-
-    0
-}
-
-#[cfg(test)]
-mod scan_tests {
-    use super::{EICAR_SHA1_HEX, EICAR_STR};
-
-    #[test]
-    fn eicar_literal_matches_official_sha1() {
-        assert_eq!(EICAR_STR.len(), 68);
-        use sha1::Digest;
-        let mut hasher = sha1::Sha1::new();
-        hasher.update(EICAR_STR.as_bytes());
-        assert_eq!(hex::encode(hasher.finalize()), EICAR_SHA1_HEX);
-    }
 }
 
 

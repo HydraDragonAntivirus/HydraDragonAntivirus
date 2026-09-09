@@ -11,12 +11,13 @@
       <UseXPManifest Value="True"/>
       <XPManifest>
         <DpiAware Value="True"/>
+        <ExecutionLevel Value="asInvoker"/>
       </XPManifest>
       <Icon Value="0"/>
     </General>
     <BuildModes>
-      <Item Name="Default" Default="True"/>
-      <Item Name="Release">
+      <Item Name="Default"/>
+      <Item Name="Release" Default="True">
         <CompilerOptions>
           <Version Value="11"/>
           <PathDelim Value="\"/>
@@ -97,14 +98,6 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="UHipPipe"/>
       </Unit>
-      <Unit>
-        <Filename Value="uscan.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="ScanForm"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-        <UnitName Value="UScan"/>
-      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -125,7 +118,6 @@
     <Linking>
       <Debugging>
         <GenerateDebugInfo Value="False"/>
-        <DebugInfoType Value="dsDwarf3"/>
         <UseLineInfoUnit Value="False"/>
         <StripSymbols Value="True"/>
       </Debugging>

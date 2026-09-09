@@ -488,52 +488,6 @@ static bool deleteRegistryTreeKey(const std::string& sTarget)
 //
 //
 //
-//
-//
-// SHA1 hex (lowercase) of a file given as UTF-8 path; "" when unreadable.
-// Used by the scanner RPCs so known-malware matching uses content, not names.
-//
-static std::string sha1HexOfFileUtf8(const std::string& sUtf8Path)
-{
-	try
-	{
-		if (sUtf8Path.empty())
-			return {};
-		int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
-		if (nWide <= 1)
-			return {};
-		std::wstring ws(nWide - 1, L'\0');
-		if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
-			return {};
-		std::ifstream f(ws, std::ios::binary);
-		if (!f)
-			return {};
-		crypt::sha1::Hasher hasher;
-		char buf[65536];
-		while (f)
-		{
-			f.read(buf, sizeof(buf));
-			std::streamsize n = f.gcount();
-			if (n > 0)
-				hasher.update(buf, static_cast<size_t>(n));
-		}
-		if (f.bad())
-			return {};
-		auto h = hasher.finalize();
-		static const char* kHex = "0123456789abcdef";
-		std::string out;
-		out.reserve(sizeof(h.byte) * 2);
-		for (size_t i = 0; i < sizeof(h.byte); ++i)
-		{
-			unsigned char b = static_cast<unsigned char>(h.byte[i]);
-			out.push_back(kHex[b >> 4]);
-			out.push_back(kHex[b & 0xF]);
-		}
-		return out;
-	}
-	catch (...) { return {}; }
-}
-
 Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 {
 	TRACE_BEGIN;
@@ -1353,44 +1307,6 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		const bool fApplied = (fEnabled && nResult == 1);
 		LOGLVL(Critical, FMT("detnotif RPC: firewall MITM interception set to " << (fApplied ? "ENABLED" : "DISABLED")));
 		return Dictionary({ {"success", nResult == 1}, {"enabled", fApplied} });
-	}
-
-	if (vCommand == "checkFileKnown")
-	{
-		std::string sPath;
-		if (vParams.isDictionaryLike())
-			sPath = vParams.get("path", sPath);
-		std::string sHash;
-		if (!sPath.empty())
-			sHash = sha1HexOfFileUtf8(sPath);
-		const bool fKnown = !sPath.empty() && DetectionNotifier::isKnownMalware(sPath, sHash);
-		return Dictionary({ {"known", fKnown}, {"verdict", fKnown ? 2 : 0}, {"hash", sHash} });
-	}
-
-	if (vCommand == "quarantineFile")
-	{
-		std::string sPath;
-		if (vParams.isDictionaryLike())
-			sPath = vParams.get("path", sPath);
-		if (sPath.empty())
-			return Dictionary({ {"success", false}, {"error", "empty path"} });
-		std::string sHash = sha1HexOfFileUtf8(sPath);
-		int nResult = -1;
-		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
-		if (!hDll) hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-		if (hDll)
-		{
-			typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
-			if (auto fn = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file"))
-				nResult = fn(reinterpret_cast<const uint8_t*>(sPath.c_str()), static_cast<uint32_t>(sPath.size()));
-		}
-		if (nResult == 0)
-		{
-			DetectionNotifier::recordMalwareDetection(sPath, sHash);
-			LOGLVL(Critical, FMT("detnotif RPC: quarantined file <" << sPath << "> on scanner request"));
-			return Dictionary({ {"success", true} });
-		}
-		return Dictionary({ {"success", false} });
 	}
 
 	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();

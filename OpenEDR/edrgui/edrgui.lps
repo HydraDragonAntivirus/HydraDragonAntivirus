@@ -17,8 +17,7 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="Unit1"/>
-        <TopLine Value="319"/>
-        <CursorPos X="3" Y="321"/>
+        <IsVisibleTab Value="True"/>
         <UsageCount Value="20"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
@@ -49,144 +48,8 @@
         <UnitName Value="UHipPipe"/>
         <UsageCount Value="20"/>
       </Unit>
-      <Unit>
-        <Filename Value="uscan.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="ScanForm"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-        <UnitName Value="UScan"/>
-        <IsVisibleTab Value="True"/>
-        <EditorIndex Value="1"/>
-        <TopLine Value="235"/>
-        <CursorPos X="15" Y="245"/>
-        <UsageCount Value="20"/>
-        <Loaded Value="True"/>
-        <LoadedDesigner Value="True"/>
-      </Unit>
     </Units>
-    <JumpHistory HistoryIndex="29">
-      <Position>
-        <Filename Value="unit1.pas"/>
-        <Caret Line="326" Column="3" TopLine="324"/>
-      </Position>
-      <Position>
-        <Filename Value="unit1.pas"/>
-        <Caret Line="321" Column="3" TopLine="319"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="36" Column="21" TopLine="25"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="426" Column="5" TopLine="405"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="36" Column="12" TopLine="25"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="426" Column="5" TopLine="405"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="36" Column="12" TopLine="25"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="426" Column="5" TopLine="405"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="36" Column="12" TopLine="36"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="227" Column="8" TopLine="216"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="428" Column="5" TopLine="407"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="227" Column="8" TopLine="216"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="245" Column="15" TopLine="234"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="428" Column="5" TopLine="407"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="245" Column="15" TopLine="235"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="428" Column="5" TopLine="407"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="227" Column="8" TopLine="216"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="428" Column="5" TopLine="407"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="245" Column="15" TopLine="235"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="428" Column="5" TopLine="407"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="245" Column="15" TopLine="235"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="227" Column="8" TopLine="217"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="174" Column="16" TopLine="164"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="428" Column="5" TopLine="407"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="396" Column="23" TopLine="385"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="428" Column="5" TopLine="407"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="418" Column="6" TopLine="407"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="227" Column="18" TopLine="216"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="235" Column="68" TopLine="216"/>
-      </Position>
-      <Position>
-        <Filename Value="uscan.pas"/>
-        <Caret Line="243" Column="21" TopLine="240"/>
-      </Position>
-    </JumpHistory>
+    <JumpHistory HistoryIndex="-1"/>
     <RunParams>
       <FormatVersion Value="2"/>
       <Modes ActiveMode=""/>

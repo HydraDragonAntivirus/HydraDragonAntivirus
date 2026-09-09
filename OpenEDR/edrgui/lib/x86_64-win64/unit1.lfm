@@ -5,22 +5,24 @@ object Form1: TForm1
   Width = 60
   BorderStyle = bsNone
   Caption = 'HydraDragon EDR Agent'
-  DesignTimePPI = 120
-  ShowInTaskBar = stNever
-  LCLVersion = '4.8.0.0'
+  ClientHeight = 60
+  ClientWidth = 60
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  ShowInTaskBar = stNever
+  Visible = False
+  DesignTimePPI = 120
+  LCLVersion = '4.8.0.0'
   object TrayIcon1: TTrayIcon
+    OnDblClick = TrayIcon1DblClick
     PopUpMenu = PopupMenu1
     Visible = True
-    OnClick = TrayIcon1Click
-    OnDblClick = TrayIcon1DblClick
-    Left = 40
-    Top = 16
+    left = 40
+    top = 16
   end
   object PopupMenu1: TPopupMenu
-    Left = 40
-    Top = 72
+    left = 40
+    top = 72
     object MenuStatus: TMenuItem
       Caption = 'Status: Unknown'
       Enabled = False
@@ -66,7 +68,7 @@ object Form1: TForm1
   object Timer1: TTimer
     Interval = 4000
     OnTimer = Timer1Timer
-    Left = 40
-    Top = 128
+    left = 40
+    top = 128
   end
 end
