@@ -4,10 +4,12 @@ use crate::logging::Logging;
 use crate::utils::protected_process_reason;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::{ProcessesToUpdate, System};
 use windows::Win32::Foundation::{BOOL, CloseHandle};
@@ -60,6 +62,95 @@ impl std::fmt::Display for QuarantineError {
 }
 
 impl std::error::Error for QuarantineError {}
+
+/// Find an existing quarantine container holding the same payload hash.
+///
+/// Store-level dedup ONLY: the caller must still neutralize the live file
+/// (delete + block). This never becomes a "seen before, skip action"
+/// allowlist — identical bytes simply don't get a second container.
+pub fn find_existing_container_by_hash(qdir: &Path, sha256: &str) -> Option<PathBuf> {
+    if sha256.is_empty() || sha256 == "unknown" {
+        return None;
+    }
+    // Cap the scan (most-recent-first): a full walk per quarantine would be
+    // O(n^2) during ransomware storms with thousands of containers.
+    const SCAN_CAP: usize = 2048;
+    let mut candidates: Vec<(SystemTime, PathBuf)> = Vec::new();
+    for entry in std::fs::read_dir(qdir).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("hqf") {
+            continue;
+        }
+        let mtime = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        candidates.push((mtime, path));
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in candidates.into_iter().take(SCAN_CAP) {
+        if let Ok(meta) = read_meta(&path) {
+            if meta.sha256 == sha256 {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+struct IncidentState {
+    window_start: u64,
+    reported: bool,
+    suppressed: u64,
+}
+
+fn incidents() -> &'static Mutex<HashMap<String, IncidentState>> {
+    static MAP: OnceLock<Mutex<HashMap<String, IncidentState>>> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Incident-aggregated alert: one virus action finishes with a single attack
+/// record instead of one warning per file.
+///
+/// First event in a window alerts immediately; further events with the same
+/// key are counted silently; when the window expires a single summary alert
+/// closes it. Window: 10 minutes per key (detection label).
+pub fn incident_alert(key: &str, message: &str) {
+    const WINDOW_SECS: u64 = 600;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mut map = match incidents().lock() {
+        Ok(g) => g,
+        Err(_) => {
+            Logging::alert(message);
+            return;
+        }
+    };
+    let st = map.entry(key.to_string()).or_insert(IncidentState {
+        window_start: now,
+        reported: false,
+        suppressed: 0,
+    });
+    if now.saturating_sub(st.window_start) >= WINDOW_SECS {
+        if st.reported && st.suppressed > 0 {
+            Logging::alert(&format!(
+                "Ongoing incident '{}': {} additional events suppressed in the last 10 minutes",
+                key, st.suppressed
+            ));
+        }
+        st.window_start = now;
+        st.reported = false;
+        st.suppressed = 0;
+    }
+    if !st.reported {
+        Logging::alert(message);
+        st.reported = true;
+    } else {
+        st.suppressed = st.suppressed.saturating_add(1);
+    }
+}
 
 pub fn compute_sha256(src: &Path) -> Result<String, QuarantineError> {
     let mut file = fs::File::open(src)?;
@@ -399,8 +490,20 @@ pub fn delete_with_reboot_fallback(path: &Path) -> bool {
 pub fn quarantine_path(src: &Path, detection: &str) -> Result<PathBuf, QuarantineError> {
     let qdir = Path::new(crate::shared_def::QUARANTINE_PATH);
     std::fs::create_dir_all(qdir)?;
-    let dst = build_quarantine_destination(src, qdir);
     let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());
+
+    // Store dedup: same bytes already sealed -> reuse the container.
+    // The caller still handles the live file; this never skips action.
+    if let Some(existing) = find_existing_container_by_hash(qdir, &sha256) {
+        Logging::info(&format!(
+            "[Quarantine] Duplicate store suppressed (already sealed): {} -> {}",
+            src.display(),
+            existing.display()
+        ));
+        return Ok(existing);
+    }
+
+    let dst = build_quarantine_destination(src, qdir);
 
     quarantine_file(src, &dst, detection, &sha256)?;
 
@@ -438,6 +541,18 @@ pub fn restore_file(src: &Path, dst: &Path) -> Result<QuarantineMeta, Quarantine
     file.read_exact(&mut xored)?;
 
     let payload: Vec<u8> = xored.iter().map(|b| b ^ XOR_KEY).collect();
+    // Integrity: never restore bytes that don't match the sealed hash.
+    // (meta "unknown" means the hash was unavailable at seal time: skip check.)
+    if !meta.sha256.is_empty() && meta.sha256 != "unknown" {
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        if hex::encode(hasher.finalize()) != meta.sha256 {
+            return Err(QuarantineError::Io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "quarantine payload hash mismatch: refusing restore",
+            )));
+        }
+    }
     fs::write(dst, &payload)?;
 
     Ok(meta)

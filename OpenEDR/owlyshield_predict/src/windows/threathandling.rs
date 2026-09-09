@@ -106,15 +106,37 @@ impl WindowsThreatHandler {
         } else {
             detection
         };
-        let dest_path = build_quarantine_destination(&source_path, quarantine_dir);
         let sha256 = compute_sha256(&source_path).unwrap_or_else(|_| "unknown".to_string());
+
+        // Store dedup: identical bytes already sealed -> no second container,
+        // no second feed entry, no second attack alert. The live file is still
+        // neutralized and the path still blocked below. This is NOT a
+        // "seen before, skip action" allowlist.
+        if let Some(existing) = crate::quarantine::find_existing_container_by_hash(
+            quarantine_dir,
+            &sha256,
+        ) {
+            Logging::info(&format!(
+                "[ThreatHandler] Duplicate quarantine suppressed (already stored): {} -> {}",
+                source_path.display(),
+                existing.display()
+            ));
+            let _ = delete_with_reboot_fallback(&source_path);
+            self.add_kernel_block_path(path);
+            return;
+        }
+
+        let dest_path = build_quarantine_destination(&source_path, quarantine_dir);
 
         match quarantine_file(&source_path, &dest_path, detection, &sha256) {
             Ok(_) => {
-                Logging::alert(&format!(
-                    "[ThreatHandler] Quarantined malicious file into container: {}",
-                    dest_path.display()
-                ));
+                crate::quarantine::incident_alert(
+                    detection,
+                    &format!(
+                        "[ThreatHandler] Quarantined malicious file into container: {}",
+                        dest_path.display()
+                    ),
+                );
                 if !delete_with_reboot_fallback(&source_path) {
                     Logging::warning(&format!(
                         "[ThreatHandler] Quarantine container created, but cleanup of the original file failed: {}",
@@ -151,12 +173,15 @@ impl WindowsThreatHandler {
                 }
             }
             Err(e) => {
-                Logging::alert(&format!(
-                    "[ThreatHandler] Failed to quarantine file {} into container {}: {}",
-                    source_path.display(),
-                    dest_path.display(),
-                    e
-                ));
+                crate::quarantine::incident_alert(
+                    &format!("{detection}#quarantine-failed"),
+                    &format!(
+                        "[ThreatHandler] Failed to quarantine file {} into container {}: {}",
+                        source_path.display(),
+                        dest_path.display(),
+                        e
+                    ),
+                );
             }
         }
 
