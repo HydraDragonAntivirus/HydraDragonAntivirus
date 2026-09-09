@@ -1,0 +1,137 @@
+object ScanForm: TScanForm
+  Left = 300
+  Height = 460
+  Top = 200
+  Width = 640
+  Caption = 'HydraDragon File Scanner'
+  ClientHeight = 460
+  ClientWidth = 640
+  DesignTimePPI = 120
+  Font.Height = -15
+  LCLVersion = '4.8.0.0'
+  OnDestroy = FormDestroy
+  object PathEdit: TEdit
+    AnchorSideLeft.Control = Owner
+    AnchorSideTop.Control = Owner
+    AnchorSideRight.Control = BrowseBtn
+    Left = 0
+    Height = 28
+    Top = 0
+    Width = 0
+    Anchors = [akTop, akLeft, akRight]
+    TabOrder = 0
+  end
+  object BrowseBtn: TButton
+    AnchorSideTop.Control = Owner
+    AnchorSideRight.Control = Owner
+    Left = -100
+    Height = 28
+    Top = 0
+    Width = 100
+    Anchors = [akTop, akRight]
+    Caption = 'Browse...'
+    TabOrder = 1
+    OnClick = BrowseBtnClick
+  end
+  object StartBtn: TButton
+    AnchorSideTop.Control = PathEdit
+    AnchorSideTop.Side = asrBottom
+    Left = 12
+    Height = 30
+    Top = 28
+    Width = 110
+    Caption = 'Start Scan'
+    TabOrder = 2
+    OnClick = StartBtnClick
+  end
+  object CancelBtn: TButton
+    AnchorSideTop.Control = PathEdit
+    AnchorSideTop.Side = asrBottom
+    Left = 130
+    Height = 30
+    Top = 28
+    Width = 110
+    Caption = 'Cancel'
+    Enabled = False
+    TabOrder = 3
+    OnClick = CancelBtnClick
+  end
+  object QuarBtn: TButton
+    AnchorSideTop.Control = PathEdit
+    AnchorSideTop.Side = asrBottom
+    Left = 248
+    Height = 30
+    Top = 28
+    Width = 150
+    Caption = 'Quarantine selected'
+    Enabled = False
+    TabOrder = 4
+    OnClick = QuarBtnClick
+  end
+  object ScanProgress: TProgressBar
+    AnchorSideLeft.Control = Owner
+    AnchorSideTop.Control = StartBtn
+    AnchorSideTop.Side = asrBottom
+    AnchorSideRight.Control = Owner
+    Left = 0
+    Height = 18
+    Top = 58
+    Width = 0
+    Anchors = [akTop, akLeft, akRight]
+    TabOrder = 5
+  end
+  object StatusLbl: TLabel
+    AnchorSideLeft.Control = Owner
+    AnchorSideTop.Control = ScanProgress
+    AnchorSideTop.Side = asrBottom
+    Left = 0
+    Height = 20
+    Top = 76
+    Width = 620
+    Anchors = [akTop, akLeft, akRight]
+    Caption = 'Idle.'
+  end
+  object SummaryLbl: TLabel
+    AnchorSideLeft.Control = Owner
+    AnchorSideTop.Control = StatusLbl
+    AnchorSideTop.Side = asrBottom
+    Left = 0
+    Height = 1
+    Top = 96
+    Width = 620
+    Anchors = [akTop, akLeft, akRight]
+  end
+  object ResultsView: TListView
+    AnchorSideLeft.Control = Owner
+    AnchorSideTop.Control = SummaryLbl
+    AnchorSideTop.Side = asrBottom
+    AnchorSideRight.Control = Owner
+    AnchorSideBottom.Control = Owner
+    Left = 0
+    Height = 0
+    Top = 97
+    Width = 0
+    Anchors = [akTop, akLeft, akRight, akBottom]
+    Columns = <    
+      item
+        Caption = 'File'
+        Width = 340
+      end    
+      item
+        Caption = 'Verdict'
+        Width = 100
+      end    
+      item
+        Caption = 'Detail'
+        Width = 150
+      end>
+    TabOrder = 6
+    ViewStyle = vsReport
+  end
+  object SelDirDlg: TSelectDirectoryDialog
+    FileName = 'C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\edrgui'
+    InitialDir = 'C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\'
+    Left = 560
+    Top = 48
+  end
+end

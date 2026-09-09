@@ -17,7 +17,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, Menus,
   Windows, Registry, fpjson, jsonparser,
-  USvcControl, UAlert, UGuiNotify, UHipPipe;
+  USvcControl, UAlert, UGuiNotify, UHipPipe, UScan;
 
 type
 
@@ -40,6 +40,7 @@ type
     TrayIcon1: TTrayIcon;
     MenuPauseResume: TMenuItem;
     MenuMitmToggle: TMenuItem;
+    MenuScanner: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure MenuExitClick(Sender: TObject);
@@ -50,7 +51,10 @@ type
     procedure MenuUninstallClick(Sender: TObject);
     procedure MenuPauseResumeClick(Sender: TObject);
     procedure MenuMitmToggleClick(Sender: TObject);
+    procedure MenuScannerClick(Sender: TObject);
+    procedure ScanFormClosed(Sender: TObject; var CloseAction: TCloseAction);
     procedure Timer1Timer(Sender: TObject);
+    procedure TrayIcon1Click(Sender: TObject);
     procedure TrayIcon1DblClick(Sender: TObject);
   private
     FAgentExePath: string;
@@ -61,6 +65,7 @@ type
     FHiPPipe: THipPipeListener;
     FProtectionPaused: Boolean;
     FMitmEnabled: Boolean;
+    FScanForm: TScanForm;
     FBehaviorLogs: TStringList;
     FMLPredictions: TStringList;
     function ReadProtectionPaused: Boolean;
@@ -134,6 +139,14 @@ begin
     MenuMitmToggle);
   FMitmEnabled := True;
   SetMitmCaption(ReadMitmEnabled);
+
+  // On-demand file scanner screen (static indicators via the engines;
+  // Pascal is UI shell only).
+  MenuScanner := TMenuItem.Create(Self);
+  MenuScanner.Caption := 'Scanner...';
+  MenuScanner.OnClick := @MenuScannerClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuMitmToggle) + 1,
+    MenuScanner);
 
   FBehaviorLogs := TStringList.Create;
   FMLPredictions := TStringList.Create;
@@ -306,6 +319,11 @@ end;
 procedure TForm1.Timer1Timer(Sender: TObject);
 begin
   RefreshStatus(True);
+end;
+
+procedure TForm1.TrayIcon1Click(Sender: TObject);
+begin
+
 end;
 
 procedure TForm1.TrayIcon1DblClick(Sender: TObject);
@@ -737,6 +755,23 @@ end;
 procedure TForm1.MenuMitmToggleClick(Sender: TObject);
 begin
   WriteMitmEnabled(not ReadMitmEnabled);
+end;
+
+procedure TForm1.MenuScannerClick(Sender: TObject);
+begin
+  if FScanForm = nil then
+  begin
+    FScanForm := TScanForm.Create(Application);
+    FScanForm.OnClose := @ScanFormClosed;
+  end;
+  FScanForm.Show;
+  FScanForm.BringToFront;
+end;
+
+procedure TForm1.ScanFormClosed(Sender: TObject; var CloseAction: TCloseAction);
+begin
+  CloseAction := caFree;
+  FScanForm := nil;
 end;
 
 procedure TForm1.RunCommand(ACmd: TSvcCommand);
