@@ -1,5 +1,0 @@
-# aws-lc CPU jitter entropy kapali: RDRAND'siz VM'lerde jent_read_entropy
-# retry donguleri CPU yakiyordu (0.44: tree_drbg_jitter_entropy.c).
-# aws-lc-sys builder/main.rs -> DISABLE_CPU_JITTER_ENTROPY, tohum OS'tan gelir.
-[env]
-AWS_LC_SYS_NO_JITTER_ENTROPY = "1"
