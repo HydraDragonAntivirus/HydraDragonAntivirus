@@ -493,13 +493,19 @@ pub fn quarantine_path(src: &Path, detection: &str) -> Result<PathBuf, Quarantin
     let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());
 
     // Store dedup: same bytes already sealed -> reuse the container.
-    // The caller still handles the live file; this never skips action.
+    // The live file is STILL neutralized below; dedup never skips action.
     if let Some(existing) = find_existing_container_by_hash(qdir, &sha256) {
         Logging::info(&format!(
-            "[Quarantine] Duplicate store suppressed (already sealed): {} -> {}",
+            "[Quarantine] Duplicate store suppressed (already stored): {} -> {}",
             src.display(),
             existing.display()
         ));
+        if !delete_with_reboot_fallback(src) {
+            Logging::warning(&format!(
+                "[Quarantine] Duplicate container reused, but cleanup of the live file failed: {}",
+                src.display()
+            ));
+        }
         return Ok(existing);
     }
 
