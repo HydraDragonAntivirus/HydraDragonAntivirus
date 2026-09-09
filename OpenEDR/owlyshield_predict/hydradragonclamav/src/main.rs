@@ -11,6 +11,7 @@ struct Cli {
     scan_archives: bool,
     max_recursion: usize,
     max_child_size: usize,
+    max_scan_bytes: usize,
     show_unsupported: bool,
 }
 
@@ -121,6 +122,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         scan_archives: cli.scan_archives,
         max_recursion: cli.max_recursion,
         max_child_size: cli.max_child_size,
+        max_scan_bytes: cli.max_scan_bytes,
         ..ScanOptions::default()
     };
     let mut files = Vec::new();
@@ -159,6 +161,7 @@ fn parse_args() -> Result<Cli, String> {
         scan_archives: true,
         max_recursion: 16,
         max_child_size: 650 * 1024 * 1024,
+        max_scan_bytes: 100 * 1024 * 1024,
         show_unsupported: false,
     };
 
@@ -194,6 +197,10 @@ fn parse_args() -> Result<Cli, String> {
                 index += 1;
                 cli.max_child_size = parse_size_arg(&args, index, "--max-child-size")?;
             }
+            "--max-scan-bytes" => {
+                index += 1;
+                cli.max_scan_bytes = parse_size_arg(&args, index, "--max-scan-bytes")?;
+            }
             "--list-unsupported" => cli.show_unsupported = true,
             other if cli.scan.is_none() => cli.scan = Some(PathBuf::from(other)),
             other => return Err(format!("unknown argument '{other}'")),
@@ -206,7 +213,7 @@ fn parse_args() -> Result<Cli, String> {
 
 fn print_help() {
     println!(
-        "hydradragonclamav\n\n  --database, -d <path>     ClamAV database directory\n  --scan, -s <path>         File or directory to scan\n  --no-archives             Disable recursive archive scanning\n  --max-recursion <n>       Archive recursion depth, default 16\n  --max-child-size <size>   Child size limit, supports K/M/G suffixes\n  --list-unsupported        Print unsupported database records\n\nWithout --scan, the command loads the database and prints coverage stats."
+        "hydradragonclamav\n\n  --database, -d <path>     ClamAV database directory\n  --scan, -s <path>         File or directory to scan\n  --no-archives             Disable recursive archive scanning\n  --max-recursion <n>       Archive recursion depth, default 16\n  --max-child-size <size>   Child size limit, supports K/M/G suffixes\n  --max-scan-bytes <size>   Scan only the first N bytes of each file, default 100M\n  --list-unsupported        Print unsupported database records\n\nWithout --scan, the command loads the database and prints coverage stats."
     );
 }
 

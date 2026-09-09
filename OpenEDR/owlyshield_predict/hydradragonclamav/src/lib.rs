@@ -3,13 +3,18 @@ pub mod atomfilter_build;
 pub mod atomscan;
 pub mod bytecode;
 pub mod bytecode_vm;
+pub mod cert;
 pub mod database;
 pub mod filtering;
 pub mod fuzzy;
+pub mod icon;
+pub mod icon_match;
 pub mod logical;
 pub mod pattern;
+pub mod pe;
 pub mod phishing;
 pub mod scanner;
+pub mod version_info;
 pub mod yara_scan;
 
 pub use bytecode::{Bytecode, BytecodeSet};

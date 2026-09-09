@@ -2,6 +2,7 @@ use crate::atomscan::InlineVerifyCtx;
 use crate::database::{Database, OffsetAnchor, SourceLocation};
 use crate::logical::Subsignature;
 use crate::pattern::Pattern;
+use crate::pe::{parse_pe, PeInfo};
 use std::cell::RefCell;
 use std::fs;
 use std::io;
@@ -53,6 +54,10 @@ pub struct ScanOptions {
     pub scan_archives: bool,
     pub max_recursion: usize,
     pub max_child_size: usize,
+    /// Max leading bytes of a buffer sent to the signature engine. Larger
+    /// files are truncated to this prefix (ClamAV-style bounded scan, keeps
+    /// huge files from stalling the pipeline). Default 100 MiB.
+    pub max_scan_bytes: usize,
 }
 
 impl Default for ScanOptions {
@@ -61,6 +66,7 @@ impl Default for ScanOptions {
             scan_archives: true,
             max_recursion: 16,
             max_child_size: 650 * 1024 * 1024,
+            max_scan_bytes: 100 * 1024 * 1024,
         }
     }
 }
@@ -178,9 +184,24 @@ pub(crate) struct ScanContext<'a> {
     /// only when a `fuzzy_img#` subsignature is actually evaluated. `None` inside
     /// the cell means "computed, not a decodable image".
     pub image_fuzzy_hash: std::cell::OnceCell<Option<[u8; 8]>>,
+    /// PE info, parsed **lazily** on first access (the common case is a non-PE
+    /// file, so calling `parse_pe` for every object is pure waste — the quick MZ
+    /// magic check inside keeps the miss path cheap).
+    pub pe: std::cell::OnceCell<Option<PeInfo>>,
 }
 
 impl ScanContext<'_> {
+    /// Lazily parse (and cache) PE info. Non-PE files return `None` after a
+    /// quick magic check; PE files pay the full parse cost once on first access.
+    pub(crate) fn pe(&self) -> Option<&PeInfo> {
+        self.pe.get_or_init(|| parse_pe(self.data)).as_ref()
+    }
+
+    /// Fast magic-byte PE sniff (just the MZ signature) — no full parse.
+    pub(crate) fn is_pe_magic(&self) -> bool {
+        self.data.len() >= 2 && self.data[..2] == *b"MZ"
+    }
+
     /// Lazily compute (and cache) this file's image fuzzy hash, mirroring
     /// ClamAV's per-fmap `fuzzy_hash_calculate_image`. Guarded by an image-magic
     /// check so non-image files never pay the decode cost.
@@ -514,6 +535,14 @@ impl Engine {
         if data.len() > options.max_child_size {
             return;
         }
+        // Bounded scan: only the first `max_scan_bytes` (default 100 MiB) are
+        // sent to the engine. Huge files (disk images, installers) would
+        // otherwise stall the gap-matching loop; ClamAV bounds scans the same way.
+        let data = if data.len() > options.max_scan_bytes {
+            &data[..options.max_scan_bytes]
+        } else {
+            data
+        };
 
         // Skip raw scan for archives we cannot extract — scanning compressed
         // random bytes against 500k+ signatures triggers pathological backtracking
@@ -544,6 +573,7 @@ impl Engine {
             container_file_pos,
             container_entry_name,
             image_fuzzy_hash: Default::default(),
+            pe: std::cell::OnceCell::new(),
         };
 
         let confident_target = detected_target.or_else(|| detect_builtin_target(&ctx));
@@ -643,7 +673,8 @@ impl Engine {
 
     fn detect_clamav_type(&self, data: &[u8]) -> Option<&str> {
         for magic in &self.database.file_type_magic {
-            let ranges = magic.offset.scan_ranges(data.len());
+            // `.ftm` offsets are absolute/body patterns, never PE-anchored.
+            let ranges = magic.offset.scan_ranges(data.len(), None);
             if ranges.is_empty() {
                 continue;
             }
@@ -778,14 +809,25 @@ impl Engine {
         if matches!(
             signature.offset.anchor,
             OffsetAnchor::Unsupported(_) | OffsetAnchor::MacroGroup(_)
-            | OffsetAnchor::VersionInfo
         ) {
             return;
         }
-        let ranges = signature.offset.scan_ranges(ctx.data.len());
+        // `VI:` (CLI_OFF_VERSION) scans anywhere, then keeps only matches starting
+        // inside the PE's version-info string offsets (same as the logical path).
+        let is_vinfo = matches!(signature.offset.anchor, OffsetAnchor::VersionInfo);
+        let ranges = if is_vinfo {
+            vec![(0, ctx.data.len())]
+        } else {
+            signature.offset.scan_ranges(ctx.data.len(), ctx.pe())
+        };
         if ranges.is_empty() {
             return;
         }
+        let vinfo: &[u32] = if is_vinfo {
+            ctx.pe().map(|p| p.vinfo.as_slice()).unwrap_or(&[])
+        } else {
+            &[]
+        };
         let t_ext = std::time::Instant::now();
         // Extended-signature callers only need to know whether a pattern
         // matched at least once — `count_all` used to tally every occurrence
@@ -794,8 +836,19 @@ impl Engine {
         // and we break out of the outer loop as soon as any pattern matches.
         let mut matched = false;
         for pattern in &signature.patterns {
-            if !pattern.find_all(ctx.data, &ranges, 1).is_empty() {
+            if is_vinfo {
+                // VI: match must start at a version-info offset.
+                for hit in pattern.find_all(ctx.data, &ranges, 1) {
+                    if vinfo.binary_search(&(hit.start as u32)).is_ok() {
+                        matched = true;
+                        break;
+                    }
+                }
+            } else if !pattern.find_all(ctx.data, &ranges, 1).is_empty() {
                 matched = true;
+                break;
+            }
+            if matched {
                 break;
             }
         }
@@ -952,16 +1005,45 @@ impl Engine {
                 return;
             }
         }
-        // NumberOfSections, EntryPoint, and IconGroup are PE(Windows-executable)
-        // -only TDB fields — this scanner never parses PE headers (PE isn't an
-        // Android-relevant format and isn't in `CLAMAV_ALLOWED_TARGETS`), so
-        // there's no way to evaluate these constraints. Skip rather than fire
-        // unconditionally: firing without the constraint would turn a
-        // PE-specific signature into a false positive on non-PE content.
-        if signature.nos.is_some() || signature.ep.is_some()
-            || signature.icongrp1.is_some() || signature.icongrp2.is_some()
-        {
-            return;
+        if let Some((min, max)) = signature.nos {
+            // NumberOfSections applies to PE files; without PE info it can't hold.
+            let n = match ctx.pe() {
+                Some(pe) => pe.sections.len() as u32,
+                None => return,
+            };
+            if n < min || n > max {
+                return;
+            }
+        }
+        if let Some((min, max)) = signature.ep {
+            // EntryPoint compares against the PE entry point's RAW file offset
+            // (ClamAV exeinfo.ep = cli_rawaddr(vep,...)); requires a parsed PE.
+            let ep = match ctx.pe().and_then(|pe| pe.entry_point_offset) {
+                Some(e) => e as u32,
+                None => return,
+            };
+            if ep < min || ep > max {
+                return;
+            }
+        }
+        // IconGroup1/2 (ClamAV matchicon): the PE must carry an icon matching an
+        // `.idb` fingerprint in the requested groups, else the signature can't fire.
+        if signature.icongrp1.is_some() || signature.icongrp2.is_some() {
+            let pe = match ctx.pe() {
+                Some(pe) => pe,
+                None => return,
+            };
+            if !crate::icon_match::matchicon(
+                ctx.data,
+                &pe.sections,
+                pe.size_of_headers,
+                pe.res_rva,
+                &self.database.icons,
+                signature.icongrp1.as_deref(),
+                signature.icongrp2.as_deref(),
+            ) {
+                return;
+            }
         }
         let subsigs = &signature.subsignatures;
         let n = subsigs.len();
@@ -1063,15 +1145,42 @@ impl Engine {
                 }
             }
 
+            // `VI:` (ClamAV `CLI_OFF_VERSION`) scans anywhere, then keeps only
+            // matches starting inside the PE's version-info string offsets.
+            // Unsupported/MacroGroup anchors can't be evaluated → subsig absent.
+            let is_vinfo = matches!(
+                offset.as_deref().map(|s| &s.anchor),
+                Some(OffsetAnchor::VersionInfo)
+            );
             let ranges = match offset.as_deref() {
+                Some(spec) if is_vinfo => vec![(0, ctx.data.len())],
                 Some(spec) => {
-                    let r = spec.scan_ranges(ctx.data.len());
-                    // Unsupported anchor (EP/section/VI): can't compute the range,
-                    // stay permissive with a full-buffer scan (avoids a false
-                    // negative) than trusting the raw atom count.
-                    if r.is_empty() { vec![(0, ctx.data.len())] } else { r }
+                    if matches!(
+                        spec.anchor,
+                        OffsetAnchor::Unsupported(_) | OffsetAnchor::MacroGroup(_)
+                    ) {
+                        counts[i] = 0;
+                        if !signature.expression.can_still_match(counts, evaluated) {
+                            return;
+                        }
+                        continue;
+                    }
+                    let r = spec.scan_ranges(ctx.data.len(), ctx.pe());
+                    if r.is_empty() {
+                        counts[i] = 0;
+                        if !signature.expression.can_still_match(counts, evaluated) {
+                            return;
+                        }
+                        continue;
+                    }
+                    r
                 }
                 None => vec![(0, ctx.data.len())],
+            };
+            let vinfo: &[u32] = if is_vinfo {
+                ctx.pe().map(|p| p.vinfo.as_slice()).unwrap_or(&[])
+            } else {
+                &[]
             };
             let t_body = std::time::Instant::now();
             let mut hits = 0usize;
@@ -1081,10 +1190,22 @@ impl Engine {
                     break;
                 }
                 let remaining = body_count_limit.saturating_sub(hits);
-                let (phits, plast) = pattern.count_all(ctx.data, &ranges, remaining);
-                hits += phits;
-                if let Some(p) = plast {
-                    last = Some(p);
+                if is_vinfo {
+                    for hit in pattern.find_all(ctx.data, &ranges, remaining) {
+                        if vinfo.binary_search(&(hit.start as u32)).is_ok() {
+                            hits += 1;
+                            last = Some(hit.start);
+                            if hits >= body_count_limit {
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    let (phits, plast) = pattern.count_all(ctx.data, &ranges, remaining);
+                    hits += phits;
+                    if let Some(p) = plast {
+                        last = Some(p);
+                    }
                 }
             }
             let body_us = t_body.elapsed().as_micros();
@@ -1284,6 +1405,25 @@ impl Engine {
         for (i, &c) in counts.iter().take(64).enumerate() {
             bctx.lsigcnt[i] = c as u32;
         }
+        if let Some(pe) = ctx.pe() {
+            bctx.ep = pe.entry_point_offset.unwrap_or(0) as u32;
+            bctx.nsections = pe.sections.len() as u16;
+            bctx.sections = pe
+                .sections
+                .iter()
+                .map(|s| crate::bytecode_vm::PeSection {
+                    rva: s.virtual_address,
+                    vsz: s.virtual_size,
+                    raw: s.raw_start as u32,
+                    rsz: s.raw_size as u32,
+                    chr: 0,
+                    urva: s.virtual_address,
+                    uvsz: s.virtual_size,
+                    uraw: s.raw_start as u32,
+                    ursz: s.raw_size as u32,
+                })
+                .collect();
+        }
         match bc.run(&mut bctx) {
             Ok(_) => bctx.virname,
             Err(_) => None,
@@ -1291,13 +1431,13 @@ impl Engine {
     }
 }
 
-/// ClamAV target codes worth running the ClamAV engine on at all: HTML(3),
-/// Graphics(5), ELF(6), ASCII text(7), PDF(10), SWF(11), DEX(16), APK(17),
-/// generic ZIP(18).
+/// ClamAV target codes worth running the ClamAV engine on at all: PE(1),
+/// HTML(3), Graphics(5), ELF(6), ASCII text(7), PDF(10), SWF(11), DEX(16),
+/// APK(17), generic ZIP(18).
 /// Anything else — a confidently-typed desktop-only format or a type we can't
-/// classify — never runs on Android, so `scan_object` skips the whole engine
+/// classify — never runs, so `scan_object` skips the whole engine
 /// for it rather than relying on `target_matches` to reject each candidate.
-const CLAMAV_ALLOWED_TARGETS: [u32; 9] = [3, 5, 6, 7, 10, 11, 16, 17, 18];
+const CLAMAV_ALLOWED_TARGETS: [u32; 10] = [1, 3, 5, 6, 7, 10, 11, 16, 17, 18];
 
 fn clamav_target_allowed(target: Option<u32>) -> bool {
     target.map_or(false, |t| CLAMAV_ALLOWED_TARGETS.contains(&t))
@@ -1333,6 +1473,7 @@ fn target_matches(target: Option<u32>, ctx: &ScanContext<'_>, sig_name: &str) ->
         return want == detected;
     }
     match want {
+        1 => ctx.pe().is_some(),
         3 => looks_like_html(ctx.data),
         7 => looks_like_ascii_text(ctx.data),
         _ => false,
@@ -1389,6 +1530,9 @@ pub fn is_apk_zip(data: &[u8]) -> bool {
 /// cross-type mismatches); `None` when indeterminate (callers stay permissive).
 fn detect_builtin_target(ctx: &ScanContext<'_>) -> Option<u32> {
     let d = ctx.data;
+    if ctx.pe().is_some() {
+        return Some(1); // CL_TYPE_MSEXE (PE)
+    }
     if d.starts_with(b"\x7fELF") {
         return Some(6); // CL_TYPE_ELF
     }
@@ -1433,12 +1577,11 @@ fn detect_builtin_target(ctx: &ScanContext<'_>) -> Option<u32> {
 }
 
 fn clamav_type_to_target(clamav_type: &str) -> Option<u32> {
-    // No PE (CL_TYPE_MSEXE) or OLE2/MSOLE2 arms here: neither Windows PE
-    // executables nor legacy MS Office/OLE2 documents are Android-relevant
-    // formats — target 1 (PE) isn't produced by this function and target 2
-    // (OLE2) isn't in `CLAMAV_ALLOWED_TARGETS`, so mapping to either would
-    // just be dead weight that never reaches the scan path.
+    // OLE2/MSOLE2 have no arm: legacy MS Office documents aren't scanned —
+    // target 2 isn't in `CLAMAV_ALLOWED_TARGETS`, so mapping it would be
+    // dead weight that never reaches the scan path.
     Some(match clamav_type {
+        "CL_TYPE_MSEXE" => 1,
         "CL_TYPE_HTML" => 3,
         "CL_TYPE_GRAPHICS" | "CL_TYPE_GIF" | "CL_TYPE_PNG" | "CL_TYPE_JPEG" => 5,
         "CL_TYPE_ELF" => 6,
@@ -1817,10 +1960,11 @@ mod tests {
             container_file_pos: None,
             container_entry_name: None,
             image_fuzzy_hash: std::cell::OnceCell::new(),
+            pe: std::cell::OnceCell::new(),
         };
         // Naive extended scan
         for (_si, sig) in db.extended.iter().enumerate() {
-            let ranges = sig.offset.scan_ranges(data.len());
+            let ranges = sig.offset.scan_ranges(data.len(), ctx.pe());
             if ranges.is_empty() { continue; }
             let mut matched = false;
             for pattern in &sig.patterns {
@@ -1843,7 +1987,7 @@ mod tests {
                 if let Subsignature::Body { offset, patterns } = sub {
                     let any = OffsetSpec::any();
                     let offset = offset.as_deref().unwrap_or(&any);
-                    let ranges = offset.scan_ranges(data.len());
+                    let ranges = offset.scan_ranges(data.len(), ctx.pe());
                     if !ranges.is_empty() {
                         let mut count = 0;
                         let mut last_end = None;

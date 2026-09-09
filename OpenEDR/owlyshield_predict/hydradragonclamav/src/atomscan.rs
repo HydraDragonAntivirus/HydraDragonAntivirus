@@ -1,7 +1,7 @@
 use crate::atomfilter::{AtomFilterDb, PerTarget, SlotId, SubsigSlot};
 use crate::atomfilter::{ExtSlot, SlotDef};
 use crate::pattern::Pattern;
-use daachorse::clamav_fast::ClamavFastScanner;
+use daachorse::DoubleArrayAhoCorasick;
 
 /// Cached CPU count, capped at 4. `std::thread::available_parallelism()` is not
 /// free on Android: it probes CPU affinity and cgroup-v2 CPU-quota files under
@@ -148,7 +148,7 @@ impl AtomScratch {
     /// (used to compute the absolute position for inline verification).
     #[allow(clippy::too_many_arguments)]
     fn run_dense_chunk(
-        pma: &ClamavFastScanner<u32>,
+        pma: &DoubleArrayAhoCorasick<u32>,
         atom_to_slots: &[Box<[SlotId]>],
         slot_to_values: &[Box<[u32]>],
         slots: &[SlotDef],
@@ -163,7 +163,7 @@ impl AtomScratch {
         verify_results: &mut [bool],
         data_offset: usize,
     ) {
-        for m in pma.find_iter(hay) {
+        for m in pma.find_overlapping_iter(hay) {
             out_stats.daachorse_matches += 1;
             let vi = m.value() as usize;
             if vi < atom_to_slots.len() && value_remaining[vi] != 0 {
@@ -257,7 +257,7 @@ impl AtomScratch {
     }
 
     /// Resolve the scanner for a target (exact or nocase).
-    fn resolve_scanner<'b>(pt: &'b PerTarget, exact: bool) -> Option<&'b ClamavFastScanner<u32>> {
+    fn resolve_scanner<'b>(pt: &'b PerTarget, exact: bool) -> Option<&'b DoubleArrayAhoCorasick<u32>> {
         if exact {
             pt.exact.as_ref()
         } else {
@@ -469,28 +469,27 @@ impl AtomScratch {
         let mut exact_stats = AutomatonStats::default();
         let mut nocase_stats = AutomatonStats::default();
 
-        // ── Shift-OR prefilter (exact-only hint) ──────────────────────
-        let (exact_window, exact_offset) = match db.prefilter.search(data) {
-            Some(start) if start < data.len() => (&data[start..], start),
-            _ => (&data[0..0], 0),
-        };
-
-        // ── Exact automaton pass (data_offset = exact_offset) ────────
-        if !exact_window.is_empty() {
+        // ── Exact automaton pass over the FULL buffer ───────────────────
+        // No outer Shift-OR windowing: upstream daachorse 5's
+        // DoubleArrayAhoCorasick already carries its own built-in 2-gram
+        // match-candidate prefilter (enabled by default) and skips dead
+        // regions internally. An extra outer window would only truncate
+        // last_offset bookkeeping for no gain.
+        if pt.exact.is_some() && !data.is_empty() {
             let n_threads = worker_count();
-            if n_threads > 1 && exact_window.len() >= 256 * 1024 {
+            if n_threads > 1 && data.len() >= 256 * 1024 {
                 Self::run_dense_parallel(
                     pt,
                     true,
                     &db.slots,
-                    exact_window,
+                    data,
                     file_type_target,
                     &mut self.counts,
                     &mut self.last_offset,
                     &mut exact_stats,
                     verify_ctx,
                     verify_results,
-                    exact_offset,
+                    0,
                 );
             } else {
                 Self::run_dense_automaton(
@@ -499,22 +498,15 @@ impl AtomScratch {
                     &db.slots,
                     &mut self.saturated,
                     &mut self.value_remaining,
-                    exact_window,
+                    data,
                     file_type_target,
                     &mut self.counts,
                     &mut self.last_offset,
                     &mut exact_stats,
                     verify_ctx,
                     verify_results,
-                    exact_offset,
+                    0,
                 );
-            }
-            if exact_offset > 0 {
-                for o in self.last_offset.iter_mut() {
-                    if *o != u32::MAX {
-                        *o += exact_offset as u32;
-                    }
-                }
             }
         }
 
@@ -601,12 +593,11 @@ impl AtomScratch {
                 String::from("nocase(none)")
             };
             eprintln!(
-                "[ATOMSCAN] {} {}KB {} {}  exact_window={}",
+                "[ATOMSCAN] {} {}KB {} {}",
                 target_label,
                 data.len() / 1024,
                 exact_info,
                 nocase_info,
-                exact_window.len()
             );
         }
 

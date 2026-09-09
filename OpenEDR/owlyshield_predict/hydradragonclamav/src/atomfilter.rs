@@ -1,5 +1,4 @@
-use daachorse::clamav_fast::ClamavFastScanner;
-use daachorse::ClamavPrefilter;
+use daachorse::DoubleArrayAhoCorasick;
 
 pub type SlotId = u32;
 
@@ -32,8 +31,8 @@ pub enum SubsigSlot {
 /// Automata and mappings for a single file-type target.
 pub struct PerTarget {
     pub target: u32,
-    pub exact: Option<ClamavFastScanner<u32>>,
-    pub nocase: Option<ClamavFastScanner<u32>>,
+    pub exact: Option<DoubleArrayAhoCorasick<u32>>,
+    pub nocase: Option<DoubleArrayAhoCorasick<u32>>,
     pub atom_to_slots: Vec<Box<[SlotId]>>,
     pub pattern_lens: Vec<usize>,
     pub slot_to_values: Vec<Box<[u32]>>,
@@ -58,12 +57,13 @@ pub struct AtomFilterDb {
     /// Per-target automata, indexed by file_type_target.
     /// `per_target[0]` is the "full" automaton (target 0 = any file) containing
     /// ALL patterns regardless of target.  `per_target[1..]` are specific
-    /// targets (3, 5, 6, …).
+    /// targets (1, 3, 5, 6, …).
+    /// NOTE: upstream daachorse 5 already has a built-in 2-gram match-candidate
+    /// prefilter inside each automaton — no separate ClamavPrefilter is stored.
     pub per_target: Vec<PerTarget>,
     pub slots: Vec<SlotDef>,
     pub ext_slot: Vec<ExtSlot>,
     pub log_subsig_slots: Vec<Box<[SubsigSlot]>>,
-    pub prefilter: ClamavPrefilter,
 }
 
 impl std::fmt::Debug for AtomFilterDb {
@@ -84,16 +84,14 @@ impl AtomFilterDb {
             slots: Vec::new(),
             ext_slot: Vec::new(),
             log_subsig_slots: Vec::new(),
-            prefilter: ClamavPrefilter::empty(),
         }
     }
 
     /// Serialise the entire atomfilter into a byte vector.
     ///
     /// Format (all integers little-endian):
-    ///   1. version (u8) = 3
-    ///   2. prefilter: 1 × [`ClamavPrefilter`], 2 × 65536 bytes = 131072 bytes
-    ///   3. per_target count (u32)
+    ///   1. version (u8) = 4 (v4 = upstream daachorse 5, no separate prefilter blob)
+    ///   2. per_target count (u32)
     ///   4. for each per_target:
     ///        target (u32)
     ///
@@ -124,13 +122,10 @@ impl AtomFilterDb {
         let mut buf = Vec::new();
 
         // 1. version
-        buf.push(3u8);
+        buf.push(4u8);
 
-        // 2. prefilter (b + end tables, 2 × 65536 bytes)
-        buf.extend_from_slice(&self.prefilter.raw_b()[..]);
-        buf.extend_from_slice(&self.prefilter.raw_end()[..]);
-
-        // 3+4. per_target
+        // 2+3. per_target (no separate prefilter blob: upstream daachorse 5
+        // automata carry their own built-in 2-gram prefilter)
         buf.extend_from_slice(&(self.per_target.len() as u32).to_le_bytes());
         for pt in &self.per_target {
             buf.extend_from_slice(&pt.target.to_le_bytes());
@@ -214,18 +209,13 @@ impl AtomFilterDb {
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let mut pos = 0usize;
 
-        // 1. version
-        if bytes.get(pos).copied()? != 3 {
+        // 1. version (v4 only; v3 caches with the fork prefilter blob are rejected)
+        if bytes.get(pos).copied()? != 4 {
             return None;
         }
         pos += 1;
 
-        // 2. prefilter
-        let pf_bytes = bytes.get(pos..pos + 131072)?;
-        pos += 131072;
-        let prefilter = read_prefilter(pf_bytes)?;
-
-        // 3. per_target count
+        // 2. per_target count
         let pt_count = read_u32(bytes, &mut pos)? as usize;
 
         // 4. per_target array
@@ -337,14 +327,13 @@ impl AtomFilterDb {
             slots,
             ext_slot,
             log_subsig_slots,
-            prefilter,
         })
     }
 }
 
 // -- helpers --
 
-fn write_auto(buf: &mut Vec<u8>, auto: Option<&ClamavFastScanner<u32>>) {
+fn write_auto(buf: &mut Vec<u8>, auto: Option<&DoubleArrayAhoCorasick<u32>>) {
     match auto {
         Some(scanner) => {
             let bytes = scanner.serialize();
@@ -359,7 +348,7 @@ fn write_auto(buf: &mut Vec<u8>, auto: Option<&ClamavFastScanner<u32>>) {
     }
 }
 
-fn read_auto(bytes: &[u8], pos: &mut usize) -> Option<Option<ClamavFastScanner<u32>>> {
+fn read_auto(bytes: &[u8], pos: &mut usize) -> Option<Option<DoubleArrayAhoCorasick<u32>>> {
     let has = bytes.get(*pos).copied()?;
     *pos += 1;
     let len = read_u32(bytes, pos)? as usize;
@@ -371,7 +360,7 @@ fn read_auto(bytes: &[u8], pos: &mut usize) -> Option<Option<ClamavFastScanner<u
     }
     let slice = bytes.get(*pos..*pos + len)?;
     *pos += len;
-    let (scanner, _rest) = ClamavFastScanner::<u32>::deserialize(slice).ok()?;
+    let (scanner, _rest) = DoubleArrayAhoCorasick::<u32>::deserialize(slice).ok()?;
     Some(Some(scanner))
 }
 
@@ -387,14 +376,4 @@ fn read_u64(bytes: &[u8], pos: &mut usize) -> Option<u64> {
     Some(u64::from_le_bytes([
         slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
     ]))
-}
-
-fn read_prefilter(bytes: &[u8]) -> Option<ClamavPrefilter> {
-    let b_slice = bytes.get(0..65536)?;
-    let end_slice = bytes.get(65536..131072)?;
-    let mut b = [0u8; 65536];
-    let mut end = [0u8; 65536];
-    b.copy_from_slice(b_slice);
-    end.copy_from_slice(end_slice);
-    Some(ClamavPrefilter::from_raw(b, end))
 }

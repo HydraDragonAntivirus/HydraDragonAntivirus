@@ -1,4 +1,4 @@
-use daachorse::clamav_fast::ClamavFastScanner;
+use daachorse::DoubleArrayAhoCorasick;
 
 use crate::atomfilter::{AtomFilterDb, ExtSlot, PerTarget, SlotDef, SlotId, SubsigSlot};
 use crate::database::Database;
@@ -115,7 +115,7 @@ fn build_automaton(
     entries: Vec<(Vec<u8>, SlotId)>,
     value_offset: u32,
 ) -> (
-    Option<ClamavFastScanner<u32>>,
+    Option<DoubleArrayAhoCorasick<u32>>,
     Vec<Box<[SlotId]>>,
     Vec<usize>,
 ) {
@@ -129,21 +129,19 @@ fn build_automaton(
         pattern_to_slots.entry(bytes).or_default().push(slot);
     }
 
-    let mut patterns: Vec<Vec<u8>> = Vec::with_capacity(pattern_to_slots.len());
-    let mut values: Vec<u32> = Vec::with_capacity(pattern_to_slots.len());
     let mut atom_to_slots: Vec<Box<[SlotId]>> = Vec::with_capacity(pattern_to_slots.len());
     let mut pattern_lens: Vec<usize> = Vec::with_capacity(pattern_to_slots.len());
+    let mut patvals: Vec<(Vec<u8>, u32)> = Vec::with_capacity(pattern_to_slots.len());
 
     for (i, (bytes, slots)) in pattern_to_slots.into_iter().enumerate() {
         let value = value_offset + i as u32;
-        patterns.push(bytes.clone());
-        values.push(value);
-        atom_to_slots.push(slots.into_boxed_slice());
         pattern_lens.push(bytes.len());
+        atom_to_slots.push(slots.into_boxed_slice());
+        patvals.push((bytes, value));
     }
 
-    let pma = ClamavFastScanner::with_values(patterns.iter().cloned().zip(values.iter().copied()))
-        .expect("ClamavFastScanner build should succeed");
+    let pma = DoubleArrayAhoCorasick::<u32>::with_values(patvals)
+        .expect("DoubleArrayAhoCorasick build should succeed");
 
     (Some(pma), atom_to_slots, pattern_lens)
 }
@@ -256,15 +254,8 @@ impl AtomFilterBuilder {
             log_subsig_slots.push(sub_slots.into_boxed_slice());
         }
 
-        // ── Build the Shift-OR prefilter (all atoms) ─────────────────────
-        let all_atoms: Vec<Vec<u8>> = reg
-            .exact
-            .iter()
-            .chain(&reg.nocase)
-            .map(|(bytes, _, _)| bytes.clone())
-            .collect();
-        let prefilter = daachorse::ClamavPrefilter::from_patterns(&all_atoms);
-
+        // NOTE: no separate Shift-OR prefilter — upstream daachorse 5 automata
+        // carry a built-in 2-gram match-candidate prefilter internally.
         // ── Identify which specific targets are present in the DB ────────
         let mut specific_targets: Vec<u32> = slots
             .iter()
@@ -273,14 +264,14 @@ impl AtomFilterBuilder {
                 (t != 0).then_some(t)
             })
             .collect();
-        // Ensure per-target DFAs for all Android-relevant targets are built
+        // Ensure per-target DFAs for all relevant targets are built
         // even if no signature directly targets them. A buffer whose file type
-        // is DEX (16) or APK (17) currently falls back to the "full" automaton
-        // (which includes atoms for desktop-only targets 1, 2, 4, 9, 12 —
-        // 34K+ useless file-type skips per large buffer). Adding them here
-        // builds a smaller DFA containing only generic (target=0) atoms +
-        // any target-specific atoms, eliminating the ft_sk waste entirely.
-        specific_targets.extend_from_slice(&[16, 17, 18]);
+        // is PE (1), DEX (16) or APK (17) currently falls back to the "full"
+        // automaton (which includes atoms for other targets — useless
+        // file-type skips per large buffer). Adding them here builds a smaller
+        // DFA containing only generic (target=0) atoms + any target-specific
+        // atoms, eliminating the ft_sk waste entirely.
+        specific_targets.extend_from_slice(&[1, 16, 17, 18]);
         specific_targets.sort();
         specific_targets.dedup();
 
@@ -332,7 +323,6 @@ impl AtomFilterBuilder {
             slots,
             ext_slot,
             log_subsig_slots,
-            prefilter,
         }
     }
 }

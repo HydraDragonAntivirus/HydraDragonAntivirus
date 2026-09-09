@@ -1,5 +1,6 @@
 use crate::logical::{parse_logical_signature, LogicalSignature};
 use crate::pattern::{compile_pattern_variants, Modifiers, Pattern};
+use crate::pe::PeInfo;
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
@@ -31,6 +32,12 @@ pub struct Database {
     pub file_type_magic: Vec<FileTypeMagic>,
     /// Phishing URL databases (`.pdb`/`.gdb` protected domains, `.wdb` allow list).
     pub phishing: crate::phishing::PhishingDb,
+    /// Icon signatures (`.idb`) — fingerprints matched against PE icons
+    /// by `icon_match` (evaluates `IconGroup1/2` TDB constraints).
+    pub icons: crate::icon::IconMatcher,
+    /// Certificate trust/block rules (`.crb`) — records loaded; Authenticode
+    /// verification is a follow-up.
+    pub certs: crate::cert::CertTrustDb,
     pub unsupported: Vec<UnsupportedRecord>,
     /// Decoded + interpreter-prepared ClamBC programs. A logical signature whose
     /// `bytecode` field is `Some(i)` is a bytecode trigger that runs `[i]`.
@@ -304,10 +311,34 @@ impl OffsetSpec {
             rest.parse::<usize>()
                 .map(OffsetAnchor::EofMinus)
                 .unwrap_or_else(|_| OffsetAnchor::Unsupported(base.to_string()))
-        } else if upper.starts_with("EP") || upper.starts_with("SE") || upper.starts_with("SL")
-            || upper.starts_with('S') && upper.len() > 1 || upper == "VI"
-        {
-            OffsetAnchor::Unsupported(base.to_string())
+        } else if upper == "EP" {
+            OffsetAnchor::EntryPoint(0)
+        } else if let Some(rest) = upper.strip_prefix("EP+") {
+            parse_i64(rest)
+                .map(OffsetAnchor::EntryPoint)
+                .unwrap_or_else(|| OffsetAnchor::Unsupported(base.to_string()))
+        } else if let Some(rest) = upper.strip_prefix("EP-") {
+            parse_i64(rest)
+                .map(|value| OffsetAnchor::EntryPoint(-value))
+                .unwrap_or_else(|| OffsetAnchor::Unsupported(base.to_string()))
+        } else if let Some(rest) = upper.strip_prefix("SE") {
+            rest.parse::<usize>()
+                .map(|index| OffsetAnchor::SectionEntire { index })
+                .unwrap_or_else(|_| OffsetAnchor::Unsupported(base.to_string()))
+        } else if upper == "SL" {
+            OffsetAnchor::LastSectionStart { delta: 0 }
+        } else if let Some(rest) = upper.strip_prefix("SL+") {
+            parse_i64(rest)
+                .map(|delta| OffsetAnchor::LastSectionStart { delta })
+                .unwrap_or_else(|| OffsetAnchor::Unsupported(base.to_string()))
+        } else if let Some(rest) = upper.strip_prefix("SL-") {
+            parse_i64(rest)
+                .map(|delta| OffsetAnchor::LastSectionStart { delta: -delta })
+                .unwrap_or_else(|| OffsetAnchor::Unsupported(base.to_string()))
+        } else if upper.starts_with('S') && upper.len() > 1 {
+            parse_section_start(base).unwrap_or_else(|| OffsetAnchor::Unsupported(base.to_string()))
+        } else if upper == "VI" {
+            OffsetAnchor::VersionInfo
         } else if base.starts_with('$') {
             OffsetAnchor::MacroGroup(base.trim_start_matches('$').to_string())
         } else {
@@ -319,7 +350,7 @@ impl OffsetSpec {
         Self { anchor, max_shift }
     }
 
-    pub fn scan_ranges(&self, data_len: usize) -> Vec<(usize, usize)> {
+    pub fn scan_ranges(&self, data_len: usize, pe: Option<&PeInfo>) -> Vec<(usize, usize)> {
         match &self.anchor {
             OffsetAnchor::Any => vec![(0, data_len)],
             OffsetAnchor::Absolute(offset) => shifted_range(*offset, data_len, self.max_shift),
@@ -327,11 +358,33 @@ impl OffsetSpec {
                 .checked_sub(*back)
                 .map(|offset| shifted_range(offset, data_len, self.max_shift))
                 .unwrap_or_default(),
-            OffsetAnchor::EntryPoint(_)
-            | OffsetAnchor::SectionStart { .. }
-            | OffsetAnchor::SectionEntire { .. }
-            | OffsetAnchor::LastSectionStart { .. }
-            | OffsetAnchor::VersionInfo
+            OffsetAnchor::EntryPoint(delta) => pe
+                .and_then(|info| info.entry_point_offset)
+                .and_then(|offset| apply_delta(offset, *delta))
+                .map(|offset| shifted_range(offset, data_len, self.max_shift))
+                .unwrap_or_default(),
+            OffsetAnchor::SectionStart { index, delta } => pe
+                .and_then(|info| info.sections.get(*index))
+                .and_then(|section| apply_delta(section.raw_start, *delta))
+                .map(|offset| shifted_range(offset, data_len, self.max_shift))
+                .unwrap_or_default(),
+            OffsetAnchor::SectionEntire { index } => pe
+                .and_then(|info| info.sections.get(*index))
+                .map(|section| {
+                    let start = section.raw_start.min(data_len);
+                    let end = section
+                        .raw_start
+                        .saturating_add(section.raw_size)
+                        .min(data_len);
+                    vec![(start, end)]
+                })
+                .unwrap_or_default(),
+            OffsetAnchor::LastSectionStart { delta } => pe
+                .and_then(|info| info.sections.last())
+                .and_then(|section| apply_delta(section.raw_start, *delta))
+                .map(|offset| shifted_range(offset, data_len, self.max_shift))
+                .unwrap_or_default(),
+            OffsetAnchor::VersionInfo
             | OffsetAnchor::MacroGroup(_)
             | OffsetAnchor::Unsupported(_) => Vec::new(),
         }
@@ -350,24 +403,14 @@ fn load_file(
 
     let kind = classify_extension(&ext);
     match kind {
-        // Per-line text databases parsed below.
+        // Per-line text databases parsed below (`.idb` icon fingerprints and
+        // `.crb` cert records included — PE detection needs both).
         ExtKind::BodyNdb | ExtKind::BodyOldDb | ExtKind::Logical | ExtKind::Container
-        | ExtKind::FileMagic | ExtKind::Phishing => {}
+        | ExtKind::FileMagic | ExtKind::Phishing | ExtKind::Icon | ExtKind::CertCrb => {}
 
         // Hash-based databases are matched by hydradragon elsewhere, not here.
         ExtKind::Hash => {
             report.hash_files_skipped += 1;
-            return Ok(());
-        }
-
-        // `.idb` and `.crb` are PE-specific (icon fingerprints / Authenticode certs).
-        // Unused on Android — skip entirely.
-        ExtKind::Icon => {
-            report.icon_files += 1;
-            return Ok(());
-        }
-        ExtKind::CertCrb => {
-            report.cert_files += 1;
             return Ok(());
         }
 
@@ -421,6 +464,12 @@ fn load_file(
 
     if kind == ExtKind::Phishing {
         report.phishing_files += 1;
+    }
+    if kind == ExtKind::Icon {
+        report.icon_files += 1;
+    }
+    if kind == ExtKind::CertCrb {
+        report.cert_files += 1;
     }
 
     let file = File::open(path)?;
@@ -526,8 +575,21 @@ fn load_file(
                     Err(message) => push_error(report, source, message),
                 }
             }
-            ExtKind::Icon | ExtKind::CertCrb => {
-                unreachable!("Icon/CertCrb files returned early before the parse loop")
+            // Icon signatures (`.idb`): fingerprint loaded; matched against
+            // PE icons via `icon_match` (readdb.c cli_loadidb).
+            ExtKind::Icon => match database.icons.add_line(line, source.clone()) {
+                Ok(()) => report.icon_loaded += 1,
+                Err(message) => push_error(report, source, message),
+            },
+            // Certificate trust/block rules (`.crb`): record loaded; Authenticode
+            // verification engine is a follow-up (readdb.c cli_loadcrt).
+            ExtKind::CertCrb => {
+                let flevel = crate::bytecode_vm::ENGINE_FLEVEL;
+                match database.certs.add_line(line, source.clone(), flevel) {
+                    Ok(true) => report.cert_loaded += 1,
+                    Ok(false) => {} // skipped by functionality-level gating
+                    Err(message) => push_error(report, source, message),
+                }
             }
             // The non-per-line kinds returned early above before the read loop.
             _ => unreachable!("non-per-line ExtKind reached the parse loop"),
@@ -1181,6 +1243,47 @@ fn shifted_range(offset: usize, data_len: usize, max_shift: Option<usize>) -> Ve
     vec![(offset, end)]
 }
 
+fn parse_section_start(raw: &str) -> Option<OffsetAnchor> {
+    let rest = raw.strip_prefix('S')?;
+    let mut digits = String::new();
+    let mut chars = rest.chars().peekable();
+    while let Some(ch) = chars.peek() {
+        if ch.is_ascii_digit() {
+            digits.push(*ch);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if digits.is_empty() {
+        return None;
+    }
+    let index = digits.parse::<usize>().ok()?;
+    let suffix: String = chars.collect();
+    let delta = if suffix.is_empty() {
+        0
+    } else if let Some(rest) = suffix.strip_prefix('+') {
+        parse_i64(rest)?
+    } else if let Some(rest) = suffix.strip_prefix('-') {
+        -parse_i64(rest)?
+    } else {
+        return None;
+    };
+    Some(OffsetAnchor::SectionStart { index, delta })
+}
+
+fn parse_i64(raw: &str) -> Option<i64> {
+    raw.parse::<i64>().ok()
+}
+
+fn apply_delta(base: usize, delta: i64) -> Option<usize> {
+    if delta >= 0 {
+        base.checked_add(delta as usize)
+    } else {
+        base.checked_sub(delta.unsigned_abs() as usize)
+    }
+}
+
 fn collect_ignored_from_map(
     files: &std::collections::HashMap<String, Vec<u8>>,
     report: &mut LoadReport,
@@ -1220,10 +1323,8 @@ fn load_file_from_bytes(
     let kind = classify_extension(&ext);
     match kind {
         ExtKind::BodyNdb | ExtKind::BodyOldDb | ExtKind::Logical | ExtKind::Container
-        | ExtKind::FileMagic | ExtKind::Phishing => {}
+        | ExtKind::FileMagic | ExtKind::Phishing | ExtKind::Icon | ExtKind::CertCrb => {}
         ExtKind::Hash => { report.hash_files_skipped += 1; return; }
-        ExtKind::Icon => { report.icon_files += 1; return; }
-        ExtKind::CertCrb => { report.cert_files += 1; return; }
         ExtKind::Ignore => return,
         ExtKind::Config => { report.config_files += 1; return; }
         ExtKind::Metadata => { report.metadata_files += 1; return; }
@@ -1250,6 +1351,12 @@ fn load_file_from_bytes(
 
     if kind == ExtKind::Phishing {
         report.phishing_files += 1;
+    }
+    if kind == ExtKind::Icon {
+        report.icon_files += 1;
+    }
+    if kind == ExtKind::CertCrb {
+        report.cert_files += 1;
     }
 
     let src_path: Arc<Path> = Arc::from(std::path::Path::new(name));
@@ -1337,6 +1444,18 @@ fn load_file_from_bytes(
                 };
                 match result {
                     Ok(true) => report.phishing_loaded += 1,
+                    Ok(false) => {}
+                    Err(message) => push_error(report, source, message),
+                }
+            }
+            ExtKind::Icon => match database.icons.add_line(line, source.clone()) {
+                Ok(()) => report.icon_loaded += 1,
+                Err(message) => push_error(report, source, message),
+            },
+            ExtKind::CertCrb => {
+                let flevel = crate::bytecode_vm::ENGINE_FLEVEL;
+                match database.certs.add_line(line, source.clone(), flevel) {
+                    Ok(true) => report.cert_loaded += 1,
                     Ok(false) => {}
                     Err(message) => push_error(report, source, message),
                 }

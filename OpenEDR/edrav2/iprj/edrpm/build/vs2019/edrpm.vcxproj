@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -31,6 +31,8 @@
     <ClInclude Include="..\..\src\screen.h" />
     <ClInclude Include="..\..\src\trampoline.h" />
     <ClInclude Include="..\..\src\winapi.h" />
+    <ClInclude Include="..\..\src\clr_hook.h" />
+    <ClInclude Include="..\..\src\anti_unhook.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\common.cpp" />
@@ -41,6 +43,8 @@
     <ClCompile Include="..\..\src\injection.cpp" />
     <ClCompile Include="..\..\src\keyboard.cpp" />
     <ClCompile Include="..\..\src\microphone.cpp" />
+    <ClCompile Include="..\..\src\clr_hook.cpp" />
+    <ClCompile Include="..\..\src\anti_unhook.cpp" />
     <ClCompile Include="..\..\src\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
@@ -122,6 +126,8 @@
     <PostBuildEvent>
       <Command>md "$(TargetDir)\tests\"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
+call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -140,6 +146,8 @@ copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
     <PostBuildEvent>
       <Command>md "$(TargetDir)\tests\"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
+call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -158,6 +166,8 @@ copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
     <PostBuildEvent>
       <Command>md "$(TargetDir)\tests\"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
+call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -176,6 +186,8 @@ copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
     <PostBuildEvent>
       <Command>md "$(TargetDir)\tests\"
 copy "$(TargetPath)" "$(TargetDir)\tests\" /Y
+call "$(ProjectDir)sign_dll.bat" "$(TargetPath)"
+call "$(ProjectDir)sign_dll.bat" "$(TargetDir)tests\$(TargetFileName)"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>

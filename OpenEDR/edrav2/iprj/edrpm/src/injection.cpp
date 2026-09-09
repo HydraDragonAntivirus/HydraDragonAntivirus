@@ -19,6 +19,8 @@
 #include "disk.h"
 #include "microphone.h"
 #include "screen.h"
+#include "clr_hook.h"
+#include "anti_unhook.h"
 #include <libsysmon\inc\edrdrvapi.hpp>
 #include <fltuser.h>
 
@@ -143,6 +145,8 @@ bool Injection::init()
 	//getTrampManager().disableTrampStart(getTrampId("ntdll.dll", "NtSetInformationThread"));
 
 	hookAll();
+	InitClrHookEngine();
+	StartAntiUnhookWatchdog();
 	logError("Injected into process", ErrorType::Info);
 	return true;
 }
@@ -154,6 +158,9 @@ bool Injection::finalize()
 {
 	if (!m_fInit)
 		return false;
+
+	StopAntiUnhookWatchdog();
+	ShutdownClrHookEngine();
 
 	// Do not change order
 	getTrampManager().disableTramps();

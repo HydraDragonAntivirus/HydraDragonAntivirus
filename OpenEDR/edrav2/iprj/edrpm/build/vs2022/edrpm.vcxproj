@@ -31,6 +31,8 @@
     <ClInclude Include="..\..\src\screen.h" />
     <ClInclude Include="..\..\src\trampoline.h" />
     <ClInclude Include="..\..\src\winapi.h" />
+    <ClInclude Include="..\..\src\clr_hook.h" />
+    <ClInclude Include="..\..\src\anti_unhook.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\common.cpp" />
@@ -41,6 +43,8 @@
     <ClCompile Include="..\..\src\injection.cpp" />
     <ClCompile Include="..\..\src\keyboard.cpp" />
     <ClCompile Include="..\..\src\microphone.cpp" />
+    <ClCompile Include="..\..\src\clr_hook.cpp" />
+    <ClCompile Include="..\..\src\anti_unhook.cpp" />
     <ClCompile Include="..\..\src\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
