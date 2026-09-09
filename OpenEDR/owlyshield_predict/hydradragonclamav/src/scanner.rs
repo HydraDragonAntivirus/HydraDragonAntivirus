@@ -58,6 +58,16 @@ pub struct ScanOptions {
     /// files are truncated to this prefix (ClamAV-style bounded scan, keeps
     /// huge files from stalling the pipeline). Default 100 MiB.
     pub max_scan_bytes: usize,
+    /// Max bytes scanned as one contiguous unit. Larger inputs are split into
+    /// `chunk_size` pieces (with a small overlap so matches straddling a cut
+    /// are still found) and scanned piece by piece — bounded memory/time per
+    /// unit, fast overall. Default 8 MiB.
+    pub chunk_size: usize,
+    /// Zero-filled runs at least this long are SKIPPED outright (never sent to
+    /// the engine): multi-megabyte `00…` padding (PE section padding, sparse
+    /// overlays, disk images) matches nothing real but costs gap-matching
+    /// time. Default 1 MiB.
+    pub blank_skip: usize,
 }
 
 impl Default for ScanOptions {
@@ -67,9 +77,17 @@ impl Default for ScanOptions {
             max_recursion: 16,
             max_child_size: 650 * 1024 * 1024,
             max_scan_bytes: 100 * 1024 * 1024,
+            chunk_size: 8 * 1024 * 1024,
+            blank_skip: 1024 * 1024,
         }
     }
 }
+
+/// Overlap between consecutive scan chunks: a match fully inside the overlap
+/// is found from either side, so nothing straddling a cut is missed. Must stay
+/// far below `chunk_size` (matches longer than this across a cut are the
+/// accepted tradeoff for bounded scanning).
+const CHUNK_OVERLAP: usize = 64 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScanMatch {
@@ -166,9 +184,21 @@ pub enum ScanView {
 }
 
 pub(crate) struct ScanContext<'a> {
+    /// This chunk's bytes (a slice of `full`).
     pub data: &'a [u8],
+    /// The whole truncated file this chunk was cut from. PE parsing and the
+    /// image fuzzy hash always run on `full` (headers live at file start);
+    /// `data` is only the match window.
+    pub full: &'a [u8],
+    /// File offset of `data[0]` within the truncated file.
+    pub base_offset: usize,
+    /// Truncated file length (for `EOF-n` math and `FileSize` TDB).
+    pub total_len: usize,
     /// Target derived from `.ftm` file-type magic.
     pub detected_target: Option<u32>,
+    /// File-level builtin-magic target (computed once from `full`, shared by
+    /// all chunks — a later chunk's bytes must not re-type the file).
+    pub builtin_target: Option<u32>,
     pub object_path: &'a str,
     pub view: ScanView,
     /// ClamAV `CL_TYPE_*` of this object's IMMEDIATE parent container (the type
@@ -184,31 +214,31 @@ pub(crate) struct ScanContext<'a> {
     /// only when a `fuzzy_img#` subsignature is actually evaluated. `None` inside
     /// the cell means "computed, not a decodable image".
     pub image_fuzzy_hash: std::cell::OnceCell<Option<[u8; 8]>>,
-    /// PE info, parsed **lazily** on first access (the common case is a non-PE
-    /// file, so calling `parse_pe` for every object is pure waste — the quick MZ
-    /// magic check inside keeps the miss path cheap).
-    pub pe: std::cell::OnceCell<Option<PeInfo>>,
+    /// PE info parsed ONCE from `full` in `scan_object` (only when the MZ
+    /// magic is present, else `None` with no parse cost) and shared by every
+    /// chunk — later chunks don't re-parse headers they don't contain.
+    pub pe: Option<std::rc::Rc<PeInfo>>,
 }
 
 impl ScanContext<'_> {
-    /// Lazily parse (and cache) PE info. Non-PE files return `None` after a
-    /// quick magic check; PE files pay the full parse cost once on first access.
+    /// Shared PE info (parsed once from the whole file, not per chunk).
     pub(crate) fn pe(&self) -> Option<&PeInfo> {
-        self.pe.get_or_init(|| parse_pe(self.data)).as_ref()
+        self.pe.as_deref()
     }
 
     /// Fast magic-byte PE sniff (just the MZ signature) — no full parse.
     pub(crate) fn is_pe_magic(&self) -> bool {
-        self.data.len() >= 2 && self.data[..2] == *b"MZ"
+        self.full.len() >= 2 && self.full[..2] == *b"MZ"
     }
 
     /// Lazily compute (and cache) this file's image fuzzy hash, mirroring
     /// ClamAV's per-fmap `fuzzy_hash_calculate_image`. Guarded by an image-magic
-    /// check so non-image files never pay the decode cost.
+    /// check so non-image files never pay the decode cost. Always computed on
+    /// the whole file, never on a cut chunk.
     pub(crate) fn image_fuzzy_hash(&self) -> Option<[u8; 8]> {
         *self.image_fuzzy_hash.get_or_init(|| {
-            if looks_like_image(self.data) {
-                crate::fuzzy::calculate_image(self.data)
+            if looks_like_image(self.full) {
+                crate::fuzzy::calculate_image(self.full)
             } else {
                 None
             }
@@ -563,20 +593,36 @@ impl Engine {
             None
         };
 
-        let ctx = ScanContext {
+        // PE headers are parsed ONCE from the whole truncated file (and only
+        // when the MZ magic is present — otherwise `None` with zero parse
+        // cost) and shared by every chunk below.
+        let pe_shared: Option<std::rc::Rc<PeInfo>> =
+            if data.len() >= 2 && data[..2] == *b"MZ" {
+                parse_pe(data).map(std::rc::Rc::new)
+            } else {
+                None
+            };
+
+        // File-level builtin type, computed once from the whole file and shared
+        // by all chunks (a cut chunk's own bytes must never re-type the file).
+        let probe = ScanContext {
             data,
+            full: data,
+            base_offset: 0,
+            total_len: data.len(),
             detected_target,
+            builtin_target: None,
             object_path,
             view: ScanView::Raw,
             container_type,
             container_size_real,
             container_file_pos,
-            container_entry_name,
+            container_entry_name: container_entry_name.clone(),
             image_fuzzy_hash: Default::default(),
-            pe: std::cell::OnceCell::new(),
+            pe: pe_shared.clone(),
         };
-
-        let confident_target = detected_target.or_else(|| detect_builtin_target(&ctx));
+        let builtin_target = detect_builtin_target(&probe);
+        let confident_target = detected_target.or(builtin_target);
 
         // Run the ClamAV engine (prefilter + extended + logical) on files
         // whose type is either unknown or positively identified as a supported
@@ -585,19 +631,50 @@ impl Engine {
         // atom prefilter only to have `target_matches` reject every candidate.
         if !skip_clamav {
             if confident_target.is_some() && clamav_target_allowed(confident_target)
-                || confident_target.is_none() && is_text_like(ctx.data)
+                || confident_target.is_none() && is_text_like(data)
             {
-                // Time ClamAV scan_context
-                let t_clamav = timing.as_ref().map(|_| Instant::now());
-                self.scan_context(&ctx, &mut state.matches);
-                if let (Some(t), Some(bt)) = (t_clamav, timing.as_mut()) {
-                    bt.clamav_ns = bt.clamav_ns.saturating_add(t.elapsed().as_nanos());
+                // Chunk-by-chunk: long `00…` runs are cut out by `plan_chunks`
+                // and the rest is scanned in bounded pieces. Offsets stay in
+                // FILE coordinates (`scan_ranges_chunk`), so anchored
+                // signatures keep exact semantics.
+                let chunks = plan_chunks(data.len(), data, options.chunk_size, options.blank_skip);
+                let multi = chunks.len() > 1;
+                for (base, end) in chunks {
+                    let ctx = ScanContext {
+                        data: &data[base..end],
+                        full: data,
+                        base_offset: base,
+                        total_len: data.len(),
+                        detected_target,
+                        builtin_target,
+                        object_path,
+                        view: ScanView::Raw,
+                        container_type,
+                        container_size_real,
+                        container_file_pos,
+                        container_entry_name: container_entry_name.clone(),
+                        image_fuzzy_hash: Default::default(),
+                        pe: pe_shared.clone(),
+                    };
+                    // Time ClamAV scan_context
+                    let t_clamav = timing.as_ref().map(|_| Instant::now());
+                    self.scan_context(&ctx, &mut state.matches);
+                    if let (Some(t), Some(bt)) = (t_clamav, timing.as_mut()) {
+                        bt.clamav_ns = bt.clamav_ns.saturating_add(t.elapsed().as_nanos());
+                    }
+                }
+                // Overlap regions are scanned twice, so one signature can hit
+                // once per chunk — collapse back to at-most-once per signature,
+                // matching the single-buffer semantics.
+                if multi {
+                    dedup_matches(&mut state.matches);
                 }
             }
 
             // Phishing heuristic: harvest `<a href>` link pairs from HTML/email and
             // flag spoofed protected domains (.pdb/.gdb gated by .wdb allow list).
             // Only meaningful for HTML, and only when a protected-domain DB is loaded.
+            // Runs once on the whole file (never per chunk).
             if !self.database.phishing.protected.is_empty()
                 && looks_like_html(data)
             {
@@ -711,7 +788,7 @@ impl Engine {
         ATOM_SCRATCH.with(|cell| {
             let mut scratch = cell.borrow_mut();
             let file_type_target = ctx.detected_target
-                .or_else(|| detect_builtin_target(ctx))
+                .or(ctx.builtin_target)
                 .unwrap_or(0);
             let t0 = Instant::now();
             // Build slot→patterns mapping for inline verification.
@@ -814,11 +891,13 @@ impl Engine {
         }
         // `VI:` (CLI_OFF_VERSION) scans anywhere, then keeps only matches starting
         // inside the PE's version-info string offsets (same as the logical path).
+        // Ranges are FILE-anchored then cut to this chunk (`scan_ranges_chunk`),
+        // so chunking never moves an anchored signature.
         let is_vinfo = matches!(signature.offset.anchor, OffsetAnchor::VersionInfo);
         let ranges = if is_vinfo {
             vec![(0, ctx.data.len())]
         } else {
-            signature.offset.scan_ranges(ctx.data.len(), ctx.pe())
+            signature.offset.scan_ranges_chunk(ctx.total_len, ctx.pe(), ctx.base_offset, ctx.data.len())
         };
         if ranges.is_empty() {
             return;
@@ -837,9 +916,10 @@ impl Engine {
         let mut matched = false;
         for pattern in &signature.patterns {
             if is_vinfo {
-                // VI: match must start at a version-info offset.
+                // VI: match must start at a version-info offset (`vinfo` holds
+                // FILE offsets, so the chunk-relative hit is shifted back).
                 for hit in pattern.find_all(ctx.data, &ranges, 1) {
-                    if vinfo.binary_search(&(hit.start as u32)).is_ok() {
+                    if vinfo.binary_search(&((hit.start + ctx.base_offset) as u32)).is_ok() {
                         matched = true;
                         break;
                     }
@@ -975,7 +1055,8 @@ impl Engine {
             return;
         }
         if let Some((min, max)) = signature.file_size {
-            let len = ctx.data.len() as u64;
+            // FileSize is a whole-file constraint, never chunk-relative.
+            let len = ctx.total_len as u64;
             if len < min || len > max {
                 return;
             }
@@ -1165,7 +1246,12 @@ impl Engine {
                         }
                         continue;
                     }
-                    let r = spec.scan_ranges(ctx.data.len(), ctx.pe());
+                    let r = spec.scan_ranges_chunk(
+                        ctx.total_len,
+                        ctx.pe(),
+                        ctx.base_offset,
+                        ctx.data.len(),
+                    );
                     if r.is_empty() {
                         counts[i] = 0;
                         if !signature.expression.can_still_match(counts, evaluated) {
@@ -1192,7 +1278,7 @@ impl Engine {
                 let remaining = body_count_limit.saturating_sub(hits);
                 if is_vinfo {
                     for hit in pattern.find_all(ctx.data, &ranges, remaining) {
-                        if vinfo.binary_search(&(hit.start as u32)).is_ok() {
+                        if vinfo.binary_search(&((hit.start + ctx.base_offset) as u32)).is_ok() {
                             hits += 1;
                             last = Some(hit.start);
                             if hits >= body_count_limit {
@@ -1451,7 +1537,7 @@ fn target_matches(target: Option<u32>, ctx: &ScanContext<'_>, sig_name: &str) ->
         // Andr.* signatures: only match ELF(6), text(7), DEX(16), APK(17).
         if sig_name.starts_with("Andr.") {
             let detected = ctx.detected_target
-                .or_else(|| detect_builtin_target(ctx))
+                .or(ctx.builtin_target)
                 .unwrap_or(0);
             return matches!(detected, 6 | 7 | 16 | 17);
         }
@@ -1469,7 +1555,7 @@ fn target_matches(target: Option<u32>, ctx: &ScanContext<'_>, sig_name: &str) ->
     // gate applies even in non-strict mode; it only rejects clear cross-type
     // mismatches, never an indeterminate type (which stays permissive to avoid
     // false negatives).
-    if let Some(detected) = detect_builtin_target(ctx) {
+    if let Some(detected) = ctx.builtin_target {
         return want == detected;
     }
     match want {
@@ -1680,6 +1766,119 @@ fn looks_like_html(data: &[u8]) -> bool {
 fn is_unsupported_archive(data: &[u8]) -> bool {
     data.len() >= 8 && data[..8] == [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00] // RAR v5
     || data.len() >= 7 && data[..7] == [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00] // RAR v1.5
+}
+
+/// Length of a `00…` run starting exactly at `data[pos]` (capped at remaining).
+fn blank_run_len(data: &[u8], pos: usize) -> usize {
+    let mut len = 0;
+    // 1 MiB steps keep the inner loop cache-hot on huge paddings.
+    while pos + len < data.len() {
+        let step = (data.len() - pos - len).min(1 << 20);
+        let window = &data[pos + len..pos + len + step];
+        match window.iter().position(|&b| b != 0) {
+            Some(off) => return len + off,
+            None => len += step,
+        }
+    }
+    len
+}
+
+/// Split `data` (already truncated to `max_scan_bytes`) into `(start, end)`
+/// FILE-coordinate chunks for the engine: at most `chunk_size` bytes each
+/// with a `CHUNK_OVERLAP` overlap, while `00…` runs of `blank_skip` or more
+/// are CUT OUT entirely (never scanned). Small files with no long blank run
+/// yield exactly one chunk covering the whole buffer (today's behavior).
+/// `chunk_size` of 0 disables chunking (single whole-buffer chunk); a
+/// `blank_skip` of 0 disables blank-skipping.
+fn plan_chunks(total: usize, data: &[u8], chunk_size: usize, blank_skip: usize) -> Vec<(usize, usize)> {
+    debug_assert_eq!(total, data.len());
+    if total == 0 {
+        return Vec::new();
+    }
+    let chunk_size = if chunk_size == 0 { total } else { chunk_size };
+    let overlap = CHUNK_OVERLAP.min(chunk_size.saturating_sub(1));
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while pos < total {
+        // Cut out very long blank runs: no signature worth its scan time
+        // hides inside megabytes of `00…` padding.
+        if blank_skip > 0 {
+            let run = blank_run_len(data, pos);
+            if run >= blank_skip {
+                pos += run;
+                continue;
+            }
+        }
+        let mut end = (pos + chunk_size).min(total);
+        // If a long blank run starts inside this window, end the chunk right
+        // before it — the loop head then skips the run itself.
+        if blank_skip > 0 && end - pos > blank_skip {
+            let mut i = pos;
+            while i + blank_skip <= end {
+                if data[i] == 0 && blank_run_len(data, i) >= blank_skip {
+                    end = i;
+                    break;
+                }
+                // Jump past non-zeros fast; step over short zero runs.
+                match data[i..end].iter().position(|&b| b == 0) {
+                    Some(off) => i += off,
+                    None => break,
+                }
+                if data[i] != 0 {
+                    i += 1;
+                } else {
+                    i += blank_run_len(data, i);
+                }
+            }
+            if end == pos {
+                // Degenerate (shouldn't happen since pos isn't blank) — advance.
+                end = (pos + chunk_size).min(total);
+            }
+        }
+        out.push((pos, end));
+        if end >= total {
+            break;
+        }
+        // Overlapped advance with a progress guard (overlap < chunk_size).
+        pos = end.saturating_sub(overlap).max(pos + 1);
+    }
+    out
+}
+
+/// Collapse per-chunk duplicate hits back to at-most-once per signature,
+/// matching single-buffer semantics (`ScanMatch` carries no offsets, and each
+/// engine phase already emits at most one entry per signature per buffer).
+/// Only called on the multi-chunk path.
+fn dedup_matches(matches: &mut Vec<ScanMatch>) {
+    if matches.len() < 2 {
+        return;
+    }
+    matches.sort_by(|a, b| {
+        (&a.name, kind_rank(a.kind), &a.object_path, src_key(&a.source), view_rank(a.view)).cmp(
+            &(&b.name, kind_rank(b.kind), &b.object_path, src_key(&b.source), view_rank(b.view)),
+        )
+    });
+    matches.dedup();
+}
+
+fn kind_rank(k: SignatureKind) -> u8 {
+    match k {
+        SignatureKind::Extended => 0,
+        SignatureKind::Logical => 1,
+        SignatureKind::Container => 2,
+        SignatureKind::Phishing => 3,
+        SignatureKind::Yara => 4,
+    }
+}
+
+fn view_rank(v: ScanView) -> u8 {
+    match v {
+        ScanView::Raw => 0,
+    }
+}
+
+fn src_key(s: &SourceLocation) -> (String, usize) {
+    (s.path.display().to_string(), s.line)
 }
 
 
@@ -1952,7 +2151,11 @@ mod tests {
         let mut matches = Vec::new();
         let ctx = ScanContext {
             data,
+            full: data,
+            base_offset: 0,
+            total_len: data.len(),
             detected_target: None,
+            builtin_target: None,
             view: ScanView::Raw,
             object_path: "root",
             container_type: None,
@@ -1960,7 +2163,7 @@ mod tests {
             container_file_pos: None,
             container_entry_name: None,
             image_fuzzy_hash: std::cell::OnceCell::new(),
-            pe: std::cell::OnceCell::new(),
+            pe: None,
         };
         // Naive extended scan
         for (_si, sig) in db.extended.iter().enumerate() {

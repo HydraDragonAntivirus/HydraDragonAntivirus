@@ -8,7 +8,7 @@ license = "GPL-2.0-or-later"
 [dependencies]
 
 # YARA-x engine — ORIGINAL upstream VirusTotal/yara-x (crates.io), NOT the fork.
-yara-x = version = "1.20"
+yara-x = "1.20"
 
 # PCRE subsignatures and .cdb/.ftm regex fields (linear-time, no catastrophic backtracking)
 regex = "1"

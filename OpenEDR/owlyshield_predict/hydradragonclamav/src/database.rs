@@ -389,6 +389,33 @@ impl OffsetSpec {
             | OffsetAnchor::Unsupported(_) => Vec::new(),
         }
     }
+
+    /// Chunk-aware variant of [`scan_ranges`](Self::scan_ranges) for the
+    /// chunk-by-chunk scan: ranges are computed in FILE coordinates (against
+    /// `total_len`, so `EOF-n`/absolute/PE anchors stay exact) and then
+    /// intersected with the chunk window `[base, base + chunk_len)`, shifted
+    /// back to chunk-relative coordinates for `Pattern` matching.
+    pub fn scan_ranges_chunk(
+        &self,
+        total_len: usize,
+        pe: Option<&PeInfo>,
+        base: usize,
+        chunk_len: usize,
+    ) -> Vec<(usize, usize)> {
+        let end = base.saturating_add(chunk_len);
+        self.scan_ranges(total_len, pe)
+            .into_iter()
+            .filter_map(|(s, e)| {
+                let s = s.max(base);
+                let e = e.min(end);
+                if s < e {
+                    Some((s - base, e - base))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 fn load_file(

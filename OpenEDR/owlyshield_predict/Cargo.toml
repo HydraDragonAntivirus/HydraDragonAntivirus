@@ -75,6 +75,11 @@ windivert = { path = "../../HydraDragonFirewall/windivert-rust/windivert", featu
 #Aho-Corsaick
 daachorse = "5.0.0"
 
+# HydraDragon ClamAV-compatible scanner (local copy: ./hydradragonclamav).
+# Scan with `ScanOptions::default()` = max first 100MB, 8MB chunks with 64KB
+# overlap, zero-runs >= 1MB skipped.
+hydradragonclamav = { path = "hydradragonclamav" }
+
 [target.'cfg(target_os = "windows")'.dependencies.windows]
 version = "0.48.0"
 features = [
