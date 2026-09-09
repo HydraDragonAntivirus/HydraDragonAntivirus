@@ -11,6 +11,7 @@
 /// @{
 #pragma once
 #include <objects.h>
+#include <cstdint>
 
 namespace cmd {
 namespace sys {
@@ -132,6 +133,15 @@ private:
 
 	Variant getFileType(std::filesystem::path sPath);
 	void updateFileInfo(Variant vFile, Variant vParms);
+
+	// Content-based ASCII-text check. Exact C++ port of looks_like_ascii_text.
+	// Empty buffer -> false. Samples at most the first 8192 bytes, fail-fast
+	// once the non-printable count reaches threshold (15% + 1).
+	static bool is_look_like_ascii_text(const uint8_t* data, size_t len);
+	// Reads at most the first 64KB chunk of the file and runs the test above.
+	// Returns false when the stream cannot be opened or the file is deleted.
+	bool isAsciiTextFile(Variant vParams);
+	Variant enrichAsciiTextInfo(Variant vFile);
 
 	bool hasFileInfo(const FileId& sFileId);
 	Variant getFileInfoById(FileId sFileId);

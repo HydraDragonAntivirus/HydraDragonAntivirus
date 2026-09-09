@@ -1603,6 +1603,7 @@
 		// System and browser cache paths excluded from ransomware tripping (FP reduction)
 		"ransomSystemExclusions": [
 			"*\\Windows\\*",
+			"C:\\Windows\\explorer.exe",
 			"*\\Program Files\\*",
 			"*\\Program Files (x86)\\*",
 			"*\\ProgramData\\*",
@@ -4440,14 +4441,10 @@
 		// detection parameters (fields / scope / threshold / window) live only here.
 		//
 		"CRYPTO_API_MASS": [
+			// NOTE: single "condition" only (see Step 4a comment) - exclusion + threshold merged.
 			{
 				"eventType": "LLE_DEVICE_IOCTL",
 				"rule": {
-					"condition": {
-						"$operation": "!imatch",
-						"pattern": "@const.ransomSystemExclusions",
-						"args": [ "@event.process.imageFile.rawPath" ]
-					},
 					"distinctCounter": {
 						"basket": "cryptoApiDistinct",
 						"key": "@event.process.pid",
@@ -4458,8 +4455,18 @@
 						"flag": "@event.CryptoApiThresholdMet"
 					},
 					"condition": {
-						"$operation": "equal",
-						"args": [ "@event.CryptoApiThresholdMet", true ]
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "!imatch",
+								"pattern": "@const.ransomSystemExclusions",
+								"args": [ "@event.process.imageFile.rawPath" ]
+							},
+							{
+								"$operation": "equal",
+								"args": [ "@event.CryptoApiThresholdMet", true ]
+							}
+						]
 					},
 					"saveContext": {
 						"basket": "@const.cryptoBasket.mass",
@@ -4859,9 +4866,23 @@
 			},
 
 			// Step 4a: Mass file evaluation (distinct target files threshold: 3 within 60s)
+			// NOTE: ptm v2 RuleImpl holds a single "condition" per rule (directives map).
+			// A duplicated "condition" key would silently drop the first filter, so the
+			// file-qualifying checks AND the threshold check must live in ONE "and".
+			// The entropy > 6.8 clause IS the text-like guard: plaintext .js/.txt sits
+			// around 4-5, only binary/encrypted content (bozuk dosya) passes. That is why
+			// plain explorer copies of text .js must never reach the counter.
 			{
 				"eventType": "MLE_RANSOM_EVALUATE",
 				"rule": {
+					"distinctCounter": {
+						"basket": "ransomFileDistinct",
+						"key": "@event.process.pid",
+						"values": ["@event.destination.path"],
+						"threshold": 3,
+						"window": 60000,
+						"flag": "@event.RansomThresholdMet"
+					},
 					"condition": {
 						"$operation": "and",
 						"args": [
@@ -4949,20 +4970,16 @@
 										]
 									}
 								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.destination.isAsciiText", true ]
+							},
+							{
+								"$operation": "equal",
+								"args": [ "@event.RansomThresholdMet", true ]
 							}
 						]
-					},
-					"distinctCounter": {
-						"basket": "ransomFileDistinct",
-						"key": "@event.process.pid",
-						"values": ["@event.destination.path"],
-						"threshold": 3,
-						"window": 60000,
-						"flag": "@event.RansomThresholdMet"
-					},
-					"condition": {
-						"$operation": "equal",
-						"args": [ "@event.RansomThresholdMet", true ]
 					},
 					"createEvent": {
 						"eventType": "MLE_RANSOM_BEHAVIOR",

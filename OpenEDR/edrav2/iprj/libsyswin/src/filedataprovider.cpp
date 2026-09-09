@@ -970,6 +970,16 @@ Variant FileDataProvider::getFileInfo(Variant vParams)
 		}, true));
 	}
 
+	// Content-based scan: lazy so the 64KB read only happens when a rule
+	// actually touches file.isAsciiText (e.g. ransomware text exclusion).
+	{
+		auto pThis = getPtrFromThis(this);
+		vFile.put("isAsciiText", variant::createLambdaProxy([pThis, vParams]()->Variant
+		{
+			return pThis->isAsciiTextFile(vParams);
+		}, true));
+	}
+
 	// Volume information can dynamically change
 	Variant vVolume = vParams.has("volume") ? 
 		enrichVolumeInfo(vParams["volume"]) : 
@@ -1157,6 +1167,65 @@ Variant FileDataProvider::enrichFileHash(Variant vFile)
 	vFile.put("hash", getFileHash(vFile));
 	return vFile;
 	TRACE_END("Fail to enrich file hash")
+}
+
+//
+// Content-based ASCII-text check. Exact C++ port of:
+//   fn looks_like_ascii_text(data: &[u8]) -> bool
+// Empty input -> false. Samples at most the first 8192 bytes, fail-fast once
+// the non-printable count reaches 15% + 1. Printable set: \t \n \r 0x20..=0x7E.
+//
+bool FileDataProvider::is_look_like_ascii_text(const uint8_t* data, size_t len)
+{
+	if (data == nullptr || len == 0)
+		return false;
+	const size_t sampleLen = len < 8192 ? len : 8192;
+	const size_t threshold = sampleLen * 15 / 100 + 1;
+	size_t nonPrintable = 0;
+	for (size_t i = 0; i < sampleLen; ++i)
+	{
+		const uint8_t b = data[i];
+		const bool printable = (b == '\t' || b == '\n' || b == '\r' || (b >= 0x20 && b <= 0x7E));
+		if (!printable && ++nonPrintable >= threshold)
+			return false;
+	}
+	return true;
+}
+
+//
+// Reads at most the first 64KB of the file as a single chunk and runs the
+// buffer test above. Returns false when the stream cannot be opened, the file
+// is deleted, or nothing could be read (text-ness not proven).
+//
+bool FileDataProvider::isAsciiTextFile(Variant vParams)
+{
+	TRACE_BEGIN
+	auto vFileInfo = getFileInfoByParams(vParams);
+	auto vFile = vFileInfo["data"];
+	if (vFile.has("deleted"))
+		return false;
+
+	auto pStream = getFileStream(vParams);
+	if (pStream == nullptr)
+		return false;
+
+	static const size_t c_nMaxPeek = 64 * 1024;
+	std::vector<uint8_t> buf(c_nMaxPeek);
+	const size_t nRead = pStream->read(buf.data(), buf.size());
+	if (nRead == 0)
+		return false;
+	return is_look_like_ascii_text(buf.data(), nRead);
+	TRACE_END("Fail to check ascii text")
+}
+
+Variant FileDataProvider::enrichAsciiTextInfo(Variant vFile)
+{
+	TRACE_BEGIN
+	if (vFile.isNull() || !vFile.isDictionaryLike())
+		return vFile;
+	vFile.put("isAsciiText", isAsciiTextFile(vFile));
+	return vFile;
+	TRACE_END("Fail to enrich ascii text info")
 }
 
 //
@@ -1517,6 +1586,25 @@ Variant FileDataProvider::execute(Variant vCommand, Variant vParams)
 	///
 	if (vCommand == "enrichSignInfo")
 		return enrichSignatureInfo(vParams);
+
+	///
+	/// @fn Variant FileDataProvider::execute()
+	///
+	/// ##### isAsciiText()
+	/// Content-based ASCII-text check (first 64KB chunk max).
+	/// Returns true when the file content looks like ASCII text.
+	///
+	if (vCommand == "isAsciiText")
+		return isAsciiTextFile(vParams);
+
+	///
+	/// @fn Variant FileDataProvider::execute()
+	///
+	/// ##### enrichAsciiText()
+	/// Enriches a file descriptor with isAsciiText.
+	///
+	if (vCommand == "enrichAsciiText")
+		return enrichAsciiTextInfo(vParams);
 
 	///
 	/// @fn Variant FileDataProvider::execute()

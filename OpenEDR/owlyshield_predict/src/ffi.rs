@@ -394,4 +394,111 @@ pub extern "C" fn owlyshield_is_malicious_company_signer(path_ptr: *const u16, p
     0
 }
 
+/// EICAR standard test file (68 bytes). Hash cross-checks the literal so a
+/// transcription typo fails loudly in unit tests instead of silently missing.
+const EICAR_STR: &str = r"X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+const EICAR_SHA1_HEX: &str = "3395856ce81f2b7382dee72602f798b642f14140";
+const ML_THRESHOLD: f32 = 0.875;
+const MAX_ML_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Static-indicator file verdict: EICAR, vendor signatures, PE/JS ML models.
+/// `path_ptr`/`path_len`: UTF-16 path (WCHAR count, no NUL).
+/// Returns 2=malicious, 1=safe (trusted signer), 0=unknown, -1=bad arguments.
+/// No cloud, no execution. Used by the C++ local-verdict path.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i32 {
+    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
+        return -1;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
+    if !path_buf.is_file() {
+        return 0;
+    }
+
+    if let Ok(meta) = std::fs::metadata(&path_buf) {
+        if matches!(meta.len(), 68 | 69 | 70) {
+            if let Ok(bytes) = std::fs::read(&path_buf) {
+                let body = bytes
+                    .strip_prefix(EICAR_STR.as_bytes())
+                    .unwrap_or(&bytes[..]);
+                let is_eicar = !body.is_empty()
+                    && body.len() <= 2
+                    && body.iter().all(|&b| b == b'\r' || b == b'\n')
+                    || bytes.as_slice() == EICAR_STR.as_bytes();
+                if is_eicar {
+                    return 2;
+                }
+                if meta.len() == 68 {
+                    use sha1::Digest;
+                    let mut hasher = sha1::Sha1::new();
+                    hasher.update(&bytes);
+                    if hex::encode(hasher.finalize()) == EICAR_SHA1_HEX {
+                        return 2;
+                    }
+                }
+            }
+        }
+    }
+
+    let sig_info = crate::signature_verification::verify_signature(&path_buf);
+    if let Some(signer) = sig_info.signer_name {
+        if crate::signer_rules::is_malicious_vendor(&signer)
+            || crate::signer_rules::is_pua_vendor(&signer)
+        {
+            return 2;
+        }
+        if sig_info.is_trusted && crate::signer_rules::is_trusted_signer(&signer) {
+            return 1;
+        }
+    }
+
+    if let Ok(bytes) = std::fs::read(&path_buf) {
+        if (bytes.len() as u64) <= MAX_ML_BYTES {
+            let device = burn::backend::ndarray::NdArrayDevice::default();
+            if bytes.len() >= 2 && &bytes[0..2] == b"MZ" {
+                if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
+                    if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
+                        if prob > ML_THRESHOLD {
+                            return 2;
+                        }
+                    }
+                }
+            }
+            if path_buf
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("js"))
+            {
+                if let Ok(content) = std::str::from_utf8(&bytes) {
+                    if let Some(model) = crate::ml::fast_detect::get_js_model_ref() {
+                        if let Some(prob) =
+                            crate::ml::inference::predict_js(content, model, &device)
+                        {
+                            if prob > ML_THRESHOLD {
+                                return 2;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    0
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::{EICAR_SHA1_HEX, EICAR_STR};
+
+    #[test]
+    fn eicar_literal_matches_official_sha1() {
+        assert_eq!(EICAR_STR.len(), 68);
+        use sha1::Digest;
+        let mut hasher = sha1::Sha1::new();
+        hasher.update(EICAR_STR.as_bytes());
+        assert_eq!(hex::encode(hasher.finalize()), EICAR_SHA1_HEX);
+    }
+}
+
 

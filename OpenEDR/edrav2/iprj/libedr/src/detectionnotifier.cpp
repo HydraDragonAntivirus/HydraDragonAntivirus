@@ -23,6 +23,7 @@
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <mutex>
 #include <tlhelp32.h>
 
 // Set component for logging
@@ -536,8 +537,54 @@ static std::string sha1HexOfFileUtf8(const std::string& sUtf8Path)
 	catch (...) { return {}; }
 }
 
-Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
+// Rust static engines (EICAR/signer/ML models) for one file (UTF-8 path).
+// Returns 2 malicious, 1 safe, 0 unknown. No cloud, no execution.
+static int rustScanVerdict(const std::string& sUtf8Path)
 {
+	typedef int32_t (*ScanFileFn)(const uint16_t*, uint32_t);
+	static HMODULE s_hDll = nullptr;
+	static ScanFileFn s_fn = nullptr;
+	static std::once_flag s_once;
+	std::call_once(s_once, []() {
+		s_hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (!s_hDll) s_hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+		if (s_hDll)
+			s_fn = reinterpret_cast<ScanFileFn>(
+				::GetProcAddress(s_hDll, "owlyshield_scan_file"));
+	});
+	if (!s_fn || sUtf8Path.empty())
+		return 0;
+	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
+	if (nWide <= 1)
+		return 0;
+	std::wstring ws(nWide - 1, L'\0');
+	if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
+		return 0;
+	int r = s_fn(reinterpret_cast<const uint16_t*>(ws.c_str()),
+		static_cast<uint32_t>(ws.size()));
+	return (r == 2 || r == 1) ? r : 0;
+}
+
+// Merged local verdict: enriched verdict (if 1/2), Rust engines, known-DB.
+// Malicious (2) always wins; Safe (1) beats unknown; else 0.
+static int mergeLocalVerdict(int enriched, const std::string& sPath, const std::string& sHash)
+{
+	int v = (enriched == 1 || enriched == 2) ? enriched : 0;
+	int r = rustScanVerdict(sPath);
+	if (r == 2)
+		return 2;
+	if (r == 1 && v == 0)
+		v = 1;
+	try
+	{
+		if (DetectionNotifier::isKnownMalware(sPath, sHash))
+			return 2;
+	}
+	catch (...) {}
+	return v;
+}
+
+Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	TRACE_BEGIN;
 	using variant::getByPathSafe;
 	LOGLVL(Debug, "Process command <" << vCommand << ">");
@@ -723,7 +770,10 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 
 				// 2. Deep Process Ancestry Trace (Root Cause & Initial Dropper Discovery)
 				//    Walk the processes chain backwards (from leaf to root) to identify:
-				//    a) Any explicit malware/untrusted ancestor process (verdict == 3 or verdict == 2, or known malware)
+				//    a) Any explicit malware ancestor process (verdict == 2 ONLY, or known malware).
+				//       NOTE: verdict 3 == FileVerdict::Unknown (clean/temiz dosya da 3 verir).
+				//       Unknown must NEVER be treated as malware, otherwise every
+				//       Explorer copy (flsVerdict 3) becomes "root malware".
 				//    b) If the leaf was a LOLBIN/system proxy (e.g. msiexec, wscript, powershell, cmd), find the non-system user binary that launched it!
 				if (sPath.empty() && vEvent.has("processes"))
 				{
@@ -776,13 +826,14 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 									nLeafVerdict = vVal;
 								}
 
-								// Check if this ancestor is explicit malware or known malware
-								if (vVal == 3 || vVal == 2 || (!pPath.empty() && isKnownMalware(pPath, pHash)))
+								// Check if this ancestor is explicit malware or known malware.
+								// verdict 2 == MALWARE. verdict 3 == Unknown -> NOT malware.
+								if (vVal == 2 || (!pPath.empty() && isKnownMalware(pPath, pHash)))
 								{
 									sRootMalwarePath = pPath;
 									sRootMalwareHash = pHash;
 									nRootMalwarePid = pPid;
-									nRootMalwareVerdict = (vVal != 0 ? vVal : 3);
+									nRootMalwareVerdict = 2;
 									break; // Found root malicious attacker!
 								}
 
@@ -849,18 +900,18 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 								isMultiProcessChain = true;
 						} catch (...) {}
 					}
-					if (!isMultiProcessChain)
-					{
-						sPath = tryPaths({
-							"process.imageFile.rawPath",
-							"process.imageFile.path",
-							"process.imagePath",
-							"process.path",
-							"process.imageFile.abstractPath"
-						});
-					}
+				if (!isMultiProcessChain)
+				{
+					sPath = tryPaths({
+						"process.imageFile.rawPath",
+						"process.imageFile.path",
+						"process.imagePath",
+						"process.path",
+						"process.imageFile.abstractPath"
+					});
 				}
 			}
+		}
 
 			// Sync process verdict to OwlyShield Rust engine
 			if (nGid > 0 && nVerdict > 0)
@@ -1386,8 +1437,21 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							}
 							catch (...) {}
 						}
+						int nLocal = 0; // Rust engines + known-malicious DB
+						try
+						{
+							int r = rustScanVerdict(sPath);
+							if (r == 2)
+								nLocal = 2;
+							else if (r == 1)
+								nLocal = 1;
+							if (DetectionNotifier::isKnownMalware(sPath, sHash))
+								nLocal = 2;
+						}
+						catch (...) {}
 						vOut.push_back(Dictionary({
-							{"path", sPath}, {"hash", sHash}, {"verdict", nVerdict} }));
+							{"path", sPath}, {"hash", sHash},
+							{"verdict", nVerdict}, {"local", nLocal} }));
 					}
 					catch (...) {}
 				}
@@ -1438,10 +1502,14 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 							}
 							catch (...) {}
 						}
+						int nEnriched = 0;
+						try { nEnriched = static_cast<int>(vInfo["verdict"]); } catch (...) {}
+						int nLocal = mergeLocalVerdict(nEnriched, sPath, sHash);
 						vOut.push_back(Dictionary({
 							{"pid", static_cast<int64_t>(pe.th32ProcessID)},
 							{"path", sPath}, {"hash", sHash},
-							{"user", sUser}, {"verdict", nVerdict} }));
+							{"user", sUser}, {"verdict", nVerdict},
+							{"local", nLocal} }));
 					}
 					catch (...) {}
 				}
@@ -1449,6 +1517,32 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 			}
 		}
 		return Dictionary({ {"results", vOut} });
+	}
+
+	if (vCommand == "quarantineFile")
+	{
+		std::string sPath;
+		if (vParams.isDictionaryLike())
+			sPath = vParams.get("path", sPath);
+		if (sPath.empty())
+			return Dictionary({ {"success", false}, {"error", "empty path"} });
+		std::string sHash = sha1HexOfFileUtf8(sPath);
+		int nResult = -1;
+		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (!hDll) hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+		if (hDll)
+		{
+			typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+			if (auto fn = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file"))
+				nResult = fn(reinterpret_cast<const uint8_t*>(sPath.c_str()), static_cast<uint32_t>(sPath.size()));
+		}
+		if (nResult == 0)
+		{
+			DetectionNotifier::recordMalwareDetection(sPath, sHash);
+			LOGLVL(Critical, FMT("detnotif RPC: quarantined file <" << sPath << "> on user request"));
+			return Dictionary({ {"success", true} });
+		}
+		return Dictionary({ {"success", false} });
 	}
 
 	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();

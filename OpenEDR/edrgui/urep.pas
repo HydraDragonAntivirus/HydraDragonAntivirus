@@ -72,6 +72,7 @@ type
     CopyBtn: TButton;
     ValkBtn: TButton;
     ForumBtn: TButton;
+    QuarBtn: TButton;
     DetPopup: TPopupMenu;
     DetItem: TMenuItem;
     ScanProgress: TProgressBar;
@@ -89,6 +90,7 @@ type
     procedure CopyBtnClick(Sender: TObject);
     procedure ValkBtnClick(Sender: TObject);
     procedure ForumBtnClick(Sender: TObject);
+    procedure QuarBtnClick(Sender: TObject);
     procedure ProcBtnClick(Sender: TObject);
     procedure ProcWalkDone(Sender: TObject);
     procedure DetItemClick(Sender: TObject);
@@ -103,6 +105,8 @@ type
   end;
 
 function EscapeJson(const S: string): string;
+function LocalVerdictOf(it: TJSONData): Integer;
+function LocalText(v: Integer): string;
 
 implementation
 
@@ -286,6 +290,7 @@ begin
           end;
         end;
         item.Data := Pointer(PtrUInt(v));
+        item.SubItems.Add(LocalText(LocalVerdictOf(it)));
         Inc(FCount);
       end;
     finally
@@ -499,6 +504,13 @@ begin
   ProcBtn.Font.Name := 'Segoe UI';
   ProcBtn.OnClick := @ProcBtnClick;
 
+  QuarBtn := TButton.Create(Self);
+  QuarBtn.Parent := Self;
+  QuarBtn.SetBounds(M + 208, y3, 170, 30);
+  QuarBtn.Caption := 'Quarantine selected';
+  QuarBtn.Font.Name := 'Segoe UI';
+  QuarBtn.OnClick := @QuarBtnClick;
+
   DetPopup := TPopupMenu.Create(Self);
   DetItem := TMenuItem.Create(DetPopup);
   DetItem.Caption := 'Details...';
@@ -564,8 +576,59 @@ begin
   end;
   with ResultsView.Columns.Add do
   begin
-    Caption := 'Verdict';
+    Caption := 'Cloud';
     Width := 100;
+  end;
+  with ResultsView.Columns.Add do
+  begin
+    Caption := 'Local';
+    Width := 100;
+  end;
+end;
+
+function LocalVerdictOf(it: TJSONData): Integer;
+var
+  dd: TJSONData;
+begin
+  Result := 0;
+  if it = nil then
+    Exit;
+  dd := it.FindPath('local');
+  if dd <> nil then
+    Result := dd.AsInteger;
+end;
+
+function LocalText(v: Integer): string;
+begin
+  case v of
+    2: Result := 'Malicious';
+    1: Result := 'Safe';
+  else
+    Result := '—';
+  end;
+end;
+
+function RpcQuarantineFile(const APathUtf8: string): Boolean;
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+begin
+  Result := False;
+  try
+    Req := '{"jsonrpc":"2.0","id":1,"method":"quarantineFile","params":{"path":"' +
+      EscapeJson(APathUtf8) + '"}}';
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.success');
+        Result := (d <> nil) and d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    Result := False;
   end;
 end;
 
@@ -785,6 +848,7 @@ begin
           end;
         end;
         item.Data := Pointer(PtrUInt(v));
+        item.SubItems.Add(LocalText(LocalVerdictOf(it)));
       end;
     finally
       Frm.ResultsView.Items.EndUpdate;
@@ -817,6 +881,32 @@ begin
   ApplySummaryStyle(Self);
 end;
 
+procedure TRepForm.QuarBtnClick(Sender: TObject);
+var
+  i, n, j: Integer;
+  p: string;
+begin
+  n := 0;
+  for i := 0 to ResultsView.Items.Count - 1 do
+  begin
+    if not ResultsView.Items[i].Selected then
+      Continue;
+    p := ResultsView.Items[i].Caption;
+    // Proc rows carry "[pid] path": strip the prefix for the RPC.
+    if (p <> '') and (p[1] = '[') then
+    begin
+      j := Pos('] ', p);
+      if j > 0 then
+        Delete(p, 1, j + 1);
+      p := Trim(p);
+    end;
+    if (p <> '') and RpcQuarantineFile(p) then
+      Inc(n);
+  end;
+  TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' file(s) quarantined.',
+    asSuccess, 4000);
+end;
+
 procedure TRepForm.DetItemClick(Sender: TObject);
 var
   it: TListItem;
@@ -829,8 +919,10 @@ begin
   if it.SubItems.Count >= 1 then
     msg := msg + 'SHA1: ' + it.SubItems[0] + sLineBreak;
   if it.SubItems.Count >= 2 then
-    msg := msg + 'Verdict: ' + it.SubItems[1] + sLineBreak +
+    msg := msg + 'Cloud: ' + it.SubItems[1] + sLineBreak +
       VerdictMeaning(it.SubItems[1]);
+  if it.SubItems.Count >= 3 then
+    msg := msg + 'Local: ' + it.SubItems[2] + sLineBreak;
   MessageDlg('Program details', msg, mtInformation, [mbOK], 0);
 end;
 

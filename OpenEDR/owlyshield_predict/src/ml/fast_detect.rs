@@ -18,6 +18,10 @@ pub(crate) fn get_pe_model_ref() -> Option<&'static super::model::MalwareNet<Inf
     get_pe_model().as_ref()
 }
 
+pub(crate) fn get_js_model_ref() -> Option<&'static super::model::MalwareNet<InferBackend>> {
+    get_js_model().as_ref()
+}
+
 fn get_pe_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
     PE_MODEL.get_or_init(|| {
         let path = Path::new("models/pe_model.mpk");

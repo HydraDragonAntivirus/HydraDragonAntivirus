@@ -4469,6 +4469,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha1",
  "sha2 0.11.0",
  "slc-paths",
  "strum 0.24.1",
