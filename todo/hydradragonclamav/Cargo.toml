@@ -1,0 +1,33 @@
+[package]
+name = "hydradragonclamav"
+version = "0.1.0"
+edition = "2024"
+description = "Pure-Rust ClamAV-compatible non-hash signature loader and scanner for HydraDragon"
+license = "GPL-2.0-or-later"
+
+[dependencies]
+
+# YARA-x engine for Android-focused YARA rule scanning.
+# `pulley` = wasmtime's portable bytecode INTERPRETER (no JIT, no executable
+# memory). Required on Android: 16 KB-page devices crash with JIT ("changing of
+# protections isn't page-aligned" in wasmtime mmap), and Android restricts W^X
+# JIT anyway. Pulley bytecode is also architecture-independent, so one compiled
+# .yrc works across all ABIs.
+yara-x = { git = "https://github.com/HydraDragonAntivirus/yara-x", features = ["pulley", "hydradragon-module", "dex-module"] }
+
+# PCRE subsignatures and .cdb/.ftm regex fields (linear-time, no catastrophic backtracking)
+regex = "1"
+
+# SIMD substring search for the per-pattern literal pre-check (pure Rust).
+memchr = "2"
+
+# Aho-Corasick automaton for the atom prefilter — one pass over the buffer,
+# matching every atom simultaneously. Replaced the multi-sweep rolling-hash /
+# Bf16 approach which needed 5 separate passes (one per atom length).
+daachorse = { git = "https://github.com/HydraDragonAntivirus/daachorse.git", branch = "main" }
+
+# Image decoding for `fuzzy_img#` logical subsignatures (ClamAV's image fuzzy
+# hash). Same crates ClamAV's libclamav_rust uses, so the perceptual hash is
+# byte-identical. Only the common raster formats are enabled.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
+rustdct = "0.7"
