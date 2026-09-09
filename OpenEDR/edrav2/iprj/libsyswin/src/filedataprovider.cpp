@@ -1164,7 +1164,19 @@ Variant FileDataProvider::enrichFileHash(Variant vFile)
 	TRACE_BEGIN
 	if (vFile.isNull() || !vFile.isDictionaryLike())
 		return vFile;
-	vFile.put("hash", getFileHash(vFile));
+	// Event file objects don't always carry id/uniquePath/rawPath/path (e.g.
+	// sysmon shapes, empty {} defaults, evicted ids). getFileInfoByParams
+	// throws InvalidArgument for those — but enrichment is best-effort by
+	// design (scenarios check `has hash`), so leave the input untouched
+	// instead of failing the whole scenario with an ERR log per event.
+	try
+	{
+		vFile.put("hash", getFileHash(vFile));
+	}
+	catch (error::Exception& ex)
+	{
+		LOGLVL(Debug, "Skip file hash enrichment: <" << ex.what() << ">");
+	}
 	return vFile;
 	TRACE_END("Fail to enrich file hash")
 }
@@ -1223,7 +1235,16 @@ Variant FileDataProvider::enrichAsciiTextInfo(Variant vFile)
 	TRACE_BEGIN
 	if (vFile.isNull() || !vFile.isDictionaryLike())
 		return vFile;
-	vFile.put("isAsciiText", isAsciiTextFile(vFile));
+	// Same best-effort contract as enrichFileHash: unresolvable file objects
+	// keep no "isAsciiText" field instead of throwing per event.
+	try
+	{
+		vFile.put("isAsciiText", isAsciiTextFile(vFile));
+	}
+	catch (error::Exception& ex)
+	{
+		LOGLVL(Debug, "Skip ascii-text enrichment: <" << ex.what() << ">");
+	}
 	return vFile;
 	TRACE_END("Fail to enrich ascii text info")
 }
@@ -1296,9 +1317,19 @@ Variant FileDataProvider::getSignatureInfo(Variant vParams)
 Variant FileDataProvider::enrichSignatureInfo(Variant vFile)
 {
 	TRACE_BEGIN
+	if (vFile.isNull() || !vFile.isDictionaryLike())
+		return vFile;
 	if (m_pSignDP == nullptr)
-		return {};
-	vFile.put("signature", getSignatureInfo(vFile));
+		return vFile;
+	// Best-effort like the other enrichers: no field when unresolvable.
+	try
+	{
+		vFile.put("signature", getSignatureInfo(vFile));
+	}
+	catch (error::Exception& ex)
+	{
+		LOGLVL(Debug, "Skip signature enrichment: <" << ex.what() << ">");
+	}
 	return vFile;
 	TRACE_END("Fail to enrich file signature")
 }
