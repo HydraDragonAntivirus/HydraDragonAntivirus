@@ -85,6 +85,10 @@ E.g.: `set_mitm(0x141a070)+0x4f1210 = 0x190B280` → `laddr 190B280`.
   `steer/accept stats` counter (steers present, parsed 0).
 - `Cargo.lock` can silently revert; verify `aws-lc-rs`/`aws-lc-sys` versions in the
   lock before building.
+- Kernel block list was write-only: zero callers of `IsPathBlocked`, plus a
+  DOS/NT form mismatch. Fix: canonicalize with `OwlyNormalizePathForMatch` at
+  ADD, enforce in filemon preCreate (trusted bypass preserved). Needs driver
+  build + reboot.
 - Sep-2026 case: the `metadata_only` modifier on `!include emerging-all.yaml` in
   `rules.yaml` was ignored by the parser → 50,422 ET rules evaluated per packet,
   workers starved and the kernel queue overflowed (`allowed` yet dead traffic +

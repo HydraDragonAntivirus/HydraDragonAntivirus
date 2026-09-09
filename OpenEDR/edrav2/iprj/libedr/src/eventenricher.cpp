@@ -10,6 +10,8 @@
 #include "eventenricher.h"
 #include "detectionnotifier.h"
 #include <fstream>
+#include <sstream>
+#include <iomanip>
 #include <mutex>
 #include <atomic>
 #include <chrono>
@@ -800,6 +802,28 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 // Rolls back every captured original of <nPid>: restores modified/deleted
 // files from their pre-images and removes rename targets.
 //
+
+// SHA1 hex (lowercase) of a file; "" when unreadable. Stops RansomShield
+// from resurrecting quarantined malware bytes under a new name: the restore
+// guards below match on path only, so a known-malicious payload restored to
+// a fresh path would slip through without this content check.
+static std::string sha1HexOfFile(const std::wstring& wsPath)
+{
+	try
+	{
+		std::ifstream f(wsPath, std::ios::binary);
+		if (!f)
+			return {};
+		auto h = crypt::sha1::getHash(f);
+		std::ostringstream oss;
+		oss << std::hex << std::setfill('0');
+		for (size_t i = 0; i < sizeof(h.byte); ++i)
+			oss << std::setw(2) << static_cast<unsigned>(h.byte[i]);
+		return oss.str();
+	}
+	catch (...) { return {}; }
+}
+
 /*static*/ void EventEnricher::rollbackRansomBackups(int64_t nPid)
 {
 	if (nPid <= 0)
@@ -894,10 +918,20 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 
 		if (restoredPaths.insert(wsRestoreTarget).second)
 		{
-			// Block restore if the target or backup is known detected malware (e.g. Winball501Ransom.exe)
+			// Block restore if the target or backup is known detected malware (e.g. Winball501Ransom.exe).
+			// Hash the backup content: path-only matching misses known-malicious bytes under a fresh name.
 			std::string sNarrowTarget = Narrow(wsRestoreTarget);
 			std::string sNarrowBackup = Narrow(wsBackup);
-			if (DetectionNotifier::isKnownMalware(sNarrowTarget, "") || DetectionNotifier::isKnownMalware(sNarrowBackup, ""))
+			std::string sBackupHash = sha1HexOfFile(wsBackup);
+			// Content hit: backup bytes are known-malicious -> never resurrect.
+			// Path-only hit with clean readable bytes: same path was tainted
+			// before, but THESE bytes were never flagged -> allow restore
+			// (protects clean files reusing a previously quarantined path).
+			bool bHashHit = !sBackupHash.empty()
+				&& DetectionNotifier::isKnownMalware("", sBackupHash);
+			bool bPathHit = DetectionNotifier::isKnownMalware(sNarrowTarget, "")
+				|| DetectionNotifier::isKnownMalware(sNarrowBackup, "");
+			if (bHashHit || (bPathHit && sBackupHash.empty()))
 			{
 				LOGLVL(Critical, FMT("RansomShield: BLOCKED restore of detected malware binary <" << sNarrowTarget << ">"));
 				::SetFileAttributesW(wsRestoreTarget.c_str(), FILE_ATTRIBUTE_NORMAL);
@@ -960,7 +994,12 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 					{
 						std::string sNarrowTarget = Narrow(wsTarget);
 						std::string sNarrowBk = Narrow(bkPath);
-						if (DetectionNotifier::isKnownMalware(sNarrowTarget, "") || DetectionNotifier::isKnownMalware(sNarrowBk, ""))
+						std::string sSweepHash = sha1HexOfFile(bkPath);
+						bool bSweepHashHit = !sSweepHash.empty()
+							&& DetectionNotifier::isKnownMalware("", sSweepHash);
+						bool bSweepPathHit = DetectionNotifier::isKnownMalware(sNarrowTarget, "")
+							|| DetectionNotifier::isKnownMalware(sNarrowBk, "");
+						if (bSweepHashHit || (bSweepPathHit && sSweepHash.empty()))
 						{
 							LOGLVL(Critical, FMT("RansomShield (Sweep): BLOCKED restore of detected malware binary <" << sNarrowTarget << ">"));
 							::SetFileAttributesW(wsTarget.c_str(), FILE_ATTRIBUTE_NORMAL);

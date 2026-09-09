@@ -16,6 +16,7 @@
 #include "osutils.h"
 #include "filemon.h"
 #include "diskutils.h"
+#include "DriverData.h"
 #include "ShanonEntropy.h"
 #include "procmon.h"
 #include "fltport.h"
@@ -1137,6 +1138,24 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preCreate(
 		ACCESS_MASK desiredAccess = pData->Iopb->Parameters.Create.SecurityContext->DesiredAccess;
 		if (!isSelfProtected(&pNameInfo->Name, desiredAccess))
 			__leave;
+
+		// Kernel block list: threat paths pushed from usermode at quarantine
+		// time. Trusted requestors already left above, so our own remediation
+		// opens (quarantine/delete) still succeed.
+		if (!fDenyAccess && driverData != nullptr)
+		{
+			WCHAR szBlockNorm[MAX_FILE_NAME_LENGTH] = { 0 };
+			UNICODE_STRING usBlockNorm;
+			if (OwlyNormalizePathForMatch(&pNameInfo->Name, szBlockNorm, &usBlockNorm))
+			{
+				if (driverData->IsPathBlocked(&usBlockNorm))
+				{
+					LOGINFO1("BlockList: Deny access: pid: %Iu, file: <%wZ>.\r\n",
+						(ULONG_PTR)nProcessId, &pNameInfo->Name);
+					fDenyAccess = true;
+				}
+			}
+		}
 
 		// deny access
 		LOGINFO1("Selfdefense: Deny access: pid: %Iu, access: 0x%08X, file: <%wZ>.\r\n",

@@ -1056,6 +1056,20 @@ BOOLEAN DriverData::AddBlockedPath(PDIRECTORY_ENTRY newEntry) {
     BOOLEAN ret = FALSE;
     BOOLEAN foundMatch = FALSE;
     KIRQL oldIrql;
+
+    // Canonicalize to root-relative form ("\foo\bar") so DOS ("C:\...")
+    // and NT ("\Device\HarddiskVolumeN\...") spellings match at check time.
+    {
+        WCHAR szNorm[MAX_FILE_NAME_LENGTH] = { 0 };
+        UNICODE_STRING usNorm;
+        UNICODE_STRING usSrc;
+        RtlInitUnicodeString(&usSrc, newEntry->path);
+        if (OwlyNormalizePathForMatch(&usSrc, szNorm, &usNorm))
+        {
+            RtlCopyMemory(newEntry->path, szNorm, sizeof(szNorm));
+        }
+    }
+
     KeAcquireSpinLock(&blockedPathsLock, &oldIrql);
 
     PLIST_ENTRY pEntry = blockedPaths.Flink;

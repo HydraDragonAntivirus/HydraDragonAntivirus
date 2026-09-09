@@ -81,6 +81,9 @@ Export-relative offset hesabı: `baz_adres + offset = hedef`, sonra `laddr hedef
   dizisi + `steer/accept stats` sayacı (steer var, parsed 0).
 - `Cargo.lock` sessizce eski haline dönebilir; derlemeden önce `aws-lc-rs`/`aws-lc-sys`
   sürümlerini kilitte doğrula.
+- Kernel block listesi write-only'ydi: `IsPathBlocked`'i çağıran yoktu + DOS/NT
+  form uyuşmazlığı. Çözüm: ADD'de `OwlyNormalizePathForMatch` ile kanonikleştir,
+  filemon preCreate'te enforce et (trusted bypass korunur). Sürücü derleme+reboot ister.
 - 2026-09 vakası: `rules.yaml` içindeki `!include emerging-all.yaml metadata_only`
   satırındaki modifier kodda yok sayılıyordu → 50.422 ET kuralı her pakette koşuyor,
   worker'lar yetişemeyip kernel kuyruğu taşıyordu (`allowed` ama ölü trafik + DNS
