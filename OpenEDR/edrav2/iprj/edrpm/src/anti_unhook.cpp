@@ -9,6 +9,88 @@
 namespace cmd {
 namespace edrpm {
 
+//
+// Raw SEH Helpers (contain __try, NO C++ objects with non-trivial destructors)
+// to prevent MSVC C2712 errors
+//
+static bool SafeCopyBytes(void* dst, const void* src, size_t count)
+{
+    __try
+    {
+        memcpy(dst, src, count);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static bool SafeCompareBytes(const void* p1, const void* p2, size_t count, bool& outMatch)
+{
+    __try
+    {
+        outMatch = (memcmp(p1, p2, count) == 0);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        outMatch = false;
+        return false;
+    }
+}
+
+static bool SafeProbeMemory(const uint8_t* base, size_t size)
+{
+    __try
+    {
+        if (!base || size == 0)
+            return false;
+        volatile uint8_t b1 = base[0];
+        volatile uint8_t b2 = base[size - 1];
+        (void)b1;
+        (void)b2;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static bool TryGetNtdllTextSection(HMODULE hNtdll, const uint8_t*& outBase, size_t& outSize)
+{
+    if (!hNtdll)
+        return false;
+
+    __try
+    {
+        PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)hNtdll;
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+            return false;
+
+        PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)hNtdll + dos->e_lfanew);
+        if (nt->Signature != IMAGE_NT_SIGNATURE)
+            return false;
+
+        PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(nt);
+        for (WORD i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++)
+        {
+            if (strncmp((const char*)sec->Name, ".text", 5) == 0)
+            {
+                outBase = (const uint8_t*)((BYTE*)hNtdll + sec->VirtualAddress);
+                outSize = sec->Misc.VirtualSize;
+                return (outBase != nullptr && outSize > 0);
+            }
+        }
+        return false;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
 struct WatchedHook
 {
     std::string moduleName;
@@ -36,44 +118,19 @@ static bool g_hasNtdllBaseline = false;
 static bool InitializeNtdllBaseline()
 {
     HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
-    if (!hNtdll)
-        return false;
-
-    __try
-    {
-        PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)hNtdll;
-        if (dos->e_magic != IMAGE_DOS_SIGNATURE)
-            return false;
-
-        PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)hNtdll + dos->e_lfanew);
-        if (nt->Signature != IMAGE_NT_SIGNATURE)
-            return false;
-
-        PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(nt);
-        for (WORD i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++)
-        {
-            if (strncmp((const char*)sec->Name, ".text", 5) == 0)
-            {
-                g_pNtdllTextBase = (const uint8_t*)((BYTE*)hNtdll + sec->VirtualAddress);
-                g_ntdllTextSize = sec->Misc.VirtualSize;
-                break;
-            }
-        }
-
-        if (g_pNtdllTextBase && g_ntdllTextSize > 0)
-        {
-            g_baselineNtdllHash = ComputeSha1(g_pNtdllTextBase, g_ntdllTextSize);
-            g_hasNtdllBaseline = true;
-            dbgPrint("[OpenEDR::ANTI_UNHOOK] NTDLL .text baseline hash: " + g_baselineNtdllHash);
-            return true;
-        }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
+    if (!TryGetNtdllTextSection(hNtdll, g_pNtdllTextBase, g_ntdllTextSize))
     {
         g_hasNtdllBaseline = false;
+        return false;
     }
 
-    return false;
+    g_baselineNtdllHash = ComputeSha1(g_pNtdllTextBase, g_ntdllTextSize);
+    g_hasNtdllBaseline = !g_baselineNtdllHash.empty();
+    if (g_hasNtdllBaseline)
+    {
+        dbgPrint("[OpenEDR::ANTI_UNHOOK] NTDLL .text baseline hash: " + g_baselineNtdllHash);
+    }
+    return g_hasNtdllBaseline;
 }
 
 std::string GetNtdllTextHash()
@@ -92,16 +149,12 @@ bool RegisterHookToWatch(const char* moduleName, const char* funcName, PVOID add
     hook.address = address;
     hook.checkSize = (checkSize > 16) ? 16 : checkSize;
 
-    __try
-    {
-        memcpy(hook.expectedBytes, address, hook.checkSize);
-        hook.hasBaseline = true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
+    if (!SafeCopyBytes(hook.expectedBytes, address, hook.checkSize))
     {
         hook.hasBaseline = false;
         return false;
     }
+    hook.hasBaseline = true;
 
     EnterCriticalSection(&g_csWatchedHooks);
     // Avoid duplicate registration for same address
@@ -217,7 +270,7 @@ static DWORD WINAPI AntiUnhookWatchdogWorker(LPVOID /*param*/)
         //
         if (g_hasNtdllBaseline && g_pNtdllTextBase && g_ntdllTextSize > 0)
         {
-            __try
+            if (SafeProbeMemory(g_pNtdllTextBase, g_ntdllTextSize))
             {
                 std::string currentNtdllHash = ComputeSha1(g_pNtdllTextBase, g_ntdllTextSize);
                 if (!currentNtdllHash.empty() && currentNtdllHash != g_baselineNtdllHash)
@@ -231,9 +284,6 @@ static DWORD WINAPI AntiUnhookWatchdogWorker(LPVOID /*param*/)
                     g_baselineNtdllHash = currentNtdllHash;
                 }
             }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-            }
         }
 
         //
@@ -246,20 +296,8 @@ static DWORD WINAPI AntiUnhookWatchdogWorker(LPVOID /*param*/)
             if (!hook.hasBaseline || !hook.address)
                 continue;
 
-            bool isTampered = false;
-            __try
-            {
-                if (memcmp(hook.address, hook.expectedBytes, hook.checkSize) != 0)
-                {
-                    isTampered = true;
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                isTampered = false;
-            }
-
-            if (isTampered)
+            bool isMatch = true;
+            if (!SafeCompareBytes(hook.address, hook.expectedBytes, hook.checkSize, isMatch) || !isMatch)
             {
                 std::string errMsg = "[OpenEDR::ANTI_UNHOOK] CRITICAL: Hook tampering detected on <" +
                                      hook.moduleName + "!" + hook.funcName +
@@ -271,11 +309,7 @@ static DWORD WINAPI AntiUnhookWatchdogWorker(LPVOID /*param*/)
                 {
                     if (RehookLoadImage())
                     {
-                        __try
-                        {
-                            memcpy(hook.expectedBytes, hook.address, hook.checkSize);
-                        }
-                        __except (EXCEPTION_EXECUTE_HANDLER) {}
+                        SafeCopyBytes(hook.expectedBytes, hook.address, hook.checkSize);
                         logError("[OpenEDR::ANTI_UNHOOK] Self-healing succeeded: clr.dll!nLoadImage re-hooked!", ErrorType::Info);
                     }
                 }
@@ -285,14 +319,13 @@ static DWORD WINAPI AntiUnhookWatchdogWorker(LPVOID /*param*/)
                     DWORD oldProtect = 0;
                     if (VirtualProtect(hook.address, hook.checkSize, PAGE_EXECUTE_READWRITE, &oldProtect))
                     {
-                        __try
+                        if (SafeCopyBytes(hook.address, hook.expectedBytes, hook.checkSize))
                         {
-                            memcpy(hook.address, hook.expectedBytes, hook.checkSize);
                             FlushInstructionCache(GetCurrentProcess(), hook.address, hook.checkSize);
                             logError("[OpenEDR::ANTI_UNHOOK] Self-healing succeeded: Restored detour bytes for <" +
                                      hook.moduleName + "!" + hook.funcName + ">!", ErrorType::Info);
                         }
-                        __except (EXCEPTION_EXECUTE_HANDLER)
+                        else
                         {
                             logError("[OpenEDR::ANTI_UNHOOK] Failed to write self-healing bytes for <" +
                                      hook.moduleName + "!" + hook.funcName + ">!", ErrorType::Error);

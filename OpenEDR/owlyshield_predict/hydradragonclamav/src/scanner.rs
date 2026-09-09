@@ -226,11 +226,6 @@ impl ScanContext<'_> {
         self.pe.as_deref()
     }
 
-    /// Fast magic-byte PE sniff (just the MZ signature) — no full parse.
-    pub(crate) fn is_pe_magic(&self) -> bool {
-        self.full.len() >= 2 && self.full[..2] == *b"MZ"
-    }
-
     /// Lazily compute (and cache) this file's image fuzzy hash, mirroring
     /// ClamAV's per-fmap `fuzzy_hash_calculate_image`. Guarded by an image-magic
     /// check so non-image files never pay the decode cost. Always computed on
@@ -1253,7 +1248,7 @@ impl Engine {
                 Some(OffsetAnchor::VersionInfo)
             );
             let ranges = match offset.as_deref() {
-                Some(spec) if is_vinfo => vec![(0, ctx.data.len())],
+                Some(_) if is_vinfo => vec![(0, ctx.data.len())],
                 Some(spec) => {
                     if matches!(
                         spec.anchor,

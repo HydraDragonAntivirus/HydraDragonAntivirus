@@ -7,6 +7,8 @@ namespace detours
 void CollectAllHooks();
 void CommitAllHooks();
 
+bool HookAttach(LPVOID Code, LPVOID Callback, LPVOID* NextHook);
+bool HookDetach(LPVOID* NextHook, LPVOID Callback);
 bool HookCode(LPVOID Code, LPVOID Callback, LPVOID* NextHook);
 bool HookAPI(LPCSTR ModuleName, LPCSTR ApiName, LPVOID Callback, LPVOID* NextHook);
 bool UnhookAPI(LPVOID* NextHook, LPVOID Callback);

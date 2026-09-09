@@ -335,6 +335,36 @@ static ClrScanVerdict InspectDotNetAssembly(
 }
 
 //
+// Safe extraction helper (contains __try, NO C++ objects with destructors to avoid C2712)
+//
+static bool TryExtractByteArray(LPVOID pBytesUNSAFE, const uint8_t*& outData, DWORD& outLength)
+{
+    if (!pBytesUNSAFE)
+        return false;
+
+    __try
+    {
+        const size_t lengthOffset = (sizeof(void*) == 8) ? 8 : 4;
+        const size_t dataOffset   = (sizeof(void*) == 8) ? 16 : 8;
+
+        DWORD arrayLength = *(DWORD*)((BYTE*)pBytesUNSAFE + lengthOffset);
+        const uint8_t* arrayData = (const uint8_t*)((BYTE*)pBytesUNSAFE + dataOffset);
+
+        if (arrayLength > 0 && arrayLength < 0x20000000) // Sanity check: < 512 MB
+        {
+            outData = arrayData;
+            outLength = arrayLength;
+            return true;
+        }
+        return false;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+//
 // Detour Callback for nLoadImage
 //
 static LPVOID Detour_nLoadImage(
@@ -349,32 +379,15 @@ static LPVOID Detour_nLoadImage(
     DotNetAssemblyInfo info;
     bool shouldBlock = false;
 
-    __try
+    const uint8_t* arrayData = nullptr;
+    DWORD arrayLength = 0;
+    if (TryExtractByteArray(pBytesUNSAFE, arrayData, arrayLength))
     {
-        if (pBytesUNSAFE != nullptr)
+        ClrScanVerdict verdict = InspectDotNetAssembly(arrayData, arrayLength, info);
+        if (verdict == ClrScanVerdict::Malicious)
         {
-            // In CLR managed memory, byte[] is an ArrayBase:
-            // [+0x08 on x64, +0x04 on x86]: DWORD length (m_NumComponents)
-            // [+0x10 on x64, +0x08 on x86]: byte data (m_ArrayData)
-            const size_t lengthOffset = (sizeof(void*) == 8) ? 8 : 4;
-            const size_t dataOffset   = (sizeof(void*) == 8) ? 16 : 8;
-
-            DWORD arrayLength = *(DWORD*)((BYTE*)pBytesUNSAFE + lengthOffset);
-            const uint8_t* arrayData = (const uint8_t*)((BYTE*)pBytesUNSAFE + dataOffset);
-
-            if (arrayLength > 0 && arrayLength < 0x20000000) // Sanity check: < 512 MB
-            {
-                ClrScanVerdict verdict = InspectDotNetAssembly(arrayData, arrayLength, info);
-                if (verdict == ClrScanVerdict::Malicious)
-                {
-                    shouldBlock = true;
-                }
-            }
+            shouldBlock = true;
         }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        shouldBlock = false;
     }
 
     if (shouldBlock)
@@ -417,9 +430,7 @@ static bool ApplyHookToLoadImage(LPVOID fnAddress)
     g_pTargetLoadImage = fnAddress;
     g_fnRawLoadImage = (FnAssemblyNative_LoadImage)fnAddress;
 
-    detours::CollectAllHooks();
-    bool attached = detours::HookAttach(g_pTargetLoadImage, (LPVOID)&Detour_nLoadImage, (LPVOID*)&g_fnRawLoadImage);
-    detours::CommitAllHooks();
+    bool attached = detours::HookCode(g_pTargetLoadImage, (LPVOID)&Detour_nLoadImage, (LPVOID*)&g_fnRawLoadImage);
 
     if (attached)
     {
@@ -541,9 +552,7 @@ void ShutdownClrHookEngine()
 
     if (g_isClrHooked.exchange(false))
     {
-        detours::CollectAllHooks();
-        detours::HookDetach((LPVOID*)&g_fnRawLoadImage, (LPVOID)&Detour_nLoadImage);
-        detours::CommitAllHooks();
+        detours::UnhookAPI((LPVOID*)&g_fnRawLoadImage, (LPVOID)&Detour_nLoadImage);
         g_fnRawLoadImage = nullptr;
         g_pTargetLoadImage = nullptr;
     }
@@ -559,9 +568,7 @@ bool RehookLoadImage()
     if (!g_pTargetLoadImage)
         return false;
 
-    detours::CollectAllHooks();
-    bool attached = detours::HookAttach(g_pTargetLoadImage, (LPVOID)&Detour_nLoadImage, (LPVOID*)&g_fnRawLoadImage);
-    detours::CommitAllHooks();
+    bool attached = detours::HookCode(g_pTargetLoadImage, (LPVOID)&Detour_nLoadImage, (LPVOID*)&g_fnRawLoadImage);
     if (attached)
     {
         g_isClrHooked = true;
