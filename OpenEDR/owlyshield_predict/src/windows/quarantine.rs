@@ -4,7 +4,7 @@ use crate::logging::Logging;
 use crate::utils::protected_process_reason;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::windows::ffi::OsStrExt;
@@ -37,6 +37,7 @@ pub enum QuarantineError {
     Io(io::Error),
     Json(serde_json::Error),
     InvalidMagic,
+    Excluded,
 }
 
 impl From<io::Error> for QuarantineError {
@@ -57,11 +58,74 @@ impl std::fmt::Display for QuarantineError {
             Self::Io(e) => write!(f, "IO error: {e}"),
             Self::Json(e) => write!(f, "JSON error: {e}"),
             Self::InvalidMagic => write!(f, "Not a HydraDragon quarantine file"),
+            Self::Excluded => write!(f, "Excluded by user (quarantine_exclusions.txt)"),
         }
     }
 }
 
 impl std::error::Error for QuarantineError {}
+
+// ── User exclusion list ────────────────────────────────────────────────────
+// Plain text next to the store, one rule per line:
+//   path:<lowercase path>   exact file path match
+//   hash:<lowercase hex>    content match (any location)
+// Lines starting with '#' and blanks are ignored. Loaded fresh on every
+// check so GUI edits apply without restart. Excluded files are left alone
+// entirely: no container, no delete, no block push.
+
+fn exclusions_path() -> PathBuf {
+    PathBuf::from(crate::shared_def::QUARANTINE_PATH).join("quarantine_exclusions.txt")
+}
+
+fn load_exclusions() -> (HashSet<String>, HashSet<String>) {
+    let mut paths = HashSet::new();
+    let mut hashes = HashSet::new();
+    if let Ok(content) = std::fs::read_to_string(exclusions_path()) {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(p) = line.strip_prefix("path:") {
+                let p = p.trim().to_ascii_lowercase();
+                if !p.is_empty() {
+                    paths.insert(p);
+                }
+            } else if let Some(h) = line.strip_prefix("hash:") {
+                let h = h.trim().to_ascii_lowercase();
+                if !h.is_empty() {
+                    hashes.insert(h);
+                }
+            }
+        }
+    }
+    (paths, hashes)
+}
+
+/// True when the user excluded this exact path or content hash.
+pub fn is_excluded(path: &Path, sha256: &str) -> bool {
+    let (paths, hashes) = load_exclusions();
+    if paths.contains(&path.to_string_lossy().to_ascii_lowercase()) {
+        return true;
+    }
+    let s = sha256.trim().to_ascii_lowercase();
+    !s.is_empty() && s != "unknown" && hashes.contains(&s)
+}
+
+fn append_exclusion_line(line: &str) -> io::Result<()> {
+    use std::fmt::Write as _;
+    let p = exclusions_path();
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut existing = std::fs::read_to_string(&p).unwrap_or_default();
+    if !existing.is_empty() && !existing.ends_with('\n') {
+        existing.push('\n');
+    }
+    let _ = write!(existing, "{line}\n");
+    std::fs::write(&p, existing)?;
+    Ok(())
+}
 
 /// Find an existing quarantine container holding the same payload hash.
 ///
@@ -492,6 +556,15 @@ pub fn quarantine_path(src: &Path, detection: &str) -> Result<PathBuf, Quarantin
     std::fs::create_dir_all(qdir)?;
     let sha256 = compute_sha256(src).unwrap_or_else(|_| "unknown".to_string());
 
+    // User exclusion wins over everything: leave the file alone entirely.
+    if is_excluded(src, &sha256) {
+        Logging::info(&format!(
+            "[Quarantine] Skipped (user exclusion): {}",
+            src.display()
+        ));
+        return Err(QuarantineError::Excluded);
+    }
+
     // Store dedup: same bytes already sealed -> reuse the container.
     // The live file is STILL neutralized below; dedup never skips action.
     if let Some(existing) = find_existing_container_by_hash(qdir, &sha256) {
@@ -582,4 +655,251 @@ pub fn read_meta(src: &Path) -> Result<QuarantineMeta, QuarantineError> {
     file.read_exact(&mut meta_bytes)?;
 
     Ok(serde_json::from_slice(&meta_bytes)?)
+}
+
+// ── Quarantine manager FFI (dumb UI shell calls these) ─────────────────────
+
+fn utf16_path(ptr: *const u16, len: u32) -> Option<PathBuf> {
+    if ptr.is_null() || len == 0 || len > 32768 {
+        return None;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+    Some(PathBuf::from(String::from_utf16_lossy(slice)))
+}
+
+fn utf16_str(ptr: *const u16, len: u32) -> Option<String> {
+    if ptr.is_null() || len == 0 || len > 32768 {
+        return None;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+    Some(String::from_utf16_lossy(slice))
+}
+
+fn write_json_out(json: &str, out_buf: *mut u8, buf_len: u32) -> u32 {
+    let bytes = json.as_bytes();
+    if out_buf.is_null() || buf_len == 0 {
+        return bytes.len() as u32;
+    }
+    let n = (buf_len as usize).min(bytes.len());
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, n);
+    }
+    n as u32
+}
+
+/// Containment: the container must resolve inside the quarantine dir.
+/// Blocks `..\` escapes and absolute-path tricks from hostile callers.
+fn contained_container(path: &Path) -> Option<PathBuf> {
+    let root = PathBuf::from(crate::shared_def::QUARANTINE_PATH);
+    let root_c = std::fs::canonicalize(&root).ok()?;
+    let full_c = std::fs::canonicalize(path).ok()?;
+    if full_c.starts_with(&root_c)
+        && full_c.extension().and_then(|e| e.to_str()) == Some("hqf")
+    {
+        Some(full_c)
+    } else {
+        None
+    }
+}
+
+/// Lists quarantine containers as JSON
+/// (`[{container,original,detection,sha256,timestamp,size}]`, newest first).
+/// Null buffer (or 0 length) returns the needed size.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_quarantine_list(out_buf: *mut u8, buf_len: u32) -> u32 {
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let qdir = PathBuf::from(crate::shared_def::QUARANTINE_PATH);
+    if let Ok(entries) = std::fs::read_dir(&qdir) {
+        let mut metas: Vec<(u64, PathBuf, QuarantineMeta)> = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("hqf") {
+                continue;
+            }
+            if let Ok(meta) = read_meta(&path) {
+                metas.push((meta.timestamp, path, meta));
+            }
+        }
+        metas.sort_by(|a, b| b.0.cmp(&a.0));
+        for (ts, path, meta) in &metas {
+            rows.push(serde_json::json!({
+                "container": path.to_string_lossy(),
+                "original": meta.original_path,
+                "detection": meta.detection,
+                "sha256": meta.sha256,
+                "timestamp": ts,
+                "size": meta.original_size,
+            }));
+        }
+    }
+    write_json_out(&serde_json::Value::Array(rows).to_string(), out_buf, buf_len)
+}
+
+/// Restores a container to its original path (hash-verified by
+/// [`restore_file`]) and removes the container. Returns 0 on success,
+/// -1 bad arguments / outside quarantine dir, -2 restore failed.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_quarantine_restore(
+    container_ptr: *const u16,
+    container_len: u32,
+) -> i32 {
+    let Some(path) = utf16_path(container_ptr, container_len) else {
+        return -1;
+    };
+    let Some(full) = contained_container(&path) else {
+        Logging::error("[Quarantine] Restore refused: outside quarantine dir");
+        return -1;
+    };
+    let meta = match read_meta(&full) {
+        Ok(m) => m,
+        Err(e) => {
+            Logging::error(&format!("[Quarantine] Restore failed (unreadable): {e}"));
+            return -2;
+        }
+    };
+    let dst = PathBuf::from(&meta.original_path);
+    match restore_file(&full, &dst) {
+        Ok(_) => {
+            Logging::warning(&format!(
+                "[Quarantine] Restored {} from {}",
+                dst.display(),
+                full.display()
+            ));
+            let _ = std::fs::remove_file(&full);
+            0
+        }
+        Err(e) => {
+            Logging::error(&format!("[Quarantine] Restore failed: {e}"));
+            -2
+        }
+    }
+}
+
+/// Permanently deletes a quarantine container. Returns 0 on success
+/// (already-absent counts as success), -1 bad arguments / outside dir,
+/// -2 on I/O failure.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_quarantine_delete(
+    container_ptr: *const u16,
+    container_len: u32,
+) -> i32 {
+    let Some(path) = utf16_path(container_ptr, container_len) else {
+        return -1;
+    };
+    let Some(full) = contained_container(&path) else {
+        Logging::error("[Quarantine] Delete refused: outside quarantine dir");
+        return -1;
+    };
+    match std::fs::remove_file(&full) {
+        Ok(_) => {
+            Logging::warning(&format!("[Quarantine] Deleted container {}", full.display()));
+            0
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(e) => {
+            Logging::error(&format!("[Quarantine] Delete failed: {e}"));
+            -2
+        }
+    }
+}
+
+/// Lists user exclusions as JSON (`[{kind,value}]`, kind 0=path, 1=hash).
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_exclusion_list(out_buf: *mut u8, buf_len: u32) -> u32 {
+    let (paths, hashes) = load_exclusions();
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let mut pv: Vec<&String> = paths.iter().collect();
+    pv.sort();
+    for p in pv {
+        rows.push(serde_json::json!({ "kind": 0, "value": p }));
+    }
+    let mut hv: Vec<&String> = hashes.iter().collect();
+    hv.sort();
+    for h in hv {
+        rows.push(serde_json::json!({ "kind": 1, "value": h }));
+    }
+    write_json_out(&serde_json::Value::Array(rows).to_string(), out_buf, buf_len)
+}
+
+/// Adds an exclusion (kind 0=path, 1=hash; value UTF-16). Returns 0 on
+/// success (already-present counts as success), -1 bad arguments.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_exclusion_add(
+    kind: u32,
+    value_ptr: *const u16,
+    value_len: u32,
+) -> i32 {
+    let Some(value) = utf16_str(value_ptr, value_len) else {
+        return -1;
+    };
+    let value = value.trim().to_ascii_lowercase();
+    if value.is_empty() {
+        return -1;
+    }
+    let line = match kind {
+        0 => format!("path:{value}"),
+        1 => format!("hash:{value}"),
+        _ => return -1,
+    };
+    let (paths, hashes) = load_exclusions();
+    if paths.contains(&value) || hashes.contains(&value) {
+        return 0;
+    }
+    match append_exclusion_line(&line) {
+        Ok(_) => {
+            Logging::warning(&format!("[Quarantine] Exclusion added: {line}"));
+            0
+        }
+        Err(e) => {
+            Logging::error(&format!("[Quarantine] Exclusion add failed: {e}"));
+            -2
+        }
+    }
+}
+
+/// Removes an exclusion (kind 0=path, 1=hash). Returns 0 on success
+/// (absent counts as success), -1 bad arguments, -2 on I/O failure.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_exclusion_remove(
+    kind: u32,
+    value_ptr: *const u16,
+    value_len: u32,
+) -> i32 {
+    let Some(value) = utf16_str(value_ptr, value_len) else {
+        return -1;
+    };
+    let value = value.trim().to_ascii_lowercase();
+    if value.is_empty() || (kind != 0 && kind != 1) {
+        return -1;
+    }
+    let prefix = if kind == 0 { "path:" } else { "hash:" };
+    let p = exclusions_path();
+    let content = std::fs::read_to_string(&p).unwrap_or_default();
+    let mut kept = Vec::new();
+    let mut removed = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.eq_ignore_ascii_case(&format!("{prefix}{value}")) {
+            removed = true;
+            continue;
+        }
+        kept.push(line);
+    }
+    if !removed {
+        return 0;
+    }
+    let mut out = kept.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    match std::fs::write(&p, out) {
+        Ok(_) => {
+            Logging::warning(&format!("[Quarantine] Exclusion removed: {prefix}{value}"));
+            0
+        }
+        Err(e) => {
+            Logging::error(&format!("[Quarantine] Exclusion remove failed: {e}"));
+            -2
+        }
+    }
 }

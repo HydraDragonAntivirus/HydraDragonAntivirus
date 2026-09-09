@@ -311,6 +311,13 @@ pub extern "C" fn owlyshield_dll_quarantine_file(file_path: *const u8, len: u32)
             ));
             OWLY_OK
         }
+        Err(crate::windows::quarantine::QuarantineError::Excluded) => {
+            Logging::info(&format!(
+                "[Owlyshield FFI] Quarantine skipped (user exclusion): {}",
+                src.display()
+            ));
+            OWLY_OK
+        }
         Err(e) => {
             Logging::error(&format!(
                 "[Owlyshield FFI] Quarantine failed for {}: {e}",

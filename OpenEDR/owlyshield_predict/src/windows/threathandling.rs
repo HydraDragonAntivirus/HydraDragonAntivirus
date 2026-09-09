@@ -108,6 +108,16 @@ impl WindowsThreatHandler {
         };
         let sha256 = compute_sha256(&source_path).unwrap_or_else(|_| "unknown".to_string());
 
+        // User exclusion wins over everything: leave the file alone entirely
+        // (no container, no delete, no block push).
+        if crate::quarantine::is_excluded(&source_path, &sha256) {
+            Logging::info(&format!(
+                "[ThreatHandler] Skipped (user exclusion): {}",
+                source_path.display()
+            ));
+            return;
+        }
+
         // Store dedup: identical bytes already sealed -> no second container,
         // no second feed entry, no second attack alert. The live file is still
         // neutralized and the path still blocked below. This is NOT a

@@ -17,7 +17,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, Menus,
   Windows, Registry, fpjson, jsonparser,
-  USvcControl, UAlert, UGuiNotify, UHipPipe;
+  USvcControl, UAlert, UGuiNotify, UHipPipe, UQuar, URep;
 
 type
 
@@ -40,6 +40,8 @@ type
     TrayIcon1: TTrayIcon;
     MenuPauseResume: TMenuItem;
     MenuMitmToggle: TMenuItem;
+    MenuQuarantine: TMenuItem;
+    MenuReputation: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure MenuExitClick(Sender: TObject);
@@ -50,6 +52,10 @@ type
     procedure MenuUninstallClick(Sender: TObject);
     procedure MenuPauseResumeClick(Sender: TObject);
     procedure MenuMitmToggleClick(Sender: TObject);
+    procedure MenuQuarantineClick(Sender: TObject);
+    procedure QuarFormClosed(Sender: TObject; var CloseAction: TCloseAction);
+    procedure MenuReputationClick(Sender: TObject);
+    procedure RepFormClosed(Sender: TObject; var CloseAction: TCloseAction);
     procedure Timer1Timer(Sender: TObject);
     procedure TrayIcon1DblClick(Sender: TObject);
   private
@@ -61,6 +67,8 @@ type
     FHiPPipe: THipPipeListener;
     FProtectionPaused: Boolean;
     FMitmEnabled: Boolean;
+    FQuarForm: TQuarForm;
+    FRepForm: TRepForm;
     FBehaviorLogs: TStringList;
     FMLPredictions: TStringList;
     function ReadProtectionPaused: Boolean;
@@ -134,6 +142,20 @@ begin
     MenuMitmToggle);
   FMitmEnabled := True;
   SetMitmCaption(ReadMitmEnabled);
+
+  // Quarantine manager screen (list/restore/delete + exclusions).
+  MenuQuarantine := TMenuItem.Create(Self);
+  MenuQuarantine.Caption := 'Quarantine...';
+  MenuQuarantine.OnClick := @MenuQuarantineClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuMitmToggle) + 1,
+    MenuQuarantine);
+
+  // File reputation screen (cloud verdicts, display only).
+  MenuReputation := TMenuItem.Create(Self);
+  MenuReputation.Caption := 'Verdict...';
+  MenuReputation.OnClick := @MenuReputationClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuQuarantine) + 1,
+    MenuReputation);
 
   FBehaviorLogs := TStringList.Create;
   FMLPredictions := TStringList.Create;
@@ -737,6 +759,40 @@ end;
 procedure TForm1.MenuMitmToggleClick(Sender: TObject);
 begin
   WriteMitmEnabled(not ReadMitmEnabled);
+end;
+
+procedure TForm1.MenuQuarantineClick(Sender: TObject);
+begin
+  if FQuarForm = nil then
+  begin
+    FQuarForm := TQuarForm.Create(Application);
+    FQuarForm.OnClose := @QuarFormClosed;
+  end;
+  FQuarForm.Show;
+  FQuarForm.BringToFront;
+end;
+
+procedure TForm1.QuarFormClosed(Sender: TObject; var CloseAction: TCloseAction);
+begin
+  CloseAction := caFree;
+  FQuarForm := nil;
+end;
+
+procedure TForm1.MenuReputationClick(Sender: TObject);
+begin
+  if FRepForm = nil then
+  begin
+    FRepForm := TRepForm.Create(Application);
+    FRepForm.OnClose := @RepFormClosed;
+  end;
+  FRepForm.Show;
+  FRepForm.BringToFront;
+end;
+
+procedure TForm1.RepFormClosed(Sender: TObject; var CloseAction: TCloseAction);
+begin
+  CloseAction := caFree;
+  FRepForm := nil;
 end;
 
 procedure TForm1.RunCommand(ACmd: TSvcCommand);

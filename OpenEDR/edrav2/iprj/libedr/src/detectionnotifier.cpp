@@ -13,6 +13,8 @@
 #include "eventenricher.h"
 
 #include <libcore/inc/kstack_resolve.hpp>
+#include <libcore/inc/service.hpp>
+#include <libcloud/inc/fls.hpp>
 
 #include <deque>
 #include <atomic>
@@ -21,6 +23,7 @@
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <tlhelp32.h>
 
 // Set component for logging
 #undef CMD_COMPONENT
@@ -488,6 +491,51 @@ static bool deleteRegistryTreeKey(const std::string& sTarget)
 //
 //
 //
+//
+//
+// SHA1 hex (lowercase) of a file given as UTF-8 path; "" when unreadable.
+//
+static std::string sha1HexOfFileUtf8(const std::string& sUtf8Path)
+{
+	try
+	{
+		if (sUtf8Path.empty())
+			return {};
+		int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
+		if (nWide <= 1)
+			return {};
+		std::wstring ws(nWide - 1, L'\0');
+		if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
+			return {};
+		std::ifstream f(ws, std::ios::binary);
+		if (!f)
+			return {};
+		crypt::sha1::Hasher hasher;
+		char buf[65536];
+		while (f)
+		{
+			f.read(buf, sizeof(buf));
+			std::streamsize n = f.gcount();
+			if (n > 0)
+				hasher.update(buf, static_cast<size_t>(n));
+		}
+		if (f.bad())
+			return {};
+		auto h = hasher.finalize();
+		static const char* kHex = "0123456789abcdef";
+		std::string out;
+		out.reserve(sizeof(h.byte) * 2);
+		for (size_t i = 0; i < sizeof(h.byte); ++i)
+		{
+			unsigned char b = static_cast<unsigned char>(h.byte[i]);
+			out.push_back(kHex[b >> 4]);
+			out.push_back(kHex[b & 0xF]);
+		}
+		return out;
+	}
+	catch (...) { return {}; }
+}
+
 Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 {
 	TRACE_BEGIN;
@@ -1307,6 +1355,100 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams)
 		const bool fApplied = (fEnabled && nResult == 1);
 		LOGLVL(Critical, FMT("detnotif RPC: firewall MITM interception set to " << (fApplied ? "ENABLED" : "DISABLED")));
 		return Dictionary({ {"success", nResult == 1}, {"enabled", fApplied} });
+	}
+
+	// Reputation screen: cloud verdicts for file hashes, display only.
+	// No quarantine, no block, no DB writes. Unknown service/hash yields 3.
+	if (vCommand == "getFileReputationBulk")
+	{
+		Variant vOut = Sequence();
+		auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
+		if (vParams.isDictionaryLike() && vParams.has("paths") && pFls)
+		{
+			auto vPaths = vParams.get("paths");
+			if (vPaths.getType() == variant::ValueType::Sequence)
+			{
+				for (size_t i = 0; i < vPaths.getSize() && vOut.getSize() < 200; ++i)
+				{
+					try
+					{
+						std::string sPath = vPaths[i];
+						if (sPath.empty())
+							continue;
+						std::string sHash = sha1HexOfFileUtf8(sPath);
+						int nVerdict = 3; // Unknown by default
+						if (!sHash.empty())
+						{
+							try
+							{
+								auto v = pFls->getFileVerdict(sHash);
+								nVerdict = static_cast<int>(v);
+							}
+							catch (...) {}
+						}
+						vOut.push_back(Dictionary({
+							{"path", sPath}, {"hash", sHash}, {"verdict", nVerdict} }));
+					}
+					catch (...) {}
+				}
+			}
+		}
+		return Dictionary({ {"results", vOut} });
+	}
+
+	// Verdict screen: running processes enriched by every engine
+	// (process provider info + FLS cloud verdict). Display only.
+	if (vCommand == "getProcessReputation")
+	{
+		Variant vOut = Sequence();
+		auto pProc = queryInterface<sys::win::IProcessInformation>(queryService("processDataProvider"));
+		auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
+		if (pProc)
+		{
+			HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+			if (hSnap != INVALID_HANDLE_VALUE)
+			{
+				PROCESSENTRY32W pe = {};
+				pe.dwSize = sizeof(pe);
+				for (BOOL ok = ::Process32FirstW(hSnap, &pe); ok && vOut.getSize() < 400;
+					ok = ::Process32NextW(hSnap, &pe))
+				{
+					try
+					{
+						auto vInfo = pProc->enrichProcessInfo(
+							Dictionary({ {"pid", static_cast<int64_t>(pe.th32ProcessID)} }));
+						std::string sPath, sHash, sUser;
+						try { sPath = std::string(vInfo["imagePath"]); } catch (...) {}
+						if (sPath.empty())
+						{
+							try { sPath = std::string(vInfo["path"]); } catch (...) {}
+						}
+						try { sHash = std::string(vInfo["imageHash"]); } catch (...) {}
+						if (sHash.empty())
+						{
+							try { sHash = std::string(vInfo["hash"]); } catch (...) {}
+						}
+						try { sUser = std::string(vInfo["userName"]); } catch (...) {}
+						int nVerdict = 3;
+						if (!sHash.empty() && pFls)
+						{
+							try
+							{
+								nVerdict = static_cast<int>(pFls->getFileVerdict(sHash));
+							}
+							catch (...) {}
+						}
+						vOut.push_back(Dictionary({
+							{"pid", static_cast<int64_t>(pe.th32ProcessID)},
+							{"path", sPath}, {"hash", sHash},
+							{"user", sUser}, {"verdict", nVerdict} }));
+					}
+					catch (...) {}
+				}
+				::CloseHandle(hSnap);
+			}
+		}
+		return Dictionary({ {"results", vOut} });
 	}
 
 	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();
