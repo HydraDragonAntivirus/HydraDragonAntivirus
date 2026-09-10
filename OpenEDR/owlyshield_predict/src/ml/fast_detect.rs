@@ -22,40 +22,70 @@ pub(crate) fn get_js_model_ref() -> Option<&'static super::model::MalwareNet<Inf
     get_js_model().as_ref()
 }
 
-fn get_pe_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
-    PE_MODEL.get_or_init(|| {
-        let path = Path::new("models/pe_model.mpk");
-        if path.exists() {
-            if let Some(model) = load_ml_model(path, super::model::MalwareNetConfig::default()) {
-                Logging::info(&format!(
-                    "[FastDetect] Loaded PE ML model from {}",
-                    path.display()
-                ));
-                return Some(model);
+/// Resolve an ML model file. The service/DLL never runs with the repo as
+/// its working directory, so a bare relative `models/*.mpk` only resolves
+/// in dev. Order:
+/// 1. `<module-dir>/models/<file>` (MSI layout: ModelBinaries ships the
+///    .mpk files to `[INSTALLDIR]\models`, next to the binaries),
+/// 2. legacy CWD-relative `models/<file>` (dev / tests).
+fn model_path(file: &str) -> Option<std::path::PathBuf> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let cand = dir.join("models").join(file);
+            if cand.is_file() {
+                return Some(cand);
             }
         }
-        Logging::error(
-            "[FastDetect] PE ML model could not be found or loaded from models/pe_model.mpk",
-        );
+    }
+    let cand = Path::new("models").join(file);
+    if cand.is_file() {
+        return Some(cand);
+    }
+    None
+}
+
+fn get_pe_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
+    PE_MODEL.get_or_init(|| {
+        let Some(path) = model_path("pe_model.mpk") else {
+            Logging::error(
+                "[FastDetect] PE ML model not found: no models\\pe_model.mpk next to the module and none at .\\models\\pe_model.mpk",
+            );
+            return None;
+        };
+        if let Some(model) = load_ml_model(&path, super::model::MalwareNetConfig::default()) {
+            Logging::info(&format!(
+                "[FastDetect] Loaded PE ML model from {}",
+                path.display()
+            ));
+            return Some(model);
+        }
+        Logging::error(&format!(
+            "[FastDetect] PE ML model failed to load from {}",
+            path.display()
+        ));
         None
     })
 }
 
 fn get_js_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
     JS_MODEL.get_or_init(|| {
-        let path = Path::new("models/js_model.mpk");
-        if path.exists() {
-            if let Some(model) = load_ml_model(path, super::model::MalwareNetConfig::default_js()) {
-                Logging::info(&format!(
-                    "[FastDetect] Loaded JS ML model from {}",
-                    path.display()
-                ));
-                return Some(model);
-            }
+        let Some(path) = model_path("js_model.mpk") else {
+            Logging::error(
+                "[FastDetect] JS ML model not found: no models\\js_model.mpk next to the module and none at .\\models\\js_model.mpk",
+            );
+            return None;
+        };
+        if let Some(model) = load_ml_model(&path, super::model::MalwareNetConfig::default_js()) {
+            Logging::info(&format!(
+                "[FastDetect] Loaded JS ML model from {}",
+                path.display()
+            ));
+            return Some(model);
         }
-        Logging::error(
-            "[FastDetect] JS ML model could not be found or loaded from models/js_model.mpk",
-        );
+        Logging::error(&format!(
+            "[FastDetect] JS ML model failed to load from {}",
+            path.display()
+        ));
         None
     })
 }

@@ -1061,6 +1061,13 @@ pub mod worker_instance {
                     if is_process_create {
                         let exe_path_str = precord.exepath.to_string_lossy().into_owned();
                         fast_det = crate::ml::fast_detect::fast_detect_file(&exe_path_str, iomsg);
+                        // ML undecided on the new process image: same ClamAV
+                        // fallback as file events. Remediation stays the
+                        // process image itself (no fast_det_target), so a hit
+                        // still kill+quarantines the malware process.
+                        if fast_det.is_none() && !exe_path_str.is_empty() {
+                            fast_det = crate::clamscan::rt_scan_file(&exe_path_str);
+                        }
                     }
 
                     if fast_det.is_none() && !iomsg.filepathstr.is_empty() {

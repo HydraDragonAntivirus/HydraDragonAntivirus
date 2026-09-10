@@ -215,17 +215,35 @@ pub fn scan_deep(
 /// when ML is undecided. Bounded by `max_child_size` (giants skipped
 /// pre-read), the engine's scan cap and the archive budget — one file can
 /// never stall the RT loop. Returns `None` when clean/unscannable.
+///
+/// RT events routinely arrive while the file is still being written
+/// (copy/download in flight: missing, zero-length, or locked). The read is
+/// retried a few times on a short backoff so a mid-write event doesn't
+/// silently skip a malicious file that a manual scan seconds later catches.
 pub fn rt_scan_file(
     path_str: &str,
 ) -> Option<crate::ml::fast_detect::FastDetectionResult> {
     let engine = global_engine()?;
     let options = ScanOptions::default();
     let path = std::path::Path::new(path_str);
-    let len = std::fs::metadata(path).ok()?.len();
-    if len == 0 || len > options.max_child_size as u64 {
-        return None;
+    let mut data: Option<Vec<u8>> = None;
+    for attempt in 0..4 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        match std::fs::metadata(path).ok().map(|m| m.len()) {
+            Some(len) if len > 0 && len <= options.max_child_size as u64 => {
+                if let Ok(bytes) = std::fs::read(path) {
+                    if !bytes.is_empty() {
+                        data = Some(bytes);
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
     }
-    let data = std::fs::read(path).ok()?;
+    let data = data?;
     let (matches, _timing) = scan_deep(engine, &data, path_str, options, &[]);
     let first = matches.first()?;
     Some(crate::ml::fast_detect::FastDetectionResult {
