@@ -16,10 +16,11 @@ struct Cli {
     blank_skip: usize,
     zero_pad_heuristic: usize,
     max_archive_bytes: usize,
-    /// Worker threads for directory scans (clamd `--multiscan` equivalent):
-    /// files are independent, so they scan in parallel with per-thread
-    /// scratch (the engine is shared read-only). 0 = auto (CPU count),
-    /// 1 = sequential.
+    /// Worker threads for directory scans (clamd `--multiscan` equivalent).
+    /// Two different metrics: per-FILE latency is best sequential (threads
+    /// share memory bandwidth, so each file slows down), but total WALL time
+    /// over many files wins parallel as long as threads stay fed. Default 0
+    /// (auto = CPUs), like clamd. Use 1 when single-file latency matters.
     jobs: usize,
     show_unsupported: bool,
 }
