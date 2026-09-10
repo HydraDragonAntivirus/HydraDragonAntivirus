@@ -126,14 +126,20 @@ class ComprehensiveFilter:
             "(the engine evaluates neither on the simple scan path).",
             "include_platforms": ["Win", "W32"],
             "exclude_platforms": [],
-            # Twin = TwinWave/TwinClams Windows set (Target 0/1, e.g. mimikatz
-            # reflections); ditekSHen = author tag on 100+ Target-1 PE
-            # indicators in clamav.ldb / indicator_rmm.ldb; Foxhole =
-            # Sanesecurity malicious-attachment archive sigs (filename-based,
-            # evaluable once member names are wired). All would fire in the
-            # engine, so dropping them by name would lose real Windows
-            # detections (the type/target gates still drop non-PE lines).
-            "keep_if_contains": ["Eicar", "Heuristics", "Twin", "ditekSHen", "Foxhole"],
+            # ditekSHen = author tag on 100+ Target-1 PE indicators in
+            # clamav.ldb / indicator_rmm.ldb; Foxhole = Sanesecurity
+            # malicious-attachment archive sigs (filename-based, evaluable
+            # once member names are wired).
+            "keep_if_contains": ["Eicar", "Heuristics", "ditekSHen", "Foxhole"],
+            # ALL TwinWave/TwinClams branches: measured 0 confirmations across
+            # malicious PE sets while burning full-buffer re-verification on
+            # every binary (including the DROPADABASE mimikatz set — kept out
+            # for the speed trial; restore by dropping "twinw" below if a
+            # TwinWave FOUND ever matters). Case-insensitive.
+            "exclude_name_contains": ["twinw", "twiwave", "twinclam",
+                                      "twinwave.evildoc", "twinwave.evilxll",
+                                      "twinwave.evillnk", "twinwave.evilnk",
+                                      "twinwave.onenote", "twinwave.cmdobfus"],
             # Hash DBs: engine skips them (xor-filter pipeline owns hashes).
             # cvd/cld/sign: carriers the engine cannot read (bytecode.cvd is
             # unpacked to .cbc instead, see below). .cdb IS kept (Win/Foxhole
@@ -219,13 +225,22 @@ class ComprehensiveFilter:
         except Exception as e:
             self.error(f"Failed to read ignore file {file_path}: {e}")
 
-    def should_keep_signature(self, name, exclude_platforms, include_platforms, keep_if_contains=None):
+    def should_keep_signature(self, name, exclude_platforms, include_platforms, keep_if_contains=None, exclude_contains=None):
         """Determine if a signature should be kept based on its name."""
         if name and name in self.ignore_names:
             return False
 
         if name and ("eicar" in name.lower() or "test.eicar" in name.lower()):
             return True
+
+        # Subfamily kill-list (e.g. doc/macro-oriented TwinWave branches that
+        # can never confirm on PE in this engine yet burn full-buffer
+        # re-verification on every binary). Checked before anything else.
+        if name and exclude_contains:
+            lowered = name.lower()
+            for sub in exclude_contains:
+                if sub.lower() in lowered:
+                    return False
 
         if not name or "." not in name:
             return len(include_platforms) == 0
@@ -248,7 +263,7 @@ class ComprehensiveFilter:
 
         return True
 
-    def filter_ndb(self, file_path, exclude_platforms, include_platforms, ndb_types, keep_if_contains=None):
+    def filter_ndb(self, file_path, exclude_platforms, include_platforms, ndb_types, keep_if_contains=None, exclude_contains=None):
         """Filter .ndb extended signature file."""
         if not os.path.exists(file_path):
             return
@@ -277,7 +292,8 @@ class ComprehensiveFilter:
                         sig_type = "0"
 
                     keep_platform = self.should_keep_signature(
-                        name, exclude_platforms, include_platforms, keep_if_contains
+                        name, exclude_platforms, include_platforms, keep_if_contains,
+                        exclude_contains,
                     )
                     keep_type = ndb_types is None or sig_type in ndb_types
 
@@ -446,7 +462,7 @@ class ComprehensiveFilter:
         m = re.search(r"(?:^|,)Target:(\*|\d+)", segments[1])
         return m.group(1) if m else None
 
-    def filter_ldb(self, file_path, exclude_platforms, include_platforms, keep_if_contains=None, ldb_targets=None):
+    def filter_ldb(self, file_path, exclude_platforms, include_platforms, keep_if_contains=None, ldb_targets=None, exclude_contains=None):
         """Filter .ldb logical signature file.
 
         When `ldb_targets` is given (e.g. ["0", "1"] for Windows PE), a line
@@ -474,7 +490,8 @@ class ComprehensiveFilter:
                 if len(parts) >= 1:
                     name = parts[0]
                     if self.should_keep_signature(
-                        name, exclude_platforms, include_platforms, keep_if_contains
+                        name, exclude_platforms, include_platforms, keep_if_contains,
+                        exclude_contains,
                     ):
                         target = self._ldb_target(line)
                         if target in ("*", ""):
@@ -566,7 +583,7 @@ class ComprehensiveFilter:
                     ndb_types, exclude_file_types, keep_if_contains=None,
                     exclude_files=None, ldb_targets=None,
                     keep_unfiltered=None, drop_extensions=None,
-                    unpack_bytecode=False):
+                    unpack_bytecode=False, exclude_contains=None):
         """Filter files in src_dir and copy results to dst_dir."""
         os.makedirs(dst_dir, exist_ok=True)
         if exclude_files is None:
@@ -603,7 +620,7 @@ class ComprehensiveFilter:
 
         # Filter each file type in-place in dst_dir
         for ndb_file in Path(dst_dir).glob("*.ndb"):
-            self.filter_ndb(str(ndb_file), exclude_platforms, include_platforms, ndb_types, keep_if_contains)
+            self.filter_ndb(str(ndb_file), exclude_platforms, include_platforms, ndb_types, keep_if_contains, exclude_contains)
 
         for hdb_file in Path(dst_dir).glob("*.hdb"):
             self.filter_hdb(str(hdb_file), exclude_platforms, include_platforms, keep_if_contains)
@@ -624,7 +641,7 @@ class ComprehensiveFilter:
             if "ldb" in exclude_file_types:
                 self.exclude_file_type(str(ldb_file))
             else:
-                self.filter_ldb(str(ldb_file), exclude_platforms, include_platforms, keep_if_contains, ldb_targets)
+                self.filter_ldb(str(ldb_file), exclude_platforms, include_platforms, keep_if_contains, ldb_targets, exclude_contains)
 
         # Update files (same format as base)
         for ext in ("ndu", "ldu", "hdu", "hsu", "mdu"):
@@ -637,9 +654,9 @@ class ComprehensiveFilter:
                     if fn is None:
                         continue
                     if ext_base == "ndb":
-                        fn(str(f), exclude_platforms, include_platforms, ndb_types, keep_if_contains)
+                        fn(str(f), exclude_platforms, include_platforms, ndb_types, keep_if_contains, exclude_contains)
                     elif ext_base == "ldb":
-                        fn(str(f), exclude_platforms, include_platforms, keep_if_contains, ldb_targets)
+                        fn(str(f), exclude_platforms, include_platforms, keep_if_contains, ldb_targets, exclude_contains)
                     else:
                         fn(str(f), exclude_platforms, include_platforms, keep_if_contains)
 
@@ -805,6 +822,7 @@ class ComprehensiveFilter:
         keep_unfiltered=None,
         drop_extensions=None,
         unpack_bytecode=False,
+        exclude_contains=None,
     ):
         """Main filtering workflow for CVD files."""
 
@@ -819,7 +837,8 @@ class ComprehensiveFilter:
             self._filter_dir(temp_dir, output_dir, exclude_platforms,
                              include_platforms, ndb_types, exclude_file_types,
                              keep_if_contains, exclude_files, ldb_targets,
-                             keep_unfiltered, drop_extensions, unpack_bytecode)
+                             keep_unfiltered, drop_extensions, unpack_bytecode,
+                             exclude_contains)
 
     def filter_directory(
         self,
@@ -835,6 +854,7 @@ class ComprehensiveFilter:
         keep_unfiltered=None,
         drop_extensions=None,
         unpack_bytecode=False,
+        exclude_contains=None,
     ):
         """Filter an already-extracted database directory."""
 
@@ -846,7 +866,8 @@ class ComprehensiveFilter:
         self._filter_dir(src_dir, output_dir, exclude_platforms,
                          include_platforms, ndb_types, exclude_file_types,
                          keep_if_contains, exclude_files, ldb_targets,
-                         keep_unfiltered, drop_extensions, unpack_bytecode)
+                         keep_unfiltered, drop_extensions, unpack_bytecode,
+                         exclude_contains)
 
         # Print statistics
         self.print_statistics()
@@ -1030,6 +1051,8 @@ File Types:
                 print(f"  LDB targets: {', '.join(profile['ldb_targets'])}")
             if profile.get("keep_if_contains"):
                 print(f"  Keep if name contains: {', '.join(profile['keep_if_contains'])}")
+            if profile.get("exclude_name_contains"):
+                print(f"  Drop if name contains: {', '.join(profile['exclude_name_contains'])}")
             if profile.get("keep_files_unfiltered"):
                 print(f"  Kept whole: {', '.join(profile['keep_files_unfiltered'])}")
             if profile.get("drop_extensions"):
@@ -1065,6 +1088,7 @@ File Types:
             "keep_unfiltered": profile.get("keep_files_unfiltered"),
             "drop_extensions": profile.get("drop_extensions"),
             "unpack_bytecode": profile.get("unpack_bytecode_cvd", False),
+            "exclude_contains": profile.get("exclude_name_contains"),
         }
         print(f"Using profile: {args.profile}")
         print(f"Description: {profile['description']}\n")

@@ -118,11 +118,6 @@ type
     function UpsertRow(const AKey, ACaption, AHash, ACloudText,
       ALocalText: string; v, lv: Integer): TListItem;
     procedure RecountSummary;
-    function RowActionText(A: Char): string;
-    function DefaultAction(v, lv: Integer): Char;
-    procedure CycleRowAction(ARow: TListItem);
-    procedure ResultsMouseDown(Sender: TObject; Button: TMouseButton;
-      Shift: TShiftState; X, Y: Integer);
     procedure BuildUi;
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);

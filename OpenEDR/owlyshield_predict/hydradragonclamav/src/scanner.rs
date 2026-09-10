@@ -1214,6 +1214,30 @@ impl Engine {
                 bufs.evaluated[i] = true;
             }
         }
+        // Pre-verify cutoff: slot counts are UPPER bounds of the true subsig
+        // counts (every pattern hit contains its indexed atom, so atom-absent
+        // means pattern-absent). For monotone expressions with no atom-less
+        // Body subsig, an already-unsatisfiable expression can never become
+        // satisfiable — skip every expensive re-verification below. Sound:
+        // upper bounds only over-approximate (never hide a match), and
+        // non-monotone (`=N`/`<N`) or AutoMatch shapes keep the old path.
+        // This kills the dominant waste class: signatures whose gate subsig
+        // is absent while sibling subsigs' weak atoms matched.
+        if !signature.expression.has_nonmonotone_compare() {
+            let gated = subsigs.iter().enumerate().all(|(i, s)| {
+                !matches!(s, Subsignature::Body { .. })
+                    || sub_slots.is_some_and(|slots| {
+                        matches!(slots.get(i), Some(crate::atomfilter::SubsigSlot::Atom(_)))
+                    })
+            });
+            if gated
+                && !signature
+                    .expression
+                    .can_still_match(&bufs.counts, &bufs.evaluated)
+            {
+                return;
+            }
+        }
         bufs.detail.clear();
         let counts = &mut bufs.counts;
         let last_offsets = &mut bufs.last_offsets;

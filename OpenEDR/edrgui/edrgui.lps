@@ -8,7 +8,7 @@
       <Unit>
         <Filename Value="edrgui.lpr"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="25"/>
+        <UsageCount Value="30"/>
       </Unit>
       <Unit>
         <Filename Value="unit1.pas"/>
@@ -17,8 +17,9 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="Unit1"/>
+        <TopLine Value="20"/>
         <CursorPos X="53" Y="20"/>
-        <UsageCount Value="25"/>
+        <UsageCount Value="30"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -28,30 +29,29 @@
         <ComponentName Value="AlertForm"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UAlert"/>
-        <UsageCount Value="25"/>
+        <UsageCount Value="30"/>
       </Unit>
       <Unit>
         <Filename Value="usvccontrol.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="USvcControl"/>
-        <UsageCount Value="25"/>
+        <UsageCount Value="30"/>
       </Unit>
       <Unit>
         <Filename Value="uguinotify.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="UGuiNotify"/>
-        <IsVisibleTab Value="True"/>
-        <EditorIndex Value="1"/>
+        <EditorIndex Value="2"/>
         <TopLine Value="88"/>
         <CursorPos X="26" Y="88"/>
-        <UsageCount Value="25"/>
+        <UsageCount Value="30"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="uhippipe.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="UHipPipe"/>
-        <UsageCount Value="25"/>
+        <UsageCount Value="30"/>
       </Unit>
       <Unit>
         <Filename Value="uquar.pas"/>
@@ -60,7 +60,7 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UQuar"/>
-        <UsageCount Value="25"/>
+        <UsageCount Value="30"/>
       </Unit>
       <Unit>
         <Filename Value="urep.pas"/>
@@ -69,13 +69,13 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="URep"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="286"/>
-        <CursorPos X="14" Y="286"/>
-        <UsageCount Value="25"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="1"/>
+        <UsageCount Value="30"/>
+        <Loaded Value="True"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="2">
+    <JumpHistory HistoryIndex="4">
       <Position>
         <Filename Value="unit1.pas"/>
       </Position>
@@ -84,7 +84,15 @@
       </Position>
       <Position>
         <Filename Value="unit1.pas"/>
-        <Caret Line="20" Column="53"/>
+        <Caret Line="20" Column="53" TopLine="20"/>
+      </Position>
+      <Position>
+        <Filename Value="urep.pas"/>
+        <Caret Line="121" Column="14" TopLine="121"/>
+      </Position>
+      <Position>
+        <Filename Value="urep.pas"/>
+        <Caret Line="124" Column="15" TopLine="124"/>
       </Position>
     </JumpHistory>
     <RunParams>
