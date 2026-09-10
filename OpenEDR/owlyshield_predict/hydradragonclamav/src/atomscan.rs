@@ -511,7 +511,15 @@ impl AtomScratch {
         }
 
         // ── Nocase automaton pass (data_offset = 0) ──────────────────
-        if pt.nocase.is_some() {
+        // Nocase atoms serve text-oriented signatures; on confidently
+        // binary-typed buffers (PE/ELF/DEX/APK/ZIP) that aren't even
+        // text-like, the whole lowercased-buffer build + second DFA pass
+        // costs up to seconds while promoting ~nothing (binary formats have
+        // no case-folded literals worth indexing). Skipping it there is pure
+        // win; every other type (incl. unknown) keeps the pass, so recall is
+        // unchanged wherever case-insensitive matching could matter.
+        let binary_typed = matches!(file_type_target, 1 | 6 | 16 | 17 | 18);
+        if pt.nocase.is_some() && (!binary_typed || crate::scanner::is_text_like(data)) {
             let mut lowered = std::mem::take(&mut self.lowered_buf);
             if data.len() > lowered.len() {
                 lowered.resize(data.len(), 0);

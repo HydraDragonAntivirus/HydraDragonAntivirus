@@ -29,6 +29,22 @@ const MATCH_FUEL_BUDGET: u64 = 2_000;
 /// single signature can never dominate the scan.
 const SIG_FUEL_BUDGET: u64 = 64_000;
 
+/// Charge the match fuel for raw bytes covered by a SIMD substring search
+/// (`memmem`/`memchr`), ~1 unit per 4KiB.
+///
+/// `match_rec` consumes 1 unit per backtracking CALL, but a single call can
+/// scan megabytes — nested gap rescans re-walk the same regions, so call
+/// counting alone let pathological patterns burn tens of seconds on packed
+/// binaries (observed: 46s on one subsignature of an 8MiB file). Charging
+/// scanned bytes bounds total substring work to ~256MiB per pattern call:
+/// invisible to legit matches (found within the first KiBs, charged ~0)
+/// while aborting rescans that only ever produce `cnt=0`. Sub-4KiB scans
+/// charge 0, so dense-but-legitimate inputs behave exactly as before.
+#[inline]
+fn charge_scan_bytes(fuel: &std::cell::Cell<u64>, bytes: usize) {
+    fuel.set(fuel.get().saturating_sub((bytes >> 12) as u64));
+}
+
 /// Match a single u16 instruction against a data byte.
 #[inline]
 fn match_byte(inst: u16, byte: u8) -> bool {
@@ -639,7 +655,11 @@ impl Pattern {
                     } else {
                         memchr::memchr(byte_val, &data[search..hi])
                     };
-                    let Some(rel) = rel else { break };
+                    let Some(rel) = rel else {
+                        charge_scan_bytes(&fuel, hi - search);
+                        break;
+                    };
+                    charge_scan_bytes(&fuel, rel + 1);
                     let occ = search + rel;
                     search = occ + 1;
                     let cand_lo = occ.saturating_sub(max_pre);
@@ -735,7 +755,11 @@ impl Pattern {
                     } else {
                         memchr::memchr(byte_val, &data[search..hi])
                     };
-                    let Some(rel) = rel else { break };
+                    let Some(rel) = rel else {
+                        charge_scan_bytes(&fuel, hi - search);
+                        break;
+                    };
+                    charge_scan_bytes(&fuel, rel + 1);
                     let occ = search + rel;
                     search = occ + 1;
                     let cand_lo = occ.saturating_sub(max_pre);
@@ -943,8 +967,10 @@ impl Pattern {
                     memchr::memchr(anc_byte, &window[from..])
                 };
                 let Some(rel) = rel else {
+                    charge_scan_bytes(&fuel, window.len() - from);
                     break;
                 };
+                charge_scan_bytes(&fuel, rel + 1);
                 let occ = lo + from + rel;
                 from += rel + 1;
                 let Some(pos) = occ.checked_sub(search_off) else {
@@ -1061,8 +1087,10 @@ impl Pattern {
                     memchr::memchr(anc_byte, &window[from..])
                 };
                 let Some(rel) = rel else {
+                    charge_scan_bytes(&fuel, window.len() - from);
                     break;
                 };
+                charge_scan_bytes(&fuel, rel + 1);
                 let occ = lo + from + rel;
                 from += rel + 1;
                 let Some(pos) = occ.checked_sub(search_off) else {
@@ -1419,19 +1447,33 @@ impl Pattern {
                                     if fuel.get() == 0 {
                                         return None;
                                     }
-                                    let rel = if all_exact {
-                                        memchr::memmem::find(
-                                            &data[search..last_start + run.len()],
-                                            &exact,
+                                    // Charge the bytes each SIMD scan covers (see
+                                    // `charge_scan_bytes`): nested gap rescans
+                                    // otherwise re-walk megabytes for free.
+                                    let (rel_opt, slice_len) = if all_exact {
+                                        (
+                                            memchr::memmem::find(
+                                                &data[search..last_start + run.len()],
+                                                &exact,
+                                            ),
+                                            (last_start + run.len()).saturating_sub(search),
                                         )
                                     } else if nc0 && b0_lo != b0_up {
-                                        memchr::memchr2(b0_lo, b0_up, &data[search..=last_start])
+                                        (
+                                            memchr::memchr2(b0_lo, b0_up, &data[search..=last_start]),
+                                            last_start.saturating_sub(search) + 1,
+                                        )
                                     } else {
-                                        memchr::memchr(b0, &data[search..=last_start])
+                                        (
+                                            memchr::memchr(b0, &data[search..=last_start]),
+                                            last_start.saturating_sub(search) + 1,
+                                        )
                                     };
-                                    let Some(rel) = rel else {
+                                    let Some(rel) = rel_opt else {
+                                        charge_scan_bytes(fuel, slice_len);
                                         break;
                                     };
+                                    charge_scan_bytes(fuel, rel + 1);
                                     let p = search + rel;
                                     search = p + 1;
                                     // Verify the full (nocase-aware) run before recursing.

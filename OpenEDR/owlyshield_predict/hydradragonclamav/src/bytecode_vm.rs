@@ -1583,7 +1583,11 @@ impl<'a> BcCtx<'a> {
             nsections: 0,
             hdr_size: 0,
             ep: 0,
-            max_ops: 50_000_000,
+            // Worst case ≈1s at interpreter speed (ClamAV's own default
+            // bytecode timeout is in the same ballpark). Programs deciding in
+            // millions of ops are overwhelmingly slow negatives; aborting them
+            // trades a theoretical slow-positive for bounded scan time.
+            max_ops: 12_000_000,
         }
     }
 
