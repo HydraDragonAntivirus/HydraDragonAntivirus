@@ -48,6 +48,12 @@ namespace {
 	};
 	static const wchar_t* const c_szMalwareDbFile = L"detected_malware.db";
 
+	static std::string toLowerStr(std::string s)
+	{
+		std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return s;
+	}
+
 	// Persistent local-verdict cache: sha1 (lowercase) -> engine verdict.
 	// Local engines (ML + ClamAV) cost seconds per file while the cloud is
 	// cheap and re-queried every scan — so engine results are remembered
@@ -176,12 +182,6 @@ namespace {
 		}
 		if (++s_nLocalVerdictFileLines > 3 * s_localVerdicts.size())
 			rewriteLocalVerdictsLocked();
-	}
-
-	static std::string toLowerStr(std::string s)
-	{
-		std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-		return s;
 	}
 
 
