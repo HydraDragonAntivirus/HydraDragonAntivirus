@@ -9,6 +9,9 @@ unit URep;
     and asks the FLS cloud). Rows show path, SHA1, the cloud verdict and
     the local verdict WITH its cause (never a bare 'Malicious').
   - Rows persist across scans (path-keyed upsert); totals always recount.
+  - The side 'Pending Actions' list shows exactly what Apply Actions is
+    going to do (pending-malicious rows not yet handled); Apply carries
+    the same count in its caption.
   - Selected row: Copy Hash, manual upload to valkyrie.comodo.com and hash
     discussion on forums.comodo.com (browser links, user-driven).
   Unknown verdicts (cloud never saw the file) are normal, not errors.
@@ -98,6 +101,10 @@ type
     StatusLbl: TLabel;
     SummaryLbl: TLabel;
     ResultsView: TListView;
+    // Side panel: what Apply Actions is going to do (pending-malicious
+    // rows). Refreshed live as verdicts arrive and after every handling.
+    ActionsLbl: TLabel;
+    ActionsView: TListView;
     FThread: TRepWalkThread;
     FProcThread: TProcRepThread;
     FFirstShow: Boolean;
@@ -116,8 +123,9 @@ type
     FExDll: HMODULE;
     FExAdd: TQExAddFn;
     function UpsertRow(const AKey, ACaption, AHash, ACloudText,
-      ALocalText: string; v, lv: Integer): TListItem;
+      ALocalText, AFamilyText: string; v, lv: Integer): TListItem;
     procedure RecountSummary;
+    procedure RefreshPendingList;
     procedure BuildUi;
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);
@@ -153,6 +161,8 @@ function LocalVerdictOf(it: TJSONData): Integer;
 function LocalText(v: Integer): string;
 function LocalNameOf(it: TJSONData): string;
 function LocalCellText(lv: Integer; const AName: string): string;
+function FamilyText(lv: Integer; const AName: string): string;
+function StripPidPrefix(const S: string): string;
 function CloudText(v: Integer): string;
 
 implementation
@@ -299,7 +309,8 @@ begin
         lv := LocalVerdictOf(it);
         nm := LocalNameOf(it);
         // Persistent rows: same path refreshes its cells (totals recount).
-        Frm.UpsertRow(fp, fp, fh, CloudText(v), LocalCellText(lv, nm), v, lv);
+        Frm.UpsertRow(fp, fp, fh, CloudText(v), LocalCellText(lv, nm),
+          FamilyText(lv, nm), v, lv);
         Inc(FCount);
         Inc(Frm.FRowsThisScan);
       end;
@@ -414,7 +425,7 @@ end;
 // Path-keyed upsert: rows persist across scans, re-scans refresh cells.
 // Data packs cloud verdict (low byte) + local verdict (high byte).
 function TRepForm.UpsertRow(const AKey, ACaption, AHash, ACloudText,
-  ALocalText: string; v, lv: Integer): TListItem;
+  ALocalText, AFamilyText: string; v, lv: Integer): TListItem;
 var
   idx: Integer;
 begin
@@ -425,6 +436,7 @@ begin
     Result.SubItems[0] := AHash;
     Result.SubItems[1] := ACloudText;
     Result.SubItems[2] := ALocalText;
+    Result.SubItems[3] := AFamilyText;
     Result.Data := Pointer(PtrUInt(v or (lv shl 8)));
   end
   else
@@ -434,6 +446,7 @@ begin
     Result.SubItems.Add(AHash);
     Result.SubItems.Add(ACloudText);
     Result.SubItems.Add(ALocalText);
+    Result.SubItems.Add(AFamilyText);
     Result.Data := Pointer(PtrUInt(v or (lv shl 8)));
     FSeen.AddObject(AKey, Result);
   end;
@@ -468,12 +481,53 @@ begin
     'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d   ·   Local hits: %d',
     [FMali, FSafe, FUnk, FFail, FLocal]);
   ApplySummaryStyle(Self);
+  RefreshPendingList;
+end;
+
+// Side "going to be taken" list: every row Apply Actions would quarantine
+// right now (pending-malicious, not yet handled). Same scope as
+// PendingCount/QuarantinePending, so the list and the button never disagree.
+// Runs on the UI thread (called from RecountSummary and the action handlers).
+procedure TRepForm.RefreshPendingList;
+var
+  i, v, lv, n: Integer;
+  p, key: string;
+  idx: Integer;
+  li: TListItem;
+begin
+  if (ActionsView = nil) or (ResultsView = nil) then
+    Exit;
+  ActionsView.Items.BeginUpdate;
+  try
+    ActionsView.Items.Clear;
+    n := 0;
+    for i := 0 to ResultsView.Items.Count - 1 do
+    begin
+      v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+      lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+      if not ((v = 2) or (lv = 2)) then
+        Continue;
+      p := StripPidPrefix(ResultsView.Items[i].Caption);
+      key := LowerCase(p);
+      if (key = '') or FActed.Find(key, idx) then
+        Continue;
+      li := ActionsView.Items.Add;
+      li.Caption := 'Quarantine';
+      li.SubItems.Add(ExtractFileName(p));
+      Inc(n);
+    end;
+  finally
+    ActionsView.Items.EndUpdate;
+  end;
+  ActionsLbl.Caption := Format('Pending Actions (%d)', [n]);
+  ApplyBtn.Caption := 'Apply Actions (' + IntToStr(n) + ')';
 end;
 
 procedure TRepForm.BuildUi;
 const
   M = 16;
-  W = 760;
+  W = 1064;
+  SideW = 272;
   HeaderH = 76;
 var
   HeaderPnl: TPanel;
@@ -511,7 +565,7 @@ begin
   SubtitleLbl := TLabel.Create(Self);
   SubtitleLbl.Parent := HeaderPnl;
   SubtitleLbl.SetBounds(M, 44, 680, 20);
-  SubtitleLbl.Caption := 'FLS cloud lookup — display only, no actions taken';
+  SubtitleLbl.Caption := 'FLS cloud lookup — review pending actions, then apply';
   SubtitleLbl.Font.Name := 'Segoe UI';
   SubtitleLbl.Font.Size := 9;
   SubtitleLbl.Font.Color := RGBToColor(148, 163, 184);
@@ -649,10 +703,12 @@ begin
   y7 := y6 + 30;
   ResultsView := TListView.Create(Self);
   ResultsView.Parent := Self;
-  ResultsView.SetBounds(M, y7, W - M * 2, 640 - y7 - M);
+  ResultsView.SetBounds(M, y7, W - M * 3 - SideW, 640 - y7 - M);
   ResultsView.PopupMenu := DetPopup;
   ResultsView.OnCustomDrawItem := @ResultsDrawItem;
-  ResultsView.Anchors := [akTop, akLeft, akRight, akBottom];
+  // Left column keeps a fixed design width; the side panel sticks to the
+  // right edge so the two never overlap when the window is resized.
+  ResultsView.Anchors := [akTop, akLeft, akBottom];
   ResultsView.ViewStyle := vsReport;
   ResultsView.MultiSelect := True;
   ResultsView.ReadOnly := True;
@@ -683,6 +739,45 @@ begin
     Caption := 'Local';
     Width := 280;
   end;
+  with ResultsView.Columns.Add do
+  begin
+    // Signature/family behind a local-malicious hit ('Win.Trojan.X').
+    Caption := 'Family';
+    Width := 170;
+  end;
+
+  { Side panel: actions Apply is going to take (pending quarantines) }
+  ActionsLbl := TLabel.Create(Self);
+  ActionsLbl.Parent := Self;
+  ActionsLbl.SetBounds(W - M - SideW, y7, SideW, 20);
+  ActionsLbl.Anchors := [akTop, akRight];
+  ActionsLbl.Caption := 'Pending Actions (0)';
+  ActionsLbl.Font.Name := 'Segoe UI';
+  ActionsLbl.Font.Style := [fsBold];
+  ActionsLbl.Font.Color := RGBToColor(196, 43, 28);
+
+  ActionsView := TListView.Create(Self);
+  ActionsView.Parent := Self;
+  ActionsView.SetBounds(W - M - SideW, y7 + 24, SideW, 640 - y7 - 24 - M);
+  ActionsView.Anchors := [akTop, akRight, akBottom];
+  ActionsView.ViewStyle := vsReport;
+  ActionsView.ReadOnly := True;
+  ActionsView.RowSelect := True;
+  ActionsView.HideSelection := False;
+  ActionsView.GridLines := False;
+  ActionsView.Font.Name := 'Segoe UI';
+  ActionsView.Font.Size := 9;
+  with ActionsView.Columns.Add do
+  begin
+    Caption := 'Action';
+    Width := 92;
+  end;
+  with ActionsView.Columns.Add do
+  begin
+    Caption := 'File';
+    Width := 156;
+  end;
+  RefreshPendingList;
 end;
 
 function LocalVerdictOf(it: TJSONData): Integer;
@@ -725,6 +820,16 @@ begin
   Result := LocalText(lv);
   if (AName <> '') and ((lv = 1) or (lv = 2)) then
     Result := Result + ': ' + AName;
+end;
+
+// Family column: the signature/family behind a local-malicious hit
+// (ClamAV sig name, ML label). Cloud-only verdicts carry no name.
+function FamilyText(lv: Integer; const AName: string): string;
+begin
+  if (lv = 2) and (AName <> '') then
+    Result := AName
+  else
+    Result := '—';
 end;
 
 function CloudText(v: Integer): string;
@@ -1013,7 +1118,8 @@ begin
         lv := LocalVerdictOf(it);
         nm := LocalNameOf(it);
         // Keyed by raw path (caption carries the pid prefix).
-        Frm.UpsertRow(raw, fp, fh, CloudText(v), LocalCellText(lv, nm), v, lv);
+        Frm.UpsertRow(raw, fp, fh, CloudText(v), LocalCellText(lv, nm),
+          FamilyText(lv, nm), v, lv);
         Inc(Frm.FRowsThisScan);
       end;
     finally
@@ -1117,6 +1223,7 @@ procedure TRepForm.ApplyBtnClick(Sender: TObject);
 begin
   TAlertForm.ShowAlert('Apply Actions',
     IntToStr(QuarantinePending) + ' file(s) quarantined.', asSuccess, 4000);
+  RefreshPendingList;
 end;
 
 procedure TRepForm.QuarItemClick(Sender: TObject);
@@ -1140,6 +1247,7 @@ begin
   end;
   TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' file(s) quarantined.',
     asSuccess, 4000);
+  RefreshPendingList;
 end;
 
 function TRepForm.LoadExEngine: Boolean;
@@ -1177,6 +1285,7 @@ begin
   end;
   TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' path(s) ignored.',
     asSuccess, 4000);
+  RefreshPendingList;
 end;
 
 procedure TRepForm.SelAllItemClick(Sender: TObject);
@@ -1188,6 +1297,7 @@ procedure TRepForm.QuarAllItemClick(Sender: TObject);
 begin
   TAlertForm.ShowAlert('Verdict',
     IntToStr(QuarantinePending) + ' file(s) quarantined.', asSuccess, 4000);
+  RefreshPendingList;
 end;
 
 procedure TRepForm.IgnAllItemClick(Sender: TObject);
@@ -1214,6 +1324,7 @@ begin
   end;
   TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' path(s) ignored.',
     asSuccess, 4000);
+  RefreshPendingList;
 end;
 
 procedure TRepForm.DetItemClick(Sender: TObject);
@@ -1232,6 +1343,8 @@ begin
       VerdictMeaning(it.SubItems[1]);
   if it.SubItems.Count >= 3 then
     msg := msg + 'Local: ' + it.SubItems[2] + sLineBreak;
+  if it.SubItems.Count >= 4 then
+    msg := msg + 'Family: ' + it.SubItems[3] + sLineBreak;
   MessageDlg('Program details', msg, mtInformation, [mbOK], 0);
 end;
 

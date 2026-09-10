@@ -300,39 +300,40 @@ impl ThreatHandler for WindowsThreatHandler {
 
     fn kill_and_quarantine(&self, gid: u64, path: &std::path::Path, metadata: &QuarantineMetadata) {
         // 1. Kill the process group via the kernel driver only (no user-mode
-        //    TerminateProcess fallback).
+        //    TerminateProcess fallback). A synthetic GID (kernel-only record,
+        //    no live process) has nothing to kill — but the ARTIFACT STILL
+        //    HAS TO BE SEALED, so only the kill is skipped, never the seal.
         if Self::synthetic_pid_from_gid(gid).is_some() {
             Logging::warning(&format!(
-                "[ThreatHandler] Kernel-only mode: skipping user-mode kill for synthetic target (GID: {})",
+                "[ThreatHandler] Kernel-only mode: no live process for synthetic target (GID: {}); skipping kill, still sealing artifact",
                 gid
             ));
-            return;
-        }
-
-        match self.driver.try_kill(gid) {
-            Ok(hres) => {
-                if hres.is_ok() {
-                    Logging::info(&format!(
-                        "[ThreatHandler] Successfully killed process group GID: {} for quarantine",
-                        gid
-                    ));
-                } else {
-                    Logging::warning(&format!(
-                        "[ThreatHandler] Driver returned HRESULT 0x{:08X} when killing GID: {} for quarantine",
-                        hres.0 as u32, gid
+        } else {
+            match self.driver.try_kill(gid) {
+                Ok(hres) => {
+                    if hres.is_ok() {
+                        Logging::info(&format!(
+                            "[ThreatHandler] Successfully killed process group GID: {} for quarantine",
+                            gid
+                        ));
+                    } else {
+                        Logging::warning(&format!(
+                            "[ThreatHandler] Driver returned HRESULT 0x{:08X} when killing GID: {} for quarantine",
+                            hres.0 as u32, gid
+                        ));
+                    }
+                }
+                Err(e) => {
+                    Logging::error(&format!(
+                        "[ThreatHandler] Failed to communicate with driver for GID: {} during quarantine. Error: {}",
+                        gid, e
                     ));
                 }
             }
-            Err(e) => {
-                Logging::error(&format!(
-                    "[ThreatHandler] Failed to communicate with driver for GID: {} during quarantine. Error: {}",
-                    gid, e
-                ));
-            }
-        }
 
-        // 2. Small delay to ensure process is dead and handles are closed
-        std::thread::sleep(std::time::Duration::from_millis(200));
+            // 2. Small delay to ensure process is dead and handles are closed
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
 
         self.seal_into_quarantine(path, metadata);
     }

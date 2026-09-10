@@ -1050,6 +1050,13 @@ pub mod worker_instance {
 
                     // Run fast static detections for MZ executables and JavaScript files
                     let mut fast_det = None;
+                    // File-event detections must remediate the DETECTED FILE.
+                    // remediation_target_path is otherwise never assigned, so
+                    // primary_remediation_path() would resolve to the ACTOR's
+                    // own image (explorer, browser, ...) and a copied virus
+                    // would either quarantine the actor or (protected actor)
+                    // quarantine nothing at all.
+                    let mut fast_det_target: Option<PathBuf> = None;
 
                     if is_process_create {
                         let exe_path_str = precord.exepath.to_string_lossy().into_owned();
@@ -1059,6 +1066,9 @@ pub mod worker_instance {
                     if fast_det.is_none() && !iomsg.filepathstr.is_empty() {
                         fast_det =
                             crate::ml::fast_detect::fast_detect_file(&iomsg.filepathstr, iomsg);
+                        if fast_det.is_some() {
+                            fast_det_target = Some(PathBuf::from(&iomsg.filepathstr));
+                        }
                     }
 
                     // Real-time content fallback (ClamAV + archives) when ML
@@ -1066,6 +1076,9 @@ pub mod worker_instance {
                     // one file can never stall the RT loop.
                     if fast_det.is_none() && !iomsg.filepathstr.is_empty() {
                         fast_det = crate::clamscan::rt_scan_file(&iomsg.filepathstr);
+                        if fast_det.is_some() {
+                            fast_det_target = Some(PathBuf::from(&iomsg.filepathstr));
+                        }
                     }
 
                     if let Some(det) = fast_det {
@@ -1075,7 +1088,9 @@ pub mod worker_instance {
 
                         if !protection_paused {
                             precord.is_malicious = true;
-                            precord.termination_requested = true;
+                            // File-event hit seals the detected file only;
+                            // never flag the actor for termination.
+                            precord.termination_requested = fast_det_target.is_none();
                             precord.quarantine_requested = true;
                         }
                         precord.triggered_rule_name = Some(det.detection_name.clone());
@@ -1098,13 +1113,21 @@ pub mod worker_instance {
                         if !protection_paused && let Some(ref threat_handler) = self.threat_handler
                         {
                             let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
+                            // File-event hit: seal the detected file, never
+                            // terminate the actor (terminate=false routes to
+                            // quarantine_only below). Process-create hit keeps
+                            // kill+quarantine of the malware process itself.
+                            let terminate_actor = fast_det_target.is_none();
+                            if let Some(target) = fast_det_target {
+                                precord.remediation_target_path = Some(target);
+                            }
                             let threat_info = crate::actions_on_kill::ThreatInfo {
                                 threat_type_label: "Fast Static Detection",
                                 virus_name: &det.detection_name,
                                 prediction: 1.0,
                                 match_details: Some(det.reason.clone()),
                                 deny_access: false,
-                                terminate: true,
+                                terminate: terminate_actor,
                                 quarantine: true,
                                 kill_and_remove: false,
                                 suspend: false,
