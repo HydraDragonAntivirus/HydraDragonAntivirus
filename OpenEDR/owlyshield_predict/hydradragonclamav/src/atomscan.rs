@@ -11,7 +11,7 @@ use daachorse::DoubleArrayAhoCorasick;
 /// per exact/nocase), so an APK with hundreds of nested entries flooded logcat
 /// with denials AND paid the probe cost repeatedly. The value can't change over
 /// a process's lifetime, so resolve it once and reuse it.
-fn worker_count() -> usize {
+pub(crate) fn worker_count() -> usize {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static CACHED: AtomicUsize = AtomicUsize::new(0);
     let cached = CACHED.load(Ordering::Relaxed);
@@ -40,6 +40,19 @@ impl SlotCounts<'_> {
     pub fn last_offset(&self, slot: SlotId) -> Option<usize> {
         let o = self.last_offset[slot as usize];
         (o != u32::MAX).then_some(o as usize)
+    }
+
+    /// Borrow already-computed arrays. Used to hand sweep results (copied out
+    /// of thread-local scratch) to scan phases running on worker threads —
+    /// the `RefCell` borrow itself can never cross threads.
+    pub fn borrow<'a>(counts: &'a [u32], last_offset: &'a [u32]) -> SlotCounts<'a> {
+        SlotCounts { counts, last_offset }
+    }
+
+    /// Copy the arrays out (6MB+ per array at full DB size; a memcpy is
+    /// nothing next to the verification work it unlocks on other threads).
+    pub fn copy_out(&self) -> (Vec<u32>, Vec<u32>) {
+        (self.counts.to_vec(), self.last_offset.to_vec())
     }
 }
 

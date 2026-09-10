@@ -227,12 +227,13 @@ pub(crate) struct ScanContext<'a> {
     pub container_entry_name: Option<String>,
     /// The file's image fuzzy hash (perceptual pHash), computed lazily once and
     /// only when a `fuzzy_img#` subsignature is actually evaluated. `None` inside
-    /// the cell means "computed, not a decodable image".
-    pub image_fuzzy_hash: std::cell::OnceCell<Option<[u8; 8]>>,
+    /// the cell means "computed, not a decodable image". `OnceLock` (not
+    /// `OnceCell`) so contexts stay shareable across worker threads.
+    pub image_fuzzy_hash: std::sync::OnceLock<Option<[u8; 8]>>,
     /// PE info parsed ONCE from `full` in `scan_object` (only when the MZ
     /// magic is present, else `None` with no parse cost) and shared by every
     /// chunk — later chunks don't re-parse headers they don't contain.
-    pub pe: Option<std::rc::Rc<PeInfo>>,
+    pub pe: Option<std::sync::Arc<PeInfo>>,
 }
 
 impl ScanContext<'_> {
@@ -271,9 +272,9 @@ struct ScanState {
     matches: Vec<ScanMatch>,
 }
 
-/// Reusable per-call buffers for `scan_one_logical` — the outer `scan_logical`
-/// allocates them once and passes `&mut` so the backing store is reused across
-/// every candidate, avoiding ~4 heap allocations per logical-sig evaluation.
+/// Reusable per-call buffers for `scan_one_logical` — one instance per worker
+/// thread (see `LOGICAL_BUFS`), reused across every candidate that thread
+/// evaluates, avoiding ~4 heap allocations per logical-sig evaluation.
 struct LogicalScanBufs {
     counts: Vec<usize>,
     last_offsets: Vec<Option<usize>>,
@@ -283,12 +284,18 @@ struct LogicalScanBufs {
     /// refilled every call, only formatted into a log line when the caller
     /// decides the signature was slow enough to be worth the detail.
     detail: Vec<SubsigDetail>,
-    /// Reusable bitmap, one bit per logical signature, marking the signatures
-    /// whose atom slot(s) reached threshold this buffer. Only these are
-    /// evaluated — signatures without indexable atoms are never visited.
-    /// Cleared (filled false) at the start of each buffer. Resized once and
-    /// reused across buffers, so no per-buffer allocation.
-    candidate_set: Vec<bool>,
+}
+
+thread_local! {
+    /// Per-thread `LogicalScanBufs`, mirroring `ATOM_SCRATCH`: candidate
+    /// verification runs on worker threads (see `par_eval_items`), and each
+    /// thread reuses its own buffers across that buffer's candidates.
+    static LOGICAL_BUFS: RefCell<LogicalScanBufs> = RefCell::new(LogicalScanBufs {
+        counts: Vec::new(),
+        last_offsets: Vec::new(),
+        evaluated: Vec::new(),
+        detail: Vec::new(),
+    });
 }
 
 /// One phase-1 subsig's contribution to a slow logical-signature scan.
@@ -606,9 +613,9 @@ impl Engine {
         // PE headers are parsed ONCE from the whole truncated file (and only
         // when the MZ magic is present — otherwise `None` with zero parse
         // cost) and shared by every chunk below.
-        let pe_shared: Option<std::rc::Rc<PeInfo>> =
+        let pe_shared: Option<std::sync::Arc<PeInfo>> =
             if data.len() >= 2 && data[..2] == *b"MZ" {
-                parse_pe(data).map(std::rc::Rc::new)
+                parse_pe(data).map(std::sync::Arc::new)
             } else {
                 None
             };
@@ -803,23 +810,26 @@ impl Engine {
         let _slow = SlowAlert::new("scan_context", 200);
         if ctx.data.is_empty() { return; }
 
-        // One rolling-hash sweep builds per-slot hit counts for this buffer;
-        // both phases then promote slots that reached their threshold.
+        // Phase 0 (calling thread): one atom sweep builds per-slot hit counts
+        // for this buffer; both phases then promote slots that reached their
+        // threshold.
         //
         // The scratch buffers (per-slot counts/offsets, sized to the whole
         // signature DB) are held in a thread-local and reused across every
         // buffer this thread scans. Allocating them fresh per buffer — as an
         // APK with hundreds of nested entries does — was hundreds of large
-        // heap alloc/free cycles proportional to DB size. `AtomScratch::scan`
-        // still fully resets them each call, so results are unchanged. The
-        // thread-local borrow is held for the whole `scan_context` so the
-        // extended/logical passes read the counts in place with no copy.
-        ATOM_SCRATCH.with(|cell| {
+        // heap alloc/free cycles proportional to the DB size.
+        //
+        // The counts are COPIED out of the thread-local borrow before the
+        // phases below: verification shards across worker threads, and a
+        // `RefCell` borrow can never cross threads. The copy (~12MB memcpy
+        // at full DB size) is noise next to the verification work it unlocks.
+        let t0 = Instant::now();
+        let (counts_vec, last_vec, verify_results) = ATOM_SCRATCH.with(|cell| {
             let mut scratch = cell.borrow_mut();
             let file_type_target = ctx.detected_target
                 .or(ctx.builtin_target)
                 .unwrap_or(0);
-            let t0 = Instant::now();
             // Build slot→patterns mapping for inline verification.
             // slot_patterns[slot_id] = patterns to verify (empty if no Body subsig).
             let mut slot_patterns: Vec<&[Pattern]> = Vec::with_capacity(self.atomfilter_db.slots.len());
@@ -842,20 +852,23 @@ impl Engine {
                 &self.atomfilter_db, ctx.data, file_type_target,
                 &verify_ctx, &mut verify_results,
             );
-            let t1 = Instant::now();
-            self.scan_extended(ctx, matches, &slot_counts);
-            let t2 = Instant::now();
-            self.scan_logical(ctx, matches, &slot_counts, &verify_results);
-            let t3 = Instant::now();
-            rust_timing_log!(
-                "scan_context :: {}KB view={:?} atomscan={}ms ext_scan={}ms log_scan={}ms",
-                ctx.data.len() / 1024,
-                ctx.view,
-                (t1 - t0).as_millis(),
-                (t2 - t1).as_millis(),
-                (t3 - t2).as_millis(),
-            );
+            let (counts, last) = slot_counts.copy_out();
+            (counts, last, verify_results)
         });
+        let slot_counts = crate::atomscan::SlotCounts::borrow(&counts_vec, &last_vec);
+        let t1 = Instant::now();
+        self.scan_extended(ctx, matches, &slot_counts);
+        let t2 = Instant::now();
+        self.scan_logical(ctx, matches, &slot_counts, &verify_results);
+        let t3 = Instant::now();
+        rust_timing_log!(
+            "scan_context :: {}KB view={:?} atomscan={}ms ext_scan={}ms log_scan={}ms",
+            ctx.data.len() / 1024,
+            ctx.view,
+            (t1 - t0).as_millis(),
+            (t2 - t1).as_millis(),
+            (t3 - t2).as_millis(),
+        );
 
         // ── Container metadata signatures (.cdb) ──────────────────────────
         // Only evaluated for extracted children (the simple scan_bytes path
@@ -900,12 +913,15 @@ impl Engine {
     }
 
 
-    fn scan_extended(
+    /// Extended-signature candidates for this buffer, in ascending order:
+    /// atom-promoted, plus target-accepted (cheap checks first so the
+    /// expensive verifications below only run on these).
+    fn extended_candidates(
         &self,
         ctx: &ScanContext<'_>,
-        matches: &mut Vec<ScanMatch>,
         slot_counts: &crate::atomscan::SlotCounts,
-    ) {
+    ) -> Vec<usize> {
+        let mut items = Vec::new();
         for (si, ext_slot) in self.atomfilter_db.ext_slot.iter().enumerate() {
             if !crate::atomscan::ext_matched(*ext_slot, &self.atomfilter_db.slots, slot_counts) {
                 continue;
@@ -913,8 +929,21 @@ impl Engine {
             if !target_matches(self.database.extended[si].target, ctx, self.database.ext_name(&self.database.extended[si])) {
                 continue;
             }
-            self.scan_one_extended(si, ctx, matches);
+            items.push(si);
         }
+        items
+    }
+
+    fn scan_extended(
+        &self,
+        ctx: &ScanContext<'_>,
+        matches: &mut Vec<ScanMatch>,
+        slot_counts: &crate::atomscan::SlotCounts,
+    ) {
+        let items = self.extended_candidates(ctx, slot_counts);
+        self.par_eval_items(&items, |si, out| {
+            self.scan_one_extended(si, ctx, out);
+        }, matches);
     }
 
     /// Evaluate a single extended signature whose atom slot reached threshold.
@@ -998,29 +1027,18 @@ impl Engine {
         }
     }
 
-    fn scan_logical(
-        &self,
-        ctx: &ScanContext<'_>,
-        matches: &mut Vec<ScanMatch>,
-        slot_counts: &crate::atomscan::SlotCounts,
-        verify_results: &[bool],
-    ) {
-        let mut bufs = LogicalScanBufs {
-            counts: Vec::new(),
-            last_offsets: Vec::new(),
-            evaluated: Vec::new(),
-            detail: Vec::new(),
-            candidate_set: Vec::new(),
-        };
-        // Hit-driven candidate selection: derive the candidate set straight
-        // from the slots that actually reached threshold. A slot whose target
-        // is a logical subsig marks that signature as a candidate; extended-sig
-        // slots are skipped here (they belong to `scan_extended`). Signatures
-        // without indexable atoms are never visited — only atom-gated
-        // signatures can become candidates.
+    /// Logical-signature candidates for this buffer, in ascending order:
+    /// atom-promoted, plus atom-less signatures that can still fire.
+    /// (Target/TDB gating stays inside `scan_one_logical`, next to the rest
+    /// of that signature's context checks.)
+    fn logical_candidates(&self, slot_counts: &crate::atomscan::SlotCounts) -> Vec<usize> {
+        // Hit-driven selection: a slot whose target is a logical subsig marks
+        // that signature as a candidate; extended-sig slots are skipped here
+        // (they belong to `scan_extended`). Signatures without indexable
+        // atoms are never visited — only atom-gated signatures can become
+        // candidates.
         let n_log = self.database.logical.len();
-        bufs.candidate_set.clear();
-        bufs.candidate_set.resize(n_log, false);
+        let mut set = vec![false; n_log];
         for (slot_id, slot) in self.atomfilter_db.slots.iter().enumerate() {
             if slot_counts.get(slot_id as crate::atomfilter::SlotId) < slot.threshold {
                 continue;
@@ -1028,7 +1046,7 @@ impl Engine {
             if let crate::atomfilter::SlotTarget::LogicalSubsig { sig_index, .. } = slot.target {
                 let si = sig_index as usize;
                 if si < n_log {
-                    bufs.candidate_set[si] = true;
+                    set[si] = true;
                 }
             }
         }
@@ -1037,38 +1055,119 @@ impl Engine {
         // return unconditional counts (AutoMatch=1, External=0).  Mark them as
         // candidates so they are still evaluated.
         for (si, sub_slots) in self.atomfilter_db.log_subsig_slots.iter().enumerate() {
-            if bufs.candidate_set[si] {
+            if set[si] {
                 continue;
             }
             if sub_slots.iter().any(|s| matches!(s, crate::atomfilter::SubsigSlot::AutoMatch)) {
-                bufs.candidate_set[si] = true;
+                set[si] = true;
             }
         }
+        set.into_iter()
+            .enumerate()
+            .filter_map(|(si, hit)| hit.then_some(si))
+            .collect()
+    }
 
-        for si in 0..n_log {
-            if !bufs.candidate_set[si] {
-                continue;
-            }
-            let t = std::time::Instant::now();
-            self.scan_one_logical(si, slot_counts, ctx, matches, &mut bufs, verify_results);
-            let ms = t.elapsed().as_millis();
-            if ms >= 50 {
-                rust_timing_log!("[SLOW-LOG] {ms}ms {}", self.database.logical[si].name);
-            }
-            if ms >= 20 && !bufs.detail.is_empty() {
-                let mut line = format!(
-                    "[SIG-DETAIL] {ms}ms {} subsigs=",
-                    self.database.logical[si].name
-                );
-                for d in &bufs.detail {
-                    line.push_str(&format!(
-                        "[{}:{}:{}us,cnt={},ranges={}]",
-                        d.subsig, d.kind, d.elapsed_us, d.count, d.ranges
-                    ));
+    fn scan_logical(
+        &self,
+        ctx: &ScanContext<'_>,
+        matches: &mut Vec<ScanMatch>,
+        slot_counts: &crate::atomscan::SlotCounts,
+        verify_results: &[bool],
+    ) {
+        let items = self.logical_candidates(slot_counts);
+        self.par_eval_items(&items, |si, out| {
+            LOGICAL_BUFS.with(|cell| {
+                let mut bufs = cell.borrow_mut();
+                let t = std::time::Instant::now();
+                self.scan_one_logical(si, slot_counts, ctx, out, &mut bufs, verify_results);
+                let ms = t.elapsed().as_millis();
+                if ms >= 50 {
+                    rust_timing_log!("[SLOW-LOG] {ms}ms {}", self.database.logical[si].name);
                 }
-                rust_timing_log!("{}", line);
+                if ms >= 20 && !bufs.detail.is_empty() {
+                    let mut line = format!(
+                        "[SIG-DETAIL] {ms}ms {} subsigs=",
+                        self.database.logical[si].name
+                    );
+                    for d in &bufs.detail {
+                        line.push_str(&format!(
+                            "[{}:{}:{}us,cnt={},ranges={}]",
+                            d.subsig, d.kind, d.elapsed_us, d.count, d.ranges
+                        ));
+                    }
+                    rust_timing_log!("{}", line);
+                }
+            });
+        }, matches);
+    }
+
+    /// Evaluate `items` (signature indices, ascending) with `eval`, either
+    /// inline or sharded across worker threads. Merged output keeps item
+    /// order, so parallel and sequential runs print identical results.
+    ///
+    /// Sharding only pays once per-item verification dominates thread
+    /// overhead (dozens of candidates); below that it runs inline.
+    /// Everything shared is read-only (`&self`, `ctx`, slot counts);
+    /// per-thread state (match vecs, logical buffers) stays thread-local.
+    /// Cap mirrors the atom sweep's: this workload is memory-bandwidth
+    /// bound, more threads pile onto the same bus.
+    fn par_eval_items(
+        &self,
+        items: &[usize],
+        eval: impl Fn(usize, &mut Vec<ScanMatch>) + Sync,
+        matches: &mut Vec<ScanMatch>,
+    ) {
+        const PAR_MIN_ITEMS: usize = 32;
+        const PAR_CHUNK_ITEMS: usize = 16;
+        if items.len() < PAR_MIN_ITEMS {
+            for &si in items {
+                eval(si, matches);
             }
+            return;
         }
+        let threads = crate::atomscan::worker_count().min(items.len()).max(1);
+        if threads <= 1 {
+            for &si in items {
+                eval(si, matches);
+            }
+            return;
+        }
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let next = AtomicUsize::new(0);
+        let n_chunks = items.len().div_ceil(PAR_CHUNK_ITEMS);
+        std::thread::scope(|s| {
+            let mut handles = Vec::with_capacity(threads);
+            for _ in 0..threads {
+                handles.push(s.spawn(|| {
+                    let mut local: Vec<(usize, Vec<ScanMatch>)> = Vec::new();
+                    loop {
+                        let c = next.fetch_add(1, Ordering::Relaxed);
+                        if c >= n_chunks {
+                            break;
+                        }
+                        let lo = c * PAR_CHUNK_ITEMS;
+                        let hi = ((c + 1) * PAR_CHUNK_ITEMS).min(items.len());
+                        let mut out = Vec::new();
+                        for &si in &items[lo..hi] {
+                            eval(si, &mut out);
+                        }
+                        local.push((c, out));
+                    }
+                    local
+                }));
+            }
+            let mut parts: Vec<(usize, Vec<ScanMatch>)> = Vec::new();
+            for h in handles {
+                if let Ok(mut p) = h.join() {
+                    parts.append(&mut p);
+                }
+            }
+            parts.sort_by_key(|p| p.0);
+            for (_, mut m) in parts {
+                matches.append(&mut m);
+            }
+        });
     }
 
     /// Evaluate a single logical signature using the pre-computed slot counts.
@@ -2265,7 +2364,7 @@ mod tests {
             container_size_real: None,
             container_file_pos: None,
             container_entry_name: None,
-            image_fuzzy_hash: std::cell::OnceCell::new(),
+            image_fuzzy_hash: std::sync::OnceLock::new(),
             pe: None,
         };
         // Naive extended scan
