@@ -8,7 +8,7 @@
       <Unit>
         <Filename Value="edrgui.lpr"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="25"/>
       </Unit>
       <Unit>
         <Filename Value="unit1.pas"/>
@@ -17,9 +17,8 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="Unit1"/>
-        <IsVisibleTab Value="True"/>
         <CursorPos X="53" Y="20"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="25"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -29,25 +28,30 @@
         <ComponentName Value="AlertForm"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UAlert"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="25"/>
       </Unit>
       <Unit>
         <Filename Value="usvccontrol.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="USvcControl"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="25"/>
       </Unit>
       <Unit>
         <Filename Value="uguinotify.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="UGuiNotify"/>
-        <UsageCount Value="24"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="88"/>
+        <CursorPos X="26" Y="88"/>
+        <UsageCount Value="25"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="uhippipe.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="UHipPipe"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="25"/>
       </Unit>
       <Unit>
         <Filename Value="uquar.pas"/>
@@ -56,7 +60,7 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UQuar"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="25"/>
       </Unit>
       <Unit>
         <Filename Value="urep.pas"/>
@@ -68,7 +72,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="286"/>
         <CursorPos X="14" Y="286"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="25"/>
       </Unit>
     </Units>
     <JumpHistory HistoryIndex="2">
@@ -80,7 +84,7 @@
       </Position>
       <Position>
         <Filename Value="unit1.pas"/>
-        <Caret Line="20" Column="46"/>
+        <Caret Line="20" Column="53"/>
       </Position>
     </JumpHistory>
     <RunParams>

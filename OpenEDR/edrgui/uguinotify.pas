@@ -25,6 +25,11 @@ const
   GUI_RPC_HOST = '127.0.0.1';
   GUI_RPC_PORT = 5890;
   GUI_RPC_POLL_INTERVAL_MS = 2000;
+  // Socket bounds for a single HttpPostJson call. Without these a stalled
+  // server blocks the scan thread forever (and Cancel cannot break a blocked
+  // recv). Recv covers a whole 50-file batch, hence generous.
+  HTTP_SEND_TIMEOUT_MS = 30000;
+  HTTP_RECV_TIMEOUT_MS = 900000;
 
 type
   TDetInfo = record
@@ -66,10 +71,23 @@ type
   function HttpPostJson(const AHost: string; APort: Word;
     const ARequest: string; out AResponse: string): Boolean;
 
+  // Breaks a currently blocked HttpPostJson call (unblocks recv). Safe to
+  // call when idle (no-op). Scan Cancel buttons call this first so a stuck
+  // batch aborts immediately instead of hanging until the recv timeout.
+  procedure CancelHttpPostJson;
+
 implementation
 
 var
   WSAStarted: Boolean = False;
+  CancelSock: TSocket = INVALID_SOCKET;
+
+procedure CancelHttpPostJson;
+begin
+  // 2 = SD_BOTH (FPC WinSock exposes no named constant for it).
+  if CancelSock <> INVALID_SOCKET then
+    shutdown(CancelSock, 2);
+end;
 
 function EnsureWSA: Boolean;
 var
@@ -99,6 +117,7 @@ var
   n, Off: Integer;
   Resp: string;
   PosHdr: Integer;
+  tvSend, tvRecv: Integer;
 begin
   Result := False;
   AResponse := '';
@@ -118,6 +137,13 @@ begin
 
     if connect(s, TSockAddr(addr), SizeOf(addr)) <> 0 then
       Exit;
+
+    // Bound the call; best-effort (old stacks may refuse, then blocking stays).
+    tvSend := HTTP_SEND_TIMEOUT_MS;
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, PChar(@tvSend), SizeOf(tvSend));
+    tvRecv := HTTP_RECV_TIMEOUT_MS;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, PChar(@tvRecv), SizeOf(tvRecv));
+    CancelSock := s;
 
     Body := UTF8Encode(ARequest);
     Req := 'POST / HTTP/1.1'#13#10 +
@@ -151,6 +177,7 @@ begin
     AResponse := Copy(Resp, PosHdr + 4, MaxInt);
     Result := True;
   finally
+    CancelSock := INVALID_SOCKET;
     closesocket(s);
   end;
 end;

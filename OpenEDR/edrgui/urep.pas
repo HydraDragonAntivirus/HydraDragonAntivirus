@@ -4,10 +4,11 @@ unit URep;
   URep / TRepForm - file reputation screen (NATIVE Windows UI).
   ---------------------------------------------------------------------------
   Display only, no actions, no quarantine, no blocks:
-  - Worker walks the picked folder for executables (.exe/.dll/.sys/.msi/
-    .scr/.cpl/.ocx/.ps1/.js/.vbs/.bat/.cmd/.msc).
+  - Worker walks the picked folder for EVERY file (no extension gate).
   - Batches of 50 go to getFileReputationBulk JSON-RPC (the service hashes
-    and asks the FLS cloud). Rows show path, SHA1 and the cloud verdict.
+    and asks the FLS cloud). Rows show path, SHA1, the cloud verdict and
+    the local verdict WITH its cause (never a bare 'Malicious').
+  - Rows persist across scans (path-keyed upsert); totals always recount.
   - Selected row: Copy Hash, manual upload to valkyrie.comodo.com and hash
     discussion on forums.comodo.com (browser links, user-driven).
   Unknown verdicts (cloud never saw the file) are normal, not errors.
@@ -33,6 +34,8 @@ type
     FRoot: WideString;
     FBatch: TStringList;
     FCount: Integer;
+    FBatchNo: Integer;
+    FCurrent: string;
     FPendingJson: string;
     procedure PushProgress;
     procedure Walk(const ADir: WideString);
@@ -59,6 +62,9 @@ type
     constructor Create(AForm: TRepForm);
   end;
 
+  // Exclusion DLL entry: kind 0 = path (mirrors uquar).
+  TQExAddFn = function(AKind: Cardinal; AValue: PWideChar; ALen: Cardinal): Integer; cdecl;
+
   { TRepForm }
 
   TRepForm = class(TForm)
@@ -72,9 +78,11 @@ type
     CopyBtn: TButton;
     ValkBtn: TButton;
     ForumBtn: TButton;
-    QuarBtn: TButton;
+    ApplyBtn: TButton;
     DetPopup: TPopupMenu;
     DetItem: TMenuItem;
+    QuarItem: TMenuItem;
+    IgnItem: TMenuItem;
     ScanProgress: TProgressBar;
     StatusLbl: TLabel;
     SummaryLbl: TLabel;
@@ -82,7 +90,18 @@ type
     FThread: TRepWalkThread;
     FProcThread: TProcRepThread;
     FFirstShow: Boolean;
-    FMali, FSafe, FUnk, FFail: Integer;
+    FMali, FSafe, FUnk, FFail, FLocal: Integer;
+    // Seen paths (lowercased) -> row item. Rows persist across scans:
+    // re-scans update cells in place instead of duplicating.
+    FSeen: TStringList;
+    // Handled paths (quarantined or ignored this session). A new scan is
+    // blocked with a warning while unhandled malicious rows remain.
+    FActed: TStringList;
+    FExDll: HMODULE;
+    FExAdd: TQExAddFn;
+    function UpsertRow(const AKey, ACaption, AHash, ACloudText,
+      ALocalText: string; v, lv: Integer): TListItem;
+    procedure RecountSummary;
     procedure BuildUi;
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);
@@ -90,7 +109,11 @@ type
     procedure CopyBtnClick(Sender: TObject);
     procedure ValkBtnClick(Sender: TObject);
     procedure ForumBtnClick(Sender: TObject);
-    procedure QuarBtnClick(Sender: TObject);
+    procedure ApplyBtnClick(Sender: TObject);
+    procedure QuarItemClick(Sender: TObject);
+    procedure IgnItemClick(Sender: TObject);
+    function PendingCount: Integer;
+    function LoadExEngine: Boolean;
     procedure ProcBtnClick(Sender: TObject);
     procedure ProcWalkDone(Sender: TObject);
     procedure DetItemClick(Sender: TObject);
@@ -107,12 +130,24 @@ type
 function EscapeJson(const S: string): string;
 function LocalVerdictOf(it: TJSONData): Integer;
 function LocalText(v: Integer): string;
+function LocalNameOf(it: TJSONData): string;
+function LocalCellText(lv: Integer; const AName: string): string;
+function CloudText(v: Integer): string;
 
 implementation
 
 const
   VALKYRIE_URL = 'https://valkyrie.comodo.com/';
   FORUMS_URL = 'https://forums.comodo.com/';
+
+// Shortens a path for the status line: '...' + tail.
+function ShortPath(const S: string; MaxLen: Integer): string;
+begin
+  if Length(S) <= MaxLen then
+    Result := S
+  else
+    Result := '...' + Copy(S, Length(S) - MaxLen + 4, MaxInt);
+end;
 
 function EscapeJson(const S: string): string;
 var
@@ -140,31 +175,6 @@ begin
   end;
 end;
 
-function IsExecExt(const AName: WideString): Boolean;
-var
-  e: WideString;
-  p, i: Integer;
-begin
-  Result := False;
-  // Extension after the last dot past the last path separator (no
-  // LastDelimiter: WideString overload is not portable across FPC RTLs).
-  p := 0;
-  for i := Length(AName) downto 1 do
-    if AName[i] = '.' then
-    begin
-      p := i;
-      Break;
-    end
-    else if (AName[i] = '\') or (AName[i] = '/') or (AName[i] = ':') then
-      Break;
-  if p <= 0 then
-    Exit;
-  e := LowerCase(Copy(AName, p + 1, Length(AName)));
-  Result := (e = 'exe') or (e = 'dll') or (e = 'sys') or (e = 'msi') or
-    (e = 'scr') or (e = 'cpl') or (e = 'ocx') or (e = 'ps1') or
-    (e = 'js') or (e = 'vbs') or (e = 'bat') or (e = 'cmd') or (e = 'msc');
-end;
-
 { ---- modern UI helpers -------------------------------------------------- }
 
 function RowColorForVerdict(AVerdict, AIndex: Integer): TColor;
@@ -183,7 +193,7 @@ end;
 
 procedure ApplySummaryStyle(Frm: TRepForm);
 begin
-  if Frm.FMali > 0 then
+  if (Frm.FMali > 0) or (Frm.FLocal > 0) then
   begin
     Frm.SummaryLbl.Font.Color := RGBToColor(196, 43, 28);
     Frm.SummaryLbl.Font.Style := [fsBold];
@@ -222,7 +232,8 @@ procedure TRepWalkThread.PushProgress;
 begin
   if FForm = nil then
     Exit;
-  FForm.StatusLbl.Caption := 'Checked ' + IntToStr(FCount) + ' files...';
+  FForm.StatusLbl.Caption := 'Checked ' + IntToStr(FCount) + ' files' +
+    ' (batch ' + IntToStr(FBatchNo) + ')... ' + ShortPath(FCurrent, 70);
 end;
 
 procedure TRepWalkThread.PushRows;
@@ -230,9 +241,8 @@ var
   Frm: TRepForm;
   AJson: string;
   j, arr, it, d: TJSONData;
-  i, v: Integer;
-  item: TListItem;
-  fp, fh: string;
+  i, v, lv: Integer;
+  fp, fh, nm: string;
 begin
   Frm := FForm;
   if Frm = nil then
@@ -254,6 +264,7 @@ begin
         it := arr.Items[i];
         fp := '';
         fh := '';
+        nm := '';
         v := 3;
         d := it.FindPath('path');
         if d <> nil then
@@ -264,42 +275,16 @@ begin
         d := it.FindPath('verdict');
         if d <> nil then
           v := d.AsInteger;
-        item := Frm.ResultsView.Items.Add;
-        item.Caption := fp;
-        item.SubItems.Add(fh);
-        case v of
-          2:
-            begin
-              item.SubItems.Add('Malicious');
-              InterlockedIncrement(Frm.FMali);
-            end;
-          1:
-            begin
-              item.SubItems.Add('Safe');
-              InterlockedIncrement(Frm.FSafe);
-            end;
-          4:
-            begin
-              item.SubItems.Add('Lookup failed');
-              InterlockedIncrement(Frm.FFail);
-            end;
-        else
-          begin
-            item.SubItems.Add('Unknown');
-            InterlockedIncrement(Frm.FUnk);
-          end;
-        end;
-        item.Data := Pointer(PtrUInt(v));
-        item.SubItems.Add(LocalText(LocalVerdictOf(it)));
+        lv := LocalVerdictOf(it);
+        nm := LocalNameOf(it);
+        // Persistent rows: same path refreshes its cells (totals recount).
+        Frm.UpsertRow(fp, fp, fh, CloudText(v), LocalCellText(lv, nm), v, lv);
         Inc(FCount);
       end;
     finally
       Frm.ResultsView.Items.EndUpdate;
     end;
-    Frm.SummaryLbl.Caption := Format(
-      'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d',
-      [Frm.FMali, Frm.FSafe, Frm.FUnk, Frm.FFail]);
-    ApplySummaryStyle(Frm);
+    Frm.RecountSummary;
   finally
     j.Free;
   end;
@@ -312,6 +297,7 @@ var
 begin
   if FBatch.Count = 0 then
     Exit;
+  Inc(FBatchNo);
   try
     Req := '{"jsonrpc":"2.0","id":1,"method":"getFileReputationBulk","params":{"paths":[';
     for i := 0 to FBatch.Count - 1 do
@@ -336,9 +322,9 @@ procedure TRepWalkThread.Consider(const APath: WideString);
 begin
   if Terminated then
     Exit;
-  if not IsExecExt(APath) then
-    Exit;
+  // No extension gate: every file enters the bulk scan (server caps giants).
   FBatch.Add(UTF8Encode(APath));
+  FCurrent := UTF8Encode(APath);
   if FBatch.Count >= 50 then
     FlushBatch;
   Inc(FCount);
@@ -379,6 +365,8 @@ end;
 procedure TRepWalkThread.Execute;
 begin
   FCount := 0;
+  FBatchNo := 0;
+  FCurrent := '';
   Walk(FRoot);
   FlushBatch;
 end;
@@ -389,8 +377,75 @@ constructor TRepForm.Create(AOwner: TComponent);
 begin
   inherited CreateNew(AOwner);
   FFirstShow := True;
+  FSeen := TStringList.Create;
+  FSeen.Sorted := True;
+  FSeen.Duplicates := dupAccept;
+  FSeen.CaseSensitive := False;
+  FActed := TStringList.Create;
+  FActed.Sorted := True;
+  FActed.Duplicates := dupIgnore;
+  FActed.CaseSensitive := False;
   OnShow := @FormShowed;
   BuildUi;
+end;
+
+// Path-keyed upsert: rows persist across scans, re-scans refresh cells.
+// Data packs cloud verdict (low byte) + local verdict (high byte).
+function TRepForm.UpsertRow(const AKey, ACaption, AHash, ACloudText,
+  ALocalText: string; v, lv: Integer): TListItem;
+var
+  idx: Integer;
+begin
+  if FSeen.Find(AKey, idx) then
+  begin
+    Result := TListItem(FSeen.Objects[idx]);
+    Result.Caption := ACaption;
+    Result.SubItems[0] := AHash;
+    Result.SubItems[1] := ACloudText;
+    Result.SubItems[2] := ALocalText;
+    Result.Data := Pointer(PtrUInt(v or (lv shl 8)));
+  end
+  else
+  begin
+    Result := ResultsView.Items.Add;
+    Result.Caption := ACaption;
+    Result.SubItems.Add(AHash);
+    Result.SubItems.Add(ACloudText);
+    Result.SubItems.Add(ALocalText);
+    Result.Data := Pointer(PtrUInt(v or (lv shl 8)));
+    FSeen.AddObject(AKey, Result);
+  end;
+end;
+
+// Totals recomputed from all (persistent) rows — never double-counts
+// refreshed rows.
+procedure TRepForm.RecountSummary;
+var
+  i, v, lv: Integer;
+begin
+  FMali := 0;
+  FSafe := 0;
+  FUnk := 0;
+  FFail := 0;
+  FLocal := 0;
+  for i := 0 to ResultsView.Items.Count - 1 do
+  begin
+    v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+    lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+    case v of
+      2: Inc(FMali);
+      1: Inc(FSafe);
+      4: Inc(FFail);
+    else
+      Inc(FUnk);
+    end;
+    if lv = 2 then
+      Inc(FLocal);
+  end;
+  SummaryLbl.Caption := Format(
+    'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d   ·   Local hits: %d',
+    [FMali, FSafe, FUnk, FFail, FLocal]);
+  ApplySummaryStyle(Self);
 end;
 
 procedure TRepForm.BuildUi;
@@ -504,18 +559,26 @@ begin
   ProcBtn.Font.Name := 'Segoe UI';
   ProcBtn.OnClick := @ProcBtnClick;
 
-  QuarBtn := TButton.Create(Self);
-  QuarBtn.Parent := Self;
-  QuarBtn.SetBounds(M + 208, y3, 170, 30);
-  QuarBtn.Caption := 'Quarantine selected';
-  QuarBtn.Font.Name := 'Segoe UI';
-  QuarBtn.OnClick := @QuarBtnClick;
+  ApplyBtn := TButton.Create(Self);
+  ApplyBtn.Parent := Self;
+  ApplyBtn.SetBounds(M + 208, y3, 170, 30);
+  ApplyBtn.Caption := 'Apply Actions';
+  ApplyBtn.Font.Name := 'Segoe UI';
+  ApplyBtn.OnClick := @ApplyBtnClick;
 
   DetPopup := TPopupMenu.Create(Self);
   DetItem := TMenuItem.Create(DetPopup);
   DetItem.Caption := 'Details...';
   DetItem.OnClick := @DetItemClick;
   DetPopup.Items.Add(DetItem);
+  QuarItem := TMenuItem.Create(DetPopup);
+  QuarItem.Caption := 'Quarantine';
+  QuarItem.OnClick := @QuarItemClick;
+  DetPopup.Items.Add(QuarItem);
+  IgnItem := TMenuItem.Create(DetPopup);
+  IgnItem.Caption := 'Ignore';
+  IgnItem.OnClick := @IgnItemClick;
+  DetPopup.Items.Add(IgnItem);
 
   { Hairline divider separating controls from status/results }
   Divider := TBevel.Create(Self);
@@ -567,22 +630,24 @@ begin
   with ResultsView.Columns.Add do
   begin
     Caption := 'File';
-    Width := 340;
+    Width := 260;
   end;
   with ResultsView.Columns.Add do
   begin
     Caption := 'SHA1';
-    Width := 300;
+    Width := 200;
   end;
   with ResultsView.Columns.Add do
   begin
     Caption := 'Cloud';
-    Width := 100;
+    Width := 110;
   end;
   with ResultsView.Columns.Add do
   begin
+    // Carries the reason, not just the verdict
+    // ('Malicious: Win.Trojan.X', 'Safe: Trusted:Microsoft').
     Caption := 'Local';
-    Width := 100;
+    Width := 280;
   end;
 end;
 
@@ -606,6 +671,79 @@ begin
   else
     Result := '—';
   end;
+end;
+
+function LocalNameOf(it: TJSONData): string;
+var
+  dd: TJSONData;
+begin
+  Result := '';
+  if it = nil then
+    Exit;
+  dd := it.FindPath('local_name');
+  if dd <> nil then
+    Result := dd.AsString;
+end;
+
+// Local cell: verdict plus the cause — never a bare 'Malicious'.
+function LocalCellText(lv: Integer; const AName: string): string;
+begin
+  Result := LocalText(lv);
+  if (AName <> '') and ((lv = 1) or (lv = 2)) then
+    Result := Result + ': ' + AName;
+end;
+
+function CloudText(v: Integer): string;
+begin
+  case v of
+    2: Result := 'Malicious';
+    1: Result := 'Safe';
+    4: Result := 'Lookup failed';
+  else
+    Result := 'Unknown';
+  end;
+end;
+
+// Packed row Data (cloud in low byte, local in high byte) -> malicious?
+function WasMalicious(Data: PtrUInt): Boolean;
+var
+  v, lv: Integer;
+begin
+  v := Data and $FF;
+  lv := (Data shr 8) and $FF;
+  Result := (v = 2) or (lv = 2);
+end;
+
+function IsMaliciousNow(v, lv: Integer): Boolean;
+begin
+  Result := (v = 2) or (lv = 2);
+end;
+
+// Proc rows carry "[pid] path": strip the prefix for RPC/DLL calls.
+function StripPidPrefix(const S: string): string;
+var
+  j: Integer;
+begin
+  Result := Trim(S);
+  if (Result <> '') and (Result[1] = '[') then
+  begin
+    j := Pos('] ', Result);
+    if j > 0 then
+      Delete(Result, 1, j + 1);
+    Result := Trim(Result);
+  end;
+end;
+
+// Preferred verdict for tinting: decisive local beats cloud.
+function PreferredVerdict(Data: PtrUInt): Integer;
+var
+  lv: Integer;
+begin
+  lv := (Data shr 8) and $FF;
+  if lv <> 0 then
+    Result := lv
+  else
+    Result := Data and $FF;
 end;
 
 function RpcQuarantineFile(const APathUtf8: string): Boolean;
@@ -658,15 +796,18 @@ begin
   end;
   if Root[Length(Root)] <> WideChar('\') then
     Root := Root + '\';
-  ResultsView.Items.Clear;
-  FMali := 0;
-  FSafe := 0;
-  FUnk := 0;
-  FFail := 0;
+  // Rows persist across scans (UpsertRow refreshes); totals recount.
+  // A new scan is blocked while unhandled malicious rows remain.
+  if PendingCount > 0 then
+  begin
+    TAlertForm.ShowAlert('Verdict',
+      IntToStr(PendingCount) +
+      ' detection(s) still awaiting action. Press Apply Actions first.',
+      asWarning, 4000);
+    Exit;
+  end;
   SummaryLbl.Caption := '';
   ScanProgress.Style := pbstMarquee;
-  StartBtn.Enabled := False;
-  CancelBtn.Enabled := True;
   StatusLbl.Caption := 'Checking...';
   FThread := TRepWalkThread.Create(Self, Root);
   FThread.OnTerminate := @WalkDone;
@@ -675,6 +816,9 @@ end;
 
 procedure TRepForm.CancelBtnClick(Sender: TObject);
 begin
+  // Break a batch stuck inside a blocking recv first; the worker thread then
+  // observes Terminated between batches and exits.
+  CancelHttpPostJson;
   if FThread <> nil then
     FThread.Terminate;
   FinishScan('Cancelled.');
@@ -692,7 +836,7 @@ begin
   // Row tints from the user's own palette; keep system highlight selected.
   if (Item <> nil) and not (cdsSelected in State) then
     Sender.Canvas.Brush.Color :=
-      RowColorForVerdict(Integer(PtrUInt(Item.Data)), Item.Index);
+      RowColorForVerdict(PreferredVerdict(PtrUInt(Item.Data)), Item.Index);
 end;
 
 procedure TRepForm.FinishScan(const AMsg: string);
@@ -701,10 +845,9 @@ begin
   StartBtn.Enabled := True;
   CancelBtn.Enabled := False;
   StatusLbl.Caption := AMsg;
-  SummaryLbl.Caption := Format(
-    'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d',
-    [FMali, FSafe, FUnk, FFail]);
-  ApplySummaryStyle(Self);
+  // Recount (not the render-time values): rows persist, and FinishScan must
+  // not wipe the Local-hits segment the renderers wrote.
+  RecountSummary;
 end;
 
 procedure TRepForm.CopyBtnClick(Sender: TObject);
@@ -742,11 +885,15 @@ var
 begin
   if FProcThread <> nil then
     Exit;
-  ResultsView.Items.Clear;
-  FMali := 0;
-  FSafe := 0;
-  FUnk := 0;
-  FFail := 0;
+  // Rows persist (process rows merge by path); totals recount.
+  if PendingCount > 0 then
+  begin
+    TAlertForm.ShowAlert('Verdict',
+      IntToStr(PendingCount) +
+      ' detection(s) still awaiting action. Press Apply Actions first.',
+      asWarning, 4000);
+    Exit;
+  end;
   SummaryLbl.Caption := '';
   ScanProgress.Style := pbstMarquee;
   StatusLbl.Caption := 'Listing running processes...';
@@ -783,9 +930,8 @@ procedure TProcRepThread.Render;
 var
   Frm: TRepForm;
   j, arr, it, d: TJSONData;
-  i, v, pid: Integer;
-  item: TListItem;
-  fp, fh: string;
+  i, v, pid, lv: Integer;
+  fp, fh, nm, raw: string;
 begin
   Frm := FForm;
   if (Frm = nil) or (FJson = '') then
@@ -806,6 +952,8 @@ begin
         it := arr.Items[i];
         fp := '';
         fh := '';
+        nm := '';
+        raw := '';
         v := 3;
         pid := 0;
         d := it.FindPath('pid');
@@ -813,7 +961,8 @@ begin
           pid := d.AsInteger;
         d := it.FindPath('path');
         if d <> nil then
-          fp := d.AsString;
+          raw := d.AsString;
+        fp := raw;
         if (pid > 0) and (fp <> '') then
           fp := '[' + IntToStr(pid) + '] ' + fp;
         d := it.FindPath('hash');
@@ -822,41 +971,15 @@ begin
         d := it.FindPath('verdict');
         if d <> nil then
           v := d.AsInteger;
-        item := Frm.ResultsView.Items.Add;
-        item.Caption := fp;
-        item.SubItems.Add(fh);
-        case v of
-          2:
-            begin
-              item.SubItems.Add('Malicious');
-              InterlockedIncrement(Frm.FMali);
-            end;
-          1:
-            begin
-              item.SubItems.Add('Safe');
-              InterlockedIncrement(Frm.FSafe);
-            end;
-          4:
-            begin
-              item.SubItems.Add('Lookup failed');
-              InterlockedIncrement(Frm.FFail);
-            end;
-        else
-          begin
-            item.SubItems.Add('Unknown');
-            InterlockedIncrement(Frm.FUnk);
-          end;
-        end;
-        item.Data := Pointer(PtrUInt(v));
-        item.SubItems.Add(LocalText(LocalVerdictOf(it)));
+        lv := LocalVerdictOf(it);
+        nm := LocalNameOf(it);
+        // Keyed by raw path (caption carries the pid prefix).
+        Frm.UpsertRow(raw, fp, fh, CloudText(v), LocalCellText(lv, nm), v, lv);
       end;
     finally
       Frm.ResultsView.Items.EndUpdate;
     end;
-    Frm.SummaryLbl.Caption := Format(
-      'Malicious: %d   ·   Safe: %d   ·   Unknown: %d   ·   Failed: %d',
-      [Frm.FMali, Frm.FSafe, Frm.FUnk, Frm.FFail]);
-    ApplySummaryStyle(Frm);
+    Frm.RecountSummary;
   finally
     j.Free;
   end;
@@ -881,29 +1004,122 @@ begin
   ApplySummaryStyle(Self);
 end;
 
-procedure TRepForm.QuarBtnClick(Sender: TObject);
+// Malicious rows not yet handled (quarantined or ignored this session).
+function TRepForm.PendingCount: Integer;
 var
-  i, n, j: Integer;
-  p: string;
+  i, v, lv: Integer;
+  key: string;
+  idx: Integer;
+begin
+  Result := 0;
+  for i := 0 to ResultsView.Items.Count - 1 do
+  begin
+    v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+    lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+    if not ((v = 2) or (lv = 2)) then
+      Continue;
+    key := LowerCase(StripPidPrefix(ResultsView.Items[i].Caption));
+    if (key <> '') and not FActed.Find(key, idx) then
+      Inc(Result);
+  end;
+end;
+
+procedure TRepForm.ApplyBtnClick(Sender: TObject);
+var
+  i, n, v, lv: Integer;
+  p, key: string;
+  idx: Integer;
+begin
+  n := 0;
+  for i := 0 to ResultsView.Items.Count - 1 do
+  begin
+    v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+    lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+    if not ((v = 2) or (lv = 2)) then
+      Continue;
+    p := StripPidPrefix(ResultsView.Items[i].Caption);
+    key := LowerCase(p);
+    if (key = '') or FActed.Find(key, idx) then
+      Continue;
+    if RpcQuarantineFile(p) then
+    begin
+      FActed.Add(key);
+      Inc(n);
+    end;
+  end;
+  TAlertForm.ShowAlert('Apply Actions', IntToStr(n) + ' file(s) quarantined.',
+    asSuccess, 4000);
+end;
+
+procedure TRepForm.QuarItemClick(Sender: TObject);
+var
+  i, n: Integer;
+  p, key: string;
 begin
   n := 0;
   for i := 0 to ResultsView.Items.Count - 1 do
   begin
     if not ResultsView.Items[i].Selected then
       Continue;
-    p := ResultsView.Items[i].Caption;
-    // Proc rows carry "[pid] path": strip the prefix for the RPC.
-    if (p <> '') and (p[1] = '[') then
-    begin
-      j := Pos('] ', p);
-      if j > 0 then
-        Delete(p, 1, j + 1);
-      p := Trim(p);
-    end;
+    p := StripPidPrefix(ResultsView.Items[i].Caption);
+    key := LowerCase(p);
     if (p <> '') and RpcQuarantineFile(p) then
+    begin
+      if (key <> '') and (FActed.IndexOf(key) < 0) then
+        FActed.Add(key);
       Inc(n);
+    end;
   end;
   TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' file(s) quarantined.',
+    asSuccess, 4000);
+end;
+
+function TRepForm.LoadExEngine: Boolean;
+var
+  DllPath: WideString;
+begin
+  Result := Assigned(FExAdd);
+  if Result then
+    Exit;
+  if FExDll = 0 then
+  begin
+    DllPath := WideString(ExtractFilePath(ParamStr(0)) + 'owlyshield_ransom.dll');
+    FExDll := LoadLibraryW(PWideChar(DllPath));
+    if FExDll = 0 then
+      FExDll := LoadLibraryW(PWideChar(WideString('owlyshield_ransom.dll')));
+  end;
+  if FExDll <> 0 then
+    FExAdd := TQExAddFn(GetProcAddress(FExDll, 'owlyshield_exclusion_add'));
+  Result := Assigned(FExAdd);
+end;
+
+procedure TRepForm.IgnItemClick(Sender: TObject);
+var
+  i, n: Integer;
+  p, key: string;
+  w: WideString;
+begin
+  if not LoadExEngine then
+    Exit;
+  n := 0;
+  for i := 0 to ResultsView.Items.Count - 1 do
+  begin
+    if not ResultsView.Items[i].Selected then
+      Continue;
+    p := StripPidPrefix(ResultsView.Items[i].Caption);
+    key := LowerCase(p);
+    if p = '' then
+      Continue;
+    w := WideString(UTF8Decode(p));
+    // Kind 0 = path exclusion ("left alone entirely").
+    if (w <> '') and (FExAdd(0, PWideChar(w), Cardinal(Length(w))) = 0) then
+    begin
+      if (key <> '') and (FActed.IndexOf(key) < 0) then
+        FActed.Add(key);
+      Inc(n);
+    end;
+  end;
+  TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' path(s) ignored.',
     asSuccess, 4000);
 end;
 
@@ -946,6 +1162,14 @@ begin
     FThread.Terminate;
     FThread.WaitFor;
     FreeAndNil(FThread);
+  end;
+  FreeAndNil(FSeen);
+  FreeAndNil(FActed);
+  FExAdd := nil;
+  if FExDll <> 0 then
+  begin
+    FreeLibrary(FExDll);
+    FExDll := 0;
   end;
 end;
 

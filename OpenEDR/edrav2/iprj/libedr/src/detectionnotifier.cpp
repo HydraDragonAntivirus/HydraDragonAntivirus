@@ -48,6 +48,136 @@ namespace {
 	};
 	static const wchar_t* const c_szMalwareDbFile = L"detected_malware.db";
 
+	// Persistent local-verdict cache: sha1 (lowercase) -> engine verdict.
+	// Local engines (ML + ClamAV) cost seconds per file while the cloud is
+	// cheap and re-queried every scan — so engine results are remembered
+	// across scans AND service restarts. Hash-keyed, therefore
+	// self-invalidating on content change. TTL bounds staleness against
+	// model/signature updates.
+	struct LocalVerdictEntry { int verdict; std::string name; long long timestamp; };
+	static std::unordered_map<std::string, LocalVerdictEntry> s_localVerdicts;
+	static std::mutex s_mtxLocalVerdicts;
+	static std::atomic<bool> s_bLocalVerdictsLoaded = false;
+	static size_t s_nLocalVerdictFileLines = 0;
+	static const wchar_t* const c_szLocalVerdictFile = L"local_verdicts.db";
+	static const size_t kLocalVerdictMaxEntries = 20000;
+	static const long long kLocalVerdictTtlSec = 7LL * 24 * 60 * 60;
+
+	static long long localVerdictNow()
+	{
+		return std::chrono::duration_cast<std::chrono::seconds>(
+			std::chrono::system_clock::now().time_since_epoch()).count();
+	}
+
+	static void rewriteLocalVerdictsLocked()
+	{
+		for (const auto* szDir : c_szMalwareDbDirs)
+		{
+			std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szLocalVerdictFile;
+			std::ofstream ofs(wsDb, std::ios::trunc);
+			if (!ofs.is_open())
+				continue;
+			for (const auto& kv : s_localVerdicts)
+				ofs << kv.first << "|" << kv.second.verdict << "|"
+					<< kv.second.timestamp << "|" << kv.second.name << "\n";
+		}
+		s_nLocalVerdictFileLines = s_localVerdicts.size();
+	}
+
+	static void loadLocalVerdicts()
+	{
+		std::scoped_lock lock(s_mtxLocalVerdicts);
+		if (s_bLocalVerdictsLoaded.load())
+			return;
+		s_bLocalVerdictsLoaded.store(true);
+		size_t lines = 0;
+		for (const auto* szDir : c_szMalwareDbDirs)
+		{
+			std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szLocalVerdictFile;
+			std::ifstream ifs(wsDb);
+			if (!ifs.is_open())
+				continue;
+			std::string line;
+			while (std::getline(ifs, line))
+			{
+				if (line.empty() || line[0] == '#')
+					continue;
+				++lines;
+				size_t p1 = line.find('|');
+				if (p1 == std::string::npos)
+					continue;
+				size_t p2 = line.find('|', p1 + 1);
+				if (p2 == std::string::npos)
+					continue;
+				LocalVerdictEntry e;
+				try { e.verdict = std::stoi(line.substr(p1 + 1, p2 - p1 - 1)); }
+				catch (...) { continue; }
+				if (e.verdict < 0 || e.verdict > 2)
+					continue;
+				size_t p3 = line.find('|', p2 + 1);
+				std::string ts = (p3 == std::string::npos)
+					? line.substr(p2 + 1) : line.substr(p2 + 1, p3 - p2 - 1);
+				try { e.timestamp = std::stoll(ts); }
+				catch (...) { continue; }
+				e.name = (p3 == std::string::npos) ? std::string() : line.substr(p3 + 1);
+				if (!e.name.empty() && e.name.back() == '\r')
+					e.name.pop_back();
+				std::string h = toLowerStr(line.substr(0, p1));
+				if (!h.empty())
+					s_localVerdicts[h] = e; // last wins
+			}
+		}
+		s_nLocalVerdictFileLines = lines;
+		// Compact away duplicate/stale lines when the file bloats.
+		if (!s_localVerdicts.empty() && lines > 3 * s_localVerdicts.size())
+			rewriteLocalVerdictsLocked();
+	}
+
+	// Returns true on a fresh cache hit (fills v/name). Misses, expired
+	// entries and empty hashes return false (caller runs the engines).
+	static bool lookupLocalVerdict(const std::string& sHash, int& v, std::string& name)
+	{
+		if (sHash.empty())
+			return false;
+		if (!s_bLocalVerdictsLoaded.load())
+			loadLocalVerdicts();
+		std::scoped_lock lock(s_mtxLocalVerdicts);
+		auto it = s_localVerdicts.find(toLowerStr(sHash));
+		if (it == s_localVerdicts.end())
+			return false;
+		if (localVerdictNow() - it->second.timestamp > kLocalVerdictTtlSec)
+		{
+			s_localVerdicts.erase(it);
+			return false;
+		}
+		v = it->second.verdict;
+		name = it->second.name;
+		return true;
+	}
+
+	static void storeLocalVerdict(const std::string& sHash, int v, const std::string& name)
+	{
+		if (sHash.empty())
+			return;
+		if (!s_bLocalVerdictsLoaded.load())
+			loadLocalVerdicts();
+		std::scoped_lock lock(s_mtxLocalVerdicts);
+		std::string h = toLowerStr(sHash);
+		if (s_localVerdicts.size() >= kLocalVerdictMaxEntries
+			&& s_localVerdicts.find(h) == s_localVerdicts.end())
+			return; // full: degrade gracefully, memory stays bounded
+		s_localVerdicts[h] = LocalVerdictEntry{v, name, localVerdictNow()};
+		for (const auto* szDir : c_szMalwareDbDirs)
+		{
+			std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szLocalVerdictFile;
+			std::ofstream ofs(wsDb, std::ios::app);
+			if (ofs.is_open())
+				ofs << h << "|" << v << "|" << localVerdictNow() << "|" << name << "\n";
+		}
+		if (++s_nLocalVerdictFileLines > 3 * s_localVerdicts.size())
+			rewriteLocalVerdictsLocked();
+	}
+
 	static std::string toLowerStr(std::string s)
 	{
 		std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -537,6 +667,32 @@ static std::string sha1HexOfFileUtf8(const std::string& sUtf8Path)
 	catch (...) { return {}; }
 }
 
+// Bulk-screen budget guard: files definitely above the cap skip the
+// unbounded parts (full-file SHA1 + cloud lookup) and keep an Unknown row.
+// The local engines below are self-capped (ML 64MB, ClamAV 100MB scan) and
+// still run. Any lookup failure returns false (attempt as before).
+static bool bulkHashOverBudget(const std::string& sUtf8Path)
+{
+	try
+	{
+		int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
+		if (nWide <= 1)
+			return false;
+		std::wstring ws(nWide - 1, L'\0');
+		if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
+			return false;
+		WIN32_FILE_ATTRIBUTE_DATA fad = {};
+		if (!::GetFileAttributesExW(ws.c_str(), GetFileExInfoStandard, &fad))
+			return false;
+		ULARGE_INTEGER size;
+		size.LowPart = fad.nFileSizeLow;
+		size.HighPart = fad.nFileSizeHigh;
+		static const unsigned long long kBulkHashMaxBytes = 512ULL * 1024ULL * 1024ULL;
+		return size.QuadPart > kBulkHashMaxBytes;
+	}
+	catch (...) { return false; }
+}
+
 // Rust static engines (EICAR/signer/ML models) for one file (UTF-8 path).
 // Returns 2 malicious, 1 safe, 0 unknown. No cloud, no execution.
 static int rustScanVerdict(const std::string& sUtf8Path)
@@ -563,6 +719,49 @@ static int rustScanVerdict(const std::string& sUtf8Path)
 	int r = s_fn(reinterpret_cast<const uint16_t*>(ws.c_str()),
 		static_cast<uint32_t>(ws.size()));
 	return (r == 2 || r == 1) ? r : 0;
+}
+
+// Same as rustScanVerdict, plus the human-readable cause (signature name,
+// EICAR-Test-File, Signer:{name}, model detection name) in sNameOut.
+// Display-only (reputation screen); verdict semantics identical.
+static int rustScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut)
+{
+	typedef int32_t (*ScanFileNameFn)(const uint16_t*, uint32_t, uint16_t*, uint32_t);
+	static HMODULE s_hDllName = nullptr;
+	static ScanFileNameFn s_fnName = nullptr;
+	static bool s_triedName = false;
+	if (!s_triedName)
+	{
+		s_triedName = true;
+		s_hDllName = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (!s_hDllName) s_hDllName = ::LoadLibraryW(L"owlyshield_ransom.dll");
+		if (s_hDllName)
+			s_fnName = reinterpret_cast<ScanFileNameFn>(
+				::GetProcAddress(s_hDllName, "owlyshield_scan_file_name"));
+	}
+	sNameOut.clear();
+	if (!s_fnName || sUtf8Path.empty())
+		return 0;
+	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
+	if (nWide <= 1)
+		return 0;
+	std::wstring ws(nWide - 1, L'\0');
+	if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
+		return 0;
+	static const int kNameCap = 1024;
+	WCHAR wszName[kNameCap] = {};
+	int r = s_fnName(reinterpret_cast<const uint16_t*>(ws.c_str()),
+		static_cast<uint32_t>(ws.size()), reinterpret_cast<uint16_t*>(wszName), kNameCap);
+	if (r != 2 && r != 1)
+		return 0;
+	int nUtf8 = ::WideCharToMultiByte(CP_UTF8, 0, wszName, -1, nullptr, 0, nullptr, nullptr);
+	if (nUtf8 > 1)
+	{
+		std::string s(nUtf8 - 1, '\0');
+		if (::WideCharToMultiByte(CP_UTF8, 0, wszName, -1, &s[0], nUtf8, nullptr, nullptr) > 0)
+			sNameOut = s;
+	}
+	return r;
 }
 
 // Merged local verdict: enriched verdict (if 1/2), Rust engines, known-DB.
@@ -1423,11 +1622,14 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 				{
 					try
 					{
-						std::string sPath = vPaths[i];
-						if (sPath.empty())
-							continue;
-						std::string sHash = sha1HexOfFileUtf8(sPath);
-						int nVerdict = 3; // Unknown by default
+					std::string sPath = vPaths[i];
+					if (sPath.empty())
+						continue;
+					std::string sHash;
+					int nVerdict = 3; // Unknown by default
+					if (!bulkHashOverBudget(sPath))
+					{
+						sHash = sha1HexOfFileUtf8(sPath);
 						if (!sHash.empty())
 						{
 							try
@@ -1437,21 +1639,49 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 							}
 							catch (...) {}
 						}
-						int nLocal = 0; // Rust engines + known-malicious DB
-						try
+					}
+					int nLocal = 0; // Rust engines + known-malicious DB
+					std::string sLocalName;
+					try
+					{
+						// Cheap authoritative list first, always.
+						if (DetectionNotifier::isKnownMalware(sPath, sHash))
+							nLocal = 2;
+						// Slow local engines (ML + ClamAV) only while the cloud
+						// is undecided: Safe/Malicious from FLS needs no
+						// second opinion. Engine results are hash-keyed in
+						// the persistent local_verdicts.db (self-invalidating
+						// on content change), so repeat scans skip the engines.
+						if (nVerdict != 1 && nVerdict != 2)
 						{
-							int r = rustScanVerdict(sPath);
-							if (r == 2)
-								nLocal = 2;
-							else if (r == 1)
-								nLocal = 1;
-							if (DetectionNotifier::isKnownMalware(sPath, sHash))
-								nLocal = 2;
+							int cachedV = 0;
+							std::string cachedName;
+							if (!sHash.empty()
+								&& lookupLocalVerdict(sHash, cachedV, cachedName))
+							{
+								if (cachedV == 2)
+									nLocal = 2;
+								else if (cachedV == 1 && nLocal == 0)
+									nLocal = 1;
+								sLocalName = cachedName;
+							}
+							else
+							{
+								int r = rustScanVerdictName(sPath, sLocalName);
+								if (r == 2)
+									nLocal = 2;
+								else if (r == 1 && nLocal == 0)
+									nLocal = 1;
+								if (!sHash.empty())
+									storeLocalVerdict(sHash, (r == 2 || r == 1) ? r : 0, sLocalName);
+							}
 						}
-						catch (...) {}
-						vOut.push_back(Dictionary({
-							{"path", sPath}, {"hash", sHash},
-							{"verdict", nVerdict}, {"local", nLocal} }));
+					}
+					catch (...) {}
+					vOut.push_back(Dictionary({
+						{"path", sPath}, {"hash", sHash},
+						{"verdict", nVerdict}, {"local", nLocal},
+						{"local_name", sLocalName} }));
 					}
 					catch (...) {}
 				}
