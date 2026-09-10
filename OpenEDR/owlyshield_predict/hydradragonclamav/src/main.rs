@@ -16,6 +16,11 @@ struct Cli {
     blank_skip: usize,
     zero_pad_heuristic: usize,
     max_archive_bytes: usize,
+    /// Worker threads for directory scans (clamd `--multiscan` equivalent):
+    /// files are independent, so they scan in parallel with per-thread
+    /// scratch (the engine is shared read-only). 0 = auto (CPU count),
+    /// 1 = sequential.
+    jobs: usize,
     show_unsupported: bool,
 }
 
@@ -135,26 +140,94 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     let mut files = Vec::new();
     collect_scan_files(&scan_path, &mut files)?;
+    // jobs=0 means auto (CPU count), jobs=1 is the sequential path.
+    let jobs = if cli.jobs == 0 {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .max(1)
+    } else {
+        cli.jobs
+    };
+    // (index, path, result): scanned sequentially or across a scoped thread
+    // pool (engine shared read-only; per-thread scratch via thread-locals,
+    // so no locking on the hot path). IO errors travel with the file instead
+    // of aborting the whole run mid-listing.
+    let mut results: Vec<(
+        usize,
+        PathBuf,
+        Result<Vec<hydradragonclamav::ScanMatch>, io::Error>,
+    )> = Vec::with_capacity(files.len());
+    if jobs <= 1 || files.len() <= 1 {
+        for (index, file) in files.iter().enumerate() {
+            results.push((index, file.clone(), engine.scan_path(file, options)));
+        }
+    } else {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let next = AtomicUsize::new(0);
+        let count = files.len();
+        std::thread::scope(|s| {
+            let mut handles = Vec::with_capacity(jobs);
+            for _ in 0..jobs.min(count) {
+                handles.push(s.spawn(|| {
+                    let mut local = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        if index >= count {
+                            break;
+                        }
+                        local.push((
+                            index,
+                            files[index].clone(),
+                            engine.scan_path(&files[index], options),
+                        ));
+                    }
+                    local
+                }));
+            }
+            for h in handles {
+                if let Ok(mut local) = h.join() {
+                    results.append(&mut local);
+                }
+            }
+        });
+        results.sort_by_key(|r| r.0);
+    }
     let mut any_found = false;
-    for file in files {
-        let matches = engine.scan_path(&file, options)?;
-        if matches.is_empty() {
-            println!("{}: OK", file.display());
-        } else {
-            any_found = true;
-            for hit in matches {
-                println!(
-                    "{}: {} FOUND ({:?}, object={}, view={:?}, {}:{})",
-                    file.display(),
-                    hit.name,
-                    hit.kind,
-                    hit.object_path,
-                    hit.view,
-                    hit.source.path.display(),
-                    hit.source.line
-                );
+    let mut first_error: Option<io::Error> = None;
+    for (_, file, result) in &results {
+        match result {
+            Err(e) => {
+                eprintln!("{}: ERROR {}", file.display(), e);
+                if first_error.is_none() {
+                    // io::Error is not Clone; rebuild an equivalent to
+                    // report after the full listing (previous behavior:
+                    // exit code 2 on unreadable input).
+                    first_error = Some(io::Error::new(e.kind(), e.to_string()));
+                }
+            }
+            Ok(matches) if matches.is_empty() => {
+                println!("{}: OK", file.display());
+            }
+            Ok(matches) => {
+                any_found = true;
+                for hit in matches {
+                    println!(
+                        "{}: {} FOUND ({:?}, object={}, view={:?}, {}:{})",
+                        file.display(),
+                        hit.name,
+                        hit.kind,
+                        hit.object_path,
+                        hit.view,
+                        hit.source.path.display(),
+                        hit.source.line
+                    );
+                }
             }
         }
+    }
+    if let Some(e) = first_error {
+        return Err(Box::new(e));
     }
     if std::env::var_os("HDC_MEM_STATS").is_some() {
         eprintln!("[mem] AFTER SCAN: {:.1} MB (peak printed below)", process_working_set_mb());
@@ -174,6 +247,7 @@ fn parse_args() -> Result<Cli, String> {
         blank_skip: 1024 * 1024,
         zero_pad_heuristic: 50 * 1024 * 1024,
         max_archive_bytes: 100 * 1024 * 1024,
+        jobs: 0,
         show_unsupported: false,
     };
 
@@ -229,6 +303,10 @@ fn parse_args() -> Result<Cli, String> {
                 index += 1;
                 cli.max_archive_bytes = parse_size_arg(&args, index, "--max-archive-bytes")?;
             }
+            "-j" | "--jobs" => {
+                index += 1;
+                cli.jobs = parse_usize_arg(&args, index, "--jobs")?;
+            }
             "--list-unsupported" => cli.show_unsupported = true,
             other if cli.scan.is_none() => cli.scan = Some(PathBuf::from(other)),
             other => return Err(format!("unknown argument '{other}'")),
@@ -241,7 +319,7 @@ fn parse_args() -> Result<Cli, String> {
 
 fn print_help() {
     println!(
-        "hydradragonclamav\n\n  --database, -d <path>     ClamAV database directory\n  --scan, -s <path>         File or directory to scan\n  --no-archives             Disable recursive archive scanning\n  --max-recursion <n>       Archive recursion depth, default 16\n  --max-child-size <size>   Child size limit, supports K/M/G suffixes\n  --max-scan-bytes <size>   Scan only the first N bytes of each file, default 100M\n  --chunk-size <size>       Scan unit size (split + overlap), default 8M; 0 disables chunking\n  --blank-skip <size>       Skip zero runs this long or longer, default 1M; 0 disables\n  --zero-pad-heuristic <size>  Flag trailing zero runs this long, default 50M; 0 disables\n  --max-archive-bytes <size>   Total extracted archive content per scan, default 100M; 0 disables recursion\n  --list-unsupported        Print unsupported database records\n\nWithout --scan, the command loads the database and prints coverage stats."
+        "hydradragonclamav\n\n  --database, -d <path>     ClamAV database directory\n  --scan, -s <path>         File or directory to scan\n  --no-archives             Disable recursive archive scanning\n  --max-recursion <n>       Archive recursion depth, default 16\n  --max-child-size <size>   Child size limit, supports K/M/G suffixes\n  --max-scan-bytes <size>   Scan only the first N bytes of each file, default 100M\n  --chunk-size <size>       Scan unit size (split + overlap), default 8M; 0 disables chunking\n  --blank-skip <size>       Skip zero runs this long or longer, default 1M; 0 disables\n  --zero-pad-heuristic <size>  Flag trailing zero runs this long, default 50M; 0 disables\n  --max-archive-bytes <size>   Total extracted archive content per scan, default 100M; 0 disables recursion\n  -j, --jobs <n>            Worker threads over files (clamd --multiscan equivalent), default 0 = auto (CPUs); 1 = sequential\n  --list-unsupported        Print unsupported database records\n\nWithout --scan, the command loads the database and prints coverage stats."
     );
 }
 
