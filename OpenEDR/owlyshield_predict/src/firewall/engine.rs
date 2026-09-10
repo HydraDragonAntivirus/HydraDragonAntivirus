@@ -436,6 +436,25 @@ fn firewall_log_writer_loop(rx: mpsc::Receiver<LogEntry>) {
     }
 }
 
+/// Raise the calling thread to ABOVE_NORMAL so the traffic path keeps its
+/// CPU slice when the box is saturated (e.g. a 50k-file copy storm pegging
+/// every core with ML/ClamAV scan work at NORMAL priority).
+///
+/// Apply to the WinDivert packet workers, the FLOW tracker, and the tokio
+/// workers hosting the embedded MITM proxy: under load these must preempt
+/// scan workers, otherwise the divert kernel queue fills and ALL network
+/// traffic dies (filter is "true" — everything is diverted).
+/// ABOVE_NORMAL on purpose — never REALTIME/HIGH — so a runaway traffic
+/// thread still cannot lock out the kernel or the scan pipeline itself.
+pub(crate) fn prioritize_traffic_thread() {
+    use windows::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+    };
+    unsafe {
+        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    }
+}
+
 pub fn load_saved_logs(limit: Option<usize>) -> Vec<LogEntry> {
     let log_path = firewall_log_file_path();
     let Ok(file) = fs::File::open(log_path) else {
@@ -3139,6 +3158,8 @@ impl FirewallEngine {
             std::thread::Builder::new()
                 .name("windivert_flow_tracker".to_string())
                 .spawn(move || {
+                    // Traffic path must preempt NORMAL-priority scan workers under load.
+                    prioritize_traffic_thread();
                     if let Ok(flow_divert) = WinDivert::flow("true", 0, WinDivertFlags::new()) {
                         let flow_arc = WinDivertArc(Arc::new(flow_divert));
                         *flow_divert_handle.lock().unwrap() = Some(flow_arc.clone());
@@ -3192,6 +3213,8 @@ impl FirewallEngine {
             std::thread::Builder::new()
                 .name(format!("packet_worker_{}", worker_id))
                 .spawn(move || {
+                    // Traffic path must preempt NORMAL-priority scan workers under load.
+                    prioritize_traffic_thread();
                     let mut buffer = vec![0u8; 65535];
                     let mut packet_count = 0u64;
                     // Per-worker dedup: only send one NET_EVENT per PID per session

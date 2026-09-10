@@ -41,6 +41,12 @@ pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
+            .on_thread_start(|| {
+                // Hosts the embedded MITM proxy: must preempt NORMAL-priority
+                // scan workers under load or proxied traffic stalls (see
+                // prioritize_traffic_thread docs in engine.rs).
+                super::engine::prioritize_traffic_thread();
+            })
             .build()
             .expect("failed to create HydraDragonFirewall tokio runtime")
     })
