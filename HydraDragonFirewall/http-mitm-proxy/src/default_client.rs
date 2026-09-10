@@ -14,13 +14,13 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-#[cfg(all(feature = "native-tls-client", feature = "rustls-client"))]
-compile_error!(
-    "feature \"native-tls-client\" and feature \"rustls-client\" cannot be enabled at the same time"
-);
+// Both TLS stacks may be enabled at once: rustls is tried first (immune to
+// schannel provider/revocation failures), native-tls (schannel, Windows
+// store, TLS < 1.2) is the fallback for hosts rustls cannot do.
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -35,14 +35,14 @@ pub enum Error {
 
     #[cfg(feature = "native-tls-client")]
     #[error("Failed to connect with TLS to {0}, {1}")]
-    TlsConnectError(Box<Uri>, native_tls::Error),
+    NativeTlsConnectError(Box<Uri>, native_tls::Error),
     #[cfg(feature = "native-tls-client")]
     #[error(transparent)]
     NativeTlsError(#[from] tokio_native_tls::native_tls::Error),
 
     #[cfg(feature = "rustls-client")]
     #[error("Failed to connect with TLS to {0}, {1}")]
-    TlsConnectError(Box<Uri>, std::io::Error),
+    RustlsTlsConnectError(Box<Uri>, std::io::Error),
 
     #[error("Failed to parse URI: {0}")]
     UriParsingError(#[from] hyper::http::uri::InvalidUri),
@@ -66,6 +66,69 @@ type DynError = Box<dyn std::error::Error + Send + Sync>;
 type PooledBody = BoxBody<Bytes, DynError>;
 type Http1Sender = hyper::client::conn::http1::SendRequest<PooledBody>;
 type Http2Sender = hyper::client::conn::http2::SendRequest<PooledBody>;
+/// Post-handshake upstream TLS stream from either stack (`dyn AsyncRead +
+/// AsyncWrite` is illegal as a trait object, so a concrete enum with
+/// delegated impls carries both variants through one handshake path).
+enum UpstreamTlsStream {
+    #[cfg(feature = "native-tls-client")]
+    Native(tokio_native_tls::TlsStream<TcpStream>),
+    #[cfg(feature = "rustls-client")]
+    Rustls(tokio_rustls::client::TlsStream<TcpStream>),
+}
+
+impl tokio::io::AsyncRead for UpstreamTlsStream {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            #[cfg(feature = "native-tls-client")]
+            UpstreamTlsStream::Native(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            #[cfg(feature = "rustls-client")]
+            UpstreamTlsStream::Rustls(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl tokio::io::AsyncWrite for UpstreamTlsStream {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        match self.get_mut() {
+            #[cfg(feature = "native-tls-client")]
+            UpstreamTlsStream::Native(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            #[cfg(feature = "rustls-client")]
+            UpstreamTlsStream::Rustls(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        match self.get_mut() {
+            #[cfg(feature = "native-tls-client")]
+            UpstreamTlsStream::Native(s) => std::pin::Pin::new(s).poll_flush(cx),
+            #[cfg(feature = "rustls-client")]
+            UpstreamTlsStream::Rustls(s) => std::pin::Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        match self.get_mut() {
+            #[cfg(feature = "native-tls-client")]
+            UpstreamTlsStream::Native(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            #[cfg(feature = "rustls-client")]
+            UpstreamTlsStream::Rustls(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 enum ConnectionProtocol {
@@ -155,14 +218,14 @@ async fn sender_alive_http2(sender: &mut Http2Sender) -> bool {
 /// Default HTTP client for this crate
 pub struct DefaultClient {
     #[cfg(feature = "native-tls-client")]
-    tls_connector_no_alpn: tokio_native_tls::TlsConnector,
+    native_tls_connector_no_alpn: tokio_native_tls::TlsConnector,
     #[cfg(feature = "native-tls-client")]
-    tls_connector_alpn_h2: tokio_native_tls::TlsConnector,
+    native_tls_connector_alpn_h2: tokio_native_tls::TlsConnector,
 
     #[cfg(feature = "rustls-client")]
-    tls_connector_no_alpn: tokio_rustls::TlsConnector,
+    rustls_tls_connector_no_alpn: tokio_rustls::TlsConnector,
     #[cfg(feature = "rustls-client")]
-    tls_connector_alpn_h2: tokio_rustls::TlsConnector,
+    rustls_tls_connector_alpn_h2: tokio_rustls::TlsConnector,
 
     /// If true, send_request will returns an Upgraded struct when the response is an upgrade
     /// If false, send_request never returns an Upgraded struct and just copy bidirectional when the response is an upgrade
@@ -177,62 +240,59 @@ impl Default for DefaultClient {
 }
 
 impl DefaultClient {
-    #[cfg(feature = "native-tls-client")]
     pub fn new() -> Self {
         Self::try_new().unwrap_or_else(|err| {
             panic!("Failed to create DefaultClient: {err}");
         })
     }
 
-    #[cfg(feature = "native-tls-client")]
     pub fn try_new() -> Result<Self, Error> {
-        let tls_connector_no_alpn = native_tls::TlsConnector::builder().build().map_err(|e| {
-            Error::TlsConnectorError(format!("Failed to build no-ALPN connector: {e}"))
-        })?;
-        let tls_connector_alpn_h2 = native_tls::TlsConnector::builder()
-            .request_alpns(&["h2", "http/1.1"])
-            .build()
-            .map_err(|e| {
-                Error::TlsConnectorError(format!("Failed to build ALPN-H2 connector: {e}"))
+        #[cfg(feature = "native-tls-client")]
+        let (native_tls_connector_no_alpn, native_tls_connector_alpn_h2) = {
+            let no_alpn = native_tls::TlsConnector::builder().build().map_err(|e| {
+                Error::TlsConnectorError(format!("Failed to build no-ALPN connector: {e}"))
             })?;
+            let alpn_h2 = native_tls::TlsConnector::builder()
+                .request_alpns(&["h2", "http/1.1"])
+                .build()
+                .map_err(|e| {
+                    Error::TlsConnectorError(format!("Failed to build ALPN-H2 connector: {e}"))
+                })?;
+            (
+                tokio_native_tls::TlsConnector::from(no_alpn),
+                tokio_native_tls::TlsConnector::from(alpn_h2),
+            )
+        };
+
+        #[cfg(feature = "rustls-client")]
+        let (rustls_tls_connector_no_alpn, rustls_tls_connector_alpn_h2) = {
+            use std::sync::Arc;
+
+            let mut root_cert_store = tokio_rustls::rustls::RootCertStore::empty();
+            root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+            let no_alpn = tokio_rustls::rustls::ClientConfig::builder()
+                .with_root_certificates(root_cert_store.clone())
+                .with_no_client_auth();
+            let mut alpn_h2 = tokio_rustls::rustls::ClientConfig::builder()
+                .with_root_certificates(root_cert_store.clone())
+                .with_no_client_auth();
+            alpn_h2.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+            (
+                tokio_rustls::TlsConnector::from(Arc::new(no_alpn)),
+                tokio_rustls::TlsConnector::from(Arc::new(alpn_h2)),
+            )
+        };
 
         Ok(Self {
-            tls_connector_no_alpn: tokio_native_tls::TlsConnector::from(tls_connector_no_alpn),
-            tls_connector_alpn_h2: tokio_native_tls::TlsConnector::from(tls_connector_alpn_h2),
-            with_upgrades: false,
-            pool: ConnectionPool::default(),
-        })
-    }
-
-    #[cfg(feature = "rustls-client")]
-    pub fn new() -> Self {
-        Self::try_new().unwrap_or_else(|err| {
-            panic!("Failed to create DefaultClient: {}", err);
-        })
-    }
-
-    #[cfg(feature = "rustls-client")]
-    pub fn try_new() -> Result<Self, Error> {
-        use std::sync::Arc;
-
-        let mut root_cert_store = tokio_rustls::rustls::RootCertStore::empty();
-        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
-        let tls_connector_no_alpn = tokio_rustls::rustls::ClientConfig::builder()
-            .with_root_certificates(root_cert_store.clone())
-            .with_no_client_auth();
-        let mut tls_connector_alpn_h2 = tokio_rustls::rustls::ClientConfig::builder()
-            .with_root_certificates(root_cert_store.clone())
-            .with_no_client_auth();
-        tls_connector_alpn_h2.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-
-        Ok(Self {
-            tls_connector_no_alpn: tokio_rustls::TlsConnector::from(Arc::new(
-                tls_connector_no_alpn,
-            )),
-            tls_connector_alpn_h2: tokio_rustls::TlsConnector::from(Arc::new(
-                tls_connector_alpn_h2,
-            )),
+            #[cfg(feature = "native-tls-client")]
+            native_tls_connector_no_alpn,
+            #[cfg(feature = "native-tls-client")]
+            native_tls_connector_alpn_h2,
+            #[cfg(feature = "rustls-client")]
+            rustls_tls_connector_no_alpn,
+            #[cfg(feature = "rustls-client")]
+            rustls_tls_connector_alpn_h2,
             with_upgrades: false,
             pool: ConnectionPool::default(),
         })
@@ -246,18 +306,18 @@ impl DefaultClient {
     }
 
     #[cfg(feature = "native-tls-client")]
-    fn tls_connector(&self, http_version: Version) -> &tokio_native_tls::TlsConnector {
+    fn native_tls_connector(&self, http_version: Version) -> &tokio_native_tls::TlsConnector {
         match http_version {
-            Version::HTTP_2 => &self.tls_connector_alpn_h2,
-            _ => &self.tls_connector_no_alpn,
+            Version::HTTP_2 => &self.native_tls_connector_alpn_h2,
+            _ => &self.native_tls_connector_no_alpn,
         }
     }
 
     #[cfg(feature = "rustls-client")]
-    fn tls_connector(&self, http_version: Version) -> &tokio_rustls::TlsConnector {
+    fn rustls_tls_connector(&self, http_version: Version) -> &tokio_rustls::TlsConnector {
         match http_version {
-            Version::HTTP_2 => &self.tls_connector_alpn_h2,
-            _ => &self.tls_connector_no_alpn,
+            Version::HTTP_2 => &self.rustls_tls_connector_alpn_h2,
+            _ => &self.rustls_tls_connector_no_alpn,
         }
     }
 
@@ -384,39 +444,8 @@ impl DefaultClient {
     ) -> Result<SendRequest, Error> {
         let (host, port, is_tls) = host_port(uri)?;
 
-        let tcp = crate::connect_registered_tcp(host.as_str(), port).await?;
-        // This is actually needed to some servers
-        let _ = tcp.set_nodelay(true);
-
         if is_tls {
-            #[cfg(feature = "native-tls-client")]
-            let tls = self
-                .tls_connector(http_version)
-                .connect(&host, tcp)
-                .await
-                .map_err(|err| Error::TlsConnectError(Box::new(uri.clone()), err))?;
-            #[cfg(feature = "rustls-client")]
-            let tls = self
-                .tls_connector(http_version)
-                .connect(
-                    host.to_string()
-                        .try_into()
-                        .map_err(|_| Error::InvalidHost(Box::new(uri.clone())))?,
-                    tcp,
-                )
-                .await
-                .map_err(|err| Error::TlsConnectError(Box::new(uri.clone()), err))?;
-
-            #[cfg(feature = "native-tls-client")]
-            let is_h2 = matches!(
-                tls.get_ref()
-                    .negotiated_alpn()
-                    .map(|a| a.map(|b| b == b"h2")),
-                Ok(Some(true))
-            );
-
-            #[cfg(feature = "rustls-client")]
-            let is_h2 = tls.get_ref().1.alpn_protocol() == Some(b"h2");
+            let (tls, is_h2) = self.connect_tls(uri, &host, port, http_version).await?;
 
             if is_h2 {
                 let (sender, conn) = client::conn::http2::Builder::new(TokioExecutor::new())
@@ -448,6 +477,9 @@ impl DefaultClient {
                 Ok(SendRequest::Http1(sender))
             }
         } else {
+            let tcp = crate::connect_registered_tcp(host.as_str(), port).await?;
+            // This is actually needed to some servers
+            let _ = tcp.set_nodelay(true);
             let (sender, conn) = client::conn::http1::Builder::new()
                 .preserve_header_case(true)
                 .title_case_headers(true)
@@ -457,6 +489,94 @@ impl DefaultClient {
             tokio::spawn(conn.with_upgrades());
             Ok(SendRequest::Http1(sender))
         }
+    }
+
+    /// Boxed post-handshake TLS stream: both stacks speak AsyncRead+AsyncWrite,
+    /// so hyper can drive either through one handshake path.
+    /// Upstream TLS stack order: rustls first (immune to schannel
+    /// provider/revocation failures), native-tls (schannel: Windows store,
+    /// legacy TLS < 1.2) as fallback for hosts rustls cannot do. Each attempt
+    /// dials its own TCP connection — a failed handshake must never reuse
+    /// the half-dead stream.
+    async fn connect_tls(
+        &self,
+        uri: &Uri,
+        host: &str,
+        port: u16,
+        http_version: Version,
+    ) -> Result<(UpstreamTlsStream, bool), Error> {
+        #[cfg(feature = "rustls-client")]
+        match self.try_rustls_tls(uri, host, port, http_version).await {
+            Ok(ok) => return Ok(ok),
+            Err(e) => {
+                tracing::warn!(
+                    "rustls upstream TLS failed for {}:{}, falling back to native-tls: {}",
+                    host,
+                    port,
+                    e
+                );
+                #[cfg(not(feature = "native-tls-client"))]
+                return Err(e);
+            }
+        }
+
+        #[cfg(feature = "native-tls-client")]
+        return self.try_native_tls(uri, host, port, http_version).await;
+
+        // rustls-only build: the match above always diverges (Ok → return,
+        // Err → return), so this is unreachable but satisfies the compiler.
+        #[cfg(not(feature = "native-tls-client"))]
+        unreachable!("connect_tls requires at least one TLS client feature");
+    }
+
+    #[cfg(feature = "rustls-client")]
+    async fn try_rustls_tls(
+        &self,
+        uri: &Uri,
+        host: &str,
+        port: u16,
+        http_version: Version,
+    ) -> Result<(UpstreamTlsStream, bool), Error> {
+        let tcp = crate::connect_registered_tcp(host, port).await?;
+        // This is actually needed to some servers
+        let _ = tcp.set_nodelay(true);
+        let tls = self
+            .rustls_tls_connector(http_version)
+            .connect(
+                host.to_string()
+                    .try_into()
+                    .map_err(|_| Error::InvalidHost(Box::new(uri.clone())))?,
+                tcp,
+            )
+            .await
+            .map_err(|err| Error::RustlsTlsConnectError(Box::new(uri.clone()), err))?;
+        let is_h2 = tls.get_ref().1.alpn_protocol() == Some(b"h2");
+        Ok((UpstreamTlsStream::Rustls(tls), is_h2))
+    }
+
+    #[cfg(feature = "native-tls-client")]
+    async fn try_native_tls(
+        &self,
+        uri: &Uri,
+        host: &str,
+        port: u16,
+        http_version: Version,
+    ) -> Result<(UpstreamTlsStream, bool), Error> {
+        let tcp = crate::connect_registered_tcp(host, port).await?;
+        // This is actually needed to some servers
+        let _ = tcp.set_nodelay(true);
+        let tls = self
+            .native_tls_connector(http_version)
+            .connect(host, tcp)
+            .await
+            .map_err(|err| Error::NativeTlsConnectError(Box::new(uri.clone()), err))?;
+        let is_h2 = matches!(
+            tls.get_ref()
+                .negotiated_alpn()
+                .map(|a| a.map(|b| b == b"h2")),
+            Ok(Some(true))
+        );
+        Ok((UpstreamTlsStream::Native(tls), is_h2))
     }
 }
 
