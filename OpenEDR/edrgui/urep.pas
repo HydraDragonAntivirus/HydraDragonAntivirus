@@ -83,6 +83,9 @@ type
     DetItem: TMenuItem;
     QuarItem: TMenuItem;
     IgnItem: TMenuItem;
+    SelAllItem: TMenuItem;
+    QuarAllItem: TMenuItem;
+    IgnAllItem: TMenuItem;
     ScanProgress: TProgressBar;
     StatusLbl: TLabel;
     SummaryLbl: TLabel;
@@ -112,6 +115,11 @@ type
     procedure ApplyBtnClick(Sender: TObject);
     procedure QuarItemClick(Sender: TObject);
     procedure IgnItemClick(Sender: TObject);
+    procedure SelAllItemClick(Sender: TObject);
+    procedure QuarAllItemClick(Sender: TObject);
+    procedure IgnAllItemClick(Sender: TObject);
+    function QuarantinePending: Integer;
+    function ExcludeOne(const ARawPath: string): Boolean;
     function PendingCount: Integer;
     function LoadExEngine: Boolean;
     procedure ProcBtnClick(Sender: TObject);
@@ -579,6 +587,18 @@ begin
   IgnItem.Caption := 'Ignore';
   IgnItem.OnClick := @IgnItemClick;
   DetPopup.Items.Add(IgnItem);
+  SelAllItem := TMenuItem.Create(DetPopup);
+  SelAllItem.Caption := 'Select All';
+  SelAllItem.OnClick := @SelAllItemClick;
+  DetPopup.Items.Add(SelAllItem);
+  QuarAllItem := TMenuItem.Create(DetPopup);
+  QuarAllItem.Caption := 'Quarantine All';
+  QuarAllItem.OnClick := @QuarAllItemClick;
+  DetPopup.Items.Add(QuarAllItem);
+  IgnAllItem := TMenuItem.Create(DetPopup);
+  IgnAllItem.Caption := 'Ignore All';
+  IgnAllItem.OnClick := @IgnAllItemClick;
+  DetPopup.Items.Add(IgnAllItem);
 
   { Hairline divider separating controls from status/results }
   Divider := TBevel.Create(Self);
@@ -1024,13 +1044,15 @@ begin
   end;
 end;
 
-procedure TRepForm.ApplyBtnClick(Sender: TObject);
+// Quarantines every pending-malicious row (bulk behind ApplyBtnClick and
+// the 'Quarantine All' menu item). Returns the quarantined count.
+function TRepForm.QuarantinePending: Integer;
 var
-  i, n, v, lv: Integer;
+  i, v, lv: Integer;
   p, key: string;
   idx: Integer;
 begin
-  n := 0;
+  Result := 0;
   for i := 0 to ResultsView.Items.Count - 1 do
   begin
     v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
@@ -1044,11 +1066,37 @@ begin
     if RpcQuarantineFile(p) then
     begin
       FActed.Add(key);
-      Inc(n);
+      Inc(Result);
     end;
   end;
-  TAlertForm.ShowAlert('Apply Actions', IntToStr(n) + ' file(s) quarantined.',
-    asSuccess, 4000);
+end;
+
+// Path exclusion via the engine DLL (kind 0 = path). Marks handled.
+function TRepForm.ExcludeOne(const ARawPath: string): Boolean;
+var
+  key: string;
+  w: WideString;
+begin
+  Result := False;
+  if ARawPath = '' then
+    Exit;
+  if not LoadExEngine then
+    Exit;
+  w := WideString(UTF8Decode(ARawPath));
+  if w = '' then
+    Exit;
+  if FExAdd(0, PWideChar(w), Cardinal(Length(w))) <> 0 then
+    Exit;
+  key := LowerCase(ARawPath);
+  if (key <> '') and (FActed.IndexOf(key) < 0) then
+    FActed.Add(key);
+  Result := True;
+end;
+
+procedure TRepForm.ApplyBtnClick(Sender: TObject);
+begin
+  TAlertForm.ShowAlert('Apply Actions',
+    IntToStr(QuarantinePending) + ' file(s) quarantined.', asSuccess, 4000);
 end;
 
 procedure TRepForm.QuarItemClick(Sender: TObject);
@@ -1096,28 +1144,43 @@ end;
 procedure TRepForm.IgnItemClick(Sender: TObject);
 var
   i, n: Integer;
-  p, key: string;
-  w: WideString;
+  p: string;
 begin
-  if not LoadExEngine then
-    Exit;
   n := 0;
   for i := 0 to ResultsView.Items.Count - 1 do
   begin
     if not ResultsView.Items[i].Selected then
       Continue;
     p := StripPidPrefix(ResultsView.Items[i].Caption);
-    key := LowerCase(p);
-    if p = '' then
-      Continue;
-    w := WideString(UTF8Decode(p));
-    // Kind 0 = path exclusion ("left alone entirely").
-    if (w <> '') and (FExAdd(0, PWideChar(w), Cardinal(Length(w))) = 0) then
-    begin
-      if (key <> '') and (FActed.IndexOf(key) < 0) then
-        FActed.Add(key);
+    if ExcludeOne(p) then
       Inc(n);
-    end;
+  end;
+  TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' path(s) ignored.',
+    asSuccess, 4000);
+end;
+
+procedure TRepForm.SelAllItemClick(Sender: TObject);
+begin
+  ResultsView.SelectAll;
+end;
+
+procedure TRepForm.QuarAllItemClick(Sender: TObject);
+begin
+  TAlertForm.ShowAlert('Verdict',
+    IntToStr(QuarantinePending) + ' file(s) quarantined.', asSuccess, 4000);
+end;
+
+procedure TRepForm.IgnAllItemClick(Sender: TObject);
+var
+  i, n: Integer;
+  p: string;
+begin
+  n := 0;
+  for i := 0 to ResultsView.Items.Count - 1 do
+  begin
+    p := StripPidPrefix(ResultsView.Items[i].Caption);
+    if ExcludeOne(p) then
+      Inc(n);
   end;
   TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' path(s) ignored.',
     asSuccess, 4000);
