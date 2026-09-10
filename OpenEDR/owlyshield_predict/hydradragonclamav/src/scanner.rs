@@ -73,6 +73,11 @@ pub struct ScanOptions {
     /// emits `Heuristics.Evasive.ZeroPadding` on its own. Default 50 MiB,
     /// 0 disables. Runs on the whole truncated file, not per chunk.
     pub zero_pad_heuristic: usize,
+    /// Total extracted-archive budget: all archive members scanned by one
+    /// `scan_deep` call combined stay within this many bytes (on top of the
+    /// file's own `max_scan_bytes`). Default 100 MiB total; 0 disables
+    /// archive recursion entirely (top-level scan only).
+    pub max_archive_bytes: usize,
 }
 
 impl Default for ScanOptions {
@@ -85,6 +90,7 @@ impl Default for ScanOptions {
             chunk_size: 8 * 1024 * 1024,
             blank_skip: 1024 * 1024,
             zero_pad_heuristic: 50 * 1024 * 1024,
+            max_archive_bytes: 100 * 1024 * 1024,
         }
     }
 }

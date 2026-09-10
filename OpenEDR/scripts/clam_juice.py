@@ -670,11 +670,12 @@ class ComprehensiveFilter:
                                      include_platforms, keep_if_contains)
 
         # Unpack *.cvd carriers (512-byte header + gzip tar) and keep only
-        # platform-relevant .cbc programs. The engine reads loose *.cbc files
-        # only — raw .cvd/.cld files are unreadable to it, so profiles that
-        # drop those carriers (windows-exe) still recover their bytecode here.
+        # platform-relevant .cbc programs, written FLAT into the output root
+        # (no bytecode/ subdir): the engine reads loose *.cbc files only.
+        # Raw .cvd/.cld files are unreadable to it, so profiles that drop
+        # those carriers (windows-exe) still recover their bytecode here.
         if unpack_bytecode:
-            self._unpack_bytecode_cvds(src_dir, dst_bc, exclude_platforms,
+            self._unpack_bytecode_cvds(src_dir, dst_dir, exclude_platforms,
                                        include_platforms, keep_if_contains)
 
         # Remove empty database files
@@ -730,10 +731,11 @@ class ComprehensiveFilter:
             except Exception as e:
                 self.error(f"sigtool unpack failed for {cvd_path}: {e}")
 
-    def _unpack_bytecode_cvds(self, src_dir, dst_bc_dir, exclude_platforms,
+    def _unpack_bytecode_cvds(self, src_dir, dst_root_dir, exclude_platforms,
                               include_platforms, keep_if_contains=None):
-        """Extract platform-relevant .cbc programs from *.cvd carriers."""
-        os.makedirs(dst_bc_dir, exist_ok=True)
+        """Extract platform-relevant .cbc programs from *.cvd carriers,
+        written flat into the output root (no subdirectories)."""
+        os.makedirs(dst_root_dir, exist_ok=True)
         total = kept = 0
         for item in sorted(os.listdir(src_dir)):
             if not item.lower().endswith((".cvd", ".cld")):
@@ -763,7 +765,7 @@ class ComprehensiveFilter:
                 elif not include_platforms:
                     keep = True
                 if keep:
-                    with open(os.path.join(dst_bc_dir, os.path.basename(name)), "wb") as f:
+                    with open(os.path.join(dst_root_dir, os.path.basename(name)), "wb") as f:
                         f.write(data)
                     kept += 1
         self.stats["cbc"]["original"] += total

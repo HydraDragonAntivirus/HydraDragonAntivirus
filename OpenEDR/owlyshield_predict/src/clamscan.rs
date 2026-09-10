@@ -53,10 +53,35 @@ fn database_dir() -> Option<PathBuf> {
 pub(crate) fn global_engine() -> Option<&'static Engine> {
     CLAM_ENGINE
         .get_or_init(|| {
-            let dir = database_dir()?;
+            let Some(dir) = database_dir() else {
+                crate::Logging::error(
+                    "[ClamScan] No database directory: HKLM\\SOFTWARE\\Owlyshield\\SDK\\DATABASE_PATH missing and no database\\ next to module",
+                );
+                return None;
+            };
             match Engine::from_database_dir(&dir) {
-                Ok((engine, _report)) => Some(engine),
-                Err(_) => None,
+                Ok((engine, report)) => {
+                    crate::Logging::info(&format!(
+                        "[ClamScan] Loaded database from {} (ext={} logical={} container={} ftm={} icons={} certs={} bytecode={})",
+                        dir.display(),
+                        report.extended_loaded,
+                        report.logical_loaded,
+                        report.container_loaded,
+                        report.ftm_loaded,
+                        report.icon_loaded,
+                        report.cert_loaded,
+                        report.bytecodes_loaded,
+                    ));
+                    Some(engine)
+                }
+                Err(e) => {
+                    crate::Logging::error(&format!(
+                        "[ClamScan] Failed to load database from {}: {}",
+                        dir.display(),
+                        e
+                    ));
+                    None
+                }
             }
         })
         .as_ref()
@@ -168,6 +193,10 @@ pub fn scan_deep(
         engine.scan_bytes_named_with_breakdown(data, object_path, options, module_meta);
     matches.append(&mut top);
     timing.accumulate(top_breakdown);
+    // Archive budget: all extracted members combined stay within
+    // `max_archive_bytes` (default 100MB total on top of the file's own
+    // 100MB scan cap); 0 disables archive recursion entirely.
+    let mut budget = options.max_archive_bytes;
     scan_children(
         engine,
         data,
@@ -175,10 +204,38 @@ pub fn scan_deep(
         options,
         module_meta,
         0,
+        &mut budget,
         &mut matches,
         &mut timing,
     );
     (matches, timing)
+}
+
+/// Real-time content fallback for the behavior pipeline: ClamAV (+archives)
+/// when ML is undecided. Bounded by `max_child_size` (giants skipped
+/// pre-read), the engine's scan cap and the archive budget — one file can
+/// never stall the RT loop. Returns `None` when clean/unscannable.
+pub fn rt_scan_file(
+    path_str: &str,
+) -> Option<crate::ml::fast_detect::FastDetectionResult> {
+    let engine = global_engine()?;
+    let options = ScanOptions::default();
+    let path = std::path::Path::new(path_str);
+    let len = std::fs::metadata(path).ok()?.len();
+    if len == 0 || len > options.max_child_size as u64 {
+        return None;
+    }
+    let data = std::fs::read(path).ok()?;
+    let (matches, _timing) = scan_deep(engine, &data, path_str, options, &[]);
+    let first = matches.first()?;
+    Some(crate::ml::fast_detect::FastDetectionResult {
+        detection_name: format!("ClamAV:{}", first.name),
+        reason: format!(
+            "ClamAV content detection '{}' (kind {:?})",
+            first.name, first.kind
+        ),
+        features: std::collections::HashMap::new(),
+    })
 }
 
 fn scan_children(
@@ -188,6 +245,7 @@ fn scan_children(
     options: ScanOptions,
     module_meta: &[(&str, &[u8])],
     depth: usize,
+    budget: &mut usize,
     matches: &mut Vec<ScanMatch>,
     timing: &mut TimingBreakdown,
 ) {
@@ -206,6 +264,12 @@ fn scan_children(
         if entry.data.len() > options.max_child_size {
             continue;
         }
+        // Spend archive budget: members beyond the remaining budget are
+        // skipped (extraction itself stays bomb-guarded inside the extractor).
+        if entry.data.len() > *budget {
+            continue;
+        }
+        *budget -= entry.data.len();
         let child_path = format!("{object_path}#archive[{index}]");
         // ClamAV FilePos = 1-based member ordinal.
         let (mut child_matches, child_breakdown) =
@@ -229,6 +293,7 @@ fn scan_children(
             options,
             module_meta,
             depth + 1,
+            budget,
             matches,
             timing,
         );

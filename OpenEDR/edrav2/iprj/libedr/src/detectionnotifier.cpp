@@ -693,33 +693,9 @@ static bool bulkHashOverBudget(const std::string& sUtf8Path)
 	catch (...) { return false; }
 }
 
-// Rust static engines (EICAR/signer/ML models) for one file (UTF-8 path).
-// Returns 2 malicious, 1 safe, 0 unknown. No cloud, no execution.
-static int rustScanVerdict(const std::string& sUtf8Path)
-{
-	typedef int32_t (*ScanFileFn)(const uint16_t*, uint32_t);
-	static HMODULE s_hDll = nullptr;
-	static ScanFileFn s_fn = nullptr;
-	static std::once_flag s_once;
-	std::call_once(s_once, []() {
-		s_hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
-		if (!s_hDll) s_hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-		if (s_hDll)
-			s_fn = reinterpret_cast<ScanFileFn>(
-				::GetProcAddress(s_hDll, "owlyshield_scan_file"));
-	});
-	if (!s_fn || sUtf8Path.empty())
-		return 0;
-	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
-	if (nWide <= 1)
-		return 0;
-	std::wstring ws(nWide - 1, L'\0');
-	if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
-		return 0;
-	int r = s_fn(reinterpret_cast<const uint16_t*>(ws.c_str()),
-		static_cast<uint32_t>(ws.size()));
-	return (r == 2 || r == 1) ? r : 0;
-}
+// Int-only verdict (kept for compatibility); the name variant below, with
+// its legacy-DLL fallback, is the single implementation now.
+static int rustScanVerdict(const std::string& sUtf8Path);
 
 // Same as rustScanVerdict, plus the human-readable cause (signature name,
 // EICAR-Test-File, Signer:{name}, model detection name) in sNameOut.
@@ -740,8 +716,45 @@ static int rustScanVerdictName(const std::string& sUtf8Path, std::string& sNameO
 				::GetProcAddress(s_hDllName, "owlyshield_scan_file_name"));
 	}
 	sNameOut.clear();
-	if (!s_fnName || sUtf8Path.empty())
+	if (sUtf8Path.empty())
 		return 0;
+	if (!s_fnName)
+	{
+		// Old DLL without the name export: fall back to the int-only
+		// verdict so local scanning still works (just without names).
+		// (Rebuild owlyshield_ransom.dll to get names.)
+		typedef int32_t (*ScanFileFn)(const uint16_t*, uint32_t);
+		static ScanFileFn s_fnLegacy = nullptr;
+		static bool s_triedLegacy = false;
+		if (!s_triedLegacy)
+		{
+			s_triedLegacy = true;
+			HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+			if (!hDll) hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			if (hDll)
+				s_fnLegacy = reinterpret_cast<ScanFileFn>(
+					::GetProcAddress(hDll, "owlyshield_scan_file"));
+		}
+		if (!s_fnLegacy)
+		{
+			static bool s_loggedMissing = false;
+			if (!s_loggedMissing)
+			{
+				s_loggedMissing = true;
+				LOGLVL(Critical, FMT("detnotif: local engines unavailable, neither owlyshield_scan_file_name nor owlyshield_scan_file exports found (is owlyshield_ransom.dll deployed?)"));
+			}
+			return 0;
+		}
+		int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
+		if (nWide <= 1)
+			return 0;
+		std::wstring ws(nWide - 1, L'\0');
+		if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
+			return 0;
+		int r = s_fnLegacy(reinterpret_cast<const uint16_t*>(ws.c_str()),
+			static_cast<uint32_t>(ws.size()));
+		return (r == 2 || r == 1) ? r : 0;
+	}
 	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
 	if (nWide <= 1)
 		return 0;
@@ -764,22 +777,49 @@ static int rustScanVerdictName(const std::string& sUtf8Path, std::string& sNameO
 	return r;
 }
 
+static int rustScanVerdict(const std::string& sUtf8Path)
+{
+	std::string dummy;
+	return rustScanVerdictName(sUtf8Path, dummy);
+}
+
 // Merged local verdict: enriched verdict (if 1/2), Rust engines, known-DB.
 // Malicious (2) always wins; Safe (1) beats unknown; else 0.
-static int mergeLocalVerdict(int enriched, const std::string& sPath, const std::string& sHash)
+// Slow engines (ML + ClamAV) run only while the cloud is undecided
+// (nCloudVerdict other than Safe/Malicious); engine results are hash-keyed
+// in the persistent cache, so repeat listings skip the engines.
+static int mergeLocalVerdict(int enriched, const std::string& sPath, const std::string& sHash,
+	int nCloudVerdict, std::string& sLocalName)
 {
 	int v = (enriched == 1 || enriched == 2) ? enriched : 0;
-	int r = rustScanVerdict(sPath);
-	if (r == 2)
-		return 2;
-	if (r == 1 && v == 0)
-		v = 1;
 	try
 	{
 		if (DetectionNotifier::isKnownMalware(sPath, sHash))
 			return 2;
 	}
 	catch (...) {}
+	if (nCloudVerdict == 1 || nCloudVerdict == 2)
+		return v;
+	int cachedV = 0;
+	std::string cachedName;
+	if (!sHash.empty() && lookupLocalVerdict(sHash, cachedV, cachedName))
+	{
+		if (cachedV == 2)
+			return 2;
+		if (cachedV == 1 && v == 0)
+			v = 1;
+		sLocalName = cachedName;
+		return v;
+	}
+	int r = rustScanVerdictName(sPath, sLocalName);
+	if (r == 2)
+		v = 2;
+	else if (r == 1 && v == 0)
+		v = 1;
+	else if (r == 0)
+		sLocalName.clear();
+	if (!sHash.empty())
+		storeLocalVerdict(sHash, (r == 2 || r == 1) ? r : 0, sLocalName);
 	return v;
 }
 
@@ -1732,14 +1772,15 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 							}
 							catch (...) {}
 						}
-						int nEnriched = 0;
-						try { nEnriched = static_cast<int>(vInfo["verdict"]); } catch (...) {}
-						int nLocal = mergeLocalVerdict(nEnriched, sPath, sHash);
-						vOut.push_back(Dictionary({
-							{"pid", static_cast<int64_t>(pe.th32ProcessID)},
-							{"path", sPath}, {"hash", sHash},
-							{"user", sUser}, {"verdict", nVerdict},
-							{"local", nLocal} }));
+					int nEnriched = 0;
+					try { nEnriched = static_cast<int>(vInfo["verdict"]); } catch (...) {}
+					std::string sLocalName;
+					int nLocal = mergeLocalVerdict(nEnriched, sPath, sHash, nVerdict, sLocalName);
+					vOut.push_back(Dictionary({
+						{"pid", static_cast<int64_t>(pe.th32ProcessID)},
+						{"path", sPath}, {"hash", sHash},
+						{"user", sUser}, {"verdict", nVerdict},
+						{"local", nLocal}, {"local_name", sLocalName} }));
 					}
 					catch (...) {}
 				}

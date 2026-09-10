@@ -65,6 +65,14 @@ type
   // Exclusion DLL entry: kind 0 = path (mirrors uquar).
   TQExAddFn = function(AKind: Cardinal; AValue: PWideChar; ALen: Cardinal): Integer; cdecl;
 
+  // Per-row action behind the clickable Action cell (Kaspersky-style):
+  // 'Q' quarantine, 'I' ignore (exclude), 'S' skip.
+  TRowInfo = class
+  public
+    Item: TListItem;
+    Action: Char;
+  end;
+
   { TRepForm }
 
   TRepForm = class(TForm)
@@ -94,8 +102,13 @@ type
     FProcThread: TProcRepThread;
     FFirstShow: Boolean;
     FMali, FSafe, FUnk, FFail, FLocal: Integer;
-    // Seen paths (lowercased) -> row item. Rows persist across scans:
-    // re-scans update cells in place instead of duplicating.
+    // Rows rendered by the current scan run. Zero at FinishScan means the
+    // server returned nothing at all (empty list) — the persistent list is
+    // kept and the status says so instead of a bare 'Done.'
+    FRowsThisScan: Integer;
+    // Seen paths (lowercased) -> TRowInfo. Rows persist across scans:
+    // re-scans update cells in place instead of duplicating, and keep the
+    // operator's per-row Action choice.
     FSeen: TStringList;
     // Handled paths (quarantined or ignored this session). A new scan is
     // blocked with a warning while unhandled malicious rows remain.
@@ -105,6 +118,11 @@ type
     function UpsertRow(const AKey, ACaption, AHash, ACloudText,
       ALocalText: string; v, lv: Integer): TListItem;
     procedure RecountSummary;
+    function RowActionText(A: Char): string;
+    function DefaultAction(v, lv: Integer): Char;
+    procedure CycleRowAction(ARow: TListItem);
+    procedure ResultsMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
     procedure BuildUi;
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);
@@ -288,6 +306,7 @@ begin
         // Persistent rows: same path refreshes its cells (totals recount).
         Frm.UpsertRow(fp, fp, fh, CloudText(v), LocalCellText(lv, nm), v, lv);
         Inc(FCount);
+        Inc(Frm.FRowsThisScan);
       end;
     finally
       Frm.ResultsView.Items.EndUpdate;
@@ -818,6 +837,7 @@ begin
     Root := Root + '\';
   // Rows persist across scans (UpsertRow refreshes); totals recount.
   // A new scan is blocked while unhandled malicious rows remain.
+  FRowsThisScan := 0;
   if PendingCount > 0 then
   begin
     TAlertForm.ShowAlert('Verdict',
@@ -864,7 +884,10 @@ begin
   ScanProgress.Style := pbstNormal;
   StartBtn.Enabled := True;
   CancelBtn.Enabled := False;
-  StatusLbl.Caption := AMsg;
+  if FRowsThisScan = 0 then
+    StatusLbl.Caption := AMsg + ' No rows returned; list unchanged.'
+  else
+    StatusLbl.Caption := AMsg;
   // Recount (not the render-time values): rows persist, and FinishScan must
   // not wipe the Local-hits segment the renderers wrote.
   RecountSummary;
@@ -906,6 +929,7 @@ begin
   if FProcThread <> nil then
     Exit;
   // Rows persist (process rows merge by path); totals recount.
+  FRowsThisScan := 0;
   if PendingCount > 0 then
   begin
     TAlertForm.ShowAlert('Verdict',
@@ -995,6 +1019,7 @@ begin
         nm := LocalNameOf(it);
         // Keyed by raw path (caption carries the pid prefix).
         Frm.UpsertRow(raw, fp, fh, CloudText(v), LocalCellText(lv, nm), v, lv);
+        Inc(Frm.FRowsThisScan);
       end;
     finally
       Frm.ResultsView.Items.EndUpdate;
@@ -1172,13 +1197,23 @@ end;
 
 procedure TRepForm.IgnAllItemClick(Sender: TObject);
 var
-  i, n: Integer;
-  p: string;
+  i, n, v, lv: Integer;
+  p, key: string;
+  idx: Integer;
 begin
+  // Same scope as Quarantine All: pending-malicious rows only. Clean rows
+  // are never excluded in bulk (use the per-row Ignore item for those).
   n := 0;
   for i := 0 to ResultsView.Items.Count - 1 do
   begin
+    v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+    lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+    if not ((v = 2) or (lv = 2)) then
+      Continue;
     p := StripPidPrefix(ResultsView.Items[i].Caption);
+    key := LowerCase(p);
+    if (key = '') or FActed.Find(key, idx) then
+      Continue;
     if ExcludeOne(p) then
       Inc(n);
   end;

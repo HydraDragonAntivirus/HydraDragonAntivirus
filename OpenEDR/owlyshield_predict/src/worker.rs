@@ -1061,6 +1061,13 @@ pub mod worker_instance {
                             crate::ml::fast_detect::fast_detect_file(&iomsg.filepathstr, iomsg);
                     }
 
+                    // Real-time content fallback (ClamAV + archives) when ML
+                    // is undecided. Bounded (archive budget + engine caps) so
+                    // one file can never stall the RT loop.
+                    if fast_det.is_none() && !iomsg.filepathstr.is_empty() {
+                        fast_det = crate::clamscan::rt_scan_file(&iomsg.filepathstr);
+                    }
+
                     if let Some(det) = fast_det {
                         // Pause protection = log the detection but take no
                         // quarantine/kill action while paused.

@@ -129,15 +129,12 @@
                 </Component>
                 <Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR_X64" />
                 <Files Include="..\..\edrdata\signer_rules\**" Directory="SIGNERRULESDIR_X64" />
-                <!-- ClamAV database (clamav_database_windows) + bytecode, flattened
-                     into ONE directory, no subdirectories: the engine loads a single
-                     database directory (from_database_dir) and only reads loose
-                     *.cbc files, so bytecode\*.cbc is harvested flat alongside the
-                     signature files. clamscan (src/clamscan.rs) reads DATABASE_PATH. -->
-                <Files Include="..\..\..\..\..\clamav_database_windows\**" Directory="DATABASEDIR_X64">
-                    <Exclude Files="..\..\..\..\..\clamav_database_windows\bytecode\**" />
-                </Files>
-                <Files Include="..\..\..\..\..\clamav_database_windows\bytecode\*.cbc" Directory="DATABASEDIR_X64" />
+                <!-- ClamAV database (clamav_database_windows): signature files AND
+                     loose *.cbc bytecode live flat in ONE directory, no
+                     subdirectories — the engine loads a single database directory
+                     (from_database_dir). clamscan (src/clamscan.rs) reads
+                     DATABASE_PATH. -->
+                <Files Include="..\..\..\..\..\clamav_database_windows\**" Directory="DATABASEDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
                     <Exclude Files="$(var.SourceBinDir64)*.xf" />

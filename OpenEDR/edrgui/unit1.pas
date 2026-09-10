@@ -152,7 +152,7 @@ begin
 
   // File reputation screen (cloud verdicts, display only).
   MenuReputation := TMenuItem.Create(Self);
-  MenuReputation.Caption := 'Verdict...';
+  MenuReputation.Caption := 'Scanner...';
   MenuReputation.OnClick := @MenuReputationClick;
   PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuQuarantine) + 1,
     MenuReputation);
