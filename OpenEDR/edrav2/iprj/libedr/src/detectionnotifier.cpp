@@ -777,12 +777,6 @@ static int rustScanVerdictName(const std::string& sUtf8Path, std::string& sNameO
 	return r;
 }
 
-static int rustScanVerdict(const std::string& sUtf8Path)
-{
-	std::string dummy;
-	return rustScanVerdictName(sUtf8Path, dummy);
-}
-
 // Merged local verdict: enriched verdict (if 1/2), Rust engines, known-DB.
 // Malicious (2) always wins; Safe (1) beats unknown; else 0.
 // Slow engines (ML + ClamAV) run only while the cloud is undecided
