@@ -240,67 +240,67 @@ namespace {
 		return bModified;
 	}
 
-	static std::string NtPathToDosPathString(const std::string& sNt)
-	{
-		if (sNt.empty())
-			return sNt;
+} // namespace
 
-		std::string sClean = sNt;
-		if (sClean.rfind("\\??\\", 0) == 0)
-			sClean = sClean.substr(4);
+std::string DetectionNotifier::NtPathToDosPathString(const std::string& sNt)
+{
+	if (sNt.empty())
+		return sNt;
 
-		int cchW = ::MultiByteToWideChar(CP_UTF8, 0, sClean.c_str(), -1, NULL, 0);
-		if (cchW <= 0)
-			return sClean;
+	std::string sClean = sNt;
+	if (sClean.rfind("\\??\\", 0) == 0)
+		sClean = sClean.substr(4);
 
-		std::wstring wsNt(static_cast<size_t>(cchW), 0);
-		::MultiByteToWideChar(CP_UTF8, 0, sClean.c_str(), -1, &wsNt[0], cchW);
-		if (!wsNt.empty() && wsNt.back() == L'\0')
-			wsNt.pop_back();
-
-		if (wsNt.find(L'%') != std::wstring::npos)
-		{
-			wchar_t szExp[MAX_PATH * 2] = {};
-			if (::ExpandEnvironmentStringsW(wsNt.c_str(), szExp, static_cast<DWORD>(std::size(szExp))) > 0)
-				wsNt = szExp;
-		}
-
-		wchar_t sDrives[27 * 4] = {};
-		if (::GetLogicalDriveStringsW(DWORD(std::size(sDrives)), sDrives) == 0)
-			return sClean;
-
-		wchar_t* sDrv = sDrives;
-		while (sDrv[0])
-		{
-			sDrv[2] = 0;
-			wchar_t szTarget[MAX_PATH] = {};
-			if (::QueryDosDeviceW(sDrv, szTarget, MAX_PATH) > 0)
-			{
-				std::wstring wsDevice(szTarget);
-				if (wsNt.compare(0, wsDevice.size(), wsDevice) == 0 &&
-					(wsNt.size() == wsDevice.size() || wsNt[wsDevice.size()] == L'\\'))
-				{
-					std::wstring sDrive(sDrv);
-					sDrive.resize(2); // "C:"
-					std::wstring wsRes = sDrive + wsNt.substr(wsDevice.size());
-
-					int cchA = ::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, NULL, 0, NULL, NULL);
-					if (cchA > 0)
-					{
-						std::string sRes(static_cast<size_t>(cchA), 0);
-						::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, &sRes[0], cchA, NULL, NULL);
-						if (!sRes.empty() && sRes.back() == '\0')
-							sRes.pop_back();
-						return sRes;
-					}
-				}
-			}
-			sDrv += 4;
-		}
+	int cchW = ::MultiByteToWideChar(CP_UTF8, 0, sClean.c_str(), -1, NULL, 0);
+	if (cchW <= 0)
 		return sClean;
+
+	std::wstring wsNt(static_cast<size_t>(cchW), 0);
+	::MultiByteToWideChar(CP_UTF8, 0, sClean.c_str(), -1, &wsNt[0], cchW);
+	if (!wsNt.empty() && wsNt.back() == L'\0')
+		wsNt.pop_back();
+
+	if (wsNt.find(L'%') != std::wstring::npos)
+	{
+		wchar_t szExp[MAX_PATH * 2] = {};
+		if (::ExpandEnvironmentStringsW(wsNt.c_str(), szExp, static_cast<DWORD>(std::size(szExp))) > 0)
+			wsNt = szExp;
 	}
 
-} // namespace
+	wchar_t sDrives[27 * 4] = {};
+	if (::GetLogicalDriveStringsW(DWORD(std::size(sDrives)), sDrives) == 0)
+		return sClean;
+
+	wchar_t* sDrv = sDrives;
+	while (sDrv[0])
+	{
+		sDrv[2] = 0;
+		wchar_t szTarget[MAX_PATH] = {};
+		if (::QueryDosDeviceW(sDrv, szTarget, MAX_PATH) > 0)
+		{
+			std::wstring wsDevice(szTarget);
+			if (wsNt.compare(0, wsDevice.size(), wsDevice) == 0 &&
+				(wsNt.size() == wsDevice.size() || wsNt[wsDevice.size()] == L'\\'))
+			{
+				std::wstring sDrive(sDrv);
+				sDrive.resize(2); // "C:"
+				std::wstring wsRes = sDrive + wsNt.substr(wsDevice.size());
+
+				int cchA = ::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, NULL, 0, NULL, NULL);
+				if (cchA > 0)
+				{
+					std::string sRes(static_cast<size_t>(cchA), 0);
+					::WideCharToMultiByte(CP_UTF8, 0, wsRes.c_str(), -1, &sRes[0], cchA, NULL, NULL);
+					if (!sRes.empty() && sRes.back() == '\0')
+						sRes.pop_back();
+					return sRes;
+				}
+			}
+		}
+		sDrv += 4;
+	}
+	return sClean;
+}
 
 void DetectionNotifier::loadPersistentMalwareDb()
 {

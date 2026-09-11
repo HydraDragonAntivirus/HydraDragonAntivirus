@@ -198,6 +198,30 @@ pub unsafe extern "C" fn owlyshield_dll_ingest_openedr_event(data: *const u8, le
     OWLY_OK
 }
 
+/// Directly enqueue a file path or process image path from OpenEDR eventenricher into the real-time daemon queue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn owlyshield_rt_enqueue_utf8(
+    path_ptr: *const u8,
+    path_len: u32,
+    is_process_create: u32,
+    pid: u32,
+) -> i32 {
+    if path_ptr.is_null() || path_len == 0 {
+        return OWLY_OK;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    if let Ok(path_str) = std::str::from_utf8(bytes) {
+        crate::daemon_scan::enqueue_scan(
+            std::path::PathBuf::from(path_str),
+            is_process_create != 0,
+            pid,
+            0,
+            String::new(),
+        );
+    }
+    OWLY_OK
+}
+
 /// Ingest firewall FULL_PACKET packed data (JSON) into the behavior engine.
 /// Called directly by `edrsvc.exe` via GetProcAddress; see
 /// `owlyshield_dll_ingest_openedr_event` for why there is no pipe anymore.

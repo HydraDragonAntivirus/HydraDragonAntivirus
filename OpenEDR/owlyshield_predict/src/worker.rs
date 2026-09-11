@@ -581,10 +581,41 @@ pub mod worker_instance {
                                 ));
                             }
                             crate::ffi::TelemetryLine::OpenedrEvent(raw) => {
-                                Logging::debug(&format!(
-                                    "[TelemetryDrain] OpenEDR event ({} bytes)",
-                                    raw.len()
-                                ));
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                                    let fp = v.pointer("/file/path")
+                                        .or_else(|| v.pointer("/file/rawPath"))
+                                        .or_else(|| v.pointer("/file/name"))
+                                        .and_then(|p| p.as_str());
+                                    let pid = v.pointer("/process/pid")
+                                        .and_then(|p| p.as_u64())
+                                        .unwrap_or(0) as u32;
+                                    if let Some(path) = fp {
+                                        if !path.is_empty() {
+                                            crate::daemon_scan::enqueue_scan(
+                                                std::path::PathBuf::from(path),
+                                                false,
+                                                pid,
+                                                0,
+                                                String::new(),
+                                            );
+                                        }
+                                    }
+                                    let pp = v.pointer("/process/imageFile/abstractPath")
+                                        .or_else(|| v.pointer("/process/imageFile/rawPath"))
+                                        .or_else(|| v.pointer("/childProcess/imageFile/abstractPath"))
+                                        .and_then(|p| p.as_str());
+                                    if let Some(path) = pp {
+                                        if !path.is_empty() {
+                                            crate::daemon_scan::enqueue_scan(
+                                                std::path::PathBuf::from(path),
+                                                false,
+                                                pid,
+                                                0,
+                                                String::new(),
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

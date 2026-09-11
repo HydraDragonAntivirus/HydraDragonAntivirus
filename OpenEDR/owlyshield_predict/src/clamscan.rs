@@ -198,7 +198,7 @@ pub fn verdict_scan_file(path: &Path) -> Option<i32> {
     if len > options.max_child_size as u64 {
         return None;
     }
-    let data = std::fs::read(path).ok()?;
+    let data = crate::utils::read_file_shared(path).ok()?;
     let (matches, _timing) = scan_deep(engine, &data, &path.display().to_string(), options, &[]);
     if matches.is_empty() {
         None

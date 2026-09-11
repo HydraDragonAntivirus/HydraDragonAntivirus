@@ -426,15 +426,83 @@ namespace {
 		static HMODULE s_hOwlyDll = nullptr;
 		typedef int32_t (*IngestOpenedrEventFn)(const uint8_t*, uint32_t);
 		static IngestOpenedrEventFn s_fnIngest = nullptr;
+		typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
+		static RtEnqueueUtf8Fn s_fnEnqueue = nullptr;
 		static std::once_flag s_initFlag;
 
 		std::call_once(s_initFlag, []() {
-			s_hOwlyDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			s_hOwlyDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+			if (!s_hOwlyDll) s_hOwlyDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			if (!s_hOwlyDll)
+			{
+				wchar_t szMod[MAX_PATH] = {};
+				if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
+				{
+					std::filesystem::path p(szMod);
+					s_hOwlyDll = ::LoadLibraryW((p.parent_path() / L"owlyshield_ransom.dll").c_str());
+				}
+			}
+			if (!s_hOwlyDll)
+			{
+				s_hOwlyDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\owlyshield_ransom.dll");
+			}
 			if (s_hOwlyDll != nullptr)
 			{
 				s_fnIngest = (IngestOpenedrEventFn)::GetProcAddress(s_hOwlyDll, "owlyshield_dll_ingest_openedr_event");
+				s_fnEnqueue = (RtEnqueueUtf8Fn)::GetProcAddress(s_hOwlyDll, "owlyshield_rt_enqueue_utf8");
 			}
 		});
+
+		// Real-time zero-latency file & process submission to daemon scan pool
+		if (s_fnEnqueue != nullptr)
+		{
+			try
+			{
+				auto enqueueIfValid = [](RtEnqueueUtf8Fn fn, const std::string& rawPath, uint32_t isProc, uint32_t pid) {
+					if (rawPath.empty()) return;
+					std::string dos = DetectionNotifier::NtPathToDosPathString(rawPath);
+					if (!dos.empty())
+					{
+						fn(reinterpret_cast<const uint8_t*>(dos.data()), static_cast<uint32_t>(dos.size()), isProc, pid);
+					}
+				};
+
+				uint32_t nPid = 0;
+				if (auto optPid = variant::getByPathSafe(vEvent, "process.id")) {
+					try { nPid = static_cast<uint32_t>(optPid.value()); } catch (...) {}
+				} else if (auto optPid2 = variant::getByPathSafe(vEvent, "process.pid")) {
+					try { nPid = static_cast<uint32_t>(optPid2.value()); } catch (...) {}
+				}
+
+				// 1. File targets: handles file creation, modification, and critical file renames (ren *.vir *.exe)
+				if (auto optP = variant::getByPathSafe(vEvent, "file.path"))
+					enqueueIfValid(s_fnEnqueue, std::string(optP.value()), 0, nPid);
+				if (auto optP2 = variant::getByPathSafe(vEvent, "file.rawPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optP2.value()), 0, nPid);
+				if (auto optP3 = variant::getByPathSafe(vEvent, "file.abstractPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optP3.value()), 0, nPid);
+				if (auto optP4 = variant::getByPathSafe(vEvent, "file.name"))
+					enqueueIfValid(s_fnEnqueue, std::string(optP4.value()), 0, nPid);
+
+				// Rename target paths
+				if (auto optRT = variant::getByPathSafe(vEvent, "fileRenameTarget"))
+					enqueueIfValid(s_fnEnqueue, std::string(optRT.value()), 0, nPid);
+				if (auto optRT2 = variant::getByPathSafe(vEvent, "file.renameTarget"))
+					enqueueIfValid(s_fnEnqueue, std::string(optRT2.value()), 0, nPid);
+
+				// 2. Process targets (process spawn, executable launching)
+				if (auto optProc = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optProc.value()), 1, nPid);
+				else if (auto optProc2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optProc2.value()), 1, nPid);
+				else if (auto optProc3 = variant::getByPathSafe(vEvent, "process.imagePath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optProc3.value()), 1, nPid);
+
+				if (auto optChild = variant::getByPathSafe(vEvent, "childProcess.imageFile.abstractPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optChild.value()), 1, nPid);
+			}
+			catch (...) {}
+		}
 
 		if (s_fnIngest != nullptr)
 		{

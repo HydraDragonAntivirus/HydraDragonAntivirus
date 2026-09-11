@@ -66,6 +66,11 @@ public:
 	///
 	static void loadPersistentMalwareDb();
 
+	///
+	/// Converts NT device path or \??\ path to DOS drive path.
+	///
+	static std::string NtPathToDosPathString(const std::string& sNt);
+
 	// ICommandProcessor
 
 	/// @copydoc ICommandProcessor::execute(Variant,Variant)
