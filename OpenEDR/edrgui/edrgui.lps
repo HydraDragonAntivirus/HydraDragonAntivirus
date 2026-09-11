@@ -8,7 +8,7 @@
       <Unit>
         <Filename Value="edrgui.lpr"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="88"/>
+        <UsageCount Value="95"/>
       </Unit>
       <Unit>
         <Filename Value="unit1.pas"/>
@@ -17,10 +17,9 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="Unit1"/>
-        <IsVisibleTab Value="True"/>
         <TopLine Value="19"/>
         <CursorPos X="12" Y="19"/>
-        <UsageCount Value="88"/>
+        <UsageCount Value="95"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -30,13 +29,13 @@
         <ComponentName Value="AlertForm"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UAlert"/>
-        <UsageCount Value="88"/>
+        <UsageCount Value="95"/>
       </Unit>
       <Unit>
         <Filename Value="usvccontrol.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="USvcControl"/>
-        <UsageCount Value="88"/>
+        <UsageCount Value="95"/>
       </Unit>
       <Unit>
         <Filename Value="uguinotify.pas"/>
@@ -45,14 +44,14 @@
         <EditorIndex Value="3"/>
         <TopLine Value="88"/>
         <CursorPos X="26" Y="88"/>
-        <UsageCount Value="88"/>
+        <UsageCount Value="95"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="uhippipe.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="UHipPipe"/>
-        <UsageCount Value="88"/>
+        <UsageCount Value="95"/>
       </Unit>
       <Unit>
         <Filename Value="uquar.pas"/>
@@ -64,7 +63,7 @@
         <EditorIndex Value="2"/>
         <TopLine Value="475"/>
         <CursorPos X="7" Y="475"/>
-        <UsageCount Value="88"/>
+        <UsageCount Value="95"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -74,10 +73,11 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="URep"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="1"/>
         <TopLine Value="1380"/>
         <CursorPos X="5" Y="1380"/>
-        <UsageCount Value="88"/>
+        <UsageCount Value="95"/>
         <Loaded Value="True"/>
       </Unit>
     </Units>

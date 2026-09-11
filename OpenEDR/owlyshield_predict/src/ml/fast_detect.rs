@@ -302,5 +302,16 @@ mod tests {
             println!("JS model inference prob (benign sample): {}", prob);
             assert!((0.0..=1.0).contains(&prob), "invalid prob: {}", prob);
         }
+
+        if let Some(model) = &pe_model {
+            let test_pe = std::env::var("COMSPEC").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_string());
+            if let Ok(bytes) = std::fs::read(&test_pe) {
+                let prob = super::super::inference::predict_pe(&bytes, model, &device)
+                    .expect("predict_pe must return prob for valid PE");
+                println!("PE model inference prob on {}: {}", test_pe, prob);
+                assert!((0.0..=1.0).contains(&prob), "invalid PE prob: {}", prob);
+                assert!(prob > 0.0, "PE prob should not be flat 0.000: {}", prob);
+            }
+        }
     }
 }

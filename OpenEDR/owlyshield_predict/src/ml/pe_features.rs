@@ -281,7 +281,7 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
         address_of_entry_point: ln1p(sf.address_of_entry_point as f32),
         image_base: ln1p(pe.image_base as f32),
         subsystem: wf.subsystem as f32,
-        dll_characteristics: wf.dll_characteristics as f32,
+        dll_characteristics: ln1p(wf.dll_characteristics as f32),
         size_of_stack_reserve: ln1p(wf.size_of_stack_reserve as f32),
         size_of_heap_reserve: ln1p(wf.size_of_heap_reserve as f32),
         checksum: ln1p(wf.check_sum as f32),
