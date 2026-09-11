@@ -274,7 +274,10 @@ pub fn rt_scan_file(
     path_str: &str,
 ) -> Option<crate::ml::fast_detect::FastDetectionResult> {
     let engine = global_engine()?;
-    let options = ScanOptions::default();
+    let mut options = ScanOptions::default();
+    options.max_scan_bytes = 32 * 1024 * 1024;
+    options.max_archive_bytes = 16 * 1024 * 1024;
+    options.max_child_size = 32 * 1024 * 1024;
     let path = std::path::Path::new(path_str);
     let mut data: Option<Vec<u8>> = None;
     for attempt in 0..4 {

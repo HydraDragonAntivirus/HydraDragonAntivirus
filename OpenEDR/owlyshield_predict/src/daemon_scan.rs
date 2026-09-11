@@ -38,23 +38,22 @@ pub(crate) fn ensure_daemon_scanner() -> &'static DaemonScannerState {
         let recent_scans = Mutex::new(LruCache::new(cache_cap));
         let threat_handler = Mutex::new(None);
 
-        // Spawn 4 daemon scanner worker threads for parallel scanning
-        for thread_idx in 0..4 {
-            let thread_rx = rx.clone();
-            if let Err(e) = std::thread::Builder::new()
-                .name(format!("daemon_scanner_{}", thread_idx))
-                .spawn(move || {
-                    worker_loop(thread_rx);
-                })
-            {
-                Logging::error(&format!(
-                    "[DaemonScanner] Failed to spawn worker thread {}: {}",
-                    thread_idx, e
-                ));
-            }
+        // Spawn a single background daemon scanner worker thread to ensure memory
+        // remains capped at ~900MB (preventing multi-thread archive & buffer multiplication)
+        let thread_rx = rx.clone();
+        if let Err(e) = std::thread::Builder::new()
+            .name("daemon_scanner_worker".to_string())
+            .spawn(move || {
+                worker_loop(thread_rx);
+            })
+        {
+            Logging::error(&format!(
+                "[DaemonScanner] Failed to spawn worker thread: {}",
+                e
+            ));
         }
 
-        Logging::info("[DaemonScanner] Background daemon scan worker pool initialized (4 threads)");
+        Logging::info("[DaemonScanner] Background daemon scan worker initialized (single-thread, RAM-capped)");
 
         DaemonScannerState {
             tx,
@@ -84,6 +83,23 @@ fn worker_loop(rx: Receiver<DaemonScanTask>) {
             continue;
         }
 
+        // 0. Skip user-defined exclusions
+        if crate::windows::quarantine::is_excluded(p, "") {
+            continue;
+        }
+
+        // 0.1 Skip files signed by a trusted company publisher (e.g. Microsoft, Google, Intel)
+        if task.is_actor_target || path_str.ends_with(".exe") || path_str.ends_with(".dll") || path_str.ends_with(".sys") {
+            let sig_info = crate::signature_verification::verify_signature(p);
+            if sig_info.is_trusted {
+                if let Some(signer) = sig_info.signer_name {
+                    if crate::signer_rules::is_trusted_signer(&signer) {
+                        continue;
+                    }
+                }
+            }
+        }
+
         let mut det = None;
 
         // 1. Check EICAR standard test string
@@ -110,17 +126,6 @@ fn worker_loop(rx: Receiver<DaemonScanTask>) {
         // 3. Fallback to ClamAV deep scan (including archive decompression)
         if det.is_none() {
             det = crate::clamscan::rt_scan_file(path_str);
-        }
-
-        // 4. Fallback to ClamAV verdict_scan_file if still undecided
-        if det.is_none() {
-            if let Some(2) = crate::clamscan::verdict_scan_file(p) {
-                det = Some(crate::ml::fast_detect::FastDetectionResult {
-                    detection_name: "ClamAV:Malware.Generic".to_string(),
-                    reason: "ClamAV engine detected malicious content".to_string(),
-                    features: std::collections::HashMap::new(),
-                });
-            }
         }
 
         if let Some(detection) = det {
