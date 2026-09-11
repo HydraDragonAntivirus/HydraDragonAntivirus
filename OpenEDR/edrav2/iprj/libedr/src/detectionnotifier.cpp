@@ -783,6 +783,11 @@ static int rustScanVerdictName(const std::string& sUtf8Path, std::string& sNameO
 	return r;
 }
 
+int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
+{
+	return rustScanVerdictName(sUtf8Path, sThreatNameOut);
+}
+
 // Merged local verdict: enriched verdict (if 1/2), Rust engines, known-DB.
 // Malicious (2) always wins; Safe (1) beats unknown; else 0.
 // Slow engines (ML + ClamAV) run only while the cloud is undecided

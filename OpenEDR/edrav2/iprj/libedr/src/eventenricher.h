@@ -39,6 +39,7 @@ private:
 
 	void recordShadowBackup(int64_t nPid, Event eEventType, const Variant& vEvent);
 	void handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName);
+	void executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath);
 
 public:
 	// --- Ransomware shadow-backup shield + remediation ---

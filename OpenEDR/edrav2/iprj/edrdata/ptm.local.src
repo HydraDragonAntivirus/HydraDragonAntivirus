@@ -4953,19 +4953,19 @@
 										"args": [
 											{
 												"$operation": "greater",
-												"args": [ "@event.destination.owlyEntropy", 6.8 ]
+												"args": [ "@event.destination.owlyEntropy", 6 ]
 											},
 											{
 												"$operation": "greater",
-												"args": [ "@event.destination.entropy", 6.8 ]
+												"args": [ "@event.destination.entropy", 6 ]
 											},
 											{
 												"$operation": "greater",
-												"args": [ "@event.owlyEntropy", 6.8 ]
+												"args": [ "@event.owlyEntropy", 6 ]
 											},
 											{
 												"$operation": "greater",
-												"args": [ "@event.entropy", 6.8 ]
+												"args": [ "@event.entropy", 6 ]
 											}
 										]
 									}

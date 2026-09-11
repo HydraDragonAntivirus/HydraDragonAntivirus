@@ -71,6 +71,12 @@ public:
 	///
 	static std::string NtPathToDosPathString(const std::string& sNt);
 
+	///
+	/// Synchronously scans a file using the local detection engines (ClamAV, YARA-X, ML, Signer, EICAR).
+	/// Returns 2 for malicious (with threat name in sThreatNameOut), 1 for safe, 0 for clean/unknown.
+	///
+	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut);
+
 	// ICommandProcessor
 
 	/// @copydoc ICommandProcessor::execute(Variant,Variant)

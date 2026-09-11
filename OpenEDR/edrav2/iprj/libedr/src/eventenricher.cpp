@@ -16,6 +16,8 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <vector>
+#include <unordered_set>
 
 namespace cmd {
 
@@ -863,7 +865,145 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 
 	// 1. File rollback from pre-images
 	rollbackRansomBackups(nPid);
+}
 
+void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event /* eEventType */, const std::string& sProcPath)
+{
+	static HMODULE s_hOwlyDll = nullptr;
+	typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
+	static RtEnqueueUtf8Fn s_fnEnqueue = nullptr;
+	static std::once_flag s_initFlag;
+
+	std::call_once(s_initFlag, []() {
+		s_hOwlyDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+		if (!s_hOwlyDll) s_hOwlyDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+		if (!s_hOwlyDll)
+		{
+			wchar_t szMod[MAX_PATH] = {};
+			if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
+			{
+				std::filesystem::path p(szMod);
+				s_hOwlyDll = ::LoadLibraryW((p.parent_path() / L"owlyshield_ransom.dll").c_str());
+			}
+		}
+		if (!s_hOwlyDll)
+		{
+			s_hOwlyDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\owlyshield_ransom.dll");
+		}
+		if (s_hOwlyDll != nullptr)
+		{
+			s_fnEnqueue = (RtEnqueueUtf8Fn)::GetProcAddress(s_hOwlyDll, "owlyshield_rt_enqueue_utf8");
+		}
+	});
+
+	// Extract PID
+	uint32_t nPid = 0;
+	if (vProcess.has("id")) {
+		try { nPid = static_cast<uint32_t>(vProcess["id"]); } catch (...) {}
+	} else if (vProcess.has("pid")) {
+		try { nPid = static_cast<uint32_t>(vProcess["pid"]); } catch (...) {}
+	}
+
+	// 1. Gather all candidate file paths before they are replaced by lambda proxies
+	std::vector<std::pair<std::string, bool>> vCandidates; // {rawPath, isProcess}
+
+	if (vEvent.has("file"))
+	{
+		Variant vRawFile = vEvent.get("file");
+		if (vRawFile.isDictionaryLike())
+		{
+			if (vRawFile.has("path")) vCandidates.emplace_back(std::string(vRawFile["path"]), false);
+			if (vRawFile.has("rawPath")) vCandidates.emplace_back(std::string(vRawFile["rawPath"]), false);
+			if (vRawFile.has("renameTarget")) vCandidates.emplace_back(std::string(vRawFile["renameTarget"]), false);
+		}
+		else if (vRawFile.isStringLike())
+		{
+			vCandidates.emplace_back(std::string(vRawFile), false);
+		}
+	}
+	if (vEvent.has("fileRenameTarget"))
+	{
+		vCandidates.emplace_back(std::string(vEvent.get("fileRenameTarget")), false);
+	}
+	if (vEvent.has("destination"))
+	{
+		Variant vDest = vEvent.get("destination");
+		if (vDest.isDictionaryLike() && vDest.has("path"))
+			vCandidates.emplace_back(std::string(vDest["path"]), false);
+		else if (vDest.isStringLike())
+			vCandidates.emplace_back(std::string(vDest), false);
+	}
+	if (vEvent.has("source"))
+	{
+		Variant vSrc = vEvent.get("source");
+		if (vSrc.isDictionaryLike() && vSrc.has("path"))
+			vCandidates.emplace_back(std::string(vSrc["path"]), false);
+		else if (vSrc.isStringLike())
+			vCandidates.emplace_back(std::string(vSrc), false);
+	}
+
+	if (!sProcPath.empty())
+	{
+		vCandidates.emplace_back(sProcPath, true);
+	}
+
+	// Deduplicate normalized paths within the current event
+	std::unordered_set<std::string> seenPaths;
+
+	for (const auto& item : vCandidates)
+	{
+		const std::string& rawPath = item.first;
+		const bool isProc = item.second;
+		if (rawPath.empty()) continue;
+
+		std::string dos = DetectionNotifier::NtPathToDosPathString(rawPath);
+		if (dos.empty() || (dos.find(":\\") == std::string::npos && dos.rfind("\\\\", 0) != 0)) continue;
+		if (dos.rfind("\\\\.\\pipe\\", 0) == 0) continue;
+
+		std::string lowerDos = dos;
+		for (auto& c : lowerDos) c = (char)::tolower((unsigned char)c);
+		if (!seenPaths.insert(lowerDos).second) continue;
+
+		// A. Synchronous Pascal-style scan (ClamAV, YARA-X, ML, Signer, EICAR)
+		std::string sThreat;
+		int r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+		if (r == 2)
+		{
+			LOGLVL(Critical, FMT("enricher: [UNFILTERED SCAN] THREAT DETECTED: <"
+				<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
+
+			// Stamp verdicts on event & process
+			vEvent.put("verdict", 2);
+			vEvent.put("flsVerdict", 3); // MALWARE
+			vEvent.put("threatName", sThreat);
+			vProcess.put("verdict", 2);
+			vProcess.put("flsVerdict", 3);
+
+			// Remember detection in persistent DB
+			DetectionNotifier::recordMalwareDetection(dos, "");
+
+			// File rollback / remediation
+			handleThreatRemediation(nPid, L"", sThreat);
+
+			// Send instant alert to Pascal GUI
+			HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+				GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+			if (hPipe != INVALID_HANDLE_VALUE)
+			{
+				std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + dos + "\n";
+				DWORD written = 0;
+				::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+				::CloseHandle(hPipe);
+			}
+		}
+
+		// B. Also enqueue to daemon scanner pool (for background archive scanning / quarantine vault)
+		if (s_fnEnqueue != nullptr)
+		{
+			s_fnEnqueue(reinterpret_cast<const uint8_t*>(dos.data()),
+				static_cast<uint32_t>(dos.size()), isProc ? 1 : 0, nPid);
+		}
+	}
 }
 
 //
@@ -1322,6 +1462,9 @@ void EventEnricher::put(const Variant& vEventRef)
 		vProcess.put("flsVerdict", 3);
 		vProcess.put("verdict", 2);
 	}
+
+	// UNFILTERED IMMEDIATE LOCAL FILE & PROCESS SCANNING (PASCAL-STYLE):
+	executeUnfilteredLocalScan(vEvent, vProcess, eEventType, sProcPath);
 
 	vEvent.put("process", vProcess);
 	Variant vToken = getByPath(vProcess, "token.tokenObj", {});
