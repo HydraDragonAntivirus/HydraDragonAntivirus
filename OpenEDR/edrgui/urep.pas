@@ -949,6 +949,8 @@ begin
   SummaryLbl.Caption := '';
   ScanProgress.Style := pbstMarquee;
   StatusLbl.Caption := 'Checking...';
+  StartBtn.Enabled := False;
+  CancelBtn.Enabled := True;
   FThread := TRepWalkThread.Create(Self, Root);
   FThread.OnTerminate := @WalkDone;
   FThread.Start;

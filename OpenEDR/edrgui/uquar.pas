@@ -124,6 +124,10 @@ begin
   ItemsView.Anchors := [akTop, akLeft, akRight];
   ItemsView.ViewStyle := vsReport;
   ItemsView.MultiSelect := True;
+  ItemsView.ReadOnly := True;
+  ItemsView.RowSelect := True;
+  ItemsView.HideSelection := False;
+  ItemsView.GridLines := False;
   ItemsView.OnCustomDrawItem := @ItemsDrawItem;
   with ItemsView.Columns.Add do
   begin
@@ -182,6 +186,10 @@ begin
   ExclView.Anchors := [akTop, akLeft, akRight, akBottom];
   ExclView.ViewStyle := vsReport;
   ExclView.MultiSelect := True;
+  ExclView.ReadOnly := True;
+  ExclView.RowSelect := True;
+  ExclView.HideSelection := False;
+  ExclView.GridLines := False;
   ExclView.OnCustomDrawItem := @ExclDrawItem;
   with ExclView.Columns.Add do
   begin

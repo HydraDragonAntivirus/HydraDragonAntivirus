@@ -44,6 +44,16 @@ pub enum Error {
     #[error("Failed to connect with TLS to {0}, {1}")]
     RustlsTlsConnectError(Box<Uri>, std::io::Error),
 
+    /// Both upstream stacks failed for one host. The message carries each
+    /// stack's own error so one proxy-err line shows the full picture
+    /// (proves which binary/fallback path actually ran in production).
+    #[error("Failed to connect with TLS to {uri} (rustls: {rustls}; native-tls: {native})")]
+    DualTlsConnectError {
+        uri: Box<Uri>,
+        rustls: String,
+        native: String,
+    },
+
     #[error("Failed to parse URI: {0}")]
     UriParsingError(#[from] hyper::http::uri::InvalidUri),
 
@@ -505,28 +515,50 @@ impl DefaultClient {
         port: u16,
         http_version: Version,
     ) -> Result<(UpstreamTlsStream, bool), Error> {
-        #[cfg(feature = "rustls-client")]
+        #[cfg(all(feature = "rustls-client", feature = "native-tls-client"))]
+        {
+            return self.connect_tls_dual(uri, host, port, http_version).await;
+        }
+
+        #[cfg(all(feature = "rustls-client", not(feature = "native-tls-client")))]
+        {
+            return self.try_rustls_tls(uri, host, port, http_version).await;
+        }
+
+        #[cfg(all(feature = "native-tls-client", not(feature = "rustls-client")))]
+        {
+            return self.try_native_tls(uri, host, port, http_version).await;
+        }
+    }
+
+    /// Dual-stack connect: rustls first, native-tls fallback. A combined
+    /// error names both failures so production logs stay decisive.
+    #[cfg(all(feature = "rustls-client", feature = "native-tls-client"))]
+    async fn connect_tls_dual(
+        &self,
+        uri: &Uri,
+        host: &str,
+        port: u16,
+        http_version: Version,
+    ) -> Result<(UpstreamTlsStream, bool), Error> {
         match self.try_rustls_tls(uri, host, port, http_version).await {
-            Ok(ok) => return Ok(ok),
-            Err(e) => {
+            Ok(ok) => Ok(ok),
+            Err(rustls_err) => {
                 tracing::warn!(
                     "rustls upstream TLS failed for {}:{}, falling back to native-tls: {}",
                     host,
                     port,
-                    e
+                    rustls_err
                 );
-                #[cfg(not(feature = "native-tls-client"))]
-                return Err(e);
+                self.try_native_tls(uri, host, port, http_version)
+                    .await
+                    .map_err(|native_err| Error::DualTlsConnectError {
+                        uri: Box::new(uri.clone()),
+                        rustls: rustls_err.to_string(),
+                        native: native_err.to_string(),
+                    })
             }
         }
-
-        #[cfg(feature = "native-tls-client")]
-        return self.try_native_tls(uri, host, port, http_version).await;
-
-        // rustls-only build: the match above always diverges (Ok → return,
-        // Err → return), so this is unreachable but satisfies the compiler.
-        #[cfg(not(feature = "native-tls-client"))]
-        unreachable!("connect_tls requires at least one TLS client feature");
     }
 
     #[cfg(feature = "rustls-client")]
