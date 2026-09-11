@@ -18,6 +18,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
+pub use tls::{generate_crl, get_crl_distribution_point, set_crl_distribution_point};
 use tls::{CertifiedKeyDer, generate_cert};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, ToSocketAddrs, lookup_host};
 use tokio_rustls::rustls;

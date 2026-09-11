@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock, atomic::{AtomicBool, AtomicU64, Ordering}};
+use std::sync::{Arc, OnceLock, RwLock, atomic::{AtomicBool, AtomicU64, Ordering}};
 use std::task::Poll;
 use tokio::sync::oneshot;
 
@@ -224,6 +224,38 @@ fn proxy_status_page(listen_addr: &str) -> http_mitm_proxy::hyper::Response<BoxB
         })
 }
 
+static CA_CRL_DER: OnceLock<Vec<u8>> = OnceLock::new();
+
+pub fn set_ca_crl(crl_bytes: Vec<u8>) {
+    let _ = CA_CRL_DER.set(crl_bytes);
+}
+
+pub fn get_ca_crl() -> Option<&'static [u8]> {
+    CA_CRL_DER.get().map(|v| v.as_slice())
+}
+
+/// Serve the signed CRL so Windows CryptoAPI/Schannel revocation check succeeds.
+fn proxy_crl_response(crl_bytes: &[u8]) -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
+    let body = boxed_full(Bytes::copy_from_slice(crl_bytes));
+    http_mitm_proxy::hyper::Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            http_mitm_proxy::hyper::header::CONTENT_TYPE,
+            "application/pkix-crl",
+        )
+        .header(
+            http_mitm_proxy::hyper::header::CACHE_CONTROL,
+            "max-age=604800",
+        )
+        .body(body)
+        .unwrap_or_else(|_| {
+            http_mitm_proxy::hyper::Response::builder()
+                .status(StatusCode::OK)
+                .body(boxed_full(Bytes::new()))
+                .unwrap()
+        })
+}
+
 /// Build a 502 Bad Gateway response when upstream fails.
 fn error_response_502() -> http_mitm_proxy::hyper::Response<BoxBody<Bytes, DynErr>> {
     let body = boxed_full(Bytes::from_static(b"Bad Gateway"));
@@ -354,6 +386,7 @@ pub fn generate_ca() -> Result<CaBundle, String> {
                         cert_der.len()
                     ),
                 });
+                ensure_ca_crl(&issuer, &dir);
                 return Ok(CaBundle { issuer, cert_der });
             }
             Err(e) => {
@@ -403,7 +436,18 @@ pub fn generate_ca() -> Result<CaBundle, String> {
     let params = ca_params();
     let issuer = rcgen::Issuer::new(params, key);
 
+    ensure_ca_crl(&issuer, &dir);
     Ok(CaBundle { issuer, cert_der })
+}
+
+fn ensure_ca_crl(issuer: &rcgen::Issuer<'static, KeyPair>, dir: &std::path::Path) {
+    let crl_path = dir.join("ca.crl");
+    if let Ok(crl_bytes) = std::fs::read(&crl_path) {
+        set_ca_crl(crl_bytes);
+    } else if let Ok(crl) = http_mitm_proxy::generate_crl(issuer) {
+        let _ = std::fs::write(&crl_path, &crl);
+        set_ca_crl(crl);
+    }
 }
 
 // ── Proxy runner ───────────────────────────────────────────────────────────────
@@ -429,6 +473,7 @@ pub async fn run_proxy(
         let s = settings.read().unwrap();
         std::time::Duration::from_millis(s.tls_proxy.handshake_timeout_ms)
     };
+    http_mitm_proxy::set_crl_distribution_point(format!("http://{}/ca.crl", addr));
     let proxy =
         MitmProxy::new(Some(ca), Some(Cache::new(512))).with_handshake_timeout(handshake_timeout);
 
@@ -669,6 +714,15 @@ async fn handle_proxy_request(
             || clean_host.eq_ignore_ascii_case("localhost")
             || clean_host == "::1"
             || clean_host.eq_ignore_ascii_case(&cfg_host);
+
+        // Serve CRL whenever /ca.crl is requested (locally or intercepted)
+        let path_str = uri.path();
+        if path_str == "/ca.crl" || path_str.ends_with("/ca.crl") {
+            if let Some(crl) = get_ca_crl() {
+                return Ok(proxy_crl_response(crl));
+            }
+        }
+
         if port == cfg_port && self_host {
             return Ok(proxy_status_page(&format!("{}:{}", cfg_host, cfg_port)));
         }
