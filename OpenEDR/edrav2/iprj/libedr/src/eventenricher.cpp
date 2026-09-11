@@ -461,7 +461,7 @@ namespace {
 				auto enqueueIfValid = [](RtEnqueueUtf8Fn fn, const std::string& rawPath, uint32_t isProc, uint32_t pid) {
 					if (rawPath.empty()) return;
 					std::string dos = DetectionNotifier::NtPathToDosPathString(rawPath);
-					if (!dos.empty())
+					if (!dos.empty() && (dos.find(":\\") != std::string::npos || dos.rfind("\\\\", 0) == 0))
 					{
 						fn(reinterpret_cast<const uint8_t*>(dos.data()), static_cast<uint32_t>(dos.size()), isProc, pid);
 					}
@@ -474,49 +474,32 @@ namespace {
 					try { nPid = static_cast<uint32_t>(optPid2.value()); } catch (...) {}
 				}
 
-				int64_t nFileVerdict = 0;
-				if (auto optV = variant::getByPathSafe(vEvent, "file.verdict")) {
-					try { nFileVerdict = std::stoll(std::string(optV.value())); } catch (...) {}
-				}
-				int64_t nProcVerdict = 0;
-				if (auto optPV = variant::getByPathSafe(vEvent, "process.imageFile.verdict")) {
-					try { nProcVerdict = std::stoll(std::string(optPV.value())); } catch (...) {}
-				}
+				// Real-time zero-latency file & process submission to daemon content scan pool
+				// Unfiltered: ALL file events (creates, writes, renames) and process launches are evaluated
+				// 1. File targets: handles file creation, modification, and critical file renames (e.g. ren *.vir *.exe)
+				if (auto optP = variant::getByPathSafe(vEvent, "file.path"))
+					enqueueIfValid(s_fnEnqueue, std::string(optP.value()), 0, nPid);
+				if (auto optP2 = variant::getByPathSafe(vEvent, "file.rawPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optP2.value()), 0, nPid);
+				if (auto optP3 = variant::getByPathSafe(vEvent, "file.abstractPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optP3.value()), 0, nPid);
 
-				// Only scan unknown/undecided files (skip files already verified as Safe=1 by cloud or whitelist)
-				if (nFileVerdict != 1)
-				{
-					// 1. File targets: handles file creation, modification, and critical file renames (ren *.vir *.exe)
-					if (auto optP = variant::getByPathSafe(vEvent, "file.path"))
-						enqueueIfValid(s_fnEnqueue, std::string(optP.value()), 0, nPid);
-					if (auto optP2 = variant::getByPathSafe(vEvent, "file.rawPath"))
-						enqueueIfValid(s_fnEnqueue, std::string(optP2.value()), 0, nPid);
-					if (auto optP3 = variant::getByPathSafe(vEvent, "file.abstractPath"))
-						enqueueIfValid(s_fnEnqueue, std::string(optP3.value()), 0, nPid);
-					if (auto optP4 = variant::getByPathSafe(vEvent, "file.name"))
-						enqueueIfValid(s_fnEnqueue, std::string(optP4.value()), 0, nPid);
+				// Rename target paths
+				if (auto optRT = variant::getByPathSafe(vEvent, "fileRenameTarget"))
+					enqueueIfValid(s_fnEnqueue, std::string(optRT.value()), 0, nPid);
+				if (auto optRT2 = variant::getByPathSafe(vEvent, "file.renameTarget"))
+					enqueueIfValid(s_fnEnqueue, std::string(optRT2.value()), 0, nPid);
 
-					// Rename target paths
-					if (auto optRT = variant::getByPathSafe(vEvent, "fileRenameTarget"))
-						enqueueIfValid(s_fnEnqueue, std::string(optRT.value()), 0, nPid);
-					if (auto optRT2 = variant::getByPathSafe(vEvent, "file.renameTarget"))
-						enqueueIfValid(s_fnEnqueue, std::string(optRT2.value()), 0, nPid);
-				}
+				// 2. Process targets (process spawn, executable launching)
+				if (auto optProc = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optProc.value()), 1, nPid);
+				else if (auto optProc2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optProc2.value()), 1, nPid);
+				else if (auto optProc3 = variant::getByPathSafe(vEvent, "process.imagePath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optProc3.value()), 1, nPid);
 
-				// Only scan unknown/undecided processes (skip processes already verified as Safe=1)
-				if (nProcVerdict != 1)
-				{
-					// 2. Process targets (process spawn, executable launching)
-					if (auto optProc = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
-						enqueueIfValid(s_fnEnqueue, std::string(optProc.value()), 1, nPid);
-					else if (auto optProc2 = variant::getByPathSafe(vEvent, "process.imageFile.rawPath"))
-						enqueueIfValid(s_fnEnqueue, std::string(optProc2.value()), 1, nPid);
-					else if (auto optProc3 = variant::getByPathSafe(vEvent, "process.imagePath"))
-						enqueueIfValid(s_fnEnqueue, std::string(optProc3.value()), 1, nPid);
-
-					if (auto optChild = variant::getByPathSafe(vEvent, "childProcess.imageFile.abstractPath"))
-						enqueueIfValid(s_fnEnqueue, std::string(optChild.value()), 1, nPid);
-				}
+				if (auto optChild = variant::getByPathSafe(vEvent, "childProcess.imageFile.abstractPath"))
+					enqueueIfValid(s_fnEnqueue, std::string(optChild.value()), 1, nPid);
 			}
 			catch (...) {}
 		}

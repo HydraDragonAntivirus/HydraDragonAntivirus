@@ -1,10 +1,7 @@
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
 
 use crossbeam_channel::{bounded, Receiver, Sender};
-use lru::LruCache;
 
 use crate::logging::Logging;
 use crate::ml::fast_detect::fast_detect_path;
@@ -22,20 +19,17 @@ pub struct DaemonScanTask {
 
 pub(crate) struct DaemonScannerState {
     tx: Sender<DaemonScanTask>,
-    recent_scans: Mutex<LruCache<PathBuf, Instant>>,
     threat_handler: Mutex<Option<Arc<dyn ThreatHandler>>>,
 }
 
 static SCANNER: OnceLock<DaemonScannerState> = OnceLock::new();
 
 /// Initialize or retrieve the daemon scanner worker pool.
-/// Spawns 4 background worker threads that process ML and ClamAV scans asynchronously
+/// Spawns a background worker thread that processes ML and ClamAV scans asynchronously
 /// without blocking the kernel I/O event loop.
 pub(crate) fn ensure_daemon_scanner() -> &'static DaemonScannerState {
     SCANNER.get_or_init(|| {
         let (tx, rx) = bounded::<DaemonScanTask>(65536);
-        let cache_cap = NonZeroUsize::new(16384).unwrap();
-        let recent_scans = Mutex::new(LruCache::new(cache_cap));
         let threat_handler = Mutex::new(None);
 
         // Spawn a single background daemon scanner worker thread to ensure memory
@@ -53,11 +47,10 @@ pub(crate) fn ensure_daemon_scanner() -> &'static DaemonScannerState {
             ));
         }
 
-        Logging::info("[DaemonScanner] Background daemon scan worker initialized (single-thread, RAM-capped)");
+        Logging::info("[DaemonScanner] Background daemon scan worker initialized (single-thread, RAM-capped, zero-evasion)");
 
         DaemonScannerState {
             tx,
-            recent_scans,
             threat_handler,
         }
     })
@@ -79,7 +72,18 @@ fn worker_loop(rx: Receiver<DaemonScanTask>) {
         };
 
         let p = Path::new(path_str);
-        if !p.is_file() {
+        let mut exists = p.is_file();
+        if !exists {
+            // Give file creation or rename a short grace window (up to 3 x 25ms)
+            for _ in 0..3 {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+                if p.is_file() {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+        if !exists {
             continue;
         }
 
@@ -88,12 +92,18 @@ fn worker_loop(rx: Receiver<DaemonScanTask>) {
             continue;
         }
 
+        Logging::info(&format!(
+            "[DaemonScanner][CONTENT-SCAN] Scanning file event: {} (PID: {})",
+            path_str, task.pid
+        ));
+
         // 0.1 Skip files signed by a trusted company publisher (e.g. Microsoft, Google, Intel)
         if task.is_actor_target || path_str.ends_with(".exe") || path_str.ends_with(".dll") || path_str.ends_with(".sys") {
             let sig_info = crate::signature_verification::verify_signature(p);
             if sig_info.is_trusted {
                 if let Some(signer) = sig_info.signer_name {
                     if crate::signer_rules::is_trusted_signer(&signer) {
+                        Logging::debug(&format!("[DaemonScanner] Skipping trusted publisher binary: {} ({})", path_str, signer));
                         continue;
                     }
                 }
@@ -228,11 +238,12 @@ fn nt_to_dos_path(path: &Path) -> PathBuf {
     use windows::core::PCWSTR;
 
     let s = path.to_string_lossy();
-    let s_clean = if let Some(stripped) = s.strip_prefix(r"\??\") {
-        stripped
-    } else {
-        &s
-    };
+    let mut s_clean: &str = &s;
+    if let Some(stripped) = s_clean.strip_prefix(r"\??\") {
+        s_clean = stripped;
+    } else if let Some(stripped) = s_clean.strip_prefix(r"\\?\") {
+        s_clean = stripped;
+    }
 
     if !s_clean.starts_with(r"\Device\") {
         return PathBuf::from(s_clean);
@@ -292,21 +303,8 @@ pub fn enqueue_scan(
         return;
     }
 
-    if path_str.starts_with(r"\Device\") || path_str.starts_with(r"\??\") {
+    if path_str.starts_with(r"\Device\") || path_str.starts_with(r"\??\") || path_str.starts_with(r"\\?\") {
         path = nt_to_dos_path(&path);
-    }
-
-    // Deduplication check: skip if recently submitted within 3 seconds
-    {
-        if let Ok(mut cache) = state.recent_scans.lock() {
-            let now = Instant::now();
-            if let Some(last_time) = cache.get(&path) {
-                if now.duration_since(*last_time) < Duration::from_secs(3) {
-                    return;
-                }
-            }
-            cache.put(path.clone(), now);
-        }
     }
 
     let task = DaemonScanTask {

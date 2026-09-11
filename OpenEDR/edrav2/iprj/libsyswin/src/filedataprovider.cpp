@@ -243,8 +243,10 @@ std::wstring FileDataProvider::getFullPathName(const std::wstring& sPathName)
 
 	if (0 == GetFullPathNameW(sPathName.c_str(), DWORD(sFullPath.size()),
 		LPWSTR(sFullPath.c_str()), nullptr))
-		error::win::WinApiError(SL, FMT("Fail to get long path name <"
-			<< string::convertWCharToUtf8(sPathName) << ">")).throwException();
+	{
+		LOGWRN("Fail to get full path name <" << string::convertWCharToUtf8(sPathName) << ">");
+		return sPathName;
+	}
 
 	// Trim last zero
 	sFullPath.resize(sFullPath.size() - 1);
@@ -256,9 +258,11 @@ std::wstring FileDataProvider::getFullPathName(const std::wstring& sPathName)
 //
 std::wstring FileDataProvider::getLongPathName(const std::wstring& sPathName)
 {
-	// Convert to "long" form of path
-	// GetLongPathName() validate files and dirs on disk
-	// MAY BE SLOW!!!
+	// Convert to "long" form of path only if it contains short 8.3 component (tilde '~')
+	// If path doesn't contain '~', it is already in long format.
+	if (sPathName.find(L'~') == std::wstring::npos)
+		return sPathName;
+
 	std::wstring sLongPath(GetLongPathNameW(sPathName.c_str(), nullptr, 0), 0);
 	if (sLongPath.size() == 0)
 	{
@@ -266,14 +270,15 @@ std::wstring FileDataProvider::getLongPathName(const std::wstring& sPathName)
 		return sPathName;
 	}
 
-	if (0 == GetLongPathName(sPathName.c_str(), LPWSTR(sLongPath.c_str()), DWORD(sLongPath.size())))
-		error::win::WinApiError(SL, FMT("Fail to get long path name for <"
-			<< string::convertWCharToUtf8(sPathName) << ">")).throwException();
+	if (0 == GetLongPathNameW(sPathName.c_str(), LPWSTR(sLongPath.c_str()), DWORD(sLongPath.size())))
+	{
+		LOGWRN("Fail to get long path for <" << string::convertWCharToUtf8(sPathName) << ">");
+		return sPathName;
+	}
 
 	// Trim last zero
 	sLongPath.resize(sLongPath.size() - 1);
 	return sLongPath;
-
 }
 
 //

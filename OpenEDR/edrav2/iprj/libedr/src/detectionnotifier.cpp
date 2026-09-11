@@ -250,6 +250,12 @@ std::string DetectionNotifier::NtPathToDosPathString(const std::string& sNt)
 	std::string sClean = sNt;
 	if (sClean.rfind("\\??\\", 0) == 0)
 		sClean = sClean.substr(4);
+	else if (sClean.rfind("\\\\?\\", 0) == 0)
+		sClean = sClean.substr(4);
+
+	// Fast path: if already a valid DOS path (e.g. "C:\..."), return directly
+	if (sClean.size() >= 3 && isalpha(static_cast<unsigned char>(sClean[0])) && sClean[1] == ':' && (sClean[2] == '\\' || sClean[2] == '/'))
+		return sClean;
 
 	int cchW = ::MultiByteToWideChar(CP_UTF8, 0, sClean.c_str(), -1, NULL, 0);
 	if (cchW <= 0)
