@@ -24,7 +24,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ComCtrls, Dialogs,
-  ExtCtrls, Menus, Windows, Clipbrd, LCLIntf, fpjson, jsonparser, UGuiNotify, UAlert;
+  ExtCtrls, Menus, Windows, LCLType, Clipbrd, LCLIntf, fpjson, jsonparser, UGuiNotify, UAlert;
 
 type
   TRepForm = class; // forward: worker thread references the form
@@ -155,6 +155,8 @@ type
     procedure FormShowed(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FinishScan(const AMsg: string);
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
   public
     constructor Create(AOwner: TComponent); override;
   end;
@@ -444,6 +446,7 @@ end;
 constructor TRepForm.Create(AOwner: TComponent);
 begin
   inherited CreateNew(AOwner);
+  ShowInTaskBar := stAlways;
   FFirstShow := True;
   FSeen := TStringList.Create;
   FSeen.Sorted := True;
@@ -460,6 +463,13 @@ begin
   OnShow := @FormShowed;
   OnDestroy := @FormDestroy;
   BuildUi;
+end;
+
+procedure TRepForm.CreateParams(var Params: TCreateParams);
+begin
+  inherited CreateParams(Params);
+  Params.ExStyle := Params.ExStyle or WS_EX_APPWINDOW;
+  Params.WndParent := 0;
 end;
 
 // Path-keyed upsert: rows persist across scans, re-scans refresh cells.
@@ -601,6 +611,7 @@ var
   y, y2, y3, y4, y5, y6, y7: Integer;
 begin
   Caption := 'HydraDragon File Verdict';
+  ShowInTaskBar := stAlways;
   Width := W;
   Height := 640;
   Position := poScreenCenter;
@@ -1501,6 +1512,8 @@ procedure TRepForm.FormShowed(Sender: TObject);
 var
   DeskW: WideString;
 begin
+  SetWindowLong(Handle, GWL_EXSTYLE, GetWindowLong(Handle, GWL_EXSTYLE) or WS_EX_APPWINDOW);
+  SetWindowLongPtrW(Handle, GWL_HWNDPARENT, 0);
   if not FFirstShow then
     Exit;
   FFirstShow := False;

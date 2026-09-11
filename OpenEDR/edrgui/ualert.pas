@@ -215,18 +215,28 @@ begin
     FInstance := TAlertForm.Create(Application);
 
   // Cap in-memory history to 100 items to avoid memory explosion
-  if Length(FHistory) > 100 then
+  if Length(FHistory) >= 100 then
   begin
-    Move(FHistory[1], FHistory[0], (Length(FHistory) - 1) * SizeOf(TAlertItem));
+    for NewIndex := 0 to Length(FHistory) - 2 do
+      FHistory[NewIndex] := FHistory[NewIndex + 1];
     SetLength(FHistory, Length(FHistory) - 1);
   end;
 
   NewIndex := Length(FHistory);
   SetLength(FHistory, NewIndex + 1);
   FHistory[NewIndex] := Item;
-  FCurrentIndex := NewIndex;
   AppendLastHistoryItem;
 
+  // If the currently displayed alert is an interactive prompt awaiting user action,
+  // do NOT overwrite it with a passive notification! Keep the interactive prompt visible.
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory) - 1) and
+     (FHistory[FCurrentIndex].IsPrompt) and (FInstance.Visible) then
+  begin
+    FInstance.UpdateNavigation;
+    Exit;
+  end;
+
+  FCurrentIndex := NewIndex;
   FInstance.ShowCurrentAlert;
   FInstance.PositionAtCorner;
   FInstance.AlphaBlend := True;
@@ -470,9 +480,10 @@ begin
     FInstance := TAlertForm.Create(Application);
 
   // Cap in-memory history to 100 items
-  if Length(FHistory) > 100 then
+  if Length(FHistory) >= 100 then
   begin
-    Move(FHistory[1], FHistory[0], (Length(FHistory) - 1) * SizeOf(TAlertItem));
+    for NewIndex := 0 to Length(FHistory) - 2 do
+      FHistory[NewIndex] := FHistory[NewIndex + 1];
     SetLength(FHistory, Length(FHistory) - 1);
   end;
 

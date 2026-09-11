@@ -22,7 +22,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ComCtrls, Dialogs,
-  ExtCtrls, Windows, Registry, fpjson, jsonparser, UGuiNotify, UAlert;
+  ExtCtrls, Windows, LCLType, Registry, fpjson, jsonparser, UGuiNotify, UAlert;
 
 type
   TScanForm = class; // forward: worker thread references the form
@@ -80,6 +80,8 @@ type
     procedure FormDestroy(Sender: TObject);
     procedure RenderNewDetections;
     procedure FinishScan(const AMsg: string);
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
   public
     constructor Create(AOwner: TComponent); override;
   end;
@@ -419,11 +421,19 @@ end;
 constructor TScanForm.Create(AOwner: TComponent);
 begin
   inherited CreateNew(AOwner);
+  ShowInTaskBar := stAlways;
   FFirstShow := True;
   FLastId := -1;
   FDetections := 0;
   OnShow := @FormShowed;
   BuildUi;
+end;
+
+procedure TScanForm.CreateParams(var Params: TCreateParams);
+begin
+  inherited CreateParams(Params);
+  Params.ExStyle := Params.ExStyle or WS_EX_APPWINDOW;
+  Params.WndParent := 0;
 end;
 
 procedure TScanForm.BuildUi;
@@ -434,6 +444,7 @@ var
   y: Integer;
 begin
   Caption := 'HydraDragon File Scanner';
+  ShowInTaskBar := stAlways;
   Width := W;
   Height := 520;
   Position := poScreenCenter;
@@ -755,6 +766,8 @@ procedure TScanForm.FormShowed(Sender: TObject);
 var
   DeskW: WideString;
 begin
+  SetWindowLong(Handle, GWL_EXSTYLE, GetWindowLong(Handle, GWL_EXSTYLE) or WS_EX_APPWINDOW);
+  SetWindowLongPtrW(Handle, GWL_HWNDPARENT, 0);
   if not FFirstShow then
     Exit;
   FFirstShow := False;

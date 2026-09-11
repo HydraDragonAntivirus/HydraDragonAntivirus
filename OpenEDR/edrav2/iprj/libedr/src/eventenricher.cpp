@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <vector>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace cmd {
 
@@ -209,7 +210,7 @@ namespace {
 	}
 
 	// Read watched training directory from HKLM\SOFTWARE\Owlyshield\SDK!TRAINING_WATCH_DIR
-	// Defaults to empty ("") if not explicitly set, ensuring NO logging unless specified.
+	// Empty / unset means NO path restriction (legacy behavior: TRAINING_MODE=1 records all).
 	std::string GetTrainingWatchDir()
 	{
 		static std::string s_cachedDir = "";
@@ -242,22 +243,26 @@ namespace {
 		return s_cachedDir;
 	}
 
-	// Check if the process path resides within the designated training directory
+	// Check if the process path resides within the designated training directory.
+	// Empty / unset TRAINING_WATCH_DIR means NO restriction: any process is
+	// eligible (legacy behavior where TRAINING_MODE=1 recorded everything).
 	bool IsProcessInTrainingDir(const std::string& sExePath)
 	{
 		if (sExePath.empty())
 			return false;
 
 		std::string sWatch = GetTrainingWatchDir();
-		if (sWatch.empty())
-			return false;
 
 		// Trim whitespace and quotation marks
 		size_t first = sWatch.find_first_not_of(" \t\r\n\"'");
 		size_t last = sWatch.find_last_not_of(" \t\r\n\"'");
 		std::string sTrimmed = (first != std::string::npos && last != std::string::npos)
 			? sWatch.substr(first, last - first + 1)
-			: sWatch;
+			: "";
+
+		// Empty means no path restriction: capture all processes in training mode
+		if (sTrimmed.empty())
+			return true;
 
 		// Wildcard "*.*" or "*" means ignore path restriction and capture all processes in training mode
 		if (sTrimmed == "*.*" || sTrimmed == "*" || sTrimmed.find("*.*") != std::string::npos)
@@ -556,9 +561,9 @@ namespace {
 				else if (auto optN = variant::getByPathSafe(vEvent, "network.destinationAddress"))
 					sDetails = " [Net: " + std::string(optN.value()) + "]";
 
-				// Save telemetry to persistent training dataset for offline Dynamic ML model training
-				// ONLY record if process originates from the dedicated TRAINING_WATCH_DIR
-				// and API hook / module matches TRAINING_WATCH_DLL_DIR (if specified)
+				// Save telemetry to persistent training dataset for offline Dynamic ML model training.
+				// TRAINING_MODE=1 records everything by default; TRAINING_WATCH_DIR /
+				// TRAINING_WATCH_DLL_DIR only narrow it down when explicitly set.
 				if (IsTrainingModeEnabled() && IsProcessInTrainingDir(sPath) && IsApiDllInTrainingWatchDir(vEvent))
 				{
 					try
@@ -916,7 +921,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			if (vRawFile.has("rawPath")) vCandidates.emplace_back(std::string(vRawFile["rawPath"]), false);
 			if (vRawFile.has("renameTarget")) vCandidates.emplace_back(std::string(vRawFile["renameTarget"]), false);
 		}
-		else if (vRawFile.isStringLike())
+		else if (vRawFile.getType() == variant::ValueType::String)
 		{
 			vCandidates.emplace_back(std::string(vRawFile), false);
 		}
@@ -930,7 +935,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		Variant vDest = vEvent.get("destination");
 		if (vDest.isDictionaryLike() && vDest.has("path"))
 			vCandidates.emplace_back(std::string(vDest["path"]), false);
-		else if (vDest.isStringLike())
+		else if (vDest.getType() == variant::ValueType::String)
 			vCandidates.emplace_back(std::string(vDest), false);
 	}
 	if (vEvent.has("source"))
@@ -938,7 +943,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		Variant vSrc = vEvent.get("source");
 		if (vSrc.isDictionaryLike() && vSrc.has("path"))
 			vCandidates.emplace_back(std::string(vSrc["path"]), false);
-		else if (vSrc.isStringLike())
+		else if (vSrc.getType() == variant::ValueType::String)
 			vCandidates.emplace_back(std::string(vSrc), false);
 	}
 
@@ -969,6 +974,9 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		int r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
 		if (r == 2)
 		{
+			if (sThreat.empty())
+				sThreat = "Malware.LocalDetection";
+
 			LOGLVL(Critical, FMT("enricher: [UNFILTERED SCAN] THREAT DETECTED: <"
 				<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
 
@@ -979,21 +987,50 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			vProcess.put("verdict", 2);
 			vProcess.put("flsVerdict", 3);
 
-			// Remember detection in persistent DB
-			DetectionNotifier::recordMalwareDetection(dos, "");
-
-			// File rollback / remediation
-			handleThreatRemediation(nPid, L"", sThreat);
-
-			// Send instant alert to Pascal GUI
-			HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-				GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-			if (hPipe != INVALID_HANDLE_VALUE)
+			// Rate limit alerts and remediation per file path (30 second cooldown)
+			static std::mutex s_mtxAlertThrottle;
+			static std::unordered_map<std::string, std::chrono::steady_clock::time_point> s_recentAlerts;
+			bool bShouldAlert = false;
 			{
-				std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + dos + "\n";
-				DWORD written = 0;
-				::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-				::CloseHandle(hPipe);
+				std::scoped_lock lock(s_mtxAlertThrottle);
+				auto now = std::chrono::steady_clock::now();
+				auto it = s_recentAlerts.find(lowerDos);
+				if (it == s_recentAlerts.end() || (now - it->second) > std::chrono::seconds(30))
+				{
+					s_recentAlerts[lowerDos] = now;
+					bShouldAlert = true;
+				}
+				// Keep recent alerts map bounded
+				if (s_recentAlerts.size() > 5000)
+				{
+					for (auto itClean = s_recentAlerts.begin(); itClean != s_recentAlerts.end(); )
+					{
+						if ((now - itClean->second) > std::chrono::seconds(60))
+							itClean = s_recentAlerts.erase(itClean);
+						else
+							++itClean;
+					}
+				}
+			}
+
+			if (bShouldAlert)
+			{
+				// Remember detection in persistent DB & driver block list
+				DetectionNotifier::recordMalwareDetection(dos, "");
+
+				// File rollback / remediation
+				handleThreatRemediation(nPid, L"", sThreat);
+
+				// Send instant alert to Pascal GUI
+				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+				if (hPipe != INVALID_HANDLE_VALUE)
+				{
+					std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + dos + "\n";
+					DWORD written = 0;
+					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+					::CloseHandle(hPipe);
+				}
 			}
 		}
 

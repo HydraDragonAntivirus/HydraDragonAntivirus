@@ -18,7 +18,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ComCtrls, Dialogs,
-  ExtCtrls, Windows, DateUtils, fpjson, jsonparser, UGuiNotify, UAlert;
+  ExtCtrls, Windows, LCLType, DateUtils, fpjson, jsonparser, UGuiNotify, UAlert;
 
 type
   TQListFn = function(ABuf: PByte; ALen: Cardinal): Cardinal; cdecl;
@@ -58,6 +58,8 @@ type
     procedure ExclDrawItem(Sender: TCustomListView; Item: TListItem;
       State: TCustomDrawState; var DefaultDraw: Boolean);
     procedure RestoreBtnClick(Sender: TObject);
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
     procedure DeleteBtnClick(Sender: TObject);
     procedure ExclAddBtnClick(Sender: TObject);
     procedure ExclDelBtnClick(Sender: TObject);
@@ -93,9 +95,17 @@ end;
 constructor TQuarForm.Create(AOwner: TComponent);
 begin
   inherited CreateNew(AOwner);
+  ShowInTaskBar := stAlways;
   FFirstShow := True;
   OnShow := @FormShowed;
   BuildUi;
+end;
+
+procedure TQuarForm.CreateParams(var Params: TCreateParams);
+begin
+  inherited CreateParams(Params);
+  Params.ExStyle := Params.ExStyle or WS_EX_APPWINDOW;
+  Params.WndParent := 0;
 end;
 
 procedure TQuarForm.BuildUi;
@@ -106,6 +116,7 @@ var
   y: Integer;
 begin
   Caption := 'HydraDragon Quarantine Manager';
+  ShowInTaskBar := stAlways;
   Width := W;
   Height := 560;
   Position := poScreenCenter;
@@ -527,6 +538,8 @@ end;
 
 procedure TQuarForm.FormShowed(Sender: TObject);
 begin
+  SetWindowLong(Handle, GWL_EXSTYLE, GetWindowLong(Handle, GWL_EXSTYLE) or WS_EX_APPWINDOW);
+  SetWindowLongPtrW(Handle, GWL_HWNDPARENT, 0);
   if not FFirstShow then
     Exit;
   FFirstShow := False;

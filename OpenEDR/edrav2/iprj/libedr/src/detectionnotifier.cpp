@@ -780,6 +780,8 @@ static int rustScanVerdictName(const std::string& sUtf8Path, std::string& sNameO
 		if (::WideCharToMultiByte(CP_UTF8, 0, wszName, -1, &s[0], nUtf8, nullptr, nullptr) > 0)
 			sNameOut = s;
 	}
+	if (r == 2 && sNameOut.empty())
+		sNameOut = "Malware.LocalDetection";
 	return r;
 }
 

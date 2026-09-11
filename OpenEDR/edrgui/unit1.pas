@@ -71,6 +71,7 @@ type
     FRepForm: TRepForm;
     FBehaviorLogs: TStringList;
     FMLPredictions: TStringList;
+    FRecentAlerts: TStringList;
     function ReadProtectionPaused: Boolean;
     procedure WriteProtectionPaused(APaused: Boolean);
     procedure SetPauseCaption(APaused: Boolean);
@@ -159,6 +160,7 @@ begin
 
   FBehaviorLogs := TStringList.Create;
   FMLPredictions := TStringList.Create;
+  FRecentAlerts := TStringList.Create;
 
   FNotifier := TGuiNotifierThread.Create(@OnNotifierDetections);
   FHiPPipe := THipPipeListener.Create(@OnHipMessage);
@@ -166,6 +168,11 @@ end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  if FRecentAlerts <> nil then
+  begin
+    FRecentAlerts.Free;
+    FRecentAlerts := nil;
+  end;
   if FMLPredictions <> nil then
   begin
     FMLPredictions.Free;
@@ -543,9 +550,31 @@ begin
       begin
         TitleStr := Parts[0];
         ExePath := Parts[1];
+        if TitleStr = '' then
+          TitleStr := 'Malware.LocalDetection';
+
+        // Throttle repeated popups for same executable path within 10 seconds
+        sKey := LowerCase(ExePath);
+        if (FRecentAlerts <> nil) and (sKey <> '') then
+        begin
+          idx := FRecentAlerts.IndexOfName(sKey);
+          if idx <> -1 then
+          begin
+            // Check last alert timestamp
+            if (Now - StrToDateTimeDef(FRecentAlerts.ValueFromIndex[idx], 0)) * 86400 < 10.0 then
+              Exit; // Suppress duplicate alert within 10 seconds
+            FRecentAlerts.ValueFromIndex[idx] := DateTimeToStr(Now);
+          end
+          else
+          begin
+            if FRecentAlerts.Count > 200 then
+              FRecentAlerts.Delete(0);
+            FRecentAlerts.Add(sKey + '=' + DateTimeToStr(Now));
+          end;
+        end;
+
         if (FMLPredictions <> nil) and (ExePath <> '') then
         begin
-          sKey := LowerCase(ExePath);
           idx := FMLPredictions.IndexOfName(sKey);
           if idx = -1 then
             FMLPredictions.Add(sKey + '=High Risk Detection: ' + TitleStr)

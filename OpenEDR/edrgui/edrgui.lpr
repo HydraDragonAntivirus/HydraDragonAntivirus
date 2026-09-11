@@ -25,8 +25,9 @@ begin
   Application.Scaled := True;
   {$PUSH}
   {$WARN 5044 OFF} // MainFormOnTaskbar is Windows-only by design
-  Application.MainFormOnTaskbar := True;
+  Application.MainFormOnTaskbar := False;
   {$POP}
+  Application.TaskBarBehavior := tbMultiButton;
   Application.Title := 'HydraDragon EDR Agent';
 
   // Single-instance guard: silently exit if another edrgui.exe is running.
