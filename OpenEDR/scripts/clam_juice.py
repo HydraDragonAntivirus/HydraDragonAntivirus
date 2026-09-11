@@ -23,6 +23,7 @@ Usage:
 """
 
 import argparse
+import fnmatch
 import os
 import shutil
 import subprocess
@@ -139,7 +140,8 @@ class ComprehensiveFilter:
             "exclude_name_contains": ["twinw", "twiwave", "twinclam",
                                       "twinwave.evildoc", "twinwave.evilxll",
                                       "twinwave.evillnk", "twinwave.evilnk",
-                                      "twinwave.onenote", "twinwave.cmdobfus"],
+                                      "twinwave.onenote", "twinwave.cmdobfus",
+                                      "securiteinfo", "securiteinfo.com"],
             # Hash DBs: engine skips them (xor-filter pipeline owns hashes).
             # cvd/cld/sign: carriers the engine cannot read (bytecode.cvd is
             # unpacked to .cbc instead, see below). .cdb IS kept (Win/Foxhole
@@ -153,9 +155,9 @@ class ComprehensiveFilter:
             # First field is NOT a signature name here: ftm starts with the
             # magictype, crb with a serial label, idb names are tiny anyway.
             "keep_files_unfiltered": ["ftm", "idb", "crb"],
-            # Do not drop javascript.ndb / phish.ndb wholesale: per-line
-            # type+platform filters already decide (unlike the Android flow).
-            "exclude_files": [],
+            # Drop legacy base database (main.*) and metadata (.info, COPYING, cfg)
+            # to save ~350MB RAM while keeping fresh active daily.* and heuristics.
+            "exclude_files": ["main.*", "*.info", "COPYING*", "*.cfg", "freshclam.dat"],
             "drop_extensions": ["cvd", "cld", "sign"],
             "unpack_bytecode_cvd": True,
         },
@@ -241,6 +243,10 @@ class ComprehensiveFilter:
             for sub in exclude_contains:
                 if sub.lower() in lowered:
                     return False
+
+        # Drop third-party SecuriteInfo signatures (e.g. SecuriteInfo.com.*)
+        if name and "securiteinfo" in name.lower():
+            return False
 
         if not name or "." not in name:
             return len(include_platforms) == 0
@@ -608,7 +614,9 @@ class ComprehensiveFilter:
         # Android. Profiles may override via `exclude_files` / `drop_extensions`
         # (e.g. windows-exe drops unreadable .cvd/.cld/.sign carriers).
         for item in os.listdir(src_dir):
-            if item.lower() in exclude_files:
+            item_lower = item.lower()
+            if exclude_files and any(fnmatch.fnmatch(item_lower, pat.lower()) for pat in exclude_files):
+                self.log(f"Dropping excluded file: {item}")
                 continue
             if "." in item and item.rsplit(".", 1)[-1].lower() in drop_extensions:
                 self.log(f"Dropping carrier file: {item}")
@@ -1020,6 +1028,10 @@ File Types:
     )
 
     parser.add_argument(
+        "--exclude-files", help="Comma-separated filenames or wildcards to exclude (e.g., main.*,*.info,COPYING)"
+    )
+
+    parser.add_argument(
         "--keep-if-contains",
         help="Comma-separated substrings: keep signature if name contains any (e.g., Phishing)",
     )
@@ -1120,6 +1132,9 @@ File Types:
 
     if args.keep_if_contains:
         keep_if_contains = [k.strip() for k in args.keep_if_contains.split(",")]
+
+    if args.exclude_files:
+        extra_opts["exclude_files"] = [f.strip() for f in args.exclude_files.split(",")]
 
     if exclude_platforms and include_platforms:
         print("Note: exclude_platforms checked first, then include_platforms")

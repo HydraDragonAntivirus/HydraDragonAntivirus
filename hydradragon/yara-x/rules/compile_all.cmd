@@ -4,9 +4,7 @@ setlocal EnableExtensions
 set "YARA_X=yr.exe"
 
 call :CompileYaraX valhalla-rules.yar valhalla-rules.yrc || exit /b %ERRORLEVEL%
-call :CompileYaraX clean_rules.yar clean_rules.yrc || exit /b %ERRORLEVEL%
-call :CompileYaraX machine_learning_pe.yar machine_learning_pe.yrc || exit /b %ERRORLEVEL%
-call :CompileYaraX machine_learning_js.yar machine_learning_js.yrc || exit /b %ERRORLEVEL%
+::call :CompileYaraX clean_rules.yar clean_rules.yrc || exit /b %ERRORLEVEL%
 
 endlocal
 exit /b 0

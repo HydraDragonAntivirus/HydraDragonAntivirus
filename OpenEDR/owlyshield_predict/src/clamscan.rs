@@ -110,7 +110,7 @@ pub(crate) fn global_engine() -> Option<&'static Engine> {
     };
 
     match Engine::from_database_dir(&dir) {
-        Ok((engine, report)) => {
+        Ok((mut engine, report)) => {
             crate::Logging::info(&format!(
                 "[ClamScan] Loaded database from {} (ext={} logical={} container={} ftm={} icons={} certs={} bytecode={})",
                 dir.display(),
@@ -122,6 +122,24 @@ pub(crate) fn global_engine() -> Option<&'static Engine> {
                 report.cert_loaded,
                 report.bytecodes_loaded,
             ));
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("yrc") {
+                        if engine.add_compiled_yara_file(&p).is_some() {
+                            crate::Logging::info(&format!(
+                                "[ClamScan] Loaded compiled YARA-X ruleset: {}",
+                                p.display()
+                            ));
+                        } else {
+                            crate::Logging::warning(&format!(
+                                "[ClamScan] Failed to load compiled YARA-X ruleset: {}",
+                                p.display()
+                            ));
+                        }
+                    }
+                }
+            }
             let leaked: &'static Engine = Box::leak(Box::new(engine));
             let _ = CLAM_ENGINE.set(leaked);
             Some(leaked)
