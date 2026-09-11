@@ -23,7 +23,6 @@ pub struct DaemonScanTask {
 struct DaemonScannerState {
     tx: Sender<DaemonScanTask>,
     recent_scans: Mutex<LruCache<PathBuf, Instant>>,
-    threat_handler: Arc<dyn ThreatHandler>,
 }
 
 static SCANNER: OnceLock<DaemonScannerState> = OnceLock::new();
@@ -59,7 +58,6 @@ pub fn init_daemon_scanner(handler: Arc<dyn ThreatHandler>) {
         DaemonScannerState {
             tx,
             recent_scans,
-            threat_handler: handler,
         }
     });
 }

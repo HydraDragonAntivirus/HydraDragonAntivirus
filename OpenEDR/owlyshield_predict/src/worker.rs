@@ -1056,7 +1056,7 @@ pub mod worker_instance {
                     // own image (explorer, browser, ...) and a copied virus
                     // would either quarantine the actor or (protected actor)
                     // quarantine nothing at all.
-                    let mut fast_det_target: Option<PathBuf> = None;
+                    let fast_det_target: Option<PathBuf> = None;
 
                     if is_process_create {
                         let exe_path_str = precord.exepath.to_string_lossy().into_owned();

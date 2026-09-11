@@ -1,4 +1,3 @@
-use crate::Logging;
 use crate::shared_def::IOMessage;
 use burn::backend::NdArray;
 use burn::backend::ndarray::NdArrayDevice;
