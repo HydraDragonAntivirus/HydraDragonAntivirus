@@ -311,3 +311,53 @@ pub unsafe fn validate_pipe_client(
 
     false
 }
+
+/// Read an entire file with full sharing permissions (`FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`).
+/// Essential for real-time AV file scanning so files currently open by other processes (copy, download, write)
+/// do not fail with ERROR_SHARING_VIOLATION.
+pub fn read_file_shared(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::fs::OpenOptions;
+    use std::io::Read;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        // 7 = FILE_SHARE_READ (1) | FILE_SHARE_WRITE (2) | FILE_SHARE_DELETE (4)
+        options.share_mode(7);
+    }
+    let mut file = options.open(path)?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+/// Directory containing the loaded DLL module (owlyshield_ransom.dll or owlyshield_predict.dll),
+/// or the running executable.
+pub fn current_module_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleW};
+        use windows::core::PCWSTR;
+        for dll_name in ["owlyshield_ransom.dll\0", "owlyshield_predict.dll\0"] {
+            let wide: Vec<u16> = dll_name.encode_utf16().collect();
+            if let Ok(h_mod) = unsafe { GetModuleHandleW(PCWSTR(wide.as_ptr())) } {
+                if !h_mod.is_invalid() && h_mod.0 != 0 {
+                    let mut buf = vec![0u16; 1024];
+                    let len = unsafe { GetModuleFileNameW(h_mod, &mut buf) };
+                    if len > 0 {
+                        use std::os::windows::ffi::OsStringExt;
+                        let os_str = std::ffi::OsString::from_wide(&buf[..len as usize]);
+                        let p = PathBuf::from(os_str);
+                        if let Some(parent) = p.parent() {
+                            return Some(parent.to_path_buf());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()))
+}

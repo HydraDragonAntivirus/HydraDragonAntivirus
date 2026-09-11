@@ -11,24 +11,56 @@ use std::sync::OnceLock;
 
 pub type InferBackend = NdArray<f32>;
 
-static PE_MODEL: OnceLock<Option<super::model::MalwareNet<InferBackend>>> = OnceLock::new();
-static JS_MODEL: OnceLock<Option<super::model::MalwareNet<InferBackend>>> = OnceLock::new();
+static PE_MODEL: OnceLock<&'static super::model::MalwareNet<InferBackend>> = OnceLock::new();
+static JS_MODEL: OnceLock<&'static super::model::MalwareNet<InferBackend>> = OnceLock::new();
 
 pub(crate) fn get_pe_model_ref() -> Option<&'static super::model::MalwareNet<InferBackend>> {
-    get_pe_model().as_ref()
+    get_pe_model()
 }
 
 pub(crate) fn get_js_model_ref() -> Option<&'static super::model::MalwareNet<InferBackend>> {
-    get_js_model().as_ref()
+    get_js_model()
 }
 
-/// Resolve an ML model file. The service/DLL never runs with the repo as
-/// its working directory, so a bare relative `models/*.mpk` only resolves
-/// in dev. Order:
-/// 1. `<module-dir>/models/<file>` (MSI layout: ModelBinaries ships the
-///    .mpk files to `[INSTALLDIR]\models`, next to the binaries),
-/// 2. legacy CWD-relative `models/<file>` (dev / tests).
+/// Resolve an ML model file across all runtime contexts:
+/// 1. Registry HKLM\SOFTWARE\Owlyshield\SDK (DATABASE_PATH/MODELS_PATH) with 64/32-bit hive support
+/// 2. Loaded module directory (owlyshield_ransom.dll or companion DLL)
+/// 3. current_exe directory
+/// 4. Default installation directories (Program Files)
+/// 5. CWD-relative models/ (dev / tests)
 fn model_path(file: &str) -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        use winreg::RegKey;
+        use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+        for flags in [KEY_READ | KEY_WOW64_64KEY, KEY_READ] {
+            if let Ok(key) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(r"SOFTWARE\Owlyshield\SDK", flags) {
+                if let Ok(p) = key.get_value::<String, _>("MODELS_PATH") {
+                    let cand = std::path::PathBuf::from(&p).join(file);
+                    if cand.is_file() {
+                        return Some(cand);
+                    }
+                }
+                if let Ok(p) = key.get_value::<String, _>("DATABASE_PATH") {
+                    let pb = std::path::PathBuf::from(&p);
+                    if let Some(parent) = pb.parent() {
+                        let cand = parent.join("models").join(file);
+                        if cand.is_file() {
+                            return Some(cand);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(dll_dir) = crate::utils::current_module_dir() {
+        let cand = dll_dir.join("models").join(file);
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
+
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let cand = dir.join("models").join(file);
@@ -37,6 +69,17 @@ fn model_path(file: &str) -> Option<std::path::PathBuf> {
             }
         }
     }
+
+    for install_base in [
+        r"C:\Program Files\HydraDragonAntivirus\OpenEDR\models",
+        r"C:\Program Files (x86)\HydraDragonAntivirus\OpenEDR\models",
+    ] {
+        let cand = std::path::PathBuf::from(install_base).join(file);
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
+
     let cand = Path::new("models").join(file);
     if cand.is_file() {
         return Some(cand);
@@ -44,57 +87,85 @@ fn model_path(file: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-fn get_pe_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
-    PE_MODEL.get_or_init(|| {
-        let Some(path) = model_path("pe_model.mpk") else {
-            Logging::error(
-                "[FastDetect] PE ML model not found: no models\\pe_model.mpk next to the module and none at .\\models\\pe_model.mpk",
-            );
-            return None;
-        };
-        if let Some(model) = load_ml_model(&path, super::model::MalwareNetConfig::default()) {
-            Logging::info(&format!(
-                "[FastDetect] Loaded PE ML model from {}",
-                path.display()
-            ));
-            return Some(model);
+fn get_pe_model() -> Option<&'static super::model::MalwareNet<InferBackend>> {
+    if let Some(m) = PE_MODEL.get() {
+        return Some(*m);
+    }
+
+    static LAST_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    if let Ok(mut guard) = LAST_TRY.lock() {
+        if let Some(prev) = *guard {
+            if prev.elapsed() < std::time::Duration::from_secs(3) {
+                return None;
+            }
         }
-        Logging::error(&format!(
-            "[FastDetect] PE ML model failed to load from {}",
+        *guard = Some(std::time::Instant::now());
+    }
+
+    let Some(path) = model_path("pe_model.mpk") else {
+        crate::Logging::error(
+            "[FastDetect] PE ML model not found in registry, DLL dir, current_exe or models\\pe_model.mpk",
+        );
+        return None;
+    };
+    if let Some(model) = load_ml_model(&path, super::model::MalwareNetConfig::default()) {
+        crate::Logging::info(&format!(
+            "[FastDetect] Loaded PE ML model from {}",
             path.display()
         ));
-        None
-    })
+        let leaked: &'static _ = Box::leak(Box::new(model));
+        let _ = PE_MODEL.set(leaked);
+        return Some(leaked);
+    }
+    crate::Logging::error(&format!(
+        "[FastDetect] PE ML model failed to load from {}",
+        path.display()
+    ));
+    None
 }
 
-fn get_js_model() -> &'static Option<super::model::MalwareNet<InferBackend>> {
-    JS_MODEL.get_or_init(|| {
-        let Some(path) = model_path("js_model.mpk") else {
-            Logging::error(
-                "[FastDetect] JS ML model not found: no models\\js_model.mpk next to the module and none at .\\models\\js_model.mpk",
-            );
-            return None;
-        };
-        if let Some(model) = load_ml_model(&path, super::model::MalwareNetConfig::default_js()) {
-            Logging::info(&format!(
-                "[FastDetect] Loaded JS ML model from {}",
-                path.display()
-            ));
-            return Some(model);
+fn get_js_model() -> Option<&'static super::model::MalwareNet<InferBackend>> {
+    if let Some(m) = JS_MODEL.get() {
+        return Some(*m);
+    }
+
+    static LAST_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    if let Ok(mut guard) = LAST_TRY.lock() {
+        if let Some(prev) = *guard {
+            if prev.elapsed() < std::time::Duration::from_secs(3) {
+                return None;
+            }
         }
-        Logging::error(&format!(
-            "[FastDetect] JS ML model failed to load from {}",
+        *guard = Some(std::time::Instant::now());
+    }
+
+    let Some(path) = model_path("js_model.mpk") else {
+        crate::Logging::error(
+            "[FastDetect] JS ML model not found in registry, DLL dir, current_exe or models\\js_model.mpk",
+        );
+        return None;
+    };
+    if let Some(model) = load_ml_model(&path, super::model::MalwareNetConfig::default_js()) {
+        crate::Logging::info(&format!(
+            "[FastDetect] Loaded JS ML model from {}",
             path.display()
         ));
-        None
-    })
+        let leaked: &'static _ = Box::leak(Box::new(model));
+        let _ = JS_MODEL.set(leaked);
+        return Some(leaked);
+    }
+    crate::Logging::error(&format!(
+        "[FastDetect] JS ML model failed to load from {}",
+        path.display()
+    ));
+    None
 }
 
 fn load_ml_model(
     path: &Path,
     config: super::model::MalwareNetConfig,
 ) -> Option<super::model::MalwareNet<InferBackend>> {
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = crate::utils::read_file_shared(path).ok()?;
     let device = NdArrayDevice::default();
     let record = NamedMpkBytesRecorder::<burn::record::FullPrecisionSettings>::default()
         .load(bytes, &device)
@@ -126,13 +197,23 @@ pub fn is_ml_detection_name(name: &str) -> bool {
 /// JS additionally requires an ASCII body that trial-parses as code.
 /// Uses 0.875 threshold and no custom whitelisting/signature rules as explicitly requested.
 pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetectionResult> {
+    fast_detect_path(path_str)
+}
+
+/// Detects PE executables and JavaScript by CONTENT (never by extension —
+/// renamed samples must not escape). File typing comes from the ClamAV engine;
+/// JS additionally requires an ASCII body that trial-parses as code.
+/// Uses 0.875 threshold and no custom whitelisting/signature rules as explicitly requested.
+pub fn fast_detect_path(path_str: &str) -> Option<FastDetectionResult> {
     let path = Path::new(path_str);
     if !path.exists() || !path.is_file() {
         return None;
     }
 
-    // Read the file bytes; gates below are content-based (ClamAV typing).
-    if let Ok(bytes) = std::fs::read(path) {
+    // Read the file bytes with shared permissions (FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+    // so in-flight writes or file copies do not fail with ERROR_SHARING_VIOLATION.
+    if let Ok(bytes) = crate::utils::read_file_shared(path) {
+
         if crate::clamscan::is_pe_bytes(&bytes) {
             // Run PE ML model prediction.
             if let Some(model) = get_pe_model() {

@@ -48,6 +48,7 @@ pub fn run() {
 
         // Initialize threat handler early to reuse the driver connection
         let win_threat_handler = WindowsThreatHandler::from(thread_driver.clone());
+        crate::daemon_scan::init_daemon_scanner(std::sync::Arc::new(win_threat_handler.clone()));
         worker = worker.threat_handler(Box::new(win_threat_handler.clone()));
 
         worker = worker.exepath_handler(Box::new(ExepathLive));
@@ -117,6 +118,7 @@ pub fn run_worker_loop(
 
     // Initialize threat handler early to reuse the driver connection
     let win_threat_handler = WindowsThreatHandler::from(driver.clone());
+    crate::daemon_scan::init_daemon_scanner(std::sync::Arc::new(win_threat_handler.clone()));
     worker = worker.threat_handler(Box::new(win_threat_handler.clone()));
 
     worker = worker.exepath_handler(Box::new(ExepathLive));

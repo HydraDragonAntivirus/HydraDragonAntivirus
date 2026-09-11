@@ -1653,7 +1653,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	{
 		Variant vOut = Sequence();
 		auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
-		if (vParams.isDictionaryLike() && vParams.has("paths") && pFls)
+		if (vParams.isDictionaryLike() && vParams.has("paths"))
 		{
 			auto vPaths = vParams.get("paths");
 			if (vPaths.getType() == variant::ValueType::Sequence)
@@ -1672,12 +1672,22 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						sHash = sha1HexOfFileUtf8(sPath);
 						if (!sHash.empty())
 						{
-							try
+							if (pFls)
 							{
-								auto v = pFls->getFileVerdict(sHash);
-								nVerdict = static_cast<int>(v);
+								try
+								{
+									auto v = pFls->getFileVerdict(sHash);
+									nVerdict = static_cast<int>(v);
+								}
+								catch (...)
+								{
+									nVerdict = 4; // Cloud lookup failed
+								}
 							}
-							catch (...) {}
+							else
+							{
+								nVerdict = 4; // Offline / Lookup failed
+							}
 						}
 					}
 					int nLocal = 0; // Rust engines + known-malicious DB

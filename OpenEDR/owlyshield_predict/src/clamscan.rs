@@ -27,75 +27,125 @@ const MAX_ARCHIVE_CHILDREN: usize = 2048;
 
 /// Process-wide ClamAV engine, loaded once from the installed database
 /// directory. `None` when no database is installed — callers then skip
-/// content scanning and keep the previous (ML-only) behavior.
-static CLAM_ENGINE: OnceLock<Option<Engine>> = OnceLock::new();
+/// Process-wide ClamAV engine, loaded on demand from the installed database
+/// directory. Once loaded, cached permanently as &'static Engine.
+/// Retries on subsequent calls if database was not yet ready at service startup.
+static CLAM_ENGINE: OnceLock<&'static Engine> = OnceLock::new();
 
 /// Resolve the installed ClamAV database directory:
-/// 1. `HKLM\SOFTWARE\Owlyshield\SDK\DATABASE_PATH` (written by the MSI),
-/// 2. `database/` next to the running module (dev layout).
+/// 1. `HKLM\SOFTWARE\Owlyshield\SDK\DATABASE_PATH` (with 64-bit and 32-bit hive support),
+/// 2. `database/` next to the running DLL module,
+/// 3. `database/` next to the running executable,
+/// 4. standard installation paths,
+/// 5. `database/` CWD relative.
 fn database_dir() -> Option<PathBuf> {
-    use winreg::RegKey;
-    use winreg::enums::HKEY_LOCAL_MACHINE;
-    if let Ok(key) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(r"SOFTWARE\Owlyshield\SDK") {
-        if let Ok(p) = key.get_value::<String, _>("DATABASE_PATH") {
-            let dir = PathBuf::from(&p);
-            if dir.is_dir() {
-                return Some(dir);
+    #[cfg(windows)]
+    {
+        use winreg::RegKey;
+        use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+        for flags in [KEY_READ | KEY_WOW64_64KEY, KEY_READ] {
+            if let Ok(key) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(r"SOFTWARE\Owlyshield\SDK", flags) {
+                if let Ok(p) = key.get_value::<String, _>("DATABASE_PATH") {
+                    let dir = PathBuf::from(&p);
+                    if dir.is_dir() {
+                        return Some(dir);
+                    }
+                }
             }
         }
     }
-    std::env::current_exe()
+
+    if let Some(dll_dir) = crate::utils::current_module_dir() {
+        let cand = dll_dir.join("database");
+        if cand.is_dir() {
+            return Some(cand);
+        }
+    }
+
+    if let Some(cand) = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("database")))
         .filter(|d| d.is_dir())
+    {
+        return Some(cand);
+    }
+
+    for default_path in [
+        r"C:\Program Files\HydraDragonAntivirus\OpenEDR\database",
+        r"C:\Program Files (x86)\HydraDragonAntivirus\OpenEDR\database",
+    ] {
+        let cand = PathBuf::from(default_path);
+        if cand.is_dir() {
+            return Some(cand);
+        }
+    }
+
+    let cand = PathBuf::from("database");
+    if cand.is_dir() {
+        return Some(cand);
+    }
+    None
 }
 
 pub(crate) fn global_engine() -> Option<&'static Engine> {
-    CLAM_ENGINE
-        .get_or_init(|| {
-            let Some(dir) = database_dir() else {
-                crate::Logging::error(
-                    "[ClamScan] No database directory: HKLM\\SOFTWARE\\Owlyshield\\SDK\\DATABASE_PATH missing and no database\\ next to module",
-                );
+    if let Some(engine) = CLAM_ENGINE.get() {
+        return Some(*engine);
+    }
+
+    static LAST_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    if let Ok(mut guard) = LAST_TRY.lock() {
+        if let Some(prev) = *guard {
+            if prev.elapsed() < std::time::Duration::from_secs(3) {
                 return None;
-            };
-            match Engine::from_database_dir(&dir) {
-                Ok((engine, report)) => {
-                    crate::Logging::info(&format!(
-                        "[ClamScan] Loaded database from {} (ext={} logical={} container={} ftm={} icons={} certs={} bytecode={})",
-                        dir.display(),
-                        report.extended_loaded,
-                        report.logical_loaded,
-                        report.container_loaded,
-                        report.ftm_loaded,
-                        report.icon_loaded,
-                        report.cert_loaded,
-                        report.bytecodes_loaded,
-                    ));
-                    Some(engine)
-                }
-                Err(e) => {
-                    crate::Logging::error(&format!(
-                        "[ClamScan] Failed to load database from {}: {}",
-                        dir.display(),
-                        e
-                    ));
-                    None
-                }
             }
-        })
-        .as_ref()
+        }
+        *guard = Some(std::time::Instant::now());
+    }
+
+    let Some(dir) = database_dir() else {
+        crate::Logging::error(
+            "[ClamScan] No database directory found: registry DATABASE_PATH missing, not next to module/exe, and not at standard install paths",
+        );
+        return None;
+    };
+
+    match Engine::from_database_dir(&dir) {
+        Ok((engine, report)) => {
+            crate::Logging::info(&format!(
+                "[ClamScan] Loaded database from {} (ext={} logical={} container={} ftm={} icons={} certs={} bytecode={})",
+                dir.display(),
+                report.extended_loaded,
+                report.logical_loaded,
+                report.container_loaded,
+                report.ftm_loaded,
+                report.icon_loaded,
+                report.cert_loaded,
+                report.bytecodes_loaded,
+            ));
+            let leaked: &'static Engine = Box::leak(Box::new(engine));
+            let _ = CLAM_ENGINE.set(leaked);
+            Some(leaked)
+        }
+        Err(e) => {
+            crate::Logging::error(&format!(
+                "[ClamScan] Failed to load database from {}: {}",
+                dir.display(),
+                e
+            ));
+            None
+        }
+    }
 }
 
-/// PE gate for the ML stage, typed by the ClamAV engine (single authority:
-/// `.ftm` magic + builtin magics incl. the PE parser). Falls back to the MZ
-/// magic only when no engine/database is available, preserving legacy
-/// behavior on DB-less setups.
+/// PE gate for the ML stage. Checks MZ magic header first, followed by
+/// ClamAV target detection if available.
 pub fn is_pe_bytes(bytes: &[u8]) -> bool {
+    if bytes.len() >= 2 && bytes[..2] == *b"MZ" {
+        return true;
+    }
     match global_engine().and_then(|e| e.detect_target(bytes)) {
         Some(1) => true,
-        Some(_) => false,
-        None => bytes.len() >= 2 && bytes[..2] == *b"MZ",
+        _ => false,
     }
 }
 
@@ -233,7 +283,7 @@ pub fn rt_scan_file(
         }
         match std::fs::metadata(path).ok().map(|m| m.len()) {
             Some(len) if len > 0 && len <= options.max_child_size as u64 => {
-                if let Ok(bytes) = std::fs::read(path) {
+                if let Ok(bytes) = crate::utils::read_file_shared(path) {
                     if !bytes.is_empty() {
                         data = Some(bytes);
                         break;

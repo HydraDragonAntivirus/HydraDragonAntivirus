@@ -1060,32 +1060,33 @@ pub mod worker_instance {
 
                     if is_process_create {
                         let exe_path_str = precord.exepath.to_string_lossy().into_owned();
-                        fast_det = crate::ml::fast_detect::fast_detect_file(&exe_path_str, iomsg);
-                        // ML undecided on the new process image: same ClamAV
-                        // fallback as file events. Remediation stays the
-                        // process image itself (no fast_det_target), so a hit
-                        // still kill+quarantines the malware process.
-                        if fast_det.is_none() && !exe_path_str.is_empty() {
-                            fast_det = crate::clamscan::rt_scan_file(&exe_path_str);
+                        if !exe_path_str.is_empty() {
+                            fast_det = crate::ml::fast_detect::fast_detect_path(&exe_path_str);
+                            // If ML is undecided on process creation, delegate deep ClamAV scan
+                            // to the background daemon scanner so the event loop is never stalled.
+                            if fast_det.is_none() {
+                                crate::daemon_scan::enqueue_scan(
+                                    precord.exepath.clone(),
+                                    true,
+                                    iomsg.pid,
+                                    iomsg.gid,
+                                    precord.appname.clone(),
+                                );
+                            }
                         }
                     }
 
-                    if fast_det.is_none() && !iomsg.filepathstr.is_empty() {
-                        fast_det =
-                            crate::ml::fast_detect::fast_detect_file(&iomsg.filepathstr, iomsg);
-                        if fast_det.is_some() {
-                            fast_det_target = Some(PathBuf::from(&iomsg.filepathstr));
-                        }
-                    }
-
-                    // Real-time content fallback (ClamAV + archives) when ML
-                    // is undecided. Bounded (archive budget + engine caps) so
-                    // one file can never stall the RT loop.
-                    if fast_det.is_none() && !iomsg.filepathstr.is_empty() {
-                        fast_det = crate::clamscan::rt_scan_file(&iomsg.filepathstr);
-                        if fast_det.is_some() {
-                            fast_det_target = Some(PathBuf::from(&iomsg.filepathstr));
-                        }
+                    // Enqueue real-time file events to the daemon scanner worker pool.
+                    // Runs ML + ClamAV asynchronously without blocking the event queue
+                    // or dropping kernel events during massive file copies (e.g. 53k files).
+                    if !iomsg.filepathstr.is_empty() {
+                        crate::daemon_scan::enqueue_scan(
+                            PathBuf::from(&iomsg.filepathstr),
+                            false,
+                            iomsg.pid,
+                            iomsg.gid,
+                            precord.appname.clone(),
+                        );
                     }
 
                     if let Some(det) = fast_det {

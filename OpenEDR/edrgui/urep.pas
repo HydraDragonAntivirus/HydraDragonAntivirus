@@ -40,11 +40,13 @@ type
     FBatchNo: Integer;
     FCurrent: string;
     FPendingJson: string;
+    FPendingFailedBatch: TStringList;
     procedure PushProgress;
     procedure Walk(const ADir: WideString);
     procedure Consider(const APath: WideString);
     procedure FlushBatch;
     procedure PushRows;
+    procedure PushFailedRows;
   protected
     procedure Execute; override;
   public
@@ -120,6 +122,7 @@ type
     // Handled paths (quarantined or ignored this session). A new scan is
     // blocked with a warning while unhandled malicious rows remain.
     FActed: TStringList;
+    FStagedActions: TStringList;
     FExDll: HMODULE;
     FExAdd: TQExAddFn;
     function UpsertRow(const AKey, ACaption, AHash, ACloudText,
@@ -251,12 +254,38 @@ begin
   FRoot := ARoot;
   FCount := 0;
   FBatch := TStringList.Create;
+  FPendingFailedBatch := TStringList.Create;
 end;
 
 destructor TRepWalkThread.Destroy;
 begin
+  FPendingFailedBatch.Free;
   FBatch.Free;
   inherited;
+end;
+
+procedure TRepWalkThread.PushFailedRows;
+var
+  Frm: TRepForm;
+  i: Integer;
+  fp: string;
+begin
+  Frm := FForm;
+  if (Frm = nil) or (FPendingFailedBatch = nil) then
+    Exit;
+  Frm.ResultsView.Items.BeginUpdate;
+  try
+    for i := 0 to FPendingFailedBatch.Count - 1 do
+    begin
+      fp := FPendingFailedBatch[i];
+      Frm.UpsertRow(fp, fp, '', 'Lookup failed', '—', '—', 4, 0);
+      Inc(FCount);
+      Inc(Frm.FRowsThisScan);
+    end;
+  finally
+    Frm.ResultsView.Items.EndUpdate;
+  end;
+  Frm.RecountSummary;
 end;
 
 procedure TRepWalkThread.PushProgress;
@@ -344,9 +373,15 @@ begin
     begin
       FPendingJson := Resp;
       Synchronize(@PushRows);
+    end
+    else
+    begin
+      FPendingFailedBatch.Assign(FBatch);
+      Synchronize(@PushFailedRows);
     end;
   except
-    // Transport hiccup: batch dropped, walk continues.
+    FPendingFailedBatch.Assign(FBatch);
+    Synchronize(@PushFailedRows);
   end;
   FBatch.Clear;
 end;
@@ -418,7 +453,12 @@ begin
   FActed.Sorted := True;
   FActed.Duplicates := dupIgnore;
   FActed.CaseSensitive := False;
+  FStagedActions := TStringList.Create;
+  FStagedActions.Sorted := True;
+  FStagedActions.Duplicates := dupIgnore;
+  FStagedActions.CaseSensitive := False;
   OnShow := @FormShowed;
+  OnDestroy := @FormDestroy;
   BuildUi;
 end;
 
@@ -491,33 +531,58 @@ end;
 procedure TRepForm.RefreshPendingList;
 var
   i, v, lv, n: Integer;
-  p, key: string;
+  p, key, actStr: string;
   idx: Integer;
   li: TListItem;
+  SeenKeys: TStringList;
 begin
   if (ActionsView = nil) or (ResultsView = nil) then
     Exit;
-  ActionsView.Items.BeginUpdate;
+  SeenKeys := TStringList.Create;
+  SeenKeys.Sorted := True;
+  SeenKeys.Duplicates := dupIgnore;
+  SeenKeys.CaseSensitive := False;
   try
-    ActionsView.Items.Clear;
-    n := 0;
-    for i := 0 to ResultsView.Items.Count - 1 do
-    begin
-      v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
-      lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
-      if not ((v = 2) or (lv = 2)) then
-        Continue;
-      p := StripPidPrefix(ResultsView.Items[i].Caption);
-      key := LowerCase(p);
-      if (key = '') or FActed.Find(key, idx) then
-        Continue;
-      li := ActionsView.Items.Add;
-      li.Caption := 'Quarantine';
-      li.SubItems.Add(ExtractFileName(p));
-      Inc(n);
+    ActionsView.Items.BeginUpdate;
+    try
+      ActionsView.Items.Clear;
+      n := 0;
+      for i := 0 to ResultsView.Items.Count - 1 do
+      begin
+        v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+        lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+        p := StripPidPrefix(ResultsView.Items[i].Caption);
+        key := LowerCase(p);
+        if (key = '') or FActed.Find(key, idx) or (SeenKeys.IndexOf(key) >= 0) then
+          Continue;
+
+        actStr := '';
+        if (FStagedActions <> nil) and FStagedActions.Find(key, idx) then
+        begin
+          if FStagedActions.ValueFromIndex[idx] = 'I' then
+            actStr := 'Ignore'
+          else
+            actStr := 'Quarantine';
+        end
+        else if (v = 2) or (lv = 2) then
+        begin
+          actStr := 'Quarantine';
+        end;
+
+        if actStr <> '' then
+        begin
+          SeenKeys.Add(key);
+          li := ActionsView.Items.Add;
+          li.Caption := actStr;
+          li.SubItems.Add(ExtractFileName(p));
+          Inc(n);
+        end;
+      end;
+    finally
+      ActionsView.Items.EndUpdate;
     end;
   finally
-    ActionsView.Items.EndUpdate;
+    SeenKeys.Free;
   end;
   ActionsLbl.Caption := Format('Pending Actions (%d)', [n]);
   ApplyBtn.Caption := 'Apply Actions (' + IntToStr(n) + ')';
@@ -929,8 +994,7 @@ begin
     (GetFileAttributesW(PWideChar(Root)) = INVALID_FILE_ATTRIBUTES) or
     ((GetFileAttributesW(PWideChar(Root)) and FILE_ATTRIBUTE_DIRECTORY) = 0) then
   begin
-    TAlertForm.ShowAlert('Verdict', 'Pick an existing folder first.',
-      asWarning, 3000);
+    StatusLbl.Caption := 'Pick an existing folder first.';
     Exit;
   end;
   if Root[Length(Root)] <> WideChar('\') then
@@ -940,10 +1004,8 @@ begin
   FRowsThisScan := 0;
   if PendingCount > 0 then
   begin
-    TAlertForm.ShowAlert('Verdict',
-      IntToStr(PendingCount) +
-      ' detection(s) still awaiting action. Press Apply Actions first.',
-      asWarning, 4000);
+    StatusLbl.Caption := IntToStr(PendingCount) +
+      ' detection(s) still awaiting action. Press Apply Actions first.';
     Exit;
   end;
   SummaryLbl.Caption := '';
@@ -1034,10 +1096,8 @@ begin
   FRowsThisScan := 0;
   if PendingCount > 0 then
   begin
-    TAlertForm.ShowAlert('Verdict',
-      IntToStr(PendingCount) +
-      ' detection(s) still awaiting action. Press Apply Actions first.',
-      asWarning, 4000);
+    StatusLbl.Caption := IntToStr(PendingCount) +
+      ' detection(s) still awaiting action. Press Apply Actions first.';
     Exit;
   end;
   SummaryLbl.Caption := '';
@@ -1158,17 +1218,29 @@ var
   i, v, lv: Integer;
   key: string;
   idx: Integer;
+  SeenKeys: TStringList;
 begin
   Result := 0;
-  for i := 0 to ResultsView.Items.Count - 1 do
-  begin
-    v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
-    lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
-    if not ((v = 2) or (lv = 2)) then
-      Continue;
-    key := LowerCase(StripPidPrefix(ResultsView.Items[i].Caption));
-    if (key <> '') and not FActed.Find(key, idx) then
-      Inc(Result);
+  SeenKeys := TStringList.Create;
+  SeenKeys.Sorted := True;
+  SeenKeys.Duplicates := dupIgnore;
+  SeenKeys.CaseSensitive := False;
+  try
+    for i := 0 to ResultsView.Items.Count - 1 do
+    begin
+      v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+      lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+      if not ((v = 2) or (lv = 2)) then
+        Continue;
+      key := LowerCase(StripPidPrefix(ResultsView.Items[i].Caption));
+      if (key <> '') and not FActed.Find(key, idx) and (SeenKeys.IndexOf(key) < 0) then
+      begin
+        SeenKeys.Add(key);
+        Inc(Result);
+      end;
+    end;
+  finally
+    SeenKeys.Free;
   end;
 end;
 
@@ -1222,10 +1294,70 @@ begin
 end;
 
 procedure TRepForm.ApplyBtnClick(Sender: TObject);
+var
+  i, qCount, iCount, errCount: Integer;
+  p, key, act: string;
+  idx: Integer;
+  v, lv: Integer;
+  SeenKeys: TStringList;
 begin
-  TAlertForm.ShowAlert('Apply Actions',
-    IntToStr(QuarantinePending) + ' file(s) quarantined.', asSuccess, 4000);
+  qCount := 0;
+  iCount := 0;
+  errCount := 0;
+  SeenKeys := TStringList.Create;
+  SeenKeys.Sorted := True;
+  SeenKeys.Duplicates := dupIgnore;
+  SeenKeys.CaseSensitive := False;
+  try
+    for i := 0 to ResultsView.Items.Count - 1 do
+    begin
+      v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+      lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+      p := StripPidPrefix(ResultsView.Items[i].Caption);
+      key := LowerCase(p);
+      if (key = '') or FActed.Find(key, idx) or (SeenKeys.IndexOf(key) >= 0) then
+        Continue;
+
+      act := '';
+      if (FStagedActions <> nil) and FStagedActions.Find(key, idx) then
+        act := FStagedActions.ValueFromIndex[idx]
+      else if (v = 2) or (lv = 2) then
+        act := 'Q';
+
+      if act = 'Q' then
+      begin
+        SeenKeys.Add(key);
+        if RpcQuarantineFile(p) then
+        begin
+          if FActed.IndexOf(key) < 0 then
+            FActed.Add(key);
+          Inc(qCount);
+        end
+        else
+          Inc(errCount);
+      end
+      else if act = 'I' then
+      begin
+        SeenKeys.Add(key);
+        if ExcludeOne(p) then
+          Inc(iCount)
+        else
+          Inc(errCount);
+      end;
+    end;
+  finally
+    SeenKeys.Free;
+  end;
+
+  if FStagedActions <> nil then
+    FStagedActions.Clear;
   RefreshPendingList;
+  RecountSummary;
+
+  if errCount > 0 then
+    StatusLbl.Caption := Format('Applied actions: %d quarantined, %d ignored (%d failed).', [qCount, iCount, errCount])
+  else
+    StatusLbl.Caption := Format('Applied actions: %d quarantined, %d ignored.', [qCount, iCount]);
 end;
 
 procedure TRepForm.QuarItemClick(Sender: TObject);
@@ -1240,15 +1372,13 @@ begin
       Continue;
     p := StripPidPrefix(ResultsView.Items[i].Caption);
     key := LowerCase(p);
-    if (p <> '') and RpcQuarantineFile(p) then
+    if (key <> '') and (FActed.IndexOf(key) < 0) then
     begin
-      if (key <> '') and (FActed.IndexOf(key) < 0) then
-        FActed.Add(key);
+      FStagedActions.Values[key] := 'Q';
       Inc(n);
     end;
   end;
-  TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' file(s) quarantined.',
-    asSuccess, 4000);
+  StatusLbl.Caption := Format('Staged %d file(s) for Quarantine. Press Apply Actions to execute.', [n]);
   RefreshPendingList;
 end;
 
@@ -1274,7 +1404,7 @@ end;
 procedure TRepForm.IgnItemClick(Sender: TObject);
 var
   i, n: Integer;
-  p: string;
+  p, key: string;
 begin
   n := 0;
   for i := 0 to ResultsView.Items.Count - 1 do
@@ -1282,11 +1412,14 @@ begin
     if not ResultsView.Items[i].Selected then
       Continue;
     p := StripPidPrefix(ResultsView.Items[i].Caption);
-    if ExcludeOne(p) then
+    key := LowerCase(p);
+    if (key <> '') and (FActed.IndexOf(key) < 0) then
+    begin
+      FStagedActions.Values[key] := 'I';
       Inc(n);
+    end;
   end;
-  TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' path(s) ignored.',
-    asSuccess, 4000);
+  StatusLbl.Caption := Format('Staged %d path(s) for Ignore. Press Apply Actions to execute.', [n]);
   RefreshPendingList;
 end;
 
@@ -1296,20 +1429,11 @@ begin
 end;
 
 procedure TRepForm.QuarAllItemClick(Sender: TObject);
-begin
-  TAlertForm.ShowAlert('Verdict',
-    IntToStr(QuarantinePending) + ' file(s) quarantined.', asSuccess, 4000);
-  RefreshPendingList;
-end;
-
-procedure TRepForm.IgnAllItemClick(Sender: TObject);
 var
   i, n, v, lv: Integer;
   p, key: string;
   idx: Integer;
 begin
-  // Same scope as Quarantine All: pending-malicious rows only. Clean rows
-  // are never excluded in bulk (use the per-row Ignore item for those).
   n := 0;
   for i := 0 to ResultsView.Items.Count - 1 do
   begin
@@ -1321,11 +1445,34 @@ begin
     key := LowerCase(p);
     if (key = '') or FActed.Find(key, idx) then
       Continue;
-    if ExcludeOne(p) then
-      Inc(n);
+    FStagedActions.Values[key] := 'Q';
+    Inc(n);
   end;
-  TAlertForm.ShowAlert('Verdict', IntToStr(n) + ' path(s) ignored.',
-    asSuccess, 4000);
+  StatusLbl.Caption := Format('Staged %d file(s) for Quarantine. Press Apply Actions to execute.', [n]);
+  RefreshPendingList;
+end;
+
+procedure TRepForm.IgnAllItemClick(Sender: TObject);
+var
+  i, n, v, lv: Integer;
+  p, key: string;
+  idx: Integer;
+begin
+  n := 0;
+  for i := 0 to ResultsView.Items.Count - 1 do
+  begin
+    v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+    lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
+    if not ((v = 2) or (lv = 2)) then
+      Continue;
+    p := StripPidPrefix(ResultsView.Items[i].Caption);
+    key := LowerCase(p);
+    if (key = '') or FActed.Find(key, idx) then
+      Continue;
+    FStagedActions.Values[key] := 'I';
+    Inc(n);
+  end;
+  StatusLbl.Caption := Format('Staged %d path(s) for Ignore. Press Apply Actions to execute.', [n]);
   RefreshPendingList;
 end;
 
@@ -1373,6 +1520,7 @@ begin
   end;
   FreeAndNil(FSeen);
   FreeAndNil(FActed);
+  FreeAndNil(FStagedActions);
   FExAdd := nil;
   if FExDll <> 0 then
   begin
