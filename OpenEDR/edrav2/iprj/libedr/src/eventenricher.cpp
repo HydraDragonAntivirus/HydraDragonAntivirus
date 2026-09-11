@@ -358,8 +358,11 @@ namespace {
 		if (sLowerDll.find(sTrimmed) != std::string::npos)
 			return true;
 
-		// Handle bare system DLL names (e.g. "kernel32.dll", "ntdll.dll") when watching System32
-		if ((sTrimmed.find("system32") != std::string::npos || sTrimmed.find("syswow64") != std::string::npos)
+		// Handle bare system DLL names (e.g. "kernel32.dll", "ntdll.dll") when watching
+		// any Windows system dir (System32/SysWOW64 or plain C:\Windows: hook events
+		// carry bare "module!Function" names without a path).
+		if ((sTrimmed.find("system32") != std::string::npos || sTrimmed.find("syswow64") != std::string::npos
+				|| sTrimmed.find("windows") != std::string::npos)
 			&& sLowerDll.find('\\') == std::string::npos && sLowerDll.find('/') == std::string::npos)
 		{
 			return true;
