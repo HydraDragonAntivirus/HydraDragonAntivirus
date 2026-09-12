@@ -19,6 +19,8 @@
 #include <vector>
 #include <unordered_set>
 #include <unordered_map>
+#include <tlhelp32.h>
+#include <dbghelp.h>
 
 namespace cmd {
 
@@ -182,9 +184,39 @@ namespace {
 		return s_cached.load(std::memory_order_relaxed);
 	}
 
+	// Robust SDK boolean read: accepts REG_SZ ("1"/"true", case-insensitive)
+	// and REG_DWORD (!=0). regedit users often write DWORD; strict REG_SZ-only
+	// reads silently evaluated those as FALSE (training "never starts" bug class).
+	bool ReadSdkBool(const char* sValueName, bool bDefault)
+	{
+		BYTE buf[16] = {};
+		ULONG cb = sizeof(buf);
+		DWORD dwType = 0;
+		const LONG rc = ::RegGetValueA(HKEY_LOCAL_MACHINE,
+			"SOFTWARE\\Owlyshield\\SDK", sValueName,
+			RRF_RT_ANY, &dwType, buf, &cb);
+		if (rc != ERROR_SUCCESS)
+			return bDefault;
+		if (dwType == REG_DWORD && cb >= sizeof(DWORD))
+		{
+			DWORD v = 0;
+			memcpy(&v, buf, sizeof(v));
+			return v != 0;
+		}
+		buf[sizeof(buf) - 1] = 0;
+		std::string s((const char*)buf);
+		for (auto& c : s) c = (char)::tolower((unsigned char)c);
+		size_t a = s.find_first_not_of(" \t\r\n\"'");
+		size_t b = s.find_last_not_of(" \t\r\n\"'");
+		if (a == std::string::npos)
+			return false;
+		s = s.substr(a, b - a + 1);
+		return s == "1" || s == "true" || s == "yes" || s == "on";
+	}
+
 	// HKLM\SOFTWARE\Owlyshield\SDK!TRAINING_MODE ("1") enables persistent
 	// unknown behavior telemetry recording for offline ML training.
-	// Defaults to FALSE (disabled) unless explicitly set to "1" in the registry.
+	// Defaults to FALSE (disabled) unless explicitly enabled in the registry.
 	bool IsTrainingModeEnabled()
 	{
 		static std::atomic<bool> s_cached{ false };
@@ -198,13 +230,7 @@ namespace {
 		if (nNow - nLast >= 2000)
 		{
 			s_last.store(nNow, std::memory_order_relaxed);
-			char sz[8] = "";
-			ULONG cb = sizeof(sz);
-			const LONG rc = ::RegGetValueA(HKEY_LOCAL_MACHINE,
-				"SOFTWARE\\Owlyshield\\SDK", "TRAINING_MODE",
-				RRF_RT_REG_SZ, nullptr, sz, &cb);
-			s_cached.store(rc == ERROR_SUCCESS ? (std::string(sz) == "1") : false,
-				std::memory_order_relaxed);
+			s_cached.store(ReadSdkBool("TRAINING_MODE", false), std::memory_order_relaxed);
 		}
 		return s_cached.load(std::memory_order_relaxed);
 	}
@@ -428,6 +454,276 @@ namespace {
 		if (!stream)
 			return;
 		stream << sJsonLine << "\n";
+	}
+
+	// HKLM\SOFTWARE\Owlyshield\SDK!THREAD_STACK_CAPTURE ("0" disables)
+	// on-alert user-mode thread-stack snapshots. Defaults to TRUE (enabled)
+	// when the value is missing; alert path only, so zero hot-path cost.
+	bool IsThreadStackCaptureEnabled()
+	{
+		static std::atomic<bool> s_cached{ true };
+		static std::atomic<uint64_t> s_last{ 0 };
+
+		const uint64_t nNow = (uint64_t)std::chrono::duration_cast<
+			std::chrono::milliseconds>(std::chrono::steady_clock::now()
+				.time_since_epoch()).count();
+		const uint64_t nLast = s_last.load(std::memory_order_relaxed);
+
+		if (nNow - nLast >= 2000)
+		{
+			s_last.store(nNow, std::memory_order_relaxed);
+			s_cached.store(ReadSdkBool("THREAD_STACK_CAPTURE", true), std::memory_order_relaxed);
+		}
+		return s_cached.load(std::memory_order_relaxed);
+	}
+
+	// dbghelp entry points, loaded dynamically so no linker dependency is added.
+	// Explicit W-suffixed import: the undecorated "SymInitialize" export does
+	// not exist in dbghelp.dll (only SymInitializeW/A), so decltype(&SymInitialize)
+	// + GetProcAddress("SymInitialize") would silently fail under UNICODE.
+	typedef BOOL (WINAPI *FnStackWalk64)(DWORD, HANDLE, HANDLE, LPSTACKFRAME64,
+		PVOID, PREAD_PROCESS_MEMORY_ROUTINE64, PFUNCTION_TABLE_ACCESS_ROUTINE64,
+		PGET_MODULE_BASE_ROUTINE64, PTRANSLATE_ADDRESS_ROUTINE64);
+	typedef BOOL (WINAPI *FnSymInitializeW)(HANDLE, PCWSTR, BOOL);
+	typedef BOOL (WINAPI *FnSymCleanup)(HANDLE);
+	struct DbgHelpApi
+	{
+		HMODULE hMod = nullptr;
+		FnStackWalk64 pStackWalk64 = nullptr;
+		FnSymInitializeW pSymInitialize = nullptr;
+		FnSymCleanup pSymCleanup = nullptr;
+		PFUNCTION_TABLE_ACCESS_ROUTINE64 pFuncTable = nullptr;
+		PGET_MODULE_BASE_ROUTINE64 pGetModBase = nullptr;
+	};
+
+	static DbgHelpApi LoadDbgHelpApi()
+	{
+		DbgHelpApi api;
+		api.hMod = ::LoadLibraryW(L"dbghelp.dll");
+		if (!api.hMod)
+			return api;
+		api.pStackWalk64 = (FnStackWalk64)::GetProcAddress(api.hMod, "StackWalk64");
+		api.pSymInitialize = (FnSymInitializeW)::GetProcAddress(api.hMod, "SymInitializeW");
+		if (!api.pSymInitialize)
+			api.pSymInitialize = (FnSymInitializeW)::GetProcAddress(api.hMod, "SymInitializeA");
+		api.pSymCleanup = (FnSymCleanup)::GetProcAddress(api.hMod, "SymCleanup");
+		api.pFuncTable = (PFUNCTION_TABLE_ACCESS_ROUTINE64)::GetProcAddress(api.hMod, "SymFunctionTableAccess64");
+		api.pGetModBase = (PGET_MODULE_BASE_ROUTINE64)::GetProcAddress(api.hMod, "SymGetModuleBase64");
+		return api;
+	}
+
+	// RAII guards: the snapshot below has many best-effort early exits;
+	// handles must not leak per alert.
+	struct LibGuard { HMODULE h = nullptr; ~LibGuard() { if (h) ::FreeLibrary(h); h = nullptr; } };
+	struct HandleGuard { HANDLE h = nullptr; ~HandleGuard() { if (h && h != INVALID_HANDLE_VALUE) ::CloseHandle(h); h = nullptr; } };
+
+	static BOOL CALLBACK ReadProcMemRoutine(HANDLE hProc, DWORD64 nBase, PVOID pBuf, DWORD nSize, LPDWORD pnRead)
+	{
+		SIZE_T nGot = 0;
+		if (!::ReadProcessMemory(hProc, (LPCVOID)(ULONG_PTR)nBase, pBuf, (SIZE_T)nSize, &nGot))
+			return FALSE;
+		if (pnRead)
+			*pnRead = (DWORD)nGot;
+		return TRUE;
+	}
+
+	// On-demand user-mode thread-stack snapshot, Process-Hacker style:
+	// no hooks, no ETW. Enumerates threads of <nPid> via ToolHelp32, suspends
+	// each briefly, walks with StackWalk64 and records "module+offset" per
+	// frame (raw addresses, symbols resolved offline in the training pipe).
+	// Best-effort: any failure yields a partial/empty string, never throws,
+	// never blocks remediation (caller runs this before kill, ~ms cost).
+	// Caps: max 8 threads x 10 frames, max 8192 chars total.
+	std::string CaptureThreadStacks(uint32_t nPid, int nMaxThreads = 8, int nMaxFrames = 10)
+	{
+		static std::mutex s_mtxWalk;
+		std::lock_guard<std::mutex> _guard(s_mtxWalk);
+
+		std::string sOut;
+		if (nPid == 0 || nPid == 4)
+			return sOut;
+		sOut.reserve(4096);
+
+		const size_t c_nMaxChars = 8192;
+		LibGuard gDbg, gPsapi;
+		HandleGuard gProc;
+		DbgHelpApi api;
+
+		try
+		{
+			api = LoadDbgHelpApi();
+			gDbg.h = api.hMod;
+			if (!api.hMod || !api.pStackWalk64 || !api.pSymInitialize ||
+				!api.pSymCleanup || !api.pFuncTable || !api.pGetModBase)
+				return std::string();
+
+			gPsapi.h = ::LoadLibraryW(L"psapi.dll");
+			FARPROC fpMapped = gPsapi.h ? ::GetProcAddress(gPsapi.h, "GetMappedFileNameW") : nullptr;
+			auto pGetMapped = reinterpret_cast<DWORD(WINAPI*)(HANDLE, LPVOID, LPWSTR, DWORD)>(fpMapped);
+
+			HandleGuard gSnap;
+			gSnap.h = ::CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+			if (gSnap.h == INVALID_HANDLE_VALUE)
+			{
+				gSnap.h = nullptr;
+				return std::string();
+			}
+
+			const DWORD nSelfTid = ::GetCurrentThreadId();
+			const DWORD nSelfPid = ::GetCurrentProcessId();
+			std::vector<DWORD> vTids;
+			THREADENTRY32 te = {};
+			te.dwSize = sizeof(te);
+			if (::Thread32First(gSnap.h, &te))
+			{
+				do
+				{
+					// Never suspend our own service threads (deadlock risk).
+					if (te.th32OwnerProcessID == nPid && te.th32ThreadID != nSelfTid && nPid != nSelfPid)
+					{
+						vTids.push_back(te.th32ThreadID);
+						if ((int)vTids.size() >= nMaxThreads)
+							break;
+					}
+				} while (::Thread32Next(gSnap.h, &te));
+			}
+			if (vTids.empty())
+				return std::string();
+
+			gProc.h = ::OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, nPid);
+			if (!gProc.h)
+				return std::string();
+			HANDLE hProc = gProc.h;
+
+			BOOL bWow = FALSE;
+			::IsWow64Process(hProc, &bWow);
+
+			if (!api.pSymInitialize(hProc, NULL, TRUE))
+				return std::string();
+
+			wchar_t wszPath[MAX_PATH] = {};
+			char szFrame[128] = "";
+
+			for (DWORD nTid : vTids)
+			{
+				HANDLE hThread = ::OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, nTid);
+				if (!hThread)
+					continue;
+				if (::SuspendThread(hThread) == (DWORD)-1)
+				{
+					::CloseHandle(hThread);
+					continue;
+				}
+
+				STACKFRAME64 frame = {};
+				DWORD dwMachine = IMAGE_FILE_MACHINE_AMD64;
+				union CtxBuf { CONTEXT x64;
+#ifdef _WIN64
+					WOW64_CONTEXT wow;
+#endif
+				} ctxBuf = {};
+				PCONTEXT pCtx = nullptr;
+#ifdef _WIN64
+				if (bWow)
+				{
+					ctxBuf.wow.ContextFlags = WOW64_CONTEXT_FULL;
+					if (!::Wow64GetThreadContext(hThread, &ctxBuf.wow))
+					{
+						::ResumeThread(hThread);
+						::CloseHandle(hThread);
+						continue;
+					}
+					dwMachine = IMAGE_FILE_MACHINE_I386;
+					frame.AddrPC.Offset = ctxBuf.wow.Eip;
+					frame.AddrPC.Mode = AddrModeFlat;
+					frame.AddrFrame.Offset = ctxBuf.wow.Ebp;
+					frame.AddrFrame.Mode = AddrModeFlat;
+					frame.AddrStack.Offset = ctxBuf.wow.Esp;
+					frame.AddrStack.Mode = AddrModeFlat;
+					pCtx = (PCONTEXT)&ctxBuf.wow;
+				}
+				else
+#endif
+				{
+					ctxBuf.x64.ContextFlags = CONTEXT_FULL;
+					if (!::GetThreadContext(hThread, &ctxBuf.x64))
+					{
+						::ResumeThread(hThread);
+						::CloseHandle(hThread);
+						continue;
+					}
+#ifdef _WIN64
+					frame.AddrPC.Offset = ctxBuf.x64.Rip;
+					frame.AddrPC.Mode = AddrModeFlat;
+					frame.AddrFrame.Offset = ctxBuf.x64.Rbp;
+					frame.AddrFrame.Mode = AddrModeFlat;
+					frame.AddrStack.Offset = ctxBuf.x64.Rsp;
+					frame.AddrStack.Mode = AddrModeFlat;
+#else
+					dwMachine = IMAGE_FILE_MACHINE_I386;
+					frame.AddrPC.Offset = ctxBuf.x64.Eip;
+					frame.AddrPC.Mode = AddrModeFlat;
+					frame.AddrFrame.Offset = ctxBuf.x64.Ebp;
+					frame.AddrFrame.Mode = AddrModeFlat;
+					frame.AddrStack.Offset = ctxBuf.x64.Esp;
+					frame.AddrStack.Mode = AddrModeFlat;
+#endif
+					pCtx = &ctxBuf.x64;
+				}
+
+				char szTid[32] = "";
+				sprintf_s(szTid, "tid=%u:", (unsigned)nTid);
+				sOut += szTid;
+
+				for (int f = 0; f < nMaxFrames; ++f)
+				{
+					if (!api.pStackWalk64(dwMachine, hProc, hThread, &frame, pCtx,
+						ReadProcMemRoutine, api.pFuncTable, api.pGetModBase, NULL))
+						break;
+					if (frame.AddrPC.Offset == 0)
+						break;
+
+					DWORD64 nModBase = api.pGetModBase(hProc, frame.AddrPC.Offset);
+					if (nModBase != 0 && pGetMapped &&
+						pGetMapped(hProc, (LPVOID)(ULONG_PTR)nModBase, wszPath, MAX_PATH) > 0)
+					{
+						std::wstring ws(wszPath);
+						size_t nSlash = ws.find_last_of(L"\\/");
+						std::string sMod;
+						std::wstring wsBase = (nSlash == std::wstring::npos) ? ws : ws.substr(nSlash + 1);
+						sMod.reserve(wsBase.size());
+						for (wchar_t wc : wsBase)
+							sMod.push_back((char)wc);
+						sprintf_s(szFrame, "%s+%llx", sMod.c_str(),
+							(unsigned long long)(frame.AddrPC.Offset - nModBase));
+					}
+					else
+					{
+						sprintf_s(szFrame, "0x%llx", (unsigned long long)frame.AddrPC.Offset);
+					}
+					sOut += szFrame;
+					sOut += ',';
+					if (sOut.size() > c_nMaxChars)
+						break;
+				}
+				if (!sOut.empty() && sOut.back() == ',')
+					sOut.back() = ';';
+
+				::ResumeThread(hThread);
+				::CloseHandle(hThread);
+				if (sOut.size() > c_nMaxChars)
+					break;
+			}
+
+			api.pSymCleanup(hProc);
+		}
+		catch (...)
+		{
+		}
+
+		if (sOut.size() > c_nMaxChars)
+			sOut.resize(c_nMaxChars);
+		return sOut;
 	}
 
 	// Forward enriched event to Owlyshield FastDetect ML engine
@@ -1896,6 +2192,18 @@ void EventEnricher::put(const Variant& vEventRef)
 			}
 			catch (...) {}
 			std::string sThreatName = "THREAT_BASE_TYPE_" + std::to_string(nBaseType);
+			// Capture-on-alert thread stacks (hooksuz/ETWsiz, Process-Hacker style).
+			// Attached to the event, flows into training JSON via whole-event serialize.
+			if (nShieldPid > 0 && nShieldPid < 0xFFFFFFFF && IsThreadStackCaptureEnabled())
+			{
+				try
+				{
+					std::string sStacks = CaptureThreadStacks((uint32_t)nShieldPid);
+					if (!sStacks.empty())
+						vEvent.put("threadStacks", sStacks);
+				}
+				catch (...) {}
+			}
 			handleThreatRemediation(nShieldPid, sImage, sThreatName);
 		}
 	}

@@ -289,6 +289,8 @@ pub mod worker_instance {
 
         dynamic_hook_registration_blocked: bool,
 
+        ptm_hook_ids_loaded: bool,
+
         dynamic_hook_last_refresh: std::collections::HashMap<u32, std::time::Instant>,
 
         dynamic_hook_apply_failures: std::collections::HashMap<u32, u32>,
@@ -547,6 +549,8 @@ pub mod worker_instance {
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
 
                 dynamic_hook_registration_blocked: false,
+
+                ptm_hook_ids_loaded: false,
 
                 dynamic_hook_last_refresh: std::collections::HashMap::new(),
 
@@ -953,6 +957,8 @@ pub mod worker_instance {
                 next_dynamic_hook_event_id: Self::DYNAMIC_HOOK_EVENT_ID_START,
 
                 dynamic_hook_registration_blocked: false,
+
+                ptm_hook_ids_loaded: false,
 
                 dynamic_hook_last_refresh: std::collections::HashMap::new(),
 
@@ -1416,6 +1422,9 @@ pub mod worker_instance {
         }
 
         /// Monitor every user-mode API exposed to the driver, if MONITOR_ALL_APIS is enabled.
+        /// Otherwise fall back to the rule-driven baseline: the same ptm.local.src
+        /// cryptoApiList the OpenEDR driver registrar hooks, so name resolution
+        /// works with no flag at all.
         /// The driver cannot match a wildcard module/function, so instead of registering the
         /// non-functional "*!*" spec we enumerate every DLL currently loaded in the process and
         /// emit a concrete `module!function` spec for each exported API (resolved via goblin).
@@ -1423,8 +1432,141 @@ pub mod worker_instance {
             if crate::config::is_monitor_all_apis_enabled() {
                 self.enumerate_all_exported_api_specs(pid)
             } else {
-                vec![]
+                Self::ptm_crypto_api_list()
             }
+        }
+
+        /// Max hook targets, mirroring the C++ registrar (driver table is bounded).
+        const PTM_HOOK_MAX_TARGETS: usize = 512;
+
+        /// Load the ptm.local.src cryptoApiList in file order (mirrors the C++
+        /// hookmgr registrar, so event ids 0x6000+i stay in sync on both sides).
+        /// Cached process-wide; empty when the policy file is missing/unparseable
+        /// (falls back to the old skip behavior).
+        fn ptm_crypto_api_list() -> Vec<String> {
+            static CACHE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+            CACHE
+                .get_or_init(|| {
+                    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+                    if let Ok(exe) = std::env::current_exe() {
+                        if let Some(dir) = exe.parent() {
+                            candidates.push(dir.join("ptm.local.src"));
+                        }
+                    }
+                    candidates.push(std::path::PathBuf::from(
+                        r"C:\Program Files\HydraDragonAntivirus\OpenEDR\ptm.local.src",
+                    ));
+                    candidates.push(std::path::PathBuf::from("ptm.local.src"));
+                    for path in candidates {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            let specs = Self::extract_ptm_api_list(&content);
+                            if !specs.is_empty() {
+                                return specs;
+                            }
+                        }
+                    }
+                    Vec::new()
+                })
+                .clone()
+        }
+
+        /// Targeted scan for `"cryptoApiList": [ "mod!func", ... ]`, mirroring
+        /// controller.cpp::extractApiList (same order => same 0x6000+i ids).
+        /// Bracket-matched with string awareness, so brackets or // inside
+        /// literals and //-comments elsewhere cannot confuse it.
+        fn extract_ptm_api_list(content: &str) -> Vec<String> {
+            const KEY: &str = "\"cryptoApiList\"";
+            let mut out: Vec<String> = Vec::new();
+            let Some(key_pos) = content.find(KEY) else {
+                return out;
+            };
+            let bytes = content.as_bytes();
+            let mut i = key_pos + KEY.len();
+            let mut started = false;
+            while i < bytes.len() {
+                if bytes[i] == b'[' {
+                    started = true;
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            if !started {
+                return out;
+            }
+            let mut depth: usize = 1;
+            let mut cur = String::new();
+            let mut in_str = false;
+            let mut esc = false;
+            while i < bytes.len() && depth > 0 && out.len() < Self::PTM_HOOK_MAX_TARGETS {
+                let c = bytes[i];
+                if in_str {
+                    if esc {
+                        cur.push(c as char);
+                        esc = false;
+                    } else if c == b'\\' {
+                        esc = true;
+                    } else if c == b'"' {
+                        in_str = false;
+                        if let Some(bang) = cur.find('!') {
+                            if bang > 0 && bang + 1 < cur.len() {
+                                out.push(cur.clone());
+                            }
+                        }
+                        cur.clear();
+                    } else {
+                        cur.push(c as char);
+                    }
+                    i += 1;
+                    continue;
+                }
+                if c == b'"' {
+                    in_str = true;
+                    cur.clear();
+                } else if c == b'[' {
+                    depth += 1;
+                } else if c == b']' {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                i += 1;
+            }
+            out
+        }
+
+        /// Pre-map the ptm list to 0x6000+i (mirroring the C++ registrar order)
+        /// so incoming driver hook events resolve even when MONITOR_ALL_APIS
+        /// is off. Idempotent; runs once. The per-PID loop then sees them as
+        /// already-registered (cheap) and ids stay in sync no matter what
+        /// allocates first.
+        fn ensure_ptm_hook_ids(&mut self) {
+            if self.ptm_hook_ids_loaded {
+                return;
+            }
+            self.ptm_hook_ids_loaded = true;
+            let specs = Self::ptm_crypto_api_list();
+            if specs.is_empty() {
+                return;
+            }
+            let mut mapped = 0usize;
+            for (idx, spec) in specs.iter().enumerate() {
+                let event_id = Self::DYNAMIC_HOOK_EVENT_ID_START.saturating_add(idx as u32);
+                if self.dynamic_hook_event_map.contains_key(&event_id) {
+                    continue;
+                }
+                self.dynamic_hook_event_map.insert(event_id, spec.clone());
+                self.dynamic_registered_apis.insert(spec.to_ascii_lowercase());
+                mapped += 1;
+            }
+            self.next_dynamic_hook_event_id = self.next_dynamic_hook_event_id.max(
+                Self::DYNAMIC_HOOK_EVENT_ID_START.saturating_add(specs.len() as u32),
+            );
+            Logging::info(&format!(
+                "[DYNAMIC HOOK] Pre-mapped {} ptm.local.src cryptoApiList target(s) (0x6000+order, no MONITOR_ALL_APIS needed)",
+                mapped
+            ));
         }
 
         /// Enumerate every module loaded in `pid` and collect a concrete `module!function`
@@ -1581,6 +1723,10 @@ pub mod worker_instance {
             if self.dynamic_hook_registration_blocked {
                 return;
             }
+
+            // Rule baseline first: pre-map the ptm list so ids stay in sync
+            // even when MONITOR_ALL_APIS is off (driver hooks them regardless).
+            self.ensure_ptm_hook_ids();
 
             // NOTE: driver calls are owned by OpenEDR (edrsvc/libsysmon), not
             // by owlyshield. This side only maintains the event-id map
