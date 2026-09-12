@@ -427,6 +427,12 @@ namespace {
 		// Record formatted killchain sequence line
 		stream << "{\"time\":\"" << szTime << "\",\"exe\":\"" << sExePath << "\",\"event\":\""
 		       << sEventType << "\",\"details\":\"" << sDetails << "\",\"raw\":" << sJson << "}\n";
+
+		// Heartbeat: proves from logs that training is actually recording.
+		static std::atomic<uint64_t> s_nTrainingWrites{ 0 };
+		const uint64_t nWrites = s_nTrainingWrites.fetch_add(1, std::memory_order_relaxed) + 1;
+		if (nWrites == 1 || nWrites % 100 == 0)
+			LOGINF(FMT("training: recorded " << nWrites << " event(s) to training_data"));
 	}
 
 	// Append a JSON line into ProgramData\edrsvc\log\output_events\
@@ -1632,7 +1638,13 @@ void EventEnricher::start()
 	}
 	m_fInitialized = true;
 
-	LOGLVL(Detailed, "Event Enricher is started");
+	// One-line training diagnosis at startup: gates are re-read every 2-3s,
+	// so this reflects the registry at service start.
+	LOGINF(FMT("Event Enricher is started (trainingMode="
+		<< (IsTrainingModeEnabled() ? "ON" : "OFF")
+		<< " watchDir=<" << GetTrainingWatchDir() << ">"
+		<< " watchDllDir=<" << GetTrainingWatchDllDir() << ">"
+		<< " threadStacks=" << (IsThreadStackCaptureEnabled() ? "ON" : "OFF") << ")"));
 	TRACE_END("Fail to start Event Enricher");
 }
 
