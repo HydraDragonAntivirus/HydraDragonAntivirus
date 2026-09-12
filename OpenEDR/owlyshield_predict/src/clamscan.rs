@@ -225,6 +225,20 @@ pub fn verdict_scan_file(path: &Path) -> Option<i32> {
     }
 }
 
+/// Named variant of [`verdict_scan_file`]: first hit's signature name.
+/// Same budget/cap semantics; `None` when there is no verdict.
+pub(crate) fn verdict_scan_file_named(path: &Path) -> Option<String> {
+    let engine = global_engine()?;
+    let options = ScanOptions::default();
+    let len = std::fs::metadata(path).ok()?.len();
+    if len > options.max_child_size as u64 {
+        return None;
+    }
+    let data = crate::utils::read_file_shared(path).ok()?;
+    let (matches, _timing) = scan_deep(engine, &data, &path.display().to_string(), options, &[]);
+    matches.first().map(|m| format!("ClamAV:{}", m.name))
+}
+
 /// Extractor format tag → engine parent-container tag (extractor vocabulary:
 /// `"zip"`, `"gz"`, …). Formats the engine cannot map yield `None`: their
 /// children are still content-scanned, but container-gated signatures stay

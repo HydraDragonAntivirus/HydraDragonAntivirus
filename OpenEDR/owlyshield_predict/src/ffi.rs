@@ -425,25 +425,17 @@ const EICAR_SHA1_HEX: &str = "3395856ce81f2b7382dee72602f798b642f14140";
 const ML_THRESHOLD: f32 = 0.875;
 const MAX_ML_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Static-indicator file verdict: EICAR, vendor signatures, ClamAV content
-/// signatures (+ archives), PE/JS ML models.
-/// `path_ptr`/`path_len`: UTF-16 path (WCHAR count, no NUL).
-/// Returns 2=malicious, 1=safe (trusted signer), 0=unknown, -1=bad arguments.
-/// No cloud, no execution. Used by the C++ local-verdict path.
-#[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i32 {
-    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
-        return -1;
-    }
-    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
-    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
+/// Static-indicator file verdict with detection NAME (EICAR-Test-File,
+/// Signer:{name}, ML model detection name, ClamAV:{sig}).
+/// Shared by both scan exports so verdict and name can never disagree.
+fn scan_file_named(path_buf: &std::path::PathBuf) -> (i32, String) {
     if !path_buf.is_file() {
-        return 0;
+        return (0, String::new());
     }
 
-    if let Ok(meta) = std::fs::metadata(&path_buf) {
+    if let Ok(meta) = std::fs::metadata(path_buf) {
         if matches!(meta.len(), 68 | 69 | 70) {
-            if let Ok(bytes) = std::fs::read(&path_buf) {
+            if let Ok(bytes) = std::fs::read(path_buf) {
                 let body = bytes
                     .strip_prefix(EICAR_STR.as_bytes())
                     .unwrap_or(&bytes[..]);
@@ -452,33 +444,33 @@ pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i
                     && body.iter().all(|&b| b == b'\r' || b == b'\n')
                     || bytes.as_slice() == EICAR_STR.as_bytes();
                 if is_eicar {
-                    return 2;
+                    return (2, "EICAR-Test-File".to_string());
                 }
                 if meta.len() == 68 {
                     use sha1::Digest;
                     let mut hasher = sha1::Sha1::new();
                     hasher.update(&bytes);
                     if hex::encode(hasher.finalize()) == EICAR_SHA1_HEX {
-                        return 2;
+                        return (2, "EICAR-Test-File".to_string());
                     }
                 }
             }
         }
     }
 
-    let sig_info = crate::signature_verification::verify_signature(&path_buf);
+    let sig_info = crate::signature_verification::verify_signature(path_buf);
     if let Some(signer) = sig_info.signer_name {
         if crate::signer_rules::is_malicious_vendor(&signer)
             || crate::signer_rules::is_pua_vendor(&signer)
         {
-            return 2;
+            return (2, format!("Signer:{signer}"));
         }
         if sig_info.is_trusted && crate::signer_rules::is_trusted_signer(&signer) {
-            return 1;
+            return (1, String::new());
         }
     }
 
-    if let Ok(bytes) = std::fs::read(&path_buf) {
+    if let Ok(bytes) = std::fs::read(path_buf) {
         if (bytes.len() as u64) <= MAX_ML_BYTES {
             let device = burn::backend::ndarray::NdArrayDevice::default();
             // File typing comes from the ClamAV engine (single authority) —
@@ -487,7 +479,10 @@ pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i
                 if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
                     if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
                         if prob > ML_THRESHOLD {
-                            return 2;
+                            return (
+                                2,
+                                crate::ml::fast_detect::PE_ML_DETECTION_NAME.to_string(),
+                            );
                         }
                     }
                 }
@@ -499,7 +494,10 @@ pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i
                             crate::ml::inference::predict_js(content, model, &device)
                         {
                             if prob > ML_THRESHOLD {
-                                return 2;
+                                return (
+                                    2,
+                                    crate::ml::fast_detect::JS_ML_DETECTION_NAME.to_string(),
+                                );
                             }
                         }
                     }
@@ -512,11 +510,57 @@ pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i
     // precise and content-typed, runs for EVERY file type — not just MZ/JS.
     // Any hit is a real verdict. No database installed -> skipped
     // transparently, verdict stays 0 (unknown) as before.
-    if let Some(v) = crate::clamscan::verdict_scan_file(&path_buf) {
-        return v;
+    if let Some(name) = crate::clamscan::verdict_scan_file_named(path_buf) {
+        return (2, name);
     }
 
-    0
+    (0, String::new())
+}
+
+/// Static-indicator file verdict: EICAR, vendor signatures, ClamAV content
+/// signatures (+ archives), PE/JS ML models.
+/// `path_ptr`/`path_len`: UTF-16 path (WCHAR count, no NUL).
+/// `name_buf`/`name_cap`: UTF-16 detection-name output (WCHAR count incl.
+/// NUL); left empty unless verdict is malicious.
+/// Returns 2=malicious, 1=safe (trusted signer), 0=unknown, -1=bad arguments.
+/// No cloud, no execution. Used by the C++ local-verdict path.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_scan_file_name(
+    path_ptr: *const u16,
+    path_len: u32,
+    name_buf: *mut u16,
+    name_cap: u32,
+) -> i32 {
+    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
+        return -1;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
+    let (verdict, name) = scan_file_named(&path_buf);
+    if verdict == 2 && !name.is_empty() && !name_buf.is_null() && name_cap > 1 {
+        let mut wide: Vec<u16> = name.encode_utf16().collect();
+        wide.truncate((name_cap as usize).saturating_sub(1));
+        unsafe {
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), name_buf, wide.len());
+            *name_buf.add(wide.len()) = 0;
+        }
+    }
+    verdict
+}
+
+/// Static-indicator file verdict: EICAR, vendor signatures, ClamAV content
+/// signatures (+ archives), PE/JS ML models.
+/// `path_ptr`/`path_len`: UTF-16 path (WCHAR count, no NUL).
+/// Returns 2=malicious, 1=safe (trusted signer), 0=unknown, -1=bad arguments.
+/// No cloud, no execution. Used by the C++ local-verdict path.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i32 {
+    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
+        return -1;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
+    scan_file_named(&path_buf).0
 }
 
 #[cfg(test)]
