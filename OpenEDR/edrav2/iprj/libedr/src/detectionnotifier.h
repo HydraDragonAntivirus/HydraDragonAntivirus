@@ -77,6 +77,13 @@ public:
 	///
 	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut);
 
+	///
+	/// True while protection actions are paused (HKLM\SOFTWARE\Owlyshield!PROTECTION_PAUSED).
+	/// Monitoring, telemetry and training recording keep running; only
+	/// remediation/quarantine/kill actions are suppressed.
+	///
+	static bool isProtectionPaused();
+
 	// ICommandProcessor
 
 	/// @copydoc ICommandProcessor::execute(Variant,Variant)

@@ -127,6 +127,38 @@ namespace {
 		return NtPathToDosPath(p);
 	}
 
+	// JSON string escape for narrow (UTF-8/ANSI) input: backslash, quotes,
+	// control chars. Paths like C:\system32 contain \s which is an INVALID
+	// JSON escape when written raw (broke 6030/6031 lines of one dataset).
+	std::string JsonEscapeA(const std::string& sIn)
+	{
+		std::string out;
+		out.reserve(sIn.size() + 16);
+		char szBuf[8];
+		for (unsigned char c : sIn)
+		{
+			switch (c)
+			{
+			case '"': out += "\\\""; break;
+			case '\\': out += "\\\\"; break;
+			case '\b': out += "\\b"; break;
+			case '\f': out += "\\f"; break;
+			case '\n': out += "\\n"; break;
+			case '\r': out += "\\r"; break;
+			case '\t': out += "\\t"; break;
+			default:
+				if (c < 0x20)
+				{
+					sprintf_s(szBuf, "\\u%04x", (unsigned)c);
+					out += szBuf;
+				}
+				else
+					out += (char)c;
+			}
+		}
+		return out;
+	}
+
 	// JSON string escape (backslash, quotes, control chars)
 	std::string JsonEscape(const std::wstring& wsIn)
 	{
@@ -424,9 +456,10 @@ namespace {
 		char szTime[32] = "";
 		sprintf_s(szTime, "%02u:%02u:%02u.%03u", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
 
-		// Record formatted killchain sequence line
-		stream << "{\"time\":\"" << szTime << "\",\"exe\":\"" << sExePath << "\",\"event\":\""
-		       << sEventType << "\",\"details\":\"" << sDetails << "\",\"raw\":" << sJson << "}\n";
+		// Record formatted killchain sequence line (fields JSON-escaped:
+		// raw Windows paths contain \s \t etc. which are invalid escapes raw).
+		stream << "{\"time\":\"" << szTime << "\",\"exe\":\"" << JsonEscapeA(sExePath) << "\",\"event\":\""
+		       << JsonEscapeA(sEventType) << "\",\"details\":\"" << JsonEscapeA(sDetails) << "\",\"raw\":" << sJson << "}\n";
 
 		// Heartbeat: proves from logs that training is actually recording.
 		static std::atomic<uint64_t> s_nTrainingWrites{ 0 };
@@ -1323,8 +1356,11 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				// Remember detection in persistent DB & driver block list
 				DetectionNotifier::recordMalwareDetection(dos, "");
 
-				// File rollback / remediation
-				handleThreatRemediation(nPid, L"", sThreat);
+				// File rollback / remediation (skipped while protection is
+				// paused so training runs keep samples alive; verdicts,
+				// telemetry and training recording continue).
+				if (!DetectionNotifier::isProtectionPaused())
+					handleThreatRemediation(nPid, L"", sThreat);
 
 				// Send instant alert to Pascal GUI
 				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
@@ -2216,7 +2252,10 @@ void EventEnricher::put(const Variant& vEventRef)
 				}
 				catch (...) {}
 			}
-			handleThreatRemediation(nShieldPid, sImage, sThreatName);
+			// Paused protection keeps samples alive for training runs:
+			// remediation/rollback skipped, capture + recording continue.
+			if (!DetectionNotifier::isProtectionPaused())
+				handleThreatRemediation(nShieldPid, sImage, sThreatName);
 		}
 	}
 	catch (...)

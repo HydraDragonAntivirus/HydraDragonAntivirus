@@ -830,6 +830,11 @@ static int mergeLocalVerdict(int enriched, const std::string& sPath, const std::
 	return v;
 }
 
+bool DetectionNotifier::isProtectionPaused()
+{
+	return s_fProtectionPaused.load(std::memory_order_relaxed);
+}
+
 Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	TRACE_BEGIN;
 	using variant::getByPathSafe;
