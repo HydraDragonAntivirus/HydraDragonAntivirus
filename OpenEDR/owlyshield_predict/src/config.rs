@@ -32,16 +32,54 @@ pub fn is_trust_comodo_cloud_enabled() -> bool {
     TRUST_COMODO_CLOUD.load(Ordering::Relaxed)
 }
 
-static MONITOR_ALL_APIS: AtomicBool = AtomicBool::new(false);
+static MONITOR_ALL_APIS_ENABLED: AtomicBool = AtomicBool::new(true);
+static MONITOR_ALL_APIS_TARGET_DIR: std::sync::RwLock<Option<String>> =
+    std::sync::RwLock::new(None);
 
 pub fn init_monitor_all_apis() {
     let val = ConfigReader::read_param_from_registry("MONITOR_ALL_APIS", r"SOFTWARE\Owlyshield");
-    let clean = val.trim_matches('\0').trim().to_lowercase();
-    MONITOR_ALL_APIS.store(clean == "1" || clean == "true", Ordering::Relaxed);
+    let clean = val.trim_matches('\0').trim();
+
+    if clean.eq_ignore_ascii_case("0") || clean.eq_ignore_ascii_case("false") {
+        MONITOR_ALL_APIS_ENABLED.store(false, Ordering::Relaxed);
+        let mut lock = MONITOR_ALL_APIS_TARGET_DIR.write().unwrap();
+        *lock = None;
+    } else {
+        MONITOR_ALL_APIS_ENABLED.store(true, Ordering::Relaxed);
+        let dir = if clean.is_empty()
+            || clean.eq_ignore_ascii_case("1")
+            || clean.eq_ignore_ascii_case("true")
+        {
+            r"C:\Windows".to_string()
+        } else {
+            clean.to_string()
+        };
+        let mut lock = MONITOR_ALL_APIS_TARGET_DIR.write().unwrap();
+        *lock = Some(dir);
+    }
 }
 
 pub fn is_monitor_all_apis_enabled() -> bool {
-    MONITOR_ALL_APIS.load(Ordering::Relaxed)
+    MONITOR_ALL_APIS_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn get_monitor_all_apis_target_dir() -> String {
+    MONITOR_ALL_APIS_TARGET_DIR
+        .read()
+        .unwrap()
+        .clone()
+        .unwrap_or_else(|| r"C:\Windows".to_string())
+}
+
+/// Checks if a given DLL or module path matches the MONITOR_ALL_APIS target directory.
+pub fn is_path_monitored_for_apis(path_str: &str) -> bool {
+    if !is_monitor_all_apis_enabled() {
+        return false;
+    }
+    let target = get_monitor_all_apis_target_dir();
+    let norm_target = target.replace('/', "\\").to_lowercase();
+    let norm_path = path_str.replace('/', "\\").to_lowercase();
+    norm_path.starts_with(&norm_target)
 }
 
 #[derive(Debug, EnumIter, PartialEq, Eq, Hash, Clone)]

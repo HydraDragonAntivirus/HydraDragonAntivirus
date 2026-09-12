@@ -1599,7 +1599,7 @@ pub mod worker_instance {
                         .unwrap_or(me.szExePath.len());
                     String::from_utf16_lossy(&me.szExePath[..len])
                 };
-                if !path.is_empty() {
+                if !path.is_empty() && crate::config::is_path_monitored_for_apis(&path) {
                     Self::collect_export_specs_from_dll(&path, &mut specs);
                 }
                 more = unsafe { Module32NextW(snapshot, &mut me).as_bool() };
@@ -1633,7 +1633,7 @@ pub mod worker_instance {
         }
 
         fn hook_all_apis_in_dll(&mut self, dll_path: &str, pid: u32) {
-            if !crate::config::is_monitor_all_apis_enabled() {
+            if !crate::config::is_path_monitored_for_apis(dll_path) {
                 return;
             }
 
