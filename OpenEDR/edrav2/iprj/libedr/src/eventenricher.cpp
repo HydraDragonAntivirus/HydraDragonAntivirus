@@ -1215,6 +1215,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 	static HMODULE s_hOwlyDll = nullptr;
 	typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
 	static RtEnqueueUtf8Fn s_fnEnqueue = nullptr;
+	typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+	static QuarantineFn s_fnQuarantine = nullptr;
 	static std::once_flag s_initFlag;
 
 	std::call_once(s_initFlag, []() {
@@ -1236,6 +1238,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		if (s_hOwlyDll != nullptr)
 		{
 			s_fnEnqueue = (RtEnqueueUtf8Fn)::GetProcAddress(s_hOwlyDll, "owlyshield_rt_enqueue_utf8");
+			s_fnQuarantine = (QuarantineFn)::GetProcAddress(s_hOwlyDll, "owlyshield_dll_quarantine_file");
 		}
 	});
 
@@ -1353,6 +1356,22 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 
 			if (bShouldAlert)
 			{
+				// Quarantine the detected malicious file FIRST, before driver block or rollback deletes it!
+				if (!DetectionNotifier::isProtectionPaused() && s_fnQuarantine != nullptr)
+				{
+					int32_t qRes = s_fnQuarantine(
+						reinterpret_cast<const uint8_t*>(dos.data()),
+						static_cast<uint32_t>(dos.size()));
+					if (qRes == 0)
+					{
+						LOGLVL(Critical, FMT("enricher: successfully quarantined detected malware <" << dos << ">"));
+					}
+					else
+					{
+						LOGLVL(Critical, FMT("enricher: quarantine failed for <" << dos << "> result=" << qRes));
+					}
+				}
+
 				// Remember detection in persistent DB & driver block list
 				DetectionNotifier::recordMalwareDetection(dos, "");
 

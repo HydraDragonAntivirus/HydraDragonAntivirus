@@ -922,9 +922,18 @@ impl ActionOnKill for KillAction {
                     &quarantine_metadata,
                 );
             } else if threat_info.kill_and_remove {
-                Logging::info(&format!("[ActionOnKill] Kill and Remove: {}", proc.appname));
-                self.handler
-                    .kill_and_remove(proc.gid, proc.primary_remediation_path());
+                Logging::info(&format!(
+                    "[ActionOnKill] Kill and Remove redirected to Kill and Quarantine: {}",
+                    proc.appname
+                ));
+                let quarantine_metadata = QuarantineMetadata {
+                    detection: quarantine_detection_label(proc, threat_info),
+                };
+                self.handler.kill_and_quarantine(
+                    proc.gid,
+                    proc.primary_remediation_path(),
+                    &quarantine_metadata,
+                );
             } else {
                 Logging::info(&format!("[ActionOnKill] Terminating: {}", proc.appname));
                 self.handler.kill(proc.gid);
