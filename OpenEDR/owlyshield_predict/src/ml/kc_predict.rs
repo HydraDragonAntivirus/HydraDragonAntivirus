@@ -386,90 +386,143 @@ pub fn label_event(_exe: &str, raw: &Value) -> u8 {
     0
 }
 
-pub struct KcModel {
-    index: HashMap<String, usize>,
-    mu: Vec<f32>,
-    sd: Vec<f32>,
-    threshold: f32,
+
+
+/// Tri-state verdict from the hybrid killchain engine
+#[derive(Debug, Clone, PartialEq)]
+pub enum KcVerdict {
+    /// Recognized benign behavior profile (White list)
+    Benign { distance: f32 },
+    /// Recognized malware killchain profile (Black list) -> Kill and Quarantine
+    Malicious { distance: f32, confidence: f32 },
+    /// Unknown anomaly -> Forward to Firewall / HIPS engine
+    UnknownToHips {
+        benign_dist: f32,
+        malware_dist: f32,
+        reason: String,
+    },
 }
 
-impl KcModel {
+/// Dual-centroid hybrid classifier & anomaly scorer.
+/// Distinguishes known clean, known malware, and routes unknown behavior to HIPS.
+pub struct KcHybridModel {
+    index: HashMap<String, usize>,
+    mu_benign: Vec<f32>,
+    sd_benign: Vec<f32>,
+    mu_malware: Vec<f32>,
+    sd_malware: Vec<f32>,
+    benign_threshold: f32,
+    malware_threshold: f32,
+}
+
+impl KcHybridModel {
     pub fn load_json(path: &str) -> Result<Self, String> {
         let text =
             std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
         let v: Value =
             serde_json::from_str(&text).map_err(|e| format!("parse {path}: {e}"))?;
-        if v.get("kind").and_then(|k| k.as_str()) != Some("centroid") {
-            return Err("kc_model.json: unexpected kind (want centroid)".to_string());
+        if v.get("kind").and_then(|k| k.as_str()) != Some("hybrid_centroid") {
+            return Err("kc_hybrid_model.json: unexpected kind (want hybrid_centroid)".to_string());
         }
         let vocab: Vec<String> = v
             .get("vocab")
             .and_then(|x| x.as_array())
-            .ok_or("kc_model.json: missing vocab")?
+            .ok_or("kc_hybrid_model.json: missing vocab")?
             .iter()
             .filter_map(|x| x.as_str().map(|s| s.to_string()))
             .collect();
-        let mu: Vec<f32> = v
-            .get("mu")
+        let mu_benign: Vec<f32> = v
+            .get("mu_benign")
             .and_then(|x| x.as_array())
-            .ok_or("kc_model.json: missing mu")?
+            .ok_or("kc_hybrid_model.json: missing mu_benign")?
             .iter()
             .map(|x| x.as_f64().unwrap_or(0.0) as f32)
             .collect();
-        let sd: Vec<f32> = v
-            .get("sd")
+        let sd_benign: Vec<f32> = v
+            .get("sd_benign")
             .and_then(|x| x.as_array())
-            .ok_or("kc_model.json: missing sd")?
+            .ok_or("kc_hybrid_model.json: missing sd_benign")?
             .iter()
             .map(|x| x.as_f64().unwrap_or(1.0) as f32)
             .collect();
-        let threshold = v
+        let mu_malware: Vec<f32> = v
+            .get("mu_malware")
+            .and_then(|x| x.as_array())
+            .ok_or("kc_hybrid_model.json: missing mu_malware")?
+            .iter()
+            .map(|x| x.as_f64().unwrap_or(0.0) as f32)
+            .collect();
+        let sd_malware: Vec<f32> = v
+            .get("sd_malware")
+            .and_then(|x| x.as_array())
+            .ok_or("kc_hybrid_model.json: missing sd_malware")?
+            .iter()
+            .map(|x| x.as_f64().unwrap_or(1.0) as f32)
+            .collect();
+        let benign_threshold = v
             .get("meta")
-            .and_then(|m| m.get("threshold"))
+            .and_then(|m| m.get("benign_threshold"))
             .and_then(|t| t.as_f64())
-            .ok_or("kc_model.json: missing meta.threshold")?
-            as f32;
-        if vocab.len() != mu.len() || vocab.len() != sd.len() {
-            return Err("kc_model.json: vocab/mu/sd length mismatch".to_string());
-        }
+            .unwrap_or(275.0) as f32;
+        let malware_threshold = v
+            .get("meta")
+            .and_then(|m| m.get("malware_threshold"))
+            .and_then(|t| t.as_f64())
+            .unwrap_or(130.0) as f32;
+
         let mut index = HashMap::with_capacity(vocab.len());
         for (i, k) in vocab.iter().enumerate() {
             index.insert(k.clone(), i);
         }
         Ok(Self {
             index,
-            mu,
-            sd,
-            threshold,
+            mu_benign,
+            sd_benign,
+            mu_malware,
+            sd_malware,
+            benign_threshold,
+            malware_threshold,
         })
     }
 
-    pub fn n_features(&self) -> usize {
-        self.mu.len()
-    }
-
-    pub fn threshold(&self) -> f32 {
-        self.threshold
-    }
-
-    /// Anomaly score sum(|x - mu| / sd) on the burn NdArray backend.
-    pub fn score(&self, feats: &HashMap<String, f32>) -> f32 {
-        let device = NdArrayDevice::default();
-        let n = self.mu.len();
+    /// Evaluates event features into a Tri-State KcVerdict
+    pub fn evaluate(&self, feats: &HashMap<String, f32>) -> KcVerdict {
+        let n = self.index.len();
         let mut x = vec![0f32; n];
         for (k, v) in feats {
             if let Some(&i) = self.index.get(k) {
                 x[i] += v;
             }
         }
+        let device = NdArrayDevice::default();
         let xv = Tensor::<InferBackend, 1>::from_floats(x.as_slice(), &device).reshape([n, 1]);
-        let mu = Tensor::<InferBackend, 1>::from_floats(self.mu.as_slice(), &device).reshape([n, 1]);
-        let sd = Tensor::<InferBackend, 1>::from_floats(self.sd.as_slice(), &device).reshape([n, 1]);
-        let z = (xv - mu) / sd;
-        z.abs().sum().into_scalar()
-    }
 
-    pub fn predict(&self, feats: &HashMap<String, f32>) -> u8 {
-        u8::from(self.score(feats) >= self.threshold)
+        let mu_b = Tensor::<InferBackend, 1>::from_floats(self.mu_benign.as_slice(), &device).reshape([n, 1]);
+        let sd_b = Tensor::<InferBackend, 1>::from_floats(self.sd_benign.as_slice(), &device).reshape([n, 1]);
+        let dist_b: f32 = ((xv.clone() - mu_b) / sd_b).abs().sum().into_scalar();
+
+        let mu_m = Tensor::<InferBackend, 1>::from_floats(self.mu_malware.as_slice(), &device).reshape([n, 1]);
+        let sd_m = Tensor::<InferBackend, 1>::from_floats(self.sd_malware.as_slice(), &device).reshape([n, 1]);
+        let dist_m: f32 = ((xv - mu_m) / sd_m).abs().sum().into_scalar();
+
+        if dist_m <= self.malware_threshold && dist_m < dist_b {
+            let conf = 1.0 - (dist_m / self.malware_threshold).clamp(0.0, 1.0);
+            KcVerdict::Malicious {
+                distance: dist_m,
+                confidence: 0.5 + 0.5 * conf,
+            }
+        } else if dist_b <= self.benign_threshold && dist_b < dist_m {
+            KcVerdict::Benign { distance: dist_b }
+        } else {
+            KcVerdict::UnknownToHips {
+                benign_dist: dist_b,
+                malware_dist: dist_m,
+                reason: format!(
+                    "Anomaly: dist_b={:.1} (thresh={:.1}), dist_m={:.1} (thresh={:.1})",
+                    dist_b, self.benign_threshold, dist_m, self.malware_threshold
+                ),
+            }
+        }
     }
 }
+
