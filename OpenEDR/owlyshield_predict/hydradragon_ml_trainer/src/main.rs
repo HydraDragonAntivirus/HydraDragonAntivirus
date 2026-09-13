@@ -7,6 +7,7 @@ use burn::nn::loss::CrossEntropyLoss;
 use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::record::{FullPrecisionSettings, NamedMpkFileRecorder};
+use burn::tensor::activation;
 use burn::tensor::backend::{AutodiffBackend, BackendTypes};
 use clap::{Parser, Subcommand};
 use rand::rng;
@@ -66,6 +67,10 @@ struct TrainArgs {
     /// Feature extraction worker threads. 0 uses all logical CPU cores.
     #[arg(long, default_value_t = 0)]
     threads: usize,
+
+    /// Validation split ratio (e.g. 0.1 for 10% validation). Set to 0 to disable.
+    #[arg(long, default_value_t = 0.10)]
+    val_split: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -255,7 +260,7 @@ fn train_or_exit(samples: Vec<Sample>, config: MalwareNetConfig, args: TrainArgs
     let malicious = samples.iter().filter(|sample| sample.label == 1).count();
     let benign = samples.len().saturating_sub(malicious);
 
-    eprintln!("samples: {malicious} malicious, {benign} benign");
+    eprintln!("total samples collected: {malicious} malicious, {benign} benign");
     if malicious == 0 || benign == 0 {
         exit_with("need at least one valid malicious and one valid benign sample");
     }
@@ -272,6 +277,7 @@ fn train_or_exit(samples: Vec<Sample>, config: MalwareNetConfig, args: TrainArgs
         args.epochs,
         args.batch_size,
         args.lr,
+        args.val_split,
     );
 
     let output = normalize_output_path(&args.output);
@@ -296,25 +302,91 @@ fn train_or_exit(samples: Vec<Sample>, config: MalwareNetConfig, args: TrainArgs
 
 fn train_model<B: AutodiffBackend>(
     device: B::Device,
-    mut samples: Vec<Sample>,
+    samples: Vec<Sample>,
     config: MalwareNetConfig,
     epochs: usize,
     batch_size: usize,
     lr: f64,
+    val_split: f64,
 ) -> MalwareNet<B> {
+    // Stratified train/validation split
+    let mut benign_samples: Vec<Sample> = Vec::new();
+    let mut mal_samples: Vec<Sample> = Vec::new();
+    for s in samples {
+        if s.label == 1 {
+            mal_samples.push(s);
+        } else {
+            benign_samples.push(s);
+        }
+    }
+
+    let mut rng = rng();
+    benign_samples.shuffle(&mut rng);
+    mal_samples.shuffle(&mut rng);
+
+    let val_split_clamped = val_split.clamp(0.0, 0.5);
+    let val_benign_count = if val_split_clamped > 0.0 && benign_samples.len() > 1 {
+        ((benign_samples.len() as f64 * val_split_clamped).round() as usize)
+            .clamp(1, benign_samples.len() - 1)
+    } else {
+        0
+    };
+    let val_mal_count = if val_split_clamped > 0.0 && mal_samples.len() > 1 {
+        ((mal_samples.len() as f64 * val_split_clamped).round() as usize)
+            .clamp(1, mal_samples.len() - 1)
+    } else {
+        0
+    };
+
+    let mut val_samples: Vec<Sample> = Vec::new();
+    val_samples.extend(benign_samples.drain(..val_benign_count));
+    val_samples.extend(mal_samples.drain(..val_mal_count));
+
+    let train_benign = benign_samples.len();
+    let train_mal = mal_samples.len();
+    eprintln!(
+        "train set: {} samples ({} mal, {} benign) | validation set: {} samples",
+        train_mal + train_benign,
+        train_mal,
+        train_benign,
+        val_samples.len()
+    );
+
+    eprintln!(
+        "balanced batches enabled: 50% malicious / 50% benign per batch step"
+    );
+
+    let loss_fn = CrossEntropyLoss::new(None, &device);
     let mut model = MalwareNet::<B>::new(&config, &device);
     let mut optimizer = AdamConfig::new().init::<B, MalwareNet<B>>();
-    let loss_fn = CrossEntropyLoss::new(None, &device);
+
+    let half_batch = (batch_size / 2).max(1);
+    let max_class_len = train_mal.max(train_benign);
+    let batches_per_epoch = (max_class_len + half_batch - 1) / half_batch;
 
     for epoch in 1..=epochs {
-        samples.shuffle(&mut rng());
+        benign_samples.shuffle(&mut rng);
+        mal_samples.shuffle(&mut rng);
 
-        let mut total_loss = 0.0f64;
-        let mut batches = 0usize;
+        let mut train_loss_sum = 0.0f64;
 
-        for chunk in samples.chunks(batch_size) {
-            let batch_len = chunk.len();
-            let (features, labels) = flatten_batch(chunk, config.input_dim);
+        for batch_idx in 0..batches_per_epoch {
+            let mut batch: Vec<Sample> = Vec::with_capacity(half_batch * 2);
+
+            for i in 0..half_batch {
+                let b_idx = (batch_idx * half_batch + i) % benign_samples.len();
+                batch.push(benign_samples[b_idx].clone());
+            }
+
+            for i in 0..half_batch {
+                let m_idx = (batch_idx * half_batch + i) % mal_samples.len();
+                batch.push(mal_samples[m_idx].clone());
+            }
+
+            batch.shuffle(&mut rng);
+
+            let batch_len = batch.len();
+            let (features, labels) = flatten_batch(&batch, config.input_dim);
 
             let input = Tensor::<B, 1>::from_floats(features.as_slice(), &device)
                 .reshape([batch_len, config.input_dim]);
@@ -330,14 +402,79 @@ fn train_model<B: AutodiffBackend>(
             model = optimizer.step(lr, model, grads);
             model = model.to_device(&device);
 
-            total_loss += f64::from(loss_value);
-            batches += 1;
+            train_loss_sum += f64::from(loss_value);
         }
 
-        eprintln!(
-            "epoch {epoch}/{epochs}: loss {:.6}",
-            total_loss / batches as f64
-        );
+        let avg_train_loss = train_loss_sum / batches_per_epoch.max(1) as f64;
+
+        if val_samples.is_empty() {
+            eprintln!("epoch {epoch}/{epochs}: loss {:.6}", avg_train_loss);
+        } else {
+            let mut val_loss_sum = 0.0f64;
+            let mut val_batches = 0usize;
+            let mut tp = 0usize;
+            let mut fn_cnt = 0usize;
+            let mut tn = 0usize;
+            let mut fp = 0usize;
+
+            for chunk in val_samples.chunks(batch_size) {
+                let batch_len = chunk.len();
+                let (features, labels) = flatten_batch(chunk, config.input_dim);
+
+                let input = Tensor::<B, 1>::from_floats(features.as_slice(), &device)
+                    .reshape([batch_len, config.input_dim]);
+                let targets = Tensor::<B, 1, Int>::from_ints(labels.as_slice(), &device)
+                    .reshape([batch_len]);
+
+                let output = model.forward(input);
+                let loss = loss_fn.forward(output.clone(), targets);
+                let loss_val: f32 = loss.into_scalar().elem();
+                val_loss_sum += f64::from(loss_val);
+                val_batches += 1;
+
+                let probs = activation::softmax(output, 1);
+                let mal_probs: Vec<f32> = probs
+                    .slice([0..batch_len, 1..2])
+                    .reshape([batch_len])
+                    .into_data()
+                    .to_vec()
+                    .unwrap();
+
+                for (mal_prob, &target) in mal_probs.into_iter().zip(labels.iter()) {
+                    let pred = if mal_prob >= 0.50 { 1i64 } else { 0i64 };
+                    match (target, pred) {
+                        (1, 1) => tp += 1,
+                        (1, 0) => fn_cnt += 1,
+                        (0, 0) => tn += 1,
+                        (0, 1) => fp += 1,
+                        _ => {}
+                    }
+                }
+            }
+
+            let total_val = tp + fn_cnt + tn + fp;
+            let val_acc = if total_val > 0 {
+                (tp + tn) as f64 / total_val as f64 * 100.0
+            } else {
+                0.0
+            };
+            let recall = if tp + fn_cnt > 0 {
+                tp as f64 / (tp + fn_cnt) as f64 * 100.0
+            } else {
+                0.0
+            };
+            let fpr = if fp + tn > 0 {
+                fp as f64 / (fp + tn) as f64 * 100.0
+            } else {
+                0.0
+            };
+            let avg_val_loss = val_loss_sum / val_batches.max(1) as f64;
+
+            eprintln!(
+                "epoch {epoch}/{epochs}: loss {:.4} | val_loss {:.4} | val_acc {:.2}% | malware_recall {:.2}% | FPR {:.2}% [TP:{tp} FN:{fn_cnt} TN:{tn} FP:{fp}]",
+                avg_train_loss, avg_val_loss, val_acc, recall, fpr
+            );
+        }
     }
 
     model

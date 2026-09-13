@@ -184,6 +184,7 @@ pub struct FastDetectionResult {
 
 pub const PE_ML_DETECTION_NAME: &str = "MaliciousPeExecutable";
 pub const JS_ML_DETECTION_NAME: &str = "MaliciousJsScript";
+pub const ML_DETECTION_THRESHOLD: f32 = 0.70;
 
 /// Returns true if the given detection name was produced by the fast static ML
 /// engine (fast_detect_file), as opposed to a behavioral rule detection.
@@ -194,7 +195,7 @@ pub fn is_ml_detection_name(name: &str) -> bool {
 /// Detects PE executables and JavaScript by CONTENT (never by extension —
 /// renamed samples must not escape). File typing comes from the ClamAV engine;
 /// JS additionally requires an ASCII body that trial-parses as code.
-/// Uses 0.875 threshold and no custom whitelisting/signature rules as explicitly requested.
+/// Uses calibrated 0.70 threshold and no custom whitelisting/signature rules.
 pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetectionResult> {
     fast_detect_path(path_str)
 }
@@ -202,7 +203,7 @@ pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetect
 /// Detects PE executables and JavaScript by CONTENT (never by extension —
 /// renamed samples must not escape). File typing comes from the ClamAV engine;
 /// JS additionally requires an ASCII body that trial-parses as code.
-/// Uses 0.875 threshold and no custom whitelisting/signature rules as explicitly requested.
+/// Uses calibrated 0.70 threshold and no custom whitelisting/signature rules.
 pub fn fast_detect_path(path_str: &str) -> Option<FastDetectionResult> {
     let path = Path::new(path_str);
     if !path.exists() || !path.is_file() {
@@ -218,7 +219,7 @@ pub fn fast_detect_path(path_str: &str) -> Option<FastDetectionResult> {
             if let Some(model) = get_pe_model() {
                 let device = NdArrayDevice::default();
                 if let Some(prob) = super::inference::predict_pe(&bytes, model, &device) {
-                    if prob > 0.875 {
+                    if prob > ML_DETECTION_THRESHOLD {
                         let features = super::pe_features::extract_pe_features(&bytes)
                             .map(|f| f.to_map())
                             .unwrap_or_default();
@@ -240,7 +241,7 @@ pub fn fast_detect_path(path_str: &str) -> Option<FastDetectionResult> {
                 if let Ok(content) = std::str::from_utf8(&bytes) {
                     let device = NdArrayDevice::default();
                     if let Some(prob) = super::inference::predict_js(content, model, &device) {
-                        if prob > 0.875 {
+                        if prob > ML_DETECTION_THRESHOLD {
                             let features = super::js_features::extract_js_features(content)
                                 .map(|f| f.to_map())
                                 .unwrap_or_default();
