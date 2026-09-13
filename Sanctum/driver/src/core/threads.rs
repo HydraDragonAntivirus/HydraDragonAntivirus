@@ -37,6 +37,12 @@ pub unsafe extern "C" fn thread_callback(
     thread_id: *mut c_void,
     create: BOOLEAN,
 ) {
+    // Only process thread creation (create != 0).
+    // Never manipulate state or register callbacks on exiting threads (create == 0).
+    if create == 0 || pid.is_null() || thread_id.is_null() {
+        return;
+    }
+
     let _pid = pid as u32;
     let _thread_id_u32 = thread_id as u32;
 
@@ -47,7 +53,7 @@ pub fn thread_reg_alt_callbacks(thread_id: *mut c_void) {
     let mut ke_thread: PETHREAD = null_mut();
     let thread_result = unsafe { PsLookupThreadByThreadId(thread_id as HANDLE, &mut ke_thread) };
 
-    if !nt_success(thread_result) {
+    if !nt_success(thread_result) || ke_thread.is_null() {
         println!("[-] [sanctum] Failed to lookup thread ID.");
         return;
     }
@@ -59,6 +65,7 @@ pub fn thread_reg_alt_callbacks(thread_id: *mut c_void) {
                 "[sanctum] [-] Could not get process name on new thread creation. {:?}",
                 e
             );
+            unsafe { ObfDereferenceObject(ke_thread as *mut _) };
             return;
         }
     };

@@ -22,11 +22,10 @@ use windows::{
 /// A vector of the suspended handles
 pub fn suspend_all_threads() -> Vec<HANDLE> {
     // get all thread ID's except the current thread
-    let thread_ids = get_thread_ids();
-    if thread_ids.is_err() {
-        todo!()
-    }
-    let thread_ids = thread_ids.unwrap();
+    let thread_ids = match get_thread_ids() {
+        Ok(ids) => ids,
+        Err(_) => return vec![],
+    };
 
     let mut suspended_handles: Vec<HANDLE> = vec![];
     for id in thread_ids {
@@ -94,6 +93,8 @@ pub fn get_thread_ids() -> Result<Vec<u32>, ()> {
             }
         }
     }
+
+    let _ = unsafe { CloseHandle(snapshot) };
 
     Ok(thread_ids)
 }

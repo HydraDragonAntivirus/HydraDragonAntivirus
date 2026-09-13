@@ -274,10 +274,8 @@ impl AltSyscalls {
         let mut cur_thread: HANDLE = null_mut();
         let mut next_thread: HANDLE = null_mut();
 
-        // Store a vec of handles to be closed after we have completed all operations
-        let mut handles: Vec<HANDLE> = Vec::new();
-
         loop {
+            // ZwGetNextProcess automatically closes the handle passed in cur_proc when acquiring next_proc.
             let result = unsafe {
                 ZwGetNextProcess(
                     cur_proc,
@@ -295,7 +293,9 @@ impl AltSyscalls {
             cur_proc = next_proc;
 
             // Now walk the threads of the process
+            cur_thread = null_mut();
             loop {
+                // ZwGetNextThread automatically closes the handle passed in cur_thread when acquiring next_thread.
                 let result = unsafe {
                     ZwGetNextThread(
                         cur_proc,
@@ -327,15 +327,12 @@ impl AltSyscalls {
                 };
 
                 if !pe_thread.is_null() {
-                    // Before we actually go ahead and set the bits; we wanna check whether the caller is requesting the bits
-                    // set ONLY on certain processes. The below logic will check whether that argument is Some, and if so,
-                    // check the process information to set the bits.
-                    // If it is `None`, we will skip the check and just set all process & thread info
-
+                    // Before we actually go ahead and set the bits; check whether the caller is requesting the bits
+                    // set ONLY on certain processes. If None, set all process & thread info.
                     if let Some(proc_vec) = &isolated_processes {
                         match thread_to_process_name(pe_thread as *mut _) {
                             Ok(current_process_name) => {
-                                for needle in proc_vec.into_iter() {
+                                for needle in proc_vec.iter() {
                                     if current_process_name
                                         .to_lowercase()
                                         .contains(&needle.to_lowercase())
@@ -359,30 +356,16 @@ impl AltSyscalls {
                                     "[sanctum] [-] Unable to get process name to set alt syscall bits on targeted process. {:?}",
                                     e
                                 );
-                                let _ = unsafe { ObfDereferenceObject(pe_thread) };
-                                continue;
                             }
                         }
+                    } else {
+                        Self::configure_thread_for_alt_syscalls(pe_thread as *mut _, status);
+                        Self::configure_process_for_alt_syscalls(pe_thread as *mut _);
                     }
-
-                    Self::configure_thread_for_alt_syscalls(pe_thread as *mut _, status);
-                    Self::configure_process_for_alt_syscalls(pe_thread as *mut _);
 
                     let _ = unsafe { ObfDereferenceObject(pe_thread) };
                 }
-
-                handles.push(cur_thread);
             }
-
-            // Reset so we can walk the threads again on the next process
-            cur_thread = null_mut();
-
-            handles.push(cur_proc);
-        }
-
-        // Close the handles to dec the ref count
-        for handle in handles {
-            let _ = unsafe { ZwClose(handle) };
         }
     }
 }
