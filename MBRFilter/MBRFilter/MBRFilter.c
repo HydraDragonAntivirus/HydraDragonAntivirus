@@ -310,7 +310,11 @@ NTSTATUS MBRFReadWrite(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
 
     IoCopyCurrentIrpStackLocationToNext(Irp);
     if ((currentIrpStack->MajorFunction == IRP_MJ_WRITE) && currentIrpStack->Parameters.Write.Length) {
-        if (currentIrpStack->Parameters.Write.ByteOffset.QuadPart / 512 == 0) {
+        // Only block sector 0 writes when targeted at the physical disk MBR (PartitionNumber == 0).
+        // Individual partitions (PartitionNumber > 0) contain Volume Boot Records (VBR) and filesystem headers
+        // (such as Partition 1 EFI System Partition FAT32 boot record). Blocking them corrupts the BCD (0xc0000098) and volume metadata!
+        if (deviceExtension->PartitionNumber == 0 &&
+            (currentIrpStack->Parameters.Write.ByteOffset.QuadPart / 512 == 0)) {
             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "MBRF: write sector 0 (disk %d, partition %d)\n", deviceExtension->DiskNumber, deviceExtension->PartitionNumber);
 
             // --- Identify process and send alert over pipe (with disk number) ---
@@ -651,8 +655,8 @@ NTSTATUS MBRFDevControl(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
         return status;
     }
 
-    // If we haven't set the disk number or it's not disk 0, forward all controls
-    if (deviceExtension->DiskNumber != PROTECT_DISK_NUMBER) {
+    // If we haven't set the disk number, or it's not disk 0, or it's not Partition 0 (raw physical MBR), forward all controls
+    if (deviceExtension->DiskNumber != PROTECT_DISK_NUMBER || deviceExtension->PartitionNumber != 0) {
         IoCopyCurrentIrpStackLocationToNext(Irp);
         IoSetCompletionRoutine(Irp, MBRFIoCompletion, DeviceObject, TRUE, TRUE, TRUE);
         return IoCallDriver(deviceExtension->TargetDeviceObject, Irp);
