@@ -127,6 +127,82 @@ namespace {
 		return NtPathToDosPath(p);
 	}
 
+	static std::string ResolveRenameTargetPath(const std::string& sourceRaw, const std::string& targetRaw)
+	{
+		if (targetRaw.empty()) return "";
+
+		std::string dosTarget = DetectionNotifier::NtPathToDosPathString(targetRaw);
+		if (!dosTarget.empty() && (dosTarget.find(":\\") != std::string::npos || dosTarget.rfind("\\\\", 0) == 0))
+		{
+			return dosTarget;
+		}
+
+		// Target is relative or filename-only (e.g. "malware.exe" or "\malware.exe").
+		// Combine with the parent directory of the source file.
+		if (!sourceRaw.empty())
+		{
+			std::string dosSource = DetectionNotifier::NtPathToDosPathString(sourceRaw);
+			if (!dosSource.empty() && (dosSource.find(":\\") != std::string::npos || dosSource.rfind("\\\\", 0) == 0))
+			{
+				try
+				{
+					std::filesystem::path srcP(dosSource);
+					std::filesystem::path parentDir = srcP.parent_path();
+					if (!parentDir.empty())
+					{
+						std::string cleanTarget = targetRaw;
+						while (!cleanTarget.empty() && (cleanTarget.front() == '\\' || cleanTarget.front() == '/'))
+						{
+							cleanTarget.erase(cleanTarget.begin());
+						}
+						std::filesystem::path fullTarget = parentDir / cleanTarget;
+						return fullTarget.string();
+					}
+				}
+				catch (...) {}
+			}
+		}
+
+		return dosTarget;
+	}
+
+	static std::wstring ResolveRenameTargetPathW(const std::wstring& sourceRaw, const std::wstring& targetRaw)
+	{
+		if (targetRaw.empty()) return L"";
+
+		std::wstring dosTarget = NormalizeToDosPath(targetRaw);
+		if (!dosTarget.empty() && (dosTarget.find(L":\\") != std::wstring::npos || dosTarget.rfind(L"\\\\", 0) == 0))
+		{
+			return dosTarget;
+		}
+
+		if (!sourceRaw.empty())
+		{
+			std::wstring dosSource = NormalizeToDosPath(sourceRaw);
+			if (!dosSource.empty() && (dosSource.find(L":\\") != std::wstring::npos || dosSource.rfind(L"\\\\", 0) == 0))
+			{
+				try
+				{
+					std::filesystem::path srcP(dosSource);
+					std::filesystem::path parentDir = srcP.parent_path();
+					if (!parentDir.empty())
+					{
+						std::wstring cleanTarget = targetRaw;
+						while (!cleanTarget.empty() && (cleanTarget.front() == L'\\' || cleanTarget.front() == L'/'))
+						{
+							cleanTarget.erase(cleanTarget.begin());
+						}
+						std::filesystem::path fullTarget = parentDir / cleanTarget;
+						return fullTarget.wstring();
+					}
+				}
+				catch (...) {}
+			}
+		}
+
+		return dosTarget;
+	}
+
 	// JSON string escape for narrow (UTF-8/ANSI) input: backslash, quotes,
 	// control chars. Paths like C:\system32 contain \s which is an INVALID
 	// JSON escape when written raw (broke 6030/6031 lines of one dataset).
@@ -822,18 +898,30 @@ namespace {
 				// Real-time zero-latency file & process submission to daemon content scan pool
 				// Unfiltered: ALL file events (creates, writes, renames) and process launches are evaluated
 				// 1. File targets: handles file creation, modification, and critical file renames (e.g. ren *.vir *.exe)
+				std::string sSourceFile;
 				if (auto optP = variant::getByPathSafe(vEvent, "file.path"))
-					enqueueIfValid(s_fnEnqueue, std::string(optP.value()), 0, nPid);
-				if (auto optP2 = variant::getByPathSafe(vEvent, "file.rawPath"))
-					enqueueIfValid(s_fnEnqueue, std::string(optP2.value()), 0, nPid);
-				if (auto optP3 = variant::getByPathSafe(vEvent, "file.abstractPath"))
-					enqueueIfValid(s_fnEnqueue, std::string(optP3.value()), 0, nPid);
+					sSourceFile = std::string(optP.value());
+				else if (auto optP2 = variant::getByPathSafe(vEvent, "file.rawPath"))
+					sSourceFile = std::string(optP2.value());
+				else if (auto optP3 = variant::getByPathSafe(vEvent, "file.abstractPath"))
+					sSourceFile = std::string(optP3.value());
 
-				// Rename target paths
+				if (!sSourceFile.empty())
+					enqueueIfValid(s_fnEnqueue, sSourceFile, 0, nPid);
+
+				// Rename target paths: resolve relative filenames against source directory
 				if (auto optRT = variant::getByPathSafe(vEvent, "fileRenameTarget"))
-					enqueueIfValid(s_fnEnqueue, std::string(optRT.value()), 0, nPid);
+				{
+					std::string resolvedTarget = ResolveRenameTargetPath(sSourceFile, std::string(optRT.value()));
+					if (!resolvedTarget.empty())
+						enqueueIfValid(s_fnEnqueue, resolvedTarget, 0, nPid);
+				}
 				if (auto optRT2 = variant::getByPathSafe(vEvent, "file.renameTarget"))
-					enqueueIfValid(s_fnEnqueue, std::string(optRT2.value()), 0, nPid);
+				{
+					std::string resolvedTarget = ResolveRenameTargetPath(sSourceFile, std::string(optRT2.value()));
+					if (!resolvedTarget.empty())
+						enqueueIfValid(s_fnEnqueue, resolvedTarget, 0, nPid);
+				}
 
 				// 2. Process targets (process spawn, executable launching)
 				if (auto optProc = variant::getByPathSafe(vEvent, "process.imageFile.abstractPath"))
@@ -1087,7 +1175,7 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		if (vFile.has("renameTarget"))
 		{
 			wsNewName = vFile.get("renameTarget", L"");
-			wsNewName = NormalizeToDosPath(wsNewName);
+			wsNewName = ResolveRenameTargetPathW(wsFilePath, wsNewName);
 		}
 	}
 	catch (...)
@@ -1253,23 +1341,34 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 	// 1. Gather all candidate file paths before they are replaced by lambda proxies
 	std::vector<std::pair<std::string, bool>> vCandidates; // {rawPath, isProcess}
 
+	std::string sSourceCandidate;
 	if (vEvent.has("file"))
 	{
 		Variant vRawFile = vEvent.get("file");
 		if (vRawFile.isDictionaryLike())
 		{
-			if (vRawFile.has("path")) vCandidates.emplace_back(std::string(vRawFile["path"]), false);
-			if (vRawFile.has("rawPath")) vCandidates.emplace_back(std::string(vRawFile["rawPath"]), false);
-			if (vRawFile.has("renameTarget")) vCandidates.emplace_back(std::string(vRawFile["renameTarget"]), false);
+			if (vRawFile.has("path")) sSourceCandidate = std::string(vRawFile["path"]);
+			else if (vRawFile.has("rawPath")) sSourceCandidate = std::string(vRawFile["rawPath"]);
+			else if (vRawFile.has("abstractPath")) sSourceCandidate = std::string(vRawFile["abstractPath"]);
+
+			if (!sSourceCandidate.empty()) vCandidates.emplace_back(sSourceCandidate, false);
+
+			if (vRawFile.has("renameTarget"))
+			{
+				std::string resolvedTarget = ResolveRenameTargetPath(sSourceCandidate, std::string(vRawFile["renameTarget"]));
+				if (!resolvedTarget.empty()) vCandidates.emplace_back(resolvedTarget, false);
+			}
 		}
 		else if (vRawFile.getType() == variant::ValueType::String)
 		{
-			vCandidates.emplace_back(std::string(vRawFile), false);
+			sSourceCandidate = std::string(vRawFile);
+			vCandidates.emplace_back(sSourceCandidate, false);
 		}
 	}
 	if (vEvent.has("fileRenameTarget"))
 	{
-		vCandidates.emplace_back(std::string(vEvent.get("fileRenameTarget")), false);
+		std::string resolvedTarget = ResolveRenameTargetPath(sSourceCandidate, std::string(vEvent.get("fileRenameTarget")));
+		if (!resolvedTarget.empty()) vCandidates.emplace_back(resolvedTarget, false);
 	}
 	if (vEvent.has("destination"))
 	{
