@@ -27,8 +27,11 @@
 ### Q: How good is it?
 - It's very good at every type of analysis and it balances everything with allowing you configure more aggressive or less aggressive.
 
-### Q: Why does my antivirus detect this as malware?
-- It's a false positive. It's contains the WinDivert (Vulnerable driver), website, HIPS signatures without obfuscation. It's a fully open source executable analysis product.
+### Q: Why does my antivirus (e.g., Kaspersky) detect this as malware?
+- It is a known false positive / proactive detection:
+  - **WinDivert Driver & Kaspersky Conflicts:** Kaspersky's Proactive Defense Module (PDM) often flags the WinDivert network filter driver with `PDM:Suspicious.Driver.Installation.a` when the driver is registered/started dynamically. This is standard heuristic behavior for security software detecting dynamic third-party driver installations.
+  - **Plaintext Threat Signatures:** The repository contains Suricata / Emerging Threats (`emerging-all.rules`) and YARA rule sets which hold raw exploit patterns, shellcode signatures, and malicious strings without obfuscation.
+  - **Resolution:** These alerts can be safely ignored by adding the HydraDragon directory to your antivirus exclusions and allowing/trusting the WinDivert driver (`WinDivert64.sys` / `WinDivert.dll`) when prompted.
 
 ### Q: Why does the antivirus.exe application take too long to run?
 - Sometimes you may have to wait 5+ minutes (or less) the first time you run the programme as a lot of things load.
