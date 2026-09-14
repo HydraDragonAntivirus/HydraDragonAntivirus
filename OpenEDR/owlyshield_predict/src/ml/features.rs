@@ -41,12 +41,20 @@ pub struct PeFeatureVector {
     pub num_debug_entries: f32,
     pub cert_size: f32,
     pub has_rich_header: f32,
+    pub has_writable_executable_section: f32,
+    pub is_entrypoint_outside_first_section: f32,
+    pub has_injection_apis: f32,
+    pub has_evasion_apis: f32,
+    pub has_network_apis: f32,
+    pub has_persistence_apis: f32,
+    pub has_suspicious_section_names: f32,
+    pub has_unusual_characteristics: f32,
 }
 
 impl PeFeatureVector {
-    pub const LEN: usize = 38;
+    pub const LEN: usize = 46;
 
-    pub fn to_array(&self) -> [f32; 38] {
+    pub fn to_array(&self) -> [f32; 46] {
         [
             self.size_of_optional_header,
             self.major_linker_version,
@@ -86,6 +94,14 @@ impl PeFeatureVector {
             self.num_debug_entries,
             self.cert_size,
             self.has_rich_header,
+            self.has_writable_executable_section,
+            self.is_entrypoint_outside_first_section,
+            self.has_injection_apis,
+            self.has_evasion_apis,
+            self.has_network_apis,
+            self.has_persistence_apis,
+            self.has_suspicious_section_names,
+            self.has_unusual_characteristics,
         ]
     }
 
@@ -134,6 +150,14 @@ impl PeFeatureVector {
             ("num_debug_entries", self.num_debug_entries),
             ("cert_size", self.cert_size),
             ("has_rich_header", self.has_rich_header),
+            ("has_writable_executable_section", self.has_writable_executable_section),
+            ("is_entrypoint_outside_first_section", self.is_entrypoint_outside_first_section),
+            ("has_injection_apis", self.has_injection_apis),
+            ("has_evasion_apis", self.has_evasion_apis),
+            ("has_network_apis", self.has_network_apis),
+            ("has_persistence_apis", self.has_persistence_apis),
+            ("has_suspicious_section_names", self.has_suspicious_section_names),
+            ("has_unusual_characteristics", self.has_unusual_characteristics),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -362,12 +386,22 @@ mod tests {
             num_debug_entries: 36.0,
             cert_size: 37.0,
             has_rich_header: 38.0,
+            has_writable_executable_section: 1.0,
+            is_entrypoint_outside_first_section: 0.0,
+            has_injection_apis: 1.0,
+            has_evasion_apis: 0.0,
+            has_network_apis: 1.0,
+            has_persistence_apis: 0.0,
+            has_suspicious_section_names: 1.0,
+            has_unusual_characteristics: 0.0,
         };
         let map = f.to_map();
         assert_eq!(map.len(), PeFeatureVector::LEN);
         assert_eq!(map["sec_entropy_mean"], 22.0);
         assert_eq!(map["is_likely_packed"], 28.0);
         assert_eq!(map["has_rich_header"], 38.0);
+        assert_eq!(map["has_writable_executable_section"], 1.0);
+        assert_eq!(map["has_injection_apis"], 1.0);
     }
 
     #[test]
