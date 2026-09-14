@@ -533,3 +533,6 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# ML Cache files
+*.joblib

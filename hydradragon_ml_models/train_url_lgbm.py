@@ -199,7 +199,7 @@ def load_mud_csv(csv_path: str, max_samples: int = 100000) -> Tuple[np.ndarray, 
         reader = csv.reader(f)
         header = next(reader)
         
-        col_url = header.index("url") if "url" in header else 0
+        col_url = header.index("url_normalized") if "url_normalized" in header else header.index("url")
         col_class = header.index("class_label") if "class_label" in header else 3
 
         count_mal = 0
@@ -209,7 +209,10 @@ def load_mud_csv(csv_path: str, max_samples: int = 100000) -> Tuple[np.ndarray, 
         for row in reader:
             if not row or len(row) <= col_class:
                 continue
-            raw_url = row[col_url]
+            raw_url = row[col_url].strip()
+            if not raw_url:
+                continue
+
             cls = row[col_class].strip().lower()
 
             # Binary classification: 0 = Benign, 1 = Malicious (phishing, malware, defacement)
@@ -227,6 +230,17 @@ def load_mud_csv(csv_path: str, max_samples: int = 100000) -> Tuple[np.ndarray, 
             feats = extract_url_features(raw_url)
             X.append(feats)
             y.append(label)
+
+            # Domain augmentation for benign URLs:
+            # Benign URLs in datasets are usually deep links (e.g. mp3raid.com/music/...).
+            # Real traffic often requests root domains (e.g. google.com, github.com).
+            # By also teaching the root domain of benign URLs as benign, we prevent root domain bias.
+            if label == 0 and count_ben < limit_per_class:
+                p_host = urlparse("http://" + raw_url.replace("http://","").replace("https://","")).netloc.split(":")[0]
+                if p_host and "." in p_host:
+                    X.append(extract_url_features("http://" + p_host))
+                    y.append(0)
+                    count_ben += 1
 
             if len(X) % 10000 == 0:
                 print(f"  -> Extracted {len(X)} samples (Malicious: {count_mal}, Benign: {count_ben})...")
