@@ -302,7 +302,7 @@ pub fn get_url_model() -> Option<&'static UrlTreeModel> {
     }).as_ref()
 }
 
-pub const URL_ML_DETECTION_THRESHOLD: f32 = 0.70;
+pub const URL_ML_DETECTION_THRESHOLD: f32 = 0.90;
 
 pub fn scan_url(raw_url: &str) -> Option<(f32, HashMap<String, f32>)> {
     let model = get_url_model()?;
