@@ -188,8 +188,8 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
         }
     }
 
-    let likely_packed = if sec_entropy_max > 7.2 || (total_instructions > 0 && total_add > total_mov) {
-        1.0
+    let likely_packed = if total_instructions > 0 {
+        (total_add > total_mov) as u8 as f32
     } else {
         0.0
     };
