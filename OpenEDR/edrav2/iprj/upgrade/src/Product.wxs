@@ -84,6 +84,8 @@
                 <Component Id="ModelBinariesX64" Guid="{A2D1B36C-CE4F-4638-B7E0-7A9EF73BF640}" Directory="MODELSDIR_X64">
                     <File Id="JS_Model_Mpk_X64" Source="$(var.SourceBinDir64)models\js_model.mpk" KeyPath="yes" />
                     <File Id="PE_Model_Mpk_X64" Source="$(var.SourceBinDir64)models\pe_model.mpk" />
+                    <File Id="URL_Model_Bin_X64" Source="$(var.SourceBinDir64)models\url_model.bin" />
+                    <File Id="URL_Model_Onnx_X64" Source="$(var.SourceBinDir64)models\url_model.onnx" />
                 </Component>
                 <Component Id="JsonSettingsComponentX64" Guid="{D1E2F3A4-5C6D-7E8F-9A0B-1C2D3E4F5A6C}" Directory="JSONDIR_X64">
                     <File Id="FirewallSettingsJsonX64" Source="..\..\..\..\owlyshield_predict\json\settings.json" KeyPath="yes" />
