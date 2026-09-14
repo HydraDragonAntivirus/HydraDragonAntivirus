@@ -14,6 +14,7 @@ import numpy as np
 import pefile
 import capstone
 import lightgbm as lgb
+import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 import onnxmltools
@@ -254,7 +255,7 @@ def extract_pe_features_from_file(filepath: str):
     except Exception:
         return None
 
-def find_files(dir_path: str, max_files: int = 100000):
+def find_files(dir_path: str, max_files: int = 200000):
     files = []
     for root, _, filenames in os.walk(dir_path):
         for f in filenames:
@@ -268,16 +269,22 @@ def parse_args():
     parser.add_argument("--malicious", type=str, required=True, help="Directory of malicious PEs")
     parser.add_argument("--benign", type=str, required=True, help="Directory of benign PEs")
     parser.add_argument("--output-onnx", type=str, default="pe_model.onnx", help="Output ONNX model path")
-    parser.add_argument("--max-samples-per-class", type=int, default=15000, help="Max samples to train from each class")
+    parser.add_argument("--max-samples-per-class", type=int, default=100000, help="Max samples to train from each class")
+    parser.add_argument("--cache-file", type=str, default="pe_features_200k.joblib", help="Cache extracted features to joblib")
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 4, help="Feature extraction threads")
     return parser.parse_args()
 
 def collect_features(file_list, workers, label_name):
     print(f"[*] Extracting features from {len(file_list)} {label_name} files with {workers} workers...")
     features = []
+    processed = 0
+    total = len(file_list)
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(extract_pe_features_from_file, p): p for p in file_list}
         for future in as_completed(futures):
+            processed += 1
+            if processed % 10000 == 0 or processed == total:
+                print(f"  -> Progress [{label_name}]: {processed}/{total} ({(processed/total)*100:.1f}%)")
             res = future.result()
             if res is not None:
                 features.append(res)
@@ -290,29 +297,41 @@ def main():
     print(" HydraDragon Antivirus - High Precision LightGBM Trainer ")
     print("=" * 60)
 
-    mal_files = find_files(args.malicious, args.max_samples_per_class)
-    ben_files = find_files(args.benign, args.max_samples_per_class)
+    if args.cache_file and os.path.exists(args.cache_file):
+        print(f"[*] Loading cached features from {args.cache_file}...")
+        cached_data = joblib.load(args.cache_file)
+        X = cached_data["X"]
+        y = cached_data["y"]
+        print(f"[+] Loaded {len(X)} cached samples ({np.sum(y == 1)} Malicious, {np.sum(y == 0)} Benign)")
+    else:
+        mal_files = find_files(args.malicious, args.max_samples_per_class)
+        ben_files = find_files(args.benign, args.max_samples_per_class)
 
-    X_mal = collect_features(mal_files, args.workers, "MALICIOUS")
-    X_ben = collect_features(ben_files, args.workers, "BENIGN")
+        X_mal = collect_features(mal_files, args.workers, "MALICIOUS")
+        X_ben = collect_features(ben_files, args.workers, "BENIGN")
 
-    if not X_mal or not X_ben:
-        print("[!] Error: Not enough valid samples.")
-        sys.exit(1)
+        if not X_mal or not X_ben:
+            print("[!] Error: Not enough valid samples.")
+            sys.exit(1)
 
-    X = np.array(X_mal + X_ben, dtype=np.float32)
-    y = np.array([1] * len(X_mal) + [0] * len(X_ben), dtype=np.int32)
+        X = np.array(X_mal + X_ben, dtype=np.float32)
+        y = np.array([1] * len(X_mal) + [0] * len(X_ben), dtype=np.int32)
+
+        if args.cache_file:
+            print(f"[*] Caching extracted features to {args.cache_file}...")
+            joblib.dump({"X": X, "y": y}, args.cache_file, compress=3)
+            print(f"[+] Cache saved successfully.")
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
     print(f"[*] Train set: {len(X_train)} | Test set: {len(X_test)}")
 
     print("[*] Training LightGBM Classifier (with class balancing & zero false-positive tuning)...")
     clf = lgb.LGBMClassifier(
-        n_estimators=300,
+        n_estimators=500,
         learning_rate=0.03,
-        num_leaves=63,
-        max_depth=8,
-        min_child_samples=30,
+        num_leaves=127,
+        max_depth=10,
+        min_child_samples=50,
         subsample=0.85,
         colsample_bytree=0.85,
         scale_pos_weight=1.2, # slight boost for aggressive zero-day recall
