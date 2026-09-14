@@ -29,7 +29,11 @@ fn shannon_entropy(data: &[u8]) -> f32 {
 // raw values (e.g. image_base=0x140000000) that saturate the network weights.
 #[inline]
 fn ln1p(x: f32) -> f32 {
-    (x + 1.0).ln()
+    if x.is_nan() || x <= 0.0 {
+        0.0
+    } else {
+        (x + 1.0).ln()
+    }
 }
 
 // Parses the root IMAGE_RESOURCE_DIRECTORY to count top-level resource types.
@@ -267,12 +271,26 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
         .map(|c| c.certificate.len())
         .sum::<usize>() as f32;
 
-    // Entropy is already bounded [0, 8] — no log needed.
-    // Boolean flags and small-range counts (subsystem 0-17, sections 0-96) stay raw.
-    // Ratios (add_mov_ratio, instructions_per_kb) are capped above, so stay raw.
-    // Everything else uses ln(x+1) to collapse the multi-million/billion-scale values.
+    // Extract directory table sizes safely
+    let dirs = &opt.data_directories;
+    let export_table_size = dirs.get_export_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let import_table_size = dirs.get_import_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let resource_table_size = dirs.get_resource_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let exception_table_size = dirs.get_exception_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let certificate_table_size = dirs.get_certificate_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let base_relocation_table_size = dirs.get_base_relocation_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let debug_table_size = dirs.get_debug_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let tls_table_size = dirs.get_tls_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let load_config_table_size = dirs.get_load_config_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let bound_import_table_size = dirs.get_bound_import_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let iat_table_size = dirs.get_import_address_table().map(|d| d.size as f32).unwrap_or(0.0);
+    let delay_import_table_size = dirs.get_delay_import_descriptor().map(|d| d.size as f32).unwrap_or(0.0);
+    let clr_runtime_header_size = dirs.get_clr_runtime_header().map(|d| d.size as f32).unwrap_or(0.0);
+
     Some(PeFeatureVector {
-        size_of_optional_header: pe.header.coff_header.size_of_optional_header as f32,
+        size_of_optional_header: ln1p(pe.header.coff_header.size_of_optional_header as f32),
+        coff_characteristics: ln1p(pe.header.coff_header.characteristics as f32),
+        machine: ln1p(pe.header.coff_header.machine as f32),
         major_linker_version: sf.major_linker_version as f32,
         minor_linker_version: sf.minor_linker_version as f32,
         size_of_code: ln1p(sf.size_of_code as f32),
@@ -280,13 +298,38 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
         size_of_uninitialized_data: ln1p(sf.size_of_uninitialized_data as f32),
         address_of_entry_point: ln1p(sf.address_of_entry_point as f32),
         image_base: ln1p(pe.image_base as f32),
+        section_alignment: ln1p(wf.section_alignment as f32),
+        file_alignment: ln1p(wf.file_alignment as f32),
+        major_operating_system_version: wf.major_operating_system_version as f32,
+        minor_operating_system_version: wf.minor_operating_system_version as f32,
+        major_image_version: wf.major_image_version as f32,
+        minor_image_version: wf.minor_image_version as f32,
+        major_subsystem_version: wf.major_subsystem_version as f32,
+        minor_subsystem_version: wf.minor_subsystem_version as f32,
+        size_of_image: ln1p(size_of_image as f32),
+        size_of_headers: ln1p(wf.size_of_headers as f32),
+        checksum: ln1p(wf.check_sum as f32),
         subsystem: wf.subsystem as f32,
         dll_characteristics: ln1p(wf.dll_characteristics as f32),
         size_of_stack_reserve: ln1p(wf.size_of_stack_reserve as f32),
+        size_of_stack_commit: ln1p(wf.size_of_stack_commit as f32),
         size_of_heap_reserve: ln1p(wf.size_of_heap_reserve as f32),
-        checksum: ln1p(wf.check_sum as f32),
-        number_of_rva_and_sizes: wf.number_of_rva_and_sizes as f32,
-        size_of_image: ln1p(size_of_image as f32),
+        size_of_heap_commit: ln1p(wf.size_of_heap_commit as f32),
+        loader_flags: ln1p(wf.loader_flags as f32),
+        number_of_rva_and_sizes: ln1p(wf.number_of_rva_and_sizes as f32),
+        export_table_size: ln1p(export_table_size),
+        import_table_size: ln1p(import_table_size),
+        resource_table_size: ln1p(resource_table_size),
+        exception_table_size: ln1p(exception_table_size),
+        certificate_table_size: ln1p(certificate_table_size),
+        base_relocation_table_size: ln1p(base_relocation_table_size),
+        debug_table_size: ln1p(debug_table_size),
+        tls_table_size: ln1p(tls_table_size),
+        load_config_table_size: ln1p(load_config_table_size),
+        bound_import_table_size: ln1p(bound_import_table_size),
+        iat_table_size: ln1p(iat_table_size),
+        delay_import_table_size: ln1p(delay_import_table_size),
+        clr_runtime_header_size: ln1p(clr_runtime_header_size),
         imports_count: ln1p(imports_count),
         exports_count: ln1p(exports_count),
         resources_count: ln1p(resources_count),
