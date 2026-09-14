@@ -59,9 +59,12 @@ fn main() {
     println!("[*] Found {} candidate files", files.len());
 
     let mut scanned = 0usize;
-    let mut flagged = 0usize;
-    let mut clean = 0usize;
     let mut skipped = 0usize;
+
+    let mut b_high = 0usize; // > 50%
+    let mut b_susp = 0usize; // 30% - 50%
+    let mut b_low  = 0usize; // 10% - 30%
+    let mut b_safe = 0usize; // < 10%
 
     for path in &files {
         let bytes = match std::fs::read(path) {
@@ -80,20 +83,16 @@ fn main() {
         match predict_pe(&bytes, &model, &device) {
             Some(prob) => {
                 scanned += 1;
-                if scanned == 1 {
-                    if let Some(feats) = owlyshield_ransom::ml::pe_features::extract_pe_features(&bytes) {
-                        println!("Sample 1 feature array (first 10): {:?}", &feats.to_array()[..10]);
-                        println!("Sample 1 machine: {}, coff_char: {}", feats.machine, feats.coff_characteristics);
-                    }
-                }
-                if prob > 0.50 {
-                    flagged += 1;
-                    println!("  [MALICIOUS: {:.4}%] {}", prob * 100.0, path.display());
+                if prob >= 0.50 {
+                    b_high += 1;
+                    println!("  [HIGH-MALICIOUS: {:.2}%] {}", prob * 100.0, path.display());
+                } else if prob >= 0.30 {
+                    b_susp += 1;
+                    println!("  [SUSPICIOUS:     {:.2}%] {}", prob * 100.0, path.display());
+                } else if prob >= 0.10 {
+                    b_low += 1;
                 } else {
-                    clean += 1;
-                    if scanned <= 10 {
-                        println!("  [CLEAN:     {:.6}% (prob={:.6})] {}", prob * 100.0, prob, path.display());
-                    }
+                    b_safe += 1;
                 }
             }
             None => {
@@ -103,10 +102,12 @@ fn main() {
     }
 
     println!("\n================ SCAN SUMMARY ================");
-    println!("Target:        {}", target_dir.display());
-    println!("Scanned PEs:   {}", scanned);
-    println!("Flagged (>50%):{} ({:.1}%)", flagged, if scanned > 0 { flagged as f64 / scanned as f64 * 100.0 } else { 0.0 });
-    println!("Clean (<=50%): {} ({:.1}%)", clean, if scanned > 0 { clean as f64 / scanned as f64 * 100.0 } else { 0.0 });
-    println!("Skipped/Non-PE:{}", skipped);
+    println!("Target:         {}", target_dir.display());
+    println!("Scanned PEs:    {}", scanned);
+    println!("  -> High Malicious (>=50%): {} ({:.1}%)", b_high, if scanned > 0 { b_high as f64 / scanned as f64 * 100.0 } else { 0.0 });
+    println!("  -> Suspicious     (30-50%):{} ({:.1}%)", b_susp, if scanned > 0 { b_susp as f64 / scanned as f64 * 100.0 } else { 0.0 });
+    println!("  -> Low Risk       (10-30%):{} ({:.1}%)", b_low, if scanned > 0 { b_low as f64 / scanned as f64 * 100.0 } else { 0.0 });
+    println!("  -> Clean / Safe    (<10%):  {} ({:.1}%)", b_safe, if scanned > 0 { b_safe as f64 / scanned as f64 * 100.0 } else { 0.0 });
+    println!("Skipped / Non-PE: {}", skipped);
     println!("==============================================");
 }
