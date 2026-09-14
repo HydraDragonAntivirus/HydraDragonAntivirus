@@ -2,12 +2,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use burn::backend::ndarray::NdArrayDevice;
-use burn::backend::NdArray;
 use burn::module::{AutodiffModule, Module};
 use burn::nn::loss::CrossEntropyLoss;
 use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
-use burn::record::{FullPrecisionSettings, NamedMpkFileRecorder, Recorder};
+use burn::record::{FullPrecisionSettings, NamedMpkFileRecorder};
 use burn::tensor::activation;
 use burn::tensor::backend::{AutodiffBackend, BackendTypes};
 use clap::{Parser, Subcommand};
@@ -37,31 +36,6 @@ enum Command {
     Pe(TrainArgs),
     /// Train a JavaScript model from malicious and benign script folders.
     Js(TrainArgs),
-    /// Evaluate/test an existing PE or JS model against a folder of samples.
-    Eval(EvalArgs),
-}
-
-#[derive(Parser, Debug, Clone)]
-struct EvalArgs {
-    /// Path to the trained .mpk model.
-    #[arg(long)]
-    model: PathBuf,
-
-    /// Directory containing samples to test.
-    #[arg(long)]
-    samples: PathBuf,
-
-    /// Target type: 'pe' or 'js'.
-    #[arg(long, default_value = "pe")]
-    target: String,
-
-    /// Worker threads (0 = all cores).
-    #[arg(long, default_value_t = 0)]
-    threads: usize,
-
-    /// Malicious probability threshold (0.0 to 1.0).
-    #[arg(long, default_value_t = 0.70)]
-    threshold: f32,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -110,7 +84,6 @@ fn main() {
 
     let threads = match &cli.command {
         Command::Pe(args) | Command::Js(args) => args.threads,
-        Command::Eval(args) => args.threads,
     };
 
     if threads > 0 {
@@ -125,105 +98,7 @@ fn main() {
     match cli.command {
         Command::Pe(args) => run_pe(args),
         Command::Js(args) => run_js(args),
-        Command::Eval(args) => run_eval(args),
     }
-}
-
-fn run_eval(args: EvalArgs) {
-    if !args.model.is_file() {
-        exit_with(format!("model file not found: {}", args.model.display()));
-    }
-    if !args.samples.is_dir() {
-        exit_with(format!("samples directory not found: {}", args.samples.display()));
-    }
-
-    let is_pe = args.target.eq_ignore_ascii_case("pe");
-    let input_dim = if is_pe {
-        PeFeatureVector::LEN
-    } else {
-        JsFeatureVector::LEN
-    };
-
-    let config = if is_pe {
-        MalwareNetConfig::default()
-    } else {
-        MalwareNetConfig::default_js()
-    };
-
-    let device = NdArrayDevice::default();
-    let model: MalwareNet<NdArray<f32>> = MalwareNet::new(&config, &device);
-    let record = match NamedMpkFileRecorder::<FullPrecisionSettings>::default().load(args.model.clone(), &device) {
-        Ok(rec) => rec,
-        Err(err) => exit_with(format!("failed to load model from {}: {err}", args.model.display())),
-    };
-    let model = model.load_record(record);
-
-    eprintln!("Evaluating {} against samples in: {}", args.model.display(), args.samples.display());
-    let files = walk_files(&args.samples);
-    let total = files.len();
-    eprintln!("Found {} total files to evaluate", total);
-
-    let processed = AtomicUsize::new(0);
-    let valid_samples = AtomicUsize::new(0);
-    let malicious_count = AtomicUsize::new(0);
-
-    files.par_iter().for_each(|path| {
-        let count = processed.fetch_add(1, Ordering::Relaxed);
-        if count % 250 == 0 && count > 0 {
-            eprintln!("evaluated: {}/{} files (detected malicious: {})", count, total, malicious_count.load(Ordering::Relaxed));
-        }
-
-        let features_opt: Option<Vec<f32>> = if is_pe {
-            let bytes = match std::fs::read(path) {
-                Ok(b) => b,
-                Err(_) => return,
-            };
-            ml::pe_features::extract_pe_features(&bytes).map(|f| {
-                let _ = f.to_map();
-                f.to_array().to_vec()
-            })
-        } else {
-            let source = match std::fs::read_to_string(path) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
-            ml::js_features::extract_js_features(&source).map(|f| {
-                let _ = f.to_map();
-                f.to_array().to_vec()
-            })
-        };
-
-        let Some(feat) = features_opt else { return };
-        valid_samples.fetch_add(1, Ordering::Relaxed);
-
-        let tensor_input = Tensor::<NdArray<f32>, 1>::from_floats(feat.as_slice(), &device)
-            .reshape([1, input_dim]);
-        let logits = model.forward(tensor_input);
-        let probs = activation::softmax(logits, 1);
-        let prob_slice = probs.to_data();
-        let p_malicious = prob_slice.as_slice::<f32>().map(|s| s.get(1).copied().unwrap_or(0.0)).unwrap_or(0.0);
-
-        if p_malicious >= args.threshold {
-            malicious_count.fetch_add(1, Ordering::Relaxed);
-        }
-    });
-
-    let valid = valid_samples.load(Ordering::Relaxed);
-    let detected = malicious_count.load(Ordering::Relaxed);
-    let detection_rate = if valid > 0 {
-        (detected as f64 / valid as f64) * 100.0
-    } else {
-        0.0
-    };
-
-    println!("\n================ EVALUATION REPORT ================");
-    println!("Target Type           : {}", if is_pe { "PE" } else { "JS" });
-    println!("Total Files Scanned   : {}", total);
-    println!("Valid PE/JS Extracted : {}", valid);
-    println!("Detection Threshold   : {:.2}", args.threshold);
-    println!("Malicious Detections  : {}", detected);
-    println!("Detection Rate        : {:.2}% ({}/{})", detection_rate, detected, valid);
-    println!("===================================================\n");
 }
 
 fn run_pe(args: TrainArgs) {
@@ -293,7 +168,6 @@ fn collect_pe_samples(dir: &Path, label: usize, samples: &mut Vec<Sample>) {
             };
 
             let features: PeFeatureVector = ml::pe_features::extract_pe_features(&bytes)?;
-            let _ = features.to_map();
 
             Some(Sample {
                 features: features.to_array().to_vec(),
@@ -338,7 +212,6 @@ fn collect_js_samples(dir: &Path, label: usize, samples: &mut Vec<Sample>) {
             };
 
             let features: JsFeatureVector = ml::js_features::extract_js_features(&source)?;
-            let _ = features.to_map();
 
             Some(Sample {
                 features: features.to_array().to_vec(),

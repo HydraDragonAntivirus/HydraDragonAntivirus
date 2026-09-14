@@ -17,6 +17,7 @@ pub fn predict_pe<B: Backend>(
         .reshape([1, super::features::PeFeatureVector::LEN]);
     let logits = model.forward(input);
     let probs = activation::softmax(logits, 1);
+
     let malware_prob: f32 = probs.slice([0..1, 1..2]).into_scalar().elem();
 
     Some(malware_prob)

@@ -166,11 +166,10 @@ fn load_ml_model(
 ) -> Option<super::model::MalwareNet<InferBackend>> {
     let bytes = crate::utils::read_file_shared(path).ok()?;
     let device = NdArrayDevice::default();
-    let model = super::model::MalwareNet::new(&config, &device);
     let record = NamedMpkBytesRecorder::<burn::record::FullPrecisionSettings>::default()
         .load(bytes, &device)
         .ok()?;
-    Some(model.load_record(record))
+    Some(super::model::MalwareNet::new(&config, &device).load_record(record))
 }
 
 #[derive(Debug, Clone)]

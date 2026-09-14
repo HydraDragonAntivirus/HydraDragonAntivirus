@@ -267,105 +267,6 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
         .map(|c| c.certificate.len())
         .sum::<usize>() as f32;
 
-    let mut has_writable_executable_section = 0.0f32;
-    let mut has_suspicious_section_names = 0.0f32;
-    const SCN_MEM_WRITE: u32 = 0x8000_0000;
-    const SCN_MEM_EXECUTE: u32 = 0x2000_0000;
-
-    for s in sections {
-        if (s.characteristics & SCN_MEM_WRITE != 0) && (s.characteristics & SCN_MEM_EXECUTE != 0) {
-            has_writable_executable_section = 1.0;
-        }
-
-        if let Ok(name) = s.name() {
-            let upper = name.to_ascii_uppercase();
-            if upper.contains("UPX")
-                || upper.contains("VMP")
-                || upper.contains("THEMIDA")
-                || upper.contains("ASPACK")
-                || upper.contains("PECOMPACT")
-                || upper.contains("MEW")
-                || name.trim().is_empty()
-                || name.bytes().any(|b| b < 0x20 || b > 0x7E)
-            {
-                has_suspicious_section_names = 1.0;
-            }
-        }
-    }
-
-    let entry_point_rva = sf.address_of_entry_point as usize;
-    let is_entrypoint_outside_first_section = if let Some(first_sec) = sections.first() {
-        let start = first_sec.virtual_address as usize;
-        let end = start + (first_sec.virtual_size.max(first_sec.size_of_raw_data) as usize);
-        if entry_point_rva < start || entry_point_rva >= end {
-            1.0
-        } else {
-            0.0
-        }
-    } else {
-        0.0
-    };
-
-    let mut has_injection_apis = 0.0f32;
-    let mut has_evasion_apis = 0.0f32;
-    let mut has_network_apis = 0.0f32;
-    let mut has_persistence_apis = 0.0f32;
-
-    for import in &pe.imports {
-        let name = import.name.as_ref();
-        if has_injection_apis == 0.0
-            && (name.eq_ignore_ascii_case("VirtualAllocEx")
-                || name.eq_ignore_ascii_case("WriteProcessMemory")
-                || name.eq_ignore_ascii_case("CreateRemoteThread")
-                || name.eq_ignore_ascii_case("QueueUserAPC")
-                || name.eq_ignore_ascii_case("SetThreadContext")
-                || name.eq_ignore_ascii_case("NtMapViewOfSection"))
-        {
-            has_injection_apis = 1.0;
-        }
-
-        if has_evasion_apis == 0.0
-            && (name.eq_ignore_ascii_case("IsDebuggerPresent")
-                || name.eq_ignore_ascii_case("CheckRemoteDebuggerPresent")
-                || name.eq_ignore_ascii_case("NtQueryInformationProcess")
-                || name.eq_ignore_ascii_case("OutputDebugStringA")
-                || name.eq_ignore_ascii_case("OutputDebugStringW")
-                || name.eq_ignore_ascii_case("FindWindowA")
-                || name.eq_ignore_ascii_case("FindWindowW"))
-        {
-            has_evasion_apis = 1.0;
-        }
-
-        if has_network_apis == 0.0
-            && (name.eq_ignore_ascii_case("InternetOpenA")
-                || name.eq_ignore_ascii_case("InternetOpenW")
-                || name.eq_ignore_ascii_case("HttpSendRequestA")
-                || name.eq_ignore_ascii_case("HttpSendRequestW")
-                || name.eq_ignore_ascii_case("URLDownloadToFileA")
-                || name.eq_ignore_ascii_case("URLDownloadToFileW")
-                || name.eq_ignore_ascii_case("WSAStartup")
-                || name.eq_ignore_ascii_case("connect")
-                || name.eq_ignore_ascii_case("socket"))
-        {
-            has_network_apis = 1.0;
-        }
-
-        if has_persistence_apis == 0.0
-            && (name.eq_ignore_ascii_case("RegSetValueExA")
-                || name.eq_ignore_ascii_case("RegSetValueExW")
-                || name.eq_ignore_ascii_case("CreateServiceA")
-                || name.eq_ignore_ascii_case("CreateServiceW")
-                || name.eq_ignore_ascii_case("OpenSCManagerA")
-                || name.eq_ignore_ascii_case("OpenSCManagerW"))
-        {
-            has_persistence_apis = 1.0;
-        }
-    }
-
-    let is_dll = (pe.header.coff_header.characteristics & 0x2000) != 0;
-    let relocs_stripped = (pe.header.coff_header.characteristics & 0x0001) != 0;
-    let has_unusual_characteristics = if is_dll && relocs_stripped { 1.0 } else { 0.0 };
-
     // Entropy is already bounded [0, 8] — no log needed.
     // Boolean flags and small-range counts (subsystem 0-17, sections 0-96) stay raw.
     // Ratios (add_mov_ratio, instructions_per_kb) are capped above, so stay raw.
@@ -409,14 +310,6 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
         num_debug_entries,
         cert_size: ln1p(cert_size),
         has_rich_header,
-        has_writable_executable_section,
-        is_entrypoint_outside_first_section,
-        has_injection_apis,
-        has_evasion_apis,
-        has_network_apis,
-        has_persistence_apis,
-        has_suspicious_section_names,
-        has_unusual_characteristics,
     })
 }
 
