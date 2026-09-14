@@ -301,7 +301,19 @@ impl WebThreatMatch {
         }
     }
 
+    pub fn url(target: String, reason: String) -> Self {
+        Self {
+            kind: WebThreatTargetKind::Url,
+            target,
+            reason,
+        }
+    }
+
     pub fn decision_key(&self) -> String {
-        format!("website:ip:{}", self.target.trim().to_lowercase())
+        match self.kind {
+            WebThreatTargetKind::Ip => format!("website:ip:{}", self.target.trim().to_lowercase()),
+            WebThreatTargetKind::Url => format!("website:url:{}", self.target.trim().to_lowercase()),
+            WebThreatTargetKind::Hostname => format!("website:host:{}", self.target.trim().to_lowercase()),
+        }
     }
 }

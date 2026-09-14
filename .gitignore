@@ -536,3 +536,5 @@ FodyWeavers.xsd
 
 # ML Cache files
 *.joblib
+url_lgbm_model.*
+url_trees*

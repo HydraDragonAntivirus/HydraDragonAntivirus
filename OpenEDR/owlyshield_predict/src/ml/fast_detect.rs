@@ -27,7 +27,7 @@ pub(crate) fn get_js_model_ref() -> Option<&'static super::model::MalwareNet<Inf
 /// 3. current_exe directory
 /// 4. Default installation directories (Program Files)
 /// 5. CWD-relative models/ (dev / tests)
-fn model_path(file: &str) -> Option<std::path::PathBuf> {
+pub(crate) fn model_path(file: &str) -> Option<std::path::PathBuf> {
     #[cfg(windows)]
     {
         use winreg::RegKey;
@@ -184,12 +184,13 @@ pub struct FastDetectionResult {
 
 pub const PE_ML_DETECTION_NAME: &str = "MaliciousPeExecutable";
 pub const JS_ML_DETECTION_NAME: &str = "MaliciousJsScript";
+pub const URL_ML_DETECTION_NAME: &str = "MaliciousNetworkUrl";
 pub const ML_DETECTION_THRESHOLD: f32 = 0.70;
 
 /// Returns true if the given detection name was produced by the fast static ML
-/// engine (fast_detect_file), as opposed to a behavioral rule detection.
+/// engine (fast_detect_file or url_predict), as opposed to a behavioral rule detection.
 pub fn is_ml_detection_name(name: &str) -> bool {
-    name == PE_ML_DETECTION_NAME || name == JS_ML_DETECTION_NAME
+    name == PE_ML_DETECTION_NAME || name == JS_ML_DETECTION_NAME || name == URL_ML_DETECTION_NAME
 }
 
 /// Detects PE executables and JavaScript by CONTENT (never by extension —
@@ -313,6 +314,16 @@ mod tests {
                 assert!((0.0..=1.0).contains(&prob), "invalid PE prob: {}", prob);
                 assert!(prob >= 0.0, "PE prob should be non-negative: {}", prob);
             }
+        }
+
+        // Verify URL Model
+        let url_model = super::super::url_predict::get_url_model();
+        assert!(url_model.is_some(), "URL model could not be loaded");
+        if let Some(model) = url_model {
+            let (p, _) = model.predict_url("http://google.com");
+            assert!(p < 0.20, "google.com false positive: prob={}", p);
+            let (p_bad, _) = model.predict_url("http://paypal-verification-security-login.xyz/account/verify.php?cmd=eval");
+            assert!(p_bad > 0.85, "phishing false negative: prob={}", p_bad);
         }
     }
 }

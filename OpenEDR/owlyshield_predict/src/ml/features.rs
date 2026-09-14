@@ -407,6 +407,124 @@ impl JsFeatureVector {
     }
 }
 
+/// Feature vector for Snort-ML style Zero-Day URL/Query classification.
+#[derive(Debug, Clone)]
+pub struct UrlFeatureVector {
+    pub url_len: f32,
+    pub domain_len: f32,
+    pub path_len: f32,
+    pub query_len: f32,
+    pub path_depth: f32,
+    pub subdomain_count: f32,
+    pub query_param_count: f32,
+    pub is_ip_host: f32,
+    pub has_port: f32,
+    pub is_https: f32,
+    pub digit_count: f32,
+    pub letter_count: f32,
+    pub special_count: f32,
+    pub digit_ratio: f32,
+    pub letter_ratio: f32,
+    pub special_ratio: f32,
+    pub token_count: f32,
+    pub max_token_len: f32,
+    pub avg_token_len: f32,
+    pub url_entropy: f32,
+    pub host_entropy: f32,
+    pub count_at: f32,
+    pub count_question: f32,
+    pub count_hyphen: f32,
+    pub count_equal: f32,
+    pub count_dot: f32,
+    pub count_percent: f32,
+    pub count_slash: f32,
+    pub count_semicolon: f32,
+    pub count_ampersand: f32,
+    pub has_suspicious_tld: f32,
+    pub has_hacked_keywords: f32,
+}
+
+impl UrlFeatureVector {
+    pub const LEN: usize = 32;
+
+    pub fn to_array(&self) -> [f32; 32] {
+        [
+            self.url_len,
+            self.domain_len,
+            self.path_len,
+            self.query_len,
+            self.path_depth,
+            self.subdomain_count,
+            self.query_param_count,
+            self.is_ip_host,
+            self.has_port,
+            self.is_https,
+            self.digit_count,
+            self.letter_count,
+            self.special_count,
+            self.digit_ratio,
+            self.letter_ratio,
+            self.special_ratio,
+            self.token_count,
+            self.max_token_len,
+            self.avg_token_len,
+            self.url_entropy,
+            self.host_entropy,
+            self.count_at,
+            self.count_question,
+            self.count_hyphen,
+            self.count_equal,
+            self.count_dot,
+            self.count_percent,
+            self.count_slash,
+            self.count_semicolon,
+            self.count_ampersand,
+            self.has_suspicious_tld,
+            self.has_hacked_keywords,
+        ]
+    }
+
+    pub fn to_map(&self) -> HashMap<String, f32> {
+        [
+            ("url_len", self.url_len),
+            ("domain_len", self.domain_len),
+            ("path_len", self.path_len),
+            ("query_len", self.query_len),
+            ("path_depth", self.path_depth),
+            ("subdomain_count", self.subdomain_count),
+            ("query_param_count", self.query_param_count),
+            ("is_ip_host", self.is_ip_host),
+            ("has_port", self.has_port),
+            ("is_https", self.is_https),
+            ("digit_count", self.digit_count),
+            ("letter_count", self.letter_count),
+            ("special_count", self.special_count),
+            ("digit_ratio", self.digit_ratio),
+            ("letter_ratio", self.letter_ratio),
+            ("special_ratio", self.special_ratio),
+            ("token_count", self.token_count),
+            ("max_token_len", self.max_token_len),
+            ("avg_token_len", self.avg_token_len),
+            ("url_entropy", self.url_entropy),
+            ("host_entropy", self.host_entropy),
+            ("count_at", self.count_at),
+            ("count_question", self.count_question),
+            ("count_hyphen", self.count_hyphen),
+            ("count_equal", self.count_equal),
+            ("count_dot", self.count_dot),
+            ("count_percent", self.count_percent),
+            ("count_slash", self.count_slash),
+            ("count_semicolon", self.count_semicolon),
+            ("count_ampersand", self.count_ampersand),
+            ("has_suspicious_tld", self.has_suspicious_tld),
+            ("has_hacked_keywords", self.has_hacked_keywords),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3920,6 +3920,38 @@ impl FirewallEngine {
             }
         }
 
+        // --- Snort-ML Zero-Day URL & Query Threat Detection ---
+        if let Some(ref candidate_url) = info.full_url {
+            if let Some((ml_prob, _features)) = crate::ml::url_predict::scan_url(candidate_url) {
+                stats.packets_total.fetch_add(1, Ordering::Relaxed);
+                stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
+
+                let now = Self::now_ts();
+                let block_reason = format!(
+                    "Snort-ML Zero-Day URL Model detected malicious request with {:.1}% probability",
+                    ml_prob * 100.0
+                );
+
+                emit_log_event(LogEntry {
+                    id: format!("{}-urlml-{}", now, pid),
+                    timestamp: now,
+                    level: LogLevel::Warning,
+                    message: format!(
+                        "URL ML Blocked: {} (pid={}) -> {} ({})",
+                        app_info.name, pid, candidate_url, block_reason
+                    ),
+                });
+
+                return PacketDecision {
+                    packet_data: data_vec,
+                    address_data: address_data.to_vec(),
+                    should_forward: false,
+                    recalc_checksums: false,
+                    _reason: block_reason,
+                };
+            }
+        }
+
         let payload = if payload_offset < data_vec.len() {
             &data_vec[payload_offset..]
         } else {
