@@ -458,7 +458,7 @@ impl Engine {
         options: ScanOptions,
     ) -> io::Result<Vec<ScanMatch>> {
         let path = path.as_ref();
-        let data = fs::read(path)?;
+        let data = std::fs::read(path)?;
         Ok(self.scan_bytes_named(&data, &path.display().to_string(), options, &[]))
     }
 

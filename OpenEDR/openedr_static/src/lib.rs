@@ -1,0 +1,222 @@
+﻿pub mod clam;
+pub mod engine;
+pub mod fls;
+pub mod ml;
+pub mod ptm_registry;
+pub mod report;
+pub mod signers;
+pub mod yara;
+
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
+use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
+
+use engine::StaticEngine;
+
+static GLOBAL_ENGINE: OnceLock<RwLock<StaticEngine>> = OnceLock::new();
+
+fn get_dll_directory() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStringExt;
+        use windows::Win32::Foundation::HMODULE;
+        use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
+
+        let mut buf = [0u16; 1024];
+        let hmodule = HMODULE(get_dll_directory as *const () as *mut std::ffi::c_void);
+        let len = unsafe {
+            GetModuleFileNameW(
+                Some(hmodule),
+                &mut buf,
+            )
+        };
+        if len > 0 {
+            let path = PathBuf::from(std::ffi::OsString::from_wide(&buf[..len as usize]));
+            if let Some(parent) = path.parent() {
+                return parent.to_path_buf();
+            }
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn get_or_init_engine(base_dir: Option<PathBuf>) -> Result<&'static RwLock<StaticEngine>, String> {
+    if let Some(engine) = GLOBAL_ENGINE.get() {
+        return Ok(engine);
+    }
+
+    let dir = base_dir.unwrap_or_else(get_dll_directory);
+    let engine = StaticEngine::init(&dir);
+    let rwlock = RwLock::new(engine);
+    let _ = GLOBAL_ENGINE.set(rwlock);
+    Ok(GLOBAL_ENGINE.get().expect("GLOBAL_ENGINE must be set"))
+}
+
+fn to_c_string(s: String) -> *mut c_char {
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+fn error_json(msg: &str) -> *mut c_char {
+    let err = serde_json::json!({
+        "error": true,
+        "message": msg
+    });
+    to_c_string(err.to_string())
+}
+
+/// Initialize the static scanner engine explicitly with a custom rules/database directory.
+/// If base_rules_dir is NULL, defaults to looking for directories next to the loaded DLL.
+/// Returns 0 on success, or -1 on failure.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_init(base_rules_dir: *const c_char) -> i32 {
+    let path = if !base_rules_dir.is_null() {
+        match unsafe { CStr::from_ptr(base_rules_dir) }.to_str() {
+            Ok(s) => Some(PathBuf::from(s)),
+            Err(_) => return -1,
+        }
+    } else {
+        None
+    };
+
+    match get_or_init_engine(path) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Scan a file on disk by its path.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_scan_file(file_path: *const c_char) -> *mut c_char {
+    if file_path.is_null() {
+        return error_json("file_path pointer is null");
+    }
+
+    let path_str = match unsafe { CStr::from_ptr(file_path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return error_json("Invalid UTF-8 in file_path"),
+    };
+
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+    };
+
+    let engine = match engine_lock.read() {
+        Ok(guard) => guard,
+        Err(_) => return error_json("Engine lock poisoned"),
+    };
+
+    let report = engine.scan_file(Path::new(path_str));
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
+/// Scan a buffer in memory.
+/// `data`: pointer to byte slice.
+/// `len`: length of data.
+/// `file_name`: optional virtual filename for extension detection (can be NULL).
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_scan_bytes(
+    data: *const u8,
+    len: usize,
+    file_name: *const c_char,
+) -> *mut c_char {
+    if data.is_null() || len == 0 {
+        return error_json("data buffer is null or empty");
+    }
+
+    let name = if !file_name.is_null() {
+        unsafe { CStr::from_ptr(file_name) }.to_str().unwrap_or("sample.bin")
+    } else {
+        "sample.bin"
+    };
+
+    let slice = unsafe { std::slice::from_raw_parts(data, len) };
+
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+    };
+
+    let engine = match engine_lock.read() {
+        Ok(guard) => guard,
+        Err(_) => return error_json("Engine lock poisoned"),
+    };
+
+    let report = engine.scan_bytes(slice, name);
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
+/// Check a registry path against the PTM puaRegPaths indicator list.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut c_char {
+    if reg_path.is_null() {
+        return error_json("reg_path pointer is null");
+    }
+
+    let path_str = match unsafe { CStr::from_ptr(reg_path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return error_json("Invalid UTF-8 in reg_path"),
+    };
+
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+    };
+
+    let engine = match engine_lock.read() {
+        Ok(guard) => guard,
+        Err(_) => return error_json("Engine lock poisoned"),
+    };
+
+    let report = engine.check_registry(path_str);
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
+/// Query Comodo FLS cloud service directly for a SHA-1 hash (40-character hex string).
+/// Returns:
+///   0 = Unknown / No verdict
+///   1 = Safe / Trusted
+///   2 = Malicious / Malware
+///  -1 = Network or protocol error
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_check_fls_sha1(sha1_hex: *const c_char) -> i32 {
+    if sha1_hex.is_null() {
+        return -1;
+    }
+
+    let hex_str = match unsafe { CStr::from_ptr(sha1_hex) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let client = fls::FlsClient::default();
+    match client.query_sha1(hex_str) {
+        fls::FlsVerdict::Safe => 1,
+        fls::FlsVerdict::Malicious => 2,
+        fls::FlsVerdict::Unknown | fls::FlsVerdict::Absent => 0,
+        fls::FlsVerdict::Fail => -1,
+    }
+}
+
+/// Free a C-string allocated and returned by openedr_static.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_free_string(s: *mut c_char) {
+    if !s.is_null() {
+        unsafe {
+            let _ = CString::from_raw(s);
+        }
+    }
+}

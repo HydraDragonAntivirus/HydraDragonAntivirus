@@ -1,0 +1,42 @@
+[package]
+name = "openedr_static"
+version = "0.1.0"
+edition = "2024"
+authors = ["EmirhanUcan"]
+description = "Standalone portable static analysis engine DLL"
+
+[lib]
+name = "openedr_static"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+sha1 = "0.10"
+sha2 = "0.11"
+hex = "0.4"
+regex = "1.12"
+burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
+burn-ndarray = "0.21"
+goblin = "0.10"
+capstone = "0.12"
+oxc_parser = "0.135"
+oxc_ast = "0.135"
+oxc_allocator = "0.135"
+oxc_span = "0.135"
+yara-x = "1.20"
+
+# Local hydradragonclamav engine
+hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
+hydradragonextractor = { path = "../owlyshield_predict/hydradragonextractor" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Security_WinTrust",
+    "Win32_Storage_FileSystem",
+    "Win32_System_LibraryLoader",
+] }

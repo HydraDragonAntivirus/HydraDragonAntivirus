@@ -22,6 +22,7 @@ pub mod restart_disinfect;
 pub mod scanner;
 pub mod types;
 pub mod verdict;
+pub mod zeroday_scanner;
 
 /// Compile-time generated data from build.rs.
 pub mod build_data {

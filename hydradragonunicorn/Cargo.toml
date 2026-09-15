@@ -5,6 +5,10 @@ edition = "2024"
 description = "Heuristic engine for HydraDragon — Unicorn-based PE CPU emulation and behavioral heuristics, ported from TinyAntivirus"
 license = "GPL-2.0-or-later"
 
+[lib]
+name = "hydradragonunicorn"
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 # CPU emulation (TinyAntivirus used Unicorn for PE unpacking / behavioral analysis)
 unicorn-engine = { path = "unicorn-engine-rs/bindings/rust/unicorn-engine", features = ["dynamic_linkage"] }
