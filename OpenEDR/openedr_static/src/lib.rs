@@ -201,7 +201,48 @@ pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut
     }
 }
 
+/// Scan a URL for phishing/malware using the LightGBM ONNX model.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_scan_url(url: *const c_char) -> *mut c_char {
+    if url.is_null() {
+        return error_json("url pointer is null");
+    }
+
+    let url_str = match unsafe { CStr::from_ptr(url) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return error_json("Invalid UTF-8 in url"),
+    };
+
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+    };
+
+    let engine = match engine_lock.read() {
+        Ok(guard) => guard,
+        Err(_) => return error_json("Engine lock poisoned"),
+    };
+
+    let prob = engine.scan_url(url_str).unwrap_or(0.0);
+    let is_malicious = prob >= 0.50;
+    let verdict = if is_malicious { "Malicious" } else { "Clean" };
+
+    let report = serde_json::json!({
+        "target_url": url_str,
+        "verdict": verdict,
+        "malware_probability": prob,
+        "is_malicious": is_malicious,
+    });
+
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
 /// Query Comodo FLS cloud service directly for a SHA-1 hash (40-character hex string).
+
 /// Returns:
 ///   0 = Unknown / No verdict
 ///   1 = Safe / Trusted

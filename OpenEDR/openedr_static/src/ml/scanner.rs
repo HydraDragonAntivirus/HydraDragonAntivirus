@@ -1,55 +1,51 @@
-use std::path::{Path, PathBuf};
-use burn::backend::NdArray;
-use burn::backend::ndarray::NdArrayDevice;
-use burn::module::Module;
-use burn::record::{NamedMpkBytesRecorder, Recorder};
+use std::path::Path;
 
-use super::inference;
-use super::model::MalwareNet;
-
-pub type InferBackend = NdArray<f32>;
+use super::pe_features;
+use super::js_features;
+use super::url_features;
+use super::tree_model::TreeEnsembleModel;
 
 pub struct MlScanner {
-    pe_model: Option<MalwareNet<InferBackend>>,
-    js_model: Option<MalwareNet<InferBackend>>,
-    device: NdArrayDevice,
+    pe_trees: Option<TreeEnsembleModel>,
+    js_trees: Option<TreeEnsembleModel>,
+    url_trees: Option<TreeEnsembleModel>,
 }
 
 impl MlScanner {
     pub fn new(models_dir: &Path) -> Self {
-        let device = NdArrayDevice::default();
-        let pe_model = Self::load_model(&models_dir.join("pe_model.mpk"), &device, super::model::MalwareNetConfig::default());
-        let js_model = Self::load_model(&models_dir.join("js_model.mpk"), &device, super::model::MalwareNetConfig::default_js());
+        let pe_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("pe_trees.bin"));
+        let js_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("js_trees.bin"));
+        let url_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("url_trees.bin"));
 
         Self {
-            pe_model,
-            js_model,
-            device,
+            pe_trees,
+            js_trees,
+            url_trees,
         }
-    }
-
-    fn load_model(path: &Path, device: &NdArrayDevice, config: super::model::MalwareNetConfig) -> Option<MalwareNet<InferBackend>> {
-        if !path.is_file() {
-            return None;
-        }
-        let bytes = std::fs::read(path).ok()?;
-        let recorder = NamedMpkBytesRecorder::<burn::record::FullPrecisionSettings>::default();
-        let record = recorder.load(bytes, device).ok()?;
-        let model = MalwareNet::new(&config, device).load_record(record);
-        Some(model)
     }
 
     pub fn predict_pe(&self, data: &[u8]) -> Option<f32> {
-        let model = self.pe_model.as_ref()?;
-        inference::predict_pe(data, model, &self.device)
+        let trees = self.pe_trees.as_ref()?;
+        let features = pe_features::extract_pe_features(data)?;
+        let arr = features.to_array();
+        Some(trees.predict_probability(&arr))
     }
 
     pub fn predict_js(&self, source: &str) -> Option<f32> {
-        let model = self.js_model.as_ref()?;
-        inference::predict_js(source, model, &self.device)
+        let trees = self.js_trees.as_ref()?;
+        let features = js_features::extract_js_features(source)?;
+        let arr = features.to_array();
+        Some(trees.predict_probability(&arr))
+    }
+
+    pub fn predict_url(&self, raw_url: &str) -> Option<f32> {
+        let trees = self.url_trees.as_ref()?;
+        let features = url_features::extract_url_features(raw_url);
+        let arr = features.to_array();
+        Some(trees.predict_probability(&arr))
     }
 
     pub fn is_loaded(&self) -> bool {
-        self.pe_model.is_some() || self.js_model.is_some()
+        self.pe_trees.is_some() || self.js_trees.is_some() || self.url_trees.is_some()
     }
 }

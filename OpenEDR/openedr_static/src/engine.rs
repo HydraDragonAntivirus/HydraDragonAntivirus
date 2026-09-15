@@ -27,7 +27,7 @@ impl StaticEngine {
     /// Initialize the static engine using a root directory containing rule subfolders:
     /// - `database/` for ClamAV
     /// - `rules/` for YARA (.yar)
-    /// - `models/` for Burn ML models (pe_model.mpk, js_model.mpk)
+    /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, *.onnx)
     /// - `signer_rules/` for trusted_signers.yaml, etc.
     /// - `ptm.local.src` or `ptm/` for PUA registry patterns
     pub fn init(base_dir: &Path) -> Self {
@@ -360,6 +360,11 @@ impl StaticEngine {
             matched_patterns: matches,
             is_pua_autostart: is_pua,
         }
+    }
+
+    /// Scan a URL using the ONNX LightGBM tree classifier.
+    pub fn scan_url(&self, raw_url: &str) -> Option<f32> {
+        self.ml.predict_url(raw_url)
     }
 
     /// Query FLS directly for SHA-1

@@ -17,14 +17,13 @@ sha1 = "0.10"
 sha2 = "0.11"
 hex = "0.4"
 regex = "1.12"
-burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
-burn-ndarray = "0.21"
 capstone = "0.14"
 oxc_parser = "0.135"
 oxc_ast = "0.135"
 oxc_allocator = "0.135"
 oxc_span = "0.135"
 yara-x = "1.20"
+url = "2.5"
 
 # Local hydradragonclamav engine
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
