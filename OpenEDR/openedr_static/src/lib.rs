@@ -1,4 +1,4 @@
-﻿pub mod clam;
+pub mod clam;
 pub mod engine;
 pub mod fls;
 pub mod ml;
@@ -94,24 +94,31 @@ pub extern "C" fn openedr_static_scan_file(file_path: *const c_char) -> *mut c_c
     }
 
     let path_str = match unsafe { CStr::from_ptr(file_path) }.to_str() {
-        Ok(s) => s,
+        Ok(s) => s.to_string(),
         Err(_) => return error_json("Invalid UTF-8 in file_path"),
     };
 
-    let engine_lock = match get_or_init_engine(None) {
-        Ok(lock) => lock,
-        Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
-    };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let engine_lock = match get_or_init_engine(None) {
+            Ok(lock) => lock,
+            Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+        };
 
-    let engine = match engine_lock.read() {
-        Ok(guard) => guard,
-        Err(_) => return error_json("Engine lock poisoned"),
-    };
+        let engine = match engine_lock.read() {
+            Ok(guard) => guard,
+            Err(_) => return error_json("Engine lock poisoned"),
+        };
 
-    let report = engine.scan_file(Path::new(path_str));
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => to_c_string(json),
-        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+        let report = engine.scan_file(Path::new(&path_str));
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => to_c_string(json),
+            Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+        }
+    }));
+
+    match result {
+        Ok(ptr) => ptr,
+        Err(_) => error_json("Panic occurred during static scan"),
     }
 }
 
@@ -131,29 +138,38 @@ pub extern "C" fn openedr_static_scan_bytes(
     }
 
     let name = if !file_name.is_null() {
-        unsafe { CStr::from_ptr(file_name) }.to_str().unwrap_or("sample.bin")
+        unsafe { CStr::from_ptr(file_name) }.to_str().unwrap_or("sample.bin").to_string()
     } else {
-        "sample.bin"
+        "sample.bin".to_string()
     };
 
     let slice = unsafe { std::slice::from_raw_parts(data, len) };
 
-    let engine_lock = match get_or_init_engine(None) {
-        Ok(lock) => lock,
-        Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
-    };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let engine_lock = match get_or_init_engine(None) {
+            Ok(lock) => lock,
+            Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+        };
 
-    let engine = match engine_lock.read() {
-        Ok(guard) => guard,
-        Err(_) => return error_json("Engine lock poisoned"),
-    };
+        let engine = match engine_lock.read() {
+            Ok(guard) => guard,
+            Err(_) => return error_json("Engine lock poisoned"),
+        };
 
-    let report = engine.scan_bytes(slice, name);
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => to_c_string(json),
-        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+        let report = engine.scan_bytes(slice, &name);
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => to_c_string(json),
+            Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+        }
+    }));
+
+    match result {
+        Ok(ptr) => ptr,
+        Err(_) => error_json("Panic occurred during bytes scan"),
     }
 }
+
+
 
 /// Check a registry path against the PTM puaRegPaths indicator list.
 /// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
