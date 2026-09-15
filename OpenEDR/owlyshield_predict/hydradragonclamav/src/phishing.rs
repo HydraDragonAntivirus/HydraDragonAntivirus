@@ -463,7 +463,6 @@ const MAX_ANCHORS: usize = 8192;
 pub fn extract_anchor_pairs(html: &[u8]) -> Vec<(String, String)> {
     let text = String::from_utf8_lossy(html);
     let lower = text.to_ascii_lowercase();
-    let bytes = text.as_bytes();
     let mut out = Vec::new();
     let mut search = 0;
 
@@ -503,12 +502,14 @@ pub fn extract_anchor_pairs(html: &[u8]) -> Vec<(String, String)> {
         let close = lower[content_start..]
             .find("</a")
             .map(|x| content_start + x)
-            .unwrap_or(bytes.len());
+            .unwrap_or(lower.len());
         let display = strip_tags(&text[content_start..close]);
         if !href.is_empty() {
             out.push((href, display));
         }
-        search = close + 3;
+        // Clamp: with no closing tag `close == len`, and `close + 3` would
+        // overshoot the buffer and panic on the next `lower[search..]` slice.
+        search = (close + 3).min(lower.len());
     }
     out
 }
