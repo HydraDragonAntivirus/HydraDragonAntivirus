@@ -489,58 +489,58 @@ impl StaticEngine {
                 if max_pe_offset > 0 && max_pe_offset < data.len() {
                     let overlay = &data[max_pe_offset..];
                     if overlay.len() >= 512 {
-                        let has_embedded_pe = overlay.starts_with(b"MZ") || overlay.windows(2).any(|w| w == b"MZ");
-                        let has_embedded_archive = overlay.starts_with(b"PK\x03\x04")
+                        // Validated embedded-PE search: random "MZ" byte pairs inside
+                        // compressed SFX payloads (7z/Inno/NSIS) must NOT count.
+                        // Require MZ + e_lfanew + PE\0\0 + sane NumberOfSections.
+                        let embedded_pe_offset = find_valid_embedded_pe(overlay);
+                        let has_embedded_pe = embedded_pe_offset.is_some();
+                        let is_sfx_archive = overlay.starts_with(b"PK\x03\x04")
                             || overlay.starts_with(b"7z\xBC\xAF\x27\x1C")
                             || overlay.starts_with(b"Rar!\x1A\x07");
 
-                        if has_embedded_pe || has_embedded_archive || overlay.len() > 65536 {
-                            let score = if has_embedded_pe { 0.85 } else { 0.65 };
-                            let desc = if has_embedded_pe {
-                                format!("Suspicious PE overlay: contains embedded MZ executable ({} bytes)", overlay.len())
-                            } else if has_embedded_archive {
-                                format!("Suspicious PE overlay: contains embedded archive payload ({} bytes)", overlay.len())
-                            } else {
-                                format!("PE overlay detected with {} bytes of data past section headers", overlay.len())
-                            };
+                        // Always rescan overlay content with engines (real detection value).
+                        // Standalone heuristic fires ONLY on validated binder (has_embedded_pe).
+                        // Legit SFX (7z/Inno/NSIS) and bare large overlays alone are NOT detections.
+                        let mut overlay_confirmed = false;
 
+                        let ov_clam = self.clam.scan_bytes(overlay, "overlay.bin");
+                        for m in ov_clam {
+                            overlay_confirmed = true;
                             detections.push(DetectionItem {
-                                layer: "Heuristic_Overlay".to_string(),
-                                name: if has_embedded_pe {
-                                    "Heuristic.PE.EmbeddedExecutableOverlay".to_string()
-                                } else {
-                                    "Heuristic.PE.SuspiciousOverlay".to_string()
-                                },
-                                score: Some(score),
-                                details: Some(desc),
+                                layer: "Heuristic_Overlay_ClamAV".to_string(),
+                                name: format!("Overlay:{}", m.name),
+                                score: Some(1.0),
+                                details: Some("Detected inside PE overlay payload".to_string()),
                             });
-                            max_score = max_score.max(score);
+                            max_score = max_score.max(1.0);
+                        }
 
-                            let ov_clam = self.clam.scan_bytes(overlay, "overlay.bin");
-                            for m in ov_clam {
-                                detections.push(DetectionItem {
-                                    layer: "Heuristic_Overlay_ClamAV".to_string(),
-                                    name: format!("Overlay:{}", m.name),
-                                    score: Some(1.0),
-                                    details: Some("Detected inside PE overlay payload".to_string()),
-                                });
-                                max_score = max_score.max(1.0);
-                            }
+                        let ov_yara = self.yara.scan_bytes(overlay);
+                        for ym in ov_yara {
+                            overlay_confirmed = true;
+                            detections.push(DetectionItem {
+                                layer: "Heuristic_Overlay_YARA".to_string(),
+                                name: format!("Overlay:{}", ym),
+                                score: Some(0.95),
+                                details: Some("YARA rule matched inside PE overlay".to_string()),
+                            });
+                            max_score = max_score.max(0.95);
+                        }
 
-                            let ov_yara = self.yara.scan_bytes(overlay);
-                            for ym in ov_yara {
-                                detections.push(DetectionItem {
-                                    layer: "Heuristic_Overlay_YARA".to_string(),
-                                    name: format!("Overlay:{}", ym),
-                                    score: Some(0.95),
-                                    details: Some("YARA rule matched inside PE overlay".to_string()),
-                                });
-                                max_score = max_score.max(0.95);
-                            }
-
-                            if overlay.starts_with(b"MZ") {
-                                if let Some(prob) = self.ml.predict_pe(overlay) {
+                        // ML on overlay only if it starts with a validated PE image,
+                        // or on the validated embedded slice.
+                        let ml_target: Option<&[u8]> = if embedded_pe_offset == Some(0) {
+                            Some(overlay)
+                        } else if let Some(off) = embedded_pe_offset {
+                            Some(&overlay[off..])
+                        } else {
+                            None
+                        };
+                        if let Some(pe_blob) = ml_target {
+                            if pe_blob.starts_with(b"MZ") {
+                                if let Some(prob) = self.ml.predict_pe(pe_blob) {
                                     if prob >= 0.70 {
+                                        overlay_confirmed = true;
                                         detections.push(DetectionItem {
                                             layer: "Heuristic_Overlay_PE_ML".to_string(),
                                             name: "Overlay.MalwareNet.PE.HighConfidence".to_string(),
@@ -551,6 +551,32 @@ impl StaticEngine {
                                     }
                                 }
                             }
+                        }
+
+                        // Standalone binder heuristic: validated MZ->PE only.
+                        // SFX archives (7z/PK/Rar) without validated PE or engine hit: silent.
+                        if has_embedded_pe {
+                            let off = embedded_pe_offset.unwrap_or(0);
+                            // SFX self-extractors legitimately carry an archive after the stub;
+                            // a validated PE deep inside an SFX archive start is still a binder,
+                            // but an SFX archive with no engine confirmation is left silent above.
+                            // Here we have a real second PE image, so flag it.
+                            let _ = (off, is_sfx_archive);
+                            detections.push(DetectionItem {
+                                layer: "Heuristic_Overlay".to_string(),
+                                name: "Heuristic.PE.EmbeddedExecutableOverlay".to_string(),
+                                score: Some(0.85),
+                                details: Some(format!(
+                                    "Validated embedded PE image at overlay offset {} (overlay {} bytes)",
+                                    off,
+                                    overlay.len()
+                                )),
+                            });
+                            max_score = max_score.max(0.85);
+                        } else if overlay_confirmed {
+                            // Engine already reported the payload; no extra heuristic needed.
+                        } else {
+                            // Legit SFX / large overlay with no validated PE and no engine hit: no detection.
                         }
                     }
                 }
@@ -611,9 +637,14 @@ impl StaticEngine {
             }
         }
 
-        // Final Verdict calculation
-        let verdict = if max_score >= 0.85 || !detections.is_empty() {
+        // Final Verdict calculation: score-gated only.
+        // Low-score standalone heuristics must NOT become Malicious on their own.
+        let verdict = if max_score >= 0.85 {
             "Malicious"
+        } else if max_score >= 0.50 {
+            "Suspicious"
+        } else if !detections.is_empty() {
+            "Suspicious"
         } else if let Some(ref sig) = signer_details {
             if sig.is_trusted {
                 "Clean"
@@ -671,6 +702,54 @@ impl StaticEngine {
     pub fn check_fls(&self, sha1_hex: &str) -> FlsVerdict {
         self.fls.query_sha1(sha1_hex)
     }
+}
+
+fn find_valid_embedded_pe(data: &[u8]) -> Option<usize> {
+    // Scan for MZ occurrences and validate as real PE images.
+    // Prevents random "MZ" byte pairs in compressed SFX data from firing.
+    if data.len() < 0x44 {
+        return None;
+    }
+    let mut i = 0usize;
+    while i + 0x40 < data.len() {
+        if data[i] == b'M' && data[i + 1] == b'Z' {
+            let e_off = i + 0x3C;
+            if e_off + 4 <= data.len() {
+                let e_lfanew = u32::from_le_bytes([data[e_off], data[e_off + 1], data[e_off + 2], data[e_off + 3]]) as usize;
+                // e_lfanew is relative to this MZ candidate, must be sane.
+                if e_lfanew < 0x04 || e_lfanew > 0x100000 {
+                    i += 2;
+                    continue;
+                }
+                let pe_off = i + e_lfanew;
+                if pe_off + 6 <= data.len()
+                    && data[pe_off] == b'P'
+                    && data[pe_off + 1] == b'E'
+                    && data[pe_off + 2] == 0
+                    && data[pe_off + 3] == 0
+                {
+                    let num_sections = u16::from_le_bytes([data[pe_off + 4], data[pe_off + 5]]) as usize;
+                    if num_sections >= 1 && num_sections <= 96 {
+                        // Optional magic check (PE32=0x10b, PE32+=0x20b) when available.
+                        let opt_off = pe_off + 24;
+                        let valid_opt = if opt_off + 2 <= data.len() {
+                            let magic = u16::from_le_bytes([data[opt_off], data[opt_off + 1]]);
+                            magic == 0x10b || magic == 0x20b
+                        } else {
+                            true
+                        };
+                        if valid_opt {
+                            return Some(i);
+                        }
+                    }
+                }
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 fn is_js_content(bytes: &[u8]) -> bool {
