@@ -264,15 +264,7 @@ impl AtomFilterBuilder {
                 (t != 0).then_some(t)
             })
             .collect();
-        // Ensure per-target DFAs for all relevant targets are built
-        // even if no signature directly targets them. A buffer whose file type
-        // is PE (1), DEX (16) or APK (17) currently falls back to the "full"
-        // automaton (which includes atoms for other targets — useless
-        // file-type skips per large buffer). Adding them here builds a smaller
-        // DFA containing only generic (target=0) atoms + any target-specific
-        // atoms, eliminating the ft_sk waste entirely.
-        specific_targets.extend_from_slice(&[1, 16, 17, 18]);
-        specific_targets.sort();
+        specific_targets.sort_unstable();
         specific_targets.dedup();
 
         // ── Partition atoms by target and build per-target automata ──────

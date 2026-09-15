@@ -4,9 +4,8 @@ use crate::logical::Subsignature;
 use crate::pattern::Pattern;
 use crate::pe::{parse_pe, PeInfo};
 use std::cell::RefCell;
-use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 thread_local! {
@@ -309,57 +308,6 @@ struct SubsigDetail {
     ranges: usize,
 }
 
-fn is_atomfilter_cache_valid(cache_path: &Path, db_dir: &Path) -> bool {
-    let Ok(cache_meta) = cache_path.metadata() else {
-        return false;
-    };
-    if !cache_meta.is_file() || cache_meta.len() < 16 {
-        return false;
-    }
-    let Ok(cache_mtime) = cache_meta.modified() else {
-        return false;
-    };
-
-    let Ok(entries) = std::fs::read_dir(db_dir) else {
-        return false;
-    };
-    for entry in entries.flatten() {
-        let p = entry.path();
-        if p == cache_path {
-            continue;
-        }
-        if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-            match ext.to_ascii_lowercase().as_str() {
-                "ldb" | "ndb" | "hdb" | "cdb" | "crb" | "idb" | "cud" | "cld" | "cvd" | "cbc" | "yrc" | "yar" => {
-                    if let Ok(meta) = p.metadata() {
-                        if let Ok(mtime) = meta.modified() {
-                            if mtime > cache_mtime {
-                                return false;
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    true
-}
-
-fn resolve_atomfilter_cache_path(db_dir: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let program_data = std::env::var_os("ProgramData")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-        let edrsvc_dir = program_data.join("edrsvc");
-        if edrsvc_dir.is_dir() || std::fs::create_dir_all(&edrsvc_dir).is_ok() {
-            return edrsvc_dir.join("atomfilter.cache");
-        }
-    }
-    db_dir.join("atomfilter.cache")
-}
-
 impl Engine {
     /// AtomFilterDb heap breakdown, for `--mem-stats` profiling.
     pub fn prefilter_mem_report(&self) -> String {
@@ -372,14 +320,7 @@ impl Engine {
         )
     }
 
-    /// Serialized atomfilter cache bytes for reuse on next process start.
-    pub fn atomfilter_cache_bytes(&self) -> Vec<u8> {
-        self.atomfilter_db.to_bytes()
-    }
-
-    /// Load from a filesystem directory (original path-based loading) with automatic
-    /// on-disk atomfilter caching to eliminate the multi-gigabyte build memory spike.
-    /// Prefers %ProgramData%\edrsvc\atomfilter.cache on Windows.
+    /// Load from a filesystem directory (original path-based loading).
     pub fn from_database_dir(path: impl AsRef<Path>) -> io::Result<(Self, crate::LoadReport)> {
         let path = path.as_ref();
         let t0 = Instant::now();
@@ -389,49 +330,7 @@ impl Engine {
             database.container.len());
         let bc = crate::bytecode::BytecodeSet::load_from_dir(path);
 
-        let cache_file = resolve_atomfilter_cache_path(path);
-        let fallback_cache = path.join("atomfilter.cache");
-
-        let active_cache_file = if is_atomfilter_cache_valid(&cache_file, path) {
-            Some(cache_file.clone())
-        } else if is_atomfilter_cache_valid(&fallback_cache, path) {
-            Some(fallback_cache)
-        } else {
-            None
-        };
-
-        let cached_filter = if let Some(ref cf) = active_cache_file {
-            match std::fs::read(cf) {
-                Ok(bytes) => {
-                    let parsed = crate::atomfilter::AtomFilterDb::from_bytes(&bytes);
-                    if parsed.is_some() {
-                        rust_timing_log!("from_database_dir :: successfully loaded atomfilter.cache from {} ({} bytes)", cf.display(), bytes.len());
-                    }
-                    parsed
-                }
-                Err(_) => None,
-            }
-        } else {
-            None
-        };
-
-        let had_cache = cached_filter.is_some();
-        let (engine, report) = Self::finish_engine_init(&mut database, &mut report, bc, t0, cached_filter);
-
-        if !had_cache {
-            let cache_bytes = engine.atomfilter_cache_bytes();
-            if !cache_bytes.is_empty() {
-                let target_path = &cache_file;
-                if let Some(parent) = target_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let tmp_cache = target_path.with_extension("tmp");
-                if std::fs::write(&tmp_cache, &cache_bytes).is_ok() {
-                    let _ = std::fs::rename(&tmp_cache, target_path);
-                    rust_timing_log!("from_database_dir :: saved atomfilter.cache to {} ({} bytes)", target_path.display(), cache_bytes.len());
-                }
-            }
-        }
+        let (engine, report) = Self::finish_engine_init(&mut database, &mut report, bc, t0, None);
 
         Ok((engine, report))
     }
@@ -2800,7 +2699,7 @@ mod tests {
         engine.scan_object(
             b"xxMALWAREyy",
             "root#archive[0]",
-            Some("CL_TYPE_ZIP"),
+            Some("zip"),
             None,
             None,
             None,
@@ -3023,34 +2922,6 @@ mod tests {
         // Should not match on a benign string
         let miss = engine.scan_bytes(b"hello world this is not malware", ScanOptions::default());
         assert!(miss.is_empty(), "EICAR signature must not fire on benign content");
-    }
-
-    #[test]
-    fn from_database_dir_creates_and_reuses_atomfilter_cache() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "hd_clam_test_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let hex = "414243444546"; // "ABCDEF"
-        let line = format!("Test.CacheSig:0:*:{hex}\n");
-        std::fs::write(temp_dir.join("test.ndb"), line).unwrap();
-
-        // 1. First run: no cache exists, engine must build and save it.
-        let (engine1, _) = Engine::from_database_dir(&temp_dir).unwrap();
-        let matches1 = engine1.scan_bytes(b"xxABCDEFyy", ScanOptions::default());
-        assert_eq!(matches1.len(), 1);
-
-        // 2. Second run: cache must exist and load successfully.
-        let (engine2, _) = Engine::from_database_dir(&temp_dir).unwrap();
-        let matches2 = engine2.scan_bytes(b"xxABCDEFyy", ScanOptions::default());
-        assert_eq!(matches2.len(), 1);
-        assert_eq!(matches2[0].name, "Test.CacheSig");
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
 }
