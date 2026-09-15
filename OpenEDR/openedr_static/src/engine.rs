@@ -66,6 +66,7 @@ impl StaticEngine {
                 }
             }
         }
+        let fls = FlsClient::default();
 
         Self {
             base_dir: base,
