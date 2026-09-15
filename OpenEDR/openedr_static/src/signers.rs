@@ -202,31 +202,28 @@ pub fn verify_authenticode(path: &Path) -> (bool, bool, Option<String>, String) 
             Some(&mut crypt_msg),
             None,
         ).is_ok() {
-            let cert_ctx = CertEnumCertificatesInStore(cert_store, None);
-            if !cert_ctx.is_null() {
-                let mut name_buf = [0u16; 256];
-                let len = CertGetNameStringW(
-                    cert_ctx,
-                    CERT_NAME_SIMPLE_DISPLAY_TYPE,
-                    0,
-                    None,
-                    Some(&mut name_buf),
-                );
-                if len > 1 {
-                    signer_name = Some(String::from_utf16_lossy(&name_buf[..(len as usize - 1)]));
-                }
-                CertFreeCertificateContext(Some(cert_ctx));
-            }
             if !cert_store.is_invalid() {
+                let cert_ctx = CertEnumCertificatesInStore(cert_store, None);
+                if !cert_ctx.is_null() {
+                    let mut name_buf = [0u16; 256];
+                    let len = CertGetNameStringW(
+                        cert_ctx,
+                        CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                        0,
+                        None,
+                        Some(&mut name_buf),
+                    );
+                    if len > 1 {
+                        signer_name = Some(String::from_utf16_lossy(&name_buf[..(len as usize - 1)]));
+                    }
+                    let _ = CertFreeCertificateContext(Some(cert_ctx));
+                }
                 let _ = CertCloseStore(Some(cert_store), 0);
             }
             if !crypt_msg.is_null() {
-                CryptMsgClose(Some(crypt_msg));
+                let _ = CryptMsgClose(Some(crypt_msg));
             }
         }
-
-        win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
-        WinVerifyTrust(HWND::default(), &mut action_guid, &mut win_trust_data as *mut _ as _);
     }
 
     let is_signed = is_trusted || signer_name.is_some();
