@@ -9,7 +9,6 @@ extern "C" {
     fn openedr_static_scan_bytes(data: *const u8, len: usize, file_name: *const c_char) -> *mut c_char;
     fn openedr_static_scan_url(url: *const c_char) -> *mut c_char;
     fn openedr_static_check_registry(reg_path: *const c_char) -> *mut c_char;
-    fn openedr_static_check_fls_sha1(sha1_hex: *const c_char) -> i32;
     fn openedr_static_free_string(s: *mut c_char);
 }
 
@@ -62,12 +61,6 @@ impl OpenEdrScanner {
         let c_str = CString::new(url).map_err(|e| e.to_string())?;
         let ptr = unsafe { openedr_static_scan_url(c_str.as_ptr()) };
         Ok(Self::c_str_to_string_and_free(ptr))
-    }
-
-    pub fn query_fls(&self, sha1_hex: &str) -> Result<i32, String> {
-        let c_str = CString::new(sha1_hex).map_err(|e| e.to_string())?;
-        let code = unsafe { openedr_static_check_fls_sha1(c_str.as_ptr()) };
-        Ok(code)
     }
 }
 

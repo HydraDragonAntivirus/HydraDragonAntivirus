@@ -13,18 +13,8 @@ type Scanner struct {
 	fnScanBytes    *syscall.LazyProc
 	fnScanURL      *syscall.LazyProc
 	fnCheckReg     *syscall.LazyProc
-	fnQueryFLS     *syscall.LazyProc
 	fnFreeString   *syscall.LazyProc
 }
-
-type FlsVerdict int
-
-const (
-	FlsError     FlsVerdict = -1
-	FlsUnknown   FlsVerdict = 0
-	FlsSafe      FlsVerdict = 1
-	FlsMalicious FlsVerdict = 2
-)
 
 func NewScanner(dllPath string, rulesDir string) (*Scanner, error) {
 	dll := syscall.NewLazyDLL(dllPath)
@@ -35,7 +25,6 @@ func NewScanner(dllPath string, rulesDir string) (*Scanner, error) {
 		fnScanBytes:  dll.NewProc("openedr_static_scan_bytes"),
 		fnScanURL:    dll.NewProc("openedr_static_scan_url"),
 		fnCheckReg:   dll.NewProc("openedr_static_check_registry"),
-		fnQueryFLS:   dll.NewProc("openedr_static_check_fls_sha1"),
 		fnFreeString: dll.NewProc("openedr_static_free_string"),
 	}
 
@@ -111,13 +100,4 @@ func (s *Scanner) CheckRegistry(regPath string) (string, error) {
 	}
 	r1, _, _ := s.fnCheckReg.Call(uintptr(unsafe.Pointer(b)))
 	return s.ptrToStringAndFree(r1), nil
-}
-
-func (s *Scanner) QueryFLS(sha1Hex string) (FlsVerdict, error) {
-	b, err := syscall.BytePtrFromString(sha1Hex)
-	if err != nil {
-		return FlsError, err
-	}
-	r1, _, _ := s.fnQueryFLS.Call(uintptr(unsafe.Pointer(b)))
-	return FlsVerdict(int32(r1)), nil
 }

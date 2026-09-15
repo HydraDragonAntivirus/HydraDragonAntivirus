@@ -28,7 +28,6 @@ pub struct StaticScanReport {
     pub max_threat_score: f32,
     pub detections: Vec<DetectionItem>,
     pub signer_info: Option<SignerDetails>,
-    pub fls_verdict: Option<String>,
     pub pua_registry_matches: Vec<String>,
     pub scan_time_ms: u64,
 }

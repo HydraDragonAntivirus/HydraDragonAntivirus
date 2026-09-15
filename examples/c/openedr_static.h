@@ -57,13 +57,6 @@ OPENEDR_API char* openedr_static_scan_url(const char* url);
 OPENEDR_API char* openedr_static_check_registry(const char* reg_path);
 
 /**
- * @brief Query Comodo FLS cloud database for a file's SHA-1 hash.
- * @param sha1_hex 40-character hexadecimal SHA-1 string.
- * @return 1 = Safe/Trusted, 2 = Malicious, 0 = Unknown/Absent, -1 = Network/Protocol Error.
- */
-OPENEDR_API int32_t openedr_static_check_fls_sha1(const char* sha1_hex);
-
-/**
  * @brief Free a C-string returned by openedr_static scanning functions.
  * @param s Pointer to the heap-allocated C-string.
  */

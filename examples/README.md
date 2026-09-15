@@ -34,10 +34,7 @@ char* openedr_static_scan_url(const char* url);
 // 5. Check Registry key -> Returns JSON string
 char* openedr_static_check_registry(const char* reg_path);
 
-// 6. Query Comodo FLS cloud (1=Safe, 2=Malicious, 0=Unknown, -1=Error)
-int32_t openedr_static_check_fls_sha1(const char* sha1_hex);
-
-// 7. Free heap-allocated C string
+// 6. Free heap-allocated C string
 void openedr_static_free_string(char* s);
 ```
 

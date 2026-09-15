@@ -52,18 +52,6 @@ public:
         if (!res) return R"({"error": true, "message": "Scan failed"})";
         return std::string(res.get());
     }
-
-    enum class FlsVerdict {
-        Safe = 1,
-        Malicious = 2,
-        Unknown = 0,
-        Error = -1
-    };
-
-    FlsVerdict query_fls(const std::string& sha1_hex) {
-        int32_t code = openedr_static_check_fls_sha1(sha1_hex.c_str());
-        return static_cast<FlsVerdict>(code);
-    }
 };
 
 } // namespace openedr

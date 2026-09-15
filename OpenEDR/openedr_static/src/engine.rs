@@ -6,7 +6,6 @@ use sha1collisiondetection::digest::Digest as Sha1DigestTrait;
 use sha2::{Sha256, Digest as Sha256Digest};
 
 use crate::clam::ClamScanner;
-use crate::fls::{FlsClient, FlsVerdict};
 use crate::hayabusa_scanner::{HayabusaEventMatch, HayabusaScanner};
 use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
 use crate::ml::scanner::MlScanner;
@@ -23,7 +22,6 @@ pub struct StaticEngine {
     signers: SignerDb,
     pua_registry: PuaRegistryMatcher,
     hayabusa: HayabusaScanner,
-    fls: FlsClient,
     benign_hashes: HashSet<String>,
 }
 
@@ -115,7 +113,6 @@ impl StaticEngine {
             base.join("hayabusa_rules")
         };
         let hayabusa = HayabusaScanner::new(&hayabusa_dir);
-        let fls = FlsClient::default();
 
         Self {
             base_dir: base,
@@ -125,7 +122,6 @@ impl StaticEngine {
             signers,
             pua_registry,
             hayabusa,
-            fls,
             benign_hashes,
         }
     }
@@ -140,7 +136,7 @@ impl StaticEngine {
         self.hayabusa.scan_system_events()
     }
 
-    /// Scan a file on disk. Evaluates WinTrust signature, ClamAV, YARA, PE/JS ML, and Comodo FLS.
+    /// Scan a file on disk. Evaluates WinTrust signature, ClamAV, YARA, and PE/JS ML.
     pub fn scan_file(&self, path: &Path) -> StaticScanReport {
         let t0 = Instant::now();
         let target_str = path.display().to_string();
@@ -162,7 +158,6 @@ impl StaticEngine {
                         details: None,
                     }],
                     signer_info: None,
-                    fls_verdict: None,
                     pua_registry_matches: Vec::new(),
                     scan_time_ms: t0.elapsed().as_millis() as u64,
                 };
@@ -223,7 +218,6 @@ impl StaticEngine {
                 max_threat_score: 0.0,
                 detections: Vec::new(),
                 signer_info: None,
-                fls_verdict: Some("Whitelisted".to_string()),
                 pua_registry_matches: Vec::new(),
                 scan_time_ms: start_time.elapsed().as_millis() as u64,
             };
@@ -241,20 +235,7 @@ impl StaticEngine {
             max_score = max_score.max(1.0);
         }
 
-        // 1. Comodo FLS Cloud Lookup (Highest Priority Fast-Path)
-        let fls_res = self.fls.query_sha1(&sha1_hex);
-        let fls_str = fls_res.as_str().to_string();
-        if fls_res == FlsVerdict::Malicious {
-            detections.push(DetectionItem {
-                layer: "FLS_Cloud".to_string(),
-                name: "ComodoFLS.Malicious".to_string(),
-                score: Some(1.0),
-                details: Some("Reputation confirmed by Comodo FLS cloud".to_string()),
-            });
-            max_score = max_score.max(1.0);
-        }
-
-        // 2. Authenticode & Signer Check
+        // 1. Authenticode & Signer Check
         let mut signer_details = None;
         if let Some(p) = disk_path {
             let (is_signed, is_trusted, signer_name, status) = verify_authenticode(p);
@@ -300,7 +281,6 @@ impl StaticEngine {
                     max_threat_score: 0.0,
                     detections: Vec::new(),
                     signer_info: signer_details,
-                    fls_verdict: Some(fls_str.clone()),
                     pua_registry_matches: Vec::new(),
                     scan_time_ms: start_time.elapsed().as_millis() as u64,
                 };
@@ -334,7 +314,7 @@ impl StaticEngine {
         // 5. Machine Learning (PE / JS)
         if data.starts_with(b"MZ") {
             if let Some(prob) = self.ml.predict_pe(data) {
-                if prob >= 0.70 {
+                if prob >= 0.71 {
                     detections.push(DetectionItem {
                         layer: "PE_ML".to_string(),
                         name: "MalwareNet.PE.HighConfidence".to_string(),
@@ -390,7 +370,7 @@ impl StaticEngine {
                                 max_score = max_score.max(0.95);
                             }
                             if let Some(prob) = self.ml.predict_pe(&dumped) {
-                                if prob >= 0.70 {
+                                if prob >= 0.71 {
                                     detections.push(DetectionItem {
                                         layer: "Unicorn_Unpacker_ML".to_string(),
                                         name: "Unpacked.MalwareNet.PE.HighConfidence".to_string(),
@@ -453,7 +433,7 @@ impl StaticEngine {
 
             if stripped_data.starts_with(b"MZ") {
                 if let Some(prob) = self.ml.predict_pe(stripped_data) {
-                    if prob >= 0.70 {
+                    if prob >= 0.71 {
                         detections.push(DetectionItem {
                             layer: "Heuristic_Stripped_PE_ML".to_string(),
                             name: "Stripped.MalwareNet.PE.HighConfidence".to_string(),
@@ -539,7 +519,7 @@ impl StaticEngine {
                         if let Some(pe_blob) = ml_target {
                             if pe_blob.starts_with(b"MZ") {
                                 if let Some(prob) = self.ml.predict_pe(pe_blob) {
-                                    if prob >= 0.70 {
+                                    if prob >= 0.71 {
                                         overlay_confirmed = true;
                                         detections.push(DetectionItem {
                                             layer: "Heuristic_Overlay_PE_ML".to_string(),
@@ -610,7 +590,7 @@ impl StaticEngine {
                         }
                         if entry.data.starts_with(b"MZ") {
                             if let Some(prob) = self.ml.predict_pe(&entry.data) {
-                                if prob >= 0.70 {
+                                if prob >= 0.71 {
                                     detections.push(DetectionItem {
                                         layer: "Archive_PE_ML".to_string(),
                                         name: format!("Archive:{}:MalwareNet.PE.HighConfidence", entry.name),
@@ -651,8 +631,6 @@ impl StaticEngine {
             } else {
                 "Unknown"
             }
-        } else if fls_res == FlsVerdict::Safe {
-            "Clean"
         } else {
             "Unknown"
         };
@@ -666,7 +644,6 @@ impl StaticEngine {
             max_threat_score: max_score,
             detections,
             signer_info: signer_details,
-            fls_verdict: Some(fls_str),
             pua_registry_matches: Vec::new(),
             scan_time_ms: start_time.elapsed().as_millis() as u64,
         }
@@ -696,11 +673,6 @@ impl StaticEngine {
     /// Scan a URL using the ONNX LightGBM tree classifier.
     pub fn scan_url(&self, raw_url: &str) -> Option<f32> {
         self.ml.predict_url(raw_url)
-    }
-
-    /// Query FLS directly for SHA-1
-    pub fn check_fls(&self, sha1_hex: &str) -> FlsVerdict {
-        self.fls.query_sha1(sha1_hex)
     }
 }
 

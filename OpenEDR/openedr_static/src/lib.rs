@@ -1,6 +1,5 @@
 pub mod clam;
 pub mod engine;
-pub mod fls;
 pub mod hayabusa_scanner;
 pub mod hosts;
 pub mod ml;
@@ -240,33 +239,6 @@ pub extern "C" fn openedr_static_scan_url(url: *const c_char) -> *mut c_char {
     match serde_json::to_string_pretty(&report) {
         Ok(json) => to_c_string(json),
         Err(e) => error_json(&format!("JSON serialization error: {}", e)),
-    }
-}
-
-/// Query Comodo FLS cloud service directly for a SHA-1 hash (40-character hex string).
-
-/// Returns:
-///   0 = Unknown / No verdict
-///   1 = Safe / Trusted
-///   2 = Malicious / Malware
-///  -1 = Network or protocol error
-#[unsafe(no_mangle)]
-pub extern "C" fn openedr_static_check_fls_sha1(sha1_hex: *const c_char) -> i32 {
-    if sha1_hex.is_null() {
-        return -1;
-    }
-
-    let hex_str = match unsafe { CStr::from_ptr(sha1_hex) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return -1,
-    };
-
-    let client = fls::FlsClient::default();
-    match client.query_sha1(hex_str) {
-        fls::FlsVerdict::Safe => 1,
-        fls::FlsVerdict::Malicious => 2,
-        fls::FlsVerdict::Unknown | fls::FlsVerdict::Absent => 0,
-        fls::FlsVerdict::Fail => -1,
     }
 }
 

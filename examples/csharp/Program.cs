@@ -23,13 +23,6 @@ namespace OpenEdrExample
             Console.WriteLine($"--- 2. Scanning URL: {url} ---");
             string urlReport = scanner.ScanUrl(url);
             Console.WriteLine(urlReport);
-            Console.WriteLine();
-
-            // 3. FLS Cloud Query
-            string hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4";
-            Console.WriteLine($"--- 3. Querying FLS Cloud: {hash} ---");
-            var flsVerdict = scanner.QueryFls(hash);
-            Console.WriteLine($"Verdict: {flsVerdict}");
         }
     }
 }

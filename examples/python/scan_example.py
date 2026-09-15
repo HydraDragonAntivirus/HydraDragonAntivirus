@@ -30,16 +30,9 @@ def main():
     print(f"Malware Probability : {url_report.get('malware_probability', 0.0) * 100:.2f}%")
     print()
 
-    # 3. Comodo FLS Cloud Query
-    # Example: calc.exe known SHA-1 or dummy hash
-    sha1 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4"
-    print(f"--- 3. Comodo FLS Cloud Query: {sha1} ---")
-    fls_res = scanner.query_fls(sha1)
-    print(f"FLS Verdict : {fls_res}\n")
-
-    # 4. Check Registry
+    # 3. Check Registry
     reg_key = r"HKLM\Software\Microsoft\Windows\CurrentVersion\Run\SuspiciousApp"
-    print(f"--- 4. Registry Rule Check: {reg_key} ---")
+    print(f"--- 3. Registry Rule Check: {reg_key} ---")
     reg_report = scanner.check_registry(reg_key)
     print(f"Result : {json.dumps(reg_report, indent=2)}")
 

@@ -45,9 +45,6 @@ class OpenEdrScanner:
         self.dll.openedr_static_check_registry.restype = ctypes.c_char_p
         self.dll.openedr_static_check_registry.argtypes = [ctypes.c_char_p]
 
-        self.dll.openedr_static_check_fls_sha1.restype = ctypes.c_int32
-        self.dll.openedr_static_check_fls_sha1.argtypes = [ctypes.c_char_p]
-
         self.dll.openedr_static_free_string.restype = None
         self.dll.openedr_static_free_string.argtypes = [ctypes.c_char_p]
 
@@ -94,14 +91,3 @@ class OpenEdrScanner:
             return json.loads(json_str)
         finally:
             self.dll.openedr_static_free_string(res_ptr)
-
-    def query_fls(self, sha1_hex: str) -> str:
-        """Query Comodo FLS cloud for a 40-character SHA-1 hash."""
-        code = self.dll.openedr_static_check_fls_sha1(sha1_hex.encode("utf-8"))
-        verdicts = {
-            1: "Safe / Trusted",
-            2: "Malicious / Malware",
-            0: "Unknown / Absent",
-            -1: "Network / Protocol Error"
-        }
-        return verdicts.get(code, f"Unknown Code ({code})")

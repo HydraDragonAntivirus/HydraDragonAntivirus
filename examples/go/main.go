@@ -35,11 +35,4 @@ func main() {
 	if err == nil {
 		fmt.Println(urlReport)
 	}
-	fmt.Println()
-
-	// 3. FLS Cloud Query
-	hash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4"
-	fmt.Printf("--- 3. Querying FLS Cloud: %s ---\n", hash)
-	verdict, _ := scanner.QueryFLS(hash)
-	fmt.Printf("FLS Verdict: %d (1=Safe, 2=Malicious, 0=Unknown)\n", verdict)
 }

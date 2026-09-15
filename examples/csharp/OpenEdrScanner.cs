@@ -3,14 +3,6 @@ using System.Runtime.InteropServices;
 
 namespace OpenEdr.Sdk
 {
-    public enum FlsVerdict
-    {
-        Error = -1,
-        Unknown = 0,
-        Safe = 1,
-        Malicious = 2
-    }
-
     public class OpenEdrScanner : IDisposable
     {
         private const string DllName = "openedr_static.dll";
@@ -29,9 +21,6 @@ namespace OpenEdr.Sdk
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern IntPtr openedr_static_check_registry(string regPath);
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        private static extern int openedr_static_check_fls_sha1(string sha1Hex);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern void openedr_static_free_string(IntPtr s);
@@ -84,13 +73,6 @@ namespace OpenEdr.Sdk
             if (string.IsNullOrEmpty(regPath)) throw new ArgumentNullException(nameof(regPath));
             IntPtr ptr = openedr_static_check_registry(regPath);
             return PtrToStringAndFree(ptr);
-        }
-
-        public FlsVerdict QueryFls(string sha1Hex)
-        {
-            if (string.IsNullOrEmpty(sha1Hex)) throw new ArgumentNullException(nameof(sha1Hex));
-            int code = openedr_static_check_fls_sha1(sha1Hex);
-            return (FlsVerdict)code;
         }
 
         public void Dispose()

@@ -14,7 +14,6 @@ class OpenEdrScanner {
         this.fnScanBytes = lib.func('char* openedr_static_scan_bytes(const uint8_t *data, size_t len, const char *file_name)');
         this.fnScanUrl = lib.func('char* openedr_static_scan_url(const char *url)');
         this.fnCheckRegistry = lib.func('char* openedr_static_check_registry(const char *reg_path)');
-        this.fnCheckFls = lib.func('int32_t openedr_static_check_fls_sha1(const char *sha1_hex)');
         this.fnFreeString = lib.func('void openedr_static_free_string(char *s)');
 
         const res = this.fnInit(rulesDir);
@@ -51,10 +50,6 @@ class OpenEdrScanner {
     checkRegistry(regPath) {
         const ptr = this.fnCheckRegistry(regPath);
         return this._handleStringResult(ptr);
-    }
-
-    queryFls(sha1Hex) {
-        return this.fnCheckFls(sha1Hex);
     }
 }
 

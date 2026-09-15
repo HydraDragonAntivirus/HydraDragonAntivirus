@@ -32,11 +32,5 @@ int main(int argc, char* argv[]) {
         openedr_static_free_string(url_report);
     }
 
-    // 3. Comodo FLS Query
-    const char* test_sha1 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4";
-    printf("--- 3. Comodo FLS Query: %s ---\n", test_sha1);
-    int32_t fls_code = openedr_static_check_fls_sha1(test_sha1);
-    printf("FLS Code: %d (1=Safe, 2=Malicious, 0=Unknown, -1=Error)\n\n", fls_code);
-
     return 0;
 }
