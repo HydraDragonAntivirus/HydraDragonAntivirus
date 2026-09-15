@@ -34,12 +34,14 @@ impl StaticEngine {
         let database_dir = base.join("database");
         let rules_dir = base.join("rules");
         let models_dir = base.join("models");
-        let registry_rules_path = if base.join("registry_rules.yaml").is_file() {
+        let registry_rules_path = if base.join("registry_rules").is_dir() {
+            base.join("registry_rules")
+        } else if base.join("registry_rules.yaml").is_file() {
             base.join("registry_rules.yaml")
         } else if base.join("registry_rules.yml").is_file() {
             base.join("registry_rules.yml")
-        } else if base.join("registry_rules").is_dir() {
-            base.join("registry_rules")
+        } else if base.join("rules").join("registry_rules").is_dir() {
+            base.join("rules").join("registry_rules")
         } else if base.join("ptm.local.src").is_file() {
             base.join("ptm.local.src")
         } else {
