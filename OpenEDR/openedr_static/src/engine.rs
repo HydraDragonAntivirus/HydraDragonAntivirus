@@ -1,4 +1,4 @@
-﻿use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use sha1::{Sha1, Digest as Sha1Digest};
 use sha2::{Sha256, Digest as Sha256Digest};
@@ -34,18 +34,24 @@ impl StaticEngine {
         let database_dir = base.join("database");
         let rules_dir = base.join("rules");
         let models_dir = base.join("models");
-        let signers_dir = base.join("signer_rules");
-        let ptm_file = if base.join("ptm.local.src").is_file() {
+        let registry_rules_path = if base.join("registry_rules.yaml").is_file() {
+            base.join("registry_rules.yaml")
+        } else if base.join("registry_rules.yml").is_file() {
+            base.join("registry_rules.yml")
+        } else if base.join("registry_rules").is_dir() {
+            base.join("registry_rules")
+        } else if base.join("ptm.local.src").is_file() {
             base.join("ptm.local.src")
         } else {
-            base.join("rules").join("ptm.local.src")
+            base.join("rules").join("registry_rules.yaml")
         };
 
         let clam = ClamScanner::new(&database_dir);
         let yara = YaraScanner::new(&rules_dir);
         let ml = MlScanner::new(&models_dir);
+        let signers_dir = base.join("signer_rules");
         let signers = SignerDb::load_from_dir(&signers_dir);
-        let pua_registry = PuaRegistryMatcher::from_ptm_local_src(&ptm_file);
+        let pua_registry = PuaRegistryMatcher::load(&registry_rules_path);
         let fls = FlsClient::default();
 
         Self {
