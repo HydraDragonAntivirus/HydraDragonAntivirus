@@ -1,11 +1,14 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use sha1::{Sha1, Digest as Sha1Digest};
+use sha1collisiondetection::Sha1CD;
+use sha1collisiondetection::digest::Digest as Sha1DigestTrait;
 use sha2::{Sha256, Digest as Sha256Digest};
 
 use crate::clam::ClamScanner;
 use crate::fls::{FlsClient, FlsVerdict};
+use crate::hayabusa_scanner::{HayabusaEventMatch, HayabusaScanner};
+use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
 use crate::ml::scanner::MlScanner;
 use crate::ptm_registry::PuaRegistryMatcher;
 use crate::report::{DetectionItem, RegistryCheckReport, SignerDetails, StaticScanReport};
@@ -19,6 +22,7 @@ pub struct StaticEngine {
     ml: MlScanner,
     signers: SignerDb,
     pua_registry: PuaRegistryMatcher,
+    hayabusa: HayabusaScanner,
     fls: FlsClient,
     benign_hashes: HashSet<String>,
 }
@@ -70,23 +74,22 @@ impl StaticEngine {
         let pua_registry = PuaRegistryMatcher::load(&registry_rules_path);
         let mut benign_hashes = HashSet::new();
 
-        // Load hash whitelists from hash_rules/ (or database/ fallback)
+        // Load SHA-256 hash whitelists from hash_rules/
         let hash_files = [
-            hash_rules_dir.join("benign_sha1.txt"),
-            base.join("hash_rules").join("benign_sha1.txt"),
-            database_dir.join("benign_sha1.txt"),
+            hash_rules_dir.join("benign_sha256.txt"),
+            base.join("hash_rules").join("benign_sha256.txt"),
+            database_dir.join("benign_sha256.txt"),
         ];
         for hpath in &hash_files {
             if let Ok(content) = std::fs::read_to_string(hpath) {
                 for line in content.lines() {
                     let trimmed = line.trim().to_lowercase();
-                    if trimmed.len() == 40 || trimmed.len() == 64 {
+                    if trimmed.len() == 64 {
                         benign_hashes.insert(trimmed);
                     }
                 }
             }
         }
-        // Also load any additional .txt files in hash_rules/ if it's a directory
         if hash_rules_dir.is_dir() {
             if let Ok(entries) = std::fs::read_dir(&hash_rules_dir) {
                 for entry in entries.flatten() {
@@ -95,7 +98,7 @@ impl StaticEngine {
                         if let Ok(content) = std::fs::read_to_string(&p) {
                             for line in content.lines() {
                                 let trimmed = line.trim().to_lowercase();
-                                if trimmed.len() == 40 || trimmed.len() == 64 {
+                                if trimmed.len() == 64 {
                                     benign_hashes.insert(trimmed);
                                 }
                             }
@@ -104,6 +107,14 @@ impl StaticEngine {
                 }
             }
         }
+        let hayabusa_dir = if base.join("hayabusa_rules").is_dir() {
+            base.join("hayabusa_rules")
+        } else if base.join("rules").join("hayabusa").is_dir() {
+            base.join("rules").join("hayabusa")
+        } else {
+            base.join("hayabusa_rules")
+        };
+        let hayabusa = HayabusaScanner::new(&hayabusa_dir);
         let fls = FlsClient::default();
 
         Self {
@@ -113,9 +124,20 @@ impl StaticEngine {
             ml,
             signers,
             pua_registry,
+            hayabusa,
             fls,
             benign_hashes,
         }
+    }
+
+    /// Scan a Windows EVTX log file for threat events using Hayabusa rules.
+    pub fn scan_evtx(&self, path: &Path) -> Vec<HayabusaEventMatch> {
+        self.hayabusa.scan_evtx_file(path)
+    }
+
+    /// Scan live Windows system event logs (C:\Windows\System32\Winevt\Logs\) using Hayabusa rules.
+    pub fn scan_system_events(&self) -> Vec<HayabusaEventMatch> {
+        self.hayabusa.scan_system_events()
     }
 
     /// Scan a file on disk. Evaluates WinTrust signature, ClamAV, YARA, PE/JS ML, and Comodo FLS.
@@ -165,10 +187,12 @@ impl StaticEngine {
     ) -> StaticScanReport {
         let file_size = data.len() as u64;
 
-        // Hashes
-        let mut sha1_hasher = Sha1::new();
+        // Hashes & SHA-1 Collision Detection (Marc Stevens sha1dc / SHAttered counter-cryptanalysis)
+        let mut sha1_hasher = Sha1CD::default();
         sha1_hasher.update(data);
-        let sha1_hex = hex::encode(sha1_hasher.finalize());
+        let mut sha1_digest = sha1collisiondetection::Output::default();
+        let is_collision_attack = sha1_hasher.finalize_into_dirty_cd(&mut sha1_digest).is_err();
+        let sha1_hex = hex::encode(sha1_digest);
 
         let mut sha256_hasher = Sha256::new();
         sha256_hasher.update(data);
@@ -177,8 +201,19 @@ impl StaticEngine {
         let mut detections = Vec::new();
         let mut max_score: f32 = 0.0;
 
-        // 0. Fast-Path: Local Benign Whitelist (256K+ hashes)
-        if self.benign_hashes.contains(&sha1_hex) {
+        // SHA-1 Collision Attack Detection Alert (sha1dc)
+        if is_collision_attack {
+            detections.push(DetectionItem {
+                layer: "Crypto_Integrity".to_string(),
+                name: "Crypto.SHA1.CollisionAttackDetected".to_string(),
+                score: Some(1.0),
+                details: Some("Marc Stevens sha1dc counter-cryptanalysis detected SHA-1 collision attack (SHAttered / Chosen-Prefix) in payload".to_string()),
+            });
+            max_score = max_score.max(1.0);
+        }
+
+        // 0. Fast-Path: Cryptographic SHA-256 Whitelist (Collision immune)
+        if self.benign_hashes.contains(&sha256_hex) && !is_collision_attack {
             return StaticScanReport {
                 target: target_name.to_string(),
                 file_size,
@@ -192,6 +227,18 @@ impl StaticEngine {
                 pua_registry_matches: Vec::new(),
                 scan_time_ms: start_time.elapsed().as_millis() as u64,
             };
+        }
+
+        // 0.1 EICAR Test File Detection (Single standard SHA-1 hash)
+        const EICAR_SHA1: &str = "3395856ce81f2b7382dee72602f798b642f14140";
+        if sha1_hex == EICAR_SHA1 || data.starts_with(b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*") {
+            detections.push(DetectionItem {
+                layer: "Signature".to_string(),
+                name: "EICAR-Test-File".to_string(),
+                score: Some(1.0),
+                details: Some("EICAR standard antivirus test file".to_string()),
+            });
+            max_score = max_score.max(1.0);
         }
 
         // 1. Comodo FLS Cloud Lookup (Highest Priority Fast-Path)
@@ -359,6 +406,211 @@ impl StaticEngine {
             }
         }
 
+        // 7. Heuristic: Trailing Null Bytes (0x00) File Pumping / Inflation Detection & Stripped Rescan
+        let non_zero_end = data.iter().rposition(|&b| b != 0).map_or(0, |idx| idx + 1);
+        let trailing_zeros = data.len() - non_zero_end;
+        let is_inflated = (trailing_zeros >= 65536)
+            || (data.len() > 1024 * 1024 && trailing_zeros as f64 / data.len() as f64 >= 0.20 && trailing_zeros >= 32768);
+
+        if is_inflated && non_zero_end > 0 {
+            detections.push(DetectionItem {
+                layer: "Heuristic".to_string(),
+                name: "Heuristic.File.InflatedNullPadding".to_string(),
+                score: Some(0.80),
+                details: Some(format!(
+                    "Detected {} KB of trailing 0x00 null padding (stripped {} KB -> {} KB)",
+                    trailing_zeros / 1024,
+                    data.len() / 1024,
+                    non_zero_end / 1024
+                )),
+            });
+            max_score = max_score.max(0.80);
+
+            // Rescan stripped buffer with ClamAV, YARA-X, and ML
+            let stripped_data = &data[..non_zero_end];
+
+            let cl_matches = self.clam.scan_bytes(stripped_data, target_name);
+            for m in cl_matches {
+                detections.push(DetectionItem {
+                    layer: "Heuristic_Stripped_ClamAV".to_string(),
+                    name: format!("Stripped:{}", m.name),
+                    score: Some(1.0),
+                    details: Some("Detected inside stripped payload after removing null padding".to_string()),
+                });
+                max_score = max_score.max(1.0);
+            }
+
+            let yr_matches = self.yara.scan_bytes(stripped_data);
+            for ym in yr_matches {
+                detections.push(DetectionItem {
+                    layer: "Heuristic_Stripped_YARA".to_string(),
+                    name: format!("Stripped:{}", ym),
+                    score: Some(0.95),
+                    details: Some("YARA rule matched on stripped payload after removing null padding".to_string()),
+                });
+                max_score = max_score.max(0.95);
+            }
+
+            if stripped_data.starts_with(b"MZ") {
+                if let Some(prob) = self.ml.predict_pe(stripped_data) {
+                    if prob >= 0.70 {
+                        detections.push(DetectionItem {
+                            layer: "Heuristic_Stripped_PE_ML".to_string(),
+                            name: "Stripped.MalwareNet.PE.HighConfidence".to_string(),
+                            score: Some(prob),
+                            details: Some(format!("Stripped payload malware probability: {:.2}%", prob * 100.0)),
+                        });
+                        max_score = max_score.max(prob);
+                    }
+                }
+            }
+        }
+
+        // 8. Heuristic: PE Overlay Extraction & Embedded Executable Rescan
+        if data.starts_with(b"MZ") && data.len() >= 0x200 {
+            if let Ok(pe) = pefile_rs::PE::parse(data) {
+                let mut max_pe_offset: usize = 0;
+                for sec in &pe.sections {
+                    let sec_end = (sec.pointer_to_raw_data + sec.size_of_raw_data) as usize;
+                    if sec_end > max_pe_offset {
+                        max_pe_offset = sec_end;
+                    }
+                }
+                if pe.optional_header.data_directories.len() > 4 {
+                    let sec_dir = &pe.optional_header.data_directories[4]; // Security Directory (Certificate Table)
+                    if sec_dir.virtual_address > 0 && sec_dir.size > 0 {
+                        let cert_end = (sec_dir.virtual_address + sec_dir.size) as usize;
+                        if cert_end > max_pe_offset {
+                            max_pe_offset = cert_end;
+                        }
+                    }
+                }
+
+                if max_pe_offset > 0 && max_pe_offset < data.len() {
+                    let overlay = &data[max_pe_offset..];
+                    if overlay.len() >= 512 {
+                        let has_embedded_pe = overlay.starts_with(b"MZ") || overlay.windows(2).any(|w| w == b"MZ");
+                        let has_embedded_archive = overlay.starts_with(b"PK\x03\x04")
+                            || overlay.starts_with(b"7z\xBC\xAF\x27\x1C")
+                            || overlay.starts_with(b"Rar!\x1A\x07");
+
+                        if has_embedded_pe || has_embedded_archive || overlay.len() > 65536 {
+                            let score = if has_embedded_pe { 0.85 } else { 0.65 };
+                            let desc = if has_embedded_pe {
+                                format!("Suspicious PE overlay: contains embedded MZ executable ({} bytes)", overlay.len())
+                            } else if has_embedded_archive {
+                                format!("Suspicious PE overlay: contains embedded archive payload ({} bytes)", overlay.len())
+                            } else {
+                                format!("PE overlay detected with {} bytes of data past section headers", overlay.len())
+                            };
+
+                            detections.push(DetectionItem {
+                                layer: "Heuristic_Overlay".to_string(),
+                                name: if has_embedded_pe {
+                                    "Heuristic.PE.EmbeddedExecutableOverlay".to_string()
+                                } else {
+                                    "Heuristic.PE.SuspiciousOverlay".to_string()
+                                },
+                                score: Some(score),
+                                details: Some(desc),
+                            });
+                            max_score = max_score.max(score);
+
+                            let ov_clam = self.clam.scan_bytes(overlay, "overlay.bin");
+                            for m in ov_clam {
+                                detections.push(DetectionItem {
+                                    layer: "Heuristic_Overlay_ClamAV".to_string(),
+                                    name: format!("Overlay:{}", m.name),
+                                    score: Some(1.0),
+                                    details: Some("Detected inside PE overlay payload".to_string()),
+                                });
+                                max_score = max_score.max(1.0);
+                            }
+
+                            let ov_yara = self.yara.scan_bytes(overlay);
+                            for ym in ov_yara {
+                                detections.push(DetectionItem {
+                                    layer: "Heuristic_Overlay_YARA".to_string(),
+                                    name: format!("Overlay:{}", ym),
+                                    score: Some(0.95),
+                                    details: Some("YARA rule matched inside PE overlay".to_string()),
+                                });
+                                max_score = max_score.max(0.95);
+                            }
+
+                            if overlay.starts_with(b"MZ") {
+                                if let Some(prob) = self.ml.predict_pe(overlay) {
+                                    if prob >= 0.70 {
+                                        detections.push(DetectionItem {
+                                            layer: "Heuristic_Overlay_PE_ML".to_string(),
+                                            name: "Overlay.MalwareNet.PE.HighConfidence".to_string(),
+                                            score: Some(prob),
+                                            details: Some(format!("Overlay PE malware probability: {:.2}%", prob * 100.0)),
+                                        });
+                                        max_score = max_score.max(prob);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 9. Archive Recursive Extraction & Zip Bomb Detection
+        if hydradragonextractor::detect_format(data).is_some() {
+            match hydradragonextractor::extract_archive_from_bytes(data, false) {
+                Ok(entries) => {
+                    for entry in entries {
+                        let child_clam = self.clam.scan_bytes(&entry.data, &entry.name);
+                        for m in child_clam {
+                            detections.push(DetectionItem {
+                                layer: "Archive_ClamAV".to_string(),
+                                name: format!("Archive:{}:{}", entry.name, m.name),
+                                score: Some(1.0),
+                                details: Some(format!("Extracted file: {}", entry.name)),
+                            });
+                            max_score = max_score.max(1.0);
+                        }
+                        let child_yara = self.yara.scan_bytes(&entry.data);
+                        for ym in child_yara {
+                            detections.push(DetectionItem {
+                                layer: "Archive_YARA".to_string(),
+                                name: format!("Archive:{}:{}", entry.name, ym),
+                                score: Some(0.95),
+                                details: Some(format!("Extracted file: {}", entry.name)),
+                            });
+                            max_score = max_score.max(0.95);
+                        }
+                        if entry.data.starts_with(b"MZ") {
+                            if let Some(prob) = self.ml.predict_pe(&entry.data) {
+                                if prob >= 0.70 {
+                                    detections.push(DetectionItem {
+                                        layer: "Archive_PE_ML".to_string(),
+                                        name: format!("Archive:{}:MalwareNet.PE.HighConfidence", entry.name),
+                                        score: Some(prob),
+                                        details: Some(format!("Child PE malware probability: {:.2}%", prob * 100.0)),
+                                    });
+                                    max_score = max_score.max(prob);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    if hydradragonextractor::is_bomb_error(&err) {
+                        detections.push(DetectionItem {
+                            layer: "Heuristic_Archive".to_string(),
+                            name: "Heuristic.Archive.DecompressionBomb.ZipBomb".to_string(),
+                            score: Some(1.0),
+                            details: Some(format!("Decompression bomb (ZipBomb) detected: {}", err)),
+                        });
+                        max_score = max_score.max(1.0);
+                    }
+                }
+            }
+        }
+
         // Final Verdict calculation
         let verdict = if max_score >= 0.85 || !detections.is_empty() {
             "Malicious"
@@ -387,6 +639,16 @@ impl StaticEngine {
             pua_registry_matches: Vec::new(),
             scan_time_ms: start_time.elapsed().as_millis() as u64,
         }
+    }
+
+    /// Check hosts file for tampering, modifications, or security vendor blacklisting.
+    pub fn check_hosts(&self, custom_path: Option<&Path>) -> HostsCheckReport {
+        hosts::check_hosts_file(custom_path)
+    }
+
+    /// Restore the hosts file back to the clean default Microsoft Windows template.
+    pub fn restore_hosts(&self, custom_path: Option<&Path>, backup: bool) -> HostsRestoreReport {
+        hosts::restore_hosts_file(custom_path, backup)
     }
 
     /// Check registry path against puaRegPaths from ptm.local.src.

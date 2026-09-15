@@ -1,6 +1,8 @@
 pub mod clam;
 pub mod engine;
 pub mod fls;
+pub mod hayabusa_scanner;
+pub mod hosts;
 pub mod ml;
 pub mod ptm_registry;
 pub mod report;
@@ -268,6 +270,114 @@ pub extern "C" fn openedr_static_check_fls_sha1(sha1_hex: *const c_char) -> i32 
     }
 }
 
+/// Scan a Windows EVTX log file for threat events using Hayabusa rules.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_scan_evtx(evtx_path: *const c_char) -> *mut c_char {
+    if evtx_path.is_null() {
+        return error_json("evtx_path pointer is null");
+    }
+
+    let path_str = match unsafe { CStr::from_ptr(evtx_path) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => return error_json("Invalid UTF-8 in evtx_path"),
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let engine_lock = match get_or_init_engine(None) {
+            Ok(lock) => lock,
+            Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+        };
+
+        let engine = match engine_lock.read() {
+            Ok(guard) => guard,
+            Err(_) => return error_json("Engine lock poisoned"),
+        };
+
+        let matches = engine.scan_evtx(Path::new(&path_str));
+        match serde_json::to_string_pretty(&matches) {
+            Ok(json) => to_c_string(json),
+            Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+        }
+    }));
+
+    match result {
+        Ok(ptr) => ptr,
+        Err(_) => error_json("Panic occurred during EVTX scan"),
+    }
+}
+
+/// Scan all live Windows system event logs (winevt/Logs) for threat events using Hayabusa rules.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_scan_system_events() -> *mut c_char {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let engine_lock = match get_or_init_engine(None) {
+            Ok(lock) => lock,
+            Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+        };
+
+        let engine = match engine_lock.read() {
+            Ok(guard) => guard,
+            Err(_) => return error_json("Engine lock poisoned"),
+        };
+
+        let matches = engine.scan_system_events();
+        match serde_json::to_string_pretty(&matches) {
+            Ok(json) => to_c_string(json),
+            Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+        }
+    }));
+
+    match result {
+        Ok(ptr) => ptr,
+        Err(_) => error_json("Panic occurred during live event logs scan"),
+    }
+}
+
+/// Check if the Windows hosts file has any modifications compared to default template.
+/// `hosts_path`: optional custom hosts file path (can be NULL to check standard C:\Windows\System32\drivers\etc\hosts).
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_check_hosts_file(hosts_path: *const c_char) -> *mut c_char {
+    let custom_p = if !hosts_path.is_null() {
+        match unsafe { CStr::from_ptr(hosts_path) }.to_str() {
+            Ok(s) => Some(PathBuf::from(s)),
+            Err(_) => return error_json("Invalid UTF-8 in hosts_path"),
+        }
+    } else {
+        None
+    };
+
+    let report = hosts::check_hosts_file(custom_p.as_deref());
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
+/// Restore the Windows hosts file back to the clean default Microsoft Windows template.
+/// `hosts_path`: optional custom hosts file path (can be NULL for default).
+/// `create_backup`: 1 to create timestamped .backup file, 0 to overwrite without backup.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_restore_hosts_file(hosts_path: *const c_char, create_backup: i32) -> *mut c_char {
+    let custom_p = if !hosts_path.is_null() {
+        match unsafe { CStr::from_ptr(hosts_path) }.to_str() {
+            Ok(s) => Some(PathBuf::from(s)),
+            Err(_) => return error_json("Invalid UTF-8 in hosts_path"),
+        }
+    } else {
+        None
+    };
+
+    let report = hosts::restore_hosts_file(custom_p.as_deref(), create_backup != 0);
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
 /// Free a C-string allocated and returned by openedr_static.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_free_string(s: *mut c_char) {
@@ -277,3 +387,5 @@ pub extern "C" fn openedr_static_free_string(s: *mut c_char) {
         }
     }
 }
+
+
