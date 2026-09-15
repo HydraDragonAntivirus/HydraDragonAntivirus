@@ -26,28 +26,40 @@ pub struct StaticEngine {
 impl StaticEngine {
     /// Initialize the static engine using a root directory containing rule subfolders:
     /// - `database/` for ClamAV
-    /// - `rules/` for YARA (.yar)
+    /// - `yara_rules/` for YARA (.yar, .yara, .yrc)
     /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, *.onnx)
     /// - `signer_rules/` for trusted_signers.yaml, etc.
+    /// - `hash_rules/` for hash whitelists/rules (benign_sha1.txt, etc.)
     /// - `ptm.local.src` or `ptm/` for PUA registry patterns
     pub fn init(base_dir: &Path) -> Self {
         let base = base_dir.to_path_buf();
 
         let database_dir = base.join("database");
-        let rules_dir = base.join("rules");
+        let rules_dir = if base.join("yara_rules").is_dir() {
+            base.join("yara_rules")
+        } else {
+            base.join("rules")
+        };
         let models_dir = base.join("models");
+        let hash_rules_dir = if base.join("hash_rules").is_dir() {
+            base.join("hash_rules")
+        } else {
+            base.join("database")
+        };
         let registry_rules_path = if base.join("registry_rules").is_dir() {
             base.join("registry_rules")
         } else if base.join("registry_rules.yaml").is_file() {
             base.join("registry_rules.yaml")
         } else if base.join("registry_rules.yml").is_file() {
             base.join("registry_rules.yml")
+        } else if base.join("yara_rules").join("registry_rules").is_dir() {
+            base.join("yara_rules").join("registry_rules")
         } else if base.join("rules").join("registry_rules").is_dir() {
             base.join("rules").join("registry_rules")
         } else if base.join("ptm.local.src").is_file() {
             base.join("ptm.local.src")
         } else {
-            base.join("rules").join("registry_rules.yaml")
+            base.join("yara_rules").join("registry_rules.yaml")
         };
 
         let clam = ClamScanner::new(&database_dir);
@@ -57,12 +69,38 @@ impl StaticEngine {
         let signers = SignerDb::load_from_dir(&signers_dir);
         let pua_registry = PuaRegistryMatcher::load(&registry_rules_path);
         let mut benign_hashes = HashSet::new();
-        let benign_txt = database_dir.join("benign_sha1.txt");
-        if let Ok(content) = std::fs::read_to_string(&benign_txt) {
-            for line in content.lines() {
-                let trimmed = line.trim().to_lowercase();
-                if trimmed.len() == 40 {
-                    benign_hashes.insert(trimmed);
+
+        // Load hash whitelists from hash_rules/ (or database/ fallback)
+        let hash_files = [
+            hash_rules_dir.join("benign_sha1.txt"),
+            base.join("hash_rules").join("benign_sha1.txt"),
+            database_dir.join("benign_sha1.txt"),
+        ];
+        for hpath in &hash_files {
+            if let Ok(content) = std::fs::read_to_string(hpath) {
+                for line in content.lines() {
+                    let trimmed = line.trim().to_lowercase();
+                    if trimmed.len() == 40 || trimmed.len() == 64 {
+                        benign_hashes.insert(trimmed);
+                    }
+                }
+            }
+        }
+        // Also load any additional .txt files in hash_rules/ if it's a directory
+        if hash_rules_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&hash_rules_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file() && p.extension().map_or(false, |ext| ext == "txt" || ext == "hash") {
+                        if let Ok(content) = std::fs::read_to_string(&p) {
+                            for line in content.lines() {
+                                let trimmed = line.trim().to_lowercase();
+                                if trimmed.len() == 40 || trimmed.len() == 64 {
+                                    benign_hashes.insert(trimmed);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
