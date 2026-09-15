@@ -223,7 +223,7 @@ impl StaticEngine {
                 max_threat_score: 0.0,
                 detections: Vec::new(),
                 signer_info: None,
-                fls_verdict: Some("Safe".to_string()),
+                fls_verdict: Some("Whitelisted".to_string()),
                 pua_registry_matches: Vec::new(),
                 scan_time_ms: start_time.elapsed().as_millis() as u64,
             };
@@ -300,7 +300,7 @@ impl StaticEngine {
                     max_threat_score: 0.0,
                     detections: Vec::new(),
                     signer_info: signer_details,
-                    fls_verdict: Some("Safe".to_string()),
+                    fls_verdict: Some(fls_str.clone()),
                     pua_registry_matches: Vec::new(),
                     scan_time_ms: start_time.elapsed().as_millis() as u64,
                 };
