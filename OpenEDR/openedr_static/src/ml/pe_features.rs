@@ -56,10 +56,11 @@ fn count_resources(bytes: &[u8], pe: &goblin::pe::PE) -> f32 {
         Some(s) => s,
         None => return 0.0,
     };
-    let offset = rva
-        .wrapping_sub(section.virtual_address as usize)
-        .wrapping_add(section.pointer_to_raw_data as usize);
-    if offset + 16 > bytes.len() {
+    let offset = match rva.checked_sub(section.virtual_address as usize) {
+        Some(diff) => diff.saturating_add(section.pointer_to_raw_data as usize),
+        None => return 0.0,
+    };
+    if offset.saturating_add(16) > bytes.len() {
         return 0.0;
     }
     let num_named = u16::from_le_bytes([bytes[offset + 12], bytes[offset + 13]]);
@@ -87,18 +88,19 @@ fn count_relocations(bytes: &[u8], pe: &goblin::pe::PE) -> (f32, f32) {
         Some(s) => s,
         None => return (0.0, 0.0),
     };
-    let base = rva
-        .wrapping_sub(section.virtual_address as usize)
-        .wrapping_add(section.pointer_to_raw_data as usize);
-    let table_end = base + reloc_dir.size as usize;
-    if table_end > bytes.len() {
-        return (0.0, 0.0);
-    }
+    let base = match rva.checked_sub(section.virtual_address as usize) {
+        Some(diff) => diff.saturating_add(section.pointer_to_raw_data as usize),
+        None => return (0.0, 0.0),
+    };
+    let table_end = match base.checked_add(reloc_dir.size as usize) {
+        Some(end) if end <= bytes.len() => end,
+        _ => return (0.0, 0.0),
+    };
 
     let mut offset = base;
     let mut num_blocks = 0u32;
     let mut num_entries = 0u32;
-    while offset + 8 <= table_end {
+    while offset.saturating_add(8) <= table_end && offset + 8 <= bytes.len() {
         let block_size = u32::from_le_bytes([
             bytes[offset + 4],
             bytes[offset + 5],
@@ -110,7 +112,10 @@ fn count_relocations(bytes: &[u8], pe: &goblin::pe::PE) -> (f32, f32) {
         }
         num_blocks += 1;
         num_entries += (block_size - 8) / 2;
-        offset += block_size as usize;
+        offset = match offset.checked_add(block_size as usize) {
+            Some(next) => next,
+            None => break,
+        };
     }
     (num_blocks as f32, num_entries as f32)
 }
