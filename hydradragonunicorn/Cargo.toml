@@ -10,11 +10,8 @@ name = "hydradragonunicorn"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# CPU emulation (TinyAntivirus used Unicorn for PE unpacking / behavioral analysis)
+# CPU emulation (Unicorn submodule)
 unicorn-engine = { path = "unicorn-engine-rs/bindings/rust/unicorn-engine", features = ["dynamic_linkage"] }
-
-# PE parsing — needs elf32/elf64/endian_fd for goblin::Object enum to be available
-goblin = "0.10.7"
 
 # Bitfield flags for VFS object flags (FsFlags)
 bitflags = "2.13.0"
@@ -42,8 +39,9 @@ rand = "0.10"
 sevenz-rust2 = { version = "0.20", features = ["brotli", "deflate", "lz4", "zstd"] }
 
 # Standalone pure-Rust archive/compression extractor (tar, gzip, xz, lzma)
-hydradragonextractor = { path = "../hydradragonextractor" }
+hydradragonextractor = { path = "../OpenEDR/owlyshield_predict/hydradragonextractor" }
 vmpunpacker = { path = "../vmpunpacker" }
+pefile-rs = { path = "../pefile-rs" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

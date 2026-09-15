@@ -4,8 +4,6 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::time::Instant;
 
-use goblin::pe::PE;
-use goblin::Object;
 use unicorn_engine::unicorn_const::{
     uc_error, Arch, HookType as UcHookType, MemType, Mode, Prot, SECOND_SCALE,
 };
@@ -173,6 +171,57 @@ impl Sample {
             opt_header,
         })
     }
+
+    pub fn from_bytes(raw: &[u8]) -> UnpackerResult<Self> {
+        let raw_bytes = if !raw.is_empty() && vmpunpacker::detect(raw) {
+            let unpacked = vmpunpacker::unpack(raw)
+                .map_err(|e| UnpackerError::General(format!("VMProtect LZMA unpack failed: {e}")))?;
+            unpacked
+        } else {
+            raw.to_vec()
+        };
+
+        let (dos_header, pe_header, opt_header, sections) = parse_pe_bytes(&raw_bytes)?;
+
+        let base_addr = opt_header.image_base as u64;
+        let virtualmemorysize = get_virtual_memory_size(&sections);
+        let ep = entrypoint(&opt_header);
+
+        let sec_headers: Vec<crate::filetype::pe_file::SectionHeader> = sections
+            .iter()
+            .map(|s| crate::filetype::pe_file::SectionHeader {
+                name: s.name.clone(),
+                virtual_address: s.virtual_address,
+                virtual_size: s.virtual_size,
+                raw_offset: s.pointer_to_raw_data,
+                raw_size: s.size_of_raw_data,
+                characteristics: s.characteristics,
+            })
+            .collect();
+
+        let unpacker = packers::create_default_unpacker(&sec_headers, base_addr, ep);
+
+        Ok(Self {
+            path: String::new(),
+            yara_path: String::new(),
+            imports: Vec::new(),
+            dllname_to_functionlist: HashMap::new(),
+            original_imports: Vec::new(),
+            atn: HashMap::new(),
+            ntp: HashMap::new(),
+            allocated_chunks: Vec::new(),
+            base_addr,
+            virtualmemorysize,
+            raw_bytes,
+            loaded_image: Vec::new(),
+            sections,
+            unpacker,
+            yara_matches: Vec::new(),
+            dos_header,
+            pe_header,
+            opt_header,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -285,21 +334,6 @@ impl UnpackerEngine {
             .map_err(|e| UnpackerError::EmulatorError(format!("uc_open: {:?}", e)))?;
 
         let pe_data = self.sample.raw_bytes.clone();
-        let pe = match goblin::Object::parse(&pe_data) {
-            Ok(Object::PE(pe)) => {
-                if pe.is_64 {
-                    return Err(UnpackerError::InvalidPeFile("64-bit not supported".into()));
-                }
-                pe
-            }
-            Ok(_) => {
-                return Err(UnpackerError::InvalidPeFile("Not a PE file".into()));
-            }
-            Err(e) => {
-                return Err(UnpackerError::InvalidPeFile(e.to_string()));
-            }
-        };
-
         let image_base = self.sample.base_addr;
         let virtual_size = page_align(self.sample.virtualmemorysize);
 
@@ -307,7 +341,7 @@ impl UnpackerEngine {
         uc.mem_map(image_base, virtual_size, Prot::ALL)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_map PE: {:?}", e)))?;
 
-        let mmap_image = get_memory_mapped_image(&pe_data, &pe, virtual_size);
+        let mmap_image = get_memory_mapped_image(&pe_data, &self.sample.sections, virtual_size);
         uc.mem_write(image_base, &mmap_image)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_write PE: {:?}", e)))?;
 
@@ -407,11 +441,8 @@ impl UnpackerEngine {
         uc.reg_write(RegisterX86::EDI as i32, start_addr)
             .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EDI: {:?}", e)))?;
 
-        // --- Store imported function info ---
-        self.store_imports(&pe);
-
-        // --- Patch IAT with hook addresses ---
-        self.patch_imports(&mut uc, image_base)?;
+        // --- Store imported function info & patch IAT with hook addresses ---
+        self.parse_and_patch_imports(&mut uc, image_base)?;
 
         // --- Register hooks ---
         let hook_state = Rc::clone(&self.hook_state);
@@ -620,66 +651,123 @@ impl UnpackerEngine {
     // Private helpers
     // ------------------------------------------------------------------
 
-    fn store_imports(&mut self, pe: &PE<'_>) {
+    fn parse_and_patch_imports(&mut self, uc: &mut Unicorn<'static, ()>, image_base: u64) -> UnpackerResult<()> {
+        let raw = &self.sample.raw_bytes;
+        let opt = &self.sample.opt_header;
+        let sections = &self.sample.sections;
+        if opt.data_directory.len() <= 1 {
+            return Ok(());
+        }
+        let imp_dir = &opt.data_directory[1];
+        if imp_dir.virtual_address == 0 || imp_dir.size == 0 {
+            return Ok(());
+        }
+
+        let rva_to_off = |rva: u32| -> Option<usize> {
+            for s in sections {
+                if rva >= s.virtual_address && rva < s.virtual_address + s.virtual_size.max(s.size_of_raw_data) {
+                    return Some((rva - s.virtual_address + s.pointer_to_raw_data) as usize);
+                }
+            }
+            None
+        };
+
+        let read_cstring = |off: usize| -> Option<String> {
+            if off >= raw.len() { return None; }
+            let mut end = off;
+            while end < raw.len() && raw[end] != 0 && end - off < 256 {
+                end += 1;
+            }
+            String::from_utf8(raw[off..end].to_vec()).ok()
+        };
+
+        let mut desc_off = match rva_to_off(imp_dir.virtual_address) {
+            Some(o) => o,
+            None => return Ok(()),
+        };
+
         let mut dllname_to_functionlist: HashMap<String, Vec<(String, u64)>> = HashMap::new();
         let mut all_imports: Vec<String> = Vec::new();
         let mut import_descriptors: HashMap<String, ImportDescriptor> = HashMap::new();
         let mut hook_addr = self.hook_addr;
 
-        // goblin 0.10 provides a flat list of imports, each with .dll and .name
-        for imp in &pe.imports {
-            let dll_name = imp.dll.to_lowercase();
-            let func_name = imp.name.to_string();
-            let name_lower = func_name.to_lowercase();
+        while desc_off + 20 <= raw.len() {
+            let orig_first_thunk = u32::from_le_bytes(raw[desc_off..desc_off + 4].try_into().unwrap());
+            let time_date_stamp = u32::from_le_bytes(raw[desc_off + 4..desc_off + 8].try_into().unwrap());
+            let forwarder_chain = u32::from_le_bytes(raw[desc_off + 8..desc_off + 12].try_into().unwrap());
+            let name_rva = u32::from_le_bytes(raw[desc_off + 12..desc_off + 16].try_into().unwrap());
+            let first_thunk = u32::from_le_bytes(raw[desc_off + 16..desc_off + 20].try_into().unwrap());
 
-            dllname_to_functionlist
-                .entry(dll_name.clone())
-                .or_default()
-                .push((name_lower.clone(), hook_addr));
+            if orig_first_thunk == 0 && first_thunk == 0 && name_rva == 0 {
+                break;
+            }
 
-            import_descriptors
-                .entry(dll_name.clone())
-                .or_insert_with(|| ImportDescriptor {
-                    characteristics: 0,
-                    time_date_stamp: 0,
-                    forwarder_chain: 0,
-                    name_rva: 0,
-                    first_thunk: 0,
-                    dll_name: dll_name.clone(),
-                    imports: Vec::new(),
-                })
-                .imports
-                .push(name_lower.clone());
+            let dll_name = if let Some(off) = rva_to_off(name_rva) {
+                read_cstring(off).unwrap_or_default().to_lowercase()
+            } else {
+                String::new()
+            };
 
-            all_imports.push(format!("{}.{}", dll_name, func_name));
-            hook_addr += 4;
+            let thunk_rva_base = if orig_first_thunk != 0 { orig_first_thunk } else { first_thunk };
+            let mut thunk_idx = 0;
+
+            while let Some(t_off) = rva_to_off(thunk_rva_base + thunk_idx * 4) {
+                if t_off + 4 > raw.len() { break; }
+                let thunk_val = u32::from_le_bytes(raw[t_off..t_off + 4].try_into().unwrap());
+                if thunk_val == 0 { break; }
+
+                let func_name = if (thunk_val & 0x80000000) != 0 {
+                    format!("Ordinal{}", thunk_val & 0xFFFF)
+                } else if let Some(ibn_off) = rva_to_off(thunk_val) {
+                    if ibn_off + 2 < raw.len() {
+                        read_cstring(ibn_off + 2).unwrap_or_else(|| format!("Ordinal{}", thunk_val))
+                    } else {
+                        format!("Ordinal{}", thunk_val)
+                    }
+                } else {
+                    format!("Ordinal{}", thunk_val)
+                };
+
+                let name_lower = func_name.to_lowercase();
+                if !dll_name.is_empty() {
+                    dllname_to_functionlist
+                        .entry(dll_name.clone())
+                        .or_default()
+                        .push((name_lower.clone(), hook_addr));
+
+                    import_descriptors
+                        .entry(dll_name.clone())
+                        .or_insert_with(|| ImportDescriptor {
+                            characteristics: orig_first_thunk,
+                            time_date_stamp,
+                            forwarder_chain,
+                            name_rva,
+                            first_thunk,
+                            dll_name: dll_name.clone(),
+                            imports: Vec::new(),
+                        })
+                        .imports
+                        .push(name_lower.clone());
+
+                    all_imports.push(format!("{}.{}", dll_name, func_name));
+
+                    // Patch IAT in Unicorn memory
+                    let iat_addr = image_base + (first_thunk + thunk_idx * 4) as u64;
+                    let hook_bytes = (hook_addr as u32).to_le_bytes();
+                    let _ = uc.mem_write(iat_addr, &hook_bytes);
+
+                    hook_addr += 4;
+                }
+
+                thunk_idx += 1;
+            }
+
+            desc_off += 20;
         }
 
         self.sample.imports = all_imports;
         self.sample.dllname_to_functionlist = dllname_to_functionlist;
         self.sample.original_imports = import_descriptors.into_values().collect();
-        self.hook_addr = hook_addr;
-    }
-
-    fn patch_imports(&mut self, uc: &mut Unicorn<'static, ()>, image_base: u64) -> UnpackerResult<()> {
-        let pe = match goblin::Object::parse(&self.sample.raw_bytes) {
-            Ok(Object::PE(pe)) => pe,
-            _ => return Ok(()),
-        };
-
-        let mut hook_addr = self.hook_addr;
-
-        // In goblin 0.10, each Import has an .offset field which is the file
-        // offset of the IAT entry. The thunk RVA can be derived by finding
-        // which section contains that file offset.
-        for imp in &pe.imports {
-            let thunk_rva = offset_to_rva(&pe, imp.offset);
-            let thunk_addr = image_base + thunk_rva as u64;
-            let hook_bytes = (hook_addr as u32).to_le_bytes();
-            let _ = uc.mem_write(thunk_addr, &hook_bytes);
-            hook_addr += 4;
-        }
-
         self.hook_addr = hook_addr;
         Ok(())
     }
@@ -862,9 +950,9 @@ pub fn read_cstring(uc: &Unicorn<'_, ()>, addr: u64) -> String {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-fn get_memory_mapped_image(data: &[u8], pe: &PE<'_>, virtual_size: u64) -> Vec<u8> {
+fn get_memory_mapped_image(data: &[u8], sections: &[Section], virtual_size: u64) -> Vec<u8> {
     let mut image = vec![0u8; virtual_size as usize];
-    for section in &pe.sections {
+    for section in sections {
         let dest_start = section.virtual_address as usize;
         let src_start = section.pointer_to_raw_data as usize;
         let copy_size = section.size_of_raw_data.min(section.virtual_size) as usize;
@@ -881,25 +969,10 @@ fn load_dll_into_emu(
     dll_path: &str,
 ) -> UnpackerResult<(u64, u64)> {
     let data = std::fs::read(dll_path)?;
-    let pe = match goblin::Object::parse(&data) {
-        Ok(Object::PE(pe)) => pe,
-        Ok(_) => return Err(UnpackerError::InvalidPeFile("Not a PE file".into())),
-        Err(e) => return Err(UnpackerError::InvalidPeFile(e.to_string())),
-    };
-
-    let image_base = pe.image_base;
-    let virtual_size = {
-        let mut max_end = 0u64;
-        for s in &pe.sections {
-            let end = s.virtual_address as u64 + s.virtual_size as u64;
-            if end > max_end {
-                max_end = end;
-            }
-        }
-        page_align(max_end)
-    };
-
-    let mmap = get_memory_mapped_image(&data, &pe, virtual_size);
+    let (_, _, opt_header, sections) = parse_pe_bytes(&data)?;
+    let image_base = opt_header.image_base as u64;
+    let virtual_size = get_virtual_memory_size(&sections);
+    let mmap = get_memory_mapped_image(&data, &sections, virtual_size);
 
     uc.mem_map(image_base, virtual_size, Prot::ALL)
         .map_err(|e| UnpackerError::EmulatorError(format!("mem_map DLL: {:?}", e)))?;
@@ -1025,8 +1098,8 @@ fn resolve_hook_name(
     None
 }
 
-fn offset_to_rva(pe: &PE<'_>, file_offset: usize) -> u32 {
-    for section in &pe.sections {
+fn offset_to_rva(sections: &[Section], file_offset: usize) -> u32 {
+    for section in sections {
         let raw_start = section.pointer_to_raw_data as usize;
         let raw_end = raw_start + section.size_of_raw_data as usize;
         if file_offset >= raw_start && file_offset < raw_end {
@@ -1036,75 +1109,137 @@ fn offset_to_rva(pe: &PE<'_>, file_offset: usize) -> u32 {
     0
 }
 
-/// Parse PE headers from an in-memory byte slice (no disk I/O).
+/// Parse PE headers from an in-memory byte slice (no disk I/O, zero external dependencies).
 pub fn parse_pe_bytes(
     data: &[u8],
 ) -> UnpackerResult<(DosHeader, PeHeader, OptionalHeader, Vec<Section>)> {
-    let pe = match goblin::Object::parse(data) {
-        Ok(Object::PE(pe)) => {
-            if pe.is_64 {
-                return Err(UnpackerError::InvalidPeFile("64-bit not supported".into()));
-            }
-            pe
-        }
-        Ok(_) => return Err(UnpackerError::InvalidPeFile("Not a PE file".into())),
-        Err(e) => return Err(UnpackerError::InvalidPeFile(e.to_string())),
+    if data.len() < 0x40 || &data[0..2] != b"MZ" {
+        return Err(UnpackerError::InvalidPeFile("Not a PE file (missing MZ)".into()));
+    }
+    let e_lfanew = u32::from_le_bytes(data[0x3C..0x40].try_into().unwrap_or([0; 4])) as usize;
+    if e_lfanew + 24 > data.len() || &data[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+        return Err(UnpackerError::InvalidPeFile("Not a PE file (missing PE header)".into()));
+    }
+
+    let coff_offset = e_lfanew + 4;
+    let machine = u16::from_le_bytes(data[coff_offset..coff_offset + 2].try_into().unwrap());
+    let number_of_sections = u16::from_le_bytes(data[coff_offset + 2..coff_offset + 4].try_into().unwrap());
+    let size_of_optional_header = u16::from_le_bytes(data[coff_offset + 16..coff_offset + 18].try_into().unwrap()) as usize;
+    let characteristics = u16::from_le_bytes(data[coff_offset + 18..coff_offset + 20].try_into().unwrap());
+
+    let dos_header = DosHeader {
+        e_magic: u16::from_le_bytes(data[0..2].try_into().unwrap()),
+        e_lfanew: e_lfanew as u32,
     };
-
-    let e_lfanew = u32::from_le_bytes(data[0x3C..0x40].try_into().unwrap_or([0; 4]));
-    let e_magic = u16::from_le_bytes(data[0..2].try_into().unwrap_or([0; 2]));
-
-    let dos_header = DosHeader { e_magic, e_lfanew };
 
     let pe_header = PeHeader {
-        signature: pe.header.coff_header.machine as u32,
-        machine: pe.header.coff_header.machine,
-        number_of_sections: pe.header.coff_header.number_of_sections,
-        characteristics: pe.header.coff_header.characteristics,
+        signature: u32::from_le_bytes(data[e_lfanew..e_lfanew + 4].try_into().unwrap()),
+        machine,
+        number_of_sections,
+        characteristics,
     };
 
-    let opt = pe
-        .header
-        .optional_header
-        .as_ref()
-        .ok_or_else(|| UnpackerError::InvalidPeFile("missing optional header".into()))?;
+    let opt_offset = coff_offset + 20;
+    if opt_offset + 2 > data.len() {
+        return Err(UnpackerError::InvalidPeFile("missing optional header".into()));
+    }
+
+    let magic = u16::from_le_bytes(data[opt_offset..opt_offset + 2].try_into().unwrap());
+    if magic == 0x20b {
+        return Err(UnpackerError::InvalidPeFile("64-bit not supported".into()));
+    }
+    if magic != 0x10b {
+        return Err(UnpackerError::InvalidPeFile(format!("unknown magic 0x{:x}", magic)));
+    }
+
+    let address_of_entry_point = if opt_offset + 20 <= data.len() {
+        u32::from_le_bytes(data[opt_offset + 16..opt_offset + 20].try_into().unwrap())
+    } else { 0 };
+
+    let image_base = if opt_offset + 32 <= data.len() {
+        u32::from_le_bytes(data[opt_offset + 28..opt_offset + 32].try_into().unwrap())
+    } else { 0x400000 };
+
+    let section_alignment = if opt_offset + 36 <= data.len() {
+        u32::from_le_bytes(data[opt_offset + 32..opt_offset + 36].try_into().unwrap())
+    } else { 0x1000 };
+
+    let file_alignment = if opt_offset + 40 <= data.len() {
+        u32::from_le_bytes(data[opt_offset + 36..opt_offset + 40].try_into().unwrap())
+    } else { 0x200 };
+
+    let size_of_image = if opt_offset + 60 <= data.len() {
+        u32::from_le_bytes(data[opt_offset + 56..opt_offset + 60].try_into().unwrap())
+    } else { 0 };
+
+    let size_of_headers = if opt_offset + 64 <= data.len() {
+        u32::from_le_bytes(data[opt_offset + 60..opt_offset + 64].try_into().unwrap())
+    } else { 0 };
+
+    let check_sum = if opt_offset + 68 <= data.len() {
+        u32::from_le_bytes(data[opt_offset + 64..opt_offset + 68].try_into().unwrap())
+    } else { 0 };
+
+    let subsystem = if opt_offset + 70 <= data.len() {
+        u16::from_le_bytes(data[opt_offset + 68..opt_offset + 70].try_into().unwrap())
+    } else { 0 };
+
+    let dll_characteristics = if opt_offset + 72 <= data.len() {
+        u16::from_le_bytes(data[opt_offset + 70..opt_offset + 72].try_into().unwrap())
+    } else { 0 };
+
+    let num_rva = if opt_offset + 96 <= data.len() {
+        u32::from_le_bytes(data[opt_offset + 92..opt_offset + 96].try_into().unwrap()) as usize
+    } else { 0 };
+
+    let mut data_directories = Vec::new();
+    let dd_start = opt_offset + 96;
+    for i in 0..num_rva.min(16) {
+        let entry_off = dd_start + i * 8;
+        if entry_off + 8 <= data.len() {
+            let virtual_address = u32::from_le_bytes(data[entry_off..entry_off + 4].try_into().unwrap());
+            let size = u32::from_le_bytes(data[entry_off + 4..entry_off + 8].try_into().unwrap());
+            data_directories.push(DataDirectory { virtual_address, size });
+        }
+    }
 
     let opt_header = OptionalHeader {
-        magic: opt.standard_fields.magic,
-        address_of_entry_point: opt.standard_fields.address_of_entry_point,
-        image_base: pe.image_base as u32,
-        section_alignment: opt.windows_fields.section_alignment,
-        file_alignment: opt.windows_fields.file_alignment,
-        size_of_image: opt.windows_fields.size_of_image,
-        size_of_headers: opt.windows_fields.size_of_headers,
-        check_sum: opt.windows_fields.check_sum,
-        subsystem: opt.windows_fields.subsystem,
-        dll_characteristics: opt.windows_fields.dll_characteristics,
-        data_directory: opt
-            .data_directories
-            .data_directories
-            .iter()
-            .filter_map(|entry| entry.as_ref().map(|(_, dd)| DataDirectory {
-                virtual_address: dd.virtual_address,
-                size: dd.size,
-            }))
-            .collect(),
+        magic,
+        address_of_entry_point,
+        image_base,
+        section_alignment,
+        file_alignment,
+        size_of_image,
+        size_of_headers,
+        check_sum,
+        subsystem,
+        dll_characteristics,
+        data_directory: data_directories,
     };
 
-    let sections: Vec<Section> = pe
-        .sections
-        .iter()
-        .map(|s| Section {
-            name: String::from_utf8_lossy(&s.name)
-                .trim_end_matches('\0')
-                .to_string(),
-            virtual_size: s.virtual_size,
-            virtual_address: s.virtual_address,
-            size_of_raw_data: s.size_of_raw_data,
-            pointer_to_raw_data: s.pointer_to_raw_data,
-            characteristics: s.characteristics,
-        })
-        .collect();
+    let sec_start = opt_offset + size_of_optional_header;
+    let mut sections = Vec::new();
+    for i in 0..number_of_sections as usize {
+        let off = sec_start + i * 40;
+        if off + 40 <= data.len() {
+            let name_raw = &data[off..off + 8];
+            let name = String::from_utf8_lossy(name_raw).trim_end_matches('\0').to_string();
+            let virtual_size = u32::from_le_bytes(data[off + 8..off + 12].try_into().unwrap());
+            let virtual_address = u32::from_le_bytes(data[off + 12..off + 16].try_into().unwrap());
+            let size_of_raw_data = u32::from_le_bytes(data[off + 16..off + 20].try_into().unwrap());
+            let pointer_to_raw_data = u32::from_le_bytes(data[off + 20..off + 24].try_into().unwrap());
+            let characteristics = u32::from_le_bytes(data[off + 36..off + 40].try_into().unwrap());
+
+            sections.push(Section {
+                name,
+                virtual_size,
+                virtual_address,
+                size_of_raw_data,
+                pointer_to_raw_data,
+                characteristics,
+            });
+        }
+    }
 
     Ok((dos_header, pe_header, opt_header, sections))
 }

@@ -19,8 +19,7 @@ hex = "0.4"
 regex = "1.12"
 burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
 burn-ndarray = "0.21"
-goblin = "0.10"
-capstone = "0.12"
+capstone = "0.14"
 oxc_parser = "0.135"
 oxc_ast = "0.135"
 oxc_allocator = "0.135"
@@ -30,6 +29,8 @@ yara-x = "1.20"
 # Local hydradragonclamav engine
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
 hydradragonextractor = { path = "../owlyshield_predict/hydradragonextractor" }
+hydradragonunicorn = { path = "../../hydradragonunicorn" }
+pefile-rs = { path = "../../pefile-rs" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = [

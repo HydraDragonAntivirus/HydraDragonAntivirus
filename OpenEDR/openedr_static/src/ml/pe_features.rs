@@ -1,6 +1,5 @@
 use capstone::arch::BuildsCapstone;
 use capstone::arch::x86::ArchMode as X86Mode;
-use goblin::Object;
 
 use super::features::PeFeatureVector;
 
@@ -24,9 +23,6 @@ fn shannon_entropy(data: &[u8]) -> f32 {
     entropy
 }
 
-// Maps unbounded counts/sizes into a compact range for the neural network.
-// ln(0+1)=0, ln(1000+1)≈6.9, ln(1e9+1)≈20.7 — avoids the billions-scale
-// raw values (e.g. image_base=0x140000000) that saturate the network weights.
 #[inline]
 fn ln1p(x: f32) -> f32 {
     if x.is_nan() || x <= 0.0 {
@@ -36,110 +32,230 @@ fn ln1p(x: f32) -> f32 {
     }
 }
 
-// Parses the root IMAGE_RESOURCE_DIRECTORY to count top-level resource types.
-fn count_resources(bytes: &[u8], pe: &goblin::pe::PE) -> f32 {
-    let opt = match pe.header.optional_header.as_ref() {
-        Some(o) => o,
-        None => return 0.0,
-    };
-    let res_dir = match opt.data_directories.get_resource_table() {
-        Some(d) if d.virtual_address > 0 && d.size >= 16 => d,
-        _ => return 0.0,
-    };
-    let rva = res_dir.virtual_address as usize;
-    let section = pe.sections.iter().find(|s| {
-        let start = s.virtual_address as usize;
-        let end = start + s.virtual_size as usize;
-        rva >= start && rva < end
-    });
-    let section = match section {
-        Some(s) => s,
-        None => return 0.0,
-    };
-    let offset = match rva.checked_sub(section.virtual_address as usize) {
-        Some(diff) => diff.saturating_add(section.pointer_to_raw_data as usize),
-        None => return 0.0,
-    };
-    if offset.saturating_add(16) > bytes.len() {
-        return 0.0;
-    }
-    let num_named = u16::from_le_bytes([bytes[offset + 12], bytes[offset + 13]]);
-    let num_id = u16::from_le_bytes([bytes[offset + 14], bytes[offset + 15]]);
-    (num_named as u32 + num_id as u32) as f32
+// Lenient Pure-Rust PE Parser matching Python pefile
+#[derive(Debug, Clone, Default)]
+struct DataDir {
+    va: u32,
+    size: u32,
 }
 
-// Parses IMAGE_BASE_RELOCATION blocks and returns (num_blocks, num_entries).
-fn count_relocations(bytes: &[u8], pe: &goblin::pe::PE) -> (f32, f32) {
-    let opt = match pe.header.optional_header.as_ref() {
-        Some(o) => o,
-        None => return (0.0, 0.0),
-    };
-    let reloc_dir = match opt.data_directories.get_base_relocation_table() {
-        Some(d) if d.virtual_address > 0 && d.size >= 8 => d,
-        _ => return (0.0, 0.0),
-    };
-    let rva = reloc_dir.virtual_address as usize;
-    let section = pe.sections.iter().find(|s| {
-        let start = s.virtual_address as usize;
-        let end = start + s.virtual_size as usize;
-        rva >= start && rva < end
-    });
-    let section = match section {
-        Some(s) => s,
-        None => return (0.0, 0.0),
-    };
-    let base = match rva.checked_sub(section.virtual_address as usize) {
-        Some(diff) => diff.saturating_add(section.pointer_to_raw_data as usize),
-        None => return (0.0, 0.0),
-    };
-    let table_end = match base.checked_add(reloc_dir.size as usize) {
-        Some(end) if end <= bytes.len() => end,
-        _ => return (0.0, 0.0),
+#[derive(Debug, Clone, Default)]
+struct Section {
+    virtual_size: u32,
+    virtual_address: u32,
+    size_of_raw_data: u32,
+    pointer_to_raw_data: u32,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ParsedPe {
+    machine: u16,
+    characteristics: u16,
+    size_of_optional_header: u16,
+    major_linker_version: u8,
+    minor_linker_version: u8,
+    size_of_code: u32,
+    size_of_initialized_data: u32,
+    size_of_uninitialized_data: u32,
+    address_of_entry_point: u32,
+    image_base: u64,
+    section_alignment: u32,
+    file_alignment: u32,
+    major_os_version: u16,
+    minor_os_version: u16,
+    major_image_version: u16,
+    minor_image_version: u16,
+    major_subsystem_version: u16,
+    minor_subsystem_version: u16,
+    size_of_image: u32,
+    size_of_headers: u32,
+    checksum: u32,
+    subsystem: u16,
+    dll_characteristics: u16,
+    size_of_stack_reserve: u64,
+    size_of_stack_commit: u64,
+    size_of_heap_reserve: u64,
+    size_of_heap_commit: u64,
+    loader_flags: u32,
+    num_rva_and_sizes: u32,
+    data_dirs: Vec<DataDir>,
+    sections: Vec<Section>,
+}
+
+fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
+    if data.len() < 64 {
+        return None;
+    }
+
+    let e_magic = u16::from_le_bytes([data[0], data[1]]);
+    if e_magic != 0x5A4D && e_magic != 0x4D5A {
+        return None;
+    }
+
+    let e_lfanew = u32::from_le_bytes([data[0x3C], data[0x3D], data[0x3E], data[0x3F]]) as usize;
+    if e_lfanew + 24 > data.len() {
+        return None;
+    }
+
+    if &data[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+        return None;
+    }
+
+    let fh = e_lfanew + 4;
+    let machine = u16::from_le_bytes([data[fh], data[fh + 1]]);
+    let number_of_sections = u16::from_le_bytes([data[fh + 2], data[fh + 3]]);
+    let size_of_optional_header = u16::from_le_bytes([data[fh + 16], data[fh + 17]]);
+    let characteristics = u16::from_le_bytes([data[fh + 18], data[fh + 19]]);
+
+    let mut pe = ParsedPe {
+        machine,
+        characteristics,
+        size_of_optional_header,
+        ..Default::default()
     };
 
-    let mut offset = base;
-    let mut num_blocks = 0u32;
-    let mut num_entries = 0u32;
-    while offset.saturating_add(8) <= table_end && offset + 8 <= bytes.len() {
-        let block_size = u32::from_le_bytes([
-            bytes[offset + 4],
-            bytes[offset + 5],
-            bytes[offset + 6],
-            bytes[offset + 7],
-        ]);
-        if block_size < 8 {
+    let opt = fh + 20;
+    if size_of_optional_header > 0 && opt + 2 <= data.len() {
+        let magic = u16::from_le_bytes([data[opt], data[opt + 1]]);
+        let is_64 = magic == 0x20B;
+
+        if opt + 28 <= data.len() {
+            pe.major_linker_version = data[opt + 2];
+            pe.minor_linker_version = data[opt + 3];
+            pe.size_of_code = u32::from_le_bytes([data[opt + 4], data[opt + 5], data[opt + 6], data[opt + 7]]);
+            pe.size_of_initialized_data = u32::from_le_bytes([data[opt + 8], data[opt + 9], data[opt + 10], data[opt + 11]]);
+            pe.size_of_uninitialized_data = u32::from_le_bytes([data[opt + 12], data[opt + 13], data[opt + 14], data[opt + 15]]);
+            pe.address_of_entry_point = u32::from_le_bytes([data[opt + 16], data[opt + 17], data[opt + 18], data[opt + 19]]);
+        }
+
+        if !is_64 && opt + 68 <= data.len() {
+            pe.image_base = u32::from_le_bytes([data[opt + 28], data[opt + 29], data[opt + 30], data[opt + 31]]) as u64;
+            pe.section_alignment = u32::from_le_bytes([data[opt + 32], data[opt + 33], data[opt + 34], data[opt + 35]]);
+            pe.file_alignment = u32::from_le_bytes([data[opt + 36], data[opt + 37], data[opt + 38], data[opt + 39]]);
+            pe.major_os_version = u16::from_le_bytes([data[opt + 40], data[opt + 41]]);
+            pe.minor_os_version = u16::from_le_bytes([data[opt + 42], data[opt + 43]]);
+            pe.major_image_version = u16::from_le_bytes([data[opt + 44], data[opt + 45]]);
+            pe.minor_image_version = u16::from_le_bytes([data[opt + 46], data[opt + 47]]);
+            pe.major_subsystem_version = u16::from_le_bytes([data[opt + 48], data[opt + 49]]);
+            pe.minor_subsystem_version = u16::from_le_bytes([data[opt + 50], data[opt + 51]]);
+            pe.size_of_image = u32::from_le_bytes([data[opt + 56], data[opt + 57], data[opt + 58], data[opt + 59]]);
+            pe.size_of_headers = u32::from_le_bytes([data[opt + 60], data[opt + 61], data[opt + 62], data[opt + 63]]);
+            pe.checksum = u32::from_le_bytes([data[opt + 64], data[opt + 65], data[opt + 66], data[opt + 67]]);
+
+            if opt + 96 <= data.len() {
+                pe.subsystem = u16::from_le_bytes([data[opt + 68], data[opt + 69]]);
+                pe.dll_characteristics = u16::from_le_bytes([data[opt + 70], data[opt + 71]]);
+                pe.size_of_stack_reserve = u32::from_le_bytes([data[opt + 72], data[opt + 73], data[opt + 74], data[opt + 75]]) as u64;
+                pe.size_of_stack_commit = u32::from_le_bytes([data[opt + 76], data[opt + 77], data[opt + 78], data[opt + 79]]) as u64;
+                pe.size_of_heap_reserve = u32::from_le_bytes([data[opt + 80], data[opt + 81], data[opt + 82], data[opt + 83]]) as u64;
+                pe.size_of_heap_commit = u32::from_le_bytes([data[opt + 84], data[opt + 85], data[opt + 86], data[opt + 87]]) as u64;
+                pe.loader_flags = u32::from_le_bytes([data[opt + 88], data[opt + 89], data[opt + 90], data[opt + 91]]);
+                pe.num_rva_and_sizes = u32::from_le_bytes([data[opt + 92], data[opt + 93], data[opt + 94], data[opt + 95]]);
+
+                let dd_start = opt + 96;
+                let count = pe.num_rva_and_sizes.min(16) as usize;
+                for i in 0..count {
+                    let cur = dd_start + i * 8;
+                    if cur + 8 <= data.len() {
+                        let va = u32::from_le_bytes([data[cur], data[cur + 1], data[cur + 2], data[cur + 3]]);
+                        let size = u32::from_le_bytes([data[cur + 4], data[cur + 5], data[cur + 6], data[cur + 7]]);
+                        pe.data_dirs.push(DataDir { va, size });
+                    }
+                }
+            }
+        } else if is_64 && opt + 108 <= data.len() {
+            pe.image_base = u64::from_le_bytes([
+                data[opt + 24], data[opt + 25], data[opt + 26], data[opt + 27],
+                data[opt + 28], data[opt + 29], data[opt + 30], data[opt + 31],
+            ]);
+            pe.section_alignment = u32::from_le_bytes([data[opt + 32], data[opt + 33], data[opt + 34], data[opt + 35]]);
+            pe.file_alignment = u32::from_le_bytes([data[opt + 36], data[opt + 37], data[opt + 38], data[opt + 39]]);
+            pe.major_os_version = u16::from_le_bytes([data[opt + 40], data[opt + 41]]);
+            pe.minor_os_version = u16::from_le_bytes([data[opt + 42], data[opt + 43]]);
+            pe.major_image_version = u16::from_le_bytes([data[opt + 44], data[opt + 45]]);
+            pe.minor_image_version = u16::from_le_bytes([data[opt + 46], data[opt + 47]]);
+            pe.major_subsystem_version = u16::from_le_bytes([data[opt + 48], data[opt + 49]]);
+            pe.minor_subsystem_version = u16::from_le_bytes([data[opt + 50], data[opt + 51]]);
+            pe.size_of_image = u32::from_le_bytes([data[opt + 56], data[opt + 57], data[opt + 58], data[opt + 59]]);
+            pe.size_of_headers = u32::from_le_bytes([data[opt + 60], data[opt + 61], data[opt + 62], data[opt + 63]]);
+            pe.checksum = u32::from_le_bytes([data[opt + 64], data[opt + 65], data[opt + 66], data[opt + 67]]);
+            pe.subsystem = u16::from_le_bytes([data[opt + 68], data[opt + 69]]);
+            pe.dll_characteristics = u16::from_le_bytes([data[opt + 70], data[opt + 71]]);
+            pe.size_of_stack_reserve = u64::from_le_bytes([
+                data[opt + 72], data[opt + 73], data[opt + 74], data[opt + 75],
+                data[opt + 76], data[opt + 77], data[opt + 78], data[opt + 79],
+            ]);
+            pe.size_of_stack_commit = u64::from_le_bytes([
+                data[opt + 80], data[opt + 81], data[opt + 82], data[opt + 83],
+                data[opt + 84], data[opt + 85], data[opt + 86], data[opt + 87],
+            ]);
+            pe.size_of_heap_reserve = u64::from_le_bytes([
+                data[opt + 88], data[opt + 89], data[opt + 90], data[opt + 91],
+                data[opt + 92], data[opt + 93], data[opt + 94], data[opt + 95],
+            ]);
+            pe.size_of_heap_commit = u64::from_le_bytes([
+                data[opt + 96], data[opt + 97], data[opt + 98], data[opt + 99],
+                data[opt + 100], data[opt + 101], data[opt + 102], data[opt + 103],
+            ]);
+            pe.loader_flags = u32::from_le_bytes([data[opt + 104], data[opt + 105], data[opt + 106], data[opt + 107]]);
+
+            if opt + 112 <= data.len() {
+                pe.num_rva_and_sizes = u32::from_le_bytes([data[opt + 108], data[opt + 109], data[opt + 110], data[opt + 111]]);
+                let dd_start = opt + 112;
+                let count = pe.num_rva_and_sizes.min(16) as usize;
+                for i in 0..count {
+                    let cur = dd_start + i * 8;
+                    if cur + 8 <= data.len() {
+                        let va = u32::from_le_bytes([data[cur], data[cur + 1], data[cur + 2], data[cur + 3]]);
+                        let size = u32::from_le_bytes([data[cur + 4], data[cur + 5], data[cur + 6], data[cur + 7]]);
+                        pe.data_dirs.push(DataDir { va, size });
+                    }
+                }
+            }
+        }
+    }
+
+    let sec_offset = opt + size_of_optional_header as usize;
+    let num_sec = number_of_sections.min(96) as usize;
+    for i in 0..num_sec {
+        let cur = sec_offset + i * 40;
+        if cur + 40 > data.len() {
             break;
         }
-        num_blocks += 1;
-        num_entries += (block_size - 8) / 2;
-        offset = match offset.checked_add(block_size as usize) {
-            Some(next) => next,
-            None => break,
-        };
+        let virtual_size = u32::from_le_bytes([data[cur + 8], data[cur + 9], data[cur + 10], data[cur + 11]]);
+        let virtual_address = u32::from_le_bytes([data[cur + 12], data[cur + 13], data[cur + 14], data[cur + 15]]);
+        let size_of_raw_data = u32::from_le_bytes([data[cur + 16], data[cur + 17], data[cur + 18], data[cur + 19]]);
+        let pointer_to_raw_data = u32::from_le_bytes([data[cur + 20], data[cur + 21], data[cur + 22], data[cur + 23]]);
+
+        pe.sections.push(Section {
+            virtual_size,
+            virtual_address,
+            size_of_raw_data,
+            pointer_to_raw_data,
+        });
     }
-    (num_blocks as f32, num_entries as f32)
+
+    Some(pe)
+}
+
+fn rva_to_offset(pe: &ParsedPe, rva: u32) -> Option<usize> {
+    for s in &pe.sections {
+        let start = s.virtual_address;
+        let end = start + s.virtual_size.max(s.size_of_raw_data);
+        if rva >= start && rva < end {
+            let diff = rva - start;
+            return Some(s.pointer_to_raw_data as usize + diff as usize);
+        }
+    }
+    None
 }
 
 pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
-    let pe = if let Ok(pe) = goblin::pe::PE::parse(bytes) {
-        pe
-    } else if let Ok(Object::PE(pe)) = Object::parse(bytes) {
-        pe
-    } else {
-        return None;
-    };
-
-    let opt = pe.header.optional_header.as_ref()?;
-    let sf = &opt.standard_fields;
-    let wf = &opt.windows_fields;
+    let pe = parse_pe_lenient(bytes)?;
 
     let sections = &pe.sections;
     let section_count = sections.len() as f32;
-
-    let imports_count = pe.imports.len() as f32;
-    let exports_count = pe.exports.iter().filter_map(|e| e.name).count() as f32;
-
-    let size_of_image = wf.size_of_image;
+    let size_of_image = pe.size_of_image;
 
     let mut entropies: Vec<f32> = sections
         .iter()
@@ -163,7 +279,7 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
     let sec_entropy_min = *entropies.first().unwrap_or(&0.0);
     let sec_entropy_max = *entropies.last().unwrap_or(&0.0);
 
-    let mode = if pe.header.coff_header.machine == 0x8664 {
+    let mode = if pe.machine == 0x8664 {
         X86Mode::Mode64
     } else {
         X86Mode::Mode32
@@ -178,7 +294,7 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
             let start = section.pointer_to_raw_data as usize;
             let size = section.size_of_raw_data as usize;
             let code = if start < bytes.len() {
-                &bytes[start..(start + size).min(bytes.len())]
+                &bytes[start..(start + size).min(bytes.len().min(start + 65536))]
             } else {
                 continue;
             };
@@ -232,98 +348,78 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
 
     let has_rich_header = detect_rich_header(bytes) as u8 as f32;
 
-    // Previously hardcoded to 0.0 — now computed using goblin 0.10.x API.
-    let resources_count = count_resources(bytes, &pe);
+    // Data Directory entries (Standard 16 entries)
+    let get_dd = |idx: usize| pe.data_dirs.get(idx).cloned().unwrap_or_default();
 
-    let num_tls_callbacks = pe.tls_data.as_ref().map(|t| t.callbacks.len()).unwrap_or(0) as f32;
+    let exp = get_dd(0);
+    let imp = get_dd(1);
+    let res = get_dd(2);
+    let exc = get_dd(3);
+    let cert = get_dd(4);
+    let reloc = get_dd(5);
+    let debug = get_dd(6);
+    let tls = get_dd(9);
+    let load_cfg = get_dd(10);
+    let bound_imp = get_dd(11);
+    let iat = get_dd(12);
+    let delay_imp = get_dd(13);
+    let clr = get_dd(14);
 
-    // goblin 0.10.x ImportData only exposes raw bytes; use the data directory
-    // size to estimate delay import count (each IMAGE_DELAY_LOAD_INFO = 32 bytes).
-    let num_delay_imports = opt
-        .data_directories
-        .get_delay_import_descriptor()
-        .filter(|d| d.virtual_address > 0 && d.size >= 32)
-        .map(|d| (d.size / 32) as f32)
-        .unwrap_or(0.0);
+    let export_table_size = exp.size as f32;
+    let import_table_size = imp.size as f32;
+    let resource_table_size = res.size as f32;
+    let exception_table_size = exc.size as f32;
+    let certificate_table_size = cert.size as f32;
+    let base_relocation_table_size = reloc.size as f32;
+    let debug_table_size = debug.size as f32;
+    let tls_table_size = tls.size as f32;
+    let load_config_table_size = load_cfg.size as f32;
+    let bound_import_table_size = bound_imp.size as f32;
+    let iat_table_size = iat.size as f32;
+    let delay_import_table_size = delay_imp.size as f32;
+    let clr_runtime_header_size = clr.size as f32;
 
-    let (num_reloc_blocks, num_reloc_entries) = count_relocations(bytes, &pe);
-
-    // Bound import directory size / 8 bytes per BOUND_IMPORT_DESCRIPTOR.
-    let num_bound_imports = opt
-        .data_directories
-        .get_bound_import_table()
-        .filter(|d| d.virtual_address > 0 && d.size >= 8)
-        .map(|d| (d.size / 8) as f32)
-        .unwrap_or(0.0);
-
-    // Count how many distinct debug record types are present (goblin 0.10.x
-    // parses each debug type into its own Option field instead of a Vec).
-    let num_debug_entries = pe
-        .debug_data
-        .as_ref()
-        .map(|d| {
-            d.codeview_pdb70_debug_info.is_some() as u32
-                + d.codeview_pdb20_debug_info.is_some() as u32
-                + d.vcfeature_info.is_some() as u32
-                + d.ex_dll_characteristics_info.is_some() as u32
-                + d.repro_info.is_some() as u32
-                + d.pogo_info.is_some() as u32
-        })
-        .unwrap_or(0) as f32;
-
-    // pe.certificates is Vec<AttributeCertificate<'_>> in goblin 0.10.x.
-    let cert_size = pe
-        .certificates
-        .iter()
-        .map(|c| c.certificate.len())
-        .sum::<usize>() as f32;
-
-    // Extract directory table sizes safely
-    let dirs = &opt.data_directories;
-    let export_table_size = dirs.get_export_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let import_table_size = dirs.get_import_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let resource_table_size = dirs.get_resource_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let exception_table_size = dirs.get_exception_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let certificate_table_size = dirs.get_certificate_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let base_relocation_table_size = dirs.get_base_relocation_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let debug_table_size = dirs.get_debug_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let tls_table_size = dirs.get_tls_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let load_config_table_size = dirs.get_load_config_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let bound_import_table_size = dirs.get_bound_import_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let iat_table_size = dirs.get_import_address_table().map(|d| d.size as f32).unwrap_or(0.0);
-    let delay_import_table_size = dirs.get_delay_import_descriptor().map(|d| d.size as f32).unwrap_or(0.0);
-    let clr_runtime_header_size = dirs.get_clr_runtime_header().map(|d| d.size as f32).unwrap_or(0.0);
+    let imports_count = if imp.size >= 20 { (imp.size / 20) as f32 } else { 0.0 };
+    let exports_count = if exp.size >= 40 { (exp.size / 40) as f32 } else { 0.0 };
+    let resources_count = if res.size >= 16 { (res.size / 16) as f32 } else { 0.0 };
+    let num_delay_imports = if delay_imp.size >= 32 { (delay_imp.size / 32) as f32 } else { 0.0 };
+    let num_bound_imports = if bound_imp.size >= 8 { (bound_imp.size / 8) as f32 } else { 0.0 };
+    let num_debug_entries = if debug.size >= 28 { (debug.size / 28) as f32 } else { 0.0 };
+    let num_reloc_blocks = if reloc.size >= 8 { (reloc.size / 8) as f32 } else { 0.0 };
+    let num_reloc_entries = if reloc.size >= 8 { ((reloc.size - 8) / 2) as f32 } else { 0.0 };
+    let num_tls_callbacks = if tls.size >= 24 { 1.0 } else { 0.0 };
+    let cert_size = cert.size as f32;
 
     Some(PeFeatureVector {
-        size_of_optional_header: ln1p(pe.header.coff_header.size_of_optional_header as f32),
-        coff_characteristics: ln1p(pe.header.coff_header.characteristics as f32),
-        machine: ln1p(pe.header.coff_header.machine as f32),
-        major_linker_version: sf.major_linker_version as f32,
-        minor_linker_version: sf.minor_linker_version as f32,
-        size_of_code: ln1p(sf.size_of_code as f32),
-        size_of_initialized_data: ln1p(sf.size_of_initialized_data as f32),
-        size_of_uninitialized_data: ln1p(sf.size_of_uninitialized_data as f32),
-        address_of_entry_point: ln1p(sf.address_of_entry_point as f32),
+        size_of_optional_header: ln1p(pe.size_of_optional_header as f32),
+        coff_characteristics: ln1p(pe.characteristics as f32),
+        machine: ln1p(pe.machine as f32),
+        major_linker_version: pe.major_linker_version as f32,
+        minor_linker_version: pe.minor_linker_version as f32,
+        size_of_code: ln1p(pe.size_of_code as f32),
+        size_of_initialized_data: ln1p(pe.size_of_initialized_data as f32),
+        size_of_uninitialized_data: ln1p(pe.size_of_uninitialized_data as f32),
+        address_of_entry_point: ln1p(pe.address_of_entry_point as f32),
         image_base: ln1p(pe.image_base as f32),
-        section_alignment: ln1p(wf.section_alignment as f32),
-        file_alignment: ln1p(wf.file_alignment as f32),
-        major_operating_system_version: wf.major_operating_system_version as f32,
-        minor_operating_system_version: wf.minor_operating_system_version as f32,
-        major_image_version: wf.major_image_version as f32,
-        minor_image_version: wf.minor_image_version as f32,
-        major_subsystem_version: wf.major_subsystem_version as f32,
-        minor_subsystem_version: wf.minor_subsystem_version as f32,
+        section_alignment: ln1p(pe.section_alignment as f32),
+        file_alignment: ln1p(pe.file_alignment as f32),
+        major_operating_system_version: pe.major_os_version as f32,
+        minor_operating_system_version: pe.minor_os_version as f32,
+        major_image_version: pe.major_image_version as f32,
+        minor_image_version: pe.minor_image_version as f32,
+        major_subsystem_version: pe.major_subsystem_version as f32,
+        minor_subsystem_version: pe.minor_subsystem_version as f32,
         size_of_image: ln1p(size_of_image as f32),
-        size_of_headers: ln1p(wf.size_of_headers as f32),
-        checksum: ln1p(wf.check_sum as f32),
-        subsystem: wf.subsystem as f32,
-        dll_characteristics: ln1p(wf.dll_characteristics as f32),
-        size_of_stack_reserve: ln1p(wf.size_of_stack_reserve as f32),
-        size_of_stack_commit: ln1p(wf.size_of_stack_commit as f32),
-        size_of_heap_reserve: ln1p(wf.size_of_heap_reserve as f32),
-        size_of_heap_commit: ln1p(wf.size_of_heap_commit as f32),
-        loader_flags: ln1p(wf.loader_flags as f32),
-        number_of_rva_and_sizes: ln1p(wf.number_of_rva_and_sizes as f32),
+        size_of_headers: ln1p(pe.size_of_headers as f32),
+        checksum: ln1p(pe.checksum as f32),
+        subsystem: pe.subsystem as f32,
+        dll_characteristics: ln1p(pe.dll_characteristics as f32),
+        size_of_stack_reserve: ln1p(pe.size_of_stack_reserve as f32),
+        size_of_stack_commit: ln1p(pe.size_of_stack_commit as f32),
+        size_of_heap_reserve: ln1p(pe.size_of_heap_reserve as f32),
+        size_of_heap_commit: ln1p(pe.size_of_heap_commit as f32),
+        loader_flags: ln1p(pe.loader_flags as f32),
+        number_of_rva_and_sizes: ln1p(pe.num_rva_and_sizes as f32),
         export_table_size: ln1p(export_table_size),
         import_table_size: ln1p(import_table_size),
         resource_table_size: ln1p(resource_table_size),

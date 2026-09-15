@@ -1,0 +1,17 @@
+[package]
+name = "pefile-rs"
+version = "0.1.0"
+edition = "2024"
+authors = ["Emirhan Ucan"]
+description = "Pure-Rust complete port of Ero Carrera's pefile Python library for malware analysis and PE inspection"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HydraDragonAntivirus/pefile-rs"
+
+[dependencies]
+md-5 = { version = "0.10", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[features]
+default = ["imphash"]
+imphash = ["dep:md-5"]
+serde = ["dep:serde"]

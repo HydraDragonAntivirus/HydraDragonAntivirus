@@ -373,6 +373,15 @@ dependencies = [
 
 [[package]]
 name = "block-padding"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8894febbff9f758034a5b8e12d87918f56dfc64a8e1fe757d65e29041538d93"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
+name = "block-padding"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "710f1dd022ef4e93f8a438b4ba958de7f64308434fa6a87104481645cc30068b"
@@ -915,22 +924,21 @@ dependencies = [
 
 [[package]]
 name = "capstone"
-version = "0.12.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b08ca438d9585a2b216b0c2e88ea51e096286c5f197f7be2526bb515ef775b6c"
+checksum = "f442ae0f2f3f1b923334b4a5386c95c69c1cfa072bafa23d6fae6d9682eb1dd4"
 dependencies = [
  "capstone-sys",
- "libc",
+ "static_assertions",
 ]
 
 [[package]]
 name = "capstone-sys"
-version = "0.16.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe7183271711ffb7c63a6480e4baf480e0140da59eeba9b18fcc8bf3478950e3"
+checksum = "a4e8087cab6731295f5a2a2bd82989ba4f41d3a428aab2e7c98d8f4db38aac05"
 dependencies = [
  "cc",
- "libc",
 ]
 
 [[package]]
@@ -949,6 +957,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dec551ab6e7578819132c713a93c022a05d60159dc86e7a7050223577484c55a"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "cbc"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26b52a9543ae338f279b96b0b9fed9c8093744685043739079ce85cd58f289a6"
+dependencies = [
+ "cipher 0.4.4",
 ]
 
 [[package]]
@@ -1073,6 +1090,15 @@ dependencies = [
  "glob",
  "libc",
  "libloading 0.8.9",
+]
+
+[[package]]
+name = "cmake"
+version = "0.1.58"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -2969,17 +2995,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "goblin"
-version = "0.10.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17582616a7718cca54cec18e534a76c7c4aec11a8b9a85695712f262fd15a4c8"
-dependencies = [
- "log",
- "plain",
- "scroll",
-]
-
-[[package]]
 name = "gpu-allocator"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3228,12 +3243,31 @@ dependencies = [
  "isomage",
  "lzma-rust2 0.17.0",
  "ripzip",
- "sevenz-rust2",
+ "sevenz-rust2 0.21.6",
  "tar",
  "tempfile",
  "thiserror 2.0.20",
  "unrar-ng",
  "zstd 0.13.3",
+]
+
+[[package]]
+name = "hydradragonunicorn"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "capstone",
+ "colored",
+ "hydradragonextractor",
+ "log",
+ "pefile-rs",
+ "rand 0.10.2",
+ "sevenz-rust2 0.20.2",
+ "thiserror 2.0.20",
+ "unicorn-engine",
+ "vmpunpacker",
+ "yara-x",
 ]
 
 [[package]]
@@ -3549,6 +3583,7 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
+ "block-padding 0.3.3",
  "generic-array",
 ]
 
@@ -3558,7 +3593,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4250ce6452e92010fdf7268ccc5d14faa80bb12fc741938534c58f16804e03c7"
 dependencies = [
- "block-padding",
+ "block-padding 0.4.2",
  "hybrid-array",
 ]
 
@@ -3856,11 +3891,29 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "lz4_flex"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90071f8077f8e40adfc4b7fe9cd495ce316263f19e75c2211eeff3fdf475a3d9"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
+name = "lz4_flex"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
 dependencies = [
  "twox-hash",
+]
+
+[[package]]
+name = "lzma-rust2"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca93e534d1142d1d0dcca6d25fe302508a5dfb40b302802904577725ea0b695b"
+dependencies = [
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -4453,14 +4506,15 @@ dependencies = [
  "burn",
  "burn-ndarray",
  "capstone",
- "goblin",
  "hex",
  "hydradragonclamav",
  "hydradragonextractor",
+ "hydradragonunicorn",
  "oxc_allocator",
  "oxc_ast",
  "oxc_parser",
  "oxc_span",
+ "pefile-rs",
  "regex",
  "serde",
  "serde_json",
@@ -4785,6 +4839,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pefile-rs"
+version = "0.1.0"
+dependencies = [
+ "md-5",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4886,12 +4947,6 @@ name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
-
-[[package]]
-name = "plain"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "png"
@@ -5797,26 +5852,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "scroll"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1257cd4248b4132760d6524d6dda4e053bc648c9070b960929bf50cfb1e7add"
-dependencies = [
- "scroll_derive",
-]
-
-[[package]]
-name = "scroll_derive"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1a36a382ed65dbcc0ab47fd5e9a94112417ccd34560a392ef3b7b0f0ec39148"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.5",
-]
-
-[[package]]
 name = "sec1"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5932,6 +5967,28 @@ dependencies = [
 
 [[package]]
 name = "sevenz-rust2"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29225600349ef74beda5a9fffb36ac660a24613c0bde9315d0c49be1d51e9c24"
+dependencies = [
+ "aes 0.8.4",
+ "brotli",
+ "bzip2 0.6.1",
+ "cbc 0.1.2",
+ "crc32fast",
+ "flate2",
+ "getrandom 0.4.3",
+ "js-sys",
+ "lz4_flex 0.12.2",
+ "lzma-rust2 0.16.5",
+ "ppmd-rust",
+ "sha2 0.10.9",
+ "wasm-bindgen",
+ "zstd 0.13.3",
+]
+
+[[package]]
+name = "sevenz-rust2"
 version = "0.21.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7e6633e9d494e3b8e69b6e806cd76fb19e5d60b7aedcf35ac051e78c4f0c27c"
@@ -5939,12 +5996,12 @@ dependencies = [
  "aes 0.9.3",
  "brotli",
  "bzip2 0.6.1",
- "cbc",
+ "cbc 0.2.1",
  "crc32fast",
  "flate2",
  "getrandom 0.4.3",
  "js-sys",
- "lz4_flex",
+ "lz4_flex 0.14.0",
  "lzma-rust2 0.19.0",
  "ppmd-rust",
  "sha2 0.11.0",
@@ -6850,6 +6907,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 
 [[package]]
+name = "unicorn-engine"
+version = "2.1.5"
+dependencies = [
+ "bindgen",
+ "cc",
+ "cmake",
+ "pkg-config",
+ "unicorn-engine-sys",
+]
+
+[[package]]
+name = "unicorn-engine-sys"
+version = "2.1.5"
+dependencies = [
+ "bindgen",
+ "cc",
+ "cmake",
+ "heck",
+ "pkg-config",
+]
+
+[[package]]
 name = "unindent"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6962,6 +7041,13 @@ name = "virtue"
 version = "0.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
+
+[[package]]
+name = "vmpunpacker"
+version = "0.1.0"
+dependencies = [
+ "lzma-rust2 0.16.5",
+]
 
 [[package]]
 name = "void"

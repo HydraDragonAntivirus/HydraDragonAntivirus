@@ -1,12 +1,11 @@
-// filetype/pe_file.rs — PE (Portable Executable) parser.
+// filetype/pe_file.rs — Pure-Rust PE (Portable Executable) parser.
 //
-// Ports TinyAntivirus's CPeFileParser / IPeFile / IPe64File using the
-// `goblin` crate. Provides the same operations the scanner and emulator
+// Ports TinyAntivirus's CPeFileParser / IPeFile / IPe64File using zero-dependency
+// pure-Rust PE parsing. Provides the same operations the scanner and emulator
 // rely on: section lookup, RVA/VA/FileOffset conversions, entry-point
 // data reading, section truncation, and disinfection helpers.
 
 use crate::error::{AvError, AvResult};
-use goblin::pe::PE;
 use std::io::Write;
 use std::path::Path;
 
@@ -45,53 +44,62 @@ pub struct Pe32File {
 impl Pe32File {
     /// Parse a PE32 from raw bytes (e.g. from MemoryFs::get_buffer).
     pub fn parse(data: Vec<u8>) -> AvResult<Self> {
-        use goblin::Object;
-        // First pass: validate it is a PE32 (not PE32+). The borrow of data ends here.
-        match goblin::Object::parse(&data) {
-            Ok(Object::PE(pe)) if pe.is_64 => {
-                return Err(AvError::MalformedPe { reason: "expected PE32, got PE32+".into() })
+        if data.len() < 0x40 || &data[0..2] != b"MZ" {
+            return Err(AvError::NotPeFile);
+        }
+        let e_lfanew = u32::from_le_bytes(data[0x3C..0x40].try_into().unwrap_or([0; 4])) as usize;
+        if e_lfanew + 24 > data.len() || &data[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+            return Err(AvError::NotPeFile);
+        }
+
+        let coff_offset = e_lfanew + 4;
+        let number_of_sections = u16::from_le_bytes(data[coff_offset + 2..coff_offset + 4].try_into().unwrap());
+        let size_of_optional_header = u16::from_le_bytes(data[coff_offset + 16..coff_offset + 18].try_into().unwrap()) as usize;
+
+        let opt_offset = coff_offset + 20;
+        if opt_offset + 2 > data.len() {
+            return Err(AvError::MalformedPe { reason: "missing optional header".into() });
+        }
+
+        let magic = u16::from_le_bytes(data[opt_offset..opt_offset + 2].try_into().unwrap());
+        if magic == 0x20b {
+            return Err(AvError::MalformedPe { reason: "expected PE32, got PE32+".into() });
+        }
+        if magic != 0x10b {
+            return Err(AvError::NotPeFile);
+        }
+
+        let entry_point_rva = if opt_offset + 20 <= data.len() {
+            u32::from_le_bytes(data[opt_offset + 16..opt_offset + 20].try_into().unwrap())
+        } else { 0 };
+
+        let image_base = if opt_offset + 32 <= data.len() {
+            u32::from_le_bytes(data[opt_offset + 28..opt_offset + 32].try_into().unwrap())
+        } else { 0x400000 };
+
+        let sec_start = opt_offset + size_of_optional_header;
+        let mut sections = Vec::new();
+        for i in 0..number_of_sections as usize {
+            let off = sec_start + i * 40;
+            if off + 40 <= data.len() {
+                let name_raw = &data[off..off + 8];
+                let name = String::from_utf8_lossy(name_raw).trim_end_matches('\0').to_string();
+                let virtual_size = u32::from_le_bytes(data[off + 8..off + 12].try_into().unwrap());
+                let virtual_address = u32::from_le_bytes(data[off + 12..off + 16].try_into().unwrap());
+                let raw_size = u32::from_le_bytes(data[off + 16..off + 20].try_into().unwrap());
+                let raw_offset = u32::from_le_bytes(data[off + 20..off + 24].try_into().unwrap());
+                let characteristics = u32::from_le_bytes(data[off + 36..off + 40].try_into().unwrap());
+
+                sections.push(SectionHeader {
+                    name,
+                    virtual_address,
+                    virtual_size,
+                    raw_offset,
+                    raw_size,
+                    characteristics,
+                });
             }
-            Ok(Object::PE(_)) => {}
-            Ok(_) => return Err(AvError::NotPeFile),
-            Err(e) => return Err(AvError::MalformedPe { reason: format!("{e}") }),
         }
-        // Second pass: parse a clone so pe borrows the clone, leaving data free to move.
-        let data_buf = data.clone();
-        match goblin::Object::parse(&data_buf) {
-            Ok(Object::PE(pe)) => Self::from_goblin(data, pe),
-            _ => Err(AvError::NotPeFile),
-        }
-    }
-
-    /// Parse from a file on disk.
-    pub fn from_path(path: &Path) -> AvResult<Self> {
-        let data = std::fs::read(path)?;
-        Self::parse(data)
-    }
-
-    fn from_goblin(data: Vec<u8>, pe: PE) -> AvResult<Self> {
-        if pe.is_64 {
-            return Err(AvError::MalformedPe {
-                reason: "expected PE32, got PE32+".into(),
-            });
-        }
-        let image_base = pe.image_base as u32;
-        let entry_point_rva = pe.entry as u32;
-
-        let sections: Vec<SectionHeader> = pe
-            .sections
-            .iter()
-            .map(|s| SectionHeader {
-                name: String::from_utf8_lossy(&s.name)
-                    .trim_end_matches('\0')
-                    .to_string(),
-                virtual_address: s.virtual_address,
-                virtual_size: s.virtual_size,
-                raw_offset: s.pointer_to_raw_data,
-                raw_size: s.size_of_raw_data,
-                characteristics: s.characteristics,
-            })
-            .collect();
 
         Ok(Self {
             data,
@@ -100,6 +108,12 @@ impl Pe32File {
             sections,
             is_pe: true,
         })
+    }
+
+    /// Parse from a file on disk.
+    pub fn from_path(path: &Path) -> AvResult<Self> {
+        let data = std::fs::read(path)?;
+        Self::parse(data)
     }
 
     // ------------------------------------------------------------------
@@ -320,46 +334,60 @@ pub struct Pe64File {
 
 impl Pe64File {
     pub fn parse(data: Vec<u8>) -> AvResult<Self> {
-        use goblin::Object;
-        // First pass: validate it is PE32+. Borrow of data ends here.
-        match goblin::Object::parse(&data) {
-            Ok(Object::PE(pe)) if !pe.is_64 => {
-                return Err(AvError::MalformedPe { reason: "expected PE32+, got PE32".into() })
+        if data.len() < 0x40 || &data[0..2] != b"MZ" {
+            return Err(AvError::NotPeFile);
+        }
+        let e_lfanew = u32::from_le_bytes(data[0x3C..0x40].try_into().unwrap_or([0; 4])) as usize;
+        if e_lfanew + 24 > data.len() || &data[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+            return Err(AvError::NotPeFile);
+        }
+
+        let coff_offset = e_lfanew + 4;
+        let number_of_sections = u16::from_le_bytes(data[coff_offset + 2..coff_offset + 4].try_into().unwrap());
+        let size_of_optional_header = u16::from_le_bytes(data[coff_offset + 16..coff_offset + 18].try_into().unwrap()) as usize;
+
+        let opt_offset = coff_offset + 20;
+        if opt_offset + 2 > data.len() {
+            return Err(AvError::MalformedPe { reason: "missing optional header".into() });
+        }
+
+        let magic = u16::from_le_bytes(data[opt_offset..opt_offset + 2].try_into().unwrap());
+        if magic != 0x20b {
+            return Err(AvError::MalformedPe { reason: "expected PE32+, got PE32".into() });
+        }
+
+        let entry_point_rva = if opt_offset + 20 <= data.len() {
+            u32::from_le_bytes(data[opt_offset + 16..opt_offset + 20].try_into().unwrap())
+        } else { 0 };
+
+        let image_base = if opt_offset + 32 <= data.len() {
+            u64::from_le_bytes(data[opt_offset + 24..opt_offset + 32].try_into().unwrap())
+        } else { 0x140000000 };
+
+        let sec_start = opt_offset + size_of_optional_header;
+        let mut sections = Vec::new();
+        for i in 0..number_of_sections as usize {
+            let off = sec_start + i * 40;
+            if off + 40 <= data.len() {
+                let name_raw = &data[off..off + 8];
+                let name = String::from_utf8_lossy(name_raw).trim_end_matches('\0').to_string();
+                let virtual_size = u32::from_le_bytes(data[off + 8..off + 12].try_into().unwrap());
+                let virtual_address = u32::from_le_bytes(data[off + 12..off + 16].try_into().unwrap());
+                let raw_size = u32::from_le_bytes(data[off + 16..off + 20].try_into().unwrap());
+                let raw_offset = u32::from_le_bytes(data[off + 20..off + 24].try_into().unwrap());
+                let characteristics = u32::from_le_bytes(data[off + 36..off + 40].try_into().unwrap());
+
+                sections.push(SectionHeader {
+                    name,
+                    virtual_address,
+                    virtual_size,
+                    raw_offset,
+                    raw_size,
+                    characteristics,
+                });
             }
-            Ok(Object::PE(_)) => {}
-            Ok(_) => return Err(AvError::NotPeFile),
-            Err(e) => return Err(AvError::MalformedPe { reason: format!("{e}") }),
         }
-        // Second pass: parse a clone so pe borrows the clone, leaving data free to move.
-        let data_buf = data.clone();
-        match goblin::Object::parse(&data_buf) {
-            Ok(Object::PE(pe)) => Self::from_goblin(data, pe),
-            _ => Err(AvError::NotPeFile),
-        }
-    }
 
-    pub fn from_path(path: &Path) -> AvResult<Self> {
-        let data = std::fs::read(path)?;
-        Self::parse(data)
-    }
-
-    fn from_goblin(data: Vec<u8>, pe: PE) -> AvResult<Self> {
-        let image_base = pe.image_base as u64;
-        let entry_point_rva = pe.entry as u32;
-        let sections: Vec<SectionHeader> = pe
-            .sections
-            .iter()
-            .map(|s| SectionHeader {
-                name: String::from_utf8_lossy(&s.name)
-                    .trim_end_matches('\0')
-                    .to_string(),
-                virtual_address: s.virtual_address,
-                virtual_size: s.virtual_size,
-                raw_offset: s.pointer_to_raw_data,
-                raw_size: s.size_of_raw_data,
-                characteristics: s.characteristics,
-            })
-            .collect();
         Ok(Self {
             data,
             image_base,
@@ -367,6 +395,11 @@ impl Pe64File {
             sections,
             is_pe: true,
         })
+    }
+
+    pub fn from_path(path: &Path) -> AvResult<Self> {
+        let data = std::fs::read(path)?;
+        Self::parse(data)
     }
 
     pub fn is_valid(&self) -> bool {
@@ -434,14 +467,15 @@ pub enum PeFile {
 impl PeFile {
     /// Parse from raw bytes, auto-detecting bitness.
     pub fn parse(data: Vec<u8>) -> AvResult<Self> {
-        use goblin::Object;
-        // First pass: detect bitness. The borrow of `data` ends before we move it.
-        let is_64 = match goblin::Object::parse(&data) {
-            Ok(Object::PE(pe)) => pe.is_64,
-            Ok(_) => return Err(AvError::NotPeFile),
-            Err(e) => return Err(AvError::MalformedPe { reason: format!("{e}") }),
-        };
-        // Second pass: delegate to the typed parser which takes ownership.
+        if data.len() < 0x40 || &data[0..2] != b"MZ" {
+            return Err(AvError::NotPeFile);
+        }
+        let e_lfanew = u32::from_le_bytes(data[0x3C..0x40].try_into().unwrap_or([0; 4])) as usize;
+        if e_lfanew + 26 > data.len() || &data[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+            return Err(AvError::NotPeFile);
+        }
+        let magic = u16::from_le_bytes(data[e_lfanew + 24..e_lfanew + 26].try_into().unwrap());
+        let is_64 = magic == 0x20b;
         if is_64 {
             Pe64File::parse(data).map(PeFile::Pe64)
         } else {

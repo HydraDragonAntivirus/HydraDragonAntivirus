@@ -341,6 +341,14 @@ impl ParseCallbacks for Renamer {
 }
 
 fn generate_bindings() {
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let bindings_rs = out_dir.join("bindings.rs");
+    let pregen = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pregenerated_bindings.rs");
+    if pregen.exists() {
+        let _ = std::fs::copy(&pregen, &bindings_rs);
+        return;
+    }
+
     const HEADER_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/include/unicorn/unicorn.h");
 
     let bitflag_enums = [

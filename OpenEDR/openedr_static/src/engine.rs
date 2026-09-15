@@ -156,7 +156,20 @@ impl StaticEngine {
             };
         }
 
-        // 1. Authenticode & Signer Check
+        // 1. Comodo FLS Cloud Lookup (Highest Priority Fast-Path)
+        let fls_res = self.fls.query_sha1(&sha1_hex);
+        let fls_str = fls_res.as_str().to_string();
+        if fls_res == FlsVerdict::Malicious {
+            detections.push(DetectionItem {
+                layer: "FLS_Cloud".to_string(),
+                name: "ComodoFLS.Malicious".to_string(),
+                score: Some(1.0),
+                details: Some("Reputation confirmed by Comodo FLS cloud".to_string()),
+            });
+            max_score = max_score.max(1.0);
+        }
+
+        // 2. Authenticode & Signer Check
         let mut signer_details = None;
         if let Some(p) = disk_path {
             let (is_signed, is_trusted, signer_name, status) = verify_authenticode(p);
@@ -209,7 +222,7 @@ impl StaticEngine {
             }
         }
 
-        // 2. ClamAV Engine
+        // 3. ClamAV Engine
         let clam_matches = self.clam.scan_bytes(data, target_name);
         for m in clam_matches {
             detections.push(DetectionItem {
@@ -221,7 +234,7 @@ impl StaticEngine {
             max_score = max_score.max(1.0);
         }
 
-        // 3. YARA-X Engine
+        // 4. YARA-X Engine
         let yara_matches = self.yara.scan_bytes(data);
         for y_name in yara_matches {
             detections.push(DetectionItem {
@@ -233,7 +246,7 @@ impl StaticEngine {
             max_score = max_score.max(0.95);
         }
 
-        // 4. Machine Learning (PE / JS)
+        // 5. Machine Learning (PE / JS)
         if data.starts_with(b"MZ") {
             if let Some(prob) = self.ml.predict_pe(data) {
                 if prob >= 0.70 {
@@ -262,17 +275,50 @@ impl StaticEngine {
             }
         }
 
-        // 5. Comodo FLS Lookup
-        let fls_res = self.fls.query_sha1(&sha1_hex);
-        let fls_str = fls_res.as_str().to_string();
-        if fls_res == FlsVerdict::Malicious {
-            detections.push(DetectionItem {
-                layer: "FLS_Cloud".to_string(),
-                name: "ComodoFLS.Malicious".to_string(),
-                score: Some(1.0),
-                details: Some("Reputation confirmed by Comodo FLS cloud".to_string()),
-            });
-            max_score = max_score.max(1.0);
+        // 6. Unicorn PE CPU Emulation & Unpacker (Heuristic analysis)
+        if data.starts_with(b"MZ") && data.len() >= 0x1000 {
+            if let Ok(sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(data) {
+                let mut unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sample, "memory");
+                if unpacker.init_uc().is_ok() {
+                    let _ = unpacker.emu();
+                    if let Ok(dumped) = unpacker.dump_bytes() {
+                        if !dumped.is_empty() && dumped != data {
+                            // Rescan emulated unpacked buffer with ClamAV, YARA-X, and ML
+                            let unp_clam = self.clam.scan_bytes(&dumped, target_name);
+                            for m in unp_clam {
+                                detections.push(DetectionItem {
+                                    layer: "Unicorn_Unpacker_ClamAV".to_string(),
+                                    name: format!("Unpacked:{}", m.name),
+                                    score: Some(1.0),
+                                    details: Some("Detected inside memory dumped by Unicorn CPU emulation".to_string()),
+                                });
+                                max_score = max_score.max(1.0);
+                            }
+                            let unp_yara = self.yara.scan_bytes(&dumped);
+                            for y_name in unp_yara {
+                                detections.push(DetectionItem {
+                                    layer: "Unicorn_Unpacker_YARA".to_string(),
+                                    name: format!("Unpacked:{}", y_name),
+                                    score: Some(0.95),
+                                    details: Some("YARA rule matched on Unicorn emulated unpacked payload".to_string()),
+                                });
+                                max_score = max_score.max(0.95);
+                            }
+                            if let Some(prob) = self.ml.predict_pe(&dumped) {
+                                if prob >= 0.70 {
+                                    detections.push(DetectionItem {
+                                        layer: "Unicorn_Unpacker_ML".to_string(),
+                                        name: "Unpacked.MalwareNet.PE.HighConfidence".to_string(),
+                                        score: Some(prob),
+                                        details: Some(format!("Unpacked payload malware probability: {:.2}%", prob * 100.0)),
+                                    });
+                                    max_score = max_score.max(prob);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Final Verdict calculation

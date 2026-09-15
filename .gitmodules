@@ -8,4 +8,4 @@
 	ignore = untracked
 [submodule "hydradragonunicorn/unicorn-engine-rs"]
 	path = hydradragonunicorn/unicorn-engine-rs
-	url = https://github.com/unicorn-engine/unicorn.git
+	url = https://github.com/HydraDragonAntivirus/unicorn.git
