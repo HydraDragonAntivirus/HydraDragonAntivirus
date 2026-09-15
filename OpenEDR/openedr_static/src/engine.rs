@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use sha1::{Sha1, Digest as Sha1Digest};
@@ -19,6 +20,7 @@ pub struct StaticEngine {
     signers: SignerDb,
     pua_registry: PuaRegistryMatcher,
     fls: FlsClient,
+    benign_hashes: HashSet<String>,
 }
 
 impl StaticEngine {
@@ -54,7 +56,16 @@ impl StaticEngine {
         let signers_dir = base.join("signer_rules");
         let signers = SignerDb::load_from_dir(&signers_dir);
         let pua_registry = PuaRegistryMatcher::load(&registry_rules_path);
-        let fls = FlsClient::default();
+        let mut benign_hashes = HashSet::new();
+        let benign_txt = database_dir.join("benign_sha1.txt");
+        if let Ok(content) = std::fs::read_to_string(&benign_txt) {
+            for line in content.lines() {
+                let trimmed = line.trim().to_lowercase();
+                if trimmed.len() == 40 {
+                    benign_hashes.insert(trimmed);
+                }
+            }
+        }
 
         Self {
             base_dir: base,
@@ -64,6 +75,7 @@ impl StaticEngine {
             signers,
             pua_registry,
             fls,
+            benign_hashes,
         }
     }
 
@@ -126,6 +138,23 @@ impl StaticEngine {
         let mut detections = Vec::new();
         let mut max_score: f32 = 0.0;
 
+        // 0. Fast-Path: Local Benign Whitelist (256K+ hashes)
+        if self.benign_hashes.contains(&sha1_hex) {
+            return StaticScanReport {
+                target: target_name.to_string(),
+                file_size,
+                sha1: sha1_hex,
+                sha256: sha256_hex,
+                verdict: "Clean".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: None,
+                fls_verdict: Some("Safe".to_string()),
+                pua_registry_matches: Vec::new(),
+                scan_time_ms: start_time.elapsed().as_millis() as u64,
+            };
+        }
+
         // 1. Authenticode & Signer Check
         let mut signer_details = None;
         if let Some(p) = disk_path {
@@ -160,6 +189,23 @@ impl StaticEngine {
                 signer_name,
                 status,
             });
+
+            // Fast-path for trusted authenticode binaries with no signer alert
+            if (is_trusted || trusted_by_yaml) && detections.is_empty() {
+                return StaticScanReport {
+                    target: target_name.to_string(),
+                    file_size,
+                    sha1: sha1_hex,
+                    sha256: sha256_hex,
+                    verdict: "Clean".to_string(),
+                    max_threat_score: 0.0,
+                    detections: Vec::new(),
+                    signer_info: signer_details,
+                    fls_verdict: Some("Safe".to_string()),
+                    pua_registry_matches: Vec::new(),
+                    scan_time_ms: start_time.elapsed().as_millis() as u64,
+                };
+            }
         }
 
         // 2. ClamAV Engine

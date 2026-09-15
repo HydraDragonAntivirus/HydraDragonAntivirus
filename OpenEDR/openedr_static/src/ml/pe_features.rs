@@ -121,10 +121,12 @@ fn count_relocations(bytes: &[u8], pe: &goblin::pe::PE) -> (f32, f32) {
 }
 
 pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
-    let obj = Object::parse(bytes).ok()?;
-    let pe = match obj {
-        Object::PE(pe) => pe,
-        _ => return None,
+    let pe = if let Ok(pe) = goblin::pe::PE::parse(bytes) {
+        pe
+    } else if let Ok(Object::PE(pe)) = Object::parse(bytes) {
+        pe
+    } else {
+        return None;
     };
 
     let opt = pe.header.optional_header.as_ref()?;
