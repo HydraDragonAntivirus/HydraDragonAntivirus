@@ -2,7 +2,7 @@
 name = "openedr_static"
 version = "0.1.0"
 edition = "2024"
-authors = ["EmirhanUcan"]
+authors = ["Emirhan Ucan"]
 description = "Standalone portable static analysis engine DLL"
 
 [lib]
