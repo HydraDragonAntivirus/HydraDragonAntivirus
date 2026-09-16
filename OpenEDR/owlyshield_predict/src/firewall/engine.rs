@@ -1091,6 +1091,122 @@ impl AppInfoCache {
     }
 }
 
+/// Local signer verdict. Native verification lives in openedr_static.dll;
+/// this resolves verdicts through that DLL (dynamically loaded, same binary
+/// the OpenEDR C++ layer uses) instead of a Rust crate dependency.
+/// Anything unresolvable reports untrusted (fail-closed).
+#[derive(Debug, Clone, Default)]
+pub struct SigInfo {
+    pub is_trusted: bool,
+    pub signer_name: Option<String>,
+    pub status: String,
+    pub is_catalog_signed: bool,
+}
+
+type OpenedrInitFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> i32;
+type OpenedrScanFileFn =
+    unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type OpenedrFreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
+
+struct OpenedrDll {
+    init_fn: OpenedrInitFn,
+    scan_fn: OpenedrScanFileFn,
+    free_fn: OpenedrFreeFn,
+}
+
+static OPENEDR_DLL: std::sync::OnceLock<Option<OpenedrDll>> = std::sync::OnceLock::new();
+
+fn wide_null(s: &str) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    std::ffi::OsStr::new(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+fn load_openedr_dll() -> Option<OpenedrDll> {
+    use windows::core::{PCSTR, PCWSTR};
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
+
+    unsafe {
+        let mut candidates: Vec<std::path::PathBuf> =
+            vec![std::path::PathBuf::from("openedr_static.dll")];
+        if let Some(d) = crate::utils::current_module_dir() {
+            candidates.push(d.join("openedr_static.dll"));
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(d) = exe.parent() {
+                candidates.push(d.join("openedr_static.dll"));
+            }
+        }
+        candidates.push(std::path::PathBuf::from(
+            r"C:\Program Files\HydraDragonAntivirus\OpenEDR\openedr_static.dll",
+        ));
+
+        for cand in candidates {
+            let w = wide_null(&cand.to_string_lossy());
+            // Already loaded in this process (e.g. by the OpenEDR C++ layer)?
+            let h = GetModuleHandleW(PCWSTR(w.as_ptr()))
+                .or_else(|_| LoadLibraryW(PCWSTR(w.as_ptr())))
+                .ok()?;
+            let init_fn: OpenedrInitFn =
+                std::mem::transmute(GetProcAddress(h, PCSTR(b"openedr_static_init\0".as_ptr()))?);
+            let scan_fn: OpenedrScanFileFn = std::mem::transmute(GetProcAddress(
+                h,
+                PCSTR(b"openedr_static_scan_file\0".as_ptr()),
+            )?);
+            let free_fn: OpenedrFreeFn = std::mem::transmute(GetProcAddress(
+                h,
+                PCSTR(b"openedr_static_free_string\0".as_ptr()),
+            )?);
+            if init_fn(std::ptr::null()) != 0 {
+                continue;
+            }
+            return Some(OpenedrDll {
+                init_fn,
+                scan_fn,
+                free_fn,
+            });
+        }
+        None
+    }
+}
+
+fn query_openedr_signer(app_path: &str) -> Option<SigInfo> {
+    let dll = OPENEDR_DLL.get_or_init(load_openedr_dll).as_ref()?;
+    let c_path = std::ffi::CString::new(app_path).ok()?;
+    let report: String = unsafe {
+        let ptr = (dll.scan_fn)(c_path.as_ptr());
+        if ptr.is_null() {
+            return None;
+        }
+        let text = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
+        (dll.free_fn)(ptr);
+        text
+    };
+    let v: serde_json::Value = serde_json::from_str(&report).ok()?;
+    let s = v.get("signer_info")?;
+    if s.is_null() {
+        return None;
+    }
+    Some(SigInfo {
+        is_trusted: s.get("is_trusted").and_then(|x| x.as_bool()).unwrap_or(false),
+        signer_name: s
+            .get("signer_name")
+            .and_then(|x| x.as_str())
+            .map(|x| x.to_string()),
+        status: s
+            .get("status")
+            .and_then(|x| x.as_str())
+            .unwrap_or("unsigned")
+            .to_string(),
+        is_catalog_signed: s
+            .get("is_catalog_signed")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false),
+    })
+}
+
 pub struct AppManager {
     pub decisions: RwLock<HashMap<String, AppDecision>>,
     pub pending: RwLock<VecDeque<PendingApp>>,
@@ -1103,7 +1219,7 @@ pub struct AppManager {
     pub suspicious_pids: RwLock<HashSet<u32>>,
     pub cloud_trusted_pids: RwLock<HashSet<u32>>,
     pub openedr_verdicts: RwLock<HashMap<u32, String>>,
-    pub sig_cache: RwLock<HashMap<String, crate::signature_verification::SignatureInfo>>,
+    pub sig_cache: RwLock<HashMap<String, SigInfo>>,
     /// Tracks which slot (0-based) the user is currently viewing, for the position counter.
     pub view_index: AtomicU64,
 }
@@ -1127,9 +1243,9 @@ impl AppManager {
         }
     }
 
-    pub fn get_or_verify_sig(&self, app_path: &str) -> crate::signature_verification::SignatureInfo {
+    pub fn get_or_verify_sig(&self, app_path: &str) -> SigInfo {
         if app_path.is_empty() {
-            return crate::signature_verification::SignatureInfo::default();
+            return SigInfo::default();
         }
         {
             let cache = self.sig_cache.read().unwrap();
@@ -1137,7 +1253,9 @@ impl AppManager {
                 return info.clone();
             }
         }
-        let info = crate::signature_verification::verify_signature(Path::new(app_path));
+        // Single authority: openedr_static.dll, loaded dynamically (same
+        // binary the OpenEDR C++ layer uses) — no Rust crate dependency.
+        let info = query_openedr_signer(app_path).unwrap_or_default();
         let mut cache = self.sig_cache.write().unwrap();
         cache.insert(app_path.to_string(), info.clone());
         info
@@ -4117,9 +4235,9 @@ impl FirewallEngine {
                     }
                     None => {
                         // Evaluate criteria for interactive HIPS prompting:
-                        // 1. Digital signature verification (cached)
+                        // 1. Digital signature verification (cached, via openedr_static)
                         let sig_info = am.get_or_verify_sig(&app_path);
-                        let mut is_sig_untrusted = sig_info.status != crate::signature_verification::SignatureStatus::Trusted;
+                        let mut is_sig_untrusted = !sig_info.is_trusted;
 
                         // Also treat as trusted if signer name matches trusted_signers.yaml (e.g. Comodo, Microsoft)
                         if is_sig_untrusted {
@@ -4144,14 +4262,7 @@ impl FirewallEngine {
                                 Some(s) if !s.is_empty() => format!(" | Signer: {}", s),
                                 _ => String::new(),
                             };
-                            let cert_kind = if sig_info.is_catalog_signed {
-                                " (Catalog Signed)"
-                            } else if sig_info.is_attached_signed {
-                                " (Embedded Authenticode)"
-                            } else {
-                                ""
-                            };
-                            let sig_label = format!("{}{}{}", sig_info.status.as_str(), cert_kind, signer_desc);
+                            let sig_label = format!("{}{}", sig_info.status.as_str(), signer_desc);
                             let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
                             let ask_reason = "Unsigned/untrusted binary with non-safe cloud verdict".to_string();
 
@@ -4478,25 +4589,9 @@ impl FirewallEngine {
                 use windows::Win32::System::Pipes::WaitNamedPipeW;
                 use windows::core::PCWSTR;
 
-                // Compute PE ML analysis in this background thread so packet routing is never delayed
-                let ml_desc = if let Ok(bytes) = std::fs::read(Path::new(&exe_path)) {
-                    if bytes.len() >= 2 && &bytes[0..2] == b"MZ" {
-                        if let Some(model) = crate::ml::fast_detect::get_pe_model_ref() {
-                            let device = burn::backend::ndarray::NdArrayDevice::default();
-                            if let Some(prob) = crate::ml::inference::predict_pe(&bytes, model, &device) {
-                                format!("ML Score: {:.3}", prob)
-                            } else {
-                                "ML: Insufficient PE features".to_string()
-                            }
-                        } else {
-                            "ML: Model not loaded".to_string()
-                        }
-                    } else {
-                        "ML: Non-PE Binary".to_string()
-                    }
-                } else {
-                    "ML: File unreadable".to_string()
-                };
+                // Static file verdicts live in openedr_static.dll now; the
+                // firewall keeps the cloud verdict for the HIPS prompt.
+                let ml_desc = "ML: via openedr_static.dll".to_string();
                 let verdict = format!("{} | {}", raw_verdict, ml_desc);
 
                 const PIPE: &str = r"\\.\pipe\HydraHipEvent";

@@ -11,7 +11,6 @@ pub mod ffi;
 pub mod firewall;
 pub mod globals;
 pub mod logging;
-pub mod daemon_scan;
 pub mod ml;
 pub mod notifications;
 pub mod predictions;

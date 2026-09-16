@@ -584,43 +584,7 @@ pub mod worker_instance {
                                     raw.len()
                                 ));
                             }
-                            crate::ffi::TelemetryLine::OpenedrEvent(raw) => {
-                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                                    let fp = v.pointer("/file/path")
-                                        .or_else(|| v.pointer("/file/rawPath"))
-                                        .or_else(|| v.pointer("/file/name"))
-                                        .and_then(|p| p.as_str());
-                                    let pid = v.pointer("/process/pid")
-                                        .and_then(|p| p.as_u64())
-                                        .unwrap_or(0) as u32;
-                                    if let Some(path) = fp {
-                                        if !path.is_empty() {
-                                            crate::daemon_scan::enqueue_scan(
-                                                std::path::PathBuf::from(path),
-                                                false,
-                                                pid,
-                                                0,
-                                                String::new(),
-                                            );
-                                        }
-                                    }
-                                    let pp = v.pointer("/process/imageFile/abstractPath")
-                                        .or_else(|| v.pointer("/process/imageFile/rawPath"))
-                                        .or_else(|| v.pointer("/childProcess/imageFile/abstractPath"))
-                                        .and_then(|p| p.as_str());
-                                    if let Some(path) = pp {
-                                        if !path.is_empty() {
-                                            crate::daemon_scan::enqueue_scan(
-                                                std::path::PathBuf::from(path),
-                                                false,
-                                                pid,
-                                                0,
-                                                String::new(),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
+                            crate::ffi::TelemetryLine::OpenedrEvent(_) => {}
                         }
                     }
 
@@ -1085,115 +1049,8 @@ pub mod worker_instance {
                         }
                     }
 
-                    // Run fast static detections for MZ executables and JavaScript files
-                    let mut fast_det = None;
-                    // File-event detections must remediate the DETECTED FILE.
-                    // remediation_target_path is otherwise never assigned, so
-                    // primary_remediation_path() would resolve to the ACTOR's
-                    // own image (explorer, browser, ...) and a copied virus
-                    // would either quarantine the actor or (protected actor)
-                    // quarantine nothing at all.
-                    let fast_det_target: Option<PathBuf> = None;
-
-                    if is_process_create {
-                        let exe_path_str = precord.exepath.to_string_lossy().into_owned();
-                        if !exe_path_str.is_empty() {
-                            fast_det = crate::ml::fast_detect::fast_detect_path(&exe_path_str);
-                            // If ML is undecided on process creation, delegate deep ClamAV scan
-                            // to the background daemon scanner so the event loop is never stalled.
-                            if fast_det.is_none() {
-                                crate::daemon_scan::enqueue_scan(
-                                    precord.exepath.clone(),
-                                    true,
-                                    iomsg.pid,
-                                    iomsg.gid,
-                                    precord.appname.clone(),
-                                );
-                            }
-                        }
-                    }
-
-                    // Enqueue real-time file events to the daemon scanner worker pool.
-                    // Runs ML + ClamAV asynchronously without blocking the event queue
-                    // or dropping kernel events during massive file copies (e.g. 53k files).
-                    if !iomsg.filepathstr.is_empty() {
-                        crate::daemon_scan::enqueue_scan(
-                            PathBuf::from(&iomsg.filepathstr),
-                            false,
-                            iomsg.pid,
-                            iomsg.gid,
-                            precord.appname.clone(),
-                        );
-                    }
-
-                    if let Some(det) = fast_det {
-                        // Pause protection = log the detection but take no
-                        // quarantine/kill action while paused.
-                        let protection_paused = crate::globals::is_protection_paused();
-
-                        if !protection_paused {
-                            precord.is_malicious = true;
-                            // File-event hit seals the detected file only;
-                            // never flag the actor for termination.
-                            precord.termination_requested = fast_det_target.is_none();
-                            precord.quarantine_requested = true;
-                        }
-                        precord.triggered_rule_name = Some(det.detection_name.clone());
-                        precord.triggered_rule_details = Some(det.reason.clone());
-                        precord.fast_detection_features = Some(det.features.clone());
-
-                        Logging::warning(&format!(
-                            "[FastDetection]{} Process {} (PID: {}) triggered static detection '{}': {}",
-                            if protection_paused {
-                                " [PAUSED - logged only]"
-                            } else {
-                                ""
-                            },
-                            precord.appname,
-                            iomsg.pid,
-                            det.detection_name,
-                            det.reason
-                        ));
-
-                        if !protection_paused && let Some(ref threat_handler) = self.threat_handler
-                        {
-                            let dummy_pred_mtrx = VecvecCappedF32::new(0, 0);
-                            // File-event hit: seal the detected file, never
-                            // terminate the actor (terminate=false routes to
-                            // quarantine_only below). Process-create hit keeps
-                            // kill+quarantine of the malware process itself.
-                            let terminate_actor = fast_det_target.is_none();
-                            if let Some(target) = fast_det_target {
-                                precord.remediation_target_path = Some(target);
-                            }
-                            let threat_info = crate::actions_on_kill::ThreatInfo {
-                                threat_type_label: "Fast Static Detection",
-                                virus_name: &det.detection_name,
-                                prediction: 1.0,
-                                match_details: Some(det.reason.clone()),
-                                deny_access: false,
-                                terminate: terminate_actor,
-                                quarantine: true,
-                                kill_and_remove: false,
-                                suspend: false,
-                                notify_user: true,
-                                revert: false,
-                                pending_user_decision: false,
-                            };
-                            let report_context =
-                                crate::actions_on_kill::ActionReportContext::default();
-                            crate::actions_on_kill::ActionsOnKill::with_handler(
-                                threat_handler.clone_box(),
-                            )
-                            .run_actions_with_info_and_context(
-                                config,
-                                precord,
-                                &dummy_pred_mtrx,
-                                &threat_info,
-                                &report_context,
-                            );
-                        }
-                    }
+                    // Static file verdicts live in openedr_static.dll (consumed by
+                    // the OpenEDR C++ layer); no local static scan here.
 
                     // Run process record handler (e.g., prediction)
                     if let Some(process_record_handler) = &mut self.process_record_handler {

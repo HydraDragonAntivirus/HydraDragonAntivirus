@@ -276,10 +276,76 @@ impl UrlTreeModel {
 
 static URL_MODEL: OnceLock<Option<UrlTreeModel>> = OnceLock::new();
 
+/// Resolve an ML model file across all runtime contexts:
+/// 1. Registry HKLM\SOFTWARE\Owlyshield\SDK (DATABASE_PATH/MODELS_PATH)
+/// 2. Loaded module directory (owlyshield_ransom.dll or companion DLL)
+/// 3. current_exe directory
+/// 4. Default installation directories (Program Files)
+/// 5. CWD-relative models/ (dev / tests)
+/// (Moved from the removed fast_detect.rs; URL model is the only file-ML
+/// artifact left in owlyshield — PE/JS static ML lives in openedr_static.)
+pub(crate) fn model_path(file: &str) -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        use winreg::RegKey;
+        use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+        for flags in [KEY_READ | KEY_WOW64_64KEY, KEY_READ] {
+            if let Ok(key) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(r"SOFTWARE\Owlyshield\SDK", flags) {
+                if let Ok(p) = key.get_value::<String, _>("MODELS_PATH") {
+                    let cand = std::path::PathBuf::from(&p).join(file);
+                    if cand.is_file() {
+                        return Some(cand);
+                    }
+                }
+                if let Ok(p) = key.get_value::<String, _>("DATABASE_PATH") {
+                    let pb = std::path::PathBuf::from(&p);
+                    if let Some(parent) = pb.parent() {
+                        let cand = parent.join("models").join(file);
+                        if cand.is_file() {
+                            return Some(cand);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(dll_dir) = crate::utils::current_module_dir() {
+        let cand = dll_dir.join("models").join(file);
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let cand = dir.join("models").join(file);
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+
+    for install_base in [
+        r"C:\Program Files\HydraDragonAntivirus\OpenEDR\models",
+        r"C:\Program Files (x86)\HydraDragonAntivirus\OpenEDR\models",
+    ] {
+        let cand = std::path::PathBuf::from(install_base).join(file);
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
+
+    let cand = std::path::Path::new("models").join(file);
+    if cand.is_file() {
+        return Some(cand);
+    }
+    None
+}
+
 pub fn get_url_model() -> Option<&'static UrlTreeModel> {
     URL_MODEL.get_or_init(|| {
         let cand_paths = [
-            super::fast_detect::model_path("url_model.bin"),
+            model_path("url_model.bin"),
             Some(std::path::PathBuf::from("models/url_model.bin")),
             Some(std::path::PathBuf::from(r"C:\Program Files\HydraDragonAntivirus\OpenEDR\models\url_model.bin")),
         ];

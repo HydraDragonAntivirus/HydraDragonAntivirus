@@ -1,8 +1,3 @@
-pub mod fast_detect;
 pub mod features;
-pub mod inference;
-pub mod js_features;
 pub mod kc_predict;
-pub mod model;
-pub mod pe_features;
 pub mod url_predict;
