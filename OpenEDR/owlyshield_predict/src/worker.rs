@@ -236,7 +236,6 @@ pub mod worker_instance {
 
     use crate::config::Config;
     use crate::logging::Logging;
-    use crate::predictions::prediction::input_tensors::VecvecCappedF32;
     use crate::process::ProcessRecord;
     use crate::process::ProcessState;
     use crate::shared_def::IrpMajorOp;

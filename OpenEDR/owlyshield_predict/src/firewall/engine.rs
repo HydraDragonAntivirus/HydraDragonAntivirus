@@ -1109,7 +1109,6 @@ type OpenedrScanFileFn =
 type OpenedrFreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
 
 struct OpenedrDll {
-    init_fn: OpenedrInitFn,
     scan_fn: OpenedrScanFileFn,
     free_fn: OpenedrFreeFn,
 }
@@ -1162,11 +1161,7 @@ fn load_openedr_dll() -> Option<OpenedrDll> {
             if init_fn(std::ptr::null()) != 0 {
                 continue;
             }
-            return Some(OpenedrDll {
-                init_fn,
-                scan_fn,
-                free_fn,
-            });
+            return Some(OpenedrDll { scan_fn, free_fn });
         }
         None
     }
