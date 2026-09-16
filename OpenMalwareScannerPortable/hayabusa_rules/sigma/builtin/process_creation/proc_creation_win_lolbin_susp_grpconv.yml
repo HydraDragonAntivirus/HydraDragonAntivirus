@@ -1,0 +1,31 @@
+title: Suspicious GrpConv Execution
+id: bf85cbac-5a6f-8e8c-535a-0c786ee46919
+related:
+    - id: f14e169e-9978-4c69-acb3-1cff8200bc36
+      type: derived
+status: test
+description: Detects the suspicious execution of a utility to convert Windows 3.x .grp files or for persistence purposes by malicious software or actors
+references:
+    - https://twitter.com/0gtweet/status/1526833181831200770
+author: Florian Roth (Nextron Systems)
+date: 2022-05-19
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains:
+            - grpconv.exe -o
+            - grpconv -o
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

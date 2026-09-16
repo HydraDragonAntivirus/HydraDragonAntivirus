@@ -1,0 +1,32 @@
+title: Launch-VsDevShell.PS1 Proxy Execution
+id: ba78b609-b5f0-41e2-1081-e3424cdfe02d
+related:
+    - id: 45d3a03d-f441-458c-8883-df101a3bb146
+      type: derived
+status: test
+description: Detects the use of the 'Launch-VsDevShell.ps1' Microsoft signed script to execute commands.
+references:
+    - https://twitter.com/nas_bench/status/1535981653239255040
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-19
+tags:
+    - attack.stealth
+    - attack.t1216.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_script:
+        CommandLine|contains: Launch-VsDevShell.ps1
+    selection_flags:
+        CommandLine|contains:
+            - 'VsWherePath '
+            - 'VsInstallationPath '
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate usage of the script by a developer
+level: medium
+ruletype: Sigma

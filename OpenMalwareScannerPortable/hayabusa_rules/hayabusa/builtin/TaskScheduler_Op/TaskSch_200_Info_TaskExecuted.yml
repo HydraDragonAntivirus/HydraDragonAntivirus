@@ -1,0 +1,53 @@
+author: Zach Mathis
+date: 2022-04-08
+modified: 2022-05-21
+
+title: Task Executed
+details: 'Name: %TaskName% ¦ Action: %ActionName%'
+description: 
+
+id: d1923809-955b-47c4-b3e5-37c0e461919c
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: taskscheduler
+    description: Taskscheduler logging needs to be enabled.
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-TaskScheduler/Operational
+        EventID: 200
+    condition: selection_basic
+falsepositives:
+    - normal system usage
+tags:
+    - Task
+references:
+ruletype: Hayabusa
+
+sample-message: 
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TaskScheduler" Guid="{DE7B24EA-73C8-4A09-985D-5BDADCFA9017}" /> 
+            <EventID>200</EventID> 
+            <Version>1</Version> 
+            <Level>4</Level> 
+            <Task>200</Task> 
+            <Opcode>1</Opcode> 
+            <Keywords>0x8000000000000000</Keywords> 
+            <TimeCreated SystemTime="2018-09-07T00:30:43.731208400Z" /> 
+            <EventRecordID>212891</EventRecordID> 
+            <Correlation ActivityID="{0AE00B71-9C10-4CF1-ABA5-593E25899A8F}" /> 
+            <Execution ProcessID="648" ThreadID="2620" /> 
+            <Channel>Microsoft-Windows-TaskScheduler/Operational</Channel> 
+            <Computer>Computer</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+            <EventData Name="ActionStart">
+            <Data Name="TaskName">\GoogleUpdateTaskMachineUA</Data> 
+            <Data Name="ActionName">C:\Program Files (x86)\Google\Update\GoogleUpdate.exe</Data> 
+            <Data Name="TaskInstanceId">{0AE00B71-9C10-4CF1-ABA5-593E25899A8F}</Data> 
+            <Data Name="EnginePID">4028</Data> 
+        </EventData>
+    </Event>

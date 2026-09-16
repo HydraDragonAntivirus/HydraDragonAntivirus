@@ -1,0 +1,81 @@
+title: Potential Persistence Via Visual Studio Tools for Office
+id: 9f3a2bef-c9ee-ce47-c8eb-d746addb05ac
+related:
+    - id: 9d15044a-7cfe-4d23-8085-6ebc11df7685
+      type: derived
+status: test
+description: Detects persistence via Visual Studio Tools for Office (VSTO) add-ins in Office applications.
+references:
+    - https://twitter.com/_vivami/status/1347925307643355138
+    - https://vanmieghem.io/stealth-outlook-persistence/
+author: Bhabesh Raj
+date: 2021-01-10
+modified: 2026-01-09
+tags:
+    - attack.t1137.006
+    - attack.persistence
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains:
+            - \Software\Microsoft\Office\Outlook\Addins\
+            - \Software\Microsoft\Office\Word\Addins\
+            - \Software\Microsoft\Office\Excel\Addins\
+            - \Software\Microsoft\Office\Powerpoint\Addins\
+            - \Software\Microsoft\VSTO\Security\Inclusion\
+    filter_main_system:
+        ProcessName:
+            - C:\Windows\System32\msiexec.exe
+            - C:\Windows\SysWOW64\msiexec.exe
+            - C:\Windows\System32\regsvr32.exe
+            - C:\Windows\SysWOW64\regsvr32.exe   # e.g. default Evernote installation
+    filter_main_office_click_to_run:
+        ProcessName|startswith:
+            - C:\Program Files\Common Files (x86)\Microsoft Shared\ClickToRun\
+            - C:\Program Files\Common Files\Microsoft Shared\ClickToRun\
+        ProcessName|endswith: \OfficeClickToRun.exe
+    filter_main_integrator:
+        ProcessName:
+            - C:\Program Files (x86)\Microsoft Office\root\integration\integrator.exe
+            - C:\Program Files\Microsoft Office\root\integration\integrator.exe
+    filter_main_office_apps:
+        ProcessName|startswith:
+            - C:\Program Files\Microsoft Office\OFFICE
+            - C:\Program Files (x86)\Microsoft Office\OFFICE
+            - C:\Program Files\Microsoft Office\Root\OFFICE
+            - C:\Program Files (x86)\Microsoft Office\Root\OFFICE
+            - C:\PROGRA~2\MICROS~2\Office
+        ProcessName|endswith:
+            - \excel.exe
+            - \Integrator.exe
+            - \OneNote.exe
+            - \outlook.exe
+            - \powerpnt.exe
+            - \Teams.exe
+            - \visio.exe
+            - \winword.exe
+    filter_main_vsto:
+        ProcessName|startswith:
+            - C:\Program Files\Common Files\Microsoft Shared\VSTO\
+            - C:\Program Files (x86)\Microsoft Shared\VSTO\
+        ProcessName|endswith: \VSTOInstaller.exe
+    filter_optional_avg:
+        ProcessName:
+            - C:\Program Files\AVG\Antivirus\RegSvr.exe
+            - C:\Program Files (x86)\AVG\Antivirus\RegSvr.exe
+        ObjectName|contains: \Microsoft\Office\Outlook\Addins\Antivirus.AsOutExt\
+    filter_optional_avast:
+        ProcessName:
+            - C:\Program Files\Avast Software\Avast\RegSvr.exe
+            - C:\Program Files (x86)\Avast Software\Avast\RegSvr.exe
+        ObjectName|contains: \Microsoft\Office\Outlook\Addins\Avast.AsOutExt\
+    condition: registry_set and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Legitimate Addin Installation
+level: medium
+ruletype: Sigma

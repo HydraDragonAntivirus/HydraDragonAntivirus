@@ -1,0 +1,89 @@
+author: Zach Mathis
+date: 2022-02-05
+modified: 2022-12-16
+
+title: Dir Svc Obj Modified
+description: Directory Service Object Modified. Log written only to domain controllers (2008+)
+
+id: 22ee9fb7-64ca-4eed-92de-d1dbef1170b8
+level: informational
+status: test
+logsource:
+    product: windows
+    service: security
+    description: 'The modified object must have an appropriate entry in SACL: the Write action auditing for specific attributes.'
+detection:
+    selection:
+        Channel: Security
+        EventID: 5136
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-5136
+ruletype: Hayabusa
+
+sample-message: |
+    A directory service object was modified.
+    
+    Subject:
+        Security ID:		S-1-5-21-738609754-2819869699-4189121830-1108
+        Account Name:		bob
+        Account Domain:		insecurebank
+        Logon ID:		0x8D7099
+
+    Directory Service:
+        Name:	insecurebank.local
+        Type:	Active Directory Domain Services
+        
+    Object:
+        DN:	CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=POLICIES,CN=SYSTEM,DC=INSECUREBANK,DC=LOCAL
+        GUID:	{6cdecdb5-7515-4511-8141-c34a7c3d4a0a}
+        Class:	groupPolicyContainer
+        
+    Attribute:
+        LDAP Display Name:	versionNumber
+        Syntax (OID):	2.5.5.9
+        Value:	9
+        
+    Operation:
+        Type:	Value Added
+        Correlation ID:	{7a0ddd82-407e-41da-83b1-014a84297ab8}
+        Application Correlation ID:	-
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}" /> 
+            <EventID>5136</EventID> 
+            <Version>0</Version> 
+            <Level>0</Level> 
+            <Task>14081</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8020000000000000</Keywords> 
+            <TimeCreated SystemTime="2019-03-25T12:33:44.816657000Z" /> 
+            <EventRecordID>198239047</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="444" ThreadID="3616" /> 
+            <Channel>Security</Channel> 
+            <Computer>DC1.insecurebank.local</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data Name="OpCorrelationID">{7A0DDD82-407E-41DA-83B1-014A84297AB8}</Data> 
+            <Data Name="AppCorrelationID">-</Data> 
+            <Data Name="SubjectUserSid">S-1-5-21-738609754-2819869699-4189121830-1108</Data> 
+            <Data Name="SubjectUserName">bob</Data> 
+            <Data Name="SubjectDomainName">insecurebank</Data> 
+            <Data Name="SubjectLogonId">0x8d7099</Data> 
+            <Data Name="DSName">insecurebank.local</Data> 
+            <Data Name="DSType">%%14676</Data> 
+            <Data Name="ObjectDN">CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=POLICIES,CN=SYSTEM,DC=INSECUREBANK,DC=LOCAL</Data> 
+            <Data Name="ObjectGUID">{6CDECDB5-7515-4511-8141-C34A7C3D4A0A}</Data> 
+            <Data Name="ObjectClass">groupPolicyContainer</Data> 
+            <Data Name="AttributeLDAPDisplayName">versionNumber</Data> 
+            <Data Name="AttributeSyntaxOID">2.5.5.9</Data> 
+            <Data Name="AttributeValue">9</Data> 
+            <Data Name="OperationType">%%14674</Data> 
+        </EventData>
+    </Event>

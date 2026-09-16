@@ -1,0 +1,53 @@
+title: Potential DLL Sideloading Of DBGHELP.DLL
+id: edddb7b7-3400-92c5-e633-0cfa61a20c4d
+related:
+    - id: 6414b5cd-b19d-447e-bb5e-9f03940b5784
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "dbghelp.dll"
+references:
+    - https://hijacklibs.net/ # For list of DLLs that could be sideloaded (search for dlls mentioned here in there)
+author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and research)
+date: 2022-10-25
+modified: 2025-10-07
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \dbghelp.dll
+    filter_main_generic:
+        ImageLoaded|startswith:
+            - C:\Program Files (x86)\
+            - C:\Program Files\
+            - C:\Windows\SoftwareDistribution\
+            - C:\Windows\System32\
+            - C:\Windows\SystemTemp\
+            - C:\Windows\SysWOW64\
+            - C:\Windows\WinSxS\
+    filter_optional_anaconda:
+        ImageLoaded|endswith:
+            - \Anaconda3\Lib\site-packages\vtrace\platforms\windll\amd64\dbghelp.dll
+            - \Anaconda3\Lib\site-packages\vtrace\platforms\windll\i386\dbghelp.dll
+    filter_optional_epicgames:
+        ImageLoaded|endswith:
+            - \Epic Games\Launcher\Engine\Binaries\ThirdParty\DbgHelp\dbghelp.dll
+            - \Epic Games\MagicLegends\x86\dbghelp.dll
+    filter_optional_opera:
+        ImageLoaded|contains: opera\Opera Installer Temp\opera_package
+        ImageLoaded|endswith: \assistant\dbghelp.dll
+    condition: image_load and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Legitimate applications loading their own versions of the DLL mentioned in this rule
+level: medium
+ruletype: Sigma

@@ -1,0 +1,27 @@
+author: Yusuke Matsui, Zach Mathis
+date: 2020-11-08
+modified: 2025-02-10
+
+title: 'Possible Kerberoasting (RC4 Kerberos Ticket Req)'
+description: 'Adversaries may abuse a valid Kerberos ticket-granting ticket (TGT) or sniff network traffic to obtain a ticket-granting service (TGS) ticket that may be vulnerable to Brute Force.'
+
+id: f19849e7-b5ba-404b-a731-9b624d7f6d19
+level: medium
+status: test
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4769
+        TicketEncryptionType: '0x17' #RC4-HMAC
+    condition: selection
+falsepositives:
+    - legacy application
+tags:
+    - attack.credential-access
+    - attack.t1558.003
+references:
+    - https://attack.mitre.org/techniques/T1558/003/
+ruletype: Hayabusa

@@ -1,0 +1,111 @@
+author: Zach Mathis
+date: 2022-12-23
+modified: 2023-11-25
+
+title: 'Renamed Exe File'
+description: 'This is to detect when an .exe file was renamed. Attackers will often rename malware and lolbas tools in order not to be detected. %OriginalFileName% is the original filename in the PE header when the .exe was compiled.'
+
+id: cc1b2ee2-e737-47ac-8ef1-d6065b65292b
+level: low
+status: experimental
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    SelectBasic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 1
+        OriginalFileName|endswith: '.exe'
+    FileNameAndOriginalNameAreSame:
+        Image|fieldref|endswith: OriginalFileName
+    FilterUnknown:
+        - OriginalFileName: '\?'
+        - OriginalFileName: '-'
+        - OriginalFileName: null
+    FilterVSCode:
+        Image|endswith: 'code.exe'
+        OriginalFileName: 'electron.exe'
+    FilterGoogleUpdate:
+        Image|endswith: 'GoogleCrashHandler*.exe'
+        OriginalFileName: 'GoogleUpdate.exe'
+    condition: SelectBasic and not FileNameAndOriginalNameAreSame and not FilterUnknown and not FilterVSCode and not FilterGoogleUpdate
+falsepositives:
+    - Many
+tags:
+    - lolbas
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/windows-defender-application-control/microsoft-recommended-block-rules
+    - https://lolbas-project.github.io/
+ruletype: Hayabusa
+
+sample-message: |
+    Process Create:
+    RuleName: 
+    UtcTime: 2021-10-21 16:27:12.839
+    ProcessGuid: {00247c92-94e0-6171-0000-00107424987b}
+    ProcessId: 17264
+    Image: C:\Users\bouss\AppData\Local\Temp\Temp3_lync.zip\i.exe
+    FileVersion: 10.0.18362.449 (WinBuild.160101.0800)
+    Description: Windows Command Processor
+    Product: Microsoft® Windows® Operating System
+    Company: Microsoft Corporation
+    OriginalFileName: Cmd.Exe
+    CommandLine: "C:\Users\bouss\AppData\Local\Temp\Temp3_lync.zip\i.exe" 
+    CurrentDirectory: C:\Users\bouss\Desktop\
+    User: LAPTOP-JU4M3I0E\bouss
+    LogonGuid: {00247c92-3c1a-6169-0000-0020c2790700}
+    LogonId: 0x779C2
+    TerminalSessionId: 1
+    IntegrityLevel: Medium
+    Hashes: SHA1=8DCA9749CD48D286950E7A9FA1088C937CBCCAD4,MD5=D7AB69FAD18D4A643D84A271DFC0DBDF,SHA256=FF79D3C4A0B7EB191783C323AB8363EBD1FD10BE58D8BCC96B07067743CA81D5,IMPHASH=272245E2988E1E430500B852C4FB5E18
+    ParentProcessGuid: {00247c92-94d6-6171-0000-00100514967b}
+    ParentProcessId: 28176
+    ParentImage: C:\Windows\System32\cscript.exe
+    ParentCommandLine: cscript.exe  //e:jscript testme.js
+    ParentUser: %23
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}" /> 
+            <EventID>1</EventID> 
+            <Version>5</Version> 
+            <Level>4</Level> 
+            <Task>1</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8000000000000000</Keywords> 
+            <TimeCreated SystemTime="2021-10-21T16:27:12.858588600Z" /> 
+            <EventRecordID>10920379</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="5396" ThreadID="7692" /> 
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel> 
+            <Computer>LAPTOP-JU4M3I0E</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <EventData>
+            <Data Name="RuleName" /> 
+            <Data Name="UtcTime">2021-10-21 16:27:12.839</Data> 
+            <Data Name="ProcessGuid">{00247C92-94E0-6171-0000-00107424987B}</Data> 
+            <Data Name="ProcessId">17264</Data> 
+            <Data Name="Image">C:\Users\bouss\AppData\Local\Temp\Temp3_lync.zip\i.exe</Data> 
+            <Data Name="FileVersion">10.0.18362.449 (WinBuild.160101.0800)</Data> 
+            <Data Name="Description">Windows Command Processor</Data> 
+            <Data Name="Product">Microsoft® Windows® Operating System</Data> 
+            <Data Name="Company">Microsoft Corporation</Data> 
+            <Data Name="OriginalFileName">Cmd.Exe</Data> 
+            <Data Name="CommandLine">"C:\Users\bouss\AppData\Local\Temp\Temp3_lync.zip\i.exe"</Data> 
+            <Data Name="CurrentDirectory">C:\Users\bouss\Desktop\</Data> 
+            <Data Name="User">LAPTOP-JU4M3I0E\bouss</Data> 
+            <Data Name="LogonGuid">{00247C92-3C1A-6169-0000-0020C2790700}</Data> 
+            <Data Name="LogonId">0x779c2</Data> 
+            <Data Name="TerminalSessionId">1</Data> 
+            <Data Name="IntegrityLevel">Medium</Data> 
+            <Data Name="Hashes">SHA1=8DCA9749CD48D286950E7A9FA1088C937CBCCAD4,MD5=D7AB69FAD18D4A643D84A271DFC0DBDF,SHA256=FF79D3C4A0B7EB191783C323AB8363EBD1FD10BE58D8BCC96B07067743CA81D5,IMPHASH=272245E2988E1E430500B852C4FB5E18</Data> 
+            <Data Name="ParentProcessGuid">{00247C92-94D6-6171-0000-00100514967B}</Data> 
+            <Data Name="ParentProcessId">28176</Data> 
+            <Data Name="ParentImage">C:\Windows\System32\cscript.exe</Data> 
+            <Data Name="ParentCommandLine">cscript.exe //e:jscript testme.js</Data> 
+        </EventData>
+    </Event>

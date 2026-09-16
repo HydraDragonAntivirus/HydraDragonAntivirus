@@ -1,0 +1,68 @@
+title: Suspicious Program Location Whitelisted In Firewall Via Netsh.EXE
+id: 98622a71-2d8e-2959-2a0c-8caffeacea13
+related:
+    - id: a35f5a72-f347-4e36-8895-9869b0d5fc6d
+      type: derived
+status: test
+description: Detects Netsh command execution that whitelists a program located in a suspicious location in the Windows Firewall
+references:
+    - https://www.virusradar.com/en/Win32_Kasidet.AD/description
+    - https://www.hybrid-analysis.com/sample/07e789f4f2f3259e7559fdccb36e96814c2dbff872a21e1fa03de9ee377d581f?environmentId=100
+author: Sander Wiebing, Jonhnathan Ribeiro, Daniil Yugoslavskiy, oscd.community
+date: 2020-05-25
+modified: 2023-12-11
+tags:
+    - attack.defense-impairment
+    - attack.t1686.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \netsh.exe
+        - OriginalFileName: netsh.exe
+    selection_cli:
+        - CommandLine|contains|all:
+              - firewall
+              - add
+              - allowedprogram
+        - CommandLine|contains|all:
+              - advfirewall
+              - firewall
+              - add
+              - rule
+              - action=allow
+              - program=
+    selection_paths:
+        CommandLine|contains:
+            - :\$Recycle.bin\
+            - :\RECYCLER.BIN\
+            - :\RECYCLERS.BIN\
+            - :\SystemVolumeInformation\
+            - :\Temp\
+            - :\Users\Default\
+            - :\Users\Desktop\
+            - :\Users\Public\
+            - :\Windows\addins\
+            - :\Windows\cursors\
+            - :\Windows\debug\
+            - :\Windows\drivers\
+            - :\Windows\fonts\
+            - :\Windows\help\
+            - :\Windows\system32\tasks\
+            - :\Windows\Tasks\
+            - :\Windows\Temp\
+            - \Downloads\
+            - \Local Settings\Temporary Internet Files\
+            - \Temporary Internet Files\Content.Outlook\
+            - '%Public%\'
+            - '%TEMP%'
+            - '%TMP%'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

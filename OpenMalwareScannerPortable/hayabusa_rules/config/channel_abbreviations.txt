@@ -1,0 +1,47 @@
+Channel,Abbreviation
+Application,App
+DNS Server,DNS-Svr
+Key Management Service,KeyMgtSvc
+Microsoft-ServiceBus-Client,SvcBusCli
+Microsoft-Windows-CodeIntegrity/Operational,CodeInteg
+Microsoft-Windows-LDAP-Client/Debug,LDAP-Cli
+Microsoft-Windows-AppLocker/MSI and Script,AppLocker
+Microsoft-Windows-AppLocker/EXE and DLL,AppLocker
+Microsoft-Windows-AppLocker/Packaged app-Deployment,AppLocker
+Microsoft-Windows-AppLocker/Packaged app-Execution,AppLocker
+Microsoft-Windows-Bits-Client/Operational,BitsCli
+Microsoft-Windows-DHCP-Server/Operational,DHCP-Svr
+Microsoft-Windows-DriverFrameworks-UserMode/Operational,DvrFmwk
+Microsoft-Windows-NTLM/Operational,NTLM
+Microsoft-Windows-Security-Mitigations/KernelMode,SecMitig
+Microsoft-Windows-Security-Mitigations/UserMode,SecMitig
+Microsoft-Windows-SmbClient/Security,SmbCliSec
+Microsoft-Windows-Sysmon/Operational,Sysmon
+Microsoft-Windows-TaskScheduler/Operational,TaskSch
+Microsoft-Windows-TerminalServices-RDPClient/Operational,RDP-Cli
+Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational,RDP-CoreTS
+Microsoft-Windows-PrintService/Admin,PrintAdm
+Microsoft-Windows-PrintService/Operational,PrintOp
+Microsoft-Windows-PowerShell/Operational,PwSh
+Microsoft-Windows-Windows Defender/Operational,Defender
+Microsoft-Windows-Windows Firewall With Advanced Security/Firewall,Firewall
+Microsoft-Windows-WinRM/Operational,WinRM
+Microsoft-Windows-WMI-Activity/Operational,WMI
+MSExchange Management,Exchange
+OpenSSH/Operational,OpenSSH
+Security,Sec
+System,Sys
+Windows PowerShell,PwShClassic
+Microsoft-Windows-Winsock-WS2HELP/Operational,Winsock-WS2HTLP
+Microsoft-Windows-Application-Experience/Program-Compatibility-Assistant,ProgCompatAssist
+Microsoft-Windows-User Profile Service/Operational,UserProfileSvc
+Microsoft-Windows-Forwarding/Operational,Forwarding
+Microsoft-Windows-GroupPolicy/Operational,GroupPolicy
+Microsoft-Windows-User Profile Service/Operational,UserProfileSvc
+Microsoft-Windows-WindowsSystemAssessmentTool/Operational,WinSysAssessmentTool
+Microsoft-Windows-Resource-Exhaustion-Detector/Operational,RescourceExhaustionDetector
+Microsoft-Windows-Kernel-WHEA/Operational,KernelWHEA
+Microsoft-Windows-TerminalServices-Gateway/Operational,RDS-GTW
+Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational,RDS-RCM
+Microsoft-Windows-TerminalServices-LocalSessionManager/Operational,RDS-LSM
+PowerShellCore,PwShCore

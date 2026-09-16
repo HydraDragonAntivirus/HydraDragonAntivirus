@@ -1,0 +1,10 @@
+Title: 'NetShare Access'
+Channel: Security
+EventID: 5140
+RewriteFieldData:
+    AccessList:
+        - '%%4416': 'READ_DATA' # Apparently will always be just this value.
+
+sample-evtx:
+references:
+    - 'https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-5140'

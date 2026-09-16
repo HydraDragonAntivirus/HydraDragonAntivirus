@@ -1,0 +1,33 @@
+title: Suspicious Rundll32 Activity Invoking Sys File
+id: 9d6f9951-dc6f-66b5-290e-ff79c75550f6
+related:
+    - id: 731231b9-0b5d-4219-94dd-abb6959aa7ea
+      type: derived
+status: test
+description: Detects suspicious process related to rundll32 based on command line that includes a *.sys file as seen being used by UNC2452
+references:
+    - https://www.microsoft.com/security/blog/2021/03/04/goldmax-goldfinder-sibot-analyzing-nobelium-malware/
+author: Florian Roth (Nextron Systems)
+date: 2021-03-05
+modified: 2022-10-09
+tags:
+    - attack.stealth
+    - attack.t1218.011
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection1:
+        CommandLine|contains: rundll32.exe
+    selection2:
+        CommandLine|contains:
+            - .sys,
+            - '.sys '
+    condition: process_creation and (all of selection*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

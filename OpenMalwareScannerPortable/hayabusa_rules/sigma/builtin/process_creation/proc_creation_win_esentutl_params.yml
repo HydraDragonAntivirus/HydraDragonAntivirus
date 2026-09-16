@@ -1,0 +1,34 @@
+title: Esentutl Gather Credentials
+id: 90622c98-76d8-785d-1539-e8120fa53bc6
+related:
+    - id: 7df1713a-1a5b-4a4b-a071-dc83b144a101
+      type: derived
+status: test
+description: Conti recommendation to its affiliates to use esentutl to access NTDS dumped file. Trickbot also uses this utilities to get MSEdge info via its module pwgrab.
+references:
+    - https://twitter.com/vxunderground/status/1423336151860002816
+    - https://thedfirreport.com/2021/08/01/bazarcall-to-conti-ransomware-via-trickbot-and-cobalt-strike/
+author: sam0x90
+date: 2021-08-06
+modified: 2022-10-09
+tags:
+    - attack.credential-access
+    - attack.t1003
+    - attack.t1003.003
+    - attack.s0404
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains|all:
+            - esentutl
+            - ' /p'
+    condition: process_creation and selection
+falsepositives:
+    - To be determined
+level: medium
+ruletype: Sigma

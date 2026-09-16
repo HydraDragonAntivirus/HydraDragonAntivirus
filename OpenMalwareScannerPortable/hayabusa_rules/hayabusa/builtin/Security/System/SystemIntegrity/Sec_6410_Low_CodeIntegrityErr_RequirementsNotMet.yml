@@ -1,0 +1,29 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2025-02-10
+
+title: Code Integrity Proble (Possible Modification)
+details: 'Path: %param1%'
+description: Detects when hashes are not correct or a file does not meet Windows' security requirements.
+
+id: c2eb9d20-ef9d-4b2d-bffe-d0a5d9616f30
+level: low  # This should be high but is set as low due to almost all false positives & negatives.
+status: test
+logsource:
+    product: windows
+    service: security
+    description: Logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 6410
+    condition: selection
+falsepositives:
+    - most likely not malicious
+    - disk device error
+tags:
+    - attack.defense-evasion
+references:
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-6410
+sample-evtx: 
+ruletype: Hayabusa

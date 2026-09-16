@@ -1,0 +1,36 @@
+title: Rundll32 UNC Path Execution
+id: 7c2fc809-0fe9-8c6c-f4fe-a91dbe65ad8d
+related:
+    - id: 5cdb711b-5740-4fb2-ba88-f7945027afac
+      type: derived
+status: test
+description: Detects rundll32 execution where the DLL is located on a remote location (share)
+references:
+    - https://www.cybereason.com/blog/rundll32-the-infamous-proxy-for-executing-malicious-code
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-10
+tags:
+    - attack.execution
+    - attack.lateral-movement
+    - attack.stealth
+    - attack.t1021.002
+    - attack.t1218.011
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \rundll32.exe
+        - OriginalFileName: RUNDLL32.EXE
+        - CommandLine|contains: rundll32
+    selection_cli:
+        CommandLine|contains: ' \\\\'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

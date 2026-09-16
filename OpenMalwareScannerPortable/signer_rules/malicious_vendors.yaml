@@ -1,0 +1,348 @@
+# Malicious Vendor Detection Rules
+# Auto-generated from malvendor.db - Subset with actual malware vendors
+# These rules detect files signed by known malicious certificate authorities
+
+name: HydraDragonSig Malicious Vendor Rules
+version: "1"
+rules:
+  - id: malicious-vendor-0001
+    title: "Malicious Vendor: ReviverSoft"
+    description: "Detects files signed by ReviverSoft (Known for: Trojan.FakeAV)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.FakeAV"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-fakeav
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "ReviverSoft"
+        nocase: true
+
+  - id: malicious-vendor-0002
+    title: "Malicious Vendor: CADO 89 SL"
+    description: "Detects files signed by CADO 89 SL (Known for: Trojan.SMSHoax)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.SMSHoax"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-smshoax
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "CADO 89 SL"
+        nocase: true
+
+  - id: malicious-vendor-0003
+    title: "Malicious Vendor: www.DollarStarDin4.com"
+    description: "Detects files signed by www.DollarStarDin4.com (Known for: Trojan.PWS.Steam)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.PWS.Steam"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-pws-steam
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "www.DollarStarDin4.com"
+        nocase: true
+
+  - id: malicious-vendor-0004
+    title: "Malicious Vendor: CONESOFT DO BRASIL LTDA ME"
+    description: "Detects files signed by CONESOFT DO BRASIL LTDA ME (Known for: Trojan.Banker)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.Banker"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-banker
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "CONESOFT DO BRASIL LTDA ME"
+        nocase: true
+
+  - id: malicious-vendor-0005
+    title: "Malicious Vendor: Brand IT"
+    description: "Detects files signed by Brand IT (Known for: Trojan.Agent)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.Agent"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-agent
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "Brand IT"
+        nocase: true
+
+  - id: malicious-vendor-0006
+    title: "Malicious Vendor: HT Srl"
+    description: "Detects files signed by HT Srl (Known for: Trojan.HackedTeam)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.HackedTeam"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-hackedteam
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "HT Srl"
+        nocase: true
+
+  - id: malicious-vendor-0007
+    title: "Malicious Vendor: RiverCert"
+    description: "Detects files signed by RiverCert (Known for: Trojan.Agent)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.Agent"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-agent
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "RiverCert"
+        nocase: true
+
+  - id: malicious-vendor-0008
+    title: "Malicious Vendor: Sanjeev Kumar Deswal"
+    description: "Detects files signed by Sanjeev Kumar Deswal (Known for: Trojan.HackedTeam)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.HackedTeam"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-hackedteam
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "Sanjeev Kumar Deswal"
+        nocase: true
+
+  - id: malicious-vendor-0009
+    title: "Malicious Vendor: meicun ge"
+    description: "Detects files signed by meicun ge (Known for: Trojan.HackedTeam)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.HackedTeam"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-hackedteam
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "meicun ge"
+        nocase: true
+
+  - id: malicious-vendor-0010
+    title: "Malicious Vendor: Jagdeependra"
+    description: "Detects files signed by Jagdeependra (Known for: Trojan.HackedTeam)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.HackedTeam"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-hackedteam
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "Jagdeependra"
+        nocase: true
+
+  - id: malicious-vendor-0011
+    title: "Malicious Vendor: sahiram"
+    description: "Detects files signed by sahiram (Known for: Trojan.HackedTeam)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.HackedTeam"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-hackedteam
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "sahiram"
+        nocase: true
+
+  - id: malicious-vendor-0012
+    title: "Malicious Vendor: Kamel Abed"
+    description: "Detects files signed by Kamel Abed (Known for: Trojan.HackedTeam)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.HackedTeam"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-hackedteam
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "Kamel Abed"
+        nocase: true
+
+  - id: malicious-vendor-0013
+    title: "Malicious Vendor: Andrea Renzo Torello Viera"
+    description: "Detects files signed by Andrea Renzo Torello Viera (Known for: Trojan.HackedTeam)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.HackedTeam"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-hackedteam
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "Andrea Renzo Torello Viera"
+        nocase: true
+
+  - id: malicious-vendor-0014
+    title: "Malicious Vendor: KONSALTING PLUS OOO"
+    description: "Detects files signed by KONSALTING PLUS OOO (Known for: Trojan.Agent)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.Agent"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-agent
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "KONSALTING PLUS OOO"
+        nocase: true
+
+  - id: malicious-vendor-0015
+    title: "Malicious Vendor: BSCP Limited"
+    description: "Detects files signed by BSCP Limited (Known for: Trojan.Dridex)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.Dridex"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-dridex
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "BSCP Limited"
+        nocase: true
+
+  - id: malicious-vendor-0016
+    title: "Malicious Vendor: INTEX"
+    description: "Detects files signed by INTEX (Known for: Trojan.Dridex)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.Dridex"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-dridex
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "INTEX"
+        nocase: true
+
+  - id: malicious-vendor-0017
+    title: "Malicious Vendor: Bexley Holdings"
+    description: "Detects files signed by Bexley Holdings (Known for: Fake.Gen)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Fake.Gen"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - fake-gen
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "Bexley Holdings"
+        nocase: true
+
+  - id: malicious-vendor-0018
+    title: "Malicious Vendor: DEMUZA"
+    description: "Detects files signed by DEMUZA (Known for: Trojan.Injector)"
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.Injector"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - trojan-injector
+    logic: all
+    conditions:
+      - type: signature_signer_contains
+        value: "DEMUZA"
+        nocase: true

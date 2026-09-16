@@ -1,0 +1,48 @@
+title: HackTool - Jlaive In-Memory Assembly Execution
+id: da53bb6c-377d-c91b-016e-00e170a3c83a
+related:
+    - id: 0a99eb3e-1617-41bd-b095-13dc767f3def
+      type: derived
+status: test
+description: Detects the use of Jlaive to execute assemblies in a copied PowerShell
+references:
+    - https://jstnk9.github.io/jstnk9/research/Jlaive-Antivirus-Evasion-Tool
+    - https://web.archive.org/web/20220514073704/https://github.com/ch2sh/Jlaive
+author: Jose Luis Sanchez Martinez (@Joseliyo_Jstnk)
+date: 2022-05-24
+modified: 2023-02-22
+tags:
+    - attack.execution
+    - attack.t1059.003
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    parent_selection:
+        ParentImage|endswith: \cmd.exe
+        ParentCommandLine|endswith: .bat
+    selection1:
+        Image|endswith: \xcopy.exe
+        CommandLine|contains|all:
+            - powershell.exe
+            - .bat.exe
+    selection2:
+        Image|endswith: \xcopy.exe
+        CommandLine|contains|all:
+            - pwsh.exe
+            - .bat.exe
+    selection3:
+        Image|endswith: \attrib.exe
+        CommandLine|contains|all:
+            - +s
+            - +h
+            - .bat.exe
+    condition: process_creation and (parent_selection and (1 of selection*))
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

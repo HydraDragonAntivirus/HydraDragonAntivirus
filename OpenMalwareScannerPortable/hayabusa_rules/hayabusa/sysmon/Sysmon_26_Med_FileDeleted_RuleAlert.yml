@@ -1,0 +1,60 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'File Deleted (Sysmon Alert)'
+description: 'Logs when a file gets deleted.'
+details: 'Rule: %RuleName% ¦ Path: %TargetFilename% ¦ Proc: %Image% ¦ User: %User% ¦ PID: %ProcessId% ¦ PGUID: %ProcessGuid%'
+
+id: 84d47bf7-008b-465d-9257-52a2b9c8d566
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Requires Sysmon 13+ (Released 2021/01/21)'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 26
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>26</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>26</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2022-03-25T00:36:26.168941000Z"/>
+            <EventRecordID>4855</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="7348" ThreadID="5744"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>Sec504Student</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">Detected something malicious!</Data>
+            <Data Name="UtcTime">2022-03-25 00:36:26.167</Data>
+            <Data Name="ProcessGuid">{AC6A4E42-0717-623D-2300-000000005B00}</Data>
+            <Data Name="ProcessId">1528</Data>
+            <Data Name="User">NT AUTHORITY\SYSTEM</Data>
+            <Data Name="Image">c:\windows\system32\svchost.exe</Data>
+            <Data Name="TargetFilename">C:\Windows\Prefetch\UNSECAPP.EXE-CD982D99.pf</Data>
+            <Data Name="Hashes">SHA1=C8ABD1F66FEEB571F7380CAAF4419E7A741A81A5,MD5=60FEB31CD62A4D915C456BED80C65E92,SHA256=6A132893EC743B07698CD98C945AB4094F3E9239DE9C6866BE3B846D78E89835,IMPHASH=00000000000000000000000000000000</Data>
+            <Data Name="IsExecutable">false</Data>
+        </EventData>
+    </Event>

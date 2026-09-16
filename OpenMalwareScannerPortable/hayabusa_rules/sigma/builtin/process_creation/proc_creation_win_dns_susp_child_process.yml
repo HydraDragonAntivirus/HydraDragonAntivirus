@@ -1,0 +1,32 @@
+title: Unusual Child Process of dns.exe
+id: 256784a9-8cdb-2cfd-8363-95ac15a61e9c
+related:
+    - id: a4e3d776-f12e-42c2-8510-9e6ed1f43ec3
+      type: derived
+status: test
+description: Detects an unexpected process spawning from dns.exe which may indicate activity related to remote code execution or other forms of exploitation as seen in CVE-2020-1350 (SigRed)
+references:
+    - https://www.elastic.co/guide/en/security/current/unusual-child-process-of-dns-exe.html
+author: Tim Rauch, Elastic (idea)
+date: 2022-09-27
+modified: 2023-02-05
+tags:
+    - attack.persistence
+    - attack.initial-access
+    - attack.t1133
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        ParentProcessName|endswith: \dns.exe
+    filter:
+        NewProcessName|endswith: \conhost.exe
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

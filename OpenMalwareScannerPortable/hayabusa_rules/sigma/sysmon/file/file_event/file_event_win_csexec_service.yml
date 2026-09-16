@@ -1,0 +1,30 @@
+title: CSExec Service File Creation
+id: fe4ef6a2-a6aa-c58f-261c-af81b3a58bd3
+related:
+    - id: f0e2b768-5220-47dd-b891-d57b96fc0ec1
+      type: derived
+status: test
+description: Detects default CSExec service filename which indicates CSExec service installation and execution
+references:
+    - https://github.com/malcomvetter/CSExec
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-04
+tags:
+    - attack.execution
+    - attack.t1569.002
+    - attack.s0029
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: \csexecsvc.exe
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

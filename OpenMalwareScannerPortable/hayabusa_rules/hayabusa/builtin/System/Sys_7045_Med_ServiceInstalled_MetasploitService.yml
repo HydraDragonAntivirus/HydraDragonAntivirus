@@ -1,0 +1,28 @@
+author: Eric Conrad, Zach Mathis
+date: 2022-02-06
+modified: 2022-05-21
+
+title: Possible Metasploit Svc Installed
+details: 'Svc: %ServiceName% ¦ Path: %ImagePath%'
+description: 
+
+id: 76355548-fa5a-4310-9610-0de4b11f4688
+level: medium
+status: test
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 7045
+        ImagePath|re: ^%SYSTEMROOT%\\[a-zA-Z]{8}\.exe$
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+    - attack.persistence
+    - attack.t1543.003
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+ruletype: Hayabusa

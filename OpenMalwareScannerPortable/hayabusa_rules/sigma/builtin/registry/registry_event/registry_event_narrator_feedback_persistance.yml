@@ -1,0 +1,33 @@
+title: Narrator's Feedback-Hub Persistence
+id: e45e543e-8d13-302c-2825-398896bd0bf8
+related:
+    - id: f663a6d9-9d1b-49b8-b2b1-0637914d199a
+      type: derived
+status: test
+description: Detects abusing Windows 10 Narrator's Feedback-Hub
+references:
+    - https://giuliocomi.blogspot.com/2019/10/abusing-windows-10-narrators-feedback.html
+author: Dmitriy Lifanov, oscd.community
+date: 2019-10-25
+modified: 2022-03-26
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID: 4657
+        Channel: Security
+    selection1:
+        OperationType: '%%1906'
+        ObjectName|endswith: \AppXypsaf9f1qserqevf0sws76dx4k9a5206\Shell\open\command\DelegateExecute
+    selection2:
+        ObjectName|endswith: \AppXypsaf9f1qserqevf0sws76dx4k9a5206\Shell\open\command\(Default)
+    condition: registry_event and (1 of selection*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

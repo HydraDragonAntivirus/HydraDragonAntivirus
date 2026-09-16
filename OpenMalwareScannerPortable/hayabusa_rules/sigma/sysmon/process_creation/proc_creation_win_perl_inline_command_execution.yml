@@ -1,0 +1,33 @@
+title: Perl Inline Command Execution
+id: 6282bc45-7855-7867-6ee8-4c7ec851b13b
+related:
+    - id: f426547a-e0f7-441a-b63e-854ac5bdf54d
+      type: derived
+status: test
+description: Detects execution of perl using the "-e"/"-E" flags. This is could be used as a way to launch a reverse shell or execute live perl code.
+references:
+    - https://pentestmonkey.net/cheat-sheet/shells/reverse-shell-cheat-sheet
+    - https://www.revshells.com/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-01-02
+tags:
+    - attack.execution
+    - attack.t1059
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \perl.exe
+        - OriginalFileName: perl.exe   # Also covers perlX.XX.exe
+    selection_cli:
+        CommandLine|contains: ' -e'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

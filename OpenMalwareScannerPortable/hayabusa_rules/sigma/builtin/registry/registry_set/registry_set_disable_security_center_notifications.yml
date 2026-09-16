@@ -1,0 +1,37 @@
+title: Disable Windows Security Center Notifications
+id: 75c0a3fc-9821-e555-9c15-d7829e36ed2e
+related:
+    - id: 3ae1a046-f7db-439d-b7ce-b8b366b81fa6
+      type: derived
+status: test
+description: Detect set UseActionCenterExperience to 0 to disable the Windows security center notification
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/40b77d63808dd4f4eafb83949805636735a1fd15/atomics/T1112/T1112.md
+author: frack113
+date: 2022-08-19
+modified: 2023-08-17
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|endswith: Windows\CurrentVersion\ImmersiveShell\UseActionCenterExperience
+        NewValue: DWORD (0x00000000)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: medium
+regression_tests_path: regression_data/rules/windows/registry/registry_set/registry_set_disable_security_center_notifications/info.yml
+simulation:
+    - type: atomic-red-team
+      name: Disable Windows Security Center Notifications
+      technique: T1112
+      atomic_guid: 45914594-8df6-4ea9-b3cc-7eb9321a807e
+ruletype: Sigma

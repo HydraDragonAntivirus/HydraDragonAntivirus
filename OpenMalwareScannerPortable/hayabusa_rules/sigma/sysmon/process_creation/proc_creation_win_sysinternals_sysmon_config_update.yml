@@ -1,0 +1,35 @@
+title: Sysmon Configuration Update
+id: 33e3c792-8c2d-ecd5-0764-40bfbf7c57d3
+related:
+    - id: 87911521-7098-470b-a459-9a57fc80bdfd
+      type: derived
+status: test
+description: Detects updates to Sysmon's configuration. Attackers might update or replace the Sysmon configuration with a bare bone one to avoid monitoring without shutting down the service completely
+references:
+    - https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-03-09
+modified: 2024-03-13
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_pe:
+        - Image|endswith:
+              - \Sysmon64.exe
+              - \Sysmon.exe
+        - Description: System activity monitor
+    selection_cli:
+        CommandLine|contains|windash: -c
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate administrators might use this command to update Sysmon configuration.
+level: medium
+ruletype: Sigma

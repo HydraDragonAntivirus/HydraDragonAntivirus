@@ -1,0 +1,33 @@
+title: Diamond Sleet APT DNS Communication Indicators
+id: 9d7ad2f0-6c5e-083e-52de-cf2ac7058181
+related:
+    - id: fba38e0f-4607-4344-bb8f-a4b50cdeef7f
+      type: derived
+status: test
+description: Detects DNS queries related to Diamond Sleet APT activity
+references:
+    - https://www.microsoft.com/en-us/security/blog/2023/10/18/multiple-north-korean-threat-actors-exploiting-the-teamcity-cve-2023-42793-vulnerability/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-10-24
+tags:
+    - attack.command-and-control
+    - detection.emerging-threats
+    - sysmon
+logsource:
+    product: windows
+    category: dns_query
+detection:
+    dns_query:
+        EventID: 22
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        QueryName|contains:
+            - 3dkit.org
+            - dersmarketim.com
+            - galerielamy.com
+            - olidhealth.com
+    condition: dns_query and selection
+falsepositives:
+    - Might generate some false positive if triggered by a user during investigation for example.
+level: high
+ruletype: Sigma

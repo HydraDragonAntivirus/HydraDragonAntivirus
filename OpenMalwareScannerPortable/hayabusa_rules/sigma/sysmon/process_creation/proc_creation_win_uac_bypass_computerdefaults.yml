@@ -1,0 +1,39 @@
+title: UAC Bypass Tools Using ComputerDefaults
+id: 314e0b8d-2326-775b-0423-82687c31c2fd
+related:
+    - id: 3c05e90d-7eba-4324-9972-5d7f711a60a8
+      type: derived
+status: test
+description: Detects tools such as UACMe used to bypass UAC with computerdefaults.exe (UACMe 59)
+references:
+    - https://github.com/hfiref0x/UACME
+author: Christian Burkard (Nextron Systems)
+date: 2021-08-31
+modified: 2024-12-01
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        IntegrityLevel:
+            - High
+            - System
+            - S-1-16-16384   # System
+            - S-1-16-12288   # High
+        Image: C:\Windows\System32\ComputerDefaults.exe
+    filter:
+        ParentImage|contains:
+            - :\Windows\System32
+            - :\Program Files
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

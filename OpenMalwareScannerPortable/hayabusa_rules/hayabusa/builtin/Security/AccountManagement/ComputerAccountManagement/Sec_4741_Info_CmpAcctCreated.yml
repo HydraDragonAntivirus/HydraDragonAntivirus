@@ -1,0 +1,94 @@
+author: Zach Mathis
+date: 2025-03-02
+modified: 2025-03-02
+
+title: Computer Account Created
+description: A computer account was created.
+
+id: 42a0a842-2b82-4b2d-8e44-5580fb6c38db
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4741
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa
+
+sample-message: |
+    A computer account was created.
+
+    Subject:
+        Security ID:		S-1-5-21-4230534742-2542757381-3142984815-1234
+        Account Name:		hack1
+        Account Domain:		OFFSEC
+        Logon ID:		0x308FB82AD
+
+    New Computer Account:
+        Security ID:		S-1-5-21-4230534742-2542757381-3142984815-1296
+        Account Name:		compnay-88$
+        Account Domain:		OFFSEC
+
+    Attributes:
+        SAM Account Name:	compnay-88$
+        Display Name:		<value not set>
+        User Principal Name:	-
+        Home Directory:		<value not set>
+        Home Drive:		<value not set>
+        Script Path:		<value not set>
+        Profile Path:		<value not set>
+        User Workstations:	<value not set>
+        Password Last Set:	<never>
+        Account Expires:		<never>
+        Primary Group ID:	515
+        AllowedToDelegateTo:	-
+        Old UAC Value:		0x0
+        New UAC Value:		0x84
+        User Account Control:	
+            'Password Not Required' - Enabled
+            'Workstation Trust Account' - Enabled
+        User Parameters:	<value changed, but not displayed>
+        SID History:		-
+        Logon Hours:		<value not set>
+        DNS Host Name:		-
+        Service Principal Names:	-
+
+    Additional Information:
+        Privileges		SeMachineAccountPrivilege
+sample-evtx: |
+    <EventData>
+        <Data Name="TargetUserName">compnay-88$</Data> 
+        <Data Name="TargetDomainName">OFFSEC</Data> 
+        <Data Name="TargetSid">S-1-5-21-4230534742-2542757381-3142984815-1296</Data> 
+        <Data Name="SubjectUserSid">S-1-5-21-4230534742-2542757381-3142984815-1234</Data> 
+        <Data Name="SubjectUserName">hack1</Data> 
+        <Data Name="SubjectDomainName">OFFSEC</Data> 
+        <Data Name="SubjectLogonId">0x308fb82ad</Data> 
+        <Data Name="PrivilegeList">SeMachineAccountPrivilege</Data> 
+        <Data Name="SamAccountName">compnay-88$</Data> 
+        <Data Name="DisplayName">%%1793</Data> 
+        <Data Name="UserPrincipalName">-</Data> 
+        <Data Name="HomeDirectory">%%1793</Data> 
+        <Data Name="HomePath">%%1793</Data> 
+        <Data Name="ScriptPath">%%1793</Data> 
+        <Data Name="ProfilePath">%%1793</Data> 
+        <Data Name="UserWorkstations">%%1793</Data> 
+        <Data Name="PasswordLastSet">%%1794</Data> 
+        <Data Name="AccountExpires">%%1794</Data> 
+        <Data Name="PrimaryGroupId">515</Data> 
+        <Data Name="AllowedToDelegateTo">-</Data> 
+        <Data Name="OldUacValue">0x0</Data> 
+        <Data Name="NewUacValue">0x84</Data> 
+        <Data Name="UserAccountControl">%%2082 %%2087</Data> 
+        <Data Name="UserParameters">%%1792</Data> 
+        <Data Name="SidHistory">-</Data> 
+        <Data Name="LogonHours">%%1793</Data> 
+        <Data Name="DnsHostName">-</Data> 
+        <Data Name="ServicePrincipalNames">-</Data> 
+    </EventData>

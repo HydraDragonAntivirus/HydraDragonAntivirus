@@ -1,0 +1,31 @@
+title: Remote Thread Creation Ttdinject.exe Proxy
+id: e747ff97-513d-faec-dbfa-dc553f897f37
+related:
+    - id: c15e99a3-c474-48ab-b9a7-84549a7a9d16
+      type: derived
+status: test
+description: Detects a remote thread creation of Ttdinject.exe used as proxy
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Ttdinject/
+author: frack113
+date: 2022-05-16
+modified: 2022-06-02
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1127
+    - sysmon
+logsource:
+    product: windows
+    category: create_remote_thread
+detection:
+    create_remote_thread:
+        EventID: 8
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        SourceImage|endswith: \ttdinject.exe
+    condition: create_remote_thread and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

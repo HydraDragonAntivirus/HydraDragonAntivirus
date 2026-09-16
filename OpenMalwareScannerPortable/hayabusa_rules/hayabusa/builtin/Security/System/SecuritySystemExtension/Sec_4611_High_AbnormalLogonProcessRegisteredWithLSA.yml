@@ -1,0 +1,26 @@
+author: Zach Mathis
+date: 2024-05-09
+modified: 2024-05-09
+
+title: 'Abnormal Logon Proc Registered With LSA'
+description: 'A logon process has registered with the Local Security Authority (LSA). Logon requests will now be accepted from this source. Technically, the event does not come from the registration of a trusted logon process, but from a confirmation that the process is a trusted logon process. If it is a trusted logon process, the event generates. A logon process is a trusted part of the OS that handles logon methods (network, interactive, etc.)'
+
+id: 41ca6049-dd12-462c-a772-7bba78d8e2f0
+level: informational
+status: experimental
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4611
+    filter:
+        - SubjectUserSid: S-1-5-18 # SYSTEM
+        - SubjectUserName|endswith: $ # This will usually be the computer name
+    condition: selection and not filter
+falsepositives:
+tags:
+references:
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4611
+ruletype: Hayabusa

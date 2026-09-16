@@ -1,0 +1,37 @@
+title: File Explorer Folder Opened Using Explorer Folder Shortcut Via Shell
+id: 051d8168-5ca9-9cff-9b7c-15637cdd2230
+related:
+    - id: c3d76afc-93df-461e-8e67-9b2bad3f2ac4
+      type: derived
+status: test
+description: |
+    Detects the initial execution of "cmd.exe" which spawns "explorer.exe" with the appropriate command line arguments for opening the "My Computer" folder.
+author: '@Kostastsale'
+references:
+    - https://ss64.com/nt/shell.html
+date: 2022-12-22
+modified: 2024-08-23
+tags:
+    - attack.discovery
+    - attack.t1135
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith:
+            - \cmd.exe
+            - \powershell.exe
+            - \pwsh.exe
+        Image|endswith: \explorer.exe
+        CommandLine|contains: shell:mycomputerfolder
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_explorer_folder_shortcut_via_shell_binary/info.yml
+ruletype: Sigma

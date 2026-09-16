@@ -1,0 +1,89 @@
+title: Potential WinAPI Calls Via CommandLine
+id: 4672ae2f-678a-54b7-e7da-3a64787caced
+related:
+    - id: 03d83090-8cba-44a0-b02f-0b756a050306
+      type: derived
+    - id: ba3f5c1b-6272-4119-9dbd-0bc8d21c2702
+      type: derived
+status: test
+description: Detects the use of WinAPI Functions via the commandline. As seen used by threat actors via the tool winapiexec
+references:
+    - https://twitter.com/m417z/status/1566674631788007425
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-09-06
+modified: 2025-03-06
+tags:
+    - attack.execution
+    - attack.t1106
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|contains:
+            - AddSecurityPackage
+            - AdjustTokenPrivileges
+            - Advapi32
+            - CloseHandle
+            - CreateProcessWithToken
+            - CreatePseudoConsole
+            - CreateRemoteThread
+            - CreateThread
+            - CreateUserThread
+            - DangerousGetHandle
+            - DuplicateTokenEx
+            - EnumerateSecurityPackages
+            - FreeHGlobal
+            - FreeLibrary
+            - GetDelegateForFunctionPointer
+            - GetLogonSessionData
+            - GetModuleHandle
+            - GetProcAddress
+            - GetProcessHandle
+            - GetTokenInformation
+            - ImpersonateLoggedOnUser
+            - kernel32
+            - LoadLibrary
+            - memcpy
+            - MiniDumpWriteDump
+            # - 'msvcrt'
+            - ntdll
+            - OpenDesktop
+            - OpenProcess
+            - OpenProcessToken
+            - OpenThreadToken
+            - OpenWindowStation
+            - PtrToString
+            - QueueUserApc
+            - ReadProcessMemory
+            - RevertToSelf
+            - RtlCreateUserThread
+            - secur32
+            - SetThreadToken
+            # - 'user32'
+            - VirtualAlloc
+            - VirtualFree
+            - VirtualProtect
+            - WaitForSingleObject
+            - WriteInt32
+            - WriteProcessMemory
+            - ZeroFreeGlobalAllocUnicode
+    filter_optional_mpcmdrun:
+        Image|endswith: \MpCmdRun.exe
+        CommandLine|contains: GetLoadLibraryWAddress32
+    filter_optional_compatTelRunner:
+        ParentImage|endswith: \CompatTelRunner.exe
+        CommandLine|contains:
+            - FreeHGlobal
+            - PtrToString
+            - kernel32
+            - CloseHandle
+    condition: process_creation and (selection and not 1 of filter_optional_*)
+falsepositives:
+    - Some legitimate action or applications may use these functions. Investigate further to determine the legitimacy of the activity.
+level: high
+ruletype: Sigma

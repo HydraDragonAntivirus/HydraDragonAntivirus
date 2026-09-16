@@ -1,0 +1,44 @@
+title: New Generic Credentials Added Via Cmdkey.EXE
+id: 06860765-c664-13b1-1bba-4ae0606ad697
+related:
+    - id: b1ec66c6-f4d1-4b5c-96dd-af28ccae7727
+      type: derived
+status: test
+description: |
+    Detects usage of "cmdkey.exe" to add generic credentials.
+    As an example, this can be used before connecting to an RDP session via command line interface.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1021.001/T1021.001.md#t1021001---remote-desktop-protocol
+author: frack113, Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-03
+modified: 2024-03-05
+tags:
+    - attack.credential-access
+    - attack.t1003.005
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \cmdkey.exe
+        - OriginalFileName: cmdkey.exe
+    selection_cli_generic:
+        CommandLine|contains|windash: ' -g' # Generic
+    selection_cli_user:
+        CommandLine|contains|windash: ' -u' # User
+    selection_cli_password:
+        CommandLine|contains|windash: ' -p' # Password
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate usage for administration purposes
+level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_cmdkey_adding_generic_creds/info.yml
+simulation:
+    - type: atomic-red-team
+      name: RDP to DomainController
+      technique: T1021.001
+      atomic_guid: 355d4632-8cb9-449d-91ce-b566d0253d3e
+ruletype: Sigma

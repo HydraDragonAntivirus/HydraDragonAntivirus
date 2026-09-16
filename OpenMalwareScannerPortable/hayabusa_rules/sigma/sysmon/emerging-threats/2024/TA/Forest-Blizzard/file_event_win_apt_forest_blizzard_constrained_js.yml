@@ -1,0 +1,33 @@
+title: Forest Blizzard APT - JavaScript Constrained File Creation
+id: 18f2d8c4-a8a9-9ed2-dfc5-cc6ee890654d
+related:
+    - id: ec7c4e9b-9bc9-47c7-a32f-b53b598da642
+      type: derived
+status: test
+description: |
+    Detects the creation of JavaScript files inside of the DriverStore directory.
+    Forest Blizzard used this to exploit the CVE-2022-38028 vulnerability in Windows Print Spooler service by modifying a JavaScript constraints file and executing it with SYSTEM-level permissions.
+references:
+    - https://www.microsoft.com/en-us/security/blog/2024/04/22/analyzing-forest-blizzards-custom-post-compromise-tool-for-exploiting-cve-2022-38028-to-obtain-credentials/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2024-04-23
+tags:
+    - attack.defense-impairment
+    - attack.t1685.001
+    - detection.emerging-threats
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|startswith: C:\Windows\System32\DriverStore\FileRepository\
+        TargetFilename|endswith: \.js
+    condition: file_event and selection
+falsepositives:
+    - Unlikely
+level: medium
+ruletype: Sigma

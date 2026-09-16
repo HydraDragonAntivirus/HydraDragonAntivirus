@@ -1,0 +1,29 @@
+title: NTDS.DIT Created
+id: 729b1164-9fee-f128-e672-41a0d0c3b667
+related:
+    - id: 0b8baa3f-575c-46ee-8715-d6f28cc7d33c
+      type: derived
+status: test
+description: Detects creation of a file named "ntds.dit" (Active Directory Database)
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-05
+tags:
+    - attack.credential-access
+    - attack.t1003.003
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: ntds.dit
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: low
+ruletype: Sigma

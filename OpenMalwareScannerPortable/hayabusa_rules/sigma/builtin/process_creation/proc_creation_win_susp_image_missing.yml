@@ -1,0 +1,44 @@
+title: Execution Of Non-Existing File
+id: 5385a182-a453-d329-5d89-d768e2b73e28
+related:
+    - id: 71158e3f-df67-472b-930e-7d287acaa3e1
+      type: derived
+status: test
+description: Checks whether the image specified in a process creation event is not a full, absolute path (caused by process ghosting or other unorthodox methods to start a process)
+references:
+    - https://pentestlaboratories.com/2021/12/08/process-ghosting/
+author: Max Altgelt (Nextron Systems)
+date: 2021-12-09
+modified: 2022-12-14
+tags:
+    - attack.stealth
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    image_absolute_path:
+        NewProcessName|contains: \
+    filter_null:
+        NewProcessName: null
+    filter_empty:
+        NewProcessName:
+            - '-'
+            - ''
+    filter_4688:
+        - NewProcessName:
+              - System
+              - Registry
+              - MemCompression
+              - vmmem
+        - CommandLine:
+              - Registry
+              - MemCompression
+              - vmmem
+    condition: process_creation and (not image_absolute_path and not 1 of filter*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

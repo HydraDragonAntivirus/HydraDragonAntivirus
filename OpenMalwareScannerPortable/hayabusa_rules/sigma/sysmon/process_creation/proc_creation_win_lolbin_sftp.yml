@@ -1,0 +1,36 @@
+title: Use Of The SFTP.EXE Binary As A LOLBIN
+id: 5b311e58-f5cb-058f-0844-2563e25563e5
+related:
+    - id: a85ffc3a-e8fd-4040-93bf-78aff284d801
+      type: derived
+status: test
+description: Detects the usage of the "sftp.exe" binary as a LOLBIN by abusing the "-D" flag
+references:
+    - https://github.com/LOLBAS-Project/LOLBAS/pull/264
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-11-10
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \sftp.exe   # The "sftp.exe" located in the OpenSSH directory has no OriginalFileName :(
+        CommandLine|contains:
+            # Since "-D" is a valid flag for other usage we assume the user is going to enter a path
+            # Either a full one like "C:\Windows\System32\calc.exe" or a relative one "..\..\..\Windows\System32\calc.exe"
+            # In my testing you can't execute direct binaries by their name via this method (if you found a way please update the rule)
+            - ' -D ..'
+            - ' -D C:\'
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

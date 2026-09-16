@@ -1,0 +1,40 @@
+title: Hiding Files with Attrib.exe
+id: 3fc98f17-3322-83c7-6332-d7813d88d4f1
+related:
+    - id: 4281cb20-2994-4580-aa63-c8b86d019934
+      type: derived
+status: test
+description: Detects usage of attrib.exe to hide files from users.
+references:
+    - https://unit42.paloaltonetworks.com/unit42-sure-ill-take-new-combojack-malware-alters-clipboards-steal-cryptocurrency/
+    - https://www.uptycs.com/blog/lolbins-are-no-laughing-matter
+author: Sami Ruohonen
+date: 2019-01-16
+modified: 2023-03-14
+tags:
+    - attack.stealth
+    - attack.t1564.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \attrib.exe
+        - OriginalFileName: ATTRIB.EXE
+    selection_cli:
+        CommandLine|contains: ' +h '
+    filter_main_msiexec:
+        CommandLine|contains: '\desktop.ini '
+    filter_optional_intel:
+        CommandLine: +R +H +S +A \\\*.cui
+        ParentCommandLine: C:\\WINDOWS\\system32\\\*.bat
+        ParentProcessName|endswith: \cmd.exe
+    condition: process_creation and (all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - IgfxCUIService.exe hiding *.cui files via .bat script (attrib.exe a child of cmd.exe and igfxCUIService.exe is the parent of the cmd.exe)
+    - Msiexec.exe hiding desktop.ini
+level: medium
+ruletype: Sigma

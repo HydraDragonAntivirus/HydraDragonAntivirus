@@ -1,0 +1,37 @@
+title: Tamper Windows Defender Remove-MpPreference
+id: e6f01202-e506-71c9-67a5-13c45bd5e678
+related:
+    - id: ae2bdd58-0681-48ac-be7f-58ab4e593458
+      type: similar
+    - id: 07e3cb2c-0608-410d-be4b-1511cb1a0448
+      type: derived
+status: test
+description: Detects attempts to remove Windows Defender configurations using the 'MpPreference' cmdlet
+references:
+    - https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/windows-10-controlled-folder-access-event-search/ba-p/2326088
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-05
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_remove:
+        CommandLine|contains: Remove-MpPreference
+    selection_tamper:
+        CommandLine|contains:
+            - '-ControlledFolderAccessProtectedFolders '
+            - '-AttackSurfaceReductionRules_Ids '
+            - '-AttackSurfaceReductionRules_Actions '
+            - '-CheckForSignaturesBeforeRunningScan '
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate PowerShell scripts
+level: high
+ruletype: Sigma

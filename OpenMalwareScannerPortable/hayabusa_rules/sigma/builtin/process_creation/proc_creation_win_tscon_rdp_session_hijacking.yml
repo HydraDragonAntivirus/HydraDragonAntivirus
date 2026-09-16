@@ -1,0 +1,33 @@
+title: Potential RDP Session Hijacking Activity
+id: 679db9c2-6669-dc7b-3b9c-a20f4d600b28
+related:
+    - id: 224f140f-3553-4cd1-af78-13d81bf9f7cc
+      type: derived
+status: test
+description: Detects potential RDP Session Hijacking activity on Windows systems
+references:
+    - https://twitter.com/Moti_B/status/909449115477659651
+author: '@juju4'
+date: 2022-12-27
+modified: 2024-12-01
+tags:
+    - attack.execution
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \tscon.exe
+        - OriginalFileName: tscon.exe
+    selection_integrity:
+        MandatoryLabel:
+            - S-1-16-16384
+            - None
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Administrative activity
+level: medium
+ruletype: Sigma

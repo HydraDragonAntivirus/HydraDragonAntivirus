@@ -1,0 +1,31 @@
+title: Pandemic Registry Key
+id: a36fab91-8874-79c8-32cb-b2a0117d5a0b
+related:
+    - id: 47e0852a-cf81-4494-a8e6-31864f8c86ed
+      type: derived
+status: test
+description: Detects Pandemic Windows Implant
+references:
+    - https://wikileaks.org/vault7/#Pandemic
+    - https://twitter.com/MalwareJake/status/870349480356454401
+author: Florian Roth (Nextron Systems)
+date: 2017-06-01
+modified: 2022-10-09
+tags:
+    - attack.command-and-control
+    - attack.t1105
+    - detection.emerging-threats
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \SYSTEM\CurrentControlSet\services\null\Instance
+    condition: registry_event and selection
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

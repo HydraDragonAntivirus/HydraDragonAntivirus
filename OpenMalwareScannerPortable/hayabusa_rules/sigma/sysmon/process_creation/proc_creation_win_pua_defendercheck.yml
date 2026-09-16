@@ -1,0 +1,31 @@
+title: PUA - DefenderCheck Execution
+id: 9a858d8f-40db-e4dd-0558-8ce785e2fb10
+related:
+    - id: f0ca6c24-3225-47d5-b1f5-352bf07ecfa7
+      type: derived
+status: test
+description: Detects the use of DefenderCheck, a tool to evaluate the signatures used in Microsoft Defender. It can be used to figure out the strings / byte chains used in Microsoft Defender to detect a tool and thus used for AV evasion.
+references:
+    - https://github.com/matterpreter/DefenderCheck
+author: Florian Roth (Nextron Systems)
+date: 2022-08-30
+modified: 2023-02-04
+tags:
+    - attack.stealth
+    - attack.t1027.005
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Image|endswith: \DefenderCheck.exe
+        - Description: DefenderCheck
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

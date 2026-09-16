@@ -1,0 +1,37 @@
+title: Potential Libvlc.DLL Sideloading
+id: b775392c-9b19-bab7-fed9-10b6617f0581
+related:
+    - id: bf9808c4-d24f-44a2-8398-b65227d406b6
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "libvlc.dll", a DLL that is legitimately used by "VLC.exe"
+references:
+    - https://www.trendmicro.com/en_us/research/23/c/earth-preta-updated-stealthy-strategies.html
+    - https://hijacklibs.net/entries/3rd_party/vlc/libvlc.html
+author: X__Junior
+date: 2023-04-17
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \libvlc.dll
+    filter_main_vlc:
+        ImageLoaded|startswith:
+            - C:\Program Files (x86)\VideoLAN\VLC\
+            - C:\Program Files\VideoLAN\VLC\
+    condition: image_load and (selection and not 1 of filter_main_*)
+falsepositives:
+    - False positives are expected if VLC is installed in non-default locations
+level: medium
+ruletype: Sigma

@@ -1,0 +1,34 @@
+title: Ursnif Redirection Of Discovery Commands
+id: e1154da5-5e71-c3d4-e8b6-f6a18c1eaf54
+related:
+    - id: 7aaa5739-12fc-41aa-b98b-23ec27d42bdf
+      type: derived
+status: test
+description: |
+    Detects the redirection of Ursnif discovery commands as part of the initial execution of the malware.
+references:
+    - Internal Research
+author: '@kostastsale'
+date: 2023-07-16
+tags:
+    - attack.execution
+    - attack.t1059
+    - detection.emerging-threats
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains|all:
+            - '/C '
+            - ' >> *\AppData\local\temp\*.bin'
+        ParentProcessName|endswith: \explorer.exe
+        NewProcessName|endswith: \cmd.exe
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

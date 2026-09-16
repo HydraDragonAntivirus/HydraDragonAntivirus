@@ -1,0 +1,30 @@
+title: Use of TTDInject.exe
+id: 86bcf883-2f53-b6b7-c766-0240f0ce79cf
+related:
+    - id: b27077d6-23e6-45d2-81a0-e2b356eea5fd
+      type: derived
+status: test
+description: Detects the executiob of TTDInject.exe, which is used by Windows 10 v1809 and newer to debug time travel (underlying call of tttracer.exe)
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Ttdinject/
+author: frack113
+date: 2022-05-16
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1127
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        - NewProcessName|endswith: ttdinject.exe
+        - OriginalFileName: TTDInject.EXE
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate use
+level: medium
+ruletype: Sigma

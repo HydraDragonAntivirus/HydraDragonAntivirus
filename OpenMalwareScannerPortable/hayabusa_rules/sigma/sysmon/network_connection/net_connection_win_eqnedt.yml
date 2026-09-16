@@ -1,0 +1,32 @@
+title: Network Connection Initiated By Eqnedt32.EXE
+id: 53026f5f-6653-b31b-35d3-4e996cd75541
+related:
+    - id: a66bc059-c370-472c-a0d7-f8fd1bf9d583
+      type: derived
+status: test
+description: Detects network connections from the Equation Editor process "eqnedt32.exe".
+references:
+    - https://twitter.com/forensicitguy/status/1513538712986079238
+    - https://forensicitguy.github.io/xloader-formbook-velvetsweatshop-spreadsheet/
+    - https://news.sophos.com/en-us/2019/07/18/a-new-equation-editor-exploit-goes-commercial-as-maldoc-attacks-using-it-spike/
+author: Max Altgelt (Nextron Systems)
+date: 2022-04-14
+modified: 2024-05-31
+tags:
+    - attack.execution
+    - attack.t1203
+    - sysmon
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    network_connection:
+        EventID: 3
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \eqnedt32.exe
+    condition: network_connection and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

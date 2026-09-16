@@ -1,0 +1,23 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: Kerberos Service Ticket Requested
+description: Prints logon information. 
+
+id: da6257f3-cf49-464a-96fc-c84a7ce20636
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4769
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa

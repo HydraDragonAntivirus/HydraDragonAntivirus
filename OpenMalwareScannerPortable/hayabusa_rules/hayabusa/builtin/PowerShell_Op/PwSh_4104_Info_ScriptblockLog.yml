@@ -1,0 +1,65 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2024-04-29
+
+title: PwSh Scriptblock
+description: |
+    Powershell Scriptblock Logging. Windows 10+ will flag suspicious PwSh as level 3 (warning) so 
+    I am filtering out these events as they are being created with the "Potentially Malicious PwSh" rule.
+
+id: 0f3b1343-65a5-4879-b512-9d61b0e4e3ba
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: powershell
+    category: ps_script
+    description: Powershell script block logging needs to be turned on.
+detection:
+    select_channel:
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    select_eid:
+        EventID: 4104
+    filter_level_warning:
+        Level: 3
+    condition: select_channel and select_eid and not filter_level_warning
+falsepositives:
+    - normal system usage
+tags:
+    - PwSh
+references:
+ruletype: Hayabusa
+
+sample-message: |
+    Creating Scriptblock text (1 of 1):
+    Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}
+
+    ScriptBlock ID: faaeba08-01f0-4a32-ba48-bd65b24afd28
+    Path: %5
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-PowerShell" Guid="{A0C1853B-5C40-4B15-8766-3CF1C58F985A}" /> 
+            <EventID>4104</EventID> 
+            <Version>1</Version> 
+            <Level>5</Level> 
+            <Task>102</Task> 
+            <Opcode>15</Opcode> 
+            <Keywords>0x0</Keywords> 
+            <TimeCreated SystemTime="2021-12-19T15:13:49.010404200Z" /> 
+            <EventRecordID>153158</EventRecordID> 
+            <Correlation ActivityID="{7882B73A-E5EC-0000-C8AF-BF78ECE5D701}" /> 
+            <Execution ProcessID="2392" ThreadID="3520" /> 
+            <Channel>Microsoft-Windows-PowerShell/Operational</Channel> 
+            <Computer>FS03.offsec.lan</Computer> 
+            <Security UserID="S-1-5-21-4230534742-2542757381-3142984815-1111" /> 
+        </System>
+        <EventData>
+            <Data Name="MessageNumber">1</Data> 
+            <Data Name="MessageTotal">1</Data> 
+            <Data Name="ScriptBlockText">Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}</Data> 
+            <Data Name="ScriptBlockId">faaeba08-01f0-4a32-ba48-bd65b24afd28</Data> 
+        </EventData>
+    </Event>

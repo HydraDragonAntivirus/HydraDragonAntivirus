@@ -1,0 +1,212 @@
+### If you want to execte GitHub Actions on your local machine please use following commnad. (Please install act if needed.)
+### act workflow_dispatch -s GITHUB_TOKEN=(your private access token) -P ubuntu-latest=nektos/act-environments-ubuntu:18.04 --artifact-server-path /tmp/act-artifacts
+
+name: Pipeline for sigma rule updates
+
+on:
+  ## This workflow is executed once a day.
+  ## I added workflow_dispatch so that you can execute this workflow from the GitHub UI.
+  workflow_dispatch:
+   inputs:
+     disable-rule-parse-error-check:
+       description: If true, disable check rule parse error
+       required: false
+       type: boolean
+       default: false
+     sigma_to_hayabusa_converter_branch:
+       description: Branch to use for sigma-to-hayabusa-converter
+       required: false
+       type: string
+       default: main
+  schedule:
+    - cron: '0 20 * * *'
+
+jobs:
+  rule-parse-error-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: clone sigma
+        uses: actions/checkout@v4
+        with:
+          repository: SigmaHQ/sigma
+          path: sigma-repo
+          token: ${{ secrets.GITHUB_TOKEN }} ## This is necessary for executing on a local machine by act(Local GitHub Action Runner). We have to specify the github token explicitly.
+
+      - name: clone hayabusa rule repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: hayabusa-rules
+
+      - name: clone hayabusa
+        uses: actions/checkout@v4
+        with:
+          repository: Yamato-Security/hayabusa
+          submodules: recursive
+          path: hayabusa
+
+      - name: clone sigma-to-hayabusa-converter
+        uses: actions/checkout@v4
+        with:
+          repository: Yamato-Security/sigma-to-hayabusa-converter
+          path: sigma-to-hayabusa-converter
+          ref: ${{ github.event.inputs.sigma_to_hayabusa_converter_branch }}
+
+      - name: clone hayabusa-sample-evtx
+        uses: actions/checkout@v4
+        with:
+          repository: Yamato-Security/hayabusa-sample-evtx
+          path: hayabusa-sample-evtx
+
+      - name: setup Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+
+      - name: Update sigma rules
+        run: |
+          cd sigma-to-hayabusa-converter/
+          poetry install --no-root
+          poetry run python sigma-to-hayabusa-converter.py -r ../sigma-repo -o converted_rules
+          cd -
+          rm -rf hayabusa-rules/sigma/
+          mkdir hayabusa-rules/sigma/
+          cp -r sigma-to-hayabusa-converter/converted_rules/* hayabusa-rules/sigma/
+
+      - name: run csv-timeline
+        if: ${{!inputs.disable-rule-parse-error-check }}
+        run: |
+            cd hayabusa
+            git fetch --prune --unshallow
+            LATEST_VER=`git describe --tags --abbrev=0`
+            URL="https://github.com/Yamato-Security/hayabusa/releases/download/${LATEST_VER}/hayabusa-${LATEST_VER#v}-lin-x64-gnu.zip"
+            mkdir tmp
+            cd tmp
+            curl -OL $URL
+            unzip *.zip
+            chmod +x hayabusa-${LATEST_VER#v}-lin-x64-gnu
+            ./hayabusa-${LATEST_VER#v}-lin-x64-gnu csv-timeline -d ../../hayabusa-sample-evtx -r ../../hayabusa-rules -w -o out.csv
+
+      - name: check csv-timeline result
+        if: ${{!inputs.disable-rule-parse-error-check }}
+        shell: /usr/bin/bash {0}
+        run: |
+          cd hayabusa
+          LATEST_VER=`git describe --tags --abbrev=0`
+          cd tmp
+          ./hayabusa-${LATEST_VER#v}-lin-x64-gnu csv-timeline -d ../../hayabusa-sample-evtx -r ../../hayabusa-rules -w -o out.csv -D -n -u  -C | grep "Rule parsing error" | wc -l | grep 0
+          if [ $? -eq 0 ]; then
+              echo "No rule parse error."
+              echo "RULE_PARSE_ERROR=0" >> $GITHUB_ENV
+          else
+              cat ./logs/*
+              echo "RULE_PARSE_ERROR=1" >> $GITHUB_ENV
+          fi
+          exit 0
+
+      - name: Notify Slack
+        if: env.RULE_PARSE_ERROR == '1'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          fields: job
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: check rule parse error status
+        if: env.RULE_PARSE_ERROR == '1'
+        run: |
+          echo "Rule parse error found. Please check the logs above."
+          exit 1
+
+  updateSigmaRule:
+    needs: rule-parse-error-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: clone sigma
+        uses: actions/checkout@v4
+        with:
+          repository: SigmaHQ/sigma
+          path: sigma-repo
+          token: ${{ secrets.GITHUB_TOKEN }} ## This is necessary for executing on a local machine by act(Local GitHub Action Runner). We have to specify the github token explicitly.
+
+      - name: clone hayabusa rule repo
+        uses: actions/checkout@v4
+        with:
+          path: hayabusa-rules
+
+      - name: clone sigma-to-hayabusa-converter
+        uses: actions/checkout@v4
+        with:
+          repository: Yamato-Security/sigma-to-hayabusa-converter
+          path: sigma-to-hayabusa-converter
+          ref: ${{ github.event.inputs.sigma_to_hayabusa_converter_branch }}
+
+      - name: setup Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+
+      - name: Update sigma rules
+        run: |
+          cd sigma-to-hayabusa-converter/
+          poetry install --no-root
+          poetry run python sigma-to-hayabusa-converter.py -r ../sigma-repo -o converted_rules
+          cd -
+          rm -rf hayabusa-rules/sigma/
+          mkdir hayabusa-rules/sigma/
+          cp -r sigma-to-hayabusa-converter/converted_rules/* hayabusa-rules/sigma/
+
+      - name: Create Text
+        id: create-text
+        run: |
+          pushd hayabusa-rules
+          echo "action_date=$(date '+%Y-%m-%d  %H:%M:%S')" >> $GITHUB_ENV
+          echo "change_exist=true" >> $GITHUB_ENV
+          git_new=$(git diff --name-status --diff-filter=AC)
+          git_mod=$(git diff --name-status --diff-filter=MR)
+          git_del=$(git diff --name-status --diff-filter=D)
+          is_rule_changed=$(git status)
+          if [ "${is_rule_changed}" =~ nothing\sto\scommit ]; then
+            echo "change_exist=false" >> $GITHUB_ENV
+          else
+          	echo "<details><summary>New files</summary>" >> ../changed_rule.logs
+          	echo "${git_new}" >> ../changed_rule.logs
+          	echo "</details>" >> ../changed_rule.logs
+          	echo "<details><summary>Modified files</summary>" >> ../changed_rule.logs
+          	echo "${git_mod}" >> ../changed_rule.logs
+          	echo "</details>" >> ../changed_rule.logs
+          	echo "<details><summary>Deleted files</summary>" >> ../changed_rule.logs
+          	echo "${git_del}" >> ../changed_rule.logs
+          	echo "</details>" >> ../changed_rule.logs
+          fi
+          popd
+
+      - name: Create Pull Request
+        if: env.change_exist == 'true'
+        id: cpr
+        uses: peter-evans/create-pull-request@v4
+        with:
+          path: hayabusa-rules
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: Sigma Rule Update (${{ env.action_date }})
+          branch: rules/auto-sigma-update
+          delete-branch: true
+          title: '[Auto] Sigma Update report(${{ env.action_date }})' ### If a PR with the same name already exists, this github action library will not create a new pull request but it will update the PR with the same name. Therefore I added the date to the pull request's title so it creates a new PR.
+          branch-suffix: timestamp ### I use this field in order to avoid name duplication. If the pull request which is related to the same branch exists, the pull request is not newly created but is updated. So the next step will be skipped due to its if-field
+          body: |
+            ${{ env.action_date }} Update report
+
+      - name: Enable Pull Request Automerge
+        if: steps.cpr.outputs.pull-request-operation == 'created' # This only runs if there were sigma rules updates and a new PR was created.
+        uses: peter-evans/enable-pull-request-automerge@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
+          merge-method: squash
+
+      - name: upload change log
+        if: env.change_exist == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: changed_rule_log
+          path: ${{ github.workspace }}/changed_rule.logs
+          retention-days: 30

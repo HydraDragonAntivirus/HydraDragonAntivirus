@@ -1,0 +1,34 @@
+title: Service Installation with Suspicious Folder Pattern
+id: 1702910b-83b9-ce95-4ae8-2405c2e9faf7
+related:
+    - id: 1b2ae822-6fe1-43ba-aa7c-d1a3b3d1d5f2
+      type: derived
+status: test
+description: Detects service installation with suspicious folder patterns
+references:
+    - Internal Research
+author: pH-T (Nextron Systems)
+date: 2022-03-18
+modified: 2022-03-24
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - car.2013-09-005
+    - attack.t1543.003
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection_eid:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+    selection_img_paths:
+        - ImagePath|re: ^[Cc]:\\[Pp]rogram[Dd]ata\\.{1,9}\.exe
+        - ImagePath|re: ^[Cc]:\\.{1,9}\.exe
+    condition: system and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

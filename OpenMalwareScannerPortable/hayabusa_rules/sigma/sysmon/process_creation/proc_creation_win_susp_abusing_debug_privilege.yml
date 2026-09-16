@@ -1,0 +1,54 @@
+title: Abused Debug Privilege by Arbitrary Parent Processes
+id: e1eb95b4-397b-f738-21e2-454b9491c863
+related:
+    - id: d522eca2-2973-4391-a3e0-ef0374321dae
+      type: derived
+status: test
+description: Detection of unusual child processes by different system processes
+references:
+    - https://image.slidesharecdn.com/kheirkhabarovoffzonefinal-181117201458/95/hunting-for-privilege-escalation-in-windows-environment-74-638.jpg
+author: Semanur Guneysu @semanurtg, oscd.community
+date: 2020-10-28
+modified: 2022-11-11
+tags:
+    - attack.privilege-escalation
+    - attack.t1548
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_parent:
+        ParentImage|endswith:
+            - \winlogon.exe
+            - \services.exe
+            - \lsass.exe
+            - \csrss.exe
+            - \smss.exe
+            - \wininit.exe
+            - \spoolsv.exe
+            - \searchindexer.exe
+        User|contains: # covers many language settings
+            - AUTHORI
+            - AUTORI
+    selection_img:
+        - Image|endswith:
+              - \powershell.exe
+              - \pwsh.exe
+              - \cmd.exe
+        - OriginalFileName:
+              - PowerShell.EXE
+              - pwsh.dll
+              - Cmd.Exe
+    filter:
+        CommandLine|contains|all:
+            - ' route '
+            - ' ADD '
+    condition: process_creation and (all of selection_* and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

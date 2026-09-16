@@ -1,0 +1,37 @@
+title: Network Connection Initiated From Users\Public Folder
+id: a1027f51-4eb5-a16d-91bf-9e124bb594dd
+related:
+    - id: 7b434893-c57d-4f41-908d-6a17bf1ae98f
+      type: derived
+    - id: bcb03938-9f8b-487d-8d86-e480691e1d71
+      type: derived
+status: test
+description: |
+    Detects a network connection initiated from a process located in the "C:\Users\Public" folder.
+    Attacker are known to drop their malicious payloads and malware in this directory as its writable by everyone.
+    Use this rule to hunt for potential suspicious or uncommon activity in your environement.
+references:
+    - https://docs.google.com/spreadsheets/d/17pSTDNpa0sf6pHeRhusvWG6rThciE8CsXTSlDUAZDyo
+author: Florian Roth (Nextron Systems)
+date: 2024-05-31
+tags:
+    - attack.command-and-control
+    - attack.t1105
+    - detection.threat-hunting
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    network_connection:
+        EventID: 5156
+        Channel: Security
+    selection:
+        Direction: '%%14593'
+        Application|contains: :\Users\Public\
+    filter_optional_ibm:
+        Application|contains: :\Users\Public\IBM\ClientSolutions\Start_Programs\
+    condition: network_connection and (selection and not 1 of filter_optional_*)
+falsepositives:
+    - Likely from legitimate third party application that execute from the "Public" directory.
+level: medium
+ruletype: Sigma

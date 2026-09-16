@@ -1,0 +1,99 @@
+Title: 'Failed Logon'
+Channel: Security
+EventID: 4625
+RewriteFieldData:
+    LogonType:
+        - '0': '0 - SYSTEM'
+        - '2': '2 - INTERACTIVE'
+        - '3': '3 - NETWORK'
+        - '4': '4 - BATCH'
+        - '5': '5 - SERVICE'
+        - '7': '7 - UNLOCK'
+        - '8': '8 - NETWORK CLEARTEXT'
+        - '9': '9 - NEW CREDENTIALS'
+        - '10': '10 - REMOTE INTERACTIVE'
+        - '11': '11 - CACHED INTERACTIVE'
+        - '12': '12 - CACHED REMOTE INTERACTIVE'
+        - '13': '13 - CACHED UNLOCK'
+    FailureReason:
+        - '%%2304': 'ERROR'
+        - '%%2305': 'ACCOUNT EXPIRED'
+        - '%%2306': 'NETLOGON NOT ACTIVE'
+        - '%%2307': 'ACCOUNT LOCKOUT'
+        - '%%2308': 'USER NOT GRANTED REQUESTED LOGON TYPE'
+        - '%%2309': 'PW EXPIRED'
+        - '%%2310': 'ACCOUNT DISABLED'
+        - '%%2311': 'OUTSIDE AUTHORIZED HOURS'
+        - '%%2312': 'UNAUTHORIZED COMPUTER'
+        - '%%2313': 'BAD USER OR PW'
+        - '%%2314': 'DOMAIN_SID_INCONSISTENT'
+        - '%%2315': 'SMARTCARD_LOGON_REQUIRED'
+    Status:
+        - '0x0': 'SUCCESS'
+        - '0xc000005e': 'NO LOGON SERVER'
+        - '0xc000006d': 'BAD USER OR PW'
+        - '0xc000006e': 'ACCOUNT RESTRICTION POLICY PREVENTED LOGON'
+        - '0xc000006f': 'OUTSIDE AUTHORIZED HOURS'
+        - '0xc0000070': 'UNAUTHORIZED COMPUTER'
+        - '0xc0000071': 'PW EXPIRED'
+        - '0xc0000072': 'ACCOUNT DISABLED'
+        - '0xc00000dc': 'SERVER IN WRONG STATE'
+        - '0xc0000133': 'CLOCK OUT OF SYNC WITH DC'
+        - '0xc000015b': 'NO LOGON RIGHT'
+        - '0xc000018c': 'TRUSTED DOMAIN FAILURE'
+        - '0xc0000192': 'NETLOGON SERVICE NOT STARTED'
+        - '0xc0000193': 'ACCOUNT EXPIRED'
+        - '0xc0000224': 'USER REQUIRED TO CHANGE PASSWORD'
+        - '0xc0000225': 'WINDOWS BUG'
+        - '0xc0000234': 'ACCOUNT LOCKED'
+        - '0xc00002ee': 'UNFINISHED CONTEXT DELETED'
+        - '0xc0000413': 'BLOCKED BY AUTHENTICATION FIREWALL'
+    SubStatus:
+        - '0x0': 'SUCCESS'
+        - '0xc0000064': 'UNKNOWN USER'
+        - '0xc000006a': 'WRONG PW'
+        - '0xc0000073': 'NO TRANSLATIONS'
+HexToDecimal: 'ProcessId'
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}"/>
+            <EventID>4625</EventID>
+            <Version>0</Version>
+            <Level>0</Level>
+            <Task>12544</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8010000000000000</Keywords>
+            <TimeCreated SystemTime="2021-05-20T12:49:53.378809600Z"/>
+            <EventRecordID>1861989</EventRecordID>
+            <Correlation ActivityID="{A67BE420-4636-0001-36E4-7BA63646D701}"/>
+            <Execution ProcessID="576" ThreadID="5164"/>
+            <Channel>Security</Channel>
+            <Computer>fs01.offsec.lan</Computer>
+            <Security/>
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-18</Data>
+            <Data Name="SubjectUserName">FS01$</Data>
+            <Data Name="SubjectDomainName">OFFSEC</Data>
+            <Data Name="SubjectLogonId">0x3e7</Data>
+            <Data Name="TargetUserSid">S-1-0-0</Data>
+            <Data Name="TargetUserName">NOUSER</Data>
+            <Data Name="TargetDomainName">FS01</Data>
+            <Data Name="Status">0xc000006d</Data>
+            <Data Name="FailureReason">%%2313</Data>
+            <Data Name="SubStatus">0xc0000064</Data>
+            <Data Name="LogonType">8</Data>
+            <Data Name="LogonProcessName">Advapi</Data>
+            <Data Name="AuthenticationPackageName">Negotiate</Data>
+            <Data Name="WorkstationName">FS01</Data>
+            <Data Name="TransmittedServices">-</Data>
+            <Data Name="LmPackageName">-</Data>
+            <Data Name="KeyLength">0</Data>
+            <Data Name="ProcessId">0x16d8</Data>
+            <Data Name="ProcessName">C:\Program Files\OpenSSH-Win64\sshd.exe</Data>
+            <Data Name="IpAddress">-</Data>
+            <Data Name="IpPort">-</Data>
+        </EventData>
+    </Event>

@@ -1,0 +1,36 @@
+title: Invoke-Obfuscation VAR+ Launcher - PowerShell Module
+id: 61ec8448-ba5d-0b4f-8089-eb047d43a2ec
+related:
+    - id: 0adfbc14-0ed1-11eb-adc1-0242ac120002
+      type: derived
+    - id: 6bfb8fa7-b2e7-4f6c-8d9d-824e5d06ea9e
+      type: derived
+status: test
+description: Detects Obfuscated use of Environment Variables to execute PowerShell
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009  # (Task 24)
+author: Jonathan Cheong, oscd.community
+date: 2020-10-15
+modified: 2024-04-05
+tags:
+    - attack.stealth
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: ps_module
+    definition: 0ad03ef1-f21b-4a79-8ce8-e6900c54b65b
+detection:
+    ps_module:
+        EventID: 4103
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection_4103:
+        Payload|re: cmd.{0,5}(?:/c|/r)(?:\s|)"set\s[a-zA-Z]{3,6}.*(?:\{\d\}){1,}\\"\s+?-f(?:.*\)){1,}.*"
+    condition: ps_module and selection_4103
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

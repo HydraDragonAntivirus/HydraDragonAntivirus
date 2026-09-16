@@ -1,0 +1,31 @@
+title: Successful MSIX/AppX Package Installation
+id: b9ec68fe-f656-4c32-62da-1ece594d2708
+related:
+    - id: 289dfa9e-e378-4a56-a9d4-7ed5ee218029
+      type: derived
+status: experimental
+description: |
+    Detects successful MSIX/AppX package installations on Windows systems by monitoring EventID 854 in the Microsoft-Windows-AppXDeployment-Server/Operational log.
+    While most installations are legitimate, this can help identify unauthorized or suspicious package installations.
+    It is crucial to monitor such events as threat actors may exploit MSIX/AppX packages to deliver and execute malicious payloads.
+references:
+    - https://www.splunk.com/en_us/blog/security/msix-weaponization-threat-detection-splunk.html
+author: Michael Haag, Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-11-03
+tags:
+    - attack.execution
+    - attack.t1204.002
+    - detection.threat-hunting
+logsource:
+    product: windows
+    service: appxdeployment-server
+detection:
+    appxdeployment_server:
+        Channel: Microsoft-Windows-AppXDeploymentServer/Operational
+    selection:
+        EventID: 854
+    condition: appxdeployment_server and selection
+falsepositives:
+    - Legitimate MSIX/AppX package installations
+level: low
+ruletype: Sigma

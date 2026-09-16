@@ -1,0 +1,73 @@
+author: Zach Mathis
+date: 2022-12-07
+modified: 2025-02-10
+
+title: 'RDP Sess Start (Noisy)'
+details: 'TgtUser: %UserDataUser% ¦ SessID: %UserDataSessionID% ¦ SrcIP: %UserDataAddress%'
+description: |
+    This event is created when a new local session is created for either a local or remote interactive login.
+    Original event message: “Shell start notification received”
+    The Local Session Manager is responsible for creating or finding existing local sessions to support interactive logins.
+    Note that local sessions are different from logon sessions.
+    Local sessions represent the logon sessions, desktop layout, processes, etc. associated with an interactive logon. 
+    Event 22 is created when a new local session needs to be created.
+    That happens after a user successfully authenticates for a local or remote interactive logon session and the user does not already have an existing local session.
+    This event follows a Local Session Manager 21 event.
+    This event gives the same information in Remote Connection Manager 1149, Local Session Manager 21 and Security 4648.
+
+id: 320e2cb0-a56a-476f-a299-79dc45644fee
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: terminalservices-localsessionmanager
+detection:
+    selection:
+        Channel: 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational'
+        EventID: 22
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+references:
+    - https://www.cybertriage.com/artifact/terminalservices_localsessionmanager_log/terminalservices_localsessionmanager_operational_22/
+    - https://ponderthebits.com/2018/02/windows-rdp-related-event-logs-identification-tracking-and-investigation/
+    - https://dfironthemountain.wordpress.com/2019/02/15/rdp-event-log-dfir/
+    - http://blog.kiddaland.net/2015/02/remote-desktop-connections-terminal.html
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-r2-and-2008/ee891214(v=ws.10)
+ruletype: Hayabusa
+
+sample-message: |
+    Remote Desktop Services: Shell start notification received:
+
+    User: WIN-QW3OXGRISMS\Administrator
+    Session ID: 2
+    Source Network Address: 122.6.150.75
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TerminalServices-LocalSessionManager" Guid="{5d896912-022d-40aa-a3a8-4fa5515c76d7}" /> 
+            <EventID>22</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>0</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x1000000000000000</Keywords> 
+            <TimeCreated SystemTime="2022-12-06T05:41:47.089491000Z" /> 
+            <EventRecordID>3319</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="692" ThreadID="2896" /> 
+            <Channel>Microsoft-Windows-TerminalServices-LocalSessionManager/Operational</Channel> 
+            <Computer>WIN-QW3OXGRISMS</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <UserData>
+            <EventXML xmlns:auto-ns3="http://schemas.microsoft.com/win/2004/08/events" xmlns="Event_NS">
+                <User>WIN-QW3OXGRISMS\Administrator</User> 
+                <SessionID>2</SessionID> 
+                <Address>122.6.150.75</Address> 
+            </EventXML>
+        </UserData>
+    </Event>

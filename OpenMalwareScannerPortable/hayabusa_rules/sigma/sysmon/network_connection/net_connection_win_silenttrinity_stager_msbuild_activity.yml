@@ -1,0 +1,36 @@
+title: Silenttrinity Stager Msbuild Activity
+id: 50c260bb-12be-06e3-6650-8dc2d3adabbe
+related:
+    - id: 50e54b8d-ad73-43f8-96a1-5191685b17a4
+      type: derived
+status: test
+description: Detects a possible remote connections to Silenttrinity c2
+references:
+    - https://www.blackhillsinfosec.com/my-first-joyride-with-silenttrinity/
+author: Kiran kumar s, oscd.community
+date: 2020-10-11
+modified: 2022-10-05
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1127.001
+    - sysmon
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    network_connection:
+        EventID: 3
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \msbuild.exe
+    filter:
+        DestinationPort:
+            - 80
+            - 443
+        Initiated: 'true'
+    condition: network_connection and (selection and filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

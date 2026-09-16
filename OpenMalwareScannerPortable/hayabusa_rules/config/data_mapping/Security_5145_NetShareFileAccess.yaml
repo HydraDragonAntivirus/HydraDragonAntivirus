@@ -1,0 +1,23 @@
+Title: 'NetShare File Access'
+Channel: Security
+EventID: 5145
+RewriteFieldData:
+    AccessList:
+        - '%%1537': 'DELETE'
+        - '%%1538': 'READ_CONTROL'
+        - '%%1539': 'WRITE_DAC'
+        - '%%1540': 'WRITE_OWNER'
+        - '%%1541': 'SYNCHRONIZE'
+        - '%%1542': 'ACCESS_SYS_SEC'
+        - '%%4416': 'READ_DATA'
+        - '%%4417': 'WRITE_DATA'
+        - '%%4418': 'APPEND_DATA'
+        - '%%4419': 'READ_EXTENDED_ATTRIBUTES'
+        - '%%4420': 'WRITE_EXTENDED_ATTRIBUTES'
+        - '%%4421': 'EXECUTE/TRAVERSE'
+        - '%%4422': 'DELETE_CHILD'
+        - '%%4423': 'READ_ATTRIBUTES'
+        - '%%4424': 'WRITE_ATTRIBUTES'
+sample-evtx:
+references:
+    - 'https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-5145'

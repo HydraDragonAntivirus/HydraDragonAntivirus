@@ -1,0 +1,69 @@
+title: Change PowerShell Policies to an Insecure Level
+id: 0fd941d7-3dec-afd3-d991-d693f0a6dff8
+related:
+    - id: cf2e938e-9a3e-4fe8-a347-411642b28a9f # ProcCreation Registry
+      type: similar
+    - id: 61d0475c-173f-4844-86f7-f3eebae1c66b # ScriptBlock
+      type: similar
+    - id: fad91067-08c5-4d1a-8d8c-d96a21b37814 # Registry
+      type: similar
+    - id: 87e3c4e8-a6a8-4ad9-bb4f-46e7ff99a180
+      type: derived
+status: test
+description: Detects changing the PowerShell script execution policy to a potentially insecure level using the "-ExecutionPolicy" flag.
+references:
+    - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-executionpolicy?view=powershell-7.4
+    - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-7.4
+    - https://adsecurity.org/?p=2604
+    - https://thedfirreport.com/2021/11/01/from-zero-to-domain-admin/
+author: frack113
+date: 2021-11-01
+modified: 2025-10-07
+tags:
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - OriginalFileName:
+              - powershell_ise.exe
+              - PowerShell.EXE
+              - pwsh.dll
+        - NewProcessName|endswith:
+              - \powershell_ise.exe
+              - \powershell.exe
+              - \pwsh.exe
+    selection_option:
+        CommandLine|contains:
+            - '-executionpolicy '
+            - ' -ep '
+            - ' -exec '
+    selection_level:
+        CommandLine|contains:
+            - Bypass
+            - Unrestricted
+    filter_main_powershell_core:
+        CommandLine|contains:
+            - -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\PowerShell\7\
+            - -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files (x86)\PowerShell\7\
+        ParentProcessName:
+            - C:\Windows\SysWOW64\msiexec.exe
+            - C:\Windows\System32\msiexec.exe
+    filter_optional_avast:
+        CommandLine|contains:
+            - -ExecutionPolicy ByPass -File "C:\Program Files\Avast Software\Avast
+            - -ExecutionPolicy ByPass -File "C:\Program Files (x86)\Avast Software\Avast\
+        ParentProcessName|contains:
+            - C:\Program Files\Avast Software\Avast\
+            - C:\Program Files (x86)\Avast Software\Avast\
+            - \instup.exe
+    condition: process_creation and (all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Administrator scripts
+level: medium
+ruletype: Sigma

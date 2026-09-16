@@ -1,0 +1,31 @@
+title: Visual Studio Code Tunnel Remote File Creation
+id: 91440a1a-0db5-36c4-20f5-d0d09a48e06f
+related:
+    - id: 56e05d41-ce99-4ecd-912d-93f019ee0b71
+      type: derived
+status: test
+description: |
+    Detects the creation of file by the "node.exe" process in the ".vscode-server" directory. Could be a sign of remote file creation via VsCode tunnel feature
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-10-25
+tags:
+    - attack.command-and-control
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|contains: \servers\Stable-
+        Image|endswith: \server\node.exe
+        TargetFilename|contains: \.vscode-server\data\User\History\
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

@@ -7,12 +7,55 @@ This directory contains production-ready SDK wrappers and sample applications in
 | Language | Folder | SDK File | Example File | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | **Python** | [`python/`](python/) | `openedr_sdk.py` | `scan_example.py` | `ctypes` wrapper with JSON parsing |
-| **C** | [`c/`](c/) | `openedr_static.h` | `main.c` | Standard C ABI header & FFI |
-| **C++** | [`cpp/`](cpp/) | `openedr.hpp` | `main.cpp` | Modern C++ RAII with auto memory freeing |
-| **C# (.NET)** | [`csharp/`](csharp/) | `OpenEdrScanner.cs` | `Program.cs` | P/Invoke wrapper with `IDisposable` |
-| **Go** | [`go/`](go/) | `openedr/openedr.go` | `main.go` | Pure Windows `syscall.LazyDLL` (no CGO needed) |
-| **Rust** | [`rust/`](rust/) | `src/main.rs` | `src/main.rs` | Safe Rust FFI binding |
-| **Node.js** | [`nodejs/`](nodejs/) | `openedr.js` | `index.js` | Fast FFI wrapper via `koffi` |
+| **Python daemon** | [`python/`](python/) | `openedr_daemon.py` | `daemon_example.py` | Polling watcher + worker threads, callbacks, quarantine |
+
+---
+
+## 👁️ Daemon Mode (Python)
+
+```python
+from openedr_sdk import OpenEdrScanner
+from openedr_daemon import DaemonScanner
+
+scanner = OpenEdrScanner(rules_dir="OpenMalwareScannerPortable")
+daemon = DaemonScanner(
+    scanner,
+    ["C:/Users/you/Downloads"],   # watch dirs
+    poll_interval=2.0,            # rescan sweep cadence (s)
+    workers=2,                    # parallel scan threads
+    flag=("Malicious", "Suspicious"),
+    on_detection=lambda hit: print(hit["verdict"], hit["path"]),
+    quarantine_dir=None,          # set a path to auto-move hits
+).start()
+# ... daemon.stop() on exit. stats: daemon.stats
+```
+
+Notes: unchanged files are skipped by `(size, mtime)`, identical content by
+`sha256` verdict cache. The DLL itself is one-shot only (`scan_file`, ...);
+the daemon loop lives in this SDK layer.
+
+| **C** | [`c/`](c/) | `openedr_static.h` | `main.c`, `daemon.c` | Standard C ABI header & FFI |
+| **C++** | [`cpp/`](cpp/) | `openedr.hpp` | `main.cpp`, `daemon.cpp` | Modern C++ RAII with auto memory freeing |
+| **C# (.NET)** | [`csharp/`](csharp/) | `OpenEdrScanner.cs`, `DaemonWatcher.cs` | `Program.cs` (`dotnet run [-- daemon DIR]`) | P/Invoke wrapper with `IDisposable` |
+| **Go** | [`go/`](go/) | `openedr/openedr.go` | `main.go`, `daemon/` | Pure Windows `syscall.LazyDLL` (no CGO needed) |
+| **Rust** | [`rust/`](rust/) | `src/main.rs` | `src/main.rs`, `examples/daemon.rs` | Safe Rust FFI binding |
+| **Node.js** | [`nodejs/`](nodejs/) | `openedr.js` | `index.js`, `daemon.js` | Fast FFI wrapper via `koffi` |
+
+## 👁️ Daemon Mode (all languages)
+
+| Language | Run |
+| :--- | :--- |
+| Python | `python daemon_example.py [watchDir]` |
+| Node.js | `node daemon.js [watchDir]` |
+| C# | `dotnet run -- daemon [watchDir]` |
+| Go | `go run ./daemon [watchDir]` |
+| Rust | `cargo run --example daemon [watchDir]` |
+| C++ | compile `daemon.cpp`, run `daemon.exe [watchDir]` |
+| C | compile `daemon.c`, run `daemon.exe [watchDir]` |
+
+All daemons poll the watch dir, scan new/changed files and print
+`Malicious`/`Suspicious` hits. Python/Node/C#/Go skip identical content by
+SHA-256; Rust/C/C++ skip by (size, mtime) — the DLL itself stays one-shot.
 
 ---
 
@@ -36,6 +79,30 @@ char* openedr_static_check_registry(const char* reg_path);
 
 // 6. Free heap-allocated C string
 void openedr_static_free_string(char* s);
+```
+
+## 📄 Report JSON Schema (`scan_file` / `scan_bytes`)
+
+```jsonc
+{
+  "target": "C:\\sample.exe",
+  "file_size": 457984,
+  "sha1": "...", "sha256": "...",
+  "verdict": "Malicious",         // Malicious | Suspicious | Clean | Unknown | Error
+  "max_threat_score": 1.0,
+  "detections": [
+    { "layer": "ClamAV", "name": "Win.Tool.Disabledefender-9973916-0", "score": 1.0 }
+  ],
+  "signer_info": {
+    "is_signed": false,
+    "is_trusted": false,
+    "signer_name": null,          // Authenticode subject, or catalog signer
+    "status": "unsigned",         // trusted | signed_untrusted | unsigned | ...
+    "is_catalog_signed": false    // true when trust comes from CatRoot catalog
+  },
+  "pua_registry_matches": [],
+  "scan_time_ms": 810
+}
 ```
 
 ---

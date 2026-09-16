@@ -1,0 +1,31 @@
+title: Exports Registry Key To an Alternate Data Stream
+id: b4a1da0a-eba8-4277-5eaa-8023f37ba0f7
+related:
+    - id: 0d7a9363-af70-4e7b-a3b7-1a176b7fbe84
+      type: derived
+status: test
+description: Exports the target Registry key and hides it in the specified alternate data stream.
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Regedit/
+    - https://gist.github.com/api0cradle/cdd2d0d0ec9abb686f0e89306e277b8f
+author: Oddvar Moe, Sander Wiebing, oscd.community
+date: 2020-10-07
+modified: 2021-11-27
+tags:
+    - attack.stealth
+    - attack.t1564.004
+    - sysmon
+logsource:
+    product: windows
+    category: create_stream_hash
+detection:
+    create_stream_hash:
+        EventID: 15
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \regedit.exe
+    condition: create_stream_hash and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

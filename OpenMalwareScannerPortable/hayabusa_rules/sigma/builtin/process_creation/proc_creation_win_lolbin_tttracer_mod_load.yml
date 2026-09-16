@@ -1,0 +1,35 @@
+title: Time Travel Debugging Utility Usage
+id: e16f3826-f705-a1c0-36a7-5d8d869e3ca9
+related:
+    - id: e76c8240-d68f-4773-8880-5c6f63595aaf
+      type: derived
+    - id: 0b4ae027-2a2d-4b93-8c7e-962caaba5b2a
+      type: derived
+status: test
+description: Detects usage of Time Travel Debugging Utility. Adversaries can execute malicious processes and dump processes, such as lsass.exe, via tttracer.exe.
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Tttracer/
+    - https://twitter.com/mattifestation/status/1196390321783025666
+    - https://twitter.com/oulusoyum/status/1191329746069655553
+author: Ensar Şamil, @sblmsrsn, @oscd_initiative
+date: 2020-10-06
+modified: 2022-10-09
+tags:
+    - attack.credential-access
+    - attack.stealth
+    - attack.t1218
+    - attack.t1003.001
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        ParentProcessName|endswith: \tttracer.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate usage by software developers/testers
+level: high
+ruletype: Sigma

@@ -1,0 +1,37 @@
+title: Renamed Remote Utilities RAT (RURAT) Execution
+id: a3324ad6-528c-1e7a-399a-63124cada187
+related:
+    - id: 9ef27c24-4903-4192-881a-3adde7ff92a5
+      type: derived
+status: test
+description: Detects execution of renamed Remote Utilities (RURAT) via Product PE header field
+references:
+    - https://redcanary.com/blog/misbehaving-rats/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-09-19
+modified: 2023-02-03
+tags:
+    - attack.collection
+    - attack.command-and-control
+    - attack.discovery
+    - attack.stealth
+    - attack.s0592
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Product: Remote Utilities
+    filter:
+        Image|endswith:
+            - \rutserv.exe
+            - \rfusclient.exe
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

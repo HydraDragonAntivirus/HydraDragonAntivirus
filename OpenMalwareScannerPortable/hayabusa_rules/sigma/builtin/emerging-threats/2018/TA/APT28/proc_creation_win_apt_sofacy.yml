@@ -1,0 +1,47 @@
+title: Sofacy Trojan Loader Activity
+id: 8b5c9860-1038-cd29-e1fe-e5ebcf52d6f0
+related:
+    - id: ba778144-5e3d-40cf-8af9-e28fb1df1e20
+      type: derived
+status: test
+description: Detects Trojan loader activity as used by APT28
+references:
+    - https://researchcenter.paloaltonetworks.com/2018/02/unit42-sofacy-attacks-multiple-government-entities/
+    - https://www.hybrid-analysis.com/sample/ff808d0a12676bfac88fd26f955154f8884f2bb7c534b9936510fd6296c543e8?environmentId=110
+    - https://twitter.com/ClearskySec/status/960924755355369472
+author: Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community
+date: 2018-03-01
+modified: 2023-05-31
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.g0007
+    - attack.t1059.003
+    - attack.t1218.011
+    - car.2013-10-002
+    - detection.emerging-threats
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_path:
+        CommandLine|contains:
+            - '%LOCALAPPDATA%'
+            - \AppData\Local\
+        NewProcessName|endswith: \rundll32.exe
+    selection_extensions:
+        - CommandLine|contains: .dat",
+        - CommandLine|endswith:
+              - '.dll #1'
+              - '.dll" #1'
+              - .dll",#1
+    filter_main_exclude_temp:
+        CommandLine|contains: \AppData\Local\Temp\
+    condition: process_creation and (all of selection_* and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,42 @@
+title: Suspicious Load of Advapi31.dll
+id: 210db471-c49d-327d-f544-c115af77d02d
+related:
+    - id: d813d662-785b-42ca-8b4a-f7457d78d5a9
+      type: derived
+status: deprecated
+description: Detects the load of advapi31.dll by a process running in an uncommon folder
+references:
+    - https://github.com/hlldz/Phant0m
+author: frack113
+date: 2022-02-03
+modified: 2023-03-15
+tags:
+    - attack.defense-evasion
+    - attack.t1070
+    - sysmon
+logsource:
+    product: windows
+    category: image_load
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \advapi32.dll
+    filter_common:
+        Image|startswith:
+            - C:\Windows\
+            - C:\Program Files (x86)\
+            - C:\Program Files\
+    filter_defender:
+        Image|startswith: C:\ProgramData\Microsoft\Windows Defender\platform\
+        Image|endswith: \MpCmdRun.exe
+    filter_onedrive:
+        Image|startswith: C:\Users\
+        Image|contains: \AppData\Local\Microsoft\OneDrive\
+        Image|endswith: FileCoAuth.exe
+    condition: image_load and (selection and not 1 of filter_*)
+falsepositives:
+    - Unknown
+level: informational
+ruletype: Sigma

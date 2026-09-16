@@ -1,0 +1,53 @@
+author: Zach Mathis
+date: 2022-03-29
+modified: 2025-02-10
+
+title: RDP Session Reconnect
+description: 'Detects when there is a RDP session reconnect.'
+
+id: db23f704-61c8-4c95-a5b7-4db61c89f41d
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4778
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+references:
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}"/>
+            <EventID>4778</EventID>
+            <Version>0</Version>
+            <Level>0</Level>
+            <Task>12551</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8020000000000000</Keywords>
+            <TimeCreated SystemTime="2022-02-08T20:33:21.271762700Z"/>
+            <EventRecordID>284453</EventRecordID>
+            <Correlation ActivityID="{CD4E5D70-1D10-0001-895D-4ECD101DD801}"/>
+            <Execution ProcessID="596" ThreadID="1056"/>
+            <Channel>Security</Channel>
+            <Computer>wef.windomain.local</Computer>
+            <Security/>
+        </System>
+        <EventData>
+            <Data Name="AccountName">Administrator</Data>
+            <Data Name="AccountDomain">WINDOMAIN</Data>
+            <Data Name="LogonID">0x9deb4d</Data>
+            <Data Name="SessionName">RDP-Tcp#14</Data>
+            <Data Name="ClientName">DESKTOP-RKEBDDR</Data>
+            <Data Name="ClientAddress">192.168.56.1</Data>
+        </EventData>
+    </Event>

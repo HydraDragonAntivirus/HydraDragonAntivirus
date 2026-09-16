@@ -1,0 +1,36 @@
+title: Suspicious Computer Account Name Change CVE-2021-42287
+id: 17662114-5bee-2566-359c-68d830193830
+related:
+    - id: 45eb2ae2-9aa2-4c3a-99a5-6e5077655466
+      type: derived
+status: test
+description: Detects the renaming of an existing computer account to a account name that doesn't contain a $ symbol as seen in attacks against CVE-2021-42287
+references:
+    - https://medium.com/@mvelazco/hunting-for-samaccountname-spoofing-cve-2021-42287-and-domain-controller-impersonation-f704513c8a45
+author: Florian Roth (Nextron Systems)
+date: 2021-12-22
+modified: 2022-12-25
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.stealth
+    - attack.t1036
+    - attack.t1098
+    - cve.2021-42287
+    - detection.emerging-threats
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 4781 # rename user
+        OldTargetUserName|contains: $
+    filter:
+        NewTargetUserName|contains: $
+    condition: security and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

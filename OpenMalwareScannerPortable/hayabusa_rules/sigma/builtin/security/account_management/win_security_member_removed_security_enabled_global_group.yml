@@ -1,0 +1,36 @@
+title: A Member Was Removed From a Security-Enabled Global Group
+id: 6e0f860b-3678-7396-a4a3-7cf55f7bb01c
+related:
+    - id: 9cf01b6c-e723-4841-a868-6d7f8245ca6e
+      type: obsolete
+    - id: 02c39d30-02b5-45d2-b435-8aebfe5a8629
+      type: derived
+status: stable
+description: Detects activity when a member is removed from a security-enabled global group
+references:
+    - https://www.cisecurity.org/controls/cis-controls-list/
+    - https://www.pcisecuritystandards.org/documents/PCI_DSS_v3-2-1.pdf
+    - https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.04162018.pdf
+    - https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventID=4729
+    - https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventID=633
+author: Alexandr Yampolskyi, SOC Prime
+date: 2023-04-26
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1098
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID:
+            - 633 # Security Enabled Global Group Member Removed
+            - 4729 # A member was removed from a security-enabled global group
+    condition: security and selection
+falsepositives:
+    - Unknown
+level: low
+ruletype: Sigma

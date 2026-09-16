@@ -1,0 +1,34 @@
+title: Invoke-Obfuscation Via Use MSHTA - System
+id: e0aa759a-fa97-fb3b-1b02-82aa44f8c068
+related:
+    - id: 7e9c7999-0f9b-4d4a-a6ed-af6d553d4af4
+      type: derived
+status: test
+description: Detects Obfuscated Powershell via use MSHTA in Scripts
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009 # (Task31)
+author: Nikita Nazarov, oscd.community
+date: 2020-10-09
+modified: 2022-11-29
+tags:
+    - attack.stealth
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+        ImagePath|contains|all:
+            - mshta
+            - vbscript:createobject
+    condition: system and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

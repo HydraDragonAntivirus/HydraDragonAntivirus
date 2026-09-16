@@ -1,0 +1,13 @@
+Provider,Abbreviation
+Microsoft-Windows-Security-Auditing,Sec
+Microsoft-Windows-Sysmon,Sysmon
+Microsoft-Windows-TaskScheduler,TaskScheduler
+Microsoft-Windows-TerminalServices-Gateway/Operational,RDS-GTW
+Microsoft-Windows-TerminalServices-LocalSessionManager,RDS-LSM
+Microsoft-Windows-TerminalServices-RemoteConnectionManager,RDS-RCM
+Microsoft-Windows-WMI-Activity,WMI-Activity
+Microsoft-Windows-WinRM,WinRM
+Microsoft-Windows-Windows Defender,Defender
+Microsoft-Windows-Windows Firewall With Advanced Security,Firewall
+Microsoft-Windows-WindowsUpdateClient,WinUpdate
+Service Control Manager,SCM

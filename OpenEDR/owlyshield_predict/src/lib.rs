@@ -4,7 +4,6 @@ extern crate num;
 extern crate num_derive;
 
 pub mod actions_on_kill;
-pub mod clamscan;
 pub mod config;
 pub mod connectors;
 pub mod extensions;
@@ -19,7 +18,6 @@ pub mod predictions;
 pub mod process;
 pub mod report;
 pub mod shared_def;
-pub mod signature_verification;
 pub mod threat_handler;
 pub mod signer_rules;
 pub mod utils;

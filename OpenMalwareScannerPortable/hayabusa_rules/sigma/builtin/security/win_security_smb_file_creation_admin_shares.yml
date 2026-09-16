@@ -1,0 +1,35 @@
+title: SMB Create Remote File Admin Share
+id: 37f5d188-182d-7a53-dca7-4bebbb6ce43e
+related:
+    - id: b210394c-ba12-4f89-9117-44a2464b9511
+      type: derived
+status: test
+description: Look for non-system accounts SMB accessing a file with write (0x2) access mask via administrative share (i.e C$).
+references:
+    - https://github.com/OTRF/ThreatHunter-Playbook/blob/f7a58156dbfc9b019f17f638b8c62d22e557d350/playbooks/WIN-201012004336.yaml
+    - https://securitydatasets.com/notebooks/atomic/windows/lateral_movement/SDWIN-200806015757.html?highlight=create%20file
+author: Jose Rodriguez (@Cyb3rPandaH), OTR (Open Threat Research)
+date: 2020-08-06
+modified: 2025-10-17
+tags:
+    - attack.lateral-movement
+    - attack.t1021.002
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 5145
+        ShareName|endswith: C$
+        AccessMask: '0x2'
+    filter_main_subjectusername:
+        SubjectUserName|endswith: $
+    filter_optional_local_ip:
+        IpAddress: ::1
+    condition: security and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

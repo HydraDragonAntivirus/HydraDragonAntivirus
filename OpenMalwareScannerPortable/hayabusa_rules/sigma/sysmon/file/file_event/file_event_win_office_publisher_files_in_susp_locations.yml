@@ -1,0 +1,33 @@
+title: Publisher Attachment File Dropped In Suspicious Location
+id: 14aa98a3-8e28-563e-dede-ae0403ae44c5
+related:
+    - id: 3d2a2d59-929c-4b78-8c1a-145dfe9e07b1
+      type: derived
+status: test
+description: Detects creation of files with the ".pub" extension in suspicious or uncommon locations. This could be a sign of attackers abusing Publisher documents
+references:
+    - https://twitter.com/EmericNasi/status/1623224526220804098
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-08
+tags:
+    - attack.stealth
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|contains:
+            - \AppData\Local\Temp\
+            - \Users\Public\
+            - \Windows\Temp\
+            - C:\Temp\
+        TargetFilename|endswith: .pub
+    condition: file_event and selection
+falsepositives:
+    - Legitimate usage of ".pub" files from those locations
+level: medium
+ruletype: Sigma

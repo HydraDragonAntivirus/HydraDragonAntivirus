@@ -1,0 +1,34 @@
+title: ADS Zone.Identifier Deleted
+id: 6a689144-6528-db18-f70c-0ddfb63cdb9c
+related:
+    - id: 3109530e-ab47-4cc6-a953-cac5ebcc93ae
+      type: similar
+    - id: 7eac0a16-5832-4e81-865f-0268a6d19e4b
+      type: derived
+status: test
+description: Detects the deletion of the "Zone.Identifier" ADS. Attackers can leverage this in order to bypass security restrictions that make use of the ADS such as Microsoft Office apps.
+references:
+    - https://securityliterate.com/how-malware-abuses-the-zone-identifier-to-circumvent-detection-and-analysis/
+author: frack113
+date: 2023-09-04
+tags:
+    - attack.stealth
+    - attack.t1070.004
+    - detection.threat-hunting
+    - sysmon
+logsource:
+    product: windows
+    category: file_delete
+detection:
+    file_delete:
+        EventID:
+            - 23
+            - 26
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: :Zone.Identifier
+    condition: file_delete and selection
+falsepositives:
+    - Likely
+level: low
+ruletype: Sigma

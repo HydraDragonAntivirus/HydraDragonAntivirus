@@ -1,0 +1,38 @@
+title: HackTool - CoercedPotato Execution
+id: 75a96fdd-ec6a-1351-5cf2-00b8606831fe
+related:
+    - id: e8d34729-86a4-4140-adfd-0a29c2106307
+      type: derived
+status: test
+description: Detects the use of CoercedPotato, a tool for privilege escalation
+references:
+    - https://github.com/hackvens/CoercedPotato
+    - https://blog.hackvens.fr/articles/CoercedPotato.html
+author: Florian Roth (Nextron Systems)
+date: 2023-10-11
+modified: 2024-11-23
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1055
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_loader_img:
+        NewProcessName|endswith: \CoercedPotato.exe
+    selection_params:
+        CommandLine|contains: ' --exploitId '
+    selection_loader_imphash:
+        Hashes|contains:
+            - IMPHASH=A75D7669DB6B2E107A44C4057FF7F7D6
+            - IMPHASH=F91624350E2C678C5DCBE5E1F24E22C9
+            - IMPHASH=14C81850A079A87E83D50CA41C709A15
+    condition: process_creation and (1 of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

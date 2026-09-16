@@ -1,0 +1,35 @@
+title: PUA - RunXCmd Execution
+id: c9c7afb7-56ad-a3b2-ad8a-727beaa81d41
+related:
+    - id: 93199800-b52a-4dec-b762-75212c196542
+      type: derived
+status: test
+description: Detects the use of the RunXCmd tool to execute commands with System or TrustedInstaller accounts
+references:
+    - https://www.d7xtech.com/free-software/runx/
+    - https://www.winhelponline.com/blog/run-program-as-system-localsystem-account-windows/
+author: Florian Roth (Nextron Systems)
+date: 2022-01-24
+modified: 2023-02-14
+tags:
+    - attack.execution
+    - attack.t1569.002
+    - attack.s0029
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_account:
+        CommandLine|contains:
+            - ' /account=system '
+            - ' /account=ti '
+    selection_exec:
+        CommandLine|contains: /exec=
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate use by administrators
+level: high
+ruletype: Sigma

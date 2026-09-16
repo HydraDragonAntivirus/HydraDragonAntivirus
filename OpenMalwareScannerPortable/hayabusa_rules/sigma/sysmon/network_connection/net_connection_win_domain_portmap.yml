@@ -1,0 +1,34 @@
+title: Network Communication Initiated To Portmap.IO Domain
+id: 8d39fca8-f78f-2b3d-7cfd-3025b816e1c7
+related:
+    - id: 07837ab9-60e1-481f-a74d-c31fb496a94c
+      type: derived
+status: test
+description: Detects an executable accessing the portmap.io domain, which could be a sign of forbidden C2 traffic or data exfiltration by malicious actors
+references:
+    - https://portmap.io/
+    - https://github.com/rapid7/metasploit-framework/issues/11337
+    - https://pro.twitter.com/JaromirHorejsi/status/1795001037746761892/photo/2
+author: Florian Roth (Nextron Systems)
+date: 2024-05-31
+tags:
+    - attack.t1041
+    - attack.command-and-control
+    - attack.t1090.002
+    - attack.exfiltration
+    - sysmon
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    network_connection:
+        EventID: 3
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Initiated: 'true'
+        DestinationHostname|endswith: .portmap.io
+    condition: network_connection and selection
+falsepositives:
+    - Legitimate use of portmap.io domains
+level: medium
+ruletype: Sigma

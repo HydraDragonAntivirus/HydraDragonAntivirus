@@ -1,0 +1,31 @@
+title: Old TLS1.0/TLS1.1 Protocol Version Enabled
+id: f1d2e557-5935-d1b7-cc8a-48563f722f9c
+related:
+    - id: 439957a7-ad86-4a8f-9705-a28131c6821b
+      type: derived
+status: test
+description: Detects applications or users re-enabling old TLS versions by setting the "Enabled" value to "1" for the "Protocols" registry key.
+references:
+    - https://techcommunity.microsoft.com/t5/windows-it-pro-blog/tls-1-0-and-tls-1-1-soon-to-be-disabled-in-windows/ba-p/3887947
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-09-05
+tags:
+    - attack.stealth
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains:
+            - \Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\
+            - \Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\
+        ObjectName|endswith: \Enabled
+        NewValue: DWORD (0x00000001)
+    condition: registry_set and selection
+falsepositives:
+    - Legitimate enabling of the old tls versions due to incompatibility
+level: medium
+ruletype: Sigma

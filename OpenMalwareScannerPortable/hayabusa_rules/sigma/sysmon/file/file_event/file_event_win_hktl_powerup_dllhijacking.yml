@@ -1,0 +1,39 @@
+title: HackTool - Powerup Write Hijack DLL
+id: bde02a5c-5a5c-2601-fb4c-64f6ea900bd3
+related:
+    - id: 602a1f13-c640-4d73-b053-be9a2fa58b96
+      type: derived
+status: test
+description: |
+    Powerup tool's Write Hijack DLL exploits DLL hijacking for privilege escalation.
+    In it's default mode, it builds a self deleting .bat file which executes malicious command.
+    The detection rule relies on creation of the malicious bat file (debug.bat by default).
+references:
+    - https://powersploit.readthedocs.io/en/latest/Privesc/Write-HijackDll/
+author: Subhash Popuri (@pbssubhash)
+date: 2021-08-21
+modified: 2024-06-27
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith:
+            - \powershell.exe
+            - \pwsh.exe
+        TargetFilename|endswith: .bat
+    condition: file_event and selection
+falsepositives:
+    - Any powershell script that creates bat files # highly unlikely (untested)
+level: high
+ruletype: Sigma

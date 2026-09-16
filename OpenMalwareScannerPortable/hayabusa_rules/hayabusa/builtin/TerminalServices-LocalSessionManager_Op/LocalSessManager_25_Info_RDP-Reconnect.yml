@@ -1,0 +1,59 @@
+author: Fukusuke Takahashi
+date: 2024-11-03
+modified: 2025-02-10
+
+title: RDP Reconnect
+details: "TgtUser: %UserDataUser% ¦ SessID: %UserDataSessionID% ¦ SrcIP: %UserDataAddress%"
+description:
+references:
+  - https://jpcertcc.github.io/ToolAnalysisResultSheet_jp/details/mstsc.htm
+id: 8fe4a60b-2af3-43d6-95e2-8f13caccc179
+level: informational
+status: test
+logsource:
+    product: windows
+    service: terminalservices-localsessionmanager
+detection:
+    selection:
+        Channel: "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"
+        EventID: 25
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+ruletype: Hayabusa
+
+sample-message: |
+  Remote Desktop Services: Session reconnection succeeded:
+
+  User: samurai\hayabusa
+  Session ID: 3
+  Source Network Address: 203.0.113.1
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"> 
+        <System> 
+            <Provider Name="Microsoft-Windows-TerminalServices-LocalSessionManager" Guid="{5d896912-022d-40aa-a3a8-4fa5515c76d7}" /> 
+            <EventID>25</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>0</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x1000000000000000</Keywords> 
+            <TimeCreated SystemTime="2024-11-03T07:36:59.0226807Z" /> 
+            <EventRecordID>88</EventRecordID> 
+            <Correlation ActivityID="{f420125d-74d2-4a42-acdf-984926b10000}" /> 
+            <Execution ProcessID="904" ThreadID="1844" /> 
+            <Channel>Microsoft-Windows-TerminalServices-LocalSessionManager/Operational</Channel> 
+            <Computer>samurai</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System> 
+        <UserData> 
+            <EventXML xmlns="Event_NS"> 
+              <User>samurai\hayabusa</User> 
+              <SessionID>3</SessionID> 
+              <Address>203.0.113.1</Address> 
+            </EventXML> 
+        </UserData> 
+    </Event>

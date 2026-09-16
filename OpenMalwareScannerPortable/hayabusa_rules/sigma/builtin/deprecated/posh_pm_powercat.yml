@@ -1,0 +1,36 @@
+title: Netcat The Powershell Version - PowerShell Module
+id: 65efb931-2d64-dea1-b559-544498a9b6f8
+related:
+    - id: bf7286e7-c0be-460b-a7e8-5b2e07ecc2f2
+      type: derived
+status: deprecated
+description: Adversaries may use a non-application layer protocol for communication between host and C2 server or among infected hosts within a network
+references:
+    - https://nmap.org/ncat/
+    - https://github.com/besimorhino/powercat
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1095/T1095.md
+author: frack113
+date: 2021-07-21
+modified: 2023-01-20
+tags:
+    - attack.command-and-control
+    - attack.t1095
+logsource:
+    product: windows
+    category: ps_module
+    definition: 'Requirements: PowerShell Module Logging must be enabled'
+detection:
+    ps_module:
+        EventID: 4103
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ContextInfo|contains:
+            - 'powercat '
+            - powercat.ps1
+    condition: ps_module and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

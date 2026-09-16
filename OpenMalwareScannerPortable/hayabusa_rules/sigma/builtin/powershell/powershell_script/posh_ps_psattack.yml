@@ -1,0 +1,32 @@
+title: PowerShell PSAttack
+id: 8dd08d08-a638-c74c-8e7a-07d55d3b3318
+related:
+    - id: b7ec41a4-042c-4f31-a5db-d0fcde9fa5c5
+      type: derived
+status: test
+description: Detects the use of PSAttack PowerShell hack tool
+references:
+    - https://adsecurity.org/?p=2921
+author: Sean Metcalf (source), Florian Roth (Nextron Systems)
+date: 2017-03-05
+modified: 2022-12-25
+tags:
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains: PS ATTACK!!!
+    condition: ps_script and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

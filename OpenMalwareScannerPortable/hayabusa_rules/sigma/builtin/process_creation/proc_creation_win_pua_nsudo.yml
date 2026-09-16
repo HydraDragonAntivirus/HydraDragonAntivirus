@@ -1,0 +1,55 @@
+title: PUA - NSudo Execution
+id: 09a60700-1c45-a4bf-7b17-5d1e036f4b78
+related:
+    - id: 771d1eb5-9587-4568-95fb-9ec44153a012
+      type: derived
+status: test
+description: Detects the use of NSudo tool for command execution
+references:
+    - https://web.archive.org/web/20221019044836/https://nsudo.m2team.org/en-us/
+    - https://www.winhelponline.com/blog/run-program-as-system-localsystem-account-windows/
+author: Florian Roth (Nextron Systems), Nasreddine Bencherchali
+date: 2022-01-24
+modified: 2023-02-13
+tags:
+    - attack.execution
+    - attack.t1569.002
+    - attack.s0029
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith:
+              - \NSudo.exe
+              - \NSudoLC.exe
+              - \NSudoLG.exe
+        - OriginalFileName:
+              - NSudo.exe
+              - NSudoLC.exe
+              - NSudoLG.exe
+    selection_cli:
+        CommandLine|contains:
+            # Covers Single/Double dash "-"/"--" + ":"
+            - '-U:S ' # System
+            - '-U:T ' # Trusted Installer
+            - '-U:E ' # Elevated
+            - '-P:E ' # Enable All Privileges
+            - '-M:S ' # System Integrity
+            - '-M:H ' # High Integrity
+            # Covers Single/Double dash "-"/"--" + "="
+            - '-U=S '
+            - '-U=T '
+            - '-U=E '
+            - '-P=E '
+            - '-M=S '
+            - '-M=H '
+            - -ShowWindowMode:Hide
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Legitimate use by administrators
+level: high
+ruletype: Sigma

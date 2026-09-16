@@ -1,0 +1,33 @@
+title: COLDSTEEL RAT Service Persistence Execution
+id: cbb04740-ed1c-9f93-63da-7f0564a3b403
+related:
+    - id: 9f9cd389-cea0-4142-bf1a-a3fd424abedd
+      type: derived
+status: test
+description: Detects the creation of an "svchost" process with specific command line flags, that were seen present and used by ColdSteel RAT
+references:
+    - https://www.ncsc.gov.uk/static-assets/documents/malware-analysis-reports/cold-steel/NCSC-MAR-Cold-Steel.pdf
+author: X__Junior (Nextron Systems)
+date: 2023-04-30
+tags:
+    - attack.persistence
+    - detection.emerging-threats
+    - attack.stealth
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|endswith:
+            - ' -k msupdate'
+            - ' -k msupdate2'
+            - ' -k alg'
+        NewProcessName|endswith: \svchost.exe
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: critical
+ruletype: Sigma

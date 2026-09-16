@@ -1,0 +1,24 @@
+author: Zach Mathis
+date: 2023-06-28
+modified: 2023-06-28
+
+title: 'File Shredding Tool Blocked'
+description: 'Sysmon blocked file shredding from a tool like SDelete.'
+
+id: 84cab4b7-2bff-416c-8133-9771bc532f2f
+level: high
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Requires Sysmon 14.1+ (Released 2022/10/08)'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 28
+    condition: selection_basic
+falsepositives:
+tags:
+    - sysmon
+references:
+ruletype: Hayabusa

@@ -1,0 +1,36 @@
+title: HybridConnectionManager Service Installation - Registry
+id: fbff875f-3f5b-b99c-4a57-3172cadbb0b1
+related:
+    - id: ac8866c7-ce44-46fd-8c17-b24acff96ca8
+      type: derived
+status: test
+description: Detects the installation of the Azure Hybrid Connection Manager service to allow remote code execution from Azure function.
+references:
+    - https://twitter.com/Cyb3rWard0g/status/1381642789369286662
+author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)
+date: 2021-04-12
+modified: 2022-11-27
+tags:
+    - attack.resource-development
+    - attack.t1608
+    - sysmon
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID:
+            - 12
+            - 13
+            - 14
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection1:
+        TargetObject|contains: \Services\HybridConnectionManager
+    selection2:
+        EventType: SetValue
+        Details|contains: Microsoft.HybridConnectionManager.Listener.exe
+    condition: registry_event and (selection1 or selection2)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

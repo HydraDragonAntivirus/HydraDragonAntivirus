@@ -1,0 +1,39 @@
+title: Suspicious Encoded Scripts in a WMI Consumer
+id: 18aa5578-4930-e3f7-01d6-49277db69f4f
+related:
+    - id: 83844185-1c5b-45bc-bcf3-b5bf3084ca5b
+      type: derived
+status: test
+description: Detects suspicious encoded payloads in WMI Event Consumers
+references:
+    - https://github.com/RiccardoAncarani/LiquidSnake
+author: Florian Roth (Nextron Systems)
+date: 2021-09-01
+modified: 2022-10-09
+tags:
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.t1047
+    - attack.persistence
+    - attack.t1546.003
+    - sysmon
+logsource:
+    product: windows
+    category: wmi_event
+detection:
+    wmi_event:
+        EventID:
+            - 19
+            - 20
+            - 21
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_destination:
+        Destination|base64offset|contains:
+            - WriteProcessMemory
+            - This program cannot be run in DOS mode
+            - This program must be run under Win32
+    condition: wmi_event and selection_destination
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

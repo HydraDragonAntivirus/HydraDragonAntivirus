@@ -1,0 +1,32 @@
+title: Potential Persistence Attempt Via ErrorHandler.Cmd
+id: e80bff97-0333-b1fa-8833-ee64e96e9434
+related:
+    - id: 15904280-565c-4b73-9303-3291f964e7f9
+      type: derived
+status: test
+description: |
+    Detects creation of a file named "ErrorHandler.cmd" in the "C:\WINDOWS\Setup\Scripts\" directory which could be used as a method of persistence
+    The content of C:\WINDOWS\Setup\Scripts\ErrorHandler.cmd is read whenever some tools under C:\WINDOWS\System32\oobe\ (e.g. Setup.exe) fail to run for any reason.
+references:
+    - https://www.hexacorn.com/blog/2022/01/16/beyond-good-ol-run-key-part-135/
+    - https://github.com/last-byte/PersistenceSniper
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-09
+modified: 2022-12-19
+tags:
+    - attack.persistence
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: \WINDOWS\Setup\Scripts\ErrorHandler.cmd
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

@@ -1,0 +1,28 @@
+author: Zach Mathis
+date: 2023-05-05
+modified: 2023-05-05
+
+title: 'VHDX Mounted'
+details: 'Path: %VhdFile% ¦ ReadOnly: %ReadOnly%'
+description: 'A VHDX (Virtual Hard Disk version 2) image was mounted. They are often used with WSL disk partitions.'
+
+id: 2c544083-e209-4a8d-ad28-4f1427353d2e
+level: low
+status: experimental
+logsource:
+    product: windows
+    service: vhdmp
+    description: Built-in event.
+detection:
+    selection: 
+        Channel: 'Microsoft-Windows-VHDMP-Operational'
+        EventID: 12
+        VhdType: 2 # VHDX
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa
+
+sample-message:
+sample-evtx:

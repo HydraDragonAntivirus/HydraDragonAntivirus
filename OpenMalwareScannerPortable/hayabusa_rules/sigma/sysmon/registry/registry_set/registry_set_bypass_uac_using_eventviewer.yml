@@ -1,0 +1,40 @@
+title: Bypass UAC Using Event Viewer
+id: a2c3c439-dd07-7514-7411-fa7adb8aba65
+related:
+    - id: 674202d0-b22a-4af4-ae5f-2eda1f3da1af
+      type: derived
+status: test
+description: Bypasses User Account Control using Event Viewer and a relevant Windows Registry modification
+references:
+    - https://enigma0x3.net/2016/08/15/fileless-uac-bypass-using-eventvwr-exe-and-registry-hijacking/
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1548.002/T1548.002.md#atomic-test-1---bypass-uac-using-event-viewer-cmd
+author: frack113
+date: 2022-01-05
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.010
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|endswith: _Classes\mscfile\shell\open\command\(Default)
+    filter:
+        Details|startswith: '%SystemRoot%\system32\mmc.exe "%1" %'
+    condition: registry_set and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+regression_tests_path: regression_data/rules/windows/registry/registry_set/registry_set_bypass_uac_using_eventviewer/info.yml
+simulation:
+    - type: atomic-red-team
+      name: Bypass UAC using Event Viewer (cmd)
+      technique: T1548.002
+      atomic_guid: 5073adf8-9a50-4bd9-b298-a9bd2ead8af9
+ruletype: Sigma

@@ -1,0 +1,31 @@
+title: Unsigned Image Loaded Into LSASS Process
+id: c7a526dd-8371-6e27-5ae7-6f38e2cc682a
+related:
+    - id: 857c8db3-c89b-42fb-882b-f681c7cf4da2
+      type: derived
+status: test
+description: Loading unsigned image (DLL, EXE) into LSASS process
+references:
+    - https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+author: Teymur Kheirkhabarov, oscd.community
+date: 2019-10-22
+modified: 2021-11-27
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \lsass.exe
+        Signed: 'false'
+    condition: image_load and selection
+falsepositives:
+    - Valid user connecting using RDP
+level: medium
+ruletype: Sigma

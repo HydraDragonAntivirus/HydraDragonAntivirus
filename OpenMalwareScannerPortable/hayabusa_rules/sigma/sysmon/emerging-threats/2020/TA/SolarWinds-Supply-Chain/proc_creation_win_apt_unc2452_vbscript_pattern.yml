@@ -1,0 +1,39 @@
+title: Suspicious VBScript UN2452 Pattern
+id: 2512e991-4156-6416-ba36-0770e7f33e32
+related:
+    - id: 20c3f09d-c53d-4e85-8b74-6aa50e2f1b61
+      type: derived
+status: test
+description: Detects suspicious inline VBScript keywords as used by UNC2452
+references:
+    - https://www.microsoft.com/security/blog/2021/03/04/goldmax-goldfinder-sibot-analyzing-nobelium-malware/
+author: Florian Roth (Nextron Systems)
+date: 2021-03-05
+modified: 2022-10-09
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+    - detection.emerging-threats
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|contains|all:
+            - Execute
+            - CreateObject
+            - RegRead
+            - window.close
+            - \Microsoft\Windows\CurrentVersion
+    filter:
+        CommandLine|contains: \Software\Microsoft\Windows\CurrentVersion\Run
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

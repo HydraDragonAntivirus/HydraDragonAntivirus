@@ -1,0 +1,64 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'ADS Created (Sysmon Alert)'
+description: |
+    This event logs when a named file stream (Alternate Data Stream) is created,
+    and it generates events that log the hash of the contents of the file to which the stream is assigned (the unnamed stream),
+    as well as the contents of the named stream. 
+    There are malware variants that drop their executables or configuration settings via browser downloads, 
+    and this event is aimed at capturing that based on the browser attaching a Zone.Identifier "mark of the web" stream.
+details: 'Rule: %RuleName% ¦ Path: %TargetFilename% ¦ Proc: %Image% ¦ PID: %ProcessId% ¦ PGUID: %ProcessGuid% ¦ Hash: %Hash%'
+
+id: 43c90e94-2806-424b-a75b-36d8590c00a6
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 15
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>15</EventID>
+            <Version>2</Version>
+            <Level>4</Level>
+            <Task>15</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2018-08-31T18:36:00.113260300Z"/>
+            <EventRecordID>161355</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="1892" ThreadID="2796"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>hogehoge.kichi.lan</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">MitreRef=T1096,Technique=Alternate Data Stream,Tactic=Defense Evasion,MitreURL= https://attack.mitre.org/wiki/Technique/T1096</Data>
+            <Data Name="UtcTime">2018-08-31 18:36:00.094</Data>
+            <Data Name="ProcessGuid">{9E6F9010-8A63-5B89-0000-0010F0016402}</Data>
+            <Data Name="ProcessId">5444</Data>
+            <Data Name="Image">C:\Program Files (x86)\Google\Chrome\Application\chrome.exe</Data>
+            <Data Name="TargetFilename">C:\Users\ztanaka\Downloads\perfmonsvc64.exe:Zone.Identifier</Data>
+            <Data Name="CreationUtcTime">2018-08-31 18:35:59.003</Data>
+            <Data Name="Hash">MD5=FBCCF14D504B7B2DBCB5A5BDA75BD93B,SHA256=EACD09517CE90D34BA562171D15AC40D302F0E691B439F91BE1B6406E25F5913,IMPHASH=00000000000000000000000000000000</Data>
+        </EventData>
+    </Event>

@@ -1,0 +1,31 @@
+title: User Account Hidden By Registry
+id: 1b78376c-c1d2-a830-93b1-5dee98965490
+related:
+    - id: 8a58209c-7ae6-4027-afb0-307a78e4589a
+      type: derived
+status: deprecated
+description: Detect modification for a specific user to prevent that user from being listed on the logon screen
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/40b77d63808dd4f4eafb83949805636735a1fd15/atomics/T1564.002/T1564.002.md
+author: frack113
+date: 2022-08-20
+modified: 2023-08-17
+tags:
+    - attack.defense-evasion
+    - attack.t1564.002
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\Userlist\
+        ObjectName|endswith: $
+        NewValue: DWORD (0x00000000)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

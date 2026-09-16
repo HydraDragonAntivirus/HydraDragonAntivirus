@@ -1,0 +1,49 @@
+title: Potential Dosfuscation Activity
+id: 36ba8d76-4fdf-3abb-4c9c-7ea35a6dcd90
+related:
+    - id: a77c1610-fc73-4019-8e29-0f51efc04a51
+      type: derived
+status: test
+description: Detects possible payload obfuscation via the commandline
+references:
+    - https://www.fireeye.com/content/dam/fireeye-www/blog/pdfs/dosfuscation-report.pdf
+    - https://github.com/danielbohannon/Invoke-DOSfuscation
+author: frack113, Nasreddine Bencherchali (Nextron Systems)
+date: 2022-02-15
+modified: 2023-03-06
+tags:
+    - attack.execution
+    - attack.t1059
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|contains:
+            - ^^
+            - ^|^
+            - ',;,'
+            - ;;;;
+            - ;; ;;
+            - (,(,
+            - '%COMSPEC:~'
+            - ' c^m^d'
+            - ^c^m^d
+            - ' c^md'
+            - ' cm^d'
+            - ^cm^d
+            - ' s^et '
+            - ' s^e^t '
+            - ' se^t '
+            # - '%%'
+            # - '&&'
+            # - '""'
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

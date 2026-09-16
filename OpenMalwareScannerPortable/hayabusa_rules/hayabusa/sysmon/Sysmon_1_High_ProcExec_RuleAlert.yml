@@ -1,0 +1,74 @@
+author: Zach Mathis
+date: 2021-12-11
+modified: 2023-01-13
+
+title: Proc Exec (Sysmon Alert)
+description: Sysmon process creation
+details: 'Rule: %RuleName% ¦ Cmdline: %CommandLine% ¦ Proc: %Image% ¦ User: %User% ¦ ParentCmdline: %ParentCommandLine% ¦ LID: %LogonId% ¦ LGUID: %LogonGuid% ¦ PID: %ProcessId% ¦ PGUID: %ProcessGuid% ¦ ParentPID: %ParentProcessId% ¦ ParentPGUID: %ParentProcessGuid% ¦ Description: %Description% ¦ Product: %Product% ¦ Company: %Company% ¦ Hashes: %Hashes%'
+
+id: d5e4fb89-b027-43bf-bd3a-2e7f74f105ac
+level: high
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 1
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+    - bad sysmon rule
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>1</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>1</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2020-03-21T12:36:06.990686500Z"/>
+            <EventRecordID>244342</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="2844" ThreadID="3648"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>MSEDGEWIN10</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">suspicious execution path</Data>
+            <Data Name="UtcTime">2020-03-21 12:36:06.987</Data>
+            <Data Name="ProcessGuid">{747F3D96-0A36-5E76-0000-0010C8923D00}</Data>
+            <Data Name="ProcessId">488</Data>
+            <Data Name="Image">C:\Users\Public\Tools\nc.exe</Data>
+            <Data Name="FileVersion">?</Data>
+            <Data Name="Description">?</Data>
+            <Data Name="Product">?</Data>
+            <Data Name="Company">?</Data>
+            <Data Name="OriginalFileName">?</Data>
+            <Data Name="CommandLine">nc.exe 127.0.0.1 1337</Data>
+            <Data Name="CurrentDirectory">c:\Users\Public\Tools\</Data>
+            <Data Name="User">MSEDGEWIN10\IEUser</Data>
+            <Data Name="LogonGuid">{747F3D96-06A4-5E76-0000-002087DE0200}</Data>
+            <Data Name="LogonId">0x2de87</Data>
+            <Data Name="TerminalSessionId">1</Data>
+            <Data Name="IntegrityLevel">Medium</Data>
+            <Data Name="Hashes">SHA1=08664F5C3E07862AB9B531848AC92D08C8C6BA5A,MD5=E0DB1D3D47E312EF62E5B0C74DCEAFE5,SHA256=B3B207DFAB2F429CC352BA125BE32A0CAE69FE4BF8563AB7D0128BBA8C57A71C,IMPHASH=98CE7B6533CBD67993E36DAFB4E95946</Data>
+            <Data Name="ParentProcessGuid">{747F3D96-06EF-5E76-0000-0010DC301A00}</Data>
+            <Data Name="ParentProcessId">6236</Data>
+            <Data Name="ParentImage">C:\Windows\System32\cmd.exe</Data>
+            <Data Name="ParentCommandLine">"C:\Windows\system32\cmd.exe"</Data>
+        </EventData>
+    </Event>

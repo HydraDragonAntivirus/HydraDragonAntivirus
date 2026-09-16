@@ -1,0 +1,73 @@
+author: Zach Mathis
+date: 2022-12-07
+modified: 2025-02-10
+
+title: RDP Logon
+details: 'TgtUser: %UserDataParam1% ¦ Domain: %UserDataParam2% ¦ SrcIP: %UserDataParam3%'
+description: |
+    Logon for RDS (Remote Desktop Services). Formerly known as Terminal Services.
+    Uses RDP so I am refering to these as RDP Logons as that is what most people will expect.
+    On newer OSes (Win 7+, 2012+), this event is logged only when a user successfully logs on to a RDP session.
+    On older OSes (Vista, 2008), this event is logged when a user logs on to a RDP session, regardless of success.
+    This event might be be created when rdesktop is used as a client and NLA is disabled.
+    User and domain names are empty if the server is configured with Restricted Admin.
+    Information in this event is also found in the Security event log.
+
+id: e91c514e-08c5-4c42-96d7-ab1f5668a2f7
+level: informational
+status: stable
+logsource:
+    product: windows
+detection:
+    selection:
+        Channel: 'Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational'
+        EventID: 1149
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+    - attack.initial-access
+references:
+    - https://www.cybertriage.com/artifact/terminalservices_remoteconnectionmanager_log/terminalservices_remoteconnectionmanager_operational_1149/
+    - https://ponderthebits.com/2018/02/windows-rdp-related-event-logs-identification-tracking-and-investigation/
+    - http://blog.kiddaland.net/2015/02/remote-desktop-connections-terminal.html
+    - https://dfironthemountain.wordpress.com/2019/02/15/rdp-event-log-dfir/
+    - https://port139.hatenablog.com/entry/2019/03/23/091740
+    - https://digitalforensicsurvivalpodcast.com/2023/01/31/dfsp-363-rdp-forensics/
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-R2-and-2008/ee907328(v=ws.10)?redirectedfrom=MSDN
+ruletype: Hayabusa
+
+sample-message: |
+    Remote Desktop Services: User authentication succeeded:
+
+    User: 
+    Domain: 
+    Source Network Address: 122.6.150.75
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TerminalServices-RemoteConnectionManager" Guid="{c76baa63-ae81-421c-b425-340b4b24157f}" /> 
+            <EventID>1149</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>0</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x1000000000000000</Keywords> 
+            <TimeCreated SystemTime="2022-11-23T01:56:00.348568100Z" /> 
+            <EventRecordID>4875995</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="2204" ThreadID="1464" /> 
+            <Channel>Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational</Channel> 
+            <Computer>WIN-QQ5OQGMLMPS</Computer> 
+            <Security UserID="S-1-5-20" /> 
+        </System>
+        <UserData>
+            <EventXML xmlns:auto-ns2="http://schemas.microsoft.com/win/2004/08/events" xmlns="Event_NS">
+                <Param1 /> 
+                <Param2 /> 
+                <Param3>122.6.150.75</Param3> 
+            </EventXML>
+        </UserData>
+    </Event>

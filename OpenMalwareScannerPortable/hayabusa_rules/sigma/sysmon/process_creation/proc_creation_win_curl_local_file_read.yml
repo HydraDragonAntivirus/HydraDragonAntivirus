@@ -1,0 +1,32 @@
+title: Local File Read Using Curl.EXE
+id: fb7de64f-4982-e8c5-f82f-7c46961f3aad
+related:
+    - id: aa6f6ea6-0676-40dd-b510-6e46f02d8867
+      type: derived
+status: test
+description: Detects execution of "curl.exe" with the "file://" protocol handler in order to read local files.
+references:
+    - https://curl.se/docs/manpage.html
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-07-27
+tags:
+    - attack.execution
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \curl.exe
+        - OriginalFileName: curl.exe
+    selection_cli:
+        CommandLine|contains: file:///
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_curl_local_file_read/info.yml
+ruletype: Sigma

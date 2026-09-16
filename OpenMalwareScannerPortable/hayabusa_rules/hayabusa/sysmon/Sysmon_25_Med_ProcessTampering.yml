@@ -1,0 +1,59 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'Proc Tampering'
+description: |
+    Detects process hollowing or process herpaderping techniques which would normally not be visible in Task Manager.
+    Process hollowing is when malware launches a legitimate process in a suspended state and replaces legitimate code in the process with malicious code. 
+    This malicious code is then executed by the process, with whatever permissions are assigned to the process.
+    Process herpaderping is where malware modifies its image on the disk to look like legitimate software after the malware is loaded. 
+    When security software scans the on-disk file, it will see a harmless file while the malicious code runs in memory.
+
+id: c1d21dc3-fcd0-43c7-80d3-b895f0e4c08e
+level: medium
+status: test
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Requires Sysmon 13+ (Released 2021/01/21)'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 25
+    condition: selection_basic
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>25</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>25</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2022-03-25T00:37:33.097948600Z"/>
+            <EventRecordID>6301</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="7348" ThreadID="5744"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>YAMATOSECURITY</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">-</Data>
+            <Data Name="UtcTime">2022-03-25 00:37:33.097</Data>
+            <Data Name="ProcessGuid">{AC6A4E42-0ECD-623D-6D01-000000005B00}</Data>
+            <Data Name="ProcessId">6876</Data>
+            <Data Name="Image">C:\Windows\System32\cmd.exe</Data>
+            <Data Name="Type">Image is replaced</Data>
+            <Data Name="User">YAMATOSECURITY\tanaka</Data>
+        </EventData>
+    </Event>

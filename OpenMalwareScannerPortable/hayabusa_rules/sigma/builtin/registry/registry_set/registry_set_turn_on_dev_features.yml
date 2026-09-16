@@ -1,0 +1,37 @@
+title: Potential Signing Bypass Via Windows Developer Features - Registry
+id: eea69d1c-b62d-d58f-4ee3-82f9053a20ea
+related:
+    - id: a383dec4-deec-4e6e-913b-ed9249670848
+      type: similar
+    - id: b110ebaf-697f-4da1-afd5-b536fa27a2c1
+      type: derived
+status: test
+description: Detects when the enablement of developer features such as "Developer Mode" or "Application Sideloading". Which allows the user to install untrusted packages.
+references:
+    - https://twitter.com/malmoeb/status/1560536653709598721
+    - https://www.sentinelone.com/labs/inside-malicious-windows-apps-for-malware-deployment/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-01-12
+modified: 2023-08-17
+tags:
+    - attack.stealth
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains:
+            - \Microsoft\Windows\CurrentVersion\AppModelUnlock
+            - \Policies\Microsoft\Windows\Appx\
+        ObjectName|endswith:
+            - \AllowAllTrustedApps
+            - \AllowDevelopmentWithoutDevLicense
+        NewValue: DWORD (0x00000001)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

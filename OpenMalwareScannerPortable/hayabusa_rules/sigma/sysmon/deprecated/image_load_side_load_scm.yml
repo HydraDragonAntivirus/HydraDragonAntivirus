@@ -1,0 +1,39 @@
+title: SCM DLL Sideload
+id: 3e00f06e-5d3d-bbf7-4695-8c1891cdaf45
+related:
+    - id: 602a1f13-c640-4d73-b053-be9a2fa58b77
+      type: similar
+    - id: bc3cc333-48b9-467a-9d1f-d44ee594ef48
+      type: derived
+status: deprecated
+description: Detects DLL sideloading of DLLs that are loaded by the SCM for some services (IKE, IKEEXT, SessionEnv) which do not exists on a typical modern system
+references:
+    - https://decoded.avast.io/martinchlumecky/png-steganography/
+    - https://posts.specterops.io/lateral-movement-scm-and-dll-hijacking-primer-d2f61e8ab992
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-12-01
+modified: 2023-02-14
+tags:
+    - attack.defense-evasion
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded:
+            - C:\Windows\System32\WLBSCTRL.dll
+            - C:\Windows\System32\TSMSISrv.dll
+            - C:\Windows\System32\TSVIPSrv.dll
+        Image: C:\Windows\System32\svchost.exe
+    condition: image_load and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

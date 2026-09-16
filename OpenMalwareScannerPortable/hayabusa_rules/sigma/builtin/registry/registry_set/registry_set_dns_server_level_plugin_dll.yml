@@ -1,0 +1,39 @@
+title: New DNS ServerLevelPluginDll Installed
+id: 1c9de880-3d26-4614-f41f-a4d975e609ff
+related:
+    - id: cbe51394-cd93-4473-b555-edf0144952d9
+      type: derived
+    - id: f63b56ee-3f79-4b8a-97fb-5c48007e8573
+      type: derived
+    - id: e61e8a88-59a9-451c-874e-70fcc9740d67
+      type: derived
+status: test
+description: Detects the installation of a DNS plugin DLL via ServerLevelPluginDll parameter in registry, which can be used to execute code in context of the DNS server (restart required)
+references:
+    - https://medium.com/@esnesenon/feature-not-bug-dnsadmin-to-dc-compromise-in-one-line-a0f779b8dc83
+    - https://blog.3or.de/hunting-dns-server-level-plugin-dll-injection.html
+author: Florian Roth (Nextron Systems)
+date: 2017-05-08
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.execution
+    - attack.stealth
+    - attack.defense-impairment
+    - attack.t1574.001
+    - attack.t1112
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|endswith: \services\DNS\Parameters\ServerLevelPluginDll
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

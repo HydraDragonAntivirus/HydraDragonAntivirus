@@ -1,0 +1,34 @@
+title: Suspicious RDP Redirect Using TSCON
+id: 6298bc5a-8531-181e-ed54-4efcb3e30e05
+related:
+    - id: f72aa3e8-49f9-4c7d-bd74-f8ab84ff9bbb
+      type: derived
+status: test
+description: Detects a suspicious RDP session redirect using tscon.exe
+references:
+    - http://www.korznikov.com/2017/03/0-day-or-feature-privilege-escalation.html
+    - https://medium.com/@networksecurity/rdp-hijacking-how-to-hijack-rds-and-remoteapp-sessions-transparently-to-move-through-an-da2a1e73a5f6
+    - https://www.hackingarticles.in/rdp-session-hijacking-with-tscon/
+author: Florian Roth (Nextron Systems)
+date: 2018-03-17
+modified: 2023-05-16
+tags:
+    - attack.lateral-movement
+    - attack.t1563.002
+    - attack.t1021.001
+    - car.2013-07-002
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|contains: ' /dest:rdp-tcp#'
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

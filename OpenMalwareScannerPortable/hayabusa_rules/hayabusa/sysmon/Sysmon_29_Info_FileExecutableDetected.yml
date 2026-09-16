@@ -1,0 +1,24 @@
+author: Zach Mathis
+date: 2023-06-28
+modified: 2023-06-28
+
+title: 'Executable File Creation'
+description: 'A new executable (PE format file) was created.'
+
+id: 3cbef506-93eb-4fdc-ae32-eac668c36f00
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Requires Sysmon 15+ (Released 2023/06/27)'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 29
+    condition: selection_basic
+falsepositives:
+tags:
+    - sysmon
+references:
+ruletype: Hayabusa

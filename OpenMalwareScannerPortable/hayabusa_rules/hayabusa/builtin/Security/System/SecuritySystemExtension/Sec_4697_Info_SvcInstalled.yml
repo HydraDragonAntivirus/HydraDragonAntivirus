@@ -1,0 +1,70 @@
+author: Zach Mathis
+date: 2022-04-14
+modified: 2022-12-16
+
+title: 'Svc Installed'
+description: 'A new service was installed. (Possibly malware.)'
+
+id: 95fe88c9-5b9d-4454-97b4-957918b84208
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4697
+    condition: selection
+falsepositives:
+    - application installed
+tags:
+    - attack.persistence
+references:
+ruletype: Hayabusa
+
+sample-message: |
+    A service was installed in the system.
+
+    Subject:
+        Security ID:		S-1-5-21-2631427795-3543736937-124197156-1112
+        Account Name:		user
+        Account Domain:		WINDOMAIN
+        Logon ID:		    0x1945C67
+
+    Service Information:
+        Service Name: 		rdphijack2
+        Service File Name:	cmd.exe /k tscon 2 /dest rdp-tcp#14
+        Service Type: 		0x10
+        Service Start Type:	3
+        Service Account: 	LocalSystem
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}" /> 
+            <EventID>4697</EventID> 
+            <Version>0</Version> 
+            <Level>0</Level> 
+            <Task>12289</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8020000000000000</Keywords> 
+            <TimeCreated SystemTime="2022-02-08T20:33:10.918267200Z" /> 
+            <EventRecordID>284384</EventRecordID> 
+            <Correlation ActivityID="{CD4E5D70-1D10-0001-895D-4ECD101DD801}" /> 
+            <Execution ProcessID="596" ThreadID="5504" /> 
+            <Channel>Security</Channel> 
+            <Computer>wef.windomain.local</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-21-2631427795-3543736937-124197156-1112</Data> 
+            <Data Name="SubjectUserName">user</Data> 
+            <Data Name="SubjectDomainName">WINDOMAIN</Data> 
+            <Data Name="SubjectLogonId">0x1945c67</Data> 
+            <Data Name="ServiceName">rdphijack2</Data> 
+            <Data Name="ServiceFileName">cmd.exe /k tscon 2 /dest rdp-tcp#14</Data> 
+            <Data Name="ServiceType">0x10</Data> 
+            <Data Name="ServiceStartType">3</Data> 
+            <Data Name="ServiceAccount">LocalSystem</Data> 
+        </EventData>
+    </Event>

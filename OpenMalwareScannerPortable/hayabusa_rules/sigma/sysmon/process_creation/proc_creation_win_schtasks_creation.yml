@@ -1,0 +1,50 @@
+title: Scheduled Task Creation Via Schtasks.EXE
+id: 9e908a0b-f7d5-51c6-8de1-1367afca2955
+related:
+    - id: 92626ddd-662c-49e3-ac59-f6535f12d189
+      type: derived
+status: test
+description: Detects the creation of scheduled tasks by user accounts via the "schtasks" utility.
+references:
+    - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/schtasks-create
+author: Florian Roth (Nextron Systems)
+date: 2019-01-16
+modified: 2025-10-22
+tags:
+    - attack.execution
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1053.005
+    - attack.s0111
+    - car.2013-08-001
+    - stp.1u
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \schtasks.exe
+        CommandLine|contains: ' /create '
+    filter_main_system_user:
+        User|contains: # covers many language settings
+            - AUTHORI
+            - AUTORI
+    filter_optional_msoffice:
+        #  schtasks.exe /Create /tn "Microsoft\Office\Office Performance Monitor" /XML "C:\ProgramData\Microsoft\ClickToRun\{9AC08E99-230B-47e8-9721-4577B7F124EA}\Microsoft_Office_Office Performance Monitor.xml"
+        ParentImage:
+            - C:\Program Files\Microsoft Office\root\integration\integrator.exe
+            - C:\Program Files (x86)\Microsoft Office\root\integration\integrator.exe
+        Image:
+            - C:\Windows\System32\schtasks.exe
+            - C:\Windows\SysWOW64\schtasks.exe
+        CommandLine|contains: Microsoft\Office\Office Performance Monitor
+    condition: process_creation and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Administrative activity
+    - Software installation
+level: low
+ruletype: Sigma

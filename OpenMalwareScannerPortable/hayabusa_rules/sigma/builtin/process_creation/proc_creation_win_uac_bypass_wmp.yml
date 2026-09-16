@@ -1,0 +1,38 @@
+title: UAC Bypass Using Windows Media Player - Process
+id: 3ff6fb4d-1767-844e-dbf0-3bfa8dd55d56
+related:
+    - id: 0058b9e5-bcd7-40d4-9205-95ca5a16d7b2
+      type: derived
+status: test
+description: Detects the pattern of UAC Bypass using Windows Media Player osksupport.dll (UACMe 32)
+references:
+    - https://github.com/hfiref0x/UACME
+author: Christian Burkard (Nextron Systems)
+date: 2021-08-23
+modified: 2024-12-01
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img_1:
+        NewProcessName: C:\Program Files\Windows Media Player\osk.exe
+    selection_img_2:
+        ParentCommandLine: '"C:\Windows\system32\mmc.exe" "C:\Windows\system32\eventvwr.msc" /s'
+        NewProcessName: C:\Windows\System32\cmd.exe
+    selection_integrity:
+        MandatoryLabel:
+            - S-1-16-12288
+            - S-1-16-16384
+            - None
+            - None
+    condition: process_creation and (1 of selection_img_* and selection_integrity)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

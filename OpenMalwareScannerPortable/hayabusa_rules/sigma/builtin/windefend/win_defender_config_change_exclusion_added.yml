@@ -1,0 +1,29 @@
+title: Windows Defender Exclusions Added
+id: 13020ca6-8f32-26e1-25d6-1f727e58de89
+related:
+    - id: 1321dc4e-a1fe-481d-a016-52c45f0c8b4f
+      type: derived
+status: stable
+description: Detects the Setting of Windows Defender Exclusions
+references:
+    - https://twitter.com/_nullbind/status/1204923340810543109
+author: Christian Burkard (Nextron Systems)
+date: 2021-07-06
+modified: 2022-12-06
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+logsource:
+    product: windows
+    service: windefend
+detection:
+    windefend:
+        Channel: Microsoft-Windows-Windows Defender/Operational
+    selection:
+        EventID: 5007 # The antimalware platform configuration changed.
+        NewValue|contains: \Microsoft\Windows Defender\Exclusions
+    condition: windefend and selection
+falsepositives:
+    - Administrator actions
+level: medium
+ruletype: Sigma

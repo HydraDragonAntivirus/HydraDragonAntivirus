@@ -1,0 +1,67 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2023-01-13
+
+title: 'Proc Injection'
+description: |
+    The CreateRemoteThread (Process Injection) event detects when a process creates a thread in another process. 
+    This technique is used by malware to inject code and hide in other processes. 
+    The event indicates the source and target process. 
+    It gives information on the code that will be run in the new thread: StartAddress, StartModule and StartFunction. 
+    Note that StartModule and StartFunction fields are inferred, they might be empty if the starting address is outside loaded modules or known exported functions.
+
+id: 3ac6bf98-e71d-4397-8b44-b8a80d8fb058
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 8
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and selection_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>8</EventID>
+            <Version>2</Version>
+            <Level>4</Level>
+            <Task>8</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2020-10-17T11:43:45.130922200Z"/>
+            <EventRecordID>417084</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="3500" ThreadID="4688"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>MSEDGEWIN10</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName"/>
+            <Data Name="UtcTime">2020-10-17 11:43:45.126</Data>
+            <Data Name="SourceProcessGuid">{747F3D96-D8E5-5F8A-0000-0010E1BC7200}</Data>
+            <Data Name="SourceProcessId">2920</Data>
+            <Data Name="SourceImage">C:\Users\IEUser\AppData\Roaming\WINWORD.exe</Data>
+            <Data Name="TargetProcessGuid">{747F3D96-D8F1-5F8A-0000-00108B4B7300}</Data>
+            <Data Name="TargetProcessId">1576</Data>
+            <Data Name="TargetImage">C:\Users\IEUser\AppData\Roaming\WINWORD.exe</Data>
+            <Data Name="NewThreadId">7068</Data>
+            <Data Name="StartAddress">0x0000000000960000</Data>
+            <Data Name="StartModule"/>
+            <Data Name="StartFunction"/>
+        </EventData>
+    </Event>

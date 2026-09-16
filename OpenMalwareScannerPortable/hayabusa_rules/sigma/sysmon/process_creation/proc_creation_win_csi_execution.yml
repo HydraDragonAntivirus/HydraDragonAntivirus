@@ -1,0 +1,43 @@
+title: Suspicious Csi.exe Usage
+id: e8cd5d62-6f90-b985-aaaf-f56e5e08e294
+related:
+    - id: 40b95d31-1afc-469e-8d34-9a3a667d058e
+      type: derived
+status: test
+description: Csi.exe is a signed binary from Microsoft that comes with Visual Studio and provides C# interactive capabilities. It can be used to run C# code from a file passed as a parameter in command line. Early version of this utility provided with Microsoft “Roslyn” Community Technology Preview was named 'rcsi.exe'
+references:
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/Csi/
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/Rcsi/
+    - https://enigma0x3.net/2016/11/21/bypassing-application-whitelisting-by-using-rcsi-exe/
+    - https://twitter.com/Z3Jpa29z/status/1317545798981324801
+author: Konstantin Grishchenko, oscd.community
+date: 2020-10-17
+modified: 2022-07-11
+tags:
+    - attack.lateral-movement
+    - attack.execution
+    - attack.stealth
+    - attack.t1072
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith:
+              - \csi.exe
+              - \rcsi.exe
+        - OriginalFileName:
+              - csi.exe
+              - rcsi.exe
+    selection_cli:
+        Company: Microsoft Corporation
+    condition: process_creation and (all of selection*)
+falsepositives:
+    - Legitimate usage by software developers
+level: medium
+ruletype: Sigma

@@ -1,0 +1,40 @@
+title: DLL Loaded From Suspicious Location Via Cmspt.EXE
+id: 112766db-9b82-e36d-a22f-f745b3b7a366
+related:
+    - id: 75e508f7-932d-4ebc-af77-269237a84ce1
+      type: derived
+status: test
+description: Detects cmstp loading "dll" or "ocx" files from suspicious locations
+references:
+    - https://github.com/vadim-hunter/Detection-Ideas-Rules/blob/02bcbfc2bfb8b4da601bb30de0344ae453aa1afe/TTPs/Defense%20Evasion/T1218%20-%20Signed%20Binary%20Proxy%20Execution/T1218.003%20-%20CMSTP/Procedures.yaml
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-30
+modified: 2023-02-17
+tags:
+    - attack.stealth
+    - attack.t1218.003
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \cmstp.exe
+        ImageLoaded|contains:
+            # Add more suspicious paths as you see fit in your env
+            - \PerfLogs\
+            - \ProgramData\
+            - \Users\
+            - \Windows\Temp\
+            - C:\Temp\
+        ImageLoaded|endswith:
+            - .dll
+            - .ocx
+    condition: image_load and selection
+falsepositives:
+    - Unikely
+level: high
+ruletype: Sigma

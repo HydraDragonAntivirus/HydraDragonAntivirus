@@ -1,0 +1,60 @@
+author: Zach Mathis
+date: 2024-05-19
+modified: 2024-05-19
+
+title: 'BSOD'
+details: 'ErrorCodes: %param1% ¦ MemoryDump: %param2%'
+description: |
+    Blue Screen Of Death. MS calls these Bug Check Errors.
+    param1 will contain various error codes for debugging:
+    example: 0x0000009f (0x0000000000000003, 0xffffe682fdfaf570, 0xfffff800666c4750, 0xffffe6831844f050)
+        - 0x0000009f is the Bug Check Code (a.k.a. Stop Code) meaning DRIVER_POWER_STATE_FAILURE
+        - 0x0000000000000003 indicates the type of inconsistency. In this case, 0x3 means the system is transitioning from a sleep state (S4 or S5) to an awake state (S0).
+        - 0xffffe682fdfaf570 is a pointer to the DEVICE_OBJECT structure representing the device that is being enumerated.
+        - 0xfffff800666c4750 is a pointer to the IRP (I/O Request Packet) that was pending for the device object.
+        - 0xffffe6831844f050 is a pointer to the NTSTATUS code indicating the cause of the failure.
+    param2 is the path to a memory dump (ex: C:\WINDOWS\MEMORY.DMP)
+    param3 is the report ID (ex: cf65ecb3-8a81-4a04-89ae-8d1fff1aecf8)
+
+id: 082fbbf5-bb05-468c-ad9c-ef2a383bb293
+level: medium
+status: test
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: 'System'
+        ProviderName: Microsoft-Windows-WER-SystemErrorReporting
+        EventID: 1001
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa
+
+hayabusa-sample-message: 'The computer has rebooted from a bugcheck.  The bugcheck was: 0x0000009f (0x0000000000000003, 0xffffe682fdfaf570, 0xfffff800666c4750, 0xffffe6831844f050). A dump was saved in: C:\WINDOWS\MEMORY.DMP. Report Id: cf65ecb3-8a81-4a04-89ae-8d1fff1aecf8.'
+hayabusa-sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-WER-SystemErrorReporting" Guid="{ABCE23E7-DE45-4366-8631-84FA6C525952}" EventSourceName="BugCheck" /> 
+            <EventID Qualifiers="16384">1001</EventID> 
+            <Version>0</Version> 
+            <Level>2</Level> 
+            <Task>0</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x80000000000000</Keywords> 
+            <TimeCreated SystemTime="2021-07-12T03:31:41.5408058Z" /> 
+            <EventRecordID>18305</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="0" ThreadID="0" /> 
+            <Channel>System</Channel> 
+            <Computer>computer</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data Name="param1">0x0000009f (0x0000000000000003, 0xffffe682fdfaf570, 0xfffff800666c4750, 0xffffe6831844f050)</Data> 
+            <Data Name="param2">C:\WINDOWS\MEMORY.DMP</Data> 
+            <Data Name="param3">cf65ecb3-8a81-4a04-89ae-8d1fff1aecf8</Data> 
+        </EventData>
+    </Event>

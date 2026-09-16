@@ -1,0 +1,34 @@
+title: Important Windows Service Terminated Unexpectedly
+id: d3c329c7-54bd-4896-cc7d-e04077eba081
+related:
+    - id: 56abae0c-6212-4b97-adc0-0b559bb950c3
+      type: derived
+status: test
+description: Detects important or interesting Windows services that got terminated unexpectedly.
+references:
+    - https://www.randori.com/blog/vulnerability-analysis-queuejumper-cve-2023-21554/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-04-14
+tags:
+    - attack.stealth
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection_eid:
+        Provider_Name: Service Control Manager
+        EventID: 7034 # The X service terminated unexpectedly. It has done this Y time(s).
+    selection_name:
+        # Note that these names contained in "param1" are "Display Names" and are language specific. If you're using a non-english system these can and will be different
+        - param1|contains: Message Queuing
+        # Use this If you collect the binary value provided from this event, which is the wide hex encoded value of the service name.
+        - Binary|contains:
+              - 4d0053004d005100   # MSMQ (Microsoft Message Queuing). Encoded in upper case just in case
+              - 6d0073006d007100   # msmq
+    condition: system and (all of selection_*)
+falsepositives:
+    - Rare false positives could occur since service termination could happen due to multiple reasons
+level: high
+ruletype: Sigma

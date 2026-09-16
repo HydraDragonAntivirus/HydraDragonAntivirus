@@ -17,10 +17,6 @@ pub(crate) fn get_pe_model_ref() -> Option<&'static super::model::MalwareNet<Inf
     get_pe_model()
 }
 
-pub(crate) fn get_js_model_ref() -> Option<&'static super::model::MalwareNet<InferBackend>> {
-    get_js_model()
-}
-
 /// Resolve an ML model file across all runtime contexts:
 /// 1. Registry HKLM\SOFTWARE\Owlyshield\SDK (DATABASE_PATH/MODELS_PATH) with 64/32-bit hive support
 /// 2. Loaded module directory (owlyshield_ransom.dll or companion DLL)
@@ -194,12 +190,39 @@ pub fn is_ml_detection_name(name: &str) -> bool {
 }
 
 /// Detects PE executables and JavaScript by CONTENT (never by extension —
-/// renamed samples must not escape). File typing comes from the ClamAV engine;
-/// JS additionally requires an ASCII body that trial-parses as code.
+/// renamed samples must not escape). PE is gated on the MZ magic; JS requires
+/// an ASCII body that trial-parses as code.
 /// Uses calibrated 0.70 threshold and no custom whitelisting/signature rules.
 pub fn fast_detect_file(path_str: &str, _iomsg: &IOMessage) -> Option<FastDetectionResult> {
     fast_detect_path(path_str)
 }
+
+/// PE gate: MZ magic header. (Formerly also consulted ClamAV target typing;
+/// the ClamAV integration was removed — MZ alone routes to the PE model.)
+fn is_pe_bytes_local(bytes: &[u8]) -> bool {
+    bytes.len() >= 2 && bytes[..2] == *b"MZ"
+}
+
+/// JS gate: ASCII body that trial-parses as code (no extension involved).
+/// Formerly also excluded ClamAV-typed non-script formats; without the ClamAV
+/// engine the text+parse gates alone decide and the MODEL makes the verdict.
+fn is_js_candidate_local(bytes: &[u8]) -> bool {
+    if !hydradragonclamav::is_text_like(bytes) {
+        return false;
+    }
+    let head = &bytes[..bytes.len().min(JS_PARSE_CAP)];
+    let Ok(source) = std::str::from_utf8(head) else {
+        return false;
+    };
+    let allocator = oxc_allocator::Allocator::default();
+    let ret = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::mjs()).parse();
+    ret.errors.len() <= 3
+}
+
+/// JS trial-parse cap: the gate parses at most this prefix. Real scripts
+/// declare themselves early; bounding the parse keeps big text files cheap.
+/// Inference itself (predict_js) still runs on the FULL content.
+const JS_PARSE_CAP: usize = 512 * 1024;
 
 /// Detects PE executables and JavaScript by CONTENT (never by extension —
 /// renamed samples must not escape). File typing comes from the ClamAV engine;

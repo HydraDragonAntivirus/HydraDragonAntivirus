@@ -1,0 +1,37 @@
+title: UAC Bypass Using ChangePK and SLUI
+id: 6f1c48cf-ca24-9def-3a7c-bd81baec1f58
+related:
+    - id: 503d581c-7df0-4bbe-b9be-5840c0ecc1fc
+      type: derived
+status: test
+description: Detects an UAC bypass that uses changepk.exe and slui.exe (UACMe 61)
+references:
+    - https://mattharr0ey.medium.com/privilege-escalation-uac-bypass-in-changepk-c40b92818d1b
+    - https://github.com/hfiref0x/UACME
+    - https://medium.com/falconforce/falconfriday-detecting-uac-bypasses-0xff16-86c2a9107abf
+author: Christian Burkard (Nextron Systems)
+date: 2021-08-23
+modified: 2024-12-01
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        NewProcessName|endswith: \changepk.exe
+        ParentProcessName|endswith: \slui.exe
+        MandatoryLabel:
+            - S-1-16-12288
+            - S-1-16-16384
+            - None
+            - None
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

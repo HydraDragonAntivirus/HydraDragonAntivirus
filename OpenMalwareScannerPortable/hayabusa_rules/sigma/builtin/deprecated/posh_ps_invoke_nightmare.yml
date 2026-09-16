@@ -1,0 +1,32 @@
+title: PrintNightmare Powershell Exploitation
+id: 5eb9df17-06bd-e2fe-8871-13bd6bd36406
+related:
+    - id: 6d3f1399-a81c-4409-aff3-1ecfe9330baf
+      type: derived
+status: deprecated
+description: Detects Commandlet name for PrintNightmare exploitation.
+references:
+    - https://github.com/calebstewart/CVE-2021-1675
+author: Max Altgelt (Nextron Systems), Tobias Michalski (Nextron Systems)
+date: 2021-08-09
+modified: 2023-01-02
+tags:
+    - attack.privilege-escalation
+    - attack.t1548
+logsource:
+    product: windows
+    category: ps_script
+    definition: Script Block Logging must be enabled
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains: Invoke-Nightmare
+    condition: ps_script and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

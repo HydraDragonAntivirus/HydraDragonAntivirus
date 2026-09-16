@@ -1,0 +1,37 @@
+title: VMGuestLib DLL Sideload
+id: 84144209-4e44-b4ab-79f9-c620adcf20f0
+related:
+    - id: 70e8e9b4-6a93-4cb7-8cde-da69502e7aff
+      type: derived
+status: test
+description: Detects DLL sideloading of VMGuestLib.dll by the WmiApSrv service.
+references:
+    - https://decoded.avast.io/martinchlumecky/png-steganography/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-12-01
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|contains|all:
+            - \VMware\VMware Tools\vmStatsProvider\win32
+            - \vmGuestLib.dll
+        Image|endswith: \Windows\System32\wbem\WmiApSrv.exe
+    filter:
+        Signed: 'true'
+    condition: image_load and (selection and not filter)
+falsepositives:
+    - FP could occur if the legitimate version of vmGuestLib already exists on the system
+level: medium
+ruletype: Sigma

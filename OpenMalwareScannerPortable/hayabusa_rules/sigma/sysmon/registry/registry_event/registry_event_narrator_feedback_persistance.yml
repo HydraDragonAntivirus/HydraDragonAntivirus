@@ -1,0 +1,38 @@
+title: Narrator's Feedback-Hub Persistence
+id: d5ddafb3-fb0b-105f-3873-9f799959cbc1
+related:
+    - id: f663a6d9-9d1b-49b8-b2b1-0637914d199a
+      type: derived
+status: test
+description: Detects abusing Windows 10 Narrator's Feedback-Hub
+references:
+    - https://giuliocomi.blogspot.com/2019/10/abusing-windows-10-narrators-feedback.html
+author: Dmitriy Lifanov, oscd.community
+date: 2019-10-25
+modified: 2022-03-26
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+    - sysmon
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID:
+            - 12
+            - 13
+            - 14
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection1:
+        EventType: DeleteValue
+        TargetObject|endswith: \AppXypsaf9f1qserqevf0sws76dx4k9a5206\Shell\open\command\DelegateExecute
+    selection2:
+        TargetObject|endswith: \AppXypsaf9f1qserqevf0sws76dx4k9a5206\Shell\open\command\(Default)
+    # Add the payload in the (Default)
+    condition: registry_event and (1 of selection*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

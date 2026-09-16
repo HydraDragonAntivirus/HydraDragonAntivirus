@@ -1,0 +1,43 @@
+title: Potential Privilege Escalation via Service Permissions Weakness
+id: 6892131f-2a7b-42b3-fb4a-34c6e35b76c0
+related:
+    - id: 0f9c21f1-6a73-4b0e-9809-cb562cb8d981
+      type: derived
+status: test
+description: Detect modification of services configuration (ImagePath, FailureCommand and ServiceDLL) in registry by processes with Medium integrity level
+references:
+    - https://speakerdeck.com/heirhabarov/hunting-for-privilege-escalation-in-windows-environment
+    - https://pentestlab.blog/2017/03/31/insecure-registry-permissions/
+author: Teymur Kheirkhabarov
+date: 2019-10-26
+modified: 2024-12-01
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.011
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        IntegrityLevel:
+            - Medium
+            - S-1-16-8192
+        CommandLine|contains|all:
+            - ControlSet
+            - services
+        CommandLine|contains:
+            - \ImagePath
+            - \FailureCommand
+            - \ServiceDll
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

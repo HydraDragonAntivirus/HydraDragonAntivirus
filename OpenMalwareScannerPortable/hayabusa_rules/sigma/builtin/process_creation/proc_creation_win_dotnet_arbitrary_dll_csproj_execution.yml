@@ -1,0 +1,48 @@
+title: Arbitrary DLL or Csproj Code Execution Via Dotnet.EXE
+id: 7fe031ee-5c6c-0eea-fe28-fb72cbbe1aed
+related:
+    - id: d80d5c81-04ba-45b4-84e4-92eba40e0ad3
+      type: derived
+status: test
+description: Detects execution of arbitrary DLLs or unsigned code via a ".csproj" files via Dotnet.EXE.
+references:
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/Dotnet/
+    - https://twitter.com/_felamos/status/1204705548668555264
+    - https://bohops.com/2019/08/19/dotnet-core-a-vector-for-awl-bypass-defense-evasion/
+author: Beyu Denis, oscd.community
+date: 2020-10-18
+modified: 2025-10-08
+tags:
+    - attack.stealth
+    - attack.t1218
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \dotnet.exe
+        - OriginalFileName: .NET Host
+    selection_cli:
+        CommandLine|endswith:
+            - .csproj
+            - .csproj"
+            - .dll
+            - .dll"
+            - .csproj'
+            - .dll'
+    filter_optional_notepadplus_plus:
+        CommandLine|contains|all:
+            - C:\ProgramData\CSScriptNpp\
+            - '-cscs_path:'
+            - \cs-script\cscs.dll
+        ParentProcessName:
+            - C:\Program Files (x86)\Notepad++\notepad++.exe
+            - C:\Program Files\Notepad++\notepad++.exe
+    condition: process_creation and (all of selection_* and not 1 of filter_optional_*)
+falsepositives:
+    - Legitimate administrator usage
+level: medium
+ruletype: Sigma

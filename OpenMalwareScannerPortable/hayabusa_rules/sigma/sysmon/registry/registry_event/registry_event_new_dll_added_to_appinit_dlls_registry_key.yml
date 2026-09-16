@@ -1,0 +1,42 @@
+title: New DLL Added to AppInit_DLLs Registry Key
+id: b20d8254-7e6d-ebdd-fef0-2d484f186df5
+related:
+    - id: 4f84b697-c9ed-4420-8ab5-e09af5b2345d
+      type: derived
+status: test
+description: DLLs that are specified in the AppInit_DLLs value in the Registry key HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows are loaded by user32.dll into every process that loads user32.dll
+references:
+    - https://eqllib.readthedocs.io/en/latest/analytics/822dc4c5-b355-4df8-bd37-29c458997b8f.html
+author: Ilyas Ochkov, oscd.community, Tim Shelton
+date: 2019-10-25
+modified: 2022-12-25
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1546.010
+    - sysmon
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID:
+            - 12
+            - 13
+            - 14
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - TargetObject|endswith:
+              - \SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_Dlls
+              - \SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_Dlls
+        # Key Rename
+        - NewName|endswith:
+              - \SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_Dlls
+              - \SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_Dlls
+    filter:
+        Details: (Empty)
+    condition: registry_event and (selection and not filter)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

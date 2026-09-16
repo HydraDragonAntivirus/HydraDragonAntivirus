@@ -1,0 +1,28 @@
+author: Zach Mathis
+date: 2023-05-05
+modified: 2023-05-05
+
+title: 'VHD Mounted'
+details: 'Path: %VhdFile% ¦ ReadOnly: %ReadOnly%'
+description: 'A VMGS or VHD (Virtual Hard Disk) image was mounted. They are often used with HyperV.'
+
+id: d00c370c-c6c2-474f-9d41-a250644852b5
+level: low
+status: experimental
+logsource:
+    product: windows
+    service: vhdmp
+    description: Built-in event.
+detection:
+    selection: 
+        Channel: 'Microsoft-Windows-VHDMP-Operational'
+        EventID: 12
+        VhdType: 1 # VMGS/VHD
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa
+
+sample-message:
+sample-evtx:

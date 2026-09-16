@@ -1,0 +1,36 @@
+title: MSDT Execution Via Answer File
+id: 1c07065b-ca3f-f3be-abe0-5c7ec58da3d9
+related:
+    - id: 9c8c7000-3065-44a8-a555-79bcba5d9955
+      type: derived
+status: test
+description: |
+    Detects execution of "msdt.exe" using an answer file which is simulating the legitimate way of calling msdt via "pcwrun.exe" (For example from the compatibility tab).
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Msdt/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-06-13
+modified: 2025-10-29
+tags:
+    - attack.stealth
+    - attack.t1218
+    - attack.execution
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \msdt.exe
+        CommandLine|contains: \WINDOWS\diagnostics\index\PCWDiagnostic.xml
+        CommandLine|contains|windash: ' -af '
+    filter_main_pcwrun:
+        ParentImage|endswith: \pcwrun.exe
+    condition: process_creation and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Possible undocumented parents of "msdt" other than "pcwrun".
+level: high
+ruletype: Sigma

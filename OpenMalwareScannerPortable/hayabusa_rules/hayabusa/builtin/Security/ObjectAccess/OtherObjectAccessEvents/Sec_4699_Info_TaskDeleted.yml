@@ -1,0 +1,64 @@
+author: Zach Mathis
+date: 2022-04-08
+modified: 2022-12-16
+
+title: 'Task Deleted'
+description: Scheduled task was deleted.
+
+id: de5ed02e-e7b5-47a0-a35c-06a907c988e4
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+    description: Other Object Access Events needs to be turned on.
+detection:
+    selection_basic:
+        Channel: Security
+        EventID: 4699
+    condition: selection_basic
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa
+
+sample-message: |
+    A scheduled task was deleted.
+
+    Subject:
+        Security ID:		S-1-5-21-4230534742-2542757381-3142984815-1111
+        Account Name:		admmig
+        Account Domain:		OFFSEC
+        Logon ID:		0x5A419BC
+
+    Task Information:
+        Task Name: 		\bouWFQYO
+        Task Content: 		
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}" /> 
+            <EventID>4699</EventID> 
+            <Version>0</Version> 
+            <Level>0</Level> 
+            <Task>12804</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8020000000000000</Keywords> 
+            <TimeCreated SystemTime="2021-06-10T21:21:26.406652600Z" /> 
+            <EventRecordID>2004855</EventRecordID> 
+            <Correlation ActivityID="{38068009-512D-0000-1D80-06382D51D701}" /> 
+            <Execution ProcessID="556" ThreadID="5604" /> 
+            <Channel>Security</Channel> 
+            <Computer>fs01.offsec.lan</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-21-4230534742-2542757381-3142984815-1111</Data> 
+            <Data Name="SubjectUserName">admmig</Data> 
+            <Data Name="SubjectDomainName">OFFSEC</Data> 
+            <Data Name="SubjectLogonId">0x5a419bc</Data> 
+            <Data Name="TaskName">\bouWFQYO</Data> 
+            <Data Name="TaskContent" /> 
+        </EventData>
+    </Event>

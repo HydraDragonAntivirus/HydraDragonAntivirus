@@ -1,0 +1,65 @@
+author: Zach Mathis
+date: 2024-05-19
+modified: 2024-05-19
+
+title: 'MSI Install'
+details: 'App: %Data[1]% ¦ Ver: %Data[2]% ¦ Lang: %Data[3]% ¦ StatusCode: %Data[4]% ¦ Vendor: %Data[5]%'
+description: |
+    Windows Installer installed software via an MSI file.
+    %Data[1]%: Product Name
+    %Data[2]%: Product Version
+    %Data[3]%: Product Language in LCID format. (Ex: 1033 for English)
+    %Data[4]%: Installation status code. 0 means success.
+    %Data[5]%: Vendor
+    %Data[6]%: Not sure.
+    Binary: Not sure how to decode.
+
+id: ef118d4d-ef83-40a7-bb27-2bb3945473ee
+level: informational
+status: test
+logsource:
+    product: windows
+    service: application
+detection:
+    selection:
+        Channel: 'Application'
+        Provider_Name: MsiInstaller
+        EventID:
+            - 1022
+            - 1033
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa
+
+hayabusa-sample-message: 'Windows Installer installed the product. Product Name: Epson Photo+. Product Version: 3.3.0.0. Product Language: 1033. Manufacturer: Seiko Epson Corporation. Installation success or error status: 0.'
+hayabusa-sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="MsiInstaller" /> 
+            <EventID Qualifiers="0">1033</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>0</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x80000000000000</Keywords> 
+            <TimeCreated SystemTime="2021-01-15T02:14:12.8708371Z" /> 
+            <EventRecordID>9294</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="0" ThreadID="0" /> 
+            <Channel>Application</Channel> 
+            <Computer>computer</Computer> 
+            <Security UserID="S-1-5-21-3619236619-1337548381-1329840446-1001" /> 
+        </System>
+        <EventData>
+            <Data>Epson Photo+</Data> 
+            <Data>3.3.0.0</Data> 
+            <Data>1033</Data> 
+            <Data>0</Data> 
+            <Data>Seiko Epson Corporation</Data> 
+            <Data>(NULL)</Data> 
+            <Data /> 
+            <Binary>7B41423937314134452D463636392D344538322D414646302D3343333444463736383535337D3030303061373633363232333031663565653439613432333666343761363438663639643030303030393034</Binary> 
+        </EventData>
+    </Event>

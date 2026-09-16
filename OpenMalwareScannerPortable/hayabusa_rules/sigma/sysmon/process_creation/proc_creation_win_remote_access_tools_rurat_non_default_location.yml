@@ -1,0 +1,36 @@
+title: Remote Access Tool - RURAT Execution From Unusual Location
+id: f5df2b28-820b-352d-3406-ce09f052d0f6
+related:
+    - id: e01fa958-6893-41d4-ae03-182477c5e77d
+      type: derived
+status: test
+description: Detects execution of Remote Utilities RAT (RURAT) from an unusual location (outside of 'C:\Program Files')
+references:
+    - https://redcanary.com/blog/misbehaving-rats/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-09-19
+modified: 2023-03-05
+tags:
+    - attack.stealth
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Image|endswith:
+              - \rutserv.exe
+              - \rfusclient.exe
+        - Product: Remote Utilities
+    filter:
+        Image|startswith:
+            - C:\Program Files\Remote Utilities
+            - C:\Program Files (x86)\Remote Utilities
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

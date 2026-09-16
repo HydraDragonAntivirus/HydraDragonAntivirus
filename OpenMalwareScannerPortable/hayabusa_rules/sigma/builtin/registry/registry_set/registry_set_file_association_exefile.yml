@@ -1,0 +1,29 @@
+title: New File Association Using Exefile
+id: b0fb77bd-c468-c8dd-1a84-96bf79d003a7
+related:
+    - id: 44a22d59-b175-4f13-8c16-cbaef5b581ff
+      type: derived
+status: test
+description: Detects the abuse of the exefile handler in new file association. Used for bypass of security products.
+references:
+    - https://twitter.com/mrd0x/status/1461041276514623491
+author: Andreas Hunkeler (@Karneades)
+date: 2021-11-19
+modified: 2023-08-17
+tags:
+    - attack.stealth
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: Classes\.
+        NewValue: exefile
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

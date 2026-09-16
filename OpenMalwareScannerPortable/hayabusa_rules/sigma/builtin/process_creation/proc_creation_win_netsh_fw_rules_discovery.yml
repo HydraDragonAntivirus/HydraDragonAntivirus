@@ -1,0 +1,41 @@
+title: Firewall Configuration Discovery Via Netsh.EXE
+id: af675749-89e4-ecbe-08aa-846a61be3500
+related:
+    - id: 0e4164da-94bc-450d-a7be-a4b176179f1f
+      type: derived
+status: test
+description: Adversaries may look for details about the network configuration and settings of systems they access or through information discovery of remote systems
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1016/T1016.md#atomic-test-2---list-windows-firewall-rules
+    - https://ss64.com/nt/netsh.html
+author: frack113, Christopher Peacock '@securepeacock', SCYTHE '@scythe_io'
+date: 2021-12-07
+modified: 2025-10-18
+tags:
+    - attack.discovery
+    - attack.t1016
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \netsh.exe
+        - OriginalFileName: netsh.exe
+    selection_cli:
+        CommandLine|contains|all:
+            - netsh
+            - 'show '
+            - 'firewall '
+        CommandLine|contains:
+            - 'config '
+            - 'state '
+            - 'rule '
+            - name=all
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Administrative activity
+level: low
+ruletype: Sigma

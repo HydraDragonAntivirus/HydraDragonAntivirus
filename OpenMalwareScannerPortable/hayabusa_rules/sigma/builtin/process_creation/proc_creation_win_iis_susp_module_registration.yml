@@ -1,0 +1,38 @@
+title: Suspicious IIS Module Registration
+id: c4306817-4a47-606b-e363-d48b4d305f82
+related:
+    - id: 043c4b8b-3a54-4780-9682-081cb6b8185c
+      type: derived
+status: test
+description: Detects a suspicious IIS module registration as described in Microsoft threat report on IIS backdoors
+references:
+    - https://www.microsoft.com/security/blog/2022/07/26/malicious-iis-extensions-quietly-open-persistent-backdoors-into-servers/
+author: Florian Roth (Nextron Systems), Microsoft (idea)
+date: 2022-08-04
+modified: 2023-01-23
+tags:
+    - attack.persistence
+    - attack.t1505.004
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_parent:
+        ParentProcessName|endswith: \w3wp.exe
+    selection_cli_1:
+        CommandLine|contains: appcmd.exe add module
+    selection_cli_2:
+        CommandLine|contains: ' system.enterpriseservices.internal.publish'
+        NewProcessName|endswith: \powershell.exe
+    selection_cli_3:
+        CommandLine|contains|all:
+            - gacutil
+            - ' /I'
+    condition: process_creation and (selection_parent and 1 of selection_cli_*)
+falsepositives:
+    - Administrative activity
+level: high
+ruletype: Sigma

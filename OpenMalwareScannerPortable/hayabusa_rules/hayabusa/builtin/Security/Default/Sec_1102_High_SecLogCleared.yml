@@ -1,0 +1,54 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2025-02-10
+
+title: 'Log Cleared'
+description: 'A user has cleared the Security event log.'
+
+id: c2f690ac-53f8-4745-8cfe-7127dda28c74
+level: high
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_basic:
+        Channel: Security
+        EventID: 1102
+    condition: selection_basic
+falsepositives:
+    - system administrator
+tags:
+    - attack.defense-evasion
+    - attack.t1070.001
+references:
+    - https://attack.mitre.org/techniques/T1070/001/
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Eventlog" Guid="{fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}"/>
+            <EventID>1102</EventID>
+            <Version>0</Version>
+            <Level>4</Level>
+            <Task>104</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x4020000000000000</Keywords>
+            <TimeCreated SystemTime="2019-04-30T18:08:22.618193500Z"/>
+            <EventRecordID>8934</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="416" ThreadID="2984"/>
+            <Channel>Security</Channel>
+            <Computer>Sec504Student</Computer>
+            <Security/>
+        </System>
+        <UserData>
+            <LogFileCleared xmlns="http://manifests.microsoft.com/win/2004/08/windows/eventlog">
+                <SubjectUserSid>S-1-5-21-2977773840-2930198165-1551093962-1000</SubjectUserSid>
+                <SubjectUserName>Sec504</SubjectUserName>
+                <SubjectDomainName>SEC504STUDENT</SubjectDomainName>
+                <SubjectLogonId>0x1e3dd</SubjectLogonId>
+            </LogFileCleared>
+        </UserData>
+    </Event>

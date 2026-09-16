@@ -1,0 +1,62 @@
+author: Jordan Lloyd
+date: 2024-08-28
+modified: 2025-02-10
+
+title: RDS GTW Logoff
+details: 'TgtUser: %RdsGtwUsername% ¦ Resource: %RdsGtwResource% ¦ SrcIP: %RdsGtwIpAddress% ¦ Proto: %RdsGtwConnectionProtocol% ¦ AuthType: %RdsGtwAuthType% ¦ ErrorCode: %RdsGtwErrorCode% ¦ BytesReceived: %RdsGtwBytesReceived% ¦ BytesTransfered: %RdsGtwBytesTransfered% ¦ SessionDuration: %RdsGtwSessionDuration%'
+description:
+
+id: e5f74909-58a9-45ec-b70d-21c654dca4f3
+level: informational
+status: stable
+logsource:
+    product: windows
+detection:
+    selection:
+        Channel: 'Microsoft-Windows-TerminalServices-Gateway/Operational'
+        EventID: 303
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+    - attack.initial-access
+references:
+ruletype: Hayabusa
+
+sample-message: |
+    Remote Desktop Services: User disconnected from gateway:
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TerminalServices-Gateway" Guid="{4d5ae6a1-c7c8-4e6d-b840-4d8080b42e1b}" /> 
+            <EventID>303</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>3</Task> 
+            <Opcode>44</Opcode> 
+            <Keywords>0x4000000001000000</Keywords> 
+            <TimeCreated SystemTime="2024-08-13T08:13:33.9389976Z" /> 
+            <EventRecordID>22851</EventRecordID> 
+            <Correlation ActivityID="{150fa4c4-6c52-48ae-a748-21b44e960000}" /> 
+            <Execution ProcessID="195148" ThreadID="210988" /> 
+            <Channel>Microsoft-Windows-TerminalServices-Gateway/Operational</Channel> 
+            <Computer>HOST.DOMAIN.com</Computer> 
+            <Security UserID="S-1-5-20" /> 
+        </System>
+        <UserData>
+            <EventInfo xmlns="aag">
+                <Username>DOMAIN\User</Username> 
+                <IpAddress>122.6.150.75</IpAddress> 
+                <AuthType /> 
+                <Resource>HOST.DOMAIN.COM</Resource> 
+                <BytesReceived>2166802</BytesReceived> 
+                <BytesTransfered>832846</BytesTransfered> 
+                <SessionDuration>880</SessionDuration> 
+                <ConnectionProtocol>HTTP</ConnectionProtocol> 
+                <ErrorCode>1226</ErrorCode> 
+            </EventInfo>
+        </UserData>
+    </Event>

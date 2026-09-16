@@ -1,0 +1,24 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: Logon (Batch)
+description: Prints logon information
+
+id: 8ad8b25f-6052-4cfd-9a50-717cb514af13
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4624
+        LogonType: 4
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx:
+ruletype: Hayabusa

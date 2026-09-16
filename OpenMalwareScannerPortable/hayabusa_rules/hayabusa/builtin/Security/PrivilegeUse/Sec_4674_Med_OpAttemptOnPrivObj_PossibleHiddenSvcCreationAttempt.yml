@@ -1,0 +1,66 @@
+author: Joshua Wright, Zach Mathis (rule creation)
+date: 2022-02-05
+modified: 2022-12-16
+
+title: 'Possible Hidden Service Created'
+description: User requested to modify the Dynamic Access Control (DAC) permissions of a service, possibly to hide it from view.
+
+id: 15db3cc7-30bd-47a0-bd75-66208ce8e3fe
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4674
+        ObjectType: "SERVICE OBJECT"
+        AccessMask|contains: "%%1539" #WRITE_DAC access.
+    selection_process_name:
+        - ProcessName: C:\Windows\System32\services.exe
+        - ProcessName: C:\Windows\SysWOW64\services.exe
+    condition: selection and selection_process_name
+falsepositives:
+    - unknown
+tags:
+    - attack.persistence
+    - attack.t1543.003
+references:
+    - https://www.sans.org/blog/defense-spotlight-finding-hidden-windows-services/
+    - https://www.programmerall.com/article/44712133120/
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}"/>
+            <EventID>4674</EventID>
+            <Version>0</Version>
+            <Level>0</Level>
+            <Task>13056</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8020000000000000</Keywords>
+            <TimeCreated SystemTime="2020-09-14T14:48:28.683048400Z"/>
+            <EventRecordID>39406</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="4" ThreadID="5756"/>
+            <Channel>Security</Channel>
+            <Computer>Sec504Student</Computer>
+            <Security/>
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-21-2977773840-2930198165-1551093962-1000</Data>
+            <Data Name="SubjectUserName">Sec504</Data>
+            <Data Name="SubjectDomainName">SEC504STUDENT</Data>
+            <Data Name="SubjectLogonId">0x99e3d</Data>
+            <Data Name="ObjectServer">SC Manager</Data>
+            <Data Name="ObjectType">SERVICE OBJECT</Data>
+            <Data Name="ObjectName">nginx</Data>
+            <Data Name="HandleId">0xffff820cb1d95928</Data>
+            <Data Name="AccessMask">%%1539</Data>
+            <Data Name="PrivilegeList">SeSecurityPrivilege</Data>
+            <Data Name="ProcessId">0x21c</Data>
+            <Data Name="ProcessName">C:\Windows\System32\services.exe</Data>
+        </EventData>
+    </Event>

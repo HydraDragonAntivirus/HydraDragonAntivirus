@@ -1,0 +1,69 @@
+title: Office Macro File Download
+id: 709279a6-6f6d-be10-4028-178ae52467f7
+related:
+    - id: 91174a41-dc8f-401b-be89-7bfc140612a0
+      type: similar
+    - id: 0e29e3a7-1ad8-40aa-b691-9f82ecd33d66
+      type: derived
+status: test
+description: |
+    Detects the creation of a new office macro files on the system via an application (browser, mail client).
+    This can help identify potential malicious activity, such as the download of macro-enabled documents that could be used for exploitation.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1566.001/T1566.001.md
+    - https://learn.microsoft.com/en-us/deployoffice/compat/office-file-format-reference
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-01-23
+modified: 2025-10-29
+tags:
+    - attack.initial-access
+    - attack.t1566.001
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_processes:
+        Image|endswith:
+            # Email clients
+            - \RuntimeBroker.exe   # Windows Email clients uses RuntimeBroker to create the files
+            - \outlook.exe
+            - \thunderbird.exe
+            # Browsers
+            - \brave.exe
+            - \chrome.exe
+            - \firefox.exe
+            - \iexplore.exe
+            - \maxthon.exe
+            - \MicrosoftEdge.exe
+            - \msedge.exe
+            - \msedgewebview2.exe
+            - \opera.exe
+            - \safari.exe
+            - \seamonkey.exe
+            - \vivaldi.exe
+            - \whale.exe
+    selection_ext:
+        - TargetFilename|endswith:
+              - .docm
+              - .dotm
+              - .xlsm
+              - .xltm
+              - .potm
+              - .pptm
+        - TargetFilename|contains:
+              - .docm:Zone
+              - .dotm:Zone
+              - .xlsm:Zone
+              - .xltm:Zone
+              - .potm:Zone
+              - .pptm:Zone
+    condition: file_event and (all of selection_*)
+falsepositives:
+    - Legitimate macro files downloaded from the internet
+    - Legitimate macro files sent as attachments via emails
+level: low
+ruletype: Sigma

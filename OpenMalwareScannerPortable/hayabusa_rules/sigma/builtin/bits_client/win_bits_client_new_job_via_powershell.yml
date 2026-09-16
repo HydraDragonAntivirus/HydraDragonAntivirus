@@ -1,0 +1,33 @@
+title: New BITS Job Created Via PowerShell
+id: 23d76ee6-e5fc-fb90-961a-4b412b97cc94
+related:
+    - id: fe3a2d49-f255-4d10-935c-bda7391108eb
+      type: derived
+status: test
+description: Detects the creation of a new bits job by PowerShell
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1197/T1197.md
+author: frack113
+date: 2022-03-01
+modified: 2023-03-27
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.stealth
+    - attack.t1197
+logsource:
+    product: windows
+    service: bits-client
+detection:
+    bits_client:
+        Channel: Microsoft-Windows-Bits-Client/Operational
+    selection:
+        EventID: 3
+        processPath|endswith:
+            - \powershell.exe
+            - \pwsh.exe
+    condition: bits_client and selection
+falsepositives:
+    - Administrator PowerShell scripts
+level: low
+ruletype: Sigma

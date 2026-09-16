@@ -1,0 +1,28 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: 'User Added To Local Admin Grp'
+description: 'A user was added to the local Administrators group. Unfortunately the user name does not get recorded in the log, only the SID, so you need to look up the username via the SID.'
+
+id: 611e2e76-a28f-4255-812c-eb8836b2f5bb
+level: high
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4732
+        TargetUserName: 'Administrators'
+    condition: selection
+falsepositives:
+    - system administrator
+tags:
+    - attack.persistence
+    - attack.t1098
+references:
+    - https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventid=4732
+sample-evtx: ./sample-evtx/EVTX-to-MITRE-Attack/TA0003-Persistence/T1098.xxx-Account manipulation/ID4732-User added to local admin groups.evtx
+ruletype: Hayabusa

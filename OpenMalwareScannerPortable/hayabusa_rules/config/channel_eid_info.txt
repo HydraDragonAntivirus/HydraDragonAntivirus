@@ -1,0 +1,507 @@
+Channel,EventID,EventTitle
+Microsoft-Windows-Sysmon/Operational,1,Process Creation
+Microsoft-Windows-Sysmon/Operational,2,File Creation Timestamp Changed (Possible Timestomping)
+Microsoft-Windows-Sysmon/Operational,3,Network Connection
+Microsoft-Windows-Sysmon/Operational,4,Sysmon Service State Changed
+Microsoft-Windows-Sysmon/Operational,5,Process Terminated
+Microsoft-Windows-Sysmon/Operational,6,Driver Loaded
+Microsoft-Windows-Sysmon/Operational,7,Image Loaded
+Microsoft-Windows-Sysmon/Operational,8,Remote Thread Created (Possible Code Injection)
+Microsoft-Windows-Sysmon/Operational,9,Raw Access Read
+Microsoft-Windows-Sysmon/Operational,10,Process Access
+Microsoft-Windows-Sysmon/Operational,11,File Creation or Overwrite
+Microsoft-Windows-Sysmon/Operational,12,Registry Object Created/Deletion
+Microsoft-Windows-Sysmon/Operational,13,Registry Value Set
+Microsoft-Windows-Sysmon/Operational,14,Registry Key or Value Rename
+Microsoft-Windows-Sysmon/Operational,15,Alternate Data Stream Created
+Microsoft-Windows-Sysmon/Operational,16,Sysmon Service Configuration Changed
+Microsoft-Windows-Sysmon/Operational,17,Named Pipe Created
+Microsoft-Windows-Sysmon/Operational,18,Named Pipe Connection
+Microsoft-Windows-Sysmon/Operational,19,WmiEventFilter Activity
+Microsoft-Windows-Sysmon/Operational,20,WmiEventConsumer Activity
+Microsoft-Windows-Sysmon/Operational,21,WmiEventConsumerToFilter Activity
+Microsoft-Windows-Sysmon/Operational,22,DNS Query
+Microsoft-Windows-Sysmon/Operational,23,Deleted File Archived
+Microsoft-Windows-Sysmon/Operational,24,Clipboard Changed
+Microsoft-Windows-Sysmon/Operational,25,Process Tampering (Possible Process Hollowing or Herpaderping)
+Microsoft-Windows-Sysmon/Operational,26,File Deleted
+Microsoft-Windows-Sysmon/Operational,27,Executable File Write Blocked
+Microsoft-Windows-Sysmon/Operational,255,Sysmon Error
+Microsoft-Windows-PowerShell/Operational,4103,Module logging - Executing Pipeline
+Microsoft-Windows-PowerShell/Operational,4104,Script Block Logging
+Microsoft-Windows-PowerShell/Operational,4105,CommandStart started
+Microsoft-Windows-PowerShell/Operational,4106,CommandStart stopped
+Security,1100,Event logging service shutdown
+Security,1101,Audit events dropped by transport
+Security,1102,Audit log cleared
+Security,1104,Security log is full
+Security,1105,Event log automatic backup
+Security,1108,Event logging service error
+Security,4608,Windows startup
+Security,4609,Windows shutdown
+Security,4610,LSA loaded an authentication package
+Security,4611,A trusted logon process has been registered with the Local Security Authority
+Security,4612,Audit message queuing resoures exhausted (Possible loss of logs)
+Security,4614,LSA loaded notification package
+Security,4615,Invalid use of LPC port
+Security,4616,System time changed
+Security,4618,A monitored security event pattern has occurred
+Security,4621,Administrator recovered system from CrashOnAuditFail
+Security,4622,LSA loaded security package
+Security,4624,Logon success
+Security,4625,Logon failure
+Security,4634,Account logoff
+Security,4646,IKE DoS-prevention mode started
+Security,4647,User initiated logoff
+Security,4648,Explicit logon
+Security,4649,Replay attack was detected
+Security,4650,An IPsec Main Mode security association was established
+Security,4651,An IPsec Main Mode security association was established
+Security,4652,An IPsec Main Mode negotiation failed
+Security,4653,An IPsec Main Mode negotiation failed
+Security,4654,An IPsec Quick Mode negotiation failed
+Security,4655,An IPsec Main Mode security association ended
+Security,4656,Object handle requested
+Security,4657,Registry value modified
+Security,4658,Object handle closed
+Security,4659,Object handle requested with intent to delete
+Security,4660,Object deleted
+Security,4661,Object handle requested
+Security,4662,Object operation performed
+Security,4663,Object access attempt
+Security,4664,Hard link creation attempt
+Security,4665,Application client context creation attempt
+Security,4666,Application attempted an operation
+Security,4667,Application client context deleted
+Security,4668,Application initialized
+Security,4670,Object permissions changed
+Security,4671,Application attempted to access a blocked ordinal through the TBS
+Security,4672,Admin logon
+Security,4673,Privileged service called
+Security,4674,Privileged object operation attempt
+Security,4675,SIDs filtered
+Security,4685,Transaction state changed
+Security,4688,Process created
+Security,4689,Process exited
+Security,4690,Object handle duplication attempt
+Security,4691,Indirect access request to object
+Security,4692,Backup of data protection master key attempt
+Security,4693,Recovery of data protection master key attempt
+Security,4694,Protection of auditable protected data attempt
+Security,4695,Unprotection of auditable protected data attempt
+Security,4696,Primary token assigned to process
+Security,4697,Service installed
+Security,4698,Scheduled task created
+Security,4699,Scheduled task deleted
+Security,4700,Scheduled task enabled
+Security,4701,Scheduled task disabled
+Security,4702,Scheduled task updated
+Security,4704,User right assigned
+Security,4705,User right removed
+Security,4706,New trust created to a domain
+Security,4707,Domain trust removed
+Security,4709,IPsec services started
+Security,4710,IPsec services disabled
+Security,4711,PAStore Engine
+Security,4712,IPsec services encountered a potentially serious failure
+Security,4713,Kerberos policy changed
+Security,4714,Encrypted data recovery policy changed
+Security,4715,Object audit policy (SACL) changed
+Security,4716,Trusted domain information modified
+Security,4717,System security access granted to an account
+Security,4718,System security access removed from an account
+Security,4719,System audit policy changed
+Security,4720,User account created
+Security,4722,User account enabled
+Security,4723,Account password change attempt
+Security,4724,Account password reset attempt
+Security,4725,User account disabled
+Security,4726,User account deleted
+Security,4727,Security-enabled global group created
+Security,4728,Member added to security-enabled global group
+Security,4729,Member removed from security-enabled global group
+Security,4730,Security-enabled global group deleted
+Security,4731,Security-enabled local group created
+Security,4732,Member added to security-enabled local group
+Security,4733,Member removed from security-enabled local group
+Security,4734,Security-enabled local group deleted
+Security,4735,Security-enabled local group changed
+Security,4737,Security-enabled global group changed
+Security,4738,User account changed
+Security,4739,Domain policy changed
+Security,4740,User account locked out
+Security,4741,Computer account created
+Security,4742,Computer account changed
+Security,4743,Computer account deleted
+Security,4744,Security-disabled local group created
+Security,4745,Security-disabled local group changed
+Security,4746,Member added to security-disabled local group
+Security,4747,Member removed from security-disabled local group
+Security,4748,Security-disabled local group deleted
+Security,4749,Security-disabled global group created
+Security,4750,Security-disabled global group changed
+Security,4751,Member added to security-disabled global group
+Security,4752,Member removed from security-disabled global group
+Security,4753,Security-disabled global group deleted
+Security,4754,Security-enabled universal group created
+Security,4755,Security-enabled universal group changed
+Security,4756,Member added to security-enabled universal group
+Security,4757,Member removed from security-enabled universal group
+Security,4758,Security-enabled universal group deleted
+Security,4759,Security-disabled universal group created
+Security,4760,Security-disabled universal group changed
+Security,4761,Member added to security-disabled universal group
+Security,4762,Member removed from security-disabled universal group
+Security,4763,Security-disabled universal group deleted
+Security,4764,Group type changed
+Security,4765,SID history added to account
+Security,4766,Attempt to add SID history to account failed
+Security,4767,User account unlocked
+Security,4768,Kerberos authentication ticket (TGT) requested
+Security,4769,Kerberos service ticket requested
+Security,4770,Kerberos service ticket renewed
+Security,4771,Kerberos pre-authentication failed
+Security,4772,Kerberos authentication ticket request failed
+Security,4773,Kerberos service ticket request failed
+Security,4774,Account mapped for logon
+Security,4775,Account could not be mapped for logon
+Security,4776,DC attempted to validate account credentials
+Security,4777,DC failed to validate account credentials
+Security,4778,Window station session reconnected
+Security,4779,Window station session disconnected
+Security,4780,Administrators group account's ACL set
+Security,4781,Account name changed
+Security,4782,Account password hash accessed
+Security,4783,Basic application group created
+Security,4784,Basic application group changed
+Security,4785,Member added to basic application group
+Security,4786,Member removed from basic application group
+Security,4787,Non-member added to basic application group
+Security,4788,Non-member removed from basic application group
+Security,4789,Basic application group deleted
+Security,4790,LDAP query group created
+Security,4791,Basic application group changed
+Security,4792,LDAP query group deleted
+Security,4793,Password policy checking API called
+Security,4794,Directory Services Restore Mode administrator password set attempt
+Security,4800,Computer locked
+Security,4801,Computer unlocked
+Security,4802,Screen saver started
+Security,4803,Screen saver stopped
+Security,4816,RPC integrity violation when decrypting an incoming message
+Security,4817,Object auditing settings changed
+Security,4825,RDP logon failed
+Security,4864,Namespace collision detected
+Security,4865,Trusted forest information entry added
+Security,4866,Trusted forest information entry removed
+Security,4867,Trusted forest information entry modified
+Security,4868,Certificate manager denied pending certificate request
+Security,4869,Certificate Services received resubmitted certificate request
+Security,4870,Certificate Services revoked certificate
+Security,4871,Certificate Services received request to publish CRL
+Security,4872,Certificate Services published CRL
+Security,4873,Certificate request extension changed
+Security,4874,One or more certificate request attributes changed
+Security,4875,Certificate Services received shutdown request
+Security,4876,Certificate Services backup started
+Security,4877,Certificate Services backup completed
+Security,4878,Certificate Services restore started
+Security,4879,Certificate Services restore completed
+Security,4880,Certificate Services started
+Security,4881,Certificate Services stopped
+Security,4882,Certificate Services security permissions changed
+Security,4883,Certificate Services retrieved archived key
+Security,4884,Certificate Services imported certificate into its database
+Security,4885,Certificate Services audit filter changed
+Security,4886,Certificate Services received certificate request
+Security,4887,Certificate Services approved certificate request and issued certificate
+Security,4888,Certificate Services denied certificate request
+Security,4889,Certificate Services set status of certificate request to pending
+Security,4890,Certificate Services certificate manager settings changed
+Security,4891,Certificate Services configuration entry changed
+Security,4892,Certificate Services property changed
+Security,4893,Certificate Services archived a key
+Security,4894,Certificate Services imported and archived a key
+Security,4895,Certificate Services published CA certificate to AD
+Security,4896,One or more rows have been deleted from the certificate DB
+Security,4897,Role separation enabled
+Security,4898,Certificate Services loaded a template
+Security,4899,Certificate Services template updated
+Security,4900,Certificate Services template security updated
+Security,4902,Per-user audit policy table created
+Security,4904,Attempt to register security event source
+Security,4905,Attempt to unregister security event source
+Security,4906,CrashOnAuditFail value changed
+Security,4907,Auditing settings on object changed
+Security,4908,Special groups logon table modified
+Security,4909,Local policy settings for TBS changed
+Security,4910,Group policy settings for TBS changed
+Security,4912,Per user audit policy changed
+Security,4928,AD replica source naming context established
+Security,4929,AD replica source naming context removed
+Security,4930,AD replica source naming context modified
+Security,4931,AD replica destination naming context modified
+Security,4932,Synchronization of an AD naming context replica has started
+Security,4933,Synchronization of an AD naming context replica has ended
+Security,4934,AD object attributes were replicated
+Security,4935,Replication failure begins
+Security,4936,Replication failure ends
+Security,4937,A lingering object was removed from a replica
+Security,4944,Active policy when firewall started
+Security,4945,Rule listed when firewall started
+Security,4946,Rule added to firewall exception list
+Security,4947,Rule modified in firewall exception list
+Security,4948,Rule deleted from firewall exception list
+Security,4949,Firewall settings restored to default values
+Security,4950,Firewall setting changed
+Security,4951,Firewall rule ignored because major version number was not recognized
+Security,4952,Parts of a firewall rule ignored because its minor version number was not recognized
+Security,4953,Firewall rule could not be parsed
+Security,4954,Firewall Group Policy settings changed New settings applied
+Security,4956,Firewall changed active profile
+Security,4957,Firewall did not apply rule
+Security,4958,Firewall did not apply rule because it referred to items not configured on this computer
+Security,4960,IPsec dropped inbound packet Integrity check failed
+Security,4961,IPsec dropped inbound packet Replay check failed
+Security,4962,IPsec dropped inbound packet Replay check failed
+Security,4963,IPsec dropped inbound cleartext packet that should have been secured
+Security,4964,Special groups assigned to new logon
+Security,4965,IPsec received packet from remote computer with an incorrect SPI
+Security,4976,IPsec received invalid negotiation packet during Main Mode negotiation
+Security,4977,IPsec received invalid negotiation packet during Quick Mode negotiation
+Security,4978,IPsec received invalid negotiation packet during Extended Mode negotiation
+Security,4979,IPsec Main Mode and Extended Mode SAs established
+Security,4980,IPsec Main Mode and Extended Mode SAs established
+Security,4981,IPsec Main Mode and Extended Mode SAs established
+Security,4982,IPsec Main Mode and Extended Mode SAs established
+Security,4983,IPsec Extended Mode negotiation failed
+Security,4984,IPsec Extended Mode negotiation failed
+Security,4985,State of transaction changed
+Security,5024,Firewall service started
+Security,5025,Firewall service stopped
+Security,5027,Firewall service unable to retrieve security policy from local storage
+Security,5028,Firewall service unable to parse new security policy
+Security,5029,Firewall service failed to initialize driver
+Security,5030,Firewall service failed to start
+Security,5031,Firewall service blocked application from accepting incoming connections
+Security,5032,Firewall unable to notify user that it blocked an application from accepting incoming connections
+Security,5033,Firewall driver started
+Security,5034,Firewall driver stopped
+Security,5035,Firewall driver failed to start
+Security,5037,Firewall driver critical runtime error
+Security,5038,Code Integrity invalid file hash
+Security,5039,Registry key virtualized
+Security,5040,IPsec settings changed Authentication Set added
+Security,5041,IPsec settings changed Authentication Set modified
+Security,5042,IPsec settings changed Authentication Set deleted
+Security,5043,IPsec settings changed Connection Security Rule added
+Security,5044,IPsec settings changed Connection Security Rule modified
+Security,5045,IPsec settings changed Connection Security Rule deleted
+Security,5046,IPsec settings changed Crypto Set added
+Security,5047,IPsec settings changed Crypto Set modified
+Security,5048,IPsec settings changed Crypto Set deleted
+Security,5049,IPsec SA deleted
+Security,5050,Attempt to disable firewall using call to INetFwProfile
+Security,5051,A file was virtualized
+Security,5056,A cryptographic self test was performed
+Security,5057,A cryptographic primitive operation failed
+Security,5058,Key file operation
+Security,5059,Key migration operation
+Security,5060,Verification operation failed
+Security,5061,Cryptographic operation
+Security,5062,kernel-mode cryptographic self test performed
+Security,5063,Cryptographic provider operation attempted
+Security,5064,Cryptographic context operation attempted
+Security,5065,Cryptographic context modification attempted
+Security,5066,Cryptographic function operation attempted
+Security,5067,Cryptographic function modification attempted
+Security,5068,Cryptographic function provider operation attempted
+Security,5069,Cryptographic function property operation attempted
+Security,5070,Cryptographic function property operation attempted
+Security,5120,OCSP responder service started
+Security,5121,OCSP responder service stopped
+Security,5122,Configuration entry changed in the OCSP responder service
+Security,5123,Configuration entry changed in the OCSP responder service
+Security,5124,Security setting updated on OCSP responder service
+Security,5125,Request submitted to OCSP responder service
+Security,5126,Signing certificate automatically updated by OCSP responder service
+Security,5127,OCSP revocation provider updated revocation information
+Security,5136,Directory service object modified
+Security,5137,Directory service object created
+Security,5138,Directory service object undeleted
+Security,5139,Directory service object moved
+Security,5140,Network share object accessed
+Security,5141,Directory service object deleted
+Security,5142,Network share object added
+Security,5143,Network share object modified
+Security,5144,Network share object deleted
+Security,5145,Network share object checked for client access
+Security,5148,Firewall has detected a DoS attack and entered a defensive mode; packets associated with this attack will be discarded
+Security,5149,DoS attack subsided and normal processing resumed
+Security,5150,Firewall blocked a packet
+Security,5151,A more restrictive firewall filter blocked a packet
+Security,5152,Firewall blocked a packet
+Security,5153,A more restrictive firewall filter blocked a packet
+Security,5154,Firewall permitted an application to listen for incoming connections
+Security,5155,Firewall blocked an application from listening for incoming connections
+Security,5156,Firewall allowed a connection
+Security,5157,Firewall blocked a connection
+Security,5158,Firewall permitted local port binding
+Security,5159,Firewall blocked local port binding
+Security,5168,SPN check for SMB/SMB2 failed
+Security,5376,Credential Manager credentials backup
+Security,5377,Credential Manager credentials restore from backup
+Security,5378,Requested credentials delegation disallowed by policy
+Security,5440,Callout present when firewall base filtering engine started
+Security,5441,Filter present when firewall base filtering engine started
+Security,5442,Provider present when firewall base filtering engine started
+Security,5443,Provider context present when firewall base filtering engine started
+Security,5444,Sub-layer present when firewall base filtering engine started
+Security,5446,Firewall callout changed
+Security,5447,Firewall filter changed
+Security,5448,Firewall provider changed
+Security,5449,Firewall provider context changed
+Security,5450,Firewall sub-layer changed
+Security,5451,IPsec quick mode SA established
+Security,5452, IPsec quick mode SA ended
+Security,5453,IPsec negotiation failed because IKEEXT service is not started
+Security,5456,PAStore engine applied AD storage IPsec policy
+Security,5457,PAStore engine failed to apply AD storage IPsec policy
+Security,5458,PAStore engine applied locally cached copy of AD storage IPsec policy
+Security,5459,PAStore engine failed to apply locally cached copy of AD storage IPsec policy
+Security,5460,PAStore engine applied local registry storage IPsec policy
+Security,5461,PAStore engine failed to apply local registry storage IPsec policy
+Security,5462,PAStore engine failed to apply some rules of the active IPsec policy
+Security,5463,PAStore engine polled for changes to the active IPsec policy and detected no changes
+Security,5464,"PAStore engine polled for changes to the active IPsec policy, detected changes, and applied them to IPsec Services"
+Security,5465,PAStore engine received a control for forced reloading of IPsec policy and processed the control
+Security,5466,"PAStore engine polled for changes to the AD IPsec policy, determined that AD cannot be reached, and will use the cached copy of the AD IPsec policy instead"
+Security,5467,"PAStore engine polled for changes to the AD IPsec policy, determined that AD can be reached, and found no changes to the policy"
+Security,5468,"PAStore engine polled for changes to the AD IPsec policy, determined that AD can be reached, found changes to the policy, and applied those changes"
+Security,5471,PAStore engine loaded local storage IPsec policy
+Security,5472,PAStore engine failed to load local storage IPsec policy
+Security,5473,PAStore engine loaded directory storage IPsec policy
+Security,5474,PAStore engine failed to load directory storage IPsec policy
+Security,5477,PAStore engine failed to add quick mode filter
+Security,5478,IPsec services started
+Security,5479,IPsec services shutdown
+Security,5480,IPsec services failed to get the complete list of network interfaces
+Security,5483,IPsec services failed to initialize RPC server and could not be started
+Security,5484,IPsec services shut down due to critical failure
+Security,5485,IPsec services failed to process some IPsec filters on a PnP event for network interfaces
+Security,6144,Security policy GPO applied
+Security,6145,One or more errors occured while processing security policy GPO
+Security,6272,Network Policy Server granted user access
+Security,6273,Network Policy Server denied user access
+Security,6274,Network Policy Server discarded user request
+Security,6275,Network Policy Server discarded user accounting request
+Security,6276,Network Policy Server quarantined a user
+Security,6277,Network Policy Server granted access to a user but put it on probation because the host did not meet the defined health policy
+Security,6278,Network Policy Server granted full access to a user because the host met the defined health policy
+Security,6279,Network Policy Server locked the user account due to repeated failed authentication attempts
+Security,6280,Network Policy Server unlocked user account
+Security,6281,Code Integrity determined that the page hashes of an image file are not valid 
+Security,6400,BranchCache: Received an incorrectly formatted response while discovering availability of content
+Security,6401,BranchCache: Received invalid data from a peer Data discarded
+Security,6402,BranchCache: The message to the hosted cache offering it data is incorrectly formatted
+Security,6403,BranchCache: The hosted cache sent an incorrectly formatted response to the client
+Security,6404,BranchCache: Hosted cache could not be authenticated using the provisioned SSL certificate
+Security,6405,BranchCache: %2 instance(s) of event id %1 occurred
+Security,6406,%1 registered to firewall to control filtering for the following: %2
+Security,6407,No info
+Security,6408,Registered product %1 failed and firewall is now controlling the filtering for %2
+Security,6410,Code integrity determined that a file does not meet the security requirements to load into a process
+System,1001,BSOD
+System,104,Event log cleared
+System,1127,Group Policy generic internal error
+System,1129,Group Policy application failed due to connectivity
+System,1125,Group Policy internal error
+System,27,KDC encryption type configuration
+System,16,Kerberos key integrity
+System,6,New kernel filter driver
+System,1022,New MSI file installed
+System,1033,New MSI file installed
+System,7045,New windows service
+System,7023,Service terminated
+System,7035,The %1 service was successfully sent a %2 control
+System,7036,The service entered the running/stopped state
+System,7030,"The service is marked as an interactive service but the system is configured to not allow interactive services"
+System,7040,Service start type changed
+System,7022,Windows service fail or crash
+System,7023,Windows service fail or crash
+System,7024,Windows service fail or crash
+System,7026,Windows service fail or crash
+System,7031,Windows service fail or crash
+System,7032,Windows service fail or crash
+System,7034,Windows service fail or crash
+System,19,Windows Update Installed
+Microsoft-Windows-WinRM/Operational,6,Creating WSMan session on client
+Microsoft-Windows-WinRM/Operational,169,Creating WSMan session on server
+Microsoft-Windows-WinRM/Operational,81,Processing client request for operation CreateShell
+Microsoft-Windows-WinRM/Operational,82,Entering the plugin for operation CreateShell with a ResourceURI
+Microsoft-Windows-WinRM/Operational,134,Sending response for operation CreateShell
+Microsoft-Windows-AppLocker/EXE and DLL,8003,AppLocker block error
+Microsoft-Windows-AppLocker/EXE and DLL,8004,AppLocker block warning
+Microsoft-Windows-AppLocker/MSI and Script,8005,AppLocker permitted the execution of a PowerShell script
+Microsoft-Windows-AppLocker/MSI and Script,8006,AppLocker warning error
+Microsoft-Windows-AppLocker/MSI and Script,8007,AppLocker warning
+Microsoft-Windows-WindowsUpdateClient/Operational,20,Windows update failed
+Microsoft-Windows-WindowsUpdateClient/Operational,24,Windows update failed
+Microsoft-Windows-WindowsUpdateClient/Operational,25,Windows update failed
+Microsoft-Windows-WindowsUpdateClient/Operational,31,Windows update failed
+Microsoft-Windows-WindowsUpdateClient/Operational,34,Windows update failed
+Microsoft-Windows-WindowsUpdateClient/Operational,35,Windows update failed
+Setup,1009,Hotpatching failed
+Microsoft-Windows-Windows Firewall With Advanced Security/Firewall,2004,Firewall rule add
+Microsoft-Windows-Windows Firewall With Advanced Security/Firewall,2005,Firewall rule change
+Microsoft-Windows-Windows Firewall With Advanced Security/Firewall,2006,Firewall rule deleted
+Microsoft-Windows-Windows Firewall With Advanced Security/Firewall,2033,Firewall rule deleted
+Microsoft-Windows-Windows Firewall With Advanced Security/Firewall,2009,Firewall failed to load Group Policy
+Microsoft-Windows-Application-Experience/Program-Inventory,903,New application installed
+Microsoft-Windows-Application-Experience/Program-Inventory,904,New application installed
+Microsoft-Windows-Application-Experience/Program-Inventory,905,Updated application
+Microsoft-Windows-Application-Experience/Program-Inventory,906,Updated application
+Microsoft-Windows-Application-Experience/Program-Inventory,907,Removed application
+Microsoft-Windows-Application-Experience/Program-Inventory,908,Removed application
+Microsoft-Windows-Application-Experience/Program-Inventory,800,Summary of software activities
+Setup,2,Update packages installed
+Microsoft-Windows-CodeIntegrity/Operational,3001,Code Integrity check warning
+Microsoft-Windows-CodeIntegrity/Operational,3002,Code Integrity check warning
+Microsoft-Windows-CodeIntegrity/Operational,3003,Code Integrity check warning
+Microsoft-Windows-CodeIntegrity/Operational,3004,Code Integrity check warning
+Microsoft-Windows-CodeIntegrity/Operational,3010,Code Integrity check warning
+Microsoft-Windows-CodeIntegrity/Operational,3023,Code Integrity check warning
+Microsoft-Windows-Windows Defender/Operational,1005,Scan failed
+Microsoft-Windows-Windows Defender/Operational,1006,Detected malware
+Microsoft-Windows-Windows Defender/Operational,1008,Action on malware failed
+Microsoft-Windows-Windows Defender/Operational,1010,Failed to remove item from quarantine
+Microsoft-Windows-Windows Defender/Operational,2001,Failed to update signatures
+Microsoft-Windows-Windows Defender/Operational,2003,Failed to update engine
+Microsoft-Windows-Windows Defender/Operational,2004,Reverting to last known good set of signatures
+Microsoft-Windows-Windows Defender/Operational,3002,Real-time protection failed
+Microsoft-Windows-Windows Defender/Operational,5008,Unexpected error
+Microsoft-Windows-NetworkProfile/Operational,10000,Network connection and disconnection status
+Microsoft-Windows-NetworkProfile/Operational,10001,Network connection and disconnection status
+Microsoft-Windows-WLAN-AutoConfig/Operational,8000,Starting wireless connection
+Microsoft-Windows-WLAN-AutoConfig/Operational,8011,Starting wireless connection
+Microsoft-Windows-WLAN-AutoConfig/Operational,8001,Successful wireless connection
+Microsoft-Windows-WLAN-AutoConfig/Operational,8003,Disconnected from wireless connection
+Microsoft-Windows-WLAN-AutoConfig/Operational,11000,Wireless asociation status
+Microsoft-Windows-WLAN-AutoConfig/Operational,11001,Wireless association status
+Microsoft-Windows-WLAN-AutoConfig/Operational,11002,Wireless association status
+Microsoft-Windows-WLAN-AutoConfig/Operational,11004,"Wireless security started, stopped, successful, or failed"
+Microsoft-Windows-WLAN-AutoConfig/Operational,11005,"Wireless security started, stopped, successful, or failed"
+Microsoft-Windows-WLAN-AutoConfig/Operational,11010,"Wireless security started, stopped, successful, or failed"
+Microsoft-Windows-WLAN-AutoConfig/Operational,11006,"Wireless security started, stopped, successful, or failed"
+Microsoft-Windows-WLAN-AutoConfig/Operational,8002,Wireless connection failed
+Microsoft-Windows-WLAN-AutoConfig/Operational,12011,Wireless authentication started and failed
+Microsoft-Windows-WLAN-AutoConfig/Operational,12012,Wireless authentication started and failed
+Microsoft-Windows-WLAN-AutoConfig/Operational,12013,Wireless authentication started and failed
+Microsfot-Windows-USB-USBHUB3-Analytic,43,New device information
+Microsoft-Windows-Kernel-PnP/Device Configuration,400,New mass storage installed
+Microsoft-Windows-Kernel-PnP/Device Configuration,410,New mass storage installed
+Microsoft-Windows-TerminalServices-LocalSessionManager/Operational,21,Shell start notification received
+Microsoft-Windows-TerminalServices-LocalSessionManager/Operational,23,Session logoff
+Microsoft-Windows-TerminalServices-LocalSessionManager/Operational,24,Session disconnected
+Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational,1149,User authentication
+Microsoft-Windows-TaskScheduler/Operational,106,Task scheduled

@@ -1,0 +1,32 @@
+title: Invoke-Obfuscation Via Use Clip - System
+id: e92121bb-a1c1-5d5a-6abb-3a25fe37fb41
+related:
+    - id: 63e3365d-4824-42d8-8b82-e56810fefa0c
+      type: derived
+status: test
+description: Detects Obfuscated Powershell via use Clip.exe in Scripts
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009 # (Task29)
+author: Nikita Nazarov, oscd.community
+date: 2020-10-09
+modified: 2022-11-29
+tags:
+    - attack.stealth
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+        ImagePath|contains: (Clipboard|i
+    condition: system and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

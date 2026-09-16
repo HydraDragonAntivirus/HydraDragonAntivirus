@@ -1,0 +1,43 @@
+title: DNSCat2 Powershell Implementation Detection Via Process Creation
+id: 3a079869-3f75-49dc-ff1f-eabc1d6faec6
+related:
+    - id: b11d75d6-d7c1-11ea-87d0-0242ac130003
+      type: derived
+status: unsupported
+description: The PowerShell implementation of DNSCat2 calls nslookup to craft queries. Counting nslookup processes spawned by PowerShell will show hundreds or thousands of instances if PS DNSCat2 is active locally.
+references:
+    - https://github.com/lukebaggett/dnscat2-powershell
+    - https://blu3-team.blogspot.com/2019/08/powershell-dns-c2-notes.html
+    - https://ragged-lab.blogspot.com/2020/06/it-is-always-dns-powershell-edition.html
+author: Cian Heasley
+date: 2020-08-08
+modified: 2023-02-24
+tags:
+    - attack.command-and-control
+    - attack.t1071
+    - attack.t1071.004
+    - attack.t1001.003
+    - attack.t1041
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith:
+            - \powershell.exe
+            - \pwsh.exe
+        Image|endswith: \nslookup.exe
+        CommandLine|endswith: \nslookup.exe
+    condition: (process_creation and selection) | count(Image) by ParentImage > 100
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+falsepositives:
+    - Other powershell scripts that call nslookup.exe
+level: high
+ruletype: Sigma

@@ -1,0 +1,37 @@
+title: Arbitrary Binary Execution Using GUP Utility
+id: 47a09173-42fc-dcc7-a498-b4a371ff916a
+related:
+    - id: d65aee4d-2292-4cea-b832-83accd6cfa43
+      type: derived
+status: test
+description: Detects execution of the Notepad++ updater (gup) to launch other commands or executables
+references:
+    - https://twitter.com/nas_bench/status/1535322445439180803
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-06-10
+modified: 2023-03-02
+tags:
+    - attack.execution
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith: \gup.exe
+        Image|endswith: \explorer.exe
+    filter:
+        Image|endswith: \explorer.exe
+        CommandLine|contains: \Notepad++\notepad++.exe
+    filter_parent:
+        ParentImage|contains: \Notepad++\updater\
+    filter_null:
+        CommandLine: null
+    condition: process_creation and (selection and not 1 of filter*)
+falsepositives:
+    - Other parent binaries using GUP not currently identified
+level: medium
+ruletype: Sigma

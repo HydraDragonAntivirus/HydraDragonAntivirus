@@ -1,0 +1,32 @@
+title: HackTool - Impacket File Indicators
+id: 02df58f7-66ac-94a4-869e-fc273fa1cfda
+related:
+    - id: 6e2a900a-ced9-4e4a-a9c2-13e706f9518a
+      type: similar
+    - id: 03f4ca17-de95-428d-a75a-4ee78b047256
+      type: derived
+status: experimental
+description: Detects file creation events with filename patterns used by Impacket.
+references:
+    - https://thedfirreport.com/2025/05/19/another-confluence-bites-the-dust-falling-to-elpaco-team-ransomware/
+    - https://github.com/fortra/impacket
+author: The DFIR Report, IrishDeath
+date: 2025-05-19
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_names_re:
+        TargetFilename|re: \\sessionresume_[a-zA-Z]{8}$   # https://github.com/fortra/impacket/blob/ead516a1209742efc7ac550707a9304ba08681e9/impacket/examples/secretsdump.py#L1925C38-L1925C51
+    condition: file_event and selection_names_re
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

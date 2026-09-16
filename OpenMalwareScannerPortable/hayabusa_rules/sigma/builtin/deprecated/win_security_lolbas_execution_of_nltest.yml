@@ -1,0 +1,37 @@
+title: Correct Execution of Nltest.exe
+id: 83c2f19e-f588-1826-fc7d-cf7f4db7031a
+related:
+    - id: eeb66bbb-3dde-4582-815a-584aee9fe6d1
+      type: derived
+status: deprecated
+description: The attacker might use LOLBAS nltest.exe for discovery of domain controllers, domain trusts, parent domain and the current user permissions.
+references:
+    - https://jpcertcc.github.io/ToolAnalysisResultSheet/details/nltest.htm
+    - https://attack.mitre.org/software/S0359/
+author: Arun Chauhan
+date: 2021-10-04
+modified: 2023-02-02
+tags:
+    - attack.discovery
+    - attack.t1482 # enumerate trusted domains by using commands such as nltest /domain_trusts
+    - attack.t1018 # enumerate remote domain controllers using options such as /dclist and /dsgetdc
+    - attack.t1016 # enumerate the parent domain of a local machine using /parentdomain
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 4689
+        ProcessName|endswith: nltest.exe
+        Status: '0x0'
+    condition: security and selection
+fields:
+    - SubjectUserName
+    - SubjectDomainName
+falsepositives:
+    - Red team activity
+    - Rare legitimate use by an administrator
+level: high
+ruletype: Sigma

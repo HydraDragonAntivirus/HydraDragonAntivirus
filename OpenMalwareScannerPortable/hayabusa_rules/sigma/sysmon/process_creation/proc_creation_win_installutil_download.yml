@@ -1,0 +1,37 @@
+title: File Download Via InstallUtil.EXE
+id: 160c6f2c-cdf7-0546-4f40-b5e8604bfdd9
+related:
+    - id: 75edd216-1939-4c73-8d61-7f3a0d85b5cc
+      type: derived
+status: test
+description: |
+    Detects use of .NET InstallUtil.exe in order to download arbitrary files. The files will be written to "%LOCALAPPDATA%\Microsoft\Windows\INetCache\IE\"
+references:
+    - https://github.com/LOLBAS-Project/LOLBAS/pull/239
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-19
+modified: 2023-11-09
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \InstallUtil.exe
+        - OriginalFileName: InstallUtil.exe
+    selection_cli:
+        CommandLine|contains:
+            - ftp://
+            - http://
+            - https://
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

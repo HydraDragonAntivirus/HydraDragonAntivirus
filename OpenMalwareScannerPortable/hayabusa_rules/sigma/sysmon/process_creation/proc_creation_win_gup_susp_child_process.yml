@@ -1,0 +1,56 @@
+title: Suspicious Child Process of Notepad++ Updater - GUP.Exe
+id: cfb9b59f-29d7-7742-973f-9287e3f52745
+related:
+    - id: bb0e87ce-c89f-4857-84fa-095e4483e9cb
+      type: derived
+status: experimental
+description: |
+    Detects suspicious child process creation by the Notepad++ updater process (gup.exe).
+    This could indicate potential exploitation of the updater component to deliver unwanted malware.
+references:
+    - https://notepad-plus-plus.org/news/v889-released/
+    - https://www.heise.de/en/news/Notepad-updater-installed-malware-11109726.html
+    - https://www.rapid7.com/blog/post/tr-chrysalis-backdoor-dive-into-lotus-blossoms-toolkit/
+    - https://www.validin.com/blog/exploring_notepad_plus_plus_network_indicators/
+    - https://securelist.com/notepad-supply-chain-attack/118708/
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-02-03
+tags:
+    - attack.collection
+    - attack.credential-access
+    - attack.t1195.002
+    - attack.initial-access
+    - attack.t1557
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_parent:
+        ParentImage|endswith: \gup.exe
+    selection_child_img:
+        Image|endswith:
+            - \cmd.exe
+            - \powershell.exe
+            - \pwsh.exe
+            - \cscript.exe
+            - \wscript.exe
+            - \mshta.exe
+    selection_child_cli:
+        CommandLine|contains:
+            - bitsadmin
+            - certutil
+            - curl
+            - finger
+            - forfiles
+            - regsvr32
+            - rundll32
+            - wget
+    condition: process_creation and (selection_parent and 1 of selection_child_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

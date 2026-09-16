@@ -1,0 +1,29 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2025-02-10
+
+title: Code Integrity Error (Invalid Image Hash)
+details: 'Path: %param1%'
+description: Detects when hashes are not correct or a file does not meet Windows' security requirements.
+
+id: 0c871345-668e-4b71-bdad-61e42ecc31e3
+level: low  # This should be high but is set as low due to almost all false positives & negatives.
+status: test
+logsource:
+    product: windows
+    service: security
+    description: Logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 5038
+    condition: selection
+falsepositives:
+    - most likely not malicious
+    - disk device error
+tags:
+    - attack.defense-evasion
+references:
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-5038
+sample-evtx: 
+ruletype: Hayabusa

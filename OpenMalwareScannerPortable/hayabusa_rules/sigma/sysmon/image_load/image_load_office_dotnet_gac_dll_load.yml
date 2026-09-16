@@ -1,0 +1,38 @@
+title: GAC DLL Loaded Via Office Applications
+id: 1efdd183-2316-374f-ab42-f02581d848ee
+related:
+    - id: 90217a70-13fc-48e4-b3db-0d836c5824ac
+      type: derived
+status: test
+description: Detects any GAC DLL being loaded by an Office Product
+references:
+    - https://medium.com/threatpunter/detecting-adversary-tradecraft-with-image-load-event-logging-and-eql-8de93338c16
+author: Antonlovesdnb
+date: 2020-02-19
+modified: 2023-02-10
+tags:
+    - attack.execution
+    - attack.t1204.002
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith:
+            - \excel.exe
+            - \mspub.exe
+            - \onenote.exe
+            - \onenoteim.exe   # Just in case
+            - \outlook.exe
+            - \powerpnt.exe
+            - \winword.exe
+        ImageLoaded|startswith: C:\Windows\Microsoft.NET\assembly\GAC_MSIL
+    condition: image_load and selection
+falsepositives:
+    - Legitimate macro usage. Add the appropriate filter according to your environment
+level: high
+ruletype: Sigma

@@ -1,0 +1,60 @@
+author: Zach Mathis
+date: 2022-06-14
+modified: 2022-06-21
+
+title: New USB PnP Device
+details: 'DeviceID: %DeviceInstanceID% ¦ Provider: %DriverProvider% ¦ Description: %DriverDescription% ¦ Status: %InstallStatus%'
+description: Logs only the first time a device has been plugged in.
+
+id: f5c0b936-bec8-418a-a79a-89833468fea2
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 20001
+        DeviceInstanceID|startswith: USB 
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa
+
+sample-message: 'Driver Management concluded the process to install driver FileRepository\usb.inf_x86_neutral_4232097e28daf017\usb.inf for Device Instance ID USB\VID_0E0F&PID_0003\6&B25D31B&0&1 with the following status: 0x0.'
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-UserPnp" Guid="{96F4A050-7E31-453C-88BE-9634F4E02139}" /> 
+            <EventID>20001</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>7005</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8000000000000000</Keywords> 
+            <TimeCreated SystemTime="2014-11-26T23:24:17.240351200Z" /> 
+            <EventRecordID>4678</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="2076" ThreadID="2064" /> 
+            <Channel>System</Channel> 
+            <Computer>IE10Win7</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <UserData>
+            <InstallDeviceID xmlns:auto-ns2="http://schemas.microsoft.com/win/2004/08/events" xmlns="http://manifests.microsoft.com/win/2004/08/windows/userpnp">
+            <DriverName>FileRepository\usb.inf_x86_neutral_4232097e28daf017\usb.inf</DriverName> 
+            <DriverVersion>6.1.7601.18328</DriverVersion> 
+            <DriverProvider>Microsoft</DriverProvider> 
+            <DeviceInstanceID>USB\VID_0E0F&PID_0003\6&B25D31B&0&1</DeviceInstanceID> 
+            <SetupClass>{36FC9E60-C465-11CF-8056-444553540000}</SetupClass> 
+            <RebootOption>false</RebootOption> 
+            <UpgradeDevice>false</UpgradeDevice> 
+            <IsDriverOEM>false</IsDriverOEM> 
+            <InstallStatus>0x0</InstallStatus> 
+            <DriverDescription>USB Composite Device</DriverDescription> 
+            </InstallDeviceID>
+        </UserData>
+    </Event>

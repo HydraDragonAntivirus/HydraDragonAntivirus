@@ -1,0 +1,32 @@
+title: HackTool - ADCSPwn Execution
+id: 4ab524c0-380a-d654-f00f-0309d495eae1
+related:
+    - id: cd8c163e-a19b-402e-bdd5-419ff5859f12
+      type: derived
+status: test
+description: Detects command line parameters used by ADCSPwn, a tool to escalate privileges in an active directory network by coercing authenticate from machine accounts and relaying to the certificate service
+references:
+    - https://github.com/bats3c/ADCSPwn
+author: Florian Roth (Nextron Systems)
+date: 2021-07-31
+modified: 2023-02-04
+tags:
+    - attack.collection
+    - attack.credential-access
+    - attack.t1557.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains|all:
+            - ' --adcs '
+            - ' --port '
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

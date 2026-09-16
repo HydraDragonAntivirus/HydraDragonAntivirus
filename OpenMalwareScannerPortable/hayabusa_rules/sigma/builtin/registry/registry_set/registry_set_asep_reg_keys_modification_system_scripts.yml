@@ -1,0 +1,43 @@
+title: System Scripts Autorun Keys Modification
+id: 672c20dd-b3a3-85e6-ece5-2b1010734c41
+related:
+    - id: 17f878b8-9968-4578-b814-c4217fc5768c
+      type: obsolete
+    - id: e7a2fd40-3ae1-4a85-bf80-15cf624fb1b1
+      type: derived
+status: test
+description: Detects modification of autostart extensibility point (ASEP) in registry.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.001/T1547.001.md
+    - https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
+    - https://gist.github.com/GlebSukhodolskiy/0fc5fa5f482903064b448890db1eaf9d # a list with registry keys
+author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur Zinniatullin, oscd.community, Tim Shelton, frack113 (split)
+date: 2019-10-25
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    scripts_base:
+        ObjectName|contains: \Software\Policies\Microsoft\Windows\System\Scripts
+    scripts:
+        ObjectName|contains:
+            - \Startup
+            - \Shutdown
+            - \Logon
+            - \Logoff
+    filter:
+        NewValue: (Empty)
+    condition: registry_set and (scripts_base and scripts and not filter)
+falsepositives:
+    - Legitimate software automatically (mostly, during installation) sets up autorun keys for legitimate reason
+    - Legitimate administrator sets up autorun keys for legitimate reason
+level: medium
+ruletype: Sigma

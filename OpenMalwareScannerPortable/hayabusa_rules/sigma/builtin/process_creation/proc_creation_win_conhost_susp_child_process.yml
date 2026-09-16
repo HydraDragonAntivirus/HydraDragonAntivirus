@@ -1,0 +1,39 @@
+title: Uncommon Child Process Of Conhost.EXE
+id: 36f17029-664a-9448-86bb-81a24da07e7e
+related:
+    - id: dfa03a09-8b92-4d83-8e74-f72839b1c407
+      type: similar
+    - id: 7dc2dedd-7603-461a-bc13-15803d132355
+      type: derived
+status: test
+description: Detects uncommon "conhost" child processes. This could be a sign of "conhost" usage as a LOLBIN or potential process injection activity.
+references:
+    - http://www.hexacorn.com/blog/2020/05/25/how-to-con-your-host/
+author: omkar72
+date: 2020-10-25
+modified: 2023-12-11
+tags:
+    - attack.stealth
+    - attack.t1202
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        ParentProcessName|endswith: \conhost.exe
+    filter_main_conhost:
+        NewProcessName|endswith: :\Windows\System32\conhost.exe
+    filter_main_null:
+        NewProcessName: null
+    filter_main_empty:
+        NewProcessName: ''
+    filter_optional_provider:
+        Provider_Name: SystemTraceProvider-Process    # Race condition with SystemTrace doesn't provide all fields.
+    condition: process_creation and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

@@ -1,0 +1,41 @@
+title: Uncommon Connection to Active Directory Web Services
+id: b2c34a06-251e-87ee-2d3e-fae878185d34
+related:
+    - id: b3ad3c0f-c949-47a1-a30e-b0491ccae876
+      type: derived
+status: test
+description: |
+    Detects uncommon network connections to the Active Directory Web Services (ADWS) from processes not typically associated with ADWS management.
+references:
+    - https://medium.com/falconforce/soaphound-tool-to-collect-active-directory-data-via-adws-165aca78288c
+    - https://github.com/FalconForceTeam/FalconFriday/blob/a9219dfcfd89836f34660223f47d766982bdce46/Discovery/ADWS_Connection_from_Unexpected_Binary-Win.md
+author: '@kostastsale'
+date: 2024-01-26
+tags:
+    - attack.discovery
+    - attack.t1087
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    network_connection:
+        EventID: 5156
+        Channel: Security
+    selection:
+        Direction: 'True'
+        DestPort: 9389
+    filter_main_dsac:
+        Application: \device\harddiskvolume?\Windows\system32\dsac.exe
+    filter_main_ms_monitoring_agent:
+        Application: \device\harddiskvolume?\Program Files\Microsoft Monitoring Agent\
+    filter_main_powershell:
+        Application|startswith:
+            - \device\harddiskvolume?\Program Files\PowerShell\7\pwsh.exe
+            - \device\harddiskvolume?\Program Files\PowerShell\7-preview\pwsh.ex
+            - \device\harddiskvolume?\Windows\System32\WindowsPowerShell\
+            - \device\harddiskvolume?\Windows\SysWOW64\WindowsPowerShell\
+    condition: network_connection and (selection and not 1 of filter_main_*)
+falsepositives:
+    - ADWS is used by a number of legitimate applications that need to interact with Active Directory. These applications should be added to the allow-listing to avoid false positives.
+level: medium
+ruletype: Sigma

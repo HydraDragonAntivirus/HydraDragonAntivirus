@@ -1,0 +1,45 @@
+author: Zach Mathis
+date: 2022-05-24
+modified: 2024-02-06
+
+title: Possible Hidden Shellcode
+details: 'Data: %Data%'
+description: Searches for hex encoded 50+ character strings which may be shellcode hiding in event logs.
+
+id: 442c7996-1154-45bd-b203-c20596e7af81
+level: medium  # Set to medium due to possibilities of false positives, however, I haven't encountered FPs yet.
+status: stable
+logsource:
+    product: windows
+    description: 
+detection:
+    selection:
+        Data|re: '^[A-Fa-f0-9]{50,}$'
+    condition: selection
+falsepositives:
+    - legitimate hex strings in event logs
+tags:
+    - attack.persistence
+references:
+    - https://github.com/improsec/SharpEventPersist
+ruletype: Hayabusa
+
+sample-message: FCE8820000006089E531C0648B50308B520C8B52148B72280FB74A2631FFAC3C617C022C20C1CF0D01C7E2F252578B52108B4A3C8B4C1178E34801D1518B592001D38B4918E33A498B348B01D631FFACC1CF0D01C738E075F6037DF83B7D2475E4588B582401D3668B0C4B8B581C01D38B048B01D0894424245B5B61595A51FFE05F5F5A8B12EB8D5D6A018D85B20000005068318B6F87FFD5BBF0B5A25668A695BD9DFFD53C067C0A80FBE07505BB4713726F6A0053FFD563616C632E65786500
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Persistence" /> 
+            <EventID Qualifiers="0">1337</EventID> 
+            <Level>4</Level> 
+            <Task>0</Task> 
+            <Keywords>0x80000000000000</Keywords> 
+            <TimeCreated SystemTime="2022-05-24T04:59:06.909801400Z" /> 
+            <EventRecordID>2</EventRecordID> 
+            <Channel>Key Management Service</Channel> 
+            <Computer>YamatoSecurity</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data>FCE8820000006089E531C0648B50308B520C8B52148B72280FB74A2631FFAC3C617C022C20C1CF0D01C7E2F252578B52108B4A3C8B4C1178E34801D1518B592001D38B4918E33A498B348B01D631FFACC1CF0D01C738E075F6037DF83B7D2475E4588B582401D3668B0C4B8B581C01D38B048B01D0894424245B5B61595A51FFE05F5F5A8B12EB8D5D6A018D85B20000005068318B6F87FFD5BBF0B5A25668A695BD9DFFD53C067C0A80FBE07505BB4713726F6A0053FFD563616C632E65786500</Data> 
+        </EventData>
+    </Event>

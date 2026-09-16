@@ -1,0 +1,36 @@
+title: Potential File Overwrite Via Sysinternals SDelete
+id: 42fe5766-0354-9c66-897c-e09cad10171d
+related:
+    - id: a4824fca-976f-4964-b334-0621379e84c4
+      type: derived
+status: test
+description: Detects the use of SDelete to erase a file not the free space
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1485/T1485.md
+author: frack113
+date: 2021-06-03
+modified: 2023-02-28
+tags:
+    - attack.impact
+    - attack.t1485
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        OriginalFileName: sdelete.exe
+    filter:
+        CommandLine|contains:
+            - ' -h'
+            - ' -c'
+            - ' -z'
+            - ' /\?'
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

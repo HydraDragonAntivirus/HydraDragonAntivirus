@@ -1,0 +1,75 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-22
+
+title: 'Admin Logon'
+description: 'Originally "Special privileges assigned to new logon". This will create a seperate LID that is used when special admin-level privileges are used.'
+
+id: fdd0b325-8b89-469c-8b0c-e5ddfe39b62e
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4672
+    filter:
+        - SubjectUserName: 'SYSTEM'
+        - SubjectUserName: 'LOCAL SERVICE'
+        - SubjectUserName: 'NETWORK SERVICE'
+        - SubjectUserName|endswith: '$'
+        - SubjectUserName|re: '(DWM)-([0-9]|1[0-3])$' #Filter out default Desktop Windows Manager accounts. DWM-1, DWM-2, etc... to DWM-13
+        - SubjectUserName: 'DefaultAppPool' #IIS webserver account
+        - SubjectUserName: 'IUSR' #IIS webserver account
+    condition: selection and not filter
+falsepositives:
+    - normal system usage
+tags:
+references:
+ruletype: Hayabusa
+
+sample-message: |
+    Special privileges assigned to new logon.
+
+    Subject:
+        Security ID:		S-1-5-21-3463664321-2923530833-3546627382-1000
+        Account Name:		IEUser
+        Account Domain:		IE8Win7
+        Logon ID:		0x15F53A
+
+    Privileges:	SeSecurityPrivilege
+                SeTakeOwnershipPrivilege
+                SeLoadDriverPrivilege
+                SeBackupPrivilege
+                SeRestorePrivilege
+                SeDebugPrivilege
+                SeSystemEnvironmentPrivilege
+                SeImpersonatePrivilege
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-A5BA-3E3B0328C30D}" /> 
+            <EventID>4672</EventID> 
+            <Version>0</Version> 
+            <Level>0</Level> 
+            <Task>12548</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8020000000000000</Keywords> 
+            <TimeCreated SystemTime="2013-10-23T21:53:46.263250000Z" /> 
+            <EventRecordID>3359</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="524" ThreadID="2344" /> 
+            <Channel>Security</Channel> 
+            <Computer>IE8Win7</Computer> 
+            <Security /> 
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-21-3463664321-2923530833-3546627382-1000</Data> 
+            <Data Name="SubjectUserName">IEUser</Data> 
+            <Data Name="SubjectDomainName">IE8Win7</Data> 
+            <Data Name="SubjectLogonId">0x15f53a</Data> 
+            <Data Name="PrivilegeList">SeSecurityPrivilege SeTakeOwnershipPrivilege SeLoadDriverPrivilege SeBackupPrivilege SeRestorePrivilege SeDebugPrivilege SeSystemEnvironmentPrivilege SeImpersonatePrivilege</Data> 
+        </EventData>
+    </Event>

@@ -1,0 +1,30 @@
+title: New Service Uses Double Ampersand in Path
+id: 22b90bac-a283-6153-761c-7b6059f8f250
+related:
+    - id: ca83e9f3-657a-45d0-88d6-c1ac280caf53
+      type: derived
+status: deprecated
+description: Detects a service installation that uses a suspicious double ampersand used in the image path value
+references:
+    - Internal Research
+author: Florian Roth (Nextron Systems)
+date: 2022-07-05
+modified: 2023-11-15
+tags:
+    - attack.defense-evasion
+    - attack.t1027
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+        ImagePath|contains: '&&'
+    condition: system and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

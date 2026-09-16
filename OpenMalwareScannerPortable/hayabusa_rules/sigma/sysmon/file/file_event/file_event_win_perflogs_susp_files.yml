@@ -1,0 +1,47 @@
+title: Suspicious File Created In PerfLogs
+id: 8822f47b-fcbf-b189-f9a1-10961c8f7cd0
+related:
+    - id: bbb7e38c-0b41-4a11-b306-d2a457b7ac2b
+      type: derived
+status: test
+description: Detects suspicious file based on their extension being created in "C:\PerfLogs\". Note that this directory mostly contains ".etl" files
+references:
+    - Internal Research
+    - https://labs.withsecure.com/publications/fin7-target-veeam-servers
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-05
+tags:
+    - attack.execution
+    - attack.t1059
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|startswith: C:\PerfLogs\
+        TargetFilename|endswith:
+            - .7z
+            - .bat
+            - .bin
+            - .chm
+            - .dll
+            - .exe
+            - .hta
+            - .lnk
+            - .ps1
+            - .psm1
+            - .py
+            - .scr
+            - .sys
+            - .vbe
+            - .vbs
+            - .zip
+    condition: file_event and selection
+falsepositives:
+    - Unlikely
+level: medium
+ruletype: Sigma

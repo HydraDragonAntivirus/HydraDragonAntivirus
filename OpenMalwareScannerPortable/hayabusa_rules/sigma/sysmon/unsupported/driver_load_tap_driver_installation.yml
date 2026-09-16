@@ -1,0 +1,30 @@
+title: Tap Driver Installation
+id: b2472833-ce1c-9975-9f25-daf9d0061560
+related:
+    - id: 8e4cf0e5-aa5d-4dc3-beff-dc26917744a9
+      type: derived
+    - id: 8bd47424-53e9-41ea-8a6a-a1f97b1bb0eb
+      type: derived
+description: Well-known TAP software installation. Possible preparation for data exfiltration using tunnelling techniques
+status: unsupported
+author: Daniil Yugoslavskiy, Ian Davis, oscd.community
+date: 2019-10-24
+modified: 2021-09-21
+tags:
+    - attack.exfiltration
+    - attack.t1048
+    - sysmon
+logsource:
+    product: windows
+    category: driver_load
+detection:
+    driver_load:
+        EventID: 6
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImagePath|contains: tap0901
+    condition: driver_load and selection
+falsepositives:
+    - Legitimate OpenVPN TAP insntallation
+level: medium
+ruletype: Sigma

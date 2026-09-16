@@ -1,0 +1,39 @@
+title: Blackbyte Ransomware Registry
+id: 9651c944-f6ad-6a83-4ff8-76f682bce13e
+related:
+    - id: 83314318-052a-4c90-a1ad-660ece38d276
+      type: derived
+status: test
+description: |
+    Detects specific windows registry modifications made by BlackByte ransomware variants.
+    BlackByte set three different registry values to escalate privileges and begin setting the stage for lateral movement and encryption.
+    This rule triggers when any of the following registry keys are set to DWORD 1, however all three should be investigated as part of a larger BlackByte ransomware detection and response effort.
+references:
+    - https://redcanary.com/blog/blackbyte-ransomware/?utm_source=twitter&utm_medium=social
+    - https://www.trustwave.com/en-us/resources/blogs/spiderlabs-blog/blackbyte-ransomware-pt-1-in-depth-analysis/
+author: frack113
+date: 2022-01-24
+modified: 2025-10-21
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+    - detection.emerging-threats
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName:
+            - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\LocalAccountTokenFilterPolicy
+            - \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLinkedConnections
+            - \REGISTRY\MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled
+        NewValue: DWORD (0x00000001)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

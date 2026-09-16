@@ -1,0 +1,55 @@
+author: Zach Mathis
+date: 2024-02-03
+modified: 2024-02-03
+
+title: Computer Startup
+details: 'MajorVer: %Data[1]% ¦ BuildNum: %Data[2]%'
+description: |
+    The computer started up. This event is important because it also contains the OS version information.
+    %Data[3]% contains the Service Pack name (Ex: Service Pack 1) for Windows 7 systems but can be infered from the build number so is left out.
+    %Data[4]% contains processor license information (Ex: Multiprocessor Free) but is not so useful so is left out.
+    %Data[5]% contains the Revision (a.k.a. Update Version) Number in Windows 7 logs.
+    Windows 10+ seems to always output 0 for this so it is not a reliable source for identifying the Revision Number.
+
+id: b27292f1a-18b3-4433-b340-151874a7d4e8
+level: informational
+status: test
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 6009
+    condition: selection
+falsepositives:
+tags:
+references:
+ruletype: Hayabusa
+
+sample-evtx:
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="EventLog" />
+            <EventID Qualifiers="32768">6009</EventID>
+            <Version>0</Version>
+            <Level>4</Level>
+            <Task>0</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x80000000000000</Keywords>
+            <TimeCreated SystemTime="2023-07-10T08:22:01.5498376Z" />
+            <EventRecordID>18712</EventRecordID>
+            <Correlation />
+            <Execution ProcessID="0" ThreadID="0" />
+            <Channel>System</Channel>
+            <Computer>Computer</Computer>
+            <Security />
+        </System>
+        <EventData>
+            <Data>10.00.</Data>
+            <Data>19044</Data>
+            <Data />
+            <Data>Multiprocessor Free</Data>
+            <Data>0</Data>
+        </EventData>
+    </Event>

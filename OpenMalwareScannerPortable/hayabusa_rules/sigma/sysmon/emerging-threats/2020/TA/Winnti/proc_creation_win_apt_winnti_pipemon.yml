@@ -1,0 +1,41 @@
+title: Winnti Pipemon Characteristics
+id: 902c032b-d7d1-8915-9f2e-e99db7579436
+related:
+    - id: 73d70463-75c9-4258-92c6-17500fe972f2
+      type: derived
+status: stable
+description: Detects specific process characteristics of Winnti Pipemon malware reported by ESET
+references:
+    - https://www.welivesecurity.com/2020/05/21/no-game-over-winnti-group/
+author: Florian Roth (Nextron Systems), oscd.community
+date: 2020-07-30
+modified: 2021-11-27
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - attack.g0044
+    - detection.emerging-threats
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_1:
+        CommandLine|contains: setup0.exe -p
+    selection_2:
+        CommandLine|contains: setup.exe
+        CommandLine|endswith:
+            - -x:0
+            - -x:1
+            - -x:2
+    condition: process_creation and (1 of selection_*)
+falsepositives:
+    - Legitimate setups that use similar flags
+level: critical
+ruletype: Sigma

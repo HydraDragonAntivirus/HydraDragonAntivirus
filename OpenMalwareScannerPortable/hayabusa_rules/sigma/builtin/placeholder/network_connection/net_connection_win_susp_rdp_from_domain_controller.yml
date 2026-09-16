@@ -1,0 +1,33 @@
+title: New RDP Connection Initiated From Domain Controller
+id: 8b0f1458-5a23-5950-ebc7-f8d7a562dc06
+related:
+    - id: fda34293-718e-4b36-b018-38caab0d1209
+      type: derived
+status: test
+description: Detects an RDP connection originating from a domain controller.
+references:
+    - Internal Research
+author: Josh Nickels
+date: 2024-05-10
+tags:
+    - attack.lateral-movement
+    - attack.t1021
+logsource:
+    product: windows
+    category: network_connection
+detection:
+    network_connection:
+        EventID: 5156
+        Channel: Security
+    selection_connection:
+        Direction: 'True'
+        DestPort: 3389
+    selection_hosts:
+        Computer|expand: '%domain_controller_hostnames%'
+    filter_optional_defender_identity:
+        Application|endswith: \Microsoft.Tri.Sensor.exe
+    condition: network_connection and (all of selection_* and not 1 of filter_*)
+falsepositives:
+    - Legitimate administration activity
+level: high
+ruletype: Sigma

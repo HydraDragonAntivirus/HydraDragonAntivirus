@@ -1,0 +1,25 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: Logon (NetworkCleartext)
+description: 'Prints logon information. Despite the naming NetworkCleartext, the password is not sent over the network in cleartext. It is usually for IIS Basic Authentication.'
+
+id: 7ff51227-6a10-49e6-a58b-b9f4ac32b138
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4624
+        LogonType: 8
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx: 
+ruletype: Hayabusa

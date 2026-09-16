@@ -1,0 +1,31 @@
+title: Devtoolslauncher.exe Executes Specified Binary
+id: 415d9b8e-8ea7-ce1d-44e5-f124d411e636
+related:
+    - id: cc268ac1-42d9-40fd-9ed3-8c4e1a5b87e6
+      type: derived
+status: test
+description: The Devtoolslauncher.exe executes other binary
+references:
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/Devtoolslauncher/
+    - https://twitter.com/_felamos/status/1179811992841797632
+author: Beyu Denis, oscd.community (rule), @_felamos (idea)
+date: 2019-10-12
+modified: 2021-11-27
+tags:
+    - attack.stealth
+    - attack.t1218
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains: LaunchForDeploy
+        NewProcessName|endswith: \devtoolslauncher.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate use of devtoolslauncher.exe by legitimate user
+level: high
+ruletype: Sigma

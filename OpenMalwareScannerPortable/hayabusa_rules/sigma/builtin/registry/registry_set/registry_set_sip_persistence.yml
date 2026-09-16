@@ -1,0 +1,49 @@
+title: Persistence Via New SIP Provider
+id: 15d9849f-4559-6cb8-b45b-663e3ddd9cc5
+related:
+    - id: 5a2b21ee-6aaa-4234-ac9d-59a59edf90a1
+      type: derived
+status: test
+description: Detects when an attacker register a new SIP provider for persistence and defense evasion
+references:
+    - https://persistence-info.github.io/Data/codesigning.html
+    - https://github.com/gtworek/PSBits/tree/master/SIP
+    - https://specterops.io/assets/resources/SpecterOps_Subverting_Trust_in_Windows.pdf
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-07-21
+modified: 2023-08-17
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1553.003
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection_root:
+        ObjectName|contains:
+            - \SOFTWARE\Microsoft\Cryptography\Providers\
+            - \SOFTWARE\Microsoft\Cryptography\OID\EncodingType
+            - \SOFTWARE\WOW6432Node\Microsoft\Cryptography\Providers\
+            - \SOFTWARE\WOW6432Node\Microsoft\Cryptography\OID\EncodingType
+    selection_dll:
+        ObjectName|contains:
+            - \Dll
+            - \$DLL
+    filter:
+        NewValue:
+            # Add more legitimate SIP providers according to your env
+            - WINTRUST.DLL
+            - mso.dll
+    filter_poqexec:
+        ProcessName: C:\Windows\System32\poqexec.exe
+        ObjectName|contains: \CryptSIPDll
+        NewValue: C:\Windows\System32\PsfSip.dll
+    condition: registry_set and (all of selection_* and not 1 of filter*)
+falsepositives:
+    - Legitimate SIP being registered by the OS or different software.
+level: medium
+ruletype: Sigma

@@ -1,0 +1,31 @@
+title: Suspicious PowerShell Download
+id: 12f93a4e-cd0e-18d7-6969-b345ecc8d40a
+related:
+    - id: 65531a81-a694-4e31-ae04-f8ba5bc33759
+      type: derived
+status: deprecated
+description: Detects suspicious PowerShell download command
+tags:
+    - attack.execution
+    - attack.t1059.001
+author: Florian Roth (Nextron Systems)
+date: 2017-03-05
+modified: 2022-04-11
+logsource:
+    product: windows
+    service: powershell
+detection:
+    powershell:
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    webclient:
+        - System.Net.WebClient
+    download:
+        - .DownloadFile(
+        - .DownloadString(
+    condition: powershell and (webclient and download)
+falsepositives:
+    - PowerShell scripts that download content from the Internet
+level: medium
+ruletype: Sigma

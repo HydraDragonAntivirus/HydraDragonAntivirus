@@ -1,0 +1,40 @@
+title: Invoke-Obfuscation Via Use MSHTA
+id: 65dd5f5f-e4f8-3773-9225-7a15ec284742
+related:
+    - id: 7e9c7999-0f9b-4d4a-a6ed-af6d553d4af4
+      type: derived
+    - id: a4e82ad2-7430-4ee8-b858-6ad6099773fa
+      type: derived
+description: Detects Obfuscated Powershell via use MSHTA in Scripts
+status: unsupported
+author: Nikita Nazarov, oscd.community
+date: 2020-10-09
+modified: 2022-03-08
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009 #(Task31)
+logsource:
+    product: windows
+    category: driver_load
+detection:
+    driver_load:
+        EventID: 6
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImagePath|contains|all:
+            - set
+            - '&&'
+            - mshta
+            - vbscript:createobject
+            - .run
+            - (window.close)
+    condition: driver_load and selection
+falsepositives:
+    - Unknown
+level: high
+tags:
+    - attack.defense-evasion
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+    - sysmon
+ruletype: Sigma

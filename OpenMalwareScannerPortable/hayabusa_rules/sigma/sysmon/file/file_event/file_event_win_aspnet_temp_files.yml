@@ -1,0 +1,39 @@
+title: Assembly DLL Creation Via AspNetCompiler
+id: d1b92d3c-709b-20fa-f6af-2217a5ada30b
+related:
+    - id: 9ccba514-7cb6-4c5c-b377-700758f2f120 # SuspChild
+      type: similar
+    - id: 9f50fe98-fe5c-4a2d-86c7-fad7f63ed622 # Susp Paths
+      type: similar
+    - id: a01b8329-5953-4f73-ae2d-aa01e1f35f00 # Exec
+      type: similar
+    - id: 4c7f49ee-2638-43bb-b85b-ce676c30b260
+      type: derived
+status: test
+description: |
+    Detects the creation of new DLL assembly files by "aspnet_compiler.exe", which could be a sign of "aspnet_compiler" abuse to proxy execution through a build provider.
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-08-14
+tags:
+    - attack.execution
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \aspnet_compiler.exe
+        TargetFilename|contains|all:
+            - \Temporary ASP.NET Files\
+            - \assembly\tmp\
+            - .dll
+    condition: file_event and selection
+falsepositives:
+    - Legitimate assembly compilation using a build provider
+level: medium
+ruletype: Sigma

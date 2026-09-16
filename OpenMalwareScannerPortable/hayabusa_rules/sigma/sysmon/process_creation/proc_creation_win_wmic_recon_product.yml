@@ -1,0 +1,40 @@
+title: Potential Product Reconnaissance Via Wmic.EXE
+id: e5f51c75-e476-8c14-04a1-08b65a529479
+related:
+    - id: 15434e33-5027-4914-88d5-3d4145ec25a9
+      type: derived
+status: test
+description: Detects the execution of WMIC in order to get a list of firewall and antivirus products
+references:
+    - https://thedfirreport.com/2023/03/06/2022-year-in-review/
+    - https://www.yeahhub.com/list-installed-programs-version-path-windows/
+    - https://learn.microsoft.com/en-us/answers/questions/253555/software-list-inventory-wmic-product
+author: Nasreddine Bencherchali
+date: 2023-02-14
+modified: 2025-10-22
+tags:
+    - attack.execution
+    - attack.t1047
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \wmic.exe
+        - OriginalFileName: wmic.exe
+    selection_cli:
+        CommandLine|contains: Product
+    filter_main_call_operations:
+        # wmic /node:"#{node}" product where "name like '#{product}%%'" call uninstall
+        CommandLine|contains:
+            - ' uninstall'
+            - ' install'
+    condition: process_creation and (all of selection_* and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

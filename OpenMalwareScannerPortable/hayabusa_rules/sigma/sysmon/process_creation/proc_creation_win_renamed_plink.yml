@@ -1,0 +1,37 @@
+title: Renamed Plink Execution
+id: 7c1e7813-d255-e2b7-59f0-f19c0678af86
+related:
+    - id: 1c12727d-02bf-45ff-a9f3-d49806a3cf43
+      type: derived
+status: test
+description: Detects the execution of a renamed version of the Plink binary
+references:
+    - https://thedfirreport.com/2022/06/06/will-the-real-msiexec-please-stand-up-exploit-leads-to-data-exfiltration/
+    - https://the.earth.li/~sgtatham/putty/0.58/htmldoc/Chapter7.html
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-06-06
+modified: 2023-02-03
+tags:
+    - attack.stealth
+    - attack.t1036
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - OriginalFileName: Plink
+        - CommandLine|contains|all:
+              - ' -l forward'
+              - ' -P '
+              - ' -R '
+    filter:
+        Image|endswith: \plink.exe
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

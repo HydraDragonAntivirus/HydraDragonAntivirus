@@ -1,0 +1,44 @@
+Title: 'Network Connection Blocked'
+Channel: Security
+EventID: 5157
+RewriteFieldData:
+    Direction:
+        - '%%14592': 'Inbound'
+        - '%%14593': 'Outbound'
+    LayerName:
+        - '%%14610': 'Receive/Accept'
+sample-message: |
+    The Windows Filtering Platform has blocked a connection.
+
+    Application Information:
+        Process ID:		784
+        Application Name:	\device\harddiskvolume1\windows\system32\svchost.exe
+
+    Network Information:
+        Direction:		Inbound
+        Source Address:		172.17.11.209
+        Source Port:		53594
+        Destination Address:	172.29.42.10
+        Destination Port:		53
+        Protocol:		0
+
+    Filter Information:
+        Filter Run-Time ID:	66037
+        Layer Name:		Receive/Accept
+        Layer Run-Time ID:	44
+sample-evtx:
+    <EventData>
+        <Data Name="ProcessID">784</Data> 
+        <Data Name="Application">\device\harddiskvolume1\windows\system32\svchost.exe</Data> 
+        <Data Name="Direction">%%14592</Data> 
+        <Data Name="SourceAddress">172.17.11.209</Data> 
+        <Data Name="SourcePort">53594</Data> 
+        <Data Name="DestAddress">172.29.42.10</Data> 
+        <Data Name="DestPort">53</Data> 
+        <Data Name="Protocol">0</Data> 
+        <Data Name="FilterRTID">66037</Data> 
+        <Data Name="LayerName">%%14610</Data> 
+        <Data Name="LayerRTID">44</Data> 
+        <Data Name="RemoteUserID">S-1-0-0</Data> 
+        <Data Name="RemoteMachineID">S-1-0-0</Data> 
+    </EventData>

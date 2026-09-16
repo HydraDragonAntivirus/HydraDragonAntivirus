@@ -1,0 +1,31 @@
+title: Mesh Agent Service Installation
+id: cd204548-409b-e025-4fde-4a8fb1fe5332
+related:
+    - id: e0d1ad53-c7eb-48ec-a87a-72393cc6cedc
+      type: derived
+status: test
+description: Detects a Mesh Agent service installation. Mesh Agent is used to remotely manage computers
+references:
+    - https://thedfirreport.com/2022/11/28/emotet-strikes-again-lnk-file-leads-to-domain-wide-ransomware/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-11-28
+tags:
+    - attack.command-and-control
+    - attack.t1219.002
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection_root:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+    selection_service:
+        - ImagePath|contains: MeshAgent.exe
+        - ServiceName|contains: Mesh Agent
+    condition: system and (all of selection_*)
+falsepositives:
+    - Legitimate use of the tool
+level: medium
+ruletype: Sigma

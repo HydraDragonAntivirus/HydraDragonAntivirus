@@ -1,0 +1,33 @@
+title: Potential Lateral Movement via Windows Remote Shell
+id: 000b6661-928a-b276-901f-a8b94c10f61b
+related:
+    - id: 79df3f68-dccb-48e9-9171-b75cbc37c51d
+      type: derived
+status: experimental
+description: |
+    Detects a child process spawned by 'winrshost.exe', which suggests remote command execution through Windows Remote Shell (WinRs) and may indicate potential lateral movement activity.
+references:
+    - https://cardinalops.com/blog/living-off-winrm-abusing-complexity-in-remote-management/
+    - https://www.ired.team/offensive-security/lateral-movement/winrs-for-lateral-movement
+author: Liran Ravich
+date: 2025-10-22
+tags:
+    - attack.lateral-movement
+    - attack.t1021.006
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        # Note: Example of command to simulate (winrm needs to be enabled): "c:\Windows\System32\winrs.exe" powershell
+        ParentProcessName|endswith: \winrshost.exe
+    filter_main_conhost:
+        NewProcessName: C:\Windows\System32\conhost.exe
+    condition: process_creation and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Legitimate use of WinRM within the organization
+level: medium
+ruletype: Sigma

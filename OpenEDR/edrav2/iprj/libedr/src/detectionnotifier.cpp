@@ -18,6 +18,7 @@
 
 #include <deque>
 #include <atomic>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -699,95 +700,296 @@ static bool bulkHashOverBudget(const std::string& sUtf8Path)
 	catch (...) { return false; }
 }
 
-// Int-only verdict (kept for compatibility); the name variant below, with
-// its legacy-DLL fallback, is the single implementation now.
-static int rustScanVerdict(const std::string& sUtf8Path);
+// openedr_static.dll static-engine binding. Replaces the former
+// owlyshield_ransom.dll owlyshield_scan_file_name path for file verdicts.
+// Exports used:
+//   int32_t openedr_static_init(const char* base_rules_dir);  // NULL => rules next to the DLL
+//   char*   openedr_static_scan_file(const char* file_path);  // JSON report, heap-allocated
+//   void    openedr_static_free_string(char* s);
+// Report verdict mapping: "Malicious" -> 2, "Clean" -> 1, anything else
+// ("Suspicious"/"Unknown"/"Error") -> 0. sNameOut receives the first
+// detection name for display (reputation screen); verdict semantics identical.
+namespace {
 
-// Same as rustScanVerdict, plus the human-readable cause (signature name,
-// EICAR-Test-File, Signer:{name}, model detection name) in sNameOut.
-// Display-only (reputation screen); verdict semantics identical.
-static int rustScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut)
+typedef int32_t (*OpenedrInitFn)(const char*);
+typedef char* (*OpenedrScanFileFn)(const char*);
+typedef void (*OpenedrFreeStringFn)(char*);
+
+struct OpenedrStaticBinding {
+	HMODULE hDll = nullptr;
+	OpenedrInitFn fnInit = nullptr;
+	OpenedrScanFileFn fnScanFile = nullptr;
+	OpenedrFreeStringFn fnFreeString = nullptr;
+	bool ready = false;
+	bool logged = false;
+};
+
+static OpenedrStaticBinding s_openedr;
+static std::once_flag s_openedrInitFlag;
+
+static void InitOpenedrStatic()
 {
-	typedef int32_t (*ScanFileNameFn)(const uint16_t*, uint32_t, uint16_t*, uint32_t);
-	static HMODULE s_hDllName = nullptr;
-	static ScanFileNameFn s_fnName = nullptr;
-	static bool s_triedName = false;
-	if (!s_triedName)
+	std::call_once(s_openedrInitFlag, []() {
+		HMODULE hDll = ::GetModuleHandleW(L"openedr_static.dll");
+		if (!hDll) hDll = ::LoadLibraryW(L"openedr_static.dll");
+		if (!hDll)
+		{
+			wchar_t szMod[MAX_PATH] = {};
+			if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
+			{
+				std::wstring wsDir(szMod);
+				size_t sep = wsDir.find_last_of(L"\\/");
+				if (sep != std::wstring::npos)
+					hDll = ::LoadLibraryW((wsDir.substr(0, sep) + L"\\openedr_static.dll").c_str());
+			}
+		}
+		if (!hDll)
+			hDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\openedr_static.dll");
+		if (!hDll)
+			return;
+		auto fnInit = reinterpret_cast<OpenedrInitFn>(::GetProcAddress(hDll, "openedr_static_init"));
+		auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
+		auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
+		if (!fnInit || !fnScan || !fnFree)
+			return;
+		if (fnInit(nullptr) != 0)
+			return;
+		s_openedr.hDll = hDll;
+		s_openedr.fnInit = fnInit;
+		s_openedr.fnScanFile = fnScan;
+		s_openedr.fnFreeString = fnFree;
+		s_openedr.ready = true;
+	});
+}
+
+// --- openedr_static report JSON mini-reader --------------------------------
+// libedr links no JSON library, so this extracts exactly the two fields the
+// verdict path needs from the machine-generated serde_json report:
+// top-level "verdict" and the first detection "name" inside "detections".
+// String escapes (\" \\ \/ \b \f \n \r \t \uXXXX) are decoded; anything
+// malformed yields false and the caller falls back to unknown (0).
+
+// Parse a JSON string literal at *pp (must point at the opening quote).
+// Advances *pp past the closing quote. Returns false on malformed input.
+static bool ParseJsonString(const char*& p, const char* end, std::string& out)
+{
+	if (p >= end || *p != '"')
+		return false;
+	++p;
+	out.clear();
+	while (p < end)
 	{
-		s_triedName = true;
-		s_hDllName = ::GetModuleHandleW(L"owlyshield_ransom.dll");
-		if (!s_hDllName) s_hDllName = ::LoadLibraryW(L"owlyshield_ransom.dll");
-		if (s_hDllName)
-			s_fnName = reinterpret_cast<ScanFileNameFn>(
-				::GetProcAddress(s_hDllName, "owlyshield_scan_file_name"));
+		char c = *p++;
+		if (c == '"')
+			return true;
+		if (c != '\\')
+		{
+			out.push_back(c);
+			continue;
+		}
+		if (p >= end)
+			return false;
+		char e = *p++;
+		switch (e)
+		{
+		case '"': out.push_back('"'); break;
+		case '\\': out.push_back('\\'); break;
+		case '/': out.push_back('/'); break;
+		case 'b': out.push_back('\b'); break;
+		case 'f': out.push_back('\f'); break;
+		case 'n': out.push_back('\n'); break;
+		case 'r': out.push_back('\r'); break;
+		case 't': out.push_back('\t'); break;
+		case 'u':
+		{
+			if (end - p < 4)
+				return false;
+			unsigned cp = 0;
+			for (int i = 0; i < 4; ++i)
+			{
+				char h = p[i];
+				cp <<= 4;
+				if (h >= '0' && h <= '9') cp |= static_cast<unsigned>(h - '0');
+				else if (h >= 'a' && h <= 'f') cp |= static_cast<unsigned>(h - 'a' + 10);
+				else if (h >= 'A' && h <= 'F') cp |= static_cast<unsigned>(h - 'A' + 10);
+				else return false;
+			}
+			p += 4;
+			if (cp < 0x80) out.push_back(static_cast<char>(cp));
+			else if (cp < 0x800)
+			{
+				out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+				out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+			}
+			else
+			{
+				out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+				out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+				out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+			}
+			break;
+		}
+		default:
+			return false;
+		}
 	}
+	return false;
+}
+
+static void SkipJsonWs(const char*& p, const char* end)
+{
+	while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))
+		++p;
+}
+
+// Locate `"key"` at object depth wantDepth; on success keyEndPos is set past
+// the key's closing quote. Strings (with escapes) are skipped so braces
+// inside text (paths, details) can't corrupt depth tracking.
+static bool FindJsonKey(const std::string& json, const char* key, int wantDepth, size_t startPos, size_t& keyEndPos)
+{
+	const char* end = json.data() + json.size();
+	if (startPos >= json.size())
+		return false;
+	const char* p = json.data() + startPos;
+	const size_t keyLen = strlen(key);
+	int depth = 0;
+	// Rebuild depth from the start so callers can resume mid-document.
+	for (const char* q = json.data(); q < p;)
+	{
+		if (*q == '"')
+		{
+			++q;
+			while (q < end && *q != '"')
+				q += (*q == '\\' && q + 1 < end) ? 2 : 1;
+			if (q < end) ++q;
+		}
+		else
+		{
+			if (*q == '{') ++depth;
+			else if (*q == '}') --depth;
+			++q;
+		}
+	}
+	while (p < end)
+	{
+		if (*p == '"')
+		{
+			const char* ks = p;
+			std::string lit;
+			if (!ParseJsonString(p, end, lit))
+				return false;
+			if (depth == wantDepth && lit.size() == keyLen && lit == key)
+			{
+				keyEndPos = static_cast<size_t>(ks - json.data()) + keyLen + 2;
+				return true;
+			}
+			continue;
+		}
+		if (*p == '{') ++depth;
+		else if (*p == '}') --depth;
+		++p;
+	}
+	return false;
+}
+
+// After FindJsonKey, expect ':' then a string value; decodes it into out.
+static bool ReadJsonKeyString(const std::string& json, size_t keyEndPos, std::string& out)
+{
+	const char* p = json.data() + keyEndPos;
+	const char* end = json.data() + json.size();
+	SkipJsonWs(p, end);
+	if (p >= end || *p != ':')
+		return false;
+	++p;
+	SkipJsonWs(p, end);
+	return ParseJsonString(p, end, out);
+}
+
+static bool OpenedrReportVerdict(const std::string& json, std::string& verdictOut)
+{
+	size_t keyEnd = 0;
+	return FindJsonKey(json, "verdict", 1, 0, keyEnd)
+		&& ReadJsonKeyString(json, keyEnd, verdictOut);
+}
+
+static bool OpenedrReportFirstDetection(const std::string& json, std::string& nameOut)
+{
+	size_t detKeyEnd = 0;
+	if (!FindJsonKey(json, "detections", 1, 0, detKeyEnd))
+		return false;
+	const char* p = json.data() + detKeyEnd;
+	const char* end = json.data() + json.size();
+	SkipJsonWs(p, end);
+	if (p >= end || *p != ':')
+		return false;
+	++p;
+	SkipJsonWs(p, end);
+	if (p >= end || *p != '[')
+		return false;
+	size_t nameKeyEnd = 0;
+	if (!FindJsonKey(json, "name", 2, static_cast<size_t>(p - json.data()), nameKeyEnd))
+		return false;
+	return ReadJsonKeyString(json, nameKeyEnd, nameOut);
+}
+
+// Static-engine verdict with human-readable cause (first detection name).
+// Display-only (reputation screen); verdict semantics: 2 malicious,
+// 1 safe, 0 unknown. No cloud, no execution.
+static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut)
+{
 	sNameOut.clear();
 	if (sUtf8Path.empty())
 		return 0;
-	if (!s_fnName)
+	try
 	{
-		// Old DLL without the name export: fall back to the int-only
-		// verdict so local scanning still works (just without names).
-		// (Rebuild owlyshield_ransom.dll to get names.)
-		typedef int32_t (*ScanFileFn)(const uint16_t*, uint32_t);
-		static ScanFileFn s_fnLegacy = nullptr;
-		static bool s_triedLegacy = false;
-		if (!s_triedLegacy)
+		InitOpenedrStatic();
+		if (!s_openedr.ready)
 		{
-			s_triedLegacy = true;
-			HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
-			if (!hDll) hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
-			if (hDll)
-				s_fnLegacy = reinterpret_cast<ScanFileFn>(
-					::GetProcAddress(hDll, "owlyshield_scan_file"));
-		}
-		if (!s_fnLegacy)
-		{
-			static bool s_loggedMissing = false;
-			if (!s_loggedMissing)
+			if (!s_openedr.logged)
 			{
-				s_loggedMissing = true;
-				LOGLVL(Critical, FMT("detnotif: local engines unavailable, neither owlyshield_scan_file_name nor owlyshield_scan_file exports found (is owlyshield_ransom.dll deployed?)"));
+				s_openedr.logged = true;
+				LOGLVL(Critical, FMT("detnotif: local engines unavailable, openedr_static.dll (openedr_static_init/scan_file/free_string) not found or init failed"));
 			}
 			return 0;
 		}
-		int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
-		if (nWide <= 1)
+		char* json = s_openedr.fnScanFile(sUtf8Path.c_str());
+		if (!json)
 			return 0;
-		std::wstring ws(nWide - 1, L'\0');
-		if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
+		std::string report(json);
+		s_openedr.fnFreeString(json);
+		std::string verdict;
+		if (!OpenedrReportVerdict(report, verdict))
 			return 0;
-		int r = s_fnLegacy(reinterpret_cast<const uint16_t*>(ws.c_str()),
-			static_cast<uint32_t>(ws.size()));
-		return (r == 2 || r == 1) ? r : 0;
+		if (verdict == "Malicious")
+		{
+			std::string name;
+			if (OpenedrReportFirstDetection(report, name) && !name.empty())
+			{
+				if (name.size() > 512)
+					name.resize(512);
+				sNameOut = name;
+			}
+			else
+			{
+				sNameOut = "Malware.LocalDetection";
+			}
+			return 2;
+		}
+		if (verdict == "Clean")
+			return 1;
+		return 0;
 	}
-	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
-	if (nWide <= 1)
-		return 0;
-	std::wstring ws(nWide - 1, L'\0');
-	if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
-		return 0;
-	static const int kNameCap = 1024;
-	WCHAR wszName[kNameCap] = {};
-	int r = s_fnName(reinterpret_cast<const uint16_t*>(ws.c_str()),
-		static_cast<uint32_t>(ws.size()), reinterpret_cast<uint16_t*>(wszName), kNameCap);
-	if (r != 2 && r != 1)
-		return 0;
-	int nUtf8 = ::WideCharToMultiByte(CP_UTF8, 0, wszName, -1, nullptr, 0, nullptr, nullptr);
-	if (nUtf8 > 1)
+	catch (...)
 	{
-		std::string s(nUtf8 - 1, '\0');
-		if (::WideCharToMultiByte(CP_UTF8, 0, wszName, -1, &s[0], nUtf8, nullptr, nullptr) > 0)
-			sNameOut = s;
+		return 0;
 	}
-	if (r == 2 && sNameOut.empty())
-		sNameOut = "Malware.LocalDetection";
-	return r;
 }
+
+} // namespace
 
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
 {
-	return rustScanVerdictName(sUtf8Path, sThreatNameOut);
+	return staticScanVerdictName(sUtf8Path, sThreatNameOut);
 }
 
 // Merged local verdict: enriched verdict (if 1/2), Rust engines, known-DB.
@@ -818,7 +1020,7 @@ static int mergeLocalVerdict(int enriched, const std::string& sPath, const std::
 		sLocalName = cachedName;
 		return v;
 	}
-	int r = rustScanVerdictName(sPath, sLocalName);
+	int r = staticScanVerdictName(sPath, sLocalName);
 	if (r == 2)
 		v = 2;
 	else if (r == 1 && v == 0)
@@ -1729,7 +1931,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 							}
 							else
 							{
-								int r = rustScanVerdictName(sPath, sLocalName);
+								int r = staticScanVerdictName(sPath, sLocalName);
 								if (r == 2)
 									nLocal = 2;
 								else if (r == 1 && nLocal == 0)

@@ -1,0 +1,38 @@
+title: Gpscript Execution
+id: 01599abe-90a5-2324-5460-8ec908adce22
+related:
+    - id: 1e59c230-6670-45bf-83b0-98903780607e
+      type: derived
+status: test
+description: Detects the execution of the LOLBIN gpscript, which executes logon or startup scripts configured in Group Policy
+references:
+    - https://oddvar.moe/2018/04/27/gpscript-exe-another-lolbin-to-the-list/
+    - https://lolbas-project.github.io/lolbas/Binaries/Gpscript/
+author: frack113
+date: 2022-05-16
+modified: 2023-06-14
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \gpscript.exe
+        - OriginalFileName: GPSCRIPT.EXE
+    selection_cli:
+        CommandLine|contains:
+            - ' /logon'
+            - ' /startup'
+    filter_main_svchost:
+        ParentCommandLine: C:\windows\system32\svchost.exe -k netsvcs -p -s gpsvc
+    condition: process_creation and (all of selection_* and not 1 of filter_main_*)
+falsepositives:
+    - Legitimate uses of logon scripts distributed via group policy
+level: medium
+ruletype: Sigma

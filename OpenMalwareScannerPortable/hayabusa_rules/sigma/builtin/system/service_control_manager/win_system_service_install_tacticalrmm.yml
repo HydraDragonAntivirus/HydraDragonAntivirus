@@ -1,0 +1,31 @@
+title: TacticalRMM Service Installation
+id: a36af175-0d96-acc8-c2f7-f5bb57c974fe
+related:
+    - id: 4bb79b62-ef12-4861-981d-2aab43fab642
+      type: derived
+status: test
+description: Detects a TacticalRMM service installation. Tactical RMM is a remote monitoring & management tool.
+references:
+    - https://thedfirreport.com/2022/11/28/emotet-strikes-again-lnk-file-leads-to-domain-wide-ransomware/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-11-28
+tags:
+    - attack.command-and-control
+    - attack.t1219.002
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection_root:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+    selection_service:
+        - ImagePath|contains: tacticalrmm.exe
+        - ServiceName|contains: TacticalRMM Agent Service
+    condition: system and (all of selection_*)
+falsepositives:
+    - Legitimate use of the tool
+level: medium
+ruletype: Sigma

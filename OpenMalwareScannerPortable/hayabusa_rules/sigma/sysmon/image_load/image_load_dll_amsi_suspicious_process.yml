@@ -1,0 +1,36 @@
+title: Amsi.DLL Loaded Via LOLBIN Process
+id: 30a01946-1790-12af-9072-03554057c5b9
+related:
+    - id: 6ec86d9e-912e-4726-91a2-209359b999b9
+      type: derived
+status: test
+description: Detects loading of "Amsi.dll" by a living of the land process. This could be an indication of a "PowerShell without PowerShell" attack
+references:
+    - Internal Research
+    - https://www.paloaltonetworks.com/blog/security-operations/stopping-powershell-without-powershell/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-06-01
+modified: 2025-10-07
+tags:
+    - attack.defense-impairment
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \amsi.dll
+        Image|endswith:
+            # TODO: Add more interesting processes
+            - \ExtExport.exe
+            - \odbcconf.exe
+            # - '\regsvr32.exe' # legitimately calls amsi.dll
+            - \rundll32.exe
+    condition: image_load and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

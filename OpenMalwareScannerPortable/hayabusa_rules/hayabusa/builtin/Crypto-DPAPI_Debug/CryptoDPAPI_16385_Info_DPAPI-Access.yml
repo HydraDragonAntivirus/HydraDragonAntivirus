@@ -1,0 +1,27 @@
+author: 'Zach Mathis'
+date: 2024-05-09
+modified: 2024-05-09
+
+title: 'CryptoDPAPI Decrypt'
+details: 'App: %DataDescription% ¦ PID: %CallerProcessID% ¦ ProcCreationTime: %CallerProcessCreationTime%'
+description: Detects whenever SPCryptUnprotect is called in the Microsoft-Windows-Crypto-DPAPI/Debug event log.
+
+id: 420d5d28-78ed-4e43-844a-94ce69db378c
+level: informational
+status: experimental
+logsource:
+    product: windows
+detection:
+    selection:
+        Channel: Microsoft-Windows-Crypto-DPAPI/Debug
+        EventID: 16385
+        OperationType: SPCryptUnprotect
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+    - https://security.googleblog.com/2024/04/detecting-browser-data-theft-using.html
+    - https://kylemistele.medium.com/stealing-saved-browser-passwords-your-new-favorite-post-exploitation-technique-c5e72c86159a
+    - https://posts.specterops.io/operational-guidance-for-offensive-user-dpapi-abuse-1fb7fac8b107
+ruletype: Hayabusa

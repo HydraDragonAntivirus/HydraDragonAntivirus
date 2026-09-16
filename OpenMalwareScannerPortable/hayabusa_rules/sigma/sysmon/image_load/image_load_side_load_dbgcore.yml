@@ -1,0 +1,48 @@
+title: Potential DLL Sideloading Of DBGCORE.DLL
+id: a1d7ebeb-b4ff-4e48-32ec-b54ee9de489b
+related:
+    - id: 9ca2bf31-0570-44d8-a543-534c47c33ed7
+      type: derived
+status: test
+description: Detects DLL sideloading of "dbgcore.dll"
+references:
+    - https://hijacklibs.net/ # For list of DLLs that could be sideloaded (search for dlls mentioned here in there)
+author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and research)
+date: 2022-10-25
+modified: 2025-10-06
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \dbgcore.dll
+    filter_main_generic:
+        ImageLoaded|startswith:
+            - C:\Program Files (x86)\
+            - C:\Program Files\
+            - C:\Windows\SoftwareDistribution\
+            - C:\Windows\System32\
+            - C:\Windows\SystemTemp\
+            - C:\Windows\SysWOW64\
+            - C:\Windows\WinSxS\
+    filter_optional_steam:
+        ImageLoaded|endswith: \Steam\bin\cef\cef.win7x64\dbgcore.dll
+    filter_optional_opera:
+        # C:\\Users\\User\\AppData\\Local\\Temp\\.opera\\Opera Installer Temp\\opera_package_202311051506321\\assistant\\dbgcore.dll
+        ImageLoaded|contains: opera\Opera Installer Temp\opera_package
+        ImageLoaded|endswith: \assistant\dbgcore.dll
+    condition: image_load and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - Legitimate applications loading their own versions of the DLL mentioned in this rule
+level: medium
+ruletype: Sigma

@@ -1,0 +1,32 @@
+title: Network Connection Initiated By AddinUtil.EXE
+id: 8d993d6b-e44b-0df0-91c0-6093975b69f8
+related:
+    - id: 5205613d-2a63-4412-a895-3a2458b587b3
+      type: derived
+status: test
+description: |
+    Detects a network connection initiated by the Add-In deployment cache updating utility "AddInutil.exe".
+    This could indicate a potential command and control communication as this tool doesn't usually initiate network activity.
+references:
+    - https://www.blue-prints.blog/content/blog/posts/lolbin/addinutil-lolbas.html
+author: Michael McKinley (@McKinleyMike), Tony Latteri (@TheLatteri)
+date: 2023-09-18
+modified: 2024-07-16
+tags:
+    - attack.stealth
+    - attack.t1218
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    network_connection:
+        EventID: 5156
+        Channel: Security
+    selection:
+        Direction: '%%14593'
+        Application|endswith: \addinutil.exe
+    condition: network_connection and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,29 @@
+title: Installation of TeamViewer Desktop
+id: dffc4e25-2bb1-5a2b-0e6a-2a196dd9cc6c
+related:
+    - id: 9711de76-5d4f-4c50-a94f-21e4e8f8384d
+      type: derived
+status: test
+description: TeamViewer_Desktop.exe is create during install
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1219/T1219.md#atomic-test-1---teamviewer-files-detected-test-on-windows
+author: frack113
+date: 2022-01-28
+tags:
+    - attack.command-and-control
+    - attack.t1219.002
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: \TeamViewer_Desktop.exe
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

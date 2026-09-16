@@ -1,0 +1,25 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: 'Logon (NewCredentials) *Creds in memory*'
+description: Type 9 logons can be dangerous as the credentials (plaintext or hashed passwords) are stored in memory (lsass process) and can be stolen by tools like mimikatz.
+
+id: d80facaa-ca97-47bb-aed2-66362416eb49
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4624
+        LogonType: 9
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx: 
+ruletype: Hayabusa

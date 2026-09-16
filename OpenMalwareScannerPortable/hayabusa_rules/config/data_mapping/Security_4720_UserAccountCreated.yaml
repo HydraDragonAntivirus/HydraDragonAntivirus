@@ -1,0 +1,97 @@
+Title: 'Local User Account Created'
+Channel: Security
+EventID: 4720
+RewriteFieldData:
+    PasswordLastSet:
+        - '%%1794': '<never>'
+    AccountExpires:
+        - '%%1794': '<never>'
+    UserAccountControl:
+        - '%%2080': 'AccountDisabled'
+        - '%%2082': 'PasswordNotRequired-Enabled'
+        - '%%2084': 'NormalAccount-Enabled'
+    LogonHours:
+        - '%%1793': '<value not set>'
+        - '%%1797': 'All'
+    DisplayName:
+        - '%%1793': '<value not set>'
+    HomeDirectory:
+        - '%%1793': '<value not set>'
+    HomePath:
+        - '%%1793': '<value not set>'
+    ScriptPath:
+        - '%%1793': '<value not set>'
+    ProfilePath:
+        - '%%1793': '<value not set>'
+    UserWorkstations:  
+        - '%%1793': '<value not set>'
+    UserParameters:
+        - '%%1793': '<value not set>'
+sample-message: |
+    A user account was created.
+
+    Subject:
+        Security ID:		S-1-5-21-4230534742-2542757381-3142984815-1111
+        Account Name:		admmig
+        Account Domain:		OFFSEC
+        Logon ID:		0x58D874
+
+    New Account:
+        Security ID:		S-1-5-21-1470532092-3758209836-3742276719-1001
+        Account Name:		hacking-local-acct
+        Account Domain:		JUMP01
+
+    Attributes:
+        SAM Account Name:	hacking-local-acct
+        Display Name:		<value not set>
+        User Principal Name:	-
+        Home Directory:		<value not set>
+        Home Drive:		<value not set>
+        Script Path:		<value not set>
+        Profile Path:		<value not set>
+        User Workstations:	<value not set>
+        Password Last Set:	<never>
+        Account Expires:		<never>
+        Primary Group ID:	513
+        Allowed To Delegate To:	-
+        Old UAC Value:		0x0
+        New UAC Value:		0x15
+        User Account Control:	
+            Account Disabled
+            'Password Not Required' - Enabled
+            'Normal Account' - Enabled
+        User Parameters:	<value not set>
+        SID History:		-
+        Logon Hours:		All
+
+    Additional Information:
+        Privileges		-
+sample-evtx: |
+    <EventData>
+        <Data Name="TargetUserName">hacking-local-acct</Data> 
+        <Data Name="TargetDomainName">JUMP01</Data> 
+        <Data Name="TargetSid">S-1-5-21-1470532092-3758209836-3742276719-1001</Data> 
+        <Data Name="SubjectUserSid">S-1-5-21-4230534742-2542757381-3142984815-1111</Data> 
+        <Data Name="SubjectUserName">admmig</Data> 
+        <Data Name="SubjectDomainName">OFFSEC</Data> 
+        <Data Name="SubjectLogonId">0x58d874</Data> 
+        <Data Name="PrivilegeList">-</Data> 
+        <Data Name="SamAccountName">hacking-local-acct</Data> 
+        <Data Name="DisplayName">%%1793</Data> 
+        <Data Name="UserPrincipalName">-</Data> 
+        <Data Name="HomeDirectory">%%1793</Data> 
+        <Data Name="HomePath">%%1793</Data> 
+        <Data Name="ScriptPath">%%1793</Data> 
+        <Data Name="ProfilePath">%%1793</Data> 
+        <Data Name="UserWorkstations">%%1793</Data> 
+        <Data Name="PasswordLastSet">%%1794</Data> 
+        <Data Name="AccountExpires">%%1794</Data> 
+        <Data Name="PrimaryGroupId">513</Data> 
+        <Data Name="AllowedToDelegateTo">-</Data> 
+        <Data Name="OldUacValue">0x0</Data> 
+        <Data Name="NewUacValue">0x15</Data> 
+        <Data Name="UserAccountControl">%%2080 %%2082 %%2084</Data> 
+        <Data Name="UserParameters">%%1793</Data> 
+        <Data Name="SidHistory">-</Data> 
+        <Data Name="LogonHours">%%1797</Data> 
+    </EventData>

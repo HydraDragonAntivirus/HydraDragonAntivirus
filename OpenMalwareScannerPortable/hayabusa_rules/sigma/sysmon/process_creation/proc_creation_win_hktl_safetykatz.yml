@@ -1,0 +1,32 @@
+title: HackTool - SafetyKatz Execution
+id: 60f87863-6dfd-8f83-52c2-2663f97bd341
+related:
+    - id: b1876533-4ed5-4a83-90f3-b8645840a413
+      type: derived
+status: test
+description: Detects the execution of the hacktool SafetyKatz via PE information and default Image name
+references:
+    - https://github.com/GhostPack/SafetyKatz
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-20
+modified: 2023-02-04
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Image|endswith: \SafetyKatz.exe
+        - OriginalFileName: SafetyKatz.exe
+        - Description: SafetyKatz
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely
+level: critical
+ruletype: Sigma

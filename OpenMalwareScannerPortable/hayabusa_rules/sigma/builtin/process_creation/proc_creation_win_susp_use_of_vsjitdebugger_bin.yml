@@ -1,0 +1,38 @@
+title: Malicious PE Execution by Microsoft Visual Studio Debugger
+id: 62ed175b-c554-0c7c-9804-0a1628688796
+related:
+    - id: 15c7904e-6ad1-4a45-9b46-5fb25df37fd2
+      type: derived
+status: test
+description: |
+    There is an option for a MS VS Just-In-Time Debugger "vsjitdebugger.exe" to launch specified executable and attach a debugger.
+    This option may be used adversaries to execute malicious code by signed verified binary.
+    The debugger is installed alongside with Microsoft Visual Studio package.
+references:
+    - https://twitter.com/pabraeken/status/990758590020452353
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/Vsjitdebugger/
+    - https://learn.microsoft.com/en-us/visualstudio/debugger/debug-using-the-just-in-time-debugger?view=vs-2019
+author: Agro (@agro_sev), Ensar Şamil (@sblmsrsn), oscd.community
+date: 2020-10-14
+modified: 2022-10-09
+tags:
+    - attack.stealth
+    - attack.t1218
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        ParentProcessName|endswith: \vsjitdebugger.exe
+    reduction1:
+        NewProcessName|endswith: \vsimmersiveactivatehelper*.exe
+    reduction2:
+        NewProcessName|endswith: \devenv.exe
+    condition: process_creation and (selection and not (reduction1 or reduction2))
+falsepositives:
+    - The process spawned by vsjitdebugger.exe is uncommon.
+level: medium
+ruletype: Sigma

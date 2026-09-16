@@ -1,0 +1,37 @@
+title: Potential Signing Bypass Via Windows Developer Features
+id: a56ae12f-67c8-f625-2279-f5290ba86fa9
+related:
+    - id: b110ebaf-697f-4da1-afd5-b536fa27a2c1
+      type: similar
+    - id: a383dec4-deec-4e6e-913b-ed9249670848
+      type: derived
+status: test
+description: Detects when a user enable developer features such as "Developer Mode" or "Application Sideloading". Which allows the user to install untrusted packages.
+references:
+    - Internal Research
+    - https://www.sentinelone.com/labs/inside-malicious-windows-apps-for-malware-deployment/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-01-11
+tags:
+    - attack.stealth
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \SystemSettingsAdminFlows.exe
+        - OriginalFileName: SystemSettingsAdminFlows.EXE
+    selection_flag:
+        CommandLine|contains: TurnOnDeveloperFeatures
+    selection_options:
+        CommandLine|contains:
+            - DeveloperUnlock
+            - EnableSideloading
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

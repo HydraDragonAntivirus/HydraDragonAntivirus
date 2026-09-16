@@ -1,0 +1,51 @@
+author: Zach Mathis
+date: 2022-04-08
+modified: 2022-05-21
+
+title: Task Updated
+details: 'Name: %TaskName% ¦ User: %UserName%'
+description: 
+
+id: aba04101-e439-4e2f-b051-4be561993c31
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: taskscheduler
+    description: Taskscheduler logging needs to be enabled.
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-TaskScheduler/Operational
+        EventID: 140
+    condition: selection_basic
+falsepositives:
+    - normal system usage
+tags:
+    - Task
+references:
+ruletype: Hayabusa
+
+sample-message: 'User "NT AUTHORITY\SYSTEM"  updated Task Scheduler task "\Microsoft\Windows\WindowsUpdate\Scheduled Start With Network"'
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TaskScheduler" Guid="{DE7B24EA-73C8-4A09-985D-5BDADCFA9017}" /> 
+            <EventID>140</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>140</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8000000000000000</Keywords> 
+            <TimeCreated SystemTime="2018-09-07T21:24:54.621010500Z" /> 
+            <EventRecordID>10432</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="824" ThreadID="2452" /> 
+            <Channel>Microsoft-Windows-TaskScheduler/Operational</Channel> 
+            <Computer>Computer</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+            <EventData Name="TaskUpdated">
+            <Data Name="TaskName">\Microsoft\Windows\WindowsUpdate\Scheduled Start With Network</Data> 
+            <Data Name="UserName">NT AUTHORITY\SYSTEM</Data> 
+        </EventData>
+    </Event>

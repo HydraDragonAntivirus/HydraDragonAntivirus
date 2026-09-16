@@ -1,0 +1,58 @@
+title: Potential Dridex Activity
+id: e23a9ec2-a8a3-badf-e230-fcbe8cf7f86e
+related:
+    - id: e6eb5a96-9e6f-4a18-9cdd-642cfda21c8e
+      type: derived
+status: stable
+description: Detects potential Dridex acitvity via specific process patterns
+references:
+    - https://app.any.run/tasks/993daa5e-112a-4ff6-8b5a-edbcec7c7ba3
+    - https://redcanary.com/threat-detection-report/threats/dridex/
+author: Florian Roth (Nextron Systems), oscd.community, Nasreddine Bencherchali (Nextron Systems)
+date: 2019-01-10
+modified: 2023-02-03
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1055
+    - attack.discovery
+    - attack.t1135
+    - attack.t1033
+    - detection.emerging-threats
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_svchost:
+        CommandLine|contains|all:
+            - C:\Users\
+            - \Desktop\
+        NewProcessName|endswith: \svchost.exe
+    filter_svchost:
+        ParentProcessName|startswith: C:\Windows\System32\
+    selection_regsvr:
+        CommandLine|contains:
+            - ' -s '
+            - \AppData\Local\Temp\
+        ParentProcessName|endswith: \excel.exe
+        NewProcessName|endswith: \regsvr32.exe
+    filter_regsvr:
+        CommandLine|contains: .dll
+    selection_anomaly_parent:
+        ParentProcessName|endswith: \svchost.exe
+    selection_anomaly_child_1:
+        CommandLine|contains: ' /all'
+        NewProcessName|endswith: \whoami.exe
+    selection_anomaly_child_2:
+        CommandLine|contains: ' view'
+        NewProcessName|endswith:
+            - \net.exe
+            - \net1.exe
+    condition: process_creation and ((selection_svchost and not filter_svchost) or (selection_regsvr and not filter_regsvr) or (selection_anomaly_parent and 1 of selection_anomaly_child_*))
+falsepositives:
+    - Unlikely
+level: critical
+ruletype: Sigma

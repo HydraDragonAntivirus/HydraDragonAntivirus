@@ -1,0 +1,36 @@
+title: HackTool - LittleCorporal Generated Maldoc Injection
+id: ddd83c05-c922-1697-ccd4-5e0c6b592cde
+related:
+    - id: 7bdde3bf-2a42-4c39-aa31-a92b3e17afac
+      type: derived
+status: test
+description: Detects the process injection of a LittleCorporal generated Maldoc.
+references:
+    - https://github.com/connormcgarr/LittleCorporal
+author: Christian Burkard (Nextron Systems)
+date: 2021-08-09
+modified: 2023-11-28
+tags:
+    - attack.execution
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1204.002
+    - attack.t1055.003
+    - sysmon
+logsource:
+    category: process_access
+    product: windows
+detection:
+    process_access:
+        EventID: 10
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        SourceImage|endswith: \winword.exe
+        CallTrace|contains|all:
+            - :\Windows\Microsoft.NET\Framework64\v2.
+            - UNKNOWN
+    condition: process_access and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,39 @@
+title: Interactive AT Job
+id: f9eb522e-625b-3d89-35b9-2a194fce5f35
+related:
+    - id: 60fc936d-2eb0-4543-8a13-911c750a1dfc
+      type: derived
+status: test
+description: Detects an interactive AT job, which may be used as a form of privilege escalation.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1053.002/T1053.002.md
+    - https://eqllib.readthedocs.io/en/latest/analytics/d8db43cf-ed52-4f5c-9fb3-c9a4b95a0b56.html
+author: E.M. Anhaus (originally from Atomic Blue Detections, Endgame), oscd.community
+date: 2019-10-24
+modified: 2021-11-27
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.privilege-escalation
+    - attack.t1053.002
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \at.exe
+        CommandLine|contains: interactive
+    condition: process_creation and selection
+falsepositives:
+    - Unlikely (at.exe deprecated as of Windows 8)
+level: high
+simulation:
+    - type: atomic-red-team
+      name: At.exe Scheduled task
+      technique: T1053.002
+      atomic_guid: 4a6c0dc4-0f2a-4203-9298-a5a9bdc21ed8
+ruletype: Sigma

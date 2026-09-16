@@ -1,0 +1,35 @@
+title: Potential CVE-2023-27363 Exploitation - HTA File Creation By FoxitPDFReader
+id: ba98344f-a155-54a4-d321-6408fa0edf1f
+related:
+    - id: 9cae055f-e1d2-4f81-b8a5-1986a68cdd84
+      type: derived
+status: test
+description: Detects suspicious ".hta" file creation in the startup folder by Foxit Reader. This can be an indication of CVE-2023-27363 exploitation.
+references:
+    - https://github.com/j00sean/SecBugs/tree/ff72d553f75d93e1a0652830c0f74a71b3f19c46/CVEs/CVE-2023-27363
+    - https://www.zerodayinitiative.com/advisories/ZDI-23-491/
+    - https://www.tarlogic.com/blog/cve-2023-27363-foxit-reader/
+author: Gregory
+date: 2023-10-11
+tags:
+    - attack.persistence
+    - attack.t1505.001
+    - cve.2023-27363
+    - detection.emerging-threats
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \FoxitPDFReader.exe
+        TargetFilename|contains: \Microsoft\Windows\Start Menu\Programs\Startup\
+        TargetFilename|endswith: .hta
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

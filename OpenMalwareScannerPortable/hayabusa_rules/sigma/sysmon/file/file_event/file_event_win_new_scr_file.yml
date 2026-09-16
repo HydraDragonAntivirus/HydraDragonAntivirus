@@ -1,0 +1,37 @@
+title: SCR File Write Event
+id: d89fb881-3dbe-79ad-c7b4-ee428fc34441
+related:
+    - id: c048f047-7e2a-4888-b302-55f509d4a91d
+      type: derived
+status: test
+description: Detects the creation of screensaver files (.scr) outside of system folders. Attackers may execute an application as an ".SCR" file using "rundll32.exe desk.cpl,InstallScreenSaver" for example.
+references:
+    - https://lolbas-project.github.io/lolbas/Libraries/Desk/
+author: Christopher Peacock @securepeacock, SCYTHE @scythe_io
+date: 2022-04-27
+modified: 2023-08-23
+tags:
+    - attack.stealth
+    - attack.t1218.011
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: .scr
+    filter:
+        TargetFilename|contains:
+            - :\$WINDOWS.~BT\NewOS\
+            - :\Windows\System32\
+            - :\Windows\SysWOW64\
+            - :\Windows\WinSxS\
+            - :\WUDownloadCache\   # Windows Update Download Cache
+    condition: file_event and (selection and not filter)
+falsepositives:
+    - The installation of new screen savers by third party software
+level: medium
+ruletype: Sigma

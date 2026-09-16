@@ -1,0 +1,46 @@
+title: Mstsc.EXE Execution From Uncommon Parent
+id: ccf0d8fe-2187-bbc6-ff99-e17d80bd02e8
+related:
+    - id: ff3b6b39-e765-42f9-bb2c-ea6761e0e0f6
+      type: derived
+status: test
+description: Detects potential RDP connection via Mstsc using a local ".rdp" file located in suspicious locations.
+references:
+    - https://www.blackhillsinfosec.com/rogue-rdp-revisiting-initial-access-methods/
+    - https://web.archive.org/web/20230726144748/https://blog.thickmints.dev/mintsights/detecting-rogue-rdp/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-04-18
+tags:
+    - attack.lateral-movement
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_parent:
+        ParentImage|endswith:
+            # Covers potential downloads/clicks from browsers
+            - \brave.exe
+            - \CCleanerBrowser.exe
+            - \chrome.exe
+            - \chromium.exe
+            - \firefox.exe
+            - \iexplore.exe
+            - \microsoftedge.exe
+            - \msedge.exe
+            - \opera.exe
+            - \vivaldi.exe
+            - \whale.exe
+            # Covers potential downloads/clicks from email clients
+            - \outlook.exe
+    selection_img:
+        - Image|endswith: \mstsc.exe
+        - OriginalFileName: mstsc.exe
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

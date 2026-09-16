@@ -17,9 +17,12 @@ def main():
     report = scanner.scan_file(target_file)
     print(f"Verdict : {report.get('verdict')}")
     print(f"SHA-256 : {report.get('sha256')}")
+    signer = report.get('signer_info') or {}
+    print(f"Signer  : trusted={signer.get('is_trusted')} status={signer.get('status')} "
+          f"name={signer.get('signer_name')} catalog={signer.get('is_catalog_signed')}")
     print(f"Detections ({len(report.get('detections', []))}):")
     for det in report.get('detections', []):
-        print(f"  - [{det.get('engine')}] {det.get('name')} (Severity: {det.get('severity')})")
+        print(f"  - [{det.get('layer')}] {det.get('name')} (score: {det.get('score')})")
     print()
 
     # 2. Scan URL

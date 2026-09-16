@@ -1,0 +1,26 @@
+author: Zach Mathis, Fukusuke Takahashi
+date: 2021-12-01
+modified: 2024-03-20
+
+title: 'Defender Alert (Severe)'
+description: Windows defender malware detection
+
+id: 810bfd3a-9fb3-44e0-9016-8cdf785fddbf
+level: critical
+status: test
+logsource:
+    product: windows
+    service: windefend
+detection:
+    selection:
+        Channel: Microsoft-Windows-Windows Defender/Operational
+        EventID: 1116
+        SeverityID: 5 # Severe
+    condition: selection
+falsepositives:
+    - bad signature
+tags:
+    - malware
+references:
+    - https://docs.microsoft.com/en-us/microsoft-365/security/defender-endpoint/troubleshoot-microsoft-defender-antivirus?view=o365-worldwide
+ruletype: Hayabusa

@@ -1,0 +1,35 @@
+title: Disable Macro Runtime Scan Scope
+id: 48421345-c746-0b27-ad78-2d4de6169565
+related:
+    - id: ab871450-37dc-4a3a-997f-6662aa8ae0f1
+      type: derived
+description: Detects tampering with the MacroRuntimeScanScope registry key to disable runtime scanning of enabled macros
+status: test
+date: 2022-10-25
+modified: 2023-08-17
+author: Nasreddine Bencherchali (Nextron Systems)
+references:
+    - https://www.microsoft.com/en-us/security/blog/2018/09/12/office-vba-amsi-parting-the-veil-on-malicious-macros/
+    - https://admx.help/?Category=Office2016&Policy=office16.Office.Microsoft.Policies.Windows::L_MacroRuntimeScanScope
+    - https://github.com/S3cur3Th1sSh1t/OffensiveVBA/blob/28cc6a2802d8176195ac19b3c8e9a749009a82a3/src/AMSIbypasses.vba
+tags:
+    - attack.defense-impairment
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains|all:
+            - \SOFTWARE\
+            - \Microsoft\Office\
+            - \Common\Security
+        ObjectName|endswith: \MacroRuntimeScanScope
+        NewValue: DWORD (0x00000000)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

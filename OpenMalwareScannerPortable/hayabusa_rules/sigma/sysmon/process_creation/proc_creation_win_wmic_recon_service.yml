@@ -1,0 +1,52 @@
+title: Service Reconnaissance Via Wmic.EXE
+id: 15b4755e-06b5-0be6-7bd0-a20893be82c9
+related:
+    - id: 68bcd73b-37ef-49cb-95fc-edc809730be6
+      type: similar
+    - id: 76f55eaa-d27f-4213-9d45-7b0e4b60bbae
+      type: derived
+status: test
+description: |
+    An adversary might use WMI to check if a certain remote service is running on a remote device.
+    When the test completes, a service information will be displayed on the screen if it exists.
+    A common feedback message is that "No instance(s) Available" if the service queried is not running.
+    A common error message is "Node - (provided IP or default) ERROR Description =The RPC server is unavailable" if the provided remote host is unreachable
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1047/T1047.md
+    - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/wmic
+    - https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-service
+author: frack113, Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-14
+modified: 2026-01-07
+tags:
+    - attack.execution
+    - attack.t1047
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \WMIC.exe
+        - OriginalFileName: wmic.exe
+    selection_cli:
+        CommandLine|contains: service
+    filter_main_win32_methods:
+        CommandLine|contains:
+            - Change
+            - Create
+            - Delete
+            - PauseService
+            - ResumeService
+            - SetSecurityDescriptor
+            - StartService
+            - StopService
+            - UserControlService
+    condition: process_creation and (all of selection_* and not 1 of filter_main_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

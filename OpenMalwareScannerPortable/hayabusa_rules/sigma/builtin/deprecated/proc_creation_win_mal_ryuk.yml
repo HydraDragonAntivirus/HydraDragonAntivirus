@@ -1,0 +1,39 @@
+title: Ryuk Ransomware Command Line Activity
+id: 7b159be0-8034-a6cb-dcb7-f6fbcf9b2680
+related:
+    - id: c37510b8-2107-4b78-aa32-72f251e7a844
+      type: similar
+    - id: 0acaad27-9f02-4136-a243-c357202edd74
+      type: derived
+status: deprecated
+description: Detects Ryuk Ransomware command lines
+references:
+    - https://research.checkpoint.com/ryuk-ransomware-targeted-campaign-break/
+author: Vasiliy Burov
+date: 2019-08-06
+modified: 2023-02-03
+tags:
+    - attack.execution
+    - attack.t1204
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection1:
+        CommandLine|contains: stop
+        NewProcessName|endswith:
+            - \net.exe
+            - \net1.exe
+    selection2:
+        CommandLine|contains:
+            - samss
+            - audioendpointbuilder
+            - unistoresvc_
+    condition: process_creation and (all of selection*)
+falsepositives:
+    - Unlikely
+level: critical
+ruletype: Sigma

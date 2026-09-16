@@ -1,0 +1,43 @@
+title: Disable Microsoft Office Security Features
+id: d226853e-3dbf-ce71-60c1-5458858abbbc
+related:
+    - id: 7c637634-c95d-4bbf-b26c-a82510874b34
+      type: derived
+status: deprecated
+description: Disable Microsoft Office Security Features by registry
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
+    - https://unit42.paloaltonetworks.com/unit42-gorgon-group-slithering-nation-state-cybercrime/
+    - https://yoroi.company/research/cyber-criminal-espionage-operation-insists-on-italian-manufacturing/
+author: frack113
+date: 2021-06-08
+modified: 2023-08-17
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    product: windows
+    category: registry_set
+    definition: key must be add to the sysmon configuration to works
+    # Sysmon
+    # <TargetObject name="T1562,office" condition="end with">\VBAWarnings</TargetObject>
+    # <TargetObject name="T1562,office" condition="end with">\DisableInternetFilesInPV</TargetObject>
+    # <TargetObject name="T1562,office" condition="end with">\DisableUnsafeLocationsInPV</TargetObject>
+    # <TargetObject name="T1562,office" condition="end with">\DisableAttachementsInPV</TargetObject>
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \SOFTWARE\Microsoft\Office\
+        ObjectName|endswith:
+            - VBAWarnings
+            - DisableInternetFilesInPV
+            - DisableUnsafeLocationsInPV
+            - DisableAttachementsInPV
+        NewValue: DWORD (0x00000001)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

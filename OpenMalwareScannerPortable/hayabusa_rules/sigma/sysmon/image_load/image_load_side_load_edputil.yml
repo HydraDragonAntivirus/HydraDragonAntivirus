@@ -1,0 +1,37 @@
+title: Potential Edputil.DLL Sideloading
+id: 813de3f8-3c73-952d-4ce3-8861ad53ec73
+related:
+    - id: e4903324-1a10-4ed3-981b-f6fe3be3a2c2
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "edputil.dll"
+references:
+    - https://alternativeto.net/news/2023/5/cybercriminals-use-wordpad-vulnerability-to-spread-qbot-malware/
+author: X__Junior (Nextron Systems)
+date: 2023-06-09
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    category: image_load
+    product: windows
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \edputil.dll
+    filter_main_generic:
+        ImageLoaded|startswith:
+            - C:\Windows\System32\
+            - C:\Windows\SysWOW64\
+            - C\Windows\WinSxS\
+    condition: image_load and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

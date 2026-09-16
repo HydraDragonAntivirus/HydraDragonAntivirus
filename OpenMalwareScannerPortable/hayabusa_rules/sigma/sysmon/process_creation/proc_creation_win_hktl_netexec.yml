@@ -1,0 +1,49 @@
+title: HackTool - NetExec Execution
+id: bf950c44-b573-6c09-c1cc-45745bded2bc
+related:
+    - id: 7638e5fe-600c-4289-a968-f49dd537ec7d
+      type: derived
+status: experimental
+description: |
+    Detects execution of the hacktool NetExec.
+    NetExec (formerly CrackMapExec) is a widely used post-exploitation tool designed for Active Directory penetration testing and network enumeration
+    In enterprise environments, the use of NetExec is considered suspicious or potentially malicious because it enables attackers to enumerate hosts, exploit network services, and move laterally across systems.
+    Threat actors and red teams commonly use NetExec to identify vulnerable systems, harvest credentials, and execute commands remotely.
+references:
+    - https://thedfirreport.com/2025/12/17/cats-got-your-files-lynx-ransomware/
+    - https://github.com/Pennyw0rth/NetExec
+    - https://www.netexec.wiki/
+author: Chirag Damani
+date: 2026-03-29
+tags:
+    - attack.discovery
+    - attack.t1018
+    - attack.lateral-movement
+    - attack.t1021
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \nxc.exe
+        CommandLine|contains:
+            - ' ftp '
+            - ' ldap '
+            - ' mssql '
+            - ' nfs '
+            - ' rdp '
+            - ' smb '
+            - ' ssh '
+            - ' vnc '
+            - ' winrm '
+            - ' wmi '
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate use of NetExec by security professionals or system administrators for network assessment and management.
+level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_hktl_netexec/info.yml
+ruletype: Sigma

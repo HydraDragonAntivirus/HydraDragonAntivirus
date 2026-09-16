@@ -1,0 +1,126 @@
+author: Zach Mathis, Fukusuke Takahashi
+date: 2023-11-18
+modified: 2023-11-18
+
+title: 'Device Conn'
+details: 'Manufacturer: %Manufacturer% ¦ Model: %Model% ¦ Revision: %Revision% ¦ SerialNumber: %SerialNumber%'
+description: 'Device is connected or disconnected'
+
+id: a6a0d64-75d1-433a-b415-4123bab080ec
+level: informational
+status: test
+logsource:
+  product: windows
+detection:
+  selection:
+    Channel: 'Microsoft-Windows-Partition/Diagnostic'
+    EventID: 1006
+  condition: selection
+falsepositives:
+  - normal system usage
+tags:
+references:
+ruletype: Hayabusa
+
+sample-evtx: |
+  <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+      <System>
+          <Provider Name="Microsoft-Windows-Partition" Guid="{412bdff2-a8c4-470d-8f33-63fe0d8c20e2}" />
+          <EventID>1006</EventID>
+          <Version>4</Version>
+          <Level>4</Level>
+          <Task>0</Task>
+          <Opcode>0</Opcode>
+          <Keywords>0x8000000000000000</Keywords>
+          <TimeCreated SystemTime="2023-11-17T04:06:47.0482507Z" />
+          <EventRecordID>51</EventRecordID>
+          <Correlation />
+          <Execution ProcessID="4" ThreadID="468" />
+          <Channel>Microsoft-Windows-Partition/Diagnostic</Channel>
+          <Computer>mouse</Computer>
+          <Security UserID="S-1-5-18" />
+      </System>
+      <EventData>
+          <Data Name="DiskNumber">0</Data>
+          <Data Name="Flags">538976528</Data>
+          <Data Name="Characteristics">256</Data>
+          <Data Name="IsSystemCritical">true</Data>
+          <Data Name="PagingCount">0</Data>
+          <Data Name="HibernationCount">0</Data>
+          <Data Name="DumpCount">0</Data>
+          <Data Name="BytesPerSector">512</Data>
+          <Data Name="Capacity">512110190592</Data>
+          <Data Name="BusType">17</Data>
+          <Data Name="Manufacturer">NVMe</Data>
+          <Data Name="Model">KINGSTON OM8PDP3512B-A01</Data>
+          <Data Name="Revision">EDFK0S03</Data>
+          <Data Name="SerialNumber">0026_B768_5D25_0F85.</Data>
+          <Data Name="Location">Integrated : Bus 0 : Device 14 : Function 0 : Adapter 0</Data>
+          <Data Name="ParentId">PCI\VEN_8086&amp;DEV_467F&amp;SUBSYS_00008086&amp;REV_00\3&amp;11583659&amp;1&amp;70</Data>
+          <Data Name="Socket">-1</Data>
+          <Data Name="Slot">-1</Data>
+          <Data Name="Bus">0</Data>
+          <Data Name="Device">14</Data>
+          <Data Name="Function">0</Data>
+          <Data Name="Adapter">0</Data>
+          <Data Name="Port">2</Data>
+          <Data Name="Target">0</Data>
+          <Data Name="Lun">0</Data>
+          <Data Name="IoctlSupport">59899</Data>
+          <Data Name="IdFlags">4</Data>
+          <Data Name="DiskId">{f0e437b2-048f-3a1b-f313-ec03b765eef9}</Data>
+          <Data Name="AdapterId">{a9786d92-695a-11ee-bdc1-806e6f6e6963}</Data>
+          <Data Name="RegistryId">{a9786d9c-695a-11ee-bdc1-806e6f6e6963}</Data>
+          <Data Name="PoolId">{00000000-0000-0000-0000-000000000000}</Data>
+          <Data Name="FirmwareSupportsUpgrade">false</Data>
+          <Data Name="FirmwareSlotCount">0</Data>
+          <Data Name="StorageIdCount">3</Data>
+          <Data Name="StorageIdCodeSet">3</Data>
+          <Data Name="StorageIdType">8</Data>
+          <Data Name="StorageIdAssociation">0</Data>
+          <Data Name="StorageIdBytes">20</Data>
+          <Data Name="StorageId">6575692E30303236423736383544323530463835</Data>
+          <Data Name="WriteCacheType">2</Data>
+          <Data Name="WriteCacheEnabled">2</Data>
+          <Data Name="WriteCacheChangeable">2</Data>
+          <Data Name="WriteThroughSupported">1</Data>
+          <Data Name="FlushCacheSupported">true</Data>
+          <Data Name="IsPowerProtected">false</Data>
+          <Data Name="NVCacheEnabled">false</Data>
+          <Data Name="BytesPerLogicalSector">512</Data>
+          <Data Name="BytesPerPhysicalSector">512</Data>
+          <Data Name="BytesOffsetForSectorAlignment">0</Data>
+          <Data Name="IncursSeekPenalty">false</Data>
+          <Data Name="IsTrimSupported">true</Data>
+          <Data Name="IsThinProvisioned">false</Data>
+          <Data Name="OptimalUnmapGranularity">0</Data>
+          <Data Name="UnmapAlignment">0</Data>
+          <Data Name="NumberOfLogicalCopies">0</Data>
+          <Data Name="NumberOfPhysicalCopies">0</Data>
+          <Data Name="FaultTolerance">0</Data>
+          <Data Name="NumberOfColumns">0</Data>
+          <Data Name="InterleaveBytes">0</Data>
+          <Data Name="HybridSupported">false</Data>
+          <Data Name="HybridCacheBytes">0</Data>
+          <Data Name="AdapterMaximumTransferBytes">131072</Data>
+          <Data Name="AdapterMaximumTransferPages">33</Data>
+          <Data Name="AdapterAlignmentMask">3</Data>
+          <Data Name="AdapterSerialNumber">NULL</Data>
+          <Data Name="PortDriver">1</Data>
+          <Data Name="UserRemovalPolicy">false</Data>
+          <Data Name="PartitionStyle">1</Data>
+          <Data Name="PartitionCount">4</Data>
+          <Data Name="PartitionTableBytes">624</Data>
+          <Data Name="PartitionTable">0100000004000000C27D004ABF65964993881C82C54F5A51004400000000000000DA243C770000008000000000000000010000000000000000001000000000000000401000000000010000000000000028732AC11FF8D211BA4B00A0C93EC93BA243A9B085466D4896464BF59CD3A7FF00000000000000004500460049002000730079007300740065006D00200070006100720074006900740069006F006E000000000000000000000000000000000000000000000000000000000000000000010000000000000000005010000000000000000100000000020000000000000016E3C9E35C0BB84D817DF92DF00215AEFFE4DF5EC445EF42BBE1D1DD9EC0BF8A00000000000000004D006900630072006F0073006F0066007400200072006500730065007200760065006400200070006100720074006900740069006F006E0000000000000000000000000000000000010000000000000000005011000000000000D0AA760000000300000000000000A2A0D0EBE5B9334487C068B6B72699C7A7C45513316BA14380F4E35B98D9695F00000000000000004200610073006900630020006400610074006100200070006100720074006900740069006F006E0000000000000000000000000000000000000000000000000000000000000000000100000000000000000020BC7600000000000080000000000400000000000000A4BB94DED106404DA16ABFD50179D6AC932296802442A34D8ECA8ADCD4B8613501000000000000804200610073006900630020006400610074006100200070006100720074006900740069006F006E0000000000000000005FBC9D444C1F0000EA11B033FB7F00000900000000000000</Data>
+          <Data Name="MbrBytes">0</Data>
+          <Data Name="Mbr"></Data>
+          <Data Name="Vbr0Bytes">0</Data>
+          <Data Name="Vbr0"></Data>
+          <Data Name="Vbr1Bytes">0</Data>
+          <Data Name="Vbr1"></Data>
+          <Data Name="Vbr2Bytes">0</Data>
+          <Data Name="Vbr2"></Data>
+          <Data Name="Vbr3Size">0</Data>
+          <Data Name="Vbr3"></Data>
+      </EventData>
+  </Event>

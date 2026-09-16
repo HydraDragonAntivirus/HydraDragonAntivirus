@@ -1,0 +1,38 @@
+title: New Service Creation
+id: 7a170524-f56b-e4b9-0b7f-dc406be42971
+related:
+    - id: 7fe71fc9-de3b-432a-8d57-8c809efc10ab
+      type: derived
+status: deprecated
+description: Detects creation of a new service.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1543.003/T1543.003.md
+author: Timur Zinniatullin, Daniil Yugoslavskiy, oscd.community
+date: 2019-10-21
+modified: 2023-02-20
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543.003
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_sc:
+        Image|endswith: \sc.exe
+        CommandLine|contains|all:
+            - create
+            - binPath
+    selection_posh:
+        CommandLine|contains|all:
+            - New-Service
+            - -BinaryPathName
+    condition: process_creation and (1 of selection*)
+falsepositives:
+    - Legitimate administrator or user creates a service for legitimate reasons.
+level: low
+ruletype: Sigma

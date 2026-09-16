@@ -1,0 +1,27 @@
+author: Zach Mathis, Eric Conrad
+date: 2022-02-05
+modified: 2022-12-16
+
+title: 'Susp CmdLine (Possible Meterpreter getsystem)'
+description: 
+
+id: 75744b7f-7e4a-47fe-afbe-1ee74ec2448e
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: security
+    description: Process Creation with command line option logging needs to be turned on.
+detection:
+    selection:
+        Channel: Security
+        EventID: 4688
+        NewProcessName|endswith: 'cmd.exe'
+        CommandLine|contains: '.\pipe'
+    condition: selection
+falsepositives:
+    - normal system usage
+tags:
+references: 
+sample-evtx: 
+ruletype: Hayabusa

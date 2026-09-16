@@ -1,0 +1,74 @@
+title: Qakbot Rundll32 Exports Execution
+id: 15f0b692-9547-f109-f9cc-ac165a71dfdb
+related:
+    - id: 339ed3d6-5490-46d0-96a7-8abe33078f58
+      type: derived
+status: test
+description: Detects specific process tree behavior of a "rundll32" execution with exports linked with Qakbot activity.
+references:
+    - https://github.com/pr0xylife/Qakbot/
+author: X__Junior (Nextron Systems)
+date: 2023-05-24
+modified: 2023-05-30
+tags:
+    - attack.execution
+    - detection.emerging-threats
+    - attack.stealth
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_paths:
+        CommandLine|contains:
+            # Note: Only add paths seen used by Qakbot to avoid collision with other strains of malware
+            - :\ProgramData\
+            - :\Users\Public\
+            - \AppData\Local\Temp\
+            - \AppData\Roaming\
+        ParentProcessName|endswith:
+            # Note: Only add processes seen used by Qakbot to avoid collision with other strains of malware
+            - \cmd.exe
+            - \cscript.exe
+            - \curl.exe
+            - \mshta.exe
+            - \powershell.exe
+            - \pwsh.exe
+            - \wscript.exe
+        NewProcessName|endswith: \rundll32.exe
+    selection_exports:
+        CommandLine|endswith:
+            # Note: Only add additional exports seen used by Qakbot
+            - aslr   # https://tria.ge/230524-scgq9add9v/behavioral1#report
+            - bind
+            - DrawThemeIcon
+            - GG10
+            - GL70
+            - jhbvygftr
+            - kjhbhkjvydrt
+            - LS88
+            - Motd
+            - N115
+            - next   # https://tria.ge/230530-n3rxpahf9w/behavioral2
+            - Nikn
+            - print
+            - qqqb
+            - qqqq
+            - RS32
+            - Test
+            - Time
+            - Updt
+            - vips
+            - Wind
+            - WW50
+            - X555
+            - XL55
+            - xlAutoOpen
+            - XS88
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unlikely
+level: critical
+ruletype: Sigma

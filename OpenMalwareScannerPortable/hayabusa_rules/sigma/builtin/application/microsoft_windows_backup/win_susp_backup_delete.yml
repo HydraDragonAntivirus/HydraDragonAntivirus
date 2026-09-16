@@ -1,0 +1,30 @@
+title: Backup Catalog Deleted
+id: 9abb29b7-6fca-9563-2f87-11926d64e17d
+related:
+    - id: 9703792d-fd9a-456d-a672-ff92efe4806a
+      type: derived
+status: test
+description: Detects backup catalog deletions
+references:
+    - https://technet.microsoft.com/en-us/library/cc742154(v=ws.11).aspx
+    - https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+author: Florian Roth (Nextron Systems), Tom U. @c_APT_ure (collection)
+date: 2017-05-12
+modified: 2022-12-25
+tags:
+    - attack.stealth
+    - attack.t1070.004
+logsource:
+    product: windows
+    service: application
+detection:
+    application:
+        Channel: Application
+    selection:
+        EventID: 524
+        Provider_Name: Microsoft-Windows-Backup
+    condition: application and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

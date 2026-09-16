@@ -1,0 +1,32 @@
+title: Potential MSTSC Shadowing Activity
+id: 5e22c0e7-bde8-560d-0187-ee4134940af6
+related:
+    - id: 6ba5a05f-b095-4f0a-8654-b825f4f16334
+      type: derived
+status: test
+description: Detects RDP session hijacking by using MSTSC shadowing
+references:
+    - https://twitter.com/kmkz_security/status/1220694202301976576
+    - https://github.com/kmkz/Pentesting/blob/47592e5e160d3b86c2024f09ef04ceb87d204995/Post-Exploitation-Cheat-Sheet
+author: Florian Roth (Nextron Systems)
+date: 2020-01-24
+modified: 2023-02-05
+tags:
+    - attack.lateral-movement
+    - attack.t1563.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains|all:
+            - noconsentprompt
+            - 'shadow:'
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

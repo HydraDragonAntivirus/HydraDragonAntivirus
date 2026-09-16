@@ -1,0 +1,36 @@
+title: Sysinternals Tools AppX Versions Execution
+id: a3ffcde3-a83d-3d16-0b83-72f4758207cd
+related:
+    - id: d29a20b2-be4b-4827-81f2-3d8a59eab5fc
+      type: derived
+status: test
+description: |
+    Detects execution of Sysinternals tools via an AppX package.
+    Attackers could install the Sysinternals Suite to get access to tools such as psexec and procdump to avoid detection based on System paths.
+references:
+    - https://learn.microsoft.com/en-us/sysinternals/downloads/microsoft-store
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-01-16
+modified: 2023-09-12
+tags:
+    - attack.execution
+    - attack.stealth
+logsource:
+    product: windows
+    service: appmodel-runtime
+detection:
+    appmodel_runtime:
+        Channel: Microsoft-Windows-AppModel-Runtime/Admin
+    selection:
+        EventID: 201
+        ImageName:
+            - procdump.exe
+            - psloglist.exe
+            - psexec.exe
+            - livekd.exe
+            - ADExplorer.exe
+    condition: appmodel_runtime and selection
+falsepositives:
+    - Legitimate usage of sysinternals applications from the Windows Store will trigger this. Apply exclusions as needed.
+level: low
+ruletype: Sigma

@@ -1,0 +1,72 @@
+author: Zach Mathis
+date: 2022-12-07
+modified: 2025-02-10
+
+title: RDP Logon
+details: 'TgtUser: %UserDataUser% ¦ SessID: %UserDataSessionID% ¦ SrcIP: %UserDataAddress%'
+description: |
+    This event is created when a new local session is created for either a local or remote interactive login when a user successfully authenticates and there is no existing local session.
+    This event will be created when a user logs on for the first time or after a logout but not after just a disconnect because the session will still exist.
+    In that case, a reconnect event will be created.
+    The Local Session Manager is responsible for creating or finding existing local sessions to support interactive logins.
+    Note that local sessions are different from logon sessions.
+    Local sessions represent the logon sessions, desktop layout, processes, etc. associated with an interactive logon. 
+    SrcIP will be an IP address if it is a remote session and "LOCAL" if it is a local session.
+    This event gives the same information in Remote Connection Manager 1149, Local Session Manager 22 and Security 4648.
+
+id: b107551c-409d-44b8-bb0d-3b007c269881
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: terminalservices-localsessionmanager
+detection:
+    selection:
+        Channel: 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational'
+        EventID: 21
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+references:
+    - https://www.cybertriage.com/artifact/terminalservices_localsessionmanager_log/terminalservices_localsessionmanager_operational_21/
+    - https://ponderthebits.com/2018/02/windows-rdp-related-event-logs-identification-tracking-and-investigation/
+    - https://dfironthemountain.wordpress.com/2019/02/15/rdp-event-log-dfir/
+    - http://blog.kiddaland.net/2015/02/remote-desktop-connections-terminal.html
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-R2-and-2008/ee891131(v=ws.10)?redirectedfrom=MSDN
+ruletype: Hayabusa
+
+sample-message: |
+    Remote Desktop Services: Session logon succeeded:
+
+    User: WIN-QW3OXGRISMS\Administrator
+    Session ID: 2
+    Source Network Address: 122.6.150.75
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TerminalServices-LocalSessionManager" Guid="{5d896912-022d-40aa-a3a8-4fa5515c76d7}" /> 
+            <EventID>21</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>0</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x1000000000000000</Keywords> 
+            <TimeCreated SystemTime="2022-12-06T05:41:46.964691000Z" /> 
+            <EventRecordID>3318</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="692" ThreadID="2588" /> 
+            <Channel>Microsoft-Windows-TerminalServices-LocalSessionManager/Operational</Channel> 
+            <Computer>WIN-QW3OXGRISMS</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <UserData>
+            <EventXML xmlns:auto-ns3="http://schemas.microsoft.com/win/2004/08/events" xmlns="Event_NS">
+                <User>WIN-QW3OXGRISMS\Administrator</User> 
+                <SessionID>2</SessionID> 
+                <Address>122.6.150.75</Address> 
+            </EventXML>
+        </UserData>
+    </Event>

@@ -1,0 +1,62 @@
+author: Zach Mathis
+date: 2022-12-07
+modified: 2025-02-10
+
+title: RDP Logoff
+details: 'TgtUser: %UserDataUser% ¦ SessID: %UserDataSessionID%'
+description: Event 23 is created when a local session logs off. That happens after a user successfully logs off a local or remote interactive logon session. Not just a disconnect.
+
+id: e14a729f-f4f8-427b-a238-dfbde9c1614b
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: terminalservices-localsessionmanager
+detection:
+    selection:
+        Channel: 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational'
+        EventID: 23
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+references:
+    - https://www.cybertriage.com/artifact/terminalservices_localsessionmanager_log/terminalservices_localsessionmanager_operational_23/
+    - https://ponderthebits.com/2018/02/windows-rdp-related-event-logs-identification-tracking-and-investigation/
+    - https://dfironthemountain.wordpress.com/2019/02/15/rdp-event-log-dfir/
+    - http://blog.kiddaland.net/2015/02/remote-desktop-connections-terminal.html
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-R2-and-2008/ee891131(v=ws.10)?redirectedfrom=MSDN
+ruletype: Hayabusa
+
+sample-message: |
+    Remote Desktop Services: Session logoff succeeded:
+
+    User: WIN-QW3OXGRISMS\User
+    Session ID: 2
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TerminalServices-LocalSessionManager" Guid="{5d896912-022d-40aa-a3a8-4fa5515c76d7}" /> 
+            <EventID>23</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>0</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x1000000000000000</Keywords> 
+            <TimeCreated SystemTime="2022-11-23T14:00:20.822451500Z" /> 
+            <EventRecordID>3314</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="704" ThreadID="486252" /> 
+            <Channel>Microsoft-Windows-TerminalServices-LocalSessionManager/Operational</Channel> 
+            <Computer>WIN-QW3OXGRISMS</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <UserData>
+            <EventXML xmlns:auto-ns3="http://schemas.microsoft.com/win/2004/08/events" xmlns="Event_NS">
+                <User>WIN-QW3OXGRISMS\User</User> 
+                <SessionID>2</SessionID> 
+            </EventXML>
+        </UserData>
+    </Event>

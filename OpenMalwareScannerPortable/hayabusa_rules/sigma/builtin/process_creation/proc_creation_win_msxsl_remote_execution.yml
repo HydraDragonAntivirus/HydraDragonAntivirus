@@ -1,0 +1,30 @@
+title: Remote XSL Execution Via Msxsl.EXE
+id: 8bb8dbbf-4781-7bf2-3340-f3b39cc8501a
+related:
+    - id: 75d0a94e-6252-448d-a7be-d953dff527bb
+      type: derived
+status: test
+description: Detects the execution of the "msxsl" binary with an "http" keyword in the command line. This might indicate a potential remote execution of XSL files.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1220/T1220.md
+    - https://lolbas-project.github.io/lolbas/OtherMSBinaries/Msxsl/
+author: Swachchhanda Shrawan Poudel
+date: 2023-11-09
+tags:
+    - attack.stealth
+    - attack.t1220
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        CommandLine|contains: http
+        NewProcessName|endswith: \msxsl.exe
+    condition: process_creation and selection
+falsepositives:
+    - Msxsl is not installed by default and is deprecated, so unlikely on most systems.
+level: high
+ruletype: Sigma

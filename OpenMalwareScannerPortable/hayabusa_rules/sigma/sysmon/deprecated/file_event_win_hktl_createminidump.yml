@@ -1,0 +1,32 @@
+title: CreateMiniDump Hacktool
+id: 32908e71-e948-0c09-84a0-d95d1302c9a1
+related:
+    - id: 36d88494-1d43-4dc0-b3fa-35c8fea0ca9d
+      type: derived
+    - id: db2110f3-479d-42a6-94fb-d35bc1e46492
+      type: derived
+status: deprecated
+description: Detects the use of CreateMiniDump hack tool used to dump the LSASS process memory for credential extraction on the attacker's machine
+author: Florian Roth (Nextron Systems)
+references:
+    - https://ired.team/offensive-security/credential-access-and-credential-dumping/dumping-lsass-passwords-without-mimikatz-minidumpwritedump-av-signature-bypass
+date: 2019-12-22
+modified: 2022-05-14
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: \lsass.dmp
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

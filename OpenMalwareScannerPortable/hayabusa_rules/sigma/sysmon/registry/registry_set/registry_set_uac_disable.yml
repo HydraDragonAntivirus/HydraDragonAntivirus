@@ -1,0 +1,36 @@
+title: UAC Disabled
+id: 56aa7436-715f-5aa2-dd48-916fa34bd24a
+related:
+    - id: c5f6a85d-b647-40f7-bbad-c10b66bab038
+      type: similar
+    - id: 0d7ceeef-3539-4392-8953-3dc664912714
+      type: similar
+    - id: 48437c39-9e5f-47fb-af95-3d663c3f2919
+      type: derived
+status: stable
+description: |
+    Detects when an attacker tries to disable User Account Control (UAC) by setting the registry value "EnableLUA" to 0.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/7e11e9b79583545f208a6dc3fa062f2ed443d999/atomics/T1548.002/T1548.002.md
+author: frack113
+date: 2022-01-05
+modified: 2024-05-10
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.002
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains: \Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA
+        Details: DWORD (0x00000000)
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

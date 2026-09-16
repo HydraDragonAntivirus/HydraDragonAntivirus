@@ -32,5 +32,14 @@ int main(int argc, char* argv[]) {
         openedr_static_free_string(url_report);
     }
 
+    // 3. Check Registry
+    const char* test_reg = "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\SuspiciousApp";
+    printf("--- 3. Checking Registry: %s ---\n", test_reg);
+    char* reg_report = openedr_static_check_registry(test_reg);
+    if (reg_report != NULL) {
+        printf("%s\n\n", reg_report);
+        openedr_static_free_string(reg_report);
+    }
+
     return 0;
 }

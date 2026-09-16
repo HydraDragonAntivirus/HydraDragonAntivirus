@@ -1,0 +1,40 @@
+title: Unauthorized System Time Modification
+id: 1085e6d3-6691-5713-42ba-ba8933a6b2d0
+related:
+    - id: faa031b5-21ed-4e02-8881-2591f98d82ed
+      type: derived
+status: test
+description: Detect scenarios where a potentially unauthorized application or user is modifying the system time.
+references:
+    - Private Cuckoo Sandbox (from many years ago, no longer have hash, NDA as well)
+    - Live environment caused by malware
+    - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4616
+author: '@neu5ron'
+date: 2019-02-05
+modified: 2025-12-03
+tags:
+    - attack.stealth
+    - attack.t1070.006
+logsource:
+    product: windows
+    service: security
+    definition: 'Requirements: Audit Policy : System > Audit Security State Change, Group Policy : Computer Configuration\Windows Settings\Security Settings\Advanced Audit Policy Configuration\Audit Policies\System\Audit Security State Change'
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 4616
+    filter_main_svchost:
+        ProcessName: C:\Windows\System32\svchost.exe
+        SubjectUserSid: S-1-5-19
+    filter_optional_vmtools:
+        ProcessName:
+            - C:\Program Files\VMware\VMware Tools\vmtoolsd.exe
+            - C:\Program Files (x86)\VMware\VMware Tools\vmtoolsd.exe
+            - C:\Windows\System32\VBoxService.exe
+            - C:\Windows\System32\oobe\msoobe.exe
+    condition: security and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)
+falsepositives:
+    - HyperV or other virtualization technologies with binary not listed in filter portion of detection
+level: low
+ruletype: Sigma

@@ -1,0 +1,37 @@
+title: Potential DLL Sideloading Of MpSvc.DLL
+id: c115b31f-4e08-1ae0-da09-9599e1573307
+related:
+    - id: 5ba243e5-8165-4cf7-8c69-e1d3669654c1
+      type: derived
+status: test
+description: Detects potential DLL sideloading of "MpSvc.dll".
+references:
+    - https://hijacklibs.net/entries/microsoft/built-in/mpsvc.html
+author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema
+date: 2024-07-11
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.execution
+    - attack.stealth
+    - attack.t1574.001
+    - sysmon
+logsource:
+    product: windows
+    category: image_load
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImageLoaded|endswith: \MpSvc.dll
+    filter_main_generic:
+        ImageLoaded|startswith:
+            - C:\Program Files\Windows Defender\
+            - C:\ProgramData\Microsoft\Windows Defender\Platform\
+            - C:\Windows\WinSxS\
+    condition: image_load and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Legitimate applications loading their own versions of the DLL mentioned in this rule.
+level: medium
+ruletype: Sigma

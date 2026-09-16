@@ -1,0 +1,43 @@
+title: Interactive Logon to Server Systems
+id: 7298c707-7564-3229-7c76-ec514847d8c2
+related:
+    - id: 3ff152b2-1388-4984-9cd9-a323323fdadf
+      type: derived
+status: test
+description: Detects interactive console logons to Server Systems
+references:
+    - Internal Research
+author: Florian Roth (Nextron Systems)
+date: 2017-03-17
+modified: 2023-12-15
+tags:
+    - attack.lateral-movement
+    - attack.initial-access
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1078
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID:
+            - 528
+            - 529
+            - 4624
+            - 4625
+        LogonType: 2
+        ComputerName|expand:
+            - '%ServerSystems%'
+            - '%DomainControllers%'
+    filter_main_advapi:
+        LogonProcessName: Advapi
+        ComputerName|expand: '%Workstations%'
+    condition: security and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Administrative activity via KVM or ILO board
+level: medium
+ruletype: Sigma

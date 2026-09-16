@@ -1,0 +1,56 @@
+author: Zach Mathis
+date: 2022-04-06
+modified: 2022-06-21
+
+title: WMI Provider Started
+details: 'Provider: %UserDataProviderName% ¦ Result: %UserDataCode% ¦ Proc: %UserDataHostProcess% ¦ Path: %UserDataProviderPath% ¦ PID: %UserDataProcessID%'
+description: The time wmiprvse was executed and path to the provider DLL. Attackers may sometimes install malicious WMI provider DLLs.
+
+id: 547aec97-2635-474a-a36c-7a3a46b07fde
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: wmi
+    definition: Default in 10/2012-R2+
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-WMI-Activity/Operational
+        EventID: 5857
+    condition: selection_basic
+falsepositives:
+    - unknown
+tags:
+    - WMI
+references:
+ruletype: Hayabusa
+
+sample-message: CommandLineEventConsumer provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 3808; ProviderPath = %SystemRoot%\system32\wbem\wbemcons.dll
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-WMI-Activity" Guid="{1418EF04-B0B4-4623-BF7E-D74AB47BBDAA}" />
+            <EventID>5857</EventID>
+            <Version>0</Version>
+            <Level>0</Level>
+            <Task>0</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x4000000000000000</Keywords>
+            <TimeCreated SystemTime="2022-02-08T10:05:43.726086300Z" />
+            <EventRecordID>2224</EventRecordID>
+            <Correlation ActivityID="{0658647A-1CD3-0000-9670-5806D31CD801}" />
+            <Execution ProcessID="3808" ThreadID="4012" />
+            <Channel>Microsoft-Windows-WMI-Activity/Operational</Channel>
+            <Computer>Sec504Student</Computer>
+            <Security UserID="S-1-5-18" />
+        </System> 
+        <UserData> 
+            <Operation_StartedOperational xmlns="http://manifests.microsoft.com/win/2006/windows/WMI">
+                <ProviderName>CommandLineEventConsumer</ProviderName>
+                <Code>0x0</Code>
+                <HostProcess>wmiprvse.exe</HostProcess>
+                <ProcessID>3808</ProcessID>
+                <ProviderPath>%SystemRoot%\system32\wbem\wbemcons.dll</ProviderPath>
+            </Operation_StartedOperational>
+        </UserData>
+    </Event>

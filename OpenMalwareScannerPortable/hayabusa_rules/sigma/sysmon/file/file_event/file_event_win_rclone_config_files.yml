@@ -1,0 +1,32 @@
+title: Rclone Config File Creation
+id: 1446e210-e8da-42a9-e7bf-8fb30a60366b
+related:
+    - id: 34986307-b7f4-49be-92f3-e7a4d01ac5db
+      type: derived
+status: test
+description: Detects Rclone config files being created
+references:
+    - https://research.nccgroup.com/2021/05/27/detecting-rclone-an-effective-tool-for-exfiltration/
+author: Aaron Greetham (@beardofbinary) - NCC Group
+date: 2021-05-26
+modified: 2023-05-09
+tags:
+    - attack.exfiltration
+    - attack.t1567.002
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|contains|all:
+            - :\Users\
+            - \.config\rclone\
+    condition: file_event and selection
+falsepositives:
+    - Legitimate Rclone usage
+level: medium
+ruletype: Sigma

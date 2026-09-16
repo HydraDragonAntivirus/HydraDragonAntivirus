@@ -1,0 +1,48 @@
+title: VBScript Payload Stored in Registry
+id: edcac99a-55ef-aa9c-92a3-d9c9d7e1e46e
+related:
+    - id: 46490193-1b22-4c29-bdd6-5bf63907216f
+      type: derived
+status: test
+description: Detects VBScript content stored into registry keys as seen being used by UNC2452 group
+references:
+    - https://www.microsoft.com/security/blog/2021/03/04/goldmax-goldfinder-sibot-analyzing-nobelium-malware/
+author: Florian Roth (Nextron Systems)
+date: 2021-03-05
+modified: 2023-08-17
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: Software\Microsoft\Windows\CurrentVersion
+        NewValue|contains:
+            - 'vbscript:'
+            - 'jscript:'
+            - mshtml,
+            - RunHTMLApplication
+            - Execute(
+            - CreateObject
+            - window.close
+    filter:
+        ObjectName|contains: Software\Microsoft\Windows\CurrentVersion\Run
+    filter_dotnet:
+        ProcessName|endswith: \msiexec.exe
+        ObjectName|contains: \SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\
+        NewValue|contains:
+            - \Microsoft.NET\Primary Interop Assemblies\Microsoft.mshtml.dll
+            - <\Microsoft.mshtml,fileVersion=
+            - _mshtml_dll_
+            - <\Microsoft.mshtml,culture=
+    condition: registry_set and (selection and not 1 of filter*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

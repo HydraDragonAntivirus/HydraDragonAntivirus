@@ -1,0 +1,39 @@
+title: AzureHound PowerShell Commands
+id: 74dda95a-b492-e2ee-4a33-b22a41a1cb57
+related:
+    - id: 83083ac6-1816-4e76-97d7-59af9a9ae46e
+      type: derived
+status: deprecated
+description: Detects the execution of AzureHound in PowerShell, a tool to gather data from Azure for BloodHound
+references:
+    - https://github.com/BloodHoundAD/BloodHound/blob/0927441f67161cc6dc08a53c63ceb8e333f55874/Collectors/AzureHound.ps1
+    - https://bloodhound.readthedocs.io/en/latest/data-collection/azurehound.html
+author: Austin Songer (@austinsonger)
+date: 2021-10-23
+modified: 2023-01-02
+tags:
+    - attack.discovery
+    - attack.t1482
+    - attack.t1087
+    - attack.t1087.001
+    - attack.t1087.002
+    - attack.t1069.001
+    - attack.t1069.002
+    - attack.t1069
+logsource:
+    product: windows
+    category: ps_script
+    definition: Script Block Logging must be enabled
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains: Invoke-AzureHound
+    condition: ps_script and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

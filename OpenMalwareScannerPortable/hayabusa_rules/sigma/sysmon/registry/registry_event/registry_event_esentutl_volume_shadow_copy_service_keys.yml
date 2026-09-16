@@ -1,0 +1,36 @@
+title: Esentutl Volume Shadow Copy Service Keys
+id: 290db25d-cc51-d136-2cd9-c30150b27ce0
+related:
+    - id: 5aad0995-46ab-41bd-a9ff-724f41114971
+      type: derived
+status: test
+description: Detects the volume shadow copy service initialization and processing via esentutl. Registry keys such as HKLM\\System\\CurrentControlSet\\Services\\VSS\\Diag\\VolSnap\\Volume are captured.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1003.002/T1003.002.md#atomic-test-3---esentutlexe-sam-copy
+author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)
+date: 2020-10-20
+modified: 2022-12-25
+tags:
+    - attack.credential-access
+    - attack.t1003.002
+    - sysmon
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID:
+            - 12
+            - 13
+            - 14
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains: System\CurrentControlSet\Services\VSS
+        Image|endswith: esentutl.exe   # limit esentutl as in references, too many FP to filter
+    filter:
+        TargetObject|contains: System\CurrentControlSet\Services\VSS\Start
+    condition: registry_event and (selection and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

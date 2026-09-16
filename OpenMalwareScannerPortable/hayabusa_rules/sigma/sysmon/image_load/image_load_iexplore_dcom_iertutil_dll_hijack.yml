@@ -1,0 +1,36 @@
+title: Potential DCOM InternetExplorer.Application DLL Hijack - Image Load
+id: 484d27da-4a7f-9a4d-3254-0ec190b0e0b5
+related:
+    - id: e554f142-5cf3-4e55-ace9-a1b59e0def65
+      type: obsolete
+    - id: 2f7979ae-f82b-45af-ac1d-2b10e93b0baa
+      type: similar
+    - id: f354eba5-623b-450f-b073-0b5b2773b6aa
+      type: derived
+status: test
+description: Detects potential DLL hijack of "iertutil.dll" found in the DCOM InternetExplorer.Application Class
+references:
+    - https://threathunterplaybook.com/hunts/windows/201009-RemoteDCOMIErtUtilDLLHijack/notebook.html
+author: Roberto Rodriguez @Cyb3rWard0g, Open Threat Research (OTR), wagga
+date: 2020-10-12
+modified: 2022-12-18
+tags:
+    - attack.lateral-movement
+    - attack.t1021.002
+    - attack.t1021.003
+    - sysmon
+logsource:
+    product: windows
+    category: image_load
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \Internet Explorer\iexplore.exe
+        ImageLoaded|endswith: \Internet Explorer\iertutil.dll
+    condition: image_load and selection
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

@@ -1,0 +1,34 @@
+title: Invoke-Obfuscation CLIP+ Launcher
+id: 393f0a83-4496-f45d-4d2f-8ae93b98511a
+related:
+    - id: f7385ee2-0e0c-11eb-adc1-0242ac120002
+      type: derived
+    - id: 21e4b3c1-4985-4aa4-a6c0-f8639590a5f3
+      type: derived
+description: Detects Obfuscated use of Clip.exe to execute PowerShell
+status: unsupported
+author: Jonathan Cheong, oscd.community
+date: 2020-10-13
+modified: 2021-09-16
+references:
+    - https://github.com/SigmaHQ/sigma/issues/1009  #(Task 26)
+tags:
+    - attack.defense-evasion
+    - attack.t1027
+    - attack.execution
+    - attack.t1059.001
+    - sysmon
+logsource:
+    product: windows
+    category: driver_load
+detection:
+    driver_load:
+        EventID: 6
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ImagePath|re: .*cmd.{0,5}(?:\/c|\/r).+clip(?:\.exe)?.{0,4}&&.+clipboard]::\(\s\\\"\{\d\}.+\-f.+\"
+    condition: driver_load and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

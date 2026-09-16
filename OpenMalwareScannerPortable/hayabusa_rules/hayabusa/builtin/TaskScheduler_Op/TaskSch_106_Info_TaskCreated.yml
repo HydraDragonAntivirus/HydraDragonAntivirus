@@ -1,0 +1,51 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-05-21
+
+title: Task Created
+details: 'Name: %TaskName% ¦ UserContext: %UserContext%'
+description: 
+
+id: 33599dfb-f3e4-4298-8d3f-59407f65f4e7
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: taskscheduler
+    description: Taskscheduler logging needs to be enabled.
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-TaskScheduler/Operational
+        EventID: 106
+    condition: selection_basic
+falsepositives:
+    - normal system usage
+tags:
+    - Task
+references:
+ruletype: Hayabusa
+
+sample-message: 'User "COMPUTER\User"  registered Task Scheduler task "\testtask"'
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TaskScheduler" Guid="{DE7B24EA-73C8-4A09-985D-5BDADCFA9017}" /> 
+            <EventID>106</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>106</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8000000000000000</Keywords> 
+            <TimeCreated SystemTime="2022-04-08T02:57:13.274299900Z" /> 
+            <EventRecordID>1</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="1184" ThreadID="3300" /> 
+            <Channel>Microsoft-Windows-TaskScheduler/Operational</Channel> 
+            <Computer>COMPUTER</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <EventData Name="TaskRegisteredEvent">
+            <Data Name="TaskName">\testtask</Data> 
+            <Data Name="UserContext">COMPUTER\User</Data> 
+        </EventData>
+    </Event>

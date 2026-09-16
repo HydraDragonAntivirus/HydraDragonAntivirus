@@ -1,0 +1,57 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'Pipe Created'
+description: 'This event generates when a named pipe is created. Malware often uses named pipes for interprocess communication.'
+
+id: 79dbbdb1-3272-4518-a633-d38db0527dfc
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 17
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and selection_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>17</EventID>
+            <Version>1</Version>
+            <Level>4</Level>
+            <Task>17</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2021-08-22T19:33:38.844084000Z"/>
+            <EventRecordID>1912932</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="4760" ThreadID="6844"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>LAPTOP-JU4M3I0E</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName"/>
+            <Data Name="EventType">CreatePipe</Data>
+            <Data Name="UtcTime">2021-08-22 19:33:38.843</Data>
+            <Data Name="ProcessGuid">{00247C92-A691-6122-0000-001021C31F02}</Data>
+            <Data Name="ProcessId">14048</Data>
+            <Data Name="PipeName">\dd4c18dc-bff6-42ce-b707-62c114b84291\pipe\srvsvc</Data>
+            <Data Name="Image">c:\temp\EfsPotato.exe</Data>
+        </EventData>
+    </Event>

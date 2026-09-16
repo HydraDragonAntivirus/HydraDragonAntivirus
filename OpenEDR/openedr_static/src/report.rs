@@ -16,6 +16,8 @@ pub struct SignerDetails {
     pub is_trusted: bool,
     pub signer_name: Option<String>,
     pub status: String,
+    #[serde(default)]
+    pub is_catalog_signed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

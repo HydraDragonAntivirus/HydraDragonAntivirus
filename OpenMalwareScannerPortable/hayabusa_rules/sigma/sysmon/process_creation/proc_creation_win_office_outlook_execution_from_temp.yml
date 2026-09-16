@@ -1,0 +1,30 @@
+title: Suspicious Execution From Outlook Temporary Folder
+id: 7d063769-ef37-b905-c0d5-61c98716bd31
+related:
+    - id: a018fdc3-46a3-44e5-9afb-2cd4af1d4b39
+      type: derived
+status: test
+description: Detects a suspicious program execution in Outlook temp folder
+author: Florian Roth (Nextron Systems)
+references:
+    - Internal Research
+date: 2019-10-01
+modified: 2022-10-09
+tags:
+    - attack.initial-access
+    - attack.t1566.001
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|contains: \Temporary Internet Files\Content.Outlook\
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

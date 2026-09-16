@@ -1,0 +1,53 @@
+title: Abusing Windows Telemetry For Persistence - Registry
+id: 7c470022-ced9-05c4-b9fc-5aff8e5f4dce
+related:
+    - id: 4e8d5fd3-c959-441f-a941-f73d0cdcdca5
+      type: derived
+status: deprecated
+description: |
+    Windows telemetry makes use of the binary CompatTelRunner.exe to run a variety of commands and perform the actual telemetry collections.
+    This binary was created to be easily extensible, and to that end, it relies on the registry to instruct on which commands to run.
+    The problem is, it will run any arbitrary command without restriction of location or type.
+references:
+    - https://www.trustedsec.com/blog/abusing-windows-telemetry-for-persistence/
+author: Sreeman
+date: 2020-09-29
+modified: 2023-08-17
+tags:
+    - attack.defense-evasion
+    - attack.persistence
+    - attack.t1112
+    - attack.t1053
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController\
+        NewValue|endswith:
+            - .sh
+            - .exe
+            - .dll
+            - .bin
+            - .bat
+            - .cmd
+            - .js
+            - .ps
+            - .vb
+            - .jar
+            - .hta
+            - .msi
+            - .vbs
+    condition: registry_set and selection
+fields:
+    - ObjectName
+    - NewValue
+    - EventID
+    - CommandLine
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

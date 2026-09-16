@@ -1,0 +1,36 @@
+title: WMI Backdoor Exchange Transport Agent
+id: 812c76e3-a745-515e-484b-d64d6f64c779
+related:
+    - id: 797011dc-44f4-4e6f-9f10-a8ceefbe566b
+      type: derived
+status: test
+description: Detects a WMI backdoor in Exchange Transport Agents via WMI event filters
+references:
+    - https://twitter.com/cglyer/status/1182389676876980224
+    - https://twitter.com/cglyer/status/1182391019633029120
+author: Florian Roth (Nextron Systems)
+date: 2019-10-11
+modified: 2023-02-08
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1546.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        ParentProcessName|endswith: \EdgeTransport.exe
+    filter_conhost:
+        NewProcessName: C:\Windows\System32\conhost.exe
+    filter_oleconverter:  # FP also documented in https://speakerdeck.com/heirhabarov/hunting-for-persistence-via-microsoft-exchange-server-or-outlook?slide=18
+        NewProcessName|startswith: C:\Program Files\Microsoft\Exchange Server\
+        NewProcessName|endswith: \Bin\OleConverter.exe
+    condition: process_creation and (selection and not 1 of filter_*)
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

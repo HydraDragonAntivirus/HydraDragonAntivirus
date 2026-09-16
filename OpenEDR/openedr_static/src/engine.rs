@@ -238,7 +238,8 @@ impl StaticEngine {
         // 1. Authenticode & Signer Check
         let mut signer_details = None;
         if let Some(p) = disk_path {
-            let (is_signed, is_trusted, signer_name, status) = verify_authenticode(p);
+            let (is_signed, is_trusted, signer_name, status, is_catalog_signed) =
+                verify_authenticode(p);
             let mut trusted_by_yaml = false;
 
             if let Some(ref signer) = signer_name {
@@ -268,6 +269,7 @@ impl StaticEngine {
                 is_trusted: is_trusted || trusted_by_yaml,
                 signer_name,
                 status,
+                is_catalog_signed,
             });
 
             // Fast-path for trusted authenticode binaries with no signer alert

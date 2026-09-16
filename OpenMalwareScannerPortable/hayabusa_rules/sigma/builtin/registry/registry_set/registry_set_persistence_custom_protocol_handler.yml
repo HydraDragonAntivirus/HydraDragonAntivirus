@@ -1,0 +1,42 @@
+title: Potential Persistence Via Custom Protocol Handler
+id: 49b76666-4660-3762-b2ea-818e190edd5d
+related:
+    - id: fdbf0b9d-0182-4c43-893b-a1eaab92d085
+      type: derived
+status: test
+description: Detects potential persistence activity via the registering of a new custom protocole handlers. While legitimate applications register protocole handlers often times during installation. And attacker can abuse this by setting a custom handler to be used as a persistence mechanism.
+references:
+    - https://ladydebug.com/blog/2019/06/21/custom-protocol-handler-cph/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-05-30
+modified: 2023-05-12
+tags:
+    - attack.persistence
+    - attack.defense-impairment
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|startswith: HKCR\
+        NewValue|startswith: 'URL:'
+    filter_main_ms_trusted:
+        NewValue|startswith: URL:ms-
+    filter_main_generic_locations:
+        ProcessName|startswith: # Add more folders to avoid FP
+            - C:\Program Files (x86)
+            - C:\Program Files\
+            - C:\Windows\System32\
+            - C:\Windows\SysWOW64\
+    # Uncomment This section to add specific Protocol Handler names that are know
+    # filter_specific:
+    #     Details: 'URL:'
+    condition: registry_set and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Many legitimate applications can register a new custom protocol handler. Additional filters needs to applied according to your environment.
+level: medium
+ruletype: Sigma

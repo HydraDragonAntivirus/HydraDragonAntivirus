@@ -1,0 +1,29 @@
+title: Suspicious RASdial Activity
+id: 60b34e33-95fe-6beb-2917-eb4309e6dcd8
+related:
+    - id: 6bba49bf-7f8c-47d6-a1bb-6b4dece4640e
+      type: derived
+status: test
+description: Detects suspicious process related to rasdial.exe
+references:
+    - https://twitter.com/subTee/status/891298217907830785
+author: juju4
+date: 2019-01-16
+modified: 2021-11-27
+tags:
+    - attack.execution
+    - attack.t1059
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        NewProcessName|endswith: rasdial.exe
+    condition: process_creation and selection
+falsepositives:
+    - False positives depend on scripts and administrative tools used in the monitored environment
+level: medium
+ruletype: Sigma

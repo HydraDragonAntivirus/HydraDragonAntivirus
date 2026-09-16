@@ -1,0 +1,32 @@
+title: PktMon.EXE Execution
+id: 455001e5-b785-3215-3ad0-96745a23a94a
+related:
+    - id: f956c7c1-0f60-4bc5-b7d7-b39ab3c08908
+      type: derived
+status: test
+description: Detects execution of PktMon, a tool that captures network packets.
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Pktmon/
+author: frack113
+date: 2022-03-17
+modified: 2023-06-23
+tags:
+    - attack.discovery
+    - attack.credential-access
+    - attack.t1040
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        - Image|endswith: \pktmon.exe
+        - OriginalFileName: PktMon.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate use
+level: medium
+ruletype: Sigma

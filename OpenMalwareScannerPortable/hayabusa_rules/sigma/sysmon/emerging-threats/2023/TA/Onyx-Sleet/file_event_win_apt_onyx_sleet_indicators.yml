@@ -1,0 +1,29 @@
+title: Onyx Sleet APT File Creation Indicators
+id: 2b5fb0f4-a2d7-0f0e-b011-c55939210440
+related:
+    - id: 2fef4fd9-7206-40d1-b4f5-ad6441d0cd9b
+      type: derived
+status: test
+description: Detects file creation activity that is related to Onyx Sleet APT activity
+references:
+    - https://www.microsoft.com/en-us/security/blog/2023/10/18/multiple-north-korean-threat-actors-exploiting-the-teamcity-cve-2023-42793-vulnerability/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-10-24
+tags:
+    - attack.execution
+    - detection.emerging-threats
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith: :\Windows\ADFS\bg\inetmgr.exe
+    condition: file_event and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

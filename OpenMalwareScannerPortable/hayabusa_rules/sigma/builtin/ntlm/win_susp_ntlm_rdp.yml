@@ -1,0 +1,32 @@
+title: Potential Remote Desktop Connection to Non-Domain Host
+id: b416a5b9-a282-2826-bc58-8b8481d865f6
+related:
+    - id: ce5678bb-b9aa-4fb5-be4b-e57f686256ad
+      type: derived
+status: test
+description: Detects logons using NTLM to hosts that are potentially not part of the domain.
+references:
+    - n/a
+author: James Pemberton
+date: 2020-05-22
+modified: 2021-11-27
+tags:
+    - attack.command-and-control
+    - attack.t1219.002
+logsource:
+    product: windows
+    service: ntlm
+    definition: Requires events from Microsoft-Windows-NTLM/Operational
+detection:
+    ntlm:
+        Channel: Microsoft-Windows-NTLM/Operational
+    selection:
+        EventID: 8001
+        TargetName|startswith: TERMSRV
+    condition: ntlm and selection
+falsepositives:
+    - Host connections to valid domains, exclude these.
+    - Host connections not using host FQDN.
+    - Host connections to external legitimate domains.
+level: medium
+ruletype: Sigma

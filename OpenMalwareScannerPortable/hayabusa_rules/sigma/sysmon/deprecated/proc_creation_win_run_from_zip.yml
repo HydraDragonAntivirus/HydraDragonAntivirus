@@ -1,0 +1,30 @@
+title: Run from a Zip File
+id: c3de09a4-877d-c0ef-eb99-e509aa15fed8
+related:
+    - id: 1a70042a-6622-4a2b-8958-267625349abf
+      type: derived
+status: deprecated
+description: Payloads may be compressed, archived, or encrypted in order to avoid detection
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1027/T1027.md#atomic-test-4---execution-from-compressed-file
+author: frack113
+date: 2021-12-26
+modified: 2023-03-05
+tags:
+    - attack.impact
+    - attack.t1485
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|contains: .zip\
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

@@ -1,0 +1,56 @@
+title: Potential Ryuk Ransomware Activity
+id: d7037073-136c-baf0-a9d7-cb2c03fcd245
+related:
+    - id: 58bf96d9-ff5f-44bd-8dcc-1c4f79bf3a27
+      type: similar
+    - id: 0acaad27-9f02-4136-a243-c357202edd74
+      type: obsolete
+    - id: c37510b8-2107-4b78-aa32-72f251e7a844
+      type: derived
+status: stable
+description: Detects Ryuk ransomware activity
+references:
+    - https://app.any.run/tasks/d860402c-3ff4-4c1f-b367-0237da714ed1/
+    - https://research.checkpoint.com/ryuk-ransomware-targeted-campaign-break/
+author: Florian Roth (Nextron Systems), Vasiliy Burov, Nasreddine Bencherchali (Nextron Systems)
+date: 2019-12-16
+modified: 2023-02-03
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.001
+    - detection.emerging-threats
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_reg:
+        CommandLine|contains|all:
+            - Microsoft\Windows\CurrentVersion\Run
+            - C:\users\Public\
+    selection_del:
+        CommandLine|contains|all:
+            - del /s /f /q c:\
+            - \*.bac
+            - \*.bak
+            - \*.bkf
+    selection_net:
+        CommandLine|contains|all:
+            - ' stop '
+            - ' /y'
+        CommandLine|contains:
+            - samss
+            - audioendpointbuilder
+            - unistoresvc_
+            - AcrSch2Svc
+        NewProcessName|endswith:
+            - \net.exe
+            - \net1.exe
+    condition: process_creation and (1 of selection_*)
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

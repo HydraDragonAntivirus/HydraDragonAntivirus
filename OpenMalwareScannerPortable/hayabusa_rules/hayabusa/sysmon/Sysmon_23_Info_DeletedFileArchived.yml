@@ -1,0 +1,62 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'Deleted File Archived'
+description: |
+    A file was deleted. Additionally to logging the event, the deleted file is also saved in the ArchiveDirectory (which is C:\Sysmon by default). 
+    Under normal operating conditions this directory might grow to an unreasonable size - see event ID 26: FileDeleteDetected for similar behavior but without saving the deleted files.
+
+id: 9de4a8f5-ab25-426e-8dbf-88e36ff907b4
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 23
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and selection_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>23</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>23</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2021-11-18T07:43:22.705991000Z"/>
+            <EventRecordID>13281</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="2148" ThreadID="3896"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>PC-01.cybercat.local</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">-</Data>
+            <Data Name="UtcTime">2021-11-18 07:43:22.700</Data>
+            <Data Name="ProcessGuid">{510C1E8A-EF2F-6195-6200-000000000F00}</Data>
+            <Data Name="ProcessId">3384</Data>
+            <Data Name="User">CYBERCAT\pc1-user</Data>
+            <Data Name="Image">C:\Windows\Explorer.EXE</Data>
+            <Data Name="TargetFilename">C:\Users\pc1-user\AppData\Roaming\Microsoft\Windows\Recent\sysmon.evtx.lnk</Data>
+            <Data Name="Hashes">SHA1=3F6D19CE07AF1B354560FFCB782D32A60064909D,MD5=306E6CBF14F119BB67860CC98D5AA419,SHA256=E6B3F7EF5EC78452D1AEB9A6D715E371921B31FA8E2175271C74CAC20917B5F3,IMPHASH=00000000000000000000000000000000</Data>
+            <Data Name="IsExecutable">false</Data>
+            <Data Name="Archived">true</Data>
+        </EventData>
+    </Event>

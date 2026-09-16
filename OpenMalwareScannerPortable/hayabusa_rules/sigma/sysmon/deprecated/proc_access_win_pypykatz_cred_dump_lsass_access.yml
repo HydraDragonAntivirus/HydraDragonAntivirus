@@ -1,0 +1,37 @@
+title: Credential Dumping by Pypykatz
+id: eee79b85-c08d-d643-8662-1b0498ac07b0
+related:
+    - id: 7186e989-4ed7-4f4e-a656-4674b9e3e48b
+      type: derived
+status: test
+description: Detects LSASS process access by pypykatz for credential dumping.
+references:
+    - https://github.com/skelsec/pypykatz
+author: Bhabesh Raj
+date: 2021-08-03
+modified: 2022-10-09
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - sysmon
+logsource:
+    category: process_access
+    product: windows
+detection:
+    process_access:
+        EventID: 10
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetImage|endswith: \lsass.exe
+        CallTrace|contains|all:
+            - C:\Windows\SYSTEM32\ntdll.dll+
+            - C:\Windows\System32\KERNELBASE.dll+
+            - libffi-7.dll
+            - _ctypes.pyd+
+            - python3*.dll+     # Pypy requires python>=3.6
+        GrantedAccess: '0x1FFFFF'
+    condition: process_access and selection
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

@@ -1,0 +1,36 @@
+title: Windows Defender Definition Files Removed
+id: d74592ba-58c3-7a2d-c9e8-d1fcf79d6ee3
+related:
+    - id: 9719a8aa-401c-41af-8108-ced7ec9cd75c
+      type: derived
+status: test
+description: Adversaries may disable security tools to avoid possible detection of their tools and activities by removing Windows Defender Definition Files
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
+    - https://unit42.paloaltonetworks.com/unit42-gorgon-group-slithering-nation-state-cybercrime/
+author: frack113
+date: 2021-07-07
+modified: 2023-07-18
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \MpCmdRun.exe
+        - OriginalFileName: MpCmdRun.exe
+    selection_cli:
+        CommandLine|contains|all:
+            - ' -RemoveDefinitions'
+            - ' -All'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

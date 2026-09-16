@@ -1,0 +1,50 @@
+author: Zach Mathis
+date: 2022-03-28
+modified: 2025-02-10
+
+title: RDP Conn Attempt
+details: 'TgtIP: %Value%'
+description:
+
+id: 512e70f5-bf70-4de1-9375-2174999a7f8d
+level: informational
+status: stable
+logsource:
+    product: windows
+detection:
+    selection:
+        Channel: Microsoft-Windows-TerminalServices-RDPClient/Operational
+        EventID: 1024
+    condition: selection
+falsepositives:
+    - administrator
+tags:
+    - RDP
+    - attack.lateral-movement
+references:
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TerminalServices-ClientActiveXCore" Guid="{28AA95BB-D444-4719-A36F-40462168127E}"/>
+            <EventID>1024</EventID>
+            <Version>0</Version>
+            <Level>4</Level>
+            <Task>101</Task>
+            <Opcode>10</Opcode>
+            <Keywords>0x4000000000000000</Keywords>
+            <TimeCreated SystemTime="2018-08-09T16:15:17.935990300Z"/>
+            <EventRecordID>19</EventRecordID>
+            <Correlation ActivityID="{7A9F95AE-2D59-478D-9ABC-CD3C4DFA0000}"/>
+            <Execution ProcessID="1620" ThreadID="328"/>
+            <Channel>Microsoft-Windows-TerminalServices-RDPClient/Operational</Channel>
+            <Computer>server.computer.lan</Computer>
+            <Security UserID="S-1-5-21-3445421725-2530591580-3149308974-1183"/>
+        </System>
+        <EventData>
+            <Data Name="Name">Server Name</Data>
+            <Data Name="Value">dmz-ftp</Data>
+            <Data Name="CustomLevel">Info</Data>
+        </EventData>
+    </Event>

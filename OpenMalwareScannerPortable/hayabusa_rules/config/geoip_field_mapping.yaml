@@ -1,0 +1,34 @@
+SrcIP:
+  - '%IpAddress%'
+  - '%ClientAddress%'
+  - '%SourceAddress%'
+  - '%SourceIp%'
+  - '%UserDataAddress%'
+  - '%UserDataParam3%'
+
+TgtIP:
+  - '%DestinationIp%'
+  - '%DestAddress%'
+
+Filter:
+  - Microsoft-Windows-TerminalServices-LocalSessionManager/Operational:
+    - 21 # RDS Sess Logon %UserDataAddress%
+    - 22 # RDS Sess Start (Noisy) %UserDataAddress%
+    - 24 # RDS Sess Disconnect %UserDataAddress%
+    - 25 # RDS Sess Reconnect %UserDataAddress%
+  - Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational:
+    - 1149 # RDS Logon %UserDataParam3%
+  - Security:
+    - 4624 # Logon Success %IpAddress%
+    - 4625 # Logon Failure %IpAddress%
+    - 4648 # Explicit Logon %IpAddress%
+    - 4768 # Kerberos TGT Requested %IpAddress%
+    - 4769 # Kerberos Service Ticket Requested %IpAddress%
+    - 4778 # RDP Session Reconnect %ClientAddress%
+    - 4779 # RDP Session Disconnect %ClientAddress%
+    - 4825 # RDP Logon Failed %ClientAddress%
+    - 5140 # A network share object was accessed %IpAddress%
+    - 5145 # NetShare File Access %IpAddress%
+    - 5156 # The Windows Filtering Platform has allowed a connection %SourceAddress%
+  - Microsoft-Windows-Sysmon/Operational: 
+    - 3 # Network Connection %SourceIp%

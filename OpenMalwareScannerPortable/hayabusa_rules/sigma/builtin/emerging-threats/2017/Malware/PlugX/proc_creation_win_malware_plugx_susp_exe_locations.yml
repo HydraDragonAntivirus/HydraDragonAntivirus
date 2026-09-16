@@ -1,0 +1,104 @@
+title: Potential PlugX Activity
+id: 57e6d496-927a-453c-36cf-2fece4eb81ae
+related:
+    - id: aeab5ec5-be14-471a-80e8-e344418305c2
+      type: derived
+status: test
+description: Detects the execution of an executable that is typically used by PlugX for DLL side loading starting from an uncommon location
+references:
+    - http://www.hexacorn.com/blog/2016/03/10/beyond-good-ol-run-key-part-36/
+    - https://countuponsecurity.com/2017/06/07/threat-hunting-in-the-enterprise-with-appcompatprocessor/
+author: Florian Roth (Nextron Systems)
+date: 2017-06-12
+modified: 2023-02-03
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.execution
+    - attack.stealth
+    - attack.s0013
+    - attack.t1574.001
+    - detection.emerging-threats
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_cammute:
+        NewProcessName|endswith: \CamMute.exe
+    filter_cammute:
+        NewProcessName|contains:
+            - \Lenovo\Communication Utility\
+            - \Lenovo\Communications Utility\
+    selection_chrome_frame:
+        NewProcessName|endswith: \chrome_frame_helper.exe
+    filter_chrome_frame:
+        NewProcessName|contains: \Google\Chrome\application\
+    selection_devemu:
+        NewProcessName|endswith: \dvcemumanager.exe
+    filter_devemu:
+        NewProcessName|contains: \Microsoft Device Emulator\
+    selection_gadget:
+        NewProcessName|endswith: \Gadget.exe
+    filter_gadget:
+        NewProcessName|contains: \Windows Media Player\
+    selection_hcc:
+        NewProcessName|endswith: \hcc.exe
+    filter_hcc:
+        NewProcessName|contains: \HTML Help Workshop\
+    selection_hkcmd:
+        NewProcessName|endswith: \hkcmd.exe
+    filter_hkcmd:
+        NewProcessName|contains:
+            - \System32\
+            - \SysNative\
+            - \SysWow64\
+    selection_mc:
+        NewProcessName|endswith: \Mc.exe
+    filter_mc:
+        NewProcessName|contains:
+            - \Microsoft Visual Studio
+            - \Microsoft SDK
+            - \Windows Kit
+    selection_msmpeng:
+        NewProcessName|endswith: \MsMpEng.exe
+    filter_msmpeng:
+        NewProcessName|contains:
+            - \Microsoft Security Client\
+            - \Windows Defender\
+            - \AntiMalware\
+    selection_msseces:
+        NewProcessName|endswith: \msseces.exe
+    filter_msseces:
+        NewProcessName|contains:
+            - \Microsoft Security Center\
+            - \Microsoft Security Client\
+            - \Microsoft Security Essentials\
+    selection_oinfo:
+        NewProcessName|endswith: \OInfoP11.exe
+    filter_oinfo:
+        NewProcessName|contains: \Common Files\Microsoft Shared\
+    selection_oleview:
+        NewProcessName|endswith: \OleView.exe
+    filter_oleview:
+        NewProcessName|contains:
+            - \Microsoft Visual Studio
+            - \Microsoft SDK
+            - \Windows Kit
+            - \Windows Resource Kit\
+    selection_rc:
+        NewProcessName|endswith: \rc.exe
+    filter_rc:
+        NewProcessName|contains:
+            - \Microsoft Visual Studio
+            - \Microsoft SDK
+            - \Windows Kit
+            - \Windows Resource Kit\
+            - \Microsoft.NET\
+    condition: process_creation and (( selection_cammute and not filter_cammute ) or ( selection_chrome_frame and not filter_chrome_frame ) or ( selection_devemu and not filter_devemu ) or ( selection_gadget and not filter_gadget ) or ( selection_hcc and not filter_hcc ) or ( selection_hkcmd and not filter_hkcmd ) or ( selection_mc and not filter_mc ) or ( selection_msmpeng and not filter_msmpeng ) or ( selection_msseces and not filter_msseces ) or ( selection_oinfo and not filter_oinfo ) or ( selection_oleview and not filter_oleview ) or ( selection_rc and not filter_rc ))
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

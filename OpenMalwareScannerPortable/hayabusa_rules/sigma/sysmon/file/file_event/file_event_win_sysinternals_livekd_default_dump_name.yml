@@ -1,0 +1,29 @@
+title: LiveKD Kernel Memory Dump File Created
+id: 7dc395b0-090f-2f87-14c4-e18a130b54b8
+related:
+    - id: 814ddeca-3d31-4265-8e07-8cc54fb44903
+      type: derived
+status: test
+description: Detects the creation of a file that has the same name as the default LiveKD kernel memory dump.
+references:
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-16
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename: C:\Windows\livekd.dmp
+    condition: file_event and selection
+falsepositives:
+    - In rare occasions administrators might leverage LiveKD to perform live kernel debugging. This should not be allowed on production systems. Investigate and apply additional filters where necessary.
+level: high
+ruletype: Sigma

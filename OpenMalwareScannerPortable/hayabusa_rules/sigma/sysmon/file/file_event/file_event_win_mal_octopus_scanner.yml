@@ -1,0 +1,33 @@
+title: Octopus Scanner Malware
+id: 5c1e100d-13b7-0f86-0dd3-95991ead420b
+related:
+    - id: 805c55d9-31e6-4846-9878-c34c75054fe9
+      type: derived
+status: test
+description: Detects Octopus Scanner Malware.
+references:
+    - https://securitylab.github.com/research/octopus-scanner-malware-open-source-supply-chain
+author: NVISO
+date: 2020-06-09
+modified: 2021-11-27
+tags:
+    - attack.initial-access
+    - attack.t1195
+    - attack.t1195.001
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|endswith:
+            - \AppData\Local\Microsoft\Cache134.dat
+            - \AppData\Local\Microsoft\ExplorerSync.db
+    condition: file_event and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

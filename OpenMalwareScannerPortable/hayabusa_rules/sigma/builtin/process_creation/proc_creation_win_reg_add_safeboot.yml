@@ -1,0 +1,39 @@
+title: Add SafeBoot Keys Via Reg Utility
+id: e51a363c-2979-56e7-4526-c49be62e6062
+related:
+    - id: fc0e89b5-adb0-43c1-b749-c12a10ec37de
+      type: similar
+    - id: d7662ff6-9e97-4596-a61d-9839e32dee8d
+      type: derived
+status: test
+description: Detects execution of "reg.exe" commands with the "add" or "copy" flags on safe boot registry keys. Often used by attacker to allow the ransomware to work in safe mode as some security products do not
+references:
+    - https://redacted.com/blog/bianlian-ransomware-gang-gives-it-a-go/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-09-02
+modified: 2024-03-19
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \reg.exe
+        - OriginalFileName: reg.exe
+    selection_safeboot:
+        CommandLine|contains: \SYSTEM\CurrentControlSet\Control\SafeBoot
+    selection_flag:
+        CommandLine|contains:
+            - ' copy '
+            - ' add '
+    condition: process_creation and (all of selection*)
+falsepositives:
+    - Unlikely
+level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_reg_add_safeboot/info.yml
+ruletype: Sigma

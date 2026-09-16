@@ -1,0 +1,57 @@
+title: PW Spray
+id: 49d15187-4203-4e11-8acd-8736f25b6608
+related:
+    - id: ffd622af-d049-449f-af5a-0492fdcc3a58
+      type: obsolete
+status: test
+description: Search for many 4648 explicit credential logon attempts in a short period of time.
+references: https://attack.mitre.org/techniques/T1110/003/
+author: Zach Mathis
+date: 2024-10-19
+modified: 2024-10-19
+tags:
+    - attack.t1110.003
+    - attack.credential-access
+correlation:
+    type: value_count
+    rules:
+        - explicit_logon
+    group-by:
+        - IpAddress
+        - Computer
+    timespan: 5m
+    condition:
+        gte: 5
+        field: TargetUserName
+falsepositives:
+level: medium
+ruletype: Hayabusa
+
+---
+
+title: Failed Logon - Incorrect Password
+id: ab1accc0-b6e2-4841-8dfb-5902581392c3
+name: explicit_logon
+related:
+    - id: 35e8a0fc-60c2-46d7-ba39-aafb15b9854e
+      type: obsolete
+status: test
+description: Detects a failed logon event due to a wrong password
+references:
+author: Zach Mathis
+date: 2024-10-19
+modified: 2025-02-10
+tags:
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4648
+    filter:
+       - IpAddress: "-"
+    condition: selection and not filter
+falsepositives:
+level: medium
+ruletype: Hayabusa

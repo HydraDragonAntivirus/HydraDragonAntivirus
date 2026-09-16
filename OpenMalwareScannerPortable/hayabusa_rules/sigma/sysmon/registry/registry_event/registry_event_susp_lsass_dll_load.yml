@@ -1,0 +1,43 @@
+title: DLL Load via LSASS
+id: 98a4a305-e8d5-a7e3-631a-51211cd66df3
+related:
+    - id: b3503044-60ce-4bf4-bbcb-e3db98788823
+      type: derived
+status: test
+description: Detects a method to load DLL via LSASS process using an undocumented Registry key
+references:
+    - https://blog.xpnsec.com/exploring-mimikatz-part-1/
+    - https://twitter.com/SBousseaden/status/1183745981189427200
+author: Florian Roth (Nextron Systems)
+date: 2019-10-16
+modified: 2022-04-21
+tags:
+    - attack.privilege-escalation
+    - attack.execution
+    - attack.persistence
+    - attack.t1547.008
+    - sysmon
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    registry_event:
+        EventID:
+            - 12
+            - 13
+            - 14
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains:
+            - \CurrentControlSet\Services\NTDS\DirectoryServiceExtPt
+            - \CurrentControlSet\Services\NTDS\LsaDbExtPt
+    filter_domain_controller:
+        Image: C:\Windows\system32\lsass.exe
+        Details:
+            - '%%systemroot%%\system32\ntdsa.dll'
+            - '%%systemroot%%\system32\lsadb.dll'
+    condition: registry_event and (selection and not 1 of filter_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

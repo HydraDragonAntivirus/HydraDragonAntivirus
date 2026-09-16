@@ -1,0 +1,41 @@
+title: Suspicious Reconnaissance Activity Using Get-LocalGroupMember Cmdlet
+id: d8582a0e-2c3c-6716-d6d8-a79c4ce5ff75
+related:
+    - id: cef24b90-dddc-4ae1-a09a-8764872f69fc
+      type: similar
+    - id: c8a180d6-47a3-4345-a609-53f9c3d834fc
+      type: derived
+status: test
+description: Detects suspicious reconnaissance command line activity on Windows systems using the PowerShell Get-LocalGroupMember Cmdlet
+references:
+    - https://www.absolomb.com/2018-01-26-Windows-Privilege-Escalation-Guide/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-10
+tags:
+    - attack.discovery
+    - attack.t1087.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_cmdlet:
+        CommandLine|contains: 'Get-LocalGroupMember '
+    selection_group:
+        CommandLine|contains:
+            # Add more groups for other languages
+            - domain admins
+            - ' administrator' # Typo without an 'S' so we catch both
+            - ' administrateur' # Typo without an 'S' so we catch both
+            - enterprise admins
+            - Exchange Trusted Subsystem
+            - Remote Desktop Users
+            - Utilisateurs du Bureau à distance   # French for "Remote Desktop Users"
+            - Usuarios de escritorio remoto   # Spanish for "Remote Desktop Users"
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Administrative activity
+level: medium
+ruletype: Sigma

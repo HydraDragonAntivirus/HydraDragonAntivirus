@@ -1,0 +1,43 @@
+title: Process Start From Suspicious Folder
+id: 24e2ce91-6438-41b5-d23e-48e775ae72bd
+related:
+    - id: dca91cfd-d7ab-4c66-8da7-ee57d487b35b
+      type: derived
+status: deprecated
+description: Detects process start from rare or uncommon folders like temporary folder or folders that usually don't contain executable files
+references:
+    - Malware sandbox results
+author: frack113
+date: 2022-02-11
+modified: 2022-11-03
+tags:
+    - attack.execution
+    - attack.t1204
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        NewProcessName|contains:
+            - \Desktop\
+            - \Temp\
+            - \Temporary Internet
+    filter_parent:
+        - ParentProcessName:
+              - C:\Windows\System32\cleanmgr.exe
+              - C:\Program Files (x86)\Microsoft Visual Studio\Installer\resources\app\ServiceHub\Services\Microsoft.VisualStudio.Setup.Service\BackgroundDownload.exe
+              - C:\Windows\System32\dxgiadaptercache.exe
+        - ParentProcessName|startswith: C:\Program Files (x86)\NVIDIA Corporation\
+    filter_other:
+        NewProcessName|endswith: setup.exe
+    filter_edge:
+        NewProcessName|startswith: C:\Program Files (x86)\Microsoft\Temp\
+        NewProcessName|endswith: .tmp\MicrosoftEdgeUpdate.exe
+    condition: process_creation and (selection and not 1 of filter*)
+falsepositives:
+    - Installers are expected to be run from the "AppData\Local\Temp" and "C:\Windows\Temp\" directories
+level: low
+ruletype: Sigma

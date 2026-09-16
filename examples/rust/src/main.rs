@@ -62,6 +62,12 @@ impl OpenEdrScanner {
         let ptr = unsafe { openedr_static_scan_url(c_str.as_ptr()) };
         Ok(Self::c_str_to_string_and_free(ptr))
     }
+
+    pub fn check_registry(&self, reg_path: &str) -> Result<String, String> {
+        let c_str = CString::new(reg_path).map_err(|e| e.to_string())?;
+        let ptr = unsafe { openedr_static_check_registry(c_str.as_ptr()) };
+        Ok(Self::c_str_to_string_and_free(ptr))
+    }
 }
 
 fn main() {
@@ -87,5 +93,12 @@ fn main() {
     println!("\n--- 2. URL Scan: {} ---", url);
     if let Ok(url_report) = scanner.scan_url(url) {
         println!("{}", url_report);
+    }
+
+    // Registry check
+    let reg = "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\SuspiciousApp";
+    println!("\n--- 3. Registry Check: {} ---", reg);
+    if let Ok(reg_report) = scanner.check_registry(reg) {
+        println!("{}", reg_report);
     }
 }

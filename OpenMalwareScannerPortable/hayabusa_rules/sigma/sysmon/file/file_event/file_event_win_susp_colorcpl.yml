@@ -1,0 +1,36 @@
+title: Suspicious Creation with Colorcpl
+id: 90954c74-e8a7-cf12-fc71-764b08aa9091
+related:
+    - id: e15b518d-b4ce-4410-a9cd-501f23ce4a18
+      type: derived
+status: test
+description: Once executed, colorcpl.exe will copy the arbitrary file to c:\windows\system32\spool\drivers\color\
+references:
+    - https://twitter.com/eral4m/status/1480468728324231172?s=20
+author: frack113
+date: 2022-01-21
+modified: 2023-01-05
+tags:
+    - attack.stealth
+    - attack.t1564
+    - sysmon
+logsource:
+    product: windows
+    category: file_event
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \colorcpl.exe
+    filter_ext:
+        TargetFilename|endswith:
+            - .icm
+            - .gmmp
+            - .cdmp
+            - .camp
+    condition: file_event and (selection and not 1 of filter_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

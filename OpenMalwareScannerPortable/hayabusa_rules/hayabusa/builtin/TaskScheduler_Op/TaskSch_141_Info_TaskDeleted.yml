@@ -1,0 +1,51 @@
+author: Zach Mathis
+date: 2022-04-08
+modified: 2022-05-21
+
+title: Task Deleted
+details: 'Name: %TaskName% ¦ User: %UserName%'
+description: 
+
+id: ff6ada24-c7f0-4ae5-a7a6-f20ddb7b591f
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: taskscheduler
+    description: Taskscheduler logging needs to be enabled.
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-TaskScheduler/Operational
+        EventID: 141
+    condition: selection_basic
+falsepositives:
+    - normal system usage
+tags:
+    - Task
+references:
+ruletype: Hayabusa
+
+sample-message: 'User "NT AUTHORITY\System"  deleted Task Scheduler task "\Microsoft\Office\Office Subscription Maintenance"'
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-TaskScheduler" Guid="{DE7B24EA-73C8-4A09-985D-5BDADCFA9017}" /> 
+            <EventID>141</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>141</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8000000000000000</Keywords> 
+            <TimeCreated SystemTime="2018-09-06T20:39:17.072941400Z" /> 
+            <EventRecordID>212520</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="648" ThreadID="3092" /> 
+            <Channel>Microsoft-Windows-TaskScheduler/Operational</Channel> 
+            <Computer>Computer</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+            <EventData Name="TaskDeleted">
+            <Data Name="TaskName">\Microsoft\Office\Office Subscription Maintenance</Data> 
+            <Data Name="UserName">NT AUTHORITY\System</Data> 
+        </EventData>
+    </Event>

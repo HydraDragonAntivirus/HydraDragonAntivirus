@@ -1,0 +1,35 @@
+title: Suspicious Control Panel DLL Load
+id: 1f5db239-6608-ab63-3f89-95375c7872fc
+related:
+    - id: d7eb979b-c2b5-4a6f-a3a7-c87ce6763819
+      type: derived
+status: test
+description: Detects suspicious Rundll32 execution from control.exe as used by Equation Group and Exploit Kits
+references:
+    - https://twitter.com/rikvduijn/status/853251879320662017
+    - https://twitter.com/felixw3000/status/853354851128025088
+author: Florian Roth (Nextron Systems)
+date: 2017-04-15
+modified: 2023-02-09
+tags:
+    - attack.stealth
+    - attack.t1218.011
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_parent:
+        ParentProcessName|endswith: \System32\control.exe
+    selection_img:
+        - NewProcessName|endswith: \rundll32.exe
+        - OriginalFileName: RUNDLL32.EXE
+    filter:
+        CommandLine|contains: Shell32.dll
+    condition: process_creation and (all of selection_* and not filter)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,42 @@
+title: Suspicious New Instance Of An Office COM Object
+id: 16b40e54-f537-8d02-7168-441e24be8b0a
+related:
+    - id: 9bdaf1e9-fdef-443b-8081-4341b74a7e28
+      type: derived
+status: test
+description: |
+    Detects an svchost process spawning an instance of an office application. This happens when the initial word application creates an instance of one of the Office COM objects such as 'Word.Application', 'Excel.Application', etc.
+    This can be used by malicious actors to create malicious Office documents with macros on the fly. (See vba2clr project in the references)
+references:
+    - https://learn.microsoft.com/en-us/previous-versions/office/troubleshoot/office-developer/automate-word-create-file-using-visual-basic
+    - https://github.com/med0x2e/vba2clr
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-10-13
+modified: 2023-12-19
+tags:
+    - attack.execution
+    - detection.threat-hunting
+    - attack.stealth
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith: \svchost.exe
+        Image|endswith:
+            - \eqnedt32.exe
+            - \excel.exe
+            - \msaccess.exe
+            - \mspub.exe
+            - \powerpnt.exe
+            - \visio.exe
+            - \winword.exe
+    condition: process_creation and selection
+falsepositives:
+    - Legitimate usage of office automation via scripting
+level: medium
+ruletype: Sigma

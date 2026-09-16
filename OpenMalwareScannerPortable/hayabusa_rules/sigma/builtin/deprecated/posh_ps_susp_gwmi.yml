@@ -1,0 +1,40 @@
+title: Suspicious Get-WmiObject
+id: 830423bc-69e4-b19b-5474-414e4ab0c365
+related:
+    - id: 0332a266-b584-47b4-933d-a00b103e1b37
+      type: derived
+status: deprecated
+description: The infrastructure for management data and operations that enables local and remote management of Windows personal computers and servers
+references:
+    - https://attack.mitre.org/datasources/DS0005/
+    - https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.management/get-wmiobject?view=powershell-5.1&viewFallbackFrom=powershell-7
+author: frack113
+date: 2022-01-12
+modified: 2023-12-11
+tags:
+    - attack.persistence
+    - attack.t1546
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains:
+            - Get-WmiObject
+            - gwmi
+    filter_cl_utility:
+        Path|endswith: \CL_Utility.ps1
+        ScriptBlockText|contains|all:
+            - function Get-FreeSpace
+            - SELECT * FROM Win32_LogicalDisk WHERE MediaType=12
+    condition: ps_script and (selection and not 1 of filter_*)
+falsepositives:
+    - Legitimate PowerShell scripts
+level: low
+ruletype: Sigma

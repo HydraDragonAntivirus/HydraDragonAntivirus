@@ -1,0 +1,38 @@
+title: Powershell Local Email Collection
+id: 00ba998e-b435-22a6-2dbf-e85e1918b8a7
+related:
+    - id: 2837e152-93c8-43d2-85ba-c3cd3c2ae614
+      type: derived
+status: test
+description: |
+    Adversaries may target user email on local systems to collect sensitive information.
+    Files containing email data can be acquired from a users local system, such as Outlook storage or cache files.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1114.001/T1114.001.md
+author: frack113
+date: 2021-07-21
+modified: 2022-12-25
+tags:
+    - attack.collection
+    - attack.t1114.001
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+    ps_script:
+        EventID: 4104
+        Channel:
+            - Microsoft-Windows-PowerShell/Operational
+            - PowerShellCore/Operational
+    selection:
+        ScriptBlockText|contains:
+            - Get-Inbox.ps1
+            - Microsoft.Office.Interop.Outlook
+            - Microsoft.Office.Interop.Outlook.olDefaultFolders
+            - -comobject outlook.application
+    condition: ps_script and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

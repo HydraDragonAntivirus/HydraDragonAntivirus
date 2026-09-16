@@ -1,0 +1,42 @@
+# Replaced by Hayabusa rules:
+6695d6a2-9365-ee87-ccdd-966b0e1cdbd4 # "User Added to Local Administrators".
+5ecd226b-563f-4723-7a1e-d637d81f0a1f # "Local User Creation".
+23013005-3d59-4dbe-dabd-d17a54e6c6cf # "Hidden Local User Creation".
+cb7a40d5-f1de-9dd4-465d-eada7e316d8f # "PsExec Tool Execution" win_tool_psexec.yml Note: rule not working to begin with.
+c063426c-1b9b-025d-71cc-5097a233285d # "Execution Of Other File Type Than .exe". Hayabusa rule: 8d1487f1-7664-4bda-83b5-cb2f79491b6a
+3ce7b51a-ad12-59bb-6c81-3e9532685c1e # "Execution Of Other File Type Than .exe". Hayabusa rule: 8d1487f1-7664-4bda-83b5-cb2f79491b6a
+c70d7033-8146-fe73-8430-90b23c296f9d # "Windows Defender Threat Detected"
+23f0b75b-66c0-4895-ae63-4243fa898109 # "Security Event Log Cleared" c2f690ac-53f8-4745-8cfe-7127dda28c74
+9b14c9d8-6b61-e49f-f8a8-0836d0ad98c9 # "Security Eventlog Cleared" c2f690ac-53f8-4745-8cfe-7127dda28c74
+30966a3a-2224-0e1a-d28d-c0f7e84cfed3 # "Important Eventlog Cleared" replaced by f481a1f3-969e-4187-b3a5-b47c272bfebd
+8617b59c-812e-c88e-0bd4-5267e0e825f0 # "Eventlog Cleared" replaced by ed90ed4f-0d93-4f1a-99a2-4b9003b750a7
+73f64ce7-a76d-0208-ea75-dd26a09d719b # "User Logoff Event"
+de5d0dd7-b73e-7f18-02b0-6b1acb7e9f52 # "Admin User Remote Logon". Already covered with rule "Logon (Type 10 RemoteInteractive)"
+f508ff7b-4021-6693-0852-ce59ee2d0343 # Sysmon 4,16: Configuration Modification
+0f88cce2-f7ed-3b15-a7fe-27f2d440680c # Sysmon 16: Configuration Change
+17d51ceb-915d-bf28-8699-81e3f51b2a4e # Sysmon 25: Process Hollowing
+5dd9120c-635f-ace4-6acf-d10a14229f19 # Sysmon 27: "Sysmon Blocked Executable" replaced with "Blocked Exe File Creation" (bb35ca48-8e4a-445b-bc6d-0a994a0e9310)
+8a5ee8f3-da35-b174-1d66-ff5ad8125abe # Sysmon 255: Configuration Error
+
+# Disabled because they require placeholders to be set so cannot be used as is:
+f8d98d6c-7a07-4d74-b064-dd4a3c244528 # Pass the Hash Activity (%Workstations%)
+dd7876d8-0f09-11eb-adc1-0242ac120002 # Possible Zerologon (CVE-2020-1472) Exploitation (%DC-MACHINE-NAME%)
+68fcba0d-73a5-475e-a915-e8b4c576827e # Remote Registry Management Using Reg Utility (%Admins_Workstations%)
+3ff152b2-1388-4984-9cd9-a323323fdadf # Interactive Logon to Server Systems (%ServerSystems%, %DomainControllers%, %Workstations%)
+
+# Disabled because they cannot but used as is:
+d85240fc-d5ad-8061-a795-9eaea580fbf0 # "Windows Kernel and 3rd-Party Drivers Exploits Token Stealing" because it requires a ParentIntegrityLevel field that does not exist.
+ab0d6f07-d3a5-dcce-b343-05bfd1a8b000 # "Windows Kernel and 3rd-Party Drivers Exploits Token Stealing" because it requires a ParentIntegrityLevel field that does not exist.
+
+# Replaced by Sigma correlation rules
+35e8a0fc-60c2-46d7-ba39-aafb15b9854e # PW Guessing
+4574194d-e7ca-4356-a95c-21b753a1787e # User Guessing
+ffd622af-d049-449f-af5a-0492fdcc3a58 # PW Spray
+
+# FPs
+a4504cb2-23f6-6d94-5ae6-d6013cf1d995 # Suspicious Multiple File Rename Or Delete Occurred
+9f8b3bda-88a1-a216-2897-950cc5ca4aa4 # Quick Execution of a Series of Suspicious Commands (Sysmon 1)
+53facd0f-d88d-bab7-469e-a36211463245 # Quick Execution of a Series of Suspicious Commands (Sec 4688)
+
+# Test Files
+00000000-0000-0000-0000-000000000000 # TestFile

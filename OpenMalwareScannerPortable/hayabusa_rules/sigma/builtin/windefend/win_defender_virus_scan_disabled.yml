@@ -1,0 +1,32 @@
+title: Windows Defender Virus Scanning Feature Disabled
+id: a325b024-9641-6ee4-56c1-20eb9fc4324a
+related:
+    - id: fe34868f-6e0e-4882-81f6-c43aa8f15b62
+      type: obsolete
+    - id: 686c0b4b-9dd3-4847-9077-d6c1bbe36fcb
+      type: derived
+status: stable
+description: Detects disabling of the Windows Defender virus scanning feature
+references:
+    - https://learn.microsoft.com/en-us/defender-endpoint/troubleshoot-microsoft-defender-antivirus?view=o365-worldwide#event-id-5012
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
+    - https://craigclouditpro.wordpress.com/2020/03/04/hunting-malicious-windows-defender-activity/
+author: Ján Trenčanský, frack113
+date: 2020-07-28
+modified: 2023-11-22
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+logsource:
+    product: windows
+    service: windefend
+detection:
+    windefend:
+        Channel: Microsoft-Windows-Windows Defender/Operational
+    selection:
+        EventID: 5012 # Scanning for viruses is disabled.
+    condition: windefend and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

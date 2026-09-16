@@ -1,0 +1,5 @@
+/ # forward slash (0x002F)
+- # hyphen (0x002D)
+– # en dash (0x2013)
+— # em dash (0x2014)
+― # horizontal bar (0x2015)

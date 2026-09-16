@@ -1,0 +1,31 @@
+title: Lolbas OneDriveStandaloneUpdater.exe Proxy Download
+id: 5c6e4e04-c3a5-0b21-f966-97441d749d47
+related:
+    - id: 3aff0be0-7802-4a7e-a4fa-c60c74bc5e1d
+      type: derived
+status: test
+description: |
+    Detects setting a custom URL for OneDriveStandaloneUpdater.exe to download a file from the Internet without executing any
+    anomalous executables with suspicious arguments. The downloaded file will be in C:\Users\redacted\AppData\Local\Microsoft\OneDrive\StandaloneUpdaterreSignInSettingsConfig.json
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/OneDriveStandaloneUpdater/
+author: frack113
+date: 2022-05-28
+modified: 2023-08-17
+tags:
+    - attack.command-and-control
+    - attack.t1105
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 4657
+        Channel: Security
+    selection:
+        ObjectName|contains: \SOFTWARE\Microsoft\OneDrive\UpdateOfficeConfig\UpdateRingSettingURLFromOC
+    condition: registry_set and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

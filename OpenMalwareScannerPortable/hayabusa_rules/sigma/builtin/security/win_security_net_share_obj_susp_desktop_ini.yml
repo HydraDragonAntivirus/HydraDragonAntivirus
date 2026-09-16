@@ -1,0 +1,37 @@
+title: Windows Network Access Suspicious desktop.ini Action
+id: 192d9d70-11ad-70e5-9d6c-d32a1ec74857
+related:
+    - id: 35bc7e28-ee6b-492f-ab04-da58fcf6402e
+      type: derived
+status: test
+description: Detects unusual processes accessing desktop.ini remotely over network share, which can be leveraged to alter how Explorer displays a folder's content (i.e. renaming files) without changing them on disk.
+references:
+    - https://isc.sans.edu/forums/diary/Desktopini+as+a+postexploitation+tool/25912/
+author: Tim Shelton (HAWK.IO)
+date: 2021-12-06
+modified: 2022-01-16
+tags:
+    - attack.privilege-escalation
+    - attack.persistence
+    - attack.t1547.009
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection:
+        EventID: 5145
+        ObjectType: File
+        RelativeTargetName|endswith: \desktop.ini
+        AccessList|contains:
+            - WriteData
+            - DELETE
+            - WriteDAC
+            - AppendData
+            - AddSubdirectory
+    condition: security and selection
+falsepositives:
+    - Read only access list authority
+level: medium
+ruletype: Sigma

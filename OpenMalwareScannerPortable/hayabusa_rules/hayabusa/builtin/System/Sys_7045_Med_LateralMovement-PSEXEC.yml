@@ -1,0 +1,36 @@
+author: Zach Mathis
+date: 2022-02-06
+modified: 2025-02-10
+
+title: PSExec Lateral Movement
+details: 'Svc: %ServiceName% ¦ Path: %ImagePath% ¦ Acct: %AccountName% ¦ StartType: %StartType%'
+description: PSExec is a MS SysInternals tool often abused for lateral movement.
+
+id: 0694c340-3a46-40ac-acfc-c3444ae6572c
+level: high
+status: stable
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Channel: System
+        EventID: 7045
+    selection_PSEXESVC_in_service:
+        Service: PSEXESVC
+    selection_PSEXESVC_in_path:
+        ImagePath|contains: PSEXESVC
+    condition: selection and (selection_PSEXESVC_in_service or selection_PSEXESVC_in_path)
+falsepositives:
+    - systems admin
+tags:
+    - attack.lateral-movement
+    - attack.s0029
+    - attack.t1136.002
+    - attack.t1543.003
+    - attack.t1570
+    - attack.t1021.002
+    - attack.t1569.002
+references:
+    - https://attack.mitre.org/software/S0029/
+ruletype: Hayabusa

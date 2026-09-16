@@ -1,0 +1,34 @@
+title: DLL Load By System Process From Suspicious Locations
+id: a18c91b4-4814-fc39-2420-3adc3759e038
+related:
+    - id: 9e9a9002-56c4-40fd-9eff-e4b09bfa5f6c
+      type: derived
+status: test
+description: Detects when a system process (i.e. located in system32, syswow64, etc.) loads a DLL from a suspicious location or a location with permissive permissions such as "C:\Users\Public"
+references:
+    - https://github.com/hackerhouse-opensource/iscsicpl_bypassUAC (Idea)
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-07-17
+modified: 2023-09-18
+tags:
+    - attack.stealth
+    - attack.t1070
+    - sysmon
+logsource:
+    product: windows
+    category: image_load
+detection:
+    image_load:
+        EventID: 7
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|startswith: C:\Windows\
+        ImageLoaded|startswith:
+            # TODO: Add more suspicious paths as you see fit in your env
+            - C:\Users\Public\
+            - C:\PerfLogs\
+    condition: image_load and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

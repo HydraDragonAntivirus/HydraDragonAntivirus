@@ -1,0 +1,36 @@
+title: Run Whoami as SYSTEM
+id: 382a20db-a81c-a71a-0b0b-2d6e9614c136
+related:
+    - id: 80167ada-7a12-41ed-b8e9-aa47195c66a1
+      type: derived
+status: deprecated
+description: Detects a whoami.exe executed by LOCAL SYSTEM. This may be a sign of a successful local privilege escalation.
+references:
+    - https://speakerdeck.com/heirhabarov/hunting-for-privilege-escalation-in-windows-environment
+author: Teymur Kheirkhabarov, Florian Roth
+date: 2019-10-23
+modified: 2023-02-28
+tags:
+    - attack.privilege-escalation
+    - attack.discovery
+    - attack.t1033
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_user:
+        User|contains: # covers many language settings
+            - AUTHORI
+            - AUTORI
+    selection_img:
+        - OriginalFileName: whoami.exe
+        - Image|endswith: \whoami.exe
+    condition: process_creation and (all of selection*)
+falsepositives:
+    - Possible name overlap with NT AUHTORITY substring to cover all languages
+level: high
+ruletype: Sigma

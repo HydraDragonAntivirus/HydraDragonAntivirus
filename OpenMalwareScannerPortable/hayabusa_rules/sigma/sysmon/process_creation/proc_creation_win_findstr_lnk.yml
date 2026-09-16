@@ -1,0 +1,42 @@
+title: Findstr Launching .lnk File
+id: 7e8d7d3b-2120-51f8-5fb3-19746b14eae5
+related:
+    - id: 33339be3-148b-4e16-af56-ad16ec6c7e7b
+      type: derived
+status: test
+description: Detects usage of findstr to identify and execute a lnk file as seen within the HHS redirect attack
+references:
+    - https://www.bleepingcomputer.com/news/security/hhsgov-open-redirect-used-by-coronavirus-phishing-to-spread-malware/
+author: Trent Liffick
+date: 2020-05-01
+modified: 2024-01-15
+tags:
+    - attack.stealth
+    - attack.t1036
+    - attack.t1202
+    - attack.t1027.003
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith:
+              - \find.exe
+              - \findstr.exe
+        - OriginalFileName:
+              - FIND.EXE
+              - FINDSTR.EXE
+    selection_cli:
+        CommandLine|endswith:
+            - .lnk
+            - .lnk"
+            - .lnk'
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

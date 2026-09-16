@@ -1,0 +1,37 @@
+title: Potential Credential Dumping Attempt Via PowerShell Remote Thread
+id: a0884560-3a67-61cb-5c86-603389a9caab
+related:
+    - id: 3f07b9d1-2082-4c56-9277-613a621983cc
+      type: obsolete
+    - id: 0f920ebe-7aea-4c54-b202-9aa0c609cfe5
+      type: similar
+    - id: fb656378-f909-47c1-8747-278bf09f4f4f
+      type: derived
+status: test
+description: Detects remote thread creation by PowerShell processes into "lsass.exe"
+references:
+    - https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse
+author: oscd.community, Natalia Shornikova
+date: 2020-10-06
+modified: 2022-12-18
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - sysmon
+logsource:
+    product: windows
+    category: create_remote_thread
+detection:
+    create_remote_thread:
+        EventID: 8
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        SourceImage|endswith:
+            - \powershell.exe
+            - \pwsh.exe
+        TargetImage|endswith: \lsass.exe
+    condition: create_remote_thread and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

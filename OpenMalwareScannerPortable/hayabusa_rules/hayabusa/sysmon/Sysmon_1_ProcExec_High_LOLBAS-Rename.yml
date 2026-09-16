@@ -1,0 +1,218 @@
+author: Zach Mathis
+date: 2022-04-17
+modified: 2024-11-25
+
+title: 'LOLBAS Renamed'
+description: This is to detect when a LOLBAS (default Windows binary or script) was renamed in order to hide its execution. OringalFileName is the original filename in the PE header. From my tests, false positives should be low so I rated this as high.
+
+id: dc5700ef-3688-44c9-b719-8e1a632ff3dd
+level: high
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 1
+    selection_OriginalFilenameIsLOLBIN:
+        - OriginalFileName|endswith: 'AppInstaller.exe'
+        - OriginalFileName|endswith: 'Aspnet_Compiler.exe'
+        - OriginalFileName|endswith: 'At.exe'
+        - OriginalFileName|endswith: 'AtBroker.exe'
+        - OriginalFileName|endswith: 'Bash.exe'
+        - OriginalFileName|endswith: 'BitsAdmin.exe'
+        - OriginalFileName|endswith: 'CertOC.exe'
+        - OriginalFileName|endswith: 'CertReq.exe'
+        - OriginalFileName|endswith: 'CertUtil.exe'
+        - OriginalFileName|endswith: 'Cmd.exe'
+        - OriginalFileName|endswith: 'Cmdkey.exe'
+        - OriginalFileName|endswith: 'cmdl32.exe'
+        - OriginalFileName|endswith: 'Cmstp.exe'
+        - OriginalFileName|endswith: 'ConfigSecurityPolicy.exe'
+        - OriginalFileName|endswith: 'Control.exe'
+        - OriginalFileName|endswith: 'Csc.exe'
+        - OriginalFileName|endswith: 'Cscript.exe'
+        - OriginalFileName|endswith: 'DataSvcUtil.exe'
+        - OriginalFileName|endswith: 'DesktopImgDownldr.exe'
+        - OriginalFileName|endswith: 'DfSvc.exe'
+        - OriginalFileName|endswith: 'Diantz.exe'
+        - OriginalFileName|endswith: 'DiskShadow.exe'
+        - OriginalFileName|endswith: 'dllhost.exe'
+        - OriginalFileName|endswith: 'DnsCmd.exe'
+        - OriginalFileName|endswith: 'EsentUtl.exe'
+        - OriginalFileName|endswith: 'EventVwr.exe'
+        - OriginalFileName|endswith: 'Expand.exe'
+        - OriginalFileName|endswith: 'ExtExport.exe'
+        - OriginalFileName|endswith: 'Extrac32.exe'
+        - OriginalFileName|endswith: 'FindStr.exe'
+        - OriginalFileName|endswith: 'Finger.exe'
+        - OriginalFileName|endswith: 'FltMC.exe'
+        - OriginalFileName|endswith: 'ForFiles.exe'
+        - OriginalFileName|endswith: 'FTP.exe'
+        - OriginalFileName|endswith: 'GfxDownloadWrapper.exe'
+        - OriginalFileName|endswith: 'GpScript.exe'
+        - OriginalFileName|endswith: 'HH.exe'
+        - OriginalFileName|endswith: 'IMEWDBLD.exe'
+        - OriginalFileName|endswith: 'Ie4uInit.exe'
+        - OriginalFileName|endswith: 'IeExec.exe'
+        - OriginalFileName|endswith: 'ILASM.exe'
+        - OriginalFileName|endswith: 'InfDefaultInstall.exe'
+        - OriginalFileName|endswith: 'InstallUtil.exe'
+        - OriginalFileName|endswith: 'Jsc.exe'
+        - OriginalFileName|endswith: 'MakeCab.exe'
+        - OriginalFileName|endswith: 'MavInject.exe'
+        - OriginalFileName|endswith: 'Microsoft.Workflow.Compiler.exe'
+        - OriginalFileName|endswith: 'Mmc.exe'
+        - OriginalFileName|endswith: 'MpCmdRun.exe'
+        - OriginalFileName|endswith: 'Msbuild.exe'
+        - OriginalFileName|endswith: 'MsConfig.exe'
+        - OriginalFileName|endswith: 'Msdt.exe'
+        - OriginalFileName|endswith: 'Mshta.exe'
+        - OriginalFileName|endswith: 'MsiExec.exe'
+        - OriginalFileName|endswith: 'NetSh.exe'
+        - OriginalFileName|endswith: 'OdbcConf.exe'
+        - OriginalFileName|endswith: 'OfflineScannerShell.exe'
+        - OriginalFileName|endswith: 'OneDriveStandaloneUpdater.exe'
+        - OriginalFileName|endswith: 'Pcalua.exe'
+        - OriginalFileName|endswith: 'PcwRun.exe'
+        - OriginalFileName|endswith: 'PktMon.exe'
+        - OriginalFileName|endswith: 'PnpUtil.exe'
+        - OriginalFileName|endswith: 'PresentationHost.exe'
+        - OriginalFileName|endswith: 'Print.exe'
+        - OriginalFileName|endswith: 'PrintBrm.exe'
+        - OriginalFileName|endswith: 'Psr.exe'
+        - OriginalFileName|endswith: 'Rasautou.exe'
+        - OriginalFileName|endswith: 'Reg.exe'
+        - OriginalFileName|endswith: 'Regasm.exe'
+        - OriginalFileName|endswith: 'RegEdit.exe'
+        - OriginalFileName|endswith: 'RegIni.exe'
+        - OriginalFileName|endswith: 'Register-CimProvider.exe'
+        - OriginalFileName|endswith: 'RegSvcs.exe'
+        - OriginalFileName|endswith: 'RegSvr32.exe'
+        - OriginalFileName|endswith: 'Replace.exe'
+        - OriginalFileName|endswith: 'RpcPing.exe'
+        - OriginalFileName|endswith: 'RunDll32.exe'
+        - OriginalFileName|endswith: 'RunOnce.exe'
+        - OriginalFileName|endswith: 'RunScriptHelper.exe'
+        - OriginalFileName|endswith: 'Sc.exe'
+        - OriginalFileName|endswith: 'SchTasks.exe'
+        - OriginalFileName|endswith: 'ScriptRunner.exe'
+        - OriginalFileName|endswith: 'SettingSyncHost.exe'
+        - OriginalFileName|endswith: 'StorDiag.exe'
+        - OriginalFileName|endswith: 'SyncAppvPublishingServer.exe'
+        - OriginalFileName|endswith: 'TtdInject.exe'
+        - OriginalFileName|endswith: 'TtTracer.exe'
+        - OriginalFileName|endswith: 'VBC.exe'
+        - OriginalFileName|endswith: 'Verclsid.exe'
+        - OriginalFileName|endswith: 'ping.exe'
+        - OriginalFileName|endswith: 'ipconfig.exe'
+        - OriginalFileName|endswith: 'Wab.exe'
+        - OriginalFileName|endswith: 'Wmic.exe'
+        - OriginalFileName|endswith: 'WorkFolders.exe'
+        - OriginalFileName|endswith: 'Wscript.exe'
+        - OriginalFileName|endswith: 'WsReset.exe'
+        - OriginalFileName|endswith: 'Wuauclt.exe'
+        - OriginalFileName|endswith: 'Xwizard.exe'
+        - OriginalFileName|endswith: 'ADPlus.exe'
+        - OriginalFileName|endswith: 'AgentExecutor.exe'
+        - OriginalFileName|endswith: 'Appvlp.exe'
+        - OriginalFileName|endswith: 'Bginfo.exe'
+        - OriginalFileName|endswith: 'Cdb.exe'
+        - OriginalFileName|endswith: 'CoreGen.exe'
+        - OriginalFileName|endswith: 'CSI.exe'
+        - OriginalFileName|endswith: 'DefaultPack.exe'
+        - OriginalFileName|endswith: 'DevtoolsLauncher.exe'
+        - OriginalFileName|endswith: 'DNX.exe'
+        - OriginalFileName|endswith: 'Dotnet.exe'
+        - OriginalFileName|endswith: 'Dxcap.exe'
+        - OriginalFileName|endswith: 'NTDSUtil.exe'
+        - OriginalFileName|endswith: 'procdump.exe'
+        - OriginalFileName|endswith: 'psexec.exe'
+        - OriginalFileName|endswith: 'SqlDumper.exe'
+        - OriginalFileName|endswith: 'winrm.vbs.exe'
+        - OriginalFileName|endswith: 'powershell.exe'
+        - OriginalFileName|endswith: 'xcopy.exe'
+        - OriginalFileName|endswith: 'RoboCopy.exe'
+    filter_OriginalFilenameAndProcessNameIsSame:
+        Image|fieldref|endswith: OriginalFileName
+    condition: selection_basic and selection_OriginalFilenameIsLOLBIN and not filter_OriginalFilenameAndProcessNameIsSame
+falsepositives:
+tags:
+    - lolbas
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/windows-defender-application-control/microsoft-recommended-block-rules
+    - https://lolbas-project.github.io/
+ruletype: Hayabusa
+
+sample-message: |
+    Process Create:
+    RuleName: 
+    UtcTime: 2021-10-21 16:27:12.839
+    ProcessGuid: {00247c92-94e0-6171-0000-00107424987b}
+    ProcessId: 17264
+    Image: C:\Users\bouss\AppData\Local\Temp\Temp3_lync.zip\i.exe
+    FileVersion: 10.0.18362.449 (WinBuild.160101.0800)
+    Description: Windows Command Processor
+    Product: Microsoft® Windows® Operating System
+    Company: Microsoft Corporation
+    OriginalFileName: Cmd.Exe
+    CommandLine: "C:\Users\bouss\AppData\Local\Temp\Temp3_lync.zip\i.exe" 
+    CurrentDirectory: C:\Users\bouss\Desktop\
+    User: LAPTOP-JU4M3I0E\bouss
+    LogonGuid: {00247c92-3c1a-6169-0000-0020c2790700}
+    LogonId: 0x779C2
+    TerminalSessionId: 1
+    IntegrityLevel: Medium
+    Hashes: SHA1=8DCA9749CD48D286950E7A9FA1088C937CBCCAD4,MD5=D7AB69FAD18D4A643D84A271DFC0DBDF,SHA256=FF79D3C4A0B7EB191783C323AB8363EBD1FD10BE58D8BCC96B07067743CA81D5,IMPHASH=272245E2988E1E430500B852C4FB5E18
+    ParentProcessGuid: {00247c92-94d6-6171-0000-00100514967b}
+    ParentProcessId: 28176
+    ParentImage: C:\Windows\System32\cscript.exe
+    ParentCommandLine: cscript.exe  //e:jscript testme.js
+    ParentUser: %23
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}" /> 
+            <EventID>1</EventID> 
+            <Version>5</Version> 
+            <Level>4</Level> 
+            <Task>1</Task> 
+            <Opcode>0</Opcode> 
+            <Keywords>0x8000000000000000</Keywords> 
+            <TimeCreated SystemTime="2021-10-21T16:27:12.858588600Z" /> 
+            <EventRecordID>10920379</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="5396" ThreadID="7692" /> 
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel> 
+            <Computer>LAPTOP-JU4M3I0E</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <EventData>
+            <Data Name="RuleName" /> 
+            <Data Name="UtcTime">2021-10-21 16:27:12.839</Data> 
+            <Data Name="ProcessGuid">{00247C92-94E0-6171-0000-00107424987B}</Data> 
+            <Data Name="ProcessId">17264</Data> 
+            <Data Name="Image">C:\Users\bouss\AppData\Local\Temp\Temp3_lync.zip\i.exe</Data> 
+            <Data Name="FileVersion">10.0.18362.449 (WinBuild.160101.0800)</Data> 
+            <Data Name="Description">Windows Command Processor</Data> 
+            <Data Name="Product">Microsoft® Windows® Operating System</Data> 
+            <Data Name="Company">Microsoft Corporation</Data> 
+            <Data Name="OriginalFileName">Cmd.Exe</Data> 
+            <Data Name="CommandLine">"C:\Users\bouss\AppData\Local\Temp\Temp3_lync.zip\i.exe"</Data> 
+            <Data Name="CurrentDirectory">C:\Users\bouss\Desktop\</Data> 
+            <Data Name="User">LAPTOP-JU4M3I0E\bouss</Data> 
+            <Data Name="LogonGuid">{00247C92-3C1A-6169-0000-0020C2790700}</Data> 
+            <Data Name="LogonId">0x779c2</Data> 
+            <Data Name="TerminalSessionId">1</Data> 
+            <Data Name="IntegrityLevel">Medium</Data> 
+            <Data Name="Hashes">SHA1=8DCA9749CD48D286950E7A9FA1088C937CBCCAD4,MD5=D7AB69FAD18D4A643D84A271DFC0DBDF,SHA256=FF79D3C4A0B7EB191783C323AB8363EBD1FD10BE58D8BCC96B07067743CA81D5,IMPHASH=272245E2988E1E430500B852C4FB5E18</Data> 
+            <Data Name="ParentProcessGuid">{00247C92-94D6-6171-0000-00100514967B}</Data> 
+            <Data Name="ParentProcessId">28176</Data> 
+            <Data Name="ParentImage">C:\Windows\System32\cscript.exe</Data> 
+            <Data Name="ParentCommandLine">cscript.exe //e:jscript testme.js</Data> 
+        </EventData>
+    </Event>

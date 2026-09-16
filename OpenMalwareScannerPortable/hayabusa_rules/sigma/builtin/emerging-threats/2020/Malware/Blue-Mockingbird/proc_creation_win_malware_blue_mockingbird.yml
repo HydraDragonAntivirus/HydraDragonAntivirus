@@ -1,0 +1,41 @@
+title: Blue Mockingbird
+id: f6378d07-9103-4e8d-742c-4c622112632a
+related:
+    - id: ce239692-aa94-41b3-b32f-9cab259c96ea
+      type: merged
+    - id: c3198a27-23a0-4c2c-af19-e5328d49680e
+      type: derived
+status: test
+description: Attempts to detect system changes made by Blue Mockingbird
+references:
+    - https://redcanary.com/blog/blue-mockingbird-cryptominer/
+author: Trent Liffick (@tliffick)
+date: 2020-05-14
+modified: 2022-10-09
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.defense-impairment
+    - attack.t1112
+    - attack.t1047
+    - detection.emerging-threats
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    sc_cmd:
+        CommandLine|contains|all:
+            - sc config
+            - wercplsupporte.dll
+        NewProcessName|endswith: \cmd.exe
+    wmic_cmd:
+        CommandLine|endswith: COR_PROFILER
+        NewProcessName|endswith: \wmic.exe
+    condition: process_creation and (sc_cmd or wmic_cmd)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

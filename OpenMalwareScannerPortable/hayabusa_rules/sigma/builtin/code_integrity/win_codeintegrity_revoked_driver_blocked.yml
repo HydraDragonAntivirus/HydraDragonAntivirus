@@ -1,0 +1,30 @@
+title: CodeIntegrity - Blocked Driver Load With Revoked Certificate
+id: 3838c754-9c4c-f500-6c7d-4c73b29717a9
+related:
+    - id: 9b72b82d-f1c5-4632-b589-187159bc6ec1
+      type: derived
+status: test
+description: Detects blocked load attempts of revoked drivers
+references:
+    - https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/operations/event-id-explanations
+    - https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/operations/event-tag-explanations
+    - Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-06-06
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543
+logsource:
+    product: windows
+    service: codeintegrity-operational
+detection:
+    codeintegrity_operational:
+        Channel: Microsoft-Windows-CodeIntegrity/Operational
+    selection:
+        EventID: 3023 # The driver %2 is blocked from loading as the driver has been revoked by Microsoft.
+    condition: codeintegrity_operational and selection
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

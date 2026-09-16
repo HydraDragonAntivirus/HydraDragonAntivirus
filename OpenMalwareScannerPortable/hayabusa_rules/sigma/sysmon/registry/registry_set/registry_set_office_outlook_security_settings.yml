@@ -1,0 +1,40 @@
+title: Outlook Security Settings Updated - Registry
+id: 274d29f4-4665-62d0-12a9-e2bd25d2d7c6
+related:
+    - id: 6763c6c8-bd01-4687-bc8d-4fa52cf8ba08 # EnableUnsafeClientMailRules
+      type: similar
+    - id: c3cefdf4-6703-4e1c-bad8-bf422fc5015a
+      type: derived
+status: test
+description: Detects changes to the registry values related to outlook security settings
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1137/T1137.md
+    - https://learn.microsoft.com/en-us/outlook/troubleshoot/security/information-about-email-security-settings
+author: frack113
+date: 2021-12-28
+modified: 2026-01-09
+tags:
+    - attack.persistence
+    - attack.t1137
+    - sysmon
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|contains|all:
+            - \SOFTWARE\Microsoft\Office\
+            - \Outlook\Security\
+    filter_main_outlook:
+        Image|startswith:
+            - C:\Program Files\Microsoft Office\
+            - C:\Program Files (x86)\Microsoft Office\
+        Image|endswith: \OUTLOOK.EXE
+    condition: registry_set and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Administrative activity
+level: medium
+ruletype: Sigma

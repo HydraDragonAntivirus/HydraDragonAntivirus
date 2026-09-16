@@ -1,0 +1,36 @@
+title: Anydesk Temporary Artefact
+id: 587af790-dcc1-2c49-927c-1dc7bff7a5b5
+related:
+    - id: 0b9ad457-2554-44c1-82c2-d56a99c42377
+      type: derived
+status: test
+description: |
+    An adversary may use legitimate desktop support and remote access software, such as Team Viewer, Go2Assist, LogMein, AmmyyAdmin, etc, to establish an interactive command and control channel to target systems within networks.
+    These services are commonly used as legitimate technical support software, and may be allowed by application control within a target environment.
+    Remote access tools like VNC, Ammyy, and Teamviewer are used frequently when compared with other legitimate software commonly used by adversaries. (Citation: Symantec Living off the Land)
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1219/T1219.md#atomic-test-2---anydesk-files-detected-test-on-windows
+author: frack113
+date: 2022-02-11
+modified: 2024-07-20
+tags:
+    - attack.command-and-control
+    - attack.t1219.002
+    - sysmon
+logsource:
+    category: file_event
+    product: windows
+detection:
+    file_event:
+        EventID: 11
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetFilename|contains:
+            - \AppData\Roaming\AnyDesk\user.conf
+            - \AppData\Roaming\AnyDesk\system.conf
+    condition: file_event and selection
+falsepositives:
+    - Legitimate use
+level: medium
+regression_tests_path: regression_data/rules/windows/file/file_event/file_event_win_anydesk_artefact/info.yml
+ruletype: Sigma

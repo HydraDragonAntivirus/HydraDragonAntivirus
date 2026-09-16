@@ -1,0 +1,49 @@
+title: Suspicious Greedy Compression Using Rar.EXE
+id: c69d626a-d3ae-8886-e19b-61a8ac00f96a
+related:
+    - id: afe52666-401e-4a02-b4ff-5d128990b8cb
+      type: derived
+status: test
+description: Detects RAR usage that creates an archive from a suspicious folder, either a system folder or one of the folders often used by attackers for staging purposes
+references:
+    - https://decoded.avast.io/martinchlumecky/png-steganography
+author: X__Junior (Nextron Systems), Florian Roth (Nextron Systems)
+date: 2022-12-15
+modified: 2024-01-02
+tags:
+    - attack.execution
+    - attack.t1059
+    - sysmon
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_opt_1:
+        - Image|endswith: \rar.exe
+        - Description: Command line RAR
+    selection_opt_2:
+        CommandLine|contains:
+            - '.exe a '
+            - ' a -m'
+    selection_cli_flags:
+        CommandLine|contains|all:
+            - ' -hp' # password
+            - ' -r ' # recursive
+    selection_cli_folders:
+        CommandLine|contains:
+            - ' ?:\\\*.'
+            - ' ?:\\\\\*.'
+            - ' ?:\$Recycle.bin\'
+            - ' ?:\PerfLogs\'
+            - ' ?:\Temp'
+            - ' ?:\Users\Public\'
+            - ' ?:\Windows\'
+            - ' %public%'
+    condition: process_creation and (1 of selection_opt_* and all of selection_cli_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

@@ -1,0 +1,31 @@
+title: Potential ShellDispatch.DLL Functionality Abuse
+id: 589134cd-5a71-4868-1ad1-623db28a1d75
+related:
+    - id: 82343930-652f-43f5-ab70-2ee9fdd6d5e9
+      type: derived
+status: test
+description: Detects potential "ShellDispatch.dll" functionality abuse to execute arbitrary binaries via "ShellExecute"
+references:
+    - https://www.hexacorn.com/blog/2023/06/07/this-lolbin-doesnt-exist/
+author: X__Junior (Nextron Systems)
+date: 2023-06-20
+tags:
+    - attack.execution
+    - attack.stealth
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        - NewProcessName|endswith: \rundll32.exe
+        - OriginalFileName: RUNDLL32.EXE
+    selection_cli:
+        CommandLine|contains: RunDll_ShellExecuteW
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unlikely
+level: medium
+ruletype: Sigma

@@ -1,0 +1,58 @@
+title: LOLBIN Execution From Abnormal Drive
+id: 77495bbc-a90d-6112-a1bf-c357d3b901fd
+related:
+    - id: 5b80cf53-3a46-4adc-960b-05ec19348d74
+      type: similar
+    - id: d4ca7c59-e9e4-42d8-bf57-91a776efcb87
+      type: derived
+status: test
+description: Detects LOLBINs executing from an abnormal or uncommon drive such as a mounted ISO.
+references:
+    - https://thedfirreport.com/2021/12/13/diavol-ransomware/
+    - https://www.scythe.io/library/threat-emulation-qakbot
+    - https://sec-consult.com/blog/detail/bumblebee-hunting-with-a-velociraptor/
+author: Christopher Peacock '@securepeacock', SCYTHE '@scythe_io', Angelo Violetti - SEC Consult '@angelo_violetti', Aaron Herman
+date: 2022-01-25
+modified: 2023-08-29
+tags:
+    - attack.stealth
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        # Note: add more lolbins for additional coverage
+        - NewProcessName|endswith:
+              - \calc.exe
+              - \certutil.exe
+              - \cmstp.exe
+              - \cscript.exe
+              - \installutil.exe
+              - \mshta.exe
+              - \regsvr32.exe
+              - \rundll32.exe
+              - \wscript.exe
+        - OriginalFileName:
+              - CALC.EXE
+              - CertUtil.exe
+              - CMSTP.EXE
+              - cscript.exe
+              - installutil.exe
+              - MSHTA.EXE
+              - REGSVR32.EXE
+              - RUNDLL32.EXE
+              - wscript.exe
+    filter_main_currentdirectory:
+        CurrentDirectory|contains: C:\
+    filter_main_empty:
+        CurrentDirectory: ''
+    filter_main_null:
+        CurrentDirectory: null
+    condition: process_creation and (selection and not 1 of filter_main_*)
+falsepositives:
+    - Rare false positives could occur on servers with multiple drives.
+level: medium
+ruletype: Sigma

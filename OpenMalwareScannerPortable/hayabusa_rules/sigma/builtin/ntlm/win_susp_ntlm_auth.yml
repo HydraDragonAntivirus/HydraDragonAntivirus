@@ -1,0 +1,29 @@
+title: NTLM Logon
+id: c043d322-c767-faa8-92d4-381dcc35cab3
+related:
+    - id: 98c3bcf1-56f2-49dc-9d8d-c66cf190238b
+      type: derived
+status: test
+description: Detects logons using NTLM, which could be caused by a legacy source or attackers
+references:
+    - https://twitter.com/JohnLaTwC/status/1004895028995477505
+author: Florian Roth (Nextron Systems)
+date: 2018-06-08
+modified: 2024-07-22
+tags:
+    - attack.lateral-movement
+    - attack.t1550.002
+logsource:
+    product: windows
+    service: ntlm
+    definition: Requires events from Microsoft-Windows-NTLM/Operational
+detection:
+    ntlm:
+        Channel: Microsoft-Windows-NTLM/Operational
+    selection:
+        EventID: 8002
+    condition: ntlm and selection
+falsepositives:
+    - Legacy hosts
+level: low
+ruletype: Sigma

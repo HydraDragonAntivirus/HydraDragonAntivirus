@@ -1,0 +1,89 @@
+Title: 'Logon'
+Channel: Security
+EventID: 4624
+RewriteFieldData:
+    ElevatedToken:
+        - '%%1842': 'YES'
+        - '%%1843': 'NO'
+    ImpersonationLevel:
+        - '%%1832': 'IDENTIFICATION'
+        - '%%1833': 'IMPERSONATION'
+        - '%%1840': 'DELEGATION'
+        - '%%1841': 'DENIED BY PROCESS TRUST LABEL ACE'
+        - '%%1842': 'YES'
+        - '%%1844': 'SYSTEM'
+        - '%%1845': 'NOT AVAILABLE'
+        - '%%1846': 'DEFAULT'
+        - '%%1847': 'DISALLOW MM CONFIG'
+        - '%%1848': 'OFF'
+        - '%%1849': 'AUTO'
+    LogonType:
+        - '0': '0 - SYSTEM'
+        - '2': '2 - INTERACTIVE'
+        - '3': '3 - NETWORK'
+        - '4': '4 - BATCH'
+        - '5': '5 - SERVICE'
+        - '7': '7 - UNLOCK'
+        - '8': '8 - NETWORK CLEARTEXT'
+        - '9': '9 - NEW CREDENTIALS'
+        - '10': '10 - REMOTE INTERACTIVE'
+        - '11': '11 - CACHED INTERACTIVE'
+        - '12': '12 - CACHED REMOTE INTERACTIVE'
+        - '13': '13 - CACHED UNLOCK'
+    RestrictedAdminMode:
+        - '%%1842': 'YES'
+        - '%%1843': 'NO'
+    VirtualAccount:
+        - '%%1842': 'YES'
+        - '%%1843': 'NO'
+HexToDecimal: 'ProcessId'
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{54849625-5478-4994-a5ba-3e3b0328c30d}" />
+            <EventID>4624</EventID>
+            <Version>3</Version>
+            <Level>0</Level>
+            <Task>12544</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8020000000000000</Keywords>
+            <TimeCreated SystemTime="2023-06-05T07:43:11.8338899Z" />
+            <EventRecordID>98438</EventRecordID>
+            <Correlation ActivityID="{8227fe63-9780-0003-07ff-27828097d901}" />
+            <Execution ProcessID="884" ThreadID="940" />
+            <Channel>Security</Channel>
+            <Computer>memanalysis</Computer>
+            <Security />
+        </System>
+        <EventData>
+            <Data Name="SubjectUserSid">S-1-5-18</Data>
+            <Data Name="SubjectUserName">MEMANALYSIS$</Data>
+            <Data Name="SubjectDomainName">WORKGROUP</Data>
+            <Data Name="SubjectLogonId">0x3e7</Data>
+            <Data Name="TargetUserSid">S-1-5-18</Data>
+            <Data Name="TargetUserName">SYSTEM</Data>
+            <Data Name="TargetDomainName">NT AUTHORITY</Data>
+            <Data Name="TargetLogonId">0x3e7</Data>
+            <Data Name="LogonType">5</Data>
+            <Data Name="LogonProcessName">Advapi</Data>
+            <Data Name="AuthenticationPackageName">Negotiate</Data>
+            <Data Name="WorkstationName">-</Data>
+            <Data Name="LogonGuid">{00000000-0000-0000-0000-000000000000}</Data>
+            <Data Name="TransmittedServices">-</Data>
+            <Data Name="LmPackageName">-</Data>
+            <Data Name="KeyLength">0</Data>
+            <Data Name="ProcessId">0x30c</Data>
+            <Data Name="ProcessName">C:\Windows\System32\services.exe</Data>
+            <Data Name="IpAddress">-</Data>
+            <Data Name="IpPort">-</Data>
+            <Data Name="ImpersonationLevel">%%1833</Data>
+            <Data Name="RestrictedAdminMode">-</Data>
+            <Data Name="RemoteCredentialGuard">-</Data>
+            <Data Name="TargetOutboundUserName">-</Data>
+            <Data Name="TargetOutboundDomainName">-</Data>
+            <Data Name="VirtualAccount">%%1843</Data>
+            <Data Name="TargetLinkedLogonId">0x0</Data>
+            <Data Name="ElevatedToken">%%1842</Data>
+        </EventData>
+    </Event>

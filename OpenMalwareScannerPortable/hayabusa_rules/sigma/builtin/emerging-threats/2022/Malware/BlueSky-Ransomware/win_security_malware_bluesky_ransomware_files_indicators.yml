@@ -1,0 +1,38 @@
+title: BlueSky Ransomware Artefacts
+id: 21ead34c-d2d4-2799-6318-2ff9e4aa9222
+related:
+    - id: eee8311f-a752-44f0-bf2f-6b007db16300
+      type: derived
+status: test
+description: Detect access to files and shares with names and extensions used by BlueSky ransomware which could indicate a current or previous encryption attempt.
+references:
+    - https://unit42.paloaltonetworks.com/bluesky-ransomware/
+author: j4son
+date: 2023-05-23
+tags:
+    - attack.impact
+    - attack.t1486
+    - detection.emerging-threats
+logsource:
+    product: windows
+    service: security
+detection:
+    security:
+        Channel: Security
+    selection_access_eid:
+        EventID:
+            - 4663
+            - 4656
+    selection_access_data:
+        - ObjectName|endswith: .bluesky
+        - ObjectName|contains: DECRYPT FILES BLUESKY
+    selection_share_eid:
+        EventID: 5145
+    selection_share_data:
+        - RelativeTargetName|endswith: .bluesky
+        - RelativeTargetName|contains: DECRYPT FILES BLUESKY
+    condition: security and (all of selection_access_* or all of selection_share_*)
+falsepositives:
+    - Unknown
+level: high
+ruletype: Sigma

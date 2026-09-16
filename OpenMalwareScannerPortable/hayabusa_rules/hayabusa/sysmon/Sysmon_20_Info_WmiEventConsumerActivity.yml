@@ -1,0 +1,60 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-01-13
+
+title: 'WMI Event Consumer'
+description: |
+    When a WMI event filter is registered, which is a method used by malware to execute, this event logs the WMI namespace, 
+    filter name and filter expression.
+
+id: 372be7ff-d34c-4b23-b147-42b2046b3ea8
+level: informational
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 20
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and selection_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>20</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>20</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2019-07-19T14:57:02.895491400Z"/>
+            <EventRecordID>4059</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="2796" ThreadID="4356"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>MSEDGEWIN10</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName"/>
+            <Data Name="EventType">WmiConsumerEvent</Data>
+            <Data Name="UtcTime">2019-07-19 14:57:02.884</Data>
+            <Data Name="Operation">Deleted</Data>
+            <Data Name="User">MSEDGEWIN10\IEUser</Data>
+            <Data Name="Name">"AtomicRedTeam-WMIPersistence-Example"</Data>
+            <Data Name="Type">Command Line</Data>
+            <Data Name="Destination">"C:\\Windows\\System32\\notepad.exe"</Data>
+        </EventData>
+    </Event>

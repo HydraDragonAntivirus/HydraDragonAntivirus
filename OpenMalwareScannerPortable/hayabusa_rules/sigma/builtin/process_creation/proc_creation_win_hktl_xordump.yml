@@ -1,0 +1,36 @@
+title: HackTool - XORDump Execution
+id: e11f3d67-9772-748c-2a6a-e825964efe89
+related:
+    - id: 66e563f9-1cbd-4a22-a957-d8b7c0f44372
+      type: derived
+status: test
+description: Detects suspicious use of XORDump process memory dumping utility
+references:
+    - https://github.com/audibleblink/xordump
+author: Florian Roth (Nextron Systems)
+date: 2022-01-28
+modified: 2023-02-08
+tags:
+    - attack.stealth
+    - attack.t1036
+    - attack.t1003.001
+    - attack.credential-access
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection:
+        - NewProcessName|endswith: \xordump.exe
+        - CommandLine|contains:
+              - ' -process lsass.exe '
+              - ' -m comsvcs '
+              - ' -m dbghelp '
+              - ' -m dbgcore '
+    condition: process_creation and selection
+falsepositives:
+    - Another tool that uses the command line switches of XORdump
+level: high
+ruletype: Sigma

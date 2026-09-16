@@ -1,0 +1,28 @@
+author: Zach Mathis
+date: 2020-11-08
+modified: 2022-12-16
+
+title: Logon Failure (Unknown Reason)
+details: 'Type: %LogonType% ¦ TgtUser: %TargetUserName% ¦ SrcComp: %WorkstationName% ¦ SrcIP: %IpAddress% ¦ AuthPkg: %AuthenticationPackageName% ¦ Proc: %ProcessName% ¦ SubStatus: %SubStatus%'
+description: Prints logon information. 
+
+id: a85096da-be85-48d7-8ad5-2f957cd74daa
+level: low
+status: stable
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        Channel: Security
+        EventID: 4625
+    filter:
+        - SubStatus: "0xc0000064"   #Non-existent user
+        - SubStatus: "0xc000006a"   #Wrong password
+    condition: selection and not filter
+falsepositives:
+    - normal system usage
+tags:
+references:
+sample-evtx: ./sample-evtx/DeepBlueCLI/smb-password-guessing-security.evtx
+ruletype: Hayabusa

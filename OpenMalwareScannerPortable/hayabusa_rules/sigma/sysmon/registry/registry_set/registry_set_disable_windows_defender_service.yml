@@ -1,0 +1,32 @@
+title: Windows Defender Service Disabled - Registry
+id: 59bd03f6-0043-e1bd-b4c4-627739d65d06
+related:
+    - id: e1aa95de-610a-427d-b9e7-9b46cfafbe6a
+      type: derived
+status: test
+description: Detects when an attacker or tool disables the  Windows Defender service (WinDefend) via the registry
+references:
+    - https://thedfirreport.com/2021/10/18/icedid-to-xinglocker-ransomware-in-24-hours/
+    - https://gist.github.com/anadr/7465a9fde63d41341136949f14c21105
+author: Ján Trenčanský, frack113, AlertIQ, Nasreddine Bencherchali
+date: 2022-08-01
+modified: 2024-03-25
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+    - sysmon
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    registry_set:
+        EventID: 13
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetObject|endswith: \Services\WinDefend\Start
+        Details: DWORD (0x00000004)
+    condition: registry_set and selection
+falsepositives:
+    - Administrator actions
+level: high
+ruletype: Sigma

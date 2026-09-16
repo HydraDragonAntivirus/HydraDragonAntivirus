@@ -1,0 +1,34 @@
+author: Zach Mathis
+date: 2022-03-23
+modified: 2023-06-17
+
+title: 'DNS Query (Sysmon Alert)'
+details: 'Rule: %RuleName ¦ Query: %QueryName% ¦ Result: %QueryResults% ¦ Proc: %Image% ¦ PID: %ProcessId% ¦ PGUID: %ProcessGuid%' 
+         #The Status field gives by status codes like 0, 123, and 1460. 0 seems to mean success but I am not sure what 123 and 1460 mean so we will omit this for now.
+description: |
+    This event is generated when a process executes a DNS query, whether the result is successful or fails, cached or not. 
+    The telemetry for this event was added for Windows 8.1 so it is not available on Windows 7 and earlier.
+
+id: 6a633cec-1e7b-4c34-903e-d5afceba585b
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 22
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: # No example file yet.

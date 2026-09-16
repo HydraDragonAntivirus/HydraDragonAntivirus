@@ -1,0 +1,41 @@
+title: Uncommon Process Access Rights For Target Image
+id: 0d9cc92d-3ed8-beeb-dea9-8447f14fc31e
+related:
+    - id: a24e5861-c6ca-4fde-a93c-ba9256feddf0
+      type: derived
+status: test
+description: |
+    Detects process access request to uncommon target images with a "PROCESS_ALL_ACCESS" access mask.
+references:
+    - https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+author: Nasreddine Bencherchali (Nextron Systems), frack113
+date: 2024-05-27
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1055.011
+    - sysmon
+logsource:
+    category: process_access
+    product: windows
+detection:
+    process_access:
+        EventID: 10
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        TargetImage|endswith:
+            # Note: Add additional uncommon targets to increase coverage.
+            - \calc.exe
+            - \calculator.exe
+            - \mspaint.exe
+            - \notepad.exe
+            - \ping.exe
+            - \wordpad.exe
+            - \write.exe
+        GrantedAccess: '0x1FFFFF' # PROCESS_ALL_ACCESS - All possible access rights for a process object.
+    condition: process_access and selection
+falsepositives:
+    - Unknown
+# Note: please upgrade to a higher level after an initial test/tuning.
+level: low
+ruletype: Sigma

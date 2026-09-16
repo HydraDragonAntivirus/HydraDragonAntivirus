@@ -1,0 +1,70 @@
+author: Zach Mathis
+date: 2022-03-22
+modified: 2023-01-13
+
+title: 'Net Conn (Sysmon Alert)'
+description: 'Display network connection with sysmon rule alerts. Disabled by default.'
+Rule: '%RuleName% ¦ Initiated: %Initiated% ¦ Proto: %Protocol% ¦ SrcIP: %SourceIp% ¦ SrcPort: %SourcePort% ¦ SrcHost: %SourceHostname% ¦ TgtIP: %DestinationIp% ¦ TgtPort: %DestinationPort% ¦ TgtHost: %DestinationHostname% ¦ User: %User% ¦ Proc: %Image% ¦ PID: %ProcessId% ¦ PGUID: %ProcessGuid%'
+
+id: e13c5fe0-73f1-4c0f-aef5-1bab99b4237b
+level: medium
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Sysmon needs to be installed and configured.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 3
+    filter_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    condition: selection_basic and not filter_no_alerts
+falsepositives:
+    - unknown
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>3</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>3</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2019-07-29T21:33:20.711067500Z"/>
+            <EventRecordID>4907</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="2640" ThreadID="3496"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>MSEDGEWIN10</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">Suspicious NetCon</Data>
+            <Data Name="UtcTime">2019-07-29 21:33:19.556</Data>
+            <Data Name="ProcessGuid">{747F3D96-661E-5D3F-0000-00107F248700}</Data>
+            <Data Name="ProcessId">3164</Data>
+            <Data Name="Image">C:\Windows\System32\mshta.exe</Data>
+            <Data Name="User">MSEDGEWIN10\IEUser</Data>
+            <Data Name="Protocol">tcp</Data>
+            <Data Name="Initiated">true</Data>
+            <Data Name="SourceIsIpv6">false</Data>
+            <Data Name="SourceIp">10.0.2.15</Data>
+            <Data Name="SourceHostname">MSEDGEWIN10.home</Data>
+            <Data Name="SourcePort">49826</Data>
+            <Data Name="SourcePortName"/>
+            <Data Name="DestinationIsIpv6">false</Data>
+            <Data Name="DestinationIp">151.101.0.133</Data>
+            <Data Name="DestinationHostname"/>
+            <Data Name="DestinationPort">443</Data>
+            <Data Name="DestinationPortName">https</Data>
+        </EventData>
+    </Event>

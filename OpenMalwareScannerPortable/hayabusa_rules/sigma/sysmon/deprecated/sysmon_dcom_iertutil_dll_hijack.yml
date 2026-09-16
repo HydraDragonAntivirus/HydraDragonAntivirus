@@ -1,0 +1,36 @@
+title: DCOM InternetExplorer.Application Iertutil DLL Hijack - Sysmon
+id: 0b877bfa-2252-5303-4526-548df33db648
+related:
+    - id: e554f142-5cf3-4e55-ace9-a1b59e0def65
+      type: derived
+status: deprecated
+description: Detects a threat actor creating a file named `iertutil.dll` in the `C:\Program Files\Internet Explorer\` directory over the network and loading it for a DCOM InternetExplorer DLL Hijack scenario.
+references:
+    - https://threathunterplaybook.com/hunts/windows/201009-RemoteDCOMIErtUtilDLLHijack/notebook.html
+author: Roberto Rodriguez @Cyb3rWard0g, Open Threat Research (OTR), wagga
+date: 2020-10-12
+modified: 2022-12-18
+tags:
+    - attack.lateral-movement
+    - attack.t1021.002
+    - attack.t1021.003
+    - sysmon
+logsource:
+    product: windows
+    service: sysmon
+detection:
+    sysmon:
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_one:
+        EventID: 11
+        Image: System
+        TargetFilename|endswith: \Internet Explorer\iertutil.dll
+    selection_two:
+        EventID: 7
+        Image|endswith: \Internet Explorer\iexplore.exe
+        ImageLoaded|endswith: \Internet Explorer\iertutil.dll
+    condition: sysmon and (1 of selection_*)
+falsepositives:
+    - Unknown
+level: critical
+ruletype: Sigma

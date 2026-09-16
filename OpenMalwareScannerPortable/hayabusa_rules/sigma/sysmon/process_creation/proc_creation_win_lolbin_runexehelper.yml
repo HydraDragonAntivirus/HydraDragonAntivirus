@@ -1,0 +1,30 @@
+title: Lolbin Runexehelper Use As Proxy
+id: 74d4243b-9874-dee4-e9a8-eb550c277b94
+related:
+    - id: cd71385d-fd9b-4691-9b98-2b1f7e508714
+      type: derived
+status: test
+description: Detect usage of the "runexehelper.exe" binary as a proxy to launch other programs
+references:
+    - https://twitter.com/0gtweet/status/1206692239839289344
+    - https://lolbas-project.github.io/lolbas/Binaries/Runexehelper/
+author: frack113
+date: 2022-12-29
+tags:
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        ParentImage|endswith: \runexehelper.exe
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

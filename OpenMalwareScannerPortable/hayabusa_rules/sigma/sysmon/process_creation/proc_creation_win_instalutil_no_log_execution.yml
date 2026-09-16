@@ -1,0 +1,34 @@
+title: Suspicious Execution of InstallUtil Without Log
+id: 8a426c90-2756-5390-dae9-c5e2e734c96e
+related:
+    - id: d042284c-a296-4988-9be5-f424fadcc28c
+      type: derived
+status: test
+description: Uses the .NET InstallUtil.exe application in order to execute image without log
+references:
+    - https://securelist.com/moonbounce-the-dark-side-of-uefi-firmware/105468/
+    - https://learn.microsoft.com/en-us/dotnet/framework/tools/installutil-exe-installer-tool
+author: frack113
+date: 2022-01-23
+modified: 2022-02-04
+tags:
+    - attack.stealth
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        Image|endswith: \InstallUtil.exe
+        Image|contains: Microsoft.NET\Framework
+        CommandLine|contains|all:
+            - '/logfile= '
+            - /LogToConsole=false
+    condition: process_creation and selection
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

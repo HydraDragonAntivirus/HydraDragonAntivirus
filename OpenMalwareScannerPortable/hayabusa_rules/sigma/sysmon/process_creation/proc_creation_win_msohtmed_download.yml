@@ -1,0 +1,37 @@
+title: Arbitrary File Download Via MSOHTMED.EXE
+id: f098a4e0-f67d-d65b-e24f-b4a8ef14312f
+related:
+    - id: 459f2f98-397b-4a4a-9f47-6a5ec2f1c69d
+      type: derived
+status: test
+description: Detects usage of "MSOHTMED" to download arbitrary files
+references:
+    - https://github.com/LOLBAS-Project/LOLBAS/pull/238/files
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-19
+modified: 2023-11-09
+tags:
+    - attack.execution
+    - attack.stealth
+    - attack.t1218
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection_img:
+        - Image|endswith: \MSOHTMED.exe
+        - OriginalFileName: MsoHtmEd.exe
+    selection_cli:
+        CommandLine|contains:
+            - ftp://
+            - http://
+            - https://
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: medium
+ruletype: Sigma

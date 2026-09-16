@@ -1,0 +1,57 @@
+author: Zach Mathis
+date: 2022-09-01
+modified: 2025-02-10
+
+title: 'Blocked Exe File Creation'
+description: 'Sysmon blocked an .exe file from being written to disk based on various suspicious conditions.'
+
+id: bb35ca48-8e4a-445b-bc6d-0a994a0e9310
+level: high
+status: stable
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Requires Sysmon 14+ (Released 2022/08/16)'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 27
+    condition: selection_basic
+falsepositives:
+tags:
+    - sysmon
+    - attack.defense-evasion
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://medium.com/@olafhartong/sysmon-14-0-fileblockexecutable-13d7ba3dff3e
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385f-c22a-43e0-bf4c-06f5698ffbd9}" />
+            <EventID>27</EventID>
+            <Version>5</Version>
+            <Level>4</Level>
+            <Task>27</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2022-08-29T04:43:48.1870892Z" />
+            <EventRecordID>1345</EventRecordID>
+            <Correlation />
+            <Execution ProcessID="2060" ThreadID="7132" />
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>DESKTOP-VQBONAV</Computer>
+            <Security UserID="S-1-5-18" />
+        </System>
+        <EventData>
+            <Data Name="RuleName">ImageBlock</Data>
+            <Data Name="UtcTime">2022-08-29 04:43:48.179</Data>
+            <Data Name="ProcessGuid">{3e153517-4404-630c-0003-000000000400}</Data>
+            <Data Name="ProcessId">8636</Data>
+            <Data Name="User">DESKTOP-VQBONAV\user</Data>
+            <Data Name="Image">C:\Windows\system32\certutil.exe</Data>
+            <Data Name="TargetFilename">C:\Users\user\Desktop\calc.exe</Data>
+            <Data Name="Hashes">MD5=E112A827FAB9F8378C76040187A6F336,SHA256=ED369187681A62247E38D930320F1CD771756D0B7B67072D8EC655EF99E14AEB,IMPHASH=8EEAA9499666119D13B3F44ECD77A729</Data>
+        </EventData>
+    </Event>

@@ -1,0 +1,36 @@
+title: Windows Update Error
+id: 8f9f7490-f99e-ff64-4b60-ac3f06a2262b
+related:
+    - id: 13cfeb75-9e33-4d04-b0f7-ab8faaa95a59
+      type: derived
+status: stable
+description: |
+    Detects Windows update errors including installation failures and connection issues. Defenders should observe this in case critical update KBs aren't installed.
+references:
+    - https://github.com/nasbench/EVTX-ETW-Resources/blob/f1b010ce0ee1b71e3024180de1a3e67f99701fe4/ETWProvidersManifests/Windows10/1903/W10_1903_Pro_20200714_18362.959/WEPExplorer/Microsoft-Windows-WindowsUpdateClient.xml
+author: frack113
+date: 2021-12-04
+modified: 2023-09-07
+tags:
+    - attack.impact
+    - attack.resource-development
+    - attack.t1584
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection:
+        Provider_Name: Microsoft-Windows-WindowsUpdateClient
+        EventID:
+            - 16 # Unable to Connect: Windows is unable to connect to the automatic updates service and therefore cannot download and install updates according to the set schedule
+            - 20 # Installation Failure: Windows failed to install the following update with error
+            - 24 # Uninstallation Failure: Windows failed to uninstall the following update with error
+            - 213 # Revert Failure: Windows failed to revert the following update with error
+            - 217 # Commit Failure: Windows failed to commit the following update with error
+    condition: system and selection
+falsepositives:
+    - Unknown
+level: informational
+ruletype: Sigma

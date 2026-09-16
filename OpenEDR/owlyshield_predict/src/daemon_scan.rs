@@ -97,19 +97,6 @@ fn worker_loop(rx: Receiver<DaemonScanTask>) {
             path_str, task.pid
         ));
 
-        // 0.1 Skip files signed by a trusted company publisher (e.g. Microsoft, Google, Intel)
-        if task.is_actor_target || path_str.ends_with(".exe") || path_str.ends_with(".dll") || path_str.ends_with(".sys") {
-            let sig_info = crate::signature_verification::verify_signature(p);
-            if sig_info.is_trusted {
-                if let Some(signer) = sig_info.signer_name {
-                    if crate::signer_rules::is_trusted_signer(&signer) {
-                        Logging::debug(&format!("[DaemonScanner] Skipping trusted publisher binary: {} ({})", path_str, signer));
-                        continue;
-                    }
-                }
-            }
-        }
-
         let mut det = None;
 
         // 1. Check EICAR standard test string
@@ -131,11 +118,6 @@ fn worker_loop(rx: Receiver<DaemonScanTask>) {
         // 2. Fast static machine learning detection (PE & JS content inference)
         if det.is_none() {
             det = fast_detect_path(path_str);
-        }
-
-        // 3. Fallback to ClamAV deep scan (including archive decompression)
-        if det.is_none() {
-            det = crate::clamscan::rt_scan_file(path_str);
         }
 
         if let Some(detection) = det {

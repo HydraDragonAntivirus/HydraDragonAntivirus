@@ -1,0 +1,76 @@
+author: Zach Mathis
+date: 2022-03-05
+modified: 2023-01-13
+
+title: 'Proc Access'
+description: |
+    The process accessed event reports when a process opens another process, an operation that is often followed by information queries or reading and writing the address space of the target process. 
+    This enables detection of hacking tools that read the memory contents of processes like Local Security Authority (Lsass.exe) in order to steal credentials for use in Pass-the-Hash attacks. 
+    Enabling it can generate significant amounts of logging if there are diagnostic utilities active that repeatedly open processes to query their state, so it generally should only be done so with filters that remove expected accesses.
+    Source User and Target User are not available in earlier versions of Sysmon.
+
+id: 39503291-25e2-4d79-86d4-fb18804c5f21
+level: low  # Marked as low due to a high possisbility of false positives.
+status: test
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'SrcUser and TgtUser fields are not be present in older versions of Sysmon.'
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-Sysmon/Operational
+        EventID: 10
+    selection_no_alerts:
+        - RuleName: ''
+        - RuleName: '-'
+    filter_allowlist:
+        - SourceImage: 'C:\Program Files (x86)\McAfee\VirusScan Enterprise\VsTskMgr.exe'
+        - SourceImage: 'C:\Program Files\Common Files\McAfee\SystemCore\mcshield.exe'
+        - SourceImage: 'C:\Program Files\VMware\VMware Tools\vmtoolsd.exe'
+        - SourceImage: 'C:\windows\system32\MRT.exe'
+    filter_lsass_to_winlogon:
+        SourceImage: 'C:\Windows\system32\lsass.exe'
+        TargetImage: 'C:\windows\system32\winlogon.exe'
+    condition: selection_basic and selection_no_alerts and not filter_allowlist and not filter_lsass_to_winlogon
+falsepositives:
+tags:
+    - sysmon
+references:
+    - https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+    - https://github.com/trustedsec/SysmonCommunityGuide/blob/master/chapters/process-access.md
+ruletype: Hayabusa
+
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+            <EventID>10</EventID>
+            <Version>3</Version>
+            <Level>4</Level>
+            <Task>10</Task>
+            <Opcode>0</Opcode>
+            <Keywords>0x8000000000000000</Keywords>
+            <TimeCreated SystemTime="2021-12-07T17:33:01.680326200Z"/>
+            <EventRecordID>619520</EventRecordID>
+            <Correlation/>
+            <Execution ProcessID="3436" ThreadID="4320"/>
+            <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            <Computer>MSEDGEWIN10</Computer>
+            <Security UserID="S-1-5-18"/>
+        </System>
+        <EventData>
+            <Data Name="RuleName">-</Data>
+            <Data Name="UtcTime">2021-12-07 17:33:01.672</Data>
+            <Data Name="SourceProcessGUID">{747F3D96-9ACD-61AF-D501-000000000102}</Data>
+            <Data Name="SourceProcessId">6072</Data>
+            <Data Name="SourceThreadId">10032</Data>
+            <Data Name="SourceImage">Z:\bouss\Downloads\MalSeclogon-master\x64\Debug\MalSeclogon.exe</Data>
+            <Data Name="TargetProcessGUID">{747F3D96-9ACD-61AF-D701-000000000102}</Data>
+            <Data Name="TargetProcessId">5268</Data>
+            <Data Name="TargetImage">C:\Windows\system32\lsass.exe</Data>
+            <Data Name="GrantedAccess">0x1410</Data>
+            <Data Name="CallTrace">C:\Windows\SYSTEM32\ntdll.dll+a0104|Z:\bouss\Downloads\MalSeclogon-master\x64\Debug\MalSeclogon.exe+122b8|Z:\bouss\Downloads\MalSeclogon-master\x64\Debug\MalSeclogon.exe+13eef|Z:\bouss\Downloads\MalSeclogon-master\x64\Debug\MalSeclogon.exe+14a59|Z:\bouss\Downloads\MalSeclogon-master\x64\Debug\MalSeclogon.exe+148fe|Z:\bouss\Downloads\MalSeclogon-master\x64\Debug\MalSeclogon.exe+147be|Z:\bouss\Downloads\MalSeclogon-master\x64\Debug\MalSeclogon.exe+14ae9|C:\Windows\System32\KERNEL32.DLL+17974|C:\Windows\SYSTEM32\ntdll.dll+6a271</Data>
+            <Data Name="SourceUser">MSEDGEWIN10\IEUser</Data>
+            <Data Name="TargetUser">NT AUTHORITY\SYSTEM</Data>
+        </EventData>
+    </Event>

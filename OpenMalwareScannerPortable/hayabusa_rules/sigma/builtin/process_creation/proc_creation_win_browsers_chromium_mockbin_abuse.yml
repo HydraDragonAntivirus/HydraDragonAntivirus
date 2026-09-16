@@ -1,0 +1,39 @@
+title: Chromium Browser Headless Execution To Mockbin Like Site
+id: 7799eb33-05b6-9a35-9e50-e2da961e40bb
+related:
+    - id: 1c526788-0abe-4713-862f-b520da5e5316
+      type: derived
+status: test
+description: Detects the execution of a Chromium based browser process with the "headless" flag and a URL pointing to the mockbin.org service (which can be used to exfiltrate data).
+references:
+    - https://www.zscaler.com/blogs/security-research/steal-it-campaign
+author: X__Junior (Nextron Systems)
+date: 2023-09-11
+tags:
+    - attack.execution
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    process_creation:
+        EventID: 4688
+        Channel: Security
+    selection_img:
+        NewProcessName|endswith:
+            - \brave.exe
+            - \chrome.exe
+            - \msedge.exe
+            - \opera.exe
+            - \vivaldi.exe
+    selection_headless:
+        CommandLine|contains: --headless
+    selection_url:
+        CommandLine|contains:
+            - ://run.mocky
+            - ://mockbin
+    condition: process_creation and (all of selection_*)
+falsepositives:
+    - Unknown
+level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_browsers_chromium_mockbin_abuse/info.yml
+ruletype: Sigma

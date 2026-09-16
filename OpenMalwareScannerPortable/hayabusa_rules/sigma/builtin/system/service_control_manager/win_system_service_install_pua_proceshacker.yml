@@ -1,0 +1,34 @@
+title: ProcessHacker Privilege Elevation
+id: 9e870183-fbbc-e736-c380-d20bd74d7dbe
+related:
+    - id: c4ff1eac-84ad-44dd-a6fb-d56a92fc43a9
+      type: derived
+status: test
+description: Detects a ProcessHacker tool that elevated privileges to a very high level
+references:
+    - https://twitter.com/1kwpeter/status/1397816101455765504
+author: Florian Roth (Nextron Systems)
+date: 2021-05-27
+modified: 2022-12-25
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.privilege-escalation
+    - attack.t1543.003
+    - attack.t1569.002
+logsource:
+    product: windows
+    service: system
+detection:
+    system:
+        Channel: System
+    selection:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+        ServiceName|startswith: ProcessHacker
+        AccountName: LocalSystem
+    condition: system and selection
+falsepositives:
+    - Unlikely
+level: high
+ruletype: Sigma

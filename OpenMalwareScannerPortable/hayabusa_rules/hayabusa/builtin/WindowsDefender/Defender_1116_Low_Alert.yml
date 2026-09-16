@@ -1,0 +1,26 @@
+author: Zach Mathis, Fukusuke Takahashi
+date: 2021-12-01
+modified: 2024-03-20
+
+title: 'Defender Alert (Low)'
+description: 'Windows defender malware detection'
+
+id: 61056ed8-7be5-46e4-9015-c5f6bc8b93a1
+level: low
+status: test
+logsource:
+    product: windows
+    service: windefend
+detection:
+    selection:
+        Channel: Microsoft-Windows-Windows Defender/Operational
+        EventID: 1116
+        SeverityID: 2 # Low
+    condition: selection
+falsepositives:
+    - bad signature
+tags:
+    - malware
+references:
+    - https://docs.microsoft.com/en-us/microsoft-365/security/defender-endpoint/troubleshoot-microsoft-defender-antivirus?view=o365-worldwide
+ruletype: Hayabusa

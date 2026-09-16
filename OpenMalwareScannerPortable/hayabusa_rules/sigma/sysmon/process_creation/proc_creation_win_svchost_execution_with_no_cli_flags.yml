@@ -1,0 +1,37 @@
+title: Suspect Svchost Activity
+id: 75aa70f9-3f72-6a30-d033-7d869dd615aa
+related:
+    - id: 16c37b52-b141-42a5-a3ea-bbe098444397
+      type: derived
+status: test
+description: It is extremely abnormal for svchost.exe to spawn without any CLI arguments and is normally observed when a malicious process spawns the process and injects code into the process memory space.
+references:
+    - https://web.archive.org/web/20180718061628/https://securitybytes.io/blue-team-fundamentals-part-two-windows-processes-759fe15965e2
+author: David Burkett, @signalblur
+date: 2019-12-28
+modified: 2022-06-27
+tags:
+    - attack.privilege-escalation
+    - attack.stealth
+    - attack.t1055
+    - sysmon
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    process_creation:
+        EventID: 1
+        Channel: Microsoft-Windows-Sysmon/Operational
+    selection:
+        CommandLine|endswith: svchost.exe
+        Image|endswith: \svchost.exe
+    filter:
+        - ParentImage|endswith:
+              - \rpcnet.exe
+              - \rpcnetp.exe
+        - CommandLine: null  # no CommandLine value available
+    condition: process_creation and (selection and not filter)
+falsepositives:
+    - Rpcnet.exe / rpcnetp.exe which is a lojack style software. https://www.blackhat.com/docs/us-14/materials/us-14-Kamlyuk-Kamluk-Computrace-Backdoor-Revisited.pdf
+level: high
+ruletype: Sigma
