@@ -9,6 +9,10 @@ extern "C" {
     fn openedr_static_scan_bytes(data: *const u8, len: usize, file_name: *const c_char) -> *mut c_char;
     fn openedr_static_scan_url(url: *const c_char) -> *mut c_char;
     fn openedr_static_check_registry(reg_path: *const c_char) -> *mut c_char;
+    fn openedr_static_scan_evtx(evtx_path: *const c_char) -> *mut c_char;
+    fn openedr_static_scan_system_events() -> *mut c_char;
+    fn openedr_static_check_hosts_file(hosts_path: *const c_char) -> *mut c_char;
+    fn openedr_static_restore_hosts_file(hosts_path: *const c_char, create_backup: i32) -> *mut c_char;
     fn openedr_static_free_string(s: *mut c_char);
 }
 
@@ -67,6 +71,44 @@ impl OpenEdrScanner {
         let c_str = CString::new(reg_path).map_err(|e| e.to_string())?;
         let ptr = unsafe { openedr_static_check_registry(c_str.as_ptr()) };
         Ok(Self::c_str_to_string_and_free(ptr))
+    }
+
+    pub fn scan_evtx(&self, evtx_path: &Path) -> Result<String, String> {
+        let s = evtx_path.to_str().ok_or("Invalid evtx path")?;
+        let c_str = CString::new(s).map_err(|e| e.to_string())?;
+        let ptr = unsafe { openedr_static_scan_evtx(c_str.as_ptr()) };
+        Ok(Self::c_str_to_string_and_free(ptr))
+    }
+
+    pub fn scan_system_events(&self) -> String {
+        let ptr = unsafe { openedr_static_scan_system_events() };
+        Self::c_str_to_string_and_free(ptr)
+    }
+
+    pub fn check_hosts_file(&self, hosts_path: Option<&Path>) -> String {
+        let c_path;
+        let ptr_arg = match hosts_path.and_then(|p| p.to_str()) {
+            Some(s) => {
+                c_path = CString::new(s).unwrap_or_default();
+                c_path.as_ptr()
+            }
+            None => std::ptr::null(),
+        };
+        let ptr = unsafe { openedr_static_check_hosts_file(ptr_arg) };
+        Self::c_str_to_string_and_free(ptr)
+    }
+
+    pub fn restore_hosts_file(&self, hosts_path: Option<&Path>, create_backup: bool) -> String {
+        let c_path;
+        let ptr_arg = match hosts_path.and_then(|p| p.to_str()) {
+            Some(s) => {
+                c_path = CString::new(s).unwrap_or_default();
+                c_path.as_ptr()
+            }
+            None => std::ptr::null(),
+        };
+        let ptr = unsafe { openedr_static_restore_hosts_file(ptr_arg, create_backup as i32) };
+        Self::c_str_to_string_and_free(ptr)
     }
 }
 

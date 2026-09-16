@@ -2,6 +2,7 @@
 
 import (
 	"errors"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -13,6 +14,10 @@ type Scanner struct {
 	fnScanBytes    *syscall.LazyProc
 	fnScanURL      *syscall.LazyProc
 	fnCheckReg     *syscall.LazyProc
+	fnScanEvtx     *syscall.LazyProc
+	fnScanSysEvts  *syscall.LazyProc
+	fnCheckHosts   *syscall.LazyProc
+	fnRestoreHosts *syscall.LazyProc
 	fnFreeString   *syscall.LazyProc
 }
 
@@ -25,6 +30,10 @@ func NewScanner(dllPath string, rulesDir string) (*Scanner, error) {
 		fnScanBytes:  dll.NewProc("openedr_static_scan_bytes"),
 		fnScanURL:    dll.NewProc("openedr_static_scan_url"),
 		fnCheckReg:   dll.NewProc("openedr_static_check_registry"),
+		fnScanEvtx:   dll.NewProc("openedr_static_scan_evtx"),
+		fnScanSysEvts: dll.NewProc("openedr_static_scan_system_events"),
+		fnCheckHosts: dll.NewProc("openedr_static_check_hosts_file"),
+		fnRestoreHosts: dll.NewProc("openedr_static_restore_hosts_file"),
 		fnFreeString: dll.NewProc("openedr_static_free_string"),
 	}
 
@@ -99,5 +108,49 @@ func (s *Scanner) CheckRegistry(regPath string) (string, error) {
 		return "", err
 	}
 	r1, _, _ := s.fnCheckReg.Call(uintptr(unsafe.Pointer(b)))
+	return s.ptrToStringAndFree(r1), nil
+}
+
+// nullStr returns a NULL pointer for empty strings (DLL treats NULL as default).
+func nullStr(str string) (uintptr, []byte) {
+	if str == "" {
+		return 0, nil
+	}
+	b, err := syscall.BytePtrFromString(str)
+	if err != nil {
+		return 0, nil
+	}
+	return uintptr(unsafe.Pointer(b)), b
+}
+
+func (s *Scanner) ScanEvtx(evtxPath string) (string, error) {
+	b, err := syscall.BytePtrFromString(evtxPath)
+	if err != nil {
+		return "", err
+	}
+	r1, _, _ := s.fnScanEvtx.Call(uintptr(unsafe.Pointer(b)))
+	return s.ptrToStringAndFree(r1), nil
+}
+
+func (s *Scanner) ScanSystemEvents() (string, error) {
+	r1, _, _ := s.fnScanSysEvts.Call()
+	return s.ptrToStringAndFree(r1), nil
+}
+
+func (s *Scanner) CheckHostsFile(hostsPath string) (string, error) {
+	p, b := nullStr(hostsPath)
+	r1, _, _ := s.fnCheckHosts.Call(p)
+	runtime.KeepAlive(b)
+	return s.ptrToStringAndFree(r1), nil
+}
+
+func (s *Scanner) RestoreHostsFile(hostsPath string, createBackup bool) (string, error) {
+	p, b := nullStr(hostsPath)
+	backup := uintptr(0)
+	if createBackup {
+		backup = 1
+	}
+	r1, _, _ := s.fnRestoreHosts.Call(p, backup)
+	runtime.KeepAlive(b)
 	return s.ptrToStringAndFree(r1), nil
 }

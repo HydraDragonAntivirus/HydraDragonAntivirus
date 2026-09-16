@@ -52,6 +52,32 @@ public:
         if (!res) return R"({"error": true, "message": "Scan failed"})";
         return std::string(res.get());
     }
+
+    std::string scan_evtx(const std::string& evtx_path) {
+        ScopedJsonString res(openedr_static_scan_evtx(evtx_path.c_str()));
+        if (!res) return R"({"error": true, "message": "Scan failed"})";
+        return std::string(res.get());
+    }
+
+    std::string scan_system_events() {
+        ScopedJsonString res(openedr_static_scan_system_events());
+        if (!res) return R"({"error": true, "message": "Scan failed"})";
+        return std::string(res.get());
+    }
+
+    std::string check_hosts_file(const std::string& hosts_path = "") {
+        const char* p = hosts_path.empty() ? nullptr : hosts_path.c_str();
+        ScopedJsonString res(openedr_static_check_hosts_file(p));
+        if (!res) return R"({"error": true, "message": "Scan failed"})";
+        return std::string(res.get());
+    }
+
+    std::string restore_hosts_file(const std::string& hosts_path = "", bool create_backup = true) {
+        const char* p = hosts_path.empty() ? nullptr : hosts_path.c_str();
+        ScopedJsonString res(openedr_static_restore_hosts_file(p, create_backup ? 1 : 0));
+        if (!res) return R"({"error": true, "message": "Scan failed"})";
+        return std::string(res.get());
+    }
 };
 
 } // namespace openedr

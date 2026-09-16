@@ -77,7 +77,19 @@ char* openedr_static_scan_url(const char* url);
 // 5. Check Registry key -> Returns JSON string
 char* openedr_static_check_registry(const char* reg_path);
 
-// 6. Free heap-allocated C string
+// 6. Scan EVTX log file with Hayabusa rules -> Returns JSON string
+char* openedr_static_scan_evtx(const char* evtx_path);
+
+// 7. Scan live Windows system event logs -> Returns JSON string
+char* openedr_static_scan_system_events(void);
+
+// 8. Check hosts file (NULL = system default) -> Returns JSON string
+char* openedr_static_check_hosts_file(const char* hosts_path);
+
+// 9. Restore hosts file (NULL = system default, backup 0/1) -> Returns JSON string
+char* openedr_static_restore_hosts_file(const char* hosts_path, int32_t create_backup);
+
+// 10. Free heap-allocated C string
 void openedr_static_free_string(char* s);
 ```
 

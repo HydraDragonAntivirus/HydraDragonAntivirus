@@ -22,6 +22,18 @@ namespace OpenEdr.Sdk
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern IntPtr openedr_static_check_registry(string regPath);
 
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern IntPtr openedr_static_scan_evtx(string evtxPath);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr openedr_static_scan_system_events();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern IntPtr openedr_static_check_hosts_file(string hostsPath);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern IntPtr openedr_static_restore_hosts_file(string hostsPath, int createBackup);
+
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern void openedr_static_free_string(IntPtr s);
 
@@ -72,6 +84,31 @@ namespace OpenEdr.Sdk
         {
             if (string.IsNullOrEmpty(regPath)) throw new ArgumentNullException(nameof(regPath));
             IntPtr ptr = openedr_static_check_registry(regPath);
+            return PtrToStringAndFree(ptr);
+        }
+
+        public string ScanEvtx(string evtxPath)
+        {
+            if (string.IsNullOrEmpty(evtxPath)) throw new ArgumentNullException(nameof(evtxPath));
+            IntPtr ptr = openedr_static_scan_evtx(evtxPath);
+            return PtrToStringAndFree(ptr);
+        }
+
+        public string ScanSystemEvents()
+        {
+            IntPtr ptr = openedr_static_scan_system_events();
+            return PtrToStringAndFree(ptr);
+        }
+
+        public string CheckHostsFile(string hostsPath = null)
+        {
+            IntPtr ptr = openedr_static_check_hosts_file(hostsPath);
+            return PtrToStringAndFree(ptr);
+        }
+
+        public string RestoreHostsFile(string hostsPath = null, bool createBackup = true)
+        {
+            IntPtr ptr = openedr_static_restore_hosts_file(hostsPath, createBackup ? 1 : 0);
             return PtrToStringAndFree(ptr);
         }
 

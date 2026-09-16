@@ -41,5 +41,13 @@ int main(int argc, char* argv[]) {
         openedr_static_free_string(reg_report);
     }
 
+    // 4. Check Hosts File (NULL = system default)
+    printf("--- 4. Checking Hosts File ---\n");
+    char* hosts_report = openedr_static_check_hosts_file(NULL);
+    if (hosts_report != NULL) {
+        printf("%s\n\n", hosts_report);
+        openedr_static_free_string(hosts_report);
+    }
+
     return 0;
 }

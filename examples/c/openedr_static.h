@@ -57,6 +57,34 @@ OPENEDR_API char* openedr_static_scan_url(const char* url);
 OPENEDR_API char* openedr_static_check_registry(const char* reg_path);
 
 /**
+ * @brief Scan a Windows EVTX log file with Hayabusa rules.
+ * @param evtx_path Path to the .evtx file.
+ * @return JSON-formatted string on the heap. MUST be freed using openedr_static_free_string.
+ */
+OPENEDR_API char* openedr_static_scan_evtx(const char* evtx_path);
+
+/**
+ * @brief Scan live Windows system event logs with Hayabusa rules.
+ * @return JSON-formatted string on the heap. MUST be freed using openedr_static_free_string.
+ */
+OPENEDR_API char* openedr_static_scan_system_events(void);
+
+/**
+ * @brief Check the hosts file for hijacking/tampering.
+ * @param hosts_path Custom hosts path, or NULL for the system default.
+ * @return JSON-formatted string on the heap. MUST be freed using openedr_static_free_string.
+ */
+OPENEDR_API char* openedr_static_check_hosts_file(const char* hosts_path);
+
+/**
+ * @brief Restore the hosts file to the clean Windows template.
+ * @param hosts_path Custom hosts path, or NULL for the system default.
+ * @param create_backup Non-zero to keep a timestamped .backup copy.
+ * @return JSON-formatted string on the heap. MUST be freed using openedr_static_free_string.
+ */
+OPENEDR_API char* openedr_static_restore_hosts_file(const char* hosts_path, int32_t create_backup);
+
+/**
  * @brief Free a C-string returned by openedr_static scanning functions.
  * @param s Pointer to the heap-allocated C-string.
  */

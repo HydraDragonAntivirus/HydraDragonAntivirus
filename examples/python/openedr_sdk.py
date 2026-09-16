@@ -49,6 +49,18 @@ class OpenEdrScanner:
         self.dll.openedr_static_check_registry.restype = ctypes.c_void_p
         self.dll.openedr_static_check_registry.argtypes = [ctypes.c_char_p]
 
+        self.dll.openedr_static_scan_evtx.restype = ctypes.c_void_p
+        self.dll.openedr_static_scan_evtx.argtypes = [ctypes.c_char_p]
+
+        self.dll.openedr_static_scan_system_events.restype = ctypes.c_void_p
+        self.dll.openedr_static_scan_system_events.argtypes = []
+
+        self.dll.openedr_static_check_hosts_file.restype = ctypes.c_void_p
+        self.dll.openedr_static_check_hosts_file.argtypes = [ctypes.c_char_p]
+
+        self.dll.openedr_static_restore_hosts_file.restype = ctypes.c_void_p
+        self.dll.openedr_static_restore_hosts_file.argtypes = [ctypes.c_char_p, ctypes.c_int32]
+
         self.dll.openedr_static_free_string.restype = None
         self.dll.openedr_static_free_string.argtypes = [ctypes.c_void_p]
 
@@ -80,3 +92,22 @@ class OpenEdrScanner:
     def check_registry(self, reg_path: str) -> Dict[str, Any]:
         """Check a Windows Registry key against PUA rules."""
         return self._call_json(self.dll.openedr_static_check_registry(reg_path.encode("utf-8")))
+
+    def scan_evtx(self, evtx_path: str) -> Dict[str, Any]:
+        """Scan a Windows EVTX log file with Hayabusa rules."""
+        return self._call_json(self.dll.openedr_static_scan_evtx(evtx_path.encode("utf-8")))
+
+    def scan_system_events(self) -> Dict[str, Any]:
+        """Scan live Windows system event logs with Hayabusa rules."""
+        return self._call_json(self.dll.openedr_static_scan_system_events())
+
+    def check_hosts_file(self, hosts_path: Optional[str] = None) -> Dict[str, Any]:
+        """Check the hosts file for hijacking. None = system default path."""
+        arg = hosts_path.encode("utf-8") if hosts_path else None
+        return self._call_json(self.dll.openedr_static_check_hosts_file(arg))
+
+    def restore_hosts_file(self, hosts_path: Optional[str] = None,
+                           create_backup: bool = True) -> Dict[str, Any]:
+        """Restore the hosts file to the clean Windows template."""
+        arg = hosts_path.encode("utf-8") if hosts_path else None
+        return self._call_json(self.dll.openedr_static_restore_hosts_file(arg, int(create_backup)))
