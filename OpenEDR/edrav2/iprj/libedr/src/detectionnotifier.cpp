@@ -39,7 +39,7 @@ namespace {
 	static std::mutex s_mtxQuarantineLock;
 	static std::unordered_map<uint64_t, std::string> s_quarantinedPids; // pid/gid -> original quarantined malware path
 	static std::unordered_set<std::string> s_quarantinedPaths;          // lowercase paths already quarantined
-	static std::unordered_set<std::string> s_quarantinedHashes;         // lowercase hashes (SHA1/MD5) of detected malware
+	static std::unordered_set<std::string> s_quarantinedHashes;         // lowercase hashes (SHA-256) of detected malware
 	static std::mutex s_mtxMalwareDb;
 	static std::atomic<bool> s_bMalwareDbLoaded = false;
 
@@ -55,7 +55,7 @@ namespace {
 		return s;
 	}
 
-	// Persistent local-verdict cache: sha1 (lowercase) -> engine verdict.
+	// Persistent local-verdict cache: sha256 (lowercase) -> engine verdict.
 	// Local engines (ML + ClamAV) cost seconds per file while the cloud is
 	// cheap and re-queried every scan — so engine results are remembered
 	// across scans AND service restarts. Hash-keyed, therefore
@@ -631,9 +631,11 @@ static bool deleteRegistryTreeKey(const std::string& sTarget)
 //
 //
 //
-// SHA1 hex (lowercase) of a file given as UTF-8 path; "" when unreadable.
+// SHA-256 hex (lowercase) of a file given as UTF-8 path; "" when unreadable.
+// Used for local verdict cache and malware-db keys. Comodo FLS still takes
+// SHA-1 from the event hash fields when those are present.
 //
-static std::string sha1HexOfFileUtf8(const std::string& sUtf8Path)
+static std::string sha256HexOfFileUtf8(const std::string& sUtf8Path)
 {
 	try
 	{
@@ -648,7 +650,7 @@ static std::string sha1HexOfFileUtf8(const std::string& sUtf8Path)
 		std::ifstream f(ws, std::ios::binary);
 		if (!f)
 			return {};
-		crypt::sha1::Hasher hasher;
+		crypt::sha256::Hasher hasher;
 		char buf[65536];
 		while (f)
 		{
@@ -1883,7 +1885,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					int nVerdict = 3; // Unknown by default
 					if (!bulkHashOverBudget(sPath))
 					{
-						sHash = sha1HexOfFileUtf8(sPath);
+						sHash = sha256HexOfFileUtf8(sPath);
 						if (!sHash.empty())
 						{
 							if (pFls)
@@ -2021,7 +2023,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 			sPath = vParams.get("path", sPath);
 		if (sPath.empty())
 			return Dictionary({ {"success", false}, {"error", "empty path"} });
-		std::string sHash = sha1HexOfFileUtf8(sPath);
+		std::string sHash = sha256HexOfFileUtf8(sPath);
 		int nResult = -1;
 		HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
 		if (!hDll) hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");

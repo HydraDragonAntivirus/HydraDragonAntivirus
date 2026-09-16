@@ -1507,18 +1507,18 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 // files from their pre-images and removes rename targets.
 //
 
-// SHA1 hex (lowercase) of a file; "" when unreadable. Stops RansomShield
+// SHA-256 hex (lowercase) of a file; "" when unreadable. Stops RansomShield
 // from resurrecting quarantined malware bytes under a new name: the restore
 // guards below match on path only, so a known-malicious payload restored to
 // a fresh path would slip through without this content check.
-static std::string sha1HexOfFile(const std::wstring& wsPath)
+static std::string sha256HexOfFile(const std::wstring& wsPath)
 {
 	try
 	{
 		std::ifstream f(wsPath, std::ios::binary);
 		if (!f)
 			return {};
-		crypt::sha1::Hasher hasher;
+		crypt::sha256::Hasher hasher;
 		char buf[65536];
 		while (f)
 		{
@@ -1637,7 +1637,7 @@ static std::string sha1HexOfFile(const std::wstring& wsPath)
 			// Hash the backup content: path-only matching misses known-malicious bytes under a fresh name.
 			std::string sNarrowTarget = Narrow(wsRestoreTarget);
 			std::string sNarrowBackup = Narrow(wsBackup);
-			std::string sBackupHash = sha1HexOfFile(wsBackup);
+			std::string sBackupHash = sha256HexOfFile(wsBackup);
 			// Content hit: backup bytes are known-malicious -> never resurrect.
 			// Path-only hit with clean readable bytes: same path was tainted
 			// before, but THESE bytes were never flagged -> allow restore
@@ -1709,7 +1709,7 @@ static std::string sha1HexOfFile(const std::wstring& wsPath)
 					{
 						std::string sNarrowTarget = Narrow(wsTarget);
 						std::string sNarrowBk = Narrow(bkPath);
-						std::string sSweepHash = sha1HexOfFile(bkPath);
+						std::string sSweepHash = sha256HexOfFile(bkPath);
 						bool bSweepHashHit = !sSweepHash.empty()
 							&& DetectionNotifier::isKnownMalware("", sSweepHash);
 						bool bSweepPathHit = DetectionNotifier::isKnownMalware(sNarrowTarget, "")

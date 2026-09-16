@@ -33,11 +33,10 @@ PatternSeacher::Hash PatternSeacher::generateId(Variant vEvent)
 	std::string nHash = getByPath(vEvent, "file.rawHash");
 	sys::win::ProcId sProcId = getByPath(vEvent, "process.id");
 
-	crypt::sha1::Context ctx;
-	crypt::sha1::init(&ctx);
-	crypt::sha1::update(&ctx, nHash.data(), nHash.size());
-	crypt::sha1::update(&ctx, sProcId.data(), sProcId.size());
-	crypt::sha1::Hash hash = crypt::sha1::finalize(&ctx);
+	crypt::sha256::Hasher hasher;
+	hasher.update(nHash.data(), nHash.size());
+	hasher.update(sProcId.data(), sProcId.size());
+	auto hash = hasher.finalize();
 	return string::convertToHex(std::begin(hash.byte), std::end(hash.byte));
 	TRACE_END("Fail to generate id")
 }

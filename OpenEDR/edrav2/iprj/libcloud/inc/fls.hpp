@@ -48,7 +48,7 @@ public:
 	///
 	/// Queries a verdict for the file.
 	///
-	/// @param sHash - a string (40 chars) with SHA1 hash of the file's content.
+	/// @param sHash - hex hash of the file's content (SHA-1 on the FLS wire protocol).
 	/// @return The function returns a verdict value from FileVerdict enum.
 	///
 	virtual FileVerdict getFileVerdict(const Hash& hash) = 0;
@@ -56,7 +56,7 @@ public:
 	///
 	/// Checks if verdict for the file is ready.
 	///
-	/// @param sHash - a string (40 chars) with SHA1 hash of the file's content.
+	/// @param sHash - hex hash of the file's content (SHA-1 on the FLS wire protocol).
 	/// @return The function returns `true` if a verdict is ready.
 	///
 	virtual bool isFileVerdictReady(const Hash& hash) = 0;

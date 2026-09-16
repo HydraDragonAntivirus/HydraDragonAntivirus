@@ -38,7 +38,7 @@ the daemon loop lives in this SDK layer.
 | **C++** | [`cpp/`](cpp/) | `openedr.hpp` | `main.cpp`, `daemon.cpp` | Modern C++ RAII with auto memory freeing |
 | **C# (.NET)** | [`csharp/`](csharp/) | `OpenEdrScanner.cs`, `DaemonWatcher.cs` | `Program.cs` (`dotnet run [-- daemon DIR]`) | P/Invoke wrapper with `IDisposable` |
 | **Go** | [`go/`](go/) | `openedr/openedr.go` | `main.go`, `daemon/` | Pure Windows `syscall.LazyDLL` (no CGO needed) |
-| **Rust** | [`rust/`](rust/) | `src/main.rs` | `src/main.rs`, `examples/daemon.rs` | Safe Rust FFI binding |
+| **Rust** | [`rust/`](rust/) | `src/lib.rs` | `openedr-cli`, `examples/daemon.rs` | Runtime-loaded FFI + standalone CLI EXE |
 | **Node.js** | [`nodejs/`](nodejs/) | `openedr.js` | `index.js`, `daemon.js` | Fast FFI wrapper via `koffi` |
 
 ## 👁️ Daemon Mode (all languages)
@@ -149,6 +149,27 @@ python openedr_cli.py hosts --restore
 ```
 
 `--dll` / `--rules` default to `OpenMalwareScannerPortable`. Exit code `1` means Malicious/Suspicious.
+
+## Standalone CLI EXE (no Python)
+
+`openedr-cli.exe` ships next to `openedr_static.dll` in `OpenMalwareScannerPortable/`. It loads the DLL at runtime — no extra compile step for users.
+
+```bash
+cd OpenMalwareScannerPortable
+openedr-cli.exe scan C:\sample.exe
+openedr-cli.exe scan C:\Downloads -r --json
+openedr-cli.exe url https://example.com/login
+openedr-cli.exe registry "HKLM\Software\Microsoft\Windows\CurrentVersion\Run\App"
+openedr-cli.exe hosts
+```
+
+Rebuild from source:
+
+```bash
+cd examples/rust
+cargo build --release
+copy target\release\openedr-cli.exe ..\..\OpenMalwareScannerPortable\
+```
 
 ---
 
