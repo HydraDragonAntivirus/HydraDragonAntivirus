@@ -156,10 +156,27 @@ fn find_eocd(data: &[u8]) -> Option<usize> {
     if data.len() < 22 {
         return None;
     }
-    let min = data.len().saturating_sub(65_557);
+    let min = data.len().saturating_sub(0x100);
     (min..=data.len() - 22)
         .rev()
         .find(|&i| data.get(i..i + 4) == Some(&b"PK\x05\x06"[..]))
+}
+
+fn single_encrypted_zip_yara(data: &[u8]) -> bool {
+    if data.get(0..4) != Some(&b"PK\x03\x04"[..]) {
+        return false;
+    }
+    let Some(eocd) = find_eocd(data) else {
+        return false;
+    };
+    if read_u16(data, eocd + 0xa) != Some(1) {
+        return false;
+    }
+    let Some(cd) = read_u32(data, eocd + 0x10).map(|v| v as usize) else {
+        return false;
+    };
+    data.get(cd..cd + 4) == Some(&b"PK\x01\x02"[..])
+        && read_u16(data, cd + 8).map(|f| f & 1 == 1).unwrap_or(false)
 }
 
 fn parse_zip_cd(data: &[u8]) -> Option<Vec<ZipCdEntry>> {
@@ -208,15 +225,6 @@ fn parse_zip_cd(data: &[u8]) -> Option<Vec<ZipCdEntry>> {
     Some(out)
 }
 
-fn zip_member_prefix(data: &[u8], entry: &ZipCdEntry, max: usize) -> Option<Vec<u8>> {
-    if entry.encrypted {
-        return None;
-    }
-    crate::zip_extract_entry(data, &entry.name)
-        .ok()
-        .map(|buf| buf.into_iter().take(max).collect())
-}
-
 fn emit_filename_hits(
     format: &str,
     name: &str,
@@ -257,15 +265,8 @@ fn inspect_zip(data: &[u8]) -> Vec<ArchiveHeuristic> {
     let files: Vec<&ZipCdEntry> = entries.iter().filter(|e| !e.is_dir).collect();
     let mut out = Vec::new();
     let archive_len = data.len() as u64;
-    let mut enc = 0usize;
-    let mut plain = 0usize;
 
     for e in &files {
-        if e.encrypted {
-            enc += 1;
-        } else {
-            plain += 1;
-        }
         emit_filename_hits("zip", &e.name, e.encrypted, &mut out);
         if archive_len < SIZE_BOMB_ARCHIVE && e.uncompressed_size > SIZE_BOMB_MEMBER {
             out.push(ArchiveHeuristic {
@@ -289,50 +290,17 @@ fn inspect_zip(data: &[u8]) -> Vec<ArchiveHeuristic> {
         }
     }
 
-    if files.len() == 1 && enc == 1 {
+    if single_encrypted_zip_yara(data) {
+        let name = files.first().map(|e| e.name.clone());
         out.push(ArchiveHeuristic {
             name: "HEUR:Win32.Susp.Encrypted.Zip.SingleFile",
-            score: 0.75,
+            score: 0.80,
             details: format!(
-                "password-protected ZIP with a single file '{}'",
-                files[0].name
+                "ZIP EOCD total_entries=1, central-directory encrypt bit set ({})",
+                name.as_deref().unwrap_or("")
             ),
-            entry_name: Some(files[0].name.clone()),
+            entry_name: name,
         });
-    }
-
-    if enc >= 1 && plain >= 1 {
-        let bait: Vec<&str> = files
-            .iter()
-            .filter(|e| !e.encrypted)
-            .map(|e| e.name.as_str())
-            .collect();
-        out.push(ArchiveHeuristic {
-            name: "HEUR:Win32.Susp.Encrypted.Zip.PlaintextBait",
-            score: 0.92,
-            details: format!(
-                "encrypted ZIP ({enc} encrypted, {plain} plaintext) hides payload behind unencrypted bait {bait:?}"
-            ),
-            entry_name: bait.first().map(|s| s.to_string()),
-        });
-    }
-
-    if files.len() == 1 && plain == 1 {
-        if let Some(prefix) = zip_member_prefix(data, files[0], 4096) {
-            if let Ok(text) = std::str::from_utf8(&prefix) {
-                if text.to_ascii_lowercase().contains("pass") {
-                    out.push(ArchiveHeuristic {
-                        name: "HEUR:Win32.Susp.Encrypted.Zip.SingleEntry",
-                        score: 0.85,
-                        details: format!(
-                            "single unencrypted ZIP member '{}' contains password lure",
-                            files[0].name
-                        ),
-                        entry_name: Some(files[0].name.clone()),
-                    });
-                }
-            }
-        }
     }
 
     out
@@ -494,12 +462,9 @@ fn inspect_7z(data: &[u8]) -> Vec<ArchiveHeuristic> {
     };
     let archive_len = data.len() as u64;
     let mut enc = 0usize;
-    let mut plain = 0usize;
     for (name, encrypted, size) in &files {
         if *encrypted {
             enc += 1;
-        } else {
-            plain += 1;
         }
         emit_filename_hits("7z", name, *encrypted, &mut out);
         if archive_len < SIZE_BOMB_ARCHIVE && *size > SIZE_BOMB_MEMBER {
@@ -518,48 +483,20 @@ fn inspect_7z(data: &[u8]) -> Vec<ArchiveHeuristic> {
     if files.len() == 1 && enc == 1 {
         out.push(ArchiveHeuristic {
             name: "HEUR:Win32.Susp.Encrypted.7z.SingleFile",
-            score: 0.75,
-            details: format!("password-protected 7z with a single file '{}'", files[0].0),
+            score: 0.80,
+            details: format!("7z with a single encrypted member '{}'", files[0].0),
             entry_name: Some(files[0].0.clone()),
         });
     }
-    if enc >= 1 && plain >= 1 {
-        let bait: Vec<&str> = files
-            .iter()
-            .filter(|(_, e, _)| !*e)
-            .map(|(n, _, _)| n.as_str())
-            .collect();
-        out.push(ArchiveHeuristic {
-            name: "HEUR:Win32.Susp.Encrypted.7z.PlaintextBait",
-            score: 0.92,
-            details: format!(
-                "encrypted 7z ({enc} encrypted, {plain} plaintext) with unencrypted bait {bait:?}"
-            ),
-            entry_name: bait.first().map(|s| s.to_string()),
-        });
-    }
-    if files.len() == 1 && plain == 1 {
-        if let Ok(buf) = reader.read_file(&files[0].0) {
-            let prefix = &buf[..buf.len().min(4096)];
-            if let Ok(text) = std::str::from_utf8(prefix) {
-                if text.to_ascii_lowercase().contains("pass") {
-                    out.push(ArchiveHeuristic {
-                        name: "HEUR:Win32.Susp.Encrypted.7z.SingleEntry",
-                        score: 0.85,
-                        details: format!(
-                            "single unencrypted 7z member '{}' contains password lure",
-                            files[0].0
-                        ),
-                        entry_name: Some(files[0].0.clone()),
-                    });
-                }
-            }
+    let bait = files.iter().find(|(_, e, _)| !*e).map(|(n, _, _)| n.as_str());
+    if let Some(name) = bait {
+        if let Ok(buf) = reader.read_file(name) {
             if let Some(detail) = inspect_pe_rva_trick(&buf) {
                 out.push(ArchiveHeuristic {
                     name: "HEUR:Win32.Susp.PE.RVATrick",
                     score: 0.90,
-                    details: format!("{} in 7z member '{}'", detail, files[0].0),
-                    entry_name: Some(files[0].0.clone()),
+                    details: format!("{detail} in 7z member '{name}'"),
+                    entry_name: Some(name.to_string()),
                 });
             }
         }
@@ -629,12 +566,9 @@ pub(crate) fn rar_heuristics(
     let mut out = Vec::new();
     let files: Vec<&(String, bool, u64)> = members.iter().collect();
     let mut enc = 0usize;
-    let mut plain = 0usize;
     for (name, encrypted, size) in &files {
         if *encrypted {
             enc += 1;
-        } else {
-            plain += 1;
         }
         emit_filename_hits("rar", name, *encrypted, &mut out);
         if archive_len < SIZE_BOMB_ARCHIVE && *size > SIZE_BOMB_MEMBER {
@@ -653,24 +587,9 @@ pub(crate) fn rar_heuristics(
     if files.len() == 1 && enc == 1 {
         out.push(ArchiveHeuristic {
             name: "HEUR:Win32.Susp.Encrypted.RAR.SingleFile",
-            score: 0.75,
-            details: format!("password-protected RAR with a single file '{}'", files[0].0),
+            score: 0.80,
+            details: format!("RAR with a single encrypted member '{}'", files[0].0),
             entry_name: Some(files[0].0.clone()),
-        });
-    }
-    if enc >= 1 && plain >= 1 {
-        let bait: Vec<&str> = files
-            .iter()
-            .filter(|(_, e, _)| !*e)
-            .map(|(n, _, _)| n.as_str())
-            .collect();
-        out.push(ArchiveHeuristic {
-            name: "HEUR:Win32.Susp.Encrypted.RAR.PlaintextBait",
-            score: 0.92,
-            details: format!(
-                "encrypted RAR ({enc} encrypted, {plain} plaintext) with unencrypted bait {bait:?}"
-            ),
-            entry_name: bait.first().map(|s| s.to_string()),
         });
     }
     out
@@ -759,8 +678,9 @@ mod tests {
     }
 
     #[test]
-    fn single_encrypted_zip_matches_yara_shape() {
+    fn yara_single_encrypted_zip_hits() {
         let zip = zip_store(&[("payload.exe", true, b"MZ")]);
+        assert!(single_encrypted_zip_yara(&zip));
         let hits = inspect_zip(&zip);
         assert!(
             hits.iter()
@@ -770,17 +690,14 @@ mod tests {
     }
 
     #[test]
-    fn mixed_encrypted_zip_flags_plaintext_bait() {
-        let zip = zip_store(&[
+    fn yara_does_not_hit_unencrypted_or_multi_file() {
+        let one_plain = zip_store(&[("readme.txt", false, b"hi")]);
+        assert!(!single_encrypted_zip_yara(&one_plain));
+        let mixed = zip_store(&[
             ("password.txt", false, b"Password: hunter2"),
             ("payload.exe", true, b"MZ"),
         ]);
-        let hits = inspect_zip(&zip);
-        assert!(
-            hits.iter()
-                .any(|h| h.name == "HEUR:Win32.Susp.Encrypted.Zip.PlaintextBait"),
-            "{hits:?}"
-        );
+        assert!(!single_encrypted_zip_yara(&mixed));
     }
 
     #[test]
