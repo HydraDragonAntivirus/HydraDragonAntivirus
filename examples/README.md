@@ -6,7 +6,7 @@ This directory contains production-ready SDK wrappers and sample applications in
 
 | Language | Folder | SDK File | Example File | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Python** | [`python/`](python/) | `openedr_sdk.py` | `scan_example.py` | `ctypes` wrapper with JSON parsing |
+| **Python** | [`python/`](python/) | `openedr_sdk.py` | `scan_example.py`, `openedr_cli.py` | `ctypes` wrapper, JSON parsing, CLI |
 | **Python daemon** | [`python/`](python/) | `openedr_daemon.py` | `daemon_example.py` | Polling watcher + worker threads, callbacks, quarantine |
 
 ---
@@ -99,7 +99,7 @@ void openedr_static_free_string(char* s);
 {
   "target": "C:\\sample.exe",
   "file_size": 457984,
-  "sha1": "...", "sha256": "...",
+  "sha256": "...",
   "verdict": "Malicious",         // Malicious | Suspicious | Clean | Unknown | Error
   "max_threat_score": 1.0,
   "detections": [
@@ -134,6 +134,21 @@ Run example:
 cd examples/python
 python scan_example.py
 ```
+
+CLI (`openedr_cli.py`) wraps the same SDK:
+
+```bash
+cd examples/python
+python openedr_cli.py scan C:\sample.exe
+python openedr_cli.py scan C:\Downloads -r --json
+python openedr_cli.py url https://example.com/login
+python openedr_cli.py registry "HKLM\Software\Microsoft\Windows\CurrentVersion\Run\App"
+python openedr_cli.py evtx C:\Windows\System32\winevt\Logs\Security.evtx
+python openedr_cli.py hosts
+python openedr_cli.py hosts --restore
+```
+
+`--dll` / `--rules` default to `OpenMalwareScannerPortable`. Exit code `1` means Malicious/Suspicious.
 
 ---
 
