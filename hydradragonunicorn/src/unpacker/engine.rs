@@ -1098,17 +1098,6 @@ fn resolve_hook_name(
     None
 }
 
-fn offset_to_rva(sections: &[Section], file_offset: usize) -> u32 {
-    for section in sections {
-        let raw_start = section.pointer_to_raw_data as usize;
-        let raw_end = raw_start + section.size_of_raw_data as usize;
-        if file_offset >= raw_start && file_offset < raw_end {
-            return section.virtual_address + (file_offset - raw_start) as u32;
-        }
-    }
-    0
-}
-
 /// Parse PE headers from an in-memory byte slice (no disk I/O, zero external dependencies).
 pub fn parse_pe_bytes(
     data: &[u8],

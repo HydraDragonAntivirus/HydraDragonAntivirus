@@ -2,14 +2,13 @@ use std::path::Path;
 use crate::error::PeError;
 use crate::headers::{
     DosHeader, FileHeader, OptionalHeader, DataDirectory,
-    DIRECTORY_ENTRY_EXPORT, DIRECTORY_ENTRY_IMPORT, DIRECTORY_ENTRY_RESOURCE,
-    DIRECTORY_ENTRY_SECURITY, DIRECTORY_ENTRY_BASERELOC, DIRECTORY_ENTRY_DEBUG,
-    DIRECTORY_ENTRY_TLS, DIRECTORY_ENTRY_LOAD_CONFIG,
+    DIRECTORY_ENTRY_EXPORT, DIRECTORY_ENTRY_IMPORT, DIRECTORY_ENTRY_DEBUG,
+    DIRECTORY_ENTRY_TLS,
 };
 use crate::sections::Section;
 use crate::directories::{
     ImportDirectory, ImportSymbol, ExportDirectory, ExportSymbol,
-    ResourceDirectory, ResourceEntry, ResourceDataEntry,
+    ResourceDirectory,
     DebugEntry, TlsDirectory, LoadConfigDirectory, RelocationBlock,
 };
 use crate::utils::calculate_entropy;

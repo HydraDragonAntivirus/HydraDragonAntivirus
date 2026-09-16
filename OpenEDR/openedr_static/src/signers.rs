@@ -120,7 +120,7 @@ impl SignerDb {
 #[cfg(windows)]
 use windows::core::{PCWSTR, PWSTR};
 #[cfg(windows)]
-use windows::Win32::Foundation::{ERROR_SUCCESS, HANDLE, HWND};
+use windows::Win32::Foundation::{ERROR_SUCCESS, HWND};
 #[cfg(windows)]
 use windows::Win32::Security::Cryptography::{
     CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext,
@@ -131,7 +131,7 @@ use windows::Win32::Security::Cryptography::{
 #[cfg(windows)]
 use windows::Win32::Security::WinTrust::{
     WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_CATALOG_INFO, WINTRUST_DATA,
-    WINTRUST_DATA_UICONTEXT, WINTRUST_FILE_INFO, WTD_CHOICE_CATALOG, WTD_CHOICE_FILE,
+    WINTRUST_DATA_UICONTEXT, WINTRUST_FILE_INFO, WTD_CHOICE_FILE,
     WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
 };
 

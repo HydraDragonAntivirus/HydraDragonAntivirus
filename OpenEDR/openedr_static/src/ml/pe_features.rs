@@ -35,13 +35,11 @@ fn ln1p(x: f32) -> f32 {
 // Lenient Pure-Rust PE Parser matching Python pefile
 #[derive(Debug, Clone, Default)]
 struct DataDir {
-    va: u32,
     size: u32,
 }
 
 #[derive(Debug, Clone, Default)]
 struct Section {
-    virtual_size: u32,
     virtual_address: u32,
     size_of_raw_data: u32,
     pointer_to_raw_data: u32,
@@ -157,9 +155,8 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
                 for i in 0..count {
                     let cur = dd_start + i * 8;
                     if cur + 8 <= data.len() {
-                        let va = u32::from_le_bytes([data[cur], data[cur + 1], data[cur + 2], data[cur + 3]]);
                         let size = u32::from_le_bytes([data[cur + 4], data[cur + 5], data[cur + 6], data[cur + 7]]);
-                        pe.data_dirs.push(DataDir { va, size });
+                        pe.data_dirs.push(DataDir { size });
                     }
                 }
             }
@@ -206,9 +203,8 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
                 for i in 0..count {
                     let cur = dd_start + i * 8;
                     if cur + 8 <= data.len() {
-                        let va = u32::from_le_bytes([data[cur], data[cur + 1], data[cur + 2], data[cur + 3]]);
                         let size = u32::from_le_bytes([data[cur + 4], data[cur + 5], data[cur + 6], data[cur + 7]]);
-                        pe.data_dirs.push(DataDir { va, size });
+                        pe.data_dirs.push(DataDir { size });
                     }
                 }
             }
@@ -222,13 +218,11 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
         if cur + 40 > data.len() {
             break;
         }
-        let virtual_size = u32::from_le_bytes([data[cur + 8], data[cur + 9], data[cur + 10], data[cur + 11]]);
         let virtual_address = u32::from_le_bytes([data[cur + 12], data[cur + 13], data[cur + 14], data[cur + 15]]);
         let size_of_raw_data = u32::from_le_bytes([data[cur + 16], data[cur + 17], data[cur + 18], data[cur + 19]]);
         let pointer_to_raw_data = u32::from_le_bytes([data[cur + 20], data[cur + 21], data[cur + 22], data[cur + 23]]);
 
         pe.sections.push(Section {
-            virtual_size,
             virtual_address,
             size_of_raw_data,
             pointer_to_raw_data,
@@ -236,18 +230,6 @@ fn parse_pe_lenient(data: &[u8]) -> Option<ParsedPe> {
     }
 
     Some(pe)
-}
-
-fn rva_to_offset(pe: &ParsedPe, rva: u32) -> Option<usize> {
-    for s in &pe.sections {
-        let start = s.virtual_address;
-        let end = start + s.virtual_size.max(s.size_of_raw_data);
-        if rva >= start && rva < end {
-            let diff = rva - start;
-            return Some(s.pointer_to_raw_data as usize + diff as usize);
-        }
-    }
-    None
 }
 
 pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {

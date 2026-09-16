@@ -1,8 +1,7 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 use sha1collisiondetection::Sha1CD;
-use sha1collisiondetection::digest::Digest as Sha1DigestTrait;
 use sha2::{Sha256, Digest as Sha256Digest};
 
 use crate::clam::ClamScanner;
@@ -15,7 +14,6 @@ use crate::signers::{verify_authenticode, SignerDb};
 use crate::yara::YaraScanner;
 
 pub struct StaticEngine {
-    base_dir: PathBuf,
     clam: ClamScanner,
     yara: YaraScanner,
     ml: MlScanner,
@@ -115,7 +113,6 @@ impl StaticEngine {
         let hayabusa = HayabusaScanner::new(&hayabusa_dir);
 
         Self {
-            base_dir: base,
             clam,
             yara,
             ml,
