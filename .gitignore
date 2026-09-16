@@ -1,5 +1,5 @@
-# HydradragonAVPortablev2 .gitignore
-# OpenMalwareScannerPortable/
+# HydradragonAVPortablev2 release .gitignore
+OpenMalwareScannerPortable.7z
 
 # Filtered ClamAV Files
 clamav_database_filterme/
