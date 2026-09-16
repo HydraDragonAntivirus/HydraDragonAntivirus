@@ -1,7 +1,7 @@
 ﻿[package]
 name = "openedr-sdk-example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "SDK example + standalone CLI for openedr_static.dll"
 
 [[bin]]
