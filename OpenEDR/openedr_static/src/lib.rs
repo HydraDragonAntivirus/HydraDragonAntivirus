@@ -1,4 +1,5 @@
 pub mod clam;
+pub mod crypto;
 pub mod engine;
 pub mod hayabusa_scanner;
 pub mod hosts;

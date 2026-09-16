@@ -24,7 +24,6 @@ pub struct SignerDetails {
 pub struct StaticScanReport {
     pub target: String,
     pub file_size: u64,
-    pub sha1: String,
     pub sha256: String,
     pub verdict: String, // "Malicious", "Clean", "Suspicious", "Unknown"
     pub max_threat_score: f32,

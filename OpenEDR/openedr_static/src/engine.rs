@@ -4,6 +4,7 @@ use std::time::Instant;
 use sha1collisiondetection::Sha1CD;
 use sha2::{Sha256, Digest as Sha256Digest};
 
+use crate::crypto;
 use crate::clam::ClamScanner;
 use crate::hayabusa_scanner::{HayabusaEventMatch, HayabusaScanner};
 use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
@@ -29,7 +30,7 @@ impl StaticEngine {
     /// - `yara_rules/` for YARA (.yar, .yara, .yrc)
     /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, *.onnx)
     /// - `signer_rules/` for trusted_signers.yaml, etc.
-    /// - `hash_rules/` for hash whitelists/rules (benign_sha1.txt, etc.)
+    /// - `hash_rules/` for hash whitelists/rules (benign_sha256.txt, etc.)
     /// - `ptm.local.src` or `ptm/` for PUA registry patterns
     pub fn init(base_dir: &Path) -> Self {
         let base = base_dir.to_path_buf();
@@ -144,7 +145,6 @@ impl StaticEngine {
                 return StaticScanReport {
                     target: target_str,
                     file_size: 0,
-                    sha1: String::new(),
                     sha256: String::new(),
                     verdict: "Error".to_string(),
                     max_threat_score: 0.0,
@@ -179,12 +179,10 @@ impl StaticEngine {
     ) -> StaticScanReport {
         let file_size = data.len() as u64;
 
-        // Hashes & SHA-1 Collision Detection (Marc Stevens sha1dc / SHAttered counter-cryptanalysis)
         let mut sha1_hasher = Sha1CD::default();
         sha1_hasher.update(data);
         let mut sha1_digest = sha1collisiondetection::Output::default();
-        let is_collision_attack = sha1_hasher.finalize_into_dirty_cd(&mut sha1_digest).is_err();
-        let sha1_hex = hex::encode(sha1_digest);
+        let is_sha1_collision = sha1_hasher.finalize_into_dirty_cd(&mut sha1_digest).is_err();
 
         let mut sha256_hasher = Sha256::new();
         sha256_hasher.update(data);
@@ -193,8 +191,7 @@ impl StaticEngine {
         let mut detections = Vec::new();
         let mut max_score: f32 = 0.0;
 
-        // SHA-1 Collision Attack Detection Alert (sha1dc)
-        if is_collision_attack {
+        if is_sha1_collision {
             detections.push(DetectionItem {
                 layer: "Crypto_Integrity".to_string(),
                 name: "Crypto.SHA1.CollisionAttackDetected".to_string(),
@@ -204,12 +201,20 @@ impl StaticEngine {
             max_score = max_score.max(1.0);
         }
 
-        // 0. Fast-Path: Cryptographic SHA-256 Whitelist (Collision immune)
-        if self.benign_hashes.contains(&sha256_hex) && !is_collision_attack {
+        if let Some(md5_hit) = crypto::detect_md5_collision(data) {
+            detections.push(DetectionItem {
+                layer: "Crypto_Integrity".to_string(),
+                name: md5_hit.name.to_string(),
+                score: Some(1.0),
+                details: Some(md5_hit.details),
+            });
+            max_score = max_score.max(1.0);
+        }
+
+        if self.benign_hashes.contains(&sha256_hex) && !is_sha1_collision && detections.is_empty() {
             return StaticScanReport {
                 target: target_name.to_string(),
                 file_size,
-                sha1: sha1_hex,
                 sha256: sha256_hex,
                 verdict: "Clean".to_string(),
                 max_threat_score: 0.0,
@@ -220,9 +225,8 @@ impl StaticEngine {
             };
         }
 
-        // 0.1 EICAR Test File Detection (Single standard SHA-1 hash)
-        const EICAR_SHA1: &str = "3395856ce81f2b7382dee72602f798b642f14140";
-        if sha1_hex == EICAR_SHA1 || data.starts_with(b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*") {
+        const EICAR_SHA256: &str = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
+        if sha256_hex == EICAR_SHA256 {
             detections.push(DetectionItem {
                 layer: "Signature".to_string(),
                 name: "EICAR-Test-File".to_string(),
@@ -274,7 +278,6 @@ impl StaticEngine {
                 return StaticScanReport {
                     target: target_name.to_string(),
                     file_size,
-                    sha1: sha1_hex,
                     sha256: sha256_hex,
                     verdict: "Clean".to_string(),
                     max_threat_score: 0.0,
@@ -517,6 +520,15 @@ impl StaticEngine {
                         };
                         if let Some(pe_blob) = ml_target {
                             if pe_blob.starts_with(b"MZ") {
+                                if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(pe_blob) {
+                                    detections.push(DetectionItem {
+                                        layer: "Heuristic_Overlay".to_string(),
+                                        name: "HEUR:Win32.Susp.PE.RVATrick".to_string(),
+                                        score: Some(0.90),
+                                        details: Some(format!("{detail} in overlay PE")),
+                                    });
+                                    max_score = max_score.max(0.90);
+                                }
                                 if let Some(prob) = self.ml.predict_pe(pe_blob) {
                                     if prob >= 0.71 {
                                         overlay_confirmed = true;
@@ -562,7 +574,29 @@ impl StaticEngine {
             }
         }
 
-        // 9. Archive Recursive Extraction & Zip Bomb Detection
+        // 9. Archive heuristics (encrypted bait, RLO names, PE RVA tricks)
+        for hit in hydradragonextractor::heuristics::inspect_archive(data) {
+            detections.push(DetectionItem {
+                layer: "Heuristic_Archive".to_string(),
+                name: hit.name.to_string(),
+                score: Some(hit.score),
+                details: Some(hit.details),
+            });
+            max_score = max_score.max(hit.score);
+        }
+        if data.starts_with(b"MZ") {
+            if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(data) {
+                detections.push(DetectionItem {
+                    layer: "Heuristic_PE".to_string(),
+                    name: "HEUR:Win32.Susp.PE.RVATrick".to_string(),
+                    score: Some(0.90),
+                    details: Some(detail),
+                });
+                max_score = max_score.max(0.90);
+            }
+        }
+
+        // 10. Archive Recursive Extraction & Zip Bomb Detection
         if hydradragonextractor::detect_format(data).is_some() {
             match hydradragonextractor::extract_archive_from_bytes(data, false) {
                 Ok(entries) => {
@@ -598,6 +632,15 @@ impl StaticEngine {
                                     });
                                     max_score = max_score.max(prob);
                                 }
+                            }
+                            if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(&entry.data) {
+                                detections.push(DetectionItem {
+                                    layer: "Heuristic_Archive".to_string(),
+                                    name: "HEUR:Win32.Susp.PE.RVATrick".to_string(),
+                                    score: Some(0.90),
+                                    details: Some(format!("{} in extracted '{}'", detail, entry.name)),
+                                });
+                                max_score = max_score.max(0.90);
                             }
                         }
                     }
@@ -637,7 +680,6 @@ impl StaticEngine {
         StaticScanReport {
             target: target_name.to_string(),
             file_size,
-            sha1: sha1_hex,
             sha256: sha256_hex,
             verdict: verdict.to_string(),
             max_threat_score: max_score,

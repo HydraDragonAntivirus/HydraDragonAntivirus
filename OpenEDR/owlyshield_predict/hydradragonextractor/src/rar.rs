@@ -199,3 +199,46 @@ pub fn extract_entry(data: &[u8], name: &str) -> crate::Result<Vec<u8>> {
         reason: format!("entry not found in rar: {name}"),
     })
 }
+
+pub fn inspect(data: &[u8]) -> Vec<crate::heuristics::ArchiveHeuristic> {
+    let tmp_dir = std::env::temp_dir().join(format!("hdrartmp_{:x}", crate::rand_byte()));
+    let tmp_rar = tmp_dir.join("archive.rar");
+    if std::fs::create_dir_all(&tmp_dir).is_err() || std::fs::write(&tmp_rar, data).is_err() {
+        return Vec::new();
+    }
+
+    let mut members: Vec<(String, bool, u64)> = Vec::new();
+    let mut archive = match unrar::Archive::new(&tmp_rar).open_for_processing() {
+        Ok(a) => a,
+        Err(_) => {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            return Vec::new();
+        }
+    };
+
+    loop {
+        if members.len() >= crate::MAX_ARCHIVE_ENTRIES {
+            break;
+        }
+        let header = match archive.read_header() {
+            Ok(Some(h)) => h,
+            Ok(None) => break,
+            Err(_) => break,
+        };
+        let entry = header.entry();
+        if !entry.is_directory() {
+            members.push((
+                entry.filename.to_string_lossy().into_owned(),
+                entry.is_encrypted(),
+                entry.unpacked_size,
+            ));
+        }
+        archive = match header.skip() {
+            Ok(rest) => rest,
+            Err(_) => break,
+        };
+    }
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    crate::heuristics::rar_heuristics(&members, data.len() as u64)
+}

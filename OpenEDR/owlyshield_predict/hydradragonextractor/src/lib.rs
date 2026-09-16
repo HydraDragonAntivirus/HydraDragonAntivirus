@@ -23,11 +23,11 @@ fn extractor_worker_count() -> usize {
 }
 
 /// Magic bytes for format detection.
-const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
-const ZIP_LOCAL_MAGIC: [u8; 4] = [0x50, 0x4b, 0x03, 0x04];
+pub(crate) const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+pub(crate) const ZIP_LOCAL_MAGIC: [u8; 4] = [0x50, 0x4b, 0x03, 0x04];
 const XZ_MAGIC: [u8; 6] = [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00];
 const BZ2_MAGIC: [u8; 3] = [0x42, 0x5a, 0x68];
-const SEVENZ_MAGIC: [u8; 6] = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c];
+pub(crate) const SEVENZ_MAGIC: [u8; 6] = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c];
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 /// ISO 9660 has "CD001" at sector 16 offset 1 (byte 32769).
 const ISO_MAGIC_OFFSET: usize = 32769;
@@ -41,6 +41,7 @@ const RAR15_MAGIC: [u8; 7] = [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00];
 const RAR5_MAGIC: [u8; 8] = [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00];
 
 mod rar;
+pub mod heuristics;
 
 pub struct ExtractResult {
     pub files: Vec<PathBuf>,
@@ -101,12 +102,12 @@ pub fn detect_format(data: &[u8]) -> Option<&'static str> {
     }
 }
 
-fn is_tar(data: &[u8]) -> bool {
+pub(crate) fn is_tar(data: &[u8]) -> bool {
     data.len() > TAR_USTAR_OFFSET + 5
         && data[TAR_USTAR_OFFSET..TAR_USTAR_OFFSET + 5] == TAR_USTAR_MAGIC
 }
 
-fn is_rar(data: &[u8]) -> bool {
+pub(crate) fn is_rar(data: &[u8]) -> bool {
     data.starts_with(&RAR5_MAGIC) || data.starts_with(&RAR15_MAGIC)
 }
 
@@ -419,7 +420,7 @@ pub fn is_bomb_error(e: &ExtractError) -> bool {
     matches!(e, ExtractError::DecompressionBomb { .. })
 }
 
-fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>> {
     let mut decoder = flate2::read::GzDecoder::new(data);
     let mut out = Vec::new();
     decoder.read_to_end(&mut out).map_err(|e| ExtractError::OperationFailed {
@@ -666,7 +667,7 @@ fn zip_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEntry>
 // TAR
 // ---------------------------------------------------------------------------
 
-fn tar_entries(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
+pub(crate) fn tar_entries(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
     let mut archive = tar::Archive::new(data);
     let mut out = Vec::new();
     for entry in archive.entries().map_err(|e| ExtractError::OperationFailed {
