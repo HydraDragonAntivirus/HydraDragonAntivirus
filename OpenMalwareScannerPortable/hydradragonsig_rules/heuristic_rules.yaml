@@ -1,0 +1,287 @@
+name: Heuristic Detection Rules
+version: "1.0"
+# Consolidated heuristic detection rules derived from the original
+# mvm.dll engine logic. All API categories from the original scanner
+# are preserved. No single indicator triggers alone — at least N
+# distinct categories must match (cross-category threshold) to
+# eliminate false positives from legitimate software.
+rules:
+
+  # ── Rule 1: Cross-Category Suspicious Combination ──────────────
+  # Fires when >= 3 distinct indicator categories match.
+  # Each condition represents one category with N APIs that must be
+  # present for that category to count.
+  - id: HEUR-CROSS-001
+    title: "Cross-Category Suspicious Indicator Combination"
+    description: "Multiple independent suspicious indicator categories detected"
+    severity: high
+    verdict: malware
+    confidence: 88
+    score: 92
+    family: "Heuristic.CrossCategory"
+    tags: [heuristic, multi-category, suspicious-combination]
+    mitre:
+      - id: T1027
+        name: Obfuscated Files or Information
+        tactic: Defense Evasion
+    logic: threshold
+    threshold: 3
+    conditions:
+
+      # ── Category: Process Injection (any 1 of injection primitives)
+      - type: import_set
+        min: 1
+        names:
+          - "CreateRemoteThread"
+          - "VirtualAllocEx"
+          - "VirtualProtectEx"
+          - "WriteProcessMemory"
+          - "QueueUserAPC"
+          - "SetWindowsHookEx"
+          - "SetThreadContext"
+          - "GetThreadContext"
+          - "ReadProcessMemory"
+
+      # ── Category: Native API Process Manipulation (any 3)
+      - type: import_set
+        min: 3
+        names:
+          - "ZwOpenProcess"
+          - "ZwAllocateVirtualMemory"
+          - "ZwFreeVirtualMemory"
+          - "ZwWriteVirtualMemory"
+          - "ZwReadVirtualMemory"
+          - "ZwProtectVirtualMemory"
+          - "ZwCreateThreadEx"
+          - "ZwResumeThread"
+          - "ZwDuplicateObject"
+          - "ZwQuerySystemInformation"
+          - "ZwQueryInformationProcess"
+          - "ZwSetValueKey"
+          - "ZwCreateFile"
+          - "ZwReadFile"
+          - "ZwClose"
+
+      # ── Category: Network / Socket (any 4 of socket APIs)
+      - type: import_set
+        min: 4
+        names:
+          - "WSAStartup"
+          - "WSACleanup"
+          - "socket"
+          - "bind"
+          - "listen"
+          - "accept"
+          - "connect"
+          - "send"
+          - "recv"
+          - "sendto"
+          - "recvfrom"
+          - "select"
+          - "WSAAccept"
+          - "WSAConnect"
+          - "WSASend"
+          - "WSARecv"
+          - "WSASendTo"
+          - "WSARecvFrom"
+          - "WSASocketA"
+          - "WSASocketW"
+          - "WSAEventSelect"
+          - "WSACreateEvent"
+          - "WSACloseEvent"
+          - "WSASetEvent"
+          - "WSAResetEvent"
+
+      # ── Category: URL Downloader (any)
+      - type: import_any
+        names:
+          - "URLDownloadToFileA"
+          - "URLDownloadToFileW"
+
+      # ── Category: Code Execution (any 1 of exec primitives)
+      - type: import_set
+        min: 1
+        names:
+          - "ShellExecuteA"
+          - "ShellExecuteExA"
+          - "ShellExecuteW"
+          - "ShellExecuteExW"
+          - "WinExec"
+          - "CreateProcessA"
+
+      # ── Category: Memory / Virtual Operations (any 2)
+      - type: import_set
+        min: 2
+        names:
+          - "VirtualProtect"
+          - "VirtualAlloc"
+          - "VirtualProtectEx"
+          - "VirtualAllocEx"
+          - "VirtualFree"
+          - "VirtualFreeEx"
+
+      # ── Category: Registry Persistence (any 1)
+      - type: import_set
+        min: 1
+        names:
+          - "RegSetValueExA"
+          - "RegSetValueExW"
+          - "RegCreateKeyExA"
+          - "RegCreateKeyExW"
+
+      # ── Category: Service Persistence (any 2)
+      - type: import_set
+        min: 2
+        names:
+          - "CreateServiceA"
+          - "CreateServiceW"
+          - "StartServiceA"
+          - "StartServiceW"
+          - "OpenSCManagerA"
+          - "OpenSCManagerW"
+          - "ControlService"
+          - "DeleteService"
+
+      # ── Category: File Destruction / Move (any 1)
+      - type: import_set
+        min: 1
+        names:
+          - "DeleteFileA"
+          - "DeleteFileW"
+          - "MoveFileExA"
+          - "MoveFileA"
+          - "MoveFileWithProgressA"
+          - "RemoveDirectoryA"
+          - "RemoveDirectoryW"
+
+      # ── Category: File Write / Copy (any 2)
+      - type: import_set
+        min: 2
+        names:
+          - "WriteFile"
+          - "CreateFileA"
+          - "CreateFileW"
+          - "CopyFileA"
+          - "CopyFileW"
+
+      # ── Category: Internet / WinINet (any 2)
+      - type: import_set
+        min: 2
+        names:
+          - "InternetReadFile"
+          - "InternetOpenA"
+          - "InternetOpenUrlA"
+          - "InternetConnectA"
+          - "InternetCloseHandle"
+          - "HttpOpenRequestA"
+          - "HttpSendRequestA"
+          - "InternetReadFileExA"
+
+      # ── Category: Physical Drive / Raw Disk Access
+      - type: string_set
+        min: 1
+        nocase: true
+        values:
+          - '\\.\PhysicalDrive'
+          - '\\.\Scsi'
+          - '\device\physicalmemory'
+
+      # ── Category: Sensitive System File Access
+      - type: string_set
+        min: 1
+        nocase: true
+        values:
+          - '\drivers\etc\hosts'
+          - 'drivers\etc\hosts'
+          - 'system32\drivers\etc\hosts'
+          - 'etc\hosts'
+          - '\boot.ini'
+          - '\ntldr'
+          - '\bootmgr'
+          - 'boot\.ini'
+          - 'ntldr'
+          - 'bootmgr'
+
+      # ── Category: Registry Persistence Paths
+      - type: string_set
+        min: 1
+        nocase: true
+        values:
+          - '\currentversion\run'
+          - '\policies\explorer\run'
+          - 'software\microsoft\windows\currentversion\runonce'
+          - 'software\microsoft\windows\currentversion\run'
+          - 'software\microsoft\internet explorer\main'
+
+      # ── Category: Known Sensitive Process Names
+      - type: string_set
+        min: 1
+        nocase: true
+        values:
+          - 'explorer.exe'
+          - 'winlogon.exe'
+          - 'csrss.exe'
+          - 'smss.exe'
+          - 'services.exe'
+          - 'svchost.exe'
+          - 'lsass.exe'
+          - 'alg.exe'
+          - 'spoolsv.exe'
+
+      # ── Category: Heavy Suspicious Import Count
+      - type: suspicious_import_count
+        min: 12
+
+  # ── Rule 2: Hosts File Tampering + File Write ──────────────────
+  # Specific known-bad pattern: modifying the hosts file to redirect
+  # traffic. Requires both the string reference AND file write APIs.
+  - id: HEUR-HOSTS-001
+    title: "Hosts File Modification with File Write Operations"
+    severity: high
+    verdict: malware
+    confidence: 92
+    score: 95
+    family: "Heuristic.HostsTamper"
+    tags: [hosts-file, dns-redirect, persistence, traffic-redirect]
+    mitre:
+      - id: T1562.010
+        name: "Downgrade Attack: Disable Security Tools"
+        tactic: Defense Evasion
+    logic: all
+    conditions:
+      - type: string_set
+        min: 1
+        nocase: true
+        values:
+          - 'etc\hosts'
+          - 'drivers\etc\hosts'
+          - 'system32\drivers\etc\hosts'
+      - type: import_set
+        min: 2
+        names:
+          - "WriteFile"
+          - "CreateFileA"
+          - "CreateFileW"
+          - "DeleteFileA"
+          - "DeleteFileW"
+          - "MoveFileExA"
+          - "CopyFileA"
+          - "CopyFileW"
+
+  # ── Rule 3: Process Name Masquerading ──────────────────────────
+  # File named after a critical system process (suspicious).
+  - id: HEUR-PROC-001
+    title: "Suspicious Process Name Masquerading"
+    severity: medium
+    verdict: suspicious
+    confidence: 70
+    score: 60
+    family: "Heuristic.Masquerade"
+    tags: [masquerading, process-spoof, suspicious-name]
+    mitre:
+      - id: T1036.005
+        name: Masquerading: Match Legitimate Name or Location
+        tactic: Defense Evasion
+    conditions:
+      - type: path_regex
+        pattern: '(?i)(explorer|winlogon|csrss|smss|services|svchost|lsass|alg|spoolsv)\.exe$'

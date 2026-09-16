@@ -2,14 +2,12 @@ pub mod models;
 pub mod report;
 pub mod rules;
 pub mod scanner;
-pub mod signature_verification;
-pub mod trusted_signers;
 pub mod utils;
 
 use anyhow::{Context, Result};
 use models::{
     ArchiveMemberResult, CoreData, CoreInitOptions, Finding, MemoryScanContext,
-    RegistryScanContext, ScanReport, ScanResultCode, UnpackConfig, Verdict,
+    ScanReport, ScanResultCode, UnpackConfig, Verdict,
 };
 use rules::{aggregate_verdict, RuleEvalOptions, RuleSet};
 use scanner::{HydraScanner, ScanContext, ScannerConfig};
@@ -85,10 +83,6 @@ impl EngineCore {
     pub fn scan_memory(&self, ctx: &MemoryScanContext) -> Result<ScanReport> {
         scan_memory(ctx, &self.rules, &self.options)
     }
-
-    pub fn scan_registry_key(&self, ctx: &RegistryScanContext) -> Result<ScanReport> {
-        scan_registry_key(ctx, &self.rules, &self.options)
-    }
 }
 
 pub fn scan_path(path: &Path, rules: &RuleSet, options: &ScanOptions) -> Result<ScanReport> {
@@ -128,37 +122,6 @@ pub fn scan_memory_owned(
 ) -> Result<ScanReport> {
     let scanner_config = scanner_config(options);
     let scan_ctx = HydraScanner::scan_memory_owned(ctx, &scanner_config)?;
-    finalize_scan_context(scan_ctx, rules, options, &scanner_config, 0)
-}
-
-/// Scan caller-supplied registry key/value text without reading the live registry.
-pub fn scan_registry_key(
-    ctx: &RegistryScanContext,
-    rules: &RuleSet,
-    options: &ScanOptions,
-) -> Result<ScanReport> {
-    let mut bytes = Vec::with_capacity(
-        ctx.key.len()
-            + ctx.value_name.as_ref().map(|v| v.len()).unwrap_or(0)
-            + ctx.value_data.as_ref().map(|v| v.len()).unwrap_or(0)
-            + 4,
-    );
-    bytes.extend_from_slice(ctx.key.as_bytes());
-    bytes.push(b'\n');
-    if let Some(value_name) = &ctx.value_name {
-        bytes.extend_from_slice(value_name.as_bytes());
-        bytes.push(b'\n');
-    }
-    if let Some(value_data) = &ctx.value_data {
-        bytes.extend_from_slice(value_data);
-    }
-
-    let scanner_config = scanner_config(options);
-    let scan_ctx = HydraScanner::scan_bytes(
-        bytes,
-        PathBuf::from(format!("registry://{}", ctx.key.replace('\\', "/"))),
-        &scanner_config,
-    )?;
     finalize_scan_context(scan_ctx, rules, options, &scanner_config, 0)
 }
 

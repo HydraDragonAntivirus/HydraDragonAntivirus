@@ -1,4 +1,3 @@
-use crate::signature_verification::SignatureInfo;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
@@ -419,12 +418,6 @@ pub struct EnvHit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegistryHit {
-    pub key_or_value: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
     pub rule_id: String,
     pub title: String,
@@ -439,11 +432,6 @@ pub struct Finding {
     /// MITRE ATT&CK techniques triggered by this specific finding.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre: Vec<MitreTechnique>,
-    /// The safe/default registry value to restore when this finding represents a
-    /// PUM (Potentially Unwanted Modification). Populated from the rule's
-    /// `expected_reverted_value` field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expected_reverted_value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -486,15 +474,6 @@ pub struct MemoryScanContext {
     pub base_address: Option<u64>,
 }
 
-/// SDK-style registry scan context. The caller supplies key/value text; this
-/// scanner treats it as a deterministic buffer and never reads the live registry.
-#[derive(Debug, Clone)]
-pub struct RegistryScanContext {
-    pub key: String,
-    pub value_name: Option<String>,
-    pub value_data: Option<Vec<u8>>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanReport {
     pub path: PathBuf,
@@ -507,7 +486,6 @@ pub struct ScanReport {
     pub strings: Vec<StringHit>,
     pub decoded_strings: Vec<DecodedString>,
     pub env_hits: Vec<EnvHit>,
-    pub registry_hits: Vec<RegistryHit>,
     pub features: BTreeMap<String, serde_json::Value>,
     pub findings: Vec<Finding>,
     pub score: u32,
@@ -532,10 +510,6 @@ pub struct ScanReport {
     /// Detected threat name in SDK format (family.variant or signature name)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threat_name: Option<String>,
-
-    /// Digital signature verification information
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<SignatureInfo>,
 
     /// MITRE ATT&CK techniques mapped from static analysis findings
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

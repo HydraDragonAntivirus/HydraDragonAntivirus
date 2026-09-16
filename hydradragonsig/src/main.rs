@@ -309,14 +309,6 @@ struct Cli {
     /// Do not create .bak copies before rewriting rule files in false-positive mode.
     #[arg(long)]
     fp_remove_no_backup: bool,
-
-    /// Enable registry PUA detection rules (loads registry_rules.yaml automatically).
-    #[arg(long)]
-    scan_registry: bool,
-
-    /// Full system scan: scan C:\ recursively with registry rules enabled.
-    #[arg(long)]
-    full_scan: bool,
 }
 
 fn main() -> Result<()> {
@@ -331,30 +323,15 @@ fn main() -> Result<()> {
         anyhow::bail!("--rules <YAMDLE> is required for scan mode; pass at least one rule file or directory");
     }
 
-    let mut paths = cli.paths.clone();
+    let paths = cli.paths.clone();
     let scan_paths = cli.scan_paths.clone();
-    let recursive = cli.recursive || cli.full_scan;
-    let scan_registry = cli.scan_registry || cli.full_scan;
-
-    if cli.full_scan {
-        if paths.is_empty() && scan_paths.is_empty() && cli.path_lists.is_empty() {
-            paths.push(PathBuf::from("C:\\"));
-        }
-    }
+    let recursive = cli.recursive;
 
     if paths.is_empty() && scan_paths.is_empty() && cli.path_lists.is_empty() {
         anyhow::bail!("at least one scan PATH is required; pass a file or directory to scan");
     }
 
-    let mut rule_sources = cli.rules.clone();
-    if scan_registry {
-        let registry_rules = PathBuf::from("hydradragonsig_rules/registry_rules.yaml");
-        if registry_rules.exists() {
-            rule_sources.push(registry_rules);
-        } else {
-            eprintln!("Warning: --scan-registry enabled but registry_rules.yaml not found");
-        }
-    }
+    let rule_sources = cli.rules.clone();
 
     let rule_files = collect_rule_files_from_sources(&rule_sources)?;
     let rules = load_external_rules_from_files(&rule_files)?;

@@ -9,6 +9,12 @@ pub mod report;
 pub mod signers;
 pub mod yara;
 
+/// HydraDragonSig deterministic file-content signature engine (external
+/// Yamdle/YAML rules, daachorse matcher, pefile-rs PE parsing).
+/// Registry/signer helpers are intentionally absent: those live in the
+/// dedicated pipeline crates, not in the portable static engine.
+pub use hydradragonsig;
+
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};

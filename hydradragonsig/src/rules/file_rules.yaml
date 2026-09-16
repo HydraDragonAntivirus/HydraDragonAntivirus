@@ -6,8 +6,5 @@ version: "1.0"
 #
 # Includes all detection rule categories.
 
-!include trusted_signers.yaml
 !include heuristic_rules.yaml
 !include ransomware_rules.yaml
-!include malicious_vendors.yaml
-!include pua_vendors.yaml

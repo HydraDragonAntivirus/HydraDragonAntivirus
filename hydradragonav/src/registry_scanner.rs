@@ -7,7 +7,67 @@ use winreg::RegKey;
 
 use crate::file_pum_scanner;
 use hydradragonsig::rules::RuleSet;
-use hydradragonsig::trusted_signers::PuaRegistryList;
+
+/// PUA registry key patterns loaded from reglist.txt.
+/// (Local copy: hydradragonsig no longer ships registry helpers —
+/// it is a pure file-content signature engine for openedr_static.)
+#[derive(Debug, Clone, Default)]
+pub struct PuaRegistryList {
+    patterns: Vec<PuaRegistryPattern>,
+}
+
+#[derive(Debug, Clone)]
+struct PuaRegistryPattern {
+    key: String,
+    hive: String,
+}
+
+impl PuaRegistryList {
+    /// Load from reglist.txt (UTF-8, pipe-delimited: `key|hive|path`).
+    pub fn load<P: AsRef<Path>>(path: P) -> Self {
+        let content = match std::fs::read_to_string(path.as_ref()) {
+            Ok(c) => c,
+            Err(_) => return Self { patterns: Vec::new() },
+        };
+
+        let patterns = content
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                if line.is_empty() {
+                    return None;
+                }
+                let parts: Vec<&str> = line.split('|').collect();
+                if parts.len() < 3 {
+                    return None;
+                }
+                Some(PuaRegistryPattern {
+                    key: parts[2].to_lowercase(),
+                    hive: parts[1].to_lowercase(),
+                })
+            })
+            .collect();
+
+        Self { patterns }
+    }
+
+    /// Check if a registry key path matches any PUA pattern.
+    pub fn is_pua(&self, hive: &str, key: &str) -> bool {
+        let lower_hive = hive.to_lowercase();
+        let lower_key = key.to_lowercase();
+        self.patterns.iter().any(|p| {
+            p.hive == lower_hive && lower_key.starts_with(&p.key)
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.patterns.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.patterns.is_empty()
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RegistryEntry {
@@ -270,13 +330,24 @@ impl RegistryScanner {
             None => return (false, None, false, None),
         };
 
-        let ctx = hydradragonsig::models::RegistryScanContext {
-            key: format!("{}\\{}", hive_name, rel_path),
-            value_name: Some(value_name.to_string()),
-            value_data: Some(value_bytes.to_vec()),
+        let key = format!("{}\\{}", hive_name, rel_path);
+        let value_name = value_name.to_string();
+        let mut bytes = Vec::with_capacity(
+            key.len() + value_name.len() + value_bytes.len() + 4,
+        );
+        bytes.extend_from_slice(key.as_bytes());
+        bytes.push(b'\n');
+        bytes.extend_from_slice(value_name.as_bytes());
+        bytes.push(b'\n');
+        bytes.extend_from_slice(value_bytes);
+
+        let ctx = hydradragonsig::models::MemoryScanContext {
+            buffer: bytes,
+            identifier: format!("registry/{}", key.replace('\\', "/")),
+            base_address: None,
         };
 
-        match hydradragonsig::scan_registry_key(
+        match hydradragonsig::scan_memory(
             &ctx,
             rules,
             &hydradragonsig::ScanOptions::default(),
@@ -294,9 +365,8 @@ impl RegistryScanner {
                         fam.starts_with("PUM.")
                     })
                 });
-                let expected = report.findings.first().and_then(|f| {
-                    f.expected_reverted_value.clone()
-                });
+                // hydradragonsig no longer carries remediation values.
+                let expected: Option<String> = None;
                 (detected, report.threat_name, is_pum, expected)
             }
             Err(_) => (false, None, false, None),

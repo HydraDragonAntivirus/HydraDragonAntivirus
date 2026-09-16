@@ -1,20 +1,22 @@
 use crate::models::{PeInfo, PeSectionInfo};
 use crate::utils::entropy::byte_entropy;
-use goblin::Object;
 use std::collections::HashSet;
 
 pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
-    let obj = Object::parse(bytes).ok()?;
-    let pe = match obj {
-        Object::PE(pe) => pe,
-        _ => return None,
-    };
+    let pe = pefile_rs::PE::parse(bytes).ok()?;
 
-    let imports: Vec<String> = pe
-        .imports
-        .iter()
-        .map(|imp| format!("{}!{}", imp.dll, imp.name))
-        .collect();
+    let mut imports: Vec<String> = Vec::new();
+    for dir in &pe.imports {
+        for sym in &dir.entries {
+            let name = sym.name.clone().unwrap_or_else(|| {
+                sym.ordinal.map(|o| format!("ord{o}")).unwrap_or_default()
+            });
+            if name.is_empty() {
+                continue;
+            }
+            imports.push(format!("{}!{}", dir.dll, name));
+        }
+    }
 
     let dlls: Vec<String> = imports
         .iter()
@@ -28,7 +30,7 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
     let mut sections = Vec::new();
     let mut suspicious_sections = Vec::new();
     for section in &pe.sections {
-        let name = section.name().unwrap_or("").trim_matches('\0').to_string();
+        let name = section.name.trim_matches('\0').to_string();
         let start = section.pointer_to_raw_data as usize;
         let size = section.size_of_raw_data as usize;
         let entropy = if start < bytes.len() {
@@ -61,19 +63,20 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
         || sections.iter().any(|s| s.name.starts_with("UPX"))
         || (sections.len() <= 3 && sections.iter().any(|s| s.entropy >= 7.40));
 
-    let time_date_stamp = pe.header.coff_header.time_date_stamp;
+    let time_date_stamp = pe.file_header.time_date_stamp;
 
     let exports: Vec<String> = pe
         .exports
         .iter()
-        .filter_map(|exp| exp.name.map(|n| n.to_string()))
+        .flat_map(|exp| exp.symbols.iter())
+        .filter_map(|sym| sym.name.clone())
         .collect();
 
     Some(PeInfo {
-        arch: if pe.is_64 { "x64".into() } else { "x86".into() },
-        is_64: pe.is_64,
-        entry: pe.entry as u64,
-        image_base: pe.image_base as u64,
+        arch: if pe.is_64bit { "x64".into() } else { "x86".into() },
+        is_64: pe.is_64bit,
+        entry: pe.optional_header.address_of_entry_point as u64,
+        image_base: pe.optional_header.image_base,
         imports,
         exports,
         dlls,

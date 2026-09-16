@@ -12,7 +12,6 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         json!(ctx.decoded_strings.len()),
     );
     features.insert("env_hit_count".into(), json!(ctx.env_hits.len()));
-    features.insert("registry_hit_count".into(), json!(ctx.registry_hits.len()));
     features.insert("file_entropy_bits_per_byte".into(), json!(ctx.entropy));
     features.insert("file_type_primary".into(), json!(&ctx.file_type.primary));
     features.insert("file_type_tags".into(), json!(&ctx.file_type.tags));
@@ -49,7 +48,6 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         strings: ctx.strings,
         decoded_strings: ctx.decoded_strings,
         env_hits: ctx.env_hits,
-        registry_hits: ctx.registry_hits,
         features,
         findings: Vec::new(),
         score: 0,
@@ -61,7 +59,6 @@ pub fn build_report(ctx: ScanContext) -> ScanReport {
         statistics: ctx.statistics,
         archive_members: Vec::new(),
         threat_name: None,
-        signature: ctx.signature,
         mitre_techniques: Vec::new(), // Initialize empty - will be populated by rule engine
     }
 }

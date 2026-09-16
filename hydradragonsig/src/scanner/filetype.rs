@@ -1,7 +1,6 @@
 use crate::models::FileTypeInfo;
 use crate::utils::entropy::byte_entropy;
 use anyhow::{Context, Result};
-use goblin::Object;
 use std::io::Cursor;
 use std::path::Path;
 use zip::ZipArchive;
@@ -469,40 +468,23 @@ fn mark_script(info: &mut FileTypeInfo, script_type: &str) {
 
 fn inspect_binary_formats(data: &[u8]) -> BinaryFormatValidation {
     let mut validation = BinaryFormatValidation::default();
-    match Object::parse(data) {
-        Ok(Object::PE(_)) => {
-            validation.pe = FormatValidation::Valid;
-            validation.pe_type = pe_file_type(data).or_else(|| Some("PE".to_string()));
-        }
-        Ok(Object::Elf(_)) => {
-            validation.elf = FormatValidation::Valid;
-            validation.elf_type = elf_file_type(data).or_else(|| Some("ELF".to_string()));
-        }
-        Ok(Object::Mach(_)) => {
-            validation.macho = FormatValidation::Valid;
-        }
-        Ok(_) | Err(_) => {
-            // goblin parse failed — use magic-based fallback.
-            // ELF files that goblin cannot fully parse (stripped, unusual headers,
-            // non-standard section counts) are still valid ELF binaries from the
-            // OS perspective. Mark them Valid so they don't receive broken_executable
-            // tags that confuse detection rules.
-            // Only PE and Mach-O stay as Broken since truncated/corrupt PE/Mach-O
-            // is genuinely anomalous.
-            if has_pe_magic(data) {
-                validation.pe = FormatValidation::Broken;
-                validation.broken_type = Some("PE".to_string());
-                validation.pe_type = pe_file_type(data);
-            } else if has_elf_magic(data) {
-                // Treat as valid ELF — goblin may not support all ELF variants
-                // (RISC-V, LoongArch, custom e_type values, etc.)
-                validation.elf = FormatValidation::Valid;
-                validation.elf_type = elf_file_type(data).or_else(|| Some("ELF".to_string()));
-            } else if has_macho_magic(data) {
-                validation.macho = FormatValidation::Broken;
-                validation.broken_type = Some("Mach-O".to_string());
-            }
-        }
+    // PE is validated with the project's own pefile-rs parser (no goblin).
+    // ELF/Mach-O have no parser on board: keep the previous lenient policy —
+    // ELF magic alone counts as Valid, Mach-O magic alone counts as Broken
+    // (same as unparseable images before).
+    if pefile_rs::PE::parse(data).is_ok() {
+        validation.pe = FormatValidation::Valid;
+        validation.pe_type = pe_file_type(data).or_else(|| Some("PE".to_string()));
+    } else if has_pe_magic(data) {
+        validation.pe = FormatValidation::Broken;
+        validation.broken_type = Some("PE".to_string());
+        validation.pe_type = pe_file_type(data);
+    } else if has_elf_magic(data) {
+        validation.elf = FormatValidation::Valid;
+        validation.elf_type = elf_file_type(data).or_else(|| Some("ELF".to_string()));
+    } else if has_macho_magic(data) {
+        validation.macho = FormatValidation::Broken;
+        validation.broken_type = Some("Mach-O".to_string());
     }
 
     validation.apk = inspect_apk_bytes(data);

@@ -1,6 +1,6 @@
 use super::types::*;
 use crate::models::{Finding, MitreTechnique, RulePerformance, ScanReport, Verdict};
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use daachorse::DoubleArrayAhoCorasick;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
 use memchr::memmem;
@@ -72,9 +72,10 @@ static REGEX_CACHE: Lazy<Mutex<HashMap<String, Arc<Regex>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static BYTE_PATTERN_CACHE: Lazy<Mutex<HashMap<String, Arc<CompiledBytePattern>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-static STRING_SET_CACHE: Lazy<Mutex<HashMap<String, Arc<AhoCorasick>>>> =
+static STRING_SET_CACHE: Lazy<Mutex<HashMap<String, Arc<DoubleArrayAhoCorasick<u32>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-/// Cache for XOR text atoms: key = "<atom_cache_key>" → AhoCorasick with all key variants pre-built.
+/// Cache for XOR text atoms: key = "<atom_cache_key>" → daachorse automaton with all key variants pre-built.
+/// Patterns are stored as raw bytes (Vec<u8>), value = pattern index → (xor_key, variant_label_index).
 /// Patterns are stored as raw bytes (Vec<u8>), indexed so PatternID → (xor_key, variant_label_index).
 static XOR_TEXT_AC_CACHE: Lazy<Mutex<HashMap<String, Arc<XorTextAc>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -91,11 +92,11 @@ fn cached_regex(pattern: &str) -> Option<Arc<Regex>> {
     Some(compiled)
 }
 
-/// Pre-built Aho-Corasick automaton for a single XOR text atom.
+/// Pre-built daachorse automaton for a single XOR text atom.
 /// `meta[i]` = `(xor_key, variant_label)` for the i-th pattern in the automaton.
-#[derive(Debug)]
+/// (No Debug: `DoubleArrayAhoCorasick` doesn't implement it; cached by key.)
 struct XorTextAc {
-    ac: AhoCorasick,
+    ac: DoubleArrayAhoCorasick<u32>,
     meta: Vec<(u8, &'static str)>,
 }
 
@@ -141,7 +142,12 @@ fn build_xor_text_ac(atom: &SignatureAtom) -> Option<Arc<XorTextAc>> {
         return None;
     }
 
-    let ac = AhoCorasickBuilder::new().build(patterns).ok()?;
+    let patvals: Vec<(Vec<u8>, u32)> = patterns
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| (p, i as u32))
+        .collect();
+    let ac = DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()?;
 
     let built = Arc::new(XorTextAc { ac, meta });
     XOR_TEXT_AC_CACHE.lock().ok()?.insert(key, built.clone());
@@ -160,7 +166,7 @@ fn cached_byte_pattern(pattern: &str) -> Option<Arc<CompiledBytePattern>> {
     Some(compiled)
 }
 
-fn cached_literal_set(values: &[String], nocase: bool) -> Option<Arc<AhoCorasick>> {
+fn cached_literal_set(values: &[String], nocase: bool) -> Option<Arc<DoubleArrayAhoCorasick<u32>>> {
     if values.is_empty() {
         return None;
     }
@@ -176,7 +182,19 @@ fn cached_literal_set(values: &[String], nocase: bool) -> Option<Arc<AhoCorasick
     } else {
         values.to_vec()
     };
-    let compiled = Arc::new(AhoCorasickBuilder::new().build(patterns).ok()?);
+    // value = index into `values` so match results map back to the rule literal.
+    // Empty patterns are skipped (they would match everywhere); their `seen`
+    // slot simply never fires.
+    let patvals: Vec<(Vec<u8>, u32)> = patterns
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| !p.is_empty())
+        .map(|(i, p)| (p.as_bytes().to_vec(), i as u32))
+        .collect();
+    if patvals.is_empty() {
+        return None;
+    }
+    let compiled = Arc::new(DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()?);
     STRING_SET_CACHE.lock().ok()?.insert(key, compiled.clone());
     Some(compiled)
 }
@@ -388,14 +406,6 @@ fn warm_rule_caches(rule: &Rule) {
             } => {
                 let _ = cached_literal_set(values, *nocase);
             }
-            RuleCondition::RegistryPattern { pattern, nocase } => {
-                let pattern = if *nocase {
-                    format!("(?i){}", pattern)
-                } else {
-                    pattern.clone()
-                };
-                let _ = cached_regex(&pattern);
-            }
             RuleCondition::BytePattern { pattern } => {
                 let _ = cached_byte_pattern(pattern);
             }
@@ -419,7 +429,7 @@ fn warm_rule_caches(rule: &Rule) {
                             let _ = cached_byte_pattern(&atom.value);
                         }
                         SignatureAtomKind::Text => {
-                            // Pre-build the XOR Aho-Corasick automaton at rule load time
+                            // Pre-build the XOR daachorse automaton at rule load time
                             // so the first scan pays zero construction cost.
                             if atom.xor {
                                 let _ = build_xor_text_ac(atom);
@@ -507,7 +517,6 @@ fn evaluate_one_rule(
                 family: rule.family.clone(),
                 evidence,
                 mitre,
-                expected_reverted_value: rule.expected_reverted_value.clone(),
             }
         })
     };
@@ -842,95 +851,11 @@ fn evaluate_condition(
             (report.env_hits.len() >= threshold)
                 .then(|| format!("env_hits={} >= {}", report.env_hits.len(), threshold))
         }
-        RuleCondition::RegistryPattern { pattern, nocase } => {
-            let compiled_pattern = if *nocase {
-                format!("(?i){}", pattern)
-            } else {
-                pattern.clone()
-            };
-            let compiled = cached_regex(&compiled_pattern)?;
-            report
-                .registry_hits
-                .iter()
-                .find(|hit| compiled.is_match(&hit.key_or_value))
-                .map(|hit| format!("registry_pattern matched {}", hit.key_or_value))
-        }
-        RuleCondition::RegistryHitCount { min } => {
-            (report.registry_hits.len() >= *min).then(|| {
-                format!(
-                    "registry_hit_count={} >= {}",
-                    report.registry_hits.len(),
-                    min
-                )
-            })
-        }
         RuleCondition::PathRegex { pattern } => {
             let re = cached_regex(pattern)?;
             let path = report.path.to_string_lossy();
             re.is_match(&path)
                 .then(|| format!("path_regex matched {}", path))
-        }
-        RuleCondition::SignatureSignerContains { value, nocase } => {
-            if value.is_empty() {
-                return None;
-            }
-            let signature = report.signature.as_ref()?;
-            let signer_name = signature.signer_name.as_ref()?;
-            let matched = if *nocase {
-                signer_name.to_lowercase().contains(&value.to_lowercase())
-            } else {
-                signer_name.contains(value)
-            };
-            matched.then(|| {
-                format!(
-                    "signature_signer_contains `{}` matched `{}`",
-                    truncate_for_evidence(value, 120),
-                    truncate_for_evidence(signer_name, 120)
-                )
-            })
-        }
-        RuleCondition::SignatureIsSigned { value } => {
-            let sig = report.signature.as_ref()?;
-            (sig.is_signed == *value).then(|| {
-                format!("signature_is_signed={} matched", sig.is_signed)
-            })
-        }
-        RuleCondition::SignatureInvalid => {
-            let sig = report.signature.as_ref()?;
-            sig.invalid_signature.then(|| {
-                format!(
-                    "signature_invalid: is_signed={} invalid_signature=true HRESULT=0x{:08X}",
-                    sig.is_signed, sig.raw_hresult
-                )
-            })
-        }
-        RuleCondition::SignatureVerificationFailed => {
-            let sig = report.signature.as_ref()?;
-            sig.verification_failed.then(|| {
-                format!(
-                    "signature_verification_failed: is_signed={} HRESULT=0x{:08X}",
-                    sig.is_signed, sig.raw_hresult
-                )
-            })
-        }
-        RuleCondition::SignatureAnyIssue => {
-            let sig = report.signature.as_ref()?;
-            let bad = sig.invalid_signature || sig.verification_failed || sig.signature_status_issues;
-            bad.then(|| {
-                format!(
-                    "signature_any_issue: invalid={} verification_failed={} status_issues={} HRESULT=0x{:08X}",
-                    sig.invalid_signature, sig.verification_failed, sig.signature_status_issues, sig.raw_hresult
-                )
-            })
-        }
-        RuleCondition::SignatureHresultIn { values } => {
-            let sig = report.signature.as_ref()?;
-            values.contains(&sig.raw_hresult).then(|| {
-                format!(
-                    "signature_hresult_in: HRESULT=0x{:08X} matched rule list",
-                    sig.raw_hresult
-                )
-            })
         }
         RuleCondition::FileType { values } => values
             .iter()
@@ -1014,8 +939,8 @@ fn match_string_set_literals(
         } else {
             hit.value.as_str()
         };
-        for mat in ac.find_overlapping_iter(hay) {
-            let pattern_id = mat.pattern().as_usize();
+        for mat in ac.find_overlapping_iter(hay.as_bytes()) {
+            let pattern_id = mat.value() as usize;
             if pattern_id >= seen.len() || seen[pattern_id] {
                 continue;
             }
@@ -1071,8 +996,8 @@ fn match_string_set_literals(
             } else {
                 hit.decoded.as_str()
             };
-            for mat in ac.find_overlapping_iter(hay) {
-                let pattern_id = mat.pattern().as_usize();
+            for mat in ac.find_overlapping_iter(hay.as_bytes()) {
+                let pattern_id = mat.value() as usize;
                 if pattern_id >= seen.len() || seen[pattern_id] {
                     continue;
                 }
@@ -1424,11 +1349,11 @@ fn match_text_atom(
 
     if atom.xor {
         // YARA-equivalent approach: all XOR key variants are pre-built into a single
-        // Aho-Corasick automaton at rule load time. A single O(file_len) scan finds
+        // daachorse automaton at rule load time. A single O(file_len) scan finds
         // the first matching variant regardless of the key range size, instead of
         // performing O(range × file_len) searches with per-key allocations.
         if let Some(xor_ac) = build_xor_text_ac(atom) {
-            // fullword check: AC finds the match position; we then verify word-boundary
+            // fullword check: daachorse finds the match position; we then verify word-boundary
             // constraints post-match so AC stays fast (no per-byte fullword logic needed
             // inside the automaton itself).
             let search_result = if atom.fullword {
@@ -1439,11 +1364,11 @@ fn match_text_atom(
                     byte_word_boundary_at(bytes, start, len)
                 })
             } else {
-                xor_ac.ac.find(bytes)
+                xor_ac.ac.find_iter(bytes).next()
             };
 
             if let Some(mat) = search_result {
-                let pid = mat.pattern().as_usize();
+                let pid = mat.value() as usize;
                 let (key, label) = xor_ac.meta.get(pid).copied().unwrap_or((0, "xor"));
                 out.matched = true;
                 out.offsets.push(mat.start());
@@ -1553,20 +1478,20 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
             let (lo, hi) = xor_key_range(atom);
 
             // Fast path: if all tokens are exact (no wildcards) the XOR'd pattern is a
-            // plain byte string. Build one Aho-Corasick automaton for all key variants
+            // plain byte string. Build one daachorse automaton for all key variants
             // and do a single O(file_len) pass — same strategy as text XOR above.
             if pattern.tokens.iter().all(|t| t.mask == 0xff) {
                 let plain: Vec<u8> = pattern.tokens.iter().map(|t| t.value).collect();
-                let mut variants: Vec<Vec<u8>> = Vec::with_capacity((hi - lo + 1) as usize);
-                let mut keys: Vec<u8> = Vec::with_capacity(variants.capacity());
+                let mut patvals: Vec<(Vec<u8>, u32)> = Vec::with_capacity((hi - lo + 1) as usize);
+                let mut keys: Vec<u8> = Vec::with_capacity(patvals.capacity());
                 for k in lo..=hi {
                     let encoded: Vec<u8> = plain.iter().map(|b| b ^ k).collect();
-                    variants.push(encoded);
+                    patvals.push((encoded, keys.len() as u32));
                     keys.push(k);
                 }
-                if let Ok(ac) = AhoCorasickBuilder::new().build(&variants) {
-                    if let Some(mat) = ac.find(bytes) {
-                        let key = keys[mat.pattern().as_usize()];
+                if let Ok(ac) = DoubleArrayAhoCorasick::<u32>::with_values(patvals) {
+                    if let Some(mat) = ac.find_iter(bytes).next() {
+                        let key = keys[mat.value() as usize];
                         out.matched = true;
                         out.offsets.push(mat.start());
                         out.evidence.push(format!(

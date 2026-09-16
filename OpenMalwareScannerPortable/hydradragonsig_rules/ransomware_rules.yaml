@@ -1,0 +1,123 @@
+name: Ransomware Detection Rules
+version: "1.0"
+# Unified ransomware detection: combines crypto API import analysis AND ransom
+# note string matching in a single rule with `logic: all`. Neither signal alone
+# is sufficient — Kaspersky Removal Tool (KRT) uses ransom strings to detect ransom 
+# but carries no ransom API, so it will NOT match.
+#
+# API coverage targets the full crypto pipeline:
+#   acquire/open → key-setup → encrypt/export
+# across advapi32, bcrypt, ncrypt, and ntdll.
+#
+# String matching uses Aho-Corasick (hydradragonsig's cached_literal_set) for
+# fast multi-pattern scan. Both conditions must fire to produce a finding.
+rules:
+  - id: RANSOM_0001
+    title: "Ransomware — Encryption APIs + Ransom Strings"
+    description: >
+      File contains both 2+ distinct encryption API imports (advapi32/bcrypt/
+      ncrypt/ntdll) AND 2+ ransom-note string patterns.  Benign software and
+      security tools (KRT, Windows Defender, etc.) may contain one of them but
+      DO NOT contain both of them.  Ransomware is the only class that combines
+      a full crypto pipeline with extortion messages.
+    severity: critical
+    verdict: malware
+    confidence: 90
+    family: Ransom.Generic
+    score: 99
+    tags:
+      - ransomware
+      - encryption
+      - crypto-api
+      - ransom-strings
+    mitre:
+      - id: T1486
+        name: Data Encrypted for Impact
+        tactic: Impact
+    logic: all
+    conditions:
+      - type: import_set
+        min: 2
+        names:
+          # advapi32
+          - "!CryptAcquireContextA"
+          - "!CryptAcquireContextW"
+          - "!CryptGenKey"
+          - "!CryptEncrypt"
+          - "!CryptDecrypt"
+          - "!CryptHashData"
+          - "!CryptExportKey"
+          - "!CryptImportKey"
+          - "!CryptCreateHash"
+          - "!CryptSetKeyParam"
+          - "!CryptDeriveKey"
+          - "!CryptGetKeyParam"
+          - "!CryptGetHashParam"
+          - "!SystemFunction036"
+          # bcrypt
+          - "!BCryptOpenAlgorithmProvider"
+          - "!BCryptGenerateKeyPair"
+          - "!BCryptEncrypt"
+          - "!BCryptDecrypt"
+          - "!BCryptImportKey"
+          - "!BCryptImportKeyPair"
+          - "!BCryptExportKey"
+          - "!BCryptDeriveKey"
+          - "!BCryptFinalizeKeyPair"
+          - "!BCryptGenerateSymmetricKey"
+          - "!BCryptCloseAlgorithmProvider"
+          - "!BCryptSetProperty"
+          - "!BCryptSecretAgreement"
+          # ncrypt
+          - "!NCryptEncrypt"
+          - "!NCryptDecrypt"
+          - "!NCryptImportKey"
+          - "!NCryptCreatePersistedKey"
+          - "!NCryptExportKey"
+          - "!NCryptSignHash"
+          - "!NCryptSecretAgreement"
+          - "!NCryptDeriveKey"
+          - "!NCryptFinalizeKey"
+          # ntdll
+          - "!RtlEncryptMemory"
+          - "!RtlDecryptMemory"
+
+      - type: string_set
+        min: 2
+        nocase: true
+        values:
+          - "install tor browser"
+          - "download tor"
+          - "decrypt your files"
+          - "your company is fully"
+          - "recover your files"
+          - "files were encrypted"
+          - "files will be decrypted"
+          - "contact us"
+          - "decrypt 1 file"
+          - "has been encrypted"
+          - "contact information"
+          - "pay the ransom"
+          - "decryption id"
+          - "are encrypted"
+          - "your files"
+          - "encryption key"
+          - "ransom"
+          - "decryptor"
+          - "bitcoin"
+          - "monero"
+          - "private key"
+          - "your data"
+          - "stolen data"
+          - "leak"
+          - "how to decrypt"
+          - "your documents"
+          - "personal files"
+          - "all your files"
+          - "file encryption"
+          - "data encryption"
+          - "recover data"
+          - "payment"
+          - "decrypt tool"
+          - "tor browser"
+          - "secret key"

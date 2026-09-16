@@ -65,13 +65,6 @@ pub struct Rule {
     pub threshold: Option<usize>,
     #[serde(default)]
     pub conditions: Vec<RuleCondition>,
-    /// The safe/default value that should be restored when this rule matches a
-    /// registry-based PUM (Potentially Unwanted Modification). For example,
-    /// DisableTaskMgr=1 should be reverted to "0", UAC disabled (=0) to "1".
-    /// This is propagated through the Finding so remediation tools know what
-    /// to write back.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expected_reverted_value: Option<String>,
 
     /// File types this rule can match against, inferred from its conditions.
     /// `None` = all file types. Populated automatically during loading.
@@ -101,15 +94,9 @@ impl Rule {
                 | RuleCondition::DllAny { .. }
                 | RuleCondition::DllRegex { .. }
                 | RuleCondition::SuspiciousImportCount { .. }
-                | RuleCondition::SectionEntropy { .. }
+                |                 RuleCondition::SectionEntropy { .. }
                 | RuleCondition::SectionNameRegex { .. }
-                | RuleCondition::PackedPe
-                | RuleCondition::SignatureSignerContains { .. }
-                | RuleCondition::SignatureIsSigned { .. }
-                | RuleCondition::SignatureInvalid
-                | RuleCondition::SignatureVerificationFailed
-                | RuleCondition::SignatureAnyIssue
-                | RuleCondition::SignatureHresultIn { .. } => {
+                | RuleCondition::PackedPe => {
                     if !types.contains(&"pe".to_string()) {
                         types.push("pe".to_string());
                     }
@@ -290,47 +277,8 @@ pub enum RuleCondition {
         #[serde(default)]
         min: usize,
     },
-    RegistryPattern {
-        pattern: String,
-        #[serde(default)]
-        nocase: bool,
-    },
-    RegistryHitCount {
-        min: usize,
-    },
     PathRegex {
         pattern: String,
-    },
-
-    SignatureSignerContains {
-        value: String,
-        #[serde(default)]
-        nocase: bool,
-    },
-
-    /// Fires when the file has a digital signature present (`is_signed = true`).
-    /// Use `value: false` to detect unsigned files.
-    SignatureIsSigned {
-        value: bool,
-    },
-
-    /// Fires when WinVerifyTrust returns a hard failure for the embedded signature
-    /// (authenticode hash mismatch, revoked cert, tampered binary).
-    SignatureInvalid,
-
-    /// Fires when WinVerifyTrust returns a soft verification failure
-    /// (expired timestamp counter-signature, chain build error, etc.).
-    SignatureVerificationFailed,
-
-    /// Fires when any of the three bad-signature flags is set:
-    /// `invalid_signature || verification_failed || signature_status_issues`.
-    SignatureAnyIssue,
-
-    /// Fires when the raw WinVerifyTrust HRESULT matches one of the given hex values.
-    /// Use to target specific failure codes such as 0x800B0101 (CERT_E_EXPIRED),
-    /// 0x800B010A (CERT_E_CHAINING), 0x800B0109 (CERT_E_UNTRUSTEDROOT), etc.
-    SignatureHresultIn {
-        values: Vec<u32>,
     },
 
     /// Match file type tags produced by the native DetectItEasy-style classifier.

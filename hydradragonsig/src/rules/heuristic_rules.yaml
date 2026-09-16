@@ -245,7 +245,7 @@ rules:
     tags: [hosts-file, dns-redirect, persistence, traffic-redirect]
     mitre:
       - id: T1562.010
-        name: Downgrade Attack: Disable Security Tools
+        name: "Downgrade Attack: Disable Security Tools"
         tactic: Defense Evasion
     logic: all
     conditions:
@@ -280,7 +280,7 @@ rules:
     tags: [masquerading, process-spoof, suspicious-name]
     mitre:
       - id: T1036.005
-        name: Masquerading: Match Legitimate Name or Location
+        name: "Masquerading: Match Legitimate Name or Location"
         tactic: Defense Evasion
     conditions:
       - type: path_regex

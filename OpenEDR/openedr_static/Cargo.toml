@@ -25,6 +25,7 @@ yara-x = "1.20"
 url = "2.5"
 
 # Local engines & parsers
+hydradragonsig = { path = "../../hydradragonsig", default-features = false }
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
 hydradragonextractor = { path = "../owlyshield_predict/hydradragonextractor" }
 hydradragonunicorn = { path = "../../hydradragonunicorn" }

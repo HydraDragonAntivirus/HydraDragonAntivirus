@@ -17,14 +17,14 @@ cli = ["dep:clap", "dep:colored", "dep:env_logger", "dep:indicatif"]
 
 [dependencies]
 anyhow = "1.0.102"
-aho-corasick = "1.1.4"
+daachorse = "5.0.0"
 base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive"], optional = true }
 colored = { version = "3.1.1", optional = true }
 digest = "0.11.3"
 env_logger = { version = "0.11.10", optional = true }
-goblin = "0.10.5"
+pefile-rs = { path = "../pefile-rs" }
 hex = "0.4.3"
 indicatif = { version = "0.18.4", optional = true }
 log = "0.4.29"
@@ -39,13 +39,6 @@ sha2 = "0.11.0"
 thiserror = "2.0.18"
 walkdir = "2.5.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
-
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
-    "Win32_Foundation",
-    "Win32_Security_Cryptography",
-    "Win32_Security_WinTrust",
-] }
 
 [profile.release]
 opt-level = 3

@@ -1,12 +1,11 @@
 pub mod env;
 pub mod filetype;
 pub mod pe;
-pub mod registry;
 pub mod strings;
 
 use crate::models::{
     ArchiveMemberResult, CoreInitOptions, DecodedString, EnvHit, FileTypeInfo, MemoryScanContext,
-    PeInfo, RegistryHit, ScanResultCode, ScanStatistics, StringHit, UnpackConfig,
+    PeInfo, ScanResultCode, ScanStatistics, StringHit, UnpackConfig,
 };
 use crate::utils::{entropy::byte_entropy, hash::hashes};
 use anyhow::{Context, Result};
@@ -29,10 +28,8 @@ pub struct ScanContext {
     pub strings: Vec<StringHit>,
     pub decoded_strings: Vec<DecodedString>,
     pub env_hits: Vec<EnvHit>,
-    pub registry_hits: Vec<RegistryHit>,
     pub statistics: ScanStatistics,
     pub result_code: ScanResultCode,
-    pub signature: Option<crate::signature_verification::SignatureInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -183,15 +180,6 @@ impl HydraScanner {
             filetype::classify_bytes(&path, &bytes)
         };
         let env_hits = env::scan_environment(&strings, &decoded_strings);
-        let registry_hits =
-            registry::scan_registry_indicators(&strings, &decoded_strings, pe.as_ref());
-
-        // Verify digital signature
-        let signature = if path.exists() {
-            Some(crate::signature_verification::verify_signature(&path))
-        } else {
-            None
-        };
 
         let scan_duration_ms = start_time.elapsed().as_millis() as u64;
         let is_container = file_type.is_archive || file_type.is_zip || file_type.is_7z;
@@ -217,10 +205,8 @@ impl HydraScanner {
             strings,
             decoded_strings,
             env_hits,
-            registry_hits,
             statistics,
             result_code: ScanResultCode::Ok,
-            signature,
         })
     }
 }
@@ -228,6 +214,5 @@ impl HydraScanner {
 fn is_virtual_scan_path(path: &Path) -> bool {
     let text = path.to_string_lossy();
     text.starts_with("memory://")
-        || text.starts_with("registry://")
         || text.starts_with("archive://")
 }
