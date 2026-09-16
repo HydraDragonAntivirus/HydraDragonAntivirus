@@ -239,7 +239,7 @@ pub fn verify_authenticode(path: &Path) -> (bool, bool, Option<String>, String, 
     // (Ported from owlyshield signature_verification.rs; extension gate removed.)
     let mut is_catalog_signed = false;
     if !is_trusted {
-        if let Some(catalog_signer) = verify_catalog_signature(&path_wide) {
+        if let Some(catalog_signer) = unsafe { verify_catalog_signature(&path_wide) } {
             is_catalog_signed = true;
             is_trusted = true;
             if signer_name.is_none() {
@@ -320,7 +320,7 @@ unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
             None,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,
-            HANDLE::default(),
+            Some(HANDLE::default()),
         ) {
             Ok(h) => h,
             Err(_) => return None,
