@@ -1,0 +1,139 @@
+rules:
+  - id: "DISCORD_WEBHOOK_ABUSE"
+    title: "Discord Webhook Abuse"
+    description: "Discord webhook endpoint detected - frequently abused by malware for C2 and data exfiltration"
+    severity: "Suspicious"
+    score: 75
+    override_whitelist: true
+    conditions:
+      url_regex: "(?i)discord(?:app)?\\.com/api/webhooks/"
+
+  - id: "TELEGRAM_BOT_API_ABUSE"
+    title: "Telegram Bot API Abuse"
+    description: "Telegram Bot API endpoint detected - frequently abused by malware for command-and-control"
+    severity: "Suspicious"
+    score: 75
+    override_whitelist: true
+    conditions:
+      url_regex: "(?i)api\\.telegram\\.org/bot[0-9]+:[a-zA-Z0-9_\\-]+"
+
+  - id: "TELEGRAM_INVITE_LINK"
+    title: "Telegram Invite Link"
+    description: "Telegram invite or channel redirect endpoint"
+    severity: "Suspicious"
+    score: 55
+    conditions:
+      url_regex: "(?i)(?:telegram\\.me|t\\.me)/(?:joinchat|\\+[a-zA-Z0-9_\\-]+)"
+
+  - id: "FTP_UNENCRYPTED_SCHEME"
+    title: "Unencrypted FTP Scheme"
+    description: "FTP/SFTP protocol detected - unencrypted legacy file transfer frequently hosting malware payloads"
+    severity: "Suspicious"
+    score: 65
+    conditions:
+      scheme:
+        - "ftp"
+        - "sftp"
+        - "tftp"
+
+  - id: "ANOMALOUS_PROTOCOL_SCHEME"
+    title: "Anomalous Protocol Scheme"
+    description: "Non-standard or dangerous protocol scheme"
+    severity: "Suspicious"
+    score: 70
+    conditions:
+      scheme:
+        - "file"
+        - "data"
+        - "blob"
+        - "ws"
+        - "wss"
+
+  - id: "EXECUTABLE_DROPPER_EXTENSION"
+    title: "Executable Dropper Payload"
+    description: "Direct download link for Windows executable, script, or disk image dropper"
+    severity: "Malicious"
+    score: 90
+    conditions:
+      path_regex: "(?i)\\.(?:exe|scr|bat|cmd|ps1|vbs|vbe|js|jse|wsf|hta|iso|img|vhd|dll|sys|cpl|pif|reg)(?:\\?.*)?$"
+
+  - id: "ARCHIVE_DROPPER_EXTENSION"
+    title: "Archive Dropper Payload"
+    description: "Direct archive download link - potential packed malware dropper"
+    severity: "Suspicious"
+    score: 60
+    conditions:
+      path_regex: "(?i)\\.(?:zip|rar|7z|tar\\.gz|apk)(?:\\?.*)?$"
+
+  - id: "PHISHING_CREDENTIAL_HARVESTING"
+    title: "Phishing & Credential Harvesting Pattern"
+    description: "High-risk credential harvesting or authentication keywords in URL path"
+    severity: "Suspicious"
+    score: 50
+    skip_if_whitelisted: true
+    conditions:
+      path_regex: "(?i)(?:login|signin|log-in|sign-in|account|verify|verification|secure|update|recover|wallet|metamask|binance|banking|auth|token|session|billing|paypal|netflix|microsoft|appleid)"
+
+  - id: "SUSPICIOUS_C2_PORT"
+    title: "Suspicious Network Port"
+    description: "Non-standard network port frequently associated with reverse shells or C2 traffic"
+    severity: "Suspicious"
+    score: 70
+    conditions:
+      ports:
+        - 4444
+        - 1337
+        - 6667
+        - 31337
+        - 5555
+        - 8888
+        - 9999
+        - 8000
+        - 8081
+
+  - id: "NUMERIC_RAW_IP_HOST"
+    title: "Numeric Raw IP Host"
+    description: "URL targets raw numeric IP address directly instead of a verified domain name"
+    severity: "Suspicious"
+    score: 55
+    skip_if_whitelisted: true
+    conditions:
+      is_ip: true
+
+  - id: "HIGH_RISK_TLD"
+    title: "High Risk Top Level Domain"
+    description: "Host registered under high-abuse top level domain"
+    severity: "Suspicious"
+    score: 45
+    skip_if_whitelisted: true
+    conditions:
+      tlds:
+        - ".top"
+        - ".xyz"
+        - ".buzz"
+        - ".click"
+        - ".loan"
+        - ".work"
+        - ".gdn"
+        - ".racing"
+        - ".surf"
+        - ".icu"
+        - ".monster"
+
+  - id: "OBFUSCATED_QUERY_PAYLOAD"
+    title: "Obfuscated / Base64 Query Payload"
+    description: "High-entropy Base64 or encoded payload in URL query parameter"
+    severity: "Suspicious"
+    score: 65
+    conditions:
+      query_regex: "(?i)(?:payload|cmd|exec|data|token|q)=([A-Za-z0-9+/=]{30,})"
+
+  - id: "CIDR_BLACKLIST_SUBNET"
+    title: "Blacklisted Malicious CIDR Subnet"
+    description: "Host IP falls within a known malware/C2/phishing IPv4/IPv6 CIDR subnet (CIDRBlackList)"
+    severity: "Malicious"
+    score: 95
+    override_whitelist: true
+    conditions:
+      cidr_blacklisted: true
+

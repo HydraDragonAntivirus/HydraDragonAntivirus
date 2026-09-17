@@ -75,23 +75,9 @@ function exportHist() {
 }
 
 /* ---------- wasm plumbing ---------- */
-function stubNamespace(calls) {
-  return new Proxy(Object.create(null), {
-    get: (t, p) => {
-      if (typeof p !== 'string') return undefined;
-      if (calls && Object.prototype.hasOwnProperty.call(calls, p)) return calls[p];
-      if (p.toLowerCase().includes('now')) return () => Date.now();
-      return (...a) => { throw new Error('unreachable wasm-bindgen stub called: ' + p); };
-    },
-  });
-}
-const WASM_IMPORTS = {
-  __wbindgen_placeholder__: stubNamespace(),
-  __wbindgen_externref_xform__: stubNamespace(),
-};
 async function loadWasm() {
-  const bytes = await (await fetch('openedr_web.wasm')).arrayBuffer();
-  wasm = (await WebAssembly.instantiate(bytes, WASM_IMPORTS)).instance.exports;
+  const bytes = await (await fetch('openedr_web_bg.wasm')).arrayBuffer();
+  wasm = await wasm_bindgen(bytes);
 }
 
 function writeBytes(u8) {
@@ -288,26 +274,38 @@ function mergeVerdict(base, extra) {
 function render(rep, el) {
   if (rep.target_url) {
     const isWl = rep.whitelisted;
-    const lv = rep.liveness;
+    const isBypassed = rep.whitelist_bypassed;
+    const lv = rep.liveness_obj || (rep.liveness ? { status: rep.liveness } : null);
     let lvBadge = '';
     if (lv) {
       if (lv.status === 'ACTIVE') {
         lvBadge = `<span style="color:#38bdf8;font-weight:600;margin-left:8px">🌐 Online (${lv.http === 'ONLINE' ? 'HTTP Reachable' : 'DNS Active'})</span>`;
       } else if (lv.status === 'INACTIVE') {
-        lvBadge = `<span style="color:#f59e0b;font-weight:600;margin-left:8px">⚠️ Inactive / Dead Domain (NXDOMAIN)</span>`;
+        lvBadge = `<span style="color:#f59e0b;font-weight:600;margin-left:8px">⚠️ Inactive / Dead (NXDOMAIN)</span>`;
       } else {
         lvBadge = `<span style="color:#94a3b8;font-weight:600;margin-left:8px">⚠️ Host Unreachable</span>`;
       }
     }
-    const fpBadge = rep.inactive_fp_mitigated
-      ? `<div style="color:#f59e0b;font-size:12px;margin-top:4px">⚠️ Domain is offline/unreachable. Threat score downgraded to prevent False Positive.</div>`
+    const wlBadge = isBypassed
+      ? `<span style="color:#ffb454;font-weight:bold;margin-left:8px">⚠️ Whitelist Bypassed (C2/Webhook Rule)</span>`
+      : (isWl ? `<span style="color:#4cc38a;font-weight:bold;margin-left:8px">✓ Whitelisted (Tranco 1M / CIDR Subnet)</span>` : '');
+
+    const dets = (rep.detections || []).map((d) =>
+      `<tr><td><code>${d.rule_id || d.layer || ''}</code></td><td><code>${d.title || d.name || ''}</code></td>` +
+      `<td>${d.score ?? ''}</td><td><code>${(d.details || '').slice(0, 180)}</code></td></tr>`).join('');
+
+    const reasonBlock = rep.verdict_reason
+      ? `<div style="color:#dbe2f1;font-size:13px;margin:8px 0 6px"><strong>Final Verdict:</strong> ${rep.verdict_reason}</div>`
       : '';
+
     el.innerHTML =
       `<div>Verdict: <span class="badge ${rep.verdict}">${rep.verdict}</span> ` +
-      `${isWl ? '<span style="color:#4cc38a;font-weight:bold;margin-left:8px">✓ Whitelisted (Tranco 1M / IP List)</span>' : ''}` +
-      `${lvBadge}<br>` +
-      `probability=${rep.malware_probability ?? 0} ` +
-      `<code class="mut">url=${rep.target_url}</code>${fpBadge}</div>`;
+      `score=${rep.risk_score ?? Math.round((rep.malware_probability ?? 0) * 100)} ` +
+      `scheme=<code>${rep.scheme || 'http'}</code> host=<code>${rep.host || ''}</code>` +
+      `${wlBadge}${lvBadge}<br>` +
+      `<code class="mut">url=${rep.target_url}</code>${reasonBlock}</div>` +
+      (dets ? `<table><tr><th>rule</th><th>title</th><th>score</th><th>details</th></tr>${dets}</table>`
+            : `<p class="mut">No threat rules triggered.</p>`);
     return;
   }
   const dets = (rep.detections || []).map((d) =>
@@ -484,11 +482,7 @@ async function checkDomainLiveness(domain, rawUrl) {
   document.getElementById('scanUrl').onclick = async () => {
     const url = document.getElementById('url').value.trim();
     if (!url) return;
-    outEl.innerHTML = '<span class="mut">Scanning URL & verifying domain status…</span>';
-    const { ptr, len } = writeStr(url);
-    const out = wasm.web_scan_url(ptr, len);
-    wasm.web_free(ptr, len);
-    const rep = out ? readStr(out) : { verdict: 'Error', detections: [] };
+    outEl.innerHTML = '<span class="mut">Inspecting URL threats & testing domain liveness…</span>';
 
     let domain = '';
     try {
@@ -497,15 +491,24 @@ async function checkDomainLiveness(domain, rawUrl) {
       domain = url.split('/')[0].split('?')[0];
     }
 
+    let livenessCode = 0; // 0 = unknown, 1 = active, 2 = inactive/dead
+    let livenessObj = null;
     if (domain) {
-      rep.domain = domain;
-      const liveness = await checkDomainLiveness(domain, url);
-      rep.liveness = liveness;
-      if (!rep.whitelisted && liveness.status === 'INACTIVE') {
-        rep.original_verdict = rep.verdict;
-        rep.verdict = 'Clean';
-        rep.inactive_fp_mitigated = true;
+      livenessObj = await checkDomainLiveness(domain, url);
+      if (livenessObj.status === 'ACTIVE') {
+        livenessCode = 1;
+      } else if (livenessObj.status === 'INACTIVE') {
+        livenessCode = 2;
       }
+    }
+
+    const { ptr, len } = writeStr(url);
+    const out = wasm.web_inspect_url ? wasm.web_inspect_url(ptr, len, livenessCode) : wasm.web_scan_url(ptr, len);
+    wasm.web_free(ptr, len);
+    const rep = out ? readStr(out) : { verdict: 'Error', detections: [] };
+
+    if (livenessObj) {
+      rep.liveness_obj = livenessObj;
     }
 
     render(rep, outEl);

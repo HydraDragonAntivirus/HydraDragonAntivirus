@@ -19,6 +19,8 @@ pub struct WebEngine {
     string_rules: PeStringRules,
     benign_hashes: HashSet<String>,
     url_whitelist: Option<BinaryFuse16Filter>,
+    pub cidr_engine: crate::cidr::CidrEngine,
+    pub url_engine: crate::url_rules::UrlThreatEngine,
 }
 
 impl WebEngine {
@@ -29,6 +31,8 @@ impl WebEngine {
             string_rules: PeStringRules::default(),
             benign_hashes: HashSet::new(),
             url_whitelist: None,
+            cidr_engine: crate::cidr::CidrEngine::new(),
+            url_engine: crate::url_rules::UrlThreatEngine::new(),
         }
     }
 
@@ -266,27 +270,79 @@ impl WebEngine {
         }
     }
 
-    /// URL score via tree model + Tranco 1M & IP whitelist check.
-    /// Returns (probability, is_malicious, is_whitelisted).
-    pub fn scan_url(&self, raw_url: &str) -> (f32, bool, bool) {
-        if let Some(ref filter) = self.url_whitelist {
-            if let Some(host) = extract_host(raw_url) {
-                if filter.contains(host) {
-                    return (0.0, false, true);
-                }
-                let parts: Vec<&str> = host.split('.').collect();
-                if parts.len() > 2 {
-                    for i in 1..parts.len() - 1 {
-                        let parent = parts[i..].join(".");
-                        if filter.contains(&parent) {
-                            return (0.0, false, true);
+    /// Check whether a host matches CIDR blacklist/whitelist or Tranco 1M XOR filter.
+    /// Returns (is_whitelisted, is_blacklisted).
+    pub fn check_whitelist_blacklist(&self, raw_url: &str) -> (bool, bool) {
+        let mut whitelisted = false;
+        let mut blacklisted = false;
+
+        if let Some(host) = extract_host(raw_url) {
+            // 1. Check CIDR blacklist (IPv4 & IPv6)
+            if self.cidr_engine.is_blacklisted(host) {
+                blacklisted = true;
+            }
+
+            // 2. Check CIDR whitelist (IPv4 & IPv6)
+            if !blacklisted && self.cidr_engine.is_whitelisted(host) {
+                whitelisted = true;
+            }
+
+            // 3. Check XOR filter (BinaryFuse16) for exact domain / IP match
+            if !blacklisted && !whitelisted {
+                if let Some(ref filter) = self.url_whitelist {
+                    if filter.contains(host) {
+                        whitelisted = true;
+                    } else {
+                        let parts: Vec<&str> = host.split('.').collect();
+                        if parts.len() > 2 {
+                            for i in 1..parts.len() - 1 {
+                                let parent = parts[i..].join(".");
+                                if filter.contains(&parent) {
+                                    whitelisted = true;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+
+        (whitelisted, blacklisted)
+    }
+
+    /// URL score via tree model + Tranco 1M & IP whitelist check + CIDR subnet check.
+    /// Returns (probability, is_malicious, is_whitelisted, is_blacklisted).
+    pub fn scan_url(&self, raw_url: &str) -> (f32, bool, bool, bool) {
+        let (raw_whitelisted, blacklisted) = self.check_whitelist_blacklist(raw_url);
+        let is_webhook_abuse = raw_url.contains("/api/webhooks/")
+            || raw_url.contains("api.telegram.org")
+            || raw_url.contains("/bot");
+
+        let whitelisted = raw_whitelisted && !is_webhook_abuse;
+
+        if blacklisted {
+            return (1.0, true, false, true);
+        }
+
+        if whitelisted {
+            return (0.0, false, true, false);
+        }
+
         let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
-        (prob, prob >= 0.50, false)
+        (prob, prob >= 0.50, false, false)
+    }
+
+    /// Full inspection via Rust YAML Threat Engine.
+    pub fn inspect_url(&self, raw_url: &str, liveness_code: i32) -> crate::url_rules::UrlThreatReport {
+        let (raw_whitelisted, blacklisted) = self.check_whitelist_blacklist(raw_url);
+        let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
+        self.url_engine.inspect(raw_url, raw_whitelisted, blacklisted, prob, liveness_code)
+    }
+
+    /// Load custom YAML threat rules. Returns count on success.
+    pub fn load_url_rules(&mut self, yaml_str: &str) -> Result<usize, String> {
+        self.url_engine.load_yaml(yaml_str)
     }
 }
 
@@ -396,12 +452,19 @@ fn is_js_content(bytes: &[u8]) -> bool {
 
 fn extract_host(raw_url: &str) -> Option<&str> {
     let mut s = raw_url.trim();
-    if let Some(rest) = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://")) {
-        s = rest;
+    if let Some(idx) = s.find("://") {
+        s = &s[idx + 3..];
     }
-    let host_and_port = s.split(['/', '?', '#']).next()?;
-    let host = host_and_port.split(':').next()?;
-    let host = host.trim();
+    let host_and_port = s.split(['/', '?', '#']).next()?.trim();
+    if host_and_port.is_empty() {
+        return None;
+    }
+    if host_and_port.starts_with('[') {
+        if let Some(end_bracket) = host_and_port.find(']') {
+            return Some(&host_and_port[..=end_bracket]);
+        }
+    }
+    let host = host_and_port.split(':').next()?.trim();
     if host.is_empty() {
         None
     } else {

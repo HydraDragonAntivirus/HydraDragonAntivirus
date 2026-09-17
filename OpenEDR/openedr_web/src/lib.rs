@@ -7,11 +7,13 @@
 //! Always check `web_output_len()` after a call: 0 means the call failed
 //! (null input, bad UTF-8, engine error) and the returned pointer is null.
 
+pub mod cidr;
 pub mod engine;
 pub mod ml;
 pub mod pe_strings;
 pub mod report;
 pub mod string_rules;
+pub mod url_rules;
 pub mod yara;
 
 use std::ffi::CString;
@@ -259,8 +261,10 @@ pub extern "C" fn web_scan_url(ptr: *const u8, len: usize) -> *mut c_char {
     let Some(eng) = lock_engine() else {
         return std::ptr::null_mut();
     };
-    let (prob, malicious, whitelisted) = eng.scan_url(&url);
-    let verdict = if whitelisted {
+    let (prob, malicious, whitelisted, blacklisted) = eng.scan_url(&url);
+    let verdict = if blacklisted {
+        "Malicious"
+    } else if whitelisted {
         "Clean"
     } else if malicious {
         "Malicious"
@@ -273,8 +277,41 @@ pub extern "C" fn web_scan_url(ptr: *const u8, len: usize) -> *mut c_char {
         "malware_probability": prob,
         "is_malicious": malicious,
         "whitelisted": whitelisted,
+        "blacklisted": blacklisted,
     });
     emit_json(out.to_string())
+}
+
+/// Inspect a URL with the complete Rust YAML Threat Engine.
+/// `liveness_code`: 0 = unknown, 1 = active, 2 = inactive/dead (NXDOMAIN).
+/// Returns full JSON report with all signals, rule hits, and final verdict.
+#[no_mangle]
+pub extern "C" fn web_inspect_url(ptr: *const u8, len: usize, liveness_code: i32) -> *mut c_char {
+    let Some(url) = take_str(ptr, len) else {
+        return std::ptr::null_mut();
+    };
+    let Some(eng) = lock_engine() else {
+        return std::ptr::null_mut();
+    };
+    let report = eng.inspect_url(&url, liveness_code);
+    let json = serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string());
+    emit_json(json)
+}
+
+/// Load custom YAML threat rules into the URL threat engine.
+/// Returns number of rules loaded, or -1 on parse error.
+#[no_mangle]
+pub extern "C" fn web_load_url_rules(ptr: *const u8, len: usize) -> i32 {
+    let Some(text) = take_str(ptr, len) else {
+        return -1;
+    };
+    let Some(mut eng) = lock_engine() else {
+        return -1;
+    };
+    match eng.load_url_rules(&text) {
+        Ok(n) => n as i32,
+        Err(_) => -1,
+    }
 }
 
 /// Engine self-test without models (EICAR must hit). Returns 1 on pass.
