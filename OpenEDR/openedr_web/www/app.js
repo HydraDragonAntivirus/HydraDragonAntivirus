@@ -76,12 +76,12 @@ function loadScript(src) {
   });
 }
 async function initVendors() {
-  if (await loadScript('vendor/capstone.js')) {
+  if (await loadScript('https://cdn.jsdelivr.net/npm/@alexaltea/capstone-js/dist/capstone.js')) {
     try {
       if (typeof MCapstone !== 'undefined') CS = MCapstone();
     } catch { CS = null; }
   }
-  if (await loadScript('vendor/unicorn_x86.js')) {
+  if (await loadScript('https://cdn.jsdelivr.net/npm/@alexaltea/unicorn-js/dist/unicorn_x86.js')) {
     try {
       if (typeof MUnicorn !== 'undefined') UC = MUnicorn();
     } catch { UC = null; }

@@ -285,10 +285,10 @@ async function boot() {
   } catch { selfTest = false; }
   lights.push(selfTest
     ? '<span class="dot ok"></span>self-test' : '<span class="dot no"></span>self-test');
-  if (await loadScript(BASE + 'vendor/capstone.js')) {
+  if (await loadScript('https://cdn.jsdelivr.net/npm/@alexaltea/capstone-js/dist/capstone.js')) {
     try { if (typeof MCapstone !== 'undefined') CS = MCapstone(); } catch { CS = null; }
   }
-  if (await loadScript(BASE + 'vendor/unicorn_x86.js')) {
+  if (await loadScript('https://cdn.jsdelivr.net/npm/@alexaltea/unicorn-js/dist/unicorn_x86.js')) {
     try { if (typeof MUnicorn !== 'undefined') UC = MUnicorn(); } catch { UC = null; }
   }
   lights.push(`<span class="dot ${CS ? 'ok' : 'no'}"></span>capstone.js`);

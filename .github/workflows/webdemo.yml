@@ -61,9 +61,10 @@ jobs:
           for v in capstone.js unicorn_x86.js; do
             if [ -f "OpenEDR/openedr_web/www/vendor/$v" ]; then
               cp "OpenEDR/openedr_web/www/vendor/$v" _site/webdemo/vendor/
-              echo "vendor $v included"
+              echo "vendor $v included from local"
             else
-              echo "skip missing vendor/$v (graceful degrade)"
+              pkg=$([ "$v" = "capstone.js" ] && echo "@alexaltea/capstone-js" || echo "@alexaltea/unicorn-js")
+              curl -sSLf "https://cdn.jsdelivr.net/npm/${pkg}/dist/${v}" -o "_site/webdemo/vendor/$v" && echo "vendor $v downloaded from CDN" || echo "skip missing vendor/$v"
             fi
           done
           if [ -d OpenMalwareScannerPortable/yara_rules ]; then
