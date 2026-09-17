@@ -1,4 +1,21 @@
+unwhitelist_subdomains:
+  - "raw.githubusercontent.com"
+  - "gist.githubusercontent.com"
+  - "cdn.discordapp.com"
+  - "media.discordapp.net"
+  - "storage.googleapis.com"
+  - "firebasestorage.googleapis.com"
+
 rules:
+  - id: "ABUSED_USER_CONTENT_SUBDOMAIN"
+    title: "Abused User-Content Subdomain"
+    description: "Host is a public user-generated content or raw file host unwhitelisted for ML classification"
+    severity: "Informational"
+    score: 15
+    override_whitelist: true
+    conditions:
+      host_regex: "(?i)^(?:raw|gist)\\.githubusercontent\\.com$|^(?:cdn|media)\\.discordapp\\.(?:com|net)$|^(?:storage|firebasestorage)\\.googleapis\\.com$"
+
   - id: "DISCORD_WEBHOOK_ABUSE"
     title: "Discord Webhook Abuse"
     description: "Discord webhook endpoint detected - frequently abused by malware for C2 and data exfiltration"
@@ -136,4 +153,48 @@ rules:
     override_whitelist: true
     conditions:
       cidr_blacklisted: true
+
+  - id: "CONTENT_EXFILTRATION_WEBHOOK"
+    title: "Exfiltration Webhook in Page Content"
+    description: "Page source embeds raw Discord Webhook or Telegram Bot API token used for data theft exfiltration"
+    severity: "Malicious"
+    score: 90
+    override_whitelist: true
+    conditions:
+      body_regex: "(?i)(?:discord(?:app)?\\.com/api/webhooks/\\d+/[a-zA-Z0-9_\\-]+|api\\.telegram\\.org/bot\\d+:[a-zA-Z0-9_\\-]+)"
+
+  - id: "CONTENT_PHISHING_CREDENTIAL_FORM"
+    title: "Credential Harvesting Form in Page Content"
+    description: "Page content contains password input fields combined with external exfiltration endpoints"
+    severity: "Malicious"
+    score: 85
+    override_whitelist: true
+    conditions:
+      body_regex: "(?i)(?:<input[^>]+type=[\"']password[\"'][^>]*>.*(?:discord(?:app)?\\.com/api/webhooks|api\\.telegram\\.org/bot|formspree\\.io|webhook\\.site)|(?:discord(?:app)?\\.com/api/webhooks|api\\.telegram\\.org/bot|formspree\\.io|webhook\\.site).*<input[^>]+type=[\"']password[\"'])"
+
+  - id: "CONTENT_WEB3_WALLET_DRAINER"
+    title: "Web3 Crypto Wallet Drainer Signature"
+    description: "Page content contains crypto drainer / wallet sweep functions targeting user cryptocurrency"
+    severity: "Malicious"
+    score: 95
+    override_whitelist: true
+    conditions:
+      body_regex: "(?i)(?:ethereum\\.request\\s*\\(\\s*\\{\\s*method\\s*:\\s*[\"']eth_sendTransaction[\"']|walletconnect.*seaport|permit2.*transferFrom)"
+
+  - id: "CONTENT_OBFUSCATED_SCRIPT_DROPPER"
+    title: "Obfuscated Script Dropper in Page Content"
+    description: "Page content embeds heavily obfuscated eval / unescape / payload unpacking scripts"
+    severity: "Suspicious"
+    score: 80
+    conditions:
+      body_regex: "(?i)(?:eval|Function)\\s*\\(\\s*(?:unescape|decodeURIComponent|atob|String\\.fromCharCode)\\s*\\("
+
+  - id: "CONTENT_HIDDEN_IFRAME_INJECTION"
+    title: "Hidden Malicious Iframe Injection"
+    description: "Page contains hidden or zero-dimension iframe frequently used for drive-by downloads or clickjacking"
+    severity: "Suspicious"
+    score: 75
+    conditions:
+      body_regex: "(?i)<iframe[^>]+style=[\"'][^\"']*(?:display:\\s*none|visibility:\\s*hidden|width:\\s*0|height:\\s*0)"
+
 

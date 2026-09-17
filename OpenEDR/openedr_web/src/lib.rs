@@ -287,13 +287,27 @@ pub extern "C" fn web_scan_url(ptr: *const u8, len: usize) -> *mut c_char {
 /// Returns full JSON report with all signals, rule hits, and final verdict.
 #[no_mangle]
 pub extern "C" fn web_inspect_url(ptr: *const u8, len: usize, liveness_code: i32) -> *mut c_char {
-    let Some(url) = take_str(ptr, len) else {
+    web_inspect_url_content(ptr, len, liveness_code, std::ptr::null(), 0)
+}
+
+/// Inspect a URL and its fetched site content (HTML/JS/DOM).
+/// Evaluates URL heuristics, CIDR subnets, ML models, and content-level threat patterns (phishing forms, drainers, webhooks, YARA).
+#[no_mangle]
+pub extern "C" fn web_inspect_url_content(
+    url_ptr: *const u8,
+    url_len: usize,
+    liveness_code: i32,
+    content_ptr: *const u8,
+    content_len: usize,
+) -> *mut c_char {
+    let Some(url) = take_str(url_ptr, url_len) else {
         return std::ptr::null_mut();
     };
+    let content = take_str(content_ptr, content_len);
     let Some(eng) = lock_engine() else {
         return std::ptr::null_mut();
     };
-    let report = eng.inspect_url(&url, liveness_code);
+    let report = eng.inspect_url_with_content(&url, liveness_code, content.as_deref());
     let json = serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string());
     emit_json(json)
 }
@@ -312,6 +326,34 @@ pub extern "C" fn web_load_url_rules(ptr: *const u8, len: usize) -> i32 {
         Ok(n) => n as i32,
         Err(_) => -1,
     }
+}
+
+/// Dynamically add a subdomain to the unwhitelist list (e.g. "raw.githubusercontent.com").
+/// Bypasses the Tranco whitelist for this specific host, enabling full ML & threat rule evaluation.
+/// Returns 1 on success, 0 on failure.
+#[no_mangle]
+pub extern "C" fn web_add_unwhitelisted_subdomain(ptr: *const u8, len: usize) -> i32 {
+    let Some(host) = take_str(ptr, len) else {
+        return 0;
+    };
+    let Some(mut eng) = lock_engine() else {
+        return 0;
+    };
+    eng.add_unwhitelisted_subdomain(&host);
+    1
+}
+
+/// Check if a subdomain is currently unwhitelisted.
+/// Returns 1 if unwhitelisted, 0 if whitelisted / normal.
+#[no_mangle]
+pub extern "C" fn web_is_unwhitelisted_subdomain(ptr: *const u8, len: usize) -> i32 {
+    let Some(host) = take_str(ptr, len) else {
+        return 0;
+    };
+    let Some(eng) = lock_engine() else {
+        return 0;
+    };
+    eng.is_unwhitelisted_subdomain(&host) as i32
 }
 
 /// Engine self-test without models (EICAR must hit). Returns 1 on pass.

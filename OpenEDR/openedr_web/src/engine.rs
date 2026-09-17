@@ -289,17 +289,20 @@ impl WebEngine {
 
             // 3. Check XOR filter (BinaryFuse16) for exact domain / IP match
             if !blacklisted && !whitelisted {
-                if let Some(ref filter) = self.url_whitelist {
-                    if filter.contains(host) {
-                        whitelisted = true;
-                    } else {
-                        let parts: Vec<&str> = host.split('.').collect();
-                        if parts.len() > 2 {
-                            for i in 1..parts.len() - 1 {
-                                let parent = parts[i..].join(".");
-                                if filter.contains(&parent) {
-                                    whitelisted = true;
-                                    break;
+                // If subdomain is explicitly unwhitelisted for ML/threat rules, do not whitelist it
+                if !self.url_engine.is_unwhitelisted(host) {
+                    if let Some(ref filter) = self.url_whitelist {
+                        if filter.contains(host) {
+                            whitelisted = true;
+                        } else {
+                            let parts: Vec<&str> = host.split('.').collect();
+                            if parts.len() > 2 {
+                                for i in 1..parts.len() - 1 {
+                                    let parent = parts[i..].join(".");
+                                    if filter.contains(&parent) {
+                                        whitelisted = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -333,16 +336,79 @@ impl WebEngine {
         (prob, prob >= 0.50, false, false)
     }
 
-    /// Full inspection via Rust YAML Threat Engine.
-    pub fn inspect_url(&self, raw_url: &str, liveness_code: i32) -> crate::url_rules::UrlThreatReport {
+    /// Full inspection via Rust YAML Threat Engine + optional page content scanning.
+    pub fn inspect_url_with_content(
+        &self,
+        raw_url: &str,
+        liveness_code: i32,
+        page_content: Option<&str>,
+    ) -> crate::url_rules::UrlThreatReport {
         let (raw_whitelisted, blacklisted) = self.check_whitelist_blacklist(raw_url);
         let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
-        self.url_engine.inspect(raw_url, raw_whitelisted, blacklisted, prob, liveness_code)
+        let mut report = self.url_engine.inspect(
+            raw_url,
+            raw_whitelisted,
+            blacklisted,
+            prob,
+            liveness_code,
+            page_content,
+        );
+
+        // Additional deep content checks (JS ML & YARA) if page content is provided
+        if let Some(body) = page_content {
+            // 1. JS ML tree prediction on scripts/content
+            if let Some(js_prob) = self.ml.predict_js(body) {
+                if js_prob >= 0.75 {
+                    report.detections.push(crate::url_rules::UrlRuleHit {
+                        rule_id: "CONTENT_JS_ML_MALWARE".to_string(),
+                        title: "MalwareNet JS Tree Classification".to_string(),
+                        severity: "Malicious".to_string(),
+                        score: (js_prob * 100.0).round() as u32,
+                        details: format!("Page script classified as malicious by tree model: {:.1}%", js_prob * 100.0),
+                    });
+                    report.risk_score = report.risk_score.max((js_prob * 100.0).round() as u32);
+                    report.verdict = "Malicious".to_string();
+                    report.verdict_reason = format!("Content Decision (Malicious): Embedded script identified as malware by JS ML model ({:.1}%).", js_prob * 100.0);
+                }
+            }
+
+            // 2. YARA-X rules on page content
+            let yara_hits = self.yara.scan_bytes(body.as_bytes());
+            for hit in yara_hits {
+                report.detections.push(crate::url_rules::UrlRuleHit {
+                    rule_id: "CONTENT_YARA_SIGNATURE".to_string(),
+                    title: format!("YARA Match: {}", hit),
+                    severity: "Malicious".to_string(),
+                    score: 95,
+                    details: format!("Page content matched YARA rule: {}", hit),
+                });
+                report.risk_score = report.risk_score.max(95);
+                report.verdict = "Malicious".to_string();
+                report.verdict_reason = format!("Content Decision (Malicious): Page content matched YARA signature ({}).", hit);
+            }
+        }
+
+        report
+    }
+
+    /// Full inspection via Rust YAML Threat Engine.
+    pub fn inspect_url(&self, raw_url: &str, liveness_code: i32) -> crate::url_rules::UrlThreatReport {
+        self.inspect_url_with_content(raw_url, liveness_code, None)
     }
 
     /// Load custom YAML threat rules. Returns count on success.
     pub fn load_url_rules(&mut self, yaml_str: &str) -> Result<usize, String> {
         self.url_engine.load_yaml(yaml_str)
+    }
+
+    /// Add a subdomain to the unwhitelist set at runtime.
+    pub fn add_unwhitelisted_subdomain(&mut self, host: &str) {
+        self.url_engine.add_unwhitelisted_subdomain(host);
+    }
+
+    /// Check if a host/subdomain is unwhitelisted.
+    pub fn is_unwhitelisted_subdomain(&self, host: &str) -> bool {
+        self.url_engine.is_unwhitelisted(host)
     }
 }
 

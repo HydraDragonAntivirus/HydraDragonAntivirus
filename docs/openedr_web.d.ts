@@ -11,6 +11,7 @@ declare interface InitOutput {
     readonly web_free: (a: number, b: number) => void;
     readonly web_free_str: (a: number) => void;
     readonly web_inspect_url: (a: number, b: number, c: number) => number;
+    readonly web_inspect_url_content: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly web_load_model: (a: number, b: number, c: number) => number;
     readonly web_load_url_rules: (a: number, b: number) => number;
     readonly web_load_url_whitelist: (a: number, b: number) => number;

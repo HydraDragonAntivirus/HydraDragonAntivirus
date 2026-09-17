@@ -3,6 +3,7 @@
 //! droppers, phishing keywords), BinaryFuse16 whitelist overrides,
 //! PyFunceble-style liveness, and ML model outputs into a final verdict.
 
+use std::collections::HashSet;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -12,6 +13,8 @@ pub const DEFAULT_URL_RULES_YAML: &str = include_str!("url_threat_rules.yaml");
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UrlRuleFile {
     pub rules: Vec<UrlRuleDef>,
+    #[serde(default)]
+    pub unwhitelist_subdomains: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +36,8 @@ pub struct UrlConditionsDef {
     pub url_regex: Option<String>,
     pub path_regex: Option<String>,
     pub query_regex: Option<String>,
+    pub body_regex: Option<String>,
+    pub host_regex: Option<String>,
     pub scheme: Option<Vec<String>>,
     pub ports: Option<Vec<u16>>,
     pub tlds: Option<Vec<String>>,
@@ -52,6 +57,8 @@ pub struct CompiledUrlRule {
     pub url_re: Option<Regex>,
     pub path_re: Option<Regex>,
     pub query_re: Option<Regex>,
+    pub body_re: Option<Regex>,
+    pub host_re: Option<Regex>,
     pub schemes: Option<Vec<String>>,
     pub ports: Option<Vec<u16>>,
     pub tlds: Option<Vec<String>>,
@@ -85,16 +92,22 @@ pub struct UrlThreatReport {
     pub verdict: String,
     pub verdict_reason: String,
     pub fp_mitigated: bool,
+    pub content_scanned: bool,
+    pub unwhitelisted_for_ml: bool,
 }
 
 #[derive(Debug, Default)]
 pub struct UrlThreatEngine {
     rules: Vec<CompiledUrlRule>,
+    unwhitelist_subdomains: HashSet<String>,
 }
 
 impl UrlThreatEngine {
     pub fn new() -> Self {
-        let mut engine = Self { rules: Vec::new() };
+        let mut engine = Self {
+            rules: Vec::new(),
+            unwhitelist_subdomains: HashSet::new(),
+        };
         let _ = engine.load_yaml(DEFAULT_URL_RULES_YAML);
         engine
     }
@@ -102,6 +115,13 @@ impl UrlThreatEngine {
     pub fn load_yaml(&mut self, yaml_str: &str) -> Result<usize, String> {
         let file: UrlRuleFile = serde_yaml::from_str(yaml_str)
             .map_err(|e| format!("YAML parse error: {e}"))?;
+
+        for sub in file.unwhitelist_subdomains {
+            let clean = sub.trim().to_lowercase();
+            if !clean.is_empty() {
+                self.unwhitelist_subdomains.insert(clean);
+            }
+        }
 
         let mut compiled = Vec::new();
         for def in file.rules {
@@ -117,6 +137,14 @@ impl UrlThreatEngine {
                 Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
                 None => None,
             };
+            let body_re = match def.conditions.body_regex {
+                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
+                None => None,
+            };
+            let host_re = match def.conditions.host_regex {
+                Some(ref pat) => Some(Regex::new(pat).map_err(|e| format!("Regex error in {}: {e}", def.id))?),
+                None => None,
+            };
             compiled.push(CompiledUrlRule {
                 id: def.id,
                 title: def.title,
@@ -128,6 +156,8 @@ impl UrlThreatEngine {
                 url_re,
                 path_re,
                 query_re,
+                body_re,
+                host_re,
                 schemes: def.conditions.scheme.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
                 ports: def.conditions.ports,
                 tlds: def.conditions.tlds.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
@@ -144,6 +174,38 @@ impl UrlThreatEngine {
         self.rules.len()
     }
 
+    pub fn is_unwhitelisted(&self, host: &str) -> bool {
+        let clean = host.to_lowercase();
+        if self.unwhitelist_subdomains.contains(&clean) {
+            return true;
+        }
+        for unwh in &self.unwhitelist_subdomains {
+            if unwh.starts_with("*.") {
+                let suffix = &unwh[2..];
+                if clean == suffix || clean.ends_with(&format!(".{}", suffix)) {
+                    return true;
+                }
+            }
+        }
+        for rule in &self.rules {
+            if rule.override_whitelist {
+                if let Some(ref re) = rule.host_re {
+                    if re.is_match(&clean) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    pub fn add_unwhitelisted_subdomain(&mut self, host: &str) {
+        let clean = host.trim().to_lowercase();
+        if !clean.is_empty() {
+            self.unwhitelist_subdomains.insert(clean);
+        }
+    }
+
     /// Full inspection evaluating Rust YAML rules, whitelist, liveness and ML.
     /// liveness_code: 0 = unknown, 1 = active, 2 = inactive/dead
     pub fn inspect(
@@ -153,6 +215,7 @@ impl UrlThreatEngine {
         is_cidr_blacklisted: bool,
         ml_prob: f32,
         liveness_code: i32,
+        page_content: Option<&str>,
     ) -> UrlThreatReport {
         let url_str = raw_url.trim();
         let parsed = Url::parse(url_str).or_else(|_| {
@@ -182,6 +245,22 @@ impl UrlThreatEngine {
         let mut detections = Vec::new();
         let mut whitelist_bypassed = false;
         let mut bypass_reason = None;
+        let mut unwhitelisted_for_ml = false;
+
+        // Check unwhitelisted subdomain status
+        if self.is_unwhitelisted(&host) {
+            is_whitelisted = false;
+            whitelist_bypassed = true;
+            unwhitelisted_for_ml = true;
+            bypass_reason = Some(format!("Host '{}' is unwhitelisted for ML inspection", host));
+            detections.push(UrlRuleHit {
+                rule_id: "UNWHITELISTED_SUBDOMAIN".to_string(),
+                title: "Unwhitelisted for ML".to_string(),
+                severity: "Informational".to_string(),
+                score: 15,
+                details: format!("Host '{}' is excluded from global whitelist to allow ML model classification.", host),
+            });
+        }
 
         // Evaluate all compiled YAML rules
         for rule in &self.rules {
@@ -193,6 +272,12 @@ impl UrlThreatEngine {
 
             if let Some(ref re) = rule.url_re {
                 if re.is_match(url_str) {
+                    matched = true;
+                }
+            }
+
+            if let Some(ref re) = rule.host_re {
+                if re.is_match(&host) {
                     matched = true;
                 }
             }
@@ -239,6 +324,14 @@ impl UrlThreatEngine {
                 }
             }
 
+            if let Some(ref re) = rule.body_re {
+                if let Some(content) = page_content {
+                    if re.is_match(content) {
+                        matched = true;
+                    }
+                }
+            }
+
             if matched {
                 if rule.override_whitelist && is_whitelisted {
                     is_whitelisted = false;
@@ -264,12 +357,12 @@ impl UrlThreatEngine {
                 title: "LightGBM URL Classification".to_string(),
                 severity: if ml_prob >= 0.80 { "Malicious".to_string() } else { "Suspicious".to_string() },
                 score,
-                details: format!("Makine öğrenimi modeli zararlı olasılık skoru: {:.1}%", ml_prob * 100.0),
+                details: format!("Machine learning model malicious probability: {:.1}%", ml_prob * 100.0),
             });
         }
 
         // ==========================================
-        // NİHAİ KARAR MEKANİZMASI (FINAL VERDICT RULE ENGINE)
+        // FINAL VERDICT RULE ENGINE
         // ==========================================
         let liveness_str = match liveness_code {
             1 => "ACTIVE",
@@ -277,9 +370,9 @@ impl UrlThreatEngine {
             _ => "UNKNOWN",
         };
 
-        let mut verdict = "Clean";
-        let mut risk_score = 0;
-        let mut verdict_reason;
+        let verdict;
+        let risk_score;
+        let verdict_reason;
         let mut fp_mitigated = false;
 
         let has_malicious_rule = detections.iter().any(|d| d.severity == "Malicious");
@@ -289,29 +382,38 @@ impl UrlThreatEngine {
         if has_malicious_rule && !is_whitelisted {
             verdict = "Malicious";
             risk_score = detections.iter().filter(|d| d.severity == "Malicious").map(|d| d.score).max().unwrap_or(90);
-            verdict_reason = "Kural Kararı (Malicious): Doğrudan zararlı/dropper indirme veya kritik tehdit deseni tespit edildi.".to_string();
+            verdict_reason = "Rule Decision (Malicious): Direct dropper payload, blacklisted CIDR, or critical threat pattern detected.".to_string();
         } else if has_webhook_c2 {
             verdict = "Suspicious";
             risk_score = 75;
-            verdict_reason = "Kural Kararı (Suspicious): Discord Webhook veya Telegram Bot API adresi tespit edildi. Stealer/C2 kötüye kullanım riskinden dolayı şüpheli olarak işaretlendi.".to_string();
+            verdict_reason = "Rule Decision (Suspicious): Discord Webhook or Telegram Bot API endpoint detected. Flagged as suspicious due to high C2 / stealer exfiltration abuse risk.".to_string();
         } else if is_whitelisted && !has_malicious_rule {
             verdict = "Clean";
             risk_score = 0;
-            verdict_reason = "Whitelist Koruması: Domain Tranco 1M / Benign IP listesinde yer alıyor ve saldırı deseni içermiyor.".to_string();
+            verdict_reason = "Whitelist Protection: Host matches Tranco 1M or benign CIDR subnet with no malicious override.".to_string();
         } else if liveness_code == 2 && !has_malicious_rule {
             verdict = "Clean";
             risk_score = 10;
             fp_mitigated = true;
-            verdict_reason = "Liveness Koruması: Domain kapalı / DNS kaydı yok (NXDOMAIN). False Positive önlendi.".to_string();
+            verdict_reason = "Liveness Protection: Domain is inactive / dead (NXDOMAIN). Score suppressed to mitigate false positive.".to_string();
+        } else if ml_prob >= 0.80 {
+            verdict = "Malicious";
+            let max_score = detections.iter().map(|d| d.score).max().unwrap_or(80);
+            risk_score = max_score.max((ml_prob * 100.0) as u32);
+            verdict_reason = format!("ML Decision (Malicious): Machine learning model classified URL as high-confidence malicious ({:.1}%).", ml_prob * 100.0);
         } else if has_suspicious_rule || ml_prob >= 0.50 {
             verdict = "Suspicious";
             let max_score = detections.iter().map(|d| d.score).max().unwrap_or(50);
             risk_score = max_score.max((ml_prob * 100.0) as u32);
-            verdict_reason = format!("Kural & ML Kararı (Suspicious): Şüpheli bileşenler veya yüksek ML skoru ({risk_score}/100) tespit edildi.");
+            verdict_reason = format!("Rule & ML Decision (Suspicious): Suspicious indicators or elevated ML risk score ({risk_score}/100) detected.");
+        } else if unwhitelisted_for_ml {
+            verdict = "Clean";
+            risk_score = (ml_prob * 100.0) as u32;
+            verdict_reason = format!("Analysis Result (Clean): No threat indicators detected (evaluated with ML model on unwhitelisted subdomain, prob: {:.1}%).", ml_prob * 100.0);
         } else {
             verdict = "Clean";
             risk_score = 0;
-            verdict_reason = "Analiz Sonucu (Clean): Herhangi bir tehdit veya şüpheli desen tespit edilmedi.".to_string();
+            verdict_reason = "Analysis Result (Clean): No threat indicators or suspicious patterns detected.".to_string();
         }
 
         UrlThreatReport {
@@ -330,6 +432,8 @@ impl UrlThreatEngine {
             verdict: verdict.to_string(),
             verdict_reason,
             fp_mitigated,
+            content_scanned: page_content.is_some(),
+            unwhitelisted_for_ml,
         }
     }
 }

@@ -85,7 +85,7 @@ async function loadWasm() {
       const bytes = await res.arrayBuffer();
       const u8 = new Uint8Array(bytes);
       if (u8.length >= 4 && u8[0] === 0x00 && u8[1] === 0x61 && u8[2] === 0x73 && u8[3] === 0x6d) {
-        wasm = await wasm_bindgen(bytes);
+        wasm = await wasm_bindgen({ module_or_path: bytes });
         return;
       }
     } catch (e) {
@@ -300,10 +300,18 @@ function render(rep, el) {
       } else {
         lvBadge = `<span style="color:#94a3b8;font-weight:600;margin-left:8px">⚠️ Host Unreachable</span>`;
       }
+    let wlBadge = '';
+    if (rep.unwhitelisted_for_ml) {
+      wlBadge = `<span style="color:#38bdf8;font-weight:bold;margin-left:8px">⚡ Unwhitelisted for ML (Subdomain Rule)</span>`;
+    } else if (isBypassed) {
+      wlBadge = `<span style="color:#ffb454;font-weight:bold;margin-left:8px">⚠️ Whitelist Bypassed (${rep.bypass_reason || 'Threat Rule'})</span>`;
+    } else if (isWl) {
+      wlBadge = `<span style="color:#4cc38a;font-weight:bold;margin-left:8px">✓ Whitelisted (Tranco 1M / CIDR Subnet)</span>`;
     }
-    const wlBadge = isBypassed
-      ? `<span style="color:#ffb454;font-weight:bold;margin-left:8px">⚠️ Whitelist Bypassed (C2/Webhook Rule)</span>`
-      : (isWl ? `<span style="color:#4cc38a;font-weight:bold;margin-left:8px">✓ Whitelisted (Tranco 1M / CIDR Subnet)</span>` : '');
+
+    const contentBadge = rep.content_scanned
+      ? `<span style="color:#38bdf8;font-weight:600;margin-left:8px">📄 Content Scanned</span>`
+      : '';
 
     const dets = (rep.detections || []).map((d) =>
       `<tr><td><code>${d.rule_id || d.layer || ''}</code></td><td><code>${d.title || d.name || ''}</code></td>` +
@@ -317,7 +325,7 @@ function render(rep, el) {
       `<div>Verdict: <span class="badge ${rep.verdict}">${rep.verdict}</span> ` +
       `score=${rep.risk_score ?? Math.round((rep.malware_probability ?? 0) * 100)} ` +
       `scheme=<code>${rep.scheme || 'http'}</code> host=<code>${rep.host || ''}</code>` +
-      `${wlBadge}${lvBadge}<br>` +
+      `${wlBadge}${lvBadge}${contentBadge}<br>` +
       `<code class="mut">url=${rep.target_url}</code>${reasonBlock}</div>` +
       (dets ? `<table><tr><th>rule</th><th>title</th><th>score</th><th>details</th></tr>${dets}</table>`
             : `<p class="mut">No threat rules triggered.</p>`);
@@ -374,33 +382,21 @@ async function boot() {
     wasm.web_free(p, u8.length);
     lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>whitelist (1.4M)`, true]);
   } catch { lights.push(['<span class="dot no"></span>whitelist', true]); }
-  // Desktop valhalla bundle when deployed next to the demo.
+  // Compile valhalla-rules.yar via YARA-X
   let yaraLoaded = false;
   try {
-    const r = await fetch('yara_rules/valhalla-rules.yrc');
+    const r = await fetch('yara_rules/valhalla-rules.yar');
     if (r.ok) {
-      const u8 = new Uint8Array(await r.arrayBuffer());
-      const p = writeBytes(u8);
-      const fn = wasm.web_load_yara_rules || wasm.web_load_yara;
-      if (fn && fn(p, u8.length) === 1) yaraLoaded = true;
-      wasm.web_free(p, u8.length);
+      const text = await r.text();
+      if (typeof wasm.web_load_yara_src === 'function') {
+        const enc = new TextEncoder().encode(text);
+        const p = writeBytes(enc);
+        if (wasm.web_load_yara_src(p, enc.length) === 1) yaraLoaded = true;
+        wasm.web_free(p, enc.length);
+      }
     }
   } catch {}
-  if (!yaraLoaded) {
-    try {
-      const r = await fetch('yara_rules/valhalla-rules.yar');
-      if (r.ok) {
-        const text = await r.text();
-        if (typeof wasm.web_load_yara_src === 'function') {
-          const enc = new TextEncoder().encode(text);
-          const p = writeBytes(enc);
-          if (wasm.web_load_yara_src(p, enc.length) === 1) yaraLoaded = true;
-          wasm.web_free(p, enc.length);
-        }
-      }
-    } catch {}
-  }
-  lights.push([`<span class="dot ${yaraLoaded ? 'ok' : 'no'}"></span>yara rules`, true]);
+  lights.push([`<span class="dot ${yaraLoaded ? 'ok' : 'no'}"></span>YARA rules (${yaraLoaded ? 'compiled' : 'failed'})`, true]);
   for (const [fn, file, label] of [
     [wasm.web_set_benign, 'hash_rules/benign_sha256.txt', 'benign list'],
   ]) {
@@ -517,8 +513,35 @@ async function checkDomainLiveness(domain, rawUrl) {
       }
     }
 
+    let pageContent = document.getElementById('pageContent') ? document.getElementById('pageContent').value.trim() : '';
+
+    if (!pageContent && livenessCode === 1 && typeof fetch === 'function') {
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 2000);
+        const fetchTarget = url.includes('://') ? url : ('https://' + url);
+        const r = await fetch(fetchTarget, { method: 'GET', signal: ctrl.signal });
+        clearTimeout(tid);
+        if (r.ok) {
+          const txt = await r.text();
+          if (txt && txt.length > 0) {
+            pageContent = txt.slice(0, 1024 * 1024);
+          }
+        }
+      } catch {}
+    }
+
     const { ptr, len } = writeStr(url);
-    const out = wasm.web_inspect_url ? wasm.web_inspect_url(ptr, len, livenessCode) : wasm.web_scan_url(ptr, len);
+    let out = 0;
+    if (pageContent && typeof wasm.web_inspect_url_content === 'function') {
+      const c = writeStr(pageContent);
+      out = wasm.web_inspect_url_content(ptr, len, livenessCode, c.ptr, c.len);
+      wasm.web_free(c.ptr, c.len);
+    } else if (typeof wasm.web_inspect_url === 'function') {
+      out = wasm.web_inspect_url(ptr, len, livenessCode);
+    } else if (typeof wasm.web_scan_url === 'function') {
+      out = wasm.web_scan_url(ptr, len);
+    }
     wasm.web_free(ptr, len);
     const rep = out ? readStr(out) : { verdict: 'Error', detections: [] };
 
