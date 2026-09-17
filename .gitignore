@@ -122,8 +122,6 @@ hydradragon/website/cleaned
 # Big Yara Rule files
 hydradragon/yara-x/veryoldcompiled_rule.yar
 hydradragon/yara-x/nocomments.yar
-# Yara Compiled Files
-*.yrc
 
 # Detect-It-Easy
 hydradragon/detectiteasy
@@ -540,4 +538,3 @@ FodyWeavers.xsd
 # ML Cache files
 *.joblib
 url_lgbm_model.*
-url_trees*
