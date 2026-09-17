@@ -167,13 +167,9 @@ impl WebEngine {
             let raw = pe_strings::extract_strings(data);
             let strings: Vec<String> =
                 raw.iter().map(|s| string_rules::normalize_text(s)).collect();
-            let md5_hex = {
-                use md5::Digest;
-                format!("{:x}", md5::Md5::digest(data))
-            };
             for hit in
                 self.string_rules
-                    .scan_bytes(data, target_name, &sha256_hex, &md5_hex, &strings, is_pe, 10)
+                    .scan_bytes(data, target_name, &sha256_hex, &strings, is_pe, 10)
             {
                 let name = if hit.rule.is_empty() {
                     "HydraSig.Match".to_string()

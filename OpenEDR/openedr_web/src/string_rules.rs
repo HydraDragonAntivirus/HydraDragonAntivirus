@@ -62,7 +62,6 @@ impl PeStringRules {
         data: &[u8],
         target_name: &str,
         sha256_hex: &str,
-        md5_hex: &str,
         strings: &[String],
         is_pe: bool,
         cap: usize,
@@ -80,7 +79,7 @@ impl PeStringRules {
             entropy: shannon_entropy(data),
             hashes: Hashes {
                 sha256: sha256_hex.to_string(),
-                md5: md5_hex.to_string(),
+                md5: String::new(),
             },
             pe: None,
             file_type: FileTypeInfo {
