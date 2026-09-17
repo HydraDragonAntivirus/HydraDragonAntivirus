@@ -17,10 +17,16 @@ hex = "0.4"
 regex = "1.12"
 url = "2.5"
 yara-x = "1.20"
+md-5 = "0.11"
+
+# Direct use of the hydradragonsig rule engine (string rules evaluated by
+# ITS code, never reimplemented here). default-features off keeps the CLI
+# (clap/colored/env_logger/indicatif) out of the wasm binary.
 oxc_parser = "0.135"
 oxc_ast = "0.135"
 oxc_allocator = "0.135"
 oxc_span = "0.135"
+hydradragonsig = { path = "../../hydradragonsig", default-features = false }
 
 # Root fix for the `__wbindgen_placeholder__` import in the shipped wasm:
 # yara-x -> p256/p384 -> ecdsa -> rand -> getrandom/js pulls wasm-bindgen JS

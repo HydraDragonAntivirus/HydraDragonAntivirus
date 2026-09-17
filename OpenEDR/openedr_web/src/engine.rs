@@ -45,10 +45,14 @@ impl WebEngine {
         self.yara.add_source(src)
     }
 
-    /// Load registry-rule YAML (same schema as desktop `registry_rules/`).
-    /// Returns pattern count, or -1 on parse error.
-    pub fn set_registry_rules(&mut self, yaml: &str) -> i32 {
+    /// Load hydradragonsig string-rule YAML (generic `Rule` documents).
+    /// Returns rule count, or -1 on parse error.
+    pub fn set_string_rules(&mut self, yaml: &str) -> i32 {
         self.string_rules.load_yaml(yaml)
+    }
+
+    pub fn set_registry_rules(&mut self, yaml: &str) -> i32 {
+        self.set_string_rules(yaml)
     }
 
     /// Load newline-separated SHA-256 whitelist.
@@ -155,23 +159,40 @@ impl WebEngine {
             max_score = max_score.max(0.95);
         }
 
-        // 3. PE-embedded registry/persistence string rules (replaces the
-        // desktop check_registry API, which has no meaning in a browser).
-        if data.starts_with(b"MZ") {
+        // 3. hydradragonsig string rules, evaluated by ITS engine.
+        // Executable gating lives in the rules via FileType conditions;
+        // the engine only tags the file (validated PE or not).
+        {
+            let is_pe = find_valid_embedded_pe(data) == Some(0);
             let raw = pe_strings::extract_strings(data);
             let strings: Vec<String> =
                 raw.iter().map(|s| string_rules::normalize_text(s)).collect();
-            for hit in self.string_rules.scan(&strings, 10) {
+            let md5_hex = {
+                use md5::Digest;
+                format!("{:x}", md5::Md5::digest(data))
+            };
+            for hit in
+                self.string_rules
+                    .scan_bytes(data, target_name, &sha256_hex, &md5_hex, &strings, is_pe, 10)
+            {
+                let name = if hit.rule.is_empty() {
+                    "HydraSig.Match".to_string()
+                } else {
+                    hit.rule.clone()
+                };
+                let mut details = hit.title.clone();
+                if let Some(ev) = hit.evidence.first() {
+                    details.push_str(" | ");
+                    details.push_str(&ev.chars().take(120).collect::<String>());
+                }
+                let score = hit.score as f32 / 100.0;
                 detections.push(DetectionItem {
-                    layer: "PE_StringRule".to_string(),
-                    name: "Heuristic.PE.EmbeddedRegistryIndicator".to_string(),
-                    score: Some(0.80),
-                    details: Some(format!(
-                        "pattern '{}' matched string '{}'",
-                        hit.pattern, hit.sample
-                    )),
+                    layer: "HydraSig".to_string(),
+                    name,
+                    score: Some(score),
+                    details: Some(details),
                 });
-                max_score = max_score.max(0.80);
+                max_score = max_score.max(score);
             }
         }
 

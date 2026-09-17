@@ -29,8 +29,10 @@ URL 0.50, Malicious ≥ 0.85, Suspicious ≥ 0.50).
 `src/ml/{features,js_features,url_features,pe_features,tree_model}.rs` and
 `src/report.rs` are byte-identical copies from `openedr_static` except:
 `tree_model.rs` lost `from_bin_file` (no fs), `pe_features.rs` lost capstone
-(counts arrive from JS). `string_rules.rs` mirrors `ptm_registry`
-wildcard semantics for in-PE scanning.
+(counts arrive from JS). `string_rules.rs` evaluates `pua_registry.yaml`
+using hydradragonsig's `RuleSet` engine with FileType PE gating to ensure
+rules only match validated PE executables.
+The desktop `registry_rules` API path is unsupported — rules run as validated-PE string scans.
 
 ## C ABI (linear memory, no wasm-bindgen needed)
 

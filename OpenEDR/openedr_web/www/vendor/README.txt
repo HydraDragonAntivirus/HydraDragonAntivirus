@@ -17,7 +17,6 @@ The demo degrades gracefully when a file is absent (status lights go red).
 Runtime data (also NOT in git, copy from OpenMalwareScannerPortable/):
   www/models/pe_trees.bin, js_trees.bin, url_trees.bin
   www/yara_rules/valhalla-rules.yrc
-  www/registry_rules/pua_registry_rules.yaml
   www/hash_rules/benign_sha256.txt
 Serve this folder over http (file:// blocks fetch + wasm streaming):
   python3 -m http.server 8080   # inside www/

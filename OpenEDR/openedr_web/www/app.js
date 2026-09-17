@@ -280,7 +280,6 @@ async function boot() {
     lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>yara .yrc`, true]);
   } catch { lights.push([`<span class="dot no"></span>yara .yrc`, true]); }
   for (const [fn, file, label] of [
-    [wasm.web_set_registry_rules, 'registry_rules/pua_registry_rules.yaml', 'registry rules'],
     [wasm.web_set_benign, 'hash_rules/benign_sha256.txt', 'benign list'],
   ]) {
     try {

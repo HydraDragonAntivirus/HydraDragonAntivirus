@@ -146,17 +146,22 @@ pub extern "C" fn web_load_yara_src(ptr: *const u8, len: usize) -> i32 {
     eng.add_yara_source(&text) as i32
 }
 
-/// Load registry-rule YAML (same schema as desktop `registry_rules/`).
-/// Returns pattern count, or -1 on parse error.
+/// Load hydradragonsig string-rule YAML (generic `Rule` documents).
+/// Returns rule count, or -1 on parse error.
 #[no_mangle]
-pub extern "C" fn web_set_registry_rules(ptr: *const u8, len: usize) -> i32 {
+pub extern "C" fn web_set_string_rules(ptr: *const u8, len: usize) -> i32 {
     let Some(text) = take_str(ptr, len) else {
         return -1;
     };
     let Some(mut eng) = lock_engine() else {
         return -1;
     };
-    eng.set_registry_rules(&text)
+    eng.set_string_rules(&text)
+}
+
+#[no_mangle]
+pub extern "C" fn web_set_registry_rules(ptr: *const u8, len: usize) -> i32 {
+    web_set_string_rules(ptr, len)
 }
 
 /// Load newline-separated SHA-256 whitelist. Returns entries added.

@@ -1,128 +1,189 @@
-//! PE-embedded registry/persistence indicator rules (web edition).
+//! Thin web adapter over the hydradragonsig rule engine.
 //!
-//! The desktop `check_registry` API (registry path -> PUA verdict) has no
-//! meaning in a browser: there is no registry to query. Instead the SAME
-//! rule patterns (`pua_reg_paths` / `persistence_paths` / `suspicious_keys`
-//! from `registry_rules/*.yaml`) are scanned as **strings inside PE files**:
-//! malware droppers commonly carry their autostart keys, CLSIDs and service
-//! names as plaintext. Semantics mirror `ptm_registry::wildcard_match`
-//! exactly (core `*...*` containment on lowercased, slash-normalized text).
+//! String rules are evaluated by hydradragonsig's OWN code
+//! (`RuleSet::from_yaml_str` + `evaluate_into` + `aggregate_verdict`) —
+//! nothing is reimplemented here. Executable gating lives in the RULE DATA
+//! as `FileType` conditions, enforced by the engine against the file-type
+//! tag this adapter supplies per scan.
 
-use serde::Deserialize;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct RegistryRuleFile {
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub pua_reg_paths: Vec<String>,
-    #[serde(default)]
-    pub persistence_paths: Vec<String>,
-    #[serde(default)]
-    pub suspicious_keys: Vec<String>,
-}
+use hydradragonsig::models::{
+    FileTypeInfo, Hashes, ScanReport, ScanResultCode, ScanStatistics, StringHit as HydraStringHit,
+    Verdict,
+};
+use hydradragonsig::rules::{aggregate_verdict, RuleEvalOptions, RuleSet};
 
-/// A single string-rule hit: the rule pattern plus a sample of matched text.
+/// One string-rule finding, mapped from hydradragonsig's `Finding`.
 #[derive(Debug, Clone)]
-pub struct StringHit {
-    pub pattern: String,
-    pub sample: String,
+pub struct Hit {
+    pub rule: String,
+    pub title: String,
+    pub score: u32,
+    pub evidence: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct PeStringRules {
-    patterns: Vec<String>,
+    ruleset: Option<RuleSet>,
 }
 
 impl PeStringRules {
-    pub fn new(patterns: Vec<String>) -> Self {
-        let normalized = patterns
-            .into_iter()
-            .map(|p| p.trim().to_lowercase())
-            .filter(|p| !p.is_empty())
-            .collect();
-        Self {
-            patterns: normalized,
-        }
-    }
-
-    /// Load from a YAML rules document (same schema as desktop
-    /// `registry_rules/*.yaml`). Returns the pattern count, or -1 on error.
+    /// Load a hydradragonsig `Rule` YAML document. Returns the rule count,
+    /// or -1 when the document holds no usable rules.
     pub fn load_yaml(&mut self, yaml: &str) -> i32 {
-        let mut pats = match serde_yaml::from_str::<RegistryRuleFile>(yaml) {
-            Ok(f) => {
-                let mut v = f.pua_reg_paths;
-                v.extend(f.persistence_paths);
-                v.extend(f.suspicious_keys);
-                v
+        match RuleSet::from_yaml_str(yaml) {
+            Ok(rs) => {
+                let n = rs.rules().len();
+                if n == 0 {
+                    return -1;
+                }
+                if let Some(cur) = self.ruleset.as_mut() {
+                    cur.extend(rs);
+                    cur.rules().len() as i32
+                } else {
+                    self.ruleset = Some(rs);
+                    n as i32
+                }
             }
-            Err(_) => match serde_yaml::from_str::<Vec<String>>(yaml) {
-                Ok(list) => list,
-                Err(_) => return -1,
-            },
-        };
-        let mut all = std::mem::take(&mut self.patterns);
-        all.append(&mut pats);
-        *self = Self::new(all);
-        self.patterns.len() as i32
+            Err(_) => -1,
+        }
     }
 
     pub fn pattern_count(&self) -> usize {
-        self.patterns.len()
+        self.ruleset.as_ref().map(|r| r.rules().len()).unwrap_or(0)
     }
 
-    /// Scan lowercased PE strings. At most `cap` hits, in rule order.
-    pub fn scan(&self, strings: &[String], cap: usize) -> Vec<StringHit> {
-        let mut hits = Vec::new();
-        if self.patterns.is_empty() || strings.is_empty() || cap == 0 {
-            return hits;
-        }
-        'rules: for pat in &self.patterns {
-            let core = pat.trim_matches('*');
-            if core.len() < 4 {
-                continue;
-            }
-            for s in strings {
-                let hit = if pat.starts_with('*') && pat.ends_with('*') {
-                    s.contains(core)
-                } else if pat.starts_with('*') {
-                    s.ends_with(core)
-                } else if pat.ends_with('*') {
-                    s.starts_with(core)
-                } else {
-                    s.as_str() == core
-                };
-                if hit {
-                    hits.push(StringHit {
-                        pattern: pat.clone(),
-                        sample: truncate(s, 96),
-                    });
-                    if hits.len() >= cap {
-                        break 'rules;
-                    }
-                    break;
-                }
-            }
-        }
-        hits
+    /// Evaluate loaded rules over extracted strings. `is_pe` tags the file
+    /// for `FileType` conditions (no other classification is done here).
+    pub fn scan_bytes(
+        &self,
+        data: &[u8],
+        target_name: &str,
+        sha256_hex: &str,
+        md5_hex: &str,
+        strings: &[String],
+        is_pe: bool,
+        cap: usize,
+    ) -> Vec<Hit> {
+        let rs = match self.ruleset.as_ref() {
+            Some(rs) if !strings.is_empty() && cap > 0 => rs,
+            _ => return Vec::new(),
+        };
+        let mut report = ScanReport {
+            path: PathBuf::from(target_name),
+            // No clock on wasm32-unknown-unknown; epoch is never read by
+            // string/filetype conditions, only stamped on the report.
+            scanned_at: Default::default(),
+            file_size: data.len() as u64,
+            entropy: shannon_entropy(data),
+            hashes: Hashes {
+                sha256: sha256_hex.to_string(),
+                md5: md5_hex.to_string(),
+            },
+            pe: None,
+            file_type: FileTypeInfo {
+                primary: if is_pe { "pe".to_string() } else { "unknown".to_string() },
+                tags: if is_pe { vec!["pe".to_string()] } else { Vec::new() },
+                extension: None,
+                is_plain_text: false,
+                is_binary: true,
+                is_pe,
+                is_pe32: false,
+                is_pe64: false,
+                is_elf: false,
+                is_elf32: false,
+                is_elf64: false,
+                is_macho: false,
+                is_apk: false,
+                is_zip: false,
+                is_archive: false,
+                is_7z: false,
+                is_rar: false,
+                is_gzip: false,
+                is_tar: false,
+                is_jar: false,
+                is_dex: false,
+                is_java_class: false,
+                is_pdf: false,
+                is_office: false,
+                is_microsoft_compound: false,
+                is_script: false,
+                is_powershell: false,
+                is_batch: false,
+                is_javascript: false,
+                is_vbs: false,
+                is_python: false,
+                is_broken_executable: false,
+                is_broken_apk: false,
+                broken_executable_type: None,
+            },
+            strings: strings
+                .iter()
+                .map(|s| HydraStringHit {
+                    value: s.clone(),
+                    offset: 0,
+                    encoding: "ascii".to_string(),
+                })
+                .collect(),
+            decoded_strings: Vec::new(),
+            env_hits: Vec::new(),
+            features: BTreeMap::new(),
+            findings: Vec::new(),
+            score: 0,
+            verdict: Verdict::Clean,
+            confidence: 0,
+            malware_families: Vec::new(),
+            rule_performance: Vec::new(),
+            result_code: ScanResultCode::Ok,
+            statistics: ScanStatistics::default(),
+            archive_members: Vec::new(),
+            threat_name: None,
+            mitre_techniques: Vec::new(),
+        };
+        let options = RuleEvalOptions {
+            profile_rules: false,
+            parallel_rules: false,
+            stop_on_detection: false,
+        };
+        rs.evaluate_into(&mut report, data, options);
+        aggregate_verdict(&mut report);
+        report
+            .findings
+            .iter()
+            .take(cap)
+            .map(|f| Hit {
+                rule: f.rule_id.clone(),
+                title: f.title.clone(),
+                score: f.score,
+                evidence: f.evidence.clone(),
+            })
+            .collect()
     }
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        return s.to_string();
+fn shannon_entropy(data: &[u8]) -> f64 {
+    if data.is_empty() {
+        return 0.0;
     }
-    let mut end = max;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
+    let mut counts = [0u64; 256];
+    for &b in data {
+        counts[b as usize] += 1;
     }
-    format!("{}…", &s[..end])
+    let total = data.len() as f64;
+    let mut entropy = 0.0f64;
+    for &c in &counts {
+        if c > 0 {
+            let p = c as f64 / total;
+            entropy -= p * p.log2();
+        }
+    }
+    entropy
 }
 
-/// Normalize a raw binary string the way the desktop matcher normalizes
-/// registry queries: lowercase + forward slashes to backslashes.
+/// Normalize a raw binary string for matching: lowercase + forward
+/// slashes to backslashes.
 pub fn normalize_text(s: &str) -> String {
     s.to_lowercase().replace('/', "\\")
 }

@@ -37,7 +37,7 @@ jobs:
           test -f "$WASM" || { echo "missing $WASM"; find OpenEDR/openedr_web/target -name '*.wasm' 2>/dev/null; exit 1; }
           rm -rf _site && mkdir -p _site
           cp -r docs/* _site/
-          mkdir -p _site/webdemo/models _site/webdemo/registry_rules _site/webdemo/hash_rules _site/webdemo/vendor
+          mkdir -p _site/webdemo/models _site/webdemo/hash_rules _site/webdemo/vendor
           cp OpenEDR/openedr_web/www/index.html OpenEDR/openedr_web/www/app.js _site/webdemo/
           cp OpenEDR/openedr_web/www/vendor/README.txt _site/webdemo/vendor/
           cp "$WASM" _site/webdemo/openedr_web.wasm
@@ -52,11 +52,6 @@ jobs:
           if [ ! -f _site/webdemo/models/url_trees.bin ] && [ -f hydradragon_ml_models/url_trees.bin ]; then
             cp hydradragon_ml_models/url_trees.bin _site/webdemo/models/
             echo "url_trees.bin from hydradragon_ml_models/"
-          fi
-          if [ -f OpenMalwareScannerPortable/registry_rules/pua_registry_rules.yaml ]; then
-            cp OpenMalwareScannerPortable/registry_rules/pua_registry_rules.yaml _site/webdemo/registry_rules/
-          else
-            echo "skip missing registry yaml"
           fi
           if [ -f OpenMalwareScannerPortable/hash_rules/benign_sha256.txt ]; then
             cp OpenMalwareScannerPortable/hash_rules/benign_sha256.txt _site/webdemo/hash_rules/
