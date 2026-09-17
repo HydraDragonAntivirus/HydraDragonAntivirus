@@ -18,19 +18,23 @@ const statusEl = document.getElementById('status');
 const outEl = document.getElementById('out');
 
 /* ---------- wasm plumbing ---------- */
-/* Dead wasm-bindgen shims (uuid/js-sys via yara-x dep tree) are satisfied here.
-   Only real binding served: Date.now() for yara-x time.now() rules.
-   Anything else throws loudly if ever actually called. */
-const PLACEHOLDER_STUB = new Proxy(Object.create(null), {
-  get: (t, p) => {
-    if (typeof p !== 'string') return undefined;
-    if (p.toLowerCase().includes('now')) return () => Date.now();
-    return (...a) => { throw new Error('unreachable wasm-bindgen stub called: ' + p); };
-  },
-});
+function stubNamespace(calls) {
+  return new Proxy(Object.create(null), {
+    get: (t, p) => {
+      if (typeof p !== 'string') return undefined;
+      if (calls && Object.prototype.hasOwnProperty.call(calls, p)) return calls[p];
+      if (p.toLowerCase().includes('now')) return () => Date.now();
+      return (...a) => { throw new Error('unreachable wasm-bindgen stub called: ' + p); };
+    },
+  });
+}
+const WASM_IMPORTS = {
+  __wbindgen_placeholder__: stubNamespace(),
+  __wbindgen_externref_xform__: stubNamespace(),
+};
 async function loadWasm() {
   const bytes = await (await fetch('openedr_web.wasm')).arrayBuffer();
-  wasm = (await WebAssembly.instantiate(bytes, { __wbindgen_placeholder__: PLACEHOLDER_STUB })).instance.exports;
+  wasm = (await WebAssembly.instantiate(bytes, WASM_IMPORTS)).instance.exports;
 }
 
 function writeBytes(u8) {
