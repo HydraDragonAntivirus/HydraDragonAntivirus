@@ -9,6 +9,13 @@
  *   hash_rules/benign_sha256.txt             (optional)
  */
 'use strict';
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (ev) => {
+    if (ev.filename && ev.filename.includes('searchAnalyzer')) {
+      ev.preventDefault();
+    }
+  });
+}
 
 const FLAG = new Set(['Malicious', 'Suspicious']);
 let wasm = null;          // { memory, exports... }
@@ -216,36 +223,42 @@ async function unpackAssist(u8) {
     if (!pe || !pe.sections.length || !pe.entryRva) return dumps;
     const BASE = 0x400000, STACK_BASE = 0x100000, STACK_SIZE = 65536;
     const PROT = (uc.PROT_ALL !== undefined) ? uc.PROT_ALL : 7;
-    const e = new uc.Unicorn(uc.ARCH_X86, pe.is64 ? uc.MODE_64 : uc.MODE_32);
-    const span = Math.max(u8.length + 0x1000, 0x100000);
-    e.mem_map(BASE, span, PROT);
-    e.mem_map(STACK_BASE, STACK_SIZE, PROT);
-    const head = Math.min(u8.length, 0x1000);
-    e.mem_write(BASE, Array.from(u8.slice(0, head)));
-    for (const s of pe.sections) {
-      if (!s.rawSize || s.rawPtr >= u8.length) continue;
-      const n = Math.min(s.rawSize, u8.length - s.rawPtr);
-      e.mem_write(BASE + s.rva, Array.from(u8.slice(s.rawPtr, s.rawPtr + n)));
+    let e = null;
+    try {
+      e = new uc.Unicorn(uc.ARCH_X86, pe.is64 ? uc.MODE_64 : uc.MODE_32);
+    } catch { return dumps; }
+    try {
+      const span = Math.max(u8.length + 0x1000, 0x100000);
+      e.mem_map(BASE, span, PROT);
+      e.mem_map(STACK_BASE, STACK_SIZE, PROT);
+      const head = Math.min(u8.length, 0x1000);
+      e.mem_write(BASE, Array.from(u8.slice(0, head)));
+      for (const s of pe.sections) {
+        if (!s.rawSize || s.rawPtr >= u8.length) continue;
+        const n = Math.min(s.rawSize, u8.length - s.rawPtr);
+        e.mem_write(BASE + s.rva, Array.from(u8.slice(s.rawPtr, s.rawPtr + n)));
+      }
+      const RIP = pe.is64 ? (uc.X86_REG_RIP ?? uc.X86_REG_EIP) : (uc.X86_REG_EIP ?? uc.X86_REG_RIP);
+      const RSP = pe.is64 ? (uc.X86_REG_RSP ?? uc.X86_REG_ESP) : (uc.X86_REG_ESP ?? uc.X86_REG_RSP);
+      const entry = BASE + pe.entryRva;
+      try { e.reg_write_i32(RSP, STACK_BASE + STACK_SIZE - 16); } catch {}
+      try { e.reg_write_i32(RIP, entry); } catch {}
+      // Timeout must be 0 to avoid qemu_thread_create on single-threaded WebAssembly
+      try { e.emu_start(entry, entry + 0x100000, 0, 50000); } catch { /* partial state kept */ }
+      for (const s of pe.sections) {
+        if (!s.rawSize || s.rawPtr >= u8.length) continue;
+        const n = Math.min(s.rawSize, u8.length - s.rawPtr, 1 << 20);
+        try {
+          const cur = e.mem_read(BASE + s.rva, n);
+          const orig = u8.slice(s.rawPtr, s.rawPtr + n);
+          let diff = 0;
+          for (let i = 0; i < n; i++) if (cur[i] !== orig[i]) diff++;
+          if (diff > 64 && n >= 4096 && dumps.length < 3) dumps.push(Uint8Array.from(cur));
+        } catch {}
+      }
+    } finally {
+      try { if (e) e.close(); } catch {}
     }
-    const RIP = pe.is64 ? (uc.X86_REG_RIP ?? uc.X86_REG_EIP) : (uc.X86_REG_EIP ?? uc.X86_REG_RIP);
-    const RSP = pe.is64 ? (uc.X86_REG_RSP ?? uc.X86_REG_ESP) : (uc.X86_REG_ESP ?? uc.X86_REG_RSP);
-    const entry = BASE + pe.entryRva;
-    try { e.reg_write_i32(RSP, STACK_BASE + STACK_SIZE - 16); } catch {}
-    try { e.reg_write_i32(RIP, entry); } catch {}
-    try { e.emu_start(entry, entry + 0x100000, 2 * 1000 * 1000, 200000); } catch { /* partial state kept */ }
-    const before = new Map();
-    for (const s of pe.sections) {
-      if (!s.rawSize || s.rawPtr >= u8.length) continue;
-      const n = Math.min(s.rawSize, u8.length - s.rawPtr, 1 << 20);
-      try {
-        const cur = e.mem_read(BASE + s.rva, n);
-        const orig = u8.slice(s.rawPtr, s.rawPtr + n);
-        let diff = 0;
-        for (let i = 0; i < n; i++) if (cur[i] !== orig[i]) diff++;
-        if (diff > 64 && n >= 4096 && dumps.length < 3) dumps.push(Uint8Array.from(cur));
-      } catch {}
-    }
-    try { e.close(); } catch {}
   } catch { /* static-only fallback */ }
   return dumps;
 }
