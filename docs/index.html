@@ -67,7 +67,7 @@ const HKEY = 'ows_history_v1';
 const statusEl = document.getElementById('status');
 const outEl = document.getElementById('out');
 const histEl = document.getElementById('hist');
-const BASE = 'webdemo/';
+let BASE = './';
 let wasm = null, CS = null, UC = null;
 
 /* ---------- history (localStorage) ---------- */
@@ -121,8 +121,28 @@ document.getElementById('clearHist').onclick = () => { saveHist([]); renderHist(
 
 /* ---------- wasm plumbing ---------- */
 async function loadWasm() {
-  const bytes = await (await fetch(BASE + 'openedr_web_bg.wasm')).arrayBuffer();
-  wasm = await wasm_bindgen(bytes);
+  const candidates = [BASE + 'openedr_web_bg.wasm', './openedr_web_bg.wasm', 'openedr_web_bg.wasm', 'webdemo/openedr_web_bg.wasm'];
+  let lastErr = null;
+  for (const p of candidates) {
+    try {
+      const res = await fetch(p);
+      if (!res.ok) continue;
+      const bytes = await res.arrayBuffer();
+      const u8 = new Uint8Array(bytes);
+      if (u8.length >= 4 && u8[0] === 0x00 && u8[1] === 0x61 && u8[2] === 0x73 && u8[3] === 0x6d) {
+        if (p.includes('/')) {
+          BASE = p.slice(0, p.lastIndexOf('/') + 1);
+        } else {
+          BASE = './';
+        }
+        wasm = await wasm_bindgen(bytes);
+        return;
+      }
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('Valid openedr_web_bg.wasm binary not found at candidate paths.');
 }
 function writeBytes(u8) {
   const ptr = wasm.web_alloc(u8.length);
@@ -328,7 +348,7 @@ async function boot() {
     await loadWasm();
     lights.push('<span class="dot ok"></span>wasm');
   } catch (e) {
-    statusEl.innerHTML = `<span class="dot no"></span>failed to load webdemo/openedr_web.wasm: ${e}`;
+    statusEl.innerHTML = `<span class="dot no"></span>failed to load openedr_web_bg.wasm: ${e.message || e}`;
     return;
   }
   let selfTest = false;

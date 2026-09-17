@@ -76,8 +76,23 @@ function exportHist() {
 
 /* ---------- wasm plumbing ---------- */
 async function loadWasm() {
-  const bytes = await (await fetch('openedr_web_bg.wasm')).arrayBuffer();
-  wasm = await wasm_bindgen(bytes);
+  const candidates = ['./openedr_web_bg.wasm', 'openedr_web_bg.wasm', 'webdemo/openedr_web_bg.wasm'];
+  let lastErr = null;
+  for (const p of candidates) {
+    try {
+      const res = await fetch(p);
+      if (!res.ok) continue;
+      const bytes = await res.arrayBuffer();
+      const u8 = new Uint8Array(bytes);
+      if (u8.length >= 4 && u8[0] === 0x00 && u8[1] === 0x61 && u8[2] === 0x73 && u8[3] === 0x6d) {
+        wasm = await wasm_bindgen(bytes);
+        return;
+      }
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('Valid openedr_web_bg.wasm binary not found at candidate paths.');
 }
 
 function writeBytes(u8) {
