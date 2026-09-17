@@ -18,12 +18,13 @@ const statusEl = document.getElementById('status');
 const outEl = document.getElementById('out');
 
 /* ---------- wasm plumbing ---------- */
-/* Dead wasm-bindgen shims (uuid/js-sys via yara-x dep tree): yara-x only
-   parses/formats UUIDs, never randomness in our paths. Satisfy the linker;
-   throw loudly if ever actually called. */
+/* Dead wasm-bindgen shims (uuid/js-sys via yara-x dep tree) are satisfied here.
+   Only real binding served: Date.now() for yara-x time.now() rules.
+   Anything else throws loudly if ever actually called. */
 const PLACEHOLDER_STUB = new Proxy(Object.create(null), {
   get: (t, p) => {
     if (typeof p !== 'string') return undefined;
+    if (p.toLowerCase().includes('now')) return () => Date.now();
     return (...a) => { throw new Error('unreachable wasm-bindgen stub called: ' + p); };
   },
 });
