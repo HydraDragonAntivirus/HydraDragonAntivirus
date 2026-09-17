@@ -140,6 +140,12 @@ checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
 
 [[package]]
 name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
@@ -264,6 +270,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -1009,6 +1016,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "hydradragonsig"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "daachorse",
+ "digest 0.11.3",
+ "hex",
+ "log",
+ "md-5 0.11.0",
+ "memchr",
+ "once_cell",
+ "pefile-rs",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.20",
+ "walkdir",
+ "yaml_serde",
+ "zip",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1311,6 +1343,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
+name = "libyaml-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e126dda6f34391ab7b444f9922055facc83c07a910da3eb16f1e4d9c45dc777"
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1383,6 +1421,16 @@ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
+]
+
+[[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -1572,6 +1620,7 @@ name = "openedr_web"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "hydradragonsig",
  "oxc_allocator",
  "oxc_ast",
  "oxc_parser",
@@ -1817,6 +1866,13 @@ dependencies = [
  "elliptic-curve",
  "primeorder",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "pefile-rs"
+version = "0.1.0"
+dependencies = [
+ "md-5 0.10.6",
 ]
 
 [[package]]
@@ -3269,6 +3325,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "yaml_serde"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33b729a08a9a6be689bbad3e2bf8015926db54b6622cc89c3a5f7dc174b9e918"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "libyaml-rs",
+ "ryu",
+ "serde",
+]
+
+[[package]]
 name = "yansi"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3282,7 +3351,7 @@ checksum = "015b06cc60800856d04c3115ef6b7c6cbb95f59f20a9df4358dd2f85f3d5b391"
 dependencies = [
  "annotate-snippets",
  "anyhow",
- "base64",
+ "base64 0.23.1",
  "bincode",
  "bitflags",
  "bitvec",
@@ -3304,7 +3373,7 @@ dependencies = [
  "ipnet",
  "itertools 0.15.0",
  "js-sys",
- "md-5",
+ "md-5 0.10.6",
  "md2",
  "memchr",
  "memmap2",
@@ -3380,7 +3449,7 @@ version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2dc99d76871efa8710596d02d48eeabca62d27076b0443ab29f574724c61388"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "chrono",
  "itertools 0.15.0",
  "protobuf",

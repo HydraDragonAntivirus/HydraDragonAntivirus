@@ -18,6 +18,7 @@ pub struct WebEngine {
     yara: YaraScanner,
     string_rules: PeStringRules,
     benign_hashes: HashSet<String>,
+    url_whitelist: Option<BinaryFuse16Filter>,
 }
 
 impl WebEngine {
@@ -27,6 +28,16 @@ impl WebEngine {
             yara: YaraScanner::new(),
             string_rules: PeStringRules::default(),
             benign_hashes: HashSet::new(),
+            url_whitelist: None,
+        }
+    }
+
+    pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
+        if let Some(f) = BinaryFuse16Filter::from_bytes(data) {
+            self.url_whitelist = Some(f);
+            true
+        } else {
+            false
         }
     }
 
@@ -255,10 +266,27 @@ impl WebEngine {
         }
     }
 
-    /// URL score via tree model. Returns (probability, is_malicious).
-    pub fn scan_url(&self, raw_url: &str) -> (f32, bool) {
+    /// URL score via tree model + Tranco 1M & IP whitelist check.
+    /// Returns (probability, is_malicious, is_whitelisted).
+    pub fn scan_url(&self, raw_url: &str) -> (f32, bool, bool) {
+        if let Some(ref filter) = self.url_whitelist {
+            if let Some(host) = extract_host(raw_url) {
+                if filter.contains(host) {
+                    return (0.0, false, true);
+                }
+                let parts: Vec<&str> = host.split('.').collect();
+                if parts.len() > 2 {
+                    for i in 1..parts.len() - 1 {
+                        let parent = parts[i..].join(".");
+                        if filter.contains(&parent) {
+                            return (0.0, false, true);
+                        }
+                    }
+                }
+            }
+        }
         let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
-        (prob, prob >= 0.50)
+        (prob, prob >= 0.50, false)
     }
 }
 
@@ -363,5 +391,101 @@ fn is_js_content(bytes: &[u8]) -> bool {
         s.contains("function") || s.contains("var ") || s.contains("const ") || s.contains("let ")
     } else {
         false
+    }
+}
+
+fn extract_host(raw_url: &str) -> Option<&str> {
+    let mut s = raw_url.trim();
+    if let Some(rest) = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://")) {
+        s = rest;
+    }
+    let host_and_port = s.split(['/', '?', '#']).next()?;
+    let host = host_and_port.split(':').next()?;
+    let host = host.trim();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
+}
+
+pub struct BinaryFuse16Filter {
+    seed: u64,
+    seg_len: u32,
+    seg_len_mask: u32,
+    seg_count_len: u32,
+    count: usize,
+    fingerprints: Vec<u16>,
+}
+
+impl BinaryFuse16Filter {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 32 || bytes[0] != 16 || bytes[1] != 2 {
+            return None;
+        }
+        let seed = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
+        let seg_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?);
+        let seg_len_mask = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
+        let seg_count_len = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
+        let count = usize::try_from(u64::from_le_bytes(bytes[24..32].try_into().ok()?)).ok()?;
+        if 32 + count.checked_mul(2)? > bytes.len() {
+            return None;
+        }
+        let mut fingerprints = Vec::with_capacity(count);
+        for i in 0..count {
+            let off = 32 + i * 2;
+            fingerprints.push(u16::from_le_bytes([bytes[off], bytes[off + 1]]));
+        }
+        Some(Self {
+            seed,
+            seg_len,
+            seg_len_mask,
+            seg_count_len,
+            count,
+            fingerprints,
+        })
+    }
+
+    pub fn contains(&self, s: &str) -> bool {
+        let k = Self::key(s);
+        let hash = Self::mix64(k.wrapping_add(self.seed));
+        let f = hash as u16;
+        let (h0, h1, h2) = Self::hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);
+        let c = self.count;
+        if h0 as usize >= c || h1 as usize >= c || h2 as usize >= c {
+            return false;
+        }
+        let fp = self.fingerprints[h0 as usize] ^ self.fingerprints[h1 as usize] ^ self.fingerprints[h2 as usize];
+        f ^ fp == 0
+    }
+
+    #[inline(always)]
+    fn key(s: &str) -> u64 {
+        const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+        const PRIME: u64 = 0x0000_0100_0000_01b3;
+        let mut h = OFFSET;
+        for b in s.bytes() {
+            h ^= b.to_ascii_lowercase() as u64;
+            h = h.wrapping_mul(PRIME);
+        }
+        h
+    }
+
+    #[inline(always)]
+    fn mix64(k: u64) -> u64 {
+        const MIX_C1: u64 = 0xff51_afd7_ed55_8ccd;
+        let r = (k as u128).wrapping_mul(MIX_C1 as u128);
+        (r ^ (r >> 64)) as u64
+    }
+
+    #[inline(always)]
+    fn hash_of_hash(hash: u64, seg_len: u32, seg_len_mask: u32, seg_count_len: u32) -> (u32, u32, u32) {
+        let hi = ((hash as u128 * seg_count_len as u128) >> 64) as u64;
+        let h0 = hi as u32;
+        let mut h1 = h0 + seg_len;
+        let mut h2 = h1 + seg_len;
+        h1 ^= ((hash >> 18) as u32) & seg_len_mask;
+        h2 ^= (hash as u32) & seg_len_mask;
+        (h0, h1, h2)
     }
 }

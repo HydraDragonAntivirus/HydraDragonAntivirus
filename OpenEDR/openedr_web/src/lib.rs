@@ -121,6 +121,19 @@ pub extern "C" fn web_load_model(kind: u32, ptr: *const u8, len: usize) -> i32 {
     eng.load_model(kind, &data) as i32
 }
 
+/// Load BinaryFuse16 URL/domain/IP whitelist (.xf binary).
+/// Returns 1 on success, 0 on parse failure.
+#[no_mangle]
+pub extern "C" fn web_load_url_whitelist(ptr: *const u8, len: usize) -> i32 {
+    let Some(data) = take_bytes(ptr, len) else {
+        return 0;
+    };
+    let Some(mut eng) = lock_engine() else {
+        return 0;
+    };
+    eng.load_url_whitelist(&data) as i32
+}
+
 /// Load one compiled YARA `.yrc` bundle (same bytes as desktop).
 /// Returns 1 on success, 0 on parse failure.
 #[no_mangle]
@@ -132,6 +145,11 @@ pub extern "C" fn web_load_yara(ptr: *const u8, len: usize) -> i32 {
         return 0;
     };
     eng.load_yara(&data) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn web_load_yara_rules(ptr: *const u8, len: usize) -> i32 {
+    web_load_yara(ptr, len)
 }
 
 /// Compile one YARA source document. Returns 1 on success, 0 on error.
@@ -241,13 +259,20 @@ pub extern "C" fn web_scan_url(ptr: *const u8, len: usize) -> *mut c_char {
     let Some(eng) = lock_engine() else {
         return std::ptr::null_mut();
     };
-    let (prob, malicious) = eng.scan_url(&url);
-    let verdict = if malicious { "Malicious" } else { "Clean" };
+    let (prob, malicious, whitelisted) = eng.scan_url(&url);
+    let verdict = if whitelisted {
+        "Clean"
+    } else if malicious {
+        "Malicious"
+    } else {
+        "Clean"
+    };
     let out = serde_json::json!({
         "target_url": url,
         "verdict": verdict,
         "malware_probability": prob,
         "is_malicious": malicious,
+        "whitelisted": whitelisted,
     });
     emit_json(out.to_string())
 }

@@ -42,9 +42,11 @@ jobs:
           cp OpenEDR/openedr_web/www/vendor/README.txt _site/webdemo/vendor/
           cp "$WASM" _site/webdemo/openedr_web.wasm
           # Optional runtime data: copy whatever is tracked, never fail the deploy.
-          for f in pe_trees.bin js_trees.bin url_trees.bin; do
+          for f in pe_trees.bin js_trees.bin url_trees.bin url_whitelist.xf; do
             if [ -f "OpenMalwareScannerPortable/models/$f" ]; then
               cp "OpenMalwareScannerPortable/models/$f" _site/webdemo/models/
+            elif [ -f "OpenEDR/openedr_web/www/models/$f" ]; then
+              cp "OpenEDR/openedr_web/www/models/$f" _site/webdemo/models/
             else
               echo "skip missing models/$f"
             fi
@@ -69,7 +71,7 @@ jobs:
           done
           mkdir -p _site/webdemo/yara_rules
           if [ -d OpenEDR/openedr_web/www/yara_rules ]; then
-            cp OpenEDR/openedr_web/www/yara_rules/*.yrc _site/webdemo/yara_rules/ 2>/dev/null || true
+            cp OpenEDR/openedr_web/www/yara_rules/* _site/webdemo/yara_rules/ 2>/dev/null || true
           fi
           if [ -f OpenMalwareScannerPortable/yara_rules/valhalla-rules.yrc ] && [ ! -f _site/webdemo/yara_rules/valhalla-rules.yrc ]; then
             cp OpenMalwareScannerPortable/yara_rules/*.yrc _site/webdemo/yara_rules/ 2>/dev/null || true

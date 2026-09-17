@@ -226,8 +226,8 @@ async function unpackAssist(u8) {
       const n = Math.min(s.rawSize, u8.length - s.rawPtr);
       e.mem_write(BASE + s.rva, Array.from(u8.slice(s.rawPtr, s.rawPtr + n)));
     }
-    const RIP = (uc.X86_REG_RIP !== undefined) ? uc.X86_REG_RIP : uc.X86_REG_EIP;
-    const RSP = (uc.X86_REG_RSP !== undefined) ? uc.X86_REG_RSP : uc.X86_REG_ESP;
+    const RIP = pe.is64 ? (uc.X86_REG_RIP ?? uc.X86_REG_EIP) : (uc.X86_REG_EIP ?? uc.X86_REG_RIP);
+    const RSP = pe.is64 ? (uc.X86_REG_RSP ?? uc.X86_REG_ESP) : (uc.X86_REG_ESP ?? uc.X86_REG_RSP);
     const entry = BASE + pe.entryRva;
     try { e.reg_write_i32(RSP, STACK_BASE + STACK_SIZE - 16); } catch {}
     try { e.reg_write_i32(RIP, entry); } catch {}
@@ -286,6 +286,30 @@ function mergeVerdict(base, extra) {
   return { ...base, verdict, max_threat_score: score, detections: dets };
 }
 function render(rep, el) {
+  if (rep.target_url) {
+    const isWl = rep.whitelisted;
+    const lv = rep.liveness;
+    let lvBadge = '';
+    if (lv) {
+      if (lv.status === 'ACTIVE') {
+        lvBadge = `<span style="color:#38bdf8;font-weight:600;margin-left:8px">🌐 Online (${lv.http === 'ONLINE' ? 'HTTP Reachable' : 'DNS Active'})</span>`;
+      } else if (lv.status === 'INACTIVE') {
+        lvBadge = `<span style="color:#f59e0b;font-weight:600;margin-left:8px">⚠️ Inactive / Dead Domain (NXDOMAIN)</span>`;
+      } else {
+        lvBadge = `<span style="color:#94a3b8;font-weight:600;margin-left:8px">⚠️ Host Unreachable</span>`;
+      }
+    }
+    const fpBadge = rep.inactive_fp_mitigated
+      ? `<div style="color:#f59e0b;font-size:12px;margin-top:4px">⚠️ Domain is offline/unreachable. Threat score downgraded to prevent False Positive.</div>`
+      : '';
+    el.innerHTML =
+      `<div>Verdict: <span class="badge ${rep.verdict}">${rep.verdict}</span> ` +
+      `${isWl ? '<span style="color:#4cc38a;font-weight:bold;margin-left:8px">✓ Whitelisted (Tranco 1M / IP List)</span>' : ''}` +
+      `${lvBadge}<br>` +
+      `probability=${rep.malware_probability ?? 0} ` +
+      `<code class="mut">url=${rep.target_url}</code>${fpBadge}</div>`;
+    return;
+  }
   const dets = (rep.detections || []).map((d) =>
     `<tr><td><code>${d.layer || ''}</code></td><td><code>${d.name || ''}</code></td>` +
     `<td>${d.score ?? ''}</td><td><code>${(d.details || '').slice(0, 160)}</code></td></tr>`).join('');
@@ -326,16 +350,44 @@ async function boot() {
       lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>${file}`, true]);
     } catch { lights.push([`<span class="dot no"></span>${file}`, true]); }
   }
-  // Desktop valhalla bundle when deployed next to the demo.
+  // Tranco 1M + IP whitelist (.xf binary)
   try {
-    const r = await fetch('yara_rules/valhalla-rules.yrc');
+    const r = await fetch('models/url_whitelist.xf');
     if (!r.ok) throw 0;
     const u8 = new Uint8Array(await r.arrayBuffer());
     const p = writeBytes(u8);
-    const ok = wasm.web_load_yara(p, u8.length);
+    const fn = wasm.web_load_url_whitelist;
+    const ok = fn ? fn(p, u8.length) : 0;
     wasm.web_free(p, u8.length);
-    lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>yara .yrc`, true]);
-  } catch { lights.push([`<span class="dot no"></span>yara .yrc`, true]); }
+    lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>whitelist (1.4M)`, true]);
+  } catch { lights.push(['<span class="dot no"></span>whitelist', true]); }
+  // Desktop valhalla bundle when deployed next to the demo.
+  let yaraLoaded = false;
+  try {
+    const r = await fetch('yara_rules/valhalla-rules.yrc');
+    if (r.ok) {
+      const u8 = new Uint8Array(await r.arrayBuffer());
+      const p = writeBytes(u8);
+      const fn = wasm.web_load_yara_rules || wasm.web_load_yara;
+      if (fn && fn(p, u8.length) === 1) yaraLoaded = true;
+      wasm.web_free(p, u8.length);
+    }
+  } catch {}
+  if (!yaraLoaded) {
+    try {
+      const r = await fetch('yara_rules/valhalla-rules.yar');
+      if (r.ok) {
+        const text = await r.text();
+        if (typeof wasm.web_load_yara_src === 'function') {
+          const enc = new TextEncoder().encode(text);
+          const p = writeBytes(enc);
+          if (wasm.web_load_yara_src(p, enc.length) === 1) yaraLoaded = true;
+          wasm.web_free(p, enc.length);
+        }
+      }
+    } catch {}
+  }
+  lights.push([`<span class="dot ${yaraLoaded ? 'ok' : 'no'}"></span>yara rules`, true]);
   for (const [fn, file, label] of [
     [wasm.web_set_benign, 'hash_rules/benign_sha256.txt', 'benign list'],
   ]) {
@@ -371,13 +423,91 @@ async function boot() {
     render(rep, outEl);
     addHist(rep, f.name);
   };
-  document.getElementById('scanUrl').onclick = () => {
+async function checkDomainLiveness(domain, rawUrl) {
+  const isIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(domain);
+  let dnsOk = false;
+  let dnsStatus = 'UNKNOWN';
+
+  if (!isIP) {
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 2500);
+      const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=A`, {
+        headers: { 'accept': 'application/dns-json' },
+        signal: ctrl.signal,
+      });
+      clearTimeout(tid);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.Status === 0 && data.Answer && data.Answer.length > 0) {
+          dnsOk = true;
+          dnsStatus = 'ACTIVE';
+        } else if (data.Status === 3 || !data.Answer) {
+          dnsOk = false;
+          dnsStatus = 'INACTIVE';
+        }
+      }
+    } catch {}
+  } else {
+    dnsOk = true;
+    dnsStatus = 'IP_TARGET';
+  }
+
+  let httpOk = false;
+  let targetUrl = rawUrl.includes('://') ? rawUrl : ('https://' + rawUrl);
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 2500);
+    await fetch(targetUrl, { method: 'HEAD', mode: 'no-cors', signal: ctrl.signal });
+    clearTimeout(tid);
+    httpOk = true;
+  } catch {
+    if (!rawUrl.startsWith('https://')) {
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 1500);
+        await fetch('http://' + domain, { method: 'HEAD', mode: 'no-cors', signal: ctrl.signal });
+        clearTimeout(tid);
+        httpOk = true;
+      } catch {}
+    }
+  }
+
+  const active = dnsOk || httpOk;
+  return {
+    status: active ? 'ACTIVE' : (dnsStatus === 'INACTIVE' ? 'INACTIVE' : 'UNREACHABLE'),
+    dns: dnsStatus,
+    http: httpOk ? 'ONLINE' : (dnsOk ? 'UNRESPONSIVE' : 'OFFLINE'),
+  };
+}
+
+  document.getElementById('scanUrl').onclick = async () => {
     const url = document.getElementById('url').value.trim();
     if (!url) return;
+    outEl.innerHTML = '<span class="mut">Scanning URL & verifying domain status…</span>';
     const { ptr, len } = writeStr(url);
     const out = wasm.web_scan_url(ptr, len);
     wasm.web_free(ptr, len);
     const rep = out ? readStr(out) : { verdict: 'Error', detections: [] };
+
+    let domain = '';
+    try {
+      domain = new URL(url.includes('://') ? url : 'https://' + url).hostname;
+    } catch {
+      domain = url.split('/')[0].split('?')[0];
+    }
+
+    if (domain) {
+      rep.domain = domain;
+      const liveness = await checkDomainLiveness(domain, url);
+      rep.liveness = liveness;
+      if (!rep.whitelisted && liveness.status === 'INACTIVE') {
+        rep.original_verdict = rep.verdict;
+        rep.verdict = 'Clean';
+        rep.inactive_fp_mitigated = true;
+      }
+    }
+
     render(rep, outEl);
     addHist(rep, url);
   };
