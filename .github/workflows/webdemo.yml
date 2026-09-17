@@ -37,12 +37,40 @@ jobs:
           test -f "$WASM" || { echo "missing $WASM"; find OpenEDR/openedr_web/target -name '*.wasm' 2>/dev/null; exit 1; }
           rm -rf _site && mkdir -p _site
           cp -r docs/* _site/
-          mkdir -p _site/webdemo/models _site/webdemo/registry_rules _site/webdemo/vendor
+          mkdir -p _site/webdemo/models _site/webdemo/registry_rules _site/webdemo/hash_rules _site/webdemo/vendor
           cp OpenEDR/openedr_web/www/index.html OpenEDR/openedr_web/www/app.js _site/webdemo/
           cp OpenEDR/openedr_web/www/vendor/README.txt _site/webdemo/vendor/
           cp "$WASM" _site/webdemo/openedr_web.wasm
-          cp OpenMalwareScannerPortable/models/pe_trees.bin OpenMalwareScannerPortable/models/js_trees.bin OpenMalwareScannerPortable/models/url_trees.bin _site/webdemo/models/
-          cp OpenMalwareScannerPortable/registry_rules/pua_registry_rules.yaml _site/webdemo/registry_rules/
+          # Optional runtime data: copy whatever is tracked, never fail the deploy.
+          for f in pe_trees.bin js_trees.bin url_trees.bin; do
+            if [ -f "OpenMalwareScannerPortable/models/$f" ]; then
+              cp "OpenMalwareScannerPortable/models/$f" _site/webdemo/models/
+            else
+              echo "skip missing models/$f"
+            fi
+          done
+          if [ ! -f _site/webdemo/models/url_trees.bin ] && [ -f hydradragon_ml_models/url_trees.bin ]; then
+            cp hydradragon_ml_models/url_trees.bin _site/webdemo/models/
+            echo "url_trees.bin from hydradragon_ml_models/"
+          fi
+          if [ -f OpenMalwareScannerPortable/registry_rules/pua_registry_rules.yaml ]; then
+            cp OpenMalwareScannerPortable/registry_rules/pua_registry_rules.yaml _site/webdemo/registry_rules/
+          else
+            echo "skip missing registry yaml"
+          fi
+          if [ -f OpenMalwareScannerPortable/hash_rules/benign_sha256.txt ]; then
+            cp OpenMalwareScannerPortable/hash_rules/benign_sha256.txt _site/webdemo/hash_rules/
+          else
+            echo "skip missing benign list"
+          fi
+          for v in capstone.js unicorn_x86.js; do
+            if [ -f "OpenEDR/openedr_web/www/vendor/$v" ]; then
+              cp "OpenEDR/openedr_web/www/vendor/$v" _site/webdemo/vendor/
+              echo "vendor $v included"
+            else
+              echo "skip missing vendor/$v (graceful degrade)"
+            fi
+          done
           if [ -d OpenMalwareScannerPortable/yara_rules ]; then
             mkdir -p _site/webdemo/yara_rules
             cp OpenMalwareScannerPortable/yara_rules/*.yrc _site/webdemo/yara_rules/ 2>/dev/null || true
