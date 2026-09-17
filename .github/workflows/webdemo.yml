@@ -1,0 +1,64 @@
+name: webdemo
+on:
+  push:
+    branches: [development-version]
+    paths:
+      - "OpenEDR/openedr_web/**"
+      - "docs/**"
+      - ".github/workflows/webdemo.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Build WASM (release)
+        run: cargo build --release --target wasm32-unknown-unknown --manifest-path OpenEDR/openedr_web/Cargo.toml
+
+      - name: Assemble site
+        run: |
+          rm -rf _site && mkdir -p _site
+          cp -r docs/* _site/
+          mkdir -p _site/webdemo/models _site/webdemo/registry_rules _site/webdemo/vendor
+          cp OpenEDR/openedr_web/www/index.html OpenEDR/openedr_web/www/app.js _site/webdemo/
+          cp OpenEDR/openedr_web/www/vendor/README.txt _site/webdemo/vendor/
+          cp target/wasm32-unknown-unknown/release/openedr_web.wasm _site/webdemo/openedr_web.wasm
+          cp OpenMalwareScannerPortable/models/pe_trees.bin OpenMalwareScannerPortable/models/js_trees.bin OpenMalwareScannerPortable/models/url_trees.bin _site/webdemo/models/
+          cp OpenMalwareScannerPortable/registry_rules/pua_registry_rules.yaml _site/webdemo/registry_rules/
+          if [ -d OpenMalwareScannerPortable/yara_rules ]; then
+            mkdir -p _site/webdemo/yara_rules
+            cp OpenMalwareScannerPortable/yara_rules/*.yrc _site/webdemo/yara_rules/ 2>/dev/null || true
+          fi
+          # NOTE: benign_sha256.txt (16MB) intentionally skipped — optional in the demo.
+          # NOTE: vendor/*.js (capstone/unicorn) and valhalla .yrc are NOT in git;
+          # the demo degrades gracefully without them (built-in demo rules apply).
+          ls -la _site _site/webdemo
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

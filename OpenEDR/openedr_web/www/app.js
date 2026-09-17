@@ -248,7 +248,7 @@ async function boot() {
       lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>${file}`, true]);
     } catch { lights.push([`<span class="dot no"></span>${file}`, true]); }
   }
-  // rules (.yrc bundle preferred; falls back to source)
+  // Desktop valhalla bundle when deployed next to the demo.
   try {
     const r = await fetch('yara_rules/valhalla-rules.yrc');
     if (!r.ok) throw 0;
