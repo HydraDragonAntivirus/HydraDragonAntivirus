@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-yara-x = "1.18.0"
+yara-x = "1.20"
