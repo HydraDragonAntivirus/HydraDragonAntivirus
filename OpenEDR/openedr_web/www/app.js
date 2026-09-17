@@ -18,10 +18,18 @@ const statusEl = document.getElementById('status');
 const outEl = document.getElementById('out');
 
 /* ---------- wasm plumbing ---------- */
+/* Dead wasm-bindgen shims (uuid/js-sys via yara-x dep tree): yara-x only
+   parses/formats UUIDs, never randomness in our paths. Satisfy the linker;
+   throw loudly if ever actually called. */
+const PLACEHOLDER_STUB = new Proxy(Object.create(null), {
+  get: (t, p) => {
+    if (typeof p !== 'string') return undefined;
+    return (...a) => { throw new Error('unreachable wasm-bindgen stub called: ' + p); };
+  },
+});
 async function loadWasm() {
   const bytes = await (await fetch('openedr_web.wasm')).arrayBuffer();
-  const mod = await WebAssembly.instantiate(bytes, {});
-  wasm = mod.instance.exports;
+  wasm = (await WebAssembly.instantiate(bytes, { __wbindgen_placeholder__: PLACEHOLDER_STUB })).instance.exports;
 }
 
 function writeBytes(u8) {
@@ -183,16 +191,24 @@ async function unpackAssist(u8) {
 function scanBuffer(u8, name, counts) {
   const p = writeBytes(u8);
   const { ptr: np, len: nl } = writeStr(name);
-  let out;
-  if (counts) {
-    out = wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0], counts[1], counts[2]);
-  } else {
-    out = wasm.web_scan_bytes(p, u8.length, np, nl);
+  let out = 0;
+  try {
+    if (counts) {
+      out = wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0], counts[1], counts[2]);
+    } else {
+      out = wasm.web_scan_bytes(p, u8.length, np, nl);
+    }
+  } catch (e) {
+    out = 0;
   }
   wasm.web_free(p, u8.length);
   wasm.web_free(np, nl);
   if (!out) return { verdict: 'Error', detections: [] };
-  return readStr(out);
+  try {
+    return readStr(out);
+  } catch {
+    return { verdict: 'Error', detections: [] };
+  }
 }
 function mergeVerdict(base, extra) {
   // extra: report for an unpacked dump; fold its score/detections into base

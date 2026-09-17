@@ -87,9 +87,19 @@ function renderHist() {
 document.getElementById('clearHist').onclick = () => { saveHist([]); renderHist(); };
 
 /* ---------- wasm plumbing ---------- */
+/* Dead wasm-bindgen shims (uuid/js-sys via yara-x dep tree) are satisfied here.
+   Only real binding served: Date.now() for yara-x time.now() rules.
+   Anything else throws loudly if ever actually called. */
+const PLACEHOLDER_STUB = new Proxy(Object.create(null), {
+  get: (t, p) => {
+    if (typeof p !== 'string') return undefined;
+    if (p.toLowerCase().includes('now')) return () => Date.now();
+    return (...a) => { throw new Error('unreachable wasm-bindgen stub called: ' + p); };
+  },
+});
 async function loadWasm() {
   const bytes = await (await fetch(BASE + 'openedr_web.wasm')).arrayBuffer();
-  wasm = (await WebAssembly.instantiate(bytes, {})).instance.exports;
+  wasm = (await WebAssembly.instantiate(bytes, { __wbindgen_placeholder__: PLACEHOLDER_STUB })).instance.exports;
 }
 function writeBytes(u8) {
   const ptr = wasm.web_alloc(u8.length);
@@ -208,12 +218,22 @@ async function unpackAssist(u8) {
 function scanBuffer(u8, name, counts) {
   const p = writeBytes(u8);
   const { ptr: np, len: nl } = writeStr(name);
-  const out = counts
-    ? wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0], counts[1], counts[2])
-    : wasm.web_scan_bytes(p, u8.length, np, nl);
+  let out = 0;
+  try {
+    out = counts
+      ? wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0], counts[1], counts[2])
+      : wasm.web_scan_bytes(p, u8.length, np, nl);
+  } catch (e) {
+    out = 0;
+  }
   wasm.web_free(p, u8.length);
   wasm.web_free(np, nl);
-  return out ? readStr(out) : { verdict: 'Error', detections: [] };
+  if (!out) return { verdict: 'Error', detections: [] };
+  try {
+    return readStr(out);
+  } catch {
+    return { verdict: 'Error', detections: [] };
+  }
 }
 function mergeVerdict(base, extra) {
   let score = base.max_threat_score || 0;

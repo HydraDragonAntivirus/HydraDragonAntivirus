@@ -1,0 +1,17 @@
+[package]
+name = "getrandom"
+version = "0.2.17"
+edition = "2021"
+description = "Fail-closed getrandom 0.2 API stub for wasm32-unknown-unknown builds without WebCrypto JS shims. Always returns Error::UNSUPPORTED."
+license = "MIT OR Apache-2.0"
+
+# Mirror the upstream feature names so [patch] resolution accepts every
+# requester (yara-x asks for `js` on wasm). All bodies are intentionally
+# empty: there is no backend, every call fails closed.
+[features]
+default = []
+std = []
+js = []
+custom = []
+rdrand = []
+linux_disable_fallback = []

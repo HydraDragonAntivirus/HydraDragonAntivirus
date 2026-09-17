@@ -21,3 +21,12 @@ oxc_parser = "0.135"
 oxc_ast = "0.135"
 oxc_allocator = "0.135"
 oxc_span = "0.135"
+
+# Root fix for the `__wbindgen_placeholder__` import in the shipped wasm:
+# yara-x -> p256/p384 -> ecdsa -> rand -> getrandom/js pulls wasm-bindgen JS
+# shims for randomness nothing in our scan/verify paths ever requests.
+# This local stub satisfies the same 0.2 API but always fails closed
+# (Error::UNSUPPORTED), so the binary links zero JS imports. Web-only:
+# never apply to targets with a real OS RNG.
+[patch.crates-io]
+getrandom = { path = "stubs/getrandom" }
