@@ -28,16 +28,19 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Build WASM (release)
-        run: cargo build --release --target wasm32-unknown-unknown --manifest-path OpenEDR/openedr_web/Cargo.toml
+        working-directory: OpenEDR/openedr_web
+        run: cargo build --release --target wasm32-unknown-unknown
 
       - name: Assemble site
         run: |
+          WASM=OpenEDR/openedr_web/target/wasm32-unknown-unknown/release/openedr_web.wasm
+          test -f "$WASM" || { echo "missing $WASM"; find OpenEDR/openedr_web/target -name '*.wasm' 2>/dev/null; exit 1; }
           rm -rf _site && mkdir -p _site
           cp -r docs/* _site/
           mkdir -p _site/webdemo/models _site/webdemo/registry_rules _site/webdemo/vendor
           cp OpenEDR/openedr_web/www/index.html OpenEDR/openedr_web/www/app.js _site/webdemo/
           cp OpenEDR/openedr_web/www/vendor/README.txt _site/webdemo/vendor/
-          cp target/wasm32-unknown-unknown/release/openedr_web.wasm _site/webdemo/openedr_web.wasm
+          cp "$WASM" _site/webdemo/openedr_web.wasm
           cp OpenMalwareScannerPortable/models/pe_trees.bin OpenMalwareScannerPortable/models/js_trees.bin OpenMalwareScannerPortable/models/url_trees.bin _site/webdemo/models/
           cp OpenMalwareScannerPortable/registry_rules/pua_registry_rules.yaml _site/webdemo/registry_rules/
           if [ -d OpenMalwareScannerPortable/yara_rules ]; then
