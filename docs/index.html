@@ -14,6 +14,9 @@ h1{font-size:26px}h1 span{color:#4cc38a}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 button{background:#4cc38a;color:#06110c;font-weight:700;border:0;border-radius:8px;padding:9px 18px;cursor:pointer}
 button.ghost{background:transparent;color:#dbe2f1;border:1px solid #232c40}
+button.ghost:hover{background:#1a2234}
+tr.hist-row{cursor:pointer;transition:background .15s}
+tr.hist-row:hover{background:#1a2234}
 input[type=text]{flex:1;min-width:220px;background:#070a10;border:1px solid #232c40;color:#dbe2f1;border-radius:8px;padding:9px 12px}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#555;margin-right:6px}
 .dot.ok{background:#4cc38a}.dot.no{background:#ff6b6b}
@@ -46,7 +49,13 @@ footer a{color:#4cc38a}
   </div>
   <div class="panel" id="out"><span class="mut">No scan yet.</span></div>
   <div class="panel">
-    <div class="row"><h2 style="flex:1">History</h2><button id="clearHist" class="ghost">Clear</button></div>
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">History</h2>
+      <div class="row" style="gap:6px">
+        <button id="exportHist" class="ghost">Export JSON</button>
+        <button id="clearHist" class="ghost">Clear</button>
+      </div>
+    </div>
     <div id="hist"><span class="mut">Empty.</span></div>
   </div>
 </div>
@@ -78,12 +87,35 @@ function renderHist() {
   const h = loadHist();
   if (!h.length) { histEl.innerHTML = '<span class="mut">Empty.</span>'; return; }
   histEl.innerHTML = '<table><tr><th>time</th><th>target</th><th>verdict</th><th>score</th><th>sha256</th></tr>' +
-    h.map((e) => `<tr><td><code>${(e.t || '').slice(0, 19).replace('T', ' ')}</code></td>` +
+    h.map((e, idx) => `<tr class="hist-row" data-idx="${idx}" title="Click to view full scan result">` +
+      `<td><code>${(e.t || '').slice(0, 19).replace('T', ' ')}</code></td>` +
       `<td><code>${(e.target || '').slice(0, 60)}</code></td>` +
       `<td><span class="badge ${e.verdict}">${e.verdict}</span></td>` +
-      `<td>${e.score ?? ''}</td><td><code>${(e.sha || '').slice(0, 16)}…</code></td></tr>`).join('') +
+      `<td>${e.score !== '' ? e.score : '-'}</td>` +
+      `<td><code>${(e.sha || '').slice(0, 16)}…</code></td></tr>`).join('') +
     '</table>';
+  histEl.querySelectorAll('tr.hist-row').forEach((row) => {
+    row.onclick = () => {
+      const idx = parseInt(row.getAttribute('data-idx'), 10);
+      const entry = h[idx];
+      if (entry && entry.rep) {
+        render(entry.rep, outEl);
+        outEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    };
+  });
 }
+function exportHist() {
+  const h = loadHist();
+  if (!h.length) { alert('No history to export.'); return; }
+  const blob = new Blob([JSON.stringify(h, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `scan_history_${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+document.getElementById('exportHist').onclick = exportHist;
 document.getElementById('clearHist').onclick = () => { saveHist([]); renderHist(); };
 
 /* ---------- wasm plumbing ---------- */
@@ -267,7 +299,7 @@ function render(rep, el) {
 }
 function pushHist(target, rep) {
   addHist({ target, verdict: rep.verdict || 'Error',
-    score: rep.max_threat_score ?? '', sha: rep.sha256 || '' });
+    score: rep.max_threat_score ?? '', sha: rep.sha256 || '', rep });
 }
 
 async function boot() {

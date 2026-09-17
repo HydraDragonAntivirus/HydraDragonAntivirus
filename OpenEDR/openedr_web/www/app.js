@@ -16,6 +16,63 @@ let CS = null;            // capstone module promise (or null)
 let UC = null;            // unicorn module promise (or null)
 const statusEl = document.getElementById('status');
 const outEl = document.getElementById('out');
+const histEl = document.getElementById('hist');
+const HKEY = 'openedr_scan_history_v1';
+
+/* ---------- scan history (localStorage) ---------- */
+function loadHist() {
+  try { return JSON.parse(localStorage.getItem(HKEY) || '[]'); }
+  catch { return []; }
+}
+function saveHist(h) {
+  try { localStorage.setItem(HKEY, JSON.stringify(h.slice(0, 50))); } catch {}
+}
+function addHist(rep, target) {
+  const h = loadHist();
+  h.unshift({
+    t: new Date().toISOString(),
+    target: target || 'unnamed',
+    verdict: rep.verdict || 'Error',
+    score: rep.max_threat_score ?? '',
+    sha: rep.sha256 || '',
+    rep: rep
+  });
+  saveHist(h);
+  renderHist();
+}
+function renderHist() {
+  if (!histEl) return;
+  const h = loadHist();
+  if (!h.length) { histEl.innerHTML = '<span class="mut">Empty.</span>'; return; }
+  histEl.innerHTML = '<table><tr><th>time</th><th>target</th><th>verdict</th><th>score</th><th>sha256</th></tr>' +
+    h.map((e, idx) => `<tr class="hist-row" data-idx="${idx}" title="Click to view full scan result">` +
+      `<td><code>${(e.t || '').slice(0, 19).replace('T', ' ')}</code></td>` +
+      `<td><code>${(e.target || '').slice(0, 50)}</code></td>` +
+      `<td><span class="badge ${e.verdict}">${e.verdict}</span></td>` +
+      `<td>${e.score !== '' ? e.score : '-'}</td>` +
+      `<td><code>${(e.sha || '').slice(0, 16)}…</code></td></tr>`).join('') +
+    '</table>';
+  histEl.querySelectorAll('tr.hist-row').forEach((row) => {
+    row.onclick = () => {
+      const idx = parseInt(row.getAttribute('data-idx'), 10);
+      const entry = h[idx];
+      if (entry && entry.rep) {
+        render(entry.rep, outEl);
+        outEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    };
+  });
+}
+function exportHist() {
+  const h = loadHist();
+  if (!h.length) { alert('No history to export.'); return; }
+  const blob = new Blob([JSON.stringify(h, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `scan_history_${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 /* ---------- wasm plumbing ---------- */
 function stubNamespace(calls) {
@@ -290,6 +347,12 @@ async function boot() {
     } catch { lights.push([`<span class="dot no"></span>${label}`, true]); }
   }
   statusEl.innerHTML = lights.map((l) => l[0]).join(' &nbsp; ');
+  renderHist();
+
+  const exportBtn = document.getElementById('exportHist');
+  if (exportBtn) exportBtn.onclick = exportHist;
+  const clearBtn = document.getElementById('clearHist');
+  if (clearBtn) clearBtn.onclick = () => { saveHist([]); renderHist(); };
 
   document.getElementById('scanFile').onclick = async () => {
     const f = document.getElementById('file').files[0];
@@ -306,6 +369,7 @@ async function boot() {
       }
     }
     render(rep, outEl);
+    addHist(rep, f.name);
   };
   document.getElementById('scanUrl').onclick = () => {
     const url = document.getElementById('url').value.trim();
@@ -313,7 +377,9 @@ async function boot() {
     const { ptr, len } = writeStr(url);
     const out = wasm.web_scan_url(ptr, len);
     wasm.web_free(ptr, len);
-    render(out ? readStr(out) : { verdict: 'Error', detections: [] }, outEl);
+    const rep = out ? readStr(out) : { verdict: 'Error', detections: [] };
+    render(rep, outEl);
+    addHist(rep, url);
   };
 }
 boot();

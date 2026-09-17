@@ -68,9 +68,8 @@ jobs:
             fi
           done
           mkdir -p _site/webdemo/yara_rules
-          if [ -d hydradragon/yara-x/rules ]; then
-            echo "Compiling YARA-X rules with matching yara-x..."
-            cargo run --manifest-path hydradragon_yara_x_compile/Cargo.toml -- hydradragon/yara-x/rules _site/webdemo/yara_rules || true
+          if [ -d OpenEDR/openedr_web/www/yara_rules ]; then
+            cp OpenEDR/openedr_web/www/yara_rules/*.yrc _site/webdemo/yara_rules/ 2>/dev/null || true
           fi
           if [ -f OpenMalwareScannerPortable/yara_rules/valhalla-rules.yrc ] && [ ! -f _site/webdemo/yara_rules/valhalla-rules.yrc ]; then
             cp OpenMalwareScannerPortable/yara_rules/*.yrc _site/webdemo/yara_rules/ 2>/dev/null || true

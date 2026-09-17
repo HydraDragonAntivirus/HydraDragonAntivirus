@@ -11,7 +11,11 @@ body{background:#0b0e14;color:#dbe2f1;font:15px/1.6 -apple-system,"Segoe UI",Rob
 h1{font-size:26px}h1 span{color:#4cc38a}
 .panel{background:#131824;border:1px solid #232c40;border-radius:12px;padding:16px;margin:14px 0}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-button{background:#4cc38a;color:#06110c;font-weight:700;border:0;border-radius:8px;padding:9px 18px;cursor:pointer}
+button{background:#4cc38a;color:#06110c;font-weight:700;border:0;border-radius:8px;padding:9px 18px;cursor:pointer;transition:background .15s}
+button.ghost{background:transparent;border:1px solid #232c40;color:#8b94ab;padding:6px 12px;font-size:13px}
+button.ghost:hover{background:#1a2234;color:#dbe2f1}
+tr.hist-row{cursor:pointer;transition:background .15s}
+tr.hist-row:hover{background:#1a2234}
 input[type=text]{flex:1;min-width:220px;background:#070a10;border:1px solid #232c40;color:#dbe2f1;border-radius:8px;padding:9px 12px}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#555;margin-right:6px}
 .dot.ok{background:#4cc38a}.dot.no{background:#ff6b6b}
@@ -42,6 +46,16 @@ th{color:#8b94ab}code{word-break:break-all;font-size:12px}
     </div>
   </div>
   <div class="panel" id="out"><span class="mut">No scan yet.</span></div>
+  <div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="font-size:18px;margin:0">Scan History</h2>
+      <div class="row" style="gap:6px">
+        <button id="exportHist" class="ghost">Export JSON</button>
+        <button id="clearHist" class="ghost">Clear</button>
+      </div>
+    </div>
+    <div id="hist"><span class="mut">Empty.</span></div>
+  </div>
 </div>
 <script src="app.js"></script>
 </body>
