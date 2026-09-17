@@ -3,66 +3,327 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenMalwareScannerPortable — Portable Static Malware Scanner</title>
-<meta name="description" content="Open-source portable static malware scanner. Single DLL, C FFI, 7 SDK languages, plus a Web/WASM edition.">
+<title>OpenMalwareScanner — Browser Scanner</title>
+<meta name="description" content="Client-side static malware scanner. No uploads, everything runs in your browser.">
 <style>
-:root{--bg:#0b0e14;--panel:#131824;--line:#232c40;--txt:#dbe2f1;--dim:#8b94ab;--acc:#4cc38a}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);font:16px/1.65 -apple-system,"Segoe UI",Roboto,Arial,sans-serif}
-.wrap{max-width:960px;margin:0 auto;padding:0 20px}
-header{padding:64px 0 40px;text-align:center;border-bottom:1px solid var(--line)}
-.badge{display:inline-block;border:1px solid var(--acc);color:var(--acc);border-radius:999px;padding:4px 14px;font-size:13px;margin-bottom:18px}
-h1{font-size:clamp(30px,5vw,52px);letter-spacing:-.5px}
-h1 span{color:var(--acc)}
-.sub{color:var(--dim);max-width:640px;margin:16px auto 28px}
-.btn{display:inline-block;background:var(--acc);color:#06110c;font-weight:700;border-radius:10px;padding:12px 26px;text-decoration:none;margin:4px 6px}
-.btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
-section{padding:40px 0;border-bottom:1px solid var(--line)}
-h2{font-size:24px;margin-bottom:18px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
-.card h3{font-size:16px;margin-bottom:6px;color:var(--acc)}
-.card p{font-size:14px;color:var(--dim)}
-.card code,.flat code{background:#1b2334;border-radius:6px;padding:2px 7px;font-size:13px;word-break:break-all}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-th{color:var(--dim);font-weight:600}
-footer{padding:28px 0;color:var(--dim);font-size:14px;text-align:center}
-.flat p{margin:10px 0;color:var(--dim);font-size:15px}
-.flat b{color:var(--txt)}
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{background:#0b0e14;color:#dbe2f1;font:15px/1.6 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;margin:0}
+.wrap{max-width:900px;margin:0 auto;padding:28px 18px}
+h1{font-size:26px}h1 span{color:#4cc38a}
+.panel{background:#131824;border:1px solid #232c40;border-radius:12px;padding:16px;margin:14px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+button{background:#4cc38a;color:#06110c;font-weight:700;border:0;border-radius:8px;padding:9px 18px;cursor:pointer}
+button.ghost{background:transparent;color:#dbe2f1;border:1px solid #232c40}
+input[type=text]{flex:1;min-width:220px;background:#070a10;border:1px solid #232c40;color:#dbe2f1;border-radius:8px;padding:9px 12px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#555;margin-right:6px}
+.dot.ok{background:#4cc38a}.dot.no{background:#ff6b6b}
+.badge{display:inline-block;border-radius:8px;padding:3px 12px;font-weight:700}
+.Malicious{background:#3a1215;color:#ff6b6b}.Suspicious{background:#3a2c10;color:#ffb454}
+.Clean{background:#0e2e1f;color:#4cc38a}.Unknown{background:#1b2334;color:#8b94ab}.Error{background:#1b2334;color:#8b94ab}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #232c40;vertical-align:top}
+th{color:#8b94ab}code{word-break:break-all;font-size:12px}
+.mut{color:#8b94ab;font-size:13px}
+h2{font-size:18px;margin:0 0 8px}
+footer{padding:22px 0;color:#8b94ab;font-size:13px;text-align:center}
+footer a{color:#4cc38a}
 </style>
 </head>
 <body>
-<header class="wrap">
-  <div class="badge">Open Source (GPLv2) &middot; Portable &middot; No Install &middot; No Cloud</div>
-  <h1>OpenMalwareScanner<span>Portable</span></h1>
-  <p class="sub">Multi-engine static malware scanner in a single DLL with a C FFI — plus a Web/WASM edition that runs fully client-side.</p>
-  <a class="btn" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases">Download Release</a>
-  <a class="btn ghost" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus">Source Code</a>
-</header>
-
 <div class="wrap">
-<section>
-  <h2>Added</h2>
-  <div class="grid">
-    <div class="card"><h3>Catalog signer verification</h3><p>WinVerifyTrust plus CatRoot catalog fallback. Catalog-signed OS binaries verify as trusted with the catalog signer name — for every file type, extension or not. Reported as <code>signer_info.is_catalog_signed</code>.</p></div>
-    <div class="card"><h3>Web / WASM edition</h3><p><code>OpenEDR/openedr_web</code> compiles the static core to <code>wasm32</code>: same tree models and YARA-X engine, registry rules rewritten as in-PE string rules. Optional capstone.js disassembly and unicorn.js unpack assists in the browser demo.</p></div>
-    <div class="card"><h3>Daemon mode, 7 languages</h3><p>Polling watchers in Python, Node.js, C#, Go, Rust, C++ and C: watch dir &rarr; scan new files &rarr; print hits, with SHA-256 skip caches and optional quarantine.</p></div>
-    <div class="card"><h3>Full SDK coverage</h3><p>Every wrapper now exposes all 10 exports: file/bytes/URL scan, EVTX + live system-event scan, registry check, hosts check &amp; restore.</p></div>
-    <div class="card"><h3>Overlay false-positive fix</h3><p>Embedded-executable findings require a validated MZ&rarr;PE image. Installer shapes (7z SFX, Inno, NSIS) no longer trip the heuristic alone.</p></div>
-    <div class="card"><h3>Recalibrated verdicts</h3><p>PE_ML threshold 0.70&rarr;0.71; score-gated verdicts — Malicious &ge; 0.85, Suspicious &ge; 0.50. Unsigned + unknown stays Unknown, never malicious by default.</p></div>
-    <div class="card"><h3>Dead cloud removed</h3><p>Retired Comodo FLS client deleted from engine, exports and all SDKs. SHA-256-only identity, verdicts from local engines only.</p></div>
-    <div class="card"><h3>Phishing panic fixed</h3><p>Out-of-bounds crash on unclosed <code>&lt;a&gt;</code> tags in archive HTML clamped; affected archives scan clean instead of erroring.</p></div>
+  <h1>OpenMalwareScanner<span>Portable</span> — Web</h1>
+  <p class="mut">100% client-side static scan. Files never leave your browser. <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" style="color:#4cc38a">Source (GPLv2)</a></p>
+  <div class="panel" id="status">loading…</div>
+  <div class="panel">
+    <div class="row">
+      <input type="file" id="file" multiple>
+      <button id="scanFile">Scan file(s)</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="url" placeholder="https://example.com/login.php">
+      <button id="scanUrl">Scan URL</button>
+    </div>
   </div>
-</section>
-
-<section class="flat">
-  <h2>Verdicts</h2>
-  <p><b>Malicious</b> (&ge;0.85) — signature hit or high-confidence stack. <b>Suspicious</b> (&ge;0.50 or heuristic-only). <b>Clean</b> — whitelist hit or trusted signature, nothing else. <b>Unknown</b> — no engine fired.</p>
-  <p>Every scan returns <code>target, file_size, sha256, verdict, max_threat_score, detections[{layer, name, score, details}], signer_info</code> as JSON.</p>
-</section>
+  <div class="panel" id="out"><span class="mut">No scan yet.</span></div>
+  <div class="panel">
+    <div class="row"><h2 style="flex:1">History</h2><button id="clearHist" class="ghost">Clear</button></div>
+    <div id="hist"><span class="mut">Empty.</span></div>
+  </div>
 </div>
+<script>
+'use strict';
+const FLAG = new Set(['Malicious', 'Suspicious']);
+const HKEY = 'ows_history_v1';
+const statusEl = document.getElementById('status');
+const outEl = document.getElementById('out');
+const histEl = document.getElementById('hist');
+const BASE = 'webdemo/';
+let wasm = null, CS = null, UC = null;
 
-<footer>OpenMalwareScannerPortable &middot; part of HydraDragonAntivirus / OpenEDR &middot; GPLv2-licensed open source</footer>
-</body>
-</html>
+/* ---------- history (localStorage) ---------- */
+function loadHist() {
+  try { return JSON.parse(localStorage.getItem(HKEY) || '[]'); }
+  catch { return []; }
+}
+function saveHist(h) {
+  try { localStorage.setItem(HKEY, JSON.stringify(h.slice(0, 100))); } catch {}
+}
+function addHist(entry) {
+  const h = loadHist();
+  h.unshift({ t: new Date().toISOString(), ...entry });
+  saveHist(h);
+  renderHist();
+}
+function renderHist() {
+  const h = loadHist();
+  if (!h.length) { histEl.innerHTML = '<span class="mut">Empty.</span>'; return; }
+  histEl.innerHTML = '<table><tr><th>time</th><th>target</th><th>verdict</th><th>score</th><th>sha256</th></tr>' +
+    h.map((e) => `<tr><td><code>${(e.t || '').slice(0, 19).replace('T', ' ')}</code></td>` +
+      `<td><code>${(e.target || '').slice(0, 60)}</code></td>` +
+      `<td><span class="badge ${e.verdict}">${e.verdict}</span></td>` +
+      `<td>${e.score ?? ''}</td><td><code>${(e.sha || '').slice(0, 16)}…</code></td></tr>`).join('') +
+    '</table>';
+}
+document.getElementById('clearHist').onclick = () => { saveHist([]); renderHist(); };
+
+/* ---------- wasm plumbing ---------- */
+async function loadWasm() {
+  const bytes = await (await fetch(BASE + 'openedr_web.wasm')).arrayBuffer();
+  wasm = (await WebAssembly.instantiate(bytes, {})).instance.exports;
+}
+function writeBytes(u8) {
+  const ptr = wasm.web_alloc(u8.length);
+  new Uint8Array(wasm.memory.buffer, ptr, u8.length).set(u8);
+  return ptr;
+}
+function writeStr(s) {
+  const u8 = new TextEncoder().encode(s);
+  return { ptr: writeBytes(u8), len: u8.length };
+}
+function readStr(ptr) {
+  const s = new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, wasm.web_output_len()));
+  wasm.web_free_str(ptr);
+  return JSON.parse(s);
+}
+function loadBlob(kind, u8) {
+  const ptr = writeBytes(u8);
+  const ok = wasm.web_load_model(kind, ptr, u8.length);
+  wasm.web_free(ptr, u8.length);
+  return ok === 1;
+}
+function setText(fn, s) {
+  const { ptr, len } = writeStr(s);
+  const r = fn(ptr, len);
+  wasm.web_free(ptr, len);
+  return r;
+}
+function loadScript(src) {
+  return new Promise((resolve) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = () => resolve(true);
+    el.onerror = () => { el.remove(); resolve(false); };
+    document.head.appendChild(el);
+  });
+}
+
+/* ---------- PE parse / pre-passes ---------- */
+function le32(u8, o) { return (u8[o] | (u8[o+1] << 8) | (u8[o+2] << 16) | (u8[o+3] << 24)) >>> 0; }
+function le16(u8, o) { return u8[o] | (u8[o+1] << 8); }
+function parsePE(u8) {
+  try {
+    if (u8.length < 64 || u8[0] !== 0x4D || u8[1] !== 0x5A) return null;
+    const e = le32(u8, 0x3C);
+    if (e + 24 > u8.length || u8[e] !== 0x50 || u8[e+1] !== 0x45) return null;
+    const nSec = le16(u8, e + 6), optSize = le16(u8, e + 20), opt = e + 24;
+    const is64 = le16(u8, opt) === 0x20B, epRva = le32(u8, opt + 16), sOff = opt + optSize;
+    const sections = [];
+    for (let i = 0; i < Math.min(nSec, 96); i++) {
+      const o = sOff + i * 40;
+      if (o + 40 > u8.length) break;
+      sections.push({ rawSize: le32(u8, o + 16), rawPtr: le32(u8, o + 20), rva: le32(u8, o + 12) });
+    }
+    return { is64, sections, entryRva: epRva };
+  } catch { return null; }
+}
+async function disasmCounts(u8) {
+  try {
+    if (!CS) return null;
+    const cs = await CS, pe = parsePE(u8);
+    if (!pe || !pe.sections.length) return null;
+    const d = new cs.Capstone(cs.ARCH_X86, pe.is64 ? cs.MODE_64 : cs.MODE_32);
+    let total = 0, add = 0, mov = 0;
+    for (const s of pe.sections) {
+      if (!s.rawSize || s.rawPtr >= u8.length) continue;
+      const chunk = u8.slice(s.rawPtr, Math.min(s.rawPtr + s.rawSize, u8.length, s.rawPtr + 65536));
+      if (!chunk.length) continue;
+      for (const ins of d.disasm(Array.from(chunk), 0)) {
+        total++;
+        const m = (ins.mnemonic || '').toLowerCase();
+        if (m === 'add') add++; else if (m === 'mov') mov++;
+      }
+      if (total > 200000) break;
+    }
+    d.close();
+    return total ? [total, add, mov] : null;
+  } catch { return null; }
+}
+async function unpackAssist(u8) {
+  const dumps = [];
+  try {
+    if (!UC) return dumps;
+    const uc = await UC, pe = parsePE(u8);
+    if (!pe || !pe.sections.length || !pe.entryRva) return dumps;
+    const BASE = 0x400000, SB = 0x100000, SS = 65536, PROT = (uc.PROT_ALL !== undefined) ? uc.PROT_ALL : 7;
+    const e = new uc.Unicorn(uc.ARCH_X86, pe.is64 ? uc.MODE_64 : uc.MODE_32);
+    e.mem_map(BASE, Math.max(u8.length + 0x1000, 0x100000), PROT);
+    e.mem_map(SB, SS, PROT);
+    e.mem_write(BASE, Array.from(u8.slice(0, Math.min(u8.length, 0x1000))));
+    for (const s of pe.sections) {
+      if (!s.rawSize || s.rawPtr >= u8.length) continue;
+      const n = Math.min(s.rawSize, u8.length - s.rawPtr);
+      e.mem_write(BASE + s.rva, Array.from(u8.slice(s.rawPtr, s.rawPtr + n)));
+    }
+    const RIP = (uc.X86_REG_RIP !== undefined) ? uc.X86_REG_RIP : uc.X86_REG_EIP;
+    const RSP = (uc.X86_REG_RSP !== undefined) ? uc.X86_REG_RSP : uc.X86_REG_ESP;
+    const entry = BASE + pe.entryRva;
+    try { e.reg_write_i32(RSP, SB + SS - 16); } catch {}
+    try { e.reg_write_i32(RIP, entry); } catch {}
+    try { e.emu_start(entry, entry + 0x100000, 2000000, 200000); } catch {}
+    for (const s of pe.sections) {
+      if (!s.rawSize || s.rawPtr >= u8.length) continue;
+      const n = Math.min(s.rawSize, u8.length - s.rawPtr, 1 << 20);
+      try {
+        const cur = e.mem_read(BASE + s.rva, n), orig = u8.slice(s.rawPtr, s.rawPtr + n);
+        let diff = 0;
+        for (let i = 0; i < n; i++) if (cur[i] !== orig[i]) diff++;
+        if (diff > 64 && n >= 4096 && dumps.length < 3) dumps.push(Uint8Array.from(cur));
+      } catch {}
+    }
+    try { e.close(); } catch {}
+  } catch {}
+  return dumps;
+}
+
+/* ---------- scan ---------- */
+function scanBuffer(u8, name, counts) {
+  const p = writeBytes(u8);
+  const { ptr: np, len: nl } = writeStr(name);
+  const out = counts
+    ? wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0], counts[1], counts[2])
+    : wasm.web_scan_bytes(p, u8.length, np, nl);
+  wasm.web_free(p, u8.length);
+  wasm.web_free(np, nl);
+  return out ? readStr(out) : { verdict: 'Error', detections: [] };
+}
+function mergeVerdict(base, extra) {
+  let score = base.max_threat_score || 0;
+  const dets = (base.detections || []).slice();
+  for (const d of (extra.detections || [])) {
+    dets.push({ layer: d.layer, name: 'Unpacked:' + d.name, score: d.score, details: d.details });
+    if (typeof d.score === 'number') score = Math.max(score, d.score);
+  }
+  let verdict = base.verdict;
+  if (score >= 0.85) verdict = 'Malicious';
+  else if (score >= 0.50 || dets.length) verdict = 'Suspicious';
+  return { ...base, verdict, max_threat_score: score, detections: dets };
+}
+function render(rep, el) {
+  const dets = (rep.detections || []).map((d) =>
+    `<tr><td><code>${d.layer || ''}</code></td><td><code>${d.name || ''}</code></td>` +
+    `<td>${d.score ?? ''}</td><td><code>${(d.details || '').slice(0, 160)}</code></td></tr>`).join('');
+  el.innerHTML =
+    `<div>Verdict: <span class="badge ${rep.verdict}">${rep.verdict}</span> ` +
+    `score=${rep.max_threat_score ?? ''} size=${rep.file_size ?? ''}<br>` +
+    `<code class="mut">sha256=${rep.sha256 || ''}</code></div>` +
+    (dets ? `<table><tr><th>layer</th><th>name</th><th>score</th><th>details</th></tr>${dets}</table>`
+          : `<p class="mut">No detections.</p>`);
+}
+function pushHist(target, rep) {
+  addHist({ target, verdict: rep.verdict || 'Error',
+    score: rep.max_threat_score ?? '', sha: rep.sha256 || '' });
+}
+
+async function boot() {
+  const lights = [];
+  try {
+    await loadWasm();
+    lights.push('<span class="dot ok"></span>wasm');
+  } catch (e) {
+    statusEl.innerHTML = `<span class="dot no"></span>failed to load webdemo/openedr_web.wasm: ${e}`;
+    return;
+  }
+  lights.push(wasm.web_self_test() === 1
+    ? '<span class="dot ok"></span>self-test' : '<span class="dot no"></span>self-test');
+  if (await loadScript(BASE + 'vendor/capstone.js')) {
+    try { if (typeof MCapstone !== 'undefined') CS = MCapstone(); } catch { CS = null; }
+  }
+  if (await loadScript(BASE + 'vendor/unicorn_x86.js')) {
+    try { if (typeof MUnicorn !== 'undefined') UC = MUnicorn(); } catch { UC = null; }
+  }
+  lights.push(`<span class="dot ${CS ? 'ok' : 'no'}"></span>capstone.js`);
+  lights.push(`<span class="dot ${UC ? 'ok' : 'no'}"></span>unicorn.js`);
+  for (const [kind, file] of [[0, 'pe_trees.bin'], [1, 'js_trees.bin'], [2, 'url_trees.bin']]) {
+    try {
+      const r = await fetch(BASE + 'models/' + file);
+      if (!r.ok) throw 0;
+      const u8 = new Uint8Array(await r.arrayBuffer());
+      const p = writeBytes(u8);
+      const ok = wasm.web_load_model(kind, p, u8.length);
+      wasm.web_free(p, u8.length);
+      lights.push(`<span class="dot ${ok ? 'ok' : 'no'}"></span>${file}`);
+    } catch { lights.push(`<span class="dot no"></span>${file}`); }
+  }
+  for (const [fn, file, label] of [
+    [wasm.web_set_registry_rules, 'registry_rules/pua_registry_rules.yaml', 'registry rules'],
+    [wasm.web_set_benign, 'hash_rules/benign_sha256.txt', 'benign list'],
+  ]) {
+    try {
+      const r = await fetch(BASE + file);
+      if (!r.ok) throw 0;
+      const n = setText(fn, await r.text());
+      lights.push(`<span class="dot ok"></span>${label} (${n})`);
+    } catch { lights.push(`<span class="dot no"></span>${label}`); }
+  }
+  try {
+    const r = await fetch(BASE + 'yara_rules/valhalla-rules.yrc');
+    if (!r.ok) throw 0;
+    const u8 = new Uint8Array(await r.arrayBuffer());
+    const p = writeBytes(u8);
+    const ok = wasm.web_load_yara(p, u8.length);
+    wasm.web_free(p, u8.length);
+    lights.push(`<span class="dot ${ok ? 'ok' : 'no'}"></span>yara .yrc`);
+  } catch { lights.push(`<span class="dot no"></span>yara .yrc`); }
+  statusEl.innerHTML = lights.join(' &nbsp; ');
+
+  document.getElementById('scanFile').onclick = async () => {
+    const list = document.getElementById('file').files;
+    if (!list.length) return;
+    for (const f of list) {
+      outEl.innerHTML = `<span class="mut">Scanning ${f.name}…</span>`;
+      const u8 = new Uint8Array(await f.arrayBuffer());
+      const isPE = u8.length > 1 && u8[0] === 0x4D && u8[1] === 0x5A;
+      const counts = isPE ? await disasmCounts(u8) : null;
+      let rep = scanBuffer(u8, f.name, counts);
+      if (isPE) {
+        for (const dump of await unpackAssist(u8)) {
+          rep = mergeVerdict(rep, scanBuffer(dump, f.name + '.unpacked', null));
+          if (rep.verdict === 'Malicious') break;
+        }
+      }
+      render(rep, outEl);
+      pushHist(f.name, rep);
+    }
+  };
+  document.getElementById('scanUrl').onclick = () => {
+    const url = document.getElementById('url').value.trim();
+    if (!url) return;
+    const { ptr, len } = writeStr(url);
+    const out = wasm.web_scan_url(ptr, len);
+    wasm.web_free(ptr, len);
+    const rep = out ? readStr(out) : { verdict: 'Error', detections: [] };
+    render(rep, outEl);
+    pushHist(url, rep);
+  };
+  renderHist();
+}
+boot();
