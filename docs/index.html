@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenMalwareScannerPortable — Portable Static Malware Scanner</title>
-<meta name="description" content="Open-source portable static malware scanner: ClamAV, YARA-X, Unicorn unpacker, ML models, Hayabusa, Authenticode + catalog verification. Single DLL, C FFI, 7 SDK languages.">
+<meta name="description" content="Open-source portable static malware scanner: ClamAV, YARA-X, Unicorn unpacker, ML models, Hayabusa, Authenticode + catalog verification. Single DLL, C FFI, 7 SDK languages, plus a Web/WASM edition.">
 <style>
 :root{--bg:#0b0e14;--panel:#131824;--line:#232c40;--txt:#dbe2f1;--dim:#8b94ab;--acc:#4cc38a;--warn:#ffb454;--bad:#ff6b6b}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -14,7 +14,7 @@ header{padding:72px 0 48px;text-align:center;border-bottom:1px solid var(--line)
 .badge{display:inline-block;border:1px solid var(--acc);color:var(--acc);border-radius:999px;padding:4px 14px;font-size:13px;margin-bottom:18px}
 h1{font-size:clamp(30px,5vw,52px);letter-spacing:-.5px}
 h1 span{color:var(--acc)}
-.sub{color:var(--dim);max-width:640px;margin:16px auto 28px}
+.sub{color:var(--dim);max-width:660px;margin:16px auto 28px}
 .btn{display:inline-block;background:var(--acc);color:#06110c;font-weight:700;border-radius:10px;padding:12px 26px;text-decoration:none;margin:4px 6px}
 .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
 section{padding:44px 0;border-bottom:1px solid var(--line)}
@@ -35,9 +35,9 @@ footer{padding:28px 0;color:var(--dim);font-size:14px;text-align:center}
 </head>
 <body>
 <header class="wrap">
-  <div class="badge">Open Source &middot; Portable &middot; No Install</div>
+  <div class="badge">Open Source (GPLv2) &middot; Portable &middot; No Install &middot; No Cloud</div>
   <h1>OpenMalwareScanner<span>Portable</span></h1>
-  <p class="sub">Multi-engine static malware scanner in a single DLL: ClamAV signatures, YARA-X rules, Unicorn CPU-emulation unpacker, ML models, Hayabusa event rules and Authenticode&nbsp;+&nbsp;catalog verification — behind a plain C&nbsp;FFI.</p>
+  <p class="sub">Multi-engine static malware scanner in a single DLL: ClamAV signatures, YARA-X rules, Unicorn CPU-emulation unpacker, ML ensembles, Hayabusa event rules and Authenticode&nbsp;+&nbsp;catalog verification — behind a plain C&nbsp;FFI. Plus a Web/WASM edition that runs fully client-side.</p>
   <a class="btn" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases">Download Release</a>
   <a class="btn ghost" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus">Source Code</a>
 </header>
@@ -46,13 +46,13 @@ footer{padding:28px 0;color:var(--dim);font-size:14px;text-align:center}
 <section>
   <h2>Engines</h2>
   <div class="grid">
-    <div class="card"><h3>ClamAV signatures</h3><p>Rust ClamAV engine with bytecode VM, daily signature databases and archive recursion.</p></div>
-    <div class="card"><h3>YARA-X rules</h3><p>Compiled Valhalla threat-intel ruleset scanned over raw, unpacked and overlay bytes.</p></div>
-    <div class="card"><h3>Unicorn unpacker</h3><p>x86/x64 CPU emulation dumps packed payloads back into the scan pipeline.</p></div>
-    <div class="card"><h3>ML models</h3><p>Gradient-boosted tree ensembles for PE, JavaScript and URL/phishing classification.</p></div>
+    <div class="card"><h3>ClamAV signatures</h3><p>Rust ClamAV engine with bytecode VM, daily databases and archive recursion. ~70MB DB.</p></div>
+    <div class="card"><h3>YARA-X rules</h3><p>Compiled Valhalla threat-intel ruleset, scanned over raw, unpacked and overlay bytes (0.95 per hit).</p></div>
+    <div class="card"><h3>Unicorn unpacker</h3><p>x86/x64 CPU emulation dumps packed payloads back into the scan pipeline (ClamAV + YARA + ML rescan).</p></div>
+    <div class="card"><h3>ML ensembles</h3><p>Gradient-boosted tree models for PE (≥0.71), JavaScript (≥0.75) and URL/phishing (≥0.50).</p></div>
     <div class="card"><h3>Hayabusa / Sigma</h3><p>Windows EVTX forensics and live system-event log scanning.</p></div>
-    <div class="card"><h3>Authenticode + catalog</h3><p>WinVerifyTrust plus CatRoot catalog fallback, so catalog-signed OS binaries verify as trusted.</p></div>
-    <div class="card"><h3>Heuristics</h3><p>Null-padding strip, PE overlay binder check (validated MZ&rarr;PE only), decompression-bomb guard.</p></div>
+    <div class="card"><h3>Authenticode + catalog</h3><p>WinVerifyTrust plus CatRoot catalog fallback: catalog-signed OS binaries (conhost, notepad, …) verify as trusted with the catalog signer name. Works for every file type, extension or not.</p></div>
+    <div class="card"><h3>Heuristics</h3><p>Null-padding strip, PE overlay binder check (validated MZ&rarr;PE only — installer shapes like 7z SFX don't trip it), decompression-bomb guard, SHA-1 collision attack detection.</p></div>
     <div class="card"><h3>System checks</h3><p>PUA autostart registry rules and hosts-file hijack detect &amp; restore.</p></div>
   </div>
 </section>
@@ -72,7 +72,7 @@ footer{padding:28px 0;color:var(--dim);font-size:14px;text-align:center}
     <tr><td><code>openedr_static_restore_hosts_file</code></td><td>Restore the clean hosts template (optional backup).</td></tr>
     <tr><td><code>openedr_static_free_string</code></td><td>Free every heap string the API returns.</td></tr>
   </table>
-  <div class="note"><b>Note:</b> there is no cloud lookup. The retired Comodo FLS client was removed; verdicts come only from local engines.</div>
+  <div class="note"><b>Note:</b> no cloud, no SHA-1 identity (SHA-256 only). The retired Comodo FLS client was removed; verdicts come only from local engines.</div>
 </section>
 
 <section>
@@ -80,10 +80,20 @@ footer{padding:28px 0;color:var(--dim);font-size:14px;text-align:center}
   <table>
     <tr><th>Verdict</th><th>Meaning</th></tr>
     <tr><td><code>Malicious</code></td><td>Score &ge; 0.85 — signature hit or high-confidence stack.</td></tr>
-    <tr><td><code>Suspicious</code></td><td>Score &ge; 0.50 or heuristic-only evidence.</td></tr>
-    <tr><td><code>Clean</code></td><td>SHA-256 whitelist hit or trusted signature with no other signal.</td></tr>
-    <tr><td><code>Unknown</code></td><td>No engine fired. Unsigned + unknown = unknown, not malicious.</td></tr>
+    <tr><td><code>Suspicious</code></td><td>Score &ge; 0.50, or heuristic-only evidence.</td></tr>
+    <tr><td><code>Clean</code></td><td>SHA-256 whitelist hit, or trusted signature with no other signal.</td></tr>
+    <tr><td><code>Unknown</code></td><td>No engine fired. Unsigned + unknown = unknown, never malicious by default.</td></tr>
   </table>
+  <p style="margin-top:12px;color:var(--dim);font-size:14px">Report JSON carries <code>target, file_size, sha256, verdict, max_threat_score (0.0–1.0), detections[{layer, name, score, details}], signer_info{is_signed, is_trusted, signer_name, status, is_catalog_signed}</code>.</p>
+</section>
+
+<section>
+  <h2>Web / WASM edition</h2>
+  <p><code>OpenEDR/openedr_web</code> compiles the static core to <code>wasm32-unknown-unknown</code> and runs 100% client-side: same tree models and YARA-X engine, registry rules rewritten as in-PE string rules, same thresholds and verdict gating. What's out by design: ClamAV database, native Unicorn, WinTrust, Hayabusa, archive extraction.</p>
+  <div class="grid" style="margin-top:14px">
+    <div class="card"><h3>capstone.js assist</h3><p>Optional drop-in disassembles PE sections in-page and feeds instruction counts back into the scan.</p></div>
+    <div class="card"><h3>unicorn.js assist</h3><p>Optional drop-in emulates the entry point, diffs memory and re-scans dumped regions as <code>Unpacked:</code> findings.</p></div>
+  </div>
 </section>
 
 <section>
@@ -102,7 +112,7 @@ footer{padding:28px 0;color:var(--dim);font-size:14px;text-align:center}
 
 <section>
   <h2>False positives</h2>
-  <p>Signed binaries fast-path to <code>Clean</code>; 256k known-good SHA-256 hashes are whitelisted; overlay/archive findings require a validated embedded PE or an engine hit — installer-shaped files (7z SFX, Inno, NSIS) don't trip the heuristic alone.</p>
+  <p>Signed binaries fast-path to <code>Clean</code>; 256k known-good SHA-256 hashes are whitelisted; overlay findings require a validated embedded PE; installer shapes (7z SFX, Inno, NSIS) don't trip heuristics alone. Python-source and Java malware are a known blind spot (PE/JS/URL models only).</p>
 </section>
 </div>
 
