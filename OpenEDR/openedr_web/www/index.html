@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openedr_web — browser demo</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{background:#0b0e14;color:#dbe2f1;font:15px/1.6 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;margin:0}
+.wrap{max-width:900px;margin:0 auto;padding:28px 18px}
+h1{font-size:26px}h1 span{color:#4cc38a}
+.panel{background:#131824;border:1px solid #232c40;border-radius:12px;padding:16px;margin:14px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+button{background:#4cc38a;color:#06110c;font-weight:700;border:0;border-radius:8px;padding:9px 18px;cursor:pointer}
+input[type=text]{flex:1;min-width:220px;background:#070a10;border:1px solid #232c40;color:#dbe2f1;border-radius:8px;padding:9px 12px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#555;margin-right:6px}
+.dot.ok{background:#4cc38a}.dot.no{background:#ff6b6b}
+.badge{display:inline-block;border-radius:8px;padding:3px 12px;font-weight:700}
+.Malicious{background:#3a1215;color:#ff6b6b}.Suspicious{background:#3a2c10;color:#ffb454}
+.Clean{background:#0e2e1f;color:#4cc38a}.Unknown{background:#1b2334;color:#8b94ab}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #232c40;vertical-align:top}
+th{color:#8b94ab}code{word-break:break-all;font-size:12px}
+.mut{color:#8b94ab;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>openedr<span>_web</span> demo</h1>
+  <p class="mut">Fully client-side static scan (ML trees + PE string rules + heuristics).
+  Models load from <code>./models/</code>; disassembly via <code>vendor/capstone.js</code> and
+  unpacking via <code>vendor/unicorn_x86.js</code> when present — otherwise gracefully degraded.</p>
+  <div class="panel" id="status">loading…</div>
+  <div class="panel">
+    <div class="row">
+      <input type="file" id="file">
+      <button id="scanFile">Scan file</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="url" placeholder="https://example.com/login.php">
+      <button id="scanUrl">Scan URL</button>
+    </div>
+  </div>
+  <div class="panel" id="out"><span class="mut">No scan yet.</span></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

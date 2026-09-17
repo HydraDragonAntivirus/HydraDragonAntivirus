@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenMalwareScannerPortable — Portable Static Malware Scanner</title>
+<meta name="description" content="Open-source portable static malware scanner: ClamAV, YARA-X, Unicorn unpacker, ML models, Hayabusa, Authenticode + catalog verification. Single DLL, C FFI, 7 SDK languages.">
+<style>
+:root{--bg:#0b0e14;--panel:#131824;--line:#232c40;--txt:#dbe2f1;--dim:#8b94ab;--acc:#4cc38a;--warn:#ffb454;--bad:#ff6b6b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:16px/1.65 -apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:0 20px}
+header{padding:72px 0 48px;text-align:center;border-bottom:1px solid var(--line)}
+.badge{display:inline-block;border:1px solid var(--acc);color:var(--acc);border-radius:999px;padding:4px 14px;font-size:13px;margin-bottom:18px}
+h1{font-size:clamp(30px,5vw,52px);letter-spacing:-.5px}
+h1 span{color:var(--acc)}
+.sub{color:var(--dim);max-width:640px;margin:16px auto 28px}
+.btn{display:inline-block;background:var(--acc);color:#06110c;font-weight:700;border-radius:10px;padding:12px 26px;text-decoration:none;margin:4px 6px}
+.btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+section{padding:44px 0;border-bottom:1px solid var(--line)}
+h2{font-size:24px;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card h3{font-size:16px;margin-bottom:6px;color:var(--acc)}
+.card p{font-size:14px;color:var(--dim)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:600}
+code{background:#1b2334;border-radius:6px;padding:2px 7px;font-size:13px;word-break:break-all}
+pre{background:#070a10;border:1px solid var(--line);border-radius:12px;padding:16px;overflow-x:auto;font-size:13px}
+footer{padding:28px 0;color:var(--dim);font-size:14px;text-align:center}
+.note{background:#141b0e;border:1px solid #2c4420;border-radius:12px;padding:14px 16px;font-size:14px;margin-top:16px}
+.note b{color:var(--warn)}
+</style>
+</head>
+<body>
+<header class="wrap">
+  <div class="badge">Open Source &middot; Portable &middot; No Install</div>
+  <h1>OpenMalwareScanner<span>Portable</span></h1>
+  <p class="sub">Multi-engine static malware scanner in a single DLL: ClamAV signatures, YARA-X rules, Unicorn CPU-emulation unpacker, ML models, Hayabusa event rules and Authenticode&nbsp;+&nbsp;catalog verification — behind a plain C&nbsp;FFI.</p>
+  <a class="btn" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases">Download Release</a>
+  <a class="btn ghost" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus">Source Code</a>
+</header>
+
+<div class="wrap">
+<section>
+  <h2>Engines</h2>
+  <div class="grid">
+    <div class="card"><h3>ClamAV signatures</h3><p>Rust ClamAV engine with bytecode VM, daily signature databases and archive recursion.</p></div>
+    <div class="card"><h3>YARA-X rules</h3><p>Compiled Valhalla threat-intel ruleset scanned over raw, unpacked and overlay bytes.</p></div>
+    <div class="card"><h3>Unicorn unpacker</h3><p>x86/x64 CPU emulation dumps packed payloads back into the scan pipeline.</p></div>
+    <div class="card"><h3>ML models</h3><p>Gradient-boosted tree ensembles for PE, JavaScript and URL/phishing classification.</p></div>
+    <div class="card"><h3>Hayabusa / Sigma</h3><p>Windows EVTX forensics and live system-event log scanning.</p></div>
+    <div class="card"><h3>Authenticode + catalog</h3><p>WinVerifyTrust plus CatRoot catalog fallback, so catalog-signed OS binaries verify as trusted.</p></div>
+    <div class="card"><h3>Heuristics</h3><p>Null-padding strip, PE overlay binder check (validated MZ&rarr;PE only), decompression-bomb guard.</p></div>
+    <div class="card"><h3>System checks</h3><p>PUA autostart registry rules and hosts-file hijack detect &amp; restore.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>C FFI API</h2>
+  <table>
+    <tr><th>Function</th><th>What it does</th></tr>
+    <tr><td><code>openedr_static_init</code></td><td>Load rules/models from a directory (<code>NULL</code> = next to the DLL).</td></tr>
+    <tr><td><code>openedr_static_scan_file</code></td><td>Full multi-engine scan of a file path &rarr; JSON.</td></tr>
+    <tr><td><code>openedr_static_scan_bytes</code></td><td>Scan an in-memory buffer &rarr; JSON.</td></tr>
+    <tr><td><code>openedr_static_scan_url</code></td><td>URL / phishing score &rarr; JSON.</td></tr>
+    <tr><td><code>openedr_static_scan_evtx</code></td><td>Scan an <code>.evtx</code> file with Hayabusa rules.</td></tr>
+    <tr><td><code>openedr_static_scan_system_events</code></td><td>Scan live Windows event logs.</td></tr>
+    <tr><td><code>openedr_static_check_registry</code></td><td>Check a Run/persistence key against PUA rules.</td></tr>
+    <tr><td><code>openedr_static_check_hosts_file</code></td><td>Detect hosts-file hijacking (<code>NULL</code> = default).</td></tr>
+    <tr><td><code>openedr_static_restore_hosts_file</code></td><td>Restore the clean hosts template (optional backup).</td></tr>
+    <tr><td><code>openedr_static_free_string</code></td><td>Free every heap string the API returns.</td></tr>
+  </table>
+  <div class="note"><b>Note:</b> there is no cloud lookup. The retired Comodo FLS client was removed; verdicts come only from local engines.</div>
+</section>
+
+<section>
+  <h2>Verdicts</h2>
+  <table>
+    <tr><th>Verdict</th><th>Meaning</th></tr>
+    <tr><td><code>Malicious</code></td><td>Score &ge; 0.85 — signature hit or high-confidence stack.</td></tr>
+    <tr><td><code>Suspicious</code></td><td>Score &ge; 0.50 or heuristic-only evidence.</td></tr>
+    <tr><td><code>Clean</code></td><td>SHA-256 whitelist hit or trusted signature with no other signal.</td></tr>
+    <tr><td><code>Unknown</code></td><td>No engine fired. Unsigned + unknown = unknown, not malicious.</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>SDKs</h2>
+  <p>Every wrapper ships with a one-shot example and a polling <b>daemon mode</b> (watch dir &rarr; scan new files &rarr; print hits).</p>
+  <table>
+    <tr><th>Language</th><th>Run the daemon</th></tr>
+    <tr><td>Python</td><td><code>python daemon_example.py [dir]</code></td></tr>
+    <tr><td>Node.js</td><td><code>node daemon.js [dir]</code></td></tr>
+    <tr><td>C#</td><td><code>dotnet run -- daemon [dir]</code></td></tr>
+    <tr><td>Go</td><td><code>go run ./daemon [dir]</code></td></tr>
+    <tr><td>Rust</td><td><code>cargo run --example daemon [dir]</code></td></tr>
+    <tr><td>C++ / C</td><td><code>daemon.exe [dir]</code></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>False positives</h2>
+  <p>Signed binaries fast-path to <code>Clean</code>; 256k known-good SHA-256 hashes are whitelisted; overlay/archive findings require a validated embedded PE or an engine hit — installer-shaped files (7z SFX, Inno, NSIS) don't trip the heuristic alone.</p>
+</section>
+</div>
+
+<footer>OpenMalwareScannerPortable &middot; part of HydraDragonAntivirus / OpenEDR &middot; GPLv2-licensed open source</footer>
+</body>
+</html>
