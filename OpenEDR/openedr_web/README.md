@@ -36,9 +36,28 @@ The desktop `registry_rules` API path is unsupported — rules run as validated-
 
 ## C ABI (linear memory, no wasm-bindgen needed)
 
-`web_alloc / web_free | web_load_model(kind 0/1/2) | web_set_registry_rules |
-web_set_benign | web_scan_bytes | web_scan_bytes_ex(has_counts,total,add,mov) |
-web_scan_url | web_self_test | web_output_len | web_free_str`
+`web_alloc / web_free | web_load_model(kind 0/1/2) | web_load_url_whitelist(.xf) |
+web_load_benign_whitelist(.xf) | web_set_registry_rules |
+web_scan_bytes | web_scan_bytes_ex(has_counts,total,add,mov) |
+web_scan_url | web_inspect_url(_content) | web_self_test | web_output_len | web_free_str`
+
+## Whitelists
+
+* URL/domain/IP whitelist: BinaryFuse16 `.xf` via `web_load_url_whitelist`
+  (exact host + parent-domain walk, same as before).
+* SHA-256 benign whitelist: BinaryFuse16 `.xf` via `web_load_benign_whitelist`
+  — aynen IP/domain whitelist gibi. No `.txt` path: the demo only fetches
+  `hash_rules/benign_sha256.xf`.
+
+Build the benign filter offline with the shared builder (same key/format as
+every other filter in the repo):
+
+```sh
+cargo run -p xorfilter_writer --release -- benign_sha256.txt benign_sha256.xf
+# -> www/hash_rules/benign_sha256.xf  (~2.16 bytes/key vs ~65 bytes/line txt)
+cargo run -p xorfilter_writer --release -- --check benign_sha256.xf <sha256>
+cargo run -p xorfilter_writer --release -- --fp benign_sha256.xf 100000 hex
+```
 
 ## Build
 

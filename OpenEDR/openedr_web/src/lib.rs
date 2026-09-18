@@ -136,6 +136,19 @@ pub extern "C" fn web_load_url_whitelist(ptr: *const u8, len: usize) -> i32 {
     eng.load_url_whitelist(&data) as i32
 }
 
+/// Load BinaryFuse16 SHA-256 benign whitelist (.xf binary, same format as
+/// the URL/domain/IP whitelist). Returns 1 on success, 0 on parse failure.
+#[no_mangle]
+pub extern "C" fn web_load_benign_whitelist(ptr: *const u8, len: usize) -> i32 {
+    let Some(data) = take_bytes(ptr, len) else {
+        return 0;
+    };
+    let Some(mut eng) = lock_engine() else {
+        return 0;
+    };
+    eng.load_benign_whitelist(&data) as i32
+}
+
 /// Load one compiled YARA `.yrc` bundle (same bytes as desktop).
 /// Returns 1 on success, 0 on parse failure.
 #[no_mangle]
@@ -182,18 +195,6 @@ pub extern "C" fn web_set_string_rules(ptr: *const u8, len: usize) -> i32 {
 #[no_mangle]
 pub extern "C" fn web_set_registry_rules(ptr: *const u8, len: usize) -> i32 {
     web_set_string_rules(ptr, len)
-}
-
-/// Load newline-separated SHA-256 whitelist. Returns entries added.
-#[no_mangle]
-pub extern "C" fn web_set_benign(ptr: *const u8, len: usize) -> i32 {
-    let Some(text) = take_str(ptr, len) else {
-        return 0;
-    };
-    let Some(mut eng) = lock_engine() else {
-        return 0;
-    };
-    eng.set_benign(&text) as i32
 }
 
 fn scan_impl(

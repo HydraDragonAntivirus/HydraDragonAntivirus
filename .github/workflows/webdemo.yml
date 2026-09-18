@@ -51,14 +51,17 @@ jobs:
               echo "skip missing models/$f"
             fi
           done
+          # SHA-256 benign whitelist (BinaryFuse16 .xf, same as URL/IP whitelist).
+          if [ -f "OpenEDR/openedr_web/www/hash_rules/benign_sha256.xf" ]; then
+            cp "OpenEDR/openedr_web/www/hash_rules/benign_sha256.xf" _site/webdemo/hash_rules/
+          elif [ -f "OpenMalwareScannerPortable/hash_rules/benign_sha256.xf" ]; then
+            cp "OpenMalwareScannerPortable/hash_rules/benign_sha256.xf" _site/webdemo/hash_rules/
+          else
+            echo "skip missing hash_rules/benign_sha256.xf"
+          fi
           if [ ! -f _site/webdemo/models/url_trees.bin ] && [ -f hydradragon_ml_models/url_trees.bin ]; then
             cp hydradragon_ml_models/url_trees.bin _site/webdemo/models/
             echo "url_trees.bin from hydradragon_ml_models/"
-          fi
-          if [ -f OpenMalwareScannerPortable/hash_rules/benign_sha256.txt ]; then
-            cp OpenMalwareScannerPortable/hash_rules/benign_sha256.txt _site/webdemo/hash_rules/
-          else
-            echo "skip missing benign list"
           fi
           for v in capstone.js unicorn_x86.js; do
             if [ -f "OpenEDR/openedr_web/www/vendor/$v" ]; then
@@ -76,7 +79,6 @@ jobs:
           if [ -f OpenMalwareScannerPortable/yara_rules/valhalla-rules.yrc ] && [ ! -f _site/webdemo/yara_rules/valhalla-rules.yrc ]; then
             cp OpenMalwareScannerPortable/yara_rules/*.yrc _site/webdemo/yara_rules/ 2>/dev/null || true
           fi
-          # NOTE: benign_sha256.txt (16MB) intentionally skipped — optional in the demo.
           # NOTE: vendor/*.js (capstone/unicorn) and valhalla .yrc are NOT in git;
           # the demo degrades gracefully without them (built-in demo rules apply).
           ls -la _site _site/webdemo

@@ -5,8 +5,6 @@
 //! extraction, FLS cloud. Disassembly counts arrive from capstone.js via the
 //! `_ex` API; without them PE features 51..53 read 0.0 (graceful).
 
-use std::collections::HashSet;
-
 use crate::ml::scanner::MlScanner;
 use crate::pe_strings;
 use crate::report::{DetectionItem, StaticScanReport};
@@ -17,7 +15,7 @@ pub struct WebEngine {
     ml: MlScanner,
     yara: YaraScanner,
     string_rules: PeStringRules,
-    benign_hashes: HashSet<String>,
+    benign_filter: Option<BinaryFuse16Filter>,
     url_whitelist: Option<BinaryFuse16Filter>,
     pub cidr_engine: crate::cidr::CidrEngine,
     pub url_engine: crate::url_rules::UrlThreatEngine,
@@ -29,7 +27,7 @@ impl WebEngine {
             ml: MlScanner::new(),
             yara: YaraScanner::new(),
             string_rules: PeStringRules::default(),
-            benign_hashes: HashSet::new(),
+            benign_filter: None,
             url_whitelist: None,
             cidr_engine: crate::cidr::CidrEngine::new(),
             url_engine: crate::url_rules::UrlThreatEngine::new(),
@@ -39,6 +37,20 @@ impl WebEngine {
     pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
         if let Some(f) = BinaryFuse16Filter::from_bytes(data) {
             self.url_whitelist = Some(f);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Load BinaryFuse16 SHA-256 benign whitelist (.xf binary, same format as
+    /// the URL/domain/IP whitelist). Built offline with `xorfilter_writer`:
+    /// `xorfilter_writer benign_sha256.txt benign_sha256.xf`.
+    /// Hex lines are folded with the same lowercasing FNV-1a `key()` as the
+    /// URL filter, so the .xf is queryable byte-for-byte with `contains()`.
+    pub fn load_benign_whitelist(&mut self, data: &[u8]) -> bool {
+        if let Some(f) = BinaryFuse16Filter::from_bytes(data) {
+            self.benign_filter = Some(f);
             true
         } else {
             false
@@ -70,18 +82,16 @@ impl WebEngine {
         self.set_string_rules(yaml)
     }
 
-    /// Load newline-separated SHA-256 whitelist.
-    pub fn set_benign(&mut self, list: &str) -> usize {
-        let mut n = 0;
-        for line in list.lines() {
-            let t = line.trim().to_lowercase();
-            if t.len() == 64 && t.chars().all(|c| c.is_ascii_hexdigit()) {
-                if self.benign_hashes.insert(t) {
-                    n += 1;
-                }
+    /// Benign fast-path: BinaryFuse16 `.xf` filter, same query path as the
+    /// IP/domain whitelist.
+    #[inline]
+    pub fn is_benign(&self, sha256_hex: &str) -> bool {
+        if let Some(ref f) = self.benign_filter {
+            if f.contains(sha256_hex) {
+                return true;
             }
         }
-        n
+        false
     }
 
     pub fn scan_bytes(
@@ -102,8 +112,8 @@ impl WebEngine {
         let mut detections = Vec::new();
         let mut max_score: f32 = 0.0;
 
-        // 0. Whitelist fast-path.
-        if self.benign_hashes.contains(&sha256_hex) {
+        // 0. Whitelist fast-path (BinaryFuse16 .xf, same as URL/IP whitelist).
+        if self.is_benign(&sha256_hex) {
             return StaticScanReport {
                 target: target_name.to_string(),
                 file_size,

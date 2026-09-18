@@ -16,7 +16,9 @@ The demo degrades gracefully when a file is absent (status lights go red).
 
 Runtime data (also NOT in git, copy from OpenMalwareScannerPortable/):
   www/models/pe_trees.bin, js_trees.bin, url_trees.bin
+  www/models/url_whitelist.xf (BinaryFuse16 URL/domain/IP whitelist)
+  www/hash_rules/benign_sha256.xf (BinaryFuse16 SHA-256 benign whitelist;
+    build: cargo run -p xorfilter_writer --release -- benign_sha256.txt benign_sha256.xf)
   www/yara_rules/valhalla-rules.yrc
-  www/hash_rules/benign_sha256.txt
 Serve this folder over http (file:// blocks fetch + wasm streaming):
   python3 -m http.server 8080   # inside www/

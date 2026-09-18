@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 # Shared crate: same key derivation, width selection and on-disk format the
 # device loads => the .xf built here is queryable byte-for-byte on arm64.
-hydradragonxorfilter = { path = "../../hydradragonxorfilter" }
+hydradragonxorfilter = { path = "../hydradragonxorfilter" }
 
 [profile.release]
 opt-level = 3

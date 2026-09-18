@@ -5,8 +5,9 @@
  *   vendor/unicorn_x86.js - unicorn.js x86 build (global MUnicorn) for unpack assist
  * Models (fetch at runtime, NOT in git):
  *   models/pe_trees.bin, models/js_trees.bin, models/url_trees.bin
+ *   models/url_whitelist.xf (BinaryFuse16 URL/domain/IP whitelist)
+ *   hash_rules/benign_sha256.xf (BinaryFuse16 SHA-256 benign whitelist)
  *   registry_rules/pua_registry_rules.yaml   (optional)
- *   hash_rules/benign_sha256.txt             (optional)
  */
 'use strict';
 if (typeof window !== 'undefined') {
@@ -122,12 +123,6 @@ function loadBlob(kind, u8) {
   const ok = wasm.web_load_model(kind, ptr, u8.length);
   wasm.web_free(ptr, u8.length);
   return ok === 1;
-}
-function setText(fn, s) {
-  const { ptr, len } = writeStr(s);
-  const r = fn(ptr, len);
-  wasm.web_free(ptr, len);
-  return r;
 }
 
 /* ---------- optional vendor libs ---------- */
@@ -268,26 +263,43 @@ function scanBuffer(u8, name, counts) {
   const p = writeBytes(u8);
   const { ptr: np, len: nl } = writeStr(name);
   let out = 0;
+  let scanErr = null;
   try {
-    if (counts) {
-      out = wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0], counts[1], counts[2]);
-    } else {
+    if (counts && typeof wasm.web_scan_bytes_ex === 'function') {
+      try {
+        const bi = (x) => (typeof BigInt !== 'undefined' ? BigInt(x || 0) : (x || 0));
+        out = wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, bi(counts[0]), bi(counts[1]), bi(counts[2]));
+      } catch (errBi) {
+        console.warn('BigInt call failed, falling back to standard numbers or web_scan_bytes:', errBi);
+        try {
+          out = wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0] || 0, counts[1] || 0, counts[2] || 0);
+        } catch {
+          out = wasm.web_scan_bytes(p, u8.length, np, nl);
+        }
+      }
+    } else if (typeof wasm.web_scan_bytes === 'function') {
       out = wasm.web_scan_bytes(p, u8.length, np, nl);
     }
   } catch (e) {
+    scanErr = e;
+    console.error('Scan execution error:', e);
     out = 0;
   }
   wasm.web_free(p, u8.length);
   wasm.web_free(np, nl);
-  if (!out) return { verdict: 'Error', detections: [] };
+  if (!out) {
+    console.error('Engine returned null output pointer for:', name, scanErr);
+    return { verdict: 'Error', detections: [], error_details: scanErr ? String(scanErr.message || scanErr) : 'Scan engine returned null output pointer.' };
+  }
   try {
     return readStr(out);
-  } catch {
-    return { verdict: 'Error', detections: [] };
+  } catch (e) {
+    console.error('Failed to parse scan output JSON:', e);
+    return { verdict: 'Error', detections: [], error_details: 'JSON parse error: ' + (e.message || e) };
   }
 }
 function mergeVerdict(base, extra) {
-  // extra: report for an unpacked dump; fold its score/detections into base
+  if (extra.verdict === 'Error') return base;
   let score = base.max_threat_score || 0;
   const dets = (base.detections || []).slice();
   for (const d of (extra.detections || [])) {
@@ -300,6 +312,12 @@ function mergeVerdict(base, extra) {
   return { ...base, verdict, max_threat_score: score, detections: dets };
 }
 function render(rep, el) {
+  if (rep.verdict === 'Error') {
+    el.innerHTML =
+      `<div>Verdict: <span class="badge Error">Error</span><br>` +
+      `<p style="color:#ef4444;font-size:13px;margin:8px 0 4px"><strong>Scan Failed:</strong> ${rep.error_details || rep.verdict_reason || 'An unexpected error occurred during analysis.'}</p></div>`;
+    return;
+  }
   if (rep.target_url) {
     const isWl = rep.whitelisted;
     const isBypassed = rep.whitelist_bypassed;
@@ -313,6 +331,7 @@ function render(rep, el) {
       } else {
         lvBadge = `<span style="color:#94a3b8;font-weight:600;margin-left:8px">⚠️ Host Unreachable</span>`;
       }
+    }
     let wlBadge = '';
     if (rep.unwhitelisted_for_ml) {
       wlBadge = `<span style="color:#38bdf8;font-weight:bold;margin-left:8px">⚡ Unwhitelisted for ML (Subdomain Rule)</span>`;
@@ -410,16 +429,18 @@ async function boot() {
     }
   } catch {}
   lights.push([`<span class="dot ${yaraLoaded ? 'ok' : 'no'}"></span>YARA rules (${yaraLoaded ? 'compiled' : 'failed'})`, true]);
-  for (const [fn, file, label] of [
-    [wasm.web_set_benign, 'hash_rules/benign_sha256.txt', 'benign list'],
-  ]) {
-    try {
-      const r = await fetch(file);
-      if (!r.ok) throw 0;
-      const n = setText(fn, await r.text());
-      lights.push([`<span class="dot ok"></span>${label} (${n})`, true]);
-    } catch { lights.push([`<span class="dot no"></span>${label}`, true]); }
-  }
+  // SHA-256 benign whitelist (BinaryFuse16 .xf, same as URL/IP whitelist).
+  // Build offline: xorfilter_writer benign_sha256.txt benign_sha256.xf
+  try {
+    const r = await fetch('hash_rules/benign_sha256.xf');
+    if (!r.ok) throw 0;
+    const u8 = new Uint8Array(await r.arrayBuffer());
+    const p = writeBytes(u8);
+    const fn = wasm.web_load_benign_whitelist;
+    const ok = fn ? fn(p, u8.length) : 0;
+    wasm.web_free(p, u8.length);
+    lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>benign xf`, true]);
+  } catch { lights.push(['<span class="dot no"></span>benign xf', true]); }
   statusEl.innerHTML = lights.map((l) => l[0]).join(' &nbsp; ');
   renderHist();
 
@@ -546,17 +567,35 @@ async function checkDomainLiveness(domain, rawUrl) {
 
     const { ptr, len } = writeStr(url);
     let out = 0;
-    if (pageContent && typeof wasm.web_inspect_url_content === 'function') {
-      const c = writeStr(pageContent);
-      out = wasm.web_inspect_url_content(ptr, len, livenessCode, c.ptr, c.len);
-      wasm.web_free(c.ptr, c.len);
-    } else if (typeof wasm.web_inspect_url === 'function') {
-      out = wasm.web_inspect_url(ptr, len, livenessCode);
-    } else if (typeof wasm.web_scan_url === 'function') {
-      out = wasm.web_scan_url(ptr, len);
+    let urlErr = null;
+    try {
+      if (pageContent && typeof wasm.web_inspect_url_content === 'function') {
+        const c = writeStr(pageContent);
+        out = wasm.web_inspect_url_content(ptr, len, livenessCode, c.ptr, c.len);
+        wasm.web_free(c.ptr, c.len);
+      } else if (typeof wasm.web_inspect_url === 'function') {
+        out = wasm.web_inspect_url(ptr, len, livenessCode);
+      } else if (typeof wasm.web_scan_url === 'function') {
+        out = wasm.web_scan_url(ptr, len);
+      }
+    } catch (e) {
+      urlErr = e;
+      console.error('URL inspection error:', e);
+      out = 0;
     }
     wasm.web_free(ptr, len);
-    const rep = out ? readStr(out) : { verdict: 'Error', detections: [] };
+
+    let rep = null;
+    if (out) {
+      try {
+        rep = readStr(out);
+      } catch (e) {
+        console.error('Failed to parse URL report JSON:', e);
+        rep = { verdict: 'Error', detections: [], error_details: 'Failed to parse JSON report: ' + (e.message || e) };
+      }
+    } else {
+      rep = { verdict: 'Error', detections: [], error_details: urlErr ? String(urlErr.message || urlErr) : 'URL inspection returned null pointer' };
+    }
 
     if (livenessObj) {
       rep.liveness_obj = livenessObj;

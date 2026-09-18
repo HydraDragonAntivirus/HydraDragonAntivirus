@@ -277,23 +277,43 @@ function scanBuffer(u8, name, counts) {
   const p = writeBytes(u8);
   const { ptr: np, len: nl } = writeStr(name);
   let out = 0;
+  let scanErr = null;
   try {
-    out = counts
-      ? wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0], counts[1], counts[2])
-      : wasm.web_scan_bytes(p, u8.length, np, nl);
+    if (counts && typeof wasm.web_scan_bytes_ex === 'function') {
+      try {
+        const bi = (x) => (typeof BigInt !== 'undefined' ? BigInt(x || 0) : (x || 0));
+        out = wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, bi(counts[0]), bi(counts[1]), bi(counts[2]));
+      } catch (errBi) {
+        console.warn('BigInt call failed, falling back to standard numbers or web_scan_bytes:', errBi);
+        try {
+          out = wasm.web_scan_bytes_ex(p, u8.length, np, nl, 1, counts[0] || 0, counts[1] || 0, counts[2] || 0);
+        } catch {
+          out = wasm.web_scan_bytes(p, u8.length, np, nl);
+        }
+      }
+    } else if (typeof wasm.web_scan_bytes === 'function') {
+      out = wasm.web_scan_bytes(p, u8.length, np, nl);
+    }
   } catch (e) {
+    scanErr = e;
+    console.error('Scan execution error:', e);
     out = 0;
   }
   wasm.web_free(p, u8.length);
   wasm.web_free(np, nl);
-  if (!out) return { verdict: 'Error', detections: [] };
+  if (!out) {
+    console.error('Engine returned null output pointer for:', name, scanErr);
+    return { verdict: 'Error', detections: [], error_details: scanErr ? String(scanErr.message || scanErr) : 'Scan engine returned null output pointer.' };
+  }
   try {
     return readStr(out);
-  } catch {
-    return { verdict: 'Error', detections: [] };
+  } catch (e) {
+    console.error('Failed to parse scan output JSON:', e);
+    return { verdict: 'Error', detections: [], error_details: 'JSON parse error: ' + (e.message || e) };
   }
 }
 function mergeVerdict(base, extra) {
+  if (extra.verdict === 'Error') return base;
   let score = base.max_threat_score || 0;
   const dets = (base.detections || []).slice();
   for (const d of (extra.detections || [])) {
@@ -306,6 +326,12 @@ function mergeVerdict(base, extra) {
   return { ...base, verdict, max_threat_score: score, detections: dets };
 }
 function render(rep, el) {
+  if (rep.verdict === 'Error') {
+    el.innerHTML =
+      `<div>Verdict: <span class="badge Error">Error</span><br>` +
+      `<p style="color:#ef4444;font-size:13px;margin:8px 0 4px"><strong>Scan Failed:</strong> ${rep.error_details || rep.verdict_reason || 'An unexpected error occurred during analysis.'}</p></div>`;
+    return;
+  }
   if (rep.target_url) {
     const isWl = rep.whitelisted;
     const isBypassed = rep.whitelist_bypassed;
@@ -556,17 +582,35 @@ async function checkDomainLiveness(domain, rawUrl) {
 
     const { ptr, len } = writeStr(url);
     let out = 0;
-    if (pageContent && typeof wasm.web_inspect_url_content === 'function') {
-      const c = writeStr(pageContent);
-      out = wasm.web_inspect_url_content(ptr, len, livenessCode, c.ptr, c.len);
-      wasm.web_free(c.ptr, c.len);
-    } else if (typeof wasm.web_inspect_url === 'function') {
-      out = wasm.web_inspect_url(ptr, len, livenessCode);
-    } else if (typeof wasm.web_scan_url === 'function') {
-      out = wasm.web_scan_url(ptr, len);
+    let urlErr = null;
+    try {
+      if (pageContent && typeof wasm.web_inspect_url_content === 'function') {
+        const c = writeStr(pageContent);
+        out = wasm.web_inspect_url_content(ptr, len, livenessCode, c.ptr, c.len);
+        wasm.web_free(c.ptr, c.len);
+      } else if (typeof wasm.web_inspect_url === 'function') {
+        out = wasm.web_inspect_url(ptr, len, livenessCode);
+      } else if (typeof wasm.web_scan_url === 'function') {
+        out = wasm.web_scan_url(ptr, len);
+      }
+    } catch (e) {
+      urlErr = e;
+      console.error('URL inspection error:', e);
+      out = 0;
     }
     wasm.web_free(ptr, len);
-    const rep = out ? readStr(out) : { verdict: 'Error', detections: [] };
+
+    let rep = null;
+    if (out) {
+      try {
+        rep = readStr(out);
+      } catch (e) {
+        console.error('Failed to parse URL report JSON:', e);
+        rep = { verdict: 'Error', detections: [], error_details: 'Failed to parse JSON report: ' + (e.message || e) };
+      }
+    } else {
+      rep = { verdict: 'Error', detections: [], error_details: urlErr ? String(urlErr.message || urlErr) : 'URL inspection returned null pointer' };
+    }
 
     if (livenessObj) {
       rep.liveness_obj = livenessObj;
