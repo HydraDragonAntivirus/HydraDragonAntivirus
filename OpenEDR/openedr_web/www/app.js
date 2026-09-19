@@ -3,12 +3,20 @@
  * Vendor libs (optional, drop-in):
  *   vendor/capstone.js    - capstone.js build (global MCapstone) for disasm counts
  *   vendor/unicorn_x86.js - unicorn.js x86 build (global MUnicorn) for unpack assist
- * Models (fetch at runtime, NOT in git):
- *   models/pe_trees.bin, models/js_trees.bin, models/url_trees.bin
+ * Models (fetch at runtime):
+ *   models/pe_trees.bin, models/js_trees.bin, models/url_trees.bin,
+ *   models/apk_trees.bin (our own APK forest, kind 3 — see tools/apk_train.py)
  *   models/url_whitelist.xf (BinaryFuse16 URL/domain/IP whitelist)
- *   hash_rules/benign_sha256.xf (BinaryFuse16 SHA-256 benign whitelist)
+ *   hash_rules/benign_sha256.xf (BinaryFuse16 SHA-256 benign whitelist,
+ *     incl. benign APK hashes)
  *   registry_rules/pua_registry_rules.yaml   (optional)
  */
+'use strict';
+// Bump on every shipped engine change so phones drop stale caches.
+const ASSET_V = 'apk-tree-1';
+const BUILD_TAG = 'apk-tree-1';
+const MAX_SCAN_BYTES = 96 * 1024 * 1024; // bigger files OOM phone tabs
+const OOM_MSG = 'Out of memory: file too large for this device. / Bellek yetersiz: dosya bu cihaz için çok büyük.';
 'use strict';
 if (typeof window !== 'undefined') {
   window.addEventListener('error', (ev) => {
@@ -83,12 +91,15 @@ function exportHist() {
 }
 
 /* ---------- wasm plumbing ---------- */
+function bust(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'v=' + ASSET_V;
+}
 async function loadWasm() {
   const candidates = ['./openedr_web_bg.wasm', 'openedr_web_bg.wasm', 'webdemo/openedr_web_bg.wasm'];
   let lastErr = null;
   for (const p of candidates) {
     try {
-      const res = await fetch(p);
+      const res = await fetch(bust(p), { cache: 'reload' });
       if (!res.ok) continue;
       const bytes = await res.arrayBuffer();
       const u8 = new Uint8Array(bytes);
@@ -104,7 +115,9 @@ async function loadWasm() {
 }
 
 function writeBytes(u8) {
+  if (!u8.length) return 0;
   const ptr = wasm.web_alloc(u8.length);
+  if (!ptr) return 0; // OOM (phones): caller shows OOM_MSG, never traps.
   new Uint8Array(wasm.memory.buffer, ptr, u8.length).set(u8);
   return ptr;
 }
@@ -260,8 +273,15 @@ async function unpackAssist(u8) {
 
 /* ---------- scan orchestration ---------- */
 function scanBuffer(u8, name, counts) {
+  if (u8.length > MAX_SCAN_BYTES) {
+    return { verdict: 'Error', detections: [], error_details: OOM_MSG };
+  }
   const p = writeBytes(u8);
   const { ptr: np, len: nl } = writeStr(name);
+  if (!p) {
+    if (np) wasm.web_free(np, nl);
+    return { verdict: 'Error', detections: [], error_details: OOM_MSG };
+  }
   let out = 0;
   let scanErr = null;
   try {
@@ -393,13 +413,14 @@ async function boot() {
   await initVendors();
   lights.push([`<span class="dot ${CS ? 'ok' : 'no'}"></span>capstone.js`, true]);
   lights.push([`<span class="dot ${UC ? 'ok' : 'no'}"></span>unicorn.js (x86)`, true]);
-  // models (each optional; engine degrades gracefully)
-  for (const [kind, file] of [[0, 'pe_trees.bin'], [1, 'js_trees.bin'], [2, 'url_trees.bin']]) {
+  // Models (each optional; engine degrades gracefully). kind 3 = APK forest.
+  for (const [kind, file] of [[0, 'pe_trees.bin'], [1, 'js_trees.bin'], [2, 'url_trees.bin'], [3, 'apk_trees.bin']]) {
     try {
-      const r = await fetch('models/' + file);
+      const r = await fetch(bust('models/' + file), { cache: 'reload' });
       if (!r.ok) throw 0;
       const u8 = new Uint8Array(await r.arrayBuffer());
       const p = writeBytes(u8);
+      if (!p) throw 0;
       const ok = wasm.web_load_model(kind, p, u8.length);
       wasm.web_free(p, u8.length);
       lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>${file}`, true]);
@@ -407,7 +428,7 @@ async function boot() {
   }
   // Tranco 1M + IP whitelist (.xf binary)
   try {
-    const r = await fetch('models/url_whitelist.xf');
+    const r = await fetch(bust('models/url_whitelist.xf'), { cache: 'reload' });
     if (!r.ok) throw 0;
     const u8 = new Uint8Array(await r.arrayBuffer());
     const p = writeBytes(u8);
@@ -416,13 +437,13 @@ async function boot() {
     wasm.web_free(p, u8.length);
     lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>whitelist (1.4M)`, true]);
   } catch { lights.push(['<span class="dot no"></span>whitelist', true]); }
-  // Compile valhalla-rules.yar via YARA-X
+  // Compile valhalla-rules.yar via YARA-X (capped: huge rule text OOMs phones)
   let yaraLoaded = false;
   try {
-    const r = await fetch('yara_rules/valhalla-rules.yar');
+    const r = await fetch(bust('yara_rules/valhalla-rules.yar'), { cache: 'reload' });
     if (r.ok) {
       const text = await r.text();
-      if (typeof wasm.web_load_yara_src === 'function') {
+      if (text.length < 32 * 1024 * 1024 && typeof wasm.web_load_yara_src === 'function') {
         const enc = new TextEncoder().encode(text);
         const p = writeBytes(enc);
         if (wasm.web_load_yara_src(p, enc.length) === 1) yaraLoaded = true;
@@ -435,7 +456,7 @@ async function boot() {
   // Build offline: xorfilter_writer benign_sha256.txt benign_sha256.xf
   // (includes benign APK SHA-256 hashes from HydraDragonAV-Mobile dataset).
   try {
-    const r = await fetch('hash_rules/benign_sha256.xf');
+    const r = await fetch(bust('hash_rules/benign_sha256.xf'), { cache: 'reload' });
     if (!r.ok) throw 0;
     const u8 = new Uint8Array(await r.arrayBuffer());
     const p = writeBytes(u8);
@@ -444,37 +465,15 @@ async function boot() {
     wasm.web_free(p, u8.length);
     lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>benign xf`, true]);
   } catch { lights.push(['<span class="dot no"></span>benign xf', true]); }
-  // APK ML artifacts (hydradragonml / ONNX parity, optional — heuristics run
-  // regardless). Files: models/apk_vocab.json, models/apk_features.json,
-  // models/apk_weights.bin (see tools/export_apk_onnx.py).
+  // APK tree-bundle readiness (kind 3 above) for the status light.
+  // Heuristics run regardless; without the bundle APKs score heuristic-only.
   try {
-    const loaders = [
-      ['apk_vocab.json', 'web_load_apk_vocab'],
-      ['apk_features.json', 'web_load_apk_features'],
-      ['apk_weights.bin', 'web_load_apk_weights'],
-    ];
-    let apkOk = 0, apkTried = 0;
-    for (const [file, fnName] of loaders) {
-      try {
-        const r = await fetch('models/' + file);
-        if (!r.ok) continue;
-        const u8 = new Uint8Array(await r.arrayBuffer());
-        if (!u8.length) continue;
-        const fn = wasm[fnName];
-        if (typeof fn !== 'function') continue;
-        apkTried++;
-        const p = writeBytes(u8);
-        const ok = fn(p, u8.length);
-        wasm.web_free(p, u8.length);
-        if (ok === 1) apkOk++;
-      } catch {}
-    }
-    let mask = 0;
-    try { if (typeof wasm.web_apk_loaded === 'function') mask = wasm.web_apk_loaded(); } catch {}
-    const apkReady = mask === 7;
-    lights.push([`<span class="dot ${apkReady ? 'ok' : 'no'}"></span>apk ml (${apkOk}/3${apkReady ? ', ready' : ', heuristic-only'})`, true]);
-  } catch { lights.push(['<span class="dot no"></span>apk ml', true]); }
-  statusEl.innerHTML = lights.map((l) => l[0]).join(' &nbsp; ');
+    const fn = wasm.web_apk_loaded;
+    const ready = (typeof fn === 'function') ? fn() === 1 : false;
+    lights.push([`<span class="dot ${ready ? 'ok' : 'no'}"></span>android apk ml${ready ? '' : ' (heuristic-only)'}`, true]);
+  } catch { lights.push(['<span class="dot no"></span>android apk ml', true]); }
+  statusEl.innerHTML = lights.map((l) => l[0]).join(' &nbsp; ') +
+    ` &nbsp; <span class="mut">build ${BUILD_TAG}</span>`;
   renderHist();
 
   const exportBtn = document.getElementById('exportHist');

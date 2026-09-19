@@ -42,12 +42,17 @@ pub extern "C" fn web_output_len() -> usize {
 
 /// Allocate `len` bytes in wasm memory; JS writes input there. Free with
 /// [`web_free`] (or [`web_free_str`] for returned strings).
+/// Fallible: returns null when the tab cannot spare `len` bytes (common on
+/// phones with big APKs) instead of trapping — JS must check for null.
 #[no_mangle]
 pub extern "C" fn web_alloc(len: usize) -> *mut u8 {
-    if len == 0 {
+    if len == 0 || len > 256 * 1024 * 1024 {
         return std::ptr::null_mut();
     }
-    let mut v = Vec::with_capacity(len);
+    let mut v: Vec<u8> = Vec::new();
+    if v.try_reserve(len).is_err() || v.capacity() < len {
+        return std::ptr::null_mut();
+    }
     let ptr = v.as_mut_ptr();
     std::mem::forget(v);
     ptr
@@ -79,7 +84,14 @@ fn take_bytes(ptr: *const u8, len: usize) -> Option<Vec<u8>> {
     if len > 256 * 1024 * 1024 {
         return None;
     }
-    Some(unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec())
+    // Fallible copy: huge inputs on phones must fail as null (JS shows a
+    // bilingual message) rather than trapping the whole tab.
+    let mut out: Vec<u8> = Vec::new();
+    if out.try_reserve(len).is_err() {
+        return None;
+    }
+    out.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, len) });
+    Some(out)
 }
 
 fn take_str(ptr: *const u8, len: usize) -> Option<String> {
@@ -114,7 +126,7 @@ pub extern "C" fn web_free_str(ptr: *mut c_char) {
     }
 }
 
-/// Load a tree-model bundle: kind 0 = PE, 1 = JS, 2 = URL.
+/// Load a tree-model bundle: kind 0 = PE, 1 = JS, 2 = URL, 3 = APK.
 /// Returns 1 on success, 0 on parse failure.
 #[no_mangle]
 pub extern "C" fn web_load_model(kind: u32, ptr: *const u8, len: usize) -> i32 {
@@ -201,50 +213,10 @@ pub extern "C" fn web_set_registry_rules(ptr: *const u8, len: usize) -> i32 {
     web_set_string_rules(ptr, len)
 }
 
-/// Load APK subword vocabulary (`vocab.json` from hydradragonml, token->id).
-/// Returns 1 on success, 0 on parse failure.
-#[no_mangle]
-pub extern "C" fn web_load_apk_vocab(ptr: *const u8, len: usize) -> i32 {
-    let Some(data) = take_bytes(ptr, len) else {
-        return 0;
-    };
-    let Some(mut eng) = lock_engine() else {
-        return 0;
-    };
-    eng.load_apk_vocab(&data) as i32
-}
-
-/// Load APK corpus percentile stats (`features.json` from hydradragonml).
-/// Returns 1 on success, 0 on parse failure.
-#[no_mangle]
-pub extern "C" fn web_load_apk_features(ptr: *const u8, len: usize) -> i32 {
-    let Some(data) = take_bytes(ptr, len) else {
-        return 0;
-    };
-    let Some(mut eng) = lock_engine() else {
-        return 0;
-    };
-    eng.load_apk_features(&data) as i32
-}
-
-/// Load APK MLP weights (`apk_weights.bin`, same values as `apk_model.onnx`).
-/// Returns 1 on success, 0 on parse failure.
-#[no_mangle]
-pub extern "C" fn web_load_apk_weights(ptr: *const u8, len: usize) -> i32 {
-    let Some(data) = take_bytes(ptr, len) else {
-        return 0;
-    };
-    let Some(mut eng) = lock_engine() else {
-        return 0;
-    };
-    eng.load_apk_weights(&data) as i32
-}
-
-/// APK ML readiness bitmask: 1 = vocab, 2 = features, 4 = weights (7 = ready).
-/// Heuristics run regardless; ML scoring needs all three.
+/// APK tree-bundle readiness (1 = `apk_trees.bin` loaded, 0 = heuristic-only).
 #[no_mangle]
 pub extern "C" fn web_apk_loaded() -> u32 {
-    lock_engine().map(|eng| eng.apk_loaded_mask()).unwrap_or(0)
+    lock_engine().map(|eng| eng.apk_ml_loaded() as u32).unwrap_or(0)
 }
 
 fn scan_impl(

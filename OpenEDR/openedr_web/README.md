@@ -1,22 +1,21 @@
 # openedr_web — Web/WASM edition of the OpenEDR static engine
 
 New standalone project (`OpenEDR/openedr_web`, crate `openedr_web`, `cdylib`).
-Runs fully client-side: ML tree ensembles, APK ONNX-equivalent ML, PE string
+Runs fully client-side: ML tree ensembles (PE/JS/URL/APK), PE string
 rules, heuristics, URL scoring. No filesystem, no Win32, no cloud, no
 Hayabusa, no archive extraction, no Unicorn-in-Rust.
 
-## APK support (hydradragonml / ONNX parity)
+## APK support (our own tree model, like PE/JS)
 
 `.apk` files are detected by extension or ZIP central directory
 (`AndroidManifest.xml` / `*.dex` / `lib/*.so`) and scored by:
 
-1. **APK ML** (`src/apk.rs`): the exact hydradragonml network —
-   subword embedding (20K→64) + mean-pool → 32-unit text branch, 11
-   percentile-normalized engine features (DEX counts, ELF count, manifest
-   fields, entropy) → 32-unit engine branch, fused 64→32→1 head + sigmoid.
-   Thresholds mirror mobile (`>= 0.95` malicious, `>= 0.90` suspicious).
-   The web forward pass is pure Rust with zero new native deps, and its math
-   matches the exported ONNX graph node-for-node.
+1. **APK forest** (`src/apk.rs` + `src/ml/tree_model.rs`): a fixed 24-float
+   feature vector (DEX counts, manifest fields, entropy, sizes, permission
+   signals — see `APK_TREE_FEATURE_NAMES`) feeds a random-forest bundle
+   (`www/models/apk_trees.bin`), executed by the **same** scorer as the
+   PE/JS/URL trees. Python trains, Rust only reads weights — exactly like
+   `pe_trees.bin` / `js_trees.bin`.
 2. **APK heuristics** (always on, no model needed): SMS-trio permissions,
    dangerous-permission combos, packed high entropy, large DEX API surface,
    native `.so` + sensitive permissions, multidex weight.
@@ -24,30 +23,32 @@ Hayabusa, no archive extraction, no Unicorn-in-Rust.
    archive, so 60 MB APKs cannot OOM the tab), with APK file-type tags so
    `FileType: apk` rules match.
 
-New C ABI: `web_load_apk_vocab | web_load_apk_features |
-web_load_apk_weights | web_apk_loaded` (bitmask 1/2/4, 7 = ML ready).
-Without model files the engine degrades to heuristics+YARA — APKs return
+New model kind: `web_load_model(3, ...)` loads `apk_trees.bin`;
+`web_apk_loaded()` reports 1/0 for the demo status light. Without the
+bundle the engine degrades to heuristics+YARA — APKs return
 `Unknown`/`Suspicious`/`Malicious`, never `Error`/null pointer.
 
-### Training → web pipeline
+### Training our own APK model (Python trains, Rust reads)
 
-```powershell
-# 1. mobile repo: vocab + train
-cargo run --release --bin hydradragonml-build-vocab -- --benign ..\dataset\benign --malware ..\dataset\malware --output vocab.json
-cargo run --release --bin hydradragonml-train -- --benign ..\dataset\benign --malware ..\dataset\malware --vocab vocab.json --output model.mpk
-
-# 2. mobile repo: dump portable weights
-cargo run --release --bin hydradragonml-export-weights -- --model model.mpk --output apk_weights.bin
-# -> apk_weights.bin (+ features.json and vocab.json next to model.mpk)
-
-# 3. web repo: build ONNX + stage web files (pip install onnx numpy)
-python tools/export_apk_onnx.py --weights-bin apk_weights.bin --vocab vocab.json --features features.json --onnx www/models/apk_model.onnx --self-test
-# -> www/models/apk_model.onnx + apk_weights.bin + vocab/features copies
-# (apk_vocab.json / apk_features.json names expected by www/app.js)
+```bash
+pip install lightgbm numpy   # preferred; else: pip install scikit-learn numpy
+python tools/apk_train.py \
+  --benign  ../HydraDragonAV-Mobile/dataset/benign \
+  --malware "../HydraDragonAV-Mobile/dataset/malware/MalwareBazaar/27.06.2026 - 203930_212345/apk" \
+  --output www/models/apk_trees.bin
+# -> www/models/apk_trees.bin + apk_trees.meta.json (threshold, val stats)
 ```
 
-No trained model yet? `export_apk_onnx.py --init-zero` writes a neutral
-cold-start bundle (sigmoid(0) = 0.5) so the demo runs heuristic-only.
+Bake the printed threshold into `src/engine.rs::APK_TREE_THRESHOLD`.
+`www/models/apk_trees.bin` currently ships a 3-stump starter bundle (SMS
+trio / permission count / entropy) so the demo light is green immediately —
+replace it with the trained bundle above for real scoring.
+
+Parity check (Python features vs Rust features must match):
+```sh
+cargo run -p openedr_web --bin apk-feats -- suspicious.apk
+python tools/apk_train.py --parity suspicious.apk
+```
 
 ## Benign whitelist (incl. APK hashes)
 
@@ -67,8 +68,8 @@ cargo run -p xorfilter_writer --release -- --check benign_sha256.xf <sha256>
 | Layer | Desktop | Web v1 |
 | :--- | :---: | :---: |
 | PE/JS/URL tree ML (`.bin`) | ✅ | ✅ (bytes-loaded, same files) |
-| APK ML (hydradragonml `.mpk` → `.onnx` + `.bin`) | ❌ (mobile only) | ✅ (ONNX-equivalent forward, `apk_*` model files) |
-| APK heuristics (permissions/entropy/DEX) | ❌ | ✅ new (no model needed) |
+| APK ML (own forest, `apk_trees.bin`) | ❌ (mobile has its own) | ✅ (same scorer as PE/JS trees, kind 3) |
+| APK heuristics (permissions/entropy/DEX) | ❌ | ✅ (no model needed) |
 | PE disasm features (idx 51–53) | capstone native | `0.0`, or via capstone.js `_ex` API |
 | PE string rules (registry YAML → in-scan) | ❌ (separate `check_registry` API) | ✅ new |
 | Null-pad / overlay heuristics | ✅ | ✅ (score-only, no rescan engines) |

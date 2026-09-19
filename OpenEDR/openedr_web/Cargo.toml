@@ -6,7 +6,8 @@ description = "Web/WASM edition of the OpenEDR static engine: ML trees, PE strin
 
 [lib]
 name = "openedr_web"
-crate-type = ["cdylib"]
+# cdylib = browser .wasm; rlib = native bins/tests (apk-tree-train).
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

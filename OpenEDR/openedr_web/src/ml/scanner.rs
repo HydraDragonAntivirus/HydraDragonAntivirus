@@ -7,6 +7,7 @@ pub struct MlScanner {
     pe_trees: Option<TreeEnsembleModel>,
     js_trees: Option<TreeEnsembleModel>,
     url_trees: Option<TreeEnsembleModel>,
+    apk_trees: Option<TreeEnsembleModel>,
 }
 
 impl MlScanner {
@@ -16,10 +17,11 @@ impl MlScanner {
             pe_trees: None,
             js_trees: None,
             url_trees: None,
+            apk_trees: None,
         }
     }
 
-    /// kind: 0 = PE, 1 = JS, 2 = URL. Returns false when bytes don't parse.
+    /// kind: 0 = PE, 1 = JS, 2 = URL, 3 = APK. Returns false when bytes don't parse.
     pub fn load_model(&mut self, kind: u32, data: &[u8]) -> bool {
         let model = match TreeEnsembleModel::from_bin_bytes(data) {
             Some(m) => m,
@@ -29,6 +31,7 @@ impl MlScanner {
             0 => self.pe_trees = Some(model),
             1 => self.js_trees = Some(model),
             2 => self.url_trees = Some(model),
+            3 => self.apk_trees = Some(model),
             _ => return false,
         }
         true
@@ -53,6 +56,17 @@ impl MlScanner {
         let features = url_features::extract_url_features(raw_url);
         let arr = features.to_array();
         Some(trees.predict_probability(&arr))
+    }
+
+    /// APK probability from our own forest (`apk_trees.bin`, 24 features —
+    /// same bundle format and scorer as the PE/JS/URL trees).
+    pub fn predict_apk(&self, features: &[f32; crate::apk::APK_TREE_FEATURE_COUNT]) -> Option<f32> {
+        let trees = self.apk_trees.as_ref()?;
+        Some(trees.predict_probability(features))
+    }
+
+    pub fn apk_loaded(&self) -> bool {
+        self.apk_trees.is_some()
     }
 
     pub fn is_loaded(&self) -> bool {

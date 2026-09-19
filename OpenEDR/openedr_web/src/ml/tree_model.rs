@@ -55,17 +55,34 @@ impl TreeEnsembleModel {
             return None;
         }
         let num_trees = u32::from_le_bytes(data[..4].try_into().ok()?) as usize;
+        // Hard caps: a corrupt/truncated bundle must fail closed, never
+        // attempt a giant reservation that OOMs the tab (phones especially).
+        if num_trees == 0 || num_trees > 100_000 {
+            return None;
+        }
         data = &data[4..];
 
-        let mut trees = Vec::with_capacity(num_trees);
+        let mut trees = Vec::new();
+        let mut total_nodes = 0usize;
         for _ in 0..num_trees {
             if data.len() < 4 {
                 return None;
             }
             let num_nodes = u32::from_le_bytes(data[..4].try_into().ok()?) as usize;
+            if num_nodes == 0 || num_nodes > 1_000_000 {
+                return None;
+            }
+            total_nodes = total_nodes.saturating_add(num_nodes);
+            if total_nodes > 10_000_000 {
+                return None;
+            }
+            // Fail fast when the remaining bytes cannot hold the nodes.
+            if data.len() - 4 < num_nodes.saturating_mul(25) {
+                return None;
+            }
             data = &data[4..];
 
-            let mut nodes = Vec::with_capacity(num_nodes);
+            let mut nodes = Vec::with_capacity(num_nodes.min(4096));
             for _ in 0..num_nodes {
                 // <IIfIIBf (25 bytes per node)
                 if data.len() < 25 {

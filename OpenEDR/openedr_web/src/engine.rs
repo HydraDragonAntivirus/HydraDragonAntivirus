@@ -1,12 +1,13 @@
-//! Web-edition scan engine: ML trees + APK ONNX-equivalent ML + PE string
-//! rules + heuristics.
+//! Web-edition scan engine: ML trees (PE/JS/URL/APK) + PE string rules +
+//! heuristics.
 //!
 //! Deliberately NOT included (native-only): ClamAV databases, Unicorn
 //! emulation, Hayabusa EVTX, WinTrust/catalog verification, FLS cloud.
 //! Disassembly counts arrive from capstone.js via the `_ex` API; without them
 //! PE features 51..53 read 0.0 (graceful). APKs are detected by extension /
-//! ZIP central directory and scored by the hydradragonml-equivalent MLP
-//! (`crate::apk`, ONNX graph parity) plus APK heuristics — never `Error`.
+//! ZIP central directory and scored by our own forest (`apk_trees.bin`, same
+//! bundle format and scorer as the PE/JS trees) plus APK heuristics —
+//! never `Error`.
 
 use crate::apk;
 use crate::ml::scanner::MlScanner;
@@ -15,9 +16,12 @@ use crate::report::{DetectionItem, StaticScanReport};
 use crate::string_rules::{self, PeStringRules};
 use crate::yara::YaraScanner;
 
+/// APK tree-model decision threshold. Retune after each retrain (see
+/// `tools/apk_train.py` validation table + `apk_trees.meta.json`).
+pub const APK_TREE_THRESHOLD: f32 = 0.75;
+
 pub struct WebEngine {
     ml: MlScanner,
-    pub apk: apk::ApkModel,
     yara: YaraScanner,
     string_rules: PeStringRules,
     benign_filter: Option<BinaryFuse16Filter>,
@@ -30,7 +34,6 @@ impl WebEngine {
     pub fn new() -> Self {
         Self {
             ml: MlScanner::new(),
-            apk: apk::ApkModel::default(),
             yara: YaraScanner::new(),
             string_rules: PeStringRules::default(),
             benign_filter: None,
@@ -40,23 +43,9 @@ impl WebEngine {
         }
     }
 
-    /// Load APK ML artifacts (hydradragonml/ONNX parity files from
-    /// `www/models/`). Each returns false on parse failure; the engine keeps
-    /// working with heuristics alone when ML is only partially loaded.
-    pub fn load_apk_vocab(&mut self, data: &[u8]) -> bool {
-        self.apk.load_vocab(data)
-    }
-
-    pub fn load_apk_features(&mut self, data: &[u8]) -> bool {
-        self.apk.load_features(data)
-    }
-
-    pub fn load_apk_weights(&mut self, data: &[u8]) -> bool {
-        self.apk.load_weights(data)
-    }
-
-    pub fn apk_loaded_mask(&self) -> u32 {
-        self.apk.loaded_mask()
+    /// Tree-model readiness for the demo status lights.
+    pub fn apk_ml_loaded(&self) -> bool {
+        self.ml.apk_loaded()
     }
 
     pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
@@ -186,32 +175,24 @@ impl WebEngine {
 
         let is_apk_file = apk::is_apk(data, target_name);
 
-        // 1a. APK path: ONNX-equivalent ML (hydradragonml parity) + heuristics.
-        // Runs even when model files are absent, so APKs never return Error.
+        // 1a. APK path: our own forest (same .bin format and scorer as the
+        // PE/JS trees) + heuristics. Runs even when the bundle is absent,
+        // so APKs never return Error.
         if is_apk_file {
-            if let Some(r) = self.apk.predict(data) {
-                if r.malicious {
-                    detections.push(DetectionItem {
-                        layer: "APK_ML".to_string(),
-                        name: "HydraDragon.APK.Malicious".to_string(),
-                        score: Some(r.confidence),
-                        details: Some(format!(
-                            "ONNX APK model malware probability: {:.2}%",
-                            r.confidence * 100.0
-                        )),
-                    });
-                    max_score = max_score.max(r.confidence);
-                } else if r.suspicious {
-                    detections.push(DetectionItem {
-                        layer: "APK_ML".to_string(),
-                        name: "HydraDragon.APK.Suspicious".to_string(),
-                        score: Some(r.confidence),
-                        details: Some(format!(
-                            "ONNX APK model malware probability: {:.2}%",
-                            r.confidence * 100.0
-                        )),
-                    });
-                    max_score = max_score.max(r.confidence);
+            if let Some(feats) = apk::apk_tree_features(data) {
+                if let Some(prob) = self.ml.predict_apk(&feats) {
+                    if prob >= APK_TREE_THRESHOLD {
+                        detections.push(DetectionItem {
+                            layer: "APK_ML".to_string(),
+                            name: "HydraDragon.APK.TreeScore".to_string(),
+                            score: Some(prob),
+                            details: Some(format!(
+                                "APK tree-model malware probability: {:.2}%",
+                                prob * 100.0
+                            )),
+                        });
+                        max_score = max_score.max(prob);
+                    }
                 }
             }
             for h in apk::apk_heuristics(data, target_name) {
@@ -795,9 +776,9 @@ mod tests {
 
     #[test]
     fn apk_never_returns_error_without_ml() {
-        // No APK model files loaded: heuristics alone must flag, never Error.
+        // No APK bundle loaded: heuristics alone must flag, never Error.
         let eng = WebEngine::new();
-        assert_eq!(eng.apk_loaded_mask(), 0);
+        assert!(!eng.apk_ml_loaded());
         let rep = eng.scan_bytes(&evil_apk(), "evil.apk", None);
         assert_ne!(rep.verdict, "Error");
         assert!(rep.verdict == "Suspicious" || rep.verdict == "Malicious");
@@ -827,12 +808,53 @@ mod tests {
     }
 
     #[test]
+    fn apk_tree_bundle_scores_like_pe_js_trees() {
+        // Hand-built 1-tree bundle in the exact .bin format: sms_trio
+        // (feature 18) <= 0.5 -> -1.2, else +2.2. Sigmoid(-1.2) ~= 0.23.
+        fn node(id: u32, feat: u32, thr: f32, left: u32, right: u32, leaf: bool, w: f32) -> Vec<u8> {
+            let mut b = Vec::new();
+            b.extend_from_slice(&id.to_le_bytes());
+            b.extend_from_slice(&feat.to_le_bytes());
+            b.extend_from_slice(&thr.to_le_bytes());
+            b.extend_from_slice(&left.to_le_bytes());
+            b.extend_from_slice(&right.to_le_bytes());
+            b.push(leaf as u8);
+            b.extend_from_slice(&w.to_le_bytes());
+            b
+        }
+        let mut bin = Vec::new();
+        bin.extend_from_slice(&1u32.to_le_bytes());
+        bin.extend_from_slice(&3u32.to_le_bytes());
+        bin.extend(node(0, 18, 0.5, 1, 2, false, 0.0));
+        bin.extend(node(1, 0, 0.0, 0, 0, true, -1.2));
+        bin.extend(node(2, 0, 0.0, 0, 0, true, 2.2));
+
+        let mut eng = WebEngine::new();
+        assert!(eng.load_model(3, &bin));
+        assert!(eng.apk_ml_loaded());
+        assert!(!eng.load_model(99, &bin));
+
+        let evil = eng.scan_bytes(&evil_apk(), "evil.apk", None);
+        assert!(evil.detections.iter().any(|d| d.layer == "APK_ML"
+            && d.name == "HydraDragon.APK.TreeScore"));
+
+        // Benign-shaped APK: no trio, no perms -> tree gives ~0.23, so no
+        // APK_ML detection (heuristics stay silent too).
+        let mut dex = vec![0u8; 0x70];
+        dex[0..4].copy_from_slice(b"dex\n");
+        dex[0x38..0x3c].copy_from_slice(&100u32.to_le_bytes());
+        dex[0x58..0x5c].copy_from_slice(&200u32.to_le_bytes());
+        dex[0x60..0x64].copy_from_slice(&10u32.to_le_bytes());
+        let clean = stored_zip(&[("AndroidManifest.xml", b"plain app no permissions"), ("classes.dex", &dex)]);
+        let rep = eng.scan_bytes(&clean, "clean.apk", None);
+        assert!(!rep.detections.iter().any(|d| d.layer == "APK_ML"));
+    }
+
+    #[test]
     fn apk_loaders_reject_garbage_accept_nothing_crashy() {
         let mut eng = WebEngine::new();
-        assert!(!eng.load_apk_vocab(b"nope"));
-        assert!(!eng.load_apk_features(b"[]"));
-        assert!(!eng.load_apk_weights(b"HAPK\x00\x00"));
-        assert_eq!(eng.apk_loaded_mask(), 0);
+        assert!(!eng.load_model(3, b"nope"));
+        assert!(!eng.apk_ml_loaded());
         // Engine still scans fine afterwards.
         let rep = eng.scan_bytes(&evil_apk(), "evil.apk", None);
         assert_ne!(rep.verdict, "Error");
