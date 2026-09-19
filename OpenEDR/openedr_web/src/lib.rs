@@ -7,6 +7,7 @@
 //! Always check `web_output_len()` after a call: 0 means the call failed
 //! (null input, bad UTF-8, engine error) and the returned pointer is null.
 
+pub mod apk;
 pub mod cidr;
 pub mod engine;
 pub mod ml;
@@ -66,11 +67,14 @@ pub extern "C" fn web_free(ptr: *mut u8, len: usize) {
 }
 
 fn take_bytes(ptr: *const u8, len: usize) -> Option<Vec<u8>> {
-    if ptr.is_null() {
-        return None;
-    }
+    // Empty input is valid (e.g. a 0-byte file): it scans as Unknown rather
+    // than failing with a null output pointer. `web_alloc(0)` returns null,
+    // so a null pointer is only an error when `len > 0`.
     if len == 0 {
         return Some(Vec::new());
+    }
+    if ptr.is_null() {
+        return None;
     }
     if len > 256 * 1024 * 1024 {
         return None;
@@ -195,6 +199,52 @@ pub extern "C" fn web_set_string_rules(ptr: *const u8, len: usize) -> i32 {
 #[no_mangle]
 pub extern "C" fn web_set_registry_rules(ptr: *const u8, len: usize) -> i32 {
     web_set_string_rules(ptr, len)
+}
+
+/// Load APK subword vocabulary (`vocab.json` from hydradragonml, token->id).
+/// Returns 1 on success, 0 on parse failure.
+#[no_mangle]
+pub extern "C" fn web_load_apk_vocab(ptr: *const u8, len: usize) -> i32 {
+    let Some(data) = take_bytes(ptr, len) else {
+        return 0;
+    };
+    let Some(mut eng) = lock_engine() else {
+        return 0;
+    };
+    eng.load_apk_vocab(&data) as i32
+}
+
+/// Load APK corpus percentile stats (`features.json` from hydradragonml).
+/// Returns 1 on success, 0 on parse failure.
+#[no_mangle]
+pub extern "C" fn web_load_apk_features(ptr: *const u8, len: usize) -> i32 {
+    let Some(data) = take_bytes(ptr, len) else {
+        return 0;
+    };
+    let Some(mut eng) = lock_engine() else {
+        return 0;
+    };
+    eng.load_apk_features(&data) as i32
+}
+
+/// Load APK MLP weights (`apk_weights.bin`, same values as `apk_model.onnx`).
+/// Returns 1 on success, 0 on parse failure.
+#[no_mangle]
+pub extern "C" fn web_load_apk_weights(ptr: *const u8, len: usize) -> i32 {
+    let Some(data) = take_bytes(ptr, len) else {
+        return 0;
+    };
+    let Some(mut eng) = lock_engine() else {
+        return 0;
+    };
+    eng.load_apk_weights(&data) as i32
+}
+
+/// APK ML readiness bitmask: 1 = vocab, 2 = features, 4 = weights (7 = ready).
+/// Heuristics run regardless; ML scoring needs all three.
+#[no_mangle]
+pub extern "C" fn web_apk_loaded() -> u32 {
+    lock_engine().map(|eng| eng.apk_loaded_mask()).unwrap_or(0)
 }
 
 fn scan_impl(

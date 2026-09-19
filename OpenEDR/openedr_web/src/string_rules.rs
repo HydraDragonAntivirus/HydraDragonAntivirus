@@ -57,6 +57,7 @@ impl PeStringRules {
 
     /// Evaluate loaded rules over extracted strings. `is_pe` tags the file
     /// for `FileType` conditions (no other classification is done here).
+    /// `is_apk` tags Android packages (APK/ZIP/DEX) the same way.
     pub fn scan_bytes(
         &self,
         data: &[u8],
@@ -64,6 +65,7 @@ impl PeStringRules {
         sha256_hex: &str,
         strings: &[String],
         is_pe: bool,
+        is_apk: bool,
         cap: usize,
     ) -> Vec<Hit> {
         let rs = match self.ruleset.as_ref() {
@@ -83,8 +85,20 @@ impl PeStringRules {
             },
             pe: None,
             file_type: FileTypeInfo {
-                primary: if is_pe { "pe".to_string() } else { "unknown".to_string() },
-                tags: if is_pe { vec!["pe".to_string()] } else { Vec::new() },
+                primary: if is_pe {
+                    "pe".to_string()
+                } else if is_apk {
+                    "apk".to_string()
+                } else {
+                    "unknown".to_string()
+                },
+                tags: if is_pe {
+                    vec!["pe".to_string()]
+                } else if is_apk {
+                    vec!["apk".to_string(), "zip".to_string(), "archive".to_string()]
+                } else {
+                    Vec::new()
+                },
                 extension: None,
                 is_plain_text: false,
                 is_binary: true,
@@ -95,15 +109,15 @@ impl PeStringRules {
                 is_elf32: false,
                 is_elf64: false,
                 is_macho: false,
-                is_apk: false,
-                is_zip: false,
-                is_archive: false,
+                is_apk,
+                is_zip: is_apk,
+                is_archive: is_apk,
                 is_7z: false,
                 is_rar: false,
                 is_gzip: false,
                 is_tar: false,
                 is_jar: false,
-                is_dex: false,
+                is_dex: is_apk,
                 is_java_class: false,
                 is_pdf: false,
                 is_office: false,

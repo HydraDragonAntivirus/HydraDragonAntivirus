@@ -31,9 +31,9 @@ th{color:#8b94ab}code{word-break:break-all;font-size:12px}
 <body>
 <div class="wrap">
   <h1>openedr<span>_web</span> demo</h1>
-  <p class="mut">This is just a demo. Fully client-side static scan for PE and JS malware only (ML trees + PE string rules + heuristics).
-  Models load from <code>./models/</code>; disassembly via <code>vendor/capstone.js</code> and
-  unpacking via <code>vendor/unicorn_x86.js</code> when present — otherwise gracefully degraded.</p>
+  <p class="mut">This is just a demo. Fully client-side static scan for PE, JS and APK malware (ML trees + APK ONNX-equivalent ML + PE string rules + heuristics).
+  Models load from <code>./models/</code> (APK: <code>apk_vocab.json</code>, <code>apk_features.json</code>, <code>apk_weights.bin</code> — optional, heuristics cover APKs without them); disassembly via <code>vendor/capstone.js</code> and
+  unpacking via <code>vendor/unicorn_x86.js</code> when present — otherwise gracefully degraded. Benign files (incl. known-good APK hashes) are whitelisted via <code>hash_rules/benign_sha256.xf</code>.</p>
   <div class="panel" id="status">loading…</div>
   <div class="panel">
     <div class="row">

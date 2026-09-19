@@ -289,7 +289,9 @@ function scanBuffer(u8, name, counts) {
   wasm.web_free(np, nl);
   if (!out) {
     console.error('Engine returned null output pointer for:', name, scanErr);
-    return { verdict: 'Error', detections: [], error_details: scanErr ? String(scanErr.message || scanErr) : 'Scan engine returned null output pointer.' };
+    // Bilingual so TR users see their message too (Tarama Başarısız Oldu).
+    const en = scanErr ? String(scanErr.message || scanErr) : 'Scan engine returned null output pointer.';
+    return { verdict: 'Error', detections: [], error_details: en + ' / Tarama motoru boş çıkış işaretçisini döndürdü.' };
   }
   try {
     return readStr(out);
@@ -315,7 +317,7 @@ function render(rep, el) {
   if (rep.verdict === 'Error') {
     el.innerHTML =
       `<div>Verdict: <span class="badge Error">Error</span><br>` +
-      `<p style="color:#ef4444;font-size:13px;margin:8px 0 4px"><strong>Scan Failed:</strong> ${rep.error_details || rep.verdict_reason || 'An unexpected error occurred during analysis.'}</p></div>`;
+      `<p style="color:#ef4444;font-size:13px;margin:8px 0 4px"><strong>Scan Failed / Tarama Başarısız Oldu:</strong> ${rep.error_details || rep.verdict_reason || 'An unexpected error occurred during analysis.'}</p></div>`;
     return;
   }
   if (rep.target_url) {
@@ -431,6 +433,7 @@ async function boot() {
   lights.push([`<span class="dot ${yaraLoaded ? 'ok' : 'no'}"></span>YARA rules (${yaraLoaded ? 'compiled' : 'failed'})`, true]);
   // SHA-256 benign whitelist (BinaryFuse16 .xf, same as URL/IP whitelist).
   // Build offline: xorfilter_writer benign_sha256.txt benign_sha256.xf
+  // (includes benign APK SHA-256 hashes from HydraDragonAV-Mobile dataset).
   try {
     const r = await fetch('hash_rules/benign_sha256.xf');
     if (!r.ok) throw 0;
@@ -441,6 +444,36 @@ async function boot() {
     wasm.web_free(p, u8.length);
     lights.push([`<span class="dot ${ok ? 'ok' : 'no'}"></span>benign xf`, true]);
   } catch { lights.push(['<span class="dot no"></span>benign xf', true]); }
+  // APK ML artifacts (hydradragonml / ONNX parity, optional — heuristics run
+  // regardless). Files: models/apk_vocab.json, models/apk_features.json,
+  // models/apk_weights.bin (see tools/export_apk_onnx.py).
+  try {
+    const loaders = [
+      ['apk_vocab.json', 'web_load_apk_vocab'],
+      ['apk_features.json', 'web_load_apk_features'],
+      ['apk_weights.bin', 'web_load_apk_weights'],
+    ];
+    let apkOk = 0, apkTried = 0;
+    for (const [file, fnName] of loaders) {
+      try {
+        const r = await fetch('models/' + file);
+        if (!r.ok) continue;
+        const u8 = new Uint8Array(await r.arrayBuffer());
+        if (!u8.length) continue;
+        const fn = wasm[fnName];
+        if (typeof fn !== 'function') continue;
+        apkTried++;
+        const p = writeBytes(u8);
+        const ok = fn(p, u8.length);
+        wasm.web_free(p, u8.length);
+        if (ok === 1) apkOk++;
+      } catch {}
+    }
+    let mask = 0;
+    try { if (typeof wasm.web_apk_loaded === 'function') mask = wasm.web_apk_loaded(); } catch {}
+    const apkReady = mask === 7;
+    lights.push([`<span class="dot ${apkReady ? 'ok' : 'no'}"></span>apk ml (${apkOk}/3${apkReady ? ', ready' : ', heuristic-only'})`, true]);
+  } catch { lights.push(['<span class="dot no"></span>apk ml', true]); }
   statusEl.innerHTML = lights.map((l) => l[0]).join(' &nbsp; ');
   renderHist();
 
@@ -594,7 +627,7 @@ async function checkDomainLiveness(domain, rawUrl) {
         rep = { verdict: 'Error', detections: [], error_details: 'Failed to parse JSON report: ' + (e.message || e) };
       }
     } else {
-      rep = { verdict: 'Error', detections: [], error_details: urlErr ? String(urlErr.message || urlErr) : 'URL inspection returned null pointer' };
+      rep = { verdict: 'Error', detections: [], error_details: urlErr ? String(urlErr.message || urlErr) : 'URL inspection returned null pointer / URL incelemesi boş çıkış işaretçisi döndürdü' };
     }
 
     if (livenessObj) {

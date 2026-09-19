@@ -17,6 +17,9 @@ hex = "0.4"
 regex = "1.12"
 url = "2.5"
 yara-x = "1.20"
+# Pure-Rust DEFLATE (miniz_oxide backend) for APK ZIP entry inflation.
+# wasm32-unknown-unknown compatible: no OS, no threads, no network.
+flate2 = "1"
 
 # Direct use of the hydradragonsig rule engine (string rules evaluated by
 # ITS code, never reimplemented here). default-features off keeps the CLI

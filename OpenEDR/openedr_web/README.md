@@ -1,15 +1,74 @@
 # openedr_web — Web/WASM edition of the OpenEDR static engine
 
 New standalone project (`OpenEDR/openedr_web`, crate `openedr_web`, `cdylib`).
-Runs fully client-side: ML tree ensembles, PE string rules, heuristics, URL
-scoring. No filesystem, no Win32, no cloud, no Hayabusa, no archive
-extraction, no Unicorn-in-Rust.
+Runs fully client-side: ML tree ensembles, APK ONNX-equivalent ML, PE string
+rules, heuristics, URL scoring. No filesystem, no Win32, no cloud, no
+Hayabusa, no archive extraction, no Unicorn-in-Rust.
+
+## APK support (hydradragonml / ONNX parity)
+
+`.apk` files are detected by extension or ZIP central directory
+(`AndroidManifest.xml` / `*.dex` / `lib/*.so`) and scored by:
+
+1. **APK ML** (`src/apk.rs`): the exact hydradragonml network —
+   subword embedding (20K→64) + mean-pool → 32-unit text branch, 11
+   percentile-normalized engine features (DEX counts, ELF count, manifest
+   fields, entropy) → 32-unit engine branch, fused 64→32→1 head + sigmoid.
+   Thresholds mirror mobile (`>= 0.95` malicious, `>= 0.90` suspicious).
+   The web forward pass is pure Rust with zero new native deps, and its math
+   matches the exported ONNX graph node-for-node.
+2. **APK heuristics** (always on, no model needed): SMS-trio permissions,
+   dangerous-permission combos, packed high entropy, large DEX API surface,
+   native `.so` + sensitive permissions, multidex weight.
+3. **YARA-X + HydraSig** over capped manifest/DEX bytes (never the whole
+   archive, so 60 MB APKs cannot OOM the tab), with APK file-type tags so
+   `FileType: apk` rules match.
+
+New C ABI: `web_load_apk_vocab | web_load_apk_features |
+web_load_apk_weights | web_apk_loaded` (bitmask 1/2/4, 7 = ML ready).
+Without model files the engine degrades to heuristics+YARA — APKs return
+`Unknown`/`Suspicious`/`Malicious`, never `Error`/null pointer.
+
+### Training → web pipeline
+
+```powershell
+# 1. mobile repo: vocab + train
+cargo run --release --bin hydradragonml-build-vocab -- --benign ..\dataset\benign --malware ..\dataset\malware --output vocab.json
+cargo run --release --bin hydradragonml-train -- --benign ..\dataset\benign --malware ..\dataset\malware --vocab vocab.json --output model.mpk
+
+# 2. mobile repo: dump portable weights
+cargo run --release --bin hydradragonml-export-weights -- --model model.mpk --output apk_weights.bin
+# -> apk_weights.bin (+ features.json and vocab.json next to model.mpk)
+
+# 3. web repo: build ONNX + stage web files (pip install onnx numpy)
+python tools/export_apk_onnx.py --weights-bin apk_weights.bin --vocab vocab.json --features features.json --onnx www/models/apk_model.onnx --self-test
+# -> www/models/apk_model.onnx + apk_weights.bin + vocab/features copies
+# (apk_vocab.json / apk_features.json names expected by www/app.js)
+```
+
+No trained model yet? `export_apk_onnx.py --init-zero` writes a neutral
+cold-start bundle (sigmoid(0) = 0.5) so the demo runs heuristic-only.
+
+## Benign whitelist (incl. APK hashes)
+
+`www/hash_rules/benign_sha256.xf` is built from the four
+`benign_sha256.txt` copies (static DB, docs, portable ×2), which now include
+the SHA-256 of every benign APK in `HydraDragonAV-Mobile/dataset/benign`
+(2802 fresh hashes, 259391 keys total):
+
+```sh
+cargo run -p xorfilter_writer --release -- benign_sha256.txt benign_sha256.xf
+# -> www/hash_rules/benign_sha256.xf
+cargo run -p xorfilter_writer --release -- --check benign_sha256.xf <sha256>
+```
 
 ## What's in / out vs desktop (`openedr_static`)
 
 | Layer | Desktop | Web v1 |
 | :--- | :---: | :---: |
 | PE/JS/URL tree ML (`.bin`) | ✅ | ✅ (bytes-loaded, same files) |
+| APK ML (hydradragonml `.mpk` → `.onnx` + `.bin`) | ❌ (mobile only) | ✅ (ONNX-equivalent forward, `apk_*` model files) |
+| APK heuristics (permissions/entropy/DEX) | ❌ | ✅ new (no model needed) |
 | PE disasm features (idx 51–53) | capstone native | `0.0`, or via capstone.js `_ex` API |
 | PE string rules (registry YAML → in-scan) | ❌ (separate `check_registry` API) | ✅ new |
 | Null-pad / overlay heuristics | ✅ | ✅ (score-only, no rescan engines) |

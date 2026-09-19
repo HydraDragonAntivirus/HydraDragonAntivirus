@@ -1,10 +1,14 @@
-//! Web-edition scan engine: ML trees + PE string rules + heuristics.
+//! Web-edition scan engine: ML trees + APK ONNX-equivalent ML + PE string
+//! rules + heuristics.
 //!
-//! Deliberately NOT included (native-only): ClamAV/YARA databases, Unicorn
-//! emulation, Hayabusa EVTX, WinTrust/catalog verification, archive
-//! extraction, FLS cloud. Disassembly counts arrive from capstone.js via the
-//! `_ex` API; without them PE features 51..53 read 0.0 (graceful).
+//! Deliberately NOT included (native-only): ClamAV databases, Unicorn
+//! emulation, Hayabusa EVTX, WinTrust/catalog verification, FLS cloud.
+//! Disassembly counts arrive from capstone.js via the `_ex` API; without them
+//! PE features 51..53 read 0.0 (graceful). APKs are detected by extension /
+//! ZIP central directory and scored by the hydradragonml-equivalent MLP
+//! (`crate::apk`, ONNX graph parity) plus APK heuristics — never `Error`.
 
+use crate::apk;
 use crate::ml::scanner::MlScanner;
 use crate::pe_strings;
 use crate::report::{DetectionItem, StaticScanReport};
@@ -13,6 +17,7 @@ use crate::yara::YaraScanner;
 
 pub struct WebEngine {
     ml: MlScanner,
+    pub apk: apk::ApkModel,
     yara: YaraScanner,
     string_rules: PeStringRules,
     benign_filter: Option<BinaryFuse16Filter>,
@@ -25,6 +30,7 @@ impl WebEngine {
     pub fn new() -> Self {
         Self {
             ml: MlScanner::new(),
+            apk: apk::ApkModel::default(),
             yara: YaraScanner::new(),
             string_rules: PeStringRules::default(),
             benign_filter: None,
@@ -32,6 +38,25 @@ impl WebEngine {
             cidr_engine: crate::cidr::CidrEngine::new(),
             url_engine: crate::url_rules::UrlThreatEngine::new(),
         }
+    }
+
+    /// Load APK ML artifacts (hydradragonml/ONNX parity files from
+    /// `www/models/`). Each returns false on parse failure; the engine keeps
+    /// working with heuristics alone when ML is only partially loaded.
+    pub fn load_apk_vocab(&mut self, data: &[u8]) -> bool {
+        self.apk.load_vocab(data)
+    }
+
+    pub fn load_apk_features(&mut self, data: &[u8]) -> bool {
+        self.apk.load_features(data)
+    }
+
+    pub fn load_apk_weights(&mut self, data: &[u8]) -> bool {
+        self.apk.load_weights(data)
+    }
+
+    pub fn apk_loaded_mask(&self) -> u32 {
+        self.apk.loaded_mask()
     }
 
     pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
@@ -144,97 +169,220 @@ impl WebEngine {
             max_score = max_score.max(1.0);
         }
 
-        // 1. PE / JS tree models (desktop thresholds: 0.71 / 0.75).
-        if data.starts_with(b"MZ") {
-            if let Some(prob) = self.ml.predict_pe(data, disasm) {
-                if prob >= 0.71 {
+        // Empty files scan as Unknown (never Error / null pointer).
+        if data.is_empty() {
+            return StaticScanReport {
+                target: target_name.to_string(),
+                file_size,
+                sha256: sha256_hex,
+                verdict: "Unknown".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: None,
+                pua_registry_matches: Vec::new(),
+                scan_time_ms: 0,
+            };
+        }
+
+        let is_apk_file = apk::is_apk(data, target_name);
+
+        // 1a. APK path: ONNX-equivalent ML (hydradragonml parity) + heuristics.
+        // Runs even when model files are absent, so APKs never return Error.
+        if is_apk_file {
+            if let Some(r) = self.apk.predict(data) {
+                if r.malicious {
                     detections.push(DetectionItem {
-                        layer: "PE_ML".to_string(),
-                        name: "MalwareNet.PE.HighConfidence".to_string(),
-                        score: Some(prob),
-                        details: Some(format!("Malware probability: {:.2}%", prob * 100.0)),
+                        layer: "APK_ML".to_string(),
+                        name: "HydraDragon.APK.Malicious".to_string(),
+                        score: Some(r.confidence),
+                        details: Some(format!(
+                            "ONNX APK model malware probability: {:.2}%",
+                            r.confidence * 100.0
+                        )),
                     });
-                    max_score = max_score.max(prob);
+                    max_score = max_score.max(r.confidence);
+                } else if r.suspicious {
+                    detections.push(DetectionItem {
+                        layer: "APK_ML".to_string(),
+                        name: "HydraDragon.APK.Suspicious".to_string(),
+                        score: Some(r.confidence),
+                        details: Some(format!(
+                            "ONNX APK model malware probability: {:.2}%",
+                            r.confidence * 100.0
+                        )),
+                    });
+                    max_score = max_score.max(r.confidence);
                 }
             }
-        } else if is_js_name(target_name) || is_js_content(data) {
-            if let Ok(source) = std::str::from_utf8(data) {
-                if let Some(prob) = self.ml.predict_js(source) {
-                    if prob >= 0.75 {
+            for h in apk::apk_heuristics(data, target_name) {
+                detections.push(DetectionItem {
+                    layer: "APK_Heuristic".to_string(),
+                    name: h.name,
+                    score: Some(h.score),
+                    details: Some(h.details),
+                });
+                max_score = max_score.max(h.score);
+            }
+            // 2a. YARA-X over capped manifest+dex bytes (no full-archive OOM).
+            let yara_bytes: Option<Vec<u8>> = apk::yara_input(data);
+            let yara_slice: &[u8] = yara_bytes.as_deref().unwrap_or_else(|| {
+                &data[..data.len().min(8 * 1024 * 1024)]
+            });
+            for name in self.yara.scan_bytes(yara_slice) {
+                detections.push(DetectionItem {
+                    layer: "YARA".to_string(),
+                    name,
+                    score: Some(0.95),
+                    details: None,
+                });
+                max_score = max_score.max(0.95);
+            }
+            // 3a. HydraSig over capped APK strings with APK file-type tags.
+            {
+                let raw = apk::apk_strings_capped(data);
+                let strings: Vec<String> = raw
+                    .iter()
+                    .map(|s| string_rules::normalize_text(s))
+                    .collect();
+                for hit in self.string_rules.scan_bytes(
+                    yara_slice,
+                    target_name,
+                    &sha256_hex,
+                    &strings,
+                    false,
+                    true,
+                    10,
+                ) {
+                    let name = if hit.rule.is_empty() {
+                        "HydraSig.Match".to_string()
+                    } else {
+                        hit.rule.clone()
+                    };
+                    let mut details = hit.title.clone();
+                    if let Some(ev) = hit.evidence.first() {
+                        details.push_str(" | ");
+                        details.push_str(&ev.chars().take(120).collect::<String>());
+                    }
+                    let score = hit.score as f32 / 100.0;
+                    detections.push(DetectionItem {
+                        layer: "HydraSig".to_string(),
+                        name,
+                        score: Some(score),
+                        details: Some(details),
+                    });
+                    max_score = max_score.max(score);
+                }
+            }
+        } else {
+            // 1. PE / JS tree models (desktop thresholds: 0.71 / 0.75).
+            if data.starts_with(b"MZ") {
+                if let Some(prob) = self.ml.predict_pe(data, disasm) {
+                    if prob >= 0.71 {
                         detections.push(DetectionItem {
-                            layer: "JS_ML".to_string(),
-                            name: "MalwareNet.JS.HighConfidence".to_string(),
+                            layer: "PE_ML".to_string(),
+                            name: "MalwareNet.PE.HighConfidence".to_string(),
                             score: Some(prob),
                             details: Some(format!("Malware probability: {:.2}%", prob * 100.0)),
                         });
                         max_score = max_score.max(prob);
                     }
                 }
-            }
-        }
-
-        // 2. YARA-X (desktop parity: 0.95 per rule hit).
-        for name in self.yara.scan_bytes(data) {
-            detections.push(DetectionItem {
-                layer: "YARA".to_string(),
-                name,
-                score: Some(0.95),
-                details: None,
-            });
-            max_score = max_score.max(0.95);
-        }
-
-        // 3. hydradragonsig string rules, evaluated by ITS engine.
-        // Executable gating lives in the rules via FileType conditions;
-        // the engine only tags the file (validated PE or not).
-        {
-            let is_pe = find_valid_embedded_pe(data) == Some(0);
-            let raw = pe_strings::extract_strings(data);
-            let strings: Vec<String> =
-                raw.iter().map(|s| string_rules::normalize_text(s)).collect();
-            for hit in
-                self.string_rules
-                    .scan_bytes(data, target_name, &sha256_hex, &strings, is_pe, 10)
-            {
-                let name = if hit.rule.is_empty() {
-                    "HydraSig.Match".to_string()
-                } else {
-                    hit.rule.clone()
-                };
-                let mut details = hit.title.clone();
-                if let Some(ev) = hit.evidence.first() {
-                    details.push_str(" | ");
-                    details.push_str(&ev.chars().take(120).collect::<String>());
+            } else if is_js_name(target_name) || is_js_content(data) {
+                if let Ok(source) = std::str::from_utf8(data) {
+                    if let Some(prob) = self.ml.predict_js(source) {
+                        if prob >= 0.75 {
+                            detections.push(DetectionItem {
+                                layer: "JS_ML".to_string(),
+                                name: "MalwareNet.JS.HighConfidence".to_string(),
+                                score: Some(prob),
+                                details: Some(format!("Malware probability: {:.2}%", prob * 100.0)),
+                            });
+                            max_score = max_score.max(prob);
+                        }
+                    }
                 }
-                let score = hit.score as f32 / 100.0;
-                detections.push(DetectionItem {
-                    layer: "HydraSig".to_string(),
-                    name,
-                    score: Some(score),
-                    details: Some(details),
-                });
-                max_score = max_score.max(score);
+            }
+
+            // 2. YARA-X (desktop parity: 0.95 per rule hit), capped so huge
+            // files cannot OOM the tab (first 32 MB still catches headers).
+            {
+                let slice: &[u8] = if data.len() > 32 * 1024 * 1024 {
+                    &data[..32 * 1024 * 1024]
+                } else {
+                    data
+                };
+                for name in self.yara.scan_bytes(slice) {
+                    detections.push(DetectionItem {
+                        layer: "YARA".to_string(),
+                        name,
+                        score: Some(0.95),
+                        details: None,
+                    });
+                    max_score = max_score.max(0.95);
+                }
+            }
+
+            // 3. hydradragonsig string rules, evaluated by ITS engine.
+            // Executable gating lives in the rules via FileType conditions;
+            // the engine only tags the file (validated PE or not). Strings
+            // are capped to the first 16 MB so giant files stay panic-free.
+            {
+                let is_pe = find_valid_embedded_pe(data) == Some(0);
+                let capped: &[u8] = if data.len() > 16 * 1024 * 1024 {
+                    &data[..16 * 1024 * 1024]
+                } else {
+                    data
+                };
+                let raw = pe_strings::extract_strings(capped);
+                let strings: Vec<String> =
+                    raw.iter().map(|s| string_rules::normalize_text(s)).collect();
+                for hit in
+                    self.string_rules
+                        .scan_bytes(data, target_name, &sha256_hex, &strings, is_pe, false, 10)
+                {
+                    let name = if hit.rule.is_empty() {
+                        "HydraSig.Match".to_string()
+                    } else {
+                        hit.rule.clone()
+                    };
+                    let mut details = hit.title.clone();
+                    if let Some(ev) = hit.evidence.first() {
+                        details.push_str(" | ");
+                        details.push_str(&ev.chars().take(120).collect::<String>());
+                    }
+                    let score = hit.score as f32 / 100.0;
+                    detections.push(DetectionItem {
+                        layer: "HydraSig".to_string(),
+                        name,
+                        score: Some(score),
+                        details: Some(details),
+                    });
+                    max_score = max_score.max(score);
+                }
             }
         }
 
-        // 4. Trailing null-padding heuristic (desktop formula).
-        let non_zero_end = data.iter().rposition(|&b| b != 0).map_or(0, |idx| idx + 1);
-        let trailing_zeros = data.len() - non_zero_end;
-        let is_inflated = (trailing_zeros >= 65536)
-            || (data.len() > 1024 * 1024
-                && trailing_zeros as f64 / data.len() as f64 >= 0.20
-                && trailing_zeros >= 32768);
-        if is_inflated && non_zero_end > 0 {
-            detections.push(DetectionItem {
-                layer: "Heuristic".to_string(),
-                name: "Heuristic.File.InflatedNullPadding".to_string(),
-                score: Some(0.80),
-                details: Some(format!(
-                    "Detected {} KB of trailing 0x00 null padding",
-                    trailing_zeros / 1024
-                )),
-            });
-            max_score = max_score.max(0.80);
+        // 4. Trailing null-padding heuristic (desktop formula; PE-only — ZIP
+        // archives legitimately pad, so APKs skip this).
+        if !is_apk_file {
+            let non_zero_end = data.iter().rposition(|&b| b != 0).map_or(0, |idx| idx + 1);
+            let trailing_zeros = data.len() - non_zero_end;
+            let is_inflated = (trailing_zeros >= 65536)
+                || (data.len() > 1024 * 1024
+                    && trailing_zeros as f64 / data.len() as f64 >= 0.20
+                    && trailing_zeros >= 32768);
+            if is_inflated && non_zero_end > 0 {
+                detections.push(DetectionItem {
+                    layer: "Heuristic".to_string(),
+                    name: "Heuristic.File.InflatedNullPadding".to_string(),
+                    score: Some(0.80),
+                    details: Some(format!(
+                        "Detected {} KB of trailing 0x00 null padding",
+                        trailing_zeros / 1024
+                    )),
+                });
+                max_score = max_score.max(0.80);
+            }
         }
 
         // 5. Overlay with validated embedded PE (binder signal, no rescan
@@ -626,5 +774,67 @@ impl BinaryFuse16Filter {
         h1 ^= ((hash >> 18) as u32) & seg_len_mask;
         h2 ^= (hash as u32) & seg_len_mask;
         (h0, h1, h2)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::apk::test_helpers::stored_zip;
+
+    fn evil_apk() -> Vec<u8> {
+        let manifest =
+            b"android.permission.SEND_SMS android.permission.READ_SMS android.permission.RECEIVE_SMS".to_vec();
+        let mut dex = vec![0u8; 0x70];
+        dex[0..4].copy_from_slice(b"dex\n");
+        dex[0x38..0x3c].copy_from_slice(&10u32.to_le_bytes());
+        dex[0x58..0x5c].copy_from_slice(&50u32.to_le_bytes());
+        dex[0x60..0x64].copy_from_slice(&5u32.to_le_bytes());
+        stored_zip(&[("AndroidManifest.xml", &manifest), ("classes.dex", &dex)])
+    }
+
+    #[test]
+    fn apk_never_returns_error_without_ml() {
+        // No APK model files loaded: heuristics alone must flag, never Error.
+        let eng = WebEngine::new();
+        assert_eq!(eng.apk_loaded_mask(), 0);
+        let rep = eng.scan_bytes(&evil_apk(), "evil.apk", None);
+        assert_ne!(rep.verdict, "Error");
+        assert!(rep.verdict == "Suspicious" || rep.verdict == "Malicious");
+        assert!(rep
+            .detections
+            .iter()
+            .any(|d| d.layer == "APK_Heuristic" && d.name == "APK.SmsTrio"));
+    }
+
+    #[test]
+    fn apk_garbage_name_returns_invalid_not_error() {
+        let eng = WebEngine::new();
+        let rep = eng.scan_bytes(b"PK junk, not a zip", "app.apk", None);
+        assert_ne!(rep.verdict, "Error");
+        assert!(rep
+            .detections
+            .iter()
+            .any(|d| d.name == "APK.InvalidStructure"));
+    }
+
+    #[test]
+    fn empty_file_scans_unknown_not_error() {
+        let eng = WebEngine::new();
+        let rep = eng.scan_bytes(&[], "empty.apk", None);
+        assert_eq!(rep.verdict, "Unknown");
+        assert!(rep.detections.is_empty());
+    }
+
+    #[test]
+    fn apk_loaders_reject_garbage_accept_nothing_crashy() {
+        let mut eng = WebEngine::new();
+        assert!(!eng.load_apk_vocab(b"nope"));
+        assert!(!eng.load_apk_features(b"[]"));
+        assert!(!eng.load_apk_weights(b"HAPK\x00\x00"));
+        assert_eq!(eng.apk_loaded_mask(), 0);
+        // Engine still scans fine afterwards.
+        let rep = eng.scan_bytes(&evil_apk(), "evil.apk", None);
+        assert_ne!(rep.verdict, "Error");
     }
 }
