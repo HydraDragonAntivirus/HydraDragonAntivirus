@@ -255,7 +255,7 @@ def parse_axml_pool(b: bytes, start: int, size: int):
                 strings.append("")
                 continue
             units = [u16(b, soff + 2 + j * 2) for j in range(ln)]
-            strings.append(bytes(u.to_bytes(2, "little") for u in units).decode(
+            strings.append(b"".join(u.to_bytes(2, "little") for u in units).decode(
                 "utf-16-le", "replace"))
         if len(strings) >= 100_000:
             break
@@ -807,5 +807,52 @@ def main():
         bst = lgb.train(params, dtrain, num_boost_round=args.trees)
         trees = convert_lightgbm(bst.dump_model())
     elif algo == "sklearn-gb":
-     
-...[truncated 2086 chars]
+        from sklearn.ensemble import GradientBoostingClassifier
+        sw = np.where(ytr == 1, n_neg / max(1, n_pos), 1.0)
+        clf = GradientBoostingClassifier(
+            n_estimators=args.trees, max_depth=args.depth,
+            learning_rate=args.lr, subsample=0.8,
+            min_samples_leaf=20, random_state=args.seed)
+        clf.fit(Xtr, ytr, sample_weight=sw)
+        prior = math.log(n_pos / max(1, n_neg))  # weighted log-odds stump
+        trees = convert_sklearn_gb(clf.estimators_, args.lr, prior)
+    elif algo == "sklearn-rf":
+        from sklearn.ensemble import RandomForestClassifier
+        clf = RandomForestClassifier(
+            n_estimators=args.trees, max_depth=None,
+            min_samples_leaf=5, max_features="sqrt",
+            class_weight="balanced_subsample",
+            n_jobs=max(1, (os.cpu_count() or 4) - 1),
+            random_state=args.seed)
+        clf.fit(Xtr, ytr)
+        trees = convert_sklearn_rf(clf)
+    else:
+        ap.error(f"unknown algo {algo}")
+
+    print(f"converted {len(trees)} trees, scoring validation...",
+          flush=True)
+    proba = forest_proba(trees, Xva)
+    best = pick_threshold(yva, proba)
+
+    write_bin(args.output, trees)
+    meta = {
+        "threshold": best["thr"],
+        "algo": algo,
+        "n_trees": len(trees),
+        "n_features": N_FEATURES,
+        "feature_names": FEATURE_NAMES,
+        "seed": args.seed,
+        "train": {"total": len(tr), "malware": n_pos, "benign": n_neg},
+        "valid": {"total": len(va), **{k: v for k, v in best.items()
+                                       if k != "thr"}},
+    }
+    meta_path = os.path.splitext(args.output)[0] + ".meta.json"
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"wrote {meta_path}", flush=True)
+    print(f"\nBAKE THIS INTO src/engine.rs: "
+          f"pub const APK_TREE_THRESHOLD: f32 = {best['thr']};", flush=True)
+
+
+if __name__ == "__main__":
+    main()
