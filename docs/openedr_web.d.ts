@@ -7,11 +7,15 @@ declare type InitInput = RequestInfo | URL | Response | BufferSource | WebAssemb
 
 declare interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly web_add_unwhitelisted_subdomain: (a: number, b: number) => number;
     readonly web_alloc: (a: number) => number;
+    readonly web_apk_loaded: () => number;
     readonly web_free: (a: number, b: number) => void;
     readonly web_free_str: (a: number) => void;
     readonly web_inspect_url: (a: number, b: number, c: number) => number;
     readonly web_inspect_url_content: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly web_is_unwhitelisted_subdomain: (a: number, b: number) => number;
+    readonly web_load_benign_whitelist: (a: number, b: number) => number;
     readonly web_load_model: (a: number, b: number, c: number) => number;
     readonly web_load_url_rules: (a: number, b: number) => number;
     readonly web_load_url_whitelist: (a: number, b: number) => number;
@@ -23,7 +27,6 @@ declare interface InitOutput {
     readonly web_scan_bytes_ex: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: bigint, h: bigint) => number;
     readonly web_scan_url: (a: number, b: number) => number;
     readonly web_self_test: () => number;
-    readonly web_set_benign: (a: number, b: number) => number;
     readonly web_set_registry_rules: (a: number, b: number) => number;
     readonly web_set_string_rules: (a: number, b: number) => number;
     readonly wasm_bindgen_25783ceea4f8f12a___convert__closures_____invoke___wasm_bindgen_25783ceea4f8f12a___JsValue__wasm_bindgen_25783ceea4f8f12a___JsValue__wasm_bindgen_25783ceea4f8f12a___JsValue__wasm_bindgen_25783ceea4f8f12a___JsValue__wasm_bindgen_25783ceea4f8f12a___JsValue__true_: (a: number, b: number, c: any, d: any, e: any, f: any) => any;

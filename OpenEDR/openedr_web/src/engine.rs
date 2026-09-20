@@ -16,9 +16,9 @@ use crate::report::{DetectionItem, StaticScanReport};
 use crate::string_rules::{self, PeStringRules};
 use crate::yara::YaraScanner;
 
-/// APK tree-model decision threshold. Retune after each retrain (see
-/// `tools/apk_train.py` validation table + `apk_trees.meta.json`).
-pub const APK_TREE_THRESHOLD: f32 = 0.75;
+/// APK tree-model decision threshold. From `apk_trees.meta.json`
+/// (LightGBM 200 trees, valid F1 0.955 / FPR 0.017). Retune on retrain.
+pub const APK_TREE_THRESHOLD: f32 = 0.8;
 
 pub struct WebEngine {
     ml: MlScanner,

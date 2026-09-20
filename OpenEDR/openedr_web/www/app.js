@@ -16,7 +16,7 @@
 const ASSET_V = 'apk-tree-1';
 const BUILD_TAG = 'apk-tree-1';
 const MAX_SCAN_BYTES = 96 * 1024 * 1024; // bigger files OOM phone tabs
-const OOM_MSG = 'Out of memory: file too large for this device. / Bellek yetersiz: dosya bu cihaz için çok büyük.';
+const OOM_MSG = 'Out of memory: file too large for this device.';
 'use strict';
 if (typeof window !== 'undefined') {
   window.addEventListener('error', (ev) => {
@@ -309,9 +309,8 @@ function scanBuffer(u8, name, counts) {
   wasm.web_free(np, nl);
   if (!out) {
     console.error('Engine returned null output pointer for:', name, scanErr);
-    // Bilingual so TR users see their message too (Tarama Başarısız Oldu).
     const en = scanErr ? String(scanErr.message || scanErr) : 'Scan engine returned null output pointer.';
-    return { verdict: 'Error', detections: [], error_details: en + ' / Tarama motoru boş çıkış işaretçisini döndürdü.' };
+    return { verdict: 'Error', detections: [], error_details: en };
   }
   try {
     return readStr(out);
@@ -337,7 +336,7 @@ function render(rep, el) {
   if (rep.verdict === 'Error') {
     el.innerHTML =
       `<div>Verdict: <span class="badge Error">Error</span><br>` +
-      `<p style="color:#ef4444;font-size:13px;margin:8px 0 4px"><strong>Scan Failed / Tarama Başarısız Oldu:</strong> ${rep.error_details || rep.verdict_reason || 'An unexpected error occurred during analysis.'}</p></div>`;
+      `<p style="color:#ef4444;font-size:13px;margin:8px 0 4px"><strong>Scan Failed:</strong> ${rep.error_details || rep.verdict_reason || 'An unexpected error occurred during analysis.'}</p></div>`;
     return;
   }
   if (rep.target_url) {
@@ -626,7 +625,7 @@ async function checkDomainLiveness(domain, rawUrl) {
         rep = { verdict: 'Error', detections: [], error_details: 'Failed to parse JSON report: ' + (e.message || e) };
       }
     } else {
-      rep = { verdict: 'Error', detections: [], error_details: urlErr ? String(urlErr.message || urlErr) : 'URL inspection returned null pointer / URL incelemesi boş çıkış işaretçisi döndürdü' };
+      rep = { verdict: 'Error', detections: [], error_details: urlErr ? String(urlErr.message || urlErr) : 'URL inspection returned null pointer' };
     }
 
     if (livenessObj) {

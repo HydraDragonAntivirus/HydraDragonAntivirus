@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenMalwareScanner — Browser Scanner (Demo)</title>
-<meta name="description" content="Client-side static scanner demo for PE and JS malware only. No uploads, everything runs in your browser.">
+<meta name="description" content="Client-side static scanner demo for PE, JS, APK only. No uploads, everything runs in your browser.">
 <style>
 :root{color-scheme:dark}*{box-sizing:border-box}
 body{background:#0b0e14;color:#dbe2f1;font:15px/1.6 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;margin:0}
@@ -31,12 +31,12 @@ h2{font-size:18px;margin:0 0 8px}
 footer{padding:22px 0;color:#8b94ab;font-size:13px;text-align:center}
 footer a{color:#4cc38a}
 </style>
-<script src="openedr_web.js"></script>
+<script src="openedr_web.js?v=apk-tree-1"></script>
 </head>
 <body>
 <div class="wrap">
   <h1>OpenMalwareScanner<span>Portable</span> — Web Demo</h1>
-  <p class="mut">This is just a demo. 100% client-side static scan (PE and JS malware only). Files never leave your browser. <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" style="color:#4cc38a">Source (GPLv2)</a></p>
+  <p class="mut">This is just a demo. 100% client-side static scan (PE, JS, APK only). Files never leave your browser. <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" style="color:#4cc38a">Source (GPLv2)</a></p>
   <div class="panel" id="status">loading…</div>
   <div class="panel">
     <div class="row">
@@ -72,6 +72,10 @@ window.addEventListener('error', (ev) => {
 });
 const FLAG = new Set(['Malicious', 'Suspicious']);
 const HKEY = 'ows_history_v1';
+// Bump on every shipped engine change so phones drop stale caches.
+const ASSET_V = 'apk-tree-1';
+const MAX_SCAN_BYTES = 96 * 1024 * 1024; // bigger files OOM phone tabs
+const OOM_MSG = 'Out of memory: file too large for this device.';
 const statusEl = document.getElementById('status');
 const outEl = document.getElementById('out');
 const histEl = document.getElementById('hist');
@@ -128,12 +132,15 @@ document.getElementById('exportHist').onclick = exportHist;
 document.getElementById('clearHist').onclick = () => { saveHist([]); renderHist(); };
 
 /* ---------- wasm plumbing ---------- */
+function bust(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'v=' + ASSET_V;
+}
 async function loadWasm() {
   const candidates = [BASE + 'openedr_web_bg.wasm', './openedr_web_bg.wasm', 'openedr_web_bg.wasm', 'webdemo/openedr_web_bg.wasm'];
   let lastErr = null;
   for (const p of candidates) {
     try {
-      const res = await fetch(p);
+      const res = await fetch(bust(p), { cache: 'reload' });
       if (!res.ok) continue;
       const bytes = await res.arrayBuffer();
       const u8 = new Uint8Array(bytes);
@@ -153,7 +160,9 @@ async function loadWasm() {
   throw lastErr || new Error('Valid openedr_web_bg.wasm binary not found at candidate paths.');
 }
 function writeBytes(u8) {
+  if (!u8.length) return 0;
   const ptr = wasm.web_alloc(u8.length);
+  if (!ptr) return 0; // OOM (phones): caller shows OOM_MSG, never traps.
   new Uint8Array(wasm.memory.buffer, ptr, u8.length).set(u8);
   return ptr;
 }
@@ -274,8 +283,15 @@ async function unpackAssist(u8) {
 
 /* ---------- scan ---------- */
 function scanBuffer(u8, name, counts) {
+  if (u8.length > MAX_SCAN_BYTES) {
+    return { verdict: 'Error', detections: [], error_details: OOM_MSG };
+  }
   const p = writeBytes(u8);
   const { ptr: np, len: nl } = writeStr(name);
+  if (!p) {
+    if (np) wasm.web_free(np, nl);
+    return { verdict: 'Error', detections: [], error_details: OOM_MSG };
+  }
   let out = 0;
   let scanErr = null;
   try {
@@ -303,7 +319,8 @@ function scanBuffer(u8, name, counts) {
   wasm.web_free(np, nl);
   if (!out) {
     console.error('Engine returned null output pointer for:', name, scanErr);
-    return { verdict: 'Error', detections: [], error_details: scanErr ? String(scanErr.message || scanErr) : 'Scan engine returned null output pointer.' };
+    const en = scanErr ? String(scanErr.message || scanErr) : 'Scan engine returned null output pointer.';
+    return { verdict: 'Error', detections: [], error_details: en };
   }
   try {
     return readStr(out);
@@ -415,19 +432,20 @@ async function boot() {
   }
   lights.push(`<span class="dot ${CS ? 'ok' : 'no'}"></span>capstone.js`);
   lights.push(`<span class="dot ${UC ? 'ok' : 'no'}"></span>unicorn.js`);
-  for (const [kind, file] of [[0, 'pe_trees.bin'], [1, 'js_trees.bin'], [2, 'url_trees.bin']]) {
+  for (const [kind, file] of [[0, 'pe_trees.bin'], [1, 'js_trees.bin'], [2, 'url_trees.bin'], [3, 'apk_trees.bin']]) {
     try {
-      const r = await fetch(BASE + 'models/' + file);
+      const r = await fetch(bust(BASE + 'models/' + file), { cache: 'reload' });
       if (!r.ok) throw 0;
       const u8 = new Uint8Array(await r.arrayBuffer());
       const p = writeBytes(u8);
+      if (!p) throw 0;
       const ok = wasm.web_load_model(kind, p, u8.length);
       wasm.web_free(p, u8.length);
       lights.push(`<span class="dot ${ok ? 'ok' : 'no'}"></span>${file}`);
     } catch { lights.push(`<span class="dot no"></span>${file}`); }
   }
   try {
-    const r = await fetch(BASE + 'models/url_whitelist.xf');
+    const r = await fetch(bust(BASE + 'models/url_whitelist.xf'), { cache: 'reload' });
     if (!r.ok) throw 0;
     const u8 = new Uint8Array(await r.arrayBuffer());
     const p = writeBytes(u8);
@@ -436,16 +454,25 @@ async function boot() {
     wasm.web_free(p, u8.length);
     lights.push(`<span class="dot ${ok ? 'ok' : 'no'}"></span>whitelist (1.4M)`);
   } catch { lights.push('<span class="dot no"></span>whitelist'); }
-  for (const [fn, file, label] of [
-    [wasm.web_set_benign, 'hash_rules/benign_sha256.txt', 'benign list'],
-  ]) {
-    try {
-      const r = await fetch(BASE + file);
-      if (!r.ok) throw 0;
-      const n = setText(fn, await r.text());
-      lights.push(`<span class="dot ok"></span>${label} (${n})`);
-    } catch { lights.push(`<span class="dot no"></span>${label}`); }
-  }
+  // SHA-256 benign whitelist (.xf binary). Built offline with xorfilter_writer
+  // (includes benign APK hashes). Old .txt API (web_set_benign) is retired.
+  try {
+    const r = await fetch(bust(BASE + 'hash_rules/benign_sha256.xf'), { cache: 'reload' });
+    if (!r.ok) throw 0;
+    const u8 = new Uint8Array(await r.arrayBuffer());
+    const p = writeBytes(u8);
+    if (!p) throw 0;
+    const fn = wasm.web_load_benign_whitelist;
+    const ok = fn ? fn(p, u8.length) : 0;
+    wasm.web_free(p, u8.length);
+    lights.push(`<span class="dot ${ok ? 'ok' : 'no'}"></span>benign xf`);
+  } catch { lights.push('<span class="dot no"></span>benign xf'); }
+  // APK forest readiness (kind 3 above). Heuristics run regardless.
+  try {
+    const fn = wasm.web_apk_loaded;
+    const ready = (typeof fn === 'function') ? fn() === 1 : false;
+    lights.push(`<span class="dot ${ready ? 'ok' : 'no'}"></span>android apk ml${ready ? '' : ' (heuristic-only)'}`);
+  } catch { lights.push('<span class="dot no"></span>android apk ml'); }
   let yaraLoaded = false;
   try {
     const r = await fetch(BASE + 'yara_rules/valhalla-rules.yar');
@@ -460,7 +487,7 @@ async function boot() {
     }
   } catch {}
   lights.push(`<span class="dot ${yaraLoaded ? 'ok' : 'no'}"></span>YARA rules (${yaraLoaded ? 'compiled' : 'failed'})`);
-  statusEl.innerHTML = lights.join(' &nbsp; ');
+  statusEl.innerHTML = lights.join(' &nbsp; ') + ` &nbsp; <span class="mut">build ${ASSET_V}</span>`;
 
   document.getElementById('scanFile').onclick = async () => {
     const list = document.getElementById('file').files;
