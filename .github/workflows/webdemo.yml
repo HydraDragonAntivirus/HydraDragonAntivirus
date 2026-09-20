@@ -37,28 +37,34 @@ jobs:
           test -f "$WASM" || { echo "missing $WASM"; find OpenEDR/openedr_web/target -name '*.wasm' 2>/dev/null; exit 1; }
           rm -rf _site && mkdir -p _site
           cp -r docs/* _site/
-          mkdir -p _site/webdemo/models _site/webdemo/hash_rules _site/webdemo/vendor
+          mkdir -p _site/webdemo/models _site/webdemo/hash_rules _site/webdemo/xorfilter_rules _site/webdemo/vendor
           cp OpenEDR/openedr_web/www/index.html OpenEDR/openedr_web/www/app.js _site/webdemo/
           cp OpenEDR/openedr_web/www/vendor/README.txt _site/webdemo/vendor/
           cp "$WASM" _site/webdemo/openedr_web.wasm
           # Optional runtime data: copy whatever is tracked, never fail the deploy.
-          for f in pe_trees.bin js_trees.bin url_trees.bin url_whitelist.xf; do
-            if [ -f "OpenMalwareScannerPortable/models/$f" ]; then
-              cp "OpenMalwareScannerPortable/models/$f" _site/webdemo/models/
-            elif [ -f "OpenEDR/openedr_web/www/models/$f" ]; then
+          for f in pe_trees.bin js_trees.bin url_trees.bin apk_trees.bin; do
+            if [ -f "OpenEDR/openedr_web/www/models/$f" ]; then
               cp "OpenEDR/openedr_web/www/models/$f" _site/webdemo/models/
+            elif [ -f "docs/models/$f" ]; then
+              cp "docs/models/$f" _site/webdemo/models/
+            elif [ -f "OpenMalwareScannerPortable/models/$f" ]; then
+              cp "OpenMalwareScannerPortable/models/$f" _site/webdemo/models/
             else
               echo "skip missing models/$f"
             fi
           done
-          # SHA-256 benign whitelist (BinaryFuse16 .xf, same as URL/IP whitelist).
-          if [ -f "OpenEDR/openedr_web/www/hash_rules/benign_sha256.xf" ]; then
-            cp "OpenEDR/openedr_web/www/hash_rules/benign_sha256.xf" _site/webdemo/hash_rules/
-          elif [ -f "OpenMalwareScannerPortable/hash_rules/benign_sha256.xf" ]; then
-            cp "OpenMalwareScannerPortable/hash_rules/benign_sha256.xf" _site/webdemo/hash_rules/
-          else
-            echo "skip missing hash_rules/benign_sha256.xf"
-          fi
+          # XOR filter rules (.xf)
+          for f in url_whitelist.xf benign_sha256.xf; do
+            if [ -f "OpenEDR/openedr_web/www/xorfilter_rules/$f" ]; then
+              cp "OpenEDR/openedr_web/www/xorfilter_rules/$f" _site/webdemo/xorfilter_rules/
+            elif [ -f "docs/xorfilter_rules/$f" ]; then
+              cp "docs/xorfilter_rules/$f" _site/webdemo/xorfilter_rules/
+            elif [ -f "OpenMalwareScannerPortable/models/$f" ]; then
+              cp "OpenMalwareScannerPortable/models/$f" _site/webdemo/xorfilter_rules/
+            else
+              echo "skip missing xorfilter_rules/$f"
+            fi
+          done
           if [ ! -f _site/webdemo/models/url_trees.bin ] && [ -f hydradragon_ml_models/url_trees.bin ]; then
             cp hydradragon_ml_models/url_trees.bin _site/webdemo/models/
             echo "url_trees.bin from hydradragon_ml_models/"

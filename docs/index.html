@@ -445,7 +445,7 @@ async function boot() {
     } catch { lights.push(`<span class="dot no"></span>${file}`); }
   }
   try {
-    const r = await fetch(bust(BASE + 'models/url_whitelist.xf'), { cache: 'reload' });
+    const r = await fetch(bust(BASE + 'xorfilter_rules/url_whitelist.xf'), { cache: 'reload' });
     if (!r.ok) throw 0;
     const u8 = new Uint8Array(await r.arrayBuffer());
     const p = writeBytes(u8);
@@ -457,7 +457,7 @@ async function boot() {
   // SHA-256 benign whitelist (.xf binary). Built offline with xorfilter_writer
   // (includes benign APK hashes). Old .txt API (web_set_benign) is retired.
   try {
-    const r = await fetch(bust(BASE + 'hash_rules/benign_sha256.xf'), { cache: 'reload' });
+    const r = await fetch(bust(BASE + 'xorfilter_rules/benign_sha256.xf'), { cache: 'reload' });
     if (!r.ok) throw 0;
     const u8 = new Uint8Array(await r.arrayBuffer());
     const p = writeBytes(u8);

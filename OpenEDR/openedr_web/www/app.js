@@ -427,7 +427,7 @@ async function boot() {
   }
   // Tranco 1M + IP whitelist (.xf binary)
   try {
-    const r = await fetch(bust('models/url_whitelist.xf'), { cache: 'reload' });
+    const r = await fetch(bust('xorfilter_rules/url_whitelist.xf'), { cache: 'reload' });
     if (!r.ok) throw 0;
     const u8 = new Uint8Array(await r.arrayBuffer());
     const p = writeBytes(u8);
@@ -455,7 +455,7 @@ async function boot() {
   // Build offline: xorfilter_writer benign_sha256.txt benign_sha256.xf
   // (includes benign APK SHA-256 hashes from HydraDragonAV-Mobile dataset).
   try {
-    const r = await fetch(bust('hash_rules/benign_sha256.xf'), { cache: 'reload' });
+    const r = await fetch(bust('xorfilter_rules/benign_sha256.xf'), { cache: 'reload' });
     if (!r.ok) throw 0;
     const u8 = new Uint8Array(await r.arrayBuffer());
     const p = writeBytes(u8);
