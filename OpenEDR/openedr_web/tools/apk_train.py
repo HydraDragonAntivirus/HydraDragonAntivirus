@@ -85,7 +85,7 @@ def ln1p(x):
 
 
 def ascii_lower(b: bytes) -> bytes:
-    return bytes(((b - 32) if 65 <= b <= 90 else b) for b in b)
+    return bytes(((b + 32) if 65 <= b <= 90 else b) for b in b)
 
 
 class AxmlError(Exception):

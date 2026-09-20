@@ -38,6 +38,8 @@ python tools/apk_train.py \
   --output www/models/apk_trees.bin
 # -> www/models/apk_trees.bin + apk_trees.meta.json (threshold, val stats)
 ```
+- pip install lightgbm numpy   # preferred; else: pip install scikit-learn numpy
+- python tools/apk_train.py --benign  ../HydraDragonAV-Mobile/dataset/benign --malware "../HydraDragonAV-Mobile/dataset/malware/MalwareBazaar/27.06.2026 - 203930_212345/apk" --output www/models/apk_trees.bin
 
 Bake the printed threshold into `src/engine.rs::APK_TREE_THRESHOLD`.
 `www/models/apk_trees.bin` currently ships a 3-stump starter bundle (SMS
