@@ -18,9 +18,13 @@ f32 rounding). Verify parity any time with:
 Usage:
     pip install lightgbm numpy            # preferred
     # or: pip install scikit-learn numpy  # fallback (--algo sklearn-gb/rf)
+    # NOTE: point --malware at the dated parent dir (not just apk/) so the
+    # invalid/ folder is included too — EOCD-less/overlay malware parses via
+    # the central-directory fallback; genuinely unparseable blobs are
+    # skipped and counted.
     python tools/apk_train.py \\
         --benign  ../HydraDragonAV-Mobile/dataset/benign \\
-        --malware "../HydraDragonAV-Mobile/dataset/malware/MalwareBazaar/27.06.2026 - 203930_212345/apk" \\
+        --malware "../HydraDragonAV-Mobile/dataset/malware/MalwareBazaar/27.06.2026 - 203930_212345" \\
         --output www/models/apk_trees.bin
 
 Outputs next to the bundle: `apk_trees.meta.json` (threshold, validation
@@ -32,8 +36,10 @@ import argparse
 import json
 import math
 import os
+import re
 import struct
 import sys
+import time
 import zlib
 
 # ---------------------------------------------------------------------------
@@ -110,40 +116,26 @@ def i32(b, off):
     return struct.unpack_from("<i", b, off)[0]
 
 
-def parse_central_dir(data: bytes):
-    """-> list of dicts or None (mirrors Rust parse_central_dir)."""
-    if len(data) < 22 or data[0:2] != b"PK":
-        return None
-    search_start = max(0, len(data) - (64 * 1024 + 22))
-    eocd = None
-    i = len(data) - 22
-    while True:
-        if i < search_start:
-            break
-        if data[i:i + 4] == b"PK\x05\x06":
-            eocd = i
-            break
-        if i == 0 or i == search_start:
-            break
-        i -= 1
-    if eocd is None:
-        return None
-    total = struct.unpack_from("<H", data, eocd + 10)[0]
-    cd_off = struct.unpack_from("<I", data, eocd + 16)[0]
-    if total == 0 or total > MAX_ENTRIES or cd_off >= len(data):
-        return None
+def parse_entries_at(data: bytes, cd_off: int, limit: int):
+    """Up to `limit` entries forward from cd_off; stops at first bad header."""
     entries = []
     off = cd_off
-    for _ in range(min(total, MAX_ENTRIES)):
-        if off + 46 > len(data) or u32(data, off) != 0x02014B50:
+    for _ in range(min(limit, MAX_ENTRIES)):
+        if off + 46 > len(data):
             break
-        method = u16(data, off + 10)
-        comp = u32(data, off + 20)
-        uncomp = u32(data, off + 24)
-        fn_len = u16(data, off + 28)
-        ex_len = u16(data, off + 30)
-        co_len = u16(data, off + 32)
-        local = u32(data, off + 42)
+        try:
+            sig = u32(data, off)
+            method = u16(data, off + 10)
+            comp = u32(data, off + 20)
+            uncomp = u32(data, off + 24)
+            fn_len = u16(data, off + 28)
+            ex_len = u16(data, off + 30)
+            co_len = u16(data, off + 32)
+            local = u32(data, off + 42)
+        except AxmlError:
+            break
+        if sig != 0x02014B50:
+            break
         name_off = off + 46
         name_end = name_off + fn_len
         if name_end > len(data) or fn_len > 2048:
@@ -156,7 +148,57 @@ def parse_central_dir(data: bytes):
         off = name_end + ex_len + co_len
         if off >= len(data):
             break
+    return entries
+
+
+def parse_central_dir_at(data: bytes, eocd: int):
+    """One EOCD candidate. None = invalid, keep searching (not final)."""
+    total = struct.unpack_from("<H", data, eocd + 10)[0]
+    cd_off = struct.unpack_from("<I", data, eocd + 16)[0]
+    if total == 0 or total > MAX_ENTRIES or cd_off >= len(data):
+        return None
+    if struct.unpack_from("<I", data, cd_off)[0] != 0x02014B50:
+        return None
+    entries = parse_entries_at(data, cd_off, total)
     return entries or None
+
+
+def parse_central_dir_fallback(data: bytes):
+    """EOCD-less fallback (mirrors Rust): longest valid CD run over the
+    first 64 PK\\x01\\x02 positions, minimum 2 entries, first wins ties."""
+    best, found, start = [], 0, 0
+    while found < 64:
+        i = data.find(b"PK\x01\x02", start)
+        if i < 0:
+            break
+        found += 1
+        run = parse_entries_at(data, i, MAX_ENTRIES)
+        if len(run) > len(best):
+            best = run
+        start = i + 1
+    return best if len(best) >= 2 else None
+
+
+def parse_central_dir(data: bytes):
+    """-> list of dicts or None (mirrors Rust parse_central_dir).
+
+    Scans the whole file backwards for EOCD candidates (malware APKs often
+    carry trailing overlays past the EOCD) and takes the last candidate
+    that validates. Falls back to the longest valid central-directory run
+    when the EOCD itself is destroyed.
+    """
+    if len(data) < 22 or data[0:2] != b"PK":
+        return None
+    end = len(data)
+    while True:
+        eocd = data.rfind(b"PK\x05\x06", 0, end)
+        if eocd < 0 or eocd + 22 > len(data):
+            break
+        entries = parse_central_dir_at(data, eocd)
+        if entries is not None:
+            return entries
+        end = eocd  # keep searching before this false hit
+    return parse_central_dir_fallback(data)
 
 
 def local_data_offset(data: bytes, local_off: int):
@@ -335,47 +377,46 @@ def analyze_manifest(buf: bytes):
 
 
 def harvest_manifest_text(buf: bytes) -> str:
+    """Fast equivalent of Rust harvest_manifest_text (verified 24/24 parity).
+
+    ASCII: Rust drops every 257th-byte chunk mid-run, keeping the tail
+    (len % 257) — reproduced exactly. UTF-16LE: fixed even alignment from
+    offset 0, runs longer than 256 pairs dropped entirely.
+    """
+    window = buf[:2 * 1024 * 1024]
     out = []
     total = 0
 
-    def flush(run: bytearray):
+    def emit(s: str):
         nonlocal total
-        if 4 <= len(run) <= 256:
-            try:
-                s = bytes(run).decode("ascii")
-            except Exception:
-                run.clear()
-                return
-            if s:
-                out.append(" " + s)
-                total += len(s) + 1
-        run.clear()
+        out.append(" " + s)
+        total += len(s) + 1
 
-    run = bytearray()
-    for b in buf[:2 * 1024 * 1024]:
-        if 0x20 <= b < 0x7F:
-            run.append(b)
-            if len(run) > 256:
-                flush(run)
-        else:
-            flush(run)
+    for run in re.findall(rb"[\x20-\x7e]+", window):
         if total > 256 * 1024:
             break
-    flush(run)
-    u16r = bytearray()
-    lim = min(len(buf), 2 * 1024 * 1024)
-    j = 0
-    while j + 1 < lim:
-        lo, hi = buf[j], buf[j + 1]
-        if hi == 0 and 0x20 <= lo < 0x7F:
-            u16r.append(lo)
-        elif u16r:
-            flush(u16r)
-        j += 2
+        tail = len(run) % 257
+        if tail >= 4:
+            emit(run[-tail:].decode("ascii"))
+    for m in re.finditer(rb"(?:[\x20-\x7e]\x00){4,}", window):
         if total > 256 * 1024:
             break
-    flush(u16r)
+        if m.start() % 2 == 1:
+            continue  # Rust only reads even-aligned pairs from offset 0
+        npairs = len(m.group(0)) // 2
+        if npairs > 256:
+            continue  # Rust drops overlong UTF-16 runs entirely
+        emit(m.group(0)[0::2].decode("ascii"))
     return "".join(out)
+
+
+def add_hist(hist, htot, buf):
+    """C-speed histogram (identical counts to a per-byte loop)."""
+    for v in range(256):
+        c = buf.count(v)
+        if c:
+            hist[v] += c
+    return htot + len(buf)
 
 
 def shannon_entropy(hist, total):
@@ -428,9 +469,7 @@ def profile_apk(data: bytes):
         if buf:
             buf = buf[:PROFILE_MANIFEST_CAP]
             spent += len(buf)
-            for b in buf:
-                hist[b] += 1
-            htot += len(buf)
+            htot = add_hist(hist, htot, buf)
             low = ascii_lower(harvest_manifest_text(buf).encode(
                 "ascii", "ignore")).decode("ascii")
             dg = sum(1 for x in DANGEROUS_PERMS if x in low)
@@ -450,9 +489,7 @@ def profile_apk(data: bytes):
         if not pre:
             continue
         spent += len(pre)
-        for b in pre:
-            hist[b] += 1
-        htot += len(pre)
+        htot = add_hist(hist, htot, pre)
         if len(pre) >= 0x70:
             c = dex_counts(pre)
             if c:
@@ -511,13 +548,16 @@ def label_of(path):
 def load_dataset(benign_dir, malware_dir, limit=0):
     import numpy as np
     X, y, skipped = [], [], 0
+    t0 = time.time()
     for root, lab in ((benign_dir, 0), (malware_dir, 1)):
         files = walk_apks(root)
         if limit:
             files = files[:limit]
         for i, fp in enumerate(files):
-            if i % 500 == 0:
-                print(f"  {root}: {i}/{len(files)}", flush=True)
+            if i % 25 == 0:
+                el = time.time() - t0
+                print(f"  {root}: {i}/{len(files)} ({el:.0f}s)",
+                      flush=True)
             try:
                 with open(fp, "rb") as f:
                     data = f.read()
@@ -738,6 +778,9 @@ def main():
     ap.add_argument("--valid-frac", type=float, default=0.2)
     ap.add_argument("--limit", type=int, default=0,
                     help="files per class cap (smoke test)")
+    ap.add_argument("--balance", action="store_true",
+                    help="undersample benign to malware count (50/50) "
+                         "in TRAIN only; validation keeps natural ratio")
     ap.add_argument("--parity", default=None,
                     help="print 24 features for one APK and exit")
     ap.add_argument("--score-dir", default=None,
@@ -781,6 +824,20 @@ def main():
     cut = int(len(y) * (1.0 - args.valid_frac))
     tr, va = idx[:cut], idx[cut:]
     Xtr, ytr, Xva, yva = X[tr], y[tr], X[va], y[va]
+    if args.balance:
+        # 50/50: undersample the majority class in TRAIN ONLY (seeded).
+        # Validation keeps the natural ratio so FPR stays honest.
+        pos = tr[ytr == 1]
+        neg = tr[ytr == 0]
+        n = min(len(pos), len(neg))
+        keep = np.concatenate([
+            rng.choice(pos, n, replace=False),
+            rng.choice(neg, n, replace=False),
+        ])
+        rng.shuffle(keep)
+        tr = keep
+        Xtr, ytr = X[tr], y[tr]
+        print(f"balanced train to 50/50 (n={n}/class)", flush=True)
     n_pos = int((ytr == 1).sum())
     n_neg = int((ytr == 0).sum())
     print(f"train={len(tr)} (mal={n_pos} ben={n_neg}) "

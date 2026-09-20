@@ -34,13 +34,15 @@ bundle the engine degrades to heuristics+YARA — APKs return
 pip install lightgbm numpy   # preferred; else: pip install scikit-learn numpy
 python tools/apk_train.py \
   --benign  ../HydraDragonAV-Mobile/dataset/benign \
-  --malware "../HydraDragonAV-Mobile/dataset/malware/MalwareBazaar/27.06.2026 - 203930_212345/apk" \
+  --malware "../HydraDragonAV-Mobile/dataset/malware/MalwareBazaar/27.06.2026 - 203930_212345" \
   --output www/models/apk_trees.bin
 # -> www/models/apk_trees.bin + apk_trees.meta.json (threshold, val stats)
 ```
+(`--malware` üst klasörü gösterir — `invalid/` dahil taranır; EOCD'si ezik
+malware central-directory yedeğiyle, gerçekten bozuk dosyalar atlanarak.)
 - pip install lightgbm numpy   # preferred; else: pip install scikit-learn numpy
-- C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\openedr_web>
-- python tools/apk_train.py --benign ..\..\..\HydraDragonAV-Mobile\dataset\benign --malware "..\..\..\HydraDragonAV-Mobile\dataset\malware\MalwareBazaar\27.06.2026 - 203930_212345\apk" --output www/models/apk_trees.bin
+- cd C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR\openedr_web>
+- python tools/apk_train.py --balance --benign ..\..\..\HydraDragonAV-Mobile\dataset\benign --malware "..\..\..\HydraDragonAV-Mobile\dataset\malware\MalwareBazaar\27.06.2026 - 203930_212345\apk" --output www/models/apk_trees.bin
 
 Bake the printed threshold into `src/engine.rs::APK_TREE_THRESHOLD`.
 `www/models/apk_trees.bin` currently ships a 3-stump starter bundle (SMS

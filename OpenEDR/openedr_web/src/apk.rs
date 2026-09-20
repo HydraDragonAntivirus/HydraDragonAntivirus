@@ -83,56 +83,71 @@ fn read_i32_le(b: &[u8], off: usize) -> Option<i32> {
 
 /// Locate the End-of-Central-Directory and parse entry metadata.
 /// Returns `None` when `data` is not a ZIP (APK) at all.
+///
+/// Malware APKs often carry trailing overlays/payloads past the EOCD, so the
+/// search scans the whole file backwards and accepts the last candidate
+/// that validates (sane entry count + central directory offset landing on
+/// a `PK\x01\x02` header) instead of only looking at the last 64 KB.
 fn parse_central_dir(data: &[u8]) -> Option<Vec<ZipEntryMeta>> {
     if data.len() < 22 || data[0] != b'P' || data[1] != b'K' {
         return None;
     }
-    // EOCD is within the last 64KB + 22 bytes.
-    let search_start = data.len().saturating_sub(64 * 1024 + 22);
-    let mut eocd_off: Option<usize> = None;
-    // Search backwards for PK\x05\x06.
-    let mut i = data.len().saturating_sub(22);
+    let mut i = data.len().saturating_sub(4);
     loop {
-        if i < search_start {
-            break;
-        }
         if data[i] == 0x50 && data[i + 1] == 0x4b && data[i + 2] == 0x05 && data[i + 3] == 0x06
         {
-            eocd_off = Some(i);
-            break;
+            if i + 22 <= data.len() {
+                if let Some(entries) = parse_central_dir_at(data, i) {
+                    return Some(entries);
+                }
+            }
         }
-        if i == 0 || i == search_start {
+        if i == 0 {
             break;
         }
         i -= 1;
     }
-    let eocd = eocd_off?;
-    let total_entries = read_u16_le(data, eocd + 10)? as usize;
-    let cd_offset = read_u32_le(data, eocd + 16)? as usize;
-    if total_entries == 0 || total_entries > MAX_ENTRIES {
-        return None;
-    }
-    if cd_offset >= data.len() {
-        return None;
-    }
-    let mut entries = Vec::with_capacity(total_entries.min(1024));
+    // Fallback for EOCD-less archives (malware with a destroyed/overwritten
+    // EOCD but an intact central directory, e.g. appended payloads): take
+    // the longest run of consecutive valid central-directory headers.
+    parse_central_dir_fallback(data)
+}
+
+/// Parse up to `limit` entries forward from `cd_offset`. Stops at the first
+/// malformed header (returns what parsed so far, possibly empty).
+fn parse_entries_at(data: &[u8], cd_offset: usize, limit: usize) -> Vec<ZipEntryMeta> {
+    let mut entries = Vec::with_capacity(limit.min(1024));
     let mut off = cd_offset;
-    for _ in 0..total_entries.min(MAX_ENTRIES) {
+    for _ in 0..limit.min(MAX_ENTRIES) {
         if off + 46 > data.len() {
             break;
         }
-        if read_u32_le(data, off)? != 0x0201_4b50 {
+        let (Some(method), Some(comp_size), Some(uncomp_size)) = (
+            read_u16_le(data, off + 10),
+            read_u32_le(data, off + 20),
+            read_u32_le(data, off + 24),
+        ) else {
+            break;
+        };
+        if read_u32_le(data, off) != Some(0x0201_4b50) {
             break;
         }
-        let method = read_u16_le(data, off + 10)?;
-        let comp_size = read_u32_le(data, off + 20)?;
-        let uncomp_size = read_u32_le(data, off + 24)?;
-        let fname_len = read_u16_le(data, off + 28)? as usize;
-        let extra_len = read_u16_le(data, off + 30)? as usize;
-        let comment_len = read_u16_le(data, off + 32)? as usize;
-        let local_offset = read_u32_le(data, off + 42)?;
+        let (Some(fname_len), Some(extra_len), Some(comment_len)) = (
+            read_u16_le(data, off + 28).map(|v| v as usize),
+            read_u16_le(data, off + 30).map(|v| v as usize),
+            read_u16_le(data, off + 32).map(|v| v as usize),
+        ) else {
+            break;
+        };
+        let local_offset = match read_u32_le(data, off + 42) {
+            Some(v) => v,
+            None => break,
+        };
         let name_off = off + 46;
-        let name_end = name_off.checked_add(fname_len)?;
+        let name_end = match name_off.checked_add(fname_len) {
+            Some(v) => v,
+            None => break,
+        };
         if name_end > data.len() || fname_len > 2048 {
             break;
         }
@@ -144,11 +159,61 @@ fn parse_central_dir(data: &[u8]) -> Option<Vec<ZipEntryMeta>> {
             uncomp_size,
             local_offset,
         });
-        off = name_end.checked_add(extra_len)?.checked_add(comment_len)?;
+        off = match name_end.checked_add(extra_len).and_then(|v| v.checked_add(comment_len)) {
+            Some(v) => v,
+            None => break,
+        };
         if off >= data.len() {
             break;
         }
     }
+    entries
+}
+
+/// EOCD-less fallback: scan for `PK\x01\x02` positions (first 64) and keep
+/// the longest valid entry run (minimum 2 — single hits are usually
+/// compressed-data coincidence). First wins ties, like the Python trainer.
+fn parse_central_dir_fallback(data: &[u8]) -> Option<Vec<ZipEntryMeta>> {
+    let mut best: Vec<ZipEntryMeta> = Vec::new();
+    let mut found = 0usize;
+    let mut i = 0usize;
+    while i + 4 <= data.len() && found < 64 {
+        if data[i] == 0x50 && data[i + 1] == 0x4b && data[i + 2] == 0x01 && data[i + 3] == 0x02
+        {
+            found += 1;
+            let run = parse_entries_at(data, i, MAX_ENTRIES);
+            if run.len() > best.len() {
+                best = run;
+            }
+            i += 4;
+        } else {
+            i += 1;
+        }
+    }
+    if best.len() >= 2 {
+        Some(best)
+    } else {
+        None
+    }
+}
+
+/// Parse entries from one EOCD candidate offset. `None` = candidate invalid,
+/// keep searching (NOT a final verdict on the file).
+fn parse_central_dir_at(data: &[u8], eocd: usize) -> Option<Vec<ZipEntryMeta>> {
+    let total_entries = read_u16_le(data, eocd + 10)? as usize;
+    let cd_offset = read_u32_le(data, eocd + 16)? as usize;
+    if total_entries == 0 || total_entries > MAX_ENTRIES {
+        return None;
+    }
+    if cd_offset >= data.len() {
+        return None;
+    }
+    // The central directory must actually start here — otherwise this
+    // PK\x05\x06 was compressed-data coincidence, not an EOCD.
+    if read_u32_le(data, cd_offset)? != 0x0201_4b50 {
+        return None;
+    }
+    let entries = parse_entries_at(data, cd_offset, total_entries);
     if entries.is_empty() {
         return None;
     }
@@ -1020,6 +1085,25 @@ pub(crate) mod test_helpers {
         let zip = sms_trio_apk();
         let hits = apk_heuristics(&zip, "evil.apk");
         assert!(hits.iter().any(|h| h.name == "APK.SmsTrio"));
+    }
+
+    #[test]
+    fn fallback_parses_eocd_destroyed_archive() {
+        // Malware with appended overlay: EOCD gone, central directory intact.
+        let mut zip = stored_zip(&[
+            ("AndroidManifest.xml", b"android.permission.SEND_SMS"),
+            ("classes.dex", b"dex\n"),
+        ]);
+        let eocd = zip
+            .windows(4)
+            .position(|w| w == b"PK\x05\x06")
+            .expect("test zip has an EOCD");
+        zip.truncate(eocd); // destroy the EOCD entirely
+        let entries = parse_central_dir(&zip).expect("fallback must find the CD run");
+        assert_eq!(entries.len(), 2);
+        assert!(is_apk(&zip, "evil.apk"));
+        let f = apk_tree_features(&zip).expect("features from fallback entries");
+        assert_eq!(f.len(), APK_TREE_FEATURE_COUNT);
     }
 
     #[test]

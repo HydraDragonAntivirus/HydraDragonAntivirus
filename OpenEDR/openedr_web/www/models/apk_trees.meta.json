@@ -1,0 +1,50 @@
+{
+  "threshold": 0.8,
+  "algo": "lightgbm",
+  "n_trees": 200,
+  "n_features": 24,
+  "feature_names": [
+    "dex_classes",
+    "dex_strings",
+    "dex_methods",
+    "dex_files",
+    "elf_so_count",
+    "perm_total",
+    "activities",
+    "services",
+    "receivers",
+    "min_sdk",
+    "target_sdk",
+    "entropy",
+    "entry_count",
+    "file_size_log",
+    "manifest_size_log",
+    "dex_size_log",
+    "so_size_log",
+    "dangerous_perm_count",
+    "sms_trio",
+    "has_manifest",
+    "multidex",
+    "compression_ratio",
+    "avg_entry_size_log",
+    "native_with_perms"
+  ],
+  "seed": 42,
+  "train": {
+    "total": 1484,
+    "malware": 742,
+    "benign": 742
+  },
+  "valid": {
+    "total": 754,
+    "tp": 210,
+    "fp": 9,
+    "tn": 524,
+    "fn": 11,
+    "acc": 0.9734748010610079,
+    "prec": 0.958904109589041,
+    "rec": 0.9502262443438914,
+    "f1": 0.9545454545454545,
+    "fpr": 0.016885553470919325
+  }
+}
