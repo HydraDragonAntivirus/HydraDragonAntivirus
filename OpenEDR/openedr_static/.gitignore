@@ -1,2 +1,6 @@
 /target
 /.idea
+# Legacy heavy benign hash txt (replaced by BinaryFuse16 .xf ~29x smaller).
+# Build .xf offline: cargo run -p xorfilter_writer --release -- benign_sha256.txt benign_sha256.xf
+# The .xf files ARE tracked; the .txt source must never be committed again.
+**/benign_sha256.txt

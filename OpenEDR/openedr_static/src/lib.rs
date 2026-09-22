@@ -1,12 +1,17 @@
+pub mod apk;
+pub mod cidr;
 pub mod clam;
 pub mod crypto;
 pub mod engine;
 pub mod hayabusa_scanner;
 pub mod hosts;
 pub mod ml;
+pub mod pe_strings;
 pub mod ptm_registry;
 pub mod report;
 pub mod signers;
+pub mod string_rules;
+pub mod url_rules;
 pub mod yara;
 
 /// HydraDragonSig deterministic file-content signature engine (external
@@ -209,7 +214,7 @@ pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut
     }
 }
 
-/// Scan a URL for phishing/malware using the LightGBM ONNX model.
+/// Scan a URL for phishing/malware (web parity: ML + CIDR + BinaryFuse16 whitelist).
 /// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_scan_url(url: *const c_char) -> *mut c_char {
@@ -232,20 +237,264 @@ pub extern "C" fn openedr_static_scan_url(url: *const c_char) -> *mut c_char {
         Err(_) => return error_json("Engine lock poisoned"),
     };
 
-    let prob = engine.scan_url(url_str).unwrap_or(0.0);
-    let is_malicious = prob >= 0.50;
-    let verdict = if is_malicious { "Malicious" } else { "Clean" };
+    let (prob, is_malicious, whitelisted, blacklisted) = engine.scan_url(url_str);
+    let verdict = if blacklisted || is_malicious {
+        "Malicious"
+    } else if whitelisted {
+        "Clean"
+    } else {
+        "Clean"
+    };
 
     let report = serde_json::json!({
         "target_url": url_str,
         "verdict": verdict,
         "malware_probability": prob,
         "is_malicious": is_malicious,
+        "whitelisted": whitelisted,
+        "blacklisted": blacklisted,
     });
 
     match serde_json::to_string_pretty(&report) {
         Ok(json) => to_c_string(json),
         Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
+/// Full URL threat inspection via Rust YAML Threat Engine (web parity:
+/// `web_inspect_url`). `liveness_code`: 0=unknown, 1=active, 2=inactive/dead.
+/// Returns JSON report. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_inspect_url(url: *const c_char, liveness_code: i32) -> *mut c_char {
+    openedr_static_inspect_url_content(url, liveness_code, std::ptr::null())
+}
+
+/// Full URL + page-content inspection (web parity: `web_inspect_url_content`).
+/// `content` may be NULL (same as `openedr_static_inspect_url`).
+/// Returns JSON report. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_inspect_url_content(
+    url: *const c_char,
+    liveness_code: i32,
+    content: *const c_char,
+) -> *mut c_char {
+    if url.is_null() {
+        return error_json("url pointer is null");
+    }
+    let url_str = match unsafe { CStr::from_ptr(url) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => return error_json("Invalid UTF-8 in url"),
+    };
+    let body: Option<String> = if content.is_null() {
+        None
+    } else {
+        match unsafe { CStr::from_ptr(content) }.to_str() {
+            Ok(s) => Some(s.to_string()),
+            Err(_) => return error_json("Invalid UTF-8 in content"),
+        }
+    };
+
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+    };
+    let engine = match engine_lock.read() {
+        Ok(guard) => guard,
+        Err(_) => return error_json("Engine lock poisoned"),
+    };
+
+    let report = engine.inspect_url_with_content(&url_str, liveness_code, body.as_deref());
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => to_c_string(json),
+        Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+    }
+}
+
+fn take_c_bytes(ptr: *const u8, len: usize) -> Option<Vec<u8>> {
+    if len == 0 {
+        return Some(Vec::new());
+    }
+    if ptr.is_null() || len > 256 * 1024 * 1024 {
+        return None;
+    }
+    Some(unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec())
+}
+
+/// Load a tree-model bundle from memory: kind 0=PE, 1=JS, 2=URL, 3=APK (web parity).
+/// Returns 1 on success, 0 on parse failure.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_load_model(kind: u32, data: *const u8, len: usize) -> i32 {
+    let Some(bytes) = take_c_bytes(data, len) else {
+        return 0;
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.load_model(kind, &bytes) as i32
+}
+
+/// Load one compiled YARA `.yrc` bundle (web parity). Returns 1/0.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_load_yara(data: *const u8, len: usize) -> i32 {
+    let Some(bytes) = take_c_bytes(data, len) else {
+        return 0;
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.load_yara(&bytes) as i32
+}
+
+/// Compile one YARA source document (web parity). Returns 1/0.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_load_yara_src(data: *const u8, len: usize) -> i32 {
+    let Some(bytes) = take_c_bytes(data, len) else {
+        return 0;
+    };
+    let text = match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.add_yara_source(&text) as i32
+}
+
+/// Load hydradragonsig string-rule YAML (web parity). Returns rule count or -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_set_string_rules(data: *const u8, len: usize) -> i32 {
+    let Some(bytes) = take_c_bytes(data, len) else {
+        return -1;
+    };
+    let text = match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return -1,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return -1,
+    };
+    engine.set_string_rules(&text)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_set_registry_rules(data: *const u8, len: usize) -> i32 {
+    openedr_static_set_string_rules(data, len)
+}
+
+/// Load BinaryFuse16 URL/domain/IP whitelist (.xf bytes, web parity). Returns 1/0.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_load_url_whitelist(data: *const u8, len: usize) -> i32 {
+    let Some(bytes) = take_c_bytes(data, len) else {
+        return 0;
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.load_url_whitelist(&bytes) as i32
+}
+
+/// Load custom YAML URL threat rules (web parity). Returns rule count or -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_load_url_rules(data: *const u8, len: usize) -> i32 {
+    let Some(bytes) = take_c_bytes(data, len) else {
+        return -1;
+    };
+    let text = match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return -1,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return -1,
+    };
+    match engine.load_url_rules(&text) {
+        Ok(n) => n as i32,
+        Err(_) => -1,
+    }
+}
+
+/// Add a subdomain to the unwhitelist set (web parity). Returns 1/0.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_add_unwhitelisted_subdomain(host: *const c_char) -> i32 {
+    if host.is_null() {
+        return 0;
+    }
+    let host_str = match unsafe { CStr::from_ptr(host) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => return 0,
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.add_unwhitelisted_subdomain(&host_str);
+    1
+}
+
+/// Check if a subdomain is unwhitelisted (web parity). Returns 1/0.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_is_unwhitelisted_subdomain(host: *const c_char) -> i32 {
+    if host.is_null() {
+        return 0;
+    }
+    let host_str = match unsafe { CStr::from_ptr(host) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let engine = match engine_lock.read() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.is_unwhitelisted_subdomain(host_str) as i32
+}
+
+/// APK tree-bundle readiness (web parity: 1 = `apk_trees.bin` loaded).
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_apk_loaded() -> u32 {
+    match get_or_init_engine(None) {
+        Ok(lock) => match lock.read() {
+            Ok(engine) => engine.apk_ml_loaded() as u32,
+            Err(_) => 0,
+        },
+        Err(_) => 0,
     }
 }
 

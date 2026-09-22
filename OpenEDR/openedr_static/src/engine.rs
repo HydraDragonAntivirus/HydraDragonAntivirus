@@ -1,18 +1,33 @@
-use std::collections::HashSet;
 use std::path::Path;
 use std::time::Instant;
 use sha1collisiondetection::Sha1CD;
 use sha2::{Sha256, Digest as Sha256Digest};
 
+use crate::apk;
 use crate::crypto;
 use crate::clam::ClamScanner;
 use crate::hayabusa_scanner::{HayabusaEventMatch, HayabusaScanner};
 use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
 use crate::ml::scanner::MlScanner;
+use crate::pe_strings;
 use crate::ptm_registry::PuaRegistryMatcher;
 use crate::report::{DetectionItem, RegistryCheckReport, SignerDetails, StaticScanReport};
 use crate::signers::{verify_authenticode, SignerDb};
+use crate::string_rules::{self, PeStringRules};
 use crate::yara::YaraScanner;
+
+/// APK tree-model decision threshold. From `apk_trees.meta.json`
+/// (LightGBM 200 trees, valid F1 0.955 / FPR 0.017). Retune on retrain.
+/// Web parity (`openedr_web/src/engine.rs::APK_TREE_THRESHOLD`).
+pub const APK_TREE_THRESHOLD: f32 = 0.8;
+
+/// Canonical EICAR SHA-256 (standard test file). Web had a typo variant;
+/// both are accepted, plus a prefix check so any EICAR build flags.
+const EICAR_SHA256: &str = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
+const EICAR_SHA256_WEB_VARIANT: &str =
+    "275a021bbfb6489e7341ac665a24224100c9e6029d5b2b6150d9933f3a9d541";
+const EICAR_PREFIX: &[u8] =
+    b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
 
 pub struct StaticEngine {
     clam: ClamScanner,
@@ -21,16 +36,31 @@ pub struct StaticEngine {
     signers: SignerDb,
     pua_registry: PuaRegistryMatcher,
     hayabusa: HayabusaScanner,
-    benign_hashes: HashSet<String>,
+    string_rules: PeStringRules,
+    url_whitelist: Option<hydradragonxorfilter::XorFilter>,
+    pub cidr_engine: crate::cidr::CidrEngine,
+    pub url_engine: crate::url_rules::UrlThreatEngine,
+}
+
+fn load_xf_from_candidates(candidates: &[std::path::PathBuf]) -> Option<hydradragonxorfilter::XorFilter> {
+    for p in candidates {
+        if let Ok(bytes) = std::fs::read(p) {
+            if let Some(f) = hydradragonxorfilter::XorFilter::from_bytes(&bytes) {
+                return Some(f);
+            }
+        }
+    }
+    None
 }
 
 impl StaticEngine {
     /// Initialize the static engine using a root directory containing rule subfolders:
     /// - `database/` for ClamAV
     /// - `yara_rules/` for YARA (.yar, .yara, .yrc)
-    /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, *.onnx)
+    /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, apk_trees.bin, *.onnx)
     /// - `signer_rules/` for trusted_signers.yaml, etc.
-    /// - `hash_rules/` for hash whitelists/rules (benign_sha256.txt, etc.)
+    /// - `models/` / `xorfilter_rules/` for `url_whitelist.xf` (BinaryFuse16 URL/domain/IP whitelist)
+    /// - `hydradragonsig_rules/` for hydradragonsig string-rule YAML (in-scan HydraSig layer)
     /// - `ptm.local.src` or `ptm/` for PUA registry patterns
     pub fn init(base_dir: &Path) -> Self {
         let base = base_dir.to_path_buf();
@@ -69,41 +99,41 @@ impl StaticEngine {
         let signers_dir = base.join("signer_rules");
         let signers = SignerDb::load_from_dir(&signers_dir);
         let pua_registry = PuaRegistryMatcher::load(&registry_rules_path);
-        let mut benign_hashes = HashSet::new();
 
-        // Load SHA-256 hash whitelists from hash_rules/
-        let hash_files = [
-            hash_rules_dir.join("benign_sha256.txt"),
-            base.join("hash_rules").join("benign_sha256.txt"),
-            database_dir.join("benign_sha256.txt"),
-        ];
-        for hpath in &hash_files {
-            if let Ok(content) = std::fs::read_to_string(hpath) {
-                for line in content.lines() {
-                    let trimmed = line.trim().to_lowercase();
-                    if trimmed.len() == 64 {
-                        benign_hashes.insert(trimmed);
-                    }
-                }
-            }
-        }
-        if hash_rules_dir.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&hash_rules_dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_file() && p.extension().map_or(false, |ext| ext == "txt" || ext == "hash") {
-                        if let Ok(content) = std::fs::read_to_string(&p) {
-                            for line in content.lines() {
-                                let trimmed = line.trim().to_lowercase();
-                                if trimmed.len() == 64 {
-                                    benign_hashes.insert(trimmed);
-                                }
+        // HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
+        // in-scan with FileType tags (PE/APK gating lives in rule data).
+        let mut string_rules = PeStringRules::default();
+        for dir in [
+            base.join("hydradragonsig_rules"),
+            base.join("rules").join("hydradragonsig"),
+            base.join("yara_rules").join("hydradragonsig_rules"),
+        ] {
+            if dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&dir) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p.is_file()
+                            && p.extension()
+                                .and_then(|e| e.to_str())
+                                .map_or(false, |e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
+                        {
+                            if let Ok(text) = std::fs::read_to_string(&p) {
+                                let _ = string_rules.load_yaml(&text);
                             }
                         }
                     }
                 }
             }
         }
+
+        // URL/domain/IP whitelist (.xf, web parity).
+        let url_whitelist = load_xf_from_candidates(&[
+            base.join("models").join("url_whitelist.xf"),
+            base.join("xorfilter_rules").join("url_whitelist.xf"),
+            hash_rules_dir.join("url_whitelist.xf"),
+            database_dir.join("url_whitelist.xf"),
+        ]);
+
         let hayabusa_dir = if base.join("hayabusa_rules").is_dir() {
             base.join("hayabusa_rules")
         } else if base.join("rules").join("hayabusa").is_dir() {
@@ -120,7 +150,49 @@ impl StaticEngine {
             signers,
             pua_registry,
             hayabusa,
-            benign_hashes,
+            string_rules,
+            url_whitelist,
+            cidr_engine: crate::cidr::CidrEngine::new(),
+            url_engine: crate::url_rules::UrlThreatEngine::new(),
+        }
+    }
+
+    /// Tree-model readiness (web parity: kind 3 = APK).
+    pub fn apk_ml_loaded(&self) -> bool {
+        self.ml.apk_loaded()
+    }
+
+    /// Runtime model load from bytes: kind 0=PE, 1=JS, 2=URL, 3=APK (web parity).
+    pub fn load_model(&mut self, kind: u32, data: &[u8]) -> bool {
+        self.ml.load_model_bytes(kind, data)
+    }
+
+    /// Load one compiled YARA `.yrc` bundle (web parity).
+    pub fn load_yara(&mut self, data: &[u8]) -> bool {
+        self.yara.load_yrc(data)
+    }
+
+    /// Compile one YARA source document (web parity).
+    pub fn add_yara_source(&mut self, src: &str) -> bool {
+        self.yara.add_source(src)
+    }
+
+    /// Load hydradragonsig string-rule YAML (web parity). Returns rule count or -1.
+    pub fn set_string_rules(&mut self, yaml: &str) -> i32 {
+        self.string_rules.load_yaml(yaml)
+    }
+
+    pub fn set_registry_rules(&mut self, yaml: &str) -> i32 {
+        self.set_string_rules(yaml)
+    }
+
+    /// Load BinaryFuse16 URL/domain/IP whitelist (.xf bytes, web parity).
+    pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
+        if let Some(f) = hydradragonxorfilter::XorFilter::from_bytes(data) {
+            self.url_whitelist = Some(f);
+            true
+        } else {
+            false
         }
     }
 
@@ -211,12 +283,13 @@ impl StaticEngine {
             max_score = max_score.max(1.0);
         }
 
-        if self.benign_hashes.contains(&sha256_hex) && !is_sha1_collision && detections.is_empty() {
+        // Empty files scan as Unknown (web parity: never Error).
+        if data.is_empty() {
             return StaticScanReport {
                 target: target_name.to_string(),
                 file_size,
                 sha256: sha256_hex,
-                verdict: "Clean".to_string(),
+                verdict: "Unknown".to_string(),
                 max_threat_score: 0.0,
                 detections: Vec::new(),
                 signer_info: None,
@@ -225,8 +298,11 @@ impl StaticEngine {
             };
         }
 
-        const EICAR_SHA256: &str = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
-        if sha256_hex == EICAR_SHA256 {
+        // 0.1 EICAR (SHA-256 identity + prefix; web had a typo variant — accept both).
+        if sha256_hex == EICAR_SHA256
+            || sha256_hex == EICAR_SHA256_WEB_VARIANT
+            || data.starts_with(EICAR_PREFIX)
+        {
             detections.push(DetectionItem {
                 layer: "Signature".to_string(),
                 name: "EICAR-Test-File".to_string(),
@@ -289,54 +365,189 @@ impl StaticEngine {
             }
         }
 
-        // 3. ClamAV Engine
-        let clam_matches = self.clam.scan_bytes(data, target_name);
-        for m in clam_matches {
-            detections.push(DetectionItem {
-                layer: "ClamAV".to_string(),
-                name: m.name,
-                score: Some(1.0),
-                details: Some(format!("matched view {:?}", m.view)),
-            });
-            max_score = max_score.max(1.0);
-        }
-
-        // 4. YARA-X Engine
-        let yara_matches = self.yara.scan_bytes(data);
-        for y_name in yara_matches {
-            detections.push(DetectionItem {
-                layer: "YARA".to_string(),
-                name: y_name,
-                score: Some(0.95),
-                details: None,
-            });
-            max_score = max_score.max(0.95);
-        }
-
-        // 5. Machine Learning (PE / JS)
-        if data.starts_with(b"MZ") {
-            if let Some(prob) = self.ml.predict_pe(data) {
-                if prob >= 0.71 {
-                    detections.push(DetectionItem {
-                        layer: "PE_ML".to_string(),
-                        name: "MalwareNet.PE.HighConfidence".to_string(),
-                        score: Some(prob),
-                        details: Some(format!("Malware probability: {:.2}%", prob * 100.0)),
-                    });
-                    max_score = max_score.max(prob);
+        // 2a. APK path (web parity): own forest + heuristics + capped YARA/HydraSig.
+        // Runs even without the bundle so APKs never return Error.
+        let is_apk_file = apk::is_apk(data, target_name);
+        if is_apk_file {
+            if let Some(feats) = apk::apk_tree_features(data) {
+                if let Some(prob) = self.ml.predict_apk(&feats) {
+                    if prob >= APK_TREE_THRESHOLD {
+                        detections.push(DetectionItem {
+                            layer: "APK_ML".to_string(),
+                            name: "HydraDragon.APK.TreeScore".to_string(),
+                            score: Some(prob),
+                            details: Some(format!(
+                                "APK tree-model malware probability: {:.2}%",
+                                prob * 100.0
+                            )),
+                        });
+                        max_score = max_score.max(prob);
+                    }
                 }
             }
-        } else if target_name.ends_with(".js") || target_name.ends_with(".mjs") || is_js_content(data) {
-            if let Ok(source) = std::str::from_utf8(data) {
-                if let Some(prob) = self.ml.predict_js(source) {
-                    if prob >= 0.75 {
+            for h in apk::apk_heuristics(data, target_name) {
+                detections.push(DetectionItem {
+                    layer: "APK_Heuristic".to_string(),
+                    name: h.name,
+                    score: Some(h.score),
+                    details: Some(h.details),
+                });
+                max_score = max_score.max(h.score);
+            }
+            // YARA-X over capped manifest+dex bytes (no full-archive OOM).
+            let yara_bytes: Option<Vec<u8>> = apk::yara_input(data);
+            let yara_slice: &[u8] = yara_bytes.as_deref().unwrap_or_else(|| {
+                &data[..data.len().min(8 * 1024 * 1024)]
+            });
+            for name in self.yara.scan_bytes(yara_slice) {
+                detections.push(DetectionItem {
+                    layer: "YARA".to_string(),
+                    name,
+                    score: Some(0.95),
+                    details: None,
+                });
+                max_score = max_score.max(0.95);
+            }
+            // HydraSig over capped APK strings with APK file-type tags.
+            {
+                let raw = apk::apk_strings_capped(data);
+                let strings: Vec<String> = raw
+                    .iter()
+                    .map(|s| string_rules::normalize_text(s))
+                    .collect();
+                for hit in self.string_rules.scan_bytes(
+                    yara_slice,
+                    target_name,
+                    &sha256_hex,
+                    &strings,
+                    false,
+                    true,
+                    10,
+                ) {
+                    let name = if hit.rule.is_empty() {
+                        "HydraSig.Match".to_string()
+                    } else {
+                        hit.rule.clone()
+                    };
+                    let mut details = hit.title.clone();
+                    if let Some(ev) = hit.evidence.first() {
+                        details.push_str(" | ");
+                        details.push_str(&ev.chars().take(120).collect::<String>());
+                    }
+                    let score = hit.score as f32 / 100.0;
+                    detections.push(DetectionItem {
+                        layer: "HydraSig".to_string(),
+                        name,
+                        score: Some(score),
+                        details: Some(details),
+                    });
+                    max_score = max_score.max(score);
+                }
+            }
+        }
+
+        // 3. ClamAV Engine (native-only; skipped for APKs — APKs use YARA/HydraSig/ML above
+        // plus the generic archive rescan below via hydradragonextractor).
+        if !is_apk_file {
+            let clam_matches = self.clam.scan_bytes(data, target_name);
+            for m in clam_matches {
+                detections.push(DetectionItem {
+                    layer: "ClamAV".to_string(),
+                    name: m.name,
+                    score: Some(1.0),
+                    details: Some(format!("matched view {:?}", m.view)),
+                });
+                max_score = max_score.max(1.0);
+            }
+        }
+
+        // 4. YARA-X Engine (capped 32 MB on huge files so giant samples stay panic-free).
+        if !is_apk_file {
+            let slice: &[u8] = if data.len() > 32 * 1024 * 1024 {
+                &data[..32 * 1024 * 1024]
+            } else {
+                data
+            };
+            let yara_matches = self.yara.scan_bytes(slice);
+            for y_name in yara_matches {
+                detections.push(DetectionItem {
+                    layer: "YARA".to_string(),
+                    name: y_name,
+                    score: Some(0.95),
+                    details: None,
+                });
+                max_score = max_score.max(0.95);
+            }
+        }
+
+        // 4b. hydradragonsig string rules, evaluated by ITS engine (web parity).
+        // Executable gating lives in the rules via FileType conditions;
+        // the engine only tags the file (validated PE or not). Strings
+        // capped to first 16 MB so giant files stay panic-free.
+        if !is_apk_file {
+            let is_pe = find_valid_embedded_pe(data) == Some(0);
+            let capped: &[u8] = if data.len() > 16 * 1024 * 1024 {
+                &data[..16 * 1024 * 1024]
+            } else {
+                data
+            };
+            let raw = pe_strings::extract_strings(capped);
+            let strings: Vec<String> =
+                raw.iter().map(|s| string_rules::normalize_text(s)).collect();
+            for hit in
+                self.string_rules
+                    .scan_bytes(data, target_name, &sha256_hex, &strings, is_pe, false, 10)
+            {
+                let name = if hit.rule.is_empty() {
+                    "HydraSig.Match".to_string()
+                } else {
+                    hit.rule.clone()
+                };
+                let mut details = hit.title.clone();
+                if let Some(ev) = hit.evidence.first() {
+                    details.push_str(" | ");
+                    details.push_str(&ev.chars().take(120).collect::<String>());
+                }
+                let score = hit.score as f32 / 100.0;
+                detections.push(DetectionItem {
+                    layer: "HydraSig".to_string(),
+                    name,
+                    score: Some(score),
+                    details: Some(details),
+                });
+                max_score = max_score.max(score);
+            }
+        }
+
+        // 5. Machine Learning (PE / JS) — skipped for APKs (APK forest above).
+        if !is_apk_file {
+            if data.starts_with(b"MZ") {
+                if let Some(prob) = self.ml.predict_pe(data) {
+                    if prob >= 0.71 {
                         detections.push(DetectionItem {
-                            layer: "JS_ML".to_string(),
-                            name: "MalwareNet.JS.HighConfidence".to_string(),
+                            layer: "PE_ML".to_string(),
+                            name: "MalwareNet.PE.HighConfidence".to_string(),
                             score: Some(prob),
                             details: Some(format!("Malware probability: {:.2}%", prob * 100.0)),
                         });
                         max_score = max_score.max(prob);
+                    }
+                }
+            } else if target_name.to_ascii_lowercase().ends_with(".js")
+                || target_name.to_ascii_lowercase().ends_with(".mjs")
+                || is_js_content(data)
+            {
+                if let Ok(source) = std::str::from_utf8(data) {
+                    if let Some(prob) = self.ml.predict_js(source) {
+                        if prob >= 0.75 {
+                            detections.push(DetectionItem {
+                                layer: "JS_ML".to_string(),
+                                name: "MalwareNet.JS.HighConfidence".to_string(),
+                                score: Some(prob),
+                                details: Some(format!("Malware probability: {:.2}%", prob * 100.0)),
+                            });
+                            max_score = max_score.max(prob);
+                        }
                     }
                 }
             }
@@ -388,11 +599,13 @@ impl StaticEngine {
             }
         }
 
-        // 7. Heuristic: Trailing Null Bytes (0x00) File Pumping / Inflation Detection & Stripped Rescan
-        let non_zero_end = data.iter().rposition(|&b| b != 0).map_or(0, |idx| idx + 1);
-        let trailing_zeros = data.len() - non_zero_end;
-        let is_inflated = (trailing_zeros >= 65536)
-            || (data.len() > 1024 * 1024 && trailing_zeros as f64 / data.len() as f64 >= 0.20 && trailing_zeros >= 32768);
+        // 7. Heuristic: Trailing Null Bytes (PE-only — ZIP/APK archives
+        // legitimately pad, web parity skips APKs here).
+        if !is_apk_file {
+            let non_zero_end = data.iter().rposition(|&b| b != 0).map_or(0, |idx| idx + 1);
+            let trailing_zeros = data.len() - non_zero_end;
+            let is_inflated = (trailing_zeros >= 65536)
+                || (data.len() > 1024 * 1024 && trailing_zeros as f64 / data.len() as f64 >= 0.20 && trailing_zeros >= 32768);
 
         if is_inflated && non_zero_end > 0 {
             detections.push(DetectionItem {
@@ -446,6 +659,7 @@ impl StaticEngine {
                     }
                 }
             }
+        }
         }
 
         // 8. Heuristic: PE Overlay Extraction & Embedded Executable Rescan
@@ -711,9 +925,171 @@ impl StaticEngine {
         }
     }
 
-    /// Scan a URL using the ONNX LightGBM tree classifier.
-    pub fn scan_url(&self, raw_url: &str) -> Option<f32> {
+    /// Check whether a host matches CIDR blacklist/whitelist or BinaryFuse16 whitelist.
+    /// Returns (is_whitelisted, is_blacklisted) — web parity.
+    pub fn check_whitelist_blacklist(&self, raw_url: &str) -> (bool, bool) {
+        let mut whitelisted = false;
+        let mut blacklisted = false;
+
+        if let Some(host) = extract_host(raw_url) {
+            // 1. CIDR blacklist (IPv4 & IPv6, embedded .bin tables)
+            if self.cidr_engine.is_blacklisted(host) {
+                blacklisted = true;
+            }
+
+            // 2. CIDR whitelist
+            if !blacklisted && self.cidr_engine.is_whitelisted(host) {
+                whitelisted = true;
+            }
+
+            // 3. BinaryFuse16 exact domain / IP match (+ parent-domain walk)
+            if !blacklisted && !whitelisted {
+                if !self.url_engine.is_unwhitelisted(host) {
+                    if let Some(ref filter) = self.url_whitelist {
+                        if filter.contains(host) {
+                            whitelisted = true;
+                        } else {
+                            let parts: Vec<&str> = host.split('.').collect();
+                            if parts.len() > 2 {
+                                for i in 1..parts.len() - 1 {
+                                    let parent = parts[i..].join(".");
+                                    if filter.contains(&parent) {
+                                        whitelisted = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        (whitelisted, blacklisted)
+    }
+
+    /// URL score via tree model + whitelist/CIDR (web parity).
+    /// Returns (probability, is_malicious, is_whitelisted, is_blacklisted).
+    pub fn scan_url(&self, raw_url: &str) -> (f32, bool, bool, bool) {
+        let (raw_whitelisted, blacklisted) = self.check_whitelist_blacklist(raw_url);
+        let is_webhook_abuse = raw_url.contains("/api/webhooks/")
+            || raw_url.contains("api.telegram.org")
+            || raw_url.contains("/bot");
+
+        let whitelisted = raw_whitelisted && !is_webhook_abuse;
+
+        if blacklisted {
+            return (1.0, true, false, true);
+        }
+
+        if whitelisted {
+            return (0.0, false, true, false);
+        }
+
+        let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
+        (prob, prob >= 0.50, false, false)
+    }
+
+    /// Raw ML-only URL probability (no whitelist/CIDR gating).
+    pub fn predict_url_raw(&self, raw_url: &str) -> Option<f32> {
         self.ml.predict_url(raw_url)
+    }
+
+    /// Full inspection via Rust YAML Threat Engine + optional page content
+    /// (web parity: phishing forms, drainers, webhooks, YARA + JS ML).
+    pub fn inspect_url_with_content(
+        &self,
+        raw_url: &str,
+        liveness_code: i32,
+        page_content: Option<&str>,
+    ) -> crate::url_rules::UrlThreatReport {
+        let (raw_whitelisted, blacklisted) = self.check_whitelist_blacklist(raw_url);
+        let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
+        let mut report = self.url_engine.inspect(
+            raw_url,
+            raw_whitelisted,
+            blacklisted,
+            prob,
+            liveness_code,
+            page_content,
+        );
+
+        if let Some(body) = page_content {
+            // 1. JS ML tree prediction on scripts/content
+            if let Some(js_prob) = self.ml.predict_js(body) {
+                if js_prob >= 0.75 {
+                    report.detections.push(crate::url_rules::UrlRuleHit {
+                        rule_id: "CONTENT_JS_ML_MALWARE".to_string(),
+                        title: "MalwareNet JS Tree Classification".to_string(),
+                        severity: "Malicious".to_string(),
+                        score: (js_prob * 100.0).round() as u32,
+                        details: format!("Page script classified as malicious by tree model: {:.1}%", js_prob * 100.0),
+                    });
+                    report.risk_score = report.risk_score.max((js_prob * 100.0).round() as u32);
+                    report.verdict = "Malicious".to_string();
+                    report.verdict_reason = format!("Content Decision (Malicious): Embedded script identified as malware by JS ML model ({:.1}%).", js_prob * 100.0);
+                }
+            }
+
+            // 2. YARA-X rules on page content
+            let yara_hits = self.yara.scan_bytes(body.as_bytes());
+            for hit in yara_hits {
+                report.detections.push(crate::url_rules::UrlRuleHit {
+                    rule_id: "CONTENT_YARA_SIGNATURE".to_string(),
+                    title: format!("YARA Match: {}", hit),
+                    severity: "Malicious".to_string(),
+                    score: 95,
+                    details: format!("Page content matched YARA rule: {}", hit),
+                });
+                report.risk_score = report.risk_score.max(95);
+                report.verdict = "Malicious".to_string();
+                report.verdict_reason = format!("Content Decision (Malicious): Page content matched YARA signature ({}).", hit);
+            }
+        }
+
+        report
+    }
+
+    /// Full inspection via Rust YAML Threat Engine (no page content).
+    pub fn inspect_url(&self, raw_url: &str, liveness_code: i32) -> crate::url_rules::UrlThreatReport {
+        self.inspect_url_with_content(raw_url, liveness_code, None)
+    }
+
+    /// Load custom YAML threat rules (web parity). Returns count on success.
+    pub fn load_url_rules(&mut self, yaml_str: &str) -> Result<usize, String> {
+        self.url_engine.load_yaml(yaml_str)
+    }
+
+    /// Add a subdomain to the unwhitelist set at runtime (web parity).
+    pub fn add_unwhitelisted_subdomain(&mut self, host: &str) {
+        self.url_engine.add_unwhitelisted_subdomain(host);
+    }
+
+    /// Check if a host/subdomain is unwhitelisted (web parity).
+    pub fn is_unwhitelisted_subdomain(&self, host: &str) -> bool {
+        self.url_engine.is_unwhitelisted(host)
+    }
+}
+
+fn extract_host(raw_url: &str) -> Option<&str> {
+    let mut s = raw_url.trim();
+    if let Some(idx) = s.find("://") {
+        s = &s[idx + 3..];
+    }
+    let host_and_port = s.split(['/', '?', '#']).next()?.trim();
+    if host_and_port.is_empty() {
+        return None;
+    }
+    if host_and_port.starts_with('[') {
+        if let Some(end_bracket) = host_and_port.find(']') {
+            return Some(&host_and_port[..=end_bracket]);
+        }
+    }
+    let host = host_and_port.split(':').next()?.trim();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
     }
 }
 

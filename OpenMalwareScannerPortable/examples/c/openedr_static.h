@@ -43,11 +43,80 @@ OPENEDR_API char* openedr_static_scan_file(const char* file_path);
 OPENEDR_API char* openedr_static_scan_bytes(const uint8_t* data, size_t len, const char* file_name);
 
 /**
- * @brief Scan a URL for phishing or malicious patterns using the LightGBM ONNX model.
+ * @brief Scan a URL for phishing or malicious patterns (web parity: ML + CIDR + BinaryFuse16 whitelist).
  * @param url URL string to analyze.
  * @return JSON-formatted string on the heap. MUST be freed using openedr_static_free_string.
+ *         JSON: { target_url, verdict, malware_probability, is_malicious, whitelisted, blacklisted }.
  */
 OPENEDR_API char* openedr_static_scan_url(const char* url);
+
+/**
+ * @brief Full URL threat inspection via Rust YAML Threat Engine (web parity: web_inspect_url).
+ * @param url URL string to analyze.
+ * @param liveness_code 0=unknown, 1=active, 2=inactive/dead (NXDOMAIN).
+ * @return JSON threat report on the heap. MUST be freed using openedr_static_free_string.
+ */
+OPENEDR_API char* openedr_static_inspect_url(const char* url, int32_t liveness_code);
+
+/**
+ * @brief Full URL + page-content inspection (web parity: web_inspect_url_content).
+ * @param url URL string to analyze.
+ * @param liveness_code 0=unknown, 1=active, 2=inactive/dead.
+ * @param content Optional fetched HTML/JS/DOM text, or NULL.
+ * @return JSON threat report on the heap. MUST be freed using openedr_static_free_string.
+ */
+OPENEDR_API char* openedr_static_inspect_url_content(const char* url, int32_t liveness_code, const char* content);
+
+/**
+ * @brief Load a tree-model bundle from memory: kind 0=PE, 1=JS, 2=URL, 3=APK (web parity).
+ * @return 1 on success, 0 on parse failure.
+ */
+OPENEDR_API int32_t openedr_static_load_model(uint32_t kind, const uint8_t* data, size_t len);
+
+/**
+ * @brief Load one compiled YARA .yrc bundle (web parity). Returns 1/0.
+ */
+OPENEDR_API int32_t openedr_static_load_yara(const uint8_t* data, size_t len);
+
+/**
+ * @brief Compile one YARA source document (web parity). Returns 1/0.
+ */
+OPENEDR_API int32_t openedr_static_load_yara_src(const uint8_t* data, size_t len);
+
+/**
+ * @brief Load hydradragonsig string-rule YAML (web parity). Returns rule count or -1.
+ */
+OPENEDR_API int32_t openedr_static_set_string_rules(const uint8_t* data, size_t len);
+
+/**
+ * @brief Alias of openedr_static_set_string_rules (web parity: web_set_registry_rules).
+ */
+OPENEDR_API int32_t openedr_static_set_registry_rules(const uint8_t* data, size_t len);
+
+/**
+ * @brief Load BinaryFuse16 URL/domain/IP whitelist .xf bytes (web parity). Returns 1/0.
+ */
+OPENEDR_API int32_t openedr_static_load_url_whitelist(const uint8_t* data, size_t len);
+
+/**
+ * @brief Load custom YAML URL threat rules (web parity). Returns rule count or -1.
+ */
+OPENEDR_API int32_t openedr_static_load_url_rules(const uint8_t* data, size_t len);
+
+/**
+ * @brief Add a subdomain to the unwhitelist set (web parity). Returns 1/0.
+ */
+OPENEDR_API int32_t openedr_static_add_unwhitelisted_subdomain(const char* host);
+
+/**
+ * @brief Check if a subdomain is unwhitelisted (web parity). Returns 1/0.
+ */
+OPENEDR_API int32_t openedr_static_is_unwhitelisted_subdomain(const char* host);
+
+/**
+ * @brief APK tree-bundle readiness (web parity: 1 = apk_trees.bin loaded).
+ */
+OPENEDR_API uint32_t openedr_static_apk_loaded(void);
 
 /**
  * @brief Check a registry key path against PUA registry rules.

@@ -29,6 +29,7 @@ hydradragonsig = { path = "../../hydradragonsig", default-features = false }
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
 hydradragonextractor = { path = "../owlyshield_predict/hydradragonextractor" }
 hydradragonunicorn = { path = "../../hydradragonunicorn" }
+hydradragonxorfilter = { path = "../../hydradragonxorfilter" }
 pefile-rs = { path = "../../pefile-rs" }
 hayabusa = { path = "../../hayabusa" }
 evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git", rev = "5c2bc81" }
@@ -36,6 +37,8 @@ nested = "0.1"
 tokio = { version = "1", features = ["rt", "macros"] }
 compact_str = "0.9"
 sha1collisiondetection = "0.3.4"
+# Web parity: APK ZIP inflation (pure-Rust, no OS) + shared BinaryFuse16 .xf
+flate2 = "1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = [

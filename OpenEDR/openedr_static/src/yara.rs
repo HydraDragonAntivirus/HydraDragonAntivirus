@@ -46,7 +46,7 @@ impl YaraScanner {
     }
 
     pub fn scan_bytes(&self, data: &[u8]) -> Vec<String> {
-        if self.rules.is_empty() {
+        if self.rules.is_empty() || data.is_empty() {
             return Vec::new();
         }
 
@@ -65,5 +65,32 @@ impl YaraScanner {
 
     pub fn is_loaded(&self) -> bool {
         !self.rules.is_empty()
+    }
+
+    /// Load one compiled `.yrc` bundle (web parity: same bytes as desktop).
+    /// Returns false when bytes don't parse.
+    pub fn load_yrc(&mut self, data: &[u8]) -> bool {
+        match Rules::deserialize(data) {
+            Ok(r) => {
+                self.rules.push(r);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Compile one `.yar` source document and append it (web parity).
+    /// Returns false on syntax error.
+    pub fn add_source(&mut self, src: &str) -> bool {
+        let mut compiler = Compiler::new();
+        if compiler.add_source(src).is_err() {
+            return false;
+        }
+        self.rules.push(compiler.build());
+        true
+    }
+
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
     }
 }

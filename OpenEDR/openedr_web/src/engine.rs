@@ -141,10 +141,13 @@ impl WebEngine {
             };
         }
 
-        // 0.1 EICAR (SHA-256 identity; SHA-1 retired desktop-wide).
+        // 0.1 EICAR (SHA-256 identity + prefix; canonical hash + legacy variant).
         const EICAR_SHA256: &str =
+            "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
+        const EICAR_SHA256_LEGACY_VARIANT: &str =
             "275a021bbfb6489e7341ac665a24224100c9e6029d5b2b6150d9933f3a9d541";
         if sha256_hex == EICAR_SHA256
+            || sha256_hex == EICAR_SHA256_LEGACY_VARIANT
             || data.starts_with(
                 b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
             )
