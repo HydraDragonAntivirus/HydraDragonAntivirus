@@ -535,11 +535,6 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
-# Legacy heavy benign hash txt (replaced by BinaryFuse16 .xf ~29x smaller:
-# 17 MB txt -> 0.6 MB xf for 259k keys). The .xf files ARE tracked; never
-# commit the .txt source again. Build: cargo run -p xorfilter_writer --release -- benign_sha256.txt benign_sha256.xf
-**/benign_sha256.txt
-
 # ML Cache files
 *.joblib
 url_lgbm_model.*
