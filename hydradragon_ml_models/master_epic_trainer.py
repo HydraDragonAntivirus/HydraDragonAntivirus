@@ -19,11 +19,12 @@ import glob
 import subprocess
 import argparse
 
-MODELS = ["pe", "js", "apk", "coach"]
+MODELS = ["master", "pe", "js", "apk", "coach"]
 
 def get_chunk_stats():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     stats = {
+        "master": glob.glob(os.path.join(base_dir, "cache_chunks_master", "chunk_*.joblib")),
         "pe": glob.glob(os.path.join(base_dir, "cache_chunks_pe", "chunk_pe_*.joblib")),
         "js": glob.glob(os.path.join(base_dir, "cache_chunks_js", "chunk_js_*.joblib")),
         "apk": glob.glob(os.path.join(base_dir, "cache_chunks_apk", "chunk_apk_*.joblib")),
@@ -83,10 +84,19 @@ def run_model(model_name: str, phase: str):
             train_script = os.path.join(base_dir, "train_universal_coach.py")
             subprocess.check_call([python_exe, train_script], cwd=base_dir)
 
+    elif model_name == "master":
+        script = os.path.join(base_dir, "train_master_model.py")
+        cmd = [python_exe, script]
+        if phase == "extract":
+            cmd.append("--extract-only")
+        elif phase == "train":
+            cmd.append("--train-only")
+        subprocess.check_call(cmd, cwd=base_dir)
+
 def parse_args():
     parser = argparse.ArgumentParser(description="HydraDragon Master Multi-Model Epic Trainer")
-    parser.add_argument("--model", type=str, choices=["all", "pe", "js", "apk", "coach"], default="all",
-                        help="Which model pipeline to run (default: all)")
+    parser.add_argument("--model", type=str, choices=["all", "master", "pe", "js", "apk", "coach"], default="master",
+                        help="Which model pipeline to run (default: master)")
     parser.add_argument("--phase", type=str, choices=["all", "extract", "train"], default="all",
                         help="Execution phase (extract to chunks, train from chunks, or all)")
     parser.add_argument("--status", action="store_true", help="Print disk chunk cache status and exit")
