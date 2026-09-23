@@ -872,6 +872,45 @@ namespace {
 		return sFound;
 	}
 
+	// Fire-and-forget PDB prefetch for a process image into the local symbol
+	// cache (see FetchModulePdb). Posted to the pool so event processing never
+	// blocks on network I/O; one fetch per image, repeats are DbgHelp cache hits.
+	static void QueuePdbPrefetch(ThreadPool& pool, const std::string& sImgPath)
+	{
+		if (sImgPath.empty())
+			return;
+		std::wstring wsPath;
+		try
+		{
+			wsPath = string::convertUtf8ToWChar(sImgPath);
+		}
+		catch (...)
+		{
+			return;
+		}
+		if (wsPath.empty())
+			return;
+		static std::mutex s_mtxSeen;
+		static std::unordered_set<std::wstring> s_seen;
+		{
+			std::lock_guard<std::mutex> _g(s_mtxSeen);
+			if (s_seen.size() > 4096)
+				s_seen.clear();
+			if (!s_seen.insert(string::convertToLow(wsPath)).second)
+				return; // already fetched or in flight
+		}
+		pool.run([wsPath]()
+		{
+			try
+			{
+				FetchModulePdb(wsPath, std::wstring());
+			}
+			catch (...)
+			{
+			}
+		});
+	}
+
 	static BOOL CALLBACK ReadProcMemRoutine(HANDLE hProc, DWORD64 nBase, PVOID pBuf, DWORD nSize, LPDWORD pnRead)
 	{
 		SIZE_T nGot = 0;
@@ -2401,6 +2440,9 @@ void EventEnricher::put(const Variant& vEventRef)
 		}
 
 		vEvent.put("process", enrichedProcessInfo);
+
+		// Best-effort PDB warm-up for the offline symbol pipe; async, never blocks.
+		QueuePdbPrefetch(m_threadPool, sImgPath);
 
 		const std::wstring cmdLine = enrichedProcessInfo["cmdLine"];
 		if (containsInterpetatorCmd(cmdLine))
