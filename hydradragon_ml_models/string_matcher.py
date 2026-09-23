@@ -99,11 +99,13 @@ class UniversalStringMatcher:
                 ben_words = cached["ben_words"]
                 
                 for idx, w in enumerate(mal_words):
-                    self.automaton_mal.add_word(w, (idx, w))
+                    w_str = w.decode("latin1") if isinstance(w, bytes) else str(w)
+                    self.automaton_mal.add_word(w_str, (idx, w))
                 self.automaton_mal.make_automaton()
                 
                 for idx, w in enumerate(ben_words):
-                    self.automaton_ben.add_word(w, (idx, w))
+                    w_str = w.decode("latin1") if isinstance(w, bytes) else str(w)
+                    self.automaton_ben.add_word(w_str, (idx, w))
                 self.automaton_ben.make_automaton()
                 
                 self.is_loaded = True
@@ -115,17 +117,32 @@ class UniversalStringMatcher:
         self._build_automata()
 
     def _build_automata(self):
-        print("[*] Compiling Universal Malicious & Benign String Corpi from ClamAV & yarGen pools...")
+        print("[*] Compiling Universal Malicious & Benign String Corpi from ClamAV, yarGen, PE, JS, and APK datasets...")
         mal_words: Set[bytes] = set()
         ben_words: Set[bytes] = set()
+
+        # Helper to harvest strings from files
+        def harvest_file_strings(fpath: str, max_strings: int = 100) -> Set[bytes]:
+            found = set()
+            try:
+                with open(fpath, "rb") as f:
+                    content = f.read(512 * 1024)
+                for s in RE_ASCII_STRINGS.findall(content):
+                    if 6 <= len(s) <= 48 and not s.isdigit():
+                        found.add(s.lower())
+                        if len(found) >= max_strings:
+                            break
+            except Exception:
+                pass
+            return found
 
         # 1. Benign Core Strings (yarGen / Goodware)
         for s in BENIGN_CORE_STRINGS:
             ben_words.add(s.lower())
 
-        # 2. Benign Domains and Whitelist from website_dir
+        # 2. Benign Domains and Whitelists (CSV only)
         if os.path.exists(self.website_dir):
-            wl_files = ["WhiteListDomains.csv", "BenignIPs.txt", "ALLOW_IPV4.txt"]
+            wl_files = ["WhiteListDomains.csv", "WhiteListIPv4.csv", "DomainsPopularityWhiteList.csv"]
             for fname in wl_files:
                 fpath = os.path.join(self.website_dir, fname)
                 if os.path.isfile(fpath):
@@ -137,7 +154,42 @@ class UniversalStringMatcher:
                             if len(item) >= 4 and not item.startswith("#"):
                                 ben_words.add(item.encode("utf-8", "ignore"))
 
-        # 3. Malicious Strings from ClamAV Database
+        # 3. Harvest Strings from PE, JS, and APK Datasets
+        dataset_harvest = [
+            (r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2", ben_words, 400),
+            (r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder", mal_words, 400),
+            (r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign", ben_words, 300),
+            (r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware", mal_words, 300),
+        ]
+        for src_dir, target_set, file_limit in dataset_harvest:
+            if os.path.exists(src_dir):
+                count = 0
+                for r, _, fns in os.walk(src_dir):
+                    for fn in fns:
+                        p = os.path.join(r, fn)
+                        target_set.update(harvest_file_strings(p))
+                        count += 1
+                        if count >= file_limit:
+                            break
+                    if count >= file_limit:
+                        break
+
+        # 4. JS Dataset Strings
+        js_dir = r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript"
+        if os.path.exists(js_dir):
+            count = 0
+            for r, _, fns in os.walk(js_dir):
+                is_m = "mal" in r.lower() or "virus" in r.lower()
+                target_set = mal_words if is_m else ben_words
+                for fn in fns:
+                    target_set.update(harvest_file_strings(os.path.join(r, fn)))
+                    count += 1
+                    if count >= 400:
+                        break
+                if count >= 400:
+                    break
+
+        # 5. Malicious Strings from ClamAV Database
         if os.path.exists(self.clamav_dir):
             ndb_files = glob.glob(os.path.join(self.clamav_dir, "*.ndb"))
             ldb_files = glob.glob(os.path.join(self.clamav_dir, "*.ldb"))
@@ -146,12 +198,11 @@ class UniversalStringMatcher:
                 try:
                     with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
                         for i, line in enumerate(f):
-                            if i > 5000:  # Cap per file for fast initialization and low RAM
+                            if i > 5000:
                                 break
                             parts = line.strip().split(":")
                             if len(parts) >= 4:
                                 hex_cand = parts[3].strip()
-                                # Clean hex wildcards
                                 clean_hex = re.sub(r"[\*\(\)\{\}\-\?]", "", hex_cand)
                                 if len(clean_hex) >= 8 and len(clean_hex) % 2 == 0:
                                     try:
@@ -163,7 +214,7 @@ class UniversalStringMatcher:
                 except Exception:
                     pass
 
-        # 4. Filter collisions: Whitelist always wins!
+        # 6. Filter collisions: Whitelist always wins!
         mal_words = {w for w in mal_words if w not in ben_words and len(w) >= 4}
         ben_words = {w for w in ben_words if len(w) >= 4}
 
@@ -172,14 +223,16 @@ class UniversalStringMatcher:
         # Build Automata using latin1 1-to-1 byte mapping
         for idx, w in enumerate(mal_words):
             try:
-                self.automaton_mal.add_word(w.decode("latin1"), (idx, w))
+                w_str = w.decode("latin1") if isinstance(w, bytes) else str(w)
+                self.automaton_mal.add_word(w_str, (idx, w))
             except Exception:
                 pass
         self.automaton_mal.make_automaton()
 
         for idx, w in enumerate(ben_words):
             try:
-                self.automaton_ben.add_word(w.decode("latin1"), (idx, w))
+                w_str = w.decode("latin1") if isinstance(w, bytes) else str(w)
+                self.automaton_ben.add_word(w_str, (idx, w))
             except Exception:
                 pass
         self.automaton_ben.make_automaton()

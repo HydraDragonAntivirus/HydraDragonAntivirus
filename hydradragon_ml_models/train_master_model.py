@@ -88,11 +88,17 @@ def extract_master_features_from_file(file_path: str, entity_type: str = "generi
     except Exception:
         return None
 
+def _worker_extract_file(item: Tuple[str, str]) -> Optional[List[float]]:
+    fp, entity_type = item
+    return extract_master_features_from_file(fp, entity_type)
+
 def extract_chunks_for_domain(file_list: List[str], entity_type: str, label_name: str, label_val: int,
-                              chunk_dir: str, chunk_size: int = 2000):
+                              chunk_dir: str, chunk_size: int = 2000, workers: int = None):
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    workers = workers or min(os.cpu_count() or 4, 8)
     os.makedirs(chunk_dir, exist_ok=True)
     total_files = len(file_list)
-    print(f"[*] Extracting [{entity_type.upper()}] {label_name} ({total_files} files) into chunks of {chunk_size}...")
+    print(f"\n[*] Extracting [{entity_type.upper()}] {label_name} ({total_files:,} files) with {workers} parallel workers...")
 
     chunk_idx = 0
     total_valid = 0
@@ -102,26 +108,38 @@ def extract_chunks_for_domain(file_list: List[str], entity_type: str, label_name
         chunk_path = os.path.join(chunk_dir, f"chunk_{entity_type}_{label_name.lower()}_{chunk_idx:04d}.joblib")
 
         if os.path.exists(chunk_path):
+            print(f"  [>] Chunk {chunk_idx:04d} already cached ({chunk_path}), skipping.")
             chunk_idx += 1
             continue
 
         feats = []
-        for fp in chunk_files:
-            res = extract_master_features_from_file(fp, entity_type)
-            if res is not None:
-                feats.append(res)
+        batch_args = [(fp, entity_type) for fp in chunk_files]
+        done_count = 0
+        total_in_chunk = len(chunk_files)
+
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_worker_extract_file, arg) for arg in batch_args]
+            for fut in as_completed(futures):
+                done_count += 1
+                if done_count % 250 == 0 or done_count == total_in_chunk:
+                    pct = (done_count / total_in_chunk) * 100.0
+                    print(f"    -> Chunk {chunk_idx:04d} Progress [{entity_type.upper()}-{label_name}]: {done_count}/{total_in_chunk} ({pct:.1f}%) | Valid: {len(feats)}")
+                res = fut.result()
+                if res is not None:
+                    feats.append(res)
 
         if feats:
             X_chunk = np.array(feats, dtype=np.float32)
             y_chunk = np.full(len(feats), label_val, dtype=np.int32)
             joblib.dump({"X": X_chunk, "y": y_chunk, "type": entity_type}, chunk_path, compress=3)
             total_valid += len(feats)
-            print(f"  [+] Saved {chunk_path}: {len(feats)} samples ({min(i + chunk_size, total_files)}/{total_files})")
+            print(f"  [+] Saved {chunk_path}: {len(feats)} samples (Total Valid: {total_valid:,})")
 
         del feats
         gc.collect()
         chunk_idx += 1
 
+    print(f"[+] Total [{entity_type.upper()}-{label_name}] samples extracted: {total_valid:,}")
     return total_valid
 
 def load_all_master_chunks_stratified(chunk_dir: str):
