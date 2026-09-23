@@ -412,49 +412,146 @@ def collect_js_features(file_list: List[str], workers: int, label_name: str):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train LightGBM JS Model and Export to ONNX")
-    parser.add_argument("--malicious", type=str, required=True, help="Directory of malicious JS files")
-    parser.add_argument("--benign", type=str, required=True, help="Directory of benign JS files")
+    parser.add_argument("--malicious", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\malicious", help="Directory of malicious JS files")
+    parser.add_argument("--benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\benign", help="Directory of benign JS files")
+    parser.add_argument("--js-dir", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript", help="Root JS directory if organized by folders")
     parser.add_argument("--output-onnx", type=str, default="js_model.onnx", help="Output ONNX model path")
     parser.add_argument("--max-samples-per-class", type=int, default=50000, help="Max samples to scan from each class")
-    parser.add_argument("--cache-file", type=str, default="js_features_cache.joblib", help="Cache extracted features")
-    parser.add_argument("--workers", type=int, default=os.cpu_count() or 8, help="Feature extraction threads")
+    parser.add_argument("--cache-file", type=str, default=None, help="Legacy single-file cache (joblib)")
+    parser.add_argument("--chunk-dir", type=str, default="cache_chunks_js", help="Directory to store JS feature chunks")
+    parser.add_argument("--chunk-size", type=int, default=3000, help="Number of files per disk chunk to avoid RAM blowup")
+    parser.add_argument("--workers", type=int, default=os.cpu_count() or 6, help="Feature extraction threads")
+    parser.add_argument("--extract-only", action="store_true", help="Only extract chunks to disk, do not train")
+    parser.add_argument("--train-only", action="store_true", help="Only train from existing chunk directory")
     return parser.parse_args()
+
+def collect_js_batch(file_batch: List[str], workers: int):
+    features = []
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(extract_js_features_from_file, p): p for p in file_batch}
+        for future in as_completed(futures):
+            res = future.result()
+            if res is not None:
+                features.append(res)
+    return features
+
+def extract_js_chunks_to_disk(file_list: List[str], workers: int, label_name: str, label_val: int, chunk_dir: str, chunk_size: int):
+    os.makedirs(chunk_dir, exist_ok=True)
+    total_files = len(file_list)
+    print(f"[*] Extracting {label_name} JS ({total_files} files) into chunks of {chunk_size} to {chunk_dir}...")
+    
+    chunk_idx = 0
+    total_valid = 0
+    
+    for i in range(0, total_files, chunk_size):
+        chunk_files = file_list[i : i + chunk_size]
+        chunk_path = os.path.join(chunk_dir, f"chunk_js_{label_name.lower()}_{chunk_idx:04d}.joblib")
+        
+        if os.path.exists(chunk_path):
+            print(f"  [>] Chunk {chunk_idx:04d} already exists on disk, skipping.")
+            chunk_idx += 1
+            continue
+            
+        feats = collect_js_batch(chunk_files, workers)
+        if feats:
+            X_chunk = np.array(feats, dtype=np.float32)
+            y_chunk = np.full(len(feats), label_val, dtype=np.int32)
+            joblib.dump({"X": X_chunk, "y": y_chunk}, chunk_path, compress=3)
+            total_valid += len(feats)
+            print(f"  [+] Saved {chunk_path}: {len(feats)} valid samples (Processed {min(i + chunk_size, total_files)}/{total_files})")
+        else:
+            print(f"  [-] Chunk {chunk_idx:04d} had 0 valid JS samples.")
+            
+        del feats
+        import gc
+        gc.collect()
+        chunk_idx += 1
+        
+    print(f"[+] Total {label_name} JS samples extracted: {total_valid}")
+    return total_valid
+
+def load_js_chunks_balanced(chunk_dir: str):
+    import glob
+    chunk_files = glob.glob(os.path.join(chunk_dir, "chunk_js_*.joblib"))
+    if not chunk_files:
+        raise RuntimeError(f"No JS chunk files found in {chunk_dir}")
+        
+    print(f"[*] Found {len(chunk_files)} chunk files in {chunk_dir}. Loading and balancing 50/50...")
+    X_mal_list, X_ben_list = [], []
+    
+    for cf in chunk_files:
+        data = joblib.load(cf)
+        X_sub = data["X"]
+        y_sub = data["y"]
+        if y_sub[0] == 1:
+            X_mal_list.append(X_sub)
+        else:
+            X_ben_list.append(X_sub)
+            
+    if not X_mal_list or not X_ben_list:
+        raise RuntimeError(f"Need both Malicious and Benign chunks in {chunk_dir} to train!")
+        
+    X_mal = np.vstack(X_mal_list)
+    X_ben = np.vstack(X_ben_list)
+    
+    n_mal = len(X_mal)
+    n_ben = len(X_ben)
+    target_each = min(n_mal, n_ben)
+    print(f"[*] Raw counts: {n_mal} Malicious, {n_ben} Benign -> Balancing to {target_each} each (50/50)")
+    
+    np.random.seed(42)
+    idx_mal = np.random.choice(n_mal, target_each, replace=False)
+    idx_ben = np.random.choice(n_ben, target_each, replace=False)
+    
+    X = np.vstack([X_mal[idx_mal], X_ben[idx_ben]])
+    y = np.array([1] * target_each + [0] * target_each, dtype=np.int32)
+    
+    del X_mal, X_ben, X_mal_list, X_ben_list
+    import gc
+    gc.collect()
+    
+    print(f"[+] Loaded perfectly balanced JS dataset: {len(X)} samples ({target_each} Malicious, {target_each} Benign)")
+    return X, y
 
 def main():
     args = parse_args()
     print("=" * 65)
     print(" HydraDragon Antivirus - High Precision JS LightGBM Trainer ")
+    print(" (Out-of-Core Low RAM Chunked Engine) ")
     print("=" * 65)
 
-    if args.cache_file and os.path.exists(args.cache_file):
-        print(f"[*] Loading cached JS features from {args.cache_file}...")
-        cached_data = joblib.load(args.cache_file)
-        X = cached_data["X"]
-        y = cached_data["y"]
-        print(f"[+] Loaded {len(X)} cached samples ({np.sum(y == 1)} Malicious, {np.sum(y == 0)} Benign)")
-    else:
-        mal_files = find_js_files(args.malicious, args.max_samples_per_class)
-        ben_files = find_js_files(args.benign, args.max_samples_per_class)
+    if not args.train_only:
+        mal_files, ben_files = [], []
+        if os.path.exists(args.malicious) and os.path.exists(args.benign):
+            mal_files = find_js_files(args.malicious, args.max_samples_per_class)
+            ben_files = find_js_files(args.benign, args.max_samples_per_class)
+        elif os.path.exists(args.js_dir):
+            for root, _, filenames in os.walk(args.js_dir):
+                r_low = root.lower()
+                is_mal = "malware" in r_low or "malicious" in r_low or "virus" in r_low or "obfuscated" in r_low
+                for f in filenames:
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in (".js", ".jse", ".vbs", ".html", ".htm", ".txt", ""):
+                        full_p = os.path.join(root, f)
+                        if is_mal and len(mal_files) < args.max_samples_per_class:
+                            mal_files.append(full_p)
+                        elif not is_mal and len(ben_files) < args.max_samples_per_class:
+                            ben_files.append(full_p)
+                            
+        print(f"[+] Discovered {len(mal_files)} malicious JS and {len(ben_files)} benign JS files.")
+        extract_js_chunks_to_disk(mal_files, args.workers, "MALICIOUS", 1, args.chunk_dir, args.chunk_size)
+        extract_js_chunks_to_disk(ben_files, args.workers, "BENIGN", 0, args.chunk_dir, args.chunk_size)
 
-        X_mal = collect_js_features(mal_files, args.workers, "MALICIOUS")
-        X_ben = collect_js_features(ben_files, args.workers, "BENIGN")
+    if args.extract_only:
+        print("[+] Feature extraction finished. Exiting as --extract-only was specified.")
+        return
 
-        if not X_mal or not X_ben:
-            print("[!] Error: Not enough valid JS samples.")
-            sys.exit(1)
-
-        X = np.array(X_mal + X_ben, dtype=np.float32)
-        y = np.array([1] * len(X_mal) + [0] * len(X_ben), dtype=np.int32)
-
-        if args.cache_file:
-            print(f"[*] Caching extracted JS features to {args.cache_file}...")
-            joblib.dump({"X": X, "y": y}, args.cache_file, compress=3)
-            print(f"[+] Cache saved successfully.")
+    X, y = load_js_chunks_balanced(args.chunk_dir)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
     print(f"[*] Train set: {len(X_train)} | Test set: {len(X_test)}")
 
-    print("[*] Training LightGBM Classifier (with class balancing & zero false-positive tuning)...")
+    print("[*] Training LightGBM Classifier (Balanced 50/50, zero false-positive tuning)...")
     clf = lgb.LGBMClassifier(
         n_estimators=400,
         learning_rate=0.03,
@@ -463,7 +560,7 @@ def main():
         min_child_samples=30,
         subsample=0.85,
         colsample_bytree=0.85,
-        scale_pos_weight=1.2,
+        scale_pos_weight=1.0,
         random_state=42,
         n_jobs=-1
     )
@@ -475,8 +572,8 @@ def main():
     print(classification_report(y_test, y_pred, target_names=["Benign", "Malicious"], digits=4))
     cm = confusion_matrix(y_test, y_pred)
     tn, fp, fn, tp = cm.ravel()
-    fpr = fp / (fp + tn) * 100.0
-    recall = tp / (tp + fn) * 100.0
+    fpr = fp / (fp + tn) * 100.0 if (fp + tn) > 0 else 0.0
+    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
     print(f"Confusion Matrix: TP={tp}, FN={fn}, TN={tn}, FP={fp}")
     print(f"JS Malware Recall (Detection Rate): {recall:.2f}%")
     print(f"False Positive Rate (FPR):          {fpr:.2f}%")
