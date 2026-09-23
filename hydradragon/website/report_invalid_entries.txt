@@ -1,40 +1,40 @@
-Invalid Entries Report - 2025-11-26 20:29
+Invalid Entries Report - 2026-09-23 23:20
 ============================================================
 The following entries were ignored due to validation errors.
 
-- Source: IPv4Malware.csv
-  Entry : 'entry'
-  Reason: Domain must have at least a TLD (e.g., 'example.com')
+- Source: BenignIPs.txt
+  Entry : '96.78.321.64'
+  Reason: Invalid IP format
 
-- Source: MalwareDomains.csv
-  Entry : 'entry'
-  Reason: Domain must have at least a TLD (e.g., 'example.com')
+- Source: BenignIPs.txt
+  Entry : '201.134.006.202'
+  Reason: Invalid IP format
 
-- Source: MalwareSubDomains.csv
-  Entry : 'entry'
-  Reason: Domain must have at least a TLD (e.g., 'example.com')
+- Source: BenignIPs.txt
+  Entry : '229.219.327.72'
+  Reason: Invalid IP format
 
-- Source: PYAS_Rules_B1.txt
-  Entry : '127.0.0.2'
-  Reason: Invalid format
+- Source: BenignIPs.txt
+  Entry : '216.032.66.236'
+  Reason: Invalid IP format
 
-- Source: PYAS_Rules_B1.txt
-  Entry : '172.20.3.2'
-  Reason: Invalid format
+- Source: BenignIPs.txt
+  Entry : '216.32.066.236'
+  Reason: Invalid IP format
 
-- Source: PYAS_Rules_B1.txt
-  Entry : '192.168.126.128'
-  Reason: Invalid format
+- Source: BenignIPs.txt
+  Entry : '85.184.04.06'
+  Reason: Invalid IP format
 
-- Source: PYAS_Rules_B1.txt
-  Entry : '192.168.43.18'
-  Reason: Invalid format
+- Source: BenignIPs.txt
+  Entry : '72.21.057.83'
+  Reason: Invalid IP format
 
-- Source: PYAS_Rules_B1.txt
-  Entry : '192.168.60.46'
-  Reason: Invalid format
+- Source: BenignIPs.txt
+  Entry : '84.288.199.61'
+  Reason: Invalid IP format
 
-- Source: WhiteListIPv4.csv
-  Entry : 'entry'
-  Reason: Domain must have at least a TLD (e.g., 'example.com')
+- Source: BenignIPs.txt
+  Entry : '209.35.87.06'
+  Reason: Invalid IP format
 

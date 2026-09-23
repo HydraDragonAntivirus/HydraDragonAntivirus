@@ -353,4 +353,101 @@ pub extern "C" fn owlyshield_update_process_verdict(pid: u32, verdict: u8) -> i3
 // verdicts with openedr_static.dll now. This DLL keeps daemon/ML-ingest,
 // firewall, quarantine, and signer services.
 
+/// URL-string scanner for external callers (e.g. the Pascal GUI).
+///
+/// Splits raw UTF-8 text (pasted URLs, string dumps, file text) into
+/// URL-like tokens and scores each with the URL ML model
+/// (`URL_ML_DETECTION_THRESHOLD`, same as the firewall path).
+/// Verdict is Malicious iff any token hits, else Unknown (never Clean:
+/// an unscored URL is unknown, not safe).
+/// JSON out via the quarantine_list convention: null buffer (or 0 length)
+/// returns the needed size.
+/// `{"scanned":n,"model_loaded":b,"malicious_count":m,
+///   "worst_probability":f,"verdict":"Malicious|Unknown",
+///   "findings":[{"url","probability","malicious"}]}` (findings capped).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn owlyshield_scan_url_strings(
+    data: *const u8,
+    len: u32,
+    out_buf: *mut u8,
+    buf_len: u32,
+) -> u32 {
+    let json = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scan_url_strings_impl(data, len)
+    }))
+    .unwrap_or_else(|_| {
+        serde_json::json!({"error": true, "message": "panic during URL scan"}).to_string()
+    });
+    crate::windows::quarantine::write_json_out(&json, out_buf, buf_len)
+}
+
+fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
+    const MAX_INPUT: u32 = 64 * 1024 * 1024;
+    const MAX_TOKENS: usize = 5000;
+    const MAX_TOKEN_LEN: usize = 2048;
+    const MAX_FINDINGS: usize = 100;
+
+    if data.is_null() || len == 0 || len > MAX_INPUT {
+        return serde_json::json!({"error": true, "message": "null/empty/oversize input"})
+            .to_string();
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
+    let text = String::from_utf8_lossy(bytes);
+
+    let mut seen = std::collections::HashSet::new();
+    let mut tokens: Vec<String> = Vec::new();
+    for raw in text.split(|c: char| {
+        c.is_whitespace() || c.is_control() || "<>\"'|,;()[]{}".contains(c)
+    }) {
+        if tokens.len() >= MAX_TOKENS {
+            break;
+        }
+        let t = raw.trim_matches(|c: char| c.is_whitespace() || "().,;:!?\"'".contains(c));
+        if t.len() < 4 || t.len() > MAX_TOKEN_LEN || !t.contains('.') {
+            continue;
+        }
+        if !seen.insert(t.to_ascii_lowercase()) {
+            continue;
+        }
+        tokens.push(t.to_string());
+    }
+
+    if !crate::ml::url_predict::model_loaded() {
+        return serde_json::json!({"error": true, "message": "url_model.bin not loaded"})
+            .to_string();
+    }
+
+    let mut worst = 0.0f32;
+    let mut exact_malicious = 0usize;
+    let mut findings = Vec::new();
+    for tok in &tokens {
+        if let Some((prob, _)) = crate::ml::url_predict::scan_url(tok) {
+            worst = worst.max(prob);
+            exact_malicious += 1;
+            if findings.len() < MAX_FINDINGS {
+                findings.push(serde_json::json!({
+                    "url": tok,
+                    "probability": prob,
+                    "malicious": true,
+                }));
+            }
+        }
+    }
+
+    Logging::info(&format!(
+        "[Owlyshield FFI] URL-string scan: {} tokens, {} malicious",
+        tokens.len(),
+        exact_malicious
+    ));
+    serde_json::json!({
+        "scanned": tokens.len(),
+        "model_loaded": true,
+        "malicious_count": exact_malicious,
+        "worst_probability": worst,
+        "verdict": if exact_malicious > 0 { "Malicious" } else { "Unknown" },
+        "findings": findings,
+    })
+    .to_string()
+}
+
 

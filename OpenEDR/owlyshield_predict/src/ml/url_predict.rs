@@ -380,6 +380,12 @@ pub fn scan_url(raw_url: &str) -> Option<(f32, HashMap<String, f32>)> {
     }
 }
 
+/// True when url_model.bin resolved from a standard path (cheap, cached).
+/// Lets FFI callers distinguish "model missing" from "nothing malicious".
+pub fn model_loaded() -> bool {
+    get_url_model().is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

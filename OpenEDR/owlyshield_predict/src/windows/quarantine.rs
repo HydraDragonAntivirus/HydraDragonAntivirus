@@ -675,7 +675,7 @@ fn utf16_str(ptr: *const u16, len: u32) -> Option<String> {
     Some(String::from_utf16_lossy(slice))
 }
 
-fn write_json_out(json: &str, out_buf: *mut u8, buf_len: u32) -> u32 {
+pub(crate) fn write_json_out(json: &str, out_buf: *mut u8, buf_len: u32) -> u32 {
     let bytes = json.as_bytes();
     if out_buf.is_null() || buf_len == 0 {
         return bytes.len() as u32;

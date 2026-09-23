@@ -1,2 +1,10 @@
 *.optimized.csv
 ref_out/
+# derived filter outputs (popular_unknown_malicious.py) - never commit
+*_new.csv
+*_new.stats.txt
+*_popular.csv
+*_malicious.csv
+*_unknown.csv
+*_skipped_ips.csv
+*_active_sites.txt
