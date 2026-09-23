@@ -3,10 +3,11 @@
 HydraDragon Network Security - URL, Domain & IP ML Trainer (Zero-Day Engine)
 Extracts 32 lexical, entropy, path, and query features from raw URLs, domains, and IPs.
 
-Uses EXCLUSIVELY the security intelligence lists managed by `phishingormalware.py`:
+Uses EXCLUSIVELY the full security intelligence lists managed by `phishingormalware.py` in `hydradragon/website/`:
   - Benign Whitelist (Label 0):
       Domains: DomainsPopularityWhiteList.csv, SubDomainsPopularityWhiteList.csv,
-               WhiteListDomains.csv, WhiteListSubDomains.csv, BenignMailDomains.csv
+               WhiteListDomains.csv, WhiteListSubDomains.csv, BenignMailDomains.csv,
+               BenignMailSubDomains.csv, BenignDomains.txt
       IPs:     BenignIPs.txt, WhiteListIPv4.csv, WhiteListIPv6.csv
   - Malicious Blacklist (Label 1):
       Domains: MalwareDomains.csv, MalwareSubDomains.csv, PhishingDomains.csv,
@@ -16,7 +17,7 @@ Uses EXCLUSIVELY the security intelligence lists managed by `phishingormalware.p
       IPs:     IPv4Malware.csv, IPv4PhishingActive.csv, IPv4Spam.csv,
                IPv4BruteForce.csv, IPv4DDoS.csv, IPv6Malware.csv, IPv6Spam.csv, IPv6DDoS.csv
 
-Class balance: Strictly 50% Benign (0) / 50% Malicious (1).
+Class balance: Strictly 50% Benign (0) / 50% Malicious (1) across the entire dataset.
 Trains a high-speed LightGBM classifier and exports to ONNX (url_model.onnx) for OpenEDR.
 """
 
@@ -26,6 +27,7 @@ import re
 import math
 import csv
 import argparse
+import random
 from collections import Counter
 from typing import Optional, List, Tuple, Set
 from urllib.parse import urlparse, parse_qs
@@ -207,96 +209,60 @@ def extract_url_features(raw_url: str) -> List[float]:
     ]
 
 
-def load_phishingormalware_dataset(website_dir: str, total_samples: int = 100000) -> Tuple[np.ndarray, np.ndarray]:
+def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) -> Tuple[np.ndarray, np.ndarray]:
     """
     Loads samples ONLY from the lists used by phishingormalware.py in hydradragon/website/.
+    If max_samples == 0, loads ALL entries from all files.
     Ensures EXACT 50% Benign (0) and 50% Malicious (1).
-    Balancing both Domains and IPs.
     """
-    limit_per_class = total_samples // 2
-    domain_quota = limit_per_class // 2
-    ip_quota = limit_per_class - domain_quota
-
     print("=" * 68)
-    print(f"[*] Loading dataset from phishingormalware.py lists in: {website_dir}")
-    print(f"    Target Total: {total_samples:,} (50% Benign: {limit_per_class:,}, 50% Malicious: {limit_per_class:,})")
-    print(f"    Per-class target: ~{domain_quota:,} Domains + ~{ip_quota:,} IPs")
+    print(f"[*] Reading FULL dataset from phishingormalware.py lists in: {website_dir}")
+    if max_samples > 0:
+        print(f"    Cap target: {max_samples:,} ({max_samples//2:,} Benign, {max_samples//2:,} Malicious)")
+    else:
+        print("    Mode: ALL DATA (no sample limits, full 50/50 balance)")
     print("=" * 68)
 
-    # ---- 1. Collect Benign Whitelists for Filtering & Samples ----
-    benign_domains: Set[str] = set()
-    benign_ips: Set[str] = set()
+    # ---- 1. Collect ALL Benign Items ----
+    benign_items: Set[str] = set()
 
-    # Benign IPs (BenignIPs.txt, WhiteListIPv4.csv, WhiteListIPv6.csv)
     benign_ip_files = ["BenignIPs.txt", "WhiteListIPv4.csv", "WhiteListIPv6.csv"]
     for fname in benign_ip_files:
         fpath = os.path.join(website_dir, fname)
         if not os.path.isfile(fpath):
             continue
-        print(f"  [+] Reading Benign IPs from: {fname}...")
+        print(f"  [+] Loading Benign IPs from: {fname}...")
         with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
             for line in fh:
                 ip_cand = line.split(",")[0].strip()
                 if ip_cand and not ip_cand.startswith("#") and ip_cand != "entry" and "/" not in ip_cand:
-                    benign_ips.add(ip_cand)
-                if len(benign_ips) >= ip_quota * 3:
-                    break
+                    benign_items.add(ip_cand)
 
-    # Benign Domains
     benign_domain_files = [
         "WhiteListDomains.csv",
         "WhiteListSubDomains.csv",
         "BenignMailDomains.csv",
         "BenignMailSubDomains.csv",
+        "BenignDomains.txt",
         "DomainsPopularityWhiteList.csv",
     ]
     for fname in benign_domain_files:
         fpath = os.path.join(website_dir, fname)
         if not os.path.isfile(fpath):
             continue
-        print(f"  [+] Reading Benign Domains from: {fname}...")
+        print(f"  [+] Loading Benign Domains from: {fname}...")
         with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
             for line in fh:
                 d = line.split(",")[0].strip().lower()
-                if d and d != "domain" and d != "entry" and "." in d:
-                    benign_domains.add(d)
-                if len(benign_domains) >= domain_quota * 3:
-                    break
+                if d and d != "domain" and d != "entry" and "." in d and not d.startswith("#"):
+                    benign_items.add(d)
 
-    # Extract Benign Feature Vectors
-    X: List[List[float]] = []
-    y: List[int] = []
+    print(f"[+] Total unique benign entries collected: {len(benign_items):,}")
 
-    count_ben_dom = 0
-    for d in benign_domains:
-        if count_ben_dom >= domain_quota:
-            break
-        X.append(extract_url_features(d))
-        y.append(0)
-        count_ben_dom += 1
+    # ---- 2. Collect ALL Malicious Items (Guarded against Benign Whitelist) ----
+    malicious_items: Set[str] = set()
+    skipped_fp = 0
 
-    count_ben_ip = 0
-    for ip_val in benign_ips:
-        if count_ben_ip >= ip_quota:
-            break
-        X.append(extract_url_features(ip_val))
-        y.append(0)
-        count_ben_ip += 1
-
-    # Fill remainder if either quota wasn't completely filled
-    total_benign = count_ben_dom + count_ben_ip
-    if total_benign < limit_per_class:
-        for d in benign_domains:
-            if total_benign >= limit_per_class:
-                break
-            if d not in benign_domains:
-                continue
-            # already iterated, let's take any remaining
-        print(f"  [i] Total Benign loaded: {total_benign:,} ({count_ben_dom:,} Domains, {count_ben_ip:,} IPs)")
-    else:
-        print(f"  [+] Total Benign loaded: {total_benign:,} ({count_ben_dom:,} Domains, {count_ben_ip:,} IPs)")
-
-    # ---- 2. Collect Malicious Blacklists (With Whitelist Safeguard) ----
     malicious_domain_files = [
         "PhishingDomains.csv",
         "PhishingSubDomains.csv",
@@ -324,16 +290,11 @@ def load_phishingormalware_dataset(website_dir: str, total_samples: int = 100000
         "IPv6DDoS.csv",
     ]
 
-    # Malicious Domains
-    count_mal_dom = 0
-    skipped_dom_fp = 0
     for fname in malicious_domain_files:
-        if count_mal_dom >= domain_quota:
-            break
         fpath = os.path.join(website_dir, fname)
         if not os.path.isfile(fpath):
             continue
-        print(f"  [-] Reading Malicious Domains from: {fname}...")
+        print(f"  [-] Loading Malicious Domains from: {fname}...")
         with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
             reader = csv.reader(fh)
             for row in reader:
@@ -343,26 +304,16 @@ def load_phishingormalware_dataset(website_dir: str, total_samples: int = 100000
                 if not d or d == "entry" or d == "domain" or "." not in d:
                     continue
                 # Whitelist safeguard: NEVER learn false positive like nic.in
-                if d in benign_domains or any(d.endswith("." + b) for b in ("nic.in", "gov.in", "edu", "mil")):
-                    skipped_dom_fp += 1
+                if d in benign_items or any(d.endswith("." + b) for b in ("nic.in", "gov.in", "edu", "mil")):
+                    skipped_fp += 1
                     continue
+                malicious_items.add(d)
 
-                X.append(extract_url_features(d))
-                y.append(1)
-                count_mal_dom += 1
-                if count_mal_dom >= domain_quota:
-                    break
-
-    # Malicious IPs
-    count_mal_ip = 0
-    skipped_ip_fp = 0
     for fname in malicious_ip_files:
-        if count_mal_ip >= ip_quota:
-            break
         fpath = os.path.join(website_dir, fname)
         if not os.path.isfile(fpath):
             continue
-        print(f"  [-] Reading Malicious IPs from: {fname}...")
+        print(f"  [-] Loading Malicious IPs from: {fname}...")
         with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
             reader = csv.reader(fh)
             for row in reader:
@@ -371,35 +322,52 @@ def load_phishingormalware_dataset(website_dir: str, total_samples: int = 100000
                 ip_cand = row[0].strip()
                 if not ip_cand or ip_cand == "entry" or ip_cand == "domain" or "/" in ip_cand:
                     continue
-                if ip_cand in benign_ips:
-                    skipped_ip_fp += 1
+                if ip_cand in benign_items:
+                    skipped_fp += 1
                     continue
+                malicious_items.add(ip_cand)
 
-                X.append(extract_url_features(ip_cand))
-                y.append(1)
-                count_mal_ip += 1
-                if count_mal_ip >= ip_quota:
-                    break
+    print(f"[+] Total unique malicious entries collected: {len(malicious_items):,} (filtered {skipped_fp:,} false-positive candidates)")
 
-    total_malicious = count_mal_dom + count_mal_ip
-    print(f"  [+] Total Malicious loaded: {total_malicious:,} ({count_mal_dom:,} Domains, {count_mal_ip:,} IPs) | Filtered {skipped_dom_fp + skipped_ip_fp:,} FPs")
+    # ---- 3. Balance Strictly 50% Benign and 50% Malicious ----
+    target_each = min(len(benign_items), len(malicious_items))
+    if max_samples > 0:
+        target_each = min(target_each, max_samples // 2)
 
-    # Trim to exact 50% / 50%
-    min_class_count = min(total_benign, total_malicious)
+    print(f"[*] Subsampling to exact 50/50 balance: {target_each:,} Benign and {target_each:,} Malicious (Total: {target_each * 2:,})...")
+
+    # Sample randomly for balanced representation
+    benign_sample = random.sample(sorted(benign_items), target_each)
+    malicious_sample = random.sample(sorted(malicious_items), target_each)
+
+    # ---- 4. Extract 32 Features ----
+    print("[*] Extracting 32 lexical & entropy features...")
+    X: List[List[float]] = []
+    y: List[int] = []
+
+    for item in benign_sample:
+        X.append(extract_url_features(item))
+        y.append(0)
+
+    for item in malicious_sample:
+        X.append(extract_url_features(item))
+        y.append(1)
+
     X_arr = np.array(X, dtype=np.float32)
     y_arr = np.array(y, dtype=np.int32)
 
-    benign_indices = np.where(y_arr == 0)[0][:min_class_count]
-    malicious_indices = np.where(y_arr == 1)[0][:min_class_count]
-    final_indices = np.concatenate([benign_indices, malicious_indices])
+    # Shuffle
+    indices = np.arange(len(y_arr))
     np.random.seed(42)
-    np.random.shuffle(final_indices)
+    np.random.shuffle(indices)
 
-    X_final = X_arr[final_indices]
-    y_final = y_arr[final_indices]
+    X_final = X_arr[indices]
+    y_final = y_arr[indices]
 
     print("=" * 68)
-    print(f"[+] Final Balanced Dataset: {len(X_final):,} samples -> Exactly {np.sum(y_final == 0):,} Benign (50.0%) and {np.sum(y_final == 1):,} Malicious (50.0%)")
+    print(f"[+] Final Training Matrix: {len(X_final):,} samples (Shape: {X_final.shape})")
+    print(f"    Class 0 (Benign):    {np.sum(y_final == 0):,} (50.0%)")
+    print(f"    Class 1 (Malicious): {np.sum(y_final == 1):,} (50.0%)")
     print("=" * 68)
 
     return X_final, y_final
@@ -407,10 +375,10 @@ def load_phishingormalware_dataset(website_dir: str, total_samples: int = 100000
 
 def parse_args():
     default_website = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hydradragon", "website"))
-    parser = argparse.ArgumentParser(description="Train 50/50 Balanced Domain & IP Zero-Day LightGBM Model")
+    parser = argparse.ArgumentParser(description="Train 50/50 Full-Dataset Domain & IP Zero-Day LightGBM Model")
     parser.add_argument("--website-dir", type=str, default=default_website, help="Path to hydradragon/website directory")
     parser.add_argument("--output-onnx", type=str, default="url_model.onnx", help="Output ONNX model path")
-    parser.add_argument("--max-samples", type=int, default=100000, help="Total samples to train on (50% benign, 50% malicious)")
+    parser.add_argument("--max-samples", type=int, default=0, help="Total samples to train on (0 = full dataset, exact 50/50)")
     parser.add_argument("--cache-file", type=str, default="url_features_cache.joblib", help="Cache extracted features")
     return parser.parse_args()
 
@@ -418,7 +386,7 @@ def parse_args():
 def main():
     args = parse_args()
     print("=" * 68)
-    print(" HydraDragon Antivirus - 50/50 Domain & IP LightGBM Trainer ")
+    print(" HydraDragon Antivirus - Full Dataset 50/50 LightGBM Trainer ")
     print("=" * 68)
 
     if args.cache_file and os.path.exists(args.cache_file):
@@ -432,7 +400,7 @@ def main():
             print(f"[!] Website directory not found: {args.website_dir}")
             sys.exit(1)
 
-        X, y = load_phishingormalware_dataset(args.website_dir, total_samples=args.max_samples)
+        X, y = load_full_phishingormalware_dataset(args.website_dir, max_samples=args.max_samples)
 
         if args.cache_file:
             print(f"[*] Caching extracted features to {args.cache_file}...")
