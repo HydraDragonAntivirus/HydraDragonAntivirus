@@ -29,7 +29,6 @@ hydradragonsig = { path = "../../hydradragonsig", default-features = false }
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
 hydradragonextractor = { path = "../owlyshield_predict/hydradragonextractor" }
 hydradragonunicorn = { path = "../../hydradragonunicorn" }
-hydradragonxorfilter = { path = "../../hydradragonxorfilter" }
 pefile-rs = { path = "../../pefile-rs" }
 hayabusa = { path = "../../hayabusa" }
 evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git", rev = "5c2bc81" }

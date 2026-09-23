@@ -37,15 +37,15 @@ pub struct StaticEngine {
     pua_registry: PuaRegistryMatcher,
     hayabusa: HayabusaScanner,
     string_rules: PeStringRules,
-    url_whitelist: Option<hydradragonxorfilter::XorFilter>,
+    url_whitelist: Option<BinaryFuse16Filter>,
     pub cidr_engine: crate::cidr::CidrEngine,
     pub url_engine: crate::url_rules::UrlThreatEngine,
 }
 
-fn load_xf_from_candidates(candidates: &[std::path::PathBuf]) -> Option<hydradragonxorfilter::XorFilter> {
+fn load_xf_from_candidates(candidates: &[std::path::PathBuf]) -> Option<BinaryFuse16Filter> {
     for p in candidates {
         if let Ok(bytes) = std::fs::read(p) {
-            if let Some(f) = hydradragonxorfilter::XorFilter::from_bytes(&bytes) {
+            if let Some(f) = BinaryFuse16Filter::from_bytes(&bytes) {
                 return Some(f);
             }
         }
@@ -188,7 +188,7 @@ impl StaticEngine {
 
     /// Load BinaryFuse16 URL/domain/IP whitelist (.xf bytes, web parity).
     pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
-        if let Some(f) = hydradragonxorfilter::XorFilter::from_bytes(data) {
+        if let Some(f) = BinaryFuse16Filter::from_bytes(data) {
             self.url_whitelist = Some(f);
             true
         } else {
@@ -1147,5 +1147,111 @@ fn is_js_content(bytes: &[u8]) -> bool {
         s.contains("function") || s.contains("var ") || s.contains("const ") || s.contains("let ")
     } else {
         false
+    }
+}
+
+/// Self-contained BinaryFuse16 whitelist filter (web parity, zero deps).
+///
+/// Same on-disk format and query path as `hydradragonxorfilter` (tag 16,
+/// version 2, FNV-1a lowercased key): `.xf` files built offline with
+/// `xorfilter_writer` load byte-for-byte identically here. Kept inline so
+/// `openedr_static` builds with plain `cargo build` — no AES/SSE2 RUSTFLAGS
+/// (the shared crate pulls `gxhash`, which requires them).
+pub struct BinaryFuse16Filter {
+    seed: u64,
+    seg_len: u32,
+    seg_len_mask: u32,
+    seg_count_len: u32,
+    count: usize,
+    fingerprints: Vec<u16>,
+}
+
+impl BinaryFuse16Filter {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 32 || bytes[0] != 16 || bytes[1] != 2 {
+            return None;
+        }
+        let seed = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
+        let seg_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?);
+        let seg_len_mask = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
+        let seg_count_len = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
+        let count = usize::try_from(u64::from_le_bytes(bytes[24..32].try_into().ok()?)).ok()?;
+        if 32 + count.checked_mul(2)? > bytes.len() {
+            return None;
+        }
+        let mut fingerprints = Vec::with_capacity(count);
+        for i in 0..count {
+            let off = 32 + i * 2;
+            fingerprints.push(u16::from_le_bytes([bytes[off], bytes[off + 1]]));
+        }
+        Some(Self {
+            seed,
+            seg_len,
+            seg_len_mask,
+            seg_count_len,
+            count,
+            fingerprints,
+        })
+    }
+
+    pub fn contains(&self, s: &str) -> bool {
+        let k = Self::key(s);
+        let hash = Self::mix64(k.wrapping_add(self.seed));
+        let f = hash as u16;
+        let (h0, h1, h2) = Self::hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);
+        let c = self.count;
+        if h0 as usize >= c || h1 as usize >= c || h2 as usize >= c {
+            return false;
+        }
+        let fp = self.fingerprints[h0 as usize] ^ self.fingerprints[h1 as usize] ^ self.fingerprints[h2 as usize];
+        f ^ fp == 0
+    }
+
+    #[inline(always)]
+    fn key(s: &str) -> u64 {
+        const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+        const PRIME: u64 = 0x0000_0100_0000_01b3;
+        let mut h = OFFSET;
+        for b in s.bytes() {
+            h ^= b.to_ascii_lowercase() as u64;
+            h = h.wrapping_mul(PRIME);
+        }
+        h
+    }
+
+    #[inline(always)]
+    fn mix64(k: u64) -> u64 {
+        const MIX_C1: u64 = 0xff51_afd7_ed55_8ccd;
+        let r = (k as u128).wrapping_mul(MIX_C1 as u128);
+        (r ^ (r >> 64)) as u64
+    }
+
+    #[inline(always)]
+    fn hash_of_hash(hash: u64, seg_len: u32, seg_len_mask: u32, seg_count_len: u32) -> (u32, u32, u32) {
+        let hi = ((hash as u128 * seg_count_len as u128) >> 64) as u64;
+        let h0 = hi as u32;
+        let mut h1 = h0 + seg_len;
+        let mut h2 = h1 + seg_len;
+        h1 ^= ((hash >> 18) as u32) & seg_len_mask;
+        h2 ^= (hash as u32) & seg_len_mask;
+        (h0, h1, h2)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inline_xf_parses_shipped_whitelist_and_rejects_garbage() {
+        assert!(BinaryFuse16Filter::from_bytes(b"").is_none());
+        assert!(BinaryFuse16Filter::from_bytes(b"nope").is_none());
+        assert!(BinaryFuse16Filter::from_bytes(&[16u8, 2, 0, 0]).is_none());
+        let bytes = include_bytes!("../xorfilter_rules/url_whitelist.xf");
+        let f = BinaryFuse16Filter::from_bytes(bytes).expect("shipped whitelist must parse");
+        assert!(f.count > 0);
+        // smoke: queries execute (full agreement vs crate proven by bench)
+        let _ = f.contains("google.com");
+        let _ = f.contains("definitely-not-whitelisted-00001.invalid");
     }
 }

@@ -1693,15 +1693,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gxhash"
-version = "3.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3ce1bab7aa741d4e7042b2aae415b78741f267a98a7271ea226cd5ba6c43d7d"
-dependencies = [
- "rustversion",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1944,13 +1935,6 @@ dependencies = [
  "unicorn-engine",
  "vmpunpacker",
  "yara-x",
-]
-
-[[package]]
-name = "hydradragonxorfilter"
-version = "0.1.0"
-dependencies = [
- "jdb_xorf",
 ]
 
 [[package]]
@@ -2325,17 +2309,6 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
-
-[[package]]
-name = "jdb_xorf"
-version = "0.13.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9097028eda34b0ff6418ac8bbe8fd238a76fd2b4a2d2c24786b05b3391d9ff71"
-dependencies = [
- "gxhash",
- "libm",
- "thiserror 2.0.20",
-]
 
 [[package]]
 name = "jemalloc-sys"
@@ -3033,7 +3006,6 @@ dependencies = [
  "hydradragonextractor",
  "hydradragonsig",
  "hydradragonunicorn",
- "hydradragonxorfilter",
  "nested",
  "oxc_allocator",
  "oxc_ast",
