@@ -601,12 +601,14 @@ namespace {
 		PGET_MODULE_BASE_ROUTINE64, PTRANSLATE_ADDRESS_ROUTINE64);
 	typedef BOOL (WINAPI *FnSymInitializeW)(HANDLE, PCWSTR, BOOL);
 	typedef BOOL (WINAPI *FnSymCleanup)(HANDLE);
+	typedef BOOL (WINAPI *FnSymFindFileInPathW)(HANDLE, PCWSTR, PCWSTR, PVOID, DWORD, DWORD, DWORD, PWSTR, PFINDFILEINPATHCALLBACKW, PVOID);
 	struct DbgHelpApi
 	{
 		HMODULE hMod = nullptr;
 		FnStackWalk64 pStackWalk64 = nullptr;
 		FnSymInitializeW pSymInitialize = nullptr;
 		FnSymCleanup pSymCleanup = nullptr;
+		FnSymFindFileInPathW pSymFindFileInPath = nullptr;
 		PFUNCTION_TABLE_ACCESS_ROUTINE64 pFuncTable = nullptr;
 		PGET_MODULE_BASE_ROUTINE64 pGetModBase = nullptr;
 	};
@@ -622,6 +624,7 @@ namespace {
 		if (!api.pSymInitialize)
 			api.pSymInitialize = (FnSymInitializeW)::GetProcAddress(api.hMod, "SymInitializeA");
 		api.pSymCleanup = (FnSymCleanup)::GetProcAddress(api.hMod, "SymCleanup");
+		api.pSymFindFileInPath = (FnSymFindFileInPathW)::GetProcAddress(api.hMod, "SymFindFileInPathW");
 		api.pFuncTable = (PFUNCTION_TABLE_ACCESS_ROUTINE64)::GetProcAddress(api.hMod, "SymFunctionTableAccess64");
 		api.pGetModBase = (PGET_MODULE_BASE_ROUTINE64)::GetProcAddress(api.hMod, "SymGetModuleBase64");
 		return api;
@@ -631,6 +634,243 @@ namespace {
 	// handles must not leak per alert.
 	struct LibGuard { HMODULE h = nullptr; ~LibGuard() { if (h) ::FreeLibrary(h); h = nullptr; } };
 	struct HandleGuard { HANDLE h = nullptr; ~HandleGuard() { if (h && h != INVALID_HANDLE_VALUE) ::CloseHandle(h); h = nullptr; } };
+
+	// PDB identity from a PE file's CodeView record (RSDS, legacy NB10 fallback).
+	// Best-effort file parse: any failure yields false, never throws.
+	struct PdbIdentity
+	{
+		GUID guid = {};
+		DWORD timestamp = 0;
+		DWORD age = 0;
+		bool isRsds = true;
+		std::wstring fileName; // leaf only, e.g. L"ntdll.pdb"
+	};
+
+	static bool ReadFileAt(HANDLE hFile, uint64_t nOff, void* pBuf, DWORD nWant)
+	{
+		LARGE_INTEGER li;
+		li.QuadPart = (LONGLONG)nOff;
+		if (!::SetFilePointerEx(hFile, li, nullptr, FILE_BEGIN))
+			return false;
+		DWORD nGot = 0;
+		return ::ReadFile(hFile, pBuf, nWant, &nGot, nullptr) && nGot == nWant;
+	}
+
+	static bool LeafNameFromAnsi(const char* pStr, size_t nMax, std::wstring& wsOut)
+	{
+		size_t nLen = 0;
+		while (nLen < nMax && pStr[nLen] != '\0')
+			++nLen;
+		if (nLen == 0 || nLen >= nMax)
+			return false;
+		const char* pLeaf = pStr + nLen;
+		while (pLeaf > pStr && pLeaf[-1] != '\\' && pLeaf[-1] != '/')
+			--pLeaf;
+		if (*pLeaf == '\0')
+			return false;
+		UINT nCp = CP_UTF8;
+		DWORD nFlags = MB_ERR_INVALID_CHARS;
+		int nW = ::MultiByteToWideChar(nCp, nFlags, pLeaf, -1, nullptr, 0);
+		if (nW <= 0)
+		{
+			nCp = CP_ACP;
+			nFlags = 0;
+			nW = ::MultiByteToWideChar(nCp, nFlags, pLeaf, -1, nullptr, 0);
+		}
+		if (nW <= 0)
+			return false;
+		wsOut.assign((size_t)nW, L'\0');
+		if (!::MultiByteToWideChar(nCp, nFlags, pLeaf, -1, wsOut.data(), nW))
+			return false;
+		wsOut.resize((size_t)nW - 1);
+		return !wsOut.empty();
+	}
+
+	static bool ReadPdbIdentity(const std::wstring& wsPath, PdbIdentity& out)
+	{
+		out = PdbIdentity();
+		HandleGuard gFile;
+		gFile.h = ::CreateFileW(wsPath.c_str(), GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (!gFile.h || gFile.h == INVALID_HANDLE_VALUE)
+		{
+			gFile.h = nullptr;
+			return false;
+		}
+
+		LARGE_INTEGER nSize = {};
+		if (!::GetFileSizeEx(gFile.h, &nSize) || nSize.QuadPart < 0x1000)
+			return false;
+
+		uint8_t vHead[0x1000] = {};
+		if (!ReadFileAt(gFile.h, 0, vHead, sizeof(vHead)))
+			return false;
+		auto rd16 = [&](size_t o) -> uint16_t
+		{
+			return (uint16_t)((uint16_t)vHead[o] | ((uint16_t)vHead[o + 1] << 8));
+		};
+		auto rd32 = [&](size_t o) -> uint32_t
+		{
+			return (uint32_t)vHead[o] | ((uint32_t)vHead[o + 1] << 8) |
+				((uint32_t)vHead[o + 2] << 16) | ((uint32_t)vHead[o + 3] << 24);
+		};
+
+		if (vHead[0] != 'M' || vHead[1] != 'Z')
+			return false;
+		const uint32_t nPe = rd32(0x3C);
+		if (nPe + 6 > sizeof(vHead) || vHead[nPe] != 'P' || vHead[nPe + 1] != 'E' ||
+			vHead[nPe + 2] != 0 || vHead[nPe + 3] != 0)
+			return false;
+		const size_t nCoff = (size_t)nPe + 4;
+		const uint16_t nSec = rd16(nCoff + 2);
+		const uint16_t nOptSize = rd16(nCoff + 16);
+		if (nSec == 0 || nSec > 96)
+			return false;
+		const size_t nOpt = nCoff + 20;
+		if (nOpt + 2 > sizeof(vHead))
+			return false;
+		const uint16_t nMagic = rd16(nOpt);
+		const size_t nDbgEnt = nOpt + (nMagic == 0x20b ? 112 : 96) + 6 * 8; // debug entry
+		if (nDbgEnt + 8 > sizeof(vHead))
+			return false;
+		const uint32_t nDbgRva = rd32(nDbgEnt);
+		const uint32_t nDbgSize = rd32(nDbgEnt + 4);
+		if (nDbgRva == 0 || nDbgSize == 0 || nDbgSize > 64 * 28)
+			return false;
+
+		// RVA -> file offset via section table; headers are file-mapped 1:1 as fallback.
+		const size_t nSecTab = nOpt + nOptSize;
+		uint64_t nDbgOff = 0;
+		if (nSecTab + (size_t)nSec * 40 <= sizeof(vHead))
+		{
+			for (uint16_t i = 0; i < nSec; ++i)
+			{
+				const size_t s = nSecTab + (size_t)i * 40;
+				const uint32_t nVa = rd32(s + 12);
+				uint32_t nSpan = rd32(s + 8); // VirtualSize
+				if (rd32(s + 16) > nSpan)
+					nSpan = rd32(s + 16); // SizeOfRawData
+				if (nSpan > 0 && nDbgRva >= nVa && nDbgRva < nVa + nSpan)
+				{
+					nDbgOff = (uint64_t)rd32(s + 20) + (nDbgRva - nVa);
+					break;
+				}
+			}
+		}
+		if (nDbgOff == 0)
+		{
+			if ((uint64_t)nDbgRva + nDbgSize > (uint64_t)nSize.QuadPart)
+				return false;
+			nDbgOff = nDbgRva; // inside headers
+		}
+		if (nDbgOff + nDbgSize > (uint64_t)nSize.QuadPart)
+			return false;
+
+		std::vector<uint8_t> vDbg(nDbgSize);
+		if (!ReadFileAt(gFile.h, nDbgOff, vDbg.data(), nDbgSize))
+			return false;
+		auto dd32 = [&](size_t o) -> uint32_t
+		{
+			return (uint32_t)vDbg[o] | ((uint32_t)vDbg[o + 1] << 8) |
+				((uint32_t)vDbg[o + 2] << 16) | ((uint32_t)vDbg[o + 3] << 24);
+		};
+
+		const size_t nCount = nDbgSize / 28;
+		for (size_t i = 0; i < nCount; ++i)
+		{
+			const size_t e = i * 28;
+			if (dd32(e + 12) != IMAGE_DEBUG_TYPE_CODEVIEW)
+				continue;
+			const uint32_t nDataSize = dd32(e + 16);
+			const uint32_t nDataPtr = dd32(e + 20);
+			if (nDataSize < 17 || nDataSize > 4356)
+				continue;
+			if ((uint64_t)nDataPtr + nDataSize > (uint64_t)nSize.QuadPart)
+				continue;
+			std::vector<uint8_t> vCv(nDataSize);
+			if (!ReadFileAt(gFile.h, nDataPtr, vCv.data(), nDataSize))
+				continue;
+			if (vCv[0] == 'R' && vCv[1] == 'S' && vCv[2] == 'D' && vCv[3] == 'S' && nDataSize >= 25)
+			{
+				uint8_t* pId = (uint8_t*)&out.guid;
+				for (int k = 0; k < 16; ++k)
+					pId[k] = vCv[4 + (size_t)k];
+				out.age = (uint32_t)vCv[20] | ((uint32_t)vCv[21] << 8) |
+					((uint32_t)vCv[22] << 16) | ((uint32_t)vCv[23] << 24);
+				out.isRsds = true;
+				if (LeafNameFromAnsi((const char*)vCv.data() + 24, (size_t)nDataSize - 24, out.fileName))
+					return true;
+				out = PdbIdentity();
+			}
+			else if (vCv[0] == 'N' && vCv[1] == 'B' && vCv[2] == '1' && vCv[3] == '0')
+			{
+				out.timestamp = (uint32_t)vCv[8] | ((uint32_t)vCv[9] << 8) |
+					((uint32_t)vCv[10] << 16) | ((uint32_t)vCv[11] << 24);
+				out.age = (uint32_t)vCv[12] | ((uint32_t)vCv[13] << 8) |
+					((uint32_t)vCv[14] << 16) | ((uint32_t)vCv[15] << 24);
+				out.isRsds = false;
+				if (LeafNameFromAnsi((const char*)vCv.data() + 16, (size_t)nDataSize - 16, out.fileName))
+					return true;
+				out = PdbIdentity();
+			}
+		}
+		return false;
+	}
+
+	// On-demand PDB download for a PE file via the symbol server.
+	// Explicit command path only: never called from scans or remediation
+	// (network I/O can take seconds). Best-effort, never throws.
+	static std::wstring FetchModulePdb(const std::wstring& wsModule, const std::wstring& wsSearch)
+	{
+		static std::mutex s_mtxPdb;
+		std::lock_guard<std::mutex> _guard(s_mtxPdb);
+		std::wstring sFound;
+
+		PdbIdentity id;
+		if (!ReadPdbIdentity(wsModule, id) || id.fileName.empty())
+			return sFound;
+
+		DbgHelpApi api = LoadDbgHelpApi();
+		LibGuard gDbg;
+		gDbg.h = api.hMod;
+		if (!api.hMod || !api.pSymInitialize || !api.pSymCleanup || !api.pSymFindFileInPath)
+			return sFound;
+
+		const HANDLE hProc = ::GetCurrentProcess();
+		if (!api.pSymInitialize(hProc, nullptr, FALSE))
+			return sFound;
+
+		std::wstring sSearch = wsSearch;
+		if (sSearch.empty())
+		{
+			wchar_t wzTemp[MAX_PATH] = {};
+			std::wstring sCache(L".\\");
+			if (::GetTempPathW(MAX_PATH, wzTemp) > 0)
+				sCache.assign(wzTemp);
+			sCache += L"HydraSymbols";
+			::CreateDirectoryW(sCache.c_str(), nullptr);
+			sSearch = L"SRV*" + sCache + L"*https://msdl.microsoft.com/download/symbols";
+		}
+
+		wchar_t wzFound[1024] = {};
+		BOOL fOk = FALSE;
+		if (id.isRsds)
+		{
+			fOk = api.pSymFindFileInPath(hProc, sSearch.c_str(), id.fileName.c_str(),
+				(PVOID)&id.guid, id.age, 0, SSRVOPT_GUIDPTR, wzFound, nullptr, nullptr);
+		}
+		else
+		{
+			fOk = api.pSymFindFileInPath(hProc, sSearch.c_str(), id.fileName.c_str(),
+				(PVOID)&id.timestamp, id.age, 0, SSRVOPT_DWORD, wzFound, nullptr, nullptr);
+		}
+		api.pSymCleanup(hProc);
+
+		if (fOk && wzFound[0] != L'\0')
+			sFound.assign(wzFound);
+		return sFound;
+	}
 
 	static BOOL CALLBACK ReadProcMemRoutine(HANDLE hProc, DWORD64 nBase, PVOID pBuf, DWORD nSize, LPDWORD pnRead)
 	{
@@ -2491,6 +2731,26 @@ Variant EventEnricher::execute(Variant vCommand, Variant vParams)
 	{
 		stop();
 		return {};
+	}
+
+	///
+	/// @fn Variant EventEnricher::execute()
+	///
+	/// ##### fetchPdb()
+	/// Download the matching PDB for a PE file via the symbol server (DbgHelp).
+	/// Explicit on-demand command only: network I/O can take seconds, never
+	/// called from scans. Returns the local PDB path or empty string.
+	///   * path [str] - PE file path;
+	///   * search [str] - optional DbgHelp search path (default: MS server
+	///     with a temp cache);
+	///
+	if (vCommand == "fetchPdb")
+	{
+		const std::wstring sPath(vParams["path"]);
+		std::wstring sSearch;
+		if (vParams.has("search"))
+			sSearch = std::wstring(vParams["search"]);
+		return Variant(FetchModulePdb(sPath, sSearch));
 	}
 
 	error::OperationNotSupported(SL,
