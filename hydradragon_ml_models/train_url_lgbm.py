@@ -223,10 +223,11 @@ def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) 
         print("    Mode: ALL DATA (no sample limits, full 50/50 balance)")
     print("=" * 68)
 
-    # ---- 1. Collect ALL Benign Items ----
-    benign_items: Set[str] = set()
+    # ---- 1. Collect ALL Benign Items (Separated into IPs and Domains) ----
+    benign_ips: Set[str] = set()
+    benign_domains: Set[str] = set()
 
-    benign_ip_files = ["BenignIPs.txt", "WhiteListIPv4.csv", "WhiteListIPv6.csv"]
+    benign_ip_files = ["BenignIPs.txt", "WhiteListIPv4.csv", "WhiteListIPv6.csv", "ALLOW_IPV4.txt", "ALLOW_IPV6.txt"]
     for fname in benign_ip_files:
         fpath = os.path.join(website_dir, fname)
         if not os.path.isfile(fpath):
@@ -236,7 +237,7 @@ def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) 
             for line in fh:
                 ip_cand = line.split(",")[0].strip()
                 if ip_cand and not ip_cand.startswith("#") and ip_cand != "entry" and "/" not in ip_cand:
-                    benign_items.add(ip_cand)
+                    benign_ips.add(ip_cand)
 
     benign_domain_files = [
         "WhiteListDomains.csv",
@@ -255,12 +256,13 @@ def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) 
             for line in fh:
                 d = line.split(",")[0].strip().lower()
                 if d and d != "domain" and d != "entry" and "." in d and not d.startswith("#"):
-                    benign_items.add(d)
+                    benign_domains.add(d)
 
-    print(f"[+] Total unique benign entries collected: {len(benign_items):,}")
+    print(f"[+] Total unique benign entries: {len(benign_domains):,} Domains | {len(benign_ips):,} IPs")
 
-    # ---- 2. Collect ALL Malicious Items (Guarded against Benign Whitelist) ----
-    malicious_items: Set[str] = set()
+    # ---- 2. Collect ALL Malicious Items (Separated into IPs and Domains) ----
+    malicious_domains: Set[str] = set()
+    malicious_ips: Set[str] = set()
     skipped_fp = 0
 
     malicious_domain_files = [
@@ -304,10 +306,10 @@ def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) 
                 if not d or d == "entry" or d == "domain" or "." not in d:
                     continue
                 # Whitelist safeguard: NEVER learn false positive like nic.in
-                if d in benign_items or any(d.endswith("." + b) for b in ("nic.in", "gov.in", "edu", "mil")):
+                if d in benign_domains or any(d.endswith("." + b) for b in ("nic.in", "gov.in", "edu", "mil")):
                     skipped_fp += 1
                     continue
-                malicious_items.add(d)
+                malicious_domains.add(d)
 
     for fname in malicious_ip_files:
         fpath = os.path.join(website_dir, fname)
@@ -322,23 +324,36 @@ def load_full_phishingormalware_dataset(website_dir: str, max_samples: int = 0) 
                 ip_cand = row[0].strip()
                 if not ip_cand or ip_cand == "entry" or ip_cand == "domain" or "/" in ip_cand:
                     continue
-                if ip_cand in benign_items:
+                if ip_cand in benign_ips:
                     skipped_fp += 1
                     continue
-                malicious_items.add(ip_cand)
+                malicious_ips.add(ip_cand)
 
-    print(f"[+] Total unique malicious entries collected: {len(malicious_items):,} (filtered {skipped_fp:,} false-positive candidates)")
+    print(f"[+] Total unique malicious entries: {len(malicious_domains):,} Domains | {len(malicious_ips):,} IPs (filtered {skipped_fp:,} FPs)")
 
-    # ---- 3. Balance Strictly 50% Benign and 50% Malicious ----
-    target_each = min(len(benign_items), len(malicious_items))
+    # ---- 3. STRATIFIED SUB-GROUP SYMMETRY (Exact 50/50 Domains AND 50/50 IPs) ----
+    # This prevents the fatal asymmetry where IPs are 90%+ malicious and model learns is_ip == malicious!
+    n_ip = min(len(benign_ips), len(malicious_ips))
+    n_dom = min(len(benign_domains), len(malicious_domains))
     if max_samples > 0:
-        target_each = min(target_each, max_samples // 2)
+        ratio_ip = len(benign_ips) / (len(benign_ips) + len(benign_domains))
+        max_ip_half = int((max_samples // 2) * ratio_ip)
+        max_dom_half = (max_samples // 2) - max_ip_half
+        n_ip = min(n_ip, max_ip_half)
+        n_dom = min(n_dom, max_dom_half)
 
-    print(f"[*] Subsampling to exact 50/50 balance: {target_each:,} Benign and {target_each:,} Malicious (Total: {target_each * 2:,})...")
+    print(f"[*] Enforcing Sub-Group Stratified Symmetry:")
+    print(f"    -> Domains: {n_dom:,} Benign vs {n_dom:,} Malicious (Exact 50/50)")
+    print(f"    -> IPs:     {n_ip:,} Benign vs {n_ip:,} Malicious (Exact 50/50)")
+    print(f"    -> Total Balanced Dataset: {(n_dom + n_ip) * 2:,} samples")
 
-    # Sample randomly for balanced representation
-    benign_sample = random.sample(sorted(benign_items), target_each)
-    malicious_sample = random.sample(sorted(malicious_items), target_each)
+    sample_ben_doms = random.sample(sorted(benign_domains), n_dom)
+    sample_mal_doms = random.sample(sorted(malicious_domains), n_dom)
+    sample_ben_ips = random.sample(sorted(benign_ips), n_ip)
+    sample_mal_ips = random.sample(sorted(malicious_ips), n_ip)
+
+    benign_sample = sample_ben_doms + sample_ben_ips
+    malicious_sample = sample_mal_doms + sample_mal_ips
 
     # ---- 4. Extract 32 Features ----
     print("[*] Extracting 32 lexical & entropy features...")
@@ -380,6 +395,7 @@ def parse_args():
     parser.add_argument("--output-onnx", type=str, default="url_model.onnx", help="Output ONNX model path")
     parser.add_argument("--max-samples", type=int, default=0, help="Total samples to train on (0 = full dataset, exact 50/50)")
     parser.add_argument("--cache-file", type=str, default="url_features_cache.joblib", help="Cache extracted features")
+    parser.add_argument("--force-rebuild", action="store_true", help="Force rebuilding features ignoring existing cache")
     return parser.parse_args()
 
 
@@ -389,7 +405,7 @@ def main():
     print(" HydraDragon Antivirus - Full Dataset 50/50 LightGBM Trainer ")
     print("=" * 68)
 
-    if args.cache_file and os.path.exists(args.cache_file):
+    if args.cache_file and os.path.exists(args.cache_file) and not args.force_rebuild:
         print(f"[*] Loading cached features from {args.cache_file}...")
         cached_data = joblib.load(args.cache_file)
         X = cached_data["X"]
