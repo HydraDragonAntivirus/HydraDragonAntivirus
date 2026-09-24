@@ -1,4 +1,5 @@
 pub mod features;
+pub mod filetype;
 pub mod js_features;
 pub mod pe_features;
 pub mod scanner;

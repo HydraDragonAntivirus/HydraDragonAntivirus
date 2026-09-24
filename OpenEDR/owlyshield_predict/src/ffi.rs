@@ -348,10 +348,163 @@ pub extern "C" fn owlyshield_update_process_verdict(pid: u32, verdict: u8) -> i3
     }
 }
 
-// NOTE: static file-scan exports (owlyshield_scan_file,
-// owlyshield_scan_file_name) were removed: OpenEDR performs static file
-// verdicts with openedr_static.dll now. This DLL keeps daemon/ML-ingest,
-// firewall, quarantine, and signer services.
+// Static file-scan exports (restored): thin forwarders to openedr_static.dll,
+// the single LOCAL static engine (cloud verdicts stay in the C++ service and
+// always win upstream). EICAR and all content verdicts come from
+// openedr_static itself — nothing is duplicated here. Same contract as the
+// removed revision: 2=malicious, 1=reserved, 0=unknown, -1=bad arguments.
+// No cloud, no execution. Used by the Pascal GUI and the C++ local-verdict
+// path, local or remote callers alike.
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn LoadLibraryW(name: *const u16) -> *mut std::ffi::c_void;
+    fn GetModuleHandleW(name: *const u16) -> *mut std::ffi::c_void;
+    fn GetProcAddress(module: *mut std::ffi::c_void, name: *const u8) -> *mut std::ffi::c_void;
+}
+
+type StaticInitFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> i32;
+type StaticScanFn =
+    unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type StaticFreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
+
+#[derive(Clone, Copy)]
+struct StaticBinding {
+    scan: StaticScanFn,
+    free: StaticFreeFn,
+}
+unsafe impl Send for StaticBinding {}
+unsafe impl Sync for StaticBinding {}
+
+static STATIC_BINDING: OnceLock<Mutex<Option<StaticBinding>>> = OnceLock::new();
+
+fn wide_nul(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(Some(0)).collect()
+}
+
+/// Resolve openedr_static.dll once (already-loaded module, exe folder, then
+/// PATH) and bind init/scan/free. Runs openedr_static_init(NULL) once.
+fn static_binding() -> Option<StaticBinding> {
+    let cell = STATIC_BINDING.get_or_init(|| {
+        let dll = wide_nul("openedr_static.dll");
+        unsafe {
+            let mut handle: *mut std::ffi::c_void = GetModuleHandleW(dll.as_ptr());
+            if handle.is_null() {
+                handle = LoadLibraryW(dll.as_ptr());
+            }
+            if handle.is_null() {
+                if let Ok(exe) = std::env::current_exe() {
+                    if let Some(parent) = exe.parent() {
+                        let p =
+                            wide_nul(&parent.join("openedr_static.dll").to_string_lossy());
+                        handle = LoadLibraryW(p.as_ptr());
+                    }
+                }
+            }
+            if handle.is_null() {
+                return Mutex::new(None);
+            }
+            let sym = |n: &[u8]| GetProcAddress(handle, n.as_ptr());
+            let init: StaticInitFn = std::mem::transmute(sym(b"openedr_static_init\0"));
+            let scan: StaticScanFn = std::mem::transmute(sym(b"openedr_static_scan_file\0"));
+            let free: StaticFreeFn =
+                std::mem::transmute(sym(b"openedr_static_free_string\0"));
+            if (scan as usize) == 0 || (free as usize) == 0 {
+                return Mutex::new(None);
+            }
+            if (init as usize) != 0 && init(std::ptr::null()) != 0 {
+                return Mutex::new(None);
+            }
+            Mutex::new(Some(StaticBinding { scan, free }))
+        }
+    });
+    cell.lock().ok().and_then(|g| *g)
+}
+
+/// Shared scan core so verdict and name can never disagree.
+fn scan_file_named(path_buf: &std::path::PathBuf) -> (i32, String) {
+    if !path_buf.is_file() {
+        return (0, String::new());
+    }
+    let binding = match static_binding() {
+        Some(b) => b,
+        None => return (0, String::new()),
+    };
+    let path_utf8 = path_buf.to_string_lossy().into_owned();
+    let c_path = match std::ffi::CString::new(path_utf8) {
+        Ok(c) => c,
+        Err(_) => return (0, String::new()),
+    };
+    let report: String = unsafe {
+        let raw = (binding.scan)(c_path.as_ptr());
+        if raw.is_null() {
+            return (0, String::new());
+        }
+        let s = std::ffi::CStr::from_ptr(raw).to_string_lossy().into_owned();
+        (binding.free)(raw);
+        s
+    };
+    let v: serde_json::Value = match serde_json::from_str(&report) {
+        Ok(v) => v,
+        Err(_) => return (0, String::new()),
+    };
+    match v.get("verdict").and_then(|x| x.as_str()) {
+        Some("Malicious") => {
+            let name = v
+                .get("detections")
+                .and_then(|d| d.as_array())
+                .and_then(|a| a.first())
+                .and_then(|d| d.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("Malware.LocalDetection")
+                .to_string();
+            (2, name)
+        }
+        Some("Clean") => (1, String::new()),
+        _ => (0, String::new()),
+    }
+}
+
+/// Static-indicator file verdict via the local static engine.
+/// `path_ptr`/`path_len`: UTF-16 path (WCHAR count, no NUL).
+/// Returns 2=malicious, 0=unknown, -1=bad arguments.
+/// No cloud, no execution. Used by the C++ local-verdict path and the GUI.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_scan_file(path_ptr: *const u16, path_len: u32) -> i32 {
+    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
+        return -1;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
+    scan_file_named(&path_buf).0
+}
+
+/// Static-indicator file verdict with detection NAME.
+/// `name_buf`/`name_cap`: UTF-16 detection-name output (WCHAR count incl.
+/// NUL); left empty unless verdict is malicious.
+/// Returns 2=malicious, 0=unknown, -1=bad arguments.
+#[unsafe(no_mangle)]
+pub extern "C" fn owlyshield_scan_file_name(
+    path_ptr: *const u16,
+    path_len: u32,
+    name_buf: *mut u16,
+    name_cap: u32,
+) -> i32 {
+    if path_ptr.is_null() || path_len == 0 || path_len > 32768 {
+        return -1;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let path_buf = std::path::PathBuf::from(String::from_utf16_lossy(slice));
+    let (verdict, name) = scan_file_named(&path_buf);
+    if verdict == 2 && !name.is_empty() && !name_buf.is_null() && name_cap > 1 {
+        let mut wide: Vec<u16> = name.encode_utf16().collect();
+        wide.truncate((name_cap as usize).saturating_sub(1));
+        unsafe {
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), name_buf, wide.len());
+            *name_buf.add(wide.len()) = 0;
+        }
+    }
+    verdict
+}
 
 /// URL-string scanner for external callers (e.g. the Pascal GUI).
 ///

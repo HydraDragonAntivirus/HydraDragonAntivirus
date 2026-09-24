@@ -1,4 +1,4 @@
-//! Native file-type detector for owlyshield_predict.
+//! Native file-type detector for the static engine.
 //!
 //! Replaces the old DetectItEasy-subprocess path with pure-Rust magic and
 //! structure sniffing. Scope is intentionally limited to the ClamAV-based
@@ -357,11 +357,12 @@ pub fn report_json(data: &[u8]) -> String {
     serde_json::to_string(&detect(data)).unwrap_or_else(|_| "{\"file_type\":\"UNKNOWN\"}".to_string())
 }
 
+
 /// Read (capped) + detect a file by path.
 ///
 /// Executables get a second chance: if the capped buffer carries an MZ
 /// header that fails validation, the file is re-read whole (up to
-/// [`FULL_READ_CAP]`) before calling it broken — section/blob data past the
+/// 256 MiB) before calling it broken — section/blob data past the
 /// cap must never flip a valid binary into `is_broken_executable`.
 pub fn detect_file(path: &std::path::Path) -> FileTypeReport {
     const FULL_READ_CAP: u64 = 256 << 20;
@@ -378,45 +379,6 @@ pub fn detect_file(path: &std::path::Path) -> FileTypeReport {
         }
     }
     probe
-}
-
-fn utf16_str(ptr: *const u16, len: u32) -> Option<String> {
-    if ptr.is_null() || len == 0 || len > 32768 {
-        return None;
-    }
-    let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
-    Some(String::from_utf16_lossy(slice))
-}
-
-fn write_json_out(json: &str, out_buf: *mut u8, buf_len: u32) -> u32 {
-    let bytes = json.as_bytes();
-    if out_buf.is_null() || buf_len == 0 {
-        return bytes.len() as u32;
-    }
-    let n = (buf_len as usize).min(bytes.len());
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, n);
-    }
-    n as u32
-}
-
-/// FFI: file-type report as JSON (legacy DIE-compatible keys).
-/// UTF-16 path in, JSON bytes out. Null buffer (or 0 length) returns the
-/// needed size. Returns 0 on bad path argument.
-#[unsafe(no_mangle)]
-pub extern "C" fn owlyshield_filetype_json(
-    path_ptr: *const u16,
-    path_len: u32,
-    out_buf: *mut u8,
-    buf_len: u32,
-) -> u32 {
-    let path = match utf16_str(path_ptr, path_len) {
-        Some(p) => p,
-        None => return 0,
-    };
-    let report = detect_file(std::path::Path::new(&path));
-    let json = serde_json::to_string(&report).unwrap_or_else(|_| "{\"file_type\":\"UNKNOWN\"}".to_string());
-    write_json_out(&json, out_buf, buf_len)
 }
 
 #[cfg(test)]

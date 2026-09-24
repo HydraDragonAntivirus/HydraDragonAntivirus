@@ -6,6 +6,7 @@ use sha2::{Sha256, Digest as Sha256Digest};
 use crate::apk;
 use crate::crypto;
 use crate::clam::ClamScanner;
+use crate::ml::filetype;
 use crate::hayabusa_scanner::{HayabusaEventMatch, HayabusaScanner};
 use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
 use crate::ml::scanner::MlScanner;
@@ -251,6 +252,23 @@ impl StaticEngine {
 
         // Empty files scan as Unknown (web parity: never Error).
         if data.is_empty() {
+            return StaticScanReport {
+                target: target_name.to_string(),
+                file_size,
+                sha256: sha256_hex,
+                verdict: "Unknown".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: None,
+                pua_registry_matches: Vec::new(),
+                scan_time_ms: start_time.elapsed().as_millis() as u64,
+            };
+        }
+
+        // File-type gate FIRST: unclassifiable content is not scanned at
+        // all — verdict Unknown, straight out. No signer/YARA/ClamAV/ML/unicorn
+        // work is spent on it.
+        if filetype::detect(data).is_unknown {
             return StaticScanReport {
                 target: target_name.to_string(),
                 file_size,
