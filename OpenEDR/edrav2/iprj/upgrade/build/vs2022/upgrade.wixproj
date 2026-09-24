@@ -86,7 +86,8 @@
     <Exec Command='md "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64"' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64')" Command='xcopy "$(CmdRootDir)\out\bin\win-$(Configuration)-x64" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" /Q /E /I /Exclude:$(ProjectDir)..\..\..\installation\src\exclude.list' />
     <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\firewall-rules" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\firewall-rules\"' />
-    <Exec Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\..\owlyshield_predict\models" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\models\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\owlyshield_predict\models\url_model.bin')" Command='xcopy /Y /D /I "$(ProjectDir)..\..\..\..\..\owlyshield_predict\models\url_model.bin" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\models\"' />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\models')" Command='xcopy /Y /D /E /I "$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\models" "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64\models\"' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.cfg, *.qsc, *.src) do "$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe" file encrypt -f "%%~i" -o "%%~i.new" -e aes' />
     <Exec Condition="Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64') AND Exists('$(CmdRootDir)\out\bin\win-$(Configuration)-x64\edrcon.exe')" Command='FOR /r "$(CmdRootDir)\out\srcBinUpgrade\$(CmdOutDirName)\x64" %%i in (*.new) do del "%%~dpni" /F /Q &amp; ren "%%~i" "%%~ni"' />
 

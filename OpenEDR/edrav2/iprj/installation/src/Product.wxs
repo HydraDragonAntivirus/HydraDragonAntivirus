@@ -81,11 +81,13 @@
 
 	<Fragment>
 		<ComponentGroup Id="ProductComponents" Directory="INSTALLDIR">
-			<Component Id="ModelBinaries" Guid="{A2D1B36C-CE4F-4638-B7E0-7A9EF73BF640}" Directory="MODELSDIR">
-				<File Id="JS_Model_Mpk" Source="$(var.SourceBinDir)models\js_model.mpk" KeyPath="yes" />
-				<File Id="PE_Model_Mpk" Source="$(var.SourceBinDir)models\pe_model.mpk" />
+			<Component Id="ModelBinaries" Guid="{A2D1B36C-CE4F-4638-B7E0-7A9EF73BF641}" Directory="MODELSDIR">
+				<File Id="APK_Trees_Bin" Source="$(var.SourceBinDir)models\apk_trees.bin" KeyPath="yes" />
+				<File Id="Generic_Trees_Bin" Source="$(var.SourceBinDir)models\generic_trees.bin" />
+				<File Id="JS_Trees_Bin" Source="$(var.SourceBinDir)models\js_trees.bin" />
+				<File Id="PE_Trees_Bin" Source="$(var.SourceBinDir)models\pe_trees.bin" />
+				<File Id="URL_Trees_Bin" Source="$(var.SourceBinDir)models\url_trees.bin" />
 				<File Id="URL_Model_Bin" Source="$(var.SourceBinDir)models\url_model.bin" />
-				<File Id="URL_Model_Onnx" Source="$(var.SourceBinDir)models\url_model.onnx" />
 			</Component>
 			<Component Id="JsonSettingsComponent" Guid="{B1E2F3A4-5C6D-7E8F-9A0B-1C2D3E4F5A6B}" Directory="JSONDIR">
 				<File Id="FirewallSettingsJson" Source="..\..\..\..\owlyshield_predict\json\settings.json" KeyPath="yes" />
