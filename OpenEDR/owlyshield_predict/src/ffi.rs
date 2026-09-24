@@ -365,12 +365,16 @@ unsafe extern "system" {
 type StaticInitFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> i32;
 type StaticScanFn =
     unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type StaticUrlScanFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
+type StaticUrlModelLoadedFn = unsafe extern "C" fn() -> u32;
 type StaticFreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
 
 #[derive(Clone, Copy)]
 struct StaticBinding {
     scan: StaticScanFn,
     free: StaticFreeFn,
+    scan_url: Option<StaticUrlScanFn>,
+    url_model_loaded: Option<StaticUrlModelLoadedFn>,
 }
 unsafe impl Send for StaticBinding {}
 unsafe impl Sync for StaticBinding {}
@@ -382,7 +386,7 @@ fn wide_nul(s: &str) -> Vec<u16> {
 }
 
 /// Resolve openedr_static.dll once (already-loaded module, exe folder, then
-/// PATH) and bind init/scan/free. Runs openedr_static_init(NULL) once.
+/// PATH) and bind the static scan APIs. Runs openedr_static_init(NULL) once.
 fn static_binding() -> Option<StaticBinding> {
     let cell = STATIC_BINDING.get_or_init(|| {
         let dll = wide_nul("openedr_static.dll");
@@ -404,20 +408,80 @@ fn static_binding() -> Option<StaticBinding> {
                 return Mutex::new(None);
             }
             let sym = |n: &[u8]| GetProcAddress(handle, n.as_ptr());
-            let init: StaticInitFn = std::mem::transmute(sym(b"openedr_static_init\0"));
-            let scan: StaticScanFn = std::mem::transmute(sym(b"openedr_static_scan_file\0"));
-            let free: StaticFreeFn =
-                std::mem::transmute(sym(b"openedr_static_free_string\0"));
+            let scan_ptr = sym(b"openedr_static_scan_file\0");
+            let free_ptr = sym(b"openedr_static_free_string\0");
+            if scan_ptr.is_null() || free_ptr.is_null() {
+                return Mutex::new(None);
+            }
+            let scan: StaticScanFn = std::mem::transmute(scan_ptr);
+            let free: StaticFreeFn = std::mem::transmute(free_ptr);
+
+            let scan_url_ptr = sym(b"openedr_static_scan_url\0");
+            let scan_url = if scan_url_ptr.is_null() {
+                None
+            } else {
+                Some(std::mem::transmute::<*mut std::ffi::c_void, StaticUrlScanFn>(scan_url_ptr))
+            };
+            let url_loaded_ptr = sym(b"openedr_static_url_model_loaded\0");
+            let url_model_loaded = if url_loaded_ptr.is_null() {
+                None
+            } else {
+                Some(std::mem::transmute::<
+                    *mut std::ffi::c_void,
+                    StaticUrlModelLoadedFn,
+                >(url_loaded_ptr))
+            };
+
+            let init_ptr = sym(b"openedr_static_init\0");
+            if !init_ptr.is_null() {
+                let init: StaticInitFn = std::mem::transmute(init_ptr);
+                if init(std::ptr::null()) != 0 {
+                    return Mutex::new(None);
+                }
+            }
             if (scan as usize) == 0 || (free as usize) == 0 {
                 return Mutex::new(None);
             }
-            if (init as usize) != 0 && init(std::ptr::null()) != 0 {
-                return Mutex::new(None);
-            }
-            Mutex::new(Some(StaticBinding { scan, free }))
+            Mutex::new(Some(StaticBinding {
+                scan,
+                free,
+                scan_url,
+                url_model_loaded,
+            }))
         }
     });
     cell.lock().ok().and_then(|g| *g)
+}
+
+pub(crate) fn static_url_model_loaded() -> bool {
+    let Some(binding) = static_binding() else {
+        return false;
+    };
+    binding
+        .url_model_loaded
+        .map(|is_loaded| unsafe { is_loaded() != 0 })
+        .unwrap_or(false)
+}
+
+pub(crate) fn scan_url_with_static(url: &str) -> Option<f32> {
+    let binding = static_binding()?;
+    let scan_url = binding.scan_url?;
+    let c_url = std::ffi::CString::new(url).ok()?;
+    let report = unsafe {
+        let raw = scan_url(c_url.as_ptr());
+        if raw.is_null() {
+            return None;
+        }
+        let report = std::ffi::CStr::from_ptr(raw).to_string_lossy().into_owned();
+        (binding.free)(raw);
+        report
+    };
+    let value: serde_json::Value = serde_json::from_str(&report).ok()?;
+    if value.get("error").and_then(serde_json::Value::as_bool) == Some(true) {
+        return None;
+    }
+    let probability = value.get("malware_probability")?.as_f64()? as f32;
+    (probability.is_finite() && (0.0..=1.0).contains(&probability)).then_some(probability)
 }
 
 /// Shared scan core so verdict and name can never disagree.
@@ -566,7 +630,7 @@ fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
     }
 
     if !crate::ml::url_predict::model_loaded() {
-        return serde_json::json!({"error": true, "message": "url_model.bin not loaded"})
+        return serde_json::json!({"error": true, "message": "url_trees.bin not loaded"})
             .to_string();
     }
 
@@ -574,7 +638,7 @@ fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
     let mut exact_malicious = 0usize;
     let mut findings = Vec::new();
     for tok in &tokens {
-        if let Some((prob, _)) = crate::ml::url_predict::scan_url(tok) {
+        if let Some(prob) = crate::ml::url_predict::scan_url(tok) {
             worst = worst.max(prob);
             exact_malicious += 1;
             if findings.len() < MAX_FINDINGS {
@@ -602,5 +666,3 @@ fn scan_url_strings_impl(data: *const u8, len: u32) -> String {
     })
     .to_string()
 }
-
-

@@ -244,6 +244,20 @@ pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut
     }
 }
 
+/// Returns 1 when the shared static engine loaded the URL tree model.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_url_model_loaded() -> u32 {
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let engine = match engine_lock.read() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.url_model_loaded() as u32
+}
+
 /// Scan a URL for phishing/malware (ML + CIDR).
 /// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
 #[unsafe(no_mangle)]
@@ -629,5 +643,4 @@ pub extern "C" fn openedr_static_free_string(s: *mut c_char) {
         }
     }
 }
-
 

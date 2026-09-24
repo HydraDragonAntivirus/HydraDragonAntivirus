@@ -75,7 +75,6 @@
     <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\WinDivert\WinDivert64.sys&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\target\release\owlyshield_ransom.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\firewall-rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\firewall-rules\&quot;" />
-    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\owlyshield_predict\models\url_model.bin')" Command="xcopy /Y /D /I &quot;$(ProjectDir)..\..\..\..\..\owlyshield_predict\models\url_model.bin&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\models\&quot;" />
     <!-- openedr_static.dll static engine (local verdict path): DLL next to the service + rule dirs next to the DLL -->
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_static.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\openedr_static.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\unicorn.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\unicorn.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />

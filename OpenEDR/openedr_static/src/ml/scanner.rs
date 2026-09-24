@@ -92,6 +92,10 @@ impl MlScanner {
         self.apk_trees.is_some()
     }
 
+    pub fn url_loaded(&self) -> bool {
+        self.url_trees.is_some()
+    }
+
     /// Master router over the 8-vector [is_pe, is_js, is_apk, is_url, pe, js, apk, url].
     pub fn predict_master(&self, features: &[f32; MASTER_FEATURE_COUNT]) -> Option<f32> {
         let trees = self.master_trees.as_ref()?;
@@ -155,6 +159,7 @@ mod tests {
     fn native_bins_load_and_score() {
         let dir = models_dir();
         let s = MlScanner::new(&dir);
+        assert!(s.url_loaded(), "url_trees.bin must load");
         assert!(s.master_loaded(), "hydradragon_master_trees.bin must load");
         assert!(s.generic_loaded(), "generic_trees.bin must load");
 

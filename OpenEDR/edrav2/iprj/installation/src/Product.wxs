@@ -87,7 +87,6 @@
 				<File Id="JS_Trees_Bin" Source="$(var.SourceBinDir)models\js_trees.bin" />
 				<File Id="PE_Trees_Bin" Source="$(var.SourceBinDir)models\pe_trees.bin" />
 				<File Id="URL_Trees_Bin" Source="$(var.SourceBinDir)models\url_trees.bin" />
-				<File Id="URL_Model_Bin" Source="$(var.SourceBinDir)models\url_model.bin" />
 			</Component>
 			<Component Id="JsonSettingsComponent" Guid="{B1E2F3A4-5C6D-7E8F-9A0B-1C2D3E4F5A6B}" Directory="JSONDIR">
 				<File Id="FirewallSettingsJson" Source="..\..\..\..\owlyshield_predict\json\settings.json" KeyPath="yes" />

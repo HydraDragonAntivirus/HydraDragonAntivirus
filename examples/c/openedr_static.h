@@ -50,6 +50,9 @@ OPENEDR_API char* openedr_static_scan_bytes(const uint8_t* data, size_t len, con
  */
 OPENEDR_API char* openedr_static_scan_url(const char* url);
 
+/** @brief Returns 1 when the shared URL tree model is loaded, otherwise 0. */
+OPENEDR_API uint32_t openedr_static_url_model_loaded(void);
+
 /**
  * @brief Full URL threat inspection via Rust YAML Threat Engine (web parity: web_inspect_url).
  * @param url URL string to analyze.

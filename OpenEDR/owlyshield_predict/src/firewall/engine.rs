@@ -4035,7 +4035,7 @@ impl FirewallEngine {
 
         // --- Snort-ML Zero-Day URL & Query Threat Detection ---
         if let Some(ref candidate_url) = info.full_url {
-            if let Some((ml_prob, _features)) = crate::ml::url_predict::scan_url(candidate_url) {
+            if let Some(ml_prob) = crate::ml::url_predict::scan_url(candidate_url) {
                 stats.packets_total.fetch_add(1, Ordering::Relaxed);
                 stats.packets_blocked.fetch_add(1, Ordering::Relaxed);
 

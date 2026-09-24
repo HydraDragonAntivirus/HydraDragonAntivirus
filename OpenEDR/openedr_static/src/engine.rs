@@ -1125,6 +1125,10 @@ impl StaticEngine {
         (prob, is_malicious, false, false)
     }
 
+    pub fn url_model_loaded(&self) -> bool {
+        self.ml.url_loaded()
+    }
+
     /// Raw ML-only URL probability (no whitelist/CIDR gating).
     pub fn predict_url_raw(&self, raw_url: &str) -> Option<f32> {
         self.ml.predict_url(raw_url)
