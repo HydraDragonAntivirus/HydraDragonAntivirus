@@ -37,20 +37,8 @@ pub struct StaticEngine {
     pua_registry: PuaRegistryMatcher,
     hayabusa: HayabusaScanner,
     string_rules: PeStringRules,
-    url_whitelist: Option<BinaryFuse16Filter>,
     pub cidr_engine: crate::cidr::CidrEngine,
     pub url_engine: crate::url_rules::UrlThreatEngine,
-}
-
-fn load_xf_from_candidates(candidates: &[std::path::PathBuf]) -> Option<BinaryFuse16Filter> {
-    for p in candidates {
-        if let Ok(bytes) = std::fs::read(p) {
-            if let Some(f) = BinaryFuse16Filter::from_bytes(&bytes) {
-                return Some(f);
-            }
-        }
-    }
-    None
 }
 
 impl StaticEngine {
@@ -126,14 +114,6 @@ impl StaticEngine {
             }
         }
 
-        // URL/domain/IP whitelist (.xf, web parity).
-        let url_whitelist = load_xf_from_candidates(&[
-            base.join("models").join("url_whitelist.xf"),
-            base.join("xorfilter_rules").join("url_whitelist.xf"),
-            hash_rules_dir.join("url_whitelist.xf"),
-            database_dir.join("url_whitelist.xf"),
-        ]);
-
         let hayabusa_dir = if base.join("hayabusa_rules").is_dir() {
             base.join("hayabusa_rules")
         } else if base.join("rules").join("hayabusa").is_dir() {
@@ -151,7 +131,6 @@ impl StaticEngine {
             pua_registry,
             hayabusa,
             string_rules,
-            url_whitelist,
             cidr_engine: crate::cidr::CidrEngine::new(),
             url_engine: crate::url_rules::UrlThreatEngine::new(),
         }
@@ -186,14 +165,9 @@ impl StaticEngine {
         self.set_string_rules(yaml)
     }
 
-    /// Load BinaryFuse16 URL/domain/IP whitelist (.xf bytes, web parity).
-    pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
-        if let Some(f) = BinaryFuse16Filter::from_bytes(data) {
-            self.url_whitelist = Some(f);
-            true
-        } else {
-            false
-        }
+    /// Load BinaryFuse16 URL/domain/IP whitelist (stub kept for ABI compatibility; owlyshield_predict handles active traffic whitelist).
+    pub fn load_url_whitelist(&mut self, _data: &[u8]) -> bool {
+        true
     }
 
     /// Scan a Windows EVTX log file for threat events using Hayabusa rules.
@@ -968,26 +942,12 @@ impl StaticEngine {
         (whitelisted, blacklisted)
     }
 
-    /// URL score via tree model + whitelist/CIDR (web parity).
+    /// URL score via ML model (openedr_static strictly uses Machine Learning >= 0.90).
     /// Returns (probability, is_malicious, is_whitelisted, is_blacklisted).
     pub fn scan_url(&self, raw_url: &str) -> (f32, bool, bool, bool) {
-        let (raw_whitelisted, blacklisted) = self.check_whitelist_blacklist(raw_url);
-        let is_webhook_abuse = raw_url.contains("/api/webhooks/")
-            || raw_url.contains("api.telegram.org")
-            || raw_url.contains("/bot");
-
-        let whitelisted = raw_whitelisted && !is_webhook_abuse;
-
-        if blacklisted {
-            return (1.0, true, false, true);
-        }
-
-        if whitelisted {
-            return (0.0, false, true, false);
-        }
-
         let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
-        (prob, prob >= 0.50, false, false)
+        let is_malicious = prob >= 0.90;
+        (prob, is_malicious, false, false)
     }
 
     /// Raw ML-only URL probability (no whitelist/CIDR gating).

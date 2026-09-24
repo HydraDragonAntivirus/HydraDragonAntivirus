@@ -23,7 +23,7 @@ WEBSITE_DIR = REPO_ROOT / "hydradragon" / "website"
 WRITER_EXE = REPO_ROOT / "xorfilter_writer" / "target" / "release" / "xorfilter_writer.exe"
 
 DEST_DIRS = [
-    REPO_ROOT / "OpenEDR" / "openedr_static" / "xorfilter_rules",
+    REPO_ROOT / "OpenEDR" / "owlyshield_predict" / "xorfilter_rules",
     REPO_ROOT / "OpenEDR" / "openedr_web" / "www" / "xorfilter_rules",
     REPO_ROOT / "OpenMalwareScannerPortable" / "models",
     REPO_ROOT / "OpenMalwareScannerPortable" / "xorfilter_rules",

@@ -19,6 +19,7 @@ pub mod report;
 pub mod shared_def;
 pub mod threat_handler;
 pub mod signer_rules;
+pub mod url_rules;
 pub mod utils;
 pub mod watchlist;
 pub mod whitelist_loader;

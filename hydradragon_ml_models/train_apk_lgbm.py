@@ -59,10 +59,11 @@ def extract_single_apk(filepath: str) -> Optional[List[float]]:
     except Exception:
         return None
 
-def extract_apk_chunks_to_disk(file_list: List[str], label_name: str, label_val: int, chunk_dir: str, chunk_size: int = 1000):
+def extract_apk_chunks_to_disk(file_list: List[str], label_name: str, label_val: int, chunk_dir: str, chunk_size: int = 1000, workers: int = 3):
+    from concurrent.futures import ProcessPoolExecutor
     os.makedirs(chunk_dir, exist_ok=True)
     total_files = len(file_list)
-    print(f"[*] Extracting {label_name} APKs ({total_files} files) into chunks of {chunk_size} to {chunk_dir}...")
+    print(f"[*] Extracting {label_name} APKs ({total_files} files) into chunks of {chunk_size} to {chunk_dir} with {workers} workers...")
     
     chunk_idx = 0
     total_valid = 0
@@ -77,10 +78,11 @@ def extract_apk_chunks_to_disk(file_list: List[str], label_name: str, label_val:
             continue
             
         feats = []
-        for fp in chunk_files:
-            res = extract_single_apk(fp)
-            if res is not None:
-                feats.append(res)
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            results = list(executor.map(extract_single_apk, chunk_files, chunksize=50))
+            for res in results:
+                if res is not None:
+                    feats.append(res)
                 
         if feats:
             X_chunk = np.array(feats, dtype=np.float32)
@@ -132,6 +134,10 @@ def load_apk_chunks_balanced(chunk_dir: str):
     
     X = np.vstack([X_mal[idx_mal], X_ben[idx_ben]])
     y = np.array([1] * target_each + [0] * target_each, dtype=np.int32)
+    
+    joblib_out = os.path.join(os.path.dirname(__file__), "apk_features.joblib")
+    joblib.dump({"X": X, "y": y}, joblib_out, compress=3)
+    print(f"[+] Saved complete balanced APK dataset to: {joblib_out}")
     
     del X_mal, X_ben, X_mal_list, X_ben_list
     gc.collect()
