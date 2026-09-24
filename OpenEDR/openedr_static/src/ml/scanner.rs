@@ -5,11 +5,18 @@ use super::js_features;
 use super::url_features;
 use super::tree_model::TreeEnsembleModel;
 
+/// Master router input width: [is_pe, is_js, is_apk, is_url, pe, js, apk, url].
+pub const MASTER_FEATURE_COUNT: usize = 8;
+/// Generic whole-buffer string/entropy model input width (train_generic_lgbm.py).
+pub const GENERIC_FEATURE_COUNT: usize = 20;
+
 pub struct MlScanner {
     pe_trees: Option<TreeEnsembleModel>,
     js_trees: Option<TreeEnsembleModel>,
     url_trees: Option<TreeEnsembleModel>,
     apk_trees: Option<TreeEnsembleModel>,
+    master_trees: Option<TreeEnsembleModel>,
+    generic_trees: Option<TreeEnsembleModel>,
 }
 
 impl MlScanner {
@@ -18,16 +25,23 @@ impl MlScanner {
         let js_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("js_trees.bin"));
         let url_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("url_trees.bin"));
         let apk_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("apk_trees.bin"));
+        let master_trees =
+            TreeEnsembleModel::from_bin_file(&models_dir.join("hydradragon_master_trees.bin"));
+        let generic_trees =
+            TreeEnsembleModel::from_bin_file(&models_dir.join("generic_trees.bin"));
 
         Self {
             pe_trees,
             js_trees,
             url_trees,
             apk_trees,
+            master_trees,
+            generic_trees,
         }
     }
 
-    /// Runtime model load from bytes (web parity: kind 0=PE, 1=JS, 2=URL, 3=APK).
+    /// Runtime model load from bytes (web parity: kind 0=PE, 1=JS, 2=URL, 3=APK,
+    /// 4=master router, 5=generic whole-buffer model).
     /// Returns false when bytes don't parse or kind is unknown.
     pub fn load_model_bytes(&mut self, kind: u32, data: &[u8]) -> bool {
         let model = match TreeEnsembleModel::from_bin_bytes(data) {
@@ -39,6 +53,8 @@ impl MlScanner {
             1 => self.js_trees = Some(model),
             2 => self.url_trees = Some(model),
             3 => self.apk_trees = Some(model),
+            4 => self.master_trees = Some(model),
+            5 => self.generic_trees = Some(model),
             _ => return false,
         }
         true
@@ -76,10 +92,32 @@ impl MlScanner {
         self.apk_trees.is_some()
     }
 
+    /// Master router over the 8-vector [is_pe, is_js, is_apk, is_url, pe, js, apk, url].
+    pub fn predict_master(&self, features: &[f32; MASTER_FEATURE_COUNT]) -> Option<f32> {
+        let trees = self.master_trees.as_ref()?;
+        Some(trees.predict_probability(features))
+    }
+
+    /// Generic whole-buffer string/entropy model (20 features, no file-type parsing).
+    pub fn predict_generic(&self, features: &[f32; GENERIC_FEATURE_COUNT]) -> Option<f32> {
+        let trees = self.generic_trees.as_ref()?;
+        Some(trees.predict_probability(features))
+    }
+
+    pub fn master_loaded(&self) -> bool {
+        self.master_trees.is_some()
+    }
+
+    pub fn generic_loaded(&self) -> bool {
+        self.generic_trees.is_some()
+    }
+
     pub fn is_loaded(&self) -> bool {
         self.pe_trees.is_some()
             || self.js_trees.is_some()
             || self.url_trees.is_some()
             || self.apk_trees.is_some()
+            || self.master_trees.is_some()
+            || self.generic_trees.is_some()
     }
 }

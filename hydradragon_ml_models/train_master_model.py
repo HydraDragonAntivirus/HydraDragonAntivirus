@@ -3,20 +3,21 @@
 HydraDragon Master Unified Multi-Modal AI Engine
 Trains the SINGLE unified master model: `hydradragon_master.onnx`
 
-Architecture:
-  1. Universal String & Byte Core (24 features):
-     - Aho-Corasick ClamAV (.ndb/.ldb) & yarGen Goodware match counts
-     - Malicious/Benign hit ratios & densities
-     - Byte and String Shannon Entropies
-     - Base64, Hex runs, URLs, IPs, Suspicious commands
-  2. Multi-Modal Specialist Heads (8 features):
-     - is_pe, is_js, is_apk, is_url (4 indicator flags)
-     - expert_score_pe, expert_score_js, expert_score_apk, expert_score_url (4 head scores)
+Architecture (pure ONNX, zero automata at inference):
+  Master 8-vector = [is_pe, is_js, is_apk, is_url,
+                     pe_prob, js_prob, apk_prob, url_prob]
+  Experts: PE 65 / JS 51 / APK 24 / URL 32 -> each its own ONNX + .bin.
+  Signature/string sets (ClamAV + YARA-X + yarGen) stay on disk as .joblib
+  data; they are NEVER loaded into memory during inference.
 
 Guarantees:
-  - Low-RAM: Out-of-core chunked feature extraction to disk (RAM < 1.5 GB)
-  - Asymmetry inside Symmetry: Exact 50/50 balance across EVERY sub-domain
-  - Single Output Model: `hydradragon_master.onnx` detects ANY file, text, script, or binary!
+  - Training reads ONLY ready balanced .joblib files (no raw-dir walk).
+  - Inference imports NOTHING from string_matcher (no Aho-Corasick load).
+  - Single routing model: `hydradragon_master.onnx` (8 inputs).
+
+NOTE: the 32-dim UniversalStringMatcher feature builder further below is
+legacy training-research code only. It is lazily imported and never runs
+in the train/scan paths.
 """
 
 import os
@@ -38,21 +39,23 @@ from onnxmltools.convert.common.data_types import FloatTensorType
 
 # Add current dir to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from string_matcher import UniversalStringMatcher, STRING_FEATURE_NAMES
-from train_url_lgbm import extract_url_features
+from train_url_lgbm import extract_url_features  # noqa: F401  (kept for legacy helpers below)
 
-# Master 32 Feature Names
-MASTER_FEATURE_NAMES = STRING_FEATURE_NAMES + [
+# Master 8-vector Feature Names (matches train_all_and_master.py)
+MASTER_FEATURE_NAMES = [
     "is_pe", "is_js", "is_apk", "is_url",
-    "expert_score_pe", "expert_score_js", "expert_score_apk", "expert_score_url"
+    "expert_score_pe", "expert_score_js", "expert_score_apk", "expert_score_url",
 ]
-assert len(MASTER_FEATURE_NAMES) == 32
+assert len(MASTER_FEATURE_NAMES) == 8
 
 def extract_master_features_from_data(data: bytes, entity_type: str = "generic") -> List[float]:
     """
     Extracts the full 32-dimensional master feature vector from raw bytes.
     entity_type can be: 'pe', 'js', 'apk', 'url', 'generic' (text, shellcode, unknown binary)
+
+    LEGACY: requires the heavy automata cache; never used by train/scan paths.
     """
+    from string_matcher import UniversalStringMatcher  # lazy: keeps module import automata-free
     matcher = UniversalStringMatcher.get_instance()
     # 1. First 24 Universal String & Byte Features
     str_feats = matcher.extract_features(data)

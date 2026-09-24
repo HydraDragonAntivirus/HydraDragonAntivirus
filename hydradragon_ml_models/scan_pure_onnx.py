@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-HydraDragon Saf ONNX Tarayici - Sifir Automata, Aninda Cikarim.
-PE (65) + JS (51) + APK (24) + URL (32) + Master (8) -> hepsi ONNX.
-Ham bayt + dosya turunden bagimsiz karar. string_matcher YOK.
+HydraDragon Pure ONNX Scanner - Zero Automata, Instant Inference.
+PE (65) + JS (51) + APK (24) + URL (32) + Master (8) -> all ONNX.
+Raw-byte, file-type independent verdict. No string_matcher import.
 """
 
 import os
@@ -100,7 +100,7 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
     pe_prob = js_prob = apk_prob = url_prob = 0.0
     detail = {}
 
-    # PE: dosyaya yazmadan bellekten dene (MZ sarti)
+    # PE: in-memory via temp file (MZ check)
     if data.startswith(b"MZ"):
         import tempfile
         try:
@@ -117,48 +117,101 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
         except Exception:
             pass
 
-    # APK: ham bayttan direkt
-    try:
-        af = apk_features(data)
-        if af is not None:
-            apk_prob = predict_prob("apk", af)
-            detail["apk"] = apk_prob
-            if ftype == "generic":
-                is_apk = 0.0  # bayrak degil ama skor var
-    except Exception:
-        pass
-
-    # JS: ham metinden direkt (baslik sarti yok)
-    try:
-        txt = data.decode("utf-8", errors="ignore")
-        if len(txt.strip()) >= 5 and "\x00" not in txt[:10000]:
+    # Match training distribution: only the routed domain prob is active.
+    # PE route
+    if ftype == "pe" and data.startswith(b"MZ"):
+        import tempfile
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".exe") as tf:
+                tf.write(data[:10 * 1024 * 1024])
+                tmp = tf.name
+            try:
+                pf = extract_pe_features_from_file(tmp)
+                if pf is not None:
+                    pe_prob = predict_prob("pe", pf)
+                    detail["pe"] = pe_prob
+            finally:
+                os.unlink(tmp)
+        except Exception:
+            pass
+    # APK route
+    elif ftype == "apk":
+        try:
+            af = apk_features(data)
+            if af is not None:
+                apk_prob = predict_prob("apk", af)
+                detail["apk"] = apk_prob
+        except Exception:
+            pass
+    # JS route
+    elif ftype == "js":
+        try:
+            txt = data.decode("utf-8", errors="ignore")
             jf = extract_js_features_from_source(txt[:500000])
             if jf is not None:
                 js_prob = predict_prob("js", jf)
                 detail["js"] = js_prob
-    except Exception:
-        pass
-
-    # URL: her zaman calisir (ham dizgi fallback) -> dosya turunden bagimsizlik
-    try:
-        if ftype == "url":
+        except Exception:
+            pass
+    # URL route
+    elif ftype == "url":
+        try:
             txt = data.decode("utf-8", errors="ignore").strip().split()[0][:2048]
+            uf = extract_url_features(txt)
+            url_prob = predict_prob("url", uf)
+            detail["url"] = url_prob
+        except Exception:
+            pass
+    # Generic: best effort, flags stay 0. Text-like -> JS+URL, binary -> PE/APK probe.
+    else:
+        head = data[:8192]
+        null_ratio = head.count(0) / max(1, len(head))
+        try:
+            probe_txt = data[:32768].decode("utf-8", errors="strict")
+            is_text = null_ratio < 0.01 and len(probe_txt.strip()) >= 5
+        except Exception:
+            is_text = False
+        if is_text:
+            try:
+                jf = extract_js_features_from_source(data.decode("utf-8", errors="ignore")[:500000])
+                if jf is not None:
+                    js_prob = predict_prob("js", jf)
+                    detail["js"] = js_prob
+            except Exception:
+                pass
+            try:
+                txt = data.decode("utf-8", errors="ignore").strip().split()[0][:2048]
+                if txt:
+                    uf = extract_url_features(txt)
+                    url_prob = predict_prob("url", uf)
+                    detail["url"] = url_prob
+            except Exception:
+                pass
         else:
-            # ham bayttan yazdirilabilir dizgileri cek, en uzun 3'u URL modeline sok
-            import re
-            strs = re.findall(r"[A-Za-z0-9_.:/?=&%-]{6,200}", data.decode("latin1", errors="ignore"))
-            txt = max(strs, key=len)[:2048] if strs else path_hint[:2048] if path_hint else "generic.bin"
-            if not txt:
-                txt = "generic.bin"
-        uf = extract_url_features(txt)
-        url_prob = predict_prob("url", uf)
-        detail["url_fallback"] = url_prob
-        if ftype == "generic" and url_prob > 0.5:
-            pass  # skor master'a girer, bayrak degismez
-    except Exception:
-        pass
+            if data.startswith(b"MZ"):
+                import tempfile
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".exe") as tf:
+                        tf.write(data[:10 * 1024 * 1024])
+                        tmp = tf.name
+                    try:
+                        pf = extract_pe_features_from_file(tmp)
+                        if pf is not None:
+                            pe_prob = predict_prob("pe", pf)
+                            detail["pe"] = pe_prob
+                    finally:
+                        os.unlink(tmp)
+                except Exception:
+                    pass
+            try:
+                af = apk_features(data)
+                if af is not None:
+                    apk_prob = predict_prob("apk", af)
+                    detail["apk"] = apk_prob
+            except Exception:
+                pass
 
-    # Master 8-vektor: [is_pe,is_js,is_apk,is_url,pe,js,apk,url]
+    # Master 8-vector: [is_pe,is_js,is_apk,is_url,pe,js,apk,url]
     master_vec = [is_pe, is_js, is_apk, is_url, pe_prob, js_prob, apk_prob, url_prob]
     sess, inp = get_sess("master")
     mal_prob = 0.0
@@ -172,11 +225,9 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
         else:
             mal_prob = float(label)
     else:
-        # master yoksa en yuksek uzman skoru
+        # no master model: max expert score
         mal_prob = max(pe_prob, js_prob, apk_prob, url_prob)
         label = 1 if mal_prob >= 0.5 else 0
-
-    # generic dosyada hicbir uzman calismadiysa bile karar var (url fallback)
     return {
         "ftype": ftype,
         "master_vec": master_vec,
@@ -189,21 +240,21 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
 
 def scan_file_pure_onnx(target_path, model_path=None):
     if not os.path.exists(target_path):
-        print(f"[!] Dosya bulunamadi: {target_path}")
+        print(f"[!] File not found: {target_path}")
         return None
     if os.path.isdir(target_path):
-        print(f"[!] Klasor verildi, tek dosya bekleniyor: {target_path}")
+        print(f"[!] Directory given, single file expected: {target_path}")
         return None
     with open(target_path, "rb") as f:
         data = f.read(10 * 1024 * 1024)
     r = scan_bytes_pure_onnx(data, target_path)
-    verdict = "MALICIOUS (ZARARLI)" if r["label"] == 1 else "BENIGN (TEMIZ)"
+    verdict = "MALICIOUS" if r["label"] == 1 else "BENIGN"
     print("=" * 65)
-    print(f" HEDEF:        {target_path}")
-    print(f" TIP:          {r['ftype']}  MasterVektor: {['%.2f' % v for v in r['master_vec']]}")
-    print(f" KARAR:        {verdict}")
-    print(f" ZARARLI:      %{r['mal_prob'] * 100:.2f}  (PE:%{r['experts']['pe']*100:.1f} JS:%{r['experts']['js']*100:.1f} APK:%{r['experts']['apk']*100:.1f} URL:%{r['experts']['url']*100:.1f})")
-    print(" Saf ONNX, Sifir Automata.")
+    print(f" TARGET:       {target_path}")
+    print(f" TYPE:         {r['ftype']}  MasterVec: {['%.2f' % v for v in r['master_vec']]}")
+    print(f" VERDICT:      {verdict}")
+    print(f" MALICIOUS:    {r['mal_prob'] * 100:.2f}%  (PE:{r['experts']['pe']*100:.1f}% JS:{r['experts']['js']*100:.1f}% APK:{r['experts']['apk']*100:.1f}% URL:{r['experts']['url']*100:.1f}%)")
+    print(" Pure ONNX, zero automata.")
     print("=" * 65)
     return r
 
