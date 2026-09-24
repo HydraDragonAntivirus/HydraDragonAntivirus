@@ -117,24 +117,9 @@ class UniversalStringMatcher:
         self._build_automata()
 
     def _build_automata(self):
-        print("[*] Compiling Universal Malicious & Benign String Corpi from ClamAV, yarGen, PE, JS, and APK datasets...")
+        print("[*] Compiling Universal Malicious & Benign String Corpi from YARA-X, yarGen DBs, and ClamAV...", flush=True)
         mal_words: Set[bytes] = set()
         ben_words: Set[bytes] = set()
-
-        # Helper to harvest strings from files
-        def harvest_file_strings(fpath: str, max_strings: int = 100) -> Set[bytes]:
-            found = set()
-            try:
-                with open(fpath, "rb") as f:
-                    content = f.read(512 * 1024)
-                for s in RE_ASCII_STRINGS.findall(content):
-                    if 6 <= len(s) <= 48 and not s.isdigit():
-                        found.add(s.lower())
-                        if len(found) >= max_strings:
-                            break
-            except Exception:
-                pass
-            return found
 
         # 1. Benign Core Strings (yarGen / Goodware)
         for s in BENIGN_CORE_STRINGS:
@@ -154,40 +139,130 @@ class UniversalStringMatcher:
                             if len(item) >= 4 and not item.startswith("#"):
                                 ben_words.add(item.encode("utf-8", "ignore"))
 
-        # 3. Harvest Strings from PE, JS, and APK Datasets
-        dataset_harvest = [
-            (r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2", ben_words, 400),
-            (r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder", mal_words, 400),
-            (r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign", ben_words, 300),
-            (r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware", mal_words, 300),
-        ]
-        for src_dir, target_set, file_limit in dataset_harvest:
-            if os.path.exists(src_dir):
-                count = 0
-                for r, _, fns in os.walk(src_dir):
-                    for fn in fns:
-                        p = os.path.join(r, fn)
-                        target_set.update(harvest_file_strings(p))
-                        count += 1
-                        if count >= file_limit:
-                            break
-                    if count >= file_limit:
-                        break
+        # 2b. yarGen Benign Databases
+        yargen_dbs_dir = os.path.join(os.path.dirname(os.path.dirname(self.website_dir)), "yarGen", "dbs")
+        if os.path.exists(yargen_dbs_dir):
+            import gzip, json
+            for db_file in glob.glob(os.path.join(yargen_dbs_dir, "good-strings-part*.db")):
+                try:
+                    with gzip.open(db_file, "rt", encoding="utf-8", errors="ignore") as gz:
+                        d = json.load(gz)
+                        for s_cand, cnt in d.items():
+                            if cnt >= 3 and 5 <= len(s_cand) <= 64:
+                                ben_words.add(s_cand.lower().encode("utf-8", "ignore"))
+                except Exception:
+                    pass
+            print(f"[+] Loaded {len(ben_words):,} Benign patterns (Whitelists + yarGen DBs)", flush=True)
 
-        # 4. JS Dataset Strings
-        js_dir = r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript"
-        if os.path.exists(js_dir):
-            count = 0
-            for r, _, fns in os.walk(js_dir):
-                is_m = "mal" in r.lower() or "virus" in r.lower()
-                target_set = mal_words if is_m else ben_words
-                for fn in fns:
-                    target_set.update(harvest_file_strings(os.path.join(r, fn)))
-                    count += 1
-                    if count >= 400:
+        # 3. Malicious Patterns from YARA-X (clean_rules.yar, machine_learning_*.yar, valhalla, etc.)
+        yara_dirs = [
+            os.path.join(os.path.dirname(self.website_dir), "yara-x", "rules"),
+            os.path.join(os.path.dirname(self.website_dir), "yara-x"),
+            os.path.join(os.path.dirname(os.path.dirname(self.website_dir)), "docs", "yara_rules"),
+            os.path.dirname(self.website_dir) # Check for machine_learning_*.yar
+        ]
+        str_pat = re.compile(r'\$([a-zA-Z0-9_]+)\s*=\s*"([^"]{6,120})"')
+        hex_pat = re.compile(r'\$([a-zA-Z0-9_]+)\s*=\s*\{([0-9a-fA-F\s]{12,120})\}')
+
+        yara_count = 0
+        for yd in yara_dirs:
+            if os.path.exists(yd):
+                for yfile in glob.glob(os.path.join(yd, "*.yar")):
+                    bname = os.path.basename(yfile).lower()
+                    if "false_positive" in bname:
+                        continue
+                    try:
+                        with open(yfile, "r", encoding="utf-8", errors="ignore") as f:
+                            for line in f:
+                                m = str_pat.search(line)
+                                if m:
+                                    val = m.group(2).strip()
+                                    if len(val) >= 6 and not all(c == val[0] for c in val):
+                                        mal_words.add(val.encode("utf-8", "ignore"))
+                                        yara_count += 1
+                                mh = hex_pat.search(line)
+                                if mh:
+                                    raw_hex = mh.group(2).replace(" ", "")
+                                    if len(raw_hex) % 2 == 0 and len(raw_hex) >= 12:
+                                        try:
+                                            b = bytes.fromhex(raw_hex)
+                                            if len(b) >= 6:
+                                                mal_words.add(b)
+                                                yara_count += 1
+                                        except Exception:
+                                            pass
+                    except Exception:
+                        pass
+        print(f"[+] Harvested {yara_count:,} raw signatures from YARA-X rules (clean_rules.yar, ML rules, etc.)")
+
+        # 3b. yarGen Malicious Databases (Reverse yarGen mode outputs)
+        if os.path.exists(yargen_dbs_dir):
+            mal_db_count = 0
+            for mal_db_f in glob.glob(os.path.join(yargen_dbs_dir, "mal-strings*.db")):
+                try:
+                    with gzip.open(mal_db_f, "rt", encoding="utf-8", errors="ignore") as gz:
+                        d = json.load(gz)
+                        for s_cand, cnt in d.items():
+                            if len(s_cand) >= 5:
+                                mal_words.add(s_cand.lower().encode("utf-8", "ignore"))
+                                mal_db_count += 1
+                except Exception:
+                    pass
+            if mal_db_count > 0:
+                print(f"[+] Loaded {mal_db_count:,} patterns from yarGen Malicious Databases (mal-strings*.db)", flush=True)
+
+        # 4. Strings Directly from Malware Samples (PE, JS, APK) and Export Directories
+        malware_dirs = [
+            (r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder", 1000),
+            (r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder", 1000),
+            (r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware", 1002),
+        ]
+        sample_str_count = 0
+        for mdir, file_limit in malware_dirs:
+            if os.path.exists(mdir):
+                c = 0
+                for r, _, fns in os.walk(mdir):
+                    for fn in fns:
+                        fp = os.path.join(r, fn)
+                        try:
+                            with open(fp, "rb") as f:
+                                data_chunk = f.read(512 * 1024)
+                            for s in RE_ASCII_STRINGS.findall(data_chunk):
+                                if 6 <= len(s) <= 64 and not s.isdigit():
+                                    mal_words.add(s.lower())
+                                    sample_str_count += 1
+                        except Exception:
+                            pass
+                        c += 1
+                        if c >= file_limit:
+                            break
+                    if c >= file_limit:
                         break
-                if count >= 400:
-                    break
+        print(f"[+] Harvested {sample_str_count:,} raw strings directly from Malware Samples (PE, JS, APK)", flush=True)
+
+        # 4b. Strings from yarGen Export Directories (*_strings)
+        yargen_export_dirs = [
+            r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder_strings",
+            r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_datamaliciousorder_strings",
+            r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware_strings"
+        ]
+        for exp_dir in yargen_export_dirs:
+            if os.path.exists(exp_dir):
+                exp_count = 0
+                for r, _, fns in os.walk(exp_dir):
+                    for fn in fns:
+                        if fn.endswith(".txt"):
+                            try:
+                                with open(os.path.join(r, fn), "r", encoding="utf-8", errors="ignore") as f:
+                                    for line in f:
+                                        st = line.strip()
+                                        if len(st) >= 6:
+                                            mal_words.add(st.encode("utf-8", "ignore"))
+                                            exp_count += 1
+                            except Exception:
+                                pass
+                if exp_count > 0:
+                    print(f"[+] Harvested {exp_count:,} strings from yarGen export dir: {os.path.basename(exp_dir)}", flush=True)
 
         # 5. Malicious Strings from ClamAV Database
         if os.path.exists(self.clamav_dir):
@@ -215,10 +290,28 @@ class UniversalStringMatcher:
                     pass
 
         # 6. Filter collisions: Whitelist always wins!
-        mal_words = {w for w in mal_words if w not in ben_words and len(w) >= 4}
+        # Drop any malicious pattern that collides or is associated with benign goodware
+        ben_words_lower = {b.lower() for b in ben_words}
+        cleaned_mal_words = set()
+        dropped_count = 0
+
+        for w in mal_words:
+            w_low = w.lower()
+            # 1. Exact match collision with benign goodware pool
+            if w in ben_words or w_low in ben_words_lower:
+                dropped_count += 1
+                continue
+            # 2. Short noisy patterns (< 5 chars)
+            if len(w) < 5:
+                dropped_count += 1
+                continue
+            cleaned_mal_words.add(w)
+
+        mal_words = cleaned_mal_words
         ben_words = {w for w in ben_words if len(w) >= 4}
 
-        print(f"[+] Compiled {len(mal_words):,} Malicious patterns and {len(ben_words):,} Benign patterns.")
+        print(f"[+] Dropped {dropped_count:,} Malicious candidates colliding with Benign Goodware (Whitelist priority).", flush=True)
+        print(f"[+] Compiled {len(mal_words):,} Clean Malicious patterns and {len(ben_words):,} Benign patterns.", flush=True)
 
         # Build Automata using latin1 1-to-1 byte mapping
         for idx, w in enumerate(mal_words):

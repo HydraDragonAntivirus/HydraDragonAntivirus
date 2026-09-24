@@ -41,6 +41,7 @@ from hashlib import sha256
 import signal as signal_module
 from lxml import etree
 import nltk
+import glob
 
 # Ensure that necessary NLTK resources are available
 nltk.download("punkt")
@@ -2162,6 +2163,8 @@ if __name__ == "__main__":
     group_db = parser.add_argument_group("Database Operations")
     group_db.add_argument("--update", action="store_true", default=False, help="Update the local strings and opcodes dbs from the online repository")
     group_db.add_argument("-g", help="Path to scan for goodware (dont use the database shipped with yaraGen)")
+    group_db.add_argument("--create-mal-db", metavar="malware-dir", help="Scan a malware directory and create a malicious string database (mal-strings-identifier.db)")
+    group_db.add_argument("-mal", dest="create_mal_db", help=argparse.SUPPRESS)
     group_db.add_argument("-u", action="store_true", default=False, help="Update local standard goodware database with a new analysis result (used with -g)")
     group_db.add_argument("-c", action="store_true", default=False, help='Create new local goodware database (use with -g and optionally -i "identifier")')
     group_db.add_argument("-i", default="", help="Specify an identifier for the newly created databases (good-strings-identifier.db, good-opcodes-identifier.db)")
@@ -2192,7 +2195,7 @@ if __name__ == "__main__":
     # Print Welcome
     print_welcome()
 
-    if not args.update and not args.m and not args.g:
+    if not args.update and not args.m and not args.g and not args.create_mal_db:
         parser.print_help()
         print("")
         print("""
@@ -2236,6 +2239,8 @@ Recommended command line:
     sourcepath = args.m
     if args.g:
         sourcepath = args.g
+    if args.create_mal_db:
+        sourcepath = args.create_mal_db
     identifier = getIdentifier(args.b, sourcepath)
     print("[+] Using identifier '%s'" % identifier)
 
@@ -2254,6 +2259,52 @@ Recommended command line:
 
     # Highly specific string score
     score_highly_specific = int(args.x)
+
+    # Scan malware files for Malicious Database creation (--create-mal-db)
+    if args.create_mal_db:
+        print("[+] Processing MALWARE files for Malicious Database creation ...")
+        mal_strings_db, mal_opcodes_db, mal_imphashes_db, mal_exports_db = parse_good_dir(args.create_mal_db, args.nr, args.oe)
+
+        # Evaluate identifier
+        db_identifier = ""
+        if args.i != "":
+            db_identifier = "-%s" % args.i
+        else:
+            db_identifier = "-%s" % identifier
+
+        strings_db = "./dbs/mal-strings%s.db" % db_identifier
+        opcodes_db = "./dbs/mal-opcodes%s.db" % db_identifier
+        imphashes_db = "./dbs/mal-imphashes%s.db" % db_identifier
+        exports_db = "./dbs/mal-exports%s.db" % db_identifier
+
+        if args.excludegood:
+            print("[+] Excluding goodware strings from malicious database (--excludegood)...")
+            good_strings = set()
+            for db_f in glob.glob("./dbs/good-strings*.db"):
+                try:
+                    good_d = load(get_abs_path(db_f))
+                    good_strings.update(good_d.keys())
+                except Exception:
+                    pass
+            filtered_mal = Counter()
+            dropped_cnt = 0
+            for s, cnt in mal_strings_db.items():
+                if s in good_strings:
+                    dropped_cnt += 1
+                else:
+                    filtered_mal[s] = cnt
+            print(f"[+] Dropped {dropped_cnt:,} goodware collisions! Kept {len(filtered_mal):,} pure malware strings.")
+            mal_strings_db = filtered_mal
+
+        print("[+] Creating local malware databases ...")
+        print("[+] Saving '%s' (%s entries) ..." % (strings_db, len(mal_strings_db)))
+        save(mal_strings_db, strings_db)
+        if use_opcodes:
+            save(mal_opcodes_db, opcodes_db)
+        save(mal_imphashes_db, imphashes_db)
+        save(mal_exports_db, exports_db)
+        print("[+] Successfully created Malicious Databases in ./dbs/ for Machine Learning!")
+        sys.exit(0)
 
     # Scan goodware files
     if args.g:

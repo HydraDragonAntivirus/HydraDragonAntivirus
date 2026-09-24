@@ -92,72 +92,70 @@ def _worker_extract_file(item: Tuple[str, str]) -> Optional[List[float]]:
     fp, entity_type = item
     return extract_master_features_from_file(fp, entity_type)
 
-def extract_chunks_for_domain(file_list: List[str], entity_type: str, label_name: str, label_val: int,
-                              chunk_dir: str, chunk_size: int = 2000, workers: int = None):
+def extract_domain_dataset(file_list: List[str], entity_type: str, label_name: str, label_val: int,
+                           cache_dir: str, workers: int = None):
     from concurrent.futures import ProcessPoolExecutor, as_completed
     workers = workers or min(os.cpu_count() or 4, 8)
-    os.makedirs(chunk_dir, exist_ok=True)
+    os.makedirs(cache_dir, exist_ok=True)
+
+    cache_file = os.path.join(cache_dir, f"features_{entity_type}_{label_name.lower()}.joblib")
+    if os.path.exists(cache_file):
+        print(f"  [>] Cache already exists for [{entity_type.upper()}-{label_name}]: {cache_file} (skipping extraction)", flush=True)
+        return
+
     total_files = len(file_list)
-    print(f"\n[*] Extracting [{entity_type.upper()}] {label_name} ({total_files:,} files) with {workers} parallel workers...")
+    print(f"\n{'='*65}", flush=True)
+    print(f"[*] Extracting [{entity_type.upper()}] {label_name} ({total_files:,} files) with {workers} parallel workers...", flush=True)
+    print(f"    Output Cache File: {cache_file}", flush=True)
+    print(f"{'='*65}", flush=True)
 
-    chunk_idx = 0
-    total_valid = 0
+    feats = []
+    batch_args = [(fp, entity_type) for fp in file_list]
+    done_count = 0
 
-    for i in range(0, total_files, chunk_size):
-        chunk_files = file_list[i : i + chunk_size]
-        chunk_path = os.path.join(chunk_dir, f"chunk_{entity_type}_{label_name.lower()}_{chunk_idx:04d}.joblib")
+    # Open ProcessPoolExecutor ONCE for the entire category - no redundant reloading!
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_worker_extract_file, arg) for arg in batch_args]
+        for fut in as_completed(futures):
+            done_count += 1
+            if done_count % 500 == 0 or done_count == total_files:
+                pct = (done_count / total_files) * 100.0
+                print(f"  -> Progress [{entity_type.upper()}-{label_name}]: {done_count:,}/{total_files:,} ({pct:.1f}%) | Valid Extracted: {len(feats):,}", flush=True)
+            res = fut.result()
+            if res is not None:
+                feats.append(res)
 
-        if os.path.exists(chunk_path):
-            print(f"  [>] Chunk {chunk_idx:04d} already cached ({chunk_path}), skipping.")
-            chunk_idx += 1
-            continue
+    if feats:
+        X_data = np.array(feats, dtype=np.float32)
+        y_data = np.full(len(feats), label_val, dtype=np.int32)
+        joblib.dump({"X": X_data, "y": y_data, "type": entity_type}, cache_file, compress=3)
+        file_size_mb = os.path.getsize(cache_file) / (1024 * 1024)
+        print(f"[+] Saved {cache_file}: {len(feats):,} valid samples ({file_size_mb:.2f} MB)", flush=True)
+    else:
+        print(f"[!] Warning: 0 valid samples extracted for [{entity_type.upper()}-{label_name}]", flush=True)
 
-        feats = []
-        batch_args = [(fp, entity_type) for fp in chunk_files]
-        done_count = 0
-        total_in_chunk = len(chunk_files)
+    del feats
+    gc.collect()
 
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(_worker_extract_file, arg) for arg in batch_args]
-            for fut in as_completed(futures):
-                done_count += 1
-                if done_count % 250 == 0 or done_count == total_in_chunk:
-                    pct = (done_count / total_in_chunk) * 100.0
-                    print(f"    -> Chunk {chunk_idx:04d} Progress [{entity_type.upper()}-{label_name}]: {done_count}/{total_in_chunk} ({pct:.1f}%) | Valid: {len(feats)}")
-                res = fut.result()
-                if res is not None:
-                    feats.append(res)
-
-        if feats:
-            X_chunk = np.array(feats, dtype=np.float32)
-            y_chunk = np.full(len(feats), label_val, dtype=np.int32)
-            joblib.dump({"X": X_chunk, "y": y_chunk, "type": entity_type}, chunk_path, compress=3)
-            total_valid += len(feats)
-            print(f"  [+] Saved {chunk_path}: {len(feats)} samples (Total Valid: {total_valid:,})")
-
-        del feats
-        gc.collect()
-        chunk_idx += 1
-
-    print(f"[+] Total [{entity_type.upper()}-{label_name}] samples extracted: {total_valid:,}")
-    return total_valid
-
-def load_all_master_chunks_stratified(chunk_dir: str):
+def load_all_master_chunks_stratified(cache_dir: str):
     """
-    Loads chunks from disk and enforces STRICT 50/50 symmetry across EVERY sub-domain!
-    (PE 50/50, JS 50/50, APK 50/50, URL 50/50, Generic 50/50)
+    Loads category-level joblib files (features_pe_benign, features_pe_malicious, etc.)
+    and enforces STRICT 50/50 symmetry across EVERY category (PE, JS, APK)!
     """
-    chunk_files = glob.glob(os.path.join(chunk_dir, "chunk_*.joblib"))
-    if not chunk_files:
-        raise RuntimeError(f"No chunk files found in {chunk_dir}")
+    joblib_files = glob.glob(os.path.join(cache_dir, "features_*.joblib"))
+    # Also support older chunk files if any exist
+    if not joblib_files:
+        joblib_files = glob.glob(os.path.join(cache_dir, "chunk_*.joblib"))
+    if not joblib_files:
+        raise RuntimeError(f"No feature files found in {cache_dir}")
 
-    print(f"[*] Found {len(chunk_files)} chunk files. Loading with sub-domain stratified symmetry...")
+    print(f"\n[*] Found {len(joblib_files)} dataset files in {cache_dir}. Loading with category-level 50/50 symmetry...")
 
     # Group by (entity_type, label)
     pools: Dict[str, Dict[int, List[np.ndarray]]] = {}
 
-    for cf in chunk_files:
-        data = joblib.load(cf)
+    for jf in joblib_files:
+        data = joblib.load(jf)
         etype = data.get("type", "generic")
         lbl = int(data["y"][0])
 
@@ -169,12 +167,12 @@ def load_all_master_chunks_stratified(chunk_dir: str):
     final_y_list = []
 
     print("\n" + "=" * 65)
-    print(" SUB-DOMAIN STRATIFIED 50/50 BALANCE REPORT ")
+    print(" CATEGORY-LEVEL STRATIFIED 50/50 BALANCE REPORT ")
     print("=" * 65)
 
     for etype, labels in pools.items():
         if not labels[0] or not labels[1]:
-            print(f"  [-] Skipping {etype}: missing Benign or Malicious chunks.")
+            print(f"  [-] Skipping {etype}: missing Benign or Malicious data.")
             continue
 
         X_ben = np.vstack(labels[0])
@@ -223,8 +221,7 @@ def parse_args():
     parser.add_argument("--apk-benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign")
     parser.add_argument("--apk-malware", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware")
     parser.add_argument("--output-onnx", type=str, default="hydradragon_master.onnx")
-    parser.add_argument("--chunk-dir", type=str, default="cache_chunks_master")
-    parser.add_argument("--chunk-size", type=int, default=2000)
+    parser.add_argument("--cache-dir", "--chunk-dir", dest="chunk_dir", type=str, default="cache_chunks_master", help="Directory where domain feature files (PE, JS, APK) are cached")
     parser.add_argument("--max-samples-per-group", type=int, default=30000)
     parser.add_argument("--extract-only", action="store_true")
     parser.add_argument("--train-only", action="store_true")
@@ -276,25 +273,34 @@ def main():
         scan_target(args.scan, args.output_onnx)
         return
 
+    # 0. Warm up UniversalStringMatcher in main process so cache is built ONCE:
+    print("[*] Initializing Master Universal String Automata in main process...", flush=True)
+    UniversalStringMatcher.get_instance()
+
     if not args.train_only:
         # 1. Discover PE Files
         def get_files(d, limit):
             flist = []
             if os.path.exists(d):
+                bname = os.path.basename(d)
+                print(f"  [>] Scanning {bname} (target: {limit:,} files)...", flush=True)
                 for r, _, fns in os.walk(d):
                     for fn in fns:
                         flist.append(os.path.join(r, fn))
                         if len(flist) >= limit:
+                            print(f"  [+] Collected {len(flist):,} files from {bname}", flush=True)
                             return flist
+                print(f"  [+] Collected {len(flist):,} files from {bname}", flush=True)
             return flist
 
-        print("[*] Collecting cross-corpus datasets for extraction...")
+        print("[*] Collecting cross-corpus datasets for extraction...", flush=True)
         pe_ben = get_files(args.pe_benign, args.max_samples_per_group)
         pe_mal = get_files(args.pe_malware, args.max_samples_per_group)
-        extract_chunks_for_domain(pe_ben, "pe", "BENIGN", 0, args.chunk_dir, args.chunk_size)
-        extract_chunks_for_domain(pe_mal, "pe", "MALICIOUS", 1, args.chunk_dir, args.chunk_size)
+        extract_domain_dataset(pe_ben, "pe", "BENIGN", 0, args.chunk_dir)
+        extract_domain_dataset(pe_mal, "pe", "MALICIOUS", 1, args.chunk_dir)
 
         # 2. Discover JS Files
+        print(f"  [>] Scanning JS directory {os.path.basename(args.js_dir)}...", flush=True)
         js_ben, js_mal = [], []
         if os.path.exists(args.js_dir):
             for r, _, fns in os.walk(args.js_dir):
@@ -305,17 +311,20 @@ def main():
                         js_mal.append(p)
                     elif not is_m and len(js_ben) < args.max_samples_per_group:
                         js_ben.append(p)
-        extract_chunks_for_domain(js_ben, "js", "BENIGN", 0, args.chunk_dir, args.chunk_size)
-        extract_chunks_for_domain(js_mal, "js", "MALICIOUS", 1, args.chunk_dir, args.chunk_size)
+                if len(js_ben) >= args.max_samples_per_group and len(js_mal) >= args.max_samples_per_group:
+                    break
+        print(f"  [+] Collected {len(js_ben):,} Benign JS & {len(js_mal):,} Malicious JS", flush=True)
+        extract_domain_dataset(js_ben, "js", "BENIGN", 0, args.chunk_dir)
+        extract_domain_dataset(js_mal, "js", "MALICIOUS", 1, args.chunk_dir)
 
         # 3. Discover APK Files
         apk_ben = get_files(args.apk_benign, args.max_samples_per_group)
         apk_mal = get_files(args.apk_malware, args.max_samples_per_group)
-        extract_chunks_for_domain(apk_ben, "apk", "BENIGN", 0, args.chunk_dir, args.chunk_size)
-        extract_chunks_for_domain(apk_mal, "apk", "MALICIOUS", 1, args.chunk_dir, args.chunk_size)
+        extract_domain_dataset(apk_ben, "apk", "BENIGN", 0, args.chunk_dir)
+        extract_domain_dataset(apk_mal, "apk", "MALICIOUS", 1, args.chunk_dir)
 
     if args.extract_only:
-        print("[+] Chunk extraction completed. Exiting as --extract-only was specified.")
+        print("[+] Domain dataset extraction completed. Exiting as --extract-only was specified.")
         return
 
     # Load All Chunks with Stratified Sub-group Symmetry

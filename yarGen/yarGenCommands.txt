@@ -1,18 +1,46 @@
 // Don't use AI --ai at yargen because it cause too many false positive rules, don't use opcodes because my database too big and it can be resource hungry.
 // -e flag exports strings per file as *_strings.txt for manual review only
 
-// --- Update DB from online repository ---
+// ==============================================================================
+// 0. UPDATE YARGEN DATABASE
+// ==============================================================================
 python yarGen.py --update
 
-// --- data2: Create benign/goodware reference DB (data2 is clean, not malware) ---
+
+// ==============================================================================
+// 1. PE (WINDOWS EXECUTABLES)
+// ==============================================================================
+// Benign Goodware Reference DB:
 python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2" -c -i benign_data2
 
-// --- javascript/data2: Create benign/goodware reference DB (javascript/data2 is clean, not malware) ---
-python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\data2" -c -i benign_javascript_data2
+// Create Pure Malicious Reference DB (Reverse yarGen Mode for ML):
+python yarGen.py --create-mal-db "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" -i datamaliciousorder --excludegood
 
-// --- datamaliciousorder (PE): Generate YARA rules + export strings -> machine_learning_pe.yar ---
+// Malware YARA Rules & Export Strings:
 python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "GPLv2" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\machine_learning_pe.yar"
 
-// --- javascript/datamaliciousorder (JS): Generate YARA rules + export strings -> machine_learning_js.yar ---
+
+// ==============================================================================
+// 2. JAVASCRIPT (JS SCRIPTS)
+// ==============================================================================
+// Benign Goodware Reference DB:
+python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\data2" -c -i benign_javascript_data2
+
+// Create Pure Malicious Reference DB (Reverse yarGen Mode for ML):
+python yarGen.py --create-mal-db "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder" -i javascript_datamaliciousorder --excludegood
+
+// Malware YARA Rules & Export Strings:
 python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder" --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "GPLv2" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript_datamaliciousorder_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\machine_learning_js.yar"
 
+
+// ==============================================================================
+// 3. APK (ANDROID APKS)
+// ==============================================================================
+// Benign Goodware Reference DB:
+python yarGen.py -g "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign" -c -i benign_apk
+
+// Create Pure Malicious Reference DB (Reverse yarGen Mode for ML):
+python yarGen.py --create-mal-db "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware" -i apk_malware --excludegood
+
+// Malware YARA Rules & Export Strings:
+python yarGen.py -m "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware" --excludegood --meaningful-words-only --nofilesize --nosimple -r "https://github.com/HydraDragonAntivirus" -l "GPLv2" -a "HydraDragonAntivirus" -e "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware_strings" -o "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\machine_learning_apk.yar"
