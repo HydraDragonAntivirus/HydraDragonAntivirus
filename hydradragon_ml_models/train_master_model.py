@@ -113,17 +113,15 @@ def extract_domain_dataset(file_list: List[str], entity_type: str, label_name: s
     batch_args = [(fp, entity_type) for fp in file_list]
     done_count = 0
 
-    # Open ProcessPoolExecutor ONCE for the entire category - no redundant reloading!
+    # Stream tasks efficiently using executor.map with chunksize
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_worker_extract_file, arg) for arg in batch_args]
-        for fut in as_completed(futures):
+        for res in executor.map(_worker_extract_file, batch_args, chunksize=100):
             done_count += 1
-            if done_count % 500 == 0 or done_count == total_files:
-                pct = (done_count / total_files) * 100.0
-                print(f"  -> Progress [{entity_type.upper()}-{label_name}]: {done_count:,}/{total_files:,} ({pct:.1f}%) | Valid Extracted: {len(feats):,}", flush=True)
-            res = fut.result()
             if res is not None:
                 feats.append(res)
+            if done_count % 1000 == 0 or done_count == total_files:
+                pct = (done_count / total_files) * 100.0
+                print(f"  -> Progress [{entity_type.upper()}-{label_name}]: {done_count:,}/{total_files:,} ({pct:.1f}%) | Valid Extracted: {len(feats):,}", flush=True)
 
     if feats:
         X_data = np.array(feats, dtype=np.float32)
@@ -137,10 +135,118 @@ def extract_domain_dataset(file_list: List[str], entity_type: str, label_name: s
     del feats
     gc.collect()
 
+def extract_website_url_dataset(website_dir: str, cache_dir: str, max_samples: int = 100000):
+    cache_ben = os.path.join(cache_dir, "features_url_benign.joblib")
+    cache_mal = os.path.join(cache_dir, "features_url_malicious.joblib")
+    if os.path.exists(cache_ben) and os.path.exists(cache_mal):
+        print(f"  [>] Cache already exists for URL/Domain dataset (skipping extraction)", flush=True)
+        return
+
+    print(f"\n{'='*65}", flush=True)
+    print(f"[*] Processing phishingormalware.py Domains, URLs & IPs...", flush=True)
+    print(f"{'='*65}", flush=True)
+
+    if not os.path.exists(website_dir):
+        print(f"[!] Warning: website_dir not found at {website_dir}", flush=True)
+        return
+
+    # 1. Load Whitelist Pool (Strict reference for collision dropping)
+    wl_files = [
+        "WhiteListDomains.csv", "WhiteListSubDomains.csv",
+        "DomainsPopularityWhiteList.csv", "SubDomainsPopularityWhiteList.csv",
+        "WhiteListIPv4.csv", "WhiteListIPv6.csv"
+    ]
+    whitelist_set = set()
+    whitelist_list = []
+    for wf in wl_files:
+        p = os.path.join(website_dir, wf)
+        if os.path.isfile(p):
+            with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                for i, line in enumerate(f):
+                    if i == 0:
+                        continue
+                    item = line.split(",")[0].strip().lower()
+                    if len(item) >= 4 and not item.startswith("#"):
+                        if item not in whitelist_set:
+                            whitelist_set.add(item)
+                            whitelist_list.append(item)
+
+    print(f"[+] Loaded {len(whitelist_set):,} clean Whitelist entries from phishingormalware.py", flush=True)
+
+    # 2. Load Malicious Pool from phishingormalware.py outputs
+    mal_files = [
+        "MalwareDomains.csv", "PhishingDomains.csv", "MiningDomains.csv",
+        "SpamDomains.csv", "IPv4Malware.csv", "IPv4PhishingActive.csv",
+        "IPv4BruteForce.csv", "IPv4DDoS.csv", "MaliciousMailDomains.csv"
+    ]
+    raw_mal_list = []
+    for mf in mal_files:
+        p = os.path.join(website_dir, mf)
+        if os.path.isfile(p):
+            with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                for i, line in enumerate(f):
+                    if i == 0:
+                        continue
+                    if i > 250000:
+                        break
+                    item = line.split(",")[0].strip().lower()
+                    if len(item) >= 4 and not item.startswith("#"):
+                        raw_mal_list.append(item)
+
+    print(f"[+] Collected {len(raw_mal_list):,} raw Malicious candidates from phishingormalware.py", flush=True)
+
+    # 3. Filter: Whitelist ALWAYS wins! Drop any malicious entry present in whitelist
+    cleaned_mal_set = set()
+    dropped_count = 0
+    for m in raw_mal_list:
+        if m in whitelist_set:
+            dropped_count += 1
+            continue
+        cleaned_mal_set.add(m)
+
+    print(f"[+] Dropped {dropped_count:,} Malicious candidates colliding with Whitelist.", flush=True)
+    print(f"[+] Remaining Clean Malicious entries: {len(cleaned_mal_set):,}", flush=True)
+
+    # 4. Strict 50/50 balance
+    cleaned_mal_list = list(cleaned_mal_set)
+    target_count = min(len(cleaned_mal_list), len(whitelist_list))
+    if max_samples > 0:
+        target_count = min(target_count, max_samples)
+
+    np.random.seed(42)
+    selected_mal = np.random.choice(cleaned_mal_list, target_count, replace=False)
+    selected_ben = np.random.choice(whitelist_list, target_count, replace=False)
+
+    print(f"  [+] URL/Domain Sub-group Target: {target_count:,} Benign vs {target_count:,} Malicious (Exact 50/50)", flush=True)
+
+    # 5. Extract 32 Master features from entries
+    print("[*] Extracting features for Malicious URLs/Domains...", flush=True)
+    X_mal = []
+    for entry in selected_mal:
+        feats = extract_master_features_from_data(entry.encode("utf-8"), "url")
+        X_mal.append(feats)
+
+    print("[*] Extracting features for Benign URLs/Domains...", flush=True)
+    X_ben = []
+    for entry in selected_ben:
+        feats = extract_master_features_from_data(entry.encode("utf-8"), "url")
+        X_ben.append(feats)
+
+    X_mal_arr = np.array(X_mal, dtype=np.float32)
+    y_mal_arr = np.ones(len(X_mal), dtype=np.int32)
+    joblib.dump({"X": X_mal_arr, "y": y_mal_arr, "type": "url"}, cache_mal, compress=3)
+
+    X_ben_arr = np.array(X_ben, dtype=np.float32)
+    y_ben_arr = np.zeros(len(X_ben), dtype=np.int32)
+    joblib.dump({"X": X_ben_arr, "y": y_ben_arr, "type": "url"}, cache_ben, compress=3)
+
+    print(f"[+] Saved {cache_mal}: {len(X_mal):,} valid samples", flush=True)
+    print(f"[+] Saved {cache_ben}: {len(X_ben):,} valid samples", flush=True)
+
 def load_all_master_chunks_stratified(cache_dir: str):
     """
     Loads category-level joblib files (features_pe_benign, features_pe_malicious, etc.)
-    and enforces STRICT 50/50 symmetry across EVERY category (PE, JS, APK)!
+    and enforces STRICT 50/50 symmetry across EVERY category (PE, JS, APK, URL)!
     """
     joblib_files = glob.glob(os.path.join(cache_dir, "features_*.joblib"))
     # Also support older chunk files if any exist
@@ -220,9 +326,11 @@ def parse_args():
     parser.add_argument("--js-dir", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript")
     parser.add_argument("--apk-benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign")
     parser.add_argument("--apk-malware", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware")
+    parser.add_argument("--website-dir", type=str, default=r"c:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\website")
     parser.add_argument("--output-onnx", type=str, default="hydradragon_master.onnx")
     parser.add_argument("--cache-dir", "--chunk-dir", dest="chunk_dir", type=str, default="cache_chunks_master", help="Directory where domain feature files (PE, JS, APK) are cached")
-    parser.add_argument("--max-samples-per-group", type=int, default=30000)
+    parser.add_argument("--max-samples-per-group", type=int, default=0, help="Max samples per group (0 = unlimited, takes ALL available files)")
+    parser.add_argument("--workers", type=int, default=3, help="Number of parallel worker processes (default: 3 for memory stability)")
     parser.add_argument("--extract-only", action="store_true")
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--scan", type=str, default=None, help="Scan a single file or URL with the master model")
@@ -283,45 +391,61 @@ def main():
             flist = []
             if os.path.exists(d):
                 bname = os.path.basename(d)
-                print(f"  [>] Scanning {bname} (target: {limit:,} files)...", flush=True)
+                target_str = f"{limit:,} files" if limit and limit > 0 else "ALL files (unlimited)"
+                print(f"  [>] Scanning {bname} (target: {target_str})...", flush=True)
                 for r, _, fns in os.walk(d):
                     for fn in fns:
                         flist.append(os.path.join(r, fn))
-                        if len(flist) >= limit:
+                        if limit and limit > 0 and len(flist) >= limit:
                             print(f"  [+] Collected {len(flist):,} files from {bname}", flush=True)
                             return flist
                 print(f"  [+] Collected {len(flist):,} files from {bname}", flush=True)
             return flist
 
         print("[*] Collecting cross-corpus datasets for extraction...", flush=True)
-        pe_ben = get_files(args.pe_benign, args.max_samples_per_group)
+        # 1. Discover PE Files (Collect Malware first, then match Benign exactly to Malware count)
         pe_mal = get_files(args.pe_malware, args.max_samples_per_group)
-        extract_domain_dataset(pe_ben, "pe", "BENIGN", 0, args.chunk_dir)
-        extract_domain_dataset(pe_mal, "pe", "MALICIOUS", 1, args.chunk_dir)
+        pe_limit = len(pe_mal) if (args.max_samples_per_group <= 0 or args.max_samples_per_group > len(pe_mal)) else args.max_samples_per_group
+        pe_ben = get_files(args.pe_benign, pe_limit)
+        print(f"  [+] PE Sub-group Target: {len(pe_ben):,} Benign vs {len(pe_mal):,} Malicious (Exact 50/50)", flush=True)
 
-        # 2. Discover JS Files
+        extract_domain_dataset(pe_ben, "pe", "BENIGN", 0, args.chunk_dir, workers=args.workers)
+        extract_domain_dataset(pe_mal, "pe", "MALICIOUS", 1, args.chunk_dir, workers=args.workers)
+
+        # 2. Discover JS Files (Equal balance)
         print(f"  [>] Scanning JS directory {os.path.basename(args.js_dir)}...", flush=True)
         js_ben, js_mal = [], []
+        lim = args.max_samples_per_group
         if os.path.exists(args.js_dir):
             for r, _, fns in os.walk(args.js_dir):
                 is_m = "mal" in r.lower() or "virus" in r.lower()
                 for fn in fns:
                     p = os.path.join(r, fn)
-                    if is_m and len(js_mal) < args.max_samples_per_group:
+                    if is_m and (lim <= 0 or len(js_mal) < lim):
                         js_mal.append(p)
-                    elif not is_m and len(js_ben) < args.max_samples_per_group:
+                    elif not is_m and (lim <= 0 or len(js_ben) < lim):
                         js_ben.append(p)
-                if len(js_ben) >= args.max_samples_per_group and len(js_mal) >= args.max_samples_per_group:
+                if lim > 0 and len(js_ben) >= lim and len(js_mal) >= lim:
                     break
-        print(f"  [+] Collected {len(js_ben):,} Benign JS & {len(js_mal):,} Malicious JS", flush=True)
-        extract_domain_dataset(js_ben, "js", "BENIGN", 0, args.chunk_dir)
-        extract_domain_dataset(js_mal, "js", "MALICIOUS", 1, args.chunk_dir)
+        min_js = min(len(js_ben), len(js_mal))
+        js_ben = js_ben[:min_js]
+        js_mal = js_mal[:min_js]
+        print(f"  [+] JS Sub-group Target: {len(js_ben):,} Benign vs {len(js_mal):,} Malicious (Exact 50/50)", flush=True)
 
-        # 3. Discover APK Files
-        apk_ben = get_files(args.apk_benign, args.max_samples_per_group)
+        extract_domain_dataset(js_ben, "js", "BENIGN", 0, args.chunk_dir, workers=args.workers)
+        extract_domain_dataset(js_mal, "js", "MALICIOUS", 1, args.chunk_dir, workers=args.workers)
+
+        # 3. Discover APK Files (Collect Malware first, then match Benign exactly to Malware count)
         apk_mal = get_files(args.apk_malware, args.max_samples_per_group)
-        extract_domain_dataset(apk_ben, "apk", "BENIGN", 0, args.chunk_dir)
-        extract_domain_dataset(apk_mal, "apk", "MALICIOUS", 1, args.chunk_dir)
+        apk_limit = len(apk_mal) if (args.max_samples_per_group <= 0 or args.max_samples_per_group > len(apk_mal)) else args.max_samples_per_group
+        apk_ben = get_files(args.apk_benign, apk_limit)
+        print(f"  [+] APK Sub-group Target: {len(apk_ben):,} Benign vs {len(apk_mal):,} Malicious (Exact 50/50)", flush=True)
+
+        extract_domain_dataset(apk_ben, "apk", "BENIGN", 0, args.chunk_dir, workers=args.workers)
+        extract_domain_dataset(apk_mal, "apk", "MALICIOUS", 1, args.chunk_dir, workers=args.workers)
+
+        # 4. Discover & Extract phishingormalware.py URL, Domain & IP Dataset (Exact 50/50, Whitelist Priority)
+        extract_website_url_dataset(args.website_dir, args.chunk_dir, max_samples=args.max_samples_per_group or 100000)
 
     if args.extract_only:
         print("[+] Domain dataset extraction completed. Exiting as --extract-only was specified.")

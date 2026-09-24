@@ -125,19 +125,45 @@ class UniversalStringMatcher:
         for s in BENIGN_CORE_STRINGS:
             ben_words.add(s.lower())
 
-        # 2. Benign Domains and Whitelists (CSV only)
+        # 2. Benign Domains and Whitelists (phishingormalware.py CSVs)
         if os.path.exists(self.website_dir):
-            wl_files = ["WhiteListDomains.csv", "WhiteListIPv4.csv", "DomainsPopularityWhiteList.csv"]
+            wl_files = [
+                "WhiteListDomains.csv", "WhiteListSubDomains.csv",
+                "WhiteListIPv4.csv", "WhiteListIPv6.csv",
+                "DomainsPopularityWhiteList.csv", "SubDomainsPopularityWhiteList.csv"
+            ]
             for fname in wl_files:
                 fpath = os.path.join(self.website_dir, fname)
                 if os.path.isfile(fpath):
                     with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
                         for i, line in enumerate(f):
-                            if i > 50000:
+                            if i == 0:
+                                continue
+                            if i > 100000:
                                 break
                             item = line.split(",")[0].strip().lower()
                             if len(item) >= 4 and not item.startswith("#"):
                                 ben_words.add(item.encode("utf-8", "ignore"))
+
+        # 2b. Malicious Domains & IPs from phishingormalware.py
+        if os.path.exists(self.website_dir):
+            mal_net_files = [
+                "MalwareDomains.csv", "PhishingDomains.csv", "MiningDomains.csv",
+                "SpamDomains.csv", "IPv4Malware.csv", "IPv4PhishingActive.csv",
+                "IPv4BruteForce.csv", "IPv4DDoS.csv", "MaliciousMailDomains.csv"
+            ]
+            for fname in mal_net_files:
+                fpath = os.path.join(self.website_dir, fname)
+                if os.path.isfile(fpath):
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                        for i, line in enumerate(f):
+                            if i == 0:
+                                continue
+                            if i > 50000:
+                                break
+                            item = line.split(",")[0].strip().lower()
+                            if len(item) >= 5 and not item.startswith("#"):
+                                mal_words.add(item.encode("utf-8", "ignore"))
 
         # 2b. yarGen Benign Databases
         yargen_dbs_dir = os.path.join(os.path.dirname(os.path.dirname(self.website_dir)), "yarGen", "dbs")
@@ -200,16 +226,19 @@ class UniversalStringMatcher:
             mal_db_count = 0
             for mal_db_f in glob.glob(os.path.join(yargen_dbs_dir, "mal-strings*.db")):
                 try:
+                    bname = os.path.basename(mal_db_f)
+                    min_count = 3 if ("javascript" in bname or "datamaliciousorder" in bname) else 2
+                    print(f"  [>] Loading high-frequency signatures from {bname} (min_occurrences: {min_count})...", flush=True)
                     with gzip.open(mal_db_f, "rt", encoding="utf-8", errors="ignore") as gz:
                         d = json.load(gz)
                         for s_cand, cnt in d.items():
-                            if len(s_cand) >= 5:
+                            if cnt >= min_count and 6 <= len(s_cand) <= 80:
                                 mal_words.add(s_cand.lower().encode("utf-8", "ignore"))
                                 mal_db_count += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"  [!] Error loading {mal_db_f}: {e}", flush=True)
             if mal_db_count > 0:
-                print(f"[+] Loaded {mal_db_count:,} patterns from yarGen Malicious Databases (mal-strings*.db)", flush=True)
+                print(f"[+] Loaded {mal_db_count:,} high-frequency patterns from yarGen Malicious Databases", flush=True)
 
         # 4. Strings Directly from Malware Samples (PE, JS, APK) and Export Directories
         malware_dirs = [
