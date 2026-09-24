@@ -121,3 +121,32 @@ impl MlScanner {
             || self.generic_trees.is_some()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn models_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models")
+    }
+
+    #[test]
+    fn native_bins_load_and_score() {
+        let dir = models_dir();
+        let s = MlScanner::new(&dir);
+        assert!(s.master_loaded(), "hydradragon_master_trees.bin must load");
+        assert!(s.generic_loaded(), "generic_trees.bin must load");
+
+        // Exact parity with the Python exporter (max diff ~1e-7 there; 1e-6 here).
+        let g = s.predict_generic(&[0.0; GENERIC_FEATURE_COUNT]).unwrap();
+        assert!((g - 5.156021e-6).abs() < 1e-6, "generic zeros20 = {g}");
+        let m = s.predict_master(&[0.0; MASTER_FEATURE_COUNT]).unwrap();
+        assert!((m - 0.0034152982).abs() < 1e-6, "master zeros8 = {m}");
+        // PE-domain row with ~0 expert score must stay benign.
+        let b = s
+            .predict_master(&[1.0, 0.0, 0.0, 0.0, 0.00009, 0.0, 0.0, 0.0])
+            .unwrap();
+        assert!(b < 0.05, "master pe-benign = {b}");
+    }
+}

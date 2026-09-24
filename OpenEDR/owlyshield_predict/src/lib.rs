@@ -9,6 +9,7 @@ pub mod config;
 pub mod connectors;
 pub mod extensions;
 pub mod ffi;
+pub mod filetype;
 pub mod firewall;
 pub mod globals;
 pub mod logging;
