@@ -7,9 +7,9 @@ object AlertForm: TAlertForm
   Caption = 'Alert'
   ClientHeight = 220
   ClientWidth = 480
-  Color = 2302751
+  Color = 16513784
   Font.Name = 'Segoe UI'
-  Font.Color = clWhite
+  Font.Color = 3813927
   FormStyle = fsStayOnTop
   OnCreate = FormCreate
   OnDestroy = FormDestroy
@@ -26,7 +26,7 @@ object AlertForm: TAlertForm
     Align = alLeft
     BevelOuter = bvNone
     Caption = ''
-    Color = 10081792
+    Color = 7898880
     ParentColor = False
     TabOrder = 0
   end
@@ -53,7 +53,7 @@ object AlertForm: TAlertForm
     Width = 368
     Anchors = [akTop, akLeft, akRight]
     Caption = ''
-    Font.Color = clWhite
+    Font.Color = 3813927
     Font.Height = -16
     Font.Name = 'Segoe UI'
     Font.Style = [fsBold]
@@ -68,7 +68,7 @@ object AlertForm: TAlertForm
     Anchors = [akTop, akLeft, akRight, akBottom]
     AutoSize = False
     Caption = ''
-    Font.Color = 12500670
+    Font.Color = 7958367
     Font.Height = -12
     Font.Name = 'Segoe UI'
     ParentColor = False
@@ -83,7 +83,7 @@ object AlertForm: TAlertForm
     Anchors = [akTop, akRight]
     Caption = 'X'
     Cursor = crHandPoint
-    Font.Color = 12500670
+    Font.Color = 7958367
     Font.Height = -14
     Font.Name = 'Segoe UI'
     ParentColor = False

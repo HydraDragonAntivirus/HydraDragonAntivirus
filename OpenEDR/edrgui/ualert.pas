@@ -253,9 +253,9 @@ begin
   BorderStyle := bsNone;
   FormStyle := fsStayOnTop;
   Position := poDesigned;
-  Color := RGBToColor(19, 27, 35);
+  Color := RGBToColor(248, 250, 251);
   Font.Name := 'Segoe UI';
-  Font.Color := RGBToColor(226, 233, 239);
+  Font.Color := RGBToColor(39, 50, 58);
   LblTitle.Caption := '';
   LblTitle.Anchors := [akTop, akLeft, akRight];
   LblTitle.SetBounds(62, 16, ClientWidth - 92, 24);
@@ -304,7 +304,7 @@ begin
   LblCount.Anchors := [akLeft, akBottom];
   LblCount.Layout := tlCenter;
   LblCount.Font.Name := 'Segoe UI';
-  LblCount.Font.Color := RGBToColor(166, 182, 194);
+  LblCount.Font.Color := RGBToColor(95, 111, 121);
   LblCount.Font.Height := -11;
   LblCount.ParentColor := False;
   LblCount.ParentFont := False;
@@ -367,9 +367,9 @@ begin
   MemoPromptLog.ReadOnly := True;
   MemoPromptLog.ScrollBars := ssAutoBoth;
   MemoPromptLog.WordWrap := True;
-  MemoPromptLog.Color := RGBToColor(24, 34, 44);
+  MemoPromptLog.Color := RGBToColor(255, 255, 255);
   MemoPromptLog.Font.Name := 'Consolas';
-  MemoPromptLog.Font.Color := RGBToColor(220, 229, 236);
+  MemoPromptLog.Font.Color := RGBToColor(39, 50, 58);
   MemoPromptLog.Font.Height := -11;
   MemoPromptLog.BorderStyle := bsNone;
   MemoPromptLog.Visible := False;
