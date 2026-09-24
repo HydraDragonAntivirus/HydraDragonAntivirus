@@ -55,7 +55,7 @@ namespace {
 		return s;
 	}
 
-	// Persistent local-verdict cache: sha256 (lowercase) -> engine verdict.
+	// Persistent local-verdict cache: SHA-256 (lowercase) -> engine verdict.
 	// Local engines (ML + ClamAV) cost seconds per file while the cloud is
 	// cheap and re-queried every scan — so engine results are remembered
 	// across scans AND service restarts. Hash-keyed, therefore
@@ -631,11 +631,10 @@ static bool deleteRegistryTreeKey(const std::string& sTarget)
 //
 //
 //
-// SHA-256 hex (lowercase) of a file given as UTF-8 path; "" when unreadable.
-// Used for local verdict cache and malware-db keys. Comodo FLS still takes
-// SHA-1 from the event hash fields when those are present.
-//
-static std::string sha256HexOfFileUtf8(const std::string& sUtf8Path)
+// Hash a file using a caller-selected digest; return lowercase hex or empty
+// when the UTF-8 path cannot be opened/read.
+template<typename THasher>
+static std::string hashFileHexUtf8(const std::string& sUtf8Path)
 {
 	try
 	{
@@ -644,13 +643,14 @@ static std::string sha256HexOfFileUtf8(const std::string& sUtf8Path)
 		int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
 		if (nWide <= 1)
 			return {};
-		std::wstring ws(nWide - 1, L'\0');
+		std::wstring ws(static_cast<size_t>(nWide), L'\0');
 		if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
 			return {};
+		ws.resize(static_cast<size_t>(nWide - 1));
 		std::ifstream f(ws, std::ios::binary);
 		if (!f)
 			return {};
-		crypt::sha256::Hasher hasher;
+		THasher hasher;
 		char buf[65536];
 		while (f)
 		{
@@ -674,6 +674,18 @@ static std::string sha256HexOfFileUtf8(const std::string& sUtf8Path)
 		return out;
 	}
 	catch (...) { return {}; }
+}
+
+// SHA-256 backs local verdict/malware matching and quarantine identities.
+static std::string sha256HexOfFileUtf8(const std::string& sUtf8Path)
+{
+	return hashFileHexUtf8<crypt::sha256::Hasher>(sUtf8Path);
+}
+
+// The legacy FLS reputation protocol requires a 40-character SHA-1.
+static std::string sha1HexOfFileUtf8(const std::string& sUtf8Path)
+{
+	return hashFileHexUtf8<crypt::sha1::Hasher>(sUtf8Path);
 }
 
 // Bulk-screen budget guard: files definitely above the cap skip the
@@ -1882,10 +1894,12 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					if (sPath.empty())
 						continue;
 					std::string sHash;
+					std::string sLocalHash;
 					int nVerdict = 3; // Unknown by default
 					if (!bulkHashOverBudget(sPath))
 					{
-						sHash = sha256HexOfFileUtf8(sPath);
+						sHash = sha1HexOfFileUtf8(sPath);
+						sLocalHash = sha256HexOfFileUtf8(sPath);
 						if (!sHash.empty())
 						{
 							if (pFls)
@@ -1911,7 +1925,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					try
 					{
 						// Cheap authoritative list first, always.
-						if (DetectionNotifier::isKnownMalware(sPath, sHash))
+						if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
 							nLocal = 2;
 						// Slow local engines (ML + ClamAV) only while the cloud
 						// is undecided: Safe/Malicious from FLS needs no
@@ -1922,8 +1936,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						{
 							int cachedV = 0;
 							std::string cachedName;
-							if (!sHash.empty()
-								&& lookupLocalVerdict(sHash, cachedV, cachedName))
+							if (!sLocalHash.empty()
+								&& lookupLocalVerdict(sLocalHash, cachedV, cachedName))
 							{
 								if (cachedV == 2)
 									nLocal = 2;
@@ -1938,8 +1952,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 									nLocal = 2;
 								else if (r == 1 && nLocal == 0)
 									nLocal = 1;
-								if (!sHash.empty())
-									storeLocalVerdict(sHash, (r == 2 || r == 1) ? r : 0, sLocalName);
+								if (!sLocalHash.empty())
+									storeLocalVerdict(sLocalHash, (r == 2 || r == 1) ? r : 0, sLocalName);
 							}
 						}
 					}

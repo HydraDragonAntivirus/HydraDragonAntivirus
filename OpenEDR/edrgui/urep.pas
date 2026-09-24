@@ -5,8 +5,8 @@ unit URep;
   ---------------------------------------------------------------------------
   Display only, no actions, no quarantine, no blocks:
   - Worker walks the picked folder for EVERY file (no extension gate).
-  - Batches of 50 go to getFileReputationBulk JSON-RPC (the service hashes
-    and asks the FLS cloud). Rows show path, SHA1, the cloud verdict and
+  - Batches of 50 go to getFileReputationBulk JSON-RPC (the service computes
+    SHA-1 for legacy FLS lookup). Rows show path, SHA-1, cloud verdict and
     the local verdict WITH its cause (never a bare 'Malicious').
   - Rows persist across scans (path-keyed upsert); totals always recount.
   - Pending actions are shown inline with their matching verdict rows;
@@ -1237,7 +1237,7 @@ begin
     Exit;
   msg := 'File: ' + it.Caption + sLineBreak;
   if it.SubItems.Count >= 2 then
-    msg := msg + 'SHA1: ' + it.SubItems[1] + sLineBreak;
+    msg := msg + 'SHA-1 (collision-vulnerable): ' + it.SubItems[1] + sLineBreak;
   if it.SubItems.Count >= 3 then
     msg := msg + 'Cloud: ' + it.SubItems[2] + sLineBreak +
       VerdictMeaning(it.SubItems[2]);
