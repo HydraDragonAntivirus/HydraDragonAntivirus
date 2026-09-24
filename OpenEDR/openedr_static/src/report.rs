@@ -34,6 +34,17 @@ pub struct StaticScanReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryScanReport {
+    pub pid: u32,
+    pub regions_scanned: u64,
+    pub bytes_scanned: u64,
+    pub verdict: String, // "Malicious", "Suspicious", "Unknown", "Error"
+    pub max_threat_score: f32,
+    pub detections: Vec<DetectionItem>,
+    pub scan_time_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryCheckReport {
     pub query_path: String,
     pub matched_patterns: Vec<String>,

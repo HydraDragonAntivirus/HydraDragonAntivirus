@@ -1577,6 +1577,135 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 	rollbackRansomBackups(nPid);
 }
 
+// openedr_static.dll scan_pid binding (mirrors detectionnotifier.cpp init:
+// GetModuleHandle -> LoadLibrary name -> exe folder -> Program Files).
+// Report JSON: {pid, regions_scanned, bytes_scanned, verdict,
+// max_threat_score, detections:[{name...}]}. libedr links no JSON library,
+// so verdict/name are extracted with the same tolerant key scan used there.
+namespace {
+
+typedef char* (*OpenedrScanPidFn)(uint32_t, uint64_t);
+typedef void (*OpenedrPidFreeFn)(char*);
+
+struct OpenedrPidBinding {
+	HMODULE hDll = nullptr;
+	OpenedrScanPidFn fnScanPid = nullptr;
+	OpenedrPidFreeFn fnFree = nullptr;
+	bool ready = false;
+};
+
+static OpenedrPidBinding s_pidEng;
+static std::once_flag s_pidInitFlag;
+
+static void InitOpenedrPid()
+{
+	std::call_once(s_pidInitFlag, []() {
+		HMODULE hDll = ::GetModuleHandleW(L"openedr_static.dll");
+		if (!hDll) hDll = ::LoadLibraryW(L"openedr_static.dll");
+		if (!hDll)
+		{
+			wchar_t szMod[MAX_PATH] = {};
+			if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
+			{
+				std::wstring wsDir(szMod);
+				size_t sep = wsDir.find_last_of(L"\\/");
+				if (sep != std::wstring::npos)
+					hDll = ::LoadLibraryW((wsDir.substr(0, sep) + L"\\openedr_static.dll").c_str());
+			}
+		}
+		if (!hDll)
+			hDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\openedr_static.dll");
+		if (!hDll)
+			return;
+		auto fnScan = reinterpret_cast<OpenedrScanPidFn>(::GetProcAddress(hDll, "openedr_static_scan_pid"));
+		auto fnFree = reinterpret_cast<OpenedrPidFreeFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
+		if (!fnScan || !fnFree)
+			return;
+		s_pidEng.hDll = hDll;
+		s_pidEng.fnScanPid = fnScan;
+		s_pidEng.fnFree = fnFree;
+		s_pidEng.ready = true;
+	});
+}
+
+// Read a JSON string value for "key" starting the search at startPos.
+// Tolerates whitespace; skips \" escapes inside other strings.
+static bool MemReadKeyString(const std::string& json, const char* key, size_t startPos, std::string& out)
+{
+	const char* end = json.data() + json.size();
+	std::string pat = std::string("\"") + key + "\"";
+	size_t at = json.find(pat, startPos);
+	if (at == std::string::npos)
+		return false;
+	const char* p = json.data() + at + pat.size();
+	while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
+	if (p >= end || *p != ':')
+		return false;
+	++p;
+	while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
+	if (p >= end || *p != '"')
+		return false;
+	++p;
+	out.clear();
+	while (p < end)
+	{
+		char c = *p++;
+		if (c == '"')
+			return true;
+		if (c == '\\' && p < end)
+		{
+			out.push_back(*p++);
+			continue;
+		}
+		out.push_back(c);
+	}
+	return false;
+}
+
+// Memory-scan verdict with first detection name. 2 malicious, else 0.
+// Engine missing/unreadable -> 0 (unknown), never an error verdict.
+static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& sThreatOut)
+{
+	sThreatOut.clear();
+	if (nPid == 0)
+		return 0;
+	try
+	{
+		InitOpenedrPid();
+		if (!s_pidEng.ready)
+			return 0;
+		char* raw = s_pidEng.fnScanPid(nPid, nMaxMb);
+		if (!raw)
+			return 0;
+		std::string report(raw);
+		s_pidEng.fnFree(raw);
+		std::string verdict;
+		if (!MemReadKeyString(report, "verdict", 0, verdict))
+			return 0;
+		if (verdict != "Malicious")
+			return 0;
+		size_t detAt = report.find("\"detections\"");
+		if (detAt != std::string::npos)
+		{
+			std::string first;
+			size_t arr = report.find('[', detAt);
+			if (arr != std::string::npos && MemReadKeyString(report, "name", arr, first) && !first.empty())
+			{
+				if (first.size() > 512)
+					first.resize(512);
+				sThreatOut = "Memory:" + first;
+			}
+		}
+		return 2;
+	}
+	catch (...)
+	{
+		return 0;
+	}
+}
+
+} // namespace
+
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event /* eEventType */, const std::string& sProcPath)
 {
 	static HMODULE s_hOwlyDll = nullptr;
@@ -1777,6 +1906,65 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		{
 			s_fnEnqueue(reinterpret_cast<const uint8_t*>(dos.data()),
 				static_cast<uint32_t>(dos.size()), isProc ? 1 : 0, nPid);
+		}
+	}
+
+	// C. Live process-memory scan (real-time): ClamAV + YARA + PE-ML over the
+	// event PID's committed readable memory via openedr_static_scan_pid.
+	// Skipped when files already convicted this event; per-PID 5-minute
+	// cooldown bounds the cost. Detection only (verdict stamp + alert):
+	// memory has no file to quarantine or roll back.
+	if (nPid > 0)
+	{
+		int curVerdict = 0;
+		try { curVerdict = static_cast<int>(vEvent.get("verdict", 0)); } catch (...) {}
+		if (curVerdict != 2)
+		{
+			static std::mutex s_mtxMemScan;
+			static std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> s_recentMemScan;
+			bool bDue = false;
+			{
+				std::scoped_lock lock(s_mtxMemScan);
+				auto now = std::chrono::steady_clock::now();
+				auto it = s_recentMemScan.find(nPid);
+				if (it == s_recentMemScan.end() || (now - it->second) > std::chrono::minutes(5))
+				{
+					s_recentMemScan[nPid] = now;
+					bDue = true;
+				}
+				if (s_recentMemScan.size() > 5000)
+				{
+					for (auto itC = s_recentMemScan.begin(); itC != s_recentMemScan.end(); )
+					{
+						if ((now - itC->second) > std::chrono::minutes(30))
+							itC = s_recentMemScan.erase(itC);
+						else
+							++itC;
+					}
+				}
+			}
+			if (bDue)
+			{
+				std::string sMemThreat;
+				if (ScanPidWithLocalEngines(nPid, 128, sMemThreat) == 2)
+				{
+					if (sMemThreat.empty())
+						sMemThreat = "Malware.MemoryDetection";
+					LOGLVL(Critical, FMT("enricher: [MEMORY SCAN] THREAT DETECTED: <" << sMemThreat << "> in PID " << nPid));
+					vEvent.put("verdict", 2);
+					vEvent.put("threatName", sMemThreat);
+					vProcess.put("verdict", 2);
+					HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+						GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+					if (hPipe != INVALID_HANDLE_VALUE)
+					{
+						std::string pipeMsg = "THREAT_ALERT:" + sMemThreat + "|pid:" + std::to_string(nPid) + "\n";
+						DWORD written = 0;
+						::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+						::CloseHandle(hPipe);
+					}
+				}
+			}
 		}
 	}
 }

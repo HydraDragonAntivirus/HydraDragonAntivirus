@@ -127,6 +127,26 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn scan_pid_self_and_invalid() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let engine = crate::engine::StaticEngine::init(&dir);
+        let me = std::process::id();
+        let r = engine.scan_pid(me, 64);
+        assert!(
+            r.regions_scanned > 0,
+            "own process must yield regions"
+        );
+        assert!(
+            r.bytes_scanned > 0 && r.bytes_scanned <= 64 << 20,
+            "cap respected: {}",
+            r.bytes_scanned
+        );
+        let bad = engine.scan_pid(999_999_999, 1);
+        assert_eq!(bad.verdict, "Error");
+    }
+
     fn models_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models")
     }

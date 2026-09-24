@@ -134,6 +134,37 @@ pub extern "C" fn openedr_static_scan_file(file_path: *const c_char) -> *mut c_c
     }
 }
 
+/// Scan a live process' committed readable memory by PID (Windows only).
+/// `pid`: target process id. `max_mb`: total-bytes cap (0 = default 256 MiB).
+/// Read-only snapshots; nothing is executed. Per region: ClamAV + YARA
+/// (+ PE expert for MZ-start regions). No unicorn recursion, no signer.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_scan_pid(pid: u32, max_mb: u64) -> *mut c_char {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let engine_lock = match get_or_init_engine(None) {
+            Ok(lock) => lock,
+            Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+        };
+
+        let engine = match engine_lock.read() {
+            Ok(guard) => guard,
+            Err(_) => return error_json("Engine lock poisoned"),
+        };
+
+        let report = engine.scan_pid(pid, max_mb);
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => to_c_string(json),
+            Err(e) => error_json(&format!("JSON serialization error: {}", e)),
+        }
+    }));
+
+    match result {
+        Ok(ptr) => ptr,
+        Err(_) => error_json("Panic occurred during process memory scan"),
+    }
+}
+
 /// Scan a buffer in memory.
 /// `data`: pointer to byte slice.
 /// `len`: length of data.

@@ -56,7 +56,8 @@ object RepForm: TRepForm
       Height = 16
       Top = 36
       Width = 750
-      Caption = 'Cloud intelligence and local verdicts'
+      Caption = 'Warning: SHA-1 (legacy FLS identifier) is collision-vulnerable'
+      Font.Style = [fsBold]
       Font.Color = 13879224
       Font.Height = -10
       Font.Name = 'Segoe UI'
@@ -273,7 +274,7 @@ object RepForm: TRepForm
           Width = 110
         end
         item
-          Caption = 'SHA1'
+          Caption = 'SHA-1'
           Width = 105
         end
         item

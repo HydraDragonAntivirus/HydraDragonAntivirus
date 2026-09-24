@@ -48,5 +48,8 @@ windows = { version = "0.62", features = [
     "Win32_Security_Cryptography",
     "Win32_Security_WinTrust",
     "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Debug",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
 ] }

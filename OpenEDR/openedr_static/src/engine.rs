@@ -12,7 +12,9 @@ use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
 use crate::ml::scanner::MlScanner;
 use crate::pe_strings;
 use crate::ptm_registry::PuaRegistryMatcher;
-use crate::report::{DetectionItem, RegistryCheckReport, SignerDetails, StaticScanReport};
+use crate::report::{
+    DetectionItem, MemoryScanReport, RegistryCheckReport, SignerDetails, StaticScanReport,
+};
 use crate::signers::{verify_authenticode, SignerDb};
 use crate::string_rules::{self, PeStringRules};
 use crate::yara::YaraScanner;
@@ -207,6 +209,212 @@ impl StaticEngine {
     pub fn scan_bytes(&self, data: &[u8], file_name: &str) -> StaticScanReport {
         let t0 = Instant::now();
         self.scan_bytes_internal(data, file_name, None, t0)
+    }
+
+    /// Scan a live process' committed readable memory (Windows only).
+    /// Read-only snapshots via ReadProcessMemory; nothing is executed.
+    /// Each region runs ClamAV + YARA (+ PE expert for MZ-start regions).
+    /// No unicorn recursion, no signer checks. `max_mb` caps total bytes
+    /// read (0 = default 256 MiB).
+    pub fn scan_pid(&self, pid: u32, max_mb: u64) -> MemoryScanReport {
+        let t0 = Instant::now();
+        let mut report = MemoryScanReport {
+            pid,
+            regions_scanned: 0,
+            bytes_scanned: 0,
+            verdict: "Unknown".to_string(),
+            max_threat_score: 0.0,
+            detections: Vec::new(),
+            scan_time_ms: 0,
+        };
+        #[cfg(target_os = "windows")]
+        self.scan_pid_windows(pid, max_mb, &mut report);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = (pid, max_mb);
+            report.verdict = "Error".to_string();
+            report.detections.push(DetectionItem {
+                layer: "IO".to_string(),
+                name: "Memory scan requires Windows".to_string(),
+                score: None,
+                details: None,
+            });
+        }
+        if report.verdict != "Error" {
+            report.verdict = if report.max_threat_score >= 0.85 {
+                "Malicious"
+            } else if report.max_threat_score >= 0.50 || !report.detections.is_empty() {
+                "Suspicious"
+            } else {
+                "Unknown"
+            }
+            .to_string();
+        }
+        report.scan_time_ms = t0.elapsed().as_millis() as u64;
+        report
+    }
+
+    #[cfg(target_os = "windows")]
+    fn scan_pid_windows(&self, pid: u32, max_mb: u64, report: &mut MemoryScanReport) {
+        use windows::Win32::Foundation::{CloseHandle, HANDLE};
+        use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+        use windows::Win32::System::Memory::{
+            MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READ,
+            PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD,
+            PAGE_NOACCESS, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY,
+            VirtualQueryEx,
+        };
+        use windows::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+        };
+
+        const DEFAULT_BUDGET_MB: u64 = 256;
+        const PER_REGION_CAP: usize = 32 << 20;
+        const READ_CHUNK: usize = 1 << 20;
+
+        let mut budget = if max_mb == 0 {
+            DEFAULT_BUDGET_MB << 20
+        } else {
+            max_mb.min(4096) << 20
+        };
+
+        let handle: HANDLE = unsafe {
+            match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+                Ok(h) => h,
+                Err(_) => {
+                    report.verdict = "Error".to_string();
+                    report.detections.push(DetectionItem {
+                        layer: "IO".to_string(),
+                        name: "OpenProcess failed (access denied or no such process)".to_string(),
+                        score: None,
+                        details: None,
+                    });
+                    return;
+                }
+            }
+        };
+
+        let mut addr: usize = 0;
+        loop {
+            if budget == 0 {
+                break;
+            }
+            let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+            let ret = unsafe {
+                VirtualQueryEx(
+                    handle,
+                    Some(addr as *const std::ffi::c_void),
+                    &mut mbi,
+                    std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+                )
+            };
+            if ret == 0 {
+                break;
+            }
+            let base = mbi.BaseAddress as usize;
+            let end = match base.checked_add(mbi.RegionSize) {
+                Some(e) => e,
+                None => break,
+            };
+            addr = if end <= addr { break } else { end };
+            if mbi.State != MEM_COMMIT {
+                continue;
+            }
+            if mbi.Protect == PAGE_NOACCESS {
+                continue;
+            }
+            // PAGE_GUARD is a modifier flag, not a standalone protection.
+            if (mbi.Protect.0 & PAGE_GUARD.0) != 0 {
+                continue;
+            }
+            let readable = matches!(
+                mbi.Protect,
+                PAGE_READONLY
+                    | PAGE_READWRITE
+                    | PAGE_WRITECOPY
+                    | PAGE_EXECUTE_READ
+                    | PAGE_EXECUTE_READWRITE
+                    | PAGE_EXECUTE_WRITECOPY
+            );
+            if !readable {
+                continue;
+            }
+            let take = mbi.RegionSize.min(PER_REGION_CAP).min(budget as usize);
+            if take < 4096 {
+                continue;
+            }
+            let mut buf = Vec::with_capacity(take.min(READ_CHUNK));
+            let mut read_total = 0usize;
+            while read_total < take {
+                let step = (take - read_total).min(READ_CHUNK);
+                let off = base + read_total;
+                let mut chunk = vec![0u8; step];
+                let mut got: usize = 0;
+                let ok = unsafe {
+                    ReadProcessMemory(
+                        handle,
+                        off as *const std::ffi::c_void,
+                        chunk.as_mut_ptr() as *mut std::ffi::c_void,
+                        step,
+                        Some(&mut got),
+                    )
+                };
+                if ok.is_err() || got == 0 {
+                    break;
+                }
+                chunk.truncate(got);
+                buf.extend_from_slice(&chunk);
+                read_total += got;
+                if got < step {
+                    break;
+                }
+            }
+            if buf.is_empty() {
+                continue;
+            }
+            budget -= buf.len().min(budget as usize) as u64;
+            report.regions_scanned += 1;
+            report.bytes_scanned += buf.len() as u64;
+            let tag = format!("pid:{pid}:0x{base:x}");
+
+            for m in self.clam.scan_bytes(&buf, &tag) {
+                report.detections.push(DetectionItem {
+                    layer: "Memory_ClamAV".to_string(),
+                    name: format!("Memory:{}", m.name),
+                    score: Some(1.0),
+                    details: Some(format!("ClamAV hit in process memory ({tag})")),
+                });
+                report.max_threat_score = report.max_threat_score.max(1.0);
+            }
+            for y_name in self.yara.scan_bytes(&buf) {
+                report.detections.push(DetectionItem {
+                    layer: "Memory_YARA".to_string(),
+                    name: format!("Memory:{y_name}"),
+                    score: Some(0.95),
+                    details: Some(format!("YARA hit in process memory ({tag})")),
+                });
+                report.max_threat_score = report.max_threat_score.max(0.95);
+            }
+            if buf.starts_with(b"MZ") {
+                if let Some(prob) = self.ml.predict_pe(&buf) {
+                    if prob >= 0.71 {
+                        report.detections.push(DetectionItem {
+                            layer: "Memory_ML".to_string(),
+                            name: "Memory.PE.HighConfidence".to_string(),
+                            score: Some(prob),
+                            details: Some(format!(
+                                "MZ region malware probability: {:.2}% ({tag})",
+                                prob * 100.0
+                            )),
+                        });
+                        report.max_threat_score = report.max_threat_score.max(prob);
+                    }
+                }
+            }
+        }
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
     }
 
     fn scan_bytes_internal(
