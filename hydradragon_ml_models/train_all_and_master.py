@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """
-HydraDragon Antivirus - MASTER UNIFIED MULTI-MODAL TRAINER
-Trains the 4 domain expert models and the unified Master ONNX model:
-  `hydradragon_master.onnx`
-
-ZERO sample file reading from disk:
-Loads directly from existing pre-extracted, balanced .joblib matrices on disk:
-  1. PE Model (pe_features_full.joblib) -> 65 structural features (pe_model.onnx, pe_trees.bin)
-  2. JS Model (js_features_39k.joblib)  -> 51 AST & lexical features (js_model.onnx, js_trees.bin)
-  3. APK Model (apk_features.joblib)    -> 24 DEX & manifest features (apk_model.onnx, apk_trees.bin)
-  4. URL Model (url_features_cache.joblib) -> 32 URL features (url_model.onnx, url_trees.bin, url_model.bin)
-And trains:
-  5. Master Multi-Modal Model -> hydradragon_master.onnx
+HydraDragon Universal AI Engine - Master & Specialist Multi-Modal Trainer
+Trains all 4 domain expert models DIRECTLY from existing pre-extracted balanced joblibs:
+  1. PE Model (pe_features_full.joblib) -> pe_model.onnx & pe_trees.bin (65 features)
+  2. JS Model (js_features_39k.joblib)  -> js_model.onnx & js_trees.bin (51 features)
+  3. APK Model (apk_features.joblib)    -> apk_model.onnx & apk_trees.bin (24 features)
+  4. URL Model (url_features_cache.joblib) -> url_model.onnx, url_trees.bin & url_model.bin (32 features)
+And trains the unified:
+  5. Master Universal Model -> hydradragon_master.onnx
 """
 
 import os
@@ -19,7 +15,6 @@ import sys
 import gc
 import struct
 import shutil
-import argparse
 import numpy as np
 import joblib
 from sklearn.model_selection import train_test_split
@@ -28,12 +23,9 @@ import lightgbm as lgb
 import onnxmltools
 from onnxmltools.convert.common.data_types import FloatTensorType
 
-# Add current dir to path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, BASE_DIR)
-from string_matcher import UniversalStringMatcher, STRING_FEATURE_NAMES
-
 REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+
 PORTABLE_MODELS = os.path.join(REPO_ROOT, "OpenMalwareScannerPortable", "models")
 OPENEDR_STATIC_MODELS = os.path.join(REPO_ROOT, "OpenEDR", "openedr_static", "models")
 OWLYSHIELD_MODELS = os.path.join(REPO_ROOT, "OpenEDR", "owlyshield_predict", "models")
@@ -79,7 +71,7 @@ def export_standard_tree_bundle(clf, out_path: str):
     raw = struct.pack("<I", len(trees)) + b"".join(t.emit() for t in trees)
     with open(out_path, "wb") as f:
         f.write(raw)
-    print(f"  [+] Exported tree bundle: {os.path.basename(out_path)} ({len(raw):,} bytes, {len(trees)} trees)", flush=True)
+    print(f"  [+] Exported standard tree bundle: {out_path} ({len(raw):,} bytes, {len(trees)} trees)", flush=True)
 
 def export_hdtr_url_model(clf, n_features: int, out_path: str):
     dump = clf.booster_.dump_model()
@@ -100,17 +92,17 @@ def export_hdtr_url_model(clf, n_features: int, out_path: str):
     raw = b"".join(chunks)
     with open(out_path, "wb") as f:
         f.write(raw)
-    print(f"  [+] Exported HDTR URL bundle: {os.path.basename(out_path)} ({len(raw):,} bytes, {n_trees} trees)", flush=True)
+    print(f"  [+] Exported HDTR URL bundle: {out_path} ({len(raw):,} bytes, {n_trees} trees)", flush=True)
 
 def export_onnx(clf, n_features: int, out_path: str):
     initial_type = [("float_input", FloatTensorType([None, n_features]))]
     onnx_model = onnxmltools.convert_lightgbm(clf, initial_types=initial_type, target_opset=14)
     with open(out_path, "wb") as f:
         f.write(onnx_model.SerializeToString())
-    print(f"  [+] Exported ONNX model: {os.path.basename(out_path)}", flush=True)
+    print(f"  [+] Exported ONNX model: {out_path}", flush=True)
 
 # -------------------------------------------------------------
-# Domain Trainer Function
+# Domain Trainers
 # -------------------------------------------------------------
 def train_domain(name: str, joblib_path: str, n_features: int, max_samples: int = 0,
                  n_estimators: int = 250, num_leaves: int = 63, max_depth: int = 8,
@@ -122,7 +114,7 @@ def train_domain(name: str, joblib_path: str, n_features: int, max_samples: int 
     if not os.path.exists(joblib_path):
         raise FileNotFoundError(f"Missing joblib file: {joblib_path}")
         
-    print(f"  [>] Loading dataset from: {os.path.basename(joblib_path)}...", flush=True)
+    print(f"  [>] Loading dataset from: {joblib_path}...", flush=True)
     data = joblib.load(joblib_path)
     X = data["X"]
     y = data["y"]
@@ -172,33 +164,27 @@ def train_domain(name: str, joblib_path: str, n_features: int, max_samples: int 
     tn, fp, fn, tp = cm.ravel()
     fpr = fp / (fp + tn) * 100.0 if (fp + tn) > 0 else 0.0
     recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
-    print(f"  [+] {name.upper()} Evaluation: Recall={recall:.2f}%, FPR={fpr:.2f}% (TP={tp:,}, FP={fp:,}, TN={tn:,}, FN={fn:,})", flush=True)
+    print(f"  [+] {name.upper()} Evaluation: Recall={recall:.2f}%, FPR={fpr:.2f}% (TP={tp}, FP={fp}, TN={tn}, FN={fn})", flush=True)
     
+    # Sample 10k test predictions for meta-master model
     sample_n = min(10000, len(X_test))
-    meta_probs = clf.predict_proba(X_test[:sample_n])[:, 1]
-    meta_y = y_test[:sample_n]
+    meta_sub_X = X_test[:sample_n]
+    meta_sub_y = y_test[:sample_n]
+    meta_probs = clf.predict_proba(meta_sub_X)[:, 1]
     
-    del X, y, X_train, X_test, y_train, y_test
+    del X, y, X_train, X_test, y_train, y_test, meta_sub_X
     gc.collect()
     
-    return clf, meta_probs, meta_y
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Train HydraDragon Multi-Modal Models and Master ONNX Model")
-    parser.add_argument("--output-onnx", type=str, default="hydradragon_master.onnx")
-    parser.add_argument("--url-samples", type=int, default=200000, help="Max samples to take from url_features_cache.joblib")
-    return parser.parse_args()
+    return clf, meta_probs, meta_sub_y
 
 def main():
-    args = parse_args()
     print("=" * 70, flush=True)
-    print("  HydraDragon Antivirus - MASTER MULTI-MODAL TRAINER  ", flush=True)
-    print("  (Zero Sample Crawling - Direct Loading from Pre-Extracted Joblibs)  ", flush=True)
+    print("  HydraDragon Antivirus - Universal 4-Domain + Master AI Pipeline  ", flush=True)
     print("=" * 70, flush=True)
     
     meta_records = {}
     
-    # 1. PE Model (65 Features) from pe_features_full.joblib
+    # 1. PE Model (65 Features)
     pe_clf, pe_probs, pe_y = train_domain("pe", os.path.join(BASE_DIR, "pe_features_full.joblib"),
                                           n_features=65, n_estimators=300, num_leaves=127, max_depth=10)
     pe_onnx = os.path.join(BASE_DIR, "pe_model.onnx")
@@ -207,7 +193,7 @@ def main():
     export_standard_tree_bundle(pe_clf, pe_bin)
     meta_records["pe"] = (pe_probs, pe_y)
     
-    # 2. JS Model (51 Features) from js_features_39k.joblib
+    # 2. JS Model (51 Features)
     js_clf, js_probs, js_y = train_domain("js", os.path.join(BASE_DIR, "js_features_39k.joblib"),
                                           n_features=51, n_estimators=250, num_leaves=63, max_depth=8)
     js_onnx = os.path.join(BASE_DIR, "js_model.onnx")
@@ -216,7 +202,7 @@ def main():
     export_standard_tree_bundle(js_clf, js_bin)
     meta_records["js"] = (js_probs, js_y)
     
-    # 3. APK Model (24 Features) from apk_features.joblib
+    # 3. APK Model (24 Features)
     apk_clf, apk_probs, apk_y = train_domain("apk", os.path.join(BASE_DIR, "apk_features.joblib"),
                                              n_features=24, n_estimators=200, num_leaves=63, max_depth=8)
     apk_onnx = os.path.join(BASE_DIR, "apk_model.onnx")
@@ -225,9 +211,9 @@ def main():
     export_standard_tree_bundle(apk_clf, apk_bin)
     meta_records["apk"] = (apk_probs, apk_y)
     
-    # 4. URL Model (32 Features) from url_features_cache.joblib
+    # 4. URL Model (32 Features) - 200k samples from 15.3M url_features_cache.joblib
     url_clf, url_probs, url_y = train_domain("url", os.path.join(BASE_DIR, "url_features_cache.joblib"),
-                                             n_features=32, max_samples=args.url_samples, n_estimators=300, num_leaves=63, max_depth=8)
+                                             n_features=32, max_samples=200000, n_estimators=300, num_leaves=63, max_depth=8)
     url_onnx = os.path.join(BASE_DIR, "url_model.onnx")
     url_bin = os.path.join(BASE_DIR, "url_trees.bin")
     url_hdtr = os.path.join(BASE_DIR, "url_model.bin")
@@ -236,7 +222,7 @@ def main():
     export_hdtr_url_model(url_clf, 32, url_hdtr)
     meta_records["url"] = (url_probs, url_y)
     
-    # 5. Synchronize to Distribution Folders
+    # 5. Sync to Distribution Folders
     print("\n" + "=" * 65, flush=True)
     print(" [*] SYNCHRONIZING BINARY TREES TO EDR & PORTABLE SCANNERS", flush=True)
     print("=" * 65, flush=True)
@@ -259,11 +245,12 @@ def main():
         shutil.copy2(url_hdtr, os.path.join(owly_root, "url_model.bin"))
         print(f"  [+] Synced url_model.bin to: {owly_root}", flush=True)
 
-    # 6. Train Unified Master Multi-Modal Model (hydradragon_master.onnx)
+    # 6. Train Unified Master Model (hydradragon_master.onnx)
     print("\n" + "=" * 65, flush=True)
-    print(f" [*] BUILDING UNIFIED MASTER MULTI-MODAL MODEL ({args.output_onnx})", flush=True)
+    print(" [*] BUILDING UNIFIED MASTER MULTI-MODAL MODEL (hydradragon_master.onnx)", flush=True)
     print("=" * 65, flush=True)
     
+    # Master vector: [is_pe, is_js, is_apk, is_url, pe_prob, js_prob, apk_prob, url_prob] (8 features)
     X_master = []
     y_master = []
     
@@ -293,9 +280,9 @@ def main():
     print("\n" + "=" * 30 + " MASTER MODEL EVALUATION " + "=" * 30, flush=True)
     print(classification_report(y_m_te, y_m_pred, target_names=["Benign", "Malicious"], digits=4), flush=True)
     
-    master_onnx_path = os.path.join(BASE_DIR, args.output_onnx)
-    export_onnx(master_clf, 8, master_onnx_path)
-    print(f"\n[+] SUCCESS: {args.output_onnx} and all 4 domain models are fully built and synchronized!", flush=True)
+    master_onnx = os.path.join(BASE_DIR, "hydradragon_master.onnx")
+    export_onnx(master_clf, 8, master_onnx)
+    print(f"\n[+] SUCCESS: hydradragon_master.onnx and all 4 domain models are fully built and synchronized!", flush=True)
 
 if __name__ == "__main__":
     main()
