@@ -9,7 +9,7 @@ unit UQuar;
   - owlyshield_quarantine_delete  -> drop container permanently
   - owlyshield_exclusion_list/add/remove (kind 0=path, 1=hash)
   Excluded files are left alone entirely by the engines (no container,
-  no delete, no block push). All controls are created in code (no .lfm).
+  no delete, no block push). The visual layout is defined in uquar.lfm.
   --------------------------------------------------------------------------- }
 
 {$mode objfpc}{$H+}
@@ -28,7 +28,15 @@ type
   { TQuarForm }
 
   TQuarForm = class(TForm)
-  private
+  published
+    HeaderPnl: TPanel;
+    HeaderAccent: TPanel;
+    SubtitleLbl: TLabel;
+    ItemsSurface: TPanel;
+    ActionSurface: TPanel;
+    ExclusionsSurface: TPanel;
+    ExclActionSurface: TPanel;
+    ItemsLbl: TLabel;
     TitleLbl: TLabel;
     ItemsView: TListView;
     RefreshBtn: TButton;
@@ -38,6 +46,18 @@ type
     ExclView: TListView;
     ExclAddBtn: TButton;
     ExclDelBtn: TButton;
+    procedure RefreshAll(Sender: TObject);
+    procedure ItemsDrawItem(Sender: TCustomListView; Item: TListItem;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
+    procedure ExclDrawItem(Sender: TCustomListView; Item: TListItem;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
+    procedure RestoreBtnClick(Sender: TObject);
+    procedure DeleteBtnClick(Sender: TObject);
+    procedure ExclAddBtnClick(Sender: TObject);
+    procedure ExclDelBtnClick(Sender: TObject);
+    procedure FormShowed(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
+  private
     FDll: HMODULE;
     FList: TQListFn;
     FRestore: TQActionFn;
@@ -46,59 +66,47 @@ type
     FExAdd: TQExAddFn;
     FExDel: TQExAddFn;
     FFirstShow: Boolean;
-    procedure BuildUi;
     function LoadEngine: Boolean;
     procedure UnloadEngine;
     function CallJson(AFn: TQListFn; out AJson: string): Boolean;
-    procedure RefreshAll(Sender: TObject);
     procedure RefreshItems;
     procedure RefreshExclusions;
-    procedure ItemsDrawItem(Sender: TCustomListView; Item: TListItem;
-      State: TCustomDrawState; var DefaultDraw: Boolean);
-    procedure ExclDrawItem(Sender: TCustomListView; Item: TListItem;
-      State: TCustomDrawState; var DefaultDraw: Boolean);
-    procedure RestoreBtnClick(Sender: TObject);
   protected
     procedure CreateParams(var Params: TCreateParams); override;
-    procedure DeleteBtnClick(Sender: TObject);
-    procedure ExclAddBtnClick(Sender: TObject);
-    procedure ExclDelBtnClick(Sender: TObject);
-    procedure FormShowed(Sender: TObject);
-    procedure FormDestroy(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
   end;
 
 implementation
 
+{$R *.lfm}
+
 { ---- modern UI helpers (same language as the verdict screen) ------------- }
 
 function RowColorForQuar(AIndex: Integer): TColor;
 begin
-  // Contained threats: calm red tint, zebra-striped for readability.
+  // Keep quarantine records distinct from trusted exclusions.
   if (AIndex mod 2) = 1 then
-    Result := RGBToColor(253, 231, 230)
+    Result := RGBToColor(255, 240, 237)
   else
-    Result := RGBToColor(250, 221, 220);
+    Result := RGBToColor(252, 231, 227);
 end;
 
 function RowColorForExcl(AIndex: Integer): TColor;
 begin
   if (AIndex mod 2) = 1 then
-    Result := RGBToColor(247, 248, 250)
+    Result := RGBToColor(240, 244, 247)
   else
-    Result := clWhite;
+    Result := RGBToColor(250, 251, 252);
 end;
 
 { TQuarForm }
 
 constructor TQuarForm.Create(AOwner: TComponent);
 begin
-  inherited CreateNew(AOwner);
+  inherited Create(AOwner);
   ShowInTaskBar := stAlways;
   FFirstShow := True;
-  OnShow := @FormShowed;
-  BuildUi;
 end;
 
 procedure TQuarForm.CreateParams(var Params: TCreateParams);
@@ -106,126 +114,6 @@ begin
   inherited CreateParams(Params);
   Params.ExStyle := Params.ExStyle or WS_EX_APPWINDOW;
   Params.WndParent := 0;
-end;
-
-procedure TQuarForm.BuildUi;
-const
-  M = 12;
-  W = 700;
-var
-  y: Integer;
-begin
-  Caption := 'HydraDragon Quarantine Manager';
-  ShowInTaskBar := stAlways;
-  Width := W;
-  Height := 560;
-  Position := poScreenCenter;
-  Constraints.MinWidth := 560;
-  Constraints.MinHeight := 420;
-
-  TitleLbl := TLabel.Create(Self);
-  TitleLbl.Parent := Self;
-  TitleLbl.SetBounds(M, 10, 500, 22);
-  TitleLbl.Caption := 'Quarantined items and exclusions';
-  TitleLbl.Font.Style := [fsBold];
-
-  ItemsView := TListView.Create(Self);
-  ItemsView.Parent := Self;
-  ItemsView.SetBounds(M, 36, W - M * 2, 220);
-  ItemsView.Anchors := [akTop, akLeft, akRight];
-  ItemsView.ViewStyle := vsReport;
-  ItemsView.MultiSelect := True;
-  ItemsView.ReadOnly := True;
-  ItemsView.RowSelect := True;
-  ItemsView.HideSelection := False;
-  ItemsView.GridLines := False;
-  ItemsView.OnCustomDrawItem := @ItemsDrawItem;
-  with ItemsView.Columns.Add do
-  begin
-    Caption := 'File';
-    Width := 250;
-  end;
-  with ItemsView.Columns.Add do
-  begin
-    Caption := 'Detection';
-    Width := 150;
-  end;
-  with ItemsView.Columns.Add do
-  begin
-    Caption := 'Date';
-    Width := 120;
-  end;
-  with ItemsView.Columns.Add do
-  begin
-    Caption := 'Size';
-    Width := 80;
-  end;
-  with ItemsView.Columns.Add do
-  begin
-    Caption := 'Container';
-    Width := 0;
-  end;
-
-  y := 262;
-  RefreshBtn := TButton.Create(Self);
-  RefreshBtn.Parent := Self;
-  RefreshBtn.SetBounds(M, y, 110, 30);
-  RefreshBtn.Caption := 'Refresh';
-  RefreshBtn.OnClick := @RefreshAll;
-
-  RestoreBtn := TButton.Create(Self);
-  RestoreBtn.Parent := Self;
-  RestoreBtn.SetBounds(M + 118, y, 110, 30);
-  RestoreBtn.Caption := 'Restore';
-  RestoreBtn.OnClick := @RestoreBtnClick;
-
-  DeleteBtn := TButton.Create(Self);
-  DeleteBtn.Parent := Self;
-  DeleteBtn.SetBounds(M + 236, y, 110, 30);
-  DeleteBtn.Caption := 'Delete';
-  DeleteBtn.OnClick := @DeleteBtnClick;
-
-  ExclLbl := TLabel.Create(Self);
-  ExclLbl.Parent := Self;
-  ExclLbl.SetBounds(M, y + 40, 500, 20);
-  ExclLbl.Caption := 'Exclusions (left alone entirely)';
-  ExclLbl.Font.Style := [fsBold];
-
-  ExclView := TListView.Create(Self);
-  ExclView.Parent := Self;
-  ExclView.SetBounds(M, y + 62, W - M * 2, 130);
-  ExclView.Anchors := [akTop, akLeft, akRight, akBottom];
-  ExclView.ViewStyle := vsReport;
-  ExclView.MultiSelect := True;
-  ExclView.ReadOnly := True;
-  ExclView.RowSelect := True;
-  ExclView.HideSelection := False;
-  ExclView.GridLines := False;
-  ExclView.OnCustomDrawItem := @ExclDrawItem;
-  with ExclView.Columns.Add do
-  begin
-    Caption := 'Kind';
-    Width := 80;
-  end;
-  with ExclView.Columns.Add do
-  begin
-    Caption := 'Value';
-    Width := 540;
-  end;
-
-  ExclAddBtn := TButton.Create(Self);
-  ExclAddBtn.Parent := Self;
-  ExclAddBtn.SetBounds(M, 500 - 40, 190, 30);
-  ExclAddBtn.Anchors := [akLeft, akBottom];
-  ExclAddBtn.Caption := 'Exclude selected file';
-  ExclAddBtn.OnClick := @ExclAddBtnClick;
-
-  ExclDelBtn := TButton.Create(Self);
-  ExclDelBtn.Parent := Self;
-  ExclDelBtn.SetBounds(M + 198, 500 - 40, 150, 30);
-  ExclDelBtn.Anchors := [akLeft, akBottom];
-  ExclDelBtn.Caption := 'Remove exclusion';
-  ExclDelBtn.OnClick := @ExclDelBtnClick;
 end;
 
 function TQuarForm.LoadEngine: Boolean;

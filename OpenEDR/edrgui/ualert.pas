@@ -253,23 +253,34 @@ begin
   BorderStyle := bsNone;
   FormStyle := fsStayOnTop;
   Position := poDesigned;
-  Color := $00302518;
+  Color := RGBToColor(19, 27, 35);
+  Font.Name := 'Segoe UI';
+  Font.Color := RGBToColor(226, 233, 239);
   LblTitle.Caption := '';
   LblTitle.Anchors := [akTop, akLeft, akRight];
+  LblTitle.SetBounds(62, 16, ClientWidth - 92, 24);
+  LblTitle.Font.Name := 'Segoe UI';
+  LblTitle.Font.Height := -16;
   LblMessage.Caption := '';
   LblMessage.Anchors := [akTop, akLeft, akRight, akBottom];
+  LblMessage.SetBounds(62, 48, ClientWidth - 82, ClientHeight - 96);
+  LblMessage.Font.Name := 'Segoe UI';
+  LblMessage.Font.Height := -12;
   BtnClose.Anchors := [akTop, akRight];
-  BtnClose.Left := ClientWidth - BtnClose.Width - 14;
-  BtnClose.Top := 10;
+  BtnClose.Left := ClientWidth - BtnClose.Width - 16;
+  BtnClose.Top := 14;
+  BtnClose.Font.Name := 'Segoe UI';
+  BtnClose.Font.Style := [fsBold];
   FInstance := Self;
 
   BtnPrev := TButton.Create(Self);
   BtnPrev.Parent := Self;
   BtnPrev.Caption := '<';
   BtnPrev.Width := 28;
-  BtnPrev.Height := 24;
-  BtnPrev.Left := 10;
-  BtnPrev.Top := ClientHeight - BtnPrev.Height - 8;
+  BtnPrev.Height := 28;
+  BtnPrev.Left := 14;
+  BtnPrev.Top := ClientHeight - BtnPrev.Height - 10;
+  BtnPrev.Font.Name := 'Segoe UI';
   BtnPrev.Anchors := [akLeft, akBottom];
   BtnPrev.OnClick := @BtnPrevClick;
 
@@ -277,9 +288,10 @@ begin
   BtnNext.Parent := Self;
   BtnNext.Caption := '>';
   BtnNext.Width := 28;
-  BtnNext.Height := 24;
-  BtnNext.Left := BtnPrev.Left + BtnPrev.Width + 4;
-  BtnNext.Top := ClientHeight - BtnNext.Height - 8;
+  BtnNext.Height := 28;
+  BtnNext.Left := BtnPrev.Left + BtnPrev.Width + 6;
+  BtnNext.Top := ClientHeight - BtnNext.Height - 10;
+  BtnNext.Font.Name := 'Segoe UI';
   BtnNext.Anchors := [akLeft, akBottom];
   BtnNext.OnClick := @BtnNextClick;
 
@@ -288,10 +300,11 @@ begin
   LblCount.Caption := '';
   LblCount.Left := BtnNext.Left + BtnNext.Width + 8;
   LblCount.Height := 24;
-  LblCount.Top := ClientHeight - LblCount.Height - 8;
+  LblCount.Top := ClientHeight - LblCount.Height - 10;
   LblCount.Anchors := [akLeft, akBottom];
   LblCount.Layout := tlCenter;
-  LblCount.Font.Color := $00B0A090;
+  LblCount.Font.Name := 'Segoe UI';
+  LblCount.Font.Color := RGBToColor(166, 182, 194);
   LblCount.Font.Height := -11;
   LblCount.ParentColor := False;
   LblCount.ParentFont := False;
@@ -299,10 +312,11 @@ begin
   BtnAllowAlways := TButton.Create(Self);
   BtnAllowAlways.Parent := Self;
   BtnAllowAlways.Caption := 'Allow Always';
-  BtnAllowAlways.Width := 95;
-  BtnAllowAlways.Height := 28;
+  BtnAllowAlways.Width := 104;
+  BtnAllowAlways.Height := 34;
   BtnAllowAlways.Left := 10;
-  BtnAllowAlways.Top := ClientHeight - BtnAllowAlways.Height - 8;
+  BtnAllowAlways.Top := ClientHeight - BtnAllowAlways.Height - 10;
+  BtnAllowAlways.Font.Name := 'Segoe UI';
   BtnAllowAlways.Anchors := [akLeft, akBottom];
   BtnAllowAlways.Visible := False;
   BtnAllowAlways.OnClick := @BtnAllowAlwaysClick;
@@ -310,10 +324,11 @@ begin
   BtnAllowOnce := TButton.Create(Self);
   BtnAllowOnce.Parent := Self;
   BtnAllowOnce.Caption := 'Allow Once';
-  BtnAllowOnce.Width := 90;
-  BtnAllowOnce.Height := 28;
+  BtnAllowOnce.Width := 104;
+  BtnAllowOnce.Height := 34;
   BtnAllowOnce.Left := BtnAllowAlways.Left + BtnAllowAlways.Width + 6;
-  BtnAllowOnce.Top := ClientHeight - BtnAllowOnce.Height - 8;
+  BtnAllowOnce.Top := ClientHeight - BtnAllowOnce.Height - 10;
+  BtnAllowOnce.Font.Name := 'Segoe UI';
   BtnAllowOnce.Anchors := [akLeft, akBottom];
   BtnAllowOnce.Visible := False;
   BtnAllowOnce.OnClick := @BtnAllowOnceClick;
@@ -321,10 +336,11 @@ begin
   BtnBlock := TButton.Create(Self);
   BtnBlock.Parent := Self;
   BtnBlock.Caption := 'Block';
-  BtnBlock.Width := 85;
-  BtnBlock.Height := 28;
+  BtnBlock.Width := 92;
+  BtnBlock.Height := 34;
   BtnBlock.Left := BtnAllowOnce.Left + BtnAllowOnce.Width + 6;
-  BtnBlock.Top := ClientHeight - BtnBlock.Height - 8;
+  BtnBlock.Top := ClientHeight - BtnBlock.Height - 10;
+  BtnBlock.Font.Name := 'Segoe UI';
   BtnBlock.Anchors := [akLeft, akBottom];
   BtnBlock.Visible := False;
   BtnBlock.OnClick := @BtnBlockClick;
@@ -332,10 +348,11 @@ begin
   BtnQuarantine := TButton.Create(Self);
   BtnQuarantine.Parent := Self;
   BtnQuarantine.Caption := 'Quarantine';
-  BtnQuarantine.Width := 105;
-  BtnQuarantine.Height := 28;
+  BtnQuarantine.Width := 118;
+  BtnQuarantine.Height := 34;
   BtnQuarantine.Left := BtnBlock.Left + BtnBlock.Width + 6;
-  BtnQuarantine.Top := ClientHeight - BtnQuarantine.Height - 8;
+  BtnQuarantine.Top := ClientHeight - BtnQuarantine.Height - 10;
+  BtnQuarantine.Font.Name := 'Segoe UI';
   BtnQuarantine.Anchors := [akLeft, akBottom];
   BtnQuarantine.Visible := False;
   BtnQuarantine.OnClick := @BtnQuarantineClick;
@@ -343,15 +360,16 @@ begin
   MemoPromptLog := TMemo.Create(Self);
   MemoPromptLog.Parent := Self;
   MemoPromptLog.Left := 62;
-  MemoPromptLog.Top := 38;
+  MemoPromptLog.Top := 50;
   MemoPromptLog.Width := ClientWidth - 76;
-  MemoPromptLog.Height := ClientHeight - 38 - 44;
+  MemoPromptLog.Height := ClientHeight - 50 - 60;
   MemoPromptLog.Anchors := [akTop, akLeft, akRight, akBottom];
   MemoPromptLog.ReadOnly := True;
   MemoPromptLog.ScrollBars := ssAutoBoth;
   MemoPromptLog.WordWrap := True;
-  MemoPromptLog.Color := $00241B10;
-  MemoPromptLog.Font.Color := $00E0D0C0;
+  MemoPromptLog.Color := RGBToColor(24, 34, 44);
+  MemoPromptLog.Font.Name := 'Consolas';
+  MemoPromptLog.Font.Color := RGBToColor(220, 229, 236);
   MemoPromptLog.Font.Height := -11;
   MemoPromptLog.BorderStyle := bsNone;
   MemoPromptLog.Visible := False;
@@ -425,8 +443,16 @@ begin
 
   if Item.IsPrompt then
   begin
-    Width := 580;
-    Height := 420;
+    Width := 640;
+    Height := 460;
+    BtnQuarantine.Left := ClientWidth - BtnQuarantine.Width - 14;
+    BtnBlock.Left := BtnQuarantine.Left - BtnBlock.Width - 8;
+    BtnAllowOnce.Left := BtnBlock.Left - BtnAllowOnce.Width - 8;
+    BtnAllowAlways.Left := BtnAllowOnce.Left - BtnAllowAlways.Width - 8;
+    BtnAllowAlways.Top := ClientHeight - BtnAllowAlways.Height - 10;
+    BtnAllowOnce.Top := BtnAllowAlways.Top;
+    BtnBlock.Top := BtnAllowAlways.Top;
+    BtnQuarantine.Top := BtnAllowAlways.Top;
     LblMessage.Visible := False;
     if MemoPromptLog <> nil then
     begin
@@ -446,8 +472,8 @@ begin
   end
   else
   begin
-    Width := 450;
-    Height := 200;
+    Width := 480;
+    Height := 220;
     if MemoPromptLog <> nil then
       MemoPromptLog.Visible := False;
     LblMessage.Visible := True;

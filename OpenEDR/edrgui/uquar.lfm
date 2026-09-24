@@ -1,0 +1,261 @@
+object QuarForm: TQuarForm
+  Left = 0
+  Height = 560
+  Top = 0
+  Width = 700
+  Caption = 'HydraDragon Quarantine'
+  ClientHeight = 560
+  ClientWidth = 700
+  Color = 16052717
+  Constraints.MinHeight = 420
+  Constraints.MinWidth = 560
+  Font.Color = 3813927
+  Font.Name = 'Segoe UI'
+  Font.Height = -12
+  OnDestroy = FormDestroy
+  OnShow = FormShowed
+  Position = poScreenCenter
+  ShowInTaskBar = stAlways
+  LCLVersion = '4.8.0.0'
+  object HeaderPnl: TPanel
+    Left = 0
+    Height = 58
+    Top = 0
+    Width = 920
+    Align = alTop
+    BevelOuter = bvNone
+    Color = 3353366
+    ParentColor = False
+    TabOrder = 0
+    object HeaderAccent: TPanel
+      Left = 0
+      Height = 58
+      Top = 0
+      Width = 5
+      Align = alLeft
+      BevelOuter = bvNone
+      Color = 4808410
+      ParentColor = False
+      TabOrder = 0
+    end
+    object TitleLbl: TLabel
+      Left = 24
+      Height = 22
+      Top = 8
+      Width = 450
+      Caption = 'Quarantine'
+      Font.Color = clWhite
+      Font.Height = -16
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object SubtitleLbl: TLabel
+      Left = 24
+      Height = 16
+      Top = 34
+      Width = 650
+      Caption = 'Review contained files and manage trusted exclusions'
+      Font.Color = 13879224
+      Font.Height = -10
+      Font.Name = 'Segoe UI'
+      ParentColor = False
+      ParentFont = False
+    end
+  end
+  object ItemsSurface: TPanel
+    Left = 0
+    Height = 216
+    Top = 58
+    Width = 920
+    Align = alTop
+    BevelOuter = bvNone
+    Color = clWhite
+    ParentColor = False
+    TabOrder = 1
+    object ItemsLbl: TLabel
+      Left = 20
+      Height = 18
+      Top = 10
+      Width = 300
+      Caption = '01  /  CONTAINED FILES'
+      Font.Color = 6839366
+      Font.Height = -10
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object ItemsView: TListView
+      Left = 20
+      Height = 176
+      Top = 34
+      Width = 880
+      Anchors = [akTop, akLeft, akRight, akBottom]
+      Color = clWhite
+      Columns = <
+        item
+          Caption = 'File'
+          Width = 310
+        end
+        item
+          Caption = 'Detection'
+          Width = 190
+        end
+        item
+          Caption = 'Date'
+          Width = 160
+        end
+        item
+          Caption = 'Size'
+          Width = 100
+        end
+        item
+          Caption = 'Container'
+          Width = 0
+        end>
+      Font.Color = 3813927
+      GridLines = True
+      Font.Name = 'Segoe UI'
+      Font.Height = -12
+      HideSelection = False
+      MultiSelect = True
+      ReadOnly = True
+      RowSelect = True
+      TabOrder = 0
+      ViewStyle = vsReport
+      OnCustomDrawItem = ItemsDrawItem
+    end
+  end
+  object ActionSurface: TPanel
+    Left = 0
+    Height = 46
+    Top = 274
+    Width = 700
+    Align = alTop
+    BevelOuter = bvNone
+    Color = 16052717
+    ParentColor = False
+    TabOrder = 2
+    object RefreshBtn: TButton
+      Left = 20
+      Height = 30
+      Top = 8
+      Width = 116
+      Caption = 'Refresh'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 0
+      OnClick = RefreshAll
+    end
+    object RestoreBtn: TButton
+      Left = 148
+      Height = 30
+      Top = 8
+      Width = 116
+      Caption = 'Restore'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 1
+      OnClick = RestoreBtnClick
+    end
+    object DeleteBtn: TButton
+      Left = 276
+      Height = 30
+      Top = 8
+      Width = 116
+      Caption = 'Delete'
+      Font.Color = 11686100
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 2
+      OnClick = DeleteBtnClick
+    end
+  end
+  object ExclusionsSurface: TPanel
+    Left = 0
+    Height = 240
+    Top = 320
+    Width = 700
+    Align = alClient
+    BevelOuter = bvNone
+    Color = clWhite
+    ParentColor = False
+    TabOrder = 3
+    object ExclLbl: TLabel
+      Left = 20
+      Height = 16
+      Top = 10
+      Width = 300
+      Caption = '02  /  TRUSTED EXCLUSIONS'
+      Font.Color = 6839366
+      Font.Height = -10
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object ExclActionSurface: TPanel
+      Left = 0
+      Height = 44
+      Top = 188
+      Width = 920
+      Align = alBottom
+      BevelOuter = bvNone
+      Color = 16052717
+      ParentColor = False
+      TabOrder = 0
+      object ExclAddBtn: TButton
+        Left = 20
+        Height = 28
+        Top = 8
+        Width = 190
+        Caption = 'Exclude selected file'
+        Font.Name = 'Segoe UI'
+        ParentFont = False
+        TabOrder = 0
+        OnClick = ExclAddBtnClick
+      end
+      object ExclDelBtn: TButton
+        Left = 222
+        Height = 28
+        Top = 8
+        Width = 164
+        Caption = 'Remove exclusion'
+        Font.Name = 'Segoe UI'
+        ParentFont = False
+        TabOrder = 1
+        OnClick = ExclDelBtnClick
+      end
+    end
+    object ExclView: TListView
+      Left = 20
+      Height = 162
+      Top = 34
+      Width = 660
+      Anchors = [akTop, akLeft, akRight, akBottom]
+      Color = clWhite
+      Columns = <
+        item
+          Caption = 'Kind'
+          Width = 120
+        end
+        item
+          Caption = 'Value'
+          Width = 720
+        end>
+      Font.Color = 3813927
+      GridLines = True
+      Font.Name = 'Segoe UI'
+      Font.Height = -12
+      HideSelection = False
+      MultiSelect = True
+      ReadOnly = True
+      RowSelect = True
+      TabOrder = 1
+      ViewStyle = vsReport
+      OnCustomDrawItem = ExclDrawItem
+    end
+  end
+end

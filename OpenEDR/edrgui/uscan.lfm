@@ -1,0 +1,284 @@
+object ScanForm: TScanForm
+  Left = 0
+  Height = 520
+  Top = 0
+  Width = 680
+  Caption = 'HydraDragon File Scanner'
+  ClientHeight = 520
+  ClientWidth = 680
+  Color = 16052717
+  Constraints.MinHeight = 380
+  Constraints.MinWidth = 520
+  Font.Color = 3813927
+  Font.Name = 'Segoe UI'
+  Font.Height = -12
+  OnDestroy = FormDestroy
+  OnShow = FormShowed
+  Position = poScreenCenter
+  ShowInTaskBar = stAlways
+  LCLVersion = '4.8.0.0'
+  object HeaderPnl: TPanel
+    Left = 0
+    Height = 58
+    Top = 0
+    Width = 900
+    Align = alTop
+    BevelOuter = bvNone
+    Color = 3353366
+    ParentColor = False
+    TabOrder = 0
+    object HeaderAccent: TPanel
+      Left = 0
+      Height = 58
+      Top = 0
+      Width = 5
+      Align = alLeft
+      BevelOuter = bvNone
+      Color = 7898880
+      ParentColor = False
+      TabOrder = 0
+    end
+    object TitleLbl: TLabel
+      Left = 24
+      Height = 22
+      Top = 8
+      Width = 500
+      Caption = 'File Scanner'
+      Font.Color = clWhite
+      Font.Height = -16
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object SubtitleLbl: TLabel
+      Left = 24
+      Height = 16
+      Top = 34
+      Width = 690
+      Caption = 'Inspect folders and registry targets with the active protection engine'
+      Font.Color = 13879224
+      Font.Height = -10
+      Font.Name = 'Segoe UI'
+      ParentColor = False
+      ParentFont = False
+    end
+  end
+  object TargetSurface: TPanel
+    Left = 16
+    Height = 110
+    Top = 74
+    Width = 868
+    Align = alTop
+    BevelOuter = bvNone
+    Color = clWhite
+    ParentColor = False
+    TabOrder = 1
+    object TargetSectionLbl: TLabel
+      Left = 18
+      Height = 18
+      Top = 8
+      Width = 220
+      Caption = '01  /  SCAN TARGET'
+      Font.Color = 6839366
+      Font.Height = -10
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object RbFiles: TRadioButton
+      Left = 18
+      Height = 20
+      Top = 36
+      Width = 130
+      Caption = 'Folder'
+      Checked = True
+      Font.Color = 3813927
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 0
+      OnClick = TargetKindChanged
+    end
+    object RbReg: TRadioButton
+      Left = 164
+      Height = 22
+      Top = 36
+      Width = 170
+      Caption = 'Registry key'
+      Font.Color = 3813927
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 1
+      OnClick = TargetKindChanged
+    end
+    object PathEdit: TEdit
+      Left = 18
+      Height = 28
+      Top = 66
+      Width = 704
+      Anchors = [akTop, akLeft, akRight]
+      Color = 16513784
+      Font.Color = 3813927
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 2
+    end
+    object BrowseBtn: TButton
+      Left = 738
+      Height = 28
+      Top = 66
+      Width = 112
+      Anchors = [akTop, akRight]
+      Caption = 'Browse...'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 3
+      OnClick = BrowseBtnClick
+    end
+  end
+  object ScanSurface: TPanel
+    Left = 16
+    Height = 132
+    Top = 192
+    Width = 868
+    Align = alTop
+    BevelOuter = bvNone
+    Color = clWhite
+    ParentColor = False
+    TabOrder = 2
+    object ScanSectionLbl: TLabel
+      Left = 18
+      Height = 18
+      Top = 10
+      Width = 220
+      Caption = '02  /  SCAN CONTROL'
+      Font.Color = 6839366
+      Font.Height = -10
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object StartBtn: TButton
+      Left = 18
+      Height = 30
+      Top = 30
+      Width = 128
+      Caption = 'Start Scan'
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentFont = False
+      TabOrder = 0
+      OnClick = StartBtnClick
+    end
+    object CancelBtn: TButton
+      Left = 158
+      Height = 30
+      Top = 30
+      Width = 112
+      Caption = 'Cancel'
+      Enabled = False
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 1
+      OnClick = CancelBtnClick
+    end
+    object ScanProgress: TProgressBar
+      Left = 18
+      Height = 10
+      Top = 68
+      Width = 832
+      Anchors = [akTop, akLeft, akRight]
+      Style = pbstMarquee
+      TabOrder = 2
+    end
+    object StatusLbl: TLabel
+      Left = 18
+      Height = 20
+      Top = 84
+      Width = 832
+      Anchors = [akTop, akLeft, akRight]
+      Caption = 'Idle.'
+      Font.Color = 7958367
+      Font.Name = 'Segoe UI'
+      ParentColor = False
+      ParentFont = False
+    end
+    object SummaryLbl: TLabel
+      Left = 18
+      Height = 18
+      Top = 106
+      Width = 832
+      Anchors = [akTop, akLeft, akRight]
+      Font.Color = 6517248
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+  end
+  object ResultsSurface: TPanel
+    Left = 16
+    Height = 418
+    Top = 324
+    Width = 868
+    Align = alClient
+    BevelOuter = bvNone
+    Color = clWhite
+    ParentColor = False
+    TabOrder = 3
+    object ResultsSectionLbl: TLabel
+      Left = 18
+      Height = 18
+      Top = 12
+      Width = 260
+      Caption = '03  /  DETECTION EVENTS'
+      Font.Color = 6839366
+      Font.Height = -10
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object ResultsView: TListView
+      Left = 18
+      Height = 360
+      Top = 40
+      Width = 832
+      Anchors = [akTop, akLeft, akRight, akBottom]
+      Color = clWhite
+      Columns = <
+        item
+          Caption = 'Time'
+          Width = 88
+        end
+        item
+          Caption = 'Event'
+          Width = 220
+        end
+        item
+          Caption = 'Detail'
+          Width = 500
+        end>
+      Font.Color = 3813927
+      GridLines = True
+      Font.Name = 'Segoe UI'
+      Font.Height = -12
+      HideSelection = False
+      MultiSelect = True
+      ReadOnly = True
+      RowSelect = True
+      TabOrder = 0
+      ViewStyle = vsReport
+      OnCustomDrawItem = ResultsDrawItem
+    end
+  end
+  object PollTimer: TTimer
+    Enabled = False
+    Interval = 1000
+    OnTimer = PollTick
+    left = 860
+    top = 20
+  end
+end

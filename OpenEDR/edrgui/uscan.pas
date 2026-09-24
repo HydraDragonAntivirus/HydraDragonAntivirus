@@ -13,7 +13,7 @@ unit UScan;
   pipeline (rules, FLS, quarantine, rollback) does everything automatically.
   This form only DISPLAYS pipeline detections: it snapshots
   getLastDetectionId at start and polls getDetections for new arrivals.
-  All controls are created in code (no .lfm): deterministic layout.
+    Screen controls are defined by the Lazarus form resource.
   --------------------------------------------------------------------------- }
 
 {$mode objfpc}{$H+}
@@ -52,8 +52,17 @@ type
   { TScanForm }
 
   TScanForm = class(TForm)
-  private
+  published
+    HeaderPnl: TPanel;
+    HeaderAccent: TPanel;
     TitleLbl: TLabel;
+    SubtitleLbl: TLabel;
+    TargetSurface: TPanel;
+    ScanSurface: TPanel;
+    ResultsSurface: TPanel;
+    TargetSectionLbl: TLabel;
+    ScanSectionLbl: TLabel;
+    ResultsSectionLbl: TLabel;
     RbFiles: TRadioButton;
     RbReg: TRadioButton;
     PathEdit: TEdit;
@@ -65,19 +74,21 @@ type
     SummaryLbl: TLabel;
     ResultsView: TListView;
     PollTimer: TTimer;
-    FThread: TScanTouchThread;
-    FLastId: Int64;
-    FFirstShow: Boolean;
-    FDetections: Integer;
-    procedure BuildUi;
     procedure TargetKindChanged(Sender: TObject);
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);
     procedure CancelBtnClick(Sender: TObject);
     procedure PollTick(Sender: TObject);
-    procedure TouchDone(Sender: TObject);
+    procedure ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
     procedure FormShowed(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+  private
+    FThread: TScanTouchThread;
+    FLastId: Int64;
+    FFirstShow: Boolean;
+    FDetections: Integer;
+    procedure TouchDone(Sender: TObject);
     procedure RenderNewDetections;
     procedure FinishScan(const AMsg: string);
   protected
@@ -89,6 +100,8 @@ type
 function EscapeJson(const S: string): string;
 
 implementation
+
+{$R *.lfm}
 
 function EscapeJson(const S: string): string;
 var
@@ -420,13 +433,11 @@ end;
 
 constructor TScanForm.Create(AOwner: TComponent);
 begin
-  inherited CreateNew(AOwner);
+  inherited Create(AOwner);
   ShowInTaskBar := stAlways;
   FFirstShow := True;
   FLastId := -1;
   FDetections := 0;
-  OnShow := @FormShowed;
-  BuildUi;
 end;
 
 procedure TScanForm.CreateParams(var Params: TCreateParams);
@@ -436,112 +447,6 @@ begin
   Params.WndParent := 0;
 end;
 
-procedure TScanForm.BuildUi;
-const
-  M = 12;
-  W = 660;
-var
-  y: Integer;
-begin
-  Caption := 'HydraDragon File Scanner';
-  ShowInTaskBar := stAlways;
-  Width := W;
-  Height := 520;
-  Position := poScreenCenter;
-  Constraints.MinWidth := 520;
-  Constraints.MinHeight := 380;
-
-  TitleLbl := TLabel.Create(Self);
-  TitleLbl.Parent := Self;
-  TitleLbl.SetBounds(M, 10, 500, 22);
-  TitleLbl.Caption := 'Touch-scan: the watcher inspects, quarantine is automatic';
-  TitleLbl.Font.Style := [fsBold];
-
-  RbFiles := TRadioButton.Create(Self);
-  RbFiles.Parent := Self;
-  RbFiles.SetBounds(M, 36, 130, 22);
-  RbFiles.Caption := 'Folder';
-  RbFiles.Checked := True;
-  RbFiles.OnClick := @TargetKindChanged;
-
-  RbReg := TRadioButton.Create(Self);
-  RbReg.Parent := Self;
-  RbReg.SetBounds(M + 140, 36, 170, 22);
-  RbReg.Caption := 'Registry key';
-  RbReg.OnClick := @TargetKindChanged;
-
-  PathEdit := TEdit.Create(Self);
-  PathEdit.Parent := Self;
-  PathEdit.SetBounds(M, 62, W - M * 2 - 120, 28);
-  PathEdit.Anchors := [akTop, akLeft, akRight];
-
-  BrowseBtn := TButton.Create(Self);
-  BrowseBtn.Parent := Self;
-  BrowseBtn.SetBounds(W - M - 110, 62, 110, 28);
-  BrowseBtn.Anchors := [akTop, akRight];
-  BrowseBtn.Caption := 'Browse...';
-  BrowseBtn.OnClick := @BrowseBtnClick;
-
-  y := 98;
-  StartBtn := TButton.Create(Self);
-  StartBtn.Parent := Self;
-  StartBtn.SetBounds(M, y, 110, 30);
-  StartBtn.Caption := 'Start Scan';
-  StartBtn.OnClick := @StartBtnClick;
-
-  CancelBtn := TButton.Create(Self);
-  CancelBtn.Parent := Self;
-  CancelBtn.SetBounds(M + 118, y, 110, 30);
-  CancelBtn.Caption := 'Cancel';
-  CancelBtn.Enabled := False;
-  CancelBtn.OnClick := @CancelBtnClick;
-
-  ScanProgress := TProgressBar.Create(Self);
-  ScanProgress.Parent := Self;
-  ScanProgress.SetBounds(M, y + 38, W - M * 2, 18);
-  ScanProgress.Anchors := [akTop, akLeft, akRight];
-  ScanProgress.Style := pbstMarquee;
-
-  StatusLbl := TLabel.Create(Self);
-  StatusLbl.Parent := Self;
-  StatusLbl.SetBounds(M, y + 62, W - M * 2, 20);
-  StatusLbl.Anchors := [akTop, akLeft, akRight];
-  StatusLbl.Caption := 'Idle.';
-
-  SummaryLbl := TLabel.Create(Self);
-  SummaryLbl.Parent := Self;
-  SummaryLbl.SetBounds(M, y + 84, W - M * 2, 20);
-  SummaryLbl.Anchors := [akTop, akLeft, akRight];
-  SummaryLbl.Caption := '';
-
-  ResultsView := TListView.Create(Self);
-  ResultsView.Parent := Self;
-  ResultsView.SetBounds(M, y + 108, W - M * 2, 520 - (y + 108) - M);
-  ResultsView.Anchors := [akTop, akLeft, akRight, akBottom];
-  ResultsView.ViewStyle := vsReport;
-  ResultsView.MultiSelect := True;
-  with ResultsView.Columns.Add do
-  begin
-    Caption := 'Time';
-    Width := 70;
-  end;
-  with ResultsView.Columns.Add do
-  begin
-    Caption := 'Event';
-    Width := 180;
-  end;
-  with ResultsView.Columns.Add do
-  begin
-    Caption := 'Detail';
-    Width := 362;
-  end;
-
-  PollTimer := TTimer.Create(Self);
-  PollTimer.Enabled := False;
-  PollTimer.Interval := 1000;
-  PollTimer.OnTimer := @PollTick;
-end;
-
 procedure TScanForm.TargetKindChanged(Sender: TObject);
 begin
   BrowseBtn.Enabled := RbFiles.Checked;
@@ -549,6 +454,16 @@ begin
     PathEdit.TextHint := 'e.g. HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
   else
     PathEdit.TextHint := '';
+end;
+
+procedure TScanForm.ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
+  State: TCustomDrawState; var DefaultDraw: Boolean);
+begin
+  if (Item <> nil) and not (cdsSelected in State) then
+    if (Item.Index mod 2) = 0 then
+      Sender.Canvas.Brush.Color := RGBToColor(240, 244, 247)
+    else
+      Sender.Canvas.Brush.Color := RGBToColor(250, 251, 252);
 end;
 
 procedure TScanForm.BrowseBtnClick(Sender: TObject);

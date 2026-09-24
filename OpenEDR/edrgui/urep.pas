@@ -9,13 +9,12 @@ unit URep;
     and asks the FLS cloud). Rows show path, SHA1, the cloud verdict and
     the local verdict WITH its cause (never a bare 'Malicious').
   - Rows persist across scans (path-keyed upsert); totals always recount.
-  - The side 'Pending Actions' list shows exactly what Apply Actions is
-    going to do (pending-malicious rows not yet handled); Apply carries
-    the same count in its caption.
+  - Pending actions are shown inline with their matching verdict rows;
+    Apply carries the pending count in its caption.
   - Selected row: Copy Hash, manual upload to valkyrie.comodo.com and hash
     discussion on forums.comodo.com (browser links, user-driven).
   Unknown verdicts (cloud never saw the file) are normal, not errors.
-  All controls are created in code (no .lfm): deterministic layout.
+  The visual layout is defined in urep.lfm.
   --------------------------------------------------------------------------- }
 
 {$mode objfpc}{$H+}
@@ -81,7 +80,15 @@ type
   { TRepForm }
 
   TRepForm = class(TForm)
-  private
+  published
+    HeaderPnl: TPanel;
+    HeaderAccent: TPanel;
+    ToolbarSurface: TPanel;
+    StatusSurface: TPanel;
+    ResultsArea: TPanel;
+    ResultsSurface: TPanel;
+    SubtitleLbl: TLabel;
+    ResultsSectionLbl: TLabel;
     TitleLbl: TLabel;
     PathEdit: TEdit;
     BrowseBtn: TButton;
@@ -103,10 +110,25 @@ type
     StatusLbl: TLabel;
     SummaryLbl: TLabel;
     ResultsView: TListView;
-    // Side panel: what Apply Actions is going to do (pending-malicious
-    // rows). Refreshed live as verdicts arrive and after every handling.
-    ActionsLbl: TLabel;
-    ActionsView: TListView;
+    procedure BrowseBtnClick(Sender: TObject);
+    procedure StartBtnClick(Sender: TObject);
+    procedure CancelBtnClick(Sender: TObject);
+    procedure CopyBtnClick(Sender: TObject);
+    procedure ValkBtnClick(Sender: TObject);
+    procedure ForumBtnClick(Sender: TObject);
+    procedure ApplyBtnClick(Sender: TObject);
+    procedure QuarItemClick(Sender: TObject);
+    procedure IgnItemClick(Sender: TObject);
+    procedure SelAllItemClick(Sender: TObject);
+    procedure QuarAllItemClick(Sender: TObject);
+    procedure IgnAllItemClick(Sender: TObject);
+    procedure ProcBtnClick(Sender: TObject);
+    procedure DetItemClick(Sender: TObject);
+    procedure ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
+    procedure FormShowed(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
+  private
     FThread: TRepWalkThread;
     FProcThread: TProcRepThread;
     FFirstShow: Boolean;
@@ -129,31 +151,12 @@ type
       ALocalText, AFamilyText: string; v, lv: Integer): TListItem;
     procedure RecountSummary;
     procedure RefreshPendingList;
-    procedure BuildUi;
-    procedure BrowseBtnClick(Sender: TObject);
-    procedure StartBtnClick(Sender: TObject);
-    procedure CancelBtnClick(Sender: TObject);
-    procedure CopyBtnClick(Sender: TObject);
-    procedure ValkBtnClick(Sender: TObject);
-    procedure ForumBtnClick(Sender: TObject);
-    procedure ApplyBtnClick(Sender: TObject);
-    procedure QuarItemClick(Sender: TObject);
-    procedure IgnItemClick(Sender: TObject);
-    procedure SelAllItemClick(Sender: TObject);
-    procedure QuarAllItemClick(Sender: TObject);
-    procedure IgnAllItemClick(Sender: TObject);
     function QuarantinePending: Integer;
     function ExcludeOne(const ARawPath: string): Boolean;
     function PendingCount: Integer;
     function LoadExEngine: Boolean;
-    procedure ProcBtnClick(Sender: TObject);
     procedure ProcWalkDone(Sender: TObject);
-    procedure DetItemClick(Sender: TObject);
     procedure WalkDone(Sender: TObject);
-    procedure ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
-      State: TCustomDrawState; var DefaultDraw: Boolean);
-    procedure FormShowed(Sender: TObject);
-    procedure FormDestroy(Sender: TObject);
     procedure FinishScan(const AMsg: string);
   protected
     procedure CreateParams(var Params: TCreateParams); override;
@@ -171,6 +174,8 @@ function StripPidPrefix(const S: string): string;
 function CloudText(v: Integer): string;
 
 implementation
+
+{$R *.lfm}
 
 const
   VALKYRIE_URL = 'https://valkyrie.comodo.com/';
@@ -216,14 +221,14 @@ end;
 function RowColorForVerdict(AVerdict, AIndex: Integer): TColor;
 begin
   case AVerdict of
-    2: Result := RGBToColor(253, 231, 230); // malicious - soft red tint
-    1: Result := RGBToColor(224, 249, 232); // safe - soft green tint
-    4: Result := RGBToColor(255, 244, 214); // lookup failed - soft amber tint
+    2: Result := RGBToColor(255, 232, 229); // malicious
+    1: Result := RGBToColor(226, 246, 235); // safe
+    4: Result := RGBToColor(255, 244, 218); // lookup failed
   else
     if (AIndex mod 2) = 1 then
-      Result := RGBToColor(247, 248, 250)    // unknown - faint zebra stripe
+      Result := RGBToColor(240, 244, 247)     // unknown - zebra stripe
     else
-      Result := clWhite;
+      Result := RGBToColor(250, 251, 252);
   end;
 end;
 
@@ -231,17 +236,17 @@ procedure ApplySummaryStyle(Frm: TRepForm);
 begin
   if (Frm.FMali > 0) or (Frm.FLocal > 0) then
   begin
-    Frm.SummaryLbl.Font.Color := RGBToColor(196, 43, 28);
+    Frm.SummaryLbl.Font.Color := RGBToColor(187, 44, 48);
     Frm.SummaryLbl.Font.Style := [fsBold];
   end
   else if Frm.FUnk > 0 then
   begin
-    Frm.SummaryLbl.Font.Color := RGBToColor(30, 41, 59);
+    Frm.SummaryLbl.Font.Color := RGBToColor(95, 111, 121);
     Frm.SummaryLbl.Font.Style := [];
   end
   else
   begin
-    Frm.SummaryLbl.Font.Color := RGBToColor(16, 124, 16);
+    Frm.SummaryLbl.Font.Color := RGBToColor(0, 121, 88);
     Frm.SummaryLbl.Font.Style := [fsBold];
   end;
 end;
@@ -445,7 +450,7 @@ end;
 
 constructor TRepForm.Create(AOwner: TComponent);
 begin
-  inherited CreateNew(AOwner);
+  inherited Create(AOwner);
   ShowInTaskBar := stAlways;
   FFirstShow := True;
   FSeen := TStringList.Create;
@@ -460,9 +465,6 @@ begin
   FStagedActions.Sorted := True;
   FStagedActions.Duplicates := dupIgnore;
   FStagedActions.CaseSensitive := False;
-  OnShow := @FormShowed;
-  OnDestroy := @FormDestroy;
-  BuildUi;
 end;
 
 procedure TRepForm.CreateParams(var Params: TCreateParams);
@@ -483,16 +485,17 @@ begin
   begin
     Result := TListItem(FSeen.Objects[idx]);
     Result.Caption := ACaption;
-    Result.SubItems[0] := AHash;
-    Result.SubItems[1] := ACloudText;
-    Result.SubItems[2] := ALocalText;
-    Result.SubItems[3] := AFamilyText;
+    Result.SubItems[1] := AHash;
+    Result.SubItems[2] := ACloudText;
+    Result.SubItems[3] := ALocalText;
+    Result.SubItems[4] := AFamilyText;
     Result.Data := Pointer(PtrUInt(v or (lv shl 8)));
   end
   else
   begin
     Result := ResultsView.Items.Add;
     Result.Caption := ACaption;
+    Result.SubItems.Add('');
     Result.SubItems.Add(AHash);
     Result.SubItems.Add(ACloudText);
     Result.SubItems.Add(ALocalText);
@@ -534,28 +537,24 @@ begin
   RefreshPendingList;
 end;
 
-// Side "going to be taken" list: every row Apply Actions would quarantine
-// right now (pending-malicious, not yet handled). Same scope as
-// PendingCount/QuarantinePending, so the list and the button never disagree.
-// Runs on the UI thread (called from RecountSummary and the action handlers).
+// Keep the pending action beside its verdict row so the list remains the
+// single source of truth for both results and staged actions.
 procedure TRepForm.RefreshPendingList;
 var
   i, v, lv, n: Integer;
   p, key, actStr: string;
   idx: Integer;
-  li: TListItem;
   SeenKeys: TStringList;
 begin
-  if (ActionsView = nil) or (ResultsView = nil) then
+  if ResultsView = nil then
     Exit;
   SeenKeys := TStringList.Create;
   SeenKeys.Sorted := True;
   SeenKeys.Duplicates := dupIgnore;
   SeenKeys.CaseSensitive := False;
   try
-    ActionsView.Items.BeginUpdate;
+    ResultsView.Items.BeginUpdate;
     try
-      ActionsView.Items.Clear;
       n := 0;
       for i := 0 to ResultsView.Items.Count - 1 do
       begin
@@ -563,297 +562,38 @@ begin
         lv := (Integer(PtrUInt(ResultsView.Items[i].Data)) shr 8) and $FF;
         p := StripPidPrefix(ResultsView.Items[i].Caption);
         key := LowerCase(p);
-        if (key = '') or FActed.Find(key, idx) or (SeenKeys.IndexOf(key) >= 0) then
-          Continue;
-
         actStr := '';
-        if (FStagedActions <> nil) and FStagedActions.Find(key, idx) then
-        begin
-          if FStagedActions.ValueFromIndex[idx] = 'I' then
-            actStr := 'Ignore'
-          else
-            actStr := 'Quarantine';
-        end
-        else if (v = 2) or (lv = 2) then
-        begin
-          actStr := 'Quarantine';
-        end;
 
-        if actStr <> '' then
+        if (key <> '') and (SeenKeys.IndexOf(key) < 0) then
         begin
           SeenKeys.Add(key);
-          li := ActionsView.Items.Add;
-          li.Caption := actStr;
-          li.SubItems.Add(ExtractFileName(p));
-          Inc(n);
+          if FActed.Find(key, idx) then
+            actStr := 'Applied'
+          else if (FStagedActions <> nil) and FStagedActions.Find(key, idx) then
+          begin
+            if FStagedActions.ValueFromIndex[idx] = 'I' then
+              actStr := 'Ignore'
+            else
+              actStr := 'Quarantine';
+            Inc(n);
+          end
+          else if (v = 2) or (lv = 2) then
+          begin
+            actStr := 'Quarantine';
+            Inc(n);
+          end;
         end;
+
+        if ResultsView.Items[i].SubItems.Count > 4 then
+          ResultsView.Items[i].SubItems[0] := actStr;
       end;
     finally
-      ActionsView.Items.EndUpdate;
+      ResultsView.Items.EndUpdate;
     end;
   finally
     SeenKeys.Free;
   end;
-  ActionsLbl.Caption := Format('Pending Actions (%d)', [n]);
   ApplyBtn.Caption := 'Apply Actions (' + IntToStr(n) + ')';
-end;
-
-procedure TRepForm.BuildUi;
-const
-  M = 16;
-  W = 1064;
-  SideW = 272;
-  HeaderH = 76;
-var
-  HeaderPnl: TPanel;
-  SubtitleLbl: TLabel;
-  Divider: TBevel;
-  y, y2, y3, y4, y5, y6, y7: Integer;
-begin
-  Caption := 'HydraDragon File Verdict';
-  ShowInTaskBar := stAlways;
-  Width := W;
-  Height := 640;
-  Position := poScreenCenter;
-  Constraints.MinWidth := 620;
-  Constraints.MinHeight := 460;
-  Color := RGBToColor(243, 244, 246);
-  Font.Name := 'Segoe UI';
-  Font.Size := 9;
-
-  { Branded header bar }
-  HeaderPnl := TPanel.Create(Self);
-  HeaderPnl.Parent := Self;
-  HeaderPnl.Align := alTop;
-  HeaderPnl.Height := HeaderH;
-  HeaderPnl.BevelOuter := bvNone;
-  HeaderPnl.Color := RGBToColor(30, 41, 59);
-
-  TitleLbl := TLabel.Create(Self);
-  TitleLbl.Parent := HeaderPnl;
-  TitleLbl.SetBounds(M, 14, 600, 26);
-  TitleLbl.Caption := 'File Reputation Check';
-  TitleLbl.Font.Name := 'Segoe UI';
-  TitleLbl.Font.Size := 14;
-  TitleLbl.Font.Style := [fsBold];
-  TitleLbl.Font.Color := clWhite;
-
-  SubtitleLbl := TLabel.Create(Self);
-  SubtitleLbl.Parent := HeaderPnl;
-  SubtitleLbl.SetBounds(M, 44, 680, 20);
-  SubtitleLbl.Caption := 'FLS cloud lookup — review pending actions, then apply';
-  SubtitleLbl.Font.Name := 'Segoe UI';
-  SubtitleLbl.Font.Size := 9;
-  SubtitleLbl.Font.Color := RGBToColor(148, 163, 184);
-
-  { Path picker row }
-  y := HeaderH + M;
-  PathEdit := TEdit.Create(Self);
-  PathEdit.Parent := Self;
-  PathEdit.SetBounds(M, y, W - M * 2 - 130, 30);
-  PathEdit.Anchors := [akTop, akLeft, akRight];
-  PathEdit.Font.Name := 'Segoe UI';
-  PathEdit.Font.Size := 9;
-
-  BrowseBtn := TButton.Create(Self);
-  BrowseBtn.Parent := Self;
-  BrowseBtn.SetBounds(W - M - 120, y, 120, 30);
-  BrowseBtn.Anchors := [akTop, akRight];
-  BrowseBtn.Caption := 'Browse...';
-  BrowseBtn.Font.Name := 'Segoe UI';
-  BrowseBtn.OnClick := @BrowseBtnClick;
-
-  { Primary action row }
-  y2 := y + 30 + M;
-  StartBtn := TButton.Create(Self);
-  StartBtn.Parent := Self;
-  StartBtn.SetBounds(M, y2, 110, 34);
-  StartBtn.Caption := 'Check';
-  StartBtn.Font.Name := 'Segoe UI';
-  StartBtn.Font.Style := [fsBold];
-  StartBtn.OnClick := @StartBtnClick;
-
-  CancelBtn := TButton.Create(Self);
-  CancelBtn.Parent := Self;
-  CancelBtn.SetBounds(M + 120, y2, 110, 34);
-  CancelBtn.Caption := 'Cancel';
-  CancelBtn.Font.Name := 'Segoe UI';
-  CancelBtn.Enabled := False;
-  CancelBtn.OnClick := @CancelBtnClick;
-
-  CopyBtn := TButton.Create(Self);
-  CopyBtn.Parent := Self;
-  CopyBtn.SetBounds(M + 240, y2, 110, 34);
-  CopyBtn.Caption := 'Copy hash';
-  CopyBtn.Font.Name := 'Segoe UI';
-  CopyBtn.OnClick := @CopyBtnClick;
-
-  ValkBtn := TButton.Create(Self);
-  ValkBtn.Parent := Self;
-  ValkBtn.SetBounds(M + 360, y2, 150, 34);
-  ValkBtn.Caption := 'Upload to Valkyrie';
-  ValkBtn.Font.Name := 'Segoe UI';
-  ValkBtn.OnClick := @ValkBtnClick;
-
-  ForumBtn := TButton.Create(Self);
-  ForumBtn.Parent := Self;
-  ForumBtn.SetBounds(M + 520, y2, 130, 34);
-  ForumBtn.Caption := 'Forums';
-  ForumBtn.Font.Name := 'Segoe UI';
-  ForumBtn.OnClick := @ForumBtnClick;
-
-  { Secondary action row }
-  y3 := y2 + 34 + 10;
-  ProcBtn := TButton.Create(Self);
-  ProcBtn.Parent := Self;
-  ProcBtn.SetBounds(M, y3, 200, 30);
-  ProcBtn.Caption := 'Running processes';
-  ProcBtn.Font.Name := 'Segoe UI';
-  ProcBtn.OnClick := @ProcBtnClick;
-
-  ApplyBtn := TButton.Create(Self);
-  ApplyBtn.Parent := Self;
-  ApplyBtn.SetBounds(M + 208, y3, 170, 30);
-  ApplyBtn.Caption := 'Apply Actions';
-  ApplyBtn.Font.Name := 'Segoe UI';
-  ApplyBtn.OnClick := @ApplyBtnClick;
-
-  DetPopup := TPopupMenu.Create(Self);
-  DetItem := TMenuItem.Create(DetPopup);
-  DetItem.Caption := 'Details...';
-  DetItem.OnClick := @DetItemClick;
-  DetPopup.Items.Add(DetItem);
-  QuarItem := TMenuItem.Create(DetPopup);
-  QuarItem.Caption := 'Quarantine';
-  QuarItem.OnClick := @QuarItemClick;
-  DetPopup.Items.Add(QuarItem);
-  IgnItem := TMenuItem.Create(DetPopup);
-  IgnItem.Caption := 'Ignore';
-  IgnItem.OnClick := @IgnItemClick;
-  DetPopup.Items.Add(IgnItem);
-  SelAllItem := TMenuItem.Create(DetPopup);
-  SelAllItem.Caption := 'Select All';
-  SelAllItem.OnClick := @SelAllItemClick;
-  DetPopup.Items.Add(SelAllItem);
-  QuarAllItem := TMenuItem.Create(DetPopup);
-  QuarAllItem.Caption := 'Quarantine All';
-  QuarAllItem.OnClick := @QuarAllItemClick;
-  DetPopup.Items.Add(QuarAllItem);
-  IgnAllItem := TMenuItem.Create(DetPopup);
-  IgnAllItem.Caption := 'Ignore All';
-  IgnAllItem.OnClick := @IgnAllItemClick;
-  DetPopup.Items.Add(IgnAllItem);
-
-  { Hairline divider separating controls from status/results }
-  Divider := TBevel.Create(Self);
-  Divider.Parent := Self;
-  Divider.SetBounds(M, y3 + 30 + M, W - M * 2, 1);
-  Divider.Shape := bsTopLine;
-  Divider.Anchors := [akTop, akLeft, akRight];
-
-  y4 := y3 + 30 + M + 12;
-  ScanProgress := TProgressBar.Create(Self);
-  ScanProgress.Parent := Self;
-  ScanProgress.SetBounds(M, y4, W - M * 2, 10);
-  ScanProgress.Anchors := [akTop, akLeft, akRight];
-  ScanProgress.Style := pbstMarquee;
-
-  y5 := y4 + 10 + 12;
-  StatusLbl := TLabel.Create(Self);
-  StatusLbl.Parent := Self;
-  StatusLbl.SetBounds(M, y5, W - M * 2, 20);
-  StatusLbl.Anchors := [akTop, akLeft, akRight];
-  StatusLbl.Caption := 'Idle.';
-  StatusLbl.Font.Name := 'Segoe UI';
-  StatusLbl.Font.Color := RGBToColor(100, 116, 139);
-
-  y6 := y5 + 24;
-  SummaryLbl := TLabel.Create(Self);
-  SummaryLbl.Parent := Self;
-  SummaryLbl.SetBounds(M, y6, W - M * 2, 22);
-  SummaryLbl.Anchors := [akTop, akLeft, akRight];
-  SummaryLbl.Caption := '';
-  SummaryLbl.Font.Name := 'Segoe UI';
-  SummaryLbl.Font.Size := 10;
-
-  y7 := y6 + 30;
-  ResultsView := TListView.Create(Self);
-  ResultsView.Parent := Self;
-  ResultsView.SetBounds(M, y7, W - M * 3 - SideW, 640 - y7 - M);
-  ResultsView.PopupMenu := DetPopup;
-  ResultsView.OnCustomDrawItem := @ResultsDrawItem;
-  // Left column keeps a fixed design width; the side panel sticks to the
-  // right edge so the two never overlap when the window is resized.
-  ResultsView.Anchors := [akTop, akLeft, akBottom];
-  ResultsView.ViewStyle := vsReport;
-  ResultsView.MultiSelect := True;
-  ResultsView.ReadOnly := True;
-  ResultsView.RowSelect := True;
-  ResultsView.HideSelection := False;
-  ResultsView.GridLines := False;
-  ResultsView.Font.Name := 'Segoe UI';
-  ResultsView.Font.Size := 9;
-  with ResultsView.Columns.Add do
-  begin
-    Caption := 'File';
-    Width := 260;
-  end;
-  with ResultsView.Columns.Add do
-  begin
-    Caption := 'SHA1';
-    Width := 200;
-  end;
-  with ResultsView.Columns.Add do
-  begin
-    Caption := 'Cloud';
-    Width := 110;
-  end;
-  with ResultsView.Columns.Add do
-  begin
-    // Carries the reason, not just the verdict
-    // ('Malicious: Win.Trojan.X', 'Safe: Trusted:Microsoft').
-    Caption := 'Local';
-    Width := 280;
-  end;
-  with ResultsView.Columns.Add do
-  begin
-    // Signature/family behind a local-malicious hit ('Win.Trojan.X').
-    Caption := 'Family';
-    Width := 170;
-  end;
-
-  { Side panel: actions Apply is going to take (pending quarantines) }
-  ActionsLbl := TLabel.Create(Self);
-  ActionsLbl.Parent := Self;
-  ActionsLbl.SetBounds(W - M - SideW, y7, SideW, 20);
-  ActionsLbl.Anchors := [akTop, akRight];
-  ActionsLbl.Caption := 'Pending Actions (0)';
-  ActionsLbl.Font.Name := 'Segoe UI';
-  ActionsLbl.Font.Style := [fsBold];
-  ActionsLbl.Font.Color := RGBToColor(196, 43, 28);
-
-  ActionsView := TListView.Create(Self);
-  ActionsView.Parent := Self;
-  ActionsView.SetBounds(W - M - SideW, y7 + 24, SideW, 640 - y7 - 24 - M);
-  ActionsView.Anchors := [akTop, akRight, akBottom];
-  ActionsView.ViewStyle := vsReport;
-  ActionsView.ReadOnly := True;
-  ActionsView.RowSelect := True;
-  ActionsView.HideSelection := False;
-  ActionsView.GridLines := False;
-  ActionsView.Font.Name := 'Segoe UI';
-  ActionsView.Font.Size := 9;
-  with ActionsView.Columns.Add do
-  begin
-    Caption := 'Action';
-    Width := 92;
-  end;
-  with ActionsView.Columns.Add do
-  begin
-    Caption := 'File';
-    Width := 156;
-  end;
-  RefreshPendingList;
 end;
 
 function LocalVerdictOf(it: TJSONData): Integer;
@@ -1070,8 +810,8 @@ end;
 
 procedure TRepForm.CopyBtnClick(Sender: TObject);
 begin
-  if (ResultsView.Selected <> nil) and (ResultsView.Selected.SubItems.Count >= 1) then
-    Clipboard.AsText := ResultsView.Selected.SubItems[0];
+  if (ResultsView.Selected <> nil) and (ResultsView.Selected.SubItems.Count >= 2) then
+    Clipboard.AsText := ResultsView.Selected.SubItems[1];
 end;
 
 procedure TRepForm.ValkBtnClick(Sender: TObject);
@@ -1496,15 +1236,15 @@ begin
   if it = nil then
     Exit;
   msg := 'File: ' + it.Caption + sLineBreak;
-  if it.SubItems.Count >= 1 then
-    msg := msg + 'SHA1: ' + it.SubItems[0] + sLineBreak;
   if it.SubItems.Count >= 2 then
-    msg := msg + 'Cloud: ' + it.SubItems[1] + sLineBreak +
-      VerdictMeaning(it.SubItems[1]);
+    msg := msg + 'SHA1: ' + it.SubItems[1] + sLineBreak;
   if it.SubItems.Count >= 3 then
-    msg := msg + 'Local: ' + it.SubItems[2] + sLineBreak;
+    msg := msg + 'Cloud: ' + it.SubItems[2] + sLineBreak +
+      VerdictMeaning(it.SubItems[2]);
   if it.SubItems.Count >= 4 then
-    msg := msg + 'Family: ' + it.SubItems[3] + sLineBreak;
+    msg := msg + 'Local: ' + it.SubItems[3] + sLineBreak;
+  if it.SubItems.Count >= 5 then
+    msg := msg + 'Family: ' + it.SubItems[4] + sLineBreak;
   MessageDlg('Program details', msg, mtInformation, [mbOK], 0);
 end;
 

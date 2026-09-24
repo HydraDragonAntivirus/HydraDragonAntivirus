@@ -1,0 +1,334 @@
+object RepForm: TRepForm
+  Left = 0
+  Height = 460
+  Top = 0
+  Width = 660
+  Caption = 'HydraDragon File Reputation'
+  ClientHeight = 460
+  ClientWidth = 660
+  Color = 16052717
+  Constraints.MinHeight = 400
+  Constraints.MinWidth = 540
+  Font.Color = 3813927
+  Font.Name = 'Segoe UI'
+  Font.Height = -12
+  OnDestroy = FormDestroy
+  OnShow = FormShowed
+  Position = poScreenCenter
+  ShowInTaskBar = stAlways
+  LCLVersion = '4.8.0.0'
+  object HeaderPnl: TPanel
+    Left = 0
+    Height = 64
+    Top = 0
+    Width = 1240
+    Align = alTop
+    BevelOuter = bvNone
+    Color = 3353366
+    ParentColor = False
+    TabOrder = 0
+    object HeaderAccent: TPanel
+      Left = 0
+      Height = 64
+      Top = 0
+      Width = 5
+      Align = alLeft
+      BevelOuter = bvNone
+      Color = 12480564
+      ParentColor = False
+      TabOrder = 0
+    end
+    object TitleLbl: TLabel
+      Left = 24
+      Height = 22
+      Top = 8
+      Width = 500
+      Caption = 'File Reputation'
+      Font.Color = clWhite
+      Font.Height = -16
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object SubtitleLbl: TLabel
+      Left = 24
+      Height = 16
+      Top = 36
+      Width = 750
+      Caption = 'Cloud intelligence and local verdicts'
+      Font.Color = 13879224
+      Font.Height = -10
+      Font.Name = 'Segoe UI'
+      ParentColor = False
+      ParentFont = False
+    end
+  end
+  object ToolbarSurface: TPanel
+    Left = 0
+    Height = 134
+    Top = 64
+    Width = 1240
+    Align = alTop
+    BevelOuter = bvNone
+    Color = clWhite
+    ParentColor = False
+    TabOrder = 1
+    object PathEdit: TEdit
+      Left = 20
+      Height = 28
+      Top = 10
+      Width = 1064
+      Anchors = [akTop, akLeft, akRight]
+      Color = 16513784
+      Font.Color = 3813927
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 0
+    end
+    object BrowseBtn: TButton
+      Left = 1098
+      Height = 28
+      Top = 10
+      Width = 122
+      Anchors = [akTop, akRight]
+      Caption = 'Browse...'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 1
+      OnClick = BrowseBtnClick
+    end
+    object StartBtn: TButton
+      Left = 20
+      Height = 30
+      Top = 50
+      Width = 96
+      Caption = 'Check folder'
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentFont = False
+      TabOrder = 2
+      OnClick = StartBtnClick
+    end
+    object CancelBtn: TButton
+      Left = 128
+      Height = 30
+      Top = 50
+      Width = 88
+      Caption = 'Cancel'
+      Enabled = False
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 3
+      OnClick = CancelBtnClick
+    end
+    object CopyBtn: TButton
+      Left = 228
+      Height = 30
+      Top = 50
+      Width = 94
+      Caption = 'Copy hash'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 4
+      OnClick = CopyBtnClick
+    end
+    object ValkBtn: TButton
+      Left = 334
+      Height = 30
+      Top = 50
+      Width = 126
+      Caption = 'Upload to Valkyrie'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 5
+      OnClick = ValkBtnClick
+    end
+    object ForumBtn: TButton
+      Left = 472
+      Height = 30
+      Top = 50
+      Width = 102
+      Caption = 'Hash forums'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 6
+      OnClick = ForumBtnClick
+    end
+    object ProcBtn: TButton
+      Left = 20
+      Height = 28
+      Top = 92
+      Width = 160
+      Caption = 'Check running processes'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 7
+      OnClick = ProcBtnClick
+    end
+    object ApplyBtn: TButton
+      Left = 190
+      Height = 28
+      Top = 92
+      Width = 150
+      Caption = 'Apply Actions'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 8
+      OnClick = ApplyBtnClick
+    end
+  end
+  object StatusSurface: TPanel
+    Left = 0
+    Height = 64
+    Top = 198
+    Width = 1240
+    Align = alTop
+    BevelOuter = bvNone
+    Color = 15791591
+    ParentColor = False
+    TabOrder = 2
+    object ScanProgress: TProgressBar
+      Left = 20
+      Height = 10
+      Top = 8
+      Width = 1200
+      Anchors = [akTop, akLeft, akRight]
+      Style = pbstMarquee
+      TabOrder = 0
+    end
+    object StatusLbl: TLabel
+      Left = 20
+      Height = 18
+      Top = 21
+      Width = 1200
+      Anchors = [akTop, akLeft, akRight]
+      Caption = 'Idle.'
+      Font.Color = 7958367
+      Font.Name = 'Segoe UI'
+      ParentColor = False
+      ParentFont = False
+    end
+    object SummaryLbl: TLabel
+      Left = 20
+      Height = 18
+      Top = 41
+      Width = 1200
+      Anchors = [akTop, akLeft, akRight]
+      Font.Color = 5289809
+      Font.Height = -11
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+  end
+  object ResultsArea: TPanel
+    Left = 0
+    Height = 480
+    Top = 262
+    Width = 1240
+    Align = alClient
+    BevelOuter = bvNone
+    Color = 16052717
+    ParentColor = False
+    TabOrder = 3
+    object ResultsSurface: TPanel
+      Left = 0
+      Height = 480
+      Top = 0
+      Width = 904
+      Align = alClient
+      BevelOuter = bvNone
+      Color = clWhite
+      ParentColor = False
+      TabOrder = 1
+      object ResultsSectionLbl: TLabel
+        Left = 16
+        Height = 20
+        Top = 12
+        Width = 280
+        Caption = 'FILE VERDICTS'
+        Font.Color = 6839366
+        Font.Height = -10
+        Font.Name = 'Segoe UI'
+        Font.Style = [fsBold]
+        ParentColor = False
+        ParentFont = False
+      end
+      object ResultsView: TListView
+        Left = 16
+        Height = 420
+        Top = 42
+        Width = 872
+        Anchors = [akTop, akLeft, akRight, akBottom]
+        Color = clWhite
+        Columns = <
+        item
+          Caption = 'File'
+          Width = 150
+        end
+        item
+          Caption = 'Action'
+          Width = 110
+        end
+        item
+          Caption = 'SHA1'
+          Width = 105
+        end
+        item
+          Caption = 'Cloud'
+          Width = 72
+        end
+        item
+          Caption = 'Local verdict'
+          Width = 170
+        end
+        item
+          Caption = 'Family'
+          Width = 110
+        end>
+        Font.Color = 3813927
+        Font.Name = 'Segoe UI'
+        Font.Height = -12
+        GridLines = True
+        HideSelection = False
+        MultiSelect = True
+        PopupMenu = DetPopup
+        ReadOnly = True
+        RowSelect = True
+        TabOrder = 0
+        ViewStyle = vsReport
+        OnCustomDrawItem = ResultsDrawItem
+      end
+    end
+  end
+  object DetPopup: TPopupMenu
+    left = 1120
+    top = 18
+    object DetItem: TMenuItem
+      Caption = 'Details...'
+      OnClick = DetItemClick
+    end
+    object QuarItem: TMenuItem
+      Caption = 'Quarantine'
+      OnClick = QuarItemClick
+    end
+    object IgnItem: TMenuItem
+      Caption = 'Ignore'
+      OnClick = IgnItemClick
+    end
+    object SelAllItem: TMenuItem
+      Caption = 'Select All'
+      OnClick = SelAllItemClick
+    end
+    object QuarAllItem: TMenuItem
+      Caption = 'Quarantine All'
+      OnClick = QuarAllItemClick
+    end
+    object IgnAllItem: TMenuItem
+      Caption = 'Ignore All'
+      OnClick = IgnAllItemClick
+    end
+  end
+end
