@@ -511,9 +511,14 @@ pub fn get_url_model() -> Option<&'static UrlTreeModel> {
 }
 
 static URL_THREAT_ENGINE: OnceLock<crate::url_rules::UrlThreatEngine> = OnceLock::new();
+static CIDR_ENGINE: OnceLock<crate::cidr::CidrEngine> = OnceLock::new();
 
 pub fn get_url_threat_engine() -> &'static crate::url_rules::UrlThreatEngine {
     URL_THREAT_ENGINE.get_or_init(crate::url_rules::UrlThreatEngine::new)
+}
+
+pub fn get_cidr_engine() -> &'static crate::cidr::CidrEngine {
+    CIDR_ENGINE.get_or_init(crate::cidr::CidrEngine::new)
 }
 
 pub fn extract_host(raw_url: &str) -> Option<&str> {
@@ -542,14 +547,22 @@ pub const URL_ML_DETECTION_THRESHOLD: f32 = 0.90;
 
 pub fn scan_url(raw_url: &str) -> Option<(f32, HashMap<String, f32>)> {
     let engine = get_url_threat_engine();
+    let cidr = get_cidr_engine();
     let host = extract_host(raw_url).unwrap_or("");
+
+    // 0. CIDR IP Blacklist check (fast O(log N) binary search)
+    if cidr.is_blacklisted(host) {
+        let mut map = HashMap::new();
+        map.insert("cidr_blacklisted".to_string(), 1.0);
+        return Some((1.0, map));
+    }
 
     // 1. Check YAML Exception Engine: unwhitelist_subdomains & override_whitelist rules
     let overrides_whitelist = engine.should_override_whitelist(raw_url, host);
 
-    // 2. Check Xorfilter Whitelist (only if not an exception in YAML rules)
+    // 2. Check Whitelists (CIDR Whitelist & Xorfilter Whitelist) only if not an exception in YAML rules
     if !overrides_whitelist {
-        if is_url_whitelisted(raw_url) {
+        if cidr.is_whitelisted(host) || is_url_whitelisted(raw_url) {
             return None; // Whitelisted! Passed immediately with 0 latency & 0 FP
         }
     }

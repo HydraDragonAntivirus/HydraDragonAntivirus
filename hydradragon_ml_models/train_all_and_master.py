@@ -15,6 +15,7 @@ import sys
 import gc
 import struct
 import shutil
+import random
 import numpy as np
 import joblib
 from sklearn.model_selection import train_test_split
@@ -86,7 +87,7 @@ def export_hdtr_url_model(clf, n_features: int, out_path: str):
         chunks.append(struct.pack("<I", n_nodes))
         for (nid, feat, thr, left, right, is_leaf, weight) in t.nodes:
             val_or_thresh = weight if is_leaf else thr
-            node_bytes = struct.pack("<BBHffII", 1 if is_leaf else 0, 0, feat, val_or_thresh, left, right)
+            node_bytes = struct.pack("<BBHfII", 1 if is_leaf else 0, 0, feat, val_or_thresh, left, right)
             chunks.append(node_bytes)
             
     raw = b"".join(chunks)
@@ -281,7 +282,16 @@ def main():
     print(classification_report(y_m_te, y_m_pred, target_names=["Benign", "Malicious"], digits=4), flush=True)
     
     master_onnx = os.path.join(BASE_DIR, "hydradragon_master.onnx")
+    master_trees_bin = os.path.join(BASE_DIR, "hydradragon_master_trees.bin")
     export_onnx(master_clf, 8, master_onnx)
+    export_standard_tree_bundle(master_clf, master_trees_bin)
+
+    for dest_dir in [PORTABLE_MODELS, OPENEDR_STATIC_MODELS, OWLYSHIELD_MODELS]:
+        if os.path.exists(dest_dir):
+            shutil.copy2(master_onnx, os.path.join(dest_dir, "hydradragon_master.onnx"))
+            shutil.copy2(master_trees_bin, os.path.join(dest_dir, "hydradragon_master_trees.bin"))
+            print(f"  [+] Synced master model & trees to: {dest_dir}", flush=True)
+
     print(f"\n[+] SUCCESS: hydradragon_master.onnx and all 4 domain models are fully built and synchronized!", flush=True)
 
 if __name__ == "__main__":

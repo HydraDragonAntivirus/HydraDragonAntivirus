@@ -1,5 +1,4 @@
 pub mod apk;
-pub mod cidr;
 pub mod clam;
 pub mod crypto;
 pub mod engine;
@@ -214,7 +213,7 @@ pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut
     }
 }
 
-/// Scan a URL for phishing/malware (web parity: ML + CIDR + BinaryFuse16 whitelist).
+/// Scan a URL for phishing/malware (ML + CIDR).
 /// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_scan_url(url: *const c_char) -> *mut c_char {
@@ -402,22 +401,6 @@ pub extern "C" fn openedr_static_set_registry_rules(data: *const u8, len: usize)
     openedr_static_set_string_rules(data, len)
 }
 
-/// Load BinaryFuse16 URL/domain/IP whitelist (.xf bytes, web parity). Returns 1/0.
-#[unsafe(no_mangle)]
-pub extern "C" fn openedr_static_load_url_whitelist(data: *const u8, len: usize) -> i32 {
-    let Some(bytes) = take_c_bytes(data, len) else {
-        return 0;
-    };
-    let engine_lock = match get_or_init_engine(None) {
-        Ok(lock) => lock,
-        Err(_) => return 0,
-    };
-    let mut engine = match engine_lock.write() {
-        Ok(guard) => guard,
-        Err(_) => return 0,
-    };
-    engine.load_url_whitelist(&bytes) as i32
-}
 
 /// Load custom YAML URL threat rules (web parity). Returns rule count or -1.
 #[unsafe(no_mangle)]

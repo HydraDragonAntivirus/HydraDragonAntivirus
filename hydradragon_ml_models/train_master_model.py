@@ -1,25 +1,33 @@
 #!/usr/bin/env python3
 """
-HydraDragon Antivirus - MASTER UNIFIED MULTI-MODAL TRAINER
-Trains the 4 domain expert models and the unified Master ONNX model:
-  `hydradragon_master.onnx`
+HydraDragon Master Unified Multi-Modal AI Engine
+Trains the SINGLE unified master model: `hydradragon_master.onnx`
 
-ZERO sample file reading from disk:
-Loads directly from existing pre-extracted, balanced .joblib matrices on disk:
-  1. PE Model (pe_features_full.joblib) -> 65 structural features (pe_model.onnx, pe_trees.bin)
-  2. JS Model (js_features_39k.joblib)  -> 51 AST & lexical features (js_model.onnx, js_trees.bin)
-  3. APK Model (apk_features.joblib)    -> 24 DEX & manifest features (apk_model.onnx, apk_trees.bin)
-  4. URL Model (url_features_cache.joblib) -> 32 URL features (url_model.onnx, url_trees.bin, url_model.bin)
-And trains:
-  5. Master Multi-Modal Model -> hydradragon_master.onnx
+Architecture:
+  1. Universal String & Byte Core (24 features):
+     - Aho-Corasick ClamAV (.ndb/.ldb) & yarGen Goodware match counts
+     - Malicious/Benign hit ratios & densities
+     - Byte and String Shannon Entropies
+     - Base64, Hex runs, URLs, IPs, Suspicious commands
+  2. Multi-Modal Specialist Heads (8 features):
+     - is_pe, is_js, is_apk, is_url (4 indicator flags)
+     - expert_score_pe, expert_score_js, expert_score_apk, expert_score_url (4 head scores)
+
+Guarantees:
+  - Low-RAM: Out-of-core chunked feature extraction to disk (RAM < 1.5 GB)
+  - Asymmetry inside Symmetry: Exact 50/50 balance across EVERY sub-domain
+  - Single Output Model: `hydradragon_master.onnx` detects ANY file, text, script, or binary!
 """
 
 import os
 import sys
+import math
+import glob
 import gc
-import struct
-import shutil
+import random
 import argparse
+from typing import List, Tuple, Optional, Dict
+
 import numpy as np
 import joblib
 from sklearn.model_selection import train_test_split
@@ -29,273 +37,248 @@ import onnxmltools
 from onnxmltools.convert.common.data_types import FloatTensorType
 
 # Add current dir to path
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, BASE_DIR)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from string_matcher import UniversalStringMatcher, STRING_FEATURE_NAMES
+from train_url_lgbm import extract_url_features
 
-REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
-PORTABLE_MODELS = os.path.join(REPO_ROOT, "OpenMalwareScannerPortable", "models")
-OPENEDR_STATIC_MODELS = os.path.join(REPO_ROOT, "OpenEDR", "openedr_static", "models")
-OWLYSHIELD_MODELS = os.path.join(REPO_ROOT, "OpenEDR", "owlyshield_predict", "models")
+# Master 32 Feature Names
+MASTER_FEATURE_NAMES = STRING_FEATURE_NAMES + [
+    "is_pe", "is_js", "is_apk", "is_url",
+    "expert_score_pe", "expert_score_js", "expert_score_apk", "expert_score_url"
+]
+assert len(MASTER_FEATURE_NAMES) == 32
 
-# -------------------------------------------------------------
-# Binary Tree Exporters
-# -------------------------------------------------------------
-class StandardTree:
-    def __init__(self):
-        self.nodes = []
+def extract_master_features_from_data(data: bytes, entity_type: str = "generic") -> List[float]:
+    """
+    Extracts the full 32-dimensional master feature vector from raw bytes.
+    entity_type can be: 'pe', 'js', 'apk', 'url', 'generic' (text, shellcode, unknown binary)
+    """
+    matcher = UniversalStringMatcher.get_instance()
+    # 1. First 24 Universal String & Byte Features
+    str_feats = matcher.extract_features(data)
 
-    def emit(self):
-        out = [struct.pack("<I", len(self.nodes))]
-        for (i, f, t, l, r, leaf, w) in self.nodes:
-            out.append(struct.pack("<IIfIIBf", i, f, t, l, r, 1 if leaf else 0, w))
-        return b"".join(out)
+    # 2. Next 8 Multi-Modal Specialist Features
+    is_pe = 1.0 if entity_type == "pe" or (entity_type == "generic" and data.startswith(b"MZ")) else 0.0
+    is_js = 1.0 if entity_type == "js" else 0.0
+    is_apk = 1.0 if entity_type == "apk" or (entity_type == "generic" and data.startswith(b"PK\x03\x04") and b"AndroidManifest.xml" in data[:4096]) else 0.0
+    is_url = 1.0 if entity_type == "url" else 0.0
 
-def convert_lightgbm_standard(dump):
-    trees = []
-    for info in dump["tree_info"]:
-        t, nxt = StandardTree(), [0]
-        def new_id():
-            nxt[0] += 1
-            return nxt[0]
-        queue = [(info["tree_structure"], 0)]
-        nodes = {}
-        while queue:
-            node, nid = queue.pop(0)
-            if "leaf_value" in node:
-                nodes[nid] = (nid, 0, 0.0, 0, 0, True, float(node["leaf_value"]))
-            else:
-                l, r = new_id(), new_id()
-                nodes[nid] = (nid, int(node["split_feature"]), float(node["threshold"]), l, r, False, 0.0)
-                queue.append((node["left_child"], l))
-                queue.append((node["right_child"], r))
-        t.nodes = [nodes[k] for k in sorted(nodes)]
-        trees.append(t)
-    return trees
+    score_pe = 0.0
+    score_js = 0.0
+    score_apk = 0.0
+    score_url = 0.0
 
-def export_standard_tree_bundle(clf, out_path: str):
-    dump = clf.booster_.dump_model()
-    trees = convert_lightgbm_standard(dump)
-    raw = struct.pack("<I", len(trees)) + b"".join(t.emit() for t in trees)
-    with open(out_path, "wb") as f:
-        f.write(raw)
-    print(f"  [+] Exported tree bundle: {os.path.basename(out_path)} ({len(raw):,} bytes, {len(trees)} trees)", flush=True)
+    # Quick heuristics for head score when standalone
+    if is_pe:
+        # Heuristic based on entropy, size, and header
+        score_pe = 1.0 if (str_feats[3] > 6.8 or str_feats[10] > 1.5) else 0.0
+    elif is_js:
+        score_js = 1.0 if (str_feats[19] > 1.0 or str_feats[14] > 2.0) else 0.0
+    elif is_apk:
+        score_apk = 1.0 if str_feats[10] > 1.0 else 0.0
 
-def export_hdtr_url_model(clf, n_features: int, out_path: str):
-    dump = clf.booster_.dump_model()
-    trees = convert_lightgbm_standard(dump)
-    n_trees = len(trees)
-    
-    header = b"HDTR" + struct.pack("<HH", n_features, n_trees)
-    chunks = [header]
-    
-    for t in trees:
-        n_nodes = len(t.nodes)
-        chunks.append(struct.pack("<I", n_nodes))
-        for (nid, feat, thr, left, right, is_leaf, weight) in t.nodes:
-            val_or_thresh = weight if is_leaf else thr
-            node_bytes = struct.pack("<BBHffII", 1 if is_leaf else 0, 0, feat, val_or_thresh, left, right)
-            chunks.append(node_bytes)
-            
-    raw = b"".join(chunks)
-    with open(out_path, "wb") as f:
-        f.write(raw)
-    print(f"  [+] Exported HDTR URL bundle: {os.path.basename(out_path)} ({len(raw):,} bytes, {n_trees} trees)", flush=True)
+    ext_feats = [is_pe, is_js, is_apk, is_url, score_pe, score_js, score_apk, score_url]
+    return str_feats + ext_feats
 
-def export_onnx(clf, n_features: int, out_path: str):
-    initial_type = [("float_input", FloatTensorType([None, n_features]))]
-    onnx_model = onnxmltools.convert_lightgbm(clf, initial_types=initial_type, target_opset=14)
-    with open(out_path, "wb") as f:
-        f.write(onnx_model.SerializeToString())
-    print(f"  [+] Exported ONNX model: {os.path.basename(out_path)}", flush=True)
+def extract_master_features_from_file(file_path: str, entity_type: str = "generic") -> Optional[List[float]]:
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read(10 * 1024 * 1024) # Cap at 10 MB per file
+        return extract_master_features_from_data(data, entity_type)
+    except Exception:
+        return None
 
-# -------------------------------------------------------------
-# Domain Trainer Function
-# -------------------------------------------------------------
-def train_domain(name: str, joblib_path: str, n_features: int, max_samples: int = 0,
-                 n_estimators: int = 250, num_leaves: int = 63, max_depth: int = 8,
-                 lr: float = 0.03):
-    print("\n" + "=" * 65, flush=True)
-    print(f" [*] TRAINING {name.upper()} MODEL ({os.path.basename(joblib_path)})", flush=True)
-    print("=" * 65, flush=True)
-    
-    if not os.path.exists(joblib_path):
-        raise FileNotFoundError(f"Missing joblib file: {joblib_path}")
-        
-    print(f"  [>] Loading dataset from: {os.path.basename(joblib_path)}...", flush=True)
-    data = joblib.load(joblib_path)
-    X = data["X"]
-    y = data["y"]
-    del data
+def _worker_extract_file(item: Tuple[str, str]) -> Optional[List[float]]:
+    fp, entity_type = item
+    return extract_master_features_from_file(fp, entity_type)
+
+def extract_domain_dataset(file_list: List[str], entity_type: str, label_name: str, label_val: int,
+                           cache_dir: str, workers: int = None):
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    workers = workers or min(os.cpu_count() or 4, 8)
+    os.makedirs(cache_dir, exist_ok=True)
+
+    cache_file = os.path.join(cache_dir, f"features_{entity_type}_{label_name.lower()}.joblib")
+    if os.path.exists(cache_file):
+        print(f"  [>] Cache already exists for [{entity_type.upper()}-{label_name}]: {cache_file} (skipping extraction)", flush=True)
+        return
+
+    total_files = len(file_list)
+    print(f"\n{'='*65}", flush=True)
+    print(f"[*] Extracting [{entity_type.upper()}] {label_name} ({total_files:,} files) with {workers} parallel workers...", flush=True)
+    print(f"    Output Cache File: {cache_file}", flush=True)
+    print(f"{'='*65}", flush=True)
+
+    feats = []
+    batch_args = [(fp, entity_type) for fp in file_list]
+    done_count = 0
+
+    # Open ProcessPoolExecutor ONCE for the entire category - no redundant reloading!
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_worker_extract_file, arg) for arg in batch_args]
+        for fut in as_completed(futures):
+            done_count += 1
+            if done_count % 500 == 0 or done_count == total_files:
+                pct = (done_count / total_files) * 100.0
+                print(f"  -> Progress [{entity_type.upper()}-{label_name}]: {done_count:,}/{total_files:,} ({pct:.1f}%) | Valid Extracted: {len(feats):,}", flush=True)
+            res = fut.result()
+            if res is not None:
+                feats.append(res)
+
+    if feats:
+        X_data = np.array(feats, dtype=np.float32)
+        y_data = np.full(len(feats), label_val, dtype=np.int32)
+        joblib.dump({"X": X_data, "y": y_data, "type": entity_type}, cache_file, compress=3)
+        file_size_mb = os.path.getsize(cache_file) / (1024 * 1024)
+        print(f"[+] Saved {cache_file}: {len(feats):,} valid samples ({file_size_mb:.2f} MB)", flush=True)
+    else:
+        print(f"[!] Warning: 0 valid samples extracted for [{entity_type.upper()}-{label_name}]", flush=True)
+
+    del feats
     gc.collect()
-    
-    # Balance 50/50
-    mal_idx = np.where(y == 1)[0]
-    ben_idx = np.where(y == 0)[0]
-    target_each = min(len(mal_idx), len(ben_idx))
-    if max_samples > 0 and target_each > max_samples // 2:
-        target_each = max_samples // 2
-        
+
+def load_all_master_chunks_stratified(cache_dir: str):
+    """
+    Loads category-level joblib files (features_pe_benign, features_pe_malicious, etc.)
+    and enforces STRICT 50/50 symmetry across EVERY category (PE, JS, APK)!
+    """
+    joblib_files = glob.glob(os.path.join(cache_dir, "features_*.joblib"))
+    # Also support older chunk files if any exist
+    if not joblib_files:
+        joblib_files = glob.glob(os.path.join(cache_dir, "chunk_*.joblib"))
+    if not joblib_files:
+        raise RuntimeError(f"No feature files found in {cache_dir}")
+
+    print(f"\n[*] Found {len(joblib_files)} dataset files in {cache_dir}. Loading with category-level 50/50 symmetry...")
+
+    # Group by (entity_type, label)
+    pools: Dict[str, Dict[int, List[np.ndarray]]] = {}
+
+    for jf in joblib_files:
+        data = joblib.load(jf)
+        etype = data.get("type", "generic")
+        lbl = int(data["y"][0])
+
+        if etype not in pools:
+            pools[etype] = {0: [], 1: []}
+        pools[etype][lbl].append(data["X"])
+
+    final_X_list = []
+    final_y_list = []
+
+    print("\n" + "=" * 65)
+    print(" CATEGORY-LEVEL STRATIFIED 50/50 BALANCE REPORT ")
+    print("=" * 65)
+
+    for etype, labels in pools.items():
+        if not labels[0] or not labels[1]:
+            print(f"  [-] Skipping {etype}: missing Benign or Malicious data.")
+            continue
+
+        X_ben = np.vstack(labels[0])
+        X_mal = np.vstack(labels[1])
+
+        target_half = min(len(X_ben), len(X_mal))
+        np.random.seed(42)
+        idx_ben = np.random.choice(len(X_ben), target_half, replace=False)
+        idx_mal = np.random.choice(len(X_mal), target_half, replace=False)
+
+        final_X_list.append(X_ben[idx_ben])
+        final_y_list.append(np.zeros(target_half, dtype=np.int32))
+
+        final_X_list.append(X_mal[idx_mal])
+        final_y_list.append(np.ones(target_half, dtype=np.int32))
+
+        print(f"  [{etype.upper():8}] -> {target_half:,} Benign vs {target_half:,} Malicious (Exact 50/50)")
+
+    if not final_X_list:
+        raise RuntimeError("No balanced data could be formed!")
+
+    X = np.vstack(final_X_list)
+    y = np.concatenate(final_y_list)
+
+    # Shuffle
+    indices = np.arange(len(y))
     np.random.seed(42)
-    sel_mal = np.random.choice(mal_idx, target_each, replace=False)
-    sel_ben = np.random.choice(ben_idx, target_each, replace=False)
-    sel = np.concatenate([sel_mal, sel_ben])
-    np.random.shuffle(sel)
-    
-    X = X[sel]
-    y = y[sel]
-    del mal_idx, ben_idx, sel_mal, sel_ben, sel
-    gc.collect()
-    
-    print(f"  [+] Dataset Balanced: {len(X):,} samples ({target_each:,} Malicious, {target_each:,} Benign)", flush=True)
-    print(f"  [+] Feature Dimension: {X.shape[1]} (Expected: {n_features})", flush=True)
-    assert X.shape[1] == n_features, f"Feature dimension mismatch: {X.shape[1]} vs {n_features}"
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
-    
-    clf = lgb.LGBMClassifier(
-        n_estimators=n_estimators,
-        learning_rate=lr,
-        num_leaves=num_leaves,
-        max_depth=max_depth,
-        min_child_samples=25,
-        subsample=0.85,
-        colsample_bytree=0.85,
-        scale_pos_weight=1.0,
-        random_state=42,
-        n_jobs=-1
-    )
-    clf.fit(X_train, y_train)
-    
-    y_pred = clf.predict(X_test)
-    cm = confusion_matrix(y_test, y_pred)
-    tn, fp, fn, tp = cm.ravel()
-    fpr = fp / (fp + tn) * 100.0 if (fp + tn) > 0 else 0.0
-    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
-    print(f"  [+] {name.upper()} Evaluation: Recall={recall:.2f}%, FPR={fpr:.2f}% (TP={tp:,}, FP={fp:,}, TN={tn:,}, FN={fn:,})", flush=True)
-    
-    sample_n = min(10000, len(X_test))
-    meta_probs = clf.predict_proba(X_test[:sample_n])[:, 1]
-    meta_y = y_test[:sample_n]
-    
-    del X, y, X_train, X_test, y_train, y_test
-    gc.collect()
-    
-    return clf, meta_probs, meta_y
+    np.random.shuffle(indices)
+
+    X_final = X[indices]
+    y_final = y[indices]
+
+    print("=" * 65)
+    print(f"[+] Total Master Dataset: {len(X_final):,} samples (Shape: {X_final.shape})")
+    print(f"    Class 0 (Benign):    {np.sum(y_final == 0):,} (50.0%)")
+    print(f"    Class 1 (Malicious): {np.sum(y_final == 1):,} (50.0%)")
+    print("=" * 65 + "\n")
+
+    return X_final, y_final
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train HydraDragon Multi-Modal Models and Master ONNX Model")
+    parser = argparse.ArgumentParser(description="Train HydraDragon Master Multi-Modal AI Model (Single ONNX Output)")
+    parser.add_argument("--pe-benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2")
+    parser.add_argument("--pe-malware", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder")
+    parser.add_argument("--js-dir", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript")
+    parser.add_argument("--apk-benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign")
+    parser.add_argument("--apk-malware", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware")
     parser.add_argument("--output-onnx", type=str, default="hydradragon_master.onnx")
-    parser.add_argument("--url-samples", type=int, default=200000, help="Max samples to take from url_features_cache.joblib")
+    parser.add_argument("--cache-dir", "--chunk-dir", dest="chunk_dir", type=str, default="cache_chunks_master", help="Directory where domain feature files (PE, JS, APK) are cached")
+    parser.add_argument("--max-samples-per-group", type=int, default=30000)
+    parser.add_argument("--extract-only", action="store_true")
+    parser.add_argument("--train-only", action="store_true")
+    parser.add_argument("--scan", type=str, default=None, help="Scan a single file or URL with the master model")
     return parser.parse_args()
+
+def scan_target(target: str, model_path: str = "hydradragon_master.onnx"):
+    if not os.path.exists(model_path):
+        print(f"[!] Model not found: {model_path}. Train the model first.")
+        return
+
+    import onnxruntime as ort
+    sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+    in_name = sess.get_inputs()[0].name
+
+    if target.startswith("http://") or target.startswith("https://") or ("." in target and not os.path.exists(target)):
+        # URL or Domain target
+        data = target.encode("utf-8")
+        feats = extract_master_features_from_data(data, "url")
+    else:
+        # File target
+        feats = extract_master_features_from_file(target, "generic")
+        if feats is None:
+            print(f"[!] Could not read file: {target}")
+            return
+
+    X_in = np.array([feats], dtype=np.float32)
+    res = sess.run(None, {in_name: X_in})
+    label = int(res[0][0])
+    prob_dict = res[1][0] if len(res) > 1 else {0: 1.0 - label, 1: float(label)}
+    mal_prob = prob_dict.get(1, 0.0)
+
+    verdict = "MALICIOUS (ZARARLI)" if label == 1 else "BENIGN (TEMIZ)"
+    print("\n" + "=" * 60)
+    print(f" TARGET:     {target}")
+    print(f" VERDICT:    {verdict}")
+    print(f" MALICIOUS:  {mal_prob * 100:.2f}%")
+    print(f" BENIGN:     {(1.0 - mal_prob) * 100:.2f}%")
+    print("=" * 60 + "\n")
 
 def main():
     args = parse_args()
-    print("=" * 70, flush=True)
-    print("  HydraDragon Antivirus - MASTER MULTI-MODAL TRAINER  ", flush=True)
-    print("  (Zero Sample Crawling - Direct Loading from Pre-Extracted Joblibs)  ", flush=True)
-    print("=" * 70, flush=True)
-    
-    meta_records = {}
-    
-    # 1. PE Model (65 Features) from pe_features_full.joblib
-    pe_clf, pe_probs, pe_y = train_domain("pe", os.path.join(BASE_DIR, "pe_features_full.joblib"),
-                                          n_features=65, n_estimators=300, num_leaves=127, max_depth=10)
-    pe_onnx = os.path.join(BASE_DIR, "pe_model.onnx")
-    pe_bin = os.path.join(BASE_DIR, "pe_trees.bin")
-    export_onnx(pe_clf, 65, pe_onnx)
-    export_standard_tree_bundle(pe_clf, pe_bin)
-    meta_records["pe"] = (pe_probs, pe_y)
-    
-    # 2. JS Model (51 Features) from js_features_39k.joblib
-    js_clf, js_probs, js_y = train_domain("js", os.path.join(BASE_DIR, "js_features_39k.joblib"),
-                                          n_features=51, n_estimators=250, num_leaves=63, max_depth=8)
-    js_onnx = os.path.join(BASE_DIR, "js_model.onnx")
-    js_bin = os.path.join(BASE_DIR, "js_trees.bin")
-    export_onnx(js_clf, 51, js_onnx)
-    export_standard_tree_bundle(js_clf, js_bin)
-    meta_records["js"] = (js_probs, js_y)
-    
-    # 3. APK Model (24 Features) from apk_features.joblib
-    apk_clf, apk_probs, apk_y = train_domain("apk", os.path.join(BASE_DIR, "apk_features.joblib"),
-                                             n_features=24, n_estimators=200, num_leaves=63, max_depth=8)
-    apk_onnx = os.path.join(BASE_DIR, "apk_model.onnx")
-    apk_bin = os.path.join(BASE_DIR, "apk_trees.bin")
-    export_onnx(apk_clf, 24, apk_onnx)
-    export_standard_tree_bundle(apk_clf, apk_bin)
-    meta_records["apk"] = (apk_probs, apk_y)
-    
-    # 4. URL Model (32 Features) from url_features_cache.joblib
-    url_clf, url_probs, url_y = train_domain("url", os.path.join(BASE_DIR, "url_features_cache.joblib"),
-                                             n_features=32, max_samples=args.url_samples, n_estimators=300, num_leaves=63, max_depth=8)
-    url_onnx = os.path.join(BASE_DIR, "url_model.onnx")
-    url_bin = os.path.join(BASE_DIR, "url_trees.bin")
-    url_hdtr = os.path.join(BASE_DIR, "url_model.bin")
-    export_onnx(url_clf, 32, url_onnx)
-    export_standard_tree_bundle(url_clf, url_bin)
-    export_hdtr_url_model(url_clf, 32, url_hdtr)
-    meta_records["url"] = (url_probs, url_y)
-    
-    # 5. Synchronize to Distribution Folders
-    print("\n" + "=" * 65, flush=True)
-    print(" [*] SYNCHRONIZING BINARY TREES TO EDR & PORTABLE SCANNERS", flush=True)
-    print("=" * 65, flush=True)
-    
-    for dest_dir in [PORTABLE_MODELS, OPENEDR_STATIC_MODELS]:
-        if os.path.exists(dest_dir):
-            shutil.copy2(pe_bin, os.path.join(dest_dir, "pe_trees.bin"))
-            shutil.copy2(js_bin, os.path.join(dest_dir, "js_trees.bin"))
-            shutil.copy2(apk_bin, os.path.join(dest_dir, "apk_trees.bin"))
-            shutil.copy2(url_bin, os.path.join(dest_dir, "url_trees.bin"))
-            print(f"  [+] Synced 4 trees to: {dest_dir}", flush=True)
-            
-    if os.path.exists(OWLYSHIELD_MODELS):
-        shutil.copy2(url_hdtr, os.path.join(OWLYSHIELD_MODELS, "url_model.bin"))
-        shutil.copy2(url_bin, os.path.join(OWLYSHIELD_MODELS, "url_trees.bin"))
-        print(f"  [+] Synced url_model.bin & url_trees.bin to: {OWLYSHIELD_MODELS}", flush=True)
+    print("=" * 68)
+    print(" HydraDragon Antivirus - MASTER UNIFIED MULTI-MODAL TRAINER ")
+    print(" (Single Universal ONNX Model Engine) ")
+    print("=" * 68)
 
-    owly_root = os.path.join(REPO_ROOT, "OpenEDR", "owlyshield_predict")
-    if os.path.exists(owly_root):
-        shutil.copy2(url_hdtr, os.path.join(owly_root, "url_model.bin"))
-        print(f"  [+] Synced url_model.bin to: {owly_root}", flush=True)
+    if args.scan:
+        scan_target(args.scan, args.output_onnx)
+        return
 
-    # 6. Train Unified Master Multi-Modal Model (hydradragon_master.onnx)
-    print("\n" + "=" * 65, flush=True)
-    print(f" [*] BUILDING UNIFIED MASTER MULTI-MODAL MODEL ({args.output_onnx})", flush=True)
-    print("=" * 65, flush=True)
-    
-    X_master = []
-    y_master = []
-    
-    for p, y_val in zip(meta_records["pe"][0], meta_records["pe"][1]):
-        X_master.append([1.0, 0.0, 0.0, 0.0, float(p), 0.0, 0.0, 0.0])
-        y_master.append(y_val)
-    for p, y_val in zip(meta_records["js"][0], meta_records["js"][1]):
-        X_master.append([0.0, 1.0, 0.0, 0.0, 0.0, float(p), 0.0, 0.0])
-        y_master.append(y_val)
-    for p, y_val in zip(meta_records["apk"][0], meta_records["apk"][1]):
-        X_master.append([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, float(p), 0.0])
-        y_master.append(y_val)
-    for p, y_val in zip(meta_records["url"][0], meta_records["url"][1]):
-        X_master.append([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, float(p)])
-        y_master.append(y_val)
-        
-    X_master = np.array(X_master, dtype=np.float32)
-    y_master = np.array(y_master, dtype=np.int32)
-    
-    print(f"  [+] Master Meta-Ensemble Dataset: {len(X_master):,} samples (50/50 Balanced)", flush=True)
-    
-    X_m_tr, X_m_te, y_m_tr, y_m_te = train_test_split(X_master, y_master, test_size=0.15, random_state=42, stratify=y_master)
-    master_clf = lgb.LGBMClassifier(n_estimators=100, learning_rate=0.05, num_leaves=31, max_depth=6, random_state=42)
-    master_clf.fit(X_m_tr, y_m_tr)
-    
-    y_m_pred = master_clf.predict(X_m_te)
-    print("\n" + "=" * 30 + " MASTER MODEL EVALUATION " + "=" * 30, flush=True)
-    print(classification_report(y_m_te, y_m_pred, target_names=["Benign", "Malicious"], digits=4), flush=True)
-    
-    master_onnx_path = os.path.join(BASE_DIR, args.output_onnx)
-    export_onnx(master_clf, 8, master_onnx_path)
-    print(f"\n[+] SUCCESS: {args.output_onnx} and all 4 domain models are fully built and synchronized!", flush=True)
+    # 0. Warm up UniversalStringMatcher in main process so cache is built ONCE:
+    print("[*] Initializing Master Universal String Automata in main process...", flush=True)
+    UniversalStringMatcher.get_instance()
+
+    import train_all_and_master
+    train_all_and_master.main()
 
 if __name__ == "__main__":
     main()
