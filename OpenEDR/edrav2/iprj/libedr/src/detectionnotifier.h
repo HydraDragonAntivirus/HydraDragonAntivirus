@@ -78,6 +78,11 @@ public:
 	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut);
 
 	///
+	/// Fast query of the dynamic verdict cache (1=Clean, 2=Malicious, 3=Suspicious, 0=Unknown/Uncached).
+	///
+	static int getCachedFileVerdict(const std::string& sUtf8Path);
+
+	///
 	/// True while protection actions are paused (HKLM\SOFTWARE\Owlyshield!PROTECTION_PAUSED).
 	/// Monitoring, telemetry and training recording keep running; only
 	/// remediation/quarantine/kill actions are suppressed.

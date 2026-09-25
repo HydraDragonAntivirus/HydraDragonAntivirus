@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <deque>
 
 namespace cmd {
 
@@ -32,6 +33,10 @@ private:
 	std::mutex m_mtxQueue;
 	ObjWeakPtr<IDataProvider> m_pProvider;
 	ObjPtr<IDataReceiver> m_pReceiver;
+	std::mutex m_mtxPriorityQueues;
+	std::deque<Variant> m_unknownQueue;
+	std::deque<Variant> m_benignQueue;
+	bool isUnknownOrThreatEvent(const Variant& vEvent);
 	void processQueueEvent();
 
 	std::wstring getRegistryPath(std::wstring sPath);

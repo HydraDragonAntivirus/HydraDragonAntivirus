@@ -776,6 +776,35 @@ bool SystemMonitorController::startInt()
 
 	// Connect to fltport should be before update selfprotection
 	startThreads();
+
+	// Check if SDK Training Mode is active. In training mode, enable full eventFlags (4294967295)
+	// so the training recorder captures complete killchain file open/close events.
+	// In normal mode, respect the cfg eventFlags (4294966655) which disables routine FileOpen/FileClose
+	// to prevent benign queue saturation.
+	BYTE bufTrain[16] = {};
+	ULONG cbTrain = sizeof(bufTrain);
+	DWORD dwTrainType = 0;
+	bool bTrainingActive = false;
+	if (::RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Owlyshield\\SDK", "TRAINING_MODE",
+		RRF_RT_ANY, &dwTrainType, bufTrain, &cbTrain) == ERROR_SUCCESS)
+	{
+		if (dwTrainType == REG_DWORD && cbTrain >= sizeof(DWORD)) {
+			DWORD v = 0; memcpy(&v, bufTrain, sizeof(v));
+			bTrainingActive = (v != 0);
+		} else {
+			bufTrain[sizeof(bufTrain) - 1] = 0;
+			std::string sTrain((const char*)bufTrain);
+			for (auto& c : sTrain) c = (char)::tolower((unsigned char)c);
+			bTrainingActive = (sTrain.find("1") != std::string::npos || sTrain.find("true") != std::string::npos);
+		}
+	}
+
+	if (bTrainingActive)
+	{
+		m_vDefaultDriverConfig.put("eventFlags", uint32_t(4294967295U));
+		LOGINF("SysMon: Training mode active - enabling all driver eventFlags (4294967295)");
+	}
+
 	sendConfig(m_vDefaultDriverConfig);
 
 	// update selfprotection rules

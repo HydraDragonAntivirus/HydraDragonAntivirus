@@ -1932,6 +1932,20 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		for (auto& c : lowerDos) c = (char)::tolower((unsigned char)c);
 		if (!seenPaths.insert(lowerDos).second) continue;
 
+		// Fast path: if already cached as Clean, skip heavy static scanning completely
+		int cachedVerdict = DetectionNotifier::getCachedFileVerdict(dos);
+		if (cachedVerdict == 1)
+		{
+			continue;
+		}
+
+		// Process executable images only need evaluation at process creation or when unknown;
+		// do not rescan the already running process image on routine sub-events!
+		if (isProc && eEventType != Event::LLE_PROCESS_CREATE && cachedVerdict != 0)
+		{
+			continue;
+		}
+
 		// A. Synchronous Pascal-style scan (ClamAV, YARA-X, ML, Signer, EICAR)
 		//
 		// Mid-write file events (create / write / data change) skip the inline
@@ -3044,6 +3058,83 @@ void EventEnricher::put(const Variant& vEventRef)
 //
 //
 //
+bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
+{
+	// 1. Explicit threat or detection alerts have top priority
+	if (vEvent.has("threat") || vEvent.has("alert") || vEvent.has("detection") || vEvent.has("threatName"))
+		return true;
+
+	Event eEventType = vEvent.has("baseEventType") && !vEvent.get("baseEventType").isEmpty() ?
+		static_cast<Event>(static_cast<int>(vEvent.get("baseEventType"))) :
+		static_cast<Event>(static_cast<int>(vEvent.get("baseType")));
+
+	// 2. Process creation is ALWAYS treated as unknown until verified
+	if (eEventType == Event::LLE_PROCESS_CREATE || vEvent.has("childProcess"))
+		return true;
+
+	// 3. Check process verdict
+	Variant vProc;
+	if (vEvent.has("process")) vProc = vEvent.get("process");
+	else if (vEvent.has("childProcess")) vProc = vEvent.get("childProcess");
+
+	if (vProc.isDictionaryLike())
+	{
+		int64_t nProcVerdict = 0;
+		if (vProc.has("verdict")) {
+			try { nProcVerdict = static_cast<int64_t>(vProc["verdict"]); } catch (...) {}
+		}
+		// Any process not verified clean (1) is prioritized as unknown/untrusted
+		if (nProcVerdict != 1)
+		{
+			std::string pPath;
+			if (vProc.has("imagePath")) pPath = std::string(vProc["imagePath"]);
+			else if (vProc.has("path")) pPath = std::string(vProc["path"]);
+			if (!pPath.empty())
+			{
+				std::string dos = DetectionNotifier::NtPathToDosPathString(pPath);
+				if (DetectionNotifier::getCachedFileVerdict(dos) != 1)
+					return true;
+			}
+			else
+			{
+				return true;
+			}
+		}
+	}
+
+	// 4. Check file verdict for file events
+	if (vEvent.has("file"))
+	{
+		Variant vFile = vEvent.get("file");
+		if (vFile.isDictionaryLike())
+		{
+			int64_t nFileVerdict = 0;
+			if (vFile.has("verdict")) {
+				try { nFileVerdict = static_cast<int64_t>(vFile["verdict"]); } catch (...) {}
+			}
+			if (nFileVerdict != 1)
+			{
+				std::string fPath;
+				if (vFile.has("path")) fPath = std::string(vFile["path"]);
+				else if (vFile.has("rawPath")) fPath = std::string(vFile["rawPath"]);
+				if (!fPath.empty())
+				{
+					std::string dos = DetectionNotifier::NtPathToDosPathString(fPath);
+					if (DetectionNotifier::getCachedFileVerdict(dos) != 1)
+						return true;
+				}
+				else
+				{
+					return true;
+				}
+			}
+		}
+	}
+
+	// Both process and files are verified clean
+	return false;
+}
+
 void EventEnricher::processQueueEvent()
 {
 	CMD_TRY
@@ -3054,9 +3145,47 @@ void EventEnricher::processQueueEvent()
 		auto pProvider = m_pProvider.lock();
 		if (pProvider == nullptr)
 			error::InvalidArgument(SL, "Provider interface is undefined").throwException();
-		auto vEvent = pProvider->get();
-		if (vEvent)
-			put(vEvent.value());
+
+		// Drain available events in batches and prioritize into queues
+		for (int i = 0; i < 64; ++i)
+		{
+			auto vOptEvent = pProvider->get();
+			if (!vOptEvent)
+				break;
+
+			bool bUnknown = isUnknownOrThreatEvent(vOptEvent.value());
+			std::scoped_lock lock(m_mtxPriorityQueues);
+			if (bUnknown)
+			{
+				m_unknownQueue.push_back(std::move(vOptEvent.value()));
+			}
+			else
+			{
+				if (m_benignQueue.size() < 10000)
+					m_benignQueue.push_back(std::move(vOptEvent.value()));
+			}
+		}
+
+		// ALWAYS DRAIN UNKNOWN QUEUE FIRST (TOP PRIORITY)
+		Variant nextEvent;
+		{
+			std::scoped_lock lock(m_mtxPriorityQueues);
+			if (!m_unknownQueue.empty())
+			{
+				nextEvent = std::move(m_unknownQueue.front());
+				m_unknownQueue.pop_front();
+			}
+			else if (!m_benignQueue.empty())
+			{
+				nextEvent = std::move(m_benignQueue.front());
+				m_benignQueue.pop_front();
+			}
+		}
+
+		if (!nextEvent.isEmpty())
+		{
+			put(nextEvent);
+		}
 	}
 	CMD_PREPARE_CATCH
 	catch (error::Exception& e)

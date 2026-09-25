@@ -2261,12 +2261,17 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preWrite(_Inout_ PFLT_CALLBACK_DATA pData,
 		pFltObjects->FileObject->CurrentByteOffset.QuadPart, (ULONG)writeParams.Length, 
 		(ULONG)fSyncNeeded ? 1 : 0);
 
+	bool fPostIsNecessary = fSyncNeeded || !pStreamHandleContext->fWasChanged;
+
 	FltReleaseContext(pStreamHandleContext);
 
-	if (!fSyncNeeded)
-		return FLT_PREOP_SUCCESS_WITH_CALLBACK;
+	if (!fPostIsNecessary)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
 
-	return FLT_PREOP_SYNCHRONIZE;
+	if (fSyncNeeded)
+		return FLT_PREOP_SYNCHRONIZE;
+
+	return FLT_PREOP_SUCCESS_WITH_CALLBACK;
 }
 
 //
@@ -2329,40 +2334,27 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postWrite(__inout PFLT_CALLBACK_DATA pData, __
 				pData->IoStatus.Information);
 		} while (false);
 
-		// Emit the write event for every successful write. The rule layer filters
-		// by path/extension; the driver must not drop writes silently. The event is
-		// sent after sequence hashing so hash-based rules (e.g. FILE_COPY detection)
-		// can correlate read/write pairs via "file.rawHash". When sequence hashing
-		// is not active the event carries no hash; the service-side hash key
-		// calculation skips the missing field instead of failing.
-		//
-		// Gated on the file's current size (c_nMaxPerIrpEventFileSize): small
-		// files keep per-IRP fidelity, large ones rely on the single
-		// full-content FileDataWriteFull at cleanup. Without this gate the
-		// driver emits one event per chunk and floods its own 2 MB queue.
-		const ULONGLONG ullWriteEnd = (ULONGLONG)pStreamHandleContext->nSizeAtCreation +
-			(ULONGLONG)pStreamHandleContext->sequenceWriteInfo.nNextPos;
-		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0 &&
-			ullWriteEnd <= c_nMaxPerIrpEventFileSize)
+		// Emit the write event only on sequence completion or final hash to prevent 2 MB queue overflow
+		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
 		{
 			auto& info = pStreamHandleContext->sequenceWriteInfo;
-			sendFileEvent(SysmonEvent::FileDataWriteFull, pStreamHandleContext,
-				[&info, pStreamHandleContext](auto pSerializer) {
-					if (info.fEnabled)
-					{
+			if (info.fEnabled && info.nNextPos >= (ULONGLONG)pStreamHandleContext->nSizeAtCreation)
+			{
+				sendFileEvent(SysmonEvent::FileDataWriteFull, pStreamHandleContext,
+					[&info, pStreamHandleContext](auto pSerializer) {
 						NTSTATUS nsH = writeFileHash(pSerializer, info);
 						if (!NT_SUCCESS(nsH))
 							return nsH;
+						if (pStreamHandleContext != nullptr && pStreamHandleContext->szRansomDst[0] != L'\0')
+						{
+							UNICODE_STRING usBk;
+							RtlInitUnicodeString(&usBk, pStreamHandleContext->szRansomDst);
+							(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+						}
+						return STATUS_SUCCESS;
 					}
-					if (pStreamHandleContext != nullptr && pStreamHandleContext->szRansomDst[0] != L'\0')
-					{
-						UNICODE_STRING usBk;
-						RtlInitUnicodeString(&usBk, pStreamHandleContext->szRansomDst);
-						(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
-					}
-					return STATUS_SUCCESS;
-				}
-			);
+				);
+			}
 		}
 	}
 	__finally
@@ -2442,7 +2434,7 @@ FLT_PREOP_CALLBACK_STATUS FLTAPI preRead(_Inout_ PFLT_CALLBACK_DATA pData,
 		(ULONG)fSyncNeeded ? 1 : 0);
 
 	FltReleaseContext(pStreamHandleContext);
-	return fSyncNeeded ? FLT_PREOP_SYNCHRONIZE : FLT_PREOP_SUCCESS_WITH_CALLBACK;
+	return fSyncNeeded ? FLT_PREOP_SYNCHRONIZE : FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
 
@@ -2496,40 +2488,28 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postRead(__inout PFLT_CALLBACK_DATA pData,
 				pData->IoStatus.Information);
 		} while (false);
 
-		// Emit the read event for every successful read. The rule layer filters
-		// by path/extension; the driver must not drop reads silently. The event is
-		// sent after sequence hashing so hash-based rules (e.g. FILE_COPY detection)
-		// can correlate read/write pairs via "file.rawHash". When sequence hashing
-		// is not active the event carries no hash; the service-side hash key
-		// calculation skips the missing field instead of failing.
-		//
-		// Same size gate as the write side (c_nMaxPerIrpEventFileSize): a large
-		// read (installer, image, archive) is one event per chunk and floods the
-		// driver queue; the full-read event at cleanup still covers it.
-		const ULONGLONG ullReadEnd = (ULONGLONG)pStreamHandleContext->nSizeAtCreation +
-			(ULONGLONG)pStreamHandleContext->sequenceReadInfo.nNextPos;
-		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0 &&
-			ullReadEnd <= c_nMaxPerIrpEventFileSize)
+		// Emit the read event only on sequence completion to prevent 2 MB queue overflow
+		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
 		{
 			auto& info = pStreamHandleContext->sequenceReadInfo;
-			sendFileEvent(SysmonEvent::FileDataReadFull, pStreamHandleContext,
-				[&info, pStreamHandleContext](auto pSerializer) {
-					if (info.fEnabled)
-					{
+			if (info.fEnabled && info.nNextPos >= (ULONGLONG)pStreamHandleContext->nSizeAtCreation)
+			{
+				sendFileEvent(SysmonEvent::FileDataReadFull, pStreamHandleContext,
+					[&info, pStreamHandleContext](auto pSerializer) {
 						NTSTATUS nsH = writeFileHash(pSerializer, info);
 						if (!NT_SUCCESS(nsH))
 							return nsH;
+						if (pStreamHandleContext != nullptr && pStreamHandleContext->szRansomDst[0] != L'\0')
+						{
+							UNICODE_STRING usBk;
+							RtlInitUnicodeString(&usBk,
+								pStreamHandleContext->szRansomDst);
+							(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
+						}
+						return STATUS_SUCCESS;
 					}
-					if (pStreamHandleContext != nullptr && pStreamHandleContext->szRansomDst[0] != L'\0')
-					{
-						UNICODE_STRING usBk;
-						RtlInitUnicodeString(&usBk,
-							pStreamHandleContext->szRansomDst);
-						(void)write(*(pSerializer), EvFld::FileBackupPath, &usBk);
-					}
-					return STATUS_SUCCESS;
-				}
-			);
+				);
+			}
 		}
 	}
 	__finally

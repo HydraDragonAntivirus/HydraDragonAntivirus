@@ -902,17 +902,101 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 
 } // namespace
 
+struct CachedFileVerdict {
+	int verdict = 0;
+	std::string threatName;
+	uint64_t size = 0;
+	uint64_t mtime = 0;
+};
+
+static std::mutex s_mtxVerdictCache;
+static std::unordered_map<std::string, CachedFileVerdict> s_verdictCache;
+static constexpr size_t kMaxVerdictCacheSize = 32768;
+
+static bool getFileIdentityUtf8(const std::string& sUtf8Path, uint64_t& nSizeOut, uint64_t& nMtimeOut)
+{
+	if (sUtf8Path.empty()) return false;
+	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
+	if (nWide <= 1) return false;
+	std::wstring ws(static_cast<size_t>(nWide), L'\0');
+	if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0) return false;
+	ws.resize(static_cast<size_t>(nWide - 1));
+
+	WIN32_FILE_ATTRIBUTE_DATA fad = {};
+	if (!::GetFileAttributesExW(ws.c_str(), GetFileExInfoStandard, &fad)) return false;
+	ULARGE_INTEGER sz;
+	sz.LowPart = fad.nFileSizeLow;
+	sz.HighPart = fad.nFileSizeHigh;
+	nSizeOut = sz.QuadPart;
+	ULARGE_INTEGER mt;
+	mt.LowPart = fad.ftLastWriteTime.dwLowDateTime;
+	mt.HighPart = fad.ftLastWriteTime.dwHighDateTime;
+	nMtimeOut = mt.QuadPart;
+	return true;
+}
+
+int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path)
+{
+	if (sUtf8Path.empty()) return 0;
+	std::string lowerPath = sUtf8Path;
+	for (auto& c : lowerPath) c = (char)::tolower((unsigned char)c);
+
+	uint64_t size = 0, mtime = 0;
+	if (!getFileIdentityUtf8(sUtf8Path, size, mtime))
+		return 0;
+
+	std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
+	auto it = s_verdictCache.find(lowerPath);
+	if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime)
+	{
+		return it->second.verdict;
+	}
+	return 0;
+}
+
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
 {
+	if (sUtf8Path.empty())
+		return 0;
+
+	std::string lowerPath = sUtf8Path;
+	for (auto& c : lowerPath) c = (char)::tolower((unsigned char)c);
+
+	uint64_t size = 0, mtime = 0;
+	bool hasIdentity = getFileIdentityUtf8(sUtf8Path, size, mtime);
+
+	if (hasIdentity)
+	{
+		std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
+		auto it = s_verdictCache.find(lowerPath);
+		if (it != s_verdictCache.end() && it->second.size == size && it->second.mtime == mtime)
+		{
+			sThreatNameOut = it->second.threatName;
+			return it->second.verdict;
+		}
+	}
+
 	int verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
-	// Unknown(4) stays unknown(0). Suspicious(3) is propagated (was
-	// previously collapsed to 0 and silently dropped, so medium-confidence
-	// threats never alerted while manual scans surfaced them).
 	if (verdict == 4)
 	{
 		sThreatNameOut.clear();
 		return 0;
 	}
+
+	if (hasIdentity && verdict > 0)
+	{
+		std::lock_guard<std::mutex> lock(s_mtxVerdictCache);
+		if (s_verdictCache.size() >= kMaxVerdictCacheSize)
+		{
+			auto it = s_verdictCache.begin();
+			for (size_t i = 0; i < kMaxVerdictCacheSize / 2 && it != s_verdictCache.end(); )
+			{
+				it = s_verdictCache.erase(it);
+			}
+		}
+		s_verdictCache[lowerPath] = CachedFileVerdict{ verdict, sThreatNameOut, size, mtime };
+	}
+
 	return verdict;
 }
 
