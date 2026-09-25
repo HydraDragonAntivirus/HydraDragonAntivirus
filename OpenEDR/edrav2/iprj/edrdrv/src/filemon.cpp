@@ -58,6 +58,20 @@ namespace filemon {
 
 static constexpr USHORT c_nMinSectorSize = 0x200;
 
+// Upper bound for emitting one FileDataWriteFull / FileDataReadFull per
+// read/write IRP. Per-IRP events are required so hash-based rules can
+// correlate read/write pairs (FILE_COPY) and so ransomware patterns doing
+// random/partial access are visible at all. But one IRP per chunk turns a
+// large file copy into thousands of events: a 700 MB copy at 64 KB chunks
+// produced ~11,000 write events, which overflowed the 2 MB driver queue
+// (silent drops -> late/truncated output_events).
+//
+// Small files are where droppers, config rewrites and ransomware payloads
+// live, so per-IRP fidelity is kept for them. Larger files fall back to the
+// single full-content event at IRP_MJ_CLEANUP, which already carries the
+// complete hash + entropy, so no detection is lost.
+static constexpr ULONGLONG c_nMaxPerIrpEventFileSize = 8ull * 1024ull * 1024ull; // 8 MB
+
 // predefinition
 bool isSelfProtected(PCUNICODE_STRING pusFileName, ACCESS_MASK desiredAccess);
 
@@ -2321,7 +2335,15 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postWrite(__inout PFLT_CALLBACK_DATA pData, __
 		// can correlate read/write pairs via "file.rawHash". When sequence hashing
 		// is not active the event carries no hash; the service-side hash key
 		// calculation skips the missing field instead of failing.
-		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
+		//
+		// Gated on the file's current size (c_nMaxPerIrpEventFileSize): small
+		// files keep per-IRP fidelity, large ones rely on the single
+		// full-content FileDataWriteFull at cleanup. Without this gate the
+		// driver emits one event per chunk and floods its own 2 MB queue.
+		const ULONGLONG ullWriteEnd = (ULONGLONG)pStreamHandleContext->nSizeAtCreation +
+			(ULONGLONG)pStreamHandleContext->sequenceWriteInfo.nNextPos;
+		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0 &&
+			ullWriteEnd <= c_nMaxPerIrpEventFileSize)
 		{
 			auto& info = pStreamHandleContext->sequenceWriteInfo;
 			sendFileEvent(SysmonEvent::FileDataWriteFull, pStreamHandleContext,
@@ -2480,7 +2502,14 @@ FLT_POSTOP_CALLBACK_STATUS FLTAPI postRead(__inout PFLT_CALLBACK_DATA pData,
 		// can correlate read/write pairs via "file.rawHash". When sequence hashing
 		// is not active the event carries no hash; the service-side hash key
 		// calculation skips the missing field instead of failing.
-		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0)
+		//
+		// Same size gate as the write side (c_nMaxPerIrpEventFileSize): a large
+		// read (installer, image, archive) is one event per chunk and floods the
+		// driver queue; the full-read event at cleanup still covers it.
+		const ULONGLONG ullReadEnd = (ULONGLONG)pStreamHandleContext->nSizeAtCreation +
+			(ULONGLONG)pStreamHandleContext->sequenceReadInfo.nNextPos;
+		if (NT_SUCCESS(pData->IoStatus.Status) && pData->IoStatus.Information != 0 &&
+			ullReadEnd <= c_nMaxPerIrpEventFileSize)
 		{
 			auto& info = pStreamHandleContext->sequenceReadInfo;
 			sendFileEvent(SysmonEvent::FileDataReadFull, pStreamHandleContext,
