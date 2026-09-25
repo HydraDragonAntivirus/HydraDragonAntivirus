@@ -56,138 +56,6 @@ namespace {
 		return s;
 	}
 
-	// Persistent local-verdict cache: SHA-256 (lowercase) -> engine verdict.
-	// Local engines (ML + ClamAV) cost seconds per file while the cloud is
-	// cheap and re-queried every scan — so engine results are remembered
-	// across scans AND service restarts. Hash-keyed, therefore
-	// self-invalidating on content change. TTL bounds staleness against
-	// model/signature updates.
-	struct LocalVerdictEntry { int verdict; std::string name; long long timestamp; };
-	static std::unordered_map<std::string, LocalVerdictEntry> s_localVerdicts;
-	static std::mutex s_mtxLocalVerdicts;
-	static std::atomic<bool> s_bLocalVerdictsLoaded = false;
-	static size_t s_nLocalVerdictFileLines = 0;
-	static const wchar_t* const c_szLocalVerdictFile = L"local_verdicts.db";
-	static const size_t kLocalVerdictMaxEntries = 20000;
-	static const long long kLocalVerdictTtlSec = 7LL * 24 * 60 * 60;
-
-	static long long localVerdictNow()
-	{
-		return std::chrono::duration_cast<std::chrono::seconds>(
-			std::chrono::system_clock::now().time_since_epoch()).count();
-	}
-
-	static void rewriteLocalVerdictsLocked()
-	{
-		for (const auto* szDir : c_szMalwareDbDirs)
-		{
-			std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szLocalVerdictFile;
-			std::ofstream ofs(wsDb, std::ios::trunc);
-			if (!ofs.is_open())
-				continue;
-			for (const auto& kv : s_localVerdicts)
-				ofs << kv.first << "|" << kv.second.verdict << "|"
-					<< kv.second.timestamp << "|" << kv.second.name << "\n";
-		}
-		s_nLocalVerdictFileLines = s_localVerdicts.size();
-	}
-
-	static void loadLocalVerdicts()
-	{
-		std::scoped_lock lock(s_mtxLocalVerdicts);
-		if (s_bLocalVerdictsLoaded.load())
-			return;
-		s_bLocalVerdictsLoaded.store(true);
-		size_t lines = 0;
-		for (const auto* szDir : c_szMalwareDbDirs)
-		{
-			std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szLocalVerdictFile;
-			std::ifstream ifs(wsDb);
-			if (!ifs.is_open())
-				continue;
-			std::string line;
-			while (std::getline(ifs, line))
-			{
-				if (line.empty() || line[0] == '#')
-					continue;
-				++lines;
-				size_t p1 = line.find('|');
-				if (p1 == std::string::npos)
-					continue;
-				size_t p2 = line.find('|', p1 + 1);
-				if (p2 == std::string::npos)
-					continue;
-				LocalVerdictEntry e;
-				try { e.verdict = std::stoi(line.substr(p1 + 1, p2 - p1 - 1)); }
-				catch (...) { continue; }
-				if (e.verdict < 0 || e.verdict > 4)
-					continue;
-				size_t p3 = line.find('|', p2 + 1);
-				std::string ts = (p3 == std::string::npos)
-					? line.substr(p2 + 1) : line.substr(p2 + 1, p3 - p2 - 1);
-				try { e.timestamp = std::stoll(ts); }
-				catch (...) { continue; }
-				e.name = (p3 == std::string::npos) ? std::string() : line.substr(p3 + 1);
-				if (!e.name.empty() && e.name.back() == '\r')
-					e.name.pop_back();
-				std::string h = toLowerStr(line.substr(0, p1));
-				if (!h.empty())
-					s_localVerdicts[h] = e; // last wins
-			}
-		}
-		s_nLocalVerdictFileLines = lines;
-		// Compact away duplicate/stale lines when the file bloats.
-		if (!s_localVerdicts.empty() && lines > 3 * s_localVerdicts.size())
-			rewriteLocalVerdictsLocked();
-	}
-
-	// Returns true on a fresh cache hit (fills v/name). Misses, expired
-	// entries and empty hashes return false (caller runs the engines).
-	static bool lookupLocalVerdict(const std::string& sHash, int& v, std::string& name)
-	{
-		if (sHash.empty())
-			return false;
-		if (!s_bLocalVerdictsLoaded.load())
-			loadLocalVerdicts();
-		std::scoped_lock lock(s_mtxLocalVerdicts);
-		auto it = s_localVerdicts.find(toLowerStr(sHash));
-		if (it == s_localVerdicts.end())
-			return false;
-		if (localVerdictNow() - it->second.timestamp > kLocalVerdictTtlSec)
-		{
-			s_localVerdicts.erase(it);
-			return false;
-		}
-		v = it->second.verdict;
-		name = it->second.name;
-		return true;
-	}
-
-	static void storeLocalVerdict(const std::string& sHash, int v, const std::string& name)
-	{
-		if (sHash.empty())
-			return;
-		if (!s_bLocalVerdictsLoaded.load())
-			loadLocalVerdicts();
-		std::scoped_lock lock(s_mtxLocalVerdicts);
-		std::string h = toLowerStr(sHash);
-		if (s_localVerdicts.size() >= kLocalVerdictMaxEntries
-			&& s_localVerdicts.find(h) == s_localVerdicts.end())
-			return; // full: degrade gracefully, memory stays bounded
-		s_localVerdicts[h] = LocalVerdictEntry{v, name, localVerdictNow()};
-		for (const auto* szDir : c_szMalwareDbDirs)
-		{
-			std::wstring wsDb = std::wstring(szDir) + L"\\" + c_szLocalVerdictFile;
-			std::ofstream ofs(wsDb, std::ios::app);
-			if (ofs.is_open())
-				ofs << h << "|" << v << "|" << localVerdictNow() << "|" << name << "\n";
-		}
-		if (++s_nLocalVerdictFileLines > 3 * s_localVerdicts.size())
-			rewriteLocalVerdictsLocked();
-	}
-
-
-
 	// Sanitizes C:\Windows\System32\drivers\etc\hosts to ensure it remains 100% clean (comments only).
 	// Returns true if active (non-comment) entries were found and sanitized.
 	static bool sanitizeHostsFile()
@@ -1036,60 +904,6 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 	return verdict;
 }
 
-// Merged local verdict: enriched verdict and known-malware DB take precedence
-// over cached/static scan results. Local results are independent of cloud.
-static int mergeLocalVerdict(int enriched, const std::string& sPath, const std::string& sHash,
-	std::string& sLocalName)
-{
-	int v = (enriched == 1 || enriched == 2) ? enriched : 0;
-	try
-	{
-		if (DetectionNotifier::isKnownMalware(sPath, sHash))
-			return 2;
-	}
-	catch (...) {}
-	int cachedV = 0;
-	std::string cachedName;
-	if (!sHash.empty() && lookupLocalVerdict(sHash, cachedV, cachedName)
-		&& cachedV >= 1 && cachedV <= 4)
-	{
-		if (cachedV == 2)
-		{
-			sLocalName = cachedName;
-			return 2;
-		}
-		if (cachedV == 3 && v != 2)
-		{
-			v = 3;
-			sLocalName = cachedName;
-		}
-		else if (cachedV == 1 && v == 0)
-			v = 1;
-		else if (cachedV == 4 && v == 0)
-			v = 4;
-		return v;
-	}
-	std::string scannedName;
-	int r = staticScanVerdictName(sPath, scannedName);
-	if (r == 2)
-	{
-		v = 2;
-		sLocalName = scannedName;
-	}
-	else if (r == 3 && v != 2)
-	{
-		v = 3;
-		sLocalName = scannedName;
-	}
-	else if (r == 1 && v == 0)
-		v = 1;
-	else if (r == 4 && v == 0)
-		v = 4;
-	if (!sHash.empty() && r >= 1 && r <= 4)
-		storeLocalVerdict(sHash, r, scannedName);
-	return v;
-}
-
 bool DetectionNotifier::isProtectionPaused()
 {
 	return s_fProtectionPaused.load(std::memory_order_relaxed);
@@ -1932,6 +1746,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 			{
 				openedr_static::WriteLog("rpc", "getFileReputationBulk received " +
 					std::to_string(vPaths.getSize()) + " path(s)");
+				openedr_static::WriteLog("local-scan-skipped",
+					"getFileReputationBulk returns Unknown unless EDR has a recorded local detection");
 				for (size_t i = 0; i < vPaths.getSize() && vOut.getSize() < 200; ++i)
 				{
 					try
@@ -1966,58 +1782,14 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 							}
 						}
 					}
-					int nLocal = 0; // Rust engines + known-malicious DB
+					int nLocal = 4; // Reputation does not launch local scans.
 					std::string sLocalName;
 					try
 					{
-						// Cheap authoritative list first, always.
 						if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
+						{
+							sLocalName = "Previously recorded local detection";
 							nLocal = 2;
-						// Local verdicts are displayed beside cloud results, so
-						// run the local engine independently of the FLS verdict.
-						// Completed scan outcomes are cached; unavailable/error
-						// results are not, so a missing DLL can be retried later.
-						int cachedV = 0;
-						std::string cachedName;
-						if (!sLocalHash.empty()
-							&& lookupLocalVerdict(sLocalHash, cachedV, cachedName)
-							&& cachedV >= 1 && cachedV <= 4)
-						{
-							if (cachedV == 2)
-								nLocal = 2;
-							else if (cachedV == 3 && nLocal != 2)
-								nLocal = 3;
-							else if (cachedV == 1 && nLocal == 0)
-								nLocal = 1;
-							else if (cachedV == 4 && nLocal == 0)
-								nLocal = 4;
-							if (cachedV == 2 && nLocal == 2)
-								sLocalName = cachedName;
-							else if (cachedV == 3 && nLocal == 3)
-								sLocalName = cachedName;
-							openedr_static::WriteLog("scan-cache-hit", "file=" + sPath +
-								"; sha256=" + sLocalHash + "; local=" + std::to_string(nLocal));
-						}
-						else
-						{
-							std::string scannedName;
-							int r = staticScanVerdictName(sPath, scannedName);
-							if (r == 2)
-							{
-								nLocal = 2;
-								sLocalName = scannedName;
-							}
-							else if (r == 3 && nLocal != 2)
-							{
-								nLocal = 3;
-								sLocalName = scannedName;
-							}
-							else if (r == 1 && nLocal == 0)
-								nLocal = 1;
-							else if (r == 4 && nLocal == 0)
-								nLocal = 4;
-							if (!sLocalHash.empty() && r >= 1 && r <= 4)
-								storeLocalVerdict(sLocalHash, r, scannedName);
 						}
 					}
 					catch (...) {}
@@ -2038,6 +1810,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	if (vCommand == "getProcessReputation")
 	{
 		Variant vOut = Sequence();
+		openedr_static::WriteLog("local-scan-skipped",
+			"getProcessReputation returns Unknown unless EDR has a recorded local detection");
 		auto pProc = queryInterface<sys::win::IProcessInformation>(queryService("processDataProvider"));
 		auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
 		if (pProc)
@@ -2075,11 +1849,18 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 							}
 							catch (...) {}
 						}
-					int nEnriched = 0;
-					try { nEnriched = static_cast<int>(vInfo["verdict"]); } catch (...) {}
 					std::string sLocalName;
 					std::string sLocalHash = sha256HexOfFileUtf8(sPath);
-					int nLocal = mergeLocalVerdict(nEnriched, sPath, sLocalHash, sLocalName);
+					int nLocal = 4; // Unknown unless EDR recorded a prior detection.
+					try
+					{
+						if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
+						{
+							sLocalName = "Previously recorded local detection";
+							nLocal = 2;
+						}
+					}
+					catch (...) {}
 					vOut.push_back(Dictionary({
 						{"pid", static_cast<int64_t>(pe.th32ProcessID)},
 						{"path", sPath}, {"hash", sHash}, {"sha256", sLocalHash},

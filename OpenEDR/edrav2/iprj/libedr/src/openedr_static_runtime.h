@@ -12,8 +12,70 @@
 #include <string>
 #include <vector>
 
+#pragma comment(lib, "Advapi32.lib")
+
 namespace cmd::openedr_static
 {
+	struct ResourceRoot
+	{
+		std::wstring path;
+		const char* source = "dll-directory";
+	};
+
+	inline bool HasEngineResources(const std::filesystem::path& root) noexcept
+	{
+		try
+		{
+			for (const auto* name : { L"models", L"database", L"yara_rules", L"rules",
+				L"signer_rules", L"hydradragonsig_rules", L"hayabusa_rules" })
+			{
+				std::error_code ec;
+				if (std::filesystem::is_directory(root / name, ec))
+					return true;
+			}
+		}
+		catch (...) {}
+		return false;
+	}
+
+	inline ResourceRoot FindResourceRoot() noexcept
+	{
+		try
+		{
+			wchar_t databasePath[MAX_PATH] = {};
+			DWORD databasePathBytes = sizeof(databasePath);
+			if (::RegGetValueW(HKEY_LOCAL_MACHINE, L"Software\\Owlyshield\\SDK",
+				L"DATABASE_PATH", RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, nullptr,
+				databasePath, &databasePathBytes) == ERROR_SUCCESS)
+			{
+				const auto root = std::filesystem::path(databasePath).parent_path();
+				if (HasEngineResources(root))
+					return { root.wstring(), "registry-DATABASE_PATH" };
+			}
+
+			wchar_t programFiles[MAX_PATH] = {};
+			DWORD pfLength = ::GetEnvironmentVariableW(L"ProgramFiles", programFiles, MAX_PATH);
+			if (pfLength > 0 && pfLength < MAX_PATH)
+			{
+				const auto root = std::filesystem::path(programFiles) /
+					L"HydraDragonAntivirus" / L"OpenEDR";
+				if (HasEngineResources(root))
+					return { root.wstring(), "ProgramFiles" };
+			}
+
+			wchar_t exePath[MAX_PATH] = {};
+			DWORD exeLength = ::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+			if (exeLength > 0 && exeLength < MAX_PATH)
+			{
+				const auto root = std::filesystem::path(exePath).parent_path();
+				if (HasEngineResources(root))
+					return { root.wstring(), "service-executable" };
+			}
+		}
+		catch (...) {}
+		return {};
+	}
+
 	inline std::string ToUtf8(const std::wstring& value)
 	{
 		if (value.empty())
@@ -217,11 +279,16 @@ namespace cmd::openedr_static
 			return nullptr;
 		}
 
-		const int result = init(nullptr);
+		const ResourceRoot resourceRoot = FindResourceRoot();
+		const std::string resourcePath = ToUtf8(resourceRoot.path);
+		const int result = init(resourcePath.empty() ? nullptr : resourcePath.c_str());
 		if (result != 0)
 		{
 			lastError = ERROR_DLL_INIT_FAILED;
-			WriteLog("init-failed", std::string(caller) + " openedr_static_init returned " + std::to_string(result));
+			WriteLog("init-failed", std::string(caller) + " openedr_static_init returned " +
+				std::to_string(result) + "; resource_base=" +
+				(resourcePath.empty() ? "<DLL directory>" : resourcePath) +
+				"; source=" + resourceRoot.source);
 			module = nullptr;
 			if (errorOut)
 				*errorOut = lastError;
@@ -229,7 +296,9 @@ namespace cmd::openedr_static
 		}
 
 		lastError = ERROR_SUCCESS;
-		WriteLog("init", std::string(caller) + " engine initialized; default rules path is DLL directory");
+		WriteLog("init", std::string(caller) + " engine initialized; resource_base=" +
+			(resourcePath.empty() ? "<DLL directory>" : resourcePath) +
+			"; source=" + resourceRoot.source);
 		if (errorOut)
 			*errorOut = ERROR_SUCCESS;
 		return module;
