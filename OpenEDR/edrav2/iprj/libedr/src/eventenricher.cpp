@@ -1933,22 +1933,30 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		if (!seenPaths.insert(lowerDos).second) continue;
 
 		// A. Synchronous Pascal-style scan (ClamAV, YARA-X, ML, Signer, EICAR)
-		std::string sThreat;
-		int r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+		//
+		// Mid-write file events (create / write / data change) skip the inline
+		// scan: the buffer is still incomplete or locked, so the verdict is
+		// worthless, and the full scan (incl. WinTrust) blocks the single
+		// enricher worker. They fall through to the async rescan below.
+		// Process image and file CLOSE still scan inline — the handle is
+		// released there, so content is final.
+		const bool bDeferredFileEvent = !isProc &&
+			(eEventType == Event::LLE_FILE_CREATE ||
+			 eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
+			 eEventType == Event::LLE_FILE_DATA_CHANGE);
 
-		// Rescan race: at FileCreate a new file is still 0 bytes or locked
-		// by the writer, so the first scan says Unknown/Error while a later
-		// manual scan sees the full content and convicts. Hand these to a
-		// detached rescan (never sleep on this single-threaded worker:
-		// blocking here backs the queue up -> late events, overflow drops).
-		if (r == 0 && (eEventType == Event::LLE_FILE_CREATE ||
-			eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
-			eEventType == Event::LLE_FILE_DATA_CHANGE ||
+		std::string sThreat;
+		int r = 0;
+		if (!bDeferredFileEvent)
+			r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+
+		// Rescan race: deferred file events, plus any inline scan that hit
+		// Unknown (0 bytes / locked at Create), need one re-read once the
+		// writer is done. A locked/unreadable file is exactly that case, so
+		// only skip when the file is proven empty; any size error retries.
+		if (r == 0 && (bDeferredFileEvent ||
 			eEventType == Event::LLE_FILE_CLOSE))
 		{
-			// A locked/unreadable file (verdict=Error) is exactly the case
-			// that needs the retry, so only skip when the file is proven
-			// empty. Any size error -> retry anyway.
 			std::error_code ec;
 			uintmax_t nSize = std::filesystem::file_size(dos, ec);
 			if (ec || nSize > 0)

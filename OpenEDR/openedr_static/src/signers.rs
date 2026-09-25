@@ -124,6 +124,10 @@ impl SignerDb {
 #[cfg(windows)]
 use windows::core::{PCWSTR, PWSTR};
 #[cfg(windows)]
+use std::sync::Mutex;
+#[cfg(windows)]
+use std::sync::OnceLock;
+#[cfg(windows)]
 use windows::Win32::Foundation::{ERROR_SUCCESS, HWND};
 #[cfg(windows)]
 use windows::Win32::Security::Cryptography::{
@@ -140,7 +144,87 @@ use windows::Win32::Security::WinTrust::{
 };
 
 #[cfg(windows)]
+/// Cached WinTrust verdict. Catalog verification is the most expensive part
+/// of a file scan (hash the file, walk CatRoot .cat members, WinVerifyTrust
+/// per candidate), and the same executable is rescanned on every minifilter
+/// event (create/write/change/close). Cache on (path, size, mtime) so a
+/// rewritten or replaced binary re-verifies automatically.
+#[derive(Clone, Debug)]
+struct AuthenticodeCacheEntry {
+    key: String,
+    result: (bool, bool, Option<String>, String, bool),
+}
+
+/// Bounded FIFO-ish cache: 4096 entries is far beyond the working set of
+/// recently touched executables and keeps memory trivial.
+#[cfg(windows)]
+const AUTHENTICODE_CACHE_CAP: usize = 4096;
+
+#[cfg(windows)]
+fn authenticode_cache() -> &'static Mutex<Vec<AuthenticodeCacheEntry>> {
+    static CACHE: OnceLock<Mutex<Vec<AuthenticodeCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Identity of the on-disk content for cache invalidation: size + last write
+/// time. Cheap; a same-size rewrite still bumps mtime.
+#[cfg(windows)]
+fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::windows::fs::MetadataExt;
+    let md = std::fs::metadata(path).ok()?;
+    Some((md.file_size(), md.last_write_time()))
+}
+
+#[cfg(windows)]
+fn authenticate_cached(
+    path: &Path,
+) -> Option<(bool, bool, Option<String>, String, bool)> {
+    let (size, mtime) = file_identity(path)?;
+    let key = format!("{}\u{0}{size}\u{0}{mtime}", path.to_string_lossy().to_lowercase());
+    if let Ok(cache) = authenticode_cache().lock() {
+        if let Some(hit) = cache.iter().find(|e| e.key == key) {
+            return Some(hit.result.clone());
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn authenticate_store(
+    path: &Path,
+    result: (bool, bool, Option<String>, String, bool),
+) {
+    let Some((size, mtime)) = file_identity(path) else {
+        return;
+    };
+    let key = format!("{}\u{0}{size}\u{0}{mtime}", path.to_string_lossy().to_lowercase());
+    let Ok(mut cache) = authenticode_cache().lock() else {
+        return;
+    };
+    if cache.iter().any(|e| e.key == key) {
+        return;
+    }
+    if cache.len() >= AUTHENTICODE_CACHE_CAP {
+        // Drop the oldest half in one pass: cheaper and simpler than LRU and
+        // keeps the cache bounded without per-insert bookkeeping.
+        let half = AUTHENTICODE_CACHE_CAP / 2;
+        cache.drain(0..half);
+    }
+    cache.push(AuthenticodeCacheEntry { key, result });
+}
+
+#[cfg(windows)]
 pub fn verify_authenticode(path: &Path) -> (bool, bool, Option<String>, String, bool) {
+    if let Some(hit) = authenticate_cached(path) {
+        return hit;
+    }
+    let result = verify_authenticode_uncached(path);
+    authenticate_store(path, result.clone());
+    result
+}
+
+#[cfg(windows)]
+fn verify_authenticode_uncached(path: &Path) -> (bool, bool, Option<String>, String, bool) {
     use std::os::windows::ffi::OsStrExt;
 
     if !path.is_file() {
