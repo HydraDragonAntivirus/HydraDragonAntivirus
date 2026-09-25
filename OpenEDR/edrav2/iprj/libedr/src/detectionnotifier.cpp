@@ -896,7 +896,10 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
 {
 	int verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
-	if (verdict > 2)
+	// Unknown(4) stays unknown(0). Suspicious(3) is propagated (was
+	// previously collapsed to 0 and silently dropped, so medium-confidence
+	// threats never alerted while manual scans surfaced them).
+	if (verdict == 4)
 	{
 		sThreatNameOut.clear();
 		return 0;

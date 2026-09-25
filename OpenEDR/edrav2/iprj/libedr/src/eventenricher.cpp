@@ -16,6 +16,7 @@
 #include <mutex>
 #include <atomic>
 #include <chrono>
+#include <thread>
 #include <filesystem>
 #include <vector>
 #include <unordered_set>
@@ -1717,7 +1718,7 @@ static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& 
 
 } // namespace
 
-void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event /* eEventType */, const std::string& sProcPath)
+void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
 {
 	static HMODULE s_hOwlyDll = nullptr;
 	typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
@@ -1831,6 +1832,29 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		// A. Synchronous Pascal-style scan (ClamAV, YARA-X, ML, Signer, EICAR)
 		std::string sThreat;
 		int r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+
+		// Rescan race: at FileCreate a new file is still 0 bytes or locked
+		// by the writer, so the first scan says Unknown while a later manual
+		// scan sees the full content and convicts. For file data events on a
+		// non-empty file, retry briefly so mid-flush content still gets a
+		// real verdict. Bounded (3 x 150 ms) to never stall the pipeline.
+		if (r == 0 && (eEventType == Event::LLE_FILE_CREATE ||
+			eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
+			eEventType == Event::LLE_FILE_DATA_CHANGE ||
+			eEventType == Event::LLE_FILE_CLOSE))
+		{
+			std::error_code ec;
+			uintmax_t nSize = std::filesystem::file_size(dos, ec);
+			if (!ec && nSize > 0)
+			{
+				for (int nTry = 0; nTry < 3 && r == 0; ++nTry)
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(150));
+					r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
+				}
+			}
+		}
+
 		if (r == 2)
 		{
 			if (sThreat.empty())
@@ -1909,6 +1933,36 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
 					::CloseHandle(hPipe);
 				}
+			}
+		}
+
+		if (r == 3)
+		{
+			// Suspicious (was previously collapsed to unknown and silently
+			// dropped): stamp + alert + driver block-list + DB record so
+			// medium-confidence threats can't run silent. Quarantine stays
+			// Malicious-only (manual-scan parity, FPR control).
+			if (sThreat.empty())
+				sThreat = "Static.Suspicious";
+
+			LOGLVL(Critical, FMT("enricher: [UNFILTERED SCAN] SUSPICIOUS: <"
+				<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
+
+			vEvent.put("threatName", sThreat);
+			vProcess.put("threatName", sThreat);
+
+			// Remember in persistent DB & driver block list (no quarantine).
+			DetectionNotifier::recordMalwareDetection(dos, "");
+
+			// Send instant alert to Pascal GUI
+			HANDLE hPipeSusp = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+				GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+			if (hPipeSusp != INVALID_HANDLE_VALUE)
+			{
+				std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + dos + "\n";
+				DWORD written = 0;
+				::WriteFile(hPipeSusp, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+				::CloseHandle(hPipeSusp);
 			}
 		}
 
