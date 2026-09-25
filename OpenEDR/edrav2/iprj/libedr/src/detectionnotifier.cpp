@@ -741,6 +741,7 @@ struct OpenedrStaticBinding {
 static OpenedrStaticBinding s_openedr;
 static std::mutex s_mtxOpenedrInit;
 static ULONGLONG s_lastOpenedrInitAttempt = 0;
+static std::atomic<DWORD> s_openedrLoadError{ ERROR_SUCCESS };
 
 static void InitOpenedrStatic()
 {
@@ -752,7 +753,6 @@ static void InitOpenedrStatic()
 		return;
 	s_lastOpenedrInitAttempt = now;
 	HMODULE hDll = ::GetModuleHandleW(L"openedr_static.dll");
-	if (!hDll) hDll = ::LoadLibraryW(L"openedr_static.dll");
 	if (!hDll)
 	{
 		wchar_t szMod[MAX_PATH] = {};
@@ -761,20 +761,35 @@ static void InitOpenedrStatic()
 			std::wstring wsDir(szMod);
 			size_t sep = wsDir.find_last_of(L"\\/");
 			if (sep != std::wstring::npos)
-				hDll = ::LoadLibraryW((wsDir.substr(0, sep) + L"\\openedr_static.dll").c_str());
+				hDll = ::LoadLibraryExW(
+					(wsDir.substr(0, sep) + L"\\openedr_static.dll").c_str(),
+					nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
 		}
 	}
 	if (!hDll)
-		hDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\openedr_static.dll");
+		hDll = ::LoadLibraryExW(
+			L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\openedr_static.dll",
+			nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
 	if (!hDll)
+		hDll = ::LoadLibraryW(L"openedr_static.dll");
+	if (!hDll)
+	{
+		s_openedrLoadError.store(::GetLastError());
 		return;
+	}
 	auto fnInit = reinterpret_cast<OpenedrInitFn>(::GetProcAddress(hDll, "openedr_static_init"));
 	auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
 	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
 	if (!fnInit || !fnScan || !fnFree)
+	{
+		s_openedrLoadError.store(ERROR_PROC_NOT_FOUND);
 		return;
+	}
 	if (fnInit(nullptr) != 0)
+	{
+		s_openedrLoadError.store(ERROR_DLL_INIT_FAILED);
 		return;
+	}
 	s_openedr.hDll = hDll;
 	s_openedr.fnInit = fnInit;
 	s_openedr.fnScanFile = fnScan;
@@ -967,7 +982,7 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 		{
 			if (!s_openedr.logged.exchange(true))
 			{
-				LOGLVL(Critical, FMT("detnotif: local engines unavailable, openedr_static.dll (openedr_static_init/scan_file/free_string) not found or init failed"));
+				LOGLVL(Critical, FMT("detnotif: openedr_static unavailable, Win32 error=" << s_openedrLoadError.load()));
 			}
 			return 0;
 		}
