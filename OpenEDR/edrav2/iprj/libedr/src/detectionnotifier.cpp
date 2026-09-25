@@ -11,6 +11,7 @@
 #include "pch.h"
 #include "detectionnotifier.h"
 #include "eventenricher.h"
+#include "openedr_static_runtime.h"
 
 #include <libcore/inc/kstack_resolve.hpp>
 #include <libcore/inc/service.hpp>
@@ -725,13 +726,11 @@ static bool bulkHashOverBudget(const std::string& sUtf8Path)
 // sNameOut receives the first detection name for display.
 namespace {
 
-typedef int32_t (*OpenedrInitFn)(const char*);
 typedef char* (*OpenedrScanFileFn)(const char*);
 typedef void (*OpenedrFreeStringFn)(char*);
 
 struct OpenedrStaticBinding {
 	HMODULE hDll = nullptr;
-	OpenedrInitFn fnInit = nullptr;
 	OpenedrScanFileFn fnScanFile = nullptr;
 	OpenedrFreeStringFn fnFreeString = nullptr;
 	std::atomic<bool> ready{ false };
@@ -752,46 +751,25 @@ static void InitOpenedrStatic()
 	if (s_lastOpenedrInitAttempt != 0 && now - s_lastOpenedrInitAttempt < 5000)
 		return;
 	s_lastOpenedrInitAttempt = now;
-	HMODULE hDll = ::GetModuleHandleW(L"openedr_static.dll");
+	DWORD loadError = ERROR_SUCCESS;
+	HMODULE hDll = openedr_static::EnsureInitialized("file-scan", &loadError);
 	if (!hDll)
 	{
-		wchar_t szMod[MAX_PATH] = {};
-		if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
-		{
-			std::wstring wsDir(szMod);
-			size_t sep = wsDir.find_last_of(L"\\/");
-			if (sep != std::wstring::npos)
-				hDll = ::LoadLibraryExW(
-					(wsDir.substr(0, sep) + L"\\openedr_static.dll").c_str(),
-					nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-		}
-	}
-	if (!hDll)
-		hDll = ::LoadLibraryExW(
-			L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\openedr_static.dll",
-			nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-	if (!hDll)
-		hDll = ::LoadLibraryW(L"openedr_static.dll");
-	if (!hDll)
-	{
-		s_openedrLoadError.store(::GetLastError());
+		s_openedrLoadError.store(loadError);
 		return;
 	}
-	auto fnInit = reinterpret_cast<OpenedrInitFn>(::GetProcAddress(hDll, "openedr_static_init"));
 	auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
 	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
-	if (!fnInit || !fnScan || !fnFree)
+	if (!fnScan || !fnFree)
 	{
 		s_openedrLoadError.store(ERROR_PROC_NOT_FOUND);
-		return;
-	}
-	if (fnInit(nullptr) != 0)
-	{
-		s_openedrLoadError.store(ERROR_DLL_INIT_FAILED);
+		std::string missing;
+		if (!fnScan) missing += " openedr_static_scan_file";
+		if (!fnFree) missing += " openedr_static_free_string";
+		openedr_static::WriteLog("exports-missing", "file-scan missing:" + missing);
 		return;
 	}
 	s_openedr.hDll = hDll;
-	s_openedr.fnInit = fnInit;
 	s_openedr.fnScanFile = fnScan;
 	s_openedr.fnFreeString = fnFree;
 	s_openedr.ready.store(true);
@@ -983,17 +961,29 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 			if (!s_openedr.logged.exchange(true))
 			{
 				LOGLVL(Critical, FMT("detnotif: openedr_static unavailable, Win32 error=" << s_openedrLoadError.load()));
+				openedr_static::WriteLog("scan-unavailable", "file-scan unavailable; win32=" +
+					std::to_string(s_openedrLoadError.load()) + "; path=" + sUtf8Path);
 			}
 			return 0;
 		}
+		openedr_static::WriteLog("scan-start", "file=" + sUtf8Path);
 		char* json = s_openedr.fnScanFile(sUtf8Path.c_str());
 		if (!json)
+		{
+			const DWORD error = ::GetLastError();
+			openedr_static::WriteLog("scan-failed", "scan_file returned null; win32=" +
+				std::to_string(error) + "; file=" + sUtf8Path);
 			return 0;
+		}
 		std::string report(json);
 		s_openedr.fnFreeString(json);
 		std::string verdict;
 		if (!OpenedrReportVerdict(report, verdict))
+		{
+			openedr_static::WriteLog("report-invalid", "missing/invalid verdict; bytes=" +
+				std::to_string(report.size()) + "; file=" + sUtf8Path);
 			return 0;
+		}
 		if (verdict == "Malicious" || verdict == "Suspicious")
 		{
 			std::string name;
@@ -1009,16 +999,26 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 					? "Malware.LocalDetection"
 					: "Static.Suspicious";
 			}
+			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=" + verdict +
+				"; detection=" + sNameOut);
 			return verdict == "Malicious" ? 2 : 3;
 		}
 		if (verdict == "Clean")
+		{
+			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Clean");
 			return 1;
+		}
 		if (verdict == "Unknown")
+		{
+			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Unknown");
 			return 4;
+		}
+		openedr_static::WriteLog("report-invalid", "unrecognized verdict=" + verdict + "; file=" + sUtf8Path);
 		return 0;
 	}
 	catch (...)
 	{
+		openedr_static::WriteLog("scan-exception", "file-scan threw while scanning: " + sUtf8Path);
 		return 0;
 	}
 }
@@ -1930,6 +1930,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 			auto vPaths = vParams.get("paths");
 			if (vPaths.getType() == variant::ValueType::Sequence)
 			{
+				openedr_static::WriteLog("rpc", "getFileReputationBulk received " +
+					std::to_string(vPaths.getSize()) + " path(s)");
 				for (size_t i = 0; i < vPaths.getSize() && vOut.getSize() < 200; ++i)
 				{
 					try
@@ -1993,6 +1995,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 								sLocalName = cachedName;
 							else if (cachedV == 3 && nLocal == 3)
 								sLocalName = cachedName;
+							openedr_static::WriteLog("scan-cache-hit", "file=" + sPath +
+								"; sha256=" + sLocalHash + "; local=" + std::to_string(nLocal));
 						}
 						else
 						{

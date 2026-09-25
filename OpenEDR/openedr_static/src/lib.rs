@@ -1,6 +1,7 @@
 pub mod apk;
 pub mod clam;
 pub mod crypto;
+pub mod diagnostics;
 pub mod engine;
 pub mod hayabusa_scanner;
 pub mod hosts;
@@ -91,9 +92,16 @@ pub extern "C" fn openedr_static_init(base_rules_dir: *const c_char) -> i32 {
         None
     };
 
-    match get_or_init_engine(path) {
-        Ok(_) => 0,
-        Err(_) => -1,
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| get_or_init_engine(path))) {
+        Ok(Ok(_)) => 0,
+        Ok(Err(error)) => {
+            diagnostics::log("init-failed", &error);
+            -1
+        }
+        Err(_) => {
+            diagnostics::log("init-panic", "static engine initialization panicked");
+            -1
+        }
     }
 }
 
@@ -643,4 +651,3 @@ pub extern "C" fn openedr_static_free_string(s: *mut c_char) {
         }
     }
 }
-

@@ -17,6 +17,10 @@ impl ClamScanner {
         }
     }
 
+    pub fn is_loaded(&self) -> bool {
+        self.engine.is_some()
+    }
+
     pub fn scan_bytes(&self, data: &[u8], file_name: &str) -> Vec<ScanMatch> {
         let Some(ref engine) = self.engine else {
             return Vec::new();

@@ -9,6 +9,7 @@
 #include "pch.h"
 #include "eventenricher.h"
 #include "detectionnotifier.h"
+#include "openedr_static_runtime.h"
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -1577,8 +1578,7 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 	rollbackRansomBackups(nPid);
 }
 
-// openedr_static.dll scan_pid binding (mirrors detectionnotifier.cpp init:
-// GetModuleHandle -> LoadLibrary name -> exe folder -> Program Files).
+// openedr_static.dll scan_pid binding shares the file scanner's loader and init.
 // Report JSON: {pid, regions_scanned, bytes_scanned, verdict,
 // max_threat_score, detections:[{name...}]}. libedr links no JSON library,
 // so verdict/name are extracted with the same tolerant key scan used there.
@@ -1600,27 +1600,23 @@ static std::once_flag s_pidInitFlag;
 static void InitOpenedrPid()
 {
 	std::call_once(s_pidInitFlag, []() {
-		HMODULE hDll = ::GetModuleHandleW(L"openedr_static.dll");
-		if (!hDll) hDll = ::LoadLibraryW(L"openedr_static.dll");
+		DWORD loadError = ERROR_SUCCESS;
+		HMODULE hDll = openedr_static::EnsureInitialized("pid-scan", &loadError);
 		if (!hDll)
 		{
-			wchar_t szMod[MAX_PATH] = {};
-			if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
-			{
-				std::wstring wsDir(szMod);
-				size_t sep = wsDir.find_last_of(L"\\/");
-				if (sep != std::wstring::npos)
-					hDll = ::LoadLibraryW((wsDir.substr(0, sep) + L"\\openedr_static.dll").c_str());
-			}
-		}
-		if (!hDll)
-			hDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\openedr_static.dll");
-		if (!hDll)
+			openedr_static::WriteLog("pid-scan-unavailable", "engine init failed; win32=" + std::to_string(loadError));
 			return;
+		}
 		auto fnScan = reinterpret_cast<OpenedrScanPidFn>(::GetProcAddress(hDll, "openedr_static_scan_pid"));
 		auto fnFree = reinterpret_cast<OpenedrPidFreeFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
 		if (!fnScan || !fnFree)
+		{
+			std::string missing;
+			if (!fnScan) missing += " openedr_static_scan_pid";
+			if (!fnFree) missing += " openedr_static_free_string";
+			openedr_static::WriteLog("pid-exports-missing", missing);
 			return;
+		}
 		s_pidEng.hDll = hDll;
 		s_pidEng.fnScanPid = fnScan;
 		s_pidEng.fnFree = fnFree;
@@ -1674,16 +1670,28 @@ static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& 
 		InitOpenedrPid();
 		if (!s_pidEng.ready)
 			return 0;
+		openedr_static::WriteLog("pid-scan-start", "pid=" + std::to_string(nPid) +
+			"; max-mb=" + std::to_string(nMaxMb));
 		char* raw = s_pidEng.fnScanPid(nPid, nMaxMb);
 		if (!raw)
+		{
+			openedr_static::WriteLog("pid-scan-failed", "scan_pid returned null; pid=" + std::to_string(nPid));
 			return 0;
+		}
 		std::string report(raw);
 		s_pidEng.fnFree(raw);
 		std::string verdict;
 		if (!MemReadKeyString(report, "verdict", 0, verdict))
+		{
+			openedr_static::WriteLog("pid-report-invalid", "missing verdict; pid=" + std::to_string(nPid));
 			return 0;
+		}
 		if (verdict != "Malicious")
+		{
+			openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) +
+				"; verdict=" + verdict);
 			return 0;
+		}
 		size_t detAt = report.find("\"detections\"");
 		if (detAt != std::string::npos)
 		{
@@ -1696,10 +1704,13 @@ static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& 
 				sThreatOut = "Memory:" + first;
 			}
 		}
+		openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) +
+			"; verdict=Malicious; detection=" + sThreatOut);
 		return 2;
 	}
 	catch (...)
 	{
+		openedr_static::WriteLog("pid-scan-exception", "pid=" + std::to_string(nPid));
 		return 0;
 	}
 }

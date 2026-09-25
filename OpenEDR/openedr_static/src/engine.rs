@@ -6,6 +6,7 @@ use sha2::{Sha256, Digest as Sha256Digest};
 use crate::apk;
 use crate::crypto;
 use crate::clam::ClamScanner;
+use crate::diagnostics;
 use crate::ml::filetype;
 use crate::hayabusa_scanner::{HayabusaEventMatch, HayabusaScanner};
 use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
@@ -53,6 +54,7 @@ impl StaticEngine {
     /// - `ptm.local.src` or `ptm/` for PUA registry patterns
     pub fn init(base_dir: &Path) -> Self {
         let base = base_dir.to_path_buf();
+        diagnostics::log("init-start", &format!("base={}", base.display()));
 
         let database_dir = base.join("database");
         let rules_dir = if base.join("yara_rules").is_dir() {
@@ -123,6 +125,40 @@ impl StaticEngine {
             base.join("hayabusa_rules")
         };
         let hayabusa = HayabusaScanner::new(&hayabusa_dir);
+
+        diagnostics::log(
+            "engine-status",
+            &format!(
+                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; generic_model_file={}; generic_loaded={}; generic_used_for_file_verdict={}; signer_dir={}; signer_counts={}/{}/{}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}",
+                base.display(),
+                database_dir.is_dir(),
+                clam.is_loaded(),
+                rules_dir.display(),
+                yara.is_loaded(),
+                yara.rule_count(),
+                models_dir.display(),
+                models_dir.join("pe_trees.bin").is_file(),
+                ml.pe_loaded(),
+                models_dir.join("js_trees.bin").is_file(),
+                ml.js_loaded(),
+                models_dir.join("url_trees.bin").is_file(),
+                ml.url_loaded(),
+                models_dir.join("apk_trees.bin").is_file(),
+                ml.apk_loaded(),
+                models_dir.join("generic_trees.bin").is_file(),
+                ml.generic_loaded(),
+                false,
+                signers_dir.display(),
+                signers.pattern_counts().0,
+                signers.pattern_counts().1,
+                signers.pattern_counts().2,
+                registry_rules_path.display(),
+                pua_registry.pattern_count(),
+                string_rules.pattern_count(),
+                hayabusa_dir.display(),
+                hayabusa.is_loaded(),
+            ),
+        );
 
         Self {
             clam,

@@ -43,6 +43,10 @@ pub struct SignerDb {
 }
 
 impl SignerDb {
+    pub fn pattern_counts(&self) -> (usize, usize, usize) {
+        (self.trusted.len(), self.malicious.len(), self.pua.len())
+    }
+
     pub fn load_from_dir(dir: &Path) -> Self {
         let mut db = Self::default();
         if !dir.is_dir() {

@@ -28,6 +28,7 @@
     <ClInclude Include="..\..\src\eventenricher.h" />
     <ClInclude Include="..\..\src\eventfilter.h" />
     <ClInclude Include="..\..\src\detectionnotifier.h" />
+    <ClInclude Include="..\..\src\openedr_static_runtime.h" />
     <ClInclude Include="..\..\src\lane.h" />
     <ClInclude Include="..\..\src\outputfilter.h" />
     <ClInclude Include="..\..\src\pch.h" />

@@ -25,8 +25,6 @@ impl MlScanner {
         let js_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("js_trees.bin"));
         let url_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("url_trees.bin"));
         let apk_trees = TreeEnsembleModel::from_bin_file(&models_dir.join("apk_trees.bin"));
-        let master_trees =
-            TreeEnsembleModel::from_bin_file(&models_dir.join("hydradragon_master_trees.bin"));
         let generic_trees =
             TreeEnsembleModel::from_bin_file(&models_dir.join("generic_trees.bin"));
 
@@ -35,13 +33,13 @@ impl MlScanner {
             js_trees,
             url_trees,
             apk_trees,
-            master_trees,
+            master_trees: None,
             generic_trees,
         }
     }
 
     /// Runtime model load from bytes (web parity: kind 0=PE, 1=JS, 2=URL, 3=APK,
-    /// 4=master router, 5=generic whole-buffer model).
+    /// 4=legacy master router, 5=generic whole-buffer model).
     /// Returns false when bytes don't parse or kind is unknown.
     pub fn load_model_bytes(&mut self, kind: u32, data: &[u8]) -> bool {
         let model = match TreeEnsembleModel::from_bin_bytes(data) {
@@ -90,6 +88,14 @@ impl MlScanner {
 
     pub fn apk_loaded(&self) -> bool {
         self.apk_trees.is_some()
+    }
+
+    pub fn pe_loaded(&self) -> bool {
+        self.pe_trees.is_some()
+    }
+
+    pub fn js_loaded(&self) -> bool {
+        self.js_trees.is_some()
     }
 
     pub fn url_loaded(&self) -> bool {
@@ -160,18 +166,10 @@ mod tests {
         let dir = models_dir();
         let s = MlScanner::new(&dir);
         assert!(s.url_loaded(), "url_trees.bin must load");
-        assert!(s.master_loaded(), "hydradragon_master_trees.bin must load");
         assert!(s.generic_loaded(), "generic_trees.bin must load");
 
         // Exact parity with the Python exporter (max diff ~1e-7 there; 1e-6 here).
         let g = s.predict_generic(&[0.0; GENERIC_FEATURE_COUNT]).unwrap();
         assert!((g - 5.156021e-6).abs() < 1e-6, "generic zeros20 = {g}");
-        let m = s.predict_master(&[0.0; MASTER_FEATURE_COUNT]).unwrap();
-        assert!((m - 0.0034152982).abs() < 1e-6, "master zeros8 = {m}");
-        // PE-domain row with ~0 expert score must stay benign.
-        let b = s
-            .predict_master(&[1.0, 0.0, 0.0, 0.0, 0.00009, 0.0, 0.0, 0.0])
-            .unwrap();
-        assert!(b < 0.05, "master pe-benign = {b}");
     }
 }
