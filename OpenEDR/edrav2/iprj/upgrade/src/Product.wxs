@@ -140,6 +140,8 @@
                 <Files Include="..\..\..\..\..\clamav_database_windows\**" Directory="DATABASEDIR_X64" />
                 <Files Include="$(var.SourceBinDir64)**">
                     <Exclude Files="$(var.SourceBinDir64)models\**" />
+                    <Exclude Files="$(var.SourceBinDir64)database\**" />
+                    <Exclude Files="$(var.SourceBinDir64)signer_rules\**" />
                     <Exclude Files="$(var.SourceBinDir64)*.xf" />
                     <Exclude Files="$(var.SourceBinDir64)CIDR*.txt" />
                     <Exclude Files="$(var.SourceBinDir64)Sanctum\sanctum.sys" />

@@ -119,7 +119,7 @@ namespace {
 				LocalVerdictEntry e;
 				try { e.verdict = std::stoi(line.substr(p1 + 1, p2 - p1 - 1)); }
 				catch (...) { continue; }
-				if (e.verdict < 0 || e.verdict > 2)
+				if (e.verdict < 0 || e.verdict > 4)
 					continue;
 				size_t p3 = line.find('|', p2 + 1);
 				std::string ts = (p3 == std::string::npos)
@@ -720,9 +720,9 @@ static bool bulkHashOverBudget(const std::string& sUtf8Path)
 //   int32_t openedr_static_init(const char* base_rules_dir);  // NULL => rules next to the DLL
 //   char*   openedr_static_scan_file(const char* file_path);  // JSON report, heap-allocated
 //   void    openedr_static_free_string(char* s);
-// Report verdict mapping: "Malicious" -> 2, "Clean" -> 1, anything else
-// ("Suspicious"/"Unknown"/"Error") -> 0. sNameOut receives the first
-// detection name for display (reputation screen); verdict semantics identical.
+// Report verdict mapping: "Malicious" -> 2, "Clean" -> 1,
+// "Suspicious" -> 3, "Unknown" -> 4, and unavailable/errors -> 0.
+// sNameOut receives the first detection name for display.
 namespace {
 
 typedef int32_t (*OpenedrInitFn)(const char*);
@@ -734,46 +734,52 @@ struct OpenedrStaticBinding {
 	OpenedrInitFn fnInit = nullptr;
 	OpenedrScanFileFn fnScanFile = nullptr;
 	OpenedrFreeStringFn fnFreeString = nullptr;
-	bool ready = false;
-	bool logged = false;
+	std::atomic<bool> ready{ false };
+	std::atomic<bool> logged{ false };
 };
 
 static OpenedrStaticBinding s_openedr;
-static std::once_flag s_openedrInitFlag;
+static std::mutex s_mtxOpenedrInit;
+static ULONGLONG s_lastOpenedrInitAttempt = 0;
 
 static void InitOpenedrStatic()
 {
-	std::call_once(s_openedrInitFlag, []() {
-		HMODULE hDll = ::GetModuleHandleW(L"openedr_static.dll");
-		if (!hDll) hDll = ::LoadLibraryW(L"openedr_static.dll");
-		if (!hDll)
+	std::lock_guard<std::mutex> lock(s_mtxOpenedrInit);
+	if (s_openedr.ready.load())
+		return;
+	ULONGLONG now = ::GetTickCount64();
+	if (s_lastOpenedrInitAttempt != 0 && now - s_lastOpenedrInitAttempt < 5000)
+		return;
+	s_lastOpenedrInitAttempt = now;
+	HMODULE hDll = ::GetModuleHandleW(L"openedr_static.dll");
+	if (!hDll) hDll = ::LoadLibraryW(L"openedr_static.dll");
+	if (!hDll)
+	{
+		wchar_t szMod[MAX_PATH] = {};
+		if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
 		{
-			wchar_t szMod[MAX_PATH] = {};
-			if (::GetModuleFileNameW(nullptr, szMod, MAX_PATH) > 0)
-			{
-				std::wstring wsDir(szMod);
-				size_t sep = wsDir.find_last_of(L"\\/");
-				if (sep != std::wstring::npos)
-					hDll = ::LoadLibraryW((wsDir.substr(0, sep) + L"\\openedr_static.dll").c_str());
-			}
+			std::wstring wsDir(szMod);
+			size_t sep = wsDir.find_last_of(L"\\/");
+			if (sep != std::wstring::npos)
+				hDll = ::LoadLibraryW((wsDir.substr(0, sep) + L"\\openedr_static.dll").c_str());
 		}
-		if (!hDll)
-			hDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\openedr_static.dll");
-		if (!hDll)
-			return;
-		auto fnInit = reinterpret_cast<OpenedrInitFn>(::GetProcAddress(hDll, "openedr_static_init"));
-		auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
-		auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
-		if (!fnInit || !fnScan || !fnFree)
-			return;
-		if (fnInit(nullptr) != 0)
-			return;
-		s_openedr.hDll = hDll;
-		s_openedr.fnInit = fnInit;
-		s_openedr.fnScanFile = fnScan;
-		s_openedr.fnFreeString = fnFree;
-		s_openedr.ready = true;
-	});
+	}
+	if (!hDll)
+		hDll = ::LoadLibraryW(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\openedr_static.dll");
+	if (!hDll)
+		return;
+	auto fnInit = reinterpret_cast<OpenedrInitFn>(::GetProcAddress(hDll, "openedr_static_init"));
+	auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
+	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
+	if (!fnInit || !fnScan || !fnFree)
+		return;
+	if (fnInit(nullptr) != 0)
+		return;
+	s_openedr.hDll = hDll;
+	s_openedr.fnInit = fnInit;
+	s_openedr.fnScanFile = fnScan;
+	s_openedr.fnFreeString = fnFree;
+	s_openedr.ready.store(true);
 }
 
 // --- openedr_static report JSON mini-reader --------------------------------
@@ -947,8 +953,8 @@ static bool OpenedrReportFirstDetection(const std::string& json, std::string& na
 }
 
 // Static-engine verdict with human-readable cause (first detection name).
-// Display-only (reputation screen); verdict semantics: 2 malicious,
-// 1 safe, 0 unknown. No cloud, no execution.
+// Display-only (reputation screen): 1 clean, 2 malicious, 3 suspicious,
+// 4 scanned/unknown, 0 unavailable or scan error. No cloud, no execution.
 static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut)
 {
 	sNameOut.clear();
@@ -957,11 +963,10 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 	try
 	{
 		InitOpenedrStatic();
-		if (!s_openedr.ready)
+		if (!s_openedr.ready.load())
 		{
-			if (!s_openedr.logged)
+			if (!s_openedr.logged.exchange(true))
 			{
-				s_openedr.logged = true;
 				LOGLVL(Critical, FMT("detnotif: local engines unavailable, openedr_static.dll (openedr_static_init/scan_file/free_string) not found or init failed"));
 			}
 			return 0;
@@ -974,7 +979,7 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 		std::string verdict;
 		if (!OpenedrReportVerdict(report, verdict))
 			return 0;
-		if (verdict == "Malicious")
+		if (verdict == "Malicious" || verdict == "Suspicious")
 		{
 			std::string name;
 			if (OpenedrReportFirstDetection(report, name) && !name.empty())
@@ -985,12 +990,16 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 			}
 			else
 			{
-				sNameOut = "Malware.LocalDetection";
+				sNameOut = verdict == "Malicious"
+					? "Malware.LocalDetection"
+					: "Static.Suspicious";
 			}
-			return 2;
+			return verdict == "Malicious" ? 2 : 3;
 		}
 		if (verdict == "Clean")
 			return 1;
+		if (verdict == "Unknown")
+			return 4;
 		return 0;
 	}
 	catch (...)
@@ -1003,16 +1012,19 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)
 {
-	return staticScanVerdictName(sUtf8Path, sThreatNameOut);
+	int verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+	if (verdict > 2)
+	{
+		sThreatNameOut.clear();
+		return 0;
+	}
+	return verdict;
 }
 
-// Merged local verdict: enriched verdict (if 1/2), Rust engines, known-DB.
-// Malicious (2) always wins; Safe (1) beats unknown; else 0.
-// Slow engines (ML + ClamAV) run only while the cloud is undecided
-// (nCloudVerdict other than Safe/Malicious); engine results are hash-keyed
-// in the persistent cache, so repeat listings skip the engines.
+// Merged local verdict: enriched verdict and known-malware DB take precedence
+// over cached/static scan results. Local results are independent of cloud.
 static int mergeLocalVerdict(int enriched, const std::string& sPath, const std::string& sHash,
-	int nCloudVerdict, std::string& sLocalName)
+	std::string& sLocalName)
 {
 	int v = (enriched == 1 || enriched == 2) ? enriched : 0;
 	try
@@ -1021,28 +1033,45 @@ static int mergeLocalVerdict(int enriched, const std::string& sPath, const std::
 			return 2;
 	}
 	catch (...) {}
-	if (nCloudVerdict == 1 || nCloudVerdict == 2)
-		return v;
 	int cachedV = 0;
 	std::string cachedName;
-	if (!sHash.empty() && lookupLocalVerdict(sHash, cachedV, cachedName))
+	if (!sHash.empty() && lookupLocalVerdict(sHash, cachedV, cachedName)
+		&& cachedV >= 1 && cachedV <= 4)
 	{
 		if (cachedV == 2)
+		{
+			sLocalName = cachedName;
 			return 2;
-		if (cachedV == 1 && v == 0)
+		}
+		if (cachedV == 3 && v != 2)
+		{
+			v = 3;
+			sLocalName = cachedName;
+		}
+		else if (cachedV == 1 && v == 0)
 			v = 1;
-		sLocalName = cachedName;
+		else if (cachedV == 4 && v == 0)
+			v = 4;
 		return v;
 	}
-	int r = staticScanVerdictName(sPath, sLocalName);
+	std::string scannedName;
+	int r = staticScanVerdictName(sPath, scannedName);
 	if (r == 2)
+	{
 		v = 2;
+		sLocalName = scannedName;
+	}
+	else if (r == 3 && v != 2)
+	{
+		v = 3;
+		sLocalName = scannedName;
+	}
 	else if (r == 1 && v == 0)
 		v = 1;
-	else if (r == 0)
-		sLocalName.clear();
-	if (!sHash.empty())
-		storeLocalVerdict(sHash, (r == 2 || r == 1) ? r : 0, sLocalName);
+	else if (r == 4 && v == 0)
+		v = 4;
+	if (!sHash.empty() && r >= 1 && r <= 4)
+		storeLocalVerdict(sHash, r, scannedName);
 	return v;
 }
 
@@ -1927,39 +1956,54 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						// Cheap authoritative list first, always.
 						if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
 							nLocal = 2;
-						// Slow local engines (ML + ClamAV) only while the cloud
-						// is undecided: Safe/Malicious from FLS needs no
-						// second opinion. Engine results are hash-keyed in
-						// the persistent local_verdicts.db (self-invalidating
-						// on content change), so repeat scans skip the engines.
-						if (nVerdict != 1 && nVerdict != 2)
+						// Local verdicts are displayed beside cloud results, so
+						// run the local engine independently of the FLS verdict.
+						// Completed scan outcomes are cached; unavailable/error
+						// results are not, so a missing DLL can be retried later.
+						int cachedV = 0;
+						std::string cachedName;
+						if (!sLocalHash.empty()
+							&& lookupLocalVerdict(sLocalHash, cachedV, cachedName)
+							&& cachedV >= 1 && cachedV <= 4)
 						{
-							int cachedV = 0;
-							std::string cachedName;
-							if (!sLocalHash.empty()
-								&& lookupLocalVerdict(sLocalHash, cachedV, cachedName))
-							{
-								if (cachedV == 2)
-									nLocal = 2;
-								else if (cachedV == 1 && nLocal == 0)
-									nLocal = 1;
+							if (cachedV == 2)
+								nLocal = 2;
+							else if (cachedV == 3 && nLocal != 2)
+								nLocal = 3;
+							else if (cachedV == 1 && nLocal == 0)
+								nLocal = 1;
+							else if (cachedV == 4 && nLocal == 0)
+								nLocal = 4;
+							if (cachedV == 2 && nLocal == 2)
 								sLocalName = cachedName;
-							}
-							else
+							else if (cachedV == 3 && nLocal == 3)
+								sLocalName = cachedName;
+						}
+						else
+						{
+							std::string scannedName;
+							int r = staticScanVerdictName(sPath, scannedName);
+							if (r == 2)
 							{
-								int r = staticScanVerdictName(sPath, sLocalName);
-								if (r == 2)
-									nLocal = 2;
-								else if (r == 1 && nLocal == 0)
-									nLocal = 1;
-								if (!sLocalHash.empty())
-									storeLocalVerdict(sLocalHash, (r == 2 || r == 1) ? r : 0, sLocalName);
+								nLocal = 2;
+								sLocalName = scannedName;
 							}
+							else if (r == 3 && nLocal != 2)
+							{
+								nLocal = 3;
+								sLocalName = scannedName;
+							}
+							else if (r == 1 && nLocal == 0)
+								nLocal = 1;
+							else if (r == 4 && nLocal == 0)
+								nLocal = 4;
+							if (!sLocalHash.empty() && r >= 1 && r <= 4)
+								storeLocalVerdict(sLocalHash, r, scannedName);
 						}
 					}
 					catch (...) {}
 					vOut.push_back(Dictionary({
-						{"path", sPath}, {"hash", sHash},
+						{"path", sPath}, {"hash", sHash}, {"sha256", sLocalHash},
 						{"verdict", nVerdict}, {"local", nLocal},
 						{"local_name", sLocalName} }));
 					}
@@ -2015,10 +2059,11 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 					int nEnriched = 0;
 					try { nEnriched = static_cast<int>(vInfo["verdict"]); } catch (...) {}
 					std::string sLocalName;
-					int nLocal = mergeLocalVerdict(nEnriched, sPath, sHash, nVerdict, sLocalName);
+					std::string sLocalHash = sha256HexOfFileUtf8(sPath);
+					int nLocal = mergeLocalVerdict(nEnriched, sPath, sLocalHash, sLocalName);
 					vOut.push_back(Dictionary({
 						{"pid", static_cast<int64_t>(pe.th32ProcessID)},
-						{"path", sPath}, {"hash", sHash},
+						{"path", sPath}, {"hash", sHash}, {"sha256", sLocalHash},
 						{"user", sUser}, {"verdict", nVerdict},
 						{"local", nLocal}, {"local_name", sLocalName} }));
 					}

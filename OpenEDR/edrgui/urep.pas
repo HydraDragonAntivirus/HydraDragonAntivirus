@@ -6,11 +6,12 @@ unit URep;
   Display only, no actions, no quarantine, no blocks:
   - Worker walks the picked folder for EVERY file (no extension gate).
   - Batches of 50 go to getFileReputationBulk JSON-RPC (the service computes
-    SHA-1 for legacy FLS lookup). Rows show path, SHA-1, cloud verdict and
+    SHA-1 for legacy FLS lookup and SHA-256 for display/local verdicts).
+    Rows show path, SHA-256, cloud verdict and
     the local verdict WITH its cause (never a bare 'Malicious').
   - Rows persist across scans (path-keyed upsert); totals always recount.
   - Pending actions are shown inline with their matching verdict rows;
-    Apply carries the pending count in its caption.
+    Apply executes them and Cancel Actions clears them.
   - Selected row: Copy Hash, manual upload to valkyrie.comodo.com and hash
     discussion on forums.comodo.com (browser links, user-driven).
   Unknown verdicts (cloud never saw the file) are normal, not errors.
@@ -87,7 +88,6 @@ type
     StatusSurface: TPanel;
     ResultsArea: TPanel;
     ResultsSurface: TPanel;
-    SubtitleLbl: TLabel;
     ResultsSectionLbl: TLabel;
     TitleLbl: TLabel;
     PathEdit: TEdit;
@@ -99,6 +99,7 @@ type
     ValkBtn: TButton;
     ForumBtn: TButton;
     ApplyBtn: TButton;
+    CancelActionsBtn: TButton;
     DetPopup: TPopupMenu;
     DetItem: TMenuItem;
     QuarItem: TMenuItem;
@@ -117,6 +118,7 @@ type
     procedure ValkBtnClick(Sender: TObject);
     procedure ForumBtnClick(Sender: TObject);
     procedure ApplyBtnClick(Sender: TObject);
+    procedure CancelActionsBtnClick(Sender: TObject);
     procedure QuarItemClick(Sender: TObject);
     procedure IgnItemClick(Sender: TObject);
     procedure SelAllItemClick(Sender: TObject);
@@ -223,6 +225,7 @@ begin
   case AVerdict of
     2: Result := RGBToColor(255, 232, 229); // malicious
     1: Result := RGBToColor(226, 246, 235); // safe
+    3: Result := RGBToColor(255, 244, 218); // suspicious
     4: Result := RGBToColor(255, 244, 218); // lookup failed
   else
     if (AIndex mod 2) = 1 then
@@ -336,7 +339,7 @@ begin
         d := it.FindPath('path');
         if d <> nil then
           fp := d.AsString;
-        d := it.FindPath('hash');
+        d := it.FindPath('sha256');
         if d <> nil then
           fh := d.AsString;
         d := it.FindPath('verdict');
@@ -527,7 +530,7 @@ begin
     else
       Inc(FUnk);
     end;
-    if lv = 2 then
+    if (lv = 2) or (lv = 3) then
       Inc(FLocal);
   end;
   SummaryLbl.Caption := Format(
@@ -571,11 +574,12 @@ begin
             actStr := 'Applied'
           else if (FStagedActions <> nil) and FStagedActions.Find(key, idx) then
           begin
-            if FStagedActions.ValueFromIndex[idx] = 'I' then
-              actStr := 'Ignore'
+            case FStagedActions.ValueFromIndex[idx] of
+              'I': begin actStr := 'Ignore'; Inc(n); end;
+              'S': actStr := 'Cancelled';
             else
-              actStr := 'Quarantine';
-            Inc(n);
+              begin actStr := 'Quarantine'; Inc(n); end;
+            end;
           end
           else if (v = 2) or (lv = 2) then
           begin
@@ -594,6 +598,8 @@ begin
     SeenKeys.Free;
   end;
   ApplyBtn.Caption := 'Apply Actions (' + IntToStr(n) + ')';
+  ApplyBtn.Enabled := n > 0;
+  CancelActionsBtn.Enabled := n > 0;
 end;
 
 function LocalVerdictOf(it: TJSONData): Integer;
@@ -613,6 +619,8 @@ begin
   case v of
     2: Result := 'Malicious';
     1: Result := 'Safe';
+    3: Result := 'Suspicious';
+    4: Result := 'Unknown';
   else
     Result := '—';
   end;
@@ -634,7 +642,7 @@ end;
 function LocalCellText(lv: Integer; const AName: string): string;
 begin
   Result := LocalText(lv);
-  if (AName <> '') and ((lv = 1) or (lv = 2)) then
+  if (AName <> '') and ((lv = 2) or (lv = 3)) then
     Result := Result + ': ' + AName;
 end;
 
@@ -642,7 +650,7 @@ end;
 // (ClamAV sig name, ML label). Cloud-only verdicts carry no name.
 function FamilyText(lv: Integer; const AName: string): string;
 begin
-  if (lv = 2) and (AName <> '') then
+  if ((lv = 2) or (lv = 3)) and (AName <> '') then
     Result := AName
   else
     Result := '—';
@@ -695,7 +703,7 @@ var
   lv: Integer;
 begin
   lv := (Data shr 8) and $FF;
-  if lv <> 0 then
+  if (lv >= 1) and (lv <= 3) then
     Result := lv
   else
     Result := Data and $FF;
@@ -922,7 +930,7 @@ begin
         fp := raw;
         if (pid > 0) and (fp <> '') then
           fp := '[' + IntToStr(pid) + '] ' + fp;
-        d := it.FindPath('hash');
+        d := it.FindPath('sha256');
         if d <> nil then
           fh := d.AsString;
         d := it.FindPath('verdict');
@@ -986,6 +994,9 @@ begin
       key := LowerCase(StripPidPrefix(ResultsView.Items[i].Caption));
       if (key <> '') and not FActed.Find(key, idx) and (SeenKeys.IndexOf(key) < 0) then
       begin
+        if FStagedActions.Find(key, idx) and
+          (FStagedActions.ValueFromIndex[idx] = 'S') then
+          Continue;
         SeenKeys.Add(key);
         Inc(Result);
       end;
@@ -1101,7 +1112,10 @@ begin
   end;
 
   if FStagedActions <> nil then
-    FStagedActions.Clear;
+    for i := FStagedActions.Count - 1 downto 0 do
+      if (FStagedActions.ValueFromIndex[i] <> 'S') and
+        FActed.Find(FStagedActions.Names[i], idx) then
+        FStagedActions.Delete(i);
   RefreshPendingList;
   RecountSummary;
 
@@ -1109,6 +1123,45 @@ begin
     StatusLbl.Caption := Format('Applied actions: %d quarantined, %d ignored (%d failed).', [qCount, iCount, errCount])
   else
     StatusLbl.Caption := Format('Applied actions: %d quarantined, %d ignored.', [qCount, iCount]);
+end;
+
+procedure TRepForm.CancelActionsBtnClick(Sender: TObject);
+var
+  i, v, lv, n, idx: Integer;
+  key: string;
+  HasStaged, HasDefaultAction: Boolean;
+begin
+  n := 0;
+  for i := 0 to ResultsView.Items.Count - 1 do
+  begin
+    key := LowerCase(StripPidPrefix(ResultsView.Items[i].Caption));
+    if (key = '') or FActed.Find(key, idx) then
+      Continue;
+
+    HasStaged := FStagedActions.Find(key, idx);
+    HasDefaultAction := False;
+    if not HasStaged then
+    begin
+      v := Integer(PtrUInt(ResultsView.Items[i].Data)) and $FF;
+      lv := (Integer(PtrUInt(ResultsView.Items[i].Data) shr 8)) and $FF;
+      HasDefaultAction := (v = 2) or (lv = 2);
+    end;
+
+    if HasStaged then
+    begin
+      if FStagedActions.ValueFromIndex[idx] = 'S' then
+        Continue;
+    end
+    else if not HasDefaultAction then
+      Continue;
+
+    FStagedActions.Values[key] := 'S';
+    Inc(n);
+  end;
+
+  RefreshPendingList;
+  RecountSummary;
+  StatusLbl.Caption := Format('Cancelled %d pending action(s).', [n]);
 end;
 
 procedure TRepForm.QuarItemClick(Sender: TObject);
@@ -1237,7 +1290,7 @@ begin
     Exit;
   msg := 'File: ' + it.Caption + sLineBreak;
   if it.SubItems.Count >= 2 then
-    msg := msg + 'SHA-1 (collision-vulnerable): ' + it.SubItems[1] + sLineBreak;
+    msg := msg + 'SHA-256: ' + it.SubItems[1] + sLineBreak;
   if it.SubItems.Count >= 3 then
     msg := msg + 'Cloud: ' + it.SubItems[2] + sLineBreak +
       VerdictMeaning(it.SubItems[2]);

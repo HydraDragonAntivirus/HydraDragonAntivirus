@@ -41,26 +41,13 @@ object RepForm: TRepForm
     object TitleLbl: TLabel
       Left = 24
       Height = 22
-      Top = 8
+      Top = 21
       Width = 500
       Caption = 'File Reputation'
       Font.Color = clWhite
       Font.Height = -16
       Font.Name = 'Segoe UI'
       Font.Style = [fsBold]
-      ParentColor = False
-      ParentFont = False
-    end
-    object SubtitleLbl: TLabel
-      Left = 24
-      Height = 16
-      Top = 36
-      Width = 750
-      Caption = 'Warning: SHA-1 (legacy FLS identifier) is collision-vulnerable'
-      Font.Style = [fsBold]
-      Font.Color = 13879224
-      Font.Height = -10
-      Font.Name = 'Segoe UI'
       ParentColor = False
       ParentFont = False
     end
@@ -173,10 +160,23 @@ object RepForm: TRepForm
       Top = 92
       Width = 150
       Caption = 'Apply Actions'
+      Enabled = False
       Font.Name = 'Segoe UI'
       ParentFont = False
       TabOrder = 8
       OnClick = ApplyBtnClick
+    end
+    object CancelActionsBtn: TButton
+      Left = 350
+      Height = 28
+      Top = 92
+      Width = 132
+      Caption = 'Cancel Actions'
+      Enabled = False
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 9
+      OnClick = CancelActionsBtnClick
     end
   end
   object StatusSurface: TPanel
@@ -274,7 +274,7 @@ object RepForm: TRepForm
           Width = 110
         end
         item
-          Caption = 'SHA-1'
+          Caption = 'SHA-256'
           Width = 105
         end
         item

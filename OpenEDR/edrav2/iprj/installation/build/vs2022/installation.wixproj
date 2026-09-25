@@ -1,4 +1,4 @@
-<Project Sdk="WixToolset.Sdk/6.0.2">
+﻿<Project Sdk="WixToolset.Sdk/6.0.2">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
@@ -80,8 +80,10 @@
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\unicorn.dll')" Command="xcopy /Y /D &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\unicorn.dll&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\database')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\database&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\database\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\yara_rules')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\yara_rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\yara_rules\&quot;" />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\hydradragonsig_rules')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\hydradragonsig_rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\hydradragonsig_rules\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\models')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\models&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\models\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\signer_rules')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\signer_rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\signer_rules\&quot;" />
+    <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\xorfilter_rules')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\xorfilter_rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\xorfilter_rules\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\hash_rules')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\hash_rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\hash_rules\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\registry_rules')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\registry_rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\registry_rules\&quot;" />
     <Exec Condition="Exists('$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\hayabusa_rules')" Command="xcopy /Y /D /E /I &quot;$(ProjectDir)..\..\..\..\..\..\OpenMalwareScannerPortable\hayabusa_rules&quot; &quot;$(CmdRootDir)\out\srcBinInstall\$(CmdOutDirName)\hayabusa_rules\&quot;" />
