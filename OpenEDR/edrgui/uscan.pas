@@ -29,7 +29,16 @@ type
 
   TScanMode = (smFiles, smRegistry);
 
-  { TScanTouchThread - touches files so the watcher sees them }
+  TScanVerdict = (svUnknown, svSafe, svMalicious, svKnown);
+
+  { owlyshield_scan_file: UTF-16 path + WCHAR count -> 2=malicious, 1=safe,
+    0=unknown, -1=bad args. Thin forwarder to openedr_static_scan_file
+    (openedr_static.dll), resolved via owlyshield_ransom.dll. }
+  TScanFileFn = function(APath: PWideChar; ALen: Cardinal): Integer; cdecl;
+
+  { TScanTouchThread - touches files so the watcher sees them AND direct-scans
+    each file with openedr_static (via owlyshield forwarder) so on-demand
+    results never depend on the driver/service pipeline alone. }
 
   TScanTouchThread = class(TThread)
   private
@@ -37,16 +46,23 @@ type
     FMode: TScanMode;
     FRoot: WideString;
     FCount: Integer;
+    FScanFn: TScanFileFn;
+    FOnePath: string;
+    FOneVerdict: TScanVerdict;
+    FOneDetail: string;
     procedure PushProgress;
+    procedure PushOne;
     procedure Walk(const ADir: WideString);
     procedure TouchOne(const APath: WideString);
+    procedure ScanOneFile(const APath: WideString);
+    function RpcCheckKnown(const APathUtf8: string; out AHash: string): Boolean;
     procedure ScanRegTarget(const ATarget: WideString);
     procedure ScanRegKey(ARoot: HKEY; const AKey: WideString);
   protected
     procedure Execute; override;
   public
     constructor Create(AScanForm: TScanForm; AMode: TScanMode;
-      const ARoot: WideString);
+      const ARoot: WideString; AScanFn: TScanFileFn);
   end;
 
   { TScanForm }
@@ -85,12 +101,18 @@ type
     procedure FormDestroy(Sender: TObject);
   private
     FThread: TScanTouchThread;
+    FDll: HMODULE;
+    FScanFn: TScanFileFn;
     FLastId: Int64;
     FFirstShow: Boolean;
     FDetections: Integer;
+    FMali, FKnown, FSafe, FUnk: Integer;
+    function LoadEngine: Boolean;
+    procedure UnloadEngine;
     procedure TouchDone(Sender: TObject);
     procedure RenderNewDetections;
     procedure FinishScan(const AMsg: string);
+    function VerdictText(V: TScanVerdict): string;
   protected
     procedure CreateParams(var Params: TCreateParams); override;
   public
@@ -228,7 +250,7 @@ end;
 { TScanTouchThread }
 
 constructor TScanTouchThread.Create(AScanForm: TScanForm; AMode: TScanMode;
-  const ARoot: WideString);
+  const ARoot: WideString; AScanFn: TScanFileFn);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
@@ -236,6 +258,7 @@ begin
   FMode := AMode;
   FRoot := ARoot;
   FCount := 0;
+  FScanFn := AScanFn;
 end;
 
 procedure TScanTouchThread.PushProgress;
@@ -267,9 +290,105 @@ begin
   except
     // Locked/system/special files: skip silently.
   end;
+end;
+
+function TScanTouchThread.RpcCheckKnown(const APathUtf8: string; out AHash: string): Boolean;
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+begin
+  Result := False;
+  AHash := '';
+  try
+    Req := '{"jsonrpc":"2.0","id":1,"method":"checkFileKnown","params":{"path":"' +
+      EscapeJson(APathUtf8) + '"}}';
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.known');
+        Result := (d <> nil) and d.AsBoolean;
+        d := j.FindPath('result.hash');
+        if d <> nil then
+          AHash := d.AsString;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+procedure TScanTouchThread.PushOne;
+var
+  Item: TListItem;
+  Frm: TScanForm;
+begin
+  Frm := FForm;
+  if (Frm = nil) or (Frm.ResultsView = nil) then
+    Exit;
+  Item := Frm.ResultsView.Items.Add;
+  Item.Caption := '';
+  Item.SubItems.Add(Frm.VerdictText(FOneVerdict));
+  Item.SubItems.Add(FOnePath + ' :: ' + FOneDetail);
+  Item.Data := Pointer(PtrInt(Ord(FOneVerdict)));
+  case FOneVerdict of
+    svMalicious: InterlockedIncrement(Frm.FMali);
+    svKnown: InterlockedIncrement(Frm.FKnown);
+    svSafe: InterlockedIncrement(Frm.FSafe);
+  else
+    InterlockedIncrement(Frm.FUnk);
+  end;
+  Inc(Frm.FDetections);
+  Frm.SummaryLbl.Caption := Format('%d detection(s) shown', [Frm.FDetections]);
+end;
+
+procedure TScanTouchThread.ScanOneFile(const APath: WideString);
+var
+  v: Integer;
+  h: string;
+  u8: string;
+begin
+  if Terminated then
+    Exit;
+  // 1. Touch for the pipeline (driver/service still sees the activity).
+  TouchOne(APath);
+  if Terminated then
+    Exit;
+  // 2. Direct static verdict via openedr_static (owlyshield forwarder).
+  u8 := UTF8Encode(APath);
+  FOnePath := u8;
+  FOneVerdict := svUnknown;
+  FOneDetail := 'Static: unknown';
+  if Assigned(FScanFn) then
+  begin
+    v := FScanFn(PWideChar(APath), Cardinal(Length(APath)));
+    if v = 2 then
+    begin
+      FOneVerdict := svMalicious;
+      FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+    end
+    else if v = 1 then
+    begin
+      FOneVerdict := svSafe;
+      FOneDetail := 'Static: clean/trusted';
+    end;
+  end;
+  if (FOneVerdict = svUnknown) and RpcCheckKnown(u8, h) then
+  begin
+    FOneVerdict := svKnown;
+    FOneDetail := 'Known-malware database';
+  end;
+  // Only list actionable hits immediately; unknowns stay visible via
+  // pipeline polling. Always count the touch for progress.
   Inc(FCount);
   if (FCount mod 50) = 0 then
     Synchronize(@PushProgress);
+  if FOneVerdict in [svMalicious, svKnown] then
+    Synchronize(@PushOne)
+  else if not Assigned(FScanFn) then
+    Synchronize(@PushOne);
 end;
 
 procedure TScanTouchThread.Walk(const ADir: WideString);
@@ -295,7 +414,7 @@ begin
           Walk(p + WideString('\'));
       end
       else
-        TouchOne(p);
+        ScanOneFile(p);
     until not FindNextFileW(h, fd);
   finally
     Windows.FindClose(h);
@@ -365,7 +484,7 @@ begin
           cleaned := CleanExePath(UTF8Decode(parts[j]));
           if cleaned = '' then
             Continue;
-          TouchOne(cleaned);
+          ScanOneFile(cleaned);
         end;
       finally
         parts.Free;
@@ -477,6 +596,46 @@ begin
     PathEdit.Text := Dir;
 end;
 
+function TScanForm.VerdictText(V: TScanVerdict): string;
+begin
+  case V of
+    svMalicious: Result := 'Malicious';
+    svKnown: Result := 'Known threat';
+    svSafe: Result := 'Safe';
+  else
+    Result := 'Unknown';
+  end;
+end;
+
+function TScanForm.LoadEngine: Boolean;
+var
+  DllPath: WideString;
+begin
+  Result := Assigned(FScanFn);
+  if Result then
+    Exit;
+  if FDll = 0 then
+  begin
+    DllPath := WideString(ExtractFilePath(ParamStr(0)) + 'owlyshield_ransom.dll');
+    FDll := LoadLibraryW(PWideChar(DllPath));
+    if FDll = 0 then
+      FDll := LoadLibraryW(PWideChar(WideString('owlyshield_ransom.dll')));
+  end;
+  if FDll <> 0 then
+    FScanFn := TScanFileFn(GetProcAddress(FDll, 'owlyshield_scan_file'));
+  Result := Assigned(FScanFn);
+end;
+
+procedure TScanForm.UnloadEngine;
+begin
+  FScanFn := nil;
+  if FDll <> 0 then
+  begin
+    FreeLibrary(FDll);
+    FDll := 0;
+  end;
+end;
+
 procedure TScanForm.StartBtnClick(Sender: TObject);
 var
   Root: WideString;
@@ -520,14 +679,22 @@ begin
   end;
   if not RpcLastId(FLastId) then
     FLastId := -1;
+  if not LoadEngine then
+    TAlertForm.ShowAlert('Scanner',
+      'Static engine unavailable (owlyshield_ransom.dll). Direct static verdicts off; pipeline + known-DB only.',
+      asWarning, 4000);
   ResultsView.Items.Clear;
   FDetections := 0;
+  FMali := 0;
+  FKnown := 0;
+  FSafe := 0;
+  FUnk := 0;
   SummaryLbl.Caption := '';
   ScanProgress.Style := pbstMarquee;
   StartBtn.Enabled := False;
   CancelBtn.Enabled := True;
   StatusLbl.Caption := 'Scanning...';
-  FThread := TScanTouchThread.Create(Self, Mode, Root);
+  FThread := TScanTouchThread.Create(Self, Mode, Root, FScanFn);
   FThread.OnTerminate := @TouchDone;
   FThread.Start;
   PollTimer.Enabled := True;
@@ -545,7 +712,8 @@ procedure TScanForm.TouchDone(Sender: TObject);
 begin
   FreeAndNil(FThread);
   PollTimer.Enabled := False;
-  FinishScan('Touch pass done, showing pipeline results.');
+  FinishScan(Format('Scan done. Static Malicious=%d Known=%d Safe=%d + pipeline results.',
+    [FMali, FKnown, FSafe]));
 end;
 
 procedure TScanForm.PollTick(Sender: TObject);
@@ -701,6 +869,7 @@ begin
     FThread.WaitFor;
     FreeAndNil(FThread);
   end;
+  UnloadEngine;
 end;
 
 end.

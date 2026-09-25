@@ -534,6 +534,58 @@ pub extern "C" fn openedr_static_apk_loaded() -> u32 {
     }
 }
 
+fn signer_flag(f: impl FnOnce(&engine::StaticEngine) -> bool) -> u32 {
+    match get_or_init_engine(None) {
+        Ok(lock) => match lock.read() {
+            Ok(engine) => f(&engine) as u32,
+            Err(_) => 0,
+        },
+        Err(_) => 0,
+    }
+}
+
+/// Single-authority signer checks over `signer_rules/` YAMLs.
+/// `signer`: NUL-terminated UTF-8 display name (e.g. "Microsoft Corporation").
+/// Returns 1 when matched, 0 otherwise (null/invalid input -> 0).
+/// Consumed by owlyshield_predict instead of parsing YAMLs a second time.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_is_trusted_signer(signer: *const c_char) -> u32 {
+    if signer.is_null() {
+        return 0;
+    }
+    let name = match unsafe { CStr::from_ptr(signer) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    signer_flag(|e| e.is_trusted_signer(name))
+}
+
+/// Returns 1 when `signer` matches `malicious_vendors.yaml`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_is_malicious_signer(signer: *const c_char) -> u32 {
+    if signer.is_null() {
+        return 0;
+    }
+    let name = match unsafe { CStr::from_ptr(signer) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    signer_flag(|e| e.is_malicious_signer(name))
+}
+
+/// Returns 1 when `signer` matches `pua_vendors.yaml`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_is_pua_signer(signer: *const c_char) -> u32 {
+    if signer.is_null() {
+        return 0;
+    }
+    let name = match unsafe { CStr::from_ptr(signer) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    signer_flag(|e| e.is_pua_signer(name))
+}
+
 /// Scan a Windows EVTX log file for threat events using Hayabusa rules.
 /// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
 #[unsafe(no_mangle)]

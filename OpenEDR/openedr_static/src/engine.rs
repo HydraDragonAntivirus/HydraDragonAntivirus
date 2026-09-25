@@ -25,6 +25,11 @@ use crate::yara::YaraScanner;
 /// Web parity (`openedr_web/src/engine.rs::APK_TREE_THRESHOLD`).
 pub const APK_TREE_THRESHOLD: f32 = 0.8;
 
+/// Generic whole-buffer ML fallback threshold. Fires only when every other
+/// layer (ClamAV/YARA/HydraSig/PE/JS/APK ML) found nothing, so keep it at the
+/// Malicious cutoff to hold FPR down. Retune on generic retrain.
+pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
+
 /// Canonical EICAR SHA-256 (standard test file). Web had a typo variant;
 /// both are accepted, plus a prefix check so any EICAR build flags.
 const EICAR_SHA256: &str = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
@@ -63,11 +68,6 @@ impl StaticEngine {
             base.join("rules")
         };
         let models_dir = base.join("models");
-        let hash_rules_dir = if base.join("hash_rules").is_dir() {
-            base.join("hash_rules")
-        } else {
-            base.join("database")
-        };
         let registry_rules_path = if base.join("registry_rules").is_dir() {
             base.join("registry_rules")
         } else if base.join("registry_rules.yaml").is_file() {
@@ -147,7 +147,7 @@ impl StaticEngine {
                 ml.apk_loaded(),
                 models_dir.join("generic_trees.bin").is_file(),
                 ml.generic_loaded(),
-                false,
+                ml.generic_used_for_file_verdict(),
                 signers_dir.display(),
                 signers.pattern_counts().0,
                 signers.pattern_counts().1,
@@ -175,6 +175,21 @@ impl StaticEngine {
     /// Tree-model readiness (web parity: kind 3 = APK).
     pub fn apk_ml_loaded(&self) -> bool {
         self.ml.apk_loaded()
+    }
+
+    /// Signer-rule checks — single authority for trusted/malicious/PUA vendor
+    /// YAMLs (`signer_rules/`). Backs the `openedr_static_is_*_signer` FFI
+    /// consumed by owlyshield_predict (no duplicate YAML parsing there).
+    pub fn is_trusted_signer(&self, signer: &str) -> bool {
+        self.signers.is_trusted(signer)
+    }
+
+    pub fn is_malicious_signer(&self, signer: &str) -> bool {
+        self.signers.is_malicious(signer)
+    }
+
+    pub fn is_pua_signer(&self, signer: &str) -> bool {
+        self.signers.is_pua(signer)
     }
 
     /// Runtime model load from bytes: kind 0=PE, 1=JS, 2=URL, 3=APK (web parity).
@@ -781,6 +796,27 @@ impl StaticEngine {
             }
         }
 
+        // 5b. Generic whole-buffer ML fallback (non-APK only): runs ONLY when
+        // every layer above found nothing. Catches non-PE/non-JS payloads
+        // (scripts-in-blob, packed blobs, unknown formats) the experts miss.
+        if !is_apk_file && detections.is_empty() && max_score < GENERIC_TREE_THRESHOLD
+        {
+            if let Some(prob) = self.ml.predict_generic_bytes(data) {
+                if prob >= GENERIC_TREE_THRESHOLD {
+                    detections.push(DetectionItem {
+                        layer: "Generic_ML".to_string(),
+                        name: "MalwareNet.Generic.HighConfidence".to_string(),
+                        score: Some(prob),
+                        details: Some(format!(
+                            "Generic whole-buffer malware probability: {:.2}%",
+                            prob * 100.0
+                        )),
+                    });
+                    max_score = max_score.max(prob);
+                }
+            }
+        }
+
         // 6. Unicorn PE CPU Emulation & Unpacker (Heuristic analysis)
         if data.starts_with(b"MZ") && data.len() >= 0x1000 {
             if let Ok(sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(data) {
@@ -1242,28 +1278,6 @@ impl StaticEngine {
     /// Check if a host/subdomain is unwhitelisted (web parity).
     pub fn is_unwhitelisted_subdomain(&self, host: &str) -> bool {
         self.url_engine.is_unwhitelisted(host)
-    }
-}
-
-fn extract_host(raw_url: &str) -> Option<&str> {
-    let mut s = raw_url.trim();
-    if let Some(idx) = s.find("://") {
-        s = &s[idx + 3..];
-    }
-    let host_and_port = s.split(['/', '?', '#']).next()?.trim();
-    if host_and_port.is_empty() {
-        return None;
-    }
-    if host_and_port.starts_with('[') {
-        if let Some(end_bracket) = host_and_port.find(']') {
-            return Some(&host_and_port[..=end_bracket]);
-        }
-    }
-    let host = host_and_port.split(':').next()?.trim();
-    if host.is_empty() {
-        None
-    } else {
-        Some(host)
     }
 }
 

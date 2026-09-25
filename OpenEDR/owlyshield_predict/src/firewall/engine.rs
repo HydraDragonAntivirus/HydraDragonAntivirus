@@ -4230,16 +4230,20 @@ impl FirewallEngine {
                     }
                     None => {
                         // Evaluate criteria for interactive HIPS prompting:
-                        // 1. Digital signature verification (cached, via openedr_static)
+                        // 1. Digital signature verification (cached, via openedr_static).
+                        // Single authority: openedr_static_scan_file already folds
+                        // WinTrust + vendor YAMLs into sig_info.is_trusted; the
+                        // name-only signer-rule refinement below also goes
+                        // through openedr_static FFI (no local YAML parsing).
                         let sig_info = am.get_or_verify_sig(&app_path);
                         let mut is_sig_untrusted = !sig_info.is_trusted;
-
-                        // Also treat as trusted if signer name matches trusted_signers.yaml (e.g. Comodo, Microsoft)
-                        if is_sig_untrusted {
-                            if let Some(ref signer) = sig_info.signer_name {
-                                if crate::signer_rules::is_trusted_signer(signer) {
-                                    is_sig_untrusted = false;
-                                }
+                        if let Some(ref signer) = sig_info.signer_name {
+                            if crate::ffi::static_is_malicious_signer(signer)
+                                || crate::ffi::static_is_pua_signer(signer)
+                            {
+                                is_sig_untrusted = true;
+                            } else if crate::ffi::static_is_trusted_signer(signer) {
+                                is_sig_untrusted = false;
                             }
                         }
 

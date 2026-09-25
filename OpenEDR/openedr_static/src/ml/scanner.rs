@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use super::generic_features;
 use super::pe_features;
 use super::js_features;
 use super::url_features;
@@ -114,12 +115,26 @@ impl MlScanner {
         Some(trees.predict_probability(features))
     }
 
+    /// Generic fallback over raw bytes: extract + score in one call.
+    /// Never panics; None when the model isn't loaded.
+    pub fn predict_generic_bytes(&self, data: &[u8]) -> Option<f32> {
+        let trees = self.generic_trees.as_ref()?;
+        let feats = generic_features::extract_generic_features(data);
+        Some(trees.predict_probability(&feats))
+    }
+
     pub fn master_loaded(&self) -> bool {
         self.master_trees.is_some()
     }
 
     pub fn generic_loaded(&self) -> bool {
         self.generic_trees.is_some()
+    }
+
+    /// True when the generic model is loaded AND wired into the file verdict
+    /// path (`engine::scan_bytes_internal` fallback layer).
+    pub fn generic_used_for_file_verdict(&self) -> bool {
+        self.generic_loaded()
     }
 
     pub fn is_loaded(&self) -> bool {

@@ -135,7 +135,9 @@
 				</RegistryKey>
 			</Component>
 			<Files Include="..\..\edrdata\threat_intel\**" Directory="THREATINTELDIR" />
-			<Files Include="..\..\edrdata\signer_rules\**" Directory="SIGNERRULESDIR" />
+			<!-- signer_rules: single source is the openedr_static portable bundle
+			     (staged to $(var.SourceBinDir)signer_rules\ by the wixproj and
+			     installed via the wildcard below) — no edrdata duplicate. -->
 			<!-- ClamAV database (clamav_database_windows): signature files AND
 			     loose *.cbc bytecode live flat in ONE directory, no
 			     subdirectories — the engine loads a single database directory
@@ -147,7 +149,6 @@
 				<Exclude Files="$(var.SourceBinDir)*.pdb" />
 				<Exclude Files="$(var.SourceBinDir)models\**" />
 				<Exclude Files="$(var.SourceBinDir)database\**" />
-				<Exclude Files="$(var.SourceBinDir)signer_rules\**" />
 				<Exclude Files="$(var.SourceBinDir)*.xf" />
 				<Exclude Files="$(var.SourceBinDir)CIDR*.txt" />
 				<Exclude Files="$(var.SourceBinDir)Sanctum\sanctum.sys" />

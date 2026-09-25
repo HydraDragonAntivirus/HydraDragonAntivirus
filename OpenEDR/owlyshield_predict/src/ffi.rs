@@ -368,6 +368,7 @@ type StaticScanFn =
 type StaticUrlScanFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::os::raw::c_char;
 type StaticUrlModelLoadedFn = unsafe extern "C" fn() -> u32;
 type StaticFreeFn = unsafe extern "C" fn(*mut std::os::raw::c_char);
+type StaticSignerFn = unsafe extern "C" fn(*const std::os::raw::c_char) -> u32;
 
 #[derive(Clone, Copy)]
 struct StaticBinding {
@@ -375,6 +376,9 @@ struct StaticBinding {
     free: StaticFreeFn,
     scan_url: Option<StaticUrlScanFn>,
     url_model_loaded: Option<StaticUrlModelLoadedFn>,
+    is_trusted_signer: Option<StaticSignerFn>,
+    is_malicious_signer: Option<StaticSignerFn>,
+    is_pua_signer: Option<StaticSignerFn>,
 }
 unsafe impl Send for StaticBinding {}
 unsafe impl Sync for StaticBinding {}
@@ -442,11 +446,22 @@ fn static_binding() -> Option<StaticBinding> {
             if (scan as usize) == 0 || (free as usize) == 0 {
                 return Mutex::new(None);
             }
+            let signer = |n: &[u8]| {
+                let p = sym(n);
+                if p.is_null() {
+                    None
+                } else {
+                    Some(std::mem::transmute::<*mut std::ffi::c_void, StaticSignerFn>(p))
+                }
+            };
             Mutex::new(Some(StaticBinding {
                 scan,
                 free,
                 scan_url,
                 url_model_loaded,
+                is_trusted_signer: signer(b"openedr_static_is_trusted_signer\0"),
+                is_malicious_signer: signer(b"openedr_static_is_malicious_signer\0"),
+                is_pua_signer: signer(b"openedr_static_is_pua_signer\0"),
             }))
         }
     });
@@ -461,6 +476,46 @@ pub(crate) fn static_url_model_loaded() -> bool {
         .url_model_loaded
         .map(|is_loaded| unsafe { is_loaded() != 0 })
         .unwrap_or(false)
+}
+
+/// Single-authority signer checks via openedr_static.dll.
+/// Replaces the former duplicate `signer_rules.rs` YAML parsing here:
+/// `signer_rules/` is owned solely by openedr_static.
+fn static_signer_check(
+    f: Option<StaticSignerFn>,
+    signer_name: &str,
+) -> bool {
+    let Some(check) = f else {
+        return false;
+    };
+    if signer_name.is_empty() {
+        return false;
+    }
+    let Ok(c) = std::ffi::CString::new(signer_name) else {
+        return false;
+    };
+    unsafe { check(c.as_ptr()) != 0 }
+}
+
+pub(crate) fn static_is_trusted_signer(signer_name: &str) -> bool {
+    let Some(b) = static_binding() else {
+        return false;
+    };
+    static_signer_check(b.is_trusted_signer, signer_name)
+}
+
+pub(crate) fn static_is_malicious_signer(signer_name: &str) -> bool {
+    let Some(b) = static_binding() else {
+        return false;
+    };
+    static_signer_check(b.is_malicious_signer, signer_name)
+}
+
+pub(crate) fn static_is_pua_signer(signer_name: &str) -> bool {
+    let Some(b) = static_binding() else {
+        return false;
+    };
+    static_signer_check(b.is_pua_signer, signer_name)
 }
 
 pub(crate) fn scan_url_with_static(url: &str) -> Option<f32> {
