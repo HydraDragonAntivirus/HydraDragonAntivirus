@@ -1716,6 +1716,64 @@ static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& 
 	}
 }
 
+// Fire-and-forget rescan OFF the hot path: the enricher worker is single-
+// threaded, so it must never sleep (queue backs up -> late events, overflow
+// drops -> choppy output). Sleeps on a detached thread, rescans once, and
+// convicts exactly like the sync path on Malicious.
+static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
+{
+	std::thread([dos = std::move(dos), nPid]() {
+		std::this_thread::sleep_for(std::chrono::milliseconds(350));
+		if (dos.empty())
+			return;
+		// Sync path (a later Change/Close event) already handled it?
+		if (DetectionNotifier::isKnownMalware(dos, ""))
+			return;
+		std::string sThreat;
+		if (DetectionNotifier::scanFileWithLocalEngines(dos, sThreat) != 2)
+			return;
+		if (sThreat.empty())
+			sThreat = "Malware.LocalDetection";
+
+		LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] THREAT DETECTED: <"
+			<< sThreat << "> on <" << dos << "> (PID: " << nPid << ")"));
+
+		if (!DetectionNotifier::isProtectionPaused())
+		{
+			HMODULE hDll = ::GetModuleHandleW(L"owlyshield_ransom.dll");
+			if (!hDll)
+				hDll = ::LoadLibraryW(L"owlyshield_ransom.dll");
+			if (hDll)
+			{
+				typedef int32_t (*QuarantineFn)(const uint8_t*, uint32_t);
+				auto fnQ = (QuarantineFn)::GetProcAddress(hDll, "owlyshield_dll_quarantine_file");
+				if (fnQ != nullptr)
+				{
+					int32_t qRes = fnQ(
+						reinterpret_cast<const uint8_t*>(dos.data()),
+						static_cast<uint32_t>(dos.size()));
+					if (qRes == 0)
+						LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantined <" << dos << ">"));
+					else
+						LOGLVL(Critical, FMT("enricher: [ASYNC RESCAN] quarantine failed for <" << dos << "> result=" << qRes));
+				}
+			}
+		}
+
+		DetectionNotifier::recordMalwareDetection(dos, "");
+
+		HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+			GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+		if (hPipe != INVALID_HANDLE_VALUE)
+		{
+			std::string pipeMsg = "THREAT_ALERT:" + sThreat + "|" + dos + "\n";
+			DWORD written = 0;
+			::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+			::CloseHandle(hPipe);
+		}
+	}).detach();
+}
+
 } // namespace
 
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
@@ -1835,9 +1893,9 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 
 		// Rescan race: at FileCreate a new file is still 0 bytes or locked
 		// by the writer, so the first scan says Unknown while a later manual
-		// scan sees the full content and convicts. For file data events on a
-		// non-empty file, retry briefly so mid-flush content still gets a
-		// real verdict. Bounded (3 x 150 ms) to never stall the pipeline.
+		// scan sees the full content and convicts. Hand non-empty Unknowns
+		// to a detached rescan (never sleep on this single-threaded worker:
+		// blocking here backs the queue up -> late events, overflow drops).
 		if (r == 0 && (eEventType == Event::LLE_FILE_CREATE ||
 			eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 			eEventType == Event::LLE_FILE_DATA_CHANGE ||
@@ -1846,13 +1904,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			std::error_code ec;
 			uintmax_t nSize = std::filesystem::file_size(dos, ec);
 			if (!ec && nSize > 0)
-			{
-				for (int nTry = 0; nTry < 3 && r == 0; ++nTry)
-				{
-					std::this_thread::sleep_for(std::chrono::milliseconds(150));
-					r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
-				}
-			}
+				AsyncRescanAndQuarantine(dos, nPid);
 		}
 
 		if (r == 2)
@@ -1987,6 +2039,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		{
 			static std::mutex s_mtxMemScan;
 			static std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> s_recentMemScan;
+			static std::chrono::steady_clock::time_point s_lastMemScan{};
 			bool bDue = false;
 			{
 				std::scoped_lock lock(s_mtxMemScan);
@@ -1994,8 +2047,18 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				auto it = s_recentMemScan.find(nPid);
 				if (it == s_recentMemScan.end() || (now - it->second) > std::chrono::minutes(5))
 				{
-					s_recentMemScan[nPid] = now;
-					bDue = true;
+					// Global throttle: one full 128 MB memory scan costs
+					// seconds on this single worker thread. Under process-
+					// spawn storms (Edge/WebView) back-to-back scans queue
+					// up -> output events go late + choppy. Max one scan
+					// per 30 s; residents persist and are caught later.
+					if (s_lastMemScan == std::chrono::steady_clock::time_point{} ||
+						(now - s_lastMemScan) > std::chrono::seconds(30))
+					{
+						s_lastMemScan = now;
+						s_recentMemScan[nPid] = now;
+						bDue = true;
+					}
 				}
 				if (s_recentMemScan.size() > 5000)
 				{
