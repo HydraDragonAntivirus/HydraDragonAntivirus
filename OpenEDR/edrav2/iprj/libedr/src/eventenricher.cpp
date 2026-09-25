@@ -1720,9 +1720,54 @@ static int ScanPidWithLocalEngines(uint32_t nPid, uint64_t nMaxMb, std::string& 
 // threaded, so it must never sleep (queue backs up -> late events, overflow
 // drops -> choppy output). Sleeps on a detached thread, rescans once, and
 // convicts exactly like the sync path on Malicious.
+//
+// Bounded on purpose: Edge/Chromium emits thousands of churn files (.tmp,
+// LevelDB LOG) per minute, each Unknown. Unbounded detaches would be a
+// thread storm, so we (a) dedup by path, (b) cap concurrent rescans.
 static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
 {
+	constexpr int kMaxConcurrentRescans = 4;
+	static std::atomic<int> s_nActiveRescans{ 0 };
+
+	// Path dedup: Create/WriteFull/DataChange/Close all fire per file within
+	// milliseconds; only the first Unknown schedules work.
+	static std::mutex s_mtxRescanSeen;
+	static std::unordered_map<std::string, std::chrono::steady_clock::time_point> s_rescanSeen;
+	{
+		std::string key = dos;
+		for (auto& c : key)
+			c = (char)::tolower((unsigned char)c);
+		std::scoped_lock lock(s_mtxRescanSeen);
+		auto now = std::chrono::steady_clock::now();
+		auto it = s_rescanSeen.find(key);
+		if (it != s_rescanSeen.end() && (now - it->second) < std::chrono::seconds(10))
+			return;
+		s_rescanSeen[key] = now;
+		if (s_rescanSeen.size() > 20000)
+		{
+			for (auto itC = s_rescanSeen.begin(); itC != s_rescanSeen.end(); )
+			{
+				if ((now - itC->second) > std::chrono::seconds(60))
+					itC = s_rescanSeen.erase(itC);
+				else
+					++itC;
+			}
+		}
+	}
+
+	if (s_nActiveRescans.load(std::memory_order_relaxed) >= kMaxConcurrentRescans)
+		return;
+	if (s_nActiveRescans.fetch_add(1, std::memory_order_acq_rel) >= kMaxConcurrentRescans)
+	{
+		s_nActiveRescans.fetch_sub(1, std::memory_order_acq_rel);
+		return;
+	}
+
 	std::thread([dos = std::move(dos), nPid]() {
+		struct ActiveGuard {
+			~ActiveGuard() { s_nActiveRescans.fetch_sub(1, std::memory_order_acq_rel); }
+		} guard;
+
 		std::this_thread::sleep_for(std::chrono::milliseconds(350));
 		if (dos.empty())
 			return;
@@ -1892,18 +1937,21 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		int r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
 
 		// Rescan race: at FileCreate a new file is still 0 bytes or locked
-		// by the writer, so the first scan says Unknown while a later manual
-		// scan sees the full content and convicts. Hand non-empty Unknowns
-		// to a detached rescan (never sleep on this single-threaded worker:
+		// by the writer, so the first scan says Unknown/Error while a later
+		// manual scan sees the full content and convicts. Hand these to a
+		// detached rescan (never sleep on this single-threaded worker:
 		// blocking here backs the queue up -> late events, overflow drops).
 		if (r == 0 && (eEventType == Event::LLE_FILE_CREATE ||
 			eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
 			eEventType == Event::LLE_FILE_DATA_CHANGE ||
 			eEventType == Event::LLE_FILE_CLOSE))
 		{
+			// A locked/unreadable file (verdict=Error) is exactly the case
+			// that needs the retry, so only skip when the file is proven
+			// empty. Any size error -> retry anyway.
 			std::error_code ec;
 			uintmax_t nSize = std::filesystem::file_size(dos, ec);
-			if (!ec && nSize > 0)
+			if (ec || nSize > 0)
 				AsyncRescanAndQuarantine(dos, nPid);
 		}
 

@@ -881,6 +881,15 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Unknown");
 			return 4;
 		}
+		if (verdict == "Error")
+		{
+			// IO state, not an engine failure: the file was locked (sharing
+			// violation), renamed away or deleted between the minifilter
+			// event and the read. Common for Edge/Chromium churn (.tmp,
+			// LevelDB LOG). Fail open as Unknown; the async rescan retries.
+			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Error(locked_or_gone)");
+			return 0;
+		}
 		openedr_static::WriteLog("report-invalid", "unrecognized verdict=" + verdict + "; file=" + sUtf8Path);
 		return 0;
 	}

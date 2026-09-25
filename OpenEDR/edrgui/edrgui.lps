@@ -78,8 +78,8 @@
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="URep"/>
         <IsVisibleTab Value="True"/>
-        <TopLine Value="1264"/>
-        <CursorPos X="5" Y="1285"/>
+        <TopLine Value="1275"/>
+        <CursorPos X="4" Y="1285"/>
         <UsageCount Value="98"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>

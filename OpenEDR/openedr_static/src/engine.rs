@@ -863,9 +863,14 @@ impl StaticEngine {
             }
         }
 
-        // 7. Heuristic: Trailing Null Bytes (PE-only — ZIP/APK archives
-        // legitimately pad, web parity skips APKs here).
-        if !is_apk_file {
+        // 7. Heuristic: Trailing Null Bytes — PE files ONLY. Applies to any
+        // non-APK buffer today, which false-positives on ordinary
+        // preallocated/zero-filled files (sparse installers, LevelDB, sparse
+        // images, DB files): they carry legitimate trailing 0x00 runs and
+        // scored 0.80 for nothing. Gate on a VALIDATED PE image (MZ + sane
+        // e_lfanew + PE\0\0), the only format where a big null tail is a
+        // real packer/inflater signal.
+        if !is_apk_file && find_valid_embedded_pe(data) == Some(0) {
             let non_zero_end = data.iter().rposition(|&b| b != 0).map_or(0, |idx| idx + 1);
             let trailing_zeros = data.len() - non_zero_end;
             let is_inflated = (trailing_zeros >= 65536)

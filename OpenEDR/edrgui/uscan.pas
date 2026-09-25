@@ -107,12 +107,14 @@ type
     FFirstShow: Boolean;
     FDetections: Integer;
     FMali, FKnown, FSafe, FUnk: Integer;
+    FSeen: TStringList;
     function LoadEngine: Boolean;
     procedure UnloadEngine;
     procedure TouchDone(Sender: TObject);
     procedure RenderNewDetections;
     procedure FinishScan(const AMsg: string);
     function VerdictText(V: TScanVerdict): string;
+    function UpsertEventRow(const AKey, ATime, AKind, ADetail: string): Boolean;
   protected
     procedure CreateParams(var Params: TCreateParams); override;
   public
@@ -557,6 +559,47 @@ begin
   FFirstShow := True;
   FLastId := -1;
   FDetections := 0;
+  FSeen := TStringList.Create;
+  FSeen.Sorted := True;
+  FSeen.Duplicates := dupIgnore;
+  FSeen.CaseSensitive := False;
+end;
+
+// Repeated detections of the SAME threat (same kind + same path) must not
+// flood the list: the first hit owns a row, every repeat bumps a counter on
+// that row and shows "xN" (x2, x3, ...) while refreshing the timestamp.
+// Returns True when a new row was added, False when folded into an existing
+// one.
+function TScanForm.UpsertEventRow(const AKey, ATime, AKind,
+  ADetail: string): Boolean;
+var
+  idx: Integer;
+  n: Integer;
+  it: TListItem;
+  label: string;
+begin
+  if FSeen.Find(AKey, idx) then
+  begin
+    it := TListItem(FSeen.Objects[idx]);
+    n := PtrInt(it.Data) + 1;
+    it.Data := Pointer(PtrInt(n));
+    label := ' x' + IntToStr(n);
+    it.Caption := ATime + label;
+    // Keep the newest occurrence in view without growing the list.
+    if idx > 0 then
+      ResultsView.Items.Move(it, 0);
+    Result := False;
+  end
+  else
+  begin
+    it := ResultsView.Items.Add;
+    it.Caption := ATime;
+    it.SubItems.Add(AKind);
+    it.SubItems.Add(ADetail);
+    it.Data := Pointer(PtrInt(1));
+    FSeen.AddObject(AKey, it);
+    Result := True;
+  end;
 end;
 
 procedure TScanForm.CreateParams(var Params: TCreateParams);
@@ -684,6 +727,7 @@ begin
       'Static engine unavailable (owlyshield_ransom.dll). Direct static verdicts off; pipeline + known-DB only.',
       asWarning, 4000);
   ResultsView.Items.Clear;
+  FSeen.Clear;
   FDetections := 0;
   FMali := 0;
   FKnown := 0;
@@ -756,7 +800,6 @@ var
   d: TJSONData;
   i: Integer;
   t, k, det: string;
-  item: TListItem;
 begin
   if FLastId < 0 then
     if not RpcLastId(FLastId) then
@@ -785,10 +828,8 @@ begin
             ev := it;
           if not EventSummary(ev, t, k, det) then
             Continue;
-          item := ResultsView.Items.Add;
-          item.Caption := t;
-          item.SubItems.Add(k);
-          item.SubItems.Add(det);
+          // Fold repeats of the same threat into one row (x2, x3, ...).
+          UpsertEventRow(LowerCase(k + '|' + det), t, k, det);
           Inc(FDetections);
         end;
       finally
@@ -803,7 +844,8 @@ begin
   except
     // Transport hiccup: next tick retries.
   end;
-  SummaryLbl.Caption := Format('%d detection(s) shown', [FDetections]);
+  SummaryLbl.Caption := Format('%d detection(s) in %d threat(s)',
+    [FDetections, ResultsView.Items.Count]);
 end;
 
 function EventSummary(Ev: TJSONData; out ATime, AKind, ADetail: string): Boolean;
@@ -869,6 +911,7 @@ begin
     FThread.WaitFor;
     FreeAndNil(FThread);
   end;
+  FreeAndNil(FSeen);
   UnloadEngine;
 end;
 
