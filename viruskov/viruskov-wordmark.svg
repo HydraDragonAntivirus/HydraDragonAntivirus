@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 270" width="100%" height="100%">
+  <!-- KATMAN: Zemin (Photopea Katmanı: Arkaplan) -->
+  <g id="Arkaplan">
+    <rect width="1000" height="270" fill="#06090A" />
+  </g>
+
+  <!-- KATMAN: VIRUSKOV Sade & Temiz Wordmark (Photopea Katmanı: Wordmark) -->
+  <g id="Wordmark">
+    <!-- VIRUS (Sade & Net Beyaz) -->
+    <g id="VIRUS" fill="#FFFFFF">
+      <!-- V1 -->
+      <polygon points="220,85 236,85 253,145 270,85 286,85 260,165 246,165" />
+      
+      <!-- I -->
+      <rect x="302" y="85" width="15" height="80" />
+      
+      <!-- R -->
+      <path d="M 333 165 L 333 85 L 372 85 C 385 85 391 92 391 108 C 391 123 384 130 371 133 L 391 165 L 373 165 L 354 135 L 348 135 L 348 165 Z 
+               M 348 99 L 348 122 L 369 122 C 374 122 376 118 376 110 C 376 103 374 99 369 99 Z" 
+            fill-rule="evenodd" />
+      
+      <!-- U -->
+      <path d="M 407 85 L 422 85 L 422 143 C 422 150 426 152 436 152 C 446 152 450 150 450 143 L 450 85 L 465 85 L 465 143 C 465 159 454 165 436 165 C 418 165 407 159 407 143 Z" />
+      
+      <!-- S -->
+      <path d="M 483 147 L 497 149 C 499 154 503 155 509 155 C 516 155 521 152 521 146 C 521 139 514 136 503 132 C 488 127 481 120 481 108 C 481 95 493 85 508 85 C 523 85 533 92 534 105 L 520 107 C 519 100 515 97 508 97 C 501 97 496 100 496 105 C 496 110 501 113 511 117 C 527 122 535 130 535 143 C 535 157 523 165 508 165 C 491 165 482 156 483 147 Z" />
+    </g>
+
+    <!-- KOV (Sade & Canlı Güvenlik Kırmızısı) -->
+    <g id="KOV" fill="#FF3344">
+      <!-- K -->
+      <g>
+        <rect x="559" y="85" width="15" height="80" />
+        <polygon points="574,124 617,85 598,85 574,108" />
+        <polygon points="581,118 617,165 598,165 574,130" />
+      </g>
+      
+      <!-- O -->
+      <path d="M 633 125 C 633 100 647 85 664 85 C 681 85 695 100 695 125 C 695 150 681 165 664 165 C 647 165 633 150 633 125 Z 
+               M 648 125 C 648 142 655 151 664 151 C 673 151 680 142 680 125 C 680 108 673 99 664 99 C 655 99 648 108 648 125 Z" 
+            fill-rule="evenodd" />
+      
+      <!-- V2 -->
+      <polygon points="711,85 727,85 744,145 761,85 777,85 751,165 737,165" />
+    </g>
+  </g>
+
+  <!-- KATMAN: Alt Kurumsal Başlık (Photopea Katmanı: Alt-Baslik) -->
+  <g id="Alt-Baslik">
+    <text x="498" y="205" 
+          font-family="'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif" 
+          font-size="11" 
+          font-weight="600" 
+          letter-spacing="12" 
+          fill="#6E828A" 
+          text-anchor="middle">ANTIVIRUS</text>
+  </g>
+</svg>

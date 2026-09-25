@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
+  <!-- Zemin -->
+  <rect width="256" height="256" fill="#06090A" />
+
+  <!-- Sade ve Temiz VK Monogramı -->
+  <g transform="translate(32, 68)">
+    <!-- V (Beyaz) -->
+    <polygon points="0,0 22,0 48,78 74,0 96,0 60,120 36,120" fill="#FFFFFF" />
+
+    <!-- K (Kırmızı) -->
+    <g fill="#FF3344">
+      <rect x="114" y="0" width="22" height="120" />
+      <polygon points="136,54 186,0 158,0 136,28" />
+      <polygon points="144,48 192,120 164,120 136,70" />
+    </g>
+  </g>
+</svg>
