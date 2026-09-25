@@ -801,7 +801,7 @@ impl FirewallRule {
 pub struct FirewallSettings {
     #[serde(default)]
     pub kernel_block_paths: Vec<String>,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub default_deny: bool,
     pub late_blocking_mode: bool,
     #[serde(default)]
@@ -844,7 +844,7 @@ impl Default for FirewallSettings {
 
         Self {
             kernel_block_paths: Vec::new(),
-            default_deny: false,
+            default_deny: true,
             late_blocking_mode: true,
             headless_mode: false,
             log_mode: false,
@@ -4205,7 +4205,7 @@ impl FirewallEngine {
 
         // --- 11. DEFAULT DENY & INTERACTIVE USER PROMPTING ---
         // If default deny is enabled and traffic was not blocked by an explicit rule, check digital signature and cloud verdict:
-        let default_deny = settings.read().map(|s| s.default_deny).unwrap_or(false);
+        let default_deny = settings.read().map(|s| s.default_deny).unwrap_or(true);
         if default_deny && should_forward && outbound && pid != 0 && pid != std::process::id() {
             let app_path = app_info.path.clone();
             if !app_path.is_empty() {
@@ -4226,7 +4226,9 @@ impl FirewallEngine {
                         reason = Some(format!("Blocked by user decision for {}", app_name));
                     }
                     Some(AppDecision::Pending) => {
-                        // Awaiting user decision: allow flow to continue without killing host internet while prompt is evaluated
+                        // Awaiting user decision: under default deny, block network traffic while prompt is evaluated
+                        should_forward = false;
+                        reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
                     }
                     None => {
                         // Evaluate criteria for interactive HIPS prompting:
@@ -4249,13 +4251,15 @@ impl FirewallEngine {
 
                         // 2. OpenEDR cloud / FLS verdict verification
                         let verdict_raw = am.openedr_verdicts.read().unwrap().get(&pid).cloned();
-                        let is_verdict_safe = match verdict_raw.as_deref() {
+                        let _is_verdict_safe = match verdict_raw.as_deref() {
                             Some("1") | Some("0x1") | Some("safe") => true,
                             _ => false,
                         };
 
-                        // Untrusted binary: dispatch interactive prompt to edrgui, fail-open during prompt
-                        if is_sig_untrusted && !is_verdict_safe {
+                        // Untrusted binary: under default deny, block traffic and dispatch interactive prompt to edrgui
+                        if true {
+                            should_forward = false;
+                            reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
                             let target_str = format!("{}:{}", info.dst_ip, info.dst_port);
                             let signer_desc = match &sig_info.signer_name {
                                 Some(s) if !s.is_empty() => format!(" | Signer: {}", s),
@@ -4263,7 +4267,11 @@ impl FirewallEngine {
                             };
                             let sig_label = format!("{}{}", sig_info.status.as_str(), signer_desc);
                             let raw_verdict = verdict_raw.unwrap_or_else(|| "unknown".to_string());
-                            let ask_reason = "Unsigned/untrusted binary with non-safe cloud verdict".to_string();
+                            let ask_reason = if is_sig_untrusted {
+                                "Unsigned/untrusted binary under default deny".to_string()
+                            } else {
+                                "Unregistered application under default deny".to_string()
+                            };
 
                             // Cache as Pending so we only send one prompt for this executable
                             am.resolve_decision(&app_path_lower, AppDecision::Pending);
@@ -4602,9 +4610,23 @@ impl FirewallEngine {
                     request_id, pid, app_name, exe_path, target, verdict, sig_status, reason
                 );
 
-                let wait_ok = unsafe { WaitNamedPipeW(PCWSTR(pipe_wide.as_ptr()), 1000) };
+                let mut wait_ok = unsafe { WaitNamedPipeW(PCWSTR(pipe_wide.as_ptr()), 1000) };
                 if !wait_ok.as_bool() {
-                    return;
+                    let candidates = [
+                        r"C:\Program Files\HydraDragonAntivirus\OpenEDR\edrgui.exe",
+                        r".\OpenEDR\edrgui\edrgui.exe",
+                        r".\edrgui.exe",
+                    ];
+                    for cand in &candidates {
+                        if std::path::Path::new(cand).exists() {
+                            let _ = std::process::Command::new(cand).spawn();
+                            break;
+                        }
+                    }
+                    wait_ok = unsafe { WaitNamedPipeW(PCWSTR(pipe_wide.as_ptr()), 3000) };
+                    if !wait_ok.as_bool() {
+                        return;
+                    }
                 }
 
                 let handle = match unsafe {
