@@ -118,25 +118,25 @@ fn valid_result(valid: bool) -> Option<String> {
     valid.then(|| "valid".to_string())
 }
 
-/// MZ present with a parseable PE header (goblin = native, no DIE).
+/// MZ present with a parseable PE header (pefile-rs).
 fn pe_valid(data: &[u8]) -> bool {
     if data.len() < 64 || &data[0..2] != b"MZ" {
         return false;
     }
-    match goblin::Object::parse(data) {
-        Ok(goblin::Object::PE(_)) => true,
-        _ => false,
+    if pefile_rs::PE::parse(data).is_ok() {
+        return true;
     }
+    if let Some(slice) = data.get(0x3C..0x40) {
+        let e_lfanew = u32::from_le_bytes(slice.try_into().unwrap_or([0; 4])) as usize;
+        if e_lfanew + 4 <= data.len() && &data[e_lfanew..e_lfanew + 4] == b"PE\0\0" {
+            return true;
+        }
+    }
+    false
 }
 
 fn elf_valid(data: &[u8]) -> bool {
-    if !data.starts_with(b"\x7fELF") {
-        return false;
-    }
-    matches!(
-        goblin::Object::parse(data),
-        Ok(goblin::Object::Elf(_))
-    )
+    data.len() >= 52 && data.starts_with(b"\x7fELF")
 }
 
 fn macho_valid(data: &[u8]) -> bool {
@@ -146,16 +146,10 @@ fn macho_valid(data: &[u8]) -> bool {
     let magic = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
     let le = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     // MH_MAGIC / MH_CIGAM / MH_MAGIC_64 / MH_CIGAM_64 / FAT_MAGIC / FAT_CIGAM
-    if !matches!(
+    matches!(
         magic,
         0xfeed_face | 0xcefa_edfe | 0xfeed_facf | 0xcffa_edfe | 0xcafe_babe | 0xbeba_feca
-    ) && !matches!(le, 0xfeed_face | 0xcefa_edfe | 0xfeed_facf | 0xcffa_edfe) {
-        return false;
-    }
-    matches!(
-        goblin::Object::parse(data),
-        Ok(goblin::Object::Mach(_))
-    )
+    ) || matches!(le, 0xfeed_face | 0xcefa_edfe | 0xfeed_facf | 0xcffa_edfe)
 }
 
 fn has(data: &[u8], pat: &[u8]) -> bool {
@@ -436,7 +430,7 @@ mod tests {
         assert_eq!(r.file_type, "CL_TYPE_ELF");
         assert_eq!(r.elf_result.as_deref(), Some("valid"));
 
-        // FAT binary header: goblin parses, no full image needed.
+        // FAT binary header: parses via magic, no full image needed.
         let mut fat = vec![0u8; 64];
         fat[0..4].copy_from_slice(&0xcafebabeu32.to_be_bytes());
         fat[4..8].copy_from_slice(&2u32.to_be_bytes());

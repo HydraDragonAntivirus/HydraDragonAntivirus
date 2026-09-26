@@ -3,11 +3,15 @@ unit UAlert;
 { ---------------------------------------------------------------------------
   UAlert
   ---------------------------------------------------------------------------
-  Small toast/notification window, matching the "no direct UI" requirement.
+  Small toast/notification and interactive HIPS prompt window.
   When TAlertForm.ShowAlert(...) is called, a card appears instantly in the
   bottom-right corner of the screen and closes by itself after a few
-  seconds. If several notifications are shown at once, they stack
-  vertically.
+  seconds.
+  When TAlertForm.ShowInteractivePrompt(...) is called, an interactive
+  firewall decision prompt appears. If multiple prompts arrive in succession,
+  they are queued in FIFO order without overwriting the currently displayed
+  prompt. As each prompt is answered (Allow/Block), the queue automatically
+  advances to the next pending prompt until all are resolved.
   --------------------------------------------------------------------------- }
 
 {$mode objfpc}{$H+}
@@ -28,6 +32,7 @@ type
     IsPrompt: Boolean;
     RequestId: string;
     ExePath: string;
+    Resolved: Boolean;
   end;
 
   TAlertForm = class(TForm)
@@ -46,22 +51,24 @@ type
     procedure FormMouseEnter(Sender: TObject);
     procedure FormMouseLeave(Sender: TObject);
   private
-  class var FInstance: TAlertForm;
-  class var FHistory: array of TAlertItem;
-  class var FCurrentIndex: Integer;
-  BtnPrev: TButton;
-  BtnNext: TButton;
-  LblCount: TLabel;
-  BtnAllowAlways: TButton;
-  BtnAllowOnce: TButton;
-  BtnBlock: TButton;
-  BtnQuarantine: TButton;
-  MemoPromptLog: TMemo;
+    class var FInstance: TAlertForm;
+    class var FHistory: array of TAlertItem;
+    class var FCurrentIndex: Integer;
+    BtnPrev: TButton;
+    BtnNext: TButton;
+    LblCount: TLabel;
+    BtnAllowAlways: TButton;
+    BtnAllowOnce: TButton;
+    BtnBlock: TButton;
+    BtnQuarantine: TButton;
+    MemoPromptLog: TMemo;
     FSeverity: TAlertSeverity;
     FAutoCloseMs: Integer;
     procedure ApplySeverityStyle;
     procedure PositionAtCorner;
     procedure CloseAlert;
+    procedure AdvanceOrClose;
+    function FindNextUnresolvedPrompt: Integer;
     procedure ShowCurrentAlert;
     procedure UpdateNavigation;
     procedure BtnPrevClick(Sender: TObject);
@@ -109,6 +116,7 @@ begin
   if IOResult <> 0 then Exit;
   
   Item.Title := ''; Item.Msg := ''; Item.Severity := asInfo; Item.AutoCloseMs := 0;
+  Item.IsPrompt := False; Item.RequestId := ''; Item.ExePath := ''; Item.Resolved := True;
   
   while not EOF(F) do
   begin
@@ -121,6 +129,7 @@ begin
         FHistory[Length(FHistory) - 1] := Item;
       end;
       Item.Title := ''; Item.Msg := ''; Item.Severity := asInfo; Item.AutoCloseMs := 0;
+      Item.IsPrompt := False; Item.RequestId := ''; Item.ExePath := ''; Item.Resolved := True;
     end
     else if Item.Title = '' then
       Item.Title := Line
@@ -208,6 +217,10 @@ begin
     Exit;
   Item.Severity := ASeverity;
   Item.AutoCloseMs := AAutoCloseMs;
+  Item.IsPrompt := False;
+  Item.RequestId := '';
+  Item.ExePath := '';
+  Item.Resolved := True;
 
   // Create/reuse the form FIRST: FormCreate must not run after history
   // was already populated (it used to reset it and blank out the toast).
@@ -220,6 +233,8 @@ begin
     for NewIndex := 0 to Length(FHistory) - 2 do
       FHistory[NewIndex] := FHistory[NewIndex + 1];
     SetLength(FHistory, Length(FHistory) - 1);
+    if FCurrentIndex > 0 then
+      Dec(FCurrentIndex);
   end;
 
   NewIndex := Length(FHistory);
@@ -230,7 +245,7 @@ begin
   // If the currently displayed alert is an interactive prompt awaiting user action,
   // do NOT overwrite it with a passive notification! Keep the interactive prompt visible.
   if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory) - 1) and
-     (FHistory[FCurrentIndex].IsPrompt) and (FInstance.Visible) then
+     (FHistory[FCurrentIndex].IsPrompt) and (not FHistory[FCurrentIndex].Resolved) and (FInstance.Visible) then
   begin
     FInstance.UpdateNavigation;
     Exit;
@@ -436,15 +451,13 @@ begin
   FSeverity := Item.Severity;
   FAutoCloseMs := Item.AutoCloseMs;
 
-  LblTitle.Caption := Item.Title;
-  LblMessage.Caption := Item.Msg;
   ApplySeverityStyle;
   UpdateNavigation;
 
   if Item.IsPrompt then
   begin
-    Width := 640;
-    Height := 460;
+    Width := 680;
+    Height := 470;
     BtnQuarantine.Left := ClientWidth - BtnQuarantine.Width - 14;
     BtnBlock.Left := BtnQuarantine.Left - BtnBlock.Width - 8;
     BtnAllowOnce.Left := BtnBlock.Left - BtnAllowOnce.Width - 8;
@@ -453,6 +466,17 @@ begin
     BtnAllowOnce.Top := BtnAllowAlways.Top;
     BtnBlock.Top := BtnAllowAlways.Top;
     BtnQuarantine.Top := BtnAllowAlways.Top;
+
+    BtnAllowAlways.Enabled := not Item.Resolved;
+    BtnAllowOnce.Enabled := not Item.Resolved;
+    BtnBlock.Enabled := not Item.Resolved;
+    BtnQuarantine.Enabled := not Item.Resolved;
+
+    if Item.Resolved then
+      LblTitle.Caption := Item.Title + ' [RESOLVED]'
+    else
+      LblTitle.Caption := Item.Title;
+
     LblMessage.Visible := False;
     if MemoPromptLog <> nil then
     begin
@@ -461,19 +485,23 @@ begin
       MemoPromptLog.Font.Height := -12;
       MemoPromptLog.Text := Item.Msg;
     end;
+
     BtnAllowAlways.Visible := True;
     BtnAllowOnce.Visible := True;
     BtnBlock.Visible := True;
     BtnQuarantine.Visible := True;
-    BtnPrev.Visible := False;
-    BtnNext.Visible := False;
-    LblCount.Visible := False;
+
+    BtnPrev.Visible := True;
+    BtnNext.Visible := True;
+    LblCount.Visible := True;
     TimerAutoClose.Enabled := False;
   end
   else
   begin
     Width := 480;
     Height := 220;
+    LblTitle.Caption := Item.Title;
+    LblMessage.Caption := Item.Msg;
     if MemoPromptLog <> nil then
       MemoPromptLog.Visible := False;
     LblMessage.Visible := True;
@@ -501,6 +529,7 @@ begin
   Item.IsPrompt := True;
   Item.RequestId := ARequestId;
   Item.ExePath := AExePath;
+  Item.Resolved := False;
 
   if FInstance = nil then
     FInstance := TAlertForm.Create(Application);
@@ -511,13 +540,24 @@ begin
     for NewIndex := 0 to Length(FHistory) - 2 do
       FHistory[NewIndex] := FHistory[NewIndex + 1];
     SetLength(FHistory, Length(FHistory) - 1);
+    if FCurrentIndex > 0 then
+      Dec(FCurrentIndex);
   end;
 
   NewIndex := Length(FHistory);
   SetLength(FHistory, NewIndex + 1);
   FHistory[NewIndex] := Item;
-  FCurrentIndex := NewIndex;
 
+  // If an interactive prompt is ALREADY visible and waiting for user decision,
+  // do NOT wipe it out! Keep the current prompt on screen and update the queue counter.
+  if FInstance.Visible and (FCurrentIndex >= 0) and (FCurrentIndex < NewIndex) and
+     (FHistory[FCurrentIndex].IsPrompt) and (not FHistory[FCurrentIndex].Resolved) then
+  begin
+    FInstance.UpdateNavigation;
+    Exit;
+  end;
+
+  FCurrentIndex := NewIndex;
   FInstance.ShowCurrentAlert;
   FInstance.PositionAtCorner;
   FInstance.AlphaBlend := True;
@@ -528,43 +568,91 @@ begin
     SWP_NOMOVE or SWP_NOSIZE or SWP_SHOWWINDOW);
 end;
 
+function TAlertForm.FindNextUnresolvedPrompt: Integer;
+var
+  i: Integer;
+begin
+  // Search from current position forward first
+  for i := FCurrentIndex + 1 to High(FHistory) do
+  begin
+    if FHistory[i].IsPrompt and (not FHistory[i].Resolved) then
+      Exit(i);
+  end;
+  // Then search from beginning up to current position
+  for i := 0 to FCurrentIndex - 1 do
+  begin
+    if FHistory[i].IsPrompt and (not FHistory[i].Resolved) then
+      Exit(i);
+  end;
+  Result := -1;
+end;
+
+procedure TAlertForm.AdvanceOrClose;
+var
+  NextIdx: Integer;
+begin
+  NextIdx := FindNextUnresolvedPrompt;
+  if NextIdx >= 0 then
+  begin
+    FCurrentIndex := NextIdx;
+    ShowCurrentAlert;
+    PositionAtCorner;
+    BringToFront;
+    SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0,
+      SWP_NOMOVE or SWP_NOSIZE or SWP_SHOWWINDOW);
+  end
+  else
+    CloseAlert;
+end;
+
 procedure TAlertForm.BtnAllowAlwaysClick(Sender: TObject);
 begin
-  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) and
+     (not FHistory[FCurrentIndex].Resolved) then
   begin
     SendHipDecision(FHistory[FCurrentIndex].RequestId, 'allow_always', FHistory[FCurrentIndex].ExePath);
-    CloseAlert;
+    FHistory[FCurrentIndex].Resolved := True;
+    AdvanceOrClose;
   end;
 end;
 
 procedure TAlertForm.BtnAllowOnceClick(Sender: TObject);
 begin
-  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) and
+     (not FHistory[FCurrentIndex].Resolved) then
   begin
     SendHipDecision(FHistory[FCurrentIndex].RequestId, 'allow_once', FHistory[FCurrentIndex].ExePath);
-    CloseAlert;
+    FHistory[FCurrentIndex].Resolved := True;
+    AdvanceOrClose;
   end;
 end;
 
 procedure TAlertForm.BtnBlockClick(Sender: TObject);
 begin
-  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) and
+     (not FHistory[FCurrentIndex].Resolved) then
   begin
     SendHipDecision(FHistory[FCurrentIndex].RequestId, 'block', FHistory[FCurrentIndex].ExePath);
-    CloseAlert;
+    FHistory[FCurrentIndex].Resolved := True;
+    AdvanceOrClose;
   end;
 end;
 
 procedure TAlertForm.BtnQuarantineClick(Sender: TObject);
 begin
-  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) and
+     (not FHistory[FCurrentIndex].Resolved) then
   begin
     SendHipDecision(FHistory[FCurrentIndex].RequestId, 'quarantine', FHistory[FCurrentIndex].ExePath);
-    CloseAlert;
+    FHistory[FCurrentIndex].Resolved := True;
+    AdvanceOrClose;
   end;
 end;
 
 procedure TAlertForm.UpdateNavigation;
+var
+  UnresolvedCount: Integer;
+  i: Integer;
 begin
   if (BtnPrev = nil) or (BtnNext = nil) then
     Exit;
@@ -576,8 +664,16 @@ begin
 
   if LblCount <> nil then
   begin
+    UnresolvedCount := 0;
+    for i := 0 to High(FHistory) do
+      if FHistory[i].IsPrompt and (not FHistory[i].Resolved) then
+        Inc(UnresolvedCount);
+
     if FCurrentIndex < 0 then
       LblCount.Caption := '0/' + IntToStr(Length(FHistory))
+    else if UnresolvedCount > 1 then
+      LblCount.Caption := IntToStr(FCurrentIndex + 1) + '/' +
+        IntToStr(Length(FHistory)) + ' (' + IntToStr(UnresolvedCount) + ' pending)'
     else
       LblCount.Caption := IntToStr(FCurrentIndex + 1) + '/' +
         IntToStr(Length(FHistory));
@@ -630,7 +726,15 @@ end;
 
 procedure TAlertForm.BtnCloseClick(Sender: TObject);
 begin
-  CloseAlert;
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) and
+     (FHistory[FCurrentIndex].IsPrompt) and (not FHistory[FCurrentIndex].Resolved) then
+  begin
+    SendHipDecision(FHistory[FCurrentIndex].RequestId, 'block', FHistory[FCurrentIndex].ExePath);
+    FHistory[FCurrentIndex].Resolved := True;
+    AdvanceOrClose;
+  end
+  else
+    CloseAlert;
 end;
 
 procedure TAlertForm.CloseAlert;

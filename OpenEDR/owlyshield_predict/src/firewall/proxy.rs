@@ -856,7 +856,7 @@ async fn handle_proxy_request(
     let _mock_context = PacketContext {
         process_id: resolved_pid,
         process_name: app_name,
-        process_path: app_path,
+        process_path: app_path.clone(),
     };
 
     // ── SDK Rule Evaluation (request) ───────────────────────────────────────
@@ -1159,6 +1159,11 @@ async fn handle_proxy_request(
             level: LogLevel::Info,
             message,
         });
+    }
+
+    if !app_path.is_empty() {
+        let details = format!("HTTP {} {} [Status: {}]", method, full_url, status);
+        super::engine::FirewallEngine::send_behavior_event(&app_path, &details);
     }
 
     Ok(http_mitm_proxy::hyper::Response::from_parts(

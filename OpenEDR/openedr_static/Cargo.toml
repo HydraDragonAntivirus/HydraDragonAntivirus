@@ -38,8 +38,6 @@ compact_str = "0.9"
 sha1collisiondetection = "0.3.4"
 # Web parity: APK ZIP inflation (pure-Rust, no OS) + shared BinaryFuse16 .xf
 flate2 = "1"
-# Native PE/ELF/Mach-O validation for ml::filetype (no external binaries)
-goblin = "0.10.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = [

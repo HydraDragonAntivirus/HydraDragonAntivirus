@@ -4260,9 +4260,17 @@ impl FirewallEngine {
                         if true {
                             should_forward = false;
                             reason = Some(format!("Default Deny: awaiting authorization for {}", app_name));
-                            let target_str = format!("{}:{}", info.dst_ip, info.dst_port);
+                            let target_str = if let Some(ref url) = info.full_url {
+                                url.clone()
+                            } else if let Some(ref host) = info.hostname {
+                                format!("{}:{} ({})", host, info.dst_port, info.dst_ip)
+                            } else if let Some(host) = dns_handler.resolve_ip(&info.dst_ip.to_string()) {
+                                format!("{}:{} ({})", host, info.dst_port, info.dst_ip)
+                            } else {
+                                format!("{}:{}", info.dst_ip, info.dst_port)
+                            };
                             let signer_desc = match &sig_info.signer_name {
-                                Some(s) if !s.is_empty() => format!(" | Signer: {}", s),
+                                Some(s) if !s.is_empty() => format!(" (Signer: {})", s),
                                 _ => String::new(),
                             };
                             let sig_label = format!("{}{}", sig_info.status.as_str(), signer_desc);
@@ -4599,7 +4607,7 @@ impl FirewallEngine {
                 // Static file verdicts live in openedr_static.dll now; the
                 // firewall keeps the cloud verdict for the HIPS prompt.
                 let ml_desc = "ML: via openedr_static.dll".to_string();
-                let verdict = format!("{} | {}", raw_verdict, ml_desc);
+                let verdict = format!("{} - {}", raw_verdict, ml_desc);
 
                 const PIPE: &str = r"\\.\pipe\HydraHipEvent";
                 let mut pipe_wide: Vec<u16> = PIPE.encode_utf16().collect();
@@ -4710,6 +4718,60 @@ impl FirewallEngine {
                 }
             })
             .expect("failed to spawn hips_ask thread");
+    }
+
+    pub fn send_behavior_event(app_path: &str, details: &str) {
+        if app_path.is_empty() {
+            return;
+        }
+        let path = app_path.to_string();
+        let det = details.to_string();
+        std::thread::Builder::new()
+            .name("behavior_event_sender".to_string())
+            .spawn(move || {
+                use windows::Win32::Foundation::CloseHandle;
+                use windows::Win32::Storage::FileSystem::{
+                    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
+                    FlushFileBuffers, OPEN_EXISTING, WriteFile,
+                };
+                use windows::Win32::System::Pipes::WaitNamedPipeW;
+                use windows::core::PCWSTR;
+
+                const PIPE: &str = r"\\.\pipe\HydraHipEvent";
+                let mut pipe_wide: Vec<u16> = PIPE.encode_utf16().collect();
+                pipe_wide.push(0);
+                let pcwstr = PCWSTR(pipe_wide.as_ptr());
+                let message = format!("BEHAVIOR_EVENT:{}|{}\n", path, det);
+                let wait_ok = unsafe { WaitNamedPipeW(pcwstr, 100) };
+                if wait_ok.as_bool() {
+                    if let Ok(handle) = unsafe {
+                        CreateFileW(
+                            pcwstr,
+                            FILE_GENERIC_WRITE.0,
+                            FILE_SHARE_NONE,
+                            None,
+                            OPEN_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL,
+                            windows::Win32::Foundation::HANDLE::default(),
+                        )
+                    } {
+                        if !handle.is_invalid() {
+                            let mut written = 0u32;
+                            let _ = unsafe {
+                                WriteFile(
+                                    handle,
+                                    Some(message.as_bytes()),
+                                    Some(&mut written as *mut u32),
+                                    None,
+                                )
+                            };
+                            let _ = unsafe { FlushFileBuffers(handle) };
+                            let _ = unsafe { CloseHandle(handle) };
+                        }
+                    }
+                }
+            })
+            .ok();
     }
 
     fn extract_payload_text(bytes: &[u8]) -> Option<String> {
