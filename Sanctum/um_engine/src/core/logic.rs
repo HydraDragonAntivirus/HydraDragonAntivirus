@@ -47,10 +47,7 @@ fn forward_ghost_hunt_to_owlyshield(
 
 /// Parse kernel driver telemetry messages (HVCI_BLOCK, DRIVER_LOAD, DRIVER_SERVICE_SET)
 /// and forward them formatted as OpenEDR JSON events to \\.\pipe\SanctumTelemetry.
-fn forward_driver_telemetry_to_openedr(
-    raw_msg: &str,
-    pipe_tx: &tokio::sync::mpsc::Sender<String>,
-) {
+fn forward_driver_telemetry_to_openedr(raw_msg: &str, pipe_tx: &tokio::sync::mpsc::Sender<String>) {
     if !raw_msg.starts_with("type=DRIVER_LOAD;")
         && !raw_msg.starts_with("type=HVCI_BLOCK;")
         && !raw_msg.starts_with("type=DRIVER_SERVICE_SET;")
@@ -68,7 +65,11 @@ fn forward_driver_telemetry_to_openedr(
     let event_type = fields.get("type").copied().unwrap_or("DRIVER_LOAD");
     let pid: u32 = fields.get("pid").and_then(|p| p.parse().ok()).unwrap_or(0);
     let image = fields.get("image").copied().unwrap_or("");
-    let registry = fields.get("registry").copied().or_else(|| fields.get("key").copied()).unwrap_or("");
+    let registry = fields
+        .get("registry")
+        .copied()
+        .or_else(|| fields.get("key").copied())
+        .unwrap_or("");
     let publisher = fields.get("publisher").copied().unwrap_or("");
     let issuer = fields.get("issuer").copied().unwrap_or("");
     let classification = fields.get("classification").copied().unwrap_or("");
