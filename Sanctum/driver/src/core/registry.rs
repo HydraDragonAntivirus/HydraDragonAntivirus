@@ -6,14 +6,13 @@ use core::{
     sync::atomic::{AtomicI64, Ordering},
 };
 
+use crate::utils::{Log, get_process_name};
 use alloc::{format, string::String, vec::Vec};
-use crate::utils::{get_process_name, Log};
 use wdk::{nt_success, println};
 use wdk_sys::{
     _REG_NOTIFY_CLASS::{RegNtPreDeleteKey, RegNtPreSetValueKey},
-    DRIVER_OBJECT, LARGE_INTEGER, NTSTATUS, REG_DELETE_KEY_INFORMATION,
-    REG_SET_VALUE_KEY_INFORMATION, REG_NOTIFY_CLASS, STATUS_ACCESS_DENIED, STATUS_SUCCESS,
-    UNICODE_STRING,
+    DRIVER_OBJECT, LARGE_INTEGER, NTSTATUS, REG_DELETE_KEY_INFORMATION, REG_NOTIFY_CLASS,
+    REG_SET_VALUE_KEY_INFORMATION, STATUS_ACCESS_DENIED, STATUS_SUCCESS, UNICODE_STRING,
     ntddk::{
         CmCallbackGetKeyObjectIDEx, CmCallbackReleaseKeyObjectIDEx, CmRegisterCallbackEx,
         CmUnRegisterCallback, RtlInitUnicodeString,
@@ -167,7 +166,8 @@ fn monitor_driver_service_set_value(object: *mut c_void) -> Result<NTSTATUS, ()>
     if val_name_lower == "imagepath" {
         if !set_info.Data.is_null() && set_info.DataSize >= 2 {
             let data_u16_len = (set_info.DataSize as usize) / 2;
-            let data_slice = unsafe { core::slice::from_raw_parts(set_info.Data as *const u16, data_u16_len) };
+            let data_slice =
+                unsafe { core::slice::from_raw_parts(set_info.Data as *const u16, data_u16_len) };
             let data_str = String::from_utf16_lossy(data_slice).to_lowercase();
             if data_str.contains(".sys") {
                 is_driver_install = true;
