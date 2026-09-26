@@ -105,7 +105,32 @@ unsafe extern "C" fn on_image_verification_info(
         }
     };
 
-    println!("[sanctum] [DRIVER_VERIFY] Driver image verified: {}", name);
+    let reg = unsafe {
+        match unicode_to_string(&(*image_info).registry_path) {
+            Ok(s) => s,
+            Err(_) => String::new(),
+        }
+    };
+
+    let publisher = unsafe {
+        match unicode_to_string(&(*image_info).certificate_publisher) {
+            Ok(s) => s,
+            Err(_) => "Unknown".to_string(),
+        }
+    };
+
+    let flags = unsafe { (*image_info).image_flags };
+    let log_msg = format!(
+        "type=DRIVER_LOAD;pid=0;image={};registry={};publisher={};issuer=;flags={:#x};classification=Info",
+        name, reg, publisher, flags
+    );
+    println!("[sanctum] [DRIVER_VERIFY] {}", log_msg);
+
+    let ptr = DRIVER_MESSAGES.load(Ordering::SeqCst);
+    if !ptr.is_null() {
+        let messages = unsafe { &mut *ptr };
+        messages.add_message_to_queue(log_msg);
+    }
 }
 
 /// Callback for HVCI-blocked drivers/images (Block - New in Windows 11 24H2)
@@ -132,9 +157,10 @@ unsafe extern "C" fn on_image_verification_block(
         }
     };
 
+    let flags = unsafe { (*image_info).image_flags };
     let alert_msg = format!(
-        "[HVCI_BLOCKED] BYOVD Alert: Driver blocked by HVCI Code Integrity! Path: '{}', Publisher: '{}'",
-        image_name, publisher
+        "type=HVCI_BLOCK;pid=0;image={};registry=;publisher={};issuer=;flags={:#x};classification=Untrusted",
+        image_name, publisher, flags
     );
 
     println!("[sanctum] [ALERT] {}", alert_msg);

@@ -30,6 +30,7 @@ type
     Severity: TAlertSeverity;
     AutoCloseMs: Integer;
     IsPrompt: Boolean;
+    IsRestartPrompt: Boolean;
     RequestId: string;
     ExePath: string;
     Resolved: Boolean;
@@ -61,6 +62,8 @@ type
     BtnAllowOnce: TButton;
     BtnBlock: TButton;
     BtnQuarantine: TButton;
+    BtnRestartNow: TButton;
+    BtnRestartLater: TButton;
     MemoPromptLog: TMemo;
     FSeverity: TAlertSeverity;
     FAutoCloseMs: Integer;
@@ -77,10 +80,13 @@ type
     procedure BtnAllowOnceClick(Sender: TObject);
     procedure BtnBlockClick(Sender: TObject);
     procedure BtnQuarantineClick(Sender: TObject);
+    procedure BtnRestartNowClick(Sender: TObject);
+    procedure BtnRestartLaterClick(Sender: TObject);
   public
     class procedure ShowAlert(const ATitle, AMsg: string;
       ASeverity: TAlertSeverity = asInfo; AAutoCloseMs: Integer = 6000);
     class procedure ShowInteractivePrompt(const ATitle, AMsg, ARequestId, AExePath: string);
+    class procedure ShowRestartPrompt(const ATitle, AMsg: string);
     class procedure LoadHistory;
     class procedure SaveHistory;
     class procedure AppendLastHistoryItem;
@@ -388,6 +394,27 @@ begin
   MemoPromptLog.Font.Height := -11;
   MemoPromptLog.BorderStyle := bsNone;
   MemoPromptLog.Visible := False;
+
+  BtnRestartNow := TButton.Create(Self);
+  BtnRestartNow.Parent := Self;
+  BtnRestartNow.Caption := 'Restart Now';
+  BtnRestartNow.Width := 130;
+  BtnRestartNow.Height := 34;
+  BtnRestartNow.Font.Name := 'Segoe UI';
+  BtnRestartNow.Font.Style := [fsBold];
+  BtnRestartNow.Anchors := [akRight, akBottom];
+  BtnRestartNow.Visible := False;
+  BtnRestartNow.OnClick := @BtnRestartNowClick;
+
+  BtnRestartLater := TButton.Create(Self);
+  BtnRestartLater.Parent := Self;
+  BtnRestartLater.Caption := 'Restart Later';
+  BtnRestartLater.Width := 110;
+  BtnRestartLater.Height := 34;
+  BtnRestartLater.Font.Name := 'Segoe UI';
+  BtnRestartLater.Anchors := [akRight, akBottom];
+  BtnRestartLater.Visible := False;
+  BtnRestartLater.OnClick := @BtnRestartLaterClick;
 end;
 
 procedure TAlertForm.FormDestroy(Sender: TObject);
@@ -454,8 +481,38 @@ begin
   ApplySeverityStyle;
   UpdateNavigation;
 
-  if Item.IsPrompt then
+  if Item.IsRestartPrompt then
   begin
+    Width := 560;
+    Height := 240;
+    LblTitle.Caption := Item.Title;
+    LblMessage.Caption := Item.Msg;
+    if MemoPromptLog <> nil then
+      MemoPromptLog.Visible := False;
+    LblMessage.Visible := True;
+
+    BtnAllowAlways.Visible := False;
+    BtnAllowOnce.Visible := False;
+    BtnBlock.Visible := False;
+    BtnQuarantine.Visible := False;
+
+    BtnRestartNow.Left := ClientWidth - BtnRestartNow.Width - 14;
+    BtnRestartNow.Top := ClientHeight - BtnRestartNow.Height - 12;
+    BtnRestartNow.Visible := True;
+
+    BtnRestartLater.Left := BtnRestartNow.Left - BtnRestartLater.Width - 8;
+    BtnRestartLater.Top := BtnRestartNow.Top;
+    BtnRestartLater.Visible := True;
+
+    BtnPrev.Visible := False;
+    BtnNext.Visible := False;
+    LblCount.Visible := False;
+    TimerAutoClose.Enabled := False;
+  end
+  else if Item.IsPrompt then
+  begin
+    BtnRestartNow.Visible := False;
+    BtnRestartLater.Visible := False;
     Width := 680;
     Height := 470;
     BtnQuarantine.Left := ClientWidth - BtnQuarantine.Width - 14;
@@ -498,6 +555,8 @@ begin
   end
   else
   begin
+    BtnRestartNow.Visible := False;
+    BtnRestartLater.Visible := False;
     Width := 480;
     Height := 220;
     LblTitle.Caption := Item.Title;
@@ -556,6 +615,49 @@ begin
     FInstance.UpdateNavigation;
     Exit;
   end;
+
+  FCurrentIndex := NewIndex;
+  FInstance.ShowCurrentAlert;
+  FInstance.PositionAtCorner;
+  FInstance.AlphaBlend := True;
+  FInstance.AlphaBlendValue := 255;
+  FInstance.Show;
+  FInstance.BringToFront;
+  SetWindowPos(FInstance.Handle, HWND_TOPMOST, 0, 0, 0, 0,
+    SWP_NOMOVE or SWP_NOSIZE or SWP_SHOWWINDOW);
+end;
+
+class procedure TAlertForm.ShowRestartPrompt(const ATitle, AMsg: string);
+var
+  Item: TAlertItem;
+  NewIndex: Integer;
+begin
+  Item.Title := Trim(ATitle);
+  Item.Msg := Trim(AMsg);
+  Item.Severity := asCritical;
+  Item.AutoCloseMs := 0;
+  Item.IsPrompt := False;
+  Item.IsRestartPrompt := True;
+  Item.RequestId := '';
+  Item.ExePath := '';
+  Item.Resolved := False;
+
+  if FInstance = nil then
+    FInstance := TAlertForm.Create(Application);
+
+  // Cap in-memory history to 100 items
+  if Length(FHistory) >= 100 then
+  begin
+    for NewIndex := 0 to Length(FHistory) - 2 do
+      FHistory[NewIndex] := FHistory[NewIndex + 1];
+    SetLength(FHistory, Length(FHistory) - 1);
+    if FCurrentIndex > 0 then
+      Dec(FCurrentIndex);
+  end;
+
+  NewIndex := Length(FHistory);
+  SetLength(FHistory, NewIndex + 1);
+  FHistory[NewIndex] := Item;
 
   FCurrentIndex := NewIndex;
   FInstance.ShowCurrentAlert;
@@ -647,6 +749,40 @@ begin
     FHistory[FCurrentIndex].Resolved := True;
     AdvanceOrClose;
   end;
+end;
+
+procedure RebootSystem;
+var
+  hToken: THandle;
+  tkp: TOKEN_PRIVILEGES;
+begin
+  if OpenProcessToken(GetCurrentProcess, TOKEN_ADJUST_PRIVILEGES or TOKEN_QUERY, hToken) then
+  try
+    if LookupPrivilegeValue(nil, 'SeShutdownPrivilege', tkp.Privileges[0].Luid) then
+    begin
+      tkp.PrivilegeCount := 1;
+      tkp.Privileges[0].Attributes := SE_PRIVILEGE_ENABLED;
+      AdjustTokenPrivileges(hToken, False, @tkp, SizeOf(TOKEN_PRIVILEGES), PTOKEN_PRIVILEGES(nil), PDWord(nil));
+    end;
+  finally
+    CloseHandle(hToken);
+  end;
+
+  if not ExitWindowsEx(EWX_REBOOT or EWX_FORCE, 0) then
+  begin
+    ExecuteProcess('shutdown.exe', ['/r', '/t', '2', '/f', '/c', 'HydraDragon Antivirus: Rebooting to finalize threat removal']);
+  end;
+end;
+
+procedure TAlertForm.BtnRestartNowClick(Sender: TObject);
+begin
+  RebootSystem;
+  CloseAlert;
+end;
+
+procedure TAlertForm.BtnRestartLaterClick(Sender: TObject);
+begin
+  CloseAlert;
 end;
 
 procedure TAlertForm.UpdateNavigation;

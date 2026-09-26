@@ -270,8 +270,20 @@ extern "C" fn image_load_callback(
         return;
     }
 
-    // Check that we aren't dealing with a driver load, we dont care about those for now
+    // Check if this is a kernel driver load (pid is null)
     if pid.is_null() {
+        if let Some(drv_name) = get_image_name(image_name) {
+            let log_msg = format!(
+                "type=DRIVER_LOAD;pid=0;image={};registry=;publisher=;issuer=;flags=0;classification=Info",
+                drv_name
+            );
+            println!("[sanctum] [DRIVER_LOAD] {}", drv_name);
+            let ptr = crate::device_comms::DRIVER_MESSAGES.load(core::sync::atomic::Ordering::SeqCst);
+            if !ptr.is_null() {
+                let messages = unsafe { &mut *ptr };
+                messages.add_message_to_queue(log_msg);
+            }
+        }
         return;
     }
 

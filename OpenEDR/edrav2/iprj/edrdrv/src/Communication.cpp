@@ -1482,6 +1482,116 @@ static NTSTATUS OwlyGetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNI
     return STATUS_SUCCESS;
 }
 
+// Kernel-mode implementation of MoveFileExW(..., MOVEFILE_DELAY_UNTIL_REBOOT)
+// Directly appends the file path to \Registry\Machine\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations
+static NTSTATUS OwlyScheduleFileDeleteOnRebootKernel(_In_ PUNICODE_STRING FilePath)
+{
+    if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    UNICODE_STRING keyName;
+    RtlInitUnicodeString(&keyName, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\Session Manager");
+
+    OBJECT_ATTRIBUTES keyObjAttr;
+    InitializeObjectAttributes(&keyObjAttr, &keyName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+    HANDLE hKey = NULL;
+    NTSTATUS status = ZwOpenKey(&hKey, KEY_READ | KEY_WRITE, &keyObjAttr);
+    if (!NT_SUCCESS(status))
+    {
+        status = ZwCreateKey(&hKey, KEY_READ | KEY_WRITE, &keyObjAttr, 0, NULL, REG_OPTION_NON_VOLATILE, NULL);
+        if (!NT_SUCCESS(status))
+        {
+            return status;
+        }
+    }
+
+    UNICODE_STRING valName;
+    RtlInitUnicodeString(&valName, L"PendingFileRenameOperations");
+
+    // Check existing size of PendingFileRenameOperations
+    ULONG neededSize = 0;
+    status = ZwQueryValueKey(hKey, &valName, KeyValuePartialInformation, NULL, 0, &neededSize);
+
+    PKEY_VALUE_PARTIAL_INFORMATION pOldInfo = NULL;
+    ULONG oldDataSize = 0;
+    if (neededSize > 0)
+    {
+        pOldInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, neededSize, 'mRpO');
+        if (pOldInfo)
+        {
+            status = ZwQueryValueKey(hKey, &valName, KeyValuePartialInformation, pOldInfo, neededSize, &neededSize);
+            if (NT_SUCCESS(status) && pOldInfo->Type == REG_MULTI_SZ && pOldInfo->DataLength > sizeof(WCHAR))
+            {
+                oldDataSize = pOldInfo->DataLength;
+                // Exclude double null terminator from old data
+                if (oldDataSize >= sizeof(WCHAR) * 2)
+                {
+                    WCHAR* pData = (WCHAR*)pOldInfo->Data;
+                    ULONG wcharCount = oldDataSize / sizeof(WCHAR);
+                    if (pData[wcharCount - 1] == L'\0' && pData[wcharCount - 2] == L'\0')
+                    {
+                        oldDataSize -= sizeof(WCHAR); // exclude last null, we will append
+                    }
+                }
+            }
+        }
+    }
+
+    // Prepare NT-formatted source path: \??\Path\to\file
+    BOOLEAN hasDosPrefix = (FilePath->Length >= 8 && FilePath->Buffer[0] == L'\\' && FilePath->Buffer[1] == L'?' && FilePath->Buffer[2] == L'?' && FilePath->Buffer[3] == L'\\');
+    ULONG prefixSize = hasDosPrefix ? 0 : 4 * sizeof(WCHAR); // L"\\??\\"
+    ULONG pathSize = FilePath->Length;
+    ULONG entrySize = prefixSize + pathSize + sizeof(WCHAR) + sizeof(WCHAR); // Source + '\0' + Dest(empty '\0')
+
+    ULONG newTotalSize = oldDataSize + entrySize + sizeof(WCHAR); // + extra final '\0'
+    PCHAR pNewBuffer = (PCHAR)ExAllocatePool2(POOL_FLAG_PAGED, newTotalSize, 'mRpO');
+    if (!pNewBuffer)
+    {
+        if (pOldInfo) ExFreePoolWithTag(pOldInfo, 'mRpO');
+        ZwClose(hKey);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    RtlZeroMemory(pNewBuffer, newTotalSize);
+
+    ULONG curOffset = 0;
+    if (oldDataSize > 0 && pOldInfo)
+    {
+        RtlCopyMemory(pNewBuffer, pOldInfo->Data, oldDataSize);
+        curOffset = oldDataSize;
+    }
+
+    if (!hasDosPrefix)
+    {
+        RtlCopyMemory(pNewBuffer + curOffset, L"\\??\\", 4 * sizeof(WCHAR));
+        curOffset += 4 * sizeof(WCHAR);
+    }
+    RtlCopyMemory(pNewBuffer + curOffset, FilePath->Buffer, FilePath->Length);
+    curOffset += FilePath->Length;
+
+    // Source null terminator
+    *(WCHAR*)(pNewBuffer + curOffset) = L'\0';
+    curOffset += sizeof(WCHAR);
+
+    // Destination null terminator (empty for delete)
+    *(WCHAR*)(pNewBuffer + curOffset) = L'\0';
+    curOffset += sizeof(WCHAR);
+
+    // Final multi-sz double null terminator
+    *(WCHAR*)(pNewBuffer + curOffset) = L'\0';
+    curOffset += sizeof(WCHAR);
+
+    status = ZwSetValueKey(hKey, &valName, 0, REG_MULTI_SZ, pNewBuffer, curOffset);
+
+    ExFreePoolWithTag(pNewBuffer, 'mRpO');
+    if (pOldInfo) ExFreePoolWithTag(pOldInfo, 'mRpO');
+    ZwClose(hKey);
+
+    return status;
+}
+
 static NTSTATUS OwlyDeleteFileByPath(_In_ PUNICODE_STRING FilePath)
 {
     if (FilePath == NULL || FilePath->Buffer == NULL || FilePath->Length == 0)
@@ -1491,7 +1601,14 @@ static NTSTATUS OwlyDeleteFileByPath(_In_ PUNICODE_STRING FilePath)
 
     OBJECT_ATTRIBUTES objAttributes;
     InitializeObjectAttributes(&objAttributes, FilePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    return ZwDeleteFile(&objAttributes);
+    NTSTATUS status = ZwDeleteFile(&objAttributes);
+    if (!NT_SUCCESS(status))
+    {
+        // Immediate deletion failed (e.g. driver locked in memory / sharing violation).
+        // Fallback to kernel-mode restart-for-delete (PendingFileRenameOperations).
+        OwlyScheduleFileDeleteOnRebootKernel(FilePath);
+    }
+    return status;
 }
 
 static NTSTATUS OwlyQuarantineFileByPath(_In_ PUNICODE_STRING FilePath)
@@ -1525,6 +1642,8 @@ static NTSTATUS OwlyQuarantineFileByPath(_In_ PUNICODE_STRING FilePath)
     if (!NT_SUCCESS(status))
     {
         ZwClose(destHandle);
+        // If file is locked and cannot be quarantined immediately, schedule kernel reboot deletion
+        OwlyScheduleFileDeleteOnRebootKernel(FilePath);
         return status;
     }
 

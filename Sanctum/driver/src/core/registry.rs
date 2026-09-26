@@ -184,25 +184,14 @@ fn monitor_driver_service_set_value(object: *mut c_void) -> Result<NTSTATUS, ()>
     }
 
     if is_driver_install {
-        let caller = get_process_name().to_lowercase();
-        let is_whitelisted = caller == "services.exe"
-            || caller == "trustedinstaller.exe"
-            || caller == "drvinst.exe"
-            || caller == "msiexec.exe"
-            || caller == "tiworker.exe"
-            || caller == "setup.exe"
-            || caller == "poqexec.exe"
-            || caller == "wusa.exe";
-
-        if !is_whitelisted {
-            let alert_msg = format!(
-                "[sanctum] [HIPS] Blocked unauthorized driver installation: Process '{}' tried to set '{}' on key '{}'",
-                caller, val_name, key_name
-            );
-            println!("{alert_msg}");
-            Log::new().log_to_userland(alert_msg);
-            return Ok(STATUS_ACCESS_DENIED);
-        }
+        let caller_pid = unsafe { wdk_sys::ntddk::PsGetCurrentProcessId() } as u32;
+        let caller = get_process_name();
+        let telemetry_msg = format!(
+            "type=DRIVER_SERVICE_SET;pid={};caller={};key={};val={}",
+            caller_pid, caller, key_name, val_name
+        );
+        println!("[sanctum] [HIPS] {}", telemetry_msg);
+        Log::new().log_to_userland(telemetry_msg);
     }
 
     Ok(STATUS_SUCCESS)

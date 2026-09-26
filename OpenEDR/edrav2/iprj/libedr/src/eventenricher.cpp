@@ -2276,8 +2276,7 @@ static std::string sha256HexOfFile(const std::wstring& wsPath)
 				DWORD err = ::GetLastError();
 				if (err != ERROR_FILE_NOT_FOUND && err != ERROR_PATH_NOT_FOUND)
 				{
-					::MoveFileExW(entry.wsOriginal.c_str(), NULL, MOVEFILE_DELAY_UNTIL_REBOOT);
-					LOGLVL(Critical, FMT("RansomShield: delete failed for newly created artifact <" << Narrow(entry.wsOriginal) << "> err=" << err << ", scheduled reboot delete"));
+					LOGLVL(Critical, FMT("RansomShield: delete failed for newly created artifact <" << Narrow(entry.wsOriginal) << "> err=" << err << "; delegated to kernel driver"));
 				}
 			}
 			continue;

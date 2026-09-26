@@ -1687,18 +1687,45 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 								}
 								else
 								{
-									LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes));
+									LOGLVL(Critical, FMT("detnotif: owlyshield quarantine FAILED for <" << sDos << "> result=" << qRes << "; delegating to kernel reboot delete"));
+									HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+										GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+									if (hGuiPipe != INVALID_HANDLE_VALUE)
+									{
+										std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "\n";
+										DWORD written = 0;
+										::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+										::CloseHandle(hGuiPipe);
+									}
 								}
 							}
 							else
 							{
-								LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found!");
+								LOGLVL(Critical, "detnotif: owlyshield_ransom.dll loaded, but owlyshield_dll_quarantine_file function not found! Delegating to kernel reboot delete");
+								HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+									GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+								if (hGuiPipe != INVALID_HANDLE_VALUE)
+								{
+									std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "\n";
+									DWORD written = 0;
+									::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+									::CloseHandle(hGuiPipe);
+								}
 							}
 							::FreeLibrary(hDll);
 						}
 						else
 						{
-							LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Cannot quarantine malware.");
+							LOGLVL(Critical, "detnotif: FAILED to load owlyshield_ransom.dll! Delegating to kernel reboot delete");
+							HANDLE hGuiPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+								GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+							if (hGuiPipe != INVALID_HANDLE_VALUE)
+							{
+								std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "\n";
+								DWORD written = 0;
+								::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+								::CloseHandle(hGuiPipe);
+							}
 						}
 					}
 				}

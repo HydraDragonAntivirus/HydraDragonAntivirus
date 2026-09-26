@@ -3876,7 +3876,70 @@
 		// The resolver marks those "unknown!0x...".
 		"rootkitUnknownKstack": [
 			"*unknown!*"
-		]
+		],
+		"driverServiceKeys": [
+			"*\\system\\currentcontrolset\\services\\*",
+			"*\\system\\controlset001\\services\\*",
+			"*\\system\\controlset002\\services\\*"
+		],
+		"driverServiceKeysExclude": [
+			"*\\services\\bam*",
+			"*\\services\\dam*",
+			"*\\services\\eventlog*",
+			"*\\services\\wdiservicehost*",
+			"*\\services\\tcpip\\parameters*",
+			"*\\services\\dnscache*",
+			"*\\services\\wuauserv*",
+			"*\\services\\bits*",
+			"*\\services\\rpcss*",
+			"*\\services\\nsi*",
+			"*\\services\\w32tm*",
+			"*\\services\\*\\state*",
+			"*\\services\\*\\diag*",
+			"*\\services\\*\\enum*",
+			"*\\services\\*\\performance*",
+			"*\\services\\*\\triggerinfo*",
+			"*\\services\\*\\security",
+			"*\\services\\*\\parameters"
+		],
+		"driverSysExtensions": [
+			"*.sys*"
+		],
+		"driverTrustedInstallers": [
+			"*\\windows\\system32\\services.exe",
+			"%systemroot%\\system32\\services.exe",
+			"*\\windows\\servicing\\trustedinstaller.exe",
+			"%systemroot%\\servicing\\trustedinstaller.exe",
+			"*\\windows\\system32\\drvinst.exe",
+			"%systemroot%\\system32\\drvinst.exe",
+			"*\\windows\\system32\\msiexec.exe",
+			"%systemroot%\\system32\\msiexec.exe",
+			"*\\windows\\syswow64\\msiexec.exe",
+			"%systemroot%\\syswow64\\msiexec.exe",
+			"*\\windows\\winsxs\\*\\tiworker.exe",
+			"%systemroot%\\winsxs\\*\\tiworker.exe",
+			"*\\windows\\system32\\poqexec.exe",
+			"%systemroot%\\system32\\poqexec.exe",
+			"*\\windows\\system32\\wusa.exe",
+			"%systemroot%\\system32\\wusa.exe"
+		],
+		"driverSuspiciousCmdlines": [
+			"*create*type=*kernel*",
+			"*create*binpath=*.sys*",
+			"*New-Service*BinaryPathName*.sys*",
+			"*New-Service*-StartupType*Boot*",
+			"*New-Service*-StartupType*System*"
+		],
+		"driverSuspiciousPaths": [
+			"*\\temp\\*",
+			"*\\appdata\\*",
+			"*\\desktop\\*",
+			"*\\downloads\\*",
+			"*\\users\\public\\*"
+		],
+		"driverEventBaseType": {
+			"MLE_DRIVER_INSTALL_TAMPER": 1000021
+		}
 	},
 
 	"variables": {
@@ -6133,6 +6196,277 @@
 				}
 			}
 		}
+		],
+		"DRIVER_INSTALL_AND_LOAD_PROTECTION": [
+			{
+				"eventType": "LLE_REGISTRY_VALUE_SET",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverServiceKeys",
+										"args": [ "@event.registry.abstractPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverServiceKeys",
+										"args": [ "@event.registry.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "not",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverServiceKeysExclude",
+												"args": [ "@event.registry.abstractPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverServiceKeysExclude",
+												"args": [ "@event.registry.rawPath" ]
+											}
+										]
+									}
+								]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "@const.driverSysExtensions",
+								"args": [ "@event.registry.data" ]
+							},
+							{
+								"$operation": "not",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverTrustedInstallers",
+												"args": [ "@event.process.imageFile.rawPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverTrustedInstallers",
+												"args": [ "@event.process.imageFile.abstractPath" ]
+											}
+										]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_DRIVER_INSTALL_TAMPER",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.driverEventBaseType.MLE_DRIVER_INSTALL_TAMPER" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.registry.data" },
+							{ "name": "registryDeleteTarget", "value": "@event.registry.abstractPath" },
+							{ "name": "registryDeleteTargetRaw", "value": "@event.registry.rawPath" },
+							{ "name": "registry", "value": "@event.registry" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_PROCESS_CREATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "*\\windows\\system32\\sc.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "%systemroot%\\system32\\sc.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*\\windows\\system32\\windowspowershell\\*\\powershell*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "%systemroot%\\system32\\windowspowershell\\*\\powershell*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "*\\program files\\powershell\\*\\pwsh*.exe*",
+										"args": [ "@event.childProcess.imagePath" ]
+									}
+								]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "@const.driverSuspiciousCmdlines",
+								"args": [ "@event.childProcess.cmdLine" ]
+							},
+							{
+								"$operation": "not",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverTrustedInstallers",
+												"args": [ "@event.process.imageFile.rawPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverTrustedInstallers",
+												"args": [ "@event.process.imageFile.abstractPath" ]
+											}
+										]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_DRIVER_INSTALL_TAMPER",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.driverEventBaseType.MLE_DRIVER_INSTALL_TAMPER" },
+							{ "name": "process", "value": "@event.childProcess" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.childProcess.imagePath" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_CREATE",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.driverSysExtensions",
+								"args": [ "@event.file.abstractPath" ]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "@const.driverSuspiciousPaths",
+								"args": [ "@event.file.abstractPath" ]
+							},
+							{
+								"$operation": "not",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverTrustedInstallers",
+												"args": [ "@event.process.imageFile.rawPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverTrustedInstallers",
+												"args": [ "@event.process.imageFile.abstractPath" ]
+											}
+										]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_DRIVER_INSTALL_TAMPER",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.driverEventBaseType.MLE_DRIVER_INSTALL_TAMPER" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.abstractPath" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_DRIVER_LOAD",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "not",
+								"args": [
+									{
+										"$operation": "or",
+										"args": [
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverTrustedInstallers",
+												"args": [ "@event.process.imageFile.rawPath" ]
+											},
+											{
+												"$operation": "imatch",
+												"pattern": "@const.driverTrustedInstallers",
+												"args": [ "@event.process.imageFile.abstractPath" ]
+											}
+										]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_DRIVER_INSTALL_TAMPER",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.driverEventBaseType.MLE_DRIVER_INSTALL_TAMPER" },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.driver.image" },
+							{ "name": "driverInfo", "value": "@event.driver" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
 		]
 	}
 }

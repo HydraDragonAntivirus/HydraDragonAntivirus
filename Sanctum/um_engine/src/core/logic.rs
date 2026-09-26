@@ -45,6 +45,61 @@ fn forward_ghost_hunt_to_owlyshield(
     }
 }
 
+/// Parse kernel driver telemetry messages (HVCI_BLOCK, DRIVER_LOAD, DRIVER_SERVICE_SET)
+/// and forward them formatted as OpenEDR JSON events to \\.\pipe\SanctumTelemetry.
+fn forward_driver_telemetry_to_openedr(
+    raw_msg: &str,
+    pipe_tx: &tokio::sync::mpsc::Sender<String>,
+) {
+    if !raw_msg.starts_with("type=DRIVER_LOAD;")
+        && !raw_msg.starts_with("type=HVCI_BLOCK;")
+        && !raw_msg.starts_with("type=DRIVER_SERVICE_SET;")
+    {
+        return;
+    }
+
+    let mut fields = std::collections::HashMap::new();
+    for part in raw_msg.split(';') {
+        if let Some((k, v)) = part.split_once('=') {
+            fields.insert(k.trim(), v.trim());
+        }
+    }
+
+    let event_type = fields.get("type").copied().unwrap_or("DRIVER_LOAD");
+    let pid: u32 = fields.get("pid").and_then(|p| p.parse().ok()).unwrap_or(0);
+    let image = fields.get("image").copied().unwrap_or("");
+    let registry = fields.get("registry").copied().or_else(|| fields.get("key").copied()).unwrap_or("");
+    let publisher = fields.get("publisher").copied().unwrap_or("");
+    let issuer = fields.get("issuer").copied().unwrap_or("");
+    let classification = fields.get("classification").copied().unwrap_or("");
+
+    let payload = serde_json::json!({
+        "type": "LLE_DRIVER_LOAD",
+        "baseType": 1000021,
+        "eventType": "LLE_DRIVER_LOAD",
+        "subType": event_type,
+        "process": {
+            "pid": pid,
+            "imageFile": {
+                "rawPath": image,
+                "abstractPath": image
+            }
+        },
+        "driver": {
+            "image": image,
+            "registry": registry,
+            "publisher": publisher,
+            "issuer": issuer,
+            "classification": classification,
+            "action": if event_type == "HVCI_BLOCK" { "BLOCK" } else { "INFO" }
+        }
+    });
+
+    if let Ok(json) = serde_json::to_string(&payload) {
+        let _ = pipe_tx.try_send(json + "\n");
+    }
+}
+
 fn source_name(source: shared_no_std::ghost_hunting::SyscallEventSource) -> &'static str {
     match source {
         shared_no_std::ghost_hunting::SyscallEventSource::EventSourceKernel => "kernel",
@@ -171,6 +226,11 @@ impl Core {
 
             // If we have new message(s) / emissions from the driver or injected DLL, process them as appropriate
             if let Some(mut driver_messages) = driver_response {
+                // Forward driver telemetry (HVCI blocks, driver loads, driver services) to OpenEDR
+                for msg in &driver_messages.messages {
+                    forward_driver_telemetry_to_openedr(msg, &pipe_tx);
+                }
+
                 // cache messages
                 {
                     let mut message_cache = self.driver_dbg_message_cache.lock().await;

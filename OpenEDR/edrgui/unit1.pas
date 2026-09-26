@@ -581,7 +581,14 @@ begin
           else
             FMLPredictions[idx] := sKey + '=High Risk Detection: ' + TitleStr;
         end;
-        TAlertForm.ShowAlert('Threat Alert: ' + TitleStr, ExePath, asCritical, 7000);
+
+        if (Pos('restart', LowerCase(TitleStr)) > 0) or (Pos('reboot', LowerCase(TitleStr)) > 0) or
+           (Pos('restart', LowerCase(ExePath)) > 0) or (Pos('reboot', LowerCase(ExePath)) > 0) then
+        begin
+          TAlertForm.ShowRestartPrompt(TitleStr, ExePath);
+        end
+        else
+          TAlertForm.ShowAlert('Threat Alert: ' + TitleStr, ExePath, asCritical, 7000);
       end;
     finally
       Parts.Free;
