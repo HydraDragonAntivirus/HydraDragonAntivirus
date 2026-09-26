@@ -187,6 +187,9 @@ fn initialise_sanctum(driver: &mut DRIVER_OBJECT) -> Result<(), i32> {
         return Err(e);
     }
 
+    // Register SeRegisterImageVerificationCallback (Informational + 24H2 HVCI Block)
+    crate::core::image_verification::register_image_verification_callbacks();
+
     Ok(())
 }
 
@@ -316,6 +319,9 @@ extern "C" fn driver_exit(driver: *mut DRIVER_OBJECT) {
     // Drop the callback on image load notifications
     unregister_image_load_callback();
 
+    // Drop the image verification callbacks (24H2 HVCI + Informational)
+    crate::core::image_verification::unregister_image_verification_callbacks();
+
     // drop the callback for new thread interception
     let res = unsafe { PsRemoveCreateThreadNotifyRoutine(Some(thread_callback)) };
     if res != STATUS_SUCCESS {
@@ -384,12 +390,15 @@ fn terminate_thread_from_grt_str(flag_str: &'static str, ob_str: &'static str) {
         let thread_handle_grt: Result<&FastMutex<*mut c_void>, wdk_mutex::errors::GrtError> =
             Grt::get_fast_mutex(ob_str);
         if let Ok(thread_handle_grt) = thread_handle_grt {
-            let thread_handle = thread_handle_grt.lock().unwrap();
+            let handle_val = {
+                let thread_handle = thread_handle_grt.lock().unwrap();
+                *thread_handle
+            };
 
-            if !thread_handle.is_null() {
+            if !handle_val.is_null() {
                 let status = unsafe {
                     KeWaitForSingleObject(
-                        *thread_handle,
+                        handle_val,
                         Executive,
                         KernelMode as _,
                         FALSE as _,
@@ -402,7 +411,7 @@ fn terminate_thread_from_grt_str(flag_str: &'static str, ob_str: &'static str) {
                         "[sanctum] [-] Did not successfully call KeWaitForSingleObject when trying to exit system thread for ETW Monitoring."
                     );
                 }
-                let _ = unsafe { ObfDereferenceObject(*thread_handle) };
+                let _ = unsafe { ObfDereferenceObject(handle_val) };
             }
         }
     }

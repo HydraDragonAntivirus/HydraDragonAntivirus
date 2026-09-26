@@ -1,19 +1,26 @@
 //! Monitor operations related to the registry
 
-use core::{ffi::c_void, ptr::null_mut};
+use core::{
+    ffi::c_void,
+    ptr::null_mut,
+    sync::atomic::{AtomicI64, Ordering},
+};
 
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
+use crate::utils::{get_process_name, Log};
 use wdk::{nt_success, println};
-use wdk_mutex::{fast_mutex::FastMutex, grt::Grt};
 use wdk_sys::{
-    _REG_NOTIFY_CLASS::RegNtPreDeleteKey,
-    DRIVER_OBJECT, LARGE_INTEGER, NTSTATUS, REG_DELETE_KEY_INFORMATION, REG_NOTIFY_CLASS,
-    STATUS_ACCESS_DENIED, STATUS_SUCCESS, UNICODE_STRING,
+    _REG_NOTIFY_CLASS::{RegNtPreDeleteKey, RegNtPreSetValueKey},
+    DRIVER_OBJECT, LARGE_INTEGER, NTSTATUS, REG_DELETE_KEY_INFORMATION,
+    REG_SET_VALUE_KEY_INFORMATION, REG_NOTIFY_CLASS, STATUS_ACCESS_DENIED, STATUS_SUCCESS,
+    UNICODE_STRING,
     ntddk::{
         CmCallbackGetKeyObjectIDEx, CmCallbackReleaseKeyObjectIDEx, CmRegisterCallbackEx,
         CmUnRegisterCallback, RtlInitUnicodeString,
     },
 };
+
+static REGISTRY_COOKIE: AtomicI64 = AtomicI64::new(0);
 
 /// Enables the EDR driver component to monitor the registry for changes.
 pub fn enable_registry_monitoring(driver_object: &mut DRIVER_OBJECT) -> Result<(), i32> {
@@ -44,12 +51,8 @@ pub fn enable_registry_monitoring(driver_object: &mut DRIVER_OBJECT) -> Result<(
         return Err(results);
     }
 
-    if let Err(e) = Grt::register_fast_mutex("registry_monitor", registration_cookie) {
-        println!(
-            "[sanctum] [-] Failed to store registry monitor in GRT. {:?}",
-            e
-        );
-        return Err(12345678);
+    unsafe {
+        REGISTRY_COOKIE.store(registration_cookie.QuadPart, Ordering::SeqCst);
     }
 
     println!("[sanctum] [+] Registry callback registered.");
@@ -65,18 +68,17 @@ pub fn enable_registry_monitoring(driver_object: &mut DRIVER_OBJECT) -> Result<(
 /// This function should only be called once and does not check for validity of the filter. Calling this twice, without
 /// it being started in-between may result in UB.
 pub unsafe fn unregister_registry_monitor() {
-    let cookie: Result<&FastMutex<LARGE_INTEGER>, wdk_mutex::errors::GrtError> =
-        Grt::get_fast_mutex("registry_monitor");
-    if cookie.is_err() {
+    let cookie_val = REGISTRY_COOKIE.swap(0, Ordering::SeqCst);
+    if cookie_val == 0 {
         return;
     }
 
-    let lock = cookie.unwrap().lock().unwrap();
-    unsafe {
-        let res = CmUnRegisterCallback(*lock);
-        if !nt_success(res) {
-            println!("[sanctum] [-] Error unregistering registry callback. {res}");
-        }
+    let cookie = LARGE_INTEGER {
+        QuadPart: cookie_val,
+    };
+    let res = unsafe { CmUnRegisterCallback(cookie) };
+    if !nt_success(res) {
+        println!("[sanctum] [-] Error unregistering registry callback. {res}");
     }
 }
 
@@ -93,12 +95,117 @@ unsafe extern "C" fn handle_registry_event(
                 return status;
             }
         }
+        RegNtPreSetValueKey => {
+            if let Ok(status) = monitor_driver_service_set_value(arg2) {
+                return status;
+            }
+        }
         _ => (),
     }
 
     // Return STATUS_SUCCESS so that the executive knows to pass the operation to the next
     // filter in the stack. I.e. the registry operation is permitted by our EDR.
     STATUS_SUCCESS
+}
+
+/// HIPS: Monitors registry writes to \Services\ to intercept and block unauthorized kernel driver installations.
+fn monitor_driver_service_set_value(object: *mut c_void) -> Result<NTSTATUS, ()> {
+    if object.is_null() {
+        return Ok(STATUS_SUCCESS);
+    }
+
+    let cookie_val = REGISTRY_COOKIE.load(Ordering::SeqCst);
+    if cookie_val == 0 {
+        return Ok(STATUS_SUCCESS);
+    }
+    let mut cookie = LARGE_INTEGER {
+        QuadPart: cookie_val,
+    };
+
+    let set_info = unsafe { *(object as *const REG_SET_VALUE_KEY_INFORMATION) };
+    if set_info.Object.is_null() || set_info.ValueName.is_null() {
+        return Ok(STATUS_SUCCESS);
+    }
+
+    let mut p_registry_path: *const UNICODE_STRING = null_mut();
+    let result = unsafe {
+        CmCallbackGetKeyObjectIDEx(
+            &mut cookie,
+            set_info.Object,
+            null_mut(),
+            &mut p_registry_path,
+            0,
+        )
+    };
+
+    if !nt_success(result) || p_registry_path.is_null() {
+        return Ok(STATUS_SUCCESS);
+    }
+
+    let registry_path = unsafe { *p_registry_path };
+    let name_len = registry_path.Length as usize / 2;
+    let name_slice = unsafe { core::slice::from_raw_parts(registry_path.Buffer, name_len) };
+    let key_name = String::from_utf16_lossy(name_slice);
+    unsafe { CmCallbackReleaseKeyObjectIDEx(p_registry_path) };
+
+    let key_name_lower = key_name.to_lowercase();
+    if !key_name_lower.contains(r"\services\") {
+        return Ok(STATUS_SUCCESS);
+    }
+
+    // Check value name being set
+    let val_name_unicode = unsafe { *set_info.ValueName };
+    let val_len = val_name_unicode.Length as usize / 2;
+    if val_len == 0 || val_name_unicode.Buffer.is_null() {
+        return Ok(STATUS_SUCCESS);
+    }
+    let val_slice = unsafe { core::slice::from_raw_parts(val_name_unicode.Buffer, val_len) };
+    let val_name = String::from_utf16_lossy(val_slice);
+    let val_name_lower = val_name.to_lowercase();
+
+    let mut is_driver_install = false;
+    if val_name_lower == "imagepath" {
+        if !set_info.Data.is_null() && set_info.DataSize >= 2 {
+            let data_u16_len = (set_info.DataSize as usize) / 2;
+            let data_slice = unsafe { core::slice::from_raw_parts(set_info.Data as *const u16, data_u16_len) };
+            let data_str = String::from_utf16_lossy(data_slice).to_lowercase();
+            if data_str.contains(".sys") {
+                is_driver_install = true;
+            }
+        }
+    } else if val_name_lower == "type" {
+        if !set_info.Data.is_null() && set_info.DataSize == 4 {
+            let type_val = unsafe { *(set_info.Data as *const u32) };
+            // SERVICE_KERNEL_DRIVER = 1, SERVICE_FILE_SYSTEM_DRIVER = 2
+            if type_val == 1 || type_val == 2 {
+                is_driver_install = true;
+            }
+        }
+    }
+
+    if is_driver_install {
+        let caller = get_process_name().to_lowercase();
+        let is_whitelisted = caller == "services.exe"
+            || caller == "trustedinstaller.exe"
+            || caller == "drvinst.exe"
+            || caller == "msiexec.exe"
+            || caller == "tiworker.exe"
+            || caller == "setup.exe"
+            || caller == "poqexec.exe"
+            || caller == "wusa.exe";
+
+        if !is_whitelisted {
+            let alert_msg = format!(
+                "[sanctum] [HIPS] Blocked unauthorized driver installation: Process '{}' tried to set '{}' on key '{}'",
+                caller, val_name, key_name
+            );
+            println!("{alert_msg}");
+            Log::new().log_to_userland(alert_msg);
+            return Ok(STATUS_ACCESS_DENIED);
+        }
+    }
+
+    Ok(STATUS_SUCCESS)
 }
 
 /// Determines whether a registry event is occurring on a protected ETW related key.
@@ -120,10 +227,12 @@ fn monitor_etw_delete_key(object: *mut c_void) -> Result<NTSTATUS, ()> {
         return Err(());
     }
 
-    let mut cookie: wdk_sys::_LARGE_INTEGER = {
-        let mtx: &FastMutex<LARGE_INTEGER> = Grt::get_fast_mutex("registry_monitor").unwrap();
-        let lock = mtx.lock().unwrap();
-        lock.clone()
+    let cookie_val = REGISTRY_COOKIE.load(Ordering::SeqCst);
+    if cookie_val == 0 {
+        return Err(());
+    }
+    let mut cookie = LARGE_INTEGER {
+        QuadPart: cookie_val,
     };
 
     let delete_info = unsafe { *(object as *const REG_DELETE_KEY_INFORMATION) };

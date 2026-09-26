@@ -34,7 +34,8 @@ Stuck trying to build / deploy this? I made a [YouTube video](https://www.youtub
 
 ### Limitations regarding Alt Syscalls on the driver
 
-Thanks to some testing by [Xacone](https://github.com/Xacone), we now know that **HVCI** prevents writing to the `PspServiceDescriptorGroupTable ` structure; so this technique is **blocked** by HVCI. From my own
+- **Windows Compatibility (Strictly Windows 11 24H2+):** **Windows 10 and Windows 11 23H2 are NOT supported.** Alt Syscalls and the process monitor rely on internal undocumented kernel offsets (`0x1d8`, `0x7d0`, `0x77`, `PspServiceDescriptorGroupTable`) that were specifically disassembled and hardcoded for **Windows 11 24H2 (Build 26100+)**. Earlier Windows versions (Win10 all builds, Win11 22H2/23H2 Build 22621/22631) lack these exact structures and offsets; attempting to run the driver on them will lead to driver rejection or kernel panics. Windows 11 24H2 is mandatory.
+- **HVCI Limitation:** Thanks to some testing by [Xacone](https://github.com/Xacone), we now know that **HVCI** prevents writing to the `PspServiceDescriptorGroupTable ` structure; so this technique is **blocked** by HVCI. From my own
 testing, it appears that this is still resistant to both PatchGuard and HyperGuard under VBS. I used [ssde](https://github.com/valinet/ssde/) to load my driver whilst Secure Boot and VBS were enabled, of which it is
 my understanding should be enough to test it against HyperGuard. This was done with debug mode off, which should also allow PatchGuard full authority to detect and block (BugCheck) the technique.
 

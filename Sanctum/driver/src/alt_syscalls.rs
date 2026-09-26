@@ -8,15 +8,20 @@
 //! The mechanism of post processing [`queue_syscall_post_processing`] is using queued `wdk_mutex` and offloading the work to a system worker thread within
 //! the driver, as to not degrade system performance.
 
-use core::{arch::asm, ffi::c_void, ptr::null_mut};
+use core::{
+    arch::asm,
+    ffi::c_void,
+    ptr::null_mut,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use alloc::{boxed::Box, vec::Vec};
 use wdk::println;
 use wdk_sys::{
     _KTRAP_FRAME,
     _MODE::KernelMode,
-    DISPATCHER_HEADER, DRIVER_OBJECT, HANDLE, KTRAP_FRAME, OBJ_KERNEL_HANDLE, PETHREAD, PKTHREAD,
-    PROCESS_ALL_ACCESS, PsThreadType, THREAD_ALL_ACCESS,
+    BOOLEAN, DISPATCHER_HEADER, DRIVER_OBJECT, HANDLE, KTRAP_FRAME, OBJ_KERNEL_HANDLE, PETHREAD,
+    PKTHREAD, PROCESS_ALL_ACCESS, PsThreadType, THREAD_ALL_ACCESS, UNICODE_STRING,
     ntddk::{
         IoGetCurrentProcess, IoThreadToProcess, ObReferenceObjectByHandle, ObfDereferenceObject,
         ZwClose,
@@ -48,6 +53,29 @@ const NT_CREATE_FILE_SSN: u32 = 0x0055;
 const NT_TRACE_EVENT_SSN: u32 = 0x005e;
 
 pub struct AltSyscalls;
+
+static ALT_SYSCALLS_INITIALISED: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "system" {
+    fn PsGetVersion(
+        MajorVersion: *mut u32,
+        MinorVersion: *mut u32,
+        BuildNumber: *mut u32,
+        CSDVersion: *mut UNICODE_STRING,
+    ) -> BOOLEAN;
+}
+
+pub fn is_alt_syscalls_supported() -> bool {
+    let mut major = 0u32;
+    let mut minor = 0u32;
+    let mut build = 0u32;
+    unsafe {
+        PsGetVersion(&mut major, &mut minor, &mut build, null_mut());
+    }
+    // Alt Syscalls in Sanctum is hardcoded for Windows 11 24H2 (Build >= 26100).
+    // Windows 10 and Windows 11 23H2 (Build 22631) have different kernel offsets (0x77, 0x7d0) and are unsupported.
+    build >= 26100
+}
 
 #[repr(C)]
 pub struct PspServiceDescriptorGroupTable {
@@ -85,6 +113,13 @@ impl AltSyscalls {
     ///
     /// This function should only be called once until it is disabled.
     pub fn initialise_for_system(driver: &mut DRIVER_OBJECT) {
+        if !is_alt_syscalls_supported() {
+            println!(
+                "[sanctum] [!] Alt Syscalls strictly requires Windows 11 24H2+ (Build >= 26100). Windows 10 and Windows 11 23H2 are unsupported due to differing kernel offsets; disabling Alt Syscalls safely."
+            );
+            return;
+        }
+
         // How many stack args we want to memcpy; I use my own method to get these..
         const NUM_QWORD_STACK_ARGS_TO_CPY: u32 = 0x0;
         // These flags ensure we go the PspSyscallProviderServiceDispatchGeneric route
@@ -165,12 +200,17 @@ impl AltSyscalls {
             (*kernel_service_descriptor_table).rows[SLOT_ID as usize] = new_row;
         }
 
+        ALT_SYSCALLS_INITIALISED.store(true, Ordering::SeqCst);
+
         // Enumerate all active processes and threads, and enable the relevant bits so that the alt syscall 'machine' can work :)
         // Self::walk_active_processes_and_set_bits(AltSyscallStatus::Enable, None);
     }
 
     /// Sets the required context bits in memory on thread and KTHREAD.
     pub fn configure_thread_for_alt_syscalls(p_k_thread: PKTHREAD, status: AltSyscallStatus) {
+        if !ALT_SYSCALLS_INITIALISED.load(Ordering::Relaxed) {
+            return;
+        }
         if p_k_thread.is_null() {
             return;
         }
@@ -214,6 +254,9 @@ impl AltSyscalls {
     }
 
     pub fn configure_process_for_alt_syscalls(p_k_thread: PKTHREAD) {
+        if !ALT_SYSCALLS_INITIALISED.load(Ordering::Relaxed) {
+            return;
+        }
         // We can cast the KTHREAD* as a ETHREAD* as KTHREAD = ETHREAD bytes 0x0 - 0x4c0
         // so they directly map.
         // We will cast the resulting EPROCESS as a *mut u8 as EPROCESS is not defined by the Windows API, and we can just use
@@ -237,6 +280,9 @@ impl AltSyscalls {
 
     /// Uninstall the Alt Syscall handlers from the kernel.
     pub fn uninstall() {
+        if !ALT_SYSCALLS_INITIALISED.swap(false, Ordering::SeqCst) {
+            return;
+        }
         Self::walk_active_processes_and_set_bits(AltSyscallStatus::Disable, None);
 
         // todo clean up the allocated memory
@@ -251,7 +297,7 @@ impl AltSyscalls {
     /// to match on, with a *name* logic.
     ///
     /// # Note:
-    /// This function is specifically crafted for W11 24H2; to generalise in the future after POC
+    /// This function is specifically crafted for W11 23H2 / 24H2; to generalise in the future after POC
     fn walk_active_processes_and_set_bits(
         status: AltSyscallStatus,
         isolated_processes: Option<&[&str]>,

@@ -1796,6 +1796,8 @@
   response:
     ask_user: true
     deny_while_ask: true
+    default_action: deny
+    timeout_action: deny
     notify_user: true
     terminate_process: false
     status_access_denied: true

@@ -472,8 +472,11 @@ impl<'a> Log<'a> {
 
 /// Converts a valid HANDLE to a process ID
 pub fn handle_to_pid(handle: HANDLE) -> u32 {
+    if handle.is_null() {
+        return 0;
+    }
     let mut ob: *mut c_void = null_mut();
-    _ = unsafe {
+    let status = unsafe {
         ObReferenceObjectByHandle(
             handle,
             PROCESS_ALL_ACCESS,
@@ -483,6 +486,10 @@ pub fn handle_to_pid(handle: HANDLE) -> u32 {
             null_mut(),
         )
     };
+
+    if !nt_success(status) || ob.is_null() {
+        return 0;
+    }
 
     let pid = unsafe { PsGetProcessId(ob as *mut _) } as u32;
     unsafe {

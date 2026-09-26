@@ -185,8 +185,12 @@
       - "ntloaddriver_call"
 
   response:
+    ask_user: true
+    deny_while_ask: true
+    default_action: deny
+    timeout_action: deny
+    status_access_denied: true
     notify_user: true
-    ask_user: false
     terminate_process: false
     record: true
 

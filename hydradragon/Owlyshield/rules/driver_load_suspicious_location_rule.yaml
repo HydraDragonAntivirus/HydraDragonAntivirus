@@ -187,6 +187,9 @@
   response:
     ask_user: true
     deny_while_ask: true
+    default_action: deny
+    timeout_action: deny
+    status_access_denied: true
     terminate_process: false
     notify_user: true
     auto_revert: true

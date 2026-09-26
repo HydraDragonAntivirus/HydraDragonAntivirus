@@ -103,6 +103,12 @@ It contains low-level system components and experimental security drivers that r
 ## Compatibility with PCs
 
 - **Platform Support**: This project is strictly for **x86-64 Windows** only. aarch64 and other architectures are not supported.
+- **Windows OS Compatibility Notice (Sanctum / Alt Syscalls)**:
+  > [!WARNING]
+  > **Windows 10 and Windows 11 23H2 are NOT compatible with Sanctum's kernel driver!**  
+  > Sanctum's Alt Syscalls and kernel monitor rely on internal Windows kernel structures and offsets (`0x1d8`, `0x7d0`, `0x77`, `PspServiceDescriptorGroupTable`) that are **strictly hardcoded for Windows 11 24H2 (Build 26100+)**.  
+  > **Windows 10 (all builds) and Windows 11 23H2 / 22H2 (Build 22621/22631) lack these exact offsets and dispatch structures.** Running Sanctum kernel components on these earlier OS builds will result in unsupported errors or kernel crashes. **Windows 11 24H2 is strictly required.**
+
 - This installer is designed to be used on clean or freshly formatted Windows PCs.
 
 - For best results, install HydraDragon Antivirus only on systems where the required third-party components have not already been installed manually.

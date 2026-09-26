@@ -763,13 +763,63 @@ fn process_monitor_thread_termination_flag_raised() -> bool {
     *lock
 }
 
+unsafe extern "system" {
+    fn PsGetVersion(
+        MajorVersion: *mut u32,
+        MinorVersion: *mut u32,
+        BuildNumber: *mut u32,
+        CSDVersion: *mut UNICODE_STRING,
+    ) -> wdk_sys::BOOLEAN;
+}
+
+fn get_active_process_links_offset() -> Option<usize> {
+    let mut major = 0u32;
+    let mut minor = 0u32;
+    let mut build = 0u32;
+    unsafe {
+        PsGetVersion(&mut major, &mut minor, &mut build, null_mut());
+    }
+
+    // Windows 11 24H2 is Build 26100+ (uses 0x1d8), earlier Win10 / Win11 (including 23H2 Build 22631) use 0x448
+    let candidate_offset = if build >= 26100 {
+        0x1d8
+    } else {
+        0x448
+    };
+
+    let current_process = unsafe { IoGetCurrentProcess() };
+    if current_process.is_null() {
+        return None;
+    }
+
+    unsafe {
+        let head = (current_process as *mut u8).add(candidate_offset) as *mut LIST_ENTRY;
+        let flink = (*head).Flink;
+        let blink = (*head).Blink;
+
+        if flink.is_null() || blink.is_null() {
+            return None;
+        }
+        if (flink as usize) < 0xFFFF_8000_0000_0000 || (blink as usize) < 0xFFFF_8000_0000_0000 {
+            return None;
+        }
+        if (*flink).Blink != head || (*blink).Flink != head {
+            return None;
+        }
+    }
+
+    Some(candidate_offset)
+}
+
 /// Walk all processes and get [`Process`] details for each process running on the system.
 ///
 /// This function is designed to be run on driver initialisation / setup to record what processes are running at the starting point.
 /// It may be possible, during the snapshot, a new process is started and is missed.
 fn walk_processes_get_details(processes: &mut BTreeMap<u32, Process>) {
-    // Offsets in bytes for Win11 24H2
-    const ACTIVE_PROCESS_LINKS_OFFSET: usize = 0x1d8;
+    let Some(active_process_links_offset) = get_active_process_links_offset() else {
+        println!("[sanctum] [!] Unsupported OS build or ActiveProcessLinks offset verification failed; skipping process walk.");
+        return;
+    };
 
     let current_process = unsafe { IoGetCurrentProcess() };
     if current_process.is_null() {
@@ -779,13 +829,22 @@ fn walk_processes_get_details(processes: &mut BTreeMap<u32, Process>) {
 
     // Get the starting head for the list
     let head =
-        unsafe { (current_process as *mut u8).add(ACTIVE_PROCESS_LINKS_OFFSET) } as *mut LIST_ENTRY;
+        unsafe { (current_process as *mut u8).add(active_process_links_offset) } as *mut LIST_ENTRY;
     let mut entry = unsafe { (*head).Flink };
+    let mut count: usize = 0;
 
-    while entry != head {
+    while entry != head && count < 10000 {
+        count += 1;
+        if entry.is_null() || (entry as usize) < 0xFFFF_8000_0000_0000 {
+            break;
+        }
+
         // Get the record for the _EPROCESS
         let p_e_process =
-            unsafe { (entry as *mut u8).sub(ACTIVE_PROCESS_LINKS_OFFSET) } as *mut _EPROCESS;
+            unsafe { (entry as *mut u8).sub(active_process_links_offset) } as *mut _EPROCESS;
+        if (p_e_process as usize) < 0xFFFF_8000_0000_0000 {
+            break;
+        }
 
         let pid = unsafe { PsGetProcessId(p_e_process as *mut _) } as usize;
 
@@ -872,6 +931,9 @@ fn extract_process_details<'a>(
     };
 
     if !nt_success(result) {
+        unsafe {
+            let _ = ZwClose(process_handle);
+        }
         println!(
             "[sanctum] [-] Result of NtQueryInformationProcess was bad. Code: {:#x}. Out sz: {}",
             result, out_sz
@@ -882,6 +944,9 @@ fn extract_process_details<'a>(
     }
 
     let ppid = process_information.InheritedFromUniqueProcessId as u32;
+    unsafe {
+        let _ = ZwClose(process_handle);
+    }
 
     Ok(Process::new(
         pid as _,
