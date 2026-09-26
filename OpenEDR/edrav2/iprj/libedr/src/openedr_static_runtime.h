@@ -42,15 +42,32 @@ namespace cmd::openedr_static
 	{
 		try
 		{
-			wchar_t databasePath[MAX_PATH] = {};
-			DWORD databasePathBytes = sizeof(databasePath);
-			if (::RegGetValueW(HKEY_LOCAL_MACHINE, L"Software\\Owlyshield\\SDK",
-				L"DATABASE_PATH", RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, nullptr,
-				databasePath, &databasePathBytes) == ERROR_SUCCESS)
+			for (const auto* valName : { L"RULES_PATH", L"DATABASE_PATH" })
 			{
-				const auto root = std::filesystem::path(databasePath).parent_path();
-				if (HasEngineResources(root))
-					return { root.wstring(), "registry-DATABASE_PATH" };
+				for (const auto* subKey : { L"Software\\Owlyshield", L"Software\\Owlyshield\\SDK" })
+				{
+					wchar_t regPath[MAX_PATH] = {};
+					DWORD regPathBytes = sizeof(regPath);
+					if (::RegGetValueW(HKEY_LOCAL_MACHINE, subKey,
+						valName, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, nullptr,
+						regPath, &regPathBytes) == ERROR_SUCCESS)
+					{
+						const auto p = std::filesystem::path(regPath);
+						if (HasEngineResources(p))
+							return { p.wstring(), "registry" };
+						if (HasEngineResources(p.parent_path()))
+							return { p.parent_path().wstring(), "registry-parent" };
+					}
+				}
+			}
+
+			wchar_t exePath[MAX_PATH] = {};
+			DWORD exeLength = ::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+			if (exeLength > 0 && exeLength < MAX_PATH)
+			{
+				const auto exeDir = std::filesystem::path(exePath).parent_path();
+				if (HasEngineResources(exeDir))
+					return { exeDir.wstring(), "service-executable" };
 			}
 
 			wchar_t programFiles[MAX_PATH] = {};
@@ -61,15 +78,6 @@ namespace cmd::openedr_static
 					L"HydraDragonAntivirus" / L"OpenEDR";
 				if (HasEngineResources(root))
 					return { root.wstring(), "ProgramFiles" };
-			}
-
-			wchar_t exePath[MAX_PATH] = {};
-			DWORD exeLength = ::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-			if (exeLength > 0 && exeLength < MAX_PATH)
-			{
-				const auto root = std::filesystem::path(exePath).parent_path();
-				if (HasEngineResources(root))
-					return { root.wstring(), "service-executable" };
 			}
 		}
 		catch (...) {}

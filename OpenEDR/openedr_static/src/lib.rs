@@ -34,24 +34,101 @@ fn get_dll_directory() -> PathBuf {
     {
         use std::os::windows::ffi::OsStringExt;
         use windows::Win32::Foundation::HMODULE;
-        use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
+        use windows::Win32::System::LibraryLoader::{
+            GetModuleFileNameW, GetModuleHandleExW,
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        };
+        use windows::core::PCWSTR;
 
-        let mut buf = [0u16; 1024];
-        let hmodule = HMODULE(get_dll_directory as *const () as *mut std::ffi::c_void);
-        let len = unsafe {
-            GetModuleFileNameW(
-                Some(hmodule),
-                &mut buf,
+        let mut hmodule = HMODULE::default();
+        let ok = unsafe {
+            GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                PCWSTR(get_dll_directory as *const () as *const u16),
+                &mut hmodule,
             )
         };
-        if len > 0 {
-            let path = PathBuf::from(std::ffi::OsString::from_wide(&buf[..len as usize]));
-            if let Some(parent) = path.parent() {
-                return parent.to_path_buf();
+        if ok.is_ok() && !hmodule.is_invalid() {
+            let mut buf = [0u16; 1024];
+            let len = unsafe {
+                GetModuleFileNameW(
+                    Some(hmodule),
+                    &mut buf,
+                )
+            };
+            if len > 0 {
+                let path = PathBuf::from(std::ffi::OsString::from_wide(&buf[..len as usize]));
+                if let Some(parent) = path.parent() {
+                    return parent.to_path_buf();
+                }
             }
         }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn has_engine_resources(root: &Path) -> bool {
+    for name in [
+        "models",
+        "database",
+        "yara_rules",
+        "rules",
+        "signer_rules",
+        "hydradragonsig_rules",
+    ] {
+        if root.join(name).is_dir() {
+            return true;
+        }
+    }
+    false
+}
+
+fn resolve_resource_root(base_dir: Option<PathBuf>) -> PathBuf {
+    let mut candidates = Vec::new();
+
+    // 1. Explicitly provided base directory
+    if let Some(dir) = base_dir.as_ref() {
+        candidates.push(dir.clone());
+        if let Some(parent) = dir.parent() {
+            candidates.push(parent.join("OpenEDR"));
+            candidates.push(parent.to_path_buf());
+        }
+    }
+
+    // 2. DLL directory itself and parent
+    let dll_dir = get_dll_directory();
+    candidates.push(dll_dir.clone());
+    if let Some(parent) = dll_dir.parent() {
+        candidates.push(parent.join("OpenEDR"));
+    }
+
+    // 3. Current running executable directory and parent
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.to_path_buf());
+            if let Some(grandparent) = parent.parent() {
+                candidates.push(grandparent.join("OpenEDR"));
+            }
+        }
+    }
+
+    // 4. ProgramFiles standard installation path
+    if let Ok(pf) = std::env::var("ProgramFiles") {
+        let pf_path = PathBuf::from(pf).join("HydraDragonAntivirus").join("OpenEDR");
+        candidates.push(pf_path);
+    }
+
+    // 5. Check candidates in order
+    for candidate in &candidates {
+        if has_engine_resources(candidate) {
+            diagnostics::log("resource-root-found", &format!("found at: {}", candidate.display()));
+            return candidate.clone();
+        }
+    }
+
+    diagnostics::log("resource-root-fallback", &format!("fallback to: {}", dll_dir.display()));
+    base_dir.unwrap_or(dll_dir)
 }
 
 fn get_or_init_engine(base_dir: Option<PathBuf>) -> Result<&'static RwLock<StaticEngine>, String> {
@@ -59,7 +136,7 @@ fn get_or_init_engine(base_dir: Option<PathBuf>) -> Result<&'static RwLock<Stati
         return Ok(engine);
     }
 
-    let dir = base_dir.unwrap_or_else(get_dll_directory);
+    let dir = resolve_resource_root(base_dir);
     let engine = StaticEngine::init(&dir);
     let rwlock = RwLock::new(engine);
     let _ = GLOBAL_ENGINE.set(rwlock);
