@@ -781,11 +781,7 @@ fn get_active_process_links_offset() -> Option<usize> {
     }
 
     // Windows 11 24H2 is Build 26100+ (uses 0x1d8), earlier Win10 / Win11 (including 23H2 Build 22631) use 0x448
-    let candidate_offset = if build >= 26100 {
-        0x1d8
-    } else {
-        0x448
-    };
+    let candidate_offset = if build >= 26100 { 0x1d8 } else { 0x448 };
 
     let current_process = unsafe { IoGetCurrentProcess() };
     if current_process.is_null() {
@@ -817,7 +813,9 @@ fn get_active_process_links_offset() -> Option<usize> {
 /// It may be possible, during the snapshot, a new process is started and is missed.
 fn walk_processes_get_details(processes: &mut BTreeMap<u32, Process>) {
     let Some(active_process_links_offset) = get_active_process_links_offset() else {
-        println!("[sanctum] [!] Unsupported OS build or ActiveProcessLinks offset verification failed; skipping process walk.");
+        println!(
+            "[sanctum] [!] Unsupported OS build or ActiveProcessLinks offset verification failed; skipping process walk."
+        );
         return;
     };
 

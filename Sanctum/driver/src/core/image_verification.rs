@@ -13,9 +13,7 @@ use core::{
 
 use alloc::{format, string::ToString};
 use wdk::{nt_success, println};
-use wdk_sys::{
-    BOOLEAN, NTSTATUS, UNICODE_STRING,
-};
+use wdk_sys::{BOOLEAN, NTSTATUS, UNICODE_STRING};
 
 use crate::{DRIVER_MESSAGES, utils::unicode_to_string};
 
@@ -177,7 +175,9 @@ unsafe extern "C" fn on_image_verification_block(
 /// 2) Block (HVCI-blocked drivers / BYOVD attacks)
 pub fn register_image_verification_callbacks() {
     if !is_win11_24h2() {
-        println!("[sanctum] [!] SeRegisterImageVerificationCallback with Block type requires Windows 11 24H2+ (Build >= 26100); skipping.");
+        println!(
+            "[sanctum] [!] SeRegisterImageVerificationCallback with Block type requires Windows 11 24H2+ (Build >= 26100); skipping."
+        );
         return;
     }
 
@@ -219,7 +219,9 @@ pub fn register_image_verification_callbacks() {
 
     if nt_success(status_block) && !block_handle.is_null() {
         VERIFICATION_BLOCK_HANDLE.store(block_handle, Ordering::SeqCst);
-        println!("[sanctum] [+] Registered SeRegisterImageVerificationCallback (Block - 24H2 HVCI telemetry).");
+        println!(
+            "[sanctum] [+] Registered SeRegisterImageVerificationCallback (Block - 24H2 HVCI telemetry)."
+        );
     } else {
         println!(
             "[sanctum] [-] Failed to register SeRegisterImageVerificationCallback (Block): {:#x}",
