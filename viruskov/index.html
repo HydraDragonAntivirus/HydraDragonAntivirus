@@ -3,25 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VIRUSKOV | Açık Kaynak Yeni Nesil EDR & Antivirüs</title>
-  <meta name="description" content="Viruskov - Security by Obscurity yalanına son veren, OpenEDR'den çok daha gelişmiş, makine öğrenimi destekli tespit odaklı açık kaynak antivirüs projesi. Kurucu: Emirhan Uçan.">
+  <title>VIRUSKOV | Yeni Nesil Açık Kaynak EDR & Antivirüs</title>
+  <meta name="description" content="Viruskov - Security by Obscurity yalanına son veren, OpenEDR'den ilham alıp ötesine geçen, makine öğrenimi ve kernel savunması destekli açık kaynak kurumsal EDR & Antivirüs projesi. Kurucu: Emirhan Uçan.">
   <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Space+Grotesk:wght@500;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-base: #06090a;
       --bg-surface: #0b1114;
       --bg-surface-elevated: #10191d;
-      --border-subtle: #172428;
+      --bg-card: #0d1519;
+      --bg-terminal: #050708;
+      --border-subtle: #18262b;
+      --border-strong: #273e46;
       --border-focus: #ff3344;
       --text-main: #e8eff2;
       --text-muted: #799099;
+      --text-dim: #4d5f66;
       --accent-red: #ff3344;
+      --accent-red-hover: #e02435;
       --accent-red-dim: rgba(255, 51, 68, 0.12);
+      --accent-red-glow: rgba(255, 51, 68, 0.25);
       --accent-green: #00ff66;
       --accent-green-dim: rgba(0, 255, 102, 0.1);
+      --accent-amber: #ffb703;
+      --accent-amber-dim: rgba(255, 183, 3, 0.12);
+      --accent-cyan: #00e5ff;
+      --accent-cyan-dim: rgba(0, 229, 255, 0.1);
       --font-mono: 'JetBrains Mono', monospace;
       --font-display: 'Space Grotesk', sans-serif;
     }
@@ -32,6 +42,10 @@
       padding: 0;
     }
 
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       background-color: var(--bg-base);
       color: var(--text-main);
@@ -40,98 +54,242 @@
       overflow-x: hidden;
       line-height: 1.6;
       background-image: 
-        linear-gradient(rgba(255, 51, 68, 0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-      background-size: 48px 48px;
+        linear-gradient(rgba(255, 51, 68, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    ::selection {
+      background: var(--accent-red);
+      color: #fff;
     }
 
     .container {
-      max-width: 1220px;
+      max-width: 1260px;
       margin: 0 auto;
       padding: 0 24px;
     }
 
-    /* TOP HEADER */
+    /* TELEMETRY TOP BAR */
+    .top-telemetry {
+      background: #040607;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding: 6px 0;
+      letter-spacing: 0.5px;
+    }
+
+    .telemetry-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .telemetry-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulseGreen 2s infinite ease-in-out;
+    }
+
+    @keyframes pulseGreen {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* HEADER */
     header {
       border-bottom: 1px solid var(--border-subtle);
-      background: rgba(6, 9, 10, 0.92);
-      backdrop-filter: blur(12px);
+      background: rgba(6, 9, 10, 0.94);
+      backdrop-filter: blur(14px);
       position: sticky;
       top: 0;
-      z-index: 100;
+      z-index: 1000;
     }
 
     .header-inner {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 16px 0;
+      padding: 14px 0;
+      gap: 20px;
     }
 
     .brand-link {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
       text-decoration: none;
     }
 
     .brand-logo-img {
-      height: 32px;
+      height: 34px;
       width: auto;
       display: block;
     }
 
+    nav {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      nav {
+        display: none;
+      }
+    }
+
+    .nav-link {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: color 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-link:hover, .nav-link.active {
+      color: var(--text-main);
+    }
+
+    .nav-link.highlight {
+      color: var(--accent-red);
+      font-weight: 700;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     .founder-badge {
       font-family: var(--font-mono);
-      font-size: 0.75rem;
+      font-size: 0.74rem;
       color: var(--text-muted);
       border: 1px solid var(--border-subtle);
-      padding: 4px 10px;
+      padding: 6px 12px;
       background: var(--bg-surface);
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
     }
 
     .founder-badge strong {
       color: var(--text-main);
     }
 
-    /* HERO SECTION */
-    .hero {
-      padding: 80px 0 60px;
+    /* BUTTONS */
+    .btn {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-decoration: none;
+      padding: 12px 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+      border: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
       position: relative;
     }
 
-    .hero-badge {
+    .btn-red {
+      background: var(--accent-red);
+      color: #fff;
+      border: 1px solid var(--accent-red);
+      box-shadow: 0 4px 20px var(--accent-red-glow);
+    }
+
+    .btn-red:hover {
+      background: var(--accent-red-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px var(--accent-red-glow);
+    }
+
+    .btn-ghost {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--border-strong);
+      background: var(--bg-surface-elevated);
+      transform: translateY(-2px);
+    }
+
+    .btn-outline-red {
+      background: transparent;
+      color: var(--accent-red);
+      border: 1px solid var(--accent-red);
+    }
+
+    .btn-outline-red:hover {
+      background: var(--accent-red-dim);
+      transform: translateY(-2px);
+    }
+
+    .btn-sm {
+      padding: 7px 14px;
+      font-size: 0.72rem;
+    }
+
+    /* HERO SECTION */
+    .hero {
+      padding: 70px 0 50px;
+      position: relative;
+    }
+
+    .hero-meta-badge {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       font-family: var(--font-mono);
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       padding: 6px 14px;
       background: var(--accent-red-dim);
-      border: 1px solid rgba(255, 51, 68, 0.3);
+      border: 1px solid rgba(255, 51, 68, 0.35);
       color: var(--accent-red);
       margin-bottom: 24px;
       font-weight: 700;
-      letter-spacing: 0.5px;
+      letter-spacing: 1px;
     }
 
     .hero-title {
-      font-size: clamp(2.4rem, 6vw, 4.8rem);
+      font-size: clamp(2.4rem, 5.5vw, 4.5rem);
       font-weight: 900;
       line-height: 1.05;
       letter-spacing: -2px;
       text-transform: uppercase;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
 
     .hero-title .strike {
-      color: #556870;
+      color: #4a5c63;
       text-decoration: line-through;
       text-decoration-color: var(--accent-red);
-      text-decoration-thickness: 4px;
+      text-decoration-thickness: 5px;
     }
 
     .hero-title .highlight-red {
@@ -140,18 +298,18 @@
 
     .hero-lead {
       font-size: 1.25rem;
-      max-width: 860px;
+      max-width: 920px;
       color: var(--text-main);
-      margin-bottom: 20px;
+      margin-bottom: 18px;
       font-weight: 500;
       line-height: 1.5;
     }
 
     .hero-subtext {
-      font-size: 1.05rem;
-      max-width: 840px;
+      font-size: 1rem;
+      max-width: 900px;
       color: var(--text-muted);
-      margin-bottom: 40px;
+      margin-bottom: 36px;
       line-height: 1.7;
     }
 
@@ -163,159 +321,497 @@
       display: flex;
       flex-wrap: wrap;
       gap: 16px;
-      margin-bottom: 60px;
+      margin-bottom: 50px;
     }
 
-    .btn {
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-      font-weight: 700;
-      text-decoration: none;
-      padding: 13px 26px;
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      transition: all 0.2s ease;
-      cursor: pointer;
+    /* QUICK STATS STRIP */
+    .stats-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 30px;
     }
 
-    .btn-red {
-      background: var(--accent-red);
-      color: #fff;
-      border: 1px solid var(--accent-red);
-      box-shadow: 0 4px 20px var(--accent-red-dim);
-    }
-
-    .btn-red:hover {
-      background: #e02435;
-      transform: translateY(-2px);
-    }
-
-    .btn-ghost {
+    .stat-card {
       background: var(--bg-surface);
-      color: var(--text-main);
       border: 1px solid var(--border-subtle);
+      padding: 18px 20px;
+      position: relative;
     }
 
-    .btn-ghost:hover {
-      border-color: var(--text-muted);
-      background: var(--bg-surface-elevated);
-      transform: translateY(-2px);
+    .stat-val {
+      font-family: var(--font-mono);
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    /* SECTION STYLES */
+    .stat-val.red { color: var(--accent-red); }
+    .stat-val.green { color: var(--accent-green); }
+    .stat-val.amber { color: var(--accent-amber); }
+
+    .stat-lbl {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 4px;
+    }
+
+    /* SECTION COMMON */
     .section-wrap {
       padding: 70px 0;
       border-top: 1px solid var(--border-subtle);
+      position: relative;
     }
 
     .section-header {
-      margin-bottom: 40px;
+      margin-bottom: 36px;
     }
 
     .section-tag {
       font-family: var(--font-mono);
-      font-size: 0.75rem;
+      font-size: 0.74rem;
       color: var(--accent-red);
       text-transform: uppercase;
       letter-spacing: 2px;
       margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .section-title {
-      font-size: clamp(1.8rem, 4vw, 2.5rem);
+      font-size: clamp(1.8rem, 3.8vw, 2.7rem);
       font-weight: 800;
       letter-spacing: -1px;
       text-transform: uppercase;
       line-height: 1.2;
     }
 
-    /* HISTORICAL EVOLUTION TIMELINE */
-    .timeline-container {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
+    .section-desc {
+      color: var(--text-muted);
+      margin-top: 10px;
+      max-width: 860px;
+      font-size: 1rem;
+      line-height: 1.6;
+    }
+
+    /* HISTORY & CHRONOLOGY SECTION (CORE UPGRADE) */
+    .history-dashboard {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .history-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 16px;
-      margin-top: 36px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      padding: 16px 20px;
+    }
+
+    .filter-btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .filter-btn {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 6px 14px;
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+    }
+
+    .filter-btn:hover {
+      color: var(--text-main);
+      border-color: var(--border-strong);
+    }
+
+    .filter-btn.active {
+      background: var(--accent-red);
+      color: #fff;
+      border-color: var(--accent-red);
+      font-weight: 700;
+    }
+
+    .history-search-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      padding: 6px 12px;
+      min-width: 260px;
+    }
+
+    .history-search-input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      width: 100%;
+    }
+
+    .history-search-input::placeholder {
+      color: var(--text-dim);
+    }
+
+    /* TIMELINE NODES (VERIFIABLE & DIGNIFIED) */
+    .timeline-stream {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
       position: relative;
     }
 
-    @media (max-width: 1024px) {
-      .timeline-container {
-        grid-template-columns: 1fr;
+    .timeline-stream::before {
+      content: '';
+      position: absolute;
+      left: 20px;
+      top: 15px;
+      bottom: 15px;
+      width: 2px;
+      background: var(--border-subtle);
+      z-index: 1;
+    }
+
+    @media (max-width: 768px) {
+      .timeline-stream::before {
+        left: 12px;
       }
     }
 
-    .timeline-node {
+    .stream-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 24px 28px 24px 56px;
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 2;
+    }
+
+    @media (max-width: 768px) {
+      .stream-card {
+        padding: 20px 18px 20px 40px;
+      }
+    }
+
+    .stream-card:hover {
+      border-color: var(--border-strong);
+      transform: translateX(4px);
+    }
+
+    .stream-card.highlight {
+      border-left: 4px solid var(--accent-red);
+      background: #0f171b;
+    }
+
+    .stream-card.milestone {
+      border-left: 4px solid var(--accent-green);
+    }
+
+    .stream-card.tech {
+      border-left: 4px solid var(--accent-cyan);
+    }
+
+    .stream-card.alliance {
+      border-left: 4px solid var(--accent-amber);
+    }
+
+    .stream-card-dot {
+      position: absolute;
+      left: 14px;
+      top: 26px;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--bg-base);
+      background: var(--border-strong);
+      transform: translateX(-50%);
+      z-index: 3;
+    }
+
+    @media (max-width: 768px) {
+      .stream-card-dot {
+        left: 12px;
+      }
+    }
+
+    .stream-card.highlight .stream-card-dot {
+      background: var(--accent-red);
+      box-shadow: 0 0 10px var(--accent-red);
+    }
+
+    .stream-card.milestone .stream-card-dot {
+      background: var(--accent-green);
+      box-shadow: 0 0 10px var(--accent-green);
+    }
+
+    .stream-card.tech .stream-card-dot {
+      background: var(--accent-cyan);
+    }
+
+    .stream-card.alliance .stream-card-dot {
+      background: var(--accent-amber);
+    }
+
+    .card-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .card-date-badge {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .stream-card.highlight .card-date-badge {
+      color: var(--accent-red);
+    }
+
+    .card-tag {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      padding: 3px 8px;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      color: #8da4ae;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 8px;
+      line-height: 1.3;
+    }
+
+    .card-narrative {
+      font-size: 0.94rem;
+      color: var(--text-muted);
+      line-height: 1.65;
+      margin-bottom: 16px;
+    }
+
+    .card-narrative strong {
+      color: var(--text-main);
+    }
+
+    /* RAW QUOTE / LOG VIEWER */
+    .discord-quote-box {
+      background: var(--bg-terminal);
+      border: 1px solid #1c2b30;
+      border-left: 3px solid #5865f2;
+      padding: 14px 18px;
+      margin: 12px 0 16px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: #a4bcc7;
+      line-height: 1.55;
+      position: relative;
+    }
+
+    .discord-quote-header {
+      font-size: 0.7rem;
+      color: #5865f2;
+      font-weight: 700;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .discord-quote-content {
+      color: #d1e2e9;
+      font-style: normal;
+    }
+
+    /* PROOF & LINK LIST */
+    .proof-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .proof-link-btn {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-main);
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      padding: 5px 10px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .proof-link-btn:hover {
+      border-color: var(--accent-red);
+      color: #fff;
+      background: #141f24;
+    }
+
+    .proof-link-btn svg {
+      width: 12px;
+      height: 12px;
+      fill: currentColor;
+    }
+
+    /* TECHNICAL EVOLUTION PIPELINE */
+    .evolution-pipeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-top: 30px;
+    }
+
+    .pipeline-step {
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
-      padding: 24px 20px;
+      padding: 22px 20px;
       position: relative;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
     }
 
-    .timeline-node.highlight-target {
+    .pipeline-step.active-step {
       border-color: var(--accent-red);
-      background: #110d10;
-      box-shadow: 0 0 30px var(--accent-red-dim);
+      background: #120e11;
+      box-shadow: 0 0 25px var(--accent-red-dim);
     }
 
-    .node-phase {
+    .pipeline-step.future-step {
+      border-style: dashed;
+      border-color: #3b545f;
+    }
+
+    .pipeline-step-num {
       font-family: var(--font-mono);
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       color: var(--text-muted);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
 
-    .timeline-node.highlight-target .node-phase {
+    .pipeline-step.active-step .pipeline-step-num {
       color: var(--accent-red);
       font-weight: 700;
     }
 
-    .node-title {
-      font-size: 1.25rem;
+    .pipeline-step-title {
+      font-size: 1.15rem;
       font-weight: 800;
-      margin-bottom: 10px;
       color: #fff;
+      margin-bottom: 8px;
     }
 
-    .timeline-node.highlight-target .node-title {
-      color: var(--accent-red);
-    }
-
-    .node-desc {
-      font-size: 0.88rem;
+    .pipeline-step-desc {
+      font-size: 0.85rem;
       color: var(--text-muted);
       line-height: 1.5;
+      margin-bottom: 14px;
+    }
+
+    .pipeline-step-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    /* ARCHITECTURE GRID */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 20px;
+    }
+
+    .feature-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      padding: 28px 24px;
+      position: relative;
+      transition: all 0.25s ease;
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-focus);
+      transform: translateY(-3px);
+    }
+
+    .feature-module-id {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--accent-red);
+      letter-spacing: 1.5px;
+      margin-bottom: 12px;
+      display: block;
+      font-weight: 700;
+    }
+
+    .feature-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+
+    .feature-text {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.6;
       margin-bottom: 16px;
     }
 
-    .node-badge {
+    .tech-tag {
       font-family: var(--font-mono);
-      font-size: 0.7rem;
-      padding: 4px 8px;
-      background: rgba(255, 255, 255, 0.04);
+      font-size: 0.68rem;
+      padding: 3px 8px;
+      background: var(--bg-surface-elevated);
       border: 1px solid var(--border-subtle);
-      color: var(--text-main);
-      display: inline-block;
-      width: fit-content;
+      color: #9cb2ba;
     }
 
-    .timeline-node.highlight-target .node-badge {
-      background: var(--accent-red-dim);
-      border-color: rgba(255, 51, 68, 0.3);
-      color: #fff;
-    }
-
-    /* MANIFESTO / OBSCURITY GRID */
+    /* MANIFESTO GRID */
     .manifesto-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 28px;
+      gap: 24px;
     }
 
     @media (max-width: 850px) {
@@ -327,7 +823,7 @@
     .manifesto-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
-      padding: 34px 30px;
+      padding: 32px 28px;
     }
 
     .manifesto-card.threats {
@@ -338,27 +834,18 @@
       border-left: 3px solid var(--accent-green);
     }
 
-    .card-title {
-      font-size: 1.35rem;
-      font-weight: 800;
-      margin-bottom: 16px;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
     .threat-list, .solution-list {
       list-style: none;
       display: flex;
       flex-direction: column;
       gap: 16px;
+      margin-top: 16px;
     }
 
     .threat-item, .solution-item {
       display: flex;
       gap: 12px;
-      font-size: 0.95rem;
+      font-size: 0.92rem;
       line-height: 1.5;
     }
 
@@ -376,137 +863,109 @@
       flex-shrink: 0;
     }
 
-    /* REAL TECHNICAL ARCHITECTURE */
-    .features-grid {
+    /* COMMUNITY & ALLIANCE PANEL */
+    .community-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
     }
 
-    .feature-card {
-      background: var(--bg-surface);
+    .community-card {
+      background: var(--bg-card);
       border: 1px solid var(--border-subtle);
-      padding: 30px 26px;
-      position: relative;
-      transition: all 0.2s ease;
+      padding: 22px 20px;
     }
 
-    .feature-card:hover {
-      border-color: var(--border-focus);
-      transform: translateY(-3px);
-    }
-
-    .feature-module-id {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      color: var(--accent-red);
-      letter-spacing: 1px;
-      margin-bottom: 12px;
-      display: block;
-      font-weight: 700;
-    }
-
-    .feature-title {
-      font-size: 1.25rem;
+    .community-name {
+      font-size: 1.15rem;
       font-weight: 800;
       color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .community-role {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent-amber);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    .community-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.5;
       margin-bottom: 12px;
     }
 
-    .feature-text {
+    /* TRANSPARENT DONATION BOX */
+    .donation-panel {
+      background: linear-gradient(135deg, #0e161a 0%, #131d22 100%);
+      border: 1px solid var(--border-strong);
+      border-left: 4px solid var(--accent-amber);
+      padding: 36px 32px;
+      margin-top: 40px;
+    }
+
+    .donation-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .donation-title {
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .donation-notice {
+      background: rgba(255, 183, 3, 0.08);
+      border: 1px solid rgba(255, 183, 3, 0.25);
+      padding: 14px 18px;
+      font-size: 0.88rem;
+      color: #ffd166;
+      line-height: 1.6;
+      margin-bottom: 20px;
+      font-family: var(--font-mono);
+    }
+
+    .donation-details {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
       font-size: 0.92rem;
       color: var(--text-muted);
       line-height: 1.6;
-      margin-bottom: 16px;
     }
 
-    .feature-tags {
+    .donation-details strong {
+      color: var(--text-main);
+    }
+
+    .donation-links {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .tech-tag {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      padding: 2px 7px;
-      background: var(--bg-surface-elevated);
-      border: 1px solid var(--border-subtle);
-      color: #9cb2ba;
-    }
-
-    /* FOUNDER & PHILOSOPHY BANNER */
-    .founder-panel {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      padding: 40px 34px;
-      display: grid;
-      grid-template-columns: 1.4fr 1fr;
-      gap: 32px;
-      align-items: center;
-    }
-
-    @media (max-width: 850px) {
-      .founder-panel {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .founder-quote {
-      font-size: 1.15rem;
-      color: var(--text-main);
-      line-height: 1.6;
-      margin-bottom: 20px;
-      font-style: italic;
-    }
-
-    .founder-meta {
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-
-    .founder-meta strong {
-      color: var(--accent-red);
-      font-size: 1rem;
-    }
-
-    .open-principles {
-      border-left: 2px solid var(--border-subtle);
-      padding-left: 28px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      font-family: var(--font-mono);
-      font-size: 0.82rem;
-      color: var(--text-muted);
-    }
-
-    @media (max-width: 850px) {
-      .open-principles {
-        border-left: none;
-        border-top: 1px solid var(--border-subtle);
-        padding-left: 0;
-        padding-top: 20px;
-      }
-    }
-
-    .open-principles .item {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-    }
-
-    .open-principles .item span {
-      color: var(--accent-green);
+      gap: 12px;
+      margin-top: 20px;
     }
 
     /* FOOTER */
     footer {
       border-top: 1px solid var(--border-subtle);
-      padding: 40px 0;
+      padding: 46px 0;
       background: var(--bg-surface);
-      margin-top: 40px;
+      margin-top: 60px;
     }
 
     .footer-inner {
@@ -514,7 +973,7 @@
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 20px;
+      gap: 24px;
       font-family: var(--font-mono);
       font-size: 0.78rem;
       color: var(--text-muted);
@@ -523,21 +982,86 @@
     .footer-inner strong {
       color: var(--text-main);
     }
+
+    .footer-links {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .footer-links a:hover {
+      color: var(--accent-red);
+    }
+
+    /* UTILS */
+    .mono { font-family: var(--font-mono); }
+    .badge-pill {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-subtle);
+    }
+    .text-red { color: var(--accent-red); }
+    .text-green { color: var(--accent-green); }
+    .text-amber { color: var(--accent-amber); }
+    .text-cyan { color: var(--accent-cyan); }
   </style>
 </head>
 <body>
 
+  <!-- LIVE TELEMETRY BAR -->
+  <div class="top-telemetry">
+    <div class="container telemetry-inner">
+      <div class="telemetry-item">
+        <span class="status-dot"></span>
+        <span>VIRUSKOV CORE: TELEMETRY & ML ACTIVE</span>
+      </div>
+      <div class="telemetry-item">
+        <span>MİMARİ: HYBRID RING-0 EDR + GELİŞMİŞ ML MOTORU</span>
+      </div>
+      <div class="telemetry-item">
+        <span>KURUCU: <strong>Emirhan Uçan</strong> (<span class="text-red">hydra_dragon_antivirus</span>)</span>
+      </div>
+      <div class="telemetry-item">
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--text-main); text-decoration: none;">
+          GITHUB REPO &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+
   <!-- HEADER -->
   <header>
-    <div class="container">
-      <div class="header-inner">
-        <a href="#" class="brand-link">
-          <img src="viruskov-wordmark.svg" alt="VIRUSKOV Logo" class="brand-logo-img">
-        </a>
+    <div class="container header-inner">
+      <a href="#" class="brand-link">
+        <img src="viruskov-wordmark.svg" alt="VIRUSKOV Logo" class="brand-logo-img">
+      </a>
+
+      <nav>
+        <a href="#tarihce" class="nav-link highlight">Tarihçe & Dürüst Kronoloji</a>
+        <a href="#teknik-evrim" class="nav-link">Teknik Evrim</a>
+        <a href="#manifesto" class="nav-link">Manifesto</a>
+        <a href="#mimari" class="nav-link">Mimari</a>
+        <a href="#ittifak" class="nav-link">Ekip & İttifak</a>
+        <a href="#bagis" class="nav-link">Şeffaf Bağış</a>
+      </nav>
+
+      <div class="header-actions">
         <div class="founder-badge">
-          <span>Proje Lideri & Kurucu:</span>
+          <span>Proje Lideri:</span>
           <strong>Emirhan Uçan</strong>
         </div>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-red btn-sm">
+          <span>REPO</span>
+          <span>&nearr;</span>
+        </a>
       </div>
     </div>
   </header>
@@ -545,151 +1069,514 @@
   <main class="container">
     <!-- HERO SECTION -->
     <section class="hero">
-      <div class="hero-badge">
-        <span>⚠</span> MANİFESTO: SECURITY BY OBSCURITY İŞE YARAMADI
+      <div class="hero-meta-badge">
+        <span>⚡</span> AÇIK KAYNAK SAVUNMA MANİFESTOSU & KURUMSAL EDR EVRİMİ
       </div>
 
       <h1 class="hero-title">
-        KAPALI KUTULAR ÇÖKTÜ.<br>
-        <span class="strike">GİZLİLİKLE GÜVENLİK</span><br>
-        <span class="highlight-red">VIRUSKOV İLE AÇIK SAVUNMA.</span>
+        GİZLİLİKLE GÜVENLİK BİTTİ.<br>
+        <span class="strike">KAPALI DEVLERİN İMZALARI</span><br>
+        <span class="highlight-red">VIRUSKOV İLE DERİN VE ŞEFFAF DİRENİŞ.</span>
       </h1>
 
       <p class="hero-lead">
-        Antivirüs tarihi on yıllardır yabancı menşeili ve kapalı kaynaklı devlerin tekelinde ilerledi. 
-        Yapay zekanın olduğu bu dönemde saldırganların da yapay zeka destekli tersine mühendislik bildiği gerçeği karşısında, <em>"kodumu saklarsam güvendeyim"</em> mantığı tamamen iflas etti.
+        Antivirüs tarihi çeyrek asırdır kapalı kutular ve kullanıcıyı kandıran <em>"Security by Obscurity"</em> yalanıyla yönetildi. 
+        Saldırganların da yapay zeka tabanlı tersine mühendislik bildiği günümüzde; kaynak kodu gizlemek sadece kullanıcıyı savunmasız bırakır, saldırgana ise hiçbir engel teşkil etmez.
       </p>
 
       <p class="hero-subtext">
-        Günümüzde sıfırıncı gün zafiyetli driver'larla (BYOVD) antivirüsü ring0'dan kapatan saldırılara, güvenli moda girip korumayı felç eden fidye yazılımlarına ve tespit edilemeyen stealer'lara karşı kapalı kaynak yazılımlar çaresiz kalıyor. 
-        <strong>VIRUSKOV</strong>, tüm tehditleri <strong>genel statik ve dinamik makine öğrenimi</strong> ile çözer. Diğerlerinin aksine virüsün her adımını <strong>verbose logging</strong> ile açıkça döker ve <strong>kullanıcının kafası karışıp yanlışlıkla izin vermesi durumunda dahi</strong> süreci arka planda gizlice kaydedip tehlikeli aksiyon anında uyararak bloke eder.
+        2019'daki ilk virüs analizlerinden 2022'deki yapay zekasız ilk satranç programına, başarısız ilk <em>Antivirus.sln</em> denemesinden <strong>Turko Antivirus</strong> ve <strong>Hydra Dragon</strong> adımlarına, bugün ise <strong>Sanctum, OpenEDR, Owlyshield, Ring-0 Kernel ve Genelleştirilmiş Makine Öğrenimi</strong> ile harmanlanmış bağımsız kurumsal EDR motoruna uzanan hakiki ve sansürsüz hikayemiz.
       </p>
 
       <div class="hero-buttons">
-        <a href="#tarihsel-evrim" class="btn btn-red">
-          <span>AÇIK KAYNAK EVRİMİ</span>
+        <a href="#tarihce" class="btn btn-red">
+          <span>DÜRÜST TARİHÇEYİ İNCELE</span>
           <span>&darr;</span>
         </a>
-        <a href="#mimari-cozum" class="btn btn-ghost">
-          <span>TEKNİK MİMARİ VE ÇÖZÜM</span>
+        <a href="#teknik-evrim" class="btn btn-ghost">
+          <span>TEKNİK EVRİM ŞEMASI</span>
           <span>&rarr;</span>
         </a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-outline-red">
+          <span>KAYNAK KODLARINI İNCELE</span>
+          <span>&nearr;</span>
+        </a>
+      </div>
+
+      <!-- METRICS STRIP -->
+      <div class="stats-strip">
+        <div class="stat-card">
+          <div class="stat-val red">2019 &rarr; 2026</div>
+          <div class="stat-lbl">Gerçek Gelişim & Araştırma Süreci</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val green">%100 AÇIK</div>
+          <div class="stat-lbl">Denetlenebilir C / C++ / Rust & Python</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val amber">RING-0 & EDR</div>
+          <div class="stat-lbl">BYOVD & Kernel Seviyesi Koruma</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val text-cyan">DUAL-STAGE ML</div>
+          <div class="stat-lbl">Statik PE Başlıkları + Dinamik Davranış</div>
+        </div>
       </div>
     </section>
 
-    <!-- HISTORICAL EVOLUTION SECTION -->
-    <section class="section-wrap" id="tarihsel-evrim">
+    <!-- COMPLETE HONEST HISTORY & CHRONOLOGY SECTION -->
+    <section class="section-wrap" id="tarihce">
       <div class="section-header">
-        <div class="section-tag">// KRONOLOJİ & EVRİM</div>
-        <h2 class="section-title">Açık Kaynak Antivirüs Tarihi ve Viruskov</h2>
-        <p style="color: var(--text-muted); margin-top: 8px; max-width: 780px;">
-          Açık kaynak güvenlik ekosisteminin ilk adımlarından günümüzün en gelişmiş uç nokta savunmasına uzanan gelişim süreci:
+        <div class="section-tag">// BELGELİ & ŞEFFAF KRONOLOJİ</div>
+        <h2 class="section-title">Viruskov'un Gerçek ve Sansürsüz Tarihçesi</h2>
+        <p class="section-desc">
+          Bu proje reklam ajansları veya fonlanmış PR metinleriyle değil; Emirhan Uçan'ın çocukluk merakı, yıllarca yapay zekasız satranç ve kod geliştirme çabası, başarısız ilk projeler, Discord arşivleri ve fedakar topluluk dostlarıyla adım adım inşa edildi. Hiçbir şeyi gizlemeden, tüm linkler ve belgelerle dürüst tarihimiz:
         </p>
       </div>
 
-      <div class="timeline-container">
-        <!-- 01: OpenAntivirus -->
-        <div class="timeline-node">
-          <div>
-            <div class="node-phase">01 / TEMEL ADIM</div>
-            <h3 class="node-title">OpenAntivirus</h3>
-            <p class="node-desc">
-              Açık kaynak antivirüs motoru fikrinin doğduğu, ilk basit imza arama mantığının açık topluluğa kazandırıldığı öncü dönem.
-            </p>
+      <div class="history-dashboard">
+        <!-- CONTROLS & FILTER -->
+        <div class="history-controls">
+          <div class="filter-btn-group">
+            <button class="filter-btn active" data-filter="all">TÜMÜ (Kronolojik)</button>
+            <button class="filter-btn" data-filter="roots">2019-2022 İlk Temeller</button>
+            <button class="filter-btn" data-filter="birth">2023 Doğuş (Turko & Hydra)</button>
+            <button class="filter-btn" data-filter="alliances">2024 Dostlar & İttifak</button>
+            <button class="filter-btn" data-filter="kernel">Teknik & Kernel Çağı</button>
           </div>
-          <span class="node-badge">openantivirus.com</span>
+          <div class="history-search-box">
+            <span style="color: var(--accent-red); font-family: var(--font-mono); font-size: 0.8rem;">[ARA]</span>
+            <input type="text" id="historySearch" class="history-search-input" placeholder="Tarih, kişi, motor veya link ara...">
+          </div>
         </div>
 
-        <!-- 02: ClamAV -->
-        <div class="timeline-node">
-          <div>
-            <div class="node-phase">02 / İMZA ÇAĞI</div>
-            <h3 class="node-title">ClamAV</h3>
-            <p class="node-desc">
-              E-posta ağ geçitleri ve sunucular için hash/imza tabanlı dosya taramasını standartlaştıran açık kaynak dosya tarayıcısı.
-            </p>
-          </div>
-          <span class="node-badge">clamav.net</span>
-        </div>
+        <!-- TIMELINE STREAM -->
+        <div class="timeline-stream" id="timelineStream">
 
-        <!-- 03: OpenEDR -->
-        <div class="timeline-node">
-          <div>
-            <div class="node-phase">03 / TELEMETRİ</div>
-            <h3 class="node-title">OpenEDR</h3>
-            <p class="node-desc">
-              Sadece dosya taramaktan olay telemetrisi ve uç nokta davranış kaydı toplamaya geçiş yapan açık kaynak EDR girişimi.
+          <!-- 01: 2019 Avast Community -->
+          <article class="stream-card" data-category="roots">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">2019 &bull; İLK MERAK VE SALDIRGAN BİLGİSİ İNCELEMESİ</span>
+              <span class="card-tag">Güvenlik Başlangıcı</span>
+            </div>
+            <h3 class="card-title">Avast Forumunda Hacker / Virüs IP Raporlaması</h3>
+            <p class="card-narrative">
+              Emirhan Uçan'ın güvenlik dünyasına merakı çok eskiye dayanıyor. Henüz pek çok konsepti yeni keşfetme aşamasındayken Avast forumlarında zararlı aktiviteleri ve saldırgan IP adreslerini raporlayarak ilk adımlarını attı. Küçük yaştan gelen bu merak, ileride sıradan bir kullanıcı olmak yerine savunma yazılımı geliştirmeye evrilecekti.
             </p>
-          </div>
-          <span class="node-badge">openedr.com</span>
-        </div>
+            <div class="proof-links">
+              <a href="https://community.avast.com/t/hackers-id-founded-94-74-81-92-80/754120" target="_blank" class="proof-link-btn">
+                <span>Avast Forum Kaydı (2019)</span>
+                <span>&nearr;</span>
+              </a>
+            </div>
+          </article>
 
-        <!-- 04: HydraDragon -->
-        <div class="timeline-node">
-          <div>
-            <div class="node-phase">04 / KERNEL & UNPACK</div>
-            <h3 class="node-title">HydraDragon</h3>
-            <p class="node-desc">
-              MBR koruması, Themida/VMP unpacker analizi, unicorn emülasyonu ve hibrit çoklu tarama çekirdeğinin geliştirildiği temel aşama.
+          <!-- 02: Ocak 2022 GitHub & 1.5 Yıl Satranç / Yazılım -->
+          <article class="stream-card" data-category="roots">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">Ocak 2022 &bull; YAZILIMA İLK ADIM VE GİTHUB KATILIMI</span>
+              <span class="card-tag">Öz-Gelişim</span>
+            </div>
+            <h3 class="card-title">GitHub'a Giriş, 1.5 Yıl Satranç ve Yapay Zekasız Çalışma</h3>
+            <p class="card-narrative">
+              Ocak 2022'de GitHub'a katılarak yazılıma başlandı. Yaklaşık 1.5 yıl boyunca yapay zeka araçları olmadan kendi çabasıyla mantık geliştirdi. Bu dönemin %99'u satranç oynayarak ve strateji kurgulayarak geçti; yazılımla aralıklı ilgilenilse de analitik düşünme temeli satranç tahtasında atıldı.
             </p>
-          </div>
-          <span class="node-badge">hydradragonantivirus</span>
-        </div>
+          </article>
 
-        <!-- 05: VIRUSKOV -->
-        <div class="timeline-node highlight-target">
-          <div>
-            <div class="node-phase">05 / YENİ NESİL ZİRVE</div>
-            <h3 class="node-title">VIRUSKOV</h3>
-            <p class="node-desc">
-              OpenEDR'den çok daha gelişmiş; bilinmedik tehditleri makine öğrenimiyle yakalayan, BYOVD ve safe-mode saldırılarını engelleyen bağımsız savunma zirvesi.
+          <!-- 03: Mayıs 2022 Satranc.exe ve İlk Test Virüsleri -->
+          <article class="stream-card" data-category="roots">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">Mayıs 2022 &bull; İLK YAYINLANAN PROGRAM</span>
+              <span class="card-tag">Kod & Deney</span>
+            </div>
+            <h3 class="card-title">Satranc.exe ve Kendi Hazırlanan Test Zararlıları</h3>
+            <p class="card-narrative">
+              Mayıs 2022'de ilk açık program olan <strong>Satranc.exe</strong> yayınlandı. Bu depoda sadece satranç kodları değil, aynı zamanda savunma reflekslerini test etmek için kendi eliyle yazdığı örnek virüs simülasyonları ve zararlı test dosyaları da yer alıyordu. Zararlının nasıl çalıştığını bizzat yazarak öğrenme evresi başladı.
             </p>
-          </div>
-          <span class="node-badge" style="background: var(--accent-red); color: #fff; font-weight: 700;">viruskov.com</span>
+            <div class="proof-links">
+              <a href="https://github.com/satrancistanbul/Satranc.exe/tree/main/Dosya" target="_blank" class="proof-link-btn">
+                <span>Satranc.exe Deposu ve Test Dosyaları</span>
+                <span>&nearr;</span>
+              </a>
+            </div>
+          </article>
+
+          <!-- 04: 15 Nisan 2023 Antivirus.sln İlk Başarısız Deneme -->
+          <article class="stream-card highlight" data-category="birth">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">15 Nisan 2023 &bull; 13:27:00 &bull; İLK PROJE OLUŞTURMA</span>
+              <span class="card-tag">Proje Miladı</span>
+            </div>
+            <h3 class="card-title">Antivirus.sln: İlk Başarısız Deneme ve Pes Etmeme Kararı</h3>
+            <p class="card-narrative">
+              Antivirüs geliştirme serüveninin resmi doğum tarihi <strong>15.04.2023 13:27</strong>'dir. Visual Studio üzerinde oluşturulan <em>Antivirus.sln</em> projesi ilk etapta tecrübesizlik nedeniyle başarısız oldu. Ancak bu başarısızlık projeyi terk etmek yerine daha derin öğrenme azmini doğurdu.
+            </p>
+            <div class="proof-links">
+              <a href="https://github.com/Siradankullanici/Antivirus/blob/4ae35cfcc59d8051ecc2fd2037d232aed4d686ab/Antivirus.rar" target="_blank" class="proof-link-btn">
+                <span>Antivirus.rar İlk Arşivi (15.04.2023)</span>
+                <span>&nearr;</span>
+              </a>
+            </div>
+          </article>
+
+          <!-- 05: 7 Mayıs 2023 İlk Commitler -->
+          <article class="stream-card" data-category="birth">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">7 Mayıs 2023 &bull; AÇIK KOD MİMARİSİ</span>
+              <span class="card-tag">Git Commit</span>
+            </div>
+            <h3 class="card-title">İlk Açık Kod Commitleri ve Temel Taramalar</h3>
+            <p class="card-narrative">
+              İlk açık commitler Siradankullanici/Antivirus deposunda atıldı. Başlangıçta basit hash eşleştirmeleri ve dosya uzantı denetimleriyle yola çıkıldı.
+            </p>
+            <div class="proof-links">
+              <a href="https://github.com/Siradankullanici/Antivirus/commit/127eb918236ad9473f7474e4be8f0a0d78800c91" target="_blank" class="proof-link-btn">
+                <span>7 Mayıs 2023 GitHub Commiti</span>
+                <span>&nearr;</span>
+              </a>
+            </div>
+          </article>
+
+          <!-- 06: 10 Mayıs 2023 YouTube Kaydı -->
+          <article class="stream-card" data-category="birth">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">10 Mayıs 2023 &bull; 13:05:34 &bull; BELGELİ GELİŞTİRME</span>
+              <span class="card-tag">YouTube Video & Yorum</span>
+            </div>
+            <h3 class="card-title">"I Improved code" Geliştirme Notu ve Video Paylaşımı</h3>
+            <p class="card-narrative">
+              YouTube üzerinde paylaşılan video ve 10 Mayıs 2023 saat 13:05:34 tarihli "I Improved code" yorumuyla projenin halka açık geliştirme günlüğü pekiştirildi.
+            </p>
+            <div class="proof-links">
+              <a href="https://www.youtube.com/watch?v=VP0zjF83zjc&lc=UgwgMrkyuKvUyujSSmx4AaABAg" target="_blank" class="proof-link-btn">
+                <span>YouTube Geliştirme Kaydı & Yorum Linki</span>
+                <span>&nearr;</span>
+              </a>
+            </div>
+          </article>
+
+          <!-- 07: 11 Mayıs 2023 blackbanner.exe Dönemi -->
+          <article class="stream-card" data-category="birth">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">11 Mayıs 2023 &bull; ZARARLI ANALİZ LABORATUVARI</span>
+              <span class="card-tag">Zararlı İnceleme</span>
+            </div>
+            <h3 class="card-title">blackbanner.exe ile Laboratuvar Çalışmaları</h3>
+            <p class="card-narrative">
+              11 Mayıs'tan itibaren <strong>blackbanner.exe</strong> zararlısı üzerinde yoğunlaşıldı. Virüslerin sistemde nasıl kalıcılık sağladığı, dosya manipülasyonları ve savunmaları nasıl atlattığı canlı ortamda incelenerek motora dahil edildi.
+            </p>
+          </article>
+
+          <!-- 08: 20 Mayıs 2023 Turko Antivirus'ten Hydra Dragon'a Geçiş -->
+          <article class="stream-card highlight" data-category="birth">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">20 Mayıs 2023 &bull; 13:11 - 13:29 &bull; DİSCORD ARŞİVİ</span>
+              <span class="card-tag">İsim ve Vizyon Dönüm Noktası</span>
+            </div>
+            <h3 class="card-title">Turko Antivirus'ten Hydra Dragon'a: Comodo Farkındalığı</h3>
+            <p class="card-narrative">
+              Proje ilk başta <strong>Turko Antivirus</strong> olarak anılıyordu. Emirhan Uçan'ın Discord üzerinden paylaştığı tarihi mesaj, oyun modlamaktan (Vic2 MOE, MOC fikirleri, webcam koruması) antivirüs mimarisine geçişin en samimi belgesidir. 13:29'da <em>"Hydra Dragon nasıl? Gerçi Comodo'ya benzedi"</em> diyerek o tarihte dahi sektörün efsanevi motoru COMODO mimarisini bildiğini ve projeye Hydra Dragon isminin kalıcı olarak seçildiğini tescillemiştir.
+            </p>
+            
+            <div class="discord-quote-box">
+              <div class="discord-quote-header">
+                <span>DISCORD ARŞİVİ &bull; Hydra [ANY] &bull; 20.05.2023 13:11</span>
+              </div>
+              <div class="discord-quote-content">
+                "Vic2 MOE'di. Oyun modlarına şu anlık ilgilenmiyorum. Neredeyse biterken bıraktığım işlerde var. Harita yapmak gibi. Webcam korumasında virüs bulursa kapatma ve anormal şeylerde uyarma yapmaya çalışmıştım. Oyunda hile aklıma şey geldi. MOC ikide abartılı şeyler eklemiştim ideas kısmına. Ben antivirüse takıntılı kalayım yoksa sen her türlü beni geçersin emek konusunda. Antivirüs ismi düşünmek lazım. Hydra Antivirus olabilir. Tulpar Antivirus olabilir."
+              </div>
+            </div>
+
+            <div class="discord-quote-box" style="border-left-color: var(--accent-red);">
+              <div class="discord-quote-header" style="color: var(--accent-red);">
+                <span>DISCORD ARŞİVİ &bull; 20.05.2023 13:29</span>
+              </div>
+              <div class="discord-quote-content">
+                "Hydra Dragon nasıl? Gerçi Comodo'ya benzedi..."
+              </div>
+            </div>
+          </article>
+
+          <!-- 09: Xylent Forku & Rutuj-Runwal Katkısı -->
+          <article class="stream-card" data-category="birth">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">2023 &bull; AÇIK KAYNAK İŞ BİRLİĞİ</span>
+              <span class="card-tag">Fork & Topluluk</span>
+            </div>
+            <h3 class="card-title">Xylent Forku ve Rutuj-Runwal Katkısı</h3>
+            <p class="card-narrative">
+              Proje belirli bir aşamada forklanarak <strong>Xylent</strong> adıyla geliştirildi. <strong>Rutuj-Runwal</strong> projeye katkıda bulunan ve gelişim sürecinde emeği geçen değerli açık kaynak geliştiricilerinden biri oldu.
+            </p>
+            <div class="proof-links">
+              <a href="https://github.com/Rutuj-Runwal/Xylent" target="_blank" class="proof-link-btn">
+                <span>Xylent Fork Deposu (Rutuj-Runwal)</span>
+                <span>&nearr;</span>
+              </a>
+            </div>
+          </article>
+
+          <!-- 10: 15 Ağustos 2024 Sparrow / Ramiz Dayı (Yusif Musayev) -->
+          <article class="stream-card alliance" data-category="alliances">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">15 Ağustos 2024 &bull; 16:06 &bull; DÖNÜM NOKTASI</span>
+              <span class="card-tag">İttifak & Dostluk</span>
+            </div>
+            <h3 class="card-title">Sparrow Sunucusu Olayı ve Ramiz Dayı (Yusif Musayev) ile Tanışma</h3>
+            <p class="card-narrative">
+              Sparrow sunucusundaki "Tusuf ban" hadisesinin ardından Ramiz Dayı'nın (Yusif Musayev) DM'den yazmasıyla büyük bir dostluk ve geliştirme ortaklığı başladı. Ramiz ile birlikte daha sonra Hacımurad ile tanışıldı ve çekirdek güç birliği pekişti.
+            </p>
+            <div class="proof-links">
+              <a href="https://github.com/elnureisayeva1-cloud" target="_blank" class="proof-link-btn">
+                <span>Ramiz Dayı (Yusif Musayev) GitHub Profili</span>
+                <span>&nearr;</span>
+              </a>
+            </div>
+          </article>
+
+          <!-- 11: 19 Aralık 2024 Technopat & winball501 -->
+          <article class="stream-card alliance" data-category="alliances">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">19 Aralık 2024 &bull; 14:24 &bull; TECHNOPAT BAĞLANTISI</span>
+              <span class="card-tag">Topluluk</span>
+            </div>
+            <h3 class="card-title">winball501 ile Tanışma: "sa nasil gidiyor"</h3>
+            <p class="card-narrative">
+              Technopat Sosyal forumundan tanınan <strong>winball501</strong> ile ilk temas Discord üzerinden 19.12.2024 saat 14:24'te tam olarak <em>"sa nasil gidiyor"</em> mesajıyla kuruldu. Bu samimi başlangıç, güvenlik topluluğu içerisindeki dayanışmayı artırdı.
+            </p>
+          </article>
+
+          <!-- 12: Yazılım Mekanı: Komutan Yusuf, Benan ve Web Sitesi -->
+          <article class="stream-card alliance" data-category="alliances">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">2024 Sonu - 2025 &bull; YAZILIM MEKANI & WEB SİTESİ</span>
+              <span class="card-tag">Web & Ekip</span>
+            </div>
+            <h3 class="card-title">Komutan Yusuf ve Benan ile Tanışma, Web Sitesinin Doğuşu</h3>
+            <p class="card-narrative">
+              Yazılım Mekanı topluluğundan <strong>Komutan Yusuf</strong> ve <strong>Benan</strong> ile tanışıldı. Benan'ın özverili teknik desteği sayesinde projenin resmi web arayüzü ve tanıtım altyapısı hayata geçirildi; Hydra Dragon vizyonu <strong>VIRUSKOV</strong> kimliğiyle profesyonel bir vitrine kavuştu.
+            </p>
+          </article>
+
+          <!-- 13: Python ML: Ezberleme ile Varyant Bulma ve Genellemeye Geçiş -->
+          <article class="stream-card tech" data-category="kernel">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">2023 - 2024 &bull; YAPAY ZEKA GELİŞİMİ</span>
+              <span class="card-tag">Python ML & Varyant Mantığı</span>
+            </div>
+            <h3 class="card-title">Python Makine Öğrenimi: Özellik Ezberleme ile Varyant Bulma ve Genellemeye Evrilme</h3>
+            <p class="card-narrative">
+              Bu aşamada makine öğrenimi henüz ONNX formatında veya genel soyut skorlama şeklinde değildi. Python tabanlı ilk modeller, belirli virüslerin karakteristik PE özelliklerini doğrudan ezberleyerek (feature memorization) aynı zararlının benzer varyantlarını ve türevlerini yakalıyordu. Sistemde makine öğrenimi bulunmasına rağmen tespit edilen tehditlere doğrudan <strong>özel virüs isimleri atanmasının</strong> temel sebebi buydu. Sistem geliştikçe, virüsleri tek tek ezberlemek yerine zararlıların genel PE başlık sapmalarını ve davranış anomalilerini skorlayan <strong>genelleştirilmiş (generalization) makine öğrenimi</strong> mimarisine geçiş yapıldı.
+            </p>
+          </article>
+
+          <!-- 14: TEKNİK DERİNLİK VE KERNEL ÇAĞI -->
+          <article class="stream-card tech milestone" data-category="kernel">
+            <div class="stream-card-dot"></div>
+            <div class="card-top-row">
+              <span class="card-date-badge">2024 &rarr; 2026 &bull; MİMARİ DÖNÜŞÜM</span>
+              <span class="card-tag">EDR & Kernel Devrimi</span>
+            </div>
+            <h3 class="card-title">OmniDefender Tavsiyesi, Owlyshield, Sanctum ve Kurumsal EDR</h3>
+            <p class="card-narrative">
+              Kernel seviyesinde çalışan zararlıların artmasıyla birlikte, <strong>OmniDefender</strong> antivirüs geliştiricisinin <em>"Kernele önem ver"</em> tavsiyesi kritik bir kırılma noktası oldu. Emirhan bu tavsiyeyi dinleyerek usermode kısıtlamalarını aşıp Ring-0 çekirdek mimarisine yöneldi. <strong>Owlyshield</strong> derlenip projeye katıldı, ardından <strong>Sanctum</strong> ve <strong>OpenEDR</strong> derlenebilir hale getirilerek kurumsal düzeyde bir EDR çekirdeği oluşturuldu.
+            </p>
+            <div class="proof-links">
+              <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="proof-link-btn">
+                <span>HydraDragon / Viruskov Ana EDR Deposu</span>
+                <span>&nearr;</span>
+              </a>
+              <a href="https://github.com/Xacone/BestEdrOfTheMarket" target="_blank" class="proof-link-btn">
+                <span>Windows 10 EDR Referansı (BestEdrOfTheMarket)</span>
+                <span>&nearr;</span>
+              </a>
+            </div>
+          </article>
+
         </div>
       </div>
     </section>
 
-    <!-- MANIFESTO & REAL PROBLEM ANALYSIS -->
-    <section class="section-wrap">
+    <!-- TECHNICAL EVOLUTION PIPELINE SECTION -->
+    <section class="section-wrap" id="teknik-evrim">
       <div class="section-header">
-        <div class="section-tag">// GERÇEK DÜNYA TEHDİTLERİ</div>
-        <h2 class="section-title">Kapalı Kaynak Antivirüsler Neden Çöküyor?</h2>
+        <div class="section-tag">// KOD VE MOTOR MİMARİSİ ADIMLARI</div>
+        <h2 class="section-title">Teknik Motor Evrimi: Hash'ten Kernel EDR'a</h2>
+        <p class="section-desc">
+          Viruskov bir gecede kurulmadı. Başlangıçta yapılan ilkel denemelerin terk edilip yerine endüstri standardı ve kurumsal teknolojilerin inşa edilme süreci:
+        </p>
+      </div>
+
+      <div class="evolution-pipeline">
+        <!-- 01: VirusShare Hash -->
+        <div class="pipeline-step">
+          <div>
+            <div class="pipeline-step-num">
+              <span>FAZ 01</span>
+              <span>İLKEL İMZA</span>
+            </div>
+            <h3 class="pipeline-step-title">VirusShare Hash Taraması</h3>
+            <p class="pipeline-step-desc">
+              Başlangıçta yalnızca bilinen zararlıların hash listeleriyle statik MD5/SHA256 eşleştirmesi yapılıyordu. Polimorfik zararlılar karşısında yetersizliği erkenden anlaşıldı.
+            </p>
+          </div>
+          <div class="pipeline-step-tags">
+            <span class="tech-tag">MD5/SHA256</span>
+            <span class="tech-tag">VirusShare DB</span>
+          </div>
+        </div>
+
+        <!-- 02: ClamAV Wrapper & Usermode Changes -->
+        <div class="pipeline-step">
+          <div>
+            <div class="pipeline-step-num">
+              <span>FAZ 02</span>
+              <span>USERMODE DENEMELERİ</span>
+            </div>
+            <h3 class="pipeline-step-title">ClamAV Wrapper & Sistem Dosya Takibi</h3>
+            <p class="pipeline-step-desc">
+              ClamAV motoru sarıcıyla projeye dahil edildi. Kullanıcı modunda (usermode) sistem dosyalarının değişme tespiti gibi ilk ilkel davranış analizi kodları denendi.
+            </p>
+          </div>
+          <div class="pipeline-step-tags">
+            <span class="tech-tag">ClamAV Wrapper</span>
+            <span class="tech-tag">Usermode Watcher</span>
+          </div>
+        </div>
+
+        <!-- 03: ClamAV + YARA Temizliği -->
+        <div class="pipeline-step">
+          <div>
+            <div class="pipeline-step-num">
+              <span>FAZ 03</span>
+              <span>KURAL MOTORU</span>
+            </div>
+            <h3 class="pipeline-step-title">ClamAV + YARA Kural Çekirdeği</h3>
+            <p class="pipeline-step-desc">
+              Kararsız usermode kancaları sistemden temizlendi; ClamAV tabanı YARA kurallarıyla güçlendirilerek dosya içi mantıksal kalıpları derleyip okuyan bir motora geçildi.
+            </p>
+          </div>
+          <div class="pipeline-step-tags">
+            <span class="tech-tag">YARA Rules</span>
+            <span class="tech-tag">Pattern Match</span>
+          </div>
+        </div>
+
+        <!-- 04: Python ML (Ezberleme & Varyant Tespiti -> Genelleme) -->
+        <div class="pipeline-step">
+          <div>
+            <div class="pipeline-step-num">
+              <span>FAZ 04</span>
+              <span>YAPAY ZEKA EVRİMİ</span>
+            </div>
+            <h3 class="pipeline-step-title">Uzun Dönem Python Makine Öğrenimi</h3>
+            <p class="pipeline-step-desc">
+              Bu dönemde sistem henüz ONNX formatında veya soyut skorlama şeklinde değildi. Python ile geliştirilen ilk makine öğrenimi modelleri, virüslerin yapısal özelliklerini doğrudan <strong>ezberleme (feature memorization)</strong> yöntemiyle çalışıyor ve aynı zararlının benzer varyantlarını tespit ediyordu. Bir makine öğrenimi olmasına rağmen tespitlerde <strong>özel virüs isimlerinin yer almasının</strong> sebebi buydu. Sistem olgunlaştıkça bu ezberleme yapısından, genel virüs anomalilerini ve PE sapmalarını skorlayan <strong>genelleştirilmiş (generalization) makine öğrenimi</strong> mimarisine geçiş yapıldı.
+            </p>
+          </div>
+          <div class="pipeline-step-tags">
+            <span class="tech-tag">Python ML (Pre-ONNX)</span>
+            <span class="tech-tag">Özellik Ezberleme</span>
+            <span class="tech-tag">Varyant & İsim Tespiti</span>
+            <span class="tech-tag">Genellemeye Geçiş</span>
+          </div>
+        </div>
+
+        <!-- 05: Kernel Çağı & OmniDefender Tavsiyesi -->
+        <div class="pipeline-step active-step">
+          <div>
+            <div class="pipeline-step-num">
+              <span>FAZ 05 &bull; MEVCUT DURUM</span>
+              <span class="text-red">RİNG-0 ZİRVESİ</span>
+            </div>
+            <h3 class="pipeline-step-title">Kernel EDR: Owlyshield, Sanctum & OpenEDR</h3>
+            <p class="pipeline-step-desc">
+              OmniDefender'ın tavsiyesi üzerine Ring-0 kernel alanına girildi. Owlyshield, Sanctum ve OpenEDR projeleri başarıyla derlenip birleştirildi. Artık BYOVD ve driver saldırılarını doğrudan çekirdekte yakalayan bir EDR haline geldi.
+            </p>
+          </div>
+          <div class="pipeline-step-tags">
+            <span class="tech-tag">Owlyshield Driver</span>
+            <span class="tech-tag">Sanctum</span>
+            <span class="tech-tag">OpenEDR Core</span>
+          </div>
+        </div>
+
+        <!-- 06: Gelecek & Windows 10 EDR -->
+        <div class="pipeline-step future-step">
+          <div>
+            <div class="pipeline-step-num">
+              <span>FAZ 06 &bull; GELECEK VİZYONU</span>
+              <span class="text-cyan">GENİŞLEME</span>
+            </div>
+            <h3 class="pipeline-step-title">Windows 10 Desteği & BestEdrOfTheMarket</h3>
+            <p class="pipeline-step-desc">
+              Xacone/BestEdrOfTheMarket gibi öncü açık mimarilerden esinlenerek tam Windows 10/11 uyumluluğu, gelişmiş bellek taraması ve kurumsal SOC panelleriyle entegrasyon hedeflenmektedir.
+            </p>
+          </div>
+          <div class="pipeline-step-tags">
+            <span class="tech-tag">BestEdrOfTheMarket</span>
+            <span class="tech-tag">Win10/11 Ring0</span>
+            <span class="tech-tag">SOC Telemetry</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MANIFESTO SECTION -->
+    <section class="section-wrap" id="manifesto">
+      <div class="section-header">
+        <div class="section-tag">// TEHDİT VE DİRENİŞ ANALİZİ</div>
+        <h2 class="section-title">Neden Kapalı Antivirüsler Çöküyor?</h2>
+        <p class="section-desc">
+          Geleneksel antivirüs sektörü kullanıcılara yanlış bir güvenlik hissi satmaktadır. Viruskov'un arkasındaki felsefi fark:
+        </p>
       </div>
 
       <div class="manifesto-grid">
         <!-- Threats Faced Today -->
         <div class="manifesto-card threats">
           <h3 class="card-title">
-            <span style="color: var(--accent-red);">✖</span> Günümüz Tehditleri Karşısında Acizlik
+            <span class="text-red">✖</span> Kapalı Kutuların Acizlikleri
           </h3>
           <ul class="threat-list">
             <li class="threat-item">
               <span class="icon">[!]</span>
               <div>
-                <strong>BYOVD (Zafiyetli Driver) Saldırıları:</strong>
-                Saldırganlar bilinen imzalı fakat zafiyetli Windows sürücülerini sisteme yükleyip Ring 0 çekirdek seviyesinden geleneksel antivirüs süreçlerini doğrudan sonlandırıyor.
+                <strong>BYOVD (Bring Your Own Vulnerable Driver) Felci:</strong>
+                Saldırganlar geçerli Microsoft imzalı eski zafiyetli sürücüleri sisteme yükler ve antivirüsün Ring-3 kullanıcı modu servislerini çekirdekten tek bir çağrıyla öldürür.
               </div>
             </li>
             <li class="threat-item">
               <span class="icon">[!]</span>
               <div>
                 <strong>Güvenli Mod İstismarı (Safe-Mode Ransomware):</strong>
-                Gelişmiş fidye yazılımları sistemi Güvenli Mod'da yeniden başlatarak servis tabanlı kapalı antivirüsleri devre dışı bırakıyor ve sistemi savunmasızken şifreliyor.
+                Fidye yazılımları sistemi Güvenli Mod'da açılmaya zorlar; burada ticari antivirüs servisleri ayağa kalkmadığı için tüm disk engelsizce şifrelenir.
               </div>
             </li>
             <li class="threat-item">
               <span class="icon">[!]</span>
               <div>
-                <strong>Tespit Edilemeyen Bilgi Hırsızları (Stealers):</strong>
-                Polimorfik yapıdaki stealer'lar imza tabanlı kapalı motorları atlatarak tarayıcı oturumlarını ve şifreleri saniyeler içinde sızdırıyor.
+                <strong>Security by Obscurity İflası:</strong>
+                Yapay zekanın bu çağında virüs geliştiricileri de yapay zeka destekli decompilation araçları kullanarak kapalı kaynak motorların zaaflarını dakikalar içinde bulur. Kod gizlemek sadece kurbanı kör eder.
               </div>
             </li>
             <li class="threat-item">
               <span class="icon">[!]</span>
               <div>
-                <strong>Security by Obscurity Yanılgısı:</strong>
-                Yapay zekanın olduğu bu dönemde zararlı yazılım geliştiricileri de yapay zeka destekli tersine mühendislik araçlarıyla kapalı motorları dakikalar içinde deşifre edip atlatabiliyor. Kapalı kutular sadece kullanıcıya gizlidir; saldırganlara karşı hiçbir koruma sağlamaz.
+                <strong>İmza Şişkinliği (Signature Bloatware):</strong>
+                Yıllar öncesinin ölü virüslerinin hash'leriyle veritabanını şişirip bellek tüketen ancak bugünün sıfırıncı gün (0-day) saldırılarını göremeyen hantal yapılar.
               </div>
             </li>
           </ul>
@@ -698,42 +1585,35 @@
         <!-- The Viruskov Solution -->
         <div class="manifesto-card solution">
           <h3 class="card-title">
-            <span style="color: var(--accent-green);">✔</span> Viruskov'un Radikal Açık Çözümü
+            <span class="text-green">✔</span> Viruskov'un Radikal Açık Çözümü
           </h3>
           <ul class="solution-list">
             <li class="solution-item">
               <span class="icon">[✓]</span>
               <div>
-                <strong>Genel Statik & Dinamik Makine Öğrenimi:</strong>
-                Tüm tespit sürecini hem çalıştırma öncesi genel statik ML (PE/JS/URL/bayt analizi) hem de çalışma anı dinamik ML modelleriyle çözer; bilinmeyen davranış anomalilerini saptar.
+                <strong>Statik & Dinamik Çift Aşamalı ML:</strong>
+                Hem dosya henüz diskteyken PE yapısal başlık analiziyle, hem de hafızada çalışırken dinamik davranış anomalisi skorlamasıyla bilinmeyen tehditleri yakalar.
               </div>
             </li>
             <li class="solution-item">
               <span class="icon">[✓]</span>
               <div>
                 <strong>Verbose Logging ile Şeffaf Davranış Dökümü:</strong>
-                Diğer antivirüslerin aksine ne olduğunu gizlemez; virüsün gerçekleştirdiği her sistem çağrısını, bellek yazımını ve ağ girişimini en ince ayrıntısına kadar açıkça döker.
+                Sistemde olan biteni kullanıcıdan saklamaz. Hangi DLL nereye enjekte edildi, hangi sistem çağrısı yapıldı açıkça terminale dökülür.
               </div>
             </li>
             <li class="solution-item">
               <span class="icon">[✓]</span>
               <div>
-                <strong>Kullanıcı Yanılsa Bile Gizli İzleme (Stealth Blackbox):</strong>
-                Kullanıcı tereddüt edip yanlışlıkla "İzin Ver" dese dahi, o sürecin peşini bırakmaz! Arka planda bütün davranışlarını gizlice kaydetmeye devam eder ve kritik/yıkıcı bir aksiyonda anında müdahale eder.
+                <strong>Kullanıcı Yanılsa Bile Arka Planda Gizli Takip:</strong>
+                Kullanıcı panikleyip veya dikkatsizce bilinmeyen bir dosyaya "İzin Ver" dese dahi, Viruskov o süreci serbest bırakmaz! Arka planda gizlice telemetri kaydını sürdürür; kritik zararlı bir aksiyonda (şifreleme, yetki yükseltme) anında süreci imha eder.
               </div>
             </li>
             <li class="solution-item">
               <span class="icon">[✓]</span>
               <div>
-                <strong>Tehlikeli Aksiyon Anında Akıllı Müdahale:</strong>
-                Kullanıcıyı sıkan binlerce "zero trust" onay kutusu yerine; zararlı sistemde kritik bir kanca, silme veya şifreleme aksiyonu yapmaya kalktığı anda doğrudan engeller ve uyarır.
-              </div>
-            </li>
-            <li class="solution-item">
-              <span class="icon">[✓]</span>
-              <div>
-                <strong>Saniyeler İçinde Gerçek Topluluk İmzaları:</strong>
-                Kod açık olduğu için yeni bir tehdit çıktığında sadece geçici hash engeli değil; bağımsız araştırmacılar tarafından saniyeler içinde gerçek mantıksal imzalar üretilir.
+                <strong>Kernel Tabanlı Savunma ve MBR Koruması:</strong>
+                Owlyshield ve Sanctum sürücü mimarisiyle Ring-0 düzeyinde yetkisiz sürücü yüklemelerini ve MBR üzerine yazma girişimlerini doğrudan bloke eder.
               </div>
             </li>
           </ul>
@@ -741,42 +1621,42 @@
       </div>
     </section>
 
-    <!-- REAL ARCHITECTURE & ENGINE CAPABILITIES -->
-    <section class="section-wrap" id="mimari-cozum">
+    <!-- REAL ARCHITECTURE SECTION -->
+    <section class="section-wrap" id="mimari">
       <div class="section-header">
         <div class="section-tag">// MÜHENDİSLİK ÇEKİRDEĞİ</div>
-        <h2 class="section-title">Repodan Güç Alan Gerçek Özellikler</h2>
-        <p style="color: var(--text-muted); margin-top: 8px;">
-          Gerçek sıfırıncı gün tehditlerini ve bilinmedik virüsleri yakalayan, bilindik örneklerle imza şişkinliği (signature bloatware) yapmayan çekirdek mimari:
+        <h2 class="section-title">Gerçek ve Repodan Güç Alan Özellikler</h2>
+        <p class="section-desc">
+          Repo genelinde derlenmiş ve aktif olarak entegre edilmiş kurumsal modüller:
         </p>
       </div>
 
       <div class="features-grid">
         <!-- 01 -->
         <div class="feature-card">
-          <span class="feature-module-id">// ENGINE_01 &bull; DUAL-STAGE ML CORE</span>
-          <h3 class="feature-title">Genel Statik & Dinamik Makine Öğrenimi</h3>
+          <span class="feature-module-id">// ENGINE_01 &bull; DUAL-STAGE ML</span>
+          <h3 class="feature-title">Statik & Dinamik Makine Öğrenimi</h3>
           <p class="feature-text">
-            Bütün tespit sürecini iki aşamada çözer: Çalıştırmadan önce genel statik ML (PE başlıkları, bayt dizilimleri, JS/URL modelleri) ve çalışma anında dinamik ML modelleriyle bilinmeyen davranış anomalilerini saptar.
+            İlk dönemdeki virüs özellikleri ezberleme ve varyant isimlendirme mantığından, günümüzün tam genelleştirilmiş çift aşamalı (statik PE başlık anomalileri + çalışma zamanı davranış skorlaması) makine öğrenimi modellerine evrilen tespit çekirdeği.
           </p>
           <div class="feature-tags">
-            <span class="tech-tag">generic_model.onnx</span>
+            <span class="tech-tag">Genelleştirilmiş ML</span>
             <span class="tech-tag">pe_trees.bin</span>
-            <span class="tech-tag">Static + Dynamic ML</span>
+            <span class="tech-tag">pefile-rs</span>
           </div>
         </div>
 
         <!-- 02 -->
         <div class="feature-card">
           <span class="feature-module-id">// ENGINE_02 &bull; STEALTH BLACKBOX</span>
-          <h3 class="feature-title">Verbose Logging & Kullanıcı İzninde Gizli Takip</h3>
+          <h3 class="feature-title">Verbose Loglama & Gizli Davranış Takibi</h3>
           <p class="feature-text">
-            Diğer antivirüslerin aksine virüsün her hareketini ayrıntılı (verbose) döker. Kullanıcının kafası karışıp "İzin Ver" demesi durumunda dahi arka planda gizlice izlemeyi sürdürür; tehlikeli aksiyon anında bloke eder.
+            Tüm sistem çağrılarını ayrıntılı kaydeder. Kullanıcı yanlışlıkla zararlıya izin verse bile sürecin peşini bırakmaz; geri dönülemez bir aksiyonda süreci anında öldürür.
           </p>
           <div class="feature-tags">
-            <span class="tech-tag">Verbose Logger</span>
             <span class="tech-tag">Stealth Audit</span>
             <span class="tech-tag">Fail-Safe Shield</span>
+            <span class="tech-tag">Live Telemetry</span>
           </div>
         </div>
 
@@ -797,13 +1677,13 @@
         <!-- 04 -->
         <div class="feature-card">
           <span class="feature-module-id">// ENGINE_04 &bull; LOW-LEVEL SHIELD</span>
-          <h3 class="feature-title">MBRFilter & Driver Savunması</h3>
+          <h3 class="feature-title">MBRFilter & Driver Ring-0 Koruması</h3>
           <p class="feature-text">
             Fidye yazılımlarının Master Boot Record (MBR) alanına yazmasını engeller. Zafiyetli sürücüler üzerinden antivirüsün hafızadan silinmesine karşı koruma sağlar.
           </p>
           <div class="feature-tags">
             <span class="tech-tag">MBRFilter</span>
-            <span class="tech-tag">Kernel Mutex</span>
+            <span class="tech-tag">wdk_mutex</span>
             <span class="tech-tag">Anti-BYOVD</span>
           </div>
         </div>
@@ -835,49 +1715,132 @@
             <span class="tech-tag">String Automata</span>
           </div>
         </div>
+      </div>
+    </section>
 
-        <!-- 07 -->
-        <div class="feature-card">
-          <span class="feature-module-id">// ENGINE_07 &bull; FORENSICS</span>
-          <h3 class="feature-title">Hayabusa Destekli Olay Avı</h3>
-          <p class="feature-text">
-            Windows Olay Günlüklerini (EVTX) gerçek zamanlı analiz ederek sistemde gerçekleşen yanal hareketleri, yetki yükseltme ve sızma girişimlerini korele eder.
-          </p>
-          <div class="feature-tags">
-            <span class="tech-tag">Hayabusa Forensics</span>
-            <span class="tech-tag">OpenEDR CLI</span>
-            <span class="tech-tag">Event Correlation</span>
+    <!-- COMMUNITY & ALLIANCE SECTION -->
+    <section class="section-wrap" id="ittifak">
+      <div class="section-header">
+        <div class="section-tag">// DOSTLAR, KATKIDA BULUNANLAR VE İTTİFAK</div>
+        <h2 class="section-title">Topluluk ve Dayanışma Masası</h2>
+        <p class="section-desc">
+          Viruskov, açık kaynak felsefesine inanan bağımsız geliştiricilerin ve dostların samimi katkılarıyla bugünkü gücüne ulaştı:
+        </p>
+      </div>
+
+      <div class="community-grid">
+        <!-- Emirhan Uçan -->
+        <div class="community-card" style="border-left: 3px solid var(--accent-red);">
+          <div class="community-name">
+            <span>Emirhan Uçan</span>
+            <span class="badge-pill" style="color: var(--accent-red);">LİDER</span>
           </div>
+          <div class="community-role">Kurucu & Güvenlik Araştırmacısı</div>
+          <p class="community-desc">
+            2019'dan bu yana zararlı yazılım analizi, reverse engineering, kernel driver ve ML mimarisini bizzat yöneten proje kurucusu. (Discord: <code class="mono">hydra_dragon_antivirus</code>)
+          </p>
+        </div>
+
+        <!-- Rutuj-Runwal -->
+        <div class="community-card">
+          <div class="community-name">
+            <span>Rutuj-Runwal</span>
+            <span class="badge-pill">KATKIDA BULUNAN</span>
+          </div>
+          <div class="community-role">Açık Kaynak Geliştirici & Xylent Fork</div>
+          <p class="community-desc">
+            Projenin Xylent döneminde katkılarda bulunan ve açık kaynak çekirdeğinin genişletilmesinde rol oynayan değerli mühendis.
+          </p>
+          <a href="https://github.com/Rutuj-Runwal/Xylent" target="_blank" class="proof-link-btn">Xylent Reposu &rarr;</a>
+        </div>
+
+        <!-- Ramiz Dayı (Yusif Musayev) -->
+        <div class="community-card" style="border-left: 3px solid var(--accent-amber);">
+          <div class="community-name">
+            <span>Ramiz Dayı (Yusif Musayev)</span>
+            <span class="badge-pill text-amber">ÇEKİRDEK İTTİFAK</span>
+          </div>
+          <div class="community-role">Geliştirme Ortağı & Topluluk Destekçisi</div>
+          <p class="community-desc">
+            15 Ağustos 2024 Sparrow sunucusu sonrasında kurulan köklü dostlukla projeye maddi ve manevi desteğini esirgemeyen yol arkadaşı.
+          </p>
+          <a href="https://github.com/elnureisayeva1-cloud" target="_blank" class="proof-link-btn">GitHub Profili &rarr;</a>
+        </div>
+
+        <!-- Hacımurad -->
+        <div class="community-card">
+          <div class="community-name">
+            <span>Hacımurad</span>
+            <span class="badge-pill">DOST & DESTEK</span>
+          </div>
+          <div class="community-role">Araştırma & Fikir Dayanışması</div>
+          <p class="community-desc">
+            Ramiz ile birlikte tanışılan, projenin büyümesinde ve geliştirme motivasyonunun korunmasında yanımızda olan kıymetli dostumuz.
+          </p>
+        </div>
+
+        <!-- winball501 -->
+        <div class="community-card">
+          <div class="community-name">
+            <span>winball501</span>
+            <span class="badge-pill">TECHNOPAT DOSTU</span>
+          </div>
+          <div class="community-role">Topluluk ve Güvenlik İstişaresi</div>
+          <p class="community-desc">
+            Technopat Sosyal'den 19 Aralık 2024'te "sa nasil gidiyor" ile başlayan dostluğuyla projemizin yanında duran güvenilir geliştirici.
+          </p>
+        </div>
+
+        <!-- Komutan Yusuf & Benan -->
+        <div class="community-card" style="border-left: 3px solid var(--accent-cyan);">
+          <div class="community-name">
+            <span>Komutan Yusuf & Benan</span>
+            <span class="badge-pill text-cyan">YAZILIM MEKANI</span>
+          </div>
+          <div class="community-role">Web Geliştirme & Altyapı Desteği</div>
+          <p class="community-desc">
+            Yazılım Mekanı'nda kurulan tanışıklıkla birlikte, Benan'ın doğrudan katkılarıyla viruskov.com web sitesinin hayata geçirilmesini sağlayan ekip.
+          </p>
         </div>
       </div>
     </section>
 
-    <!-- FOUNDER & VISION STATEMENT -->
-    <section class="section-wrap">
-      <div class="founder-panel">
-        <div>
-          <div class="section-tag">// PROJE VİZYONU & LİDERLİK</div>
-          <p class="founder-quote">
-            "Güvenlik kapalı kutular arkasında inşa edilemez. Yapay zekanın olduğu bu dönemde virüs yazarları da yapay zeka destekli tersine mühendislik biliyor ve kapalı sistemleri hızla aşıyor. Biz kaynağı açıyoruz; çünkü binlerce araştırmacının ortak aklı, kapalı bir şirketin bürokrasisinden saniyelerce daha hızlı yanıt üretir."
-          </p>
-          <div class="founder-meta">
-            <strong>Emirhan Uçan</strong> &bull; Viruskov Kurucusu & Güvenlik Araştırmacısı
-          </div>
+    <!-- TRANSPARENT DONATION SECTION -->
+    <section class="section-wrap" id="bagis">
+      <div class="donation-panel">
+        <div class="donation-header">
+          <h2 class="donation-title">
+            <span class="text-amber">✦</span> Şeffaf ve Dürüst Bağış Politikası
+          </h2>
+          <span class="badge-pill" style="background: rgba(255, 183, 3, 0.2); color: #ffb703; font-weight: 700;">DÜRÜST BİLGİLENDİRME</span>
         </div>
 
-        <div class="open-principles">
-          <div class="item">
-            <span>&check;</span> %100 Açık Kaynak ve Denetlenebilir Kod Mimarisi
-          </div>
-          <div class="item">
-            <span>&check;</span> Kullanıcıyı Boğmayan Tespit Odaklı Felsefe
-          </div>
-          <div class="item">
-            <span>&check;</span> Gerçek ve bireysel bağımsız testlerde sıfırıncı gün (0-day) ve bilinmedik virüsleri diğer rakiplerine kıyasla daha iyi bulan, bilindik örneklerle imza şişkinliği (signature bloatware) yapmayan yeni nesil EDR
-          </div>
-          <div class="item">
-            <span>&check;</span> Yerli ve Bağımsız Yeni Nesil Siber Güvenlik
-          </div>
+        <div class="donation-notice">
+          <strong>ÖNEMLİ VE ŞEFFAF AÇIKLAMA:</strong> Mevcut bağış kanalı, projenin eski adı olan "Hydra Dragon" adıyla gözükse ve toplanan destekler Emirhan Uçan'a aktarılacak olsa da, doğrudan <strong>Ramiz Dayı'nın (Yusif Musayev)</strong> hesabına bağlıdır ve aracı platform %11.7 komisyon kesmektedir.
+        </div>
+
+        <div class="donation-details">
+          <p>
+            Biz topluluğumuza karşı her zaman %100 dürüstüz. Şu an için Yusif (Ramiz Dayı) bu hesapla bağış kabul sürecini idare etmektedir. Ancak tavsiyemiz; komisyonsuz ve doğrudan <strong>site tabanlı resmi bağış sistemimizin</strong> açılmasını beklemenizdir.
+          </p>
+          <p>
+            Yine de projeye şimdiden bir kahve ısmarlamak ve sunucu / test ortamı giderlerine katkıda bulunmak isterseniz; geliştirilmesi artık <strong>bırakılmış (aktif olmayan)</strong> <strong>HydraDragonAV-Mobile</strong> GitHub deposuna giderek oradaki <strong>"Sponsor"</strong> butonuna tıklayabilir ve destek kanalına ulaşabilirsiniz (not: mobil antivirüs projesi terk edilmiştir, repo sadece sponsor butonu için kullanılmaktadır):
+          </p>
+        </div>
+
+        <div class="donation-links">
+          <a href="https://github.com/HydraDragonAntivirus/HydraDragonAV-Mobile" target="_blank" class="btn btn-red">
+            <span>SPONSOR BUTONUNA GİT (HYDRADRAGONAV-MOBILE &bull; PROJE BIRAKILDI)</span>
+            <span>&nearr;</span>
+          </a>
+          <a href="https://github.com/elnureisayeva1-cloud" target="_blank" class="btn btn-ghost">
+            <span>YUSİF MUSAYEV (RAMİZ) GİTHUB</span>
+            <span>&rarr;</span>
+          </a>
+          <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost">
+            <span>YILDIZ ATARAK DESTEK OL (GITHUB)</span>
+            <span>★</span>
+          </a>
         </div>
       </div>
     </section>
@@ -885,17 +1848,65 @@
 
   <!-- FOOTER -->
   <footer>
-    <div class="container">
-      <div class="footer-inner">
-        <div>
-          &copy; 2026 <strong>VIRUSKOV</strong>. Kurucu: <strong>Emirhan Uçan</strong>. Tüm hakları açık kaynak vizyonuyla korunmaktadır.
-        </div>
-        <div>
-          <span>MİMARİ: OPEN-EDR EVOLVED</span> &bull; <span>MOTOR: ML-HEURISTIC CORE</span>
-        </div>
+    <div class="container footer-inner">
+      <div>
+        &copy; 2026 <strong>VIRUSKOV</strong> &bull; Açık Kaynak Kurumsal EDR & Antivirüs Sistemi.<br>
+        Kurucu & Proje Lideri: <strong>Emirhan Uçan</strong> (<span class="text-red">hydra_dragon_antivirus</span>).
+      </div>
+
+      <div class="footer-links">
+        <a href="#tarihce">Tarihçe</a>
+        <a href="#teknik-evrim">Teknik Evrim</a>
+        <a href="#manifesto">Manifesto</a>
+        <a href="#mimari">Mimari</a>
+        <a href="#ittifak">Topluluk</a>
+        <a href="#bagis">Bağış</a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--accent-red); font-weight: 700;">GitHub Repo</a>
       </div>
     </div>
   </footer>
 
+  <!-- SCRIPT FOR TIMELINE FILTERING & REAL-TIME SEARCH -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const filterBtns = document.querySelectorAll('.filter-btn');
+      const streamCards = document.querySelectorAll('.stream-card');
+      const searchInput = document.getElementById('historySearch');
+
+      // Filter by category
+      filterBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          filterBtns.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+
+          const filter = btn.getAttribute('data-filter');
+          applyFilterAndSearch(filter, searchInput.value.toLowerCase().trim());
+        });
+      });
+
+      // Filter by search query
+      searchInput.addEventListener('input', (e) => {
+        const activeBtn = document.querySelector('.filter-btn.active');
+        const currentFilter = activeBtn ? activeBtn.getAttribute('data-filter') : 'all';
+        applyFilterAndSearch(currentFilter, e.target.value.toLowerCase().trim());
+      });
+
+      function applyFilterAndSearch(filter, query) {
+        streamCards.forEach(card => {
+          const category = card.getAttribute('data-category');
+          const textContent = card.innerText.toLowerCase();
+
+          const matchesCategory = (filter === 'all' || category === filter);
+          const matchesQuery = (!query || textContent.includes(query));
+
+          if (matchesCategory && matchesQuery) {
+            card.style.display = 'block';
+          } else {
+            card.style.display = 'none';
+          }
+        });
+      }
+    });
+  </script>
 </body>
 </html>
