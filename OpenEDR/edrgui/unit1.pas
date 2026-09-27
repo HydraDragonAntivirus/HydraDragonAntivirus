@@ -421,7 +421,8 @@ var
   CleanKind, CleanText: string;
   Parts: TStringList;
   ReqId, Pid, AppName, ExePath, Target, Verdict, SigStatus, Reason: string;
-  TitleStr, MsgStr: string;
+  TitleStr, MsgStr, sFlag: string;
+  IsRebootReq: Boolean;
   sKey: string;
   idx: Integer;
   Hist: string;
@@ -582,10 +583,28 @@ begin
             FMLPredictions[idx] := sKey + '=High Risk Detection: ' + TitleStr;
         end;
 
-        if (Pos('restart', LowerCase(TitleStr)) > 0) or (Pos('reboot', LowerCase(TitleStr)) > 0) or
-           (Pos('restart', LowerCase(ExePath)) > 0) or (Pos('reboot', LowerCase(ExePath)) > 0) then
+        // Explicit reboot flag from engine (Parts[2] = '1' or 'reboot_required').
+        // This guarantees that virus names like "Trojan.RestartToClean" or similar
+        // will NEVER falsely trigger a restart prompt.
+        IsRebootReq := False;
+        if Parts.Count >= 3 then
         begin
-          TAlertForm.ShowRestartPrompt(TitleStr, ExePath);
+          sFlag := LowerCase(Trim(Parts[2]));
+          if (sFlag = '1') or (sFlag = 'true') or (sFlag = 'reboot_required') then
+            IsRebootReq := True;
+        end;
+
+        // Backward compatibility: explicit engine system message starting with 'Malicious file locked!'
+        if (not IsRebootReq) and (Pos('malicious file locked', LowerCase(TitleStr)) = 1) then
+          IsRebootReq := True;
+
+        if IsRebootReq then
+        begin
+          TAlertForm.ShowRestartPrompt('Threat Cleanup Requires Restart',
+            'The infected file could not be deleted immediately because it is locked by the system or a running process.' + LineEnding +
+            'Threat: ' + TitleStr + LineEnding +
+            'File: ' + ExePath + LineEnding + LineEnding +
+            'Removal is scheduled for the next system restart.');
         end
         else
           TAlertForm.ShowAlert('Threat Alert: ' + TitleStr, ExePath, asCritical, 7000);

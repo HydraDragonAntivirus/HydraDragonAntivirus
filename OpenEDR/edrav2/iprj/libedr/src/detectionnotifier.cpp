@@ -1692,7 +1692,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 										GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 									if (hGuiPipe != INVALID_HANDLE_VALUE)
 									{
-										std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "\n";
+										std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "|1\n";
 										DWORD written = 0;
 										::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
 										::CloseHandle(hGuiPipe);
@@ -1706,7 +1706,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 									GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 								if (hGuiPipe != INVALID_HANDLE_VALUE)
 								{
-									std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "\n";
+									std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "|1\n";
 									DWORD written = 0;
 									::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
 									::CloseHandle(hGuiPipe);
@@ -1721,7 +1721,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 								GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 							if (hGuiPipe != INVALID_HANDLE_VALUE)
 							{
-								std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "\n";
+								std::string pipeMsg = "THREAT_ALERT:Malicious file locked! Please restart your computer to complete removal.|" + sDos + "|1\n";
 								DWORD written = 0;
 								::WriteFile(hGuiPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
 								::CloseHandle(hGuiPipe);

@@ -747,14 +747,15 @@ impl ActionOnKill for Logging {
         Logging::alert(msg.as_str());
 
         // Send real-time threat alert popup notification to the firewall GUI
-        notify_firewall_threat_alert(threat_info.virus_name, &display_process);
+        let reboot_required = response_label == "Restart to clean";
+        notify_firewall_threat_alert(threat_info.virus_name, &display_process, reboot_required);
 
         warn!("ALERT: {}", msg);
         Ok(())
     }
 }
 
-pub fn notify_firewall_threat_alert(threat_name: &str, file_path: &str) {
+pub fn notify_firewall_threat_alert(threat_name: &str, file_path: &str, reboot_required: bool) {
     #[cfg(windows)]
     {
         use windows::Win32::Foundation::{BOOL, CloseHandle, HANDLE};
@@ -769,7 +770,8 @@ pub fn notify_firewall_threat_alert(threat_name: &str, file_path: &str) {
         let mut pipe_name_wide: Vec<u16> = PIPE.encode_utf16().collect();
         pipe_name_wide.push(0);
         let pcwstr = PCWSTR(pipe_name_wide.as_ptr());
-        let message = format!("THREAT_ALERT:{}|{}\n", threat_name, file_path);
+        let reboot_flag = if reboot_required { "1" } else { "0" };
+        let message = format!("THREAT_ALERT:{}|{}|{}\n", threat_name, file_path, reboot_flag);
         let message_bytes = message.as_bytes();
 
         let wait_ok: BOOL = unsafe { WaitNamedPipeW(pcwstr, 150) };
