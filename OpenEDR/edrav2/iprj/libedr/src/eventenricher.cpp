@@ -10,6 +10,7 @@
 #include "eventenricher.h"
 #include "detectionnotifier.h"
 #include "openedr_static_runtime.h"
+#include <libcore/inc/zerotrust.hpp>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -88,6 +89,12 @@ namespace {
 		for (wchar_t wc : wsIn)
 			sOut.push_back(static_cast<char>(wc));
 		return sOut;
+	}
+
+	// Widens UTF-8 std::string to std::wstring.
+	static inline std::wstring Widen(const std::string& sIn)
+	{
+		return string::convertUtf8ToWChar(sIn);
 	}
 
 	// Converts \Device\HarddiskVolumeN\... to C:\... style DOS path
@@ -507,159 +514,56 @@ namespace {
 		return false;
 	}
 
-	typedef NTSTATUS(NTAPI* pfnZwSuspendProcess)(HANDLE ProcessHandle);
-	typedef NTSTATUS(NTAPI* pfnZwResumeProcess)(HANDLE ProcessHandle);
-
-	static bool SuspendProcessByPid(uint32_t pid)
+	static inline bool SuspendProcessByPid(uint32_t pid)
 	{
-		if (pid == 0 || pid == 4 || pid == ::GetCurrentProcessId())
-			return false;
-		HMODULE hNtdll = ::GetModuleHandleW(L"ntdll.dll");
-		if (!hNtdll) return false;
-		auto fnSuspend = (pfnZwSuspendProcess)::GetProcAddress(hNtdll, "ZwSuspendProcess");
-		if (!fnSuspend) fnSuspend = (pfnZwSuspendProcess)::GetProcAddress(hNtdll, "NtSuspendProcess");
-		if (!fnSuspend) return false;
-		HANDLE hProc = ::OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, pid);
-		if (!hProc) return false;
-		NTSTATUS st = fnSuspend(hProc);
-		::CloseHandle(hProc);
-		return st == 0;
+		return cmd::zerotrust::SuspendProcessByPid(pid);
 	}
 
-	static bool ResumeProcessByPid(uint32_t pid)
+	static inline bool ResumeProcessByPid(uint32_t pid)
 	{
-		if (pid == 0 || pid == 4)
-			return false;
-		HMODULE hNtdll = ::GetModuleHandleW(L"ntdll.dll");
-		if (!hNtdll) return false;
-		auto fnResume = (pfnZwResumeProcess)::GetProcAddress(hNtdll, "ZwResumeProcess");
-		if (!fnResume) fnResume = (pfnZwResumeProcess)::GetProcAddress(hNtdll, "NtResumeProcess");
-		if (!fnResume) return false;
-		HANDLE hProc = ::OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, pid);
-		if (!hProc) return false;
-		NTSTATUS st = fnResume(hProc);
-		::CloseHandle(hProc);
-		return st == 0;
+		return cmd::zerotrust::ResumeProcessByPid(pid);
 	}
 
 	namespace ZeroTrust
 	{
-		static std::atomic<uint32_t> s_threatDetectionsCount{ 0 };
-		static std::atomic<bool> s_zeroTrustEnabled{ false };
-		static std::mutex s_mtxState;
-		static std::unordered_set<std::string> s_sessionWhitelist;
-		static std::unordered_set<uint32_t> s_restrictedPids;
-
-		struct FileModWindow {
-			uint64_t windowStartMs = 0;
-			std::unordered_set<std::string> modifiedFiles;
-		};
-		static std::unordered_map<uint32_t, FileModWindow> s_pidFileMods;
-
-		static inline std::string toLowerPath(std::string s)
+		static inline bool isEnabled()
 		{
-			for (auto& c : s) c = (char)::tolower((unsigned char)c);
-			return s;
+			return cmd::zerotrust::ZeroTrustManager::instance().isEnabled();
 		}
 
-		static bool isEnabled()
+		static inline void setEnabled(bool enabled)
 		{
-			return s_zeroTrustEnabled.load(std::memory_order_relaxed);
+			cmd::zerotrust::ZeroTrustManager::instance().setEnabled(enabled);
 		}
 
-		static void setEnabled(bool enabled)
+		static inline void recordThreatDetection()
 		{
-			s_zeroTrustEnabled.store(enabled, std::memory_order_relaxed);
-			LOGLVL(Critical, FMT("enricher: Zero Trust Mode is now " << (enabled ? "ENABLED (Lockdown)" : "DISABLED")));
+			cmd::zerotrust::ZeroTrustManager::instance().recordThreatDetection();
 		}
 
-		static void recordThreatDetection()
+		static inline void addSessionWhitelist(const std::string& path)
 		{
-			uint32_t count = s_threatDetectionsCount.fetch_add(1, std::memory_order_relaxed) + 1;
-			if (count >= 20 && !s_zeroTrustEnabled.load(std::memory_order_relaxed))
-			{
-				s_zeroTrustEnabled.store(true, std::memory_order_relaxed);
-				LOGLVL(Critical, FMT("enricher: [ZERO TRUST TRIGGERED] " << count
-					<< " threats detected! Automatic lockdown activated."));
-
-				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-				if (hPipe != INVALID_HANDLE_VALUE)
-				{
-					std::string pipeMsg = "ZERO_TRUST_TRIGGERED:20_THREATS_DETECTED\n";
-					DWORD written = 0;
-					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-					::CloseHandle(hPipe);
-				}
-			}
+			cmd::zerotrust::ZeroTrustManager::instance().addSessionWhitelist(path);
 		}
 
-		static void addSessionWhitelist(const std::string& path)
+		static inline bool isSessionWhitelisted(const std::string& path)
 		{
-			if (path.empty()) return;
-			std::lock_guard<std::mutex> lock(s_mtxState);
-			s_sessionWhitelist.insert(toLowerPath(path));
+			return cmd::zerotrust::ZeroTrustManager::instance().isSessionWhitelisted(path);
 		}
 
-		static bool isSessionWhitelisted(const std::string& path)
+		static inline void addRestrictedProcess(uint32_t pid)
 		{
-			if (path.empty()) return false;
-			std::lock_guard<std::mutex> lock(s_mtxState);
-			return s_sessionWhitelist.find(toLowerPath(path)) != s_sessionWhitelist.end();
+			cmd::zerotrust::ZeroTrustManager::instance().addRestrictedPid(pid);
 		}
 
-		static void addRestrictedProcess(uint32_t pid)
+		static inline bool isRestricted(uint32_t pid)
 		{
-			if (pid == 0) return;
-			std::lock_guard<std::mutex> lock(s_mtxState);
-			s_restrictedPids.insert(pid);
-			LOGLVL(Critical, FMT("enricher: [VIRUSKOV RESTRICTED MODE] PID " << pid
-				<< " registered under Restricted Mode (Network blocked, UAC blocked, Rapid file mod guarded)"));
+			return cmd::zerotrust::ZeroTrustManager::instance().isRestricted(pid);
 		}
 
-		static bool isRestricted(uint32_t pid)
+		static inline void onProcessFileModification(uint32_t pid, const std::string& filePath)
 		{
-			if (pid == 0) return false;
-			std::lock_guard<std::mutex> lock(s_mtxState);
-			return s_restrictedPids.find(pid) != s_restrictedPids.end();
-		}
-
-		static void onProcessFileModification(uint32_t pid, const std::string& filePath)
-		{
-			if (pid <= 4 || filePath.empty()) return;
-			std::lock_guard<std::mutex> lock(s_mtxState);
-			if (s_restrictedPids.find(pid) == s_restrictedPids.end())
-				return;
-
-			uint64_t nowMs = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
-				std::chrono::steady_clock::now().time_since_epoch()).count();
-
-			auto& win = s_pidFileMods[pid];
-			if (win.windowStartMs == 0 || (nowMs - win.windowStartMs) > 1000)
-			{
-				win.windowStartMs = nowMs;
-				win.modifiedFiles.clear();
-			}
-			win.modifiedFiles.insert(toLowerPath(filePath));
-
-			// Guard: if modifying > 5 distinct files within 1 second -> SUSPEND IMMEDIATELY!
-			if (win.modifiedFiles.size() > 5)
-			{
-				SuspendProcessByPid(pid);
-				LOGLVL(Critical, FMT("enricher: [VIRUSKOV RESTRICTED GUARD] PID " << pid
-					<< " SUSPENDED! Rapid file modification detected ("
-					<< win.modifiedFiles.size() << " files in <1s)"));
-
-				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
-					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-				if (hPipe != INVALID_HANDLE_VALUE)
-				{
-					std::string pipeMsg = "THREAT_ALERT:VirusKov.RansomwareGuard.MassFileMod|" + filePath + "\n";
-					DWORD written = 0;
-					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
-					::CloseHandle(hPipe);
-				}
-			}
+			cmd::zerotrust::ZeroTrustManager::instance().onProcessFileModification(pid, filePath);
 		}
 	}
 
@@ -3122,9 +3026,10 @@ void EventEnricher::put(const Variant& vEventRef)
 		if (eEventType == Event::LLE_FILE_CREATE || eEventType == Event::LLE_FILE_DATA_WRITE_FULL)
 		{
 			std::wstring wsDestPath;
-			if (vParams.has("path")) wsDestPath = Widen(std::string(vParams["path"]));
-			else if (vParams.has("rawPath")) wsDestPath = Widen(std::string(vParams["rawPath"]));
-			else if (vParams.has("uniquePath")) wsDestPath = Widen(std::string(vParams["uniquePath"]));
+			if (vParams.has("path")) wsDestPath = vParams.get("path", L"");
+			if (wsDestPath.empty() && vParams.has("rawPath")) wsDestPath = vParams.get("rawPath", L"");
+			if (wsDestPath.empty() && vParams.has("uniquePath")) wsDestPath = vParams.get("uniquePath", L"");
+			if (wsDestPath.empty() && vParams.has("abstractPath")) wsDestPath = vParams.get("abstractPath", L"");
 
 			wsDestPath = NormalizeToDosPath(wsDestPath);
 

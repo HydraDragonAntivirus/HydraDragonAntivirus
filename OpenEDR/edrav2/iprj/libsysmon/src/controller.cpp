@@ -12,7 +12,7 @@
 #include "pch.h"
 #include "controller.h"
 #include "../../libprocmon/inc/procmonevent.h"
-#include "../../libedr/src/detectionnotifier.h"
+#include <libcore/inc/zerotrust.hpp>
 #include <libcore/inc/kstack_resolve.hpp>
 
 #include <mutex>
@@ -1334,7 +1334,7 @@ void SystemMonitorController::hipsDecisionPipeServerLoop()
 				if (sCmd.rfind("ZERO_TRUST:", 0) == 0)
 				{
 					bool enable = (sCmd.find("1") != std::string::npos || sCmd.find("true") != std::string::npos);
-					DetectionNotifier::setZeroTrustEnabled(enable);
+					cmd::zerotrust::ZeroTrustManager::instance().setEnabled(enable);
 					LOGINF("[HIPS] Zero Trust mode toggled via pipe: " << (enable ? "ENABLED" : "DISABLED"));
 				}
 				else if (sCmd.rfind("HIPS_KILL:", 0) == 0)
@@ -1355,19 +1355,19 @@ void SystemMonitorController::hipsDecisionPipeServerLoop()
 							if (sDecision == "allow" || sDecision == "allow_always")
 							{
 								if (!sExePath.empty())
-									DetectionNotifier::addZeroTrustSessionWhitelist(sExePath);
-								DetectionNotifier::resumeSuspendedProcess(targetPid);
+									cmd::zerotrust::ZeroTrustManager::instance().addSessionWhitelist(sExePath);
+								cmd::zerotrust::ResumeProcessByPid(targetPid);
 								LOGINF("[HIPS] Resumed process " << targetPid << " (" << sExePath << ") and whitelisted for session");
 							}
 							else if (sDecision == "allow_once")
 							{
-								DetectionNotifier::resumeSuspendedProcess(targetPid);
+								cmd::zerotrust::ResumeProcessByPid(targetPid);
 								LOGINF("[HIPS] Resumed process " << targetPid << " for single execution");
 							}
 							else if (sDecision == "restricted")
 							{
-								DetectionNotifier::addRestrictedProcess(targetPid);
-								DetectionNotifier::resumeSuspendedProcess(targetPid);
+								cmd::zerotrust::ZeroTrustManager::instance().addRestrictedPid(targetPid);
+								cmd::zerotrust::ResumeProcessByPid(targetPid);
 								LOGINF("[HIPS] Resumed process " << targetPid << " under VirusKov Restricted Mode");
 							}
 							else
@@ -1377,7 +1377,7 @@ void SystemMonitorController::hipsDecisionPipeServerLoop()
 								if (!sExePath.empty() && hipsUserAllows(sExePath))
 								{
 									LOGINF("[HIPS] Kill vetoed by persistent user allow verdict for: " << sExePath);
-									DetectionNotifier::resumeSuspendedProcess(targetPid);
+									cmd::zerotrust::ResumeProcessByPid(targetPid);
 								}
 								else
 								{
