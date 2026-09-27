@@ -4712,6 +4712,16 @@ impl FirewallEngine {
                                 Self::terminate_process(pid);
                                 Self::quarantine_file(&exe_path, "Quarantined by User via EDRGUI");
                             }
+                            "restricted" => {
+                                am.resolve_decision(&path_lower, AppDecision::Block);
+                                let rules_file = PathBuf::from(r"C:\ProgramData\edrsvc\firewall_rules.json");
+                                if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(rules_file) {
+                                    use std::io::Write;
+                                    let _ = writeln!(file, r#"{{"action":"restricted_no_network","path":"{}","time":"{}"}}"#,
+                                        path_lower.replace('\\', "\\\\"), Self::now_ts());
+                                }
+                                eprintln!("[FIREWALL] Applied VirusKov Restricted Mode (Network Blocked) for {}", path_lower);
+                            }
                             _ => {}
                         }
                     }

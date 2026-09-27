@@ -60,6 +60,7 @@ type
     LblCount: TLabel;
     BtnAllowAlways: TButton;
     BtnAllowOnce: TButton;
+    BtnRestricted: TButton;
     BtnBlock: TButton;
     BtnQuarantine: TButton;
     BtnRestartNow: TButton;
@@ -78,6 +79,7 @@ type
     procedure BtnNextClick(Sender: TObject);
     procedure BtnAllowAlwaysClick(Sender: TObject);
     procedure BtnAllowOnceClick(Sender: TObject);
+    procedure BtnRestrictedClick(Sender: TObject);
     procedure BtnBlockClick(Sender: TObject);
     procedure BtnQuarantineClick(Sender: TObject);
     procedure BtnRestartNowClick(Sender: TObject);
@@ -354,6 +356,18 @@ begin
   BtnAllowOnce.Visible := False;
   BtnAllowOnce.OnClick := @BtnAllowOnceClick;
 
+  BtnRestricted := TButton.Create(Self);
+  BtnRestricted.Parent := Self;
+  BtnRestricted.Caption := 'VirusKov Restricted';
+  BtnRestricted.Width := 148;
+  BtnRestricted.Height := 34;
+  BtnRestricted.Left := BtnAllowOnce.Left + BtnAllowOnce.Width + 6;
+  BtnRestricted.Top := ClientHeight - BtnRestricted.Height - 10;
+  BtnRestricted.Font.Name := 'Segoe UI';
+  BtnRestricted.Anchors := [akLeft, akBottom];
+  BtnRestricted.Visible := False;
+  BtnRestricted.OnClick := @BtnRestrictedClick;
+
   BtnBlock := TButton.Create(Self);
   BtnBlock.Parent := Self;
   BtnBlock.Caption := 'Block';
@@ -493,6 +507,7 @@ begin
 
     BtnAllowAlways.Visible := False;
     BtnAllowOnce.Visible := False;
+    BtnRestricted.Visible := False;
     BtnBlock.Visible := False;
     BtnQuarantine.Visible := False;
 
@@ -513,19 +528,27 @@ begin
   begin
     BtnRestartNow.Visible := False;
     BtnRestartLater.Visible := False;
-    Width := 680;
+    Width := 760;
     Height := 470;
+    BtnQuarantine.Width := 105;
     BtnQuarantine.Left := ClientWidth - BtnQuarantine.Width - 14;
+    BtnBlock.Width := 80;
     BtnBlock.Left := BtnQuarantine.Left - BtnBlock.Width - 8;
-    BtnAllowOnce.Left := BtnBlock.Left - BtnAllowOnce.Width - 8;
+    BtnRestricted.Width := 148;
+    BtnRestricted.Left := BtnBlock.Left - BtnRestricted.Width - 8;
+    BtnAllowOnce.Width := 95;
+    BtnAllowOnce.Left := BtnRestricted.Left - BtnAllowOnce.Width - 8;
+    BtnAllowAlways.Width := 100;
     BtnAllowAlways.Left := BtnAllowOnce.Left - BtnAllowAlways.Width - 8;
     BtnAllowAlways.Top := ClientHeight - BtnAllowAlways.Height - 10;
     BtnAllowOnce.Top := BtnAllowAlways.Top;
+    BtnRestricted.Top := BtnAllowAlways.Top;
     BtnBlock.Top := BtnAllowAlways.Top;
     BtnQuarantine.Top := BtnAllowAlways.Top;
 
     BtnAllowAlways.Enabled := not Item.Resolved;
     BtnAllowOnce.Enabled := not Item.Resolved;
+    BtnRestricted.Enabled := not Item.Resolved;
     BtnBlock.Enabled := not Item.Resolved;
     BtnQuarantine.Enabled := not Item.Resolved;
 
@@ -545,6 +568,7 @@ begin
 
     BtnAllowAlways.Visible := True;
     BtnAllowOnce.Visible := True;
+    BtnRestricted.Visible := True;
     BtnBlock.Visible := True;
     BtnQuarantine.Visible := True;
 
@@ -566,6 +590,7 @@ begin
     LblMessage.Visible := True;
     BtnAllowAlways.Visible := False;
     BtnAllowOnce.Visible := False;
+    BtnRestricted.Visible := False;
     BtnBlock.Visible := False;
     BtnQuarantine.Visible := False;
     BtnPrev.Visible := True;
@@ -724,6 +749,17 @@ begin
      (not FHistory[FCurrentIndex].Resolved) then
   begin
     SendHipDecision(FHistory[FCurrentIndex].RequestId, 'allow_once', FHistory[FCurrentIndex].ExePath);
+    FHistory[FCurrentIndex].Resolved := True;
+    AdvanceOrClose;
+  end;
+end;
+
+procedure TAlertForm.BtnRestrictedClick(Sender: TObject);
+begin
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) and
+     (not FHistory[FCurrentIndex].Resolved) then
+  begin
+    SendHipDecision(FHistory[FCurrentIndex].RequestId, 'restricted', FHistory[FCurrentIndex].ExePath);
     FHistory[FCurrentIndex].Resolved := True;
     AdvanceOrClose;
   end;

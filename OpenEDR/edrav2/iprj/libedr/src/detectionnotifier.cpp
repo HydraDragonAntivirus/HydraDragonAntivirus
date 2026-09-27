@@ -2227,8 +2227,72 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 		return Dictionary({ {"success", false} });
 	}
 
+	if (vCommand == "setZeroTrustEnabled")
+	{
+		bool bEnabled = false;
+		if (vParams.isDictionaryLike())
+			bEnabled = vParams.get("enabled", bEnabled);
+		DetectionNotifier::setZeroTrustEnabled(bEnabled);
+		return Dictionary({ {"success", true}, {"enabled", bEnabled} });
+	}
+
+	if (vCommand == "getZeroTrustStatus")
+	{
+		return Dictionary({ {"enabled", DetectionNotifier::isZeroTrustEnabled()} });
+	}
+
 	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();
 	TRACE_END(FMT("Error during execution of a command <" << vCommand << ">"));
+}
+
+static std::atomic<bool> s_dnZeroTrustEnabled{ false };
+static std::mutex s_dnWhitelistMtx;
+static std::unordered_set<std::string> s_dnSessionWhitelist;
+static std::unordered_set<uint32_t> s_dnRestrictedPids;
+
+typedef NTSTATUS(NTAPI* pfnZwResumeProc)(HANDLE ProcessHandle);
+
+void DetectionNotifier::setZeroTrustEnabled(bool enabled)
+{
+	s_dnZeroTrustEnabled.store(enabled, std::memory_order_relaxed);
+	LOGLVL(Critical, FMT("detnotif: Zero Trust Mode is now " << (enabled ? "ENABLED (Lockdown)" : "DISABLED")));
+}
+
+bool DetectionNotifier::isZeroTrustEnabled()
+{
+	return s_dnZeroTrustEnabled.load(std::memory_order_relaxed);
+}
+
+void DetectionNotifier::addZeroTrustSessionWhitelist(const std::string& path)
+{
+	if (path.empty()) return;
+	std::string s = path;
+	for (auto& c : s) c = (char)::tolower((unsigned char)c);
+	std::lock_guard<std::mutex> lock(s_dnWhitelistMtx);
+	s_dnSessionWhitelist.insert(s);
+}
+
+void DetectionNotifier::addRestrictedProcess(uint32_t pid)
+{
+	if (pid == 0) return;
+	std::lock_guard<std::mutex> lock(s_dnWhitelistMtx);
+	s_dnRestrictedPids.insert(pid);
+	LOGLVL(Critical, FMT("detnotif: PID " << pid << " added to Restricted Mode"));
+}
+
+bool DetectionNotifier::resumeSuspendedProcess(uint32_t pid)
+{
+	if (pid == 0 || pid == 4) return false;
+	HMODULE hNtdll = ::GetModuleHandleW(L"ntdll.dll");
+	if (!hNtdll) return false;
+	auto fnResume = (pfnZwResumeProc)::GetProcAddress(hNtdll, "ZwResumeProcess");
+	if (!fnResume) fnResume = (pfnZwResumeProc)::GetProcAddress(hNtdll, "NtResumeProcess");
+	if (!fnResume) return false;
+	HANDLE hProc = ::OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, pid);
+	if (!hProc) return false;
+	NTSTATUS st = fnResume(hProc);
+	::CloseHandle(hProc);
+	return st == 0;
 }
 
 } // namespace cmd

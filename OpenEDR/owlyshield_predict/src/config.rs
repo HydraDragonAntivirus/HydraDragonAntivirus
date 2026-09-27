@@ -40,22 +40,21 @@ pub fn init_monitor_all_apis() {
     let val = ConfigReader::read_param_from_registry("MONITOR_ALL_APIS", r"SOFTWARE\Owlyshield");
     let clean = val.trim_matches('\0').trim();
 
-    if clean.eq_ignore_ascii_case("0") || clean.eq_ignore_ascii_case("false") {
-        MONITOR_ALL_APIS_ENABLED.store(false, Ordering::Relaxed);
-        let mut lock = MONITOR_ALL_APIS_TARGET_DIR.write().unwrap();
-        *lock = None;
-    } else {
+    // Default to false: only hook rule-driven and training APIs (cryptoApiList),
+    // instead of hooking every Win32 API in all DLLs under C:\Windows!
+    if clean.eq_ignore_ascii_case("1") || clean.eq_ignore_ascii_case("true") {
         MONITOR_ALL_APIS_ENABLED.store(true, Ordering::Relaxed);
-        let dir = if clean.is_empty()
-            || clean.eq_ignore_ascii_case("1")
-            || clean.eq_ignore_ascii_case("true")
-        {
+        let dir = if clean.eq_ignore_ascii_case("1") || clean.eq_ignore_ascii_case("true") {
             r"C:\Windows".to_string()
         } else {
             clean.to_string()
         };
         let mut lock = MONITOR_ALL_APIS_TARGET_DIR.write().unwrap();
         *lock = Some(dir);
+    } else {
+        MONITOR_ALL_APIS_ENABLED.store(false, Ordering::Relaxed);
+        let mut lock = MONITOR_ALL_APIS_TARGET_DIR.write().unwrap();
+        *lock = None;
     }
 }
 

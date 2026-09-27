@@ -34,6 +34,15 @@
 			"readWrite": "RANSOM_FILE_READ_WRITE",
 			"processCounter": "RANSOM_PROCESS_COUNTER"
 		},
+		"usbWormEventBaseType": {
+			"MLE_USB_WORM_DETECTED": 1000025
+		},
+		"usbWormExtensions": [
+			"*.exe",
+			"*.scr",
+			"*.pif",
+			"*.com"
+		],
 		// Crypto-API basket for mass-usage detection (owlyHook telemetry)
 		"cryptoBasket": {
 			"mass": "CRYPTO_API_MASS"
@@ -6456,6 +6465,69 @@
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.driver.image" },
 							{ "name": "driverInfo", "value": "@event.driver" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			}
+		],
+
+		//
+		// Pattern for USB Self-Replication Worm Detection
+		// Triggers when a process writes an executable to a removable/USB drive
+		// with a similarity ratio >= 75% to its own binary, excluding trusted processes.
+		//
+		"USB_SELF_REPLICATION_WORM": [
+			{
+				"eventType": "*",
+				"rule": {
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "equal",
+										"args": [ "@event.file.volume.type", "REMOVABLE" ]
+									},
+									{
+										"$operation": "equal",
+										"args": [ "@event.isRemovableDrive", true ]
+									}
+								]
+							},
+							{
+								"$operation": "imatch",
+								"pattern": "@const.usbWormExtensions",
+								"args": [ "@event.file.path" ]
+							},
+							{
+								"$operation": "greater",
+								"args": [ "@event.usbSimilarityRatio", 74 ]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_USB_WORM_DETECTED",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.usbWormEventBaseType.MLE_USB_WORM_DETECTED" },
+							{ "name": "threatName", "value": "Worm.Win32.UsbReplication" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
 							{ "name": "should_trust_company_whitelist", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]

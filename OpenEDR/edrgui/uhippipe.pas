@@ -59,6 +59,7 @@ type
   end;
 
 function SendHipDecision(const ARequestId, ADecision, AExePath: string): Boolean;
+function SendZeroTrustPipe(AEnabled: Boolean): Boolean;
 
 implementation
 
@@ -152,8 +153,9 @@ begin
     Result := True;
   end;
 
-  // Signal C++ Sysmon Controller to execute Ring-0 kernel driver kill immediately
-  if (ADecision = 'block') or (ADecision = 'quarantine') then
+  // Signal C++ Sysmon Controller to execute Ring-0 kernel driver kill, resume or restrict
+  if (ADecision = 'block') or (ADecision = 'quarantine') or (ADecision = 'allow_always') or
+     (ADecision = 'allow_once') or (ADecision = 'allow') or (ADecision = 'restricted') then
   begin
     try
       // Avoid blocking UI if pipe is not ready
@@ -203,6 +205,33 @@ begin
       CloseFile(F);
     except
     end;
+  end;
+end;
+
+function SendZeroTrustPipe(AEnabled: Boolean): Boolean;
+var
+  hPipe: THandle;
+  msg: UTF8String;
+  written: DWORD;
+begin
+  Result := False;
+  try
+    if WaitNamedPipeW(PWideChar(WideString('\\.\pipe\HydraHipDecision')), 200) then
+    begin
+      hPipe := CreateFileW('\\.\pipe\HydraHipDecision',
+        GENERIC_WRITE, 0, nil, OPEN_EXISTING, 0, 0);
+      if (hPipe <> 0) and (hPipe <> INVALID_HANDLE_VALUE) then
+      begin
+        if AEnabled then
+          msg := 'ZERO_TRUST:1' + #10
+        else
+          msg := 'ZERO_TRUST:0' + #10;
+        WriteFile(hPipe, msg[1], Length(msg), written, nil);
+        CloseHandle(hPipe);
+        Result := True;
+      end;
+    end;
+  except
   end;
 end;
 

@@ -40,6 +40,7 @@ type
     TrayIcon1: TTrayIcon;
     MenuPauseResume: TMenuItem;
     MenuMitmToggle: TMenuItem;
+    MenuZeroTrust: TMenuItem;
     MenuQuarantine: TMenuItem;
     MenuReputation: TMenuItem;
     procedure FormCreate(Sender: TObject);
@@ -52,6 +53,7 @@ type
     procedure MenuUninstallClick(Sender: TObject);
     procedure MenuPauseResumeClick(Sender: TObject);
     procedure MenuMitmToggleClick(Sender: TObject);
+    procedure MenuZeroTrustClick(Sender: TObject);
     procedure MenuQuarantineClick(Sender: TObject);
     procedure QuarFormClosed(Sender: TObject; var CloseAction: TCloseAction);
     procedure MenuReputationClick(Sender: TObject);
@@ -67,6 +69,7 @@ type
     FHiPPipe: THipPipeListener;
     FProtectionPaused: Boolean;
     FMitmEnabled: Boolean;
+    FZeroTrustEnabled: Boolean;
     FQuarForm: TQuarForm;
     FRepForm: TRepForm;
     FBehaviorLogs: TStringList;
@@ -78,6 +81,9 @@ type
     function ReadMitmEnabled: Boolean;
     procedure WriteMitmEnabled(AEnabled: Boolean);
     procedure SetMitmCaption(AEnabled: Boolean);
+    function ReadZeroTrustEnabled: Boolean;
+    procedure WriteZeroTrustEnabled(AEnabled: Boolean);
+    procedure SetZeroTrustCaption(AEnabled: Boolean);
     procedure RunCommand(ACmd: TSvcCommand);
     procedure OnCommandDone(Sender: TObject; Cmd: TSvcCommand;
       Success: Boolean; ExitCode: DWORD; const Output: string);
@@ -144,11 +150,19 @@ begin
   FMitmEnabled := True;
   SetMitmCaption(ReadMitmEnabled);
 
+  // Zero Trust / Lockdown Mode toggle (ZwSuspendProcess for unknown executables)
+  MenuZeroTrust := TMenuItem.Create(Self);
+  MenuZeroTrust.OnClick := @MenuZeroTrustClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuMitmToggle) + 1,
+    MenuZeroTrust);
+  FZeroTrustEnabled := False;
+  SetZeroTrustCaption(ReadZeroTrustEnabled);
+
   // Quarantine manager screen (list/restore/delete + exclusions).
   MenuQuarantine := TMenuItem.Create(Self);
   MenuQuarantine.Caption := 'Quarantine...';
   MenuQuarantine.OnClick := @MenuQuarantineClick;
-  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuMitmToggle) + 1,
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuZeroTrust) + 1,
     MenuQuarantine);
 
   // File reputation screen (cloud verdicts, display only).
@@ -328,6 +342,9 @@ begin
 
   // Keep the MITM caption truthful (queries the live engine state).
   SetMitmCaption(ReadMitmEnabled);
+
+  // Keep the Zero Trust caption truthful (queries the live engine state).
+  SetZeroTrustCaption(ReadZeroTrustEnabled);
 
   UpdateMenuEnabled(NewState);
 end;
@@ -644,6 +661,26 @@ begin
     Exit;
   end;
 
+  // Process Zero Trust auto-trigger notice from C++ engine
+  if CleanKind = 'ZERO_TRUST_TRIGGERED' then
+  begin
+    FZeroTrustEnabled := True;
+    SetZeroTrustCaption(True);
+    TAlertForm.ShowAlert('Zero Trust / Lockdown Active',
+      CleanText + LineEnding + '20 or more threats detected. All unknown executable launches will be suspended.',
+      asCritical, 8000);
+    Exit;
+  end;
+
+  // Process system cleaned notification when threats are remediated
+  if CleanKind = 'SYSTEM_CLEANED_NOTICE' then
+  begin
+    TAlertForm.ShowAlert('System Remediated',
+      CleanText + LineEnding + 'Threats have been remediated. You can disable Zero Trust mode from the tray icon if desired.',
+      asSuccess, 8000);
+    Exit;
+  end;
+
   TAlertForm.ShowAlert(CleanKind, CleanText, asInfo, 0);
 end;
 
@@ -814,6 +851,104 @@ end;
 procedure TForm1.MenuMitmToggleClick(Sender: TObject);
 begin
   WriteMitmEnabled(not ReadMitmEnabled);
+end;
+
+// ---------------------------------------------------------------------------
+// Zero Trust / Lockdown Mode toggle
+//
+// Reads/writes the Zero Trust lockdown flag through edrsvc JSON-RPC
+// (getZeroTrustStatus/setZeroTrustEnabled on 127.0.0.1:5890) and signals
+// \\.\pipe\HydraHipDecision. When active, all unknown executable launches
+// are suspended with ZwSuspendProcess until the user approves or blocks.
+// ---------------------------------------------------------------------------
+
+function TForm1.ReadZeroTrustEnabled: Boolean;
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+begin
+  try
+    Req := '{"jsonrpc":"2.0","id":1,"method":"getZeroTrustStatus","params":{}}';
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.enabled');
+        if d <> nil then
+          FZeroTrustEnabled := d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    // transport/parse failure: keep last known value
+  end;
+  Result := FZeroTrustEnabled;
+end;
+
+procedure TForm1.WriteZeroTrustEnabled(AEnabled: Boolean);
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+  Applied: Boolean;
+begin
+  if AEnabled then
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setZeroTrustEnabled","params":{"enabled":true}}'
+  else
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setZeroTrustEnabled","params":{"enabled":false}}';
+
+  Applied := False;
+  try
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.success');
+        Applied := (d <> nil) and d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    Applied := False;
+  end;
+
+  // Also notify via named pipe
+  SendZeroTrustPipe(AEnabled);
+
+  FZeroTrustEnabled := AEnabled;
+  SetZeroTrustCaption(AEnabled);
+
+  if AEnabled then
+    TAlertForm.ShowAlert('Zero Trust Mode Enabled',
+      'All unknown executables will be suspended and require user authorization.',
+      asWarning, 4000)
+  else
+    TAlertForm.ShowAlert('Zero Trust Mode Disabled',
+      'Standard protection mode is active.',
+      asSuccess, 3000);
+end;
+
+procedure TForm1.SetZeroTrustCaption(AEnabled: Boolean);
+begin
+  if MenuZeroTrust <> nil then
+  begin
+    if AEnabled then
+    begin
+      MenuZeroTrust.Caption := 'Zero Trust Mode: ENABLED (Disable)';
+      MenuZeroTrust.Checked := True;
+    end
+    else
+    begin
+      MenuZeroTrust.Caption := 'Zero Trust Mode: Disabled (Enable)';
+      MenuZeroTrust.Checked := False;
+    end;
+  end;
+end;
+
+procedure TForm1.MenuZeroTrustClick(Sender: TObject);
+begin
+  WriteZeroTrustEnabled(not ReadZeroTrustEnabled);
 end;
 
 procedure TForm1.MenuQuarantineClick(Sender: TObject);

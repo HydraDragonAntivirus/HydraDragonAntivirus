@@ -89,6 +89,15 @@ public:
 	///
 	static bool isProtectionPaused();
 
+	///
+	/// Zero Trust (Lockdown) mode state & session whitelisting.
+	///
+	static void setZeroTrustEnabled(bool enabled);
+	static bool isZeroTrustEnabled();
+	static void addZeroTrustSessionWhitelist(const std::string& path);
+	static void addRestrictedProcess(uint32_t pid);
+	static bool resumeSuspendedProcess(uint32_t pid);
+
 	// ICommandProcessor
 
 	/// @copydoc ICommandProcessor::execute(Variant,Variant)

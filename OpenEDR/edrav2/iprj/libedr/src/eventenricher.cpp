@@ -507,6 +507,345 @@ namespace {
 		return false;
 	}
 
+	typedef NTSTATUS(NTAPI* pfnZwSuspendProcess)(HANDLE ProcessHandle);
+	typedef NTSTATUS(NTAPI* pfnZwResumeProcess)(HANDLE ProcessHandle);
+
+	static bool SuspendProcessByPid(uint32_t pid)
+	{
+		if (pid == 0 || pid == 4 || pid == ::GetCurrentProcessId())
+			return false;
+		HMODULE hNtdll = ::GetModuleHandleW(L"ntdll.dll");
+		if (!hNtdll) return false;
+		auto fnSuspend = (pfnZwSuspendProcess)::GetProcAddress(hNtdll, "ZwSuspendProcess");
+		if (!fnSuspend) fnSuspend = (pfnZwSuspendProcess)::GetProcAddress(hNtdll, "NtSuspendProcess");
+		if (!fnSuspend) return false;
+		HANDLE hProc = ::OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, pid);
+		if (!hProc) return false;
+		NTSTATUS st = fnSuspend(hProc);
+		::CloseHandle(hProc);
+		return st == 0;
+	}
+
+	static bool ResumeProcessByPid(uint32_t pid)
+	{
+		if (pid == 0 || pid == 4)
+			return false;
+		HMODULE hNtdll = ::GetModuleHandleW(L"ntdll.dll");
+		if (!hNtdll) return false;
+		auto fnResume = (pfnZwResumeProcess)::GetProcAddress(hNtdll, "ZwResumeProcess");
+		if (!fnResume) fnResume = (pfnZwResumeProcess)::GetProcAddress(hNtdll, "NtResumeProcess");
+		if (!fnResume) return false;
+		HANDLE hProc = ::OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, pid);
+		if (!hProc) return false;
+		NTSTATUS st = fnResume(hProc);
+		::CloseHandle(hProc);
+		return st == 0;
+	}
+
+	namespace ZeroTrust
+	{
+		static std::atomic<uint32_t> s_threatDetectionsCount{ 0 };
+		static std::atomic<bool> s_zeroTrustEnabled{ false };
+		static std::mutex s_mtxState;
+		static std::unordered_set<std::string> s_sessionWhitelist;
+		static std::unordered_set<uint32_t> s_restrictedPids;
+
+		struct FileModWindow {
+			uint64_t windowStartMs = 0;
+			std::unordered_set<std::string> modifiedFiles;
+		};
+		static std::unordered_map<uint32_t, FileModWindow> s_pidFileMods;
+
+		static inline std::string toLowerPath(std::string s)
+		{
+			for (auto& c : s) c = (char)::tolower((unsigned char)c);
+			return s;
+		}
+
+		static bool isEnabled()
+		{
+			return s_zeroTrustEnabled.load(std::memory_order_relaxed);
+		}
+
+		static void setEnabled(bool enabled)
+		{
+			s_zeroTrustEnabled.store(enabled, std::memory_order_relaxed);
+			LOGLVL(Critical, FMT("enricher: Zero Trust Mode is now " << (enabled ? "ENABLED (Lockdown)" : "DISABLED")));
+		}
+
+		static void recordThreatDetection()
+		{
+			uint32_t count = s_threatDetectionsCount.fetch_add(1, std::memory_order_relaxed) + 1;
+			if (count >= 20 && !s_zeroTrustEnabled.load(std::memory_order_relaxed))
+			{
+				s_zeroTrustEnabled.store(true, std::memory_order_relaxed);
+				LOGLVL(Critical, FMT("enricher: [ZERO TRUST TRIGGERED] " << count
+					<< " threats detected! Automatic lockdown activated."));
+
+				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+				if (hPipe != INVALID_HANDLE_VALUE)
+				{
+					std::string pipeMsg = "ZERO_TRUST_TRIGGERED:20_THREATS_DETECTED\n";
+					DWORD written = 0;
+					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+					::CloseHandle(hPipe);
+				}
+			}
+		}
+
+		static void addSessionWhitelist(const std::string& path)
+		{
+			if (path.empty()) return;
+			std::lock_guard<std::mutex> lock(s_mtxState);
+			s_sessionWhitelist.insert(toLowerPath(path));
+		}
+
+		static bool isSessionWhitelisted(const std::string& path)
+		{
+			if (path.empty()) return false;
+			std::lock_guard<std::mutex> lock(s_mtxState);
+			return s_sessionWhitelist.find(toLowerPath(path)) != s_sessionWhitelist.end();
+		}
+
+		static void addRestrictedProcess(uint32_t pid)
+		{
+			if (pid == 0) return;
+			std::lock_guard<std::mutex> lock(s_mtxState);
+			s_restrictedPids.insert(pid);
+			LOGLVL(Critical, FMT("enricher: [VIRUSKOV RESTRICTED MODE] PID " << pid
+				<< " registered under Restricted Mode (Network blocked, UAC blocked, Rapid file mod guarded)"));
+		}
+
+		static bool isRestricted(uint32_t pid)
+		{
+			if (pid == 0) return false;
+			std::lock_guard<std::mutex> lock(s_mtxState);
+			return s_restrictedPids.find(pid) != s_restrictedPids.end();
+		}
+
+		static void onProcessFileModification(uint32_t pid, const std::string& filePath)
+		{
+			if (pid <= 4 || filePath.empty()) return;
+			std::lock_guard<std::mutex> lock(s_mtxState);
+			if (s_restrictedPids.find(pid) == s_restrictedPids.end())
+				return;
+
+			uint64_t nowMs = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now().time_since_epoch()).count();
+
+			auto& win = s_pidFileMods[pid];
+			if (win.windowStartMs == 0 || (nowMs - win.windowStartMs) > 1000)
+			{
+				win.windowStartMs = nowMs;
+				win.modifiedFiles.clear();
+			}
+			win.modifiedFiles.insert(toLowerPath(filePath));
+
+			// Guard: if modifying > 5 distinct files within 1 second -> SUSPEND IMMEDIATELY!
+			if (win.modifiedFiles.size() > 5)
+			{
+				SuspendProcessByPid(pid);
+				LOGLVL(Critical, FMT("enricher: [VIRUSKOV RESTRICTED GUARD] PID " << pid
+					<< " SUSPENDED! Rapid file modification detected ("
+					<< win.modifiedFiles.size() << " files in <1s)"));
+
+				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+				if (hPipe != INVALID_HANDLE_VALUE)
+				{
+					std::string pipeMsg = "THREAT_ALERT:VirusKov.RansomwareGuard.MassFileMod|" + filePath + "\n";
+					DWORD written = 0;
+					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+					::CloseHandle(hPipe);
+				}
+			}
+		}
+	}
+
+	namespace UsbWormDetection
+	{
+		// Calculates similarity ratio [0..100] between running process binary and destination file written to USB
+		static int calculateExeSimilarity(const std::wstring& srcPath, const std::wstring& dstPath)
+		{
+			if (srcPath.empty() || dstPath.empty())
+				return 0;
+
+			// If paths are identical, ignore
+			if (_wcsicmp(srcPath.c_str(), dstPath.c_str()) == 0)
+				return 100;
+
+			HANDLE hSrc = ::CreateFileW(srcPath.c_str(), GENERIC_READ,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+				nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+			if (hSrc == INVALID_HANDLE_VALUE)
+				return 0;
+
+			HANDLE hDst = ::CreateFileW(dstPath.c_str(), GENERIC_READ,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+				nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+			if (hDst == INVALID_HANDLE_VALUE)
+			{
+				::CloseHandle(hSrc);
+				return 0;
+			}
+
+			LARGE_INTEGER liSrcSize = {}, liDstSize = {};
+			::GetFileSizeEx(hSrc, &liSrcSize);
+			::GetFileSizeEx(hDst, &liDstSize);
+
+			uint64_t s1 = static_cast<uint64_t>(liSrcSize.QuadPart);
+			uint64_t s2 = static_cast<uint64_t>(liDstSize.QuadPart);
+
+			if (s1 == 0 || s2 == 0)
+			{
+				::CloseHandle(hSrc);
+				::CloseHandle(hDst);
+				return 0;
+			}
+
+			// 1. Size ratio score (0 - 100)
+			double minSize = static_cast<double>(std::min(s1, s2));
+			double maxSize = static_cast<double>(std::max(s1, s2));
+			double sizeRatio = minSize / maxSize;
+			if (sizeRatio < 0.35)
+			{
+				::CloseHandle(hSrc);
+				::CloseHandle(hDst);
+				return 0; // Sizes too different to be a self-replicating worm
+			}
+			int sizeScore = static_cast<int>(sizeRatio * 100.0);
+
+			// 2. PE Header & Section Comparison
+			int peScore = 0;
+			IMAGE_DOS_HEADER dosSrc = {}, dosDst = {};
+			DWORD dwRead = 0;
+			bool bReadSrc = ::ReadFile(hSrc, &dosSrc, sizeof(dosSrc), &dwRead, nullptr) && dwRead == sizeof(dosSrc);
+			bool bReadDst = ::ReadFile(hDst, &dosDst, sizeof(dosDst), &dwRead, nullptr) && dwRead == sizeof(dosDst);
+
+			bool bothPe = false;
+			if (bReadSrc && bReadDst && dosSrc.e_magic == IMAGE_DOS_SIGNATURE && dosDst.e_magic == IMAGE_DOS_SIGNATURE)
+			{
+				IMAGE_NT_HEADERS ntSrc = {}, ntDst = {};
+				::SetFilePointer(hSrc, dosSrc.e_lfanew, nullptr, FILE_BEGIN);
+				::SetFilePointer(hDst, dosDst.e_lfanew, nullptr, FILE_BEGIN);
+
+				bool bNtSrc = ::ReadFile(hSrc, &ntSrc, sizeof(ntSrc), &dwRead, nullptr) && dwRead >= sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER);
+				bool bNtDst = ::ReadFile(hDst, &ntDst, sizeof(ntDst), &dwRead, nullptr) && dwRead >= sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER);
+
+				if (bNtSrc && bNtDst && ntSrc.Signature == IMAGE_NT_SIGNATURE && ntDst.Signature == IMAGE_NT_SIGNATURE)
+				{
+					bothPe = true;
+					int partialPe = 0;
+					if (ntSrc.OptionalHeader.Subsystem == ntDst.OptionalHeader.Subsystem)
+						partialPe += 15;
+					if (ntSrc.FileHeader.Machine == ntDst.FileHeader.Machine)
+						partialPe += 15;
+					if (ntSrc.FileHeader.NumberOfSections == ntDst.FileHeader.NumberOfSections)
+						partialPe += 20;
+					else if (std::abs(static_cast<int>(ntSrc.FileHeader.NumberOfSections) - static_cast<int>(ntDst.FileHeader.NumberOfSections)) <= 1)
+						partialPe += 10;
+
+					// Compare section names
+					WORD nSecSrc = std::min<WORD>(ntSrc.FileHeader.NumberOfSections, 16);
+					WORD nSecDst = std::min<WORD>(ntDst.FileHeader.NumberOfSections, 16);
+					std::vector<IMAGE_SECTION_HEADER> secSrc(nSecSrc), secDst(nSecDst);
+
+					::SetFilePointer(hSrc, dosSrc.e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER) + ntSrc.FileHeader.SizeOfOptionalHeader, nullptr, FILE_BEGIN);
+					::SetFilePointer(hDst, dosDst.e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER) + ntDst.FileHeader.SizeOfOptionalHeader, nullptr, FILE_BEGIN);
+
+					::ReadFile(hSrc, secSrc.data(), nSecSrc * sizeof(IMAGE_SECTION_HEADER), &dwRead, nullptr);
+					::ReadFile(hDst, secDst.data(), nSecDst * sizeof(IMAGE_SECTION_HEADER), &dwRead, nullptr);
+
+					int matchingSecs = 0;
+					for (const auto& ss : secSrc)
+					{
+						for (const auto& sd : secDst)
+						{
+							if (memcmp(ss.Name, sd.Name, IMAGE_SIZEOF_SHORT_NAME) == 0)
+							{
+								matchingSecs++;
+								break;
+							}
+						}
+					}
+					int maxSec = std::max(nSecSrc, nSecDst);
+					if (maxSec > 0)
+					{
+						double secRatio = static_cast<double>(matchingSecs) / static_cast<double>(maxSec);
+						partialPe += static_cast<int>(secRatio * 50.0);
+					}
+					peScore = std::min(partialPe, 100);
+				}
+			}
+
+			// 3. Chunk Sampling & Block Jaccard Similarity (up to 32KB)
+			const DWORD CHUNK_SIZE = 32768;
+			std::vector<uint8_t> bufSrc(CHUNK_SIZE, 0), bufDst(CHUNK_SIZE, 0);
+			DWORD readSrc = 0, readDst = 0;
+
+			::SetFilePointer(hSrc, 0, nullptr, FILE_BEGIN);
+			::SetFilePointer(hDst, 0, nullptr, FILE_BEGIN);
+			::ReadFile(hSrc, bufSrc.data(), CHUNK_SIZE, &readSrc, nullptr);
+			::ReadFile(hDst, bufDst.data(), CHUNK_SIZE, &readDst, nullptr);
+
+			::CloseHandle(hSrc);
+			::CloseHandle(hDst);
+
+			int chunkScore = 0;
+			if (readSrc > 0 && readDst > 0)
+			{
+				auto hashBlocks = [](const uint8_t* data, DWORD len) -> std::unordered_set<uint32_t>
+				{
+					std::unordered_set<uint32_t> hashes;
+					const DWORD BLOCK_SIZE = 64;
+					for (DWORD i = 0; i + BLOCK_SIZE <= len; i += 32)
+					{
+						uint32_t fnv = 2166136261u;
+						for (DWORD b = 0; b < BLOCK_SIZE; ++b)
+						{
+							fnv ^= data[i + b];
+							fnv *= 16777619u;
+						}
+						hashes.insert(fnv);
+					}
+					return hashes;
+				};
+
+				auto setSrc = hashBlocks(bufSrc.data(), readSrc);
+				auto setDst = hashBlocks(bufDst.data(), readDst);
+
+				if (!setSrc.empty() && !setDst.empty())
+				{
+					int intersectionCount = 0;
+					for (auto h : setSrc)
+					{
+						if (setDst.find(h) != setDst.end())
+							intersectionCount++;
+					}
+					int unionCount = static_cast<int>(setSrc.size() + setDst.size()) - intersectionCount;
+					if (unionCount > 0)
+					{
+						chunkScore = static_cast<int>((static_cast<double>(intersectionCount) / static_cast<double>(unionCount)) * 100.0);
+					}
+				}
+			}
+
+			// Composite Score (Size 20%, PE 30%, Chunk 50%)
+			double finalScore = 0.0;
+			if (bothPe)
+			{
+				finalScore = (sizeScore * 0.20) + (peScore * 0.30) + (chunkScore * 0.50);
+			}
+			else
+			{
+				finalScore = (sizeScore * 0.30) + (chunkScore * 0.70);
+			}
+
+			return std::clamp(static_cast<int>(finalScore), 0, 100);
+		}
+	}
+
 	// Save unknown process behavior killchain telemetry into training dataset
 	void AppendToTrainingDataset(const std::string& sExePath, const std::string& sEventType, const std::string& sDetails, const std::string& sJson)
 	{
@@ -1498,6 +1837,7 @@ void EventEnricher::recordShadowBackup(int64_t nPid, Event eEventType, const Var
 		case Event::LLE_FILE_DELETE:
 		case Event::LLE_FILE_RENAME:
 		{
+			ZeroTrust::onProcessFileModification(static_cast<uint32_t>(nPid), string::convertWCharToUtf8(wsFilePath));
 			constexpr size_t c_nMaxBackupsPerProcess = 1000;
 			auto& vec = s_backups[nPid];
 			if (vec.size() < c_nMaxBackupsPerProcess)
@@ -1577,6 +1917,17 @@ void EventEnricher::handleThreatRemediation(int64_t nPid, const std::wstring& /*
 
 	// 1. File rollback from pre-images
 	rollbackRansomBackups(nPid);
+
+	// Notify GUI that system remediation has executed
+	HANDLE hPipeClean = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+		GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (hPipeClean != INVALID_HANDLE_VALUE)
+	{
+		std::string pipeMsg = "SYSTEM_CLEANED_NOTICE:REMEDIATED\n";
+		DWORD written = 0;
+		::WriteFile(hPipeClean, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+		::CloseHandle(hPipeClean);
+	}
 }
 
 // openedr_static.dll scan_pid binding shares the file scanner's loader and init.
@@ -2144,6 +2495,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 					::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
 					::CloseHandle(hPipe);
 				}
+
+				ZeroTrust::recordThreatDetection();
 			}
 		}
 
@@ -2175,6 +2528,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 				::WriteFile(hPipeSusp, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
 				::CloseHandle(hPipeSusp);
 			}
+
+			ZeroTrust::recordThreatDetection();
 		}
 
 		// B. Also enqueue to daemon scanner pool (for background archive scanning / quarantine vault)
@@ -2760,6 +3115,118 @@ void EventEnricher::put(const Variant& vEventRef)
 		if (eEventType == Event::LLE_FILE_DATA_CHANGE)
 			vParams.put("cmdModify", true);
 
+		// USB Self-Replication Worm Detection:
+		// When an executable (.exe, .scr, .pif, .com) is written to a removable drive,
+		// compute hybrid PE & chunk similarity ratio [0..100%] against the writing process binary.
+		// Exclude Comodo cloud clean and digitally signed trusted processes to prevent false positives.
+		if (eEventType == Event::LLE_FILE_CREATE || eEventType == Event::LLE_FILE_DATA_WRITE_FULL)
+		{
+			std::wstring wsDestPath;
+			if (vParams.has("path")) wsDestPath = Widen(std::string(vParams["path"]));
+			else if (vParams.has("rawPath")) wsDestPath = Widen(std::string(vParams["rawPath"]));
+			else if (vParams.has("uniquePath")) wsDestPath = Widen(std::string(vParams["uniquePath"]));
+
+			wsDestPath = NormalizeToDosPath(wsDestPath);
+
+			bool isRemovable = false;
+			if (wsDestPath.size() >= 2 && wsDestPath[1] == L':')
+			{
+				std::wstring sRoot = wsDestPath.substr(0, 2) + L"\\";
+				UINT dt = ::GetDriveTypeW(sRoot.c_str());
+				if (dt == DRIVE_REMOVABLE || dt == DRIVE_CDROM || dt == DRIVE_RAMDISK)
+					isRemovable = true;
+			}
+			if (!isRemovable && vParams.has("volume"))
+			{
+				try {
+					Variant vVol = vParams.get("volume", {});
+					if (vVol.has("type") && std::string(vVol["type"]) == "REMOVABLE")
+						isRemovable = true;
+				} catch (...) {}
+			}
+
+			if (isRemovable)
+			{
+				vEvent.put("isRemovableDrive", true);
+				vParams.put("isRemovableDrive", true);
+
+				bool isExecutable = endsWithCaseInsensitive(wsDestPath, L".exe") ||
+				                    endsWithCaseInsensitive(wsDestPath, L".scr") ||
+				                    endsWithCaseInsensitive(wsDestPath, L".pif") ||
+				                    endsWithCaseInsensitive(wsDestPath, L".com");
+
+				if (isExecutable)
+				{
+					vEvent.put("usbWriteExecutable", true);
+					vParams.put("usbWriteExecutable", true);
+
+					// Check Process Trust: Comodo Cloud Clean + Valid Digital Signature
+					bool isCloudClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == 1) ||
+					                    (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == 1) ||
+					                    (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
+					bool isSignedTrusted = false;
+					if (vProcess.has("signature"))
+					{
+						try {
+							auto vSig = vProcess["signature"];
+							if (vSig.has("status") && static_cast<int64_t>(vSig["status"]) == 0)
+								isSignedTrusted = true;
+						} catch (...) {}
+					}
+					bool isProcessTrusted = isCloudClean || isSignedTrusted;
+					vProcess.put("isTrusted", isProcessTrusted);
+
+					if (!isProcessTrusted && !sProcPath.empty())
+					{
+						std::wstring wsSrcProc = NormalizeToDosPath(Widen(sProcPath));
+						int similarity = UsbWormDetection::calculateExeSimilarity(wsSrcProc, wsDestPath);
+
+						vEvent.put("usbSimilarityRatio", similarity);
+						vParams.put("usbSimilarityRatio", similarity);
+
+						if (similarity >= 75)
+						{
+							LOGLVL(Critical, FMT("enricher: [USB WORM DETECTED] Process <" << sProcPath
+								<< "> replicated to USB <" << Narrow(wsDestPath)
+								<< "> with similarity " << similarity << "%!"));
+
+							vProcess.put("flsVerdict", 2);
+							vProcess.put("verdict", 2);
+							vProcess.put("threatName", "Worm.Win32.UsbReplication");
+							vEvent.put("threatName", "Worm.Win32.UsbReplication");
+							vEvent.put("baseType", 1000025);
+							vEvent.put("quarantineTarget", wsDestPath);
+
+							// Immediate quarantine & alert
+							DetectionNotifier::recordMalwareDetection(Narrow(wsDestPath), "");
+							DetectionNotifier::recordMalwareDetection(sProcPath, "");
+
+							HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+								GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+							if (hPipe != INVALID_HANDLE_VALUE)
+							{
+								std::string pipeMsg = "THREAT_ALERT:Worm.Win32.UsbReplication|" + Narrow(wsDestPath) + "\n";
+								DWORD written = 0;
+								::WriteFile(hPipe, pipeMsg.data(), static_cast<DWORD>(pipeMsg.size()), &written, NULL);
+								::CloseHandle(hPipe);
+							}
+
+							ZeroTrust::recordThreatDetection();
+
+							uint32_t nActorPid = 0;
+							if (vProcess.has("pid")) nActorPid = static_cast<uint32_t>(vProcess["pid"]);
+							else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
+
+							if (nActorPid > 0 && !DetectionNotifier::isProtectionPaused())
+							{
+								handleThreatRemediation(nActorPid, wsDestPath, "Worm.Win32.UsbReplication");
+							}
+						}
+					}
+				}
+			}
+		}
+
 		// Update file info with fallback to raw vParams if provider fails (e.g. sharing violation)
 		vEvent.put("file", variant::createLambdaProxy([vParams]() -> Variant 
 		{
@@ -2771,6 +3238,10 @@ void EventEnricher::put(const Variant& vEventRef)
 				{
 					if (!res.has("path") && vParams.has("path"))
 						res.put("path", vParams["path"]);
+					if (vParams.has("isRemovableDrive"))
+						res.put("isRemovableDrive", vParams["isRemovableDrive"]);
+					if (vParams.has("usbSimilarityRatio"))
+						res.put("usbSimilarityRatio", vParams["usbSimilarityRatio"]);
 					return res;
 				}
 			}
@@ -2933,6 +3404,60 @@ void EventEnricher::put(const Variant& vEventRef)
 		}
 
 		vEvent.put("process", enrichedProcessInfo);
+
+		// Zero Trust Lockdown Mode: if enabled (manually or via >=20 threat detections),
+		// all unknown executable launches are suspended and prompted to the user via edrgui.
+		if (ZeroTrust::isEnabled())
+		{
+			std::string dosPath = DetectionNotifier::NtPathToDosPathString(sImgPath);
+			uint32_t nPid = enrichedProcessInfo.has("pid") ? static_cast<uint32_t>(enrichedProcessInfo["pid"]) : 0;
+			bool bWhitelisted = ZeroTrust::isSessionWhitelisted(dosPath);
+			bool bClean = (enrichedProcessInfo.has("verdict") && static_cast<int64_t>(enrichedProcessInfo["verdict"]) == 1) ||
+			              (DetectionNotifier::getCachedFileVerdict(dosPath) == 1);
+
+			if (!bWhitelisted && !bClean && nPid > 4 && nPid != ::GetCurrentProcessId())
+			{
+				if (SuspendProcessByPid(nPid))
+				{
+					LOGLVL(Critical, FMT("enricher: [ZERO TRUST LOCKDOWN] Suspended unknown executable launch <"
+						<< dosPath << "> (PID: " << nPid << ") awaiting user decision from edrgui"));
+
+					std::string appName = dosPath;
+					size_t pSlash = appName.find_last_of("\\/");
+					if (pSlash != std::string::npos) appName = appName.substr(pSlash + 1);
+
+					HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+						GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+					if (hPipe != INVALID_HANDLE_VALUE)
+					{
+						std::string reqId = "zt_" + std::to_string(nPid) + "_" + std::to_string(::GetTickCount64());
+						std::string askMsg = "HIPS_ASK:" + reqId + "|" + std::to_string(nPid) + "|" +
+							appName + "|" + dosPath + "|zero_trust|process_launch|Zero Trust Lockdown: 20+ tehdit nedeniyle bilinmeyen uygulama askiya alindi.\n";
+						DWORD written = 0;
+						::WriteFile(hPipe, askMsg.data(), static_cast<DWORD>(askMsg.size()), &written, NULL);
+						::CloseHandle(hPipe);
+					}
+				}
+			}
+		}
+
+		// VirusKov Restricted Mode: block UAC elevation attempts by restricted processes
+		uint32_t nParentPid = enrichedProcessInfo.has("parentPid") ? static_cast<uint32_t>(enrichedProcessInfo["parentPid"]) : 0;
+		if (nParentPid != 0 && ZeroTrust::isRestricted(nParentPid))
+		{
+			bool isElevated = enrichedProcessInfo.has("isElevated") ? static_cast<bool>(enrichedProcessInfo["isElevated"]) : false;
+			std::string cmd = enrichedProcessInfo.has("cmdLine") ? std::string(enrichedProcessInfo["cmdLine"]) : "";
+			if (isElevated || cmd.find("runas") != std::string::npos)
+			{
+				uint32_t nPid = enrichedProcessInfo.has("pid") ? static_cast<uint32_t>(enrichedProcessInfo["pid"]) : 0;
+				if (nPid > 0)
+				{
+					HANDLE hKill = ::OpenProcess(PROCESS_TERMINATE, FALSE, nPid);
+					if (hKill) { ::TerminateProcess(hKill, 1); ::CloseHandle(hKill); }
+				}
+				LOGLVL(Critical, FMT("enricher: [VIRUSKOV RESTRICTED MODE] Blocked UAC elevation attempt by restricted PID " << nParentPid));
+			}
+		}
 
 		// Best-effort PDB warm-up for the offline symbol pipe; async, never blocks.
 		QueuePdbPrefetch(m_threadPool, sImgPath);
@@ -3132,7 +3657,7 @@ void EventEnricher::put(const Variant& vEventRef)
 				sImage = vImage.get("uniquePath", L"");
 			}
 			catch (...) {}
-			std::string sThreatName = "THREAT_BASE_TYPE_" + std::to_string(nBaseType);
+			std::string sThreatName = vEvent.has("threatName") ? std::string(vEvent.get("threatName")) : ("THREAT_BASE_TYPE_" + std::to_string(nBaseType));
 			// Capture-on-alert thread stacks (hooksuz/ETWsiz, Process-Hacker style).
 			// Attached to the event, flows into training JSON via whole-event serialize.
 			if (nShieldPid > 0 && nShieldPid < 0xFFFFFFFF && IsThreadStackCaptureEnabled())
@@ -3175,9 +3700,76 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 		static_cast<Event>(static_cast<int>(vEvent.get("baseEventType"))) :
 		static_cast<Event>(static_cast<int>(vEvent.get("baseType")));
 
-	// 2. Process creation is ALWAYS treated as unknown until verified
+	// 2. Process creation: unknown/unverified executables get top priority (10x ratio)
 	if (eEventType == Event::LLE_PROCESS_CREATE || vEvent.has("childProcess"))
+	{
+		Variant vProc = vEvent.has("process") ? vEvent.get("process") :
+			(vEvent.has("childProcess") ? vEvent.get("childProcess") : Variant());
+		if (vProc.isDictionaryLike())
+		{
+			int64_t v = 0;
+			if (vProc.has("verdict")) {
+				try { v = static_cast<int64_t>(vProc["verdict"]); } catch (...) {}
+			}
+			if (v == 1) return false; // Verified clean process -> routine queue
+
+			std::string pPath = vProc.has("imagePath") ? std::string(vProc["imagePath"]) :
+				(vProc.has("path") ? std::string(vProc["path"]) :
+				(vProc.has("rawPath") ? std::string(vProc["rawPath"]) : ""));
+			if (!pPath.empty())
+			{
+				std::string dos = DetectionNotifier::NtPathToDosPathString(pPath);
+				if (DetectionNotifier::getCachedFileVerdict(dos) == 1)
+					return false; // Cached clean -> routine queue
+			}
+		}
+		// Not verified clean -> UNKNOWN EXECUTABLE! Top 10x priority!
 		return true;
+	}
+
+	// 2b. API Hooking events: prioritize cross-process injection and threat hooks,
+	// defer routine self-PID internal API calls to prevent flooding the unknown queue
+	if (vEvent.has("owlyHook"))
+	{
+		Variant vHook = vEvent.get("owlyHook");
+		uint32_t srcPid = vHook.get("sourcePid", uint32_t(0));
+		uint32_t tgtPid = vHook.get("targetPid", uint32_t(0));
+		bool isMatched = vHook.get("isJsonMatched", false);
+
+		// Cross-process injection (e.g. CreateRemoteThread, WriteProcessMemory into different PID)
+		// or explicitly matched security hook rule -> TOP PRIORITY UNKNOWN/THREAT (10x)!
+		if ((tgtPid != 0 && tgtPid != srcPid) || isMatched)
+		{
+			return true;
+		}
+
+		// Check if source PID is verified clean
+		if (srcPid != 0 && m_pProcProvider)
+		{
+			auto vPInfo = m_pProcProvider->getProcessInfoByPid(srcPid);
+			if (vPInfo.isDictionaryLike())
+			{
+				int64_t v = 0;
+				if (vPInfo.has("verdict")) {
+					try { v = static_cast<int64_t>(vPInfo["verdict"]); } catch (...) {}
+				}
+				if (v == 1)
+					return false;
+
+				std::string img = vPInfo.has("imagePath") ? std::string(vPInfo["imagePath"]) :
+					(vPInfo.has("path") ? std::string(vPInfo["path"]) : "");
+				if (!img.empty())
+				{
+					std::string dos = DetectionNotifier::NtPathToDosPathString(img);
+					if (DetectionNotifier::getCachedFileVerdict(dos) == 1)
+						return false;
+				}
+			}
+		}
+
+		// Routine internal API hook: defer as benign (10x lower priority)
+		return false;
+	}
 
 	// 3. Check process verdict
 	Variant vProc;

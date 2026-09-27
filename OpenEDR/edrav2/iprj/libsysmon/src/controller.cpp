@@ -12,6 +12,7 @@
 #include "pch.h"
 #include "controller.h"
 #include "../../libprocmon/inc/procmonevent.h"
+#include "../../libedr/src/detectionnotifier.h"
 #include <libcore/inc/kstack_resolve.hpp>
 
 #include <mutex>
@@ -122,6 +123,92 @@ namespace hookmgr {
 		}
 		out.push_back(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\ptm.local.src");
 		out.push_back(L"ptm.local.src");
+		out.push_back(L"OpenEDR\\edrav2\\iprj\\edrdata\\ptm.local.src");
+		return out;
+	}
+
+	static std::wstring resolveExportCasing(const std::wstring& moduleName, const std::wstring& funcName)
+	{
+		HMODULE hMod = ::LoadLibraryExW(moduleName.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE);
+		if (!hMod)
+			hMod = ::GetModuleHandleW(moduleName.c_str());
+		if (hMod)
+		{
+			PBYTE base = (PBYTE)((ULONG_PTR)hMod & ~3);
+			PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)base;
+			if (dos->e_magic == IMAGE_DOS_SIGNATURE && dos->e_lfanew > 0 && dos->e_lfanew < 0x10000000)
+			{
+				PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)(base + dos->e_lfanew);
+				if (nt->Signature == IMAGE_NT_SIGNATURE)
+				{
+					DWORD expRva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+					DWORD expSize = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+					if (expRva && expSize)
+					{
+						PIMAGE_EXPORT_DIRECTORY exp = (PIMAGE_EXPORT_DIRECTORY)(base + expRva);
+						PDWORD names = (PDWORD)(base + exp->AddressOfNames);
+						for (DWORD i = 0; i < exp->NumberOfNames; ++i)
+						{
+							const char* expName = (const char*)(base + names[i]);
+							std::wstring wexp(expName, expName + strlen(expName));
+							if (_wcsicmp(wexp.c_str(), funcName.c_str()) == 0)
+							{
+								::FreeLibrary(hMod);
+								return wexp;
+							}
+						}
+					}
+				}
+			}
+			::FreeLibrary(hMod);
+		}
+		if (_wcsicmp(funcName.c_str(), L"writeprocessmemory") == 0) return L"WriteProcessMemory";
+		if (_wcsicmp(funcName.c_str(), L"ntcreatethreadex") == 0) return L"NtCreateThreadEx";
+		if (_wcsicmp(funcName.c_str(), L"bcryptclosealgorithmprovider") == 0) return L"BCryptCloseAlgorithmProvider";
+		if (_wcsicmp(funcName.c_str(), L"bcryptimportkey") == 0) return L"BCryptImportKey";
+		if (_wcsicmp(funcName.c_str(), L"bcryptimportkeypair") == 0) return L"BCryptImportKeyPair";
+		if (_wcsicmp(funcName.c_str(), L"bcryptopenalgorithmprovider") == 0) return L"BCryptOpenAlgorithmProvider";
+		return funcName;
+	}
+
+	static std::vector<std::wstring> kcCandidatePaths()
+	{
+		std::vector<std::wstring> out;
+		wchar_t wsExe[MAX_PATH] = {};
+		if (::GetModuleFileNameW(nullptr, wsExe, MAX_PATH) > 0)
+		{
+			std::wstring s(wsExe);
+			size_t pos = s.find_last_of(L"\\/");
+			if (pos != std::wstring::npos)
+			{
+				std::wstring dir = s.substr(0, pos + 1);
+				out.push_back(dir + L"models\\kc_hybrid_model.json");
+				out.push_back(dir + L"kc_hybrid_model.json");
+				for (const auto& searchPattern : { dir + L"kc*.json", dir + L"models\\kc*.json" })
+				{
+					WIN32_FIND_DATAW fd = {};
+					HANDLE hFind = ::FindFirstFileW(searchPattern.c_str(), &fd);
+					if (hFind != INVALID_HANDLE_VALUE)
+					{
+						do
+						{
+							if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+							{
+								size_t p = searchPattern.find_last_of(L"\\/");
+								std::wstring pdir = (p != std::wstring::npos) ? searchPattern.substr(0, p + 1) : L"";
+								out.push_back(pdir + fd.cFileName);
+							}
+						} while (::FindNextFileW(hFind, &fd));
+						::FindClose(hFind);
+					}
+				}
+			}
+		}
+		out.push_back(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\models\\kc_hybrid_model.json");
+		out.push_back(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\kc_hybrid_model.json");
+		out.push_back(L"models\\kc_hybrid_model.json");
+		out.push_back(L"kc_hybrid_model.json");
+		out.push_back(L"OpenEDR\\owlyshield_predict\\models\\kc_hybrid_model.json");
 		return out;
 	}
 
@@ -191,8 +278,74 @@ namespace hookmgr {
 		return out;
 	}
 
+	// Targeted scan for APIs inside kc*.json (such as kc_hybrid_model.json).
+	// Extracts tokens formatted as `mod!func` or `raw.owlyhook.functionname=mod!func`.
+	static std::vector<HookTarget> extractKcApiList(const std::string& content)
+	{
+		std::vector<HookTarget> out;
+		const size_t n = content.size();
+		std::string cur;
+		bool inStr = false, esc = false;
+		for (size_t i = 0; i < n && out.size() < c_nMaxTargets; ++i)
+		{
+			const char c = content[i];
+			if (inStr)
+			{
+				if (esc) { cur.push_back(c); esc = false; }
+				else if (c == '\\') esc = true;
+				else if (c == '"')
+				{
+					inStr = false;
+					std::string spec = cur;
+					size_t eqPos = spec.find('=');
+					if (eqPos != std::string::npos && (spec.find("owlyhook") != std::string::npos || spec.find("detfn") != std::string::npos))
+					{
+						spec = spec.substr(eqPos + 1);
+					}
+					size_t bang = spec.find('!');
+					if (bang != std::string::npos && bang > 0 && bang + 1 < spec.size())
+					{
+						std::string sMod = spec.substr(0, bang);
+						std::string sFn = spec.substr(bang + 1);
+						std::wstring wmod(sMod.begin(), sMod.end());
+						std::wstring wfn(sFn.begin(), sFn.end());
+						wmod = normalizeModule(wmod);
+						if (!wmod.empty() && !wfn.empty())
+						{
+							wfn = resolveExportCasing(wmod, wfn);
+							if (wmod.size() < 64 && wfn.size() < 256)
+							{
+								HookTarget t;
+								t.module = wmod;
+								t.function = wfn;
+								out.push_back(std::move(t));
+							}
+						}
+					}
+					cur.clear();
+				}
+				else cur.push_back(c);
+				continue;
+			}
+			if (c == '"') { inStr = true; cur.clear(); }
+		}
+		return out;
+	}
+
 	static std::vector<HookTarget> loadTargetsLocked()
 	{
+		std::vector<HookTarget> targets;
+		auto isDuplicate = [&](const HookTarget& t) {
+			for (const auto& existing : targets)
+			{
+				if (_wcsicmp(existing.module.c_str(), t.module.c_str()) == 0 &&
+					_wcsicmp(existing.function.c_str(), t.function.c_str()) == 0)
+					return true;
+			}
+			return false;
+		};
+
+		// 1. Load from ptm.local.src
 		for (const auto& path : ptmCandidatePaths())
 		{
 			std::ifstream ifs(path, std::ios::binary);
@@ -203,9 +356,44 @@ namespace hookmgr {
 				continue;
 			auto specs = extractApiList(content);
 			if (!specs.empty())
-				return specs;
+			{
+				for (auto& s : specs)
+				{
+					if (!isDuplicate(s) && targets.size() < c_nMaxTargets)
+						targets.push_back(std::move(s));
+				}
+				break;
+			}
 		}
-		return {};
+
+		// 2. Load from kc*.json models
+		std::vector<std::wstring> checkedKcPaths;
+		for (const auto& path : kcCandidatePaths())
+		{
+			bool alreadyChecked = false;
+			for (const auto& cp : checkedKcPaths)
+			{
+				if (_wcsicmp(cp.c_str(), path.c_str()) == 0) { alreadyChecked = true; break; }
+			}
+			if (alreadyChecked)
+				continue;
+			checkedKcPaths.push_back(path);
+
+			std::ifstream ifs(path, std::ios::binary);
+			if (!ifs.is_open())
+				continue;
+			std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+			if (content.empty())
+				continue;
+			auto kcSpecs = extractKcApiList(content);
+			for (auto& s : kcSpecs)
+			{
+				if (!isDuplicate(s) && targets.size() < c_nMaxTargets)
+					targets.push_back(std::move(s));
+			}
+		}
+
+		return targets;
 	}
 
 	// Register the whole list (0x6000 + file order, mirroring the Rust id
@@ -234,7 +422,7 @@ namespace hookmgr {
 		{
 			s_targetsRegistered = true;
 			LOGLVL(Critical, FMT("hookmgr: registered " << ok << "/" << s_targets.size()
-				<< " hook targets from ptm.local.src cryptoApiList"));
+				<< " hook targets from ptm.local.src and kc json models"));
 		}
 	}
 
@@ -1140,7 +1328,16 @@ void SystemMonitorController::hipsDecisionPipeServerLoop()
 				std::string sCmd(buffer.data(), dwRead);
 				// Format: HIPS_KILL:<PID>|<DECISION>|<EXE_PATH>
 				// Example: HIPS_KILL:1234|block|C:\malware.exe
-				if (sCmd.rfind("HIPS_KILL:", 0) == 0)
+				// Example: HIPS_KILL:1234|allow|C:\app.exe
+				// Example: HIPS_KILL:1234|restricted|C:\app.exe
+				// Or: ZERO_TRUST:1 / ZERO_TRUST:0
+				if (sCmd.rfind("ZERO_TRUST:", 0) == 0)
+				{
+					bool enable = (sCmd.find("1") != std::string::npos || sCmd.find("true") != std::string::npos);
+					DetectionNotifier::setZeroTrustEnabled(enable);
+					LOGINF("[HIPS] Zero Trust mode toggled via pipe: " << (enable ? "ENABLED" : "DISABLED"));
+				}
+				else if (sCmd.rfind("HIPS_KILL:", 0) == 0)
 				{
 					std::string sPayload = sCmd.substr(10);
 					size_t sep1 = sPayload.find('|');
@@ -1148,20 +1345,44 @@ void SystemMonitorController::hipsDecisionPipeServerLoop()
 					{
 						std::string sPidStr = sPayload.substr(0, sep1);
 						uint32_t targetPid = static_cast<uint32_t>(std::strtoul(sPidStr.c_str(), nullptr, 10));
+						std::string sRest = sPayload.substr(sep1 + 1);
+						size_t sep2 = sRest.find('|');
+						std::string sDecision = (sep2 == std::string::npos) ? sRest : sRest.substr(0, sep2);
+						std::string sExePath = (sep2 == std::string::npos) ? "" : sRest.substr(sep2 + 1);
+
 						if (targetPid != 0)
 						{
-							// HIPS verdict gate: a persistent user "allow" in
-							// hips_rules.json vetoes the kill (firewall-independent).
-							std::string sRest = sPayload.substr(sep1 + 1);
-							size_t sep2 = sRest.find('|');
-							std::string sExePath = (sep2 == std::string::npos) ? "" : sRest.substr(sep2 + 1);
-							if (!sExePath.empty() && hipsUserAllows(sExePath))
+							if (sDecision == "allow" || sDecision == "allow_always")
 							{
-								LOGINF("[HIPS] Kill vetoed by persistent user allow verdict for: " << sExePath);
+								if (!sExePath.empty())
+									DetectionNotifier::addZeroTrustSessionWhitelist(sExePath);
+								DetectionNotifier::resumeSuspendedProcess(targetPid);
+								LOGINF("[HIPS] Resumed process " << targetPid << " (" << sExePath << ") and whitelisted for session");
+							}
+							else if (sDecision == "allow_once")
+							{
+								DetectionNotifier::resumeSuspendedProcess(targetPid);
+								LOGINF("[HIPS] Resumed process " << targetPid << " for single execution");
+							}
+							else if (sDecision == "restricted")
+							{
+								DetectionNotifier::addRestrictedProcess(targetPid);
+								DetectionNotifier::resumeSuspendedProcess(targetPid);
+								LOGINF("[HIPS] Resumed process " << targetPid << " under VirusKov Restricted Mode");
 							}
 							else
 							{
-								killProcessViaDriver(targetPid);
+								// HIPS verdict gate: a persistent user "allow" in
+								// hips_rules.json vetoes the kill (firewall-independent).
+								if (!sExePath.empty() && hipsUserAllows(sExePath))
+								{
+									LOGINF("[HIPS] Kill vetoed by persistent user allow verdict for: " << sExePath);
+									DetectionNotifier::resumeSuspendedProcess(targetPid);
+								}
+								else
+								{
+									killProcessViaDriver(targetPid);
+								}
 							}
 						}
 					}

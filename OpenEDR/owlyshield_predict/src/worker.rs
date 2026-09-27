@@ -1295,14 +1295,139 @@ pub mod worker_instance {
         /// Max hook targets, mirroring the C++ registrar (driver table is bounded).
         const PTM_HOOK_MAX_TARGETS: usize = 512;
 
-        /// Load the ptm.local.src cryptoApiList in file order (mirrors the C++
-        /// hookmgr registrar, so event ids 0x6000+i stay in sync on both sides).
-        /// Cached process-wide; empty when the policy file is missing/unparseable
-        /// (falls back to the old skip behavior).
+        /// Resolve export casing for an API function against the loaded PE if available
+        fn resolve_export_casing(module: &str, function: &str) -> String {
+            if function.eq_ignore_ascii_case("writeprocessmemory") {
+                return "WriteProcessMemory".to_string();
+            }
+            if function.eq_ignore_ascii_case("ntcreatethreadex") {
+                return "NtCreateThreadEx".to_string();
+            }
+            if function.eq_ignore_ascii_case("bcryptopenalgorithmprovider") {
+                return "BCryptOpenAlgorithmProvider".to_string();
+            }
+            if function.eq_ignore_ascii_case("bcryptclosealgorithmprovider") {
+                return "BCryptCloseAlgorithmProvider".to_string();
+            }
+            if function.eq_ignore_ascii_case("bcryptimportkey") {
+                return "BCryptImportKey".to_string();
+            }
+            if function.eq_ignore_ascii_case("bcryptimportkeypair") {
+                return "BCryptImportKeyPair".to_string();
+            }
+            let sys_paths = [
+                format!(r"C:\Windows\System32\{}", module),
+                format!(r"C:\Windows\SysWOW64\{}", module),
+            ];
+            for path in &sys_paths {
+                if let Ok(bytes) = std::fs::read(path) {
+                    if let Ok(pe) = goblin::pe::PE::parse(&bytes) {
+                        for export in pe.exports {
+                            if let Some(exp_name) = export.name {
+                                if exp_name.eq_ignore_ascii_case(function) {
+                                    return exp_name.to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            function.to_string()
+        }
+
+        fn kc_candidate_paths() -> Vec<std::path::PathBuf> {
+            let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    candidates.push(dir.join("models").join("kc_hybrid_model.json"));
+                    candidates.push(dir.join("kc_hybrid_model.json"));
+                    for scan_dir in [dir.to_path_buf(), dir.join("models")] {
+                        if let Ok(entries) = std::fs::read_dir(scan_dir) {
+                            for entry in entries.flatten() {
+                                let path = entry.path();
+                                if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
+                                    if fname.starts_with("kc") && fname.ends_with(".json") {
+                                        candidates.push(path);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            candidates.push(std::path::PathBuf::from(
+                r"C:\Program Files\HydraDragonAntivirus\OpenEDR\models\kc_hybrid_model.json",
+            ));
+            candidates.push(std::path::PathBuf::from(
+                r"C:\Program Files\HydraDragonAntivirus\OpenEDR\kc_hybrid_model.json",
+            ));
+            candidates.push(std::path::PathBuf::from("models/kc_hybrid_model.json"));
+            candidates.push(std::path::PathBuf::from("kc_hybrid_model.json"));
+            candidates.push(std::path::PathBuf::from(
+                "OpenEDR/owlyshield_predict/models/kc_hybrid_model.json",
+            ));
+            candidates
+        }
+
+        fn extract_kc_api_list(content: &str) -> Vec<String> {
+            let mut out = Vec::new();
+            let bytes = content.as_bytes();
+            let mut i = 0;
+            let mut cur = String::new();
+            let mut in_str = false;
+            let mut esc = false;
+            while i < bytes.len() && out.len() < Self::PTM_HOOK_MAX_TARGETS {
+                let c = bytes[i];
+                if in_str {
+                    if esc {
+                        cur.push(c as char);
+                        esc = false;
+                    } else if c == b'\\' {
+                        esc = true;
+                    } else if c == b'"' {
+                        in_str = false;
+                        let mut spec = cur.as_str();
+                        if let Some(eq_pos) = spec.find('=') {
+                            if spec.contains("owlyhook") || spec.contains("detfn") {
+                                spec = &spec[eq_pos + 1..];
+                            }
+                        }
+                        if let Some(bang) = spec.find('!') {
+                            if bang > 0 && bang + 1 < spec.len() {
+                                let module = Self::normalize_hook_module_name(&spec[..bang]);
+                                let function = Self::resolve_export_casing(&module, &spec[bang + 1..]);
+                                if !module.is_empty() && !function.is_empty() && module.len() < 64 && function.len() < 256 {
+                                    out.push(format!("{}!{}", module, function));
+                                }
+                            }
+                        }
+                        cur.clear();
+                    } else {
+                        cur.push(c as char);
+                    }
+                    i += 1;
+                    continue;
+                }
+                if c == b'"' {
+                    in_str = true;
+                    cur.clear();
+                }
+                i += 1;
+            }
+            out
+        }
+
+        /// Load the hook targets from ptm.local.src and kc*.json models in file order
+        /// (mirrors the C++ hookmgr registrar, so event ids 0x6000+i stay in sync on both sides).
+        /// Cached process-wide; empty when policy/model files are missing/unparseable.
         fn ptm_crypto_api_list() -> Vec<String> {
             static CACHE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
             CACHE
                 .get_or_init(|| {
+                    let mut targets: Vec<String> = Vec::new();
+                    let mut seen = std::collections::HashSet::new();
+
+                    // 1. PTM targets
                     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
                     if let Ok(exe) = std::env::current_exe() {
                         if let Some(dir) = exe.parent() {
@@ -1313,15 +1438,43 @@ pub mod worker_instance {
                         r"C:\Program Files\HydraDragonAntivirus\OpenEDR\ptm.local.src",
                     ));
                     candidates.push(std::path::PathBuf::from("ptm.local.src"));
+                    candidates.push(std::path::PathBuf::from(
+                        "OpenEDR/edrav2/iprj/edrdata/ptm.local.src",
+                    ));
                     for path in candidates {
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             let specs = Self::extract_ptm_api_list(&content);
                             if !specs.is_empty() {
-                                return specs;
+                                for spec in specs {
+                                    let key = spec.to_ascii_lowercase();
+                                    if seen.insert(key) && targets.len() < Self::PTM_HOOK_MAX_TARGETS {
+                                        targets.push(spec);
+                                    }
+                                }
+                                break;
                             }
                         }
                     }
-                    Vec::new()
+
+                    // 2. KC JSON model targets
+                    let mut checked = std::collections::HashSet::new();
+                    for path in Self::kc_candidate_paths() {
+                        let path_key = path.to_string_lossy().to_ascii_lowercase();
+                        if !checked.insert(path_key) {
+                            continue;
+                        }
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            let kc_specs = Self::extract_kc_api_list(&content);
+                            for spec in kc_specs {
+                                let key = spec.to_ascii_lowercase();
+                                if seen.insert(key) && targets.len() < Self::PTM_HOOK_MAX_TARGETS {
+                                    targets.push(spec);
+                                }
+                            }
+                        }
+                    }
+
+                    targets
                 })
                 .clone()
         }
@@ -1392,7 +1545,7 @@ pub mod worker_instance {
             out
         }
 
-        /// Pre-map the ptm list to 0x6000+i (mirroring the C++ registrar order)
+        /// Pre-map the ptm and kc targets to 0x6000+i (mirroring the C++ registrar order)
         /// so incoming driver hook events resolve even when MONITOR_ALL_APIS
         /// is off. Idempotent; runs once. The per-PID loop then sees them as
         /// already-registered (cheap) and ids stay in sync no matter what
@@ -1420,7 +1573,7 @@ pub mod worker_instance {
                 Self::DYNAMIC_HOOK_EVENT_ID_START.saturating_add(specs.len() as u32),
             );
             Logging::info(&format!(
-                "[DYNAMIC HOOK] Pre-mapped {} ptm.local.src cryptoApiList target(s) (0x6000+order, no MONITOR_ALL_APIS needed)",
+                "[DYNAMIC HOOK] Pre-mapped {} hook target(s) from ptm.local.src and kc json models (0x6000+order, no MONITOR_ALL_APIS needed)",
                 mapped
             ));
         }
