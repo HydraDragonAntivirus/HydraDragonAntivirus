@@ -6425,25 +6425,20 @@
 				"eventType": "LLE_DRIVER_LOAD",
 				"rule": {
 					"condition": {
-						"$operation": "and",
+						"$operation": "not",
 						"args": [
 							{
-								"$operation": "not",
+								"$operation": "or",
 								"args": [
 									{
-										"$operation": "or",
-										"args": [
-											{
-												"$operation": "imatch",
-												"pattern": "@const.driverTrustedInstallers",
-												"args": [ "@event.process.imageFile.rawPath" ]
-											},
-											{
-												"$operation": "imatch",
-												"pattern": "@const.driverTrustedInstallers",
-												"args": [ "@event.process.imageFile.abstractPath" ]
-											}
-										]
+										"$operation": "imatch",
+										"pattern": "@const.driverTrustedInstallers",
+										"args": [ "@event.process.imageFile.rawPath" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.driverTrustedInstallers",
+										"args": [ "@event.process.imageFile.abstractPath" ]
 									}
 								]
 							}
