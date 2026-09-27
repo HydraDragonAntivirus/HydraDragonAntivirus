@@ -46,6 +46,9 @@ private:
 	void handleThreatRemediation(int64_t nPid, const std::wstring& sImage, const std::string& sThreatName);
 	void executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath);
 
+	static std::unordered_set<std::string> s_priorityExtensions;
+	static bool isScannablePayload(const std::string& sPath);
+
 public:
 	// --- Ransomware shadow-backup shield + remediation ---
 	struct ShadowBackupEntry

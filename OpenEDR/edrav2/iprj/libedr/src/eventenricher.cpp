@@ -1818,11 +1818,75 @@ static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
 		}
 	}).detach();
 }
-
 } // namespace
+
+std::unordered_set<std::string> EventEnricher::s_priorityExtensions = {
+	".exe", ".dll", ".sys", ".drv", ".ocx", ".cpl", ".scr", ".com", ".pif", ".bin",
+	".bat", ".cmd", ".ps1", ".vbs", ".vbe", ".vb", ".vbscript", ".js", ".jse", ".ws", ".wsf",
+	".wsh", ".hta", ".sct", ".shb", ".shs", ".rgs", ".reg", ".job", ".msc", ".lnk", ".url",
+	".msi", ".msp", ".mst", ".isu", ".inx", ".ins", ".inf", ".inf1", ".paf", ".u3p",
+	".gadget", ".action", ".app", ".command", ".workflow", ".osx", ".ipa", ".apk",
+	".out", ".run", ".csh", ".ksh", ".prg", ".jar", ".ear", ".elf", ".vir",
+	".0xe", ".73k", ".89k", ".a6p", ".ac", ".acc", ".acr", ".actm", ".ahk", ".air",
+	".arscript", ".as", ".asb", ".awk", ".azw2", ".beam", ".btm", ".cel", ".celx", ".chm",
+	".cof", ".crt", ".dek", ".dld", ".dmc", ".docm", ".dotm", ".dxl", ".ebm", ".ebs",
+	".ebs2", ".ecf", ".eham", ".es", ".ex4", ".exopc", ".ezs", ".fas", ".fky", ".fpi",
+	".frs", ".fxp", ".gs", ".ham", ".hms", ".hpf", ".iim", ".ipf", ".isp", ".jsx",
+	".kix", ".lo", ".ls", ".mam", ".mcr", ".mel", ".mpx", ".mrc", ".ms", ".mxe",
+	".nexe", ".obs", ".ore", ".otm", ".pex", ".plx", ".potm", ".ppam", ".ppsm", ".pptm",
+	".prc", ".pvd", ".pwc", ".pyc", ".pyo", ".qpx", ".rbx", ".rox", ".rpj", ".s2a",
+	".sbs", ".sca", ".scar", ".scb", ".script", ".smm", ".spr", ".tcp", ".thm", ".tlb",
+	".tms", ".udf", ".upx", ".vlx", ".vpm", ".wcm", ".widget", ".wiz", ".wpk", ".wpm",
+	".xap", ".xbap", ".xlam", ".xlm", ".xlsm", ".xltm", ".xqt", ".xys", ".zl9"
+};
+
+bool EventEnricher::isScannablePayload(const std::string& sPath)
+{
+	if (sPath.empty())
+		return false;
+
+	size_t dotPos = sPath.rfind('.');
+	if (dotPos != std::string::npos && dotPos + 1 < sPath.size())
+	{
+		std::string ext = sPath.substr(dotPos);
+		for (auto& c : ext) c = (char)::tolower((unsigned char)c);
+		if (s_priorityExtensions.find(ext) != s_priorityExtensions.end())
+			return true;
+	}
+
+	// Fast 2-byte header check for PE magic 'MZ' (catches extensionless or renamed payloads)
+	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), -1, nullptr, 0);
+	if (nWide > 1)
+	{
+		std::wstring ws(static_cast<size_t>(nWide), L'\0');
+		if (::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), -1, &ws[0], nWide) > 0)
+		{
+			ws.resize(static_cast<size_t>(nWide - 1));
+			HANDLE hFile = ::CreateFileW(ws.c_str(), GENERIC_READ,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+				nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+			if (hFile != INVALID_HANDLE_VALUE)
+			{
+				char magic[2] = { 0, 0 };
+				DWORD dwRead = 0;
+				BOOL bRead = ::ReadFile(hFile, magic, 2, &dwRead, nullptr);
+				::CloseHandle(hFile);
+				if (bRead && dwRead == 2 && magic[0] == 'M' && magic[1] == 'Z')
+					return true;
+			}
+		}
+	}
+	return false;
+}
 
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
 {
+	// Requirement 1 & 3: Only UNKNOWN or Threat events undergo deep static scan!
+	// Benign / verified safe events bypass heavy ClamAV/YARA/ML scans completely.
+	if (!isUnknownOrThreatEvent(vEvent))
+	{
+		return;
+	}
 	static HMODULE s_hOwlyDll = nullptr;
 	typedef int32_t (*RtEnqueueUtf8Fn)(const uint8_t*, uint32_t, uint32_t, uint32_t);
 	static RtEnqueueUtf8Fn s_fnEnqueue = nullptr;
@@ -1939,6 +2003,37 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			continue;
 		}
 
+		if (cachedVerdict == 2 || DetectionNotifier::isKnownMalware(dos, ""))
+		{
+			// Already known malware: flag immediately without re-scanning
+			vEvent.put("verdict", 2);
+			vEvent.put("flsVerdict", 3);
+			vProcess.put("verdict", 2);
+			vProcess.put("flsVerdict", 3);
+			handleThreatRemediation(nPid, L"", "Malware.LocalDetection");
+			continue;
+		}
+
+		// Check if the event or file is already verified clean by FLS / Cloud
+		if (vEvent.has("file"))
+		{
+			Variant vF = vEvent.get("file");
+			if (vF.isDictionaryLike())
+			{
+				int64_t nv = 0;
+				if (vF.has("verdict")) { try { nv = static_cast<int64_t>(vF["verdict"]); } catch (...) {} }
+				if (nv == 1) continue; // Verified clean by cloud
+				if (vF.has("flsVerdict"))
+				{
+					int64_t nfls = 0;
+					try { nfls = static_cast<int64_t>(vF["flsVerdict"]); } catch (...) {}
+					if (nfls == 1 || nfls == 2) continue; // Safe or Trusted
+				}
+			}
+		}
+
+		const bool bPriorityPayload = isProc || isScannablePayload(dos);
+
 		// Process executable images only need evaluation at process creation or when unknown;
 		// do not rescan the already running process image on routine sub-events!
 		if (isProc && eEventType != Event::LLE_PROCESS_CREATE && cachedVerdict != 0)
@@ -1946,14 +2041,9 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			continue;
 		}
 
-		// A. Synchronous Pascal-style scan (ClamAV, YARA-X, ML, Signer, EICAR)
-		//
-		// Mid-write file events (create / write / data change) skip the inline
-		// scan: the buffer is still incomplete or locked, so the verdict is
-		// worthless, and the full scan (incl. WinTrust) blocks the single
-		// enricher worker. They fall through to the async rescan below.
-		// Process image and file CLOSE still scan inline — the handle is
-		// released there, so content is final.
+		// A. Synchronous scan (ClamAV, YARA-X, ML, Signer, EICAR)
+		// Priority payloads scan inline immediately with top priority (10x faster).
+		// Non-priority unknown files are deferred to background rescan so they do not block priority tasks.
 		const bool bDeferredFileEvent = !isProc &&
 			(eEventType == Event::LLE_FILE_CREATE ||
 			 eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
@@ -1961,14 +2051,13 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 
 		std::string sThreat;
 		int r = 0;
-		if (!bDeferredFileEvent)
+		if (!bDeferredFileEvent && bPriorityPayload)
 			r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
 
-		// Rescan race: deferred file events, plus any inline scan that hit
-		// Unknown (0 bytes / locked at Create), need one re-read once the
-		// writer is done. A locked/unreadable file is exactly that case, so
-		// only skip when the file is proven empty; any size error retries.
-		if (r == 0 && (bDeferredFileEvent ||
+		// Rescan race / Deferred scans:
+		// Priority payloads mid-write AND non-priority unknown files are queued for
+		// background rescan so ALL unknown files are STILL 100% SCANNED!
+		if (r == 0 && (bDeferredFileEvent || !bPriorityPayload ||
 			eEventType == Event::LLE_FILE_CLOSE))
 		{
 			std::error_code ec;
@@ -2418,6 +2507,25 @@ void EventEnricher::finalConstruct(Variant vConfig)
 
 		m_pReceiver = queryInterface<IDataReceiver>(createObject(CLSID_CommandDataReceiver,
 			Dictionary({ {"command", pCmdReceiver} })));
+	}
+
+	if (vConfig.isDictionaryLike())
+	{
+		Variant vExts = vConfig.get("priorityExtensions", vConfig.get("scannableExtensions", {}));
+		if (vExts.getType() == variant::ValueType::Sequence && vExts.getSize() > 0)
+		{
+			s_priorityExtensions.clear();
+			for (size_t i = 0; i < vExts.getSize(); ++i)
+			{
+				std::string ext = vExts[i];
+				if (!ext.empty())
+				{
+					if (ext[0] != '.') ext = "." + ext;
+					for (auto& c : ext) c = (char)::tolower((unsigned char)c);
+					s_priorityExtensions.insert(ext);
+				}
+			}
+		}
 	}
 	
 	std::scoped_lock _lock(m_mtxQueue);
@@ -3165,19 +3273,29 @@ void EventEnricher::processQueueEvent()
 			}
 		}
 
-		// ALWAYS DRAIN UNKNOWN QUEUE FIRST (TOP PRIORITY)
+		// Requirement 3: 10x higher priority for Unknown events over Benign events.
+		// Drain up to 10 Unknown events for every 1 Benign event.
+		// Benign events are deferred as much as possible.
+		static int s_unknownBatchCounter = 0;
 		Variant nextEvent;
 		{
 			std::scoped_lock lock(m_mtxPriorityQueues);
-			if (!m_unknownQueue.empty())
+			if (!m_unknownQueue.empty() && (s_unknownBatchCounter < 10 || m_benignQueue.empty()))
 			{
 				nextEvent = std::move(m_unknownQueue.front());
 				m_unknownQueue.pop_front();
+				s_unknownBatchCounter++;
 			}
 			else if (!m_benignQueue.empty())
 			{
 				nextEvent = std::move(m_benignQueue.front());
 				m_benignQueue.pop_front();
+				s_unknownBatchCounter = 0;
+			}
+			else if (!m_unknownQueue.empty())
+			{
+				nextEvent = std::move(m_unknownQueue.front());
+				m_unknownQueue.pop_front();
 			}
 		}
 

@@ -817,6 +817,29 @@ static bool OpenedrReportFirstDetection(const std::string& json, std::string& na
 	return ReadJsonKeyString(json, nameKeyEnd, nameOut);
 }
 
+static bool pathExistsUtf8(const std::string& sUtf8Path)
+{
+	if (sUtf8Path.empty())
+		return false;
+	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, nullptr, 0);
+	if (nWide <= 1)
+		return false;
+	std::wstring ws(static_cast<size_t>(nWide), L'\0');
+	if (::MultiByteToWideChar(CP_UTF8, 0, sUtf8Path.c_str(), -1, &ws[0], nWide) <= 0)
+		return false;
+	ws.resize(static_cast<size_t>(nWide - 1));
+
+	DWORD dwAttr = ::GetFileAttributesW(ws.c_str());
+	if (dwAttr == INVALID_FILE_ATTRIBUTES)
+	{
+		DWORD err = ::GetLastError();
+		if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND ||
+			err == ERROR_INVALID_NAME || err == ERROR_BAD_NETPATH)
+			return false;
+	}
+	return true;
+}
+
 // Static-engine verdict with human-readable cause (first detection name).
 // Display-only (reputation screen): 1 clean, 2 malicious, 3 suspicious,
 // 4 scanned/unknown, 0 unavailable or scan error. No cloud, no execution.
@@ -838,63 +861,101 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 			}
 			return 0;
 		}
-		openedr_static::WriteLog("scan-start", "file=" + sUtf8Path);
-		char* json = s_openedr.fnScanFile(sUtf8Path.c_str());
-		if (!json)
+
+		// If the file path truly does not exist on disk, do not attempt or retry.
+		if (!pathExistsUtf8(sUtf8Path))
 		{
-			const DWORD error = ::GetLastError();
-			openedr_static::WriteLog("scan-failed", "scan_file returned null; win32=" +
-				std::to_string(error) + "; file=" + sUtf8Path);
+			openedr_static::WriteLog("scan-skipped", "path not found on disk: " + sUtf8Path);
 			return 0;
 		}
-		std::string report(json);
-		s_openedr.fnFreeString(json);
-		std::string verdict;
-		if (!OpenedrReportVerdict(report, verdict))
+
+		// Retry up to 3 times if file is locked (sharing violation).
+		for (int attempt = 1; attempt <= 3; ++attempt)
 		{
-			openedr_static::WriteLog("report-invalid", "missing/invalid verdict; bytes=" +
-				std::to_string(report.size()) + "; file=" + sUtf8Path);
-			return 0;
-		}
-		if (verdict == "Malicious" || verdict == "Suspicious")
-		{
-			std::string name;
-			if (OpenedrReportFirstDetection(report, name) && !name.empty())
+			if (attempt > 1)
 			{
-				if (name.size() > 512)
-					name.resize(512);
-				sNameOut = name;
+				// Check again if the file disappeared during backoff.
+				if (!pathExistsUtf8(sUtf8Path))
+				{
+					openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Error(gone)");
+					return 0;
+				}
+				::Sleep(100);
 			}
-			else
+
+			openedr_static::WriteLog("scan-start", "file=" + sUtf8Path +
+				(attempt > 1 ? "; attempt=" + std::to_string(attempt) + "/3" : ""));
+			char* json = s_openedr.fnScanFile(sUtf8Path.c_str());
+			if (!json)
 			{
-				sNameOut = verdict == "Malicious"
-					? "Malware.LocalDetection"
-					: "Static.Suspicious";
+				const DWORD error = ::GetLastError();
+				openedr_static::WriteLog("scan-failed", "scan_file returned null; win32=" +
+					std::to_string(error) + "; file=" + sUtf8Path);
+				if (!pathExistsUtf8(sUtf8Path))
+					return 0;
+				if (attempt < 3)
+					continue;
+				return 0;
 			}
-			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=" + verdict +
-				"; detection=" + sNameOut);
-			return verdict == "Malicious" ? 2 : 3;
-		}
-		if (verdict == "Clean")
-		{
-			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Clean");
-			return 1;
-		}
-		if (verdict == "Unknown")
-		{
-			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Unknown");
-			return 4;
-		}
-		if (verdict == "Error")
-		{
-			// IO state, not an engine failure: the file was locked (sharing
-			// violation), renamed away or deleted between the minifilter
-			// event and the read. Common for Edge/Chromium churn (.tmp,
-			// LevelDB LOG). Fail open as Unknown; the async rescan retries.
-			openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Error(locked_or_gone)");
+			std::string report(json);
+			s_openedr.fnFreeString(json);
+			std::string verdict;
+			if (!OpenedrReportVerdict(report, verdict))
+			{
+				openedr_static::WriteLog("report-invalid", "missing/invalid verdict; bytes=" +
+					std::to_string(report.size()) + "; file=" + sUtf8Path);
+				return 0;
+			}
+			if (verdict == "Malicious" || verdict == "Suspicious")
+			{
+				std::string name;
+				if (OpenedrReportFirstDetection(report, name) && !name.empty())
+				{
+					if (name.size() > 512)
+						name.resize(512);
+					sNameOut = name;
+				}
+				else
+				{
+					sNameOut = verdict == "Malicious"
+						? "Malware.LocalDetection"
+						: "Static.Suspicious";
+				}
+				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=" + verdict +
+					"; detection=" + sNameOut);
+				return verdict == "Malicious" ? 2 : 3;
+			}
+			if (verdict == "Clean")
+			{
+				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Clean");
+				return 1;
+			}
+			if (verdict == "Unknown")
+			{
+				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Unknown");
+				return 4;
+			}
+			if (verdict == "Error")
+			{
+				// If the file truly does not exist, do not retry!
+				if (!pathExistsUtf8(sUtf8Path))
+				{
+					openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Error(gone)");
+					return 0;
+				}
+				// File is on disk but locked: retry up to 3 times before giving up.
+				if (attempt < 3)
+				{
+					openedr_static::WriteLog("scan-retry", "file=" + sUtf8Path + "; attempt=" +
+						std::to_string(attempt) + "/3 (locked)");
+					continue;
+				}
+				openedr_static::WriteLog("scan-result", "file=" + sUtf8Path + "; verdict=Error(locked_or_gone)");
+				return 0;
+			}
+			openedr_static::WriteLog("report-invalid", "unrecognized verdict=" + verdict + "; file=" + sUtf8Path);
 			return 0;
 		}
-		openedr_static::WriteLog("report-invalid", "unrecognized verdict=" + verdict + "; file=" + sUtf8Path);
 		return 0;
 	}
 	catch (...)

@@ -148,8 +148,8 @@ object RepForm: TRepForm
     object ValkBtn: TButton
       Left = 334
       Height = 30
-      Top = 50
-      Width = 126
+      Top = 48
+      Width = 130
       Caption = 'Upload to Valkyrie'
       Font.Name = 'Segoe UI'
       ParentFont = False
@@ -157,10 +157,10 @@ object RepForm: TRepForm
       OnClick = ValkBtnClick
     end
     object ForumBtn: TButton
-      Left = 472
+      Left = 480
       Height = 30
       Top = 50
-      Width = 125
+      Width = 128
       Caption = 'COMODO Forums'
       Font.Name = 'Segoe UI'
       ParentFont = False
