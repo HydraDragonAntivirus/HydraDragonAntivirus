@@ -73,6 +73,7 @@ type
     procedure CloseAlert;
     procedure AdvanceOrClose;
     function FindNextUnresolvedPrompt: Integer;
+    function HasAnyPromptOrRestart: Boolean;
     procedure ShowCurrentAlert;
     procedure UpdateNavigation;
     procedure BtnPrevClick(Sender: TObject);
@@ -124,7 +125,7 @@ begin
   if IOResult <> 0 then Exit;
   
   Item.Title := ''; Item.Msg := ''; Item.Severity := asInfo; Item.AutoCloseMs := 0;
-  Item.IsPrompt := False; Item.RequestId := ''; Item.ExePath := ''; Item.Resolved := True;
+  Item.IsPrompt := False; Item.IsRestartPrompt := False; Item.RequestId := ''; Item.ExePath := ''; Item.Resolved := True;
   
   while not EOF(F) do
   begin
@@ -137,7 +138,7 @@ begin
         FHistory[Length(FHistory) - 1] := Item;
       end;
       Item.Title := ''; Item.Msg := ''; Item.Severity := asInfo; Item.AutoCloseMs := 0;
-      Item.IsPrompt := False; Item.RequestId := ''; Item.ExePath := ''; Item.Resolved := True;
+      Item.IsPrompt := False; Item.IsRestartPrompt := False; Item.RequestId := ''; Item.ExePath := ''; Item.Resolved := True;
     end
     else if Item.Title = '' then
       Item.Title := Line
@@ -226,6 +227,7 @@ begin
   Item.Severity := ASeverity;
   Item.AutoCloseMs := AAutoCloseMs;
   Item.IsPrompt := False;
+  Item.IsRestartPrompt := False;
   Item.RequestId := '';
   Item.ExePath := '';
   Item.Resolved := True;
@@ -481,9 +483,21 @@ begin
   SetBounds(X, Y, Width, Height);
 end;
 
+function TAlertForm.HasAnyPromptOrRestart: Boolean;
+var
+  i: Integer;
+begin
+  for i := 0 to High(FHistory) do
+    if FHistory[i].IsPrompt or FHistory[i].IsRestartPrompt then
+      Exit(True);
+  Result := False;
+end;
+
 procedure TAlertForm.ShowCurrentAlert;
 var
   Item: TAlertItem;
+  DesiredW, DesiredH: Integer;
+  HasNav: Boolean;
 begin
   if (FCurrentIndex < 0) or (FCurrentIndex >= Length(FHistory)) then
     Exit;
@@ -493,17 +507,56 @@ begin
   FAutoCloseMs := Item.AutoCloseMs;
 
   ApplySeverityStyle;
+
+  // Maintain consistent stable window dimensions across alerts
+  if HasAnyPromptOrRestart then
+  begin
+    DesiredW := 760;
+    DesiredH := 470;
+  end
+  else
+  begin
+    DesiredW := 520;
+    DesiredH := 220;
+  end;
+
+  if (Width <> DesiredW) or (Height <> DesiredH) then
+  begin
+    Width := DesiredW;
+    Height := DesiredH;
+    PositionAtCorner;
+  end;
+
+  // Navigation controls: always visible if there are multiple alerts in history
+  HasNav := Length(FHistory) > 1;
+  BtnPrev.Visible := HasNav;
+  BtnNext.Visible := HasNav;
+  LblCount.Visible := HasNav;
+
+  BtnPrev.Left := 14;
+  BtnPrev.Top := ClientHeight - BtnPrev.Height - 10;
+  BtnNext.Left := BtnPrev.Left + BtnPrev.Width + 6;
+  BtnNext.Top := ClientHeight - BtnNext.Height - 10;
+  LblCount.Left := BtnNext.Left + BtnNext.Width + 8;
+  LblCount.Top := ClientHeight - LblCount.Height - 12;
+
   UpdateNavigation;
 
   if Item.IsRestartPrompt then
   begin
-    Width := 560;
-    Height := 240;
-    LblTitle.Caption := Item.Title;
-    LblMessage.Caption := Item.Msg;
+    if Item.Resolved then
+      LblTitle.Caption := Item.Title + ' [SCHEDULED]'
+    else
+      LblTitle.Caption := Item.Title;
+
+    LblMessage.Visible := False;
     if MemoPromptLog <> nil then
-      MemoPromptLog.Visible := False;
-    LblMessage.Visible := True;
+    begin
+      MemoPromptLog.Visible := True;
+      MemoPromptLog.Font.Name := 'Segoe UI';
+      MemoPromptLog.Font.Height := -12;
+      MemoPromptLog.Text := Item.Msg;
+    end;
 
     BtnAllowAlways.Visible := False;
     BtnAllowOnce.Visible := False;
@@ -512,24 +565,22 @@ begin
     BtnQuarantine.Visible := False;
 
     BtnRestartNow.Left := ClientWidth - BtnRestartNow.Width - 14;
-    BtnRestartNow.Top := ClientHeight - BtnRestartNow.Height - 12;
+    BtnRestartNow.Top := ClientHeight - BtnRestartNow.Height - 10;
+    BtnRestartNow.Enabled := not Item.Resolved;
     BtnRestartNow.Visible := True;
 
     BtnRestartLater.Left := BtnRestartNow.Left - BtnRestartLater.Width - 8;
     BtnRestartLater.Top := BtnRestartNow.Top;
+    BtnRestartLater.Enabled := not Item.Resolved;
     BtnRestartLater.Visible := True;
 
-    BtnPrev.Visible := False;
-    BtnNext.Visible := False;
-    LblCount.Visible := False;
     TimerAutoClose.Enabled := False;
   end
   else if Item.IsPrompt then
   begin
     BtnRestartNow.Visible := False;
     BtnRestartLater.Visible := False;
-    Width := 760;
-    Height := 470;
+
     BtnQuarantine.Width := 105;
     BtnQuarantine.Left := ClientWidth - BtnQuarantine.Width - 14;
     BtnBlock.Width := 80;
@@ -572,31 +623,39 @@ begin
     BtnBlock.Visible := True;
     BtnQuarantine.Visible := True;
 
-    BtnPrev.Visible := True;
-    BtnNext.Visible := True;
-    LblCount.Visible := True;
     TimerAutoClose.Enabled := False;
   end
   else
   begin
     BtnRestartNow.Visible := False;
     BtnRestartLater.Visible := False;
-    Width := 480;
-    Height := 220;
-    LblTitle.Caption := Item.Title;
-    LblMessage.Caption := Item.Msg;
-    if MemoPromptLog <> nil then
-      MemoPromptLog.Visible := False;
-    LblMessage.Visible := True;
     BtnAllowAlways.Visible := False;
     BtnAllowOnce.Visible := False;
     BtnRestricted.Visible := False;
     BtnBlock.Visible := False;
     BtnQuarantine.Visible := False;
-    BtnPrev.Visible := True;
-    BtnNext.Visible := True;
-    LblCount.Visible := True;
-    TimerAutoClose.Enabled := False;
+
+    LblTitle.Caption := Item.Title;
+    if HasAnyPromptOrRestart then
+    begin
+      LblMessage.Visible := False;
+      if MemoPromptLog <> nil then
+      begin
+        MemoPromptLog.Visible := True;
+        MemoPromptLog.Font.Name := 'Segoe UI';
+        MemoPromptLog.Font.Height := -12;
+        MemoPromptLog.Text := Item.Msg;
+      end;
+    end
+    else
+    begin
+      if MemoPromptLog <> nil then
+        MemoPromptLog.Visible := False;
+      LblMessage.Caption := Item.Msg;
+      LblMessage.Visible := True;
+    end;
+
+    TimerAutoClose.Enabled := (FAutoCloseMs > 0) and (not HasNav);
   end;
   PositionAtCorner;
 end;
@@ -611,6 +670,7 @@ begin
   Item.Severity := asCritical;
   Item.AutoCloseMs := 0;
   Item.IsPrompt := True;
+  Item.IsRestartPrompt := False;
   Item.RequestId := ARequestId;
   Item.ExePath := AExePath;
   Item.Resolved := False;
@@ -702,13 +762,13 @@ begin
   // Search from current position forward first
   for i := FCurrentIndex + 1 to High(FHistory) do
   begin
-    if FHistory[i].IsPrompt and (not FHistory[i].Resolved) then
+    if (FHistory[i].IsPrompt or FHistory[i].IsRestartPrompt) and (not FHistory[i].Resolved) then
       Exit(i);
   end;
   // Then search from beginning up to current position
   for i := 0 to FCurrentIndex - 1 do
   begin
-    if FHistory[i].IsPrompt and (not FHistory[i].Resolved) then
+    if (FHistory[i].IsPrompt or FHistory[i].IsRestartPrompt) and (not FHistory[i].Resolved) then
       Exit(i);
   end;
   Result := -1;
@@ -818,7 +878,9 @@ end;
 
 procedure TAlertForm.BtnRestartLaterClick(Sender: TObject);
 begin
-  CloseAlert;
+  if (FCurrentIndex >= 0) and (FCurrentIndex < Length(FHistory)) then
+    FHistory[FCurrentIndex].Resolved := True;
+  AdvanceOrClose;
 end;
 
 procedure TAlertForm.UpdateNavigation;
@@ -838,7 +900,7 @@ begin
   begin
     UnresolvedCount := 0;
     for i := 0 to High(FHistory) do
-      if FHistory[i].IsPrompt and (not FHistory[i].Resolved) then
+      if (FHistory[i].IsPrompt or FHistory[i].IsRestartPrompt) and (not FHistory[i].Resolved) then
         Inc(UnresolvedCount);
 
     if FCurrentIndex < 0 then
