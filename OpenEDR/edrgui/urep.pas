@@ -111,8 +111,8 @@ type
     StatusLbl: TLabel;
     SummaryLbl: TLabel;
     ResultsView: TListView;
-    WebBtn: TButton;
-    procedure WebBtnClick(Sender: TObject);
+    WebLink: TLabel;
+    procedure WebLinkClick(Sender: TObject);
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);
     procedure CancelBtnClick(Sender: TObject);
@@ -162,6 +162,7 @@ type
     procedure ProcWalkDone(Sender: TObject);
     procedure WalkDone(Sender: TObject);
     procedure FinishScan(const AMsg: string);
+    procedure ClearResults;
   protected
     procedure CreateParams(var Params: TCreateParams); override;
   public
@@ -770,6 +771,7 @@ begin
       ' detection(s) still awaiting action. Press Apply Actions first.';
     Exit;
   end;
+  ClearResults;
   SummaryLbl.Caption := '';
   ScanProgress.Style := pbstMarquee;
   StatusLbl.Caption := 'Checking...';
@@ -835,7 +837,25 @@ begin
   OpenURL(FORUMS_URL);
 end;
 
-procedure TRepForm.WebBtnClick(Sender: TObject);
+procedure TRepForm.ClearResults;
+begin
+  ResultsView.Items.Clear;
+  FSeen.Clear;
+  FActed.Clear;
+  if FStagedActions <> nil then
+    FStagedActions.Clear;
+  FMali := 0;
+  FSafe := 0;
+  FUnk := 0;
+  FFail := 0;
+  FLocal := 0;
+  FRowsThisScan := 0;
+  SummaryLbl.Caption := '';
+  ApplySummaryStyle(Self);
+  RefreshPendingList;
+end;
+
+procedure TRepForm.WebLinkClick(Sender: TObject);
 begin
   OpenURL(VIRUSKOV_URL);
 end;
@@ -859,7 +879,6 @@ var
 begin
   if FProcThread <> nil then
     Exit;
-  // Rows persist (process rows merge by path); totals recount.
   FRowsThisScan := 0;
   if PendingCount > 0 then
   begin
@@ -867,6 +886,7 @@ begin
       ' detection(s) still awaiting action. Press Apply Actions first.';
     Exit;
   end;
+  ClearResults;
   SummaryLbl.Caption := '';
   ScanProgress.Style := pbstMarquee;
   StatusLbl.Caption := 'Listing running processes...';
@@ -935,6 +955,8 @@ begin
         d := it.FindPath('path');
         if d <> nil then
           raw := d.AsString;
+        if Trim(raw) = '' then
+          Continue;
         fp := raw;
         if (pid > 0) and (fp <> '') then
           fp := '[' + IntToStr(pid) + '] ' + fp;

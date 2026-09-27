@@ -595,11 +595,13 @@ static bool bulkHashOverBudget(const std::string& sUtf8Path)
 namespace {
 
 typedef char* (*OpenedrScanFileFn)(const char*);
+typedef char* (*OpenedrScanPidFn)(uint32_t, uint64_t);
 typedef void (*OpenedrFreeStringFn)(char*);
 
 struct OpenedrStaticBinding {
 	HMODULE hDll = nullptr;
 	OpenedrScanFileFn fnScanFile = nullptr;
+	OpenedrScanPidFn fnScanPid = nullptr;
 	OpenedrFreeStringFn fnFreeString = nullptr;
 	std::atomic<bool> ready{ false };
 	std::atomic<bool> logged{ false };
@@ -627,6 +629,7 @@ static void InitOpenedrStatic()
 		return;
 	}
 	auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
+	auto fnScanPid = reinterpret_cast<OpenedrScanPidFn>(::GetProcAddress(hDll, "openedr_static_scan_pid"));
 	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
 	if (!fnScan || !fnFree)
 	{
@@ -639,6 +642,7 @@ static void InitOpenedrStatic()
 	}
 	s_openedr.hDll = hDll;
 	s_openedr.fnScanFile = fnScan;
+	s_openedr.fnScanPid = fnScanPid;
 	s_openedr.fnFreeString = fnFree;
 	s_openedr.ready.store(true);
 }
@@ -896,6 +900,71 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 	catch (...)
 	{
 		openedr_static::WriteLog("scan-exception", "file-scan threw while scanning: " + sUtf8Path);
+		return 0;
+	}
+}
+
+static int scanPidMemoryVerdict(uint32_t nPid, uint64_t nMaxMb, std::string& sNameOut)
+{
+	sNameOut.clear();
+	if (nPid == 0)
+		return 0;
+	try
+	{
+		InitOpenedrStatic();
+		if (!s_openedr.ready.load() || !s_openedr.fnScanPid)
+			return 0;
+		openedr_static::WriteLog("pid-scan-start", "pid=" + std::to_string(nPid) + "; max-mb=" + std::to_string(nMaxMb));
+		char* json = s_openedr.fnScanPid(nPid, nMaxMb);
+		if (!json)
+		{
+			openedr_static::WriteLog("pid-scan-failed", "scan_pid returned null; pid=" + std::to_string(nPid));
+			return 0;
+		}
+		std::string report(json);
+		s_openedr.fnFreeString(json);
+		std::string verdict;
+		if (!OpenedrReportVerdict(report, verdict))
+		{
+			openedr_static::WriteLog("pid-report-invalid", "missing/invalid verdict; pid=" + std::to_string(nPid));
+			return 0;
+		}
+		if (verdict == "Malicious")
+		{
+			std::string name;
+			if (OpenedrReportFirstDetection(report, name) && !name.empty())
+			{
+				if (name.size() > 512)
+					name.resize(512);
+				sNameOut = "Memory:" + name;
+			}
+			else
+			{
+				sNameOut = "Memory.Threat";
+			}
+			openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) + "; verdict=Malicious; det=" + sNameOut);
+			return 2;
+		}
+		if (verdict == "Clean" || verdict == "Safe")
+		{
+			openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) + "; verdict=Clean");
+			return 1;
+		}
+		if (verdict == "Suspicious")
+		{
+			std::string name;
+			if (OpenedrReportFirstDetection(report, name) && !name.empty())
+				sNameOut = "Memory:" + name;
+			else
+				sNameOut = "Memory.Suspicious";
+			openedr_static::WriteLog("pid-scan-result", "pid=" + std::to_string(nPid) + "; verdict=Suspicious; det=" + sNameOut);
+			return 3;
+		}
+		return 4;
+	}
+	catch (...)
+	{
+		openedr_static::WriteLog("pid-scan-exception", "pid=" + std::to_string(nPid));
 		return 0;
 	}
 }
@@ -1929,71 +1998,144 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	}
 
 	// Verdict screen: running processes enriched by every engine
-	// (process provider info + FLS cloud verdict). Display only.
+	// (process provider info + FLS cloud verdict + openedr_static memory scan).
 	if (vCommand == "getProcessReputation")
 	{
 		Variant vOut = Sequence();
-		openedr_static::WriteLog("local-scan-skipped",
-			"getProcessReputation returns Unknown unless EDR has a recorded local detection");
 		auto pProc = queryInterface<sys::win::IProcessInformation>(queryService("processDataProvider"));
 		auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
-		if (pProc)
+
+		HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+		if (hSnap != INVALID_HANDLE_VALUE)
 		{
-			HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-			if (hSnap != INVALID_HANDLE_VALUE)
+			PROCESSENTRY32W pe = {};
+			pe.dwSize = sizeof(pe);
+			for (BOOL ok = ::Process32FirstW(hSnap, &pe); ok && vOut.getSize() < 400;
+				ok = ::Process32NextW(hSnap, &pe))
 			{
-				PROCESSENTRY32W pe = {};
-				pe.dwSize = sizeof(pe);
-				for (BOOL ok = ::Process32FirstW(hSnap, &pe); ok && vOut.getSize() < 400;
-					ok = ::Process32NextW(hSnap, &pe))
+				if (pe.th32ProcessID == 0 || pe.th32ProcessID == 4)
+					continue;
+
+				try
 				{
-					try
+					std::string sPath, sHash, sUser;
+					if (pProc)
 					{
-						auto vInfo = pProc->enrichProcessInfo(
-							Dictionary({ {"pid", static_cast<int64_t>(pe.th32ProcessID)} }));
-						std::string sPath, sHash, sUser;
-						try { sPath = std::string(vInfo["imagePath"]); } catch (...) {}
-						if (sPath.empty())
+						try
 						{
-							try { sPath = std::string(vInfo["path"]); } catch (...) {}
-						}
-						try { sHash = std::string(vInfo["imageHash"]); } catch (...) {}
-						if (sHash.empty())
-						{
-							try { sHash = std::string(vInfo["hash"]); } catch (...) {}
-						}
-						try { sUser = std::string(vInfo["userName"]); } catch (...) {}
-						int nVerdict = 3;
-						if (!sHash.empty() && pFls)
-						{
-							try
+							auto vInfo = pProc->enrichProcessInfo(
+								Dictionary({ {"pid", static_cast<int64_t>(pe.th32ProcessID)} }));
+							try { sPath = std::string(vInfo["imagePath"]); } catch (...) {}
+							if (sPath.empty())
 							{
-								nVerdict = static_cast<int>(pFls->getFileVerdict(sHash));
+								try { sPath = std::string(vInfo["path"]); } catch (...) {}
 							}
-							catch (...) {}
+							try { sHash = std::string(vInfo["imageHash"]); } catch (...) {}
+							if (sHash.empty())
+							{
+								try { sHash = std::string(vInfo["hash"]); } catch (...) {}
+							}
+							try { sUser = std::string(vInfo["userName"]); } catch (...) {}
 						}
-					std::string sLocalName;
+						catch (...) {}
+					}
+
+					if (sPath.empty())
+					{
+						HANDLE hProc = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID);
+						if (hProc)
+						{
+							wchar_t szImg[MAX_PATH * 2] = {};
+							DWORD dwSz = sizeof(szImg) / sizeof(szImg[0]);
+							typedef BOOL (WINAPI *QueryFullProcessImageNameWFn)(HANDLE, DWORD, LPWSTR, PDWORD);
+							static auto fnQuery = (QueryFullProcessImageNameWFn)::GetProcAddress(
+								::GetModuleHandleW(L"kernel32.dll"), "QueryFullProcessImageNameW");
+							if (fnQuery && fnQuery(hProc, 0, szImg, &dwSz))
+							{
+								int nLen = ::WideCharToMultiByte(CP_UTF8, 0, szImg, -1, nullptr, 0, nullptr, nullptr);
+								if (nLen > 1)
+								{
+									sPath.resize(nLen - 1);
+									::WideCharToMultiByte(CP_UTF8, 0, szImg, -1, &sPath[0], nLen, nullptr, nullptr);
+								}
+							}
+							::CloseHandle(hProc);
+						}
+					}
+					if (sPath.empty() && pe.szExeFile[0] != L'\0')
+					{
+						int nLen = ::WideCharToMultiByte(CP_UTF8, 0, pe.szExeFile, -1, nullptr, 0, nullptr, nullptr);
+						if (nLen > 1)
+						{
+							sPath.resize(nLen - 1);
+							::WideCharToMultiByte(CP_UTF8, 0, pe.szExeFile, -1, &sPath[0], nLen, nullptr, nullptr);
+						}
+					}
+					if (sPath.empty())
+						continue;
+
 					std::string sLocalHash = sha256HexOfFileUtf8(sPath);
-					int nLocal = 4; // Unknown unless EDR recorded a prior detection.
+					if (sHash.empty() && !sPath.empty())
+					{
+						sHash = sha1HexOfFileUtf8(sPath);
+					}
+
+					int nVerdict = 3;
+					if (!sHash.empty() && pFls)
+					{
+						try
+						{
+							nVerdict = static_cast<int>(pFls->getFileVerdict(sHash));
+						}
+						catch (...) {}
+					}
+
+					int nLocal = 4;
+					std::string sLocalName;
 					try
 					{
-						if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
+						if (!sPath.empty() && DetectionNotifier::isKnownMalware(sPath, sLocalHash))
 						{
 							sLocalName = "Previously recorded local detection";
 							nLocal = 2;
 						}
 					}
 					catch (...) {}
+
+					if (nLocal != 2)
+					{
+						std::string sMemName;
+						int nMemVerdict = scanPidMemoryVerdict(pe.th32ProcessID, 64, sMemName);
+						if (nMemVerdict == 2)
+						{
+							nLocal = 2;
+							sLocalName = sMemName;
+						}
+						else if (nMemVerdict == 1 && nLocal == 4)
+						{
+							nLocal = 1;
+						}
+						else if (nMemVerdict == 3 && nLocal == 4)
+						{
+							nLocal = 3;
+							sLocalName = sMemName;
+						}
+					}
+
+					if (nLocal == 2 && nVerdict != 2)
+					{
+						nVerdict = 2;
+					}
+
 					vOut.push_back(Dictionary({
 						{"pid", static_cast<int64_t>(pe.th32ProcessID)},
 						{"path", sPath}, {"hash", sHash}, {"sha256", sLocalHash},
 						{"user", sUser}, {"verdict", nVerdict},
 						{"local", nLocal}, {"local_name", sLocalName} }));
-					}
-					catch (...) {}
 				}
-				::CloseHandle(hSnap);
+				catch (...) {}
 			}
+			::CloseHandle(hSnap);
 		}
 		return Dictionary({ {"results", vOut} });
 	}

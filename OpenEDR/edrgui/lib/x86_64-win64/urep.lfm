@@ -9,22 +9,26 @@ object RepForm: TRepForm
   Color = 16052717
   Constraints.MinHeight = 400
   Constraints.MinWidth = 540
+  DesignTimePPI = 120
   Font.Color = 3813927
+  Font.Height = -13
   Font.Name = 'Segoe UI'
-  Font.Height = -12
-  OnDestroy = FormDestroy
-  OnShow = FormShowed
   Position = poScreenCenter
   ShowInTaskBar = stAlways
   LCLVersion = '4.8.0.0'
+  OnDestroy = FormDestroy
+  OnShow = FormShowed
   object HeaderPnl: TPanel
     Left = 0
     Height = 64
     Top = 0
-    Width = 1240
+    Width = 660
     Align = alTop
     BevelOuter = bvNone
+    ClientHeight = 64
+    ClientWidth = 660
     Color = 3353366
+    ParentBackground = False
     ParentColor = False
     TabOrder = 0
     object HeaderAccent: TPanel
@@ -35,14 +39,15 @@ object RepForm: TRepForm
       Align = alLeft
       BevelOuter = bvNone
       Color = 12480564
+      ParentBackground = False
       ParentColor = False
       TabOrder = 0
     end
     object TitleLbl: TLabel
       Left = 24
-      Height = 22
+      Height = 21
       Top = 21
-      Width = 500
+      Width = 116
       Caption = 'File Reputation'
       Font.Color = clWhite
       Font.Height = -16
@@ -51,22 +56,41 @@ object RepForm: TRepForm
       ParentColor = False
       ParentFont = False
     end
+    object WebLink: TLabel
+      Cursor = crHandPoint
+      Left = 576
+      Height = 17
+      Top = 25
+      Width = 75
+      Anchors = [akTop, akRight]
+      Caption = 'viruskov.com'
+      Font.Color = 16763904
+      Font.Height = -13
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsUnderline]
+      ParentColor = False
+      ParentFont = False
+      OnClick = WebLinkClick
+    end
   end
   object ToolbarSurface: TPanel
     Left = 0
     Height = 134
     Top = 64
-    Width = 1240
+    Width = 660
     Align = alTop
     BevelOuter = bvNone
+    ClientHeight = 134
+    ClientWidth = 660
     Color = clWhite
+    ParentBackground = False
     ParentColor = False
     TabOrder = 1
     object PathEdit: TEdit
       Left = 20
       Height = 28
       Top = 10
-      Width = 1064
+      Width = 484
       Anchors = [akTop, akLeft, akRight]
       Color = 16513784
       Font.Color = 3813927
@@ -75,7 +99,7 @@ object RepForm: TRepForm
       TabOrder = 0
     end
     object BrowseBtn: TButton
-      Left = 1098
+      Left = 518
       Height = 28
       Top = 10
       Width = 122
@@ -136,18 +160,18 @@ object RepForm: TRepForm
       Left = 472
       Height = 30
       Top = 50
-      Width = 102
-      Caption = 'Hash forums'
+      Width = 125
+      Caption = 'COMODO Forums'
       Font.Name = 'Segoe UI'
       ParentFont = False
       TabOrder = 6
       OnClick = ForumBtnClick
     end
     object ProcBtn: TButton
-      Left = 20
+      Left = 16
       Height = 28
-      Top = 92
-      Width = 160
+      Top = 88
+      Width = 176
       Caption = 'Check running processes'
       Font.Name = 'Segoe UI'
       ParentFont = False
@@ -155,9 +179,9 @@ object RepForm: TRepForm
       OnClick = ProcBtnClick
     end
     object ApplyBtn: TButton
-      Left = 190
+      Left = 208
       Height = 28
-      Top = 92
+      Top = 88
       Width = 150
       Caption = 'Apply Actions'
       Enabled = False
@@ -167,9 +191,9 @@ object RepForm: TRepForm
       OnClick = ApplyBtnClick
     end
     object CancelActionsBtn: TButton
-      Left = 350
+      Left = 368
       Height = 28
-      Top = 92
+      Top = 88
       Width = 132
       Caption = 'Cancel Actions'
       Enabled = False
@@ -178,42 +202,34 @@ object RepForm: TRepForm
       TabOrder = 9
       OnClick = CancelActionsBtnClick
     end
-    object WebBtn: TButton
-      Left = 500
-      Height = 28
-      Top = 92
-      Width = 150
-      Caption = 'Check our website'
-      Font.Name = 'Segoe UI'
-      ParentFont = False
-      TabOrder = 10
-      OnClick = WebBtnClick
-    end
   end
   object StatusSurface: TPanel
     Left = 0
     Height = 64
     Top = 198
-    Width = 1240
+    Width = 660
     Align = alTop
     BevelOuter = bvNone
+    ClientHeight = 64
+    ClientWidth = 660
     Color = 15791591
+    ParentBackground = False
     ParentColor = False
     TabOrder = 2
     object ScanProgress: TProgressBar
       Left = 20
       Height = 10
       Top = 8
-      Width = 1200
+      Width = 620
       Anchors = [akTop, akLeft, akRight]
       Style = pbstMarquee
       TabOrder = 0
     end
     object StatusLbl: TLabel
       Left = 20
-      Height = 18
+      Height = 20
       Top = 21
-      Width = 1200
+      Width = 620
       Anchors = [akTop, akLeft, akRight]
       Caption = 'Idle.'
       Font.Color = 7958367
@@ -223,9 +239,9 @@ object RepForm: TRepForm
     end
     object SummaryLbl: TLabel
       Left = 20
-      Height = 18
+      Height = 1
       Top = 41
-      Width = 1200
+      Width = 620
       Anchors = [akTop, akLeft, akRight]
       Font.Color = 5289809
       Font.Height = -11
@@ -237,29 +253,35 @@ object RepForm: TRepForm
   end
   object ResultsArea: TPanel
     Left = 0
-    Height = 480
+    Height = 198
     Top = 262
-    Width = 1240
+    Width = 660
     Align = alClient
     BevelOuter = bvNone
+    ClientHeight = 198
+    ClientWidth = 660
     Color = 16052717
+    ParentBackground = False
     ParentColor = False
     TabOrder = 3
     object ResultsSurface: TPanel
       Left = 0
-      Height = 480
+      Height = 198
       Top = 0
-      Width = 904
+      Width = 660
       Align = alClient
       BevelOuter = bvNone
+      ClientHeight = 198
+      ClientWidth = 660
       Color = clWhite
+      ParentBackground = False
       ParentColor = False
-      TabOrder = 1
+      TabOrder = 0
       object ResultsSectionLbl: TLabel
         Left = 16
-        Height = 20
+        Height = 12
         Top = 12
-        Width = 280
+        Width = 68
         Caption = 'FILE VERDICTS'
         Font.Color = 6839366
         Font.Height = -10
@@ -270,42 +292,43 @@ object RepForm: TRepForm
       end
       object ResultsView: TListView
         Left = 16
-        Height = 420
+        Height = 138
         Top = 42
-        Width = 872
+        Width = 628
         Anchors = [akTop, akLeft, akRight, akBottom]
         Color = clWhite
-        Columns = <
-        item
-          Caption = 'File'
-          Width = 150
-        end
-        item
-          Caption = 'Action'
-          Width = 110
-        end
-        item
-          Caption = 'SHA-256'
-          Width = 105
-        end
-        item
-          Caption = 'Cloud'
-          Width = 72
-        end
-        item
-          Caption = 'Local verdict'
-          Width = 170
-        end
-        item
-          Caption = 'Family'
-          Width = 110
-        end>
+        Columns = <        
+          item
+            Caption = 'File'
+            Width = 150
+          end        
+          item
+            Caption = 'Action'
+            Width = 110
+          end        
+          item
+            Caption = 'SHA-256'
+            Width = 105
+          end        
+          item
+            Caption = 'Cloud'
+            Width = 72
+          end        
+          item
+            Caption = 'Local verdict'
+            Width = 170
+          end        
+          item
+            Caption = 'Family'
+            Width = 110
+          end>
         Font.Color = 3813927
-        Font.Name = 'Segoe UI'
         Font.Height = -12
+        Font.Name = 'Segoe UI'
         GridLines = True
         HideSelection = False
         MultiSelect = True
+        ParentFont = False
         PopupMenu = DetPopup
         ReadOnly = True
         RowSelect = True
@@ -316,8 +339,8 @@ object RepForm: TRepForm
     end
   end
   object DetPopup: TPopupMenu
-    left = 1120
-    top = 18
+    Left = 1400
+    Top = 23
     object DetItem: TMenuItem
       Caption = 'Details...'
       OnClick = DetItemClick
