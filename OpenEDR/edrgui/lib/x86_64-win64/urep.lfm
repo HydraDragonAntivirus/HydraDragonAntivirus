@@ -178,6 +178,17 @@ object RepForm: TRepForm
       TabOrder = 9
       OnClick = CancelActionsBtnClick
     end
+    object WebBtn: TButton
+      Left = 500
+      Height = 28
+      Top = 92
+      Width = 150
+      Caption = 'Check our website'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 10
+      OnClick = WebBtnClick
+    end
   end
   object StatusSurface: TPanel
     Left = 0

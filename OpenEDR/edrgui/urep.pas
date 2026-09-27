@@ -111,6 +111,8 @@ type
     StatusLbl: TLabel;
     SummaryLbl: TLabel;
     ResultsView: TListView;
+    WebBtn: TButton;
+    procedure WebBtnClick(Sender: TObject);
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);
     procedure CancelBtnClick(Sender: TObject);
@@ -182,6 +184,7 @@ implementation
 const
   VALKYRIE_URL = 'https://valkyrie.comodo.com/';
   FORUMS_URL = 'https://forums.comodo.com/';
+  VIRUSKOV_URL = 'https://viruskov.com';
 
 // Shortens a path for the status line: '...' + tail.
 function ShortPath(const S: string; MaxLen: Integer): string;
@@ -830,6 +833,11 @@ end;
 procedure TRepForm.ForumBtnClick(Sender: TObject);
 begin
   OpenURL(FORUMS_URL);
+end;
+
+procedure TRepForm.WebBtnClick(Sender: TObject);
+begin
+  OpenURL(VIRUSKOV_URL);
 end;
 
 function VerdictMeaning(const AVerdictText: string): string;
