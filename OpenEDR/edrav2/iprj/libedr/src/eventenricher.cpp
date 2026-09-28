@@ -763,7 +763,7 @@ namespace {
 		static std::atomic<bool> s_enableDotNetLoaderDetection{true};
 		static std::atomic<bool> s_enableDllAttackChain{true};
 		static std::atomic<bool> s_quarantineUnknownDll{true};
-		static std::atomic<bool> s_scanAllModulesIndiscriminately{false}; // Debugging mode: verifies every DLL regardless of path (heavy CPU)
+		static std::atomic<bool> s_scanAllModulesIndiscriminately{false};
 		static std::vector<std::wstring> s_vulnerablePortFragments;
 		static std::unordered_set<std::wstring> s_knownPorts;
 
@@ -929,15 +929,6 @@ namespace {
 				s_enableDllAttackChain.store(extractBoolFromCfg(content, "enableDllAttackChain", true), std::memory_order_relaxed);
 				s_quarantineUnknownDll.store(extractBoolFromCfg(content, "quarantineUnknownDll", true), std::memory_order_relaxed);
 				s_scanAllModulesIndiscriminately.store(extractBoolFromCfg(content, "scanAllModulesIndiscriminately", false), std::memory_order_relaxed);
-
-				if (s_scanAllModulesIndiscriminately.load(std::memory_order_relaxed))
-				{
-					LOGLVL(Critical, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-					LOGLVL(Critical, "!!! WARNING: 'scanAllModulesIndiscriminately' DEBUG MODE IS ACTIVE IN EDRSVC.CFG !!!");
-					LOGLVL(Critical, "!!! ALL DLLs REGARDLESS OF SYSTEM ORIGIN WILL BE SCANNED ON EVERY PROCESS EVENT!  !!!");
-					LOGLVL(Critical, "!!! THIS BREAKS OPTIMIZATION AND CAUSES SEVERE CPU / SYSTEM PERFORMANCE OVERHEAD! !!!");
-					LOGLVL(Critical, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-				}
 
 				LOGLVL(Info, FMT("enricher: Dynamically loaded scanner config from edrsvc.cfg: trustMode="
 					<< s_configuredTrustMode.load()
@@ -1294,11 +1285,11 @@ namespace {
 					                    modLower.find("c:\\windows\\syswow64") != std::string::npos ||
 					                    modLower.find("c:\\windows\\winsxs") != std::string::npos);
 
-					bool forceScanAll = s_scanAllModulesIndiscriminately.load(std::memory_order_relaxed);
-					bool shouldDeepScan = forceScanAll || !isSystemDll;
-
 					bool modFlsClean = true;
 					bool modCertTrusted = true;
+
+					bool forceScanAll = s_scanAllModulesIndiscriminately.load(std::memory_order_relaxed);
+					bool shouldDeepScan = forceScanAll || !isSystemDll;
 
 					if (shouldDeepScan)
 					{
