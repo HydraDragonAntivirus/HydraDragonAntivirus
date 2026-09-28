@@ -981,11 +981,11 @@ namespace {
 				s_unknownReputationVerdict.store(extractIntFromPtm(content, "unknownReputationVerdict", 3), std::memory_order_relaxed);
 				s_staticUnknownVerdict.store(extractIntFromPtm(content, "staticUnknownVerdict", 4), std::memory_order_relaxed);
 				{
-					std::lock_guard<std::mutex> lock(s_unknownVerdictsMutex);
+					std::lock_guard<std::mutex> lockVerdicts(s_unknownVerdictsMutex);
 					s_unknownVerdicts = extractIntArrayFromCfg(content, "unknownVerdicts", {0, 3, 4});
 				}
 
-				LOGLVL(Info, FMT("enricher: Dynamically loaded scanner config from edrsvc.cfg: trustMode="
+				LOGLVL(Detailed, FMT("enricher: Dynamically loaded scanner config from edrsvc.cfg: trustMode="
 					<< s_configuredTrustMode.load()
 					<< ", scanUnknownModules=" << s_scanUnknownModules.load()
 					<< ", dotNetLoader=" << s_enableDotNetLoaderDetection.load()
@@ -1019,7 +1019,7 @@ namespace {
 					for (auto& w : white) s_knownPorts.insert(w);
 				}
 
-				LOGLVL(Info, FMT("enricher: Dynamically loaded trustMode=" << s_configuredTrustMode.load()
+				LOGLVL(Detailed, FMT("enricher: Dynamically loaded trustMode=" << s_configuredTrustMode.load()
 					<< ", " << s_vulnerablePortFragments.size() << " vulnerable ports, "
 					<< s_knownPorts.size() << " whitelisted ports from ptm.local.src"));
 				s_loadedFromPtm.store(true, std::memory_order_release);
@@ -1471,7 +1471,7 @@ namespace {
 		{
 			if (sProcPath.empty() || nPid <= 4) return false;
 
-			if (ZeroTrust::isRestricted(sProcPath))
+			if (ZeroTrust::isRestricted(nPid))
 			{
 				outUntrustedReason = "Process is restricted by ZeroTrust policy";
 				return false;
@@ -3157,7 +3157,7 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		}
 
 		// Check if the event or file is already verified clean by FLS / Cloud (only if enableCloud is active)
-		if (s_enableCloud.load(std::memory_order_relaxed) && vEvent.has("file"))
+		if (DriverPortHips::s_enableCloud.load(std::memory_order_relaxed) && vEvent.has("file"))
 		{
 			Variant vF = vEvent.get("file");
 			if (vF.isDictionaryLike())
