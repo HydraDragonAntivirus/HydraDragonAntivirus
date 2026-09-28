@@ -490,23 +490,41 @@ begin
             FormatDateTime('hh:nn:ss', Now) + ' - Outbound Connection to ' + Target;
       end;
 
-      TitleStr := 'Firewall / HIPS: ' + AppName;
-      MsgStr := '=== 1. PROCESS SUMMARY ===' + LineEnding +
-                'Application: ' + AppName + ' (PID: ' + Pid + ')' + LineEnding +
-                'Binary Path: ' + ExePath + LineEnding +
-                'Network Target: ' + Target + LineEnding +
-                'Interception Trigger: ' + Reason + LineEnding + LineEnding +
-                '=== 2. STATIC PE ML & SIGNATURE STATUS ===' + LineEnding +
-                'Digital Signature: ' + SigStatus + LineEnding +
-                'Cloud & Static ML Verdict: ' + Verdict + LineEnding;
-
-      // Extract static trust level & publisher
-      if (Pos('trusted', LowerCase(SigStatus)) > 0) or (Pos('valid', LowerCase(SigStatus)) > 0) then
-        MsgStr := MsgStr + 'Static Assessment: Valid Trusted Certificate' + LineEnding + LineEnding
-      else if Pos('unsigned', LowerCase(SigStatus)) > 0 then
-        MsgStr := MsgStr + 'Static Assessment: UNTRUSTED / UNSIGNED BINARY (Zero Trust Alert)' + LineEnding + LineEnding
+      if (Pos('\', Target) = 1) or (Pos('port', LowerCase(ReqId)) = 1) or (Pos('\\.\', Target) = 1) or (Pos('driver', LowerCase(Reason)) > 0) then
+      begin
+        TitleStr := 'HIPS Driver Port Alert: ' + AppName;
+        MsgStr := '=== 1. PROCESS & KERNEL DRIVER PORT ===' + LineEnding +
+                  'Application: ' + AppName + ' (PID: ' + Pid + ')' + LineEnding +
+                  'Binary Path: ' + ExePath + LineEnding +
+                  'Kernel Target Port: ' + Target + LineEnding +
+                  'Interception Trigger: ' + Reason + LineEnding + LineEnding +
+                  '=== 2. TRUST ASSESSMENT ===' + LineEnding +
+                  'Digital Signature: ' + SigStatus + LineEnding +
+                  'Cloud & Static ML Verdict: ' + Verdict + LineEnding + LineEnding +
+                  '=== 3. SECURITY WARNING ===' + LineEnding +
+                  'An application is attempting to connect to a kernel driver communication port.' + LineEnding +
+                  'This technique is commonly associated with BYOVD (Bring Your Own Vulnerable Driver) and LPE attacks.' + LineEnding;
+      end
       else
-        MsgStr := MsgStr + 'Static Assessment: ' + SigStatus + LineEnding + LineEnding;
+      begin
+        TitleStr := 'Firewall / HIPS: ' + AppName;
+        MsgStr := '=== 1. PROCESS SUMMARY ===' + LineEnding +
+                  'Application: ' + AppName + ' (PID: ' + Pid + ')' + LineEnding +
+                  'Binary Path: ' + ExePath + LineEnding +
+                  'Network Target: ' + Target + LineEnding +
+                  'Interception Trigger: ' + Reason + LineEnding + LineEnding +
+                  '=== 2. STATIC PE ML & SIGNATURE STATUS ===' + LineEnding +
+                  'Digital Signature: ' + SigStatus + LineEnding +
+                  'Cloud & Static ML Verdict: ' + Verdict + LineEnding;
+
+        // Extract static trust level & publisher
+        if (Pos('trusted', LowerCase(SigStatus)) > 0) or (Pos('valid', LowerCase(SigStatus)) > 0) then
+          MsgStr := MsgStr + 'Static Assessment: Valid Trusted Certificate' + LineEnding + LineEnding
+        else if Pos('unsigned', LowerCase(SigStatus)) > 0 then
+          MsgStr := MsgStr + 'Static Assessment: UNTRUSTED / UNSIGNED BINARY (Zero Trust Alert)' + LineEnding + LineEnding
+        else
+          MsgStr := MsgStr + 'Static Assessment: ' + SigStatus + LineEnding + LineEnding;
+      end;
 
       MsgStr := MsgStr + '=== 3. RECORDED BEHAVIOR & API TIMELINE ===';
 

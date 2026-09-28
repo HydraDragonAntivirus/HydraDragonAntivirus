@@ -43,6 +43,46 @@
 			"*.pif",
 			"*.com"
 		],
+		"driverPortEventBaseType": {
+			"MLE_DRIVER_PORT_EXPLOIT": 1000026
+		},
+		"vulnerableDriverPorts": [
+			"*rwfilter*",
+			"*{157980d8-09b4-4580-b8b6-d32971d056da}*",
+			"*gio*",
+			"*gdrv*",
+			"*rtcore64*",
+			"*dbutil_2_3*",
+			"*mhyprot2*",
+			"*echodrv*",
+			"*procexp152*",
+			"*procexp*",
+			"*asusgio*",
+			"*zam64*",
+			"*zemana*",
+			"*viragt64*",
+			"*speedfan*",
+			"*atszio*"
+		],
+		"whitelistedDriverPorts": [
+			"*\\device\\namedpipe*",
+			"*\\device\\null*",
+			"*\\device\\ksecdd*",
+			"*\\device\\nsi*",
+			"*\\device\\cng*",
+			"*\\device\\condrv*",
+			"*\\device\\afd*",
+			"*\\device\\tcp*",
+			"*\\device\\udp*",
+			"*\\device\\ip*",
+			"*\\device\\mailslot*",
+			"*\\wdfilter*",
+			"*\\wdfilterconnectionport*",
+			"*\\mpfilter*",
+			"*\\openedrport*",
+			"*\\hydrahipevent*",
+			"*\\hydrahipdecision*"
+		],
 		// Crypto-API basket for mass-usage detection (owlyHook telemetry)
 		"cryptoBasket": {
 			"mass": "CRYPTO_API_MASS"
@@ -6528,6 +6568,56 @@
 							{ "name": "time", "value": "@event.time" },
 							{ "name": "tickTime", "value": "@event.tickTime" },
 							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_CREATE",
+				"rule": {
+					"name": "VulnerableDriverPortExploitDetection",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.vulnerableDriverPorts",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.vulnerableDriverPorts",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_DRIVER_PORT_EXPLOIT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.driverPortEventBaseType.MLE_DRIVER_PORT_EXPLOIT" },
+							{ "name": "threatName", "value": "Exploit.Win32.BYOVDDriverPort" },
+							{ "name": "threatType", "value": "BYOVD_DRIVER_PORT" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "targetPort", "value": "@event.file.rawPath" },
 							{ "name": "should_trust_company_whitelist", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]

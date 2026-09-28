@@ -750,6 +750,249 @@ namespace {
 		}
 	}
 
+	namespace DriverPortHips
+	{
+		static std::mutex s_portMutex;
+		static std::atomic<bool> s_loadedFromPtm{false};
+		static std::vector<std::wstring> s_vulnerablePortFragments;
+		static std::unordered_set<std::wstring> s_knownPorts;
+
+		static inline std::wstring toLower(std::wstring s)
+		{
+			for (auto& c : s) c = static_cast<wchar_t>(std::tolower(static_cast<wint_t>(c)));
+			return s;
+		}
+
+		static std::vector<std::wstring> ptmCandidatePaths()
+		{
+			std::vector<std::wstring> out;
+			wchar_t mod[MAX_PATH] = {};
+			if (::GetModuleFileNameW(nullptr, mod, MAX_PATH) > 0)
+			{
+				std::wstring s(mod);
+				auto pos = s.find_last_of(L"\\/");
+				if (pos != std::wstring::npos)
+					out.push_back(s.substr(0, pos + 1) + L"ptm.local.src");
+			}
+			out.push_back(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\ptm.local.src");
+			out.push_back(L"ptm.local.src");
+			out.push_back(L"OpenEDR\\edrav2\\iprj\\edrdata\\ptm.local.src");
+			return out;
+		}
+
+		static std::vector<std::wstring> extractArrayFromPtm(const std::string& content, const std::string& arrayKey)
+		{
+			std::vector<std::wstring> result;
+			size_t keyPos = content.find("\"" + arrayKey + "\"");
+			if (keyPos == std::string::npos)
+				return result;
+
+			size_t openBracket = content.find('[', keyPos);
+			if (openBracket == std::string::npos)
+				return result;
+
+			size_t closeBracket = content.find(']', openBracket);
+			if (closeBracket == std::string::npos)
+				return result;
+
+			std::string arrBlock = content.substr(openBracket + 1, closeBracket - openBracket - 1);
+			std::string cur;
+			bool inStr = false;
+			for (size_t i = 0; i < arrBlock.size(); ++i)
+			{
+				char c = arrBlock[i];
+				if (inStr)
+				{
+					if (c == '"')
+					{
+						inStr = false;
+						if (!cur.empty())
+						{
+							std::wstring w(cur.begin(), cur.end());
+							std::wstring cleaned;
+							for (wchar_t wc : w)
+							{
+								if (wc != L'*')
+									cleaned.push_back(static_cast<wchar_t>(std::tolower(static_cast<wint_t>(wc))));
+							}
+							if (!cleaned.empty())
+								result.push_back(cleaned);
+							cur.clear();
+						}
+					}
+					else if (c == '\\' && i + 1 < arrBlock.size())
+					{
+						cur.push_back(arrBlock[++i]);
+					}
+					else
+					{
+						cur.push_back(c);
+					}
+				}
+				else if (c == '"')
+				{
+					inStr = true;
+					cur.clear();
+				}
+			}
+			return result;
+		}
+
+		static void EnsurePtmLoaded()
+		{
+			if (s_loadedFromPtm.load(std::memory_order_relaxed))
+				return;
+
+			std::lock_guard<std::mutex> lock(s_portMutex);
+			if (s_loadedFromPtm.load(std::memory_order_relaxed))
+				return;
+
+			for (const auto& path : ptmCandidatePaths())
+			{
+				std::ifstream ifs(path, std::ios::binary);
+				if (!ifs.is_open()) continue;
+				std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+				if (content.empty()) continue;
+
+				auto vuln = extractArrayFromPtm(content, "vulnerableDriverPorts");
+				if (!vuln.empty())
+				{
+					s_vulnerablePortFragments = std::move(vuln);
+				}
+
+				auto white = extractArrayFromPtm(content, "whitelistedDriverPorts");
+				if (!white.empty())
+				{
+					for (auto& w : white) s_knownPorts.insert(w);
+				}
+
+				LOGLVL(Info, FMT("enricher: Dynamically loaded " << s_vulnerablePortFragments.size()
+					<< " vulnerable driver ports and " << s_knownPorts.size()
+					<< " whitelisted baseline ports from ptm.local.src"));
+				s_loadedFromPtm.store(true, std::memory_order_release);
+				return;
+			}
+		}
+
+		static inline bool isPathDriverOrMinifilterPort(const std::wstring& wsPath, std::wstring& outPortName)
+		{
+			if (wsPath.empty()) return false;
+			EnsurePtmLoaded();
+
+			std::wstring p = toLower(wsPath);
+
+			// Check vulnerable ports loaded from ptm.local.src
+			{
+				std::lock_guard<std::mutex> lock(s_portMutex);
+				for (const auto& frag : s_vulnerablePortFragments)
+				{
+					if (p.find(frag) != std::wstring::npos)
+					{
+						outPortName = wsPath;
+						return true;
+					}
+				}
+			}
+
+			// Filter out standard disk/filesystem file paths (C:\..., \\?\Volume...)
+			if (p.size() >= 2 && p[1] == L':') return false; // C:\...
+			if (p.find(L"\\device\\harddiskvolume") != std::wstring::npos) return false;
+			if (p.find(L"\\device\\cdrom") != std::wstring::npos) return false;
+			if (p.find(L"\\device\\mup") != std::wstring::npos) return false;
+			if (p.find(L"\\device\\lanmanredirector") != std::wstring::npos) return false;
+			if (p.find(L"\\volume{") != std::wstring::npos) return false;
+
+			// Check if it's a device or minifilter communication port pattern
+			if (p.rfind(L"\\\\.\\", 0) == 0 ||
+			    p.rfind(L"\\??\\", 0) == 0 ||
+			    p.rfind(L"\\device\\", 0) == 0 ||
+			    p.find(L"filtermanager") != std::wstring::npos ||
+			    (p.size() > 1 && p[0] == L'\\' && p.find(L'\\', 1) == std::wstring::npos)) // Root object like \RWFilter
+			{
+				outPortName = wsPath;
+				return true;
+			}
+
+			return false;
+		}
+
+		// Inspects file create events for unauthorized connections to driver communication ports
+		static bool InspectPortAccess(
+			const std::wstring& wsDestPath,
+			const Variant& /*vProcess*/,
+			const std::string& sProcPath,
+			uint32_t nPid,
+			bool isProcessTrusted,
+			std::string& outThreatReason,
+			bool& outIsKnownVulnerable)
+		{
+			outIsKnownVulnerable = false;
+			if (nPid <= 4) return false; // System idle / kernel
+
+			std::wstring wsPortName;
+			if (!isPathDriverOrMinifilterPort(wsDestPath, wsPortName))
+				return false;
+
+			std::wstring p = toLower(wsPortName);
+
+			// Check whitelisted benign ports loaded from ptm.local.src
+			{
+				std::lock_guard<std::mutex> lock(s_portMutex);
+				for (const auto& kp : s_knownPorts)
+				{
+					if (p == kp || p.rfind(kp + L"\\", 0) == 0)
+						return false; // Whitelisted port
+				}
+			}
+
+			// Core trusted system executables: Windows system binaries signed by Microsoft
+			if (isProcessTrusted)
+			{
+				std::string lowerProc = sProcPath;
+				for (auto& c : lowerProc) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				if (lowerProc.find("system32\\svchost.exe") != std::string::npos ||
+				    lowerProc.find("system32\\services.exe") != std::string::npos ||
+				    lowerProc.find("system32\\csrss.exe") != std::string::npos ||
+				    lowerProc.find("system32\\lsass.exe") != std::string::npos ||
+				    lowerProc.find("system32\\smss.exe") != std::string::npos ||
+				    lowerProc.find("edrgui.exe") != std::string::npos ||
+				    lowerProc.find("openedr") != std::string::npos ||
+				    lowerProc.find("hydradragon") != std::string::npos)
+				{
+					return false; // Trusted system / EDR caller
+				}
+			}
+
+			// Check if this matches a known vulnerable BYOVD port from ptm.local.src
+			{
+				std::lock_guard<std::mutex> lock(s_portMutex);
+				for (const auto& frag : s_vulnerablePortFragments)
+				{
+					if (p.find(frag) != std::wstring::npos)
+					{
+						outIsKnownVulnerable = true;
+						outThreatReason = "CRITICAL BYOVD EXPLOITATION: Vulnerable Driver/Minifilter Port Detected (ptm.local.src policy)";
+						return true;
+					}
+				}
+			}
+
+			// If untrusted process connects to a new or unknown port:
+			{
+				std::lock_guard<std::mutex> lock(s_portMutex);
+				if (s_knownPorts.find(p) == s_knownPorts.end())
+				{
+					// Add to baseline to avoid spamming alerts for the same port repeatedly
+					s_knownPorts.insert(p);
+					outThreatReason = "HIPS Warning: Untrusted process attempting connection to new/unknown kernel driver port (ptm.local.src)";
+					return true;
+				}
+			}
+
+			return false;
+		}
+	}
+
 	// Save unknown process behavior killchain telemetry into training dataset
 	void AppendToTrainingDataset(const std::string& sExePath, const std::string& sEventType, const std::string& sDetails, const std::string& sJson)
 	{
@@ -3129,6 +3372,77 @@ void EventEnricher::put(const Variant& vEventRef)
 						}
 					}
 				}
+			}
+		}
+
+		// ── Driver & Minifilter Port HIPS Guard ──────────────────────────────
+		// Monitors process connection attempts to kernel driver devices and minifilter
+		// communication ports (e.g. \RWFilter, \GIO, \RTCore64, or unknown new ports).
+		if (eEventType == Event::LLE_FILE_CREATE)
+		{
+			std::string threatReason;
+			bool isKnownVulnerable = false;
+			uint32_t nActorPid = 0;
+			if (vProcess.has("pid")) nActorPid = static_cast<uint32_t>(vProcess["pid"]);
+			else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
+
+			bool isCloudClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == 1) ||
+			                    (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == 1) ||
+			                    (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
+			bool isSignedTrusted = false;
+			if (vProcess.has("signature"))
+			{
+				try {
+					auto vSig = vProcess["signature"];
+					if (vSig.has("status") && static_cast<int64_t>(vSig["status"]) == 0)
+						isSignedTrusted = true;
+				} catch (...) {}
+			}
+			bool isProcessTrusted = isCloudClean || isSignedTrusted;
+
+			std::wstring wsRawCheck;
+			if (vParams.has("path")) wsRawCheck = vParams.get("path", L"");
+			if (wsRawCheck.empty() && vParams.has("rawPath")) wsRawCheck = vParams.get("rawPath", L"");
+			if (wsRawCheck.empty() && vParams.has("uniquePath")) wsRawCheck = vParams.get("uniquePath", L"");
+			if (wsRawCheck.empty() && vParams.has("abstractPath")) wsRawCheck = vParams.get("abstractPath", L"");
+
+			if (DriverPortHips::InspectPortAccess(wsRawCheck, vProcess, sProcPath, nActorPid, isProcessTrusted, threatReason, isKnownVulnerable))
+			{
+				std::string portNarrow = Narrow(wsRawCheck);
+				LOGLVL(Critical, FMT("enricher: [DRIVER PORT HIPS ALERT] Process <" << sProcPath
+					<< "> (PID: " << nActorPid << ") attempted access to kernel driver port <"
+					<< portNarrow << "> - " << threatReason));
+
+				// If it's a known vulnerable BYOVD port (like \RWFilter), suspend immediately to prevent exploit
+				if (isKnownVulnerable && nActorPid > 4)
+				{
+					SuspendProcessByPid(nActorPid);
+					LOGLVL(Critical, FMT("enricher: [BYOVD MITIGATION] Suspended exploiting PID " << nActorPid << " targeting " << portNarrow));
+				}
+
+				// Forward HIPS_ASK interactive prompt to edrgui via HydraHipEvent pipe
+				HANDLE hPipe = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+					GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+				if (hPipe != INVALID_HANDLE_VALUE)
+				{
+					std::string appName = sProcPath;
+					size_t pSlash = appName.find_last_of("\\/");
+					if (pSlash != std::string::npos) appName = appName.substr(pSlash + 1);
+
+					std::string reqId = "port_" + std::to_string(nActorPid) + "_" + std::to_string(::GetTickCount64());
+					// 8-field HIPS_ASK protocol expected by edrgui/unit1.pas:
+					// HIPS_ASK:<req_id>|<pid>|<app_name>|<exe_path>|<target>|<verdict>|<sig_status>|<reason>
+					std::string askMsg = "HIPS_ASK:" + reqId + "|" + std::to_string(nActorPid) + "|" +
+						appName + "|" + sProcPath + "|" + portNarrow + "|" +
+						(isKnownVulnerable ? "malicious" : "suspicious") + "|" +
+						(isSignedTrusted ? "valid" : "unsigned") + "|" +
+						threatReason + "\n";
+					DWORD written = 0;
+					::WriteFile(hPipe, askMsg.data(), static_cast<DWORD>(askMsg.size()), &written, NULL);
+					::CloseHandle(hPipe);
+				}
+
+				ZeroTrust::recordThreatDetection();
 			}
 		}
 
