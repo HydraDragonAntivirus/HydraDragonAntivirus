@@ -54,6 +54,39 @@ pub struct ResourceDataEntry {
     pub reserved: u32,
 }
 
+/// Read an `IMAGE_RESOURCE_DATA_ENTRY` at `off`. `offset_to_data` is an RVA;
+/// it is stored verbatim, like Python `pefile` does.
+pub(crate) fn read_resource_data_entry(raw: &[u8], off: usize) -> Option<ResourceDataEntry> {
+    let s = raw.get(off..off + 16)?;
+    Some(ResourceDataEntry {
+        offset_to_data: u32::from_le_bytes([s[0], s[1], s[2], s[3]]),
+        size: u32::from_le_bytes([s[4], s[5], s[6], s[7]]),
+        code_page: u32::from_le_bytes([s[8], s[9], s[10], s[11]]),
+        reserved: u32::from_le_bytes([s[12], s[13], s[14], s[15]]),
+    })
+}
+
+/// Read an `IMAGE_RESOURCE_DIR_STRING_U`: a 16-bit character count followed by
+/// that many UTF-16LE code units. `offset` is relative to `base`.
+pub(crate) fn read_resource_dir_string(
+    raw: &[u8],
+    base: usize,
+    offset: u32,
+) -> Option<String> {
+    let file_off = (offset as usize).checked_add(base)?;
+    let len_bytes = raw.get(file_off..file_off + 2)?;
+    let chars = u16::from_le_bytes([len_bytes[0], len_bytes[1]]) as usize;
+    // Bound the string so a corrupt length cannot allocate or read unbounded.
+    let chars = chars.min(4096);
+    let start = file_off + 2;
+    let s = raw.get(start..start + chars * 2)?;
+    Some(String::from_utf16_lossy(
+        &s.chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect::<Vec<u16>>(),
+    ))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ResourceEntry {

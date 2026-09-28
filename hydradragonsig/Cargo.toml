@@ -26,12 +26,16 @@ digest = "0.11.3"
 env_logger = { version = "0.11.10", optional = true }
 pefile-rs = { path = "../pefile-rs" }
 hex = "0.4.3"
+# Perceptual image hashing (pHash) for image_fuzzy_hash rules. Features are
+# limited to the decoders ClamAV's fuzzy_img# subsignatures are built against.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
 indicatif = { version = "0.18.4", optional = true }
 log = "0.4.29"
 md-5 = "0.11.0"
 memchr = "2.7.6"
 once_cell = "1.21.4"
 regex = "1.12.3"
+rustdct = "0.7"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 yaml_serde = "0.10.4"

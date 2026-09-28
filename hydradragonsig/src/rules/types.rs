@@ -327,6 +327,57 @@ pub enum RuleCondition {
     UnpackerAny {
         signatures: Vec<UnpackerSignature>,
     },
+
+    /// Perceptual image hash (pHash) of the scanned file. Matches when the file
+    /// decodes as an image and its 64-bit pHash is within `max_distance` bits of
+    /// any of `hashes`, so a resized or re-encoded copy of the same artwork still
+    /// matches.
+    ///
+    /// Hashes may be written as bare 16-hex or as ClamAV `fuzzy_img#<hex>`
+    /// subsignatures. ClamAV itself only supports a distance of 0; a non-zero
+    /// `max_distance` is a Hydra extension.
+    ImageFuzzyHashAny {
+        hashes: Vec<String>,
+        #[serde(default)]
+        max_distance: Option<u32>,
+    },
+
+    /// Icon fingerprint of a PE, matched on any of three independent schemes.
+    ///
+    /// All three read the same decoded icon, so an executable with several icon
+    /// sizes is decoded once and then scored three ways. Any scheme that matches
+    /// satisfies the condition; the evidence names which one fired.
+    ///
+    /// * `dhash` - 64-bit difference hash. Discriminative on the small 16x16
+    ///   icons that matter most, and what SpyHunter's `icon_dhash` tables hold.
+    /// * `phash` - 64-bit DCT hash, ClamAV `fuzzy_img#` compatible.
+    /// * `idb` - ClamAV `.idb` fingerprints, written as whole signature lines
+    ///   (`Name:Group1:Group2:<124 hex>`) so they can be pasted straight out of a
+    ///   signature database.
+    ///
+    /// A stored `.idb` group restricts which groups a rule will consider, which
+    /// is how ClamAV's `IconGroup1`/`IconGroup2` constraints are expressed here.
+    ///
+    /// This is a *family* signal: the same stolen icon is shared by many samples
+    /// and by plenty of legitimate software, so a match is evidence to weigh,
+    /// not a verdict on its own. Whether it is sufficient is the rule author's
+    /// call, expressed through `required` - see [`Rule::icon_match_required`].
+    PeIconAny {
+        #[serde(default)]
+        dhash: Vec<String>,
+        #[serde(default)]
+        dhash_max_distance: Option<u32>,
+        #[serde(default)]
+        phash: Vec<String>,
+        #[serde(default)]
+        phash_max_distance: Option<u32>,
+        #[serde(default)]
+        idb: Vec<String>,
+        /// Icon groups a rule is willing to accept, one entry per `.idb` group
+        /// position. Empty means "any group", like ClamAV's `*`.
+        #[serde(default)]
+        idb_groups: Vec<String>,
+    },
 }
 
 /// One packer signature: a display name plus the byte pattern that identifies it.

@@ -564,6 +564,7 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
             RuleCondition::StringSet { values, .. } => values.len(),
             RuleCondition::ByteSet { patterns, .. } => patterns.len(),
             RuleCondition::UnpackerAny { signatures } => signatures.len(),
+            RuleCondition::ImageFuzzyHashAny { hashes, .. } => hashes.len(),
             RuleCondition::ImportAny { names }
             | RuleCondition::ImportAll { names }
             | RuleCondition::ImportSet { names, .. }
@@ -950,6 +951,160 @@ fn evaluate_condition(
             }
             None
         }
+        RuleCondition::ImageFuzzyHashAny { hashes, max_distance } => {
+            let Some(actual) = crate::fuzzy::calculate_image(bytes) else {
+                return None;
+            };
+            let limit = max_distance.unwrap_or(0);
+            let mut best: Option<(u32, &str)> = None;
+            for raw in hashes {
+                let Ok(candidate) = parse_image_hash(raw) else {
+                    continue;
+                };
+                let distance = crate::fuzzy::hamming_distance(&actual, &candidate);
+                if distance > limit {
+                    continue;
+                }
+                if best.is_none_or(|(current, _)| distance < current) {
+                    best = Some((distance, raw));
+                }
+            }
+            best.map(|(distance, raw)| {
+                format!(
+                    "image pHash {} within {distance} bit(s) of `{raw}`",
+                    hex::encode(actual)
+                )
+            })
+        }
+        RuleCondition::PeIconAny {
+            dhash,
+            dhash_max_distance,
+            phash,
+            phash_max_distance,
+            idb,
+            idb_groups,
+        } => {
+            let pe = match pefile_rs::PE::parse(bytes) {
+                Ok(pe) => pe,
+                Err(_) => return None,
+            };
+            let icons = crate::rules::icon::extract_icons(&pe);
+            if icons.is_empty() {
+                return None;
+            }
+
+            // A fingerprint only counts if the rule accepts the group it is in.
+            let group_ok = |sig: &crate::rules::icon_metric::IconMetric| -> bool {
+                if idb_groups.is_empty() {
+                    return true;
+                }
+                idb_groups
+                    .iter()
+                    .any(|wanted| sig.groups.iter().flatten().any(|g| g == wanted))
+            };
+
+            let sigs: Vec<crate::rules::icon_metric::IconMetric> = idb
+                .iter()
+                .filter_map(|line| crate::rules::icon_metric::parse_idb_line(line).ok())
+                .filter(group_ok)
+                .collect();
+
+            let dhash_limit = dhash_max_distance.unwrap_or(0);
+            let phash_limit = phash_max_distance.unwrap_or(0);
+            let mut best: Option<String> = None;
+
+            for icon in &icons {
+                let Some(prints) = crate::rules::icon::IconFingerprints::compute(icon) else {
+                    continue;
+                };
+
+                for wanted in dhash {
+                    let Ok(candidate) = parse_dhash(wanted) else {
+                        continue;
+                    };
+                    let distance = crate::rules::icon::dhash_distance(prints.dhash, candidate);
+                    if distance <= dhash_limit
+                        && best.as_ref().is_none_or(|b| !b.contains("dhash"))
+                    {
+                        best = Some(format!(
+                            "icon dhash {} within {distance} bit(s) of `{wanted}` ({side}x{side})",
+                            prints.dhash_hex(),
+                            side = icon.side
+                        ));
+                    }
+                }
+
+                for wanted in phash {
+                    let Ok(candidate) = parse_image_hash(wanted) else {
+                        continue;
+                    };
+                    let distance =
+                        crate::fuzzy::hamming_distance(&prints.phash, &candidate);
+                    if distance <= phash_limit
+                        && best.as_ref().is_none_or(|b| !b.contains("phash"))
+                    {
+                        best = Some(format!(
+                            "icon phash {} within {distance} bit(s) of `{wanted}` ({side}x{side})",
+                            prints.phash_hex(),
+                            side = icon.side
+                        ));
+                    }
+                }
+
+                if sigs.is_empty() {
+                    continue;
+                }
+                let Some((width, metrics)) =
+                    crate::rules::icon_metric::compute_metrics(icon)
+                else {
+                    continue;
+                };
+                let bucket = crate::rules::icon_metric::enginesize(width);
+                for sig in &sigs {
+                    if sig.size as u32 != width {
+                        continue;
+                    }
+                    if let Some(confidence) = crate::rules::icon_metric::confident_match(
+                        width,
+                        bucket,
+                        &metrics,
+                        sig,
+                    ) {
+                        best = Some(format!(
+                            "icon metric `{}` matched at confidence {confidence} ({side}x{side})",
+                            sig.name,
+                            side = icon.side
+                        ));
+                        break;
+                    }
+                }
+                if best.is_some() {
+                    break;
+                }
+            }
+
+            best
+        }
+    }
+}
+
+/// Parse a 64-bit dHash written as 16 hex characters.
+fn parse_dhash(raw: &str) -> Result<u64, String> {
+    let trimmed = raw.trim();
+    let hex = trimmed.strip_prefix("dhash#").unwrap_or(trimmed);
+    if hex.len() != 16 {
+        return Err(format!("dHash must be 16 hex characters: {trimmed}"));
+    }
+    u64::from_str_radix(hex, 16).map_err(|_| format!("invalid dHash hex: {trimmed}"))
+}
+
+/// Accept a bare 16-hex image hash or a full ClamAV `fuzzy_img#<hex>` subsignature.
+fn parse_image_hash(raw: &str) -> Result<[u8; 8], String> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("fuzzy_img#") {
+        crate::fuzzy::parse_fuzzy_img(trimmed)
+    } else {
+        crate::fuzzy::parse_fuzzy_img(&format!("fuzzy_img#{trimmed}"))
     }
 }
 
@@ -2909,8 +3064,7 @@ rules:
     }
 
     #[test]
-    fn unpacker_any_ignores_signatures_with_a_bad_pattern() {
-        let parsed = unpacker_rules();
+    fn unpacker_any_ignores_signatures_with_a_bad_pattern() {        let parsed = unpacker_rules();
 
         let mut data = vec![0xFF, 0x25];
         data.resize(0x100, 0);
@@ -2918,6 +3072,183 @@ rules:
         assert!(eval_cond(&parsed[0].conditions[0], &data)
             .expect("second, valid signature must still match")
             .contains("ASPack"));
+    }
+
+
+
+    fn logo_png() -> Option<Vec<u8>> {
+        std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../clamav/logo.png"
+        ))
+        .ok()
+    }
+
+    fn image_hash_rules(max_distance: Option<u32>) -> Vec<Rule> {
+        let dist = match max_distance {
+            Some(d) => format!("max_distance: {d}"),
+            None => String::new(),
+        };
+        let yaml = format!(
+            r#"
+name: image-hashes
+rules:
+  - id: T_IMG_0001
+    title: known artwork
+    severity: low
+    conditions:
+      - type: image_fuzzy_hash_any
+        hashes:
+          - af2ad01ed42993c7
+          - "fuzzy_img#0000000000000000"
+        {dist}
+"#
+        );
+        let parsed: YamlRulesFile = yaml_serde::from_str(&yaml).expect("image hash yaml must parse");
+        parsed.rules
+    }
+
+    #[test]
+    fn image_fuzzy_hash_matches_clamav_reference_image() {
+        let Some(data) = logo_png() else { return };
+        let parsed = image_hash_rules(None);
+
+        let evidence = eval_cond(&parsed[0].conditions[0], &data)
+            .expect("logo.png must match its own pHash");
+
+        assert!(
+            evidence.contains("af2ad01ed42993c7"),
+            "evidence must name the matched hash: {evidence}"
+        );
+        assert!(
+            evidence.contains("within 0 bit"),
+            "exact match must report a distance of 0: {evidence}"
+        );
+    }
+
+    #[test]
+    fn image_fuzzy_hash_rejects_non_images() {
+        let parsed = image_hash_rules(Some(64));
+
+        let mut pe = vec![0u8; 0x400];
+        pe[0] = b'M';
+        pe[1] = b'Z';
+        assert!(eval_cond(&parsed[0].conditions[0], &pe).is_none());
+    }
+
+    #[test]
+    fn image_fuzzy_hash_respects_max_distance() {
+        let Some(data) = logo_png() else { return };
+        // A hash 1 bit away from the real one: must be rejected at distance 0
+        // and accepted once tolerance is raised.
+        let one_bit_off = "af2ad01ed42993c6";
+        let yaml = |d: &str| {
+            format!(
+                r#"
+name: image-hashes
+rules:
+  - id: T_IMG_0002
+    title: known artwork
+    severity: low
+    conditions:
+      - type: image_fuzzy_hash_any
+        hashes:
+          - {one_bit_off}
+        {d}
+"#
+            )
+        };
+
+        let exact: YamlRulesFile = yaml_serde::from_str(&yaml("max_distance: 0")).unwrap();
+        assert!(eval_cond(&exact.rules[0].conditions[0], &data).is_none());
+
+        let tolerant: YamlRulesFile = yaml_serde::from_str(&yaml("max_distance: 1")).unwrap();
+        let evidence = eval_cond(&tolerant.rules[0].conditions[0], &data)
+            .expect("a single differing bit must be tolerated at max_distance 1");
+        assert!(evidence.contains("within 1 bit"), "{evidence}");
+    }
+
+
+
+    fn icon_rules(idb_line: &str) -> Vec<Rule> {
+        let idb_block = if idb_line.is_empty() {
+            String::new()
+        } else {
+            format!("          - \"{idb_line}\"\n")
+        };
+        let yaml = format!(
+            r#"
+name: pe-icon
+rules:
+  - id: T_ICON_0001
+    title: icon fingerprint
+    severity: low
+    conditions:
+      - type: pe_icon_any
+        dhash: ["0000000000000000"]
+        dhash_max_distance: 0
+        idb:
+{idb_block}"#
+        );
+        let parsed: YamlRulesFile = yaml_serde::from_str(&yaml).expect("pe_icon yaml must parse");
+        parsed.rules
+    }
+
+    #[test]
+    fn pe_icon_matches_via_idb_fingerprint() {
+        let Ok(bytes) = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../clamav/unit_tests/input/pe_allmatch/test.exe"
+        )) else {
+            return;
+        };
+        let idb = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../clamav/unit_tests/input/pe_allmatch/weak-sigs/sig00.idb"
+        ))
+        .unwrap();
+        let idb_line = idb.lines().next().unwrap().trim().to_string();
+        let rules = icon_rules(&idb_line);
+
+        let evidence = eval_cond(&rules[0].conditions[0], &bytes)
+            .expect("test.exe must match its own .idb fingerprint");
+        assert!(evidence.contains("IDB_16x16x32"), "{evidence}");
+        assert!(evidence.contains("confidence"), "{evidence}");
+    }
+
+    #[test]
+    fn pe_icon_does_not_match_without_the_right_group() {
+        let Ok(bytes) = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../clamav/unit_tests/input/pe_allmatch/test.exe")) else { return };
+        let idb_line = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../clamav/unit_tests/input/pe_allmatch/weak-sigs/sig00.idb"
+        )).unwrap().lines().next().unwrap().trim().to_string();
+
+        // A fingerprint that is present, but the rule only accepts a group the
+        // signature is not in.
+        let yaml = format!(
+            r#"
+name: pe-icon
+rules:
+  - id: T_ICON_0002
+    title: wrong group
+    severity: low
+    conditions:
+      - type: pe_icon_any
+        dhash: []
+        idb:
+          - \"{idb_line}\"
+        idb_groups: [SOME_OTHER_GROUP]
+"#
+        );
+        let parsed: YamlRulesFile = yaml_serde::from_str(&yaml).expect("must parse");
+        assert!(eval_cond(&parsed.rules[0].conditions[0], &bytes).is_none());
+    }
+
+    #[test]
+    fn pe_icon_ignores_a_non_pe() {
+        let rules = icon_rules("nonsense");
+        assert!(eval_cond(&rules[0].conditions[0], b"just some text").is_none());
     }
 
 

@@ -8,9 +8,10 @@ use crate::headers::{
 use crate::sections::Section;
 use crate::directories::{
     ImportDirectory, ImportSymbol, ExportDirectory, ExportSymbol,
-    ResourceDirectory,
+    ResourceDirectory, ResourceEntry,
     DebugEntry, TlsDirectory, LoadConfigDirectory, RelocationBlock,
 };
+use crate::directories::{read_resource_data_entry, read_resource_dir_string};
 use crate::utils::calculate_entropy;
 
 #[derive(Debug, Clone)]
@@ -246,6 +247,7 @@ impl PE {
         pe.parse_exports();
         pe.parse_debug();
         pe.parse_tls();
+        pe.parse_resources();
 
         Ok(pe)
     }
@@ -294,6 +296,22 @@ impl PE {
         } else {
             None
         }
+    }
+
+    /// Like [`Self::get_data`] but clamps to what is actually present instead of
+    /// returning `None` when the request runs past the end of the file.
+    ///
+    /// Resource directory sizes are attacker-controlled and frequently wrong, so
+    /// callers reading a resource payload want the bytes that exist rather than
+    /// an all-or-nothing failure. `None` is still returned when the RVA itself
+    /// does not map or when no bytes at all are available.
+    pub fn get_data_upto(&self, rva: u32, length: usize) -> Option<&[u8]> {
+        let off = self.get_offset_from_rva(rva).ok()?;
+        let end = off.checked_add(length)?.min(self.raw_data.len());
+        if end <= off {
+            return None;
+        }
+        Some(&self.raw_data[off..end])
     }
 
     pub fn get_entropy(&self) -> f64 {
@@ -500,6 +518,117 @@ impl PE {
             address_of_name_ordinals,
             symbols,
         });
+    }
+
+    /// Walk `IMAGE_RESOURCE_DIRECTORY` (index `DIRECTORY_ENTRY_RESOURCE`).
+    ///
+    /// The tree is always three levels deep: type -> name/id -> language ->
+    /// `IMAGE_RESOURCE_DATA_ENTRY`, and every offset inside it is relative to
+    /// the resource directory's own RVA rather than the file. Entry names are
+    /// `IMAGE_RESOURCE_DIR_STRING_U` (UTF-16LE with a 16-bit length) when the
+    /// high bit of the id field is set, and plain integers otherwise.
+    fn parse_resources(&mut self) {
+        use crate::headers::DIRECTORY_ENTRY_RESOURCE;
+
+        if self.optional_header.data_directories.len() <= DIRECTORY_ENTRY_RESOURCE {
+            return;
+        }
+        let res_dir = &self.optional_header.data_directories[DIRECTORY_ENTRY_RESOURCE];
+        if res_dir.virtual_address == 0 || res_dir.size == 0 {
+            return;
+        }
+        let Ok(base) = self.get_offset_from_rva(res_dir.virtual_address) else {
+            return;
+        };
+
+        let root = self.read_resource_directory(base, base, res_dir.virtual_address, 0);
+        if let Some(root) = root {
+            self.resources = Some(root);
+        }
+    }
+
+    /// Read one `IMAGE_RESOURCE_DIRECTORY` and, recursively, its children.
+    /// `depth` guards against a crafted file whose subdirectory offsets loop
+    /// back on themselves.
+    fn read_resource_directory(
+        &self,
+        file_off: usize,
+        base: usize,
+        dir_rva: u32,
+        depth: usize,
+    ) -> Option<ResourceDirectory> {
+        const MAX_DEPTH: usize = 3;
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        let raw = &self.raw_data;
+        if file_off.checked_add(16)? > raw.len() {
+            return None;
+        }
+
+        let read_u16 = |off: usize| -> Option<u16> {
+            raw.get(off..off + 2)
+                .map(|s| u16::from_le_bytes([s[0], s[1]]))
+        };
+        let read_u32 = |off: usize| -> Option<u32> {
+            raw.get(off..off + 4)
+                .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+        };
+
+        let characteristics = read_u32(file_off)?;
+        let time_date_stamp = read_u32(file_off + 4)?;
+        let major_version = read_u16(file_off + 8)?;
+        let minor_version = read_u16(file_off + 10)?;
+        let named_count = read_u16(file_off + 12)? as usize;
+        let id_count = read_u16(file_off + 14)? as usize;
+        let total = named_count.saturating_add(id_count);
+        if total > 4096 {
+            return None;
+        }
+
+        let mut entries = Vec::with_capacity(total);
+        for i in 0..total {
+            let entry_off = match file_off.checked_add(16 + i * 8) {
+                Some(o) if o + 8 <= raw.len() => o,
+                _ => break,
+            };
+            let Some(name_field) = read_u32(entry_off) else { break };
+            let Some(target) = read_u32(entry_off + 4) else { break };
+
+            // Names come first in the table, then ids; keep them in file order.
+            let is_name = name_field & 0x8000_0000 != 0;
+            let id = name_field & 0x7fff_ffff;
+            let name = if is_name {
+                read_resource_dir_string(raw, base, id)
+            } else {
+                None
+            };
+
+            let child = if target & 0x8000_0000 != 0 {
+                let child_rva = (target & 0x7fff_ffff).checked_add(dir_rva)?;
+                let child_off = self.get_offset_from_rva(child_rva).ok()?;
+                self.read_resource_directory(child_off, base, dir_rva, depth + 1)
+                    .map(Box::new)
+                    .map(ResourceEntry::Directory)
+            } else {
+                let leaf_off = (target as usize).checked_add(base)?;
+                read_resource_data_entry(raw, leaf_off).map(ResourceEntry::Data)
+            };
+
+            if let Some(child) = child {
+                entries.push((id, name, child));
+            }
+        }
+
+        Some(ResourceDirectory {
+            characteristics,
+            time_date_stamp,
+            major_version,
+            minor_version,
+            id: 0,
+            name: None,
+            entries,
+        })
     }
 
     fn parse_debug(&mut self) {
