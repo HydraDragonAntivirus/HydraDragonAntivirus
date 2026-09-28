@@ -764,6 +764,27 @@ namespace {
 		static std::atomic<bool> s_enableDllAttackChain{true};
 		static std::atomic<bool> s_quarantineUnknownDll{true};
 		static std::atomic<bool> s_scanAllModulesIndiscriminately{false};
+		static std::atomic<bool> s_cloudFirst{false};
+		static std::atomic<int> s_cleanVerdict{1};
+		static std::atomic<int> s_malwareVerdict{2};
+		static std::atomic<int> s_unknownVerdictDefault{0};
+		static std::atomic<int> s_unknownReputationVerdict{3};
+		static std::atomic<int> s_staticUnknownVerdict{4};
+		static std::vector<int> s_unknownVerdicts{0, 3, 4};
+		static std::mutex s_unknownVerdictsMutex;
+
+		static bool isUnknownVerdict(int v)
+		{
+			{
+				std::lock_guard<std::mutex> lock(s_unknownVerdictsMutex);
+				for (int uv : s_unknownVerdicts)
+				{
+					if (v == uv) return true;
+				}
+			}
+			return (v != s_cleanVerdict.load(std::memory_order_relaxed) &&
+			        v != s_malwareVerdict.load(std::memory_order_relaxed));
+		}
 		static std::vector<std::wstring> s_vulnerablePortFragments;
 		static std::unordered_set<std::wstring> s_knownPorts;
 
@@ -840,9 +861,30 @@ namespace {
 			if (keyPos == std::string::npos) return defaultVal;
 			size_t colon = content.find(':', keyPos);
 			if (colon == std::string::npos) return defaultVal;
-			size_t numStart = content.find_first_of("0123456789", colon);
+			size_t numStart = content.find_first_of("0123456789-", colon);
 			if (numStart == std::string::npos) return defaultVal;
 			return std::atoi(content.c_str() + numStart);
+		}
+
+		static std::vector<int> extractIntArrayFromCfg(const std::string& content, const std::string& key, const std::vector<int>& defaultVal)
+		{
+			size_t keyPos = content.find("\"" + key + "\"");
+			if (keyPos == std::string::npos) return defaultVal;
+			size_t openB = content.find('[', keyPos);
+			if (openB == std::string::npos) return defaultVal;
+			size_t closeB = content.find(']', openB);
+			if (closeB == std::string::npos) return defaultVal;
+			std::string sub = content.substr(openB + 1, closeB - openB - 1);
+			std::vector<int> res;
+			std::stringstream ss(sub);
+			std::string item;
+			while (std::getline(ss, item, ','))
+			{
+				size_t pos = item.find_first_of("0123456789-");
+				if (pos != std::string::npos)
+					res.push_back(std::atoi(item.c_str() + pos));
+			}
+			return res.empty() ? defaultVal : res;
 		}
 
 		static std::vector<std::wstring> extractArrayFromPtm(const std::string& content, const std::string& arrayKey)
@@ -929,12 +971,25 @@ namespace {
 				s_enableDllAttackChain.store(extractBoolFromCfg(content, "enableDllAttackChain", true), std::memory_order_relaxed);
 				s_quarantineUnknownDll.store(extractBoolFromCfg(content, "quarantineUnknownDll", true), std::memory_order_relaxed);
 				s_scanAllModulesIndiscriminately.store(extractBoolFromCfg(content, "scanAllModulesIndiscriminately", false), std::memory_order_relaxed);
+				s_cloudFirst.store(extractBoolFromCfg(content, "cloudFirst", false) || extractBoolFromCfg(content, "preferCloudScan", false), std::memory_order_relaxed);
+
+				s_cleanVerdict.store(extractIntFromPtm(content, "cleanVerdict", 1), std::memory_order_relaxed);
+				s_malwareVerdict.store(extractIntFromPtm(content, "malwareVerdict", 2), std::memory_order_relaxed);
+				s_unknownVerdictDefault.store(extractIntFromPtm(content, "unknownVerdictDefault", 0), std::memory_order_relaxed);
+				s_unknownReputationVerdict.store(extractIntFromPtm(content, "unknownReputationVerdict", 3), std::memory_order_relaxed);
+				s_staticUnknownVerdict.store(extractIntFromPtm(content, "staticUnknownVerdict", 4), std::memory_order_relaxed);
+				{
+					std::lock_guard<std::mutex> lock(s_unknownVerdictsMutex);
+					s_unknownVerdicts = extractIntArrayFromCfg(content, "unknownVerdicts", {0, 3, 4});
+				}
 
 				LOGLVL(Info, FMT("enricher: Dynamically loaded scanner config from edrsvc.cfg: trustMode="
 					<< s_configuredTrustMode.load()
 					<< ", scanUnknownModules=" << s_scanUnknownModules.load()
 					<< ", dotNetLoader=" << s_enableDotNetLoaderDetection.load()
-					<< ", scanAllModulesIndiscriminately=" << s_scanAllModulesIndiscriminately.load()));
+					<< ", cloudFirst=" << s_cloudFirst.load()
+					<< ", cleanVerdict=" << s_cleanVerdict.load()
+					<< ", unknownDefault=" << s_unknownVerdictDefault.load()));
 				break;
 			}
 
@@ -1295,12 +1350,12 @@ namespace {
 					{
 						// 1. Check Comodo FLS Trust
 						int flsVerdict = DetectionNotifier::getCachedFileVerdict(modPath);
-						if (flsVerdict == 0)
+						if (isUnknownVerdict(flsVerdict))
 						{
 							std::string threat;
 							flsVerdict = DetectionNotifier::scanFileWithLocalEngines(modPath, threat);
 						}
-						modFlsClean = (flsVerdict == 1);
+						modFlsClean = (flsVerdict == s_cleanVerdict.load(std::memory_order_relaxed));
 						if (!modFlsClean)
 						{
 							res.hasUnknownDllComodo = true;
@@ -3832,9 +3887,10 @@ void EventEnricher::put(const Variant& vEventRef)
 
 	// Dual Trust & Unknown DLL Evaluation (Comodo FLS vs Microsoft/Authenticode Certificate):
 	auto modRes = DriverPortHips::InspectProcessModules(nActorPid, sProcPath);
-	bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == 1) ||
-	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == 1) ||
-	                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
+	int cleanCode = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
+	bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == cleanCode) ||
+	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanCode) ||
+	                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == cleanCode);
 	std::string procVendor;
 	bool procIsMsOrTrusted = false;
 	bool isProcSigned = DriverPortHips::VerifyFileCertificateOffline(Widen(sProcPath), procVendor, procIsMsOrTrusted);
@@ -3921,7 +3977,8 @@ void EventEnricher::put(const Variant& vEventRef)
 		if (!sFilePathCheck.empty())
 		{
 			int fileFlsVerdict = DetectionNotifier::getCachedFileVerdict(sFilePathCheck);
-			bool isFileFlsClean = (fileFlsVerdict == 1);
+			bool isFileFlsClean = (fileFlsVerdict == DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed));
+			bool isFileUnknown = DriverPortHips::isUnknownVerdict(fileFlsVerdict);
 			std::string fileVendor;
 			bool fileIsMsOrTrusted = false;
 			bool isFileSigned = DriverPortHips::VerifyFileCertificateOffline(Widen(sFilePathCheck), fileVendor, fileIsMsOrTrusted);
@@ -3929,9 +3986,9 @@ void EventEnricher::put(const Variant& vEventRef)
 
 			vParams.put("isTrustedAccordingToFls", isFileFlsClean);
 			vParams.put("isTrustedAccordingToCertificate", isFileCertTrusted);
-			vParams.put("isUnknownAccordingToComodo", !isFileFlsClean);
+			vParams.put("isUnknownAccordingToComodo", isFileUnknown);
 			vParams.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
-			vEvent.put("isUnknownAccordingToComodo", !isFileFlsClean);
+			vEvent.put("isUnknownAccordingToComodo", isFileUnknown);
 			vEvent.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
 		}
 
@@ -4595,13 +4652,14 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 	{
 		Variant vProc = vEvent.has("process") ? vEvent.get("process") :
 			(vEvent.has("childProcess") ? vEvent.get("childProcess") : Variant());
+		int64_t nClean = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
 		if (vProc.isDictionaryLike())
 		{
 			int64_t v = 0;
 			if (vProc.has("verdict")) {
 				try { v = static_cast<int64_t>(vProc["verdict"]); } catch (...) {}
 			}
-			if (v == 1) return false; // Verified clean process -> routine queue
+			if (v == nClean) return false; // Verified clean process -> routine queue
 
 			std::string pPath = vProc.has("imagePath") ? std::string(vProc["imagePath"]) :
 				(vProc.has("path") ? std::string(vProc["path"]) :
@@ -4609,7 +4667,7 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 			if (!pPath.empty())
 			{
 				std::string dos = DetectionNotifier::NtPathToDosPathString(pPath);
-				if (DetectionNotifier::getCachedFileVerdict(dos) == 1)
+				if (DetectionNotifier::getCachedFileVerdict(dos) == nClean)
 					return false; // Cached clean -> routine queue
 			}
 		}
@@ -4639,11 +4697,12 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 			auto vPInfo = m_pProcProvider->getProcessInfoByPid(srcPid);
 			if (vPInfo.isDictionaryLike())
 			{
+				int64_t nClean = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
 				int64_t v = 0;
 				if (vPInfo.has("verdict")) {
 					try { v = static_cast<int64_t>(vPInfo["verdict"]); } catch (...) {}
 				}
-				if (v == 1)
+				if (v == nClean)
 					return false;
 
 				std::string img = vPInfo.has("imagePath") ? std::string(vPInfo["imagePath"]) :
@@ -4651,7 +4710,7 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 				if (!img.empty())
 				{
 					std::string dos = DetectionNotifier::NtPathToDosPathString(img);
-					if (DetectionNotifier::getCachedFileVerdict(dos) == 1)
+					if (DetectionNotifier::getCachedFileVerdict(dos) == nClean)
 						return false;
 				}
 			}
@@ -4668,12 +4727,13 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 
 	if (vProc.isDictionaryLike())
 	{
+		int64_t nClean = DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed);
 		int64_t nProcVerdict = 0;
 		if (vProc.has("verdict")) {
 			try { nProcVerdict = static_cast<int64_t>(vProc["verdict"]); } catch (...) {}
 		}
-		// Any process not verified clean (1) is prioritized as unknown/untrusted
-		if (nProcVerdict != 1)
+		// Any process not verified clean is prioritized as unknown/untrusted
+		if (nProcVerdict != nClean)
 		{
 			std::string pPath;
 			if (vProc.has("imagePath")) pPath = std::string(vProc["imagePath"]);
@@ -4681,7 +4741,7 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 			if (!pPath.empty())
 			{
 				std::string dos = DetectionNotifier::NtPathToDosPathString(pPath);
-				if (DetectionNotifier::getCachedFileVerdict(dos) != 1)
+				if (DetectionNotifier::getCachedFileVerdict(dos) != nClean)
 					return true;
 			}
 			else

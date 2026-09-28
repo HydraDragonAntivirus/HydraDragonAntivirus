@@ -48,6 +48,7 @@ type
     FRoot: WideString;
     FCount: Integer;
     FScanFn: TScanFileFn;
+    FCloudFirst: Boolean;
     FOnePath: string;
     FOneVerdict: TScanVerdict;
     FOneDetail: string;
@@ -57,13 +58,14 @@ type
     procedure TouchOne(const APath: WideString);
     procedure ScanOneFile(const APath: WideString);
     function RpcCheckKnown(const APathUtf8: string; out AHash: string): Boolean;
+    function RpcCheckCloudReputation(const APathUtf8: string; out AVerdict: Integer; out AName: string): Boolean;
     procedure ScanRegTarget(const ATarget: WideString);
     procedure ScanRegKey(ARoot: HKEY; const AKey: WideString);
   protected
     procedure Execute; override;
   public
     constructor Create(AScanForm: TScanForm; AMode: TScanMode;
-      const ARoot: WideString; AScanFn: TScanFileFn);
+      const ARoot: WideString; AScanFn: TScanFileFn; ACloudFirst: Boolean = True);
   end;
 
   { TScanForm }
@@ -86,6 +88,7 @@ type
     BrowseBtn: TButton;
     StartBtn: TButton;
     CancelBtn: TButton;
+    ChkCloudFirst: TCheckBox;
     ScanProgress: TProgressBar;
     StatusLbl: TLabel;
     SummaryLbl: TLabel;
@@ -257,7 +260,7 @@ end;
 { TScanTouchThread }
 
 constructor TScanTouchThread.Create(AScanForm: TScanForm; AMode: TScanMode;
-  const ARoot: WideString; AScanFn: TScanFileFn);
+  const ARoot: WideString; AScanFn: TScanFileFn; ACloudFirst: Boolean = True);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
@@ -266,6 +269,7 @@ begin
   FRoot := ARoot;
   FCount := 0;
   FScanFn := AScanFn;
+  FCloudFirst := ACloudFirst;
 end;
 
 procedure TScanTouchThread.PushProgress;
@@ -327,6 +331,44 @@ begin
   end;
 end;
 
+function TScanTouchThread.RpcCheckCloudReputation(const APathUtf8: string; out AVerdict: Integer; out AName: string): Boolean;
+var
+  Req, Resp: string;
+  j, resArr, item, vNode, nameNode: TJSONData;
+begin
+  Result := False;
+  AVerdict := 0;
+  AName := '';
+  try
+    Req := '{"jsonrpc":"2.0","id":1,"method":"getFileReputationBulk","params":{"paths":["' +
+      EscapeJson(APathUtf8) + '"]}}';
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        resArr := j.FindPath('result.results');
+        if (resArr <> nil) and (resArr.Count > 0) then
+        begin
+          item := resArr.Items[0];
+          vNode := item.FindPath('verdict');
+          if vNode <> nil then
+          begin
+            AVerdict := vNode.AsInteger;
+            nameNode := item.FindPath('local_name');
+            if nameNode <> nil then
+              AName := nameNode.AsString;
+            Result := True;
+          end;
+        end;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
 procedure TScanTouchThread.PushOne;
 var
   Item: TListItem;
@@ -353,9 +395,10 @@ end;
 
 procedure TScanTouchThread.ScanOneFile(const APath: WideString);
 var
-  v: Integer;
-  h: string;
-  u8: string;
+  v, cloudVer: Integer;
+  h, cloudName: string;
+  u8, ext: string;
+  isExeWithoutDll: Boolean;
 begin
   if Terminated then
     Exit;
@@ -368,25 +411,76 @@ begin
   FOnePath := u8;
   FOneVerdict := svUnknown;
   FOneDetail := 'Static: unknown';
-  if Assigned(FScanFn) then
+
+  ext := LowerCase(ExtractFileExt(string(APath)));
+  isExeWithoutDll := (ext = '.exe') and (Pos('.dll', LowerCase(string(APath))) = 0);
+
+  // Cloud-First mode for standalone executables (dllsiz her exe):
+  if isExeWithoutDll and FCloudFirst then
   begin
-    v := FScanFn(PWideChar(APath), Cardinal(Length(APath)));
-    if v = 2 then
+    // Check Cloud FLS / Known malware first
+    if RpcCheckKnown(u8, h) then
     begin
-      FOneVerdict := svMalicious;
-      FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+      FOneVerdict := svKnown;
+      FOneDetail := 'Cloud-First: Known-malware database';
     end
-    else if v = 1 then
+    else if RpcCheckCloudReputation(u8, cloudVer, cloudName) then
     begin
-      FOneVerdict := svSafe;
-      FOneDetail := 'Static: clean/trusted';
+      if cloudVer = 2 then
+      begin
+        FOneVerdict := svMalicious;
+        if cloudName <> '' then
+          FOneDetail := 'Cloud-First: ' + cloudName
+        else
+          FOneDetail := 'Cloud-First: Cloud FLS Malicious verdict';
+      end
+      else if cloudVer = 1 then
+      begin
+        FOneVerdict := svSafe;
+        FOneDetail := 'Cloud-First: Cloud FLS Clean / Whitelisted';
+      end;
+    end;
+
+    // If Cloud did not provide definitive verdict, fall back to local openedr_static:
+    if (FOneVerdict = svUnknown) and Assigned(FScanFn) then
+    begin
+      v := FScanFn(PWideChar(APath), Cardinal(Length(APath)));
+      if v = 2 then
+      begin
+        FOneVerdict := svMalicious;
+        FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+      end
+      else if v = 1 then
+      begin
+        FOneVerdict := svSafe;
+        FOneDetail := 'Static: clean/trusted';
+      end;
+    end;
+  end
+  else
+  begin
+    // Standard order: Local openedr_static first
+    if Assigned(FScanFn) then
+    begin
+      v := FScanFn(PWideChar(APath), Cardinal(Length(APath)));
+      if v = 2 then
+      begin
+        FOneVerdict := svMalicious;
+        FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+      end
+      else if v = 1 then
+      begin
+        FOneVerdict := svSafe;
+        FOneDetail := 'Static: clean/trusted';
+      end;
+    end;
+    if (FOneVerdict = svUnknown) and RpcCheckKnown(u8, h) then
+    begin
+      FOneVerdict := svKnown;
+      FOneDetail := 'Known-malware database';
     end;
   end;
-  if (FOneVerdict = svUnknown) and RpcCheckKnown(u8, h) then
-  begin
-    FOneVerdict := svKnown;
-    FOneDetail := 'Known-malware database';
-  end;
+
   // Only list actionable hits immediately; unknowns stay visible via
   // pipeline polling. Always count the touch for progress.
   Inc(FCount);
@@ -743,7 +837,7 @@ begin
   StartBtn.Enabled := False;
   CancelBtn.Enabled := True;
   StatusLbl.Caption := 'Scanning...';
-  FThread := TScanTouchThread.Create(Self, Mode, Root, FScanFn);
+  FThread := TScanTouchThread.Create(Self, Mode, Root, FScanFn, ChkCloudFirst.Checked);
   FThread.OnTerminate := @TouchDone;
   FThread.Start;
   PollTimer.Enabled := True;

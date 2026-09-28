@@ -334,6 +334,84 @@ bool DetectionNotifier::isKnownMalware(const std::string& sPath, const std::stri
 	return false;
 }
 
+std::atomic<bool> DetectionNotifier::s_cloudFirst{false};
+std::atomic<int> DetectionNotifier::s_cleanVerdict{1};
+std::atomic<int> DetectionNotifier::s_malwareVerdict{2};
+std::atomic<int> DetectionNotifier::s_unknownVerdictDefault{0};
+std::atomic<int> DetectionNotifier::s_unknownReputationVerdict{3};
+std::atomic<int> DetectionNotifier::s_staticUnknownVerdict{4};
+std::vector<int> DetectionNotifier::s_unknownVerdicts{0, 3, 4};
+std::mutex DetectionNotifier::s_unknownVerdictsMtx;
+
+bool DetectionNotifier::isUnknownVerdict(int v)
+{
+	{
+		std::lock_guard<std::mutex> lock(s_unknownVerdictsMtx);
+		for (int uv : s_unknownVerdicts)
+		{
+			if (v == uv) return true;
+		}
+	}
+	return (v != s_cleanVerdict.load(std::memory_order_relaxed) &&
+	        v != s_malwareVerdict.load(std::memory_order_relaxed));
+}
+
+void DetectionNotifier::loadScannerConfigFromCfg(const std::string& content)
+{
+	auto extractInt = [](const std::string& s, const std::string& key, int def) -> int {
+		size_t kp = s.find("\"" + key + "\"");
+		if (kp == std::string::npos) return def;
+		size_t colon = s.find(':', kp);
+		if (colon == std::string::npos) return def;
+		size_t num = s.find_first_of("0123456789-", colon);
+		if (num == std::string::npos) return def;
+		return std::atoi(s.c_str() + num);
+	};
+	auto extractBool = [](const std::string& s, const std::string& key, bool def) -> bool {
+		size_t kp = s.find("\"" + key + "\"");
+		if (kp == std::string::npos) return def;
+		size_t colon = s.find(':', kp);
+		if (colon == std::string::npos) return def;
+		size_t vpos = s.find_first_not_of(" \t\r\n", colon + 1);
+		if (vpos == std::string::npos) return def;
+		if (s.compare(vpos, 4, "true") == 0) return true;
+		if (s.compare(vpos, 5, "false") == 0) return false;
+		return def;
+	};
+
+	s_cloudFirst.store(extractBool(content, "cloudFirst", false) || extractBool(content, "preferCloudScan", false), std::memory_order_relaxed);
+	s_cleanVerdict.store(extractInt(content, "cleanVerdict", 1), std::memory_order_relaxed);
+	s_malwareVerdict.store(extractInt(content, "malwareVerdict", 2), std::memory_order_relaxed);
+	s_unknownVerdictDefault.store(extractInt(content, "unknownVerdictDefault", 0), std::memory_order_relaxed);
+	s_unknownReputationVerdict.store(extractInt(content, "unknownReputationVerdict", 3), std::memory_order_relaxed);
+	s_staticUnknownVerdict.store(extractInt(content, "staticUnknownVerdict", 4), std::memory_order_relaxed);
+
+	size_t kp = content.find("\"unknownVerdicts\"");
+	if (kp != std::string::npos)
+	{
+		size_t ob = content.find('[', kp);
+		size_t cb = content.find(']', ob);
+		if (ob != std::string::npos && cb != std::string::npos)
+		{
+			std::string sub = content.substr(ob + 1, cb - ob - 1);
+			std::vector<int> res;
+			std::stringstream ss(sub);
+			std::string item;
+			while (std::getline(ss, item, ','))
+			{
+				size_t pos = item.find_first_of("0123456789-");
+				if (pos != std::string::npos)
+					res.push_back(std::atoi(item.c_str() + pos));
+			}
+			if (!res.empty())
+			{
+				std::lock_guard<std::mutex> lock(s_unknownVerdictsMtx);
+				s_unknownVerdicts = std::move(res);
+			}
+		}
+	}
+}
+
 //
 //
 //
@@ -349,6 +427,21 @@ void DetectionNotifier::finalConstruct(Variant vConfig)
 		m_nMaxSize = 1;
 
 	loadPersistentMalwareDb();
+
+	// Load scanner config from edrsvc.cfg if present
+	for (const auto* p : { "edrsvc.cfg", "data\\edrsvc.cfg", "..\\data\\edrsvc.cfg", "OpenEDR\\edrav2\\iprj\\edrsvc\\data\\edrsvc.cfg" })
+	{
+		std::ifstream ifs(p, std::ios::binary);
+		if (ifs.is_open())
+		{
+			std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+			if (!content.empty())
+			{
+				loadScannerConfigFromCfg(content);
+				break;
+			}
+		}
+	}
 
 	TRACE_END("Error during configuration");
 }
@@ -1107,11 +1200,96 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		}
 	}
 
-	int verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
-	if (verdict == 4)
+	bool isExeWithoutDll = false;
+	size_t dotPos = lowerPath.rfind('.');
+	if (dotPos != std::string::npos)
+	{
+		std::string ext = lowerPath.substr(dotPos);
+		if (ext == ".exe" && lowerPath.find(".dll") == std::string::npos)
+		{
+			isExeWithoutDll = true;
+		}
+	}
+
+	int verdict = 0;
+	bool preferCloud = s_cloudFirst.load(std::memory_order_relaxed);
+	int cleanCode = s_cleanVerdict.load(std::memory_order_relaxed);
+	int malCode = s_malwareVerdict.load(std::memory_order_relaxed);
+
+	// Cloud-First order for standalone EXEs (dllsiz her exe)
+	if (isExeWithoutDll && preferCloud)
+	{
+		// 1. Check Comodo Cloud FLS first
+		std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
+		if (!sHash.empty())
+		{
+			try
+			{
+				auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
+				if (pFls)
+				{
+					auto cv = pFls->getFileVerdict(sHash);
+					int nCv = static_cast<int>(cv);
+					if (nCv == cleanCode)
+					{
+						verdict = cleanCode;
+						sThreatNameOut = "Cloud.FLS.Clean";
+					}
+					else if (nCv == malCode)
+					{
+						verdict = malCode;
+						sThreatNameOut = "Cloud.FLS.Malware";
+					}
+				}
+			}
+			catch (...) {}
+		}
+
+		// 2. If Cloud was unknown / unrated, fall back to local openedr_static
+		if (verdict == 0 || isUnknownVerdict(verdict))
+		{
+			verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+		}
+	}
+	else
+	{
+		// Local openedr_static scan first
+		verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+
+		// If local engine returned unknown verdict, consult Cloud FLS
+		if (isUnknownVerdict(verdict))
+		{
+			std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
+			if (!sHash.empty())
+			{
+				try
+				{
+					auto pFls = queryInterface<cmd::cloud::fls::IFlsClient>(queryService("flsService"));
+					if (pFls)
+					{
+						auto cv = pFls->getFileVerdict(sHash);
+						int nCv = static_cast<int>(cv);
+						if (nCv == cleanCode)
+						{
+							verdict = cleanCode;
+							sThreatNameOut = "Cloud.FLS.Clean";
+						}
+						else if (nCv == malCode)
+						{
+							verdict = malCode;
+							sThreatNameOut = "Cloud.FLS.Malware";
+						}
+					}
+				}
+				catch (...) {}
+			}
+		}
+	}
+
+	if (isUnknownVerdict(verdict))
 	{
 		sThreatNameOut.clear();
-		return 0;
+		return s_unknownVerdictDefault.load(std::memory_order_relaxed);
 	}
 
 	if (hasIdentity && verdict > 0)
@@ -2011,7 +2189,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 						continue;
 					std::string sHash;
 					std::string sLocalHash;
-					int nVerdict = 3; // Unknown by default
+					int nVerdict = s_unknownReputationVerdict.load(std::memory_order_relaxed);
 					if (!bulkHashOverBudget(sPath))
 					{
 						sHash = sha1HexOfFileUtf8(sPath);
@@ -2027,23 +2205,23 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 								}
 								catch (...)
 								{
-									nVerdict = 4; // Cloud lookup failed
+									nVerdict = s_staticUnknownVerdict.load(std::memory_order_relaxed);
 								}
 							}
 							else
 							{
-								nVerdict = 4; // Offline / Lookup failed
+								nVerdict = s_staticUnknownVerdict.load(std::memory_order_relaxed);
 							}
 						}
 					}
-					int nLocal = 4; // Reputation does not launch local scans.
+					int nLocal = s_staticUnknownVerdict.load(std::memory_order_relaxed);
 					std::string sLocalName;
 					try
 					{
 						if (DetectionNotifier::isKnownMalware(sPath, sLocalHash))
 						{
 							sLocalName = "Previously recorded local detection";
-							nLocal = 2;
+							nLocal = s_malwareVerdict.load(std::memory_order_relaxed);
 						}
 					}
 					catch (...) {}
@@ -2240,6 +2418,42 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	if (vCommand == "getZeroTrustStatus")
 	{
 		return Dictionary({ {"enabled", DetectionNotifier::isZeroTrustEnabled()} });
+	}
+
+	if (vCommand == "setScannerConfig")
+	{
+		if (vParams.isDictionaryLike())
+		{
+			if (vParams.has("cloudFirst"))
+				s_cloudFirst.store(vParams.get("cloudFirst", false), std::memory_order_relaxed);
+			if (vParams.has("preferCloudScan"))
+				s_cloudFirst.store(vParams.get("preferCloudScan", false), std::memory_order_relaxed);
+			if (vParams.has("cleanVerdict"))
+				s_cleanVerdict.store(vParams.get("cleanVerdict", 1), std::memory_order_relaxed);
+			if (vParams.has("malwareVerdict"))
+				s_malwareVerdict.store(vParams.get("malwareVerdict", 2), std::memory_order_relaxed);
+			if (vParams.has("unknownVerdictDefault"))
+				s_unknownVerdictDefault.store(vParams.get("unknownVerdictDefault", 0), std::memory_order_relaxed);
+		}
+		return Dictionary({
+			{"success", true},
+			{"cloudFirst", s_cloudFirst.load()},
+			{"cleanVerdict", s_cleanVerdict.load()},
+			{"malwareVerdict", s_malwareVerdict.load()}
+		});
+	}
+
+	if (vCommand == "getScannerConfig")
+	{
+		return Dictionary({
+			{"success", true},
+			{"cloudFirst", s_cloudFirst.load()},
+			{"cleanVerdict", s_cleanVerdict.load()},
+			{"malwareVerdict", s_malwareVerdict.load()},
+			{"unknownVerdictDefault", s_unknownVerdictDefault.load()},
+			{"unknownReputationVerdict", s_unknownReputationVerdict.load()},
+			{"staticUnknownVerdict", s_staticUnknownVerdict.load()}
+		});
 	}
 
 	error::OperationNotSupported(SL, FMT("Unsupported command <" << vCommand << ">")).throwException();

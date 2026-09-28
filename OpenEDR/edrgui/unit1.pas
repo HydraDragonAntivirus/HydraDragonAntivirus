@@ -41,6 +41,7 @@ type
     MenuPauseResume: TMenuItem;
     MenuMitmToggle: TMenuItem;
     MenuZeroTrust: TMenuItem;
+    MenuCloudFirstToggle: TMenuItem;
     MenuQuarantine: TMenuItem;
     MenuReputation: TMenuItem;
     MenuVirusKovAlyzer: TMenuItem;
@@ -55,6 +56,7 @@ type
     procedure MenuPauseResumeClick(Sender: TObject);
     procedure MenuMitmToggleClick(Sender: TObject);
     procedure MenuZeroTrustClick(Sender: TObject);
+    procedure MenuCloudFirstToggleClick(Sender: TObject);
     procedure MenuQuarantineClick(Sender: TObject);
     procedure QuarFormClosed(Sender: TObject; var CloseAction: TCloseAction);
     procedure MenuReputationClick(Sender: TObject);
@@ -72,6 +74,7 @@ type
     FProtectionPaused: Boolean;
     FMitmEnabled: Boolean;
     FZeroTrustEnabled: Boolean;
+    FCloudFirstEnabled: Boolean;
     FQuarForm: TQuarForm;
     FRepForm: TRepForm;
     FBehaviorLogs: TStringList;
@@ -86,6 +89,9 @@ type
     function ReadZeroTrustEnabled: Boolean;
     procedure WriteZeroTrustEnabled(AEnabled: Boolean);
     procedure SetZeroTrustCaption(AEnabled: Boolean);
+    function ReadCloudFirstEnabled: Boolean;
+    procedure WriteCloudFirstEnabled(AEnabled: Boolean);
+    procedure SetCloudFirstCaption(AEnabled: Boolean);
     procedure RunCommand(ACmd: TSvcCommand);
     procedure OnCommandDone(Sender: TObject; Cmd: TSvcCommand;
       Success: Boolean; ExitCode: DWORD; const Output: string);
@@ -160,11 +166,19 @@ begin
   FZeroTrustEnabled := False;
   SetZeroTrustCaption(ReadZeroTrustEnabled);
 
+  // Cloud-First Scanner Mode toggle (Prefer Cloud FLS before static engine for executables)
+  MenuCloudFirstToggle := TMenuItem.Create(Self);
+  MenuCloudFirstToggle.OnClick := @MenuCloudFirstToggleClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuZeroTrust) + 1,
+    MenuCloudFirstToggle);
+  FCloudFirstEnabled := False;
+  SetCloudFirstCaption(ReadCloudFirstEnabled);
+
   // Quarantine manager screen (list/restore/delete + exclusions).
   MenuQuarantine := TMenuItem.Create(Self);
   MenuQuarantine.Caption := 'Quarantine...';
   MenuQuarantine.OnClick := @MenuQuarantineClick;
-  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuZeroTrust) + 1,
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuCloudFirstToggle) + 1,
     MenuQuarantine);
 
   // File reputation screen (cloud verdicts, display only).
@@ -991,6 +1005,100 @@ end;
 procedure TForm1.MenuZeroTrustClick(Sender: TObject);
 begin
   WriteZeroTrustEnabled(not ReadZeroTrustEnabled);
+end;
+
+// ---------------------------------------------------------------------------
+// Cloud-First Scanner Mode toggle
+//
+// Reads/writes the Cloud-First flag through edrsvc JSON-RPC
+// (getScannerConfig/setScannerConfig on 127.0.0.1:5890). When active,
+// standalone executables (dllsiz her exe) check Cloud FLS before local
+// openedr_static scans.
+// ---------------------------------------------------------------------------
+
+function TForm1.ReadCloudFirstEnabled: Boolean;
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+begin
+  try
+    Req := '{"jsonrpc":"2.0","id":1,"method":"getScannerConfig","params":{}}';
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.cloudFirst');
+        if d <> nil then
+          FCloudFirstEnabled := d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+  end;
+  Result := FCloudFirstEnabled;
+end;
+
+procedure TForm1.WriteCloudFirstEnabled(AEnabled: Boolean);
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+  Applied: Boolean;
+begin
+  if AEnabled then
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setScannerConfig","params":{"cloudFirst":true,"preferCloudScan":true}}'
+  else
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setScannerConfig","params":{"cloudFirst":false,"preferCloudScan":false}}';
+
+  Applied := False;
+  try
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.success');
+        Applied := (d <> nil) and d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+    Applied := False;
+  end;
+
+  FCloudFirstEnabled := AEnabled;
+  SetCloudFirstCaption(AEnabled);
+
+  if AEnabled then
+    TAlertForm.ShowAlert('Scanner Mode: Cloud-First',
+      'Standalone executables will query Cloud FLS before local static scanning.',
+      asInfo, 3000)
+  else
+    TAlertForm.ShowAlert('Scanner Mode: Local-First',
+      'Local static inspection engine takes priority over Cloud FLS.',
+      asInfo, 3000);
+end;
+
+procedure TForm1.SetCloudFirstCaption(AEnabled: Boolean);
+begin
+  if MenuCloudFirstToggle <> nil then
+  begin
+    if AEnabled then
+    begin
+      MenuCloudFirstToggle.Caption := 'Cloud-First Scanner: ENABLED (Disable)';
+      MenuCloudFirstToggle.Checked := True;
+    end
+    else
+    begin
+      MenuCloudFirstToggle.Caption := 'Cloud-First Scanner: Disabled (Enable)';
+      MenuCloudFirstToggle.Checked := False;
+    end;
+  end;
+end;
+
+procedure TForm1.MenuCloudFirstToggleClick(Sender: TObject);
+begin
+  WriteCloudFirstEnabled(not ReadCloudFirstEnabled);
 end;
 
 procedure TForm1.MenuQuarantineClick(Sender: TObject);

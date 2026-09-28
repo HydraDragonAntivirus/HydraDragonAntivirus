@@ -98,6 +98,21 @@ public:
 	static void addRestrictedProcess(uint32_t pid);
 	static bool resumeSuspendedProcess(uint32_t pid);
 
+	///
+	/// Configurable verdict codes loaded from edrsvc.cfg (avoids hardcoded verdict numbers)
+	///
+	static std::atomic<bool> s_cloudFirst;
+	static std::atomic<int> s_cleanVerdict;
+	static std::atomic<int> s_malwareVerdict;
+	static std::atomic<int> s_unknownVerdictDefault;
+	static std::atomic<int> s_unknownReputationVerdict;
+	static std::atomic<int> s_staticUnknownVerdict;
+	static std::vector<int> s_unknownVerdicts;
+	static std::mutex s_unknownVerdictsMtx;
+
+	static bool isUnknownVerdict(int v);
+	static void loadScannerConfigFromCfg(const std::string& content);
+
 	// ICommandProcessor
 
 	/// @copydoc ICommandProcessor::execute(Variant,Variant)

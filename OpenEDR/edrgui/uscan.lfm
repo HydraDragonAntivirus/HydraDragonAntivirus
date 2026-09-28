@@ -184,6 +184,18 @@ object ScanForm: TScanForm
       TabOrder = 1
       OnClick = CancelBtnClick
     end
+    object ChkCloudFirst: TCheckBox
+      Left = 285
+      Height = 22
+      Top = 34
+      Width = 360
+      Caption = 'Cloud-First (Query Cloud FLS before static scan for executables)'
+      Checked = True
+      Font.Color = 3813927
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 4
+    end
     object ScanProgress: TProgressBar
       Left = 18
       Height = 10
