@@ -218,7 +218,7 @@ impl Verdict {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Hashes {
     pub sha256: String,
     pub md5: String,
@@ -514,6 +514,37 @@ pub struct ScanReport {
     /// MITRE ATT&CK techniques mapped from static analysis findings
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre_techniques: Vec<MitreTechnique>,
+}
+
+impl Default for ScanReport {
+    /// An empty report. `scanned_at` is stamped with the current time because
+    /// `DateTime<Utc>` has no `Default`; every other field is zero-valued.
+    fn default() -> Self {
+        Self {
+            path: PathBuf::new(),
+            scanned_at: Utc::now(),
+            file_size: 0,
+            entropy: 0.0,
+            hashes: Hashes::default(),
+            pe: None,
+            file_type: FileTypeInfo::default(),
+            strings: Vec::new(),
+            decoded_strings: Vec::new(),
+            env_hits: Vec::new(),
+            features: BTreeMap::new(),
+            findings: Vec::new(),
+            score: 0,
+            verdict: Verdict::default(),
+            confidence: 0,
+            malware_families: Vec::new(),
+            rule_performance: Vec::new(),
+            result_code: ScanResultCode::default(),
+            statistics: ScanStatistics::default(),
+            archive_members: Vec::new(),
+            threat_name: None,
+            mitre_techniques: Vec::new(),
+        }
+    }
 }
 
 /// MITRE ATT&CK technique mapped from static analysis

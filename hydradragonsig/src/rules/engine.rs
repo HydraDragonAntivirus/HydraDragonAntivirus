@@ -563,6 +563,7 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
             RuleCondition::NativeSignature { atoms, .. } => atoms.len(),
             RuleCondition::StringSet { values, .. } => values.len(),
             RuleCondition::ByteSet { patterns, .. } => patterns.len(),
+            RuleCondition::UnpackerAny { signatures } => signatures.len(),
             RuleCondition::ImportAny { names }
             | RuleCondition::ImportAll { names }
             | RuleCondition::ImportSet { names, .. }
@@ -930,6 +931,20 @@ fn evaluate_condition(
                         evidence.len(),
                         needed,
                         evidence.join("; ")
+                    ));
+                }
+            }
+            None
+        }
+        RuleCondition::UnpackerAny { signatures } => {
+            for signature in signatures {
+                let Some(compiled) = cached_byte_pattern(&signature.pattern) else {
+                    continue;
+                };
+                if let Some(offset) = find_byte_pattern(bytes, compiled.as_ref()) {
+                    return Some(format!(
+                        "unpacker `{}` matched `{}` at 0x{:x}",
+                        signature.name, signature.pattern, offset
                     ));
                 }
             }
@@ -1739,6 +1754,7 @@ fn evaluate_signature_expression(
 
     expr = replace_group_of(&expr, atom_hits, atoms);
     expr = replace_them_of(&expr, atom_hits, atoms);
+    expr = replace_relative_offsets(&expr, atom_hits);
     expr = replace_atom_locations(&expr, atom_hits);
     expr = replace_plain_atoms(&expr, atom_hits);
     expr = replace_filesize(&expr, report.file_size);
@@ -1787,6 +1803,119 @@ fn replace_them_of(
         out.replace_range(m.start()..m.end(), bool_lit(value));
     }
     out
+}
+
+/// Relative-offset correlation between two atoms.
+///
+/// Supported forms, all rewritten to a boolean literal before the boolean
+/// parser runs:
+///   `$a at $b + 40` / `$a at $b - 4`   readable alias
+///   `@a[-4] == @b`, `@a[8] < 0x100`     YARA-compatible anchors
+fn replace_relative_offsets(
+    expr: &str,
+    atom_hits: &HashMap<String, AtomMatch>,
+) -> String {
+    static ALIAS_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"\$([A-Za-z0-9_]+)\s+at\s+\$([A-Za-z0-9_]+)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)",
+        )
+        .unwrap()
+    });
+    static YARA_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"@([A-Za-z0-9_]+)\s*(?:\[\s*([+-]?\d+)?\s*\])?\s*(==|!=|<=|>=|<|>)\s*@([A-Za-z0-9_]+)\s*(?:\[\s*([+-]?\d+)?\s*\])?",
+        )
+        .unwrap()
+    });
+    static YARA_NUM_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"@([A-Za-z0-9_]+)\s*(?:\[\s*([+-]?\d+)?\s*\])?\s*(==|!=|<=|>=|<|>)\s*(0x[0-9a-fA-F]+|\d+)",
+        )
+        .unwrap()
+    });
+    let mut out = expr.to_string();
+
+    loop {
+        let Some(caps) = YARA_RE.captures(&out) else { break };
+        let m = caps.get(0).unwrap();
+        let left = caps.get(1).unwrap().as_str();
+        let left_delta = caps.get(2).and_then(|c| c.as_str().parse::<i64>().ok()).unwrap_or(0);
+        let op = caps.get(3).unwrap().as_str();
+        let right = caps.get(4).unwrap().as_str();
+        let right_delta = caps.get(5).and_then(|c| c.as_str().parse::<i64>().ok()).unwrap_or(0);
+        let value = relative_offsets_match(atom_hits, left, left_delta, right, right_delta, op, None);
+        out.replace_range(m.start()..m.end(), bool_lit(value));
+    }
+
+    loop {
+        let Some(caps) = YARA_NUM_RE.captures(&out) else { break };
+        let m = caps.get(0).unwrap();
+        let id = caps.get(1).unwrap().as_str();
+        let delta = caps.get(2).and_then(|c| c.as_str().parse::<i64>().ok()).unwrap_or(0);
+        let op = caps.get(3).unwrap().as_str();
+        let expected = parse_int(caps.get(4).unwrap().as_str());
+        let value = relative_offsets_match(atom_hits, id, delta, "", 0, op, expected);
+        out.replace_range(m.start()..m.end(), bool_lit(value));
+    }
+
+    loop {
+        let Some(caps) = ALIAS_RE.captures(&out) else { break };
+        let m = caps.get(0).unwrap();
+        let left = caps.get(1).unwrap().as_str();
+        let right = caps.get(2).unwrap().as_str();
+        let sign = if caps.get(3).unwrap().as_str() == "-" { -1i64 } else { 1i64 };
+        let magnitude = parse_int(caps.get(4).unwrap().as_str()).unwrap_or(0) as i64;
+        let value = relative_offsets_match(atom_hits, left, 0, right, sign * magnitude, "==", None);
+        out.replace_range(m.start()..m.end(), bool_lit(value));
+    }
+
+    out
+}
+
+/// True when some pair of anchor positions satisfies the comparison.
+/// With `expected` set the right-hand side is a literal instead of a second atom.
+fn relative_offsets_match(
+    atom_hits: &HashMap<String, AtomMatch>,
+    left: &str,
+    left_delta: i64,
+    right: &str,
+    right_delta: i64,
+    op: &str,
+    expected: Option<u64>,
+) -> bool {
+    let Some(hit) = atom_hits.get(left) else {
+        return false;
+    };
+    hit.offsets.iter().any(|lo| {
+        let value = *lo as i64 + left_delta;
+        if value < 0 {
+            return false;
+        }
+        match expected {
+            Some(n) => compare_i64(value, op, n as i64),
+            None => {
+                let Some(other) = atom_hits.get(right) else {
+                    return false;
+                };
+                other.offsets.iter().any(|ro| {
+                    let candidate = *ro as i64 + right_delta;
+                    candidate >= 0 && compare_i64(value, op, candidate)
+                })
+            }
+        }
+    })
+}
+
+fn compare_i64(left: i64, op: &str, right: i64) -> bool {
+    match op {
+        "==" => left == right,
+        "!=" => left != right,
+        "<" => left < right,
+        "<=" => left <= right,
+        ">" => left > right,
+        ">=" => left >= right,
+        _ => false,
+    }
 }
 
 fn replace_atom_locations(expr: &str, atom_hits: &HashMap<String, AtomMatch>) -> String {
@@ -2655,4 +2784,141 @@ rules:
             other => panic!("expected BytePattern, got {other:?}"),
         }
     }
+
+    fn hits(entries: &[(&str, &[usize])]) -> HashMap<String, AtomMatch> {
+        entries
+            .iter()
+            .map(|(id, offsets)| {
+                (
+                    (*id).to_string(),
+                    AtomMatch {
+                        matched: true,
+                        evidence: Vec::new(),
+                        offsets: offsets.to_vec(),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn eval_expr(expression: &str, atom_hits: &HashMap<String, AtomMatch>) -> bool {
+        let report = ScanReport::default();
+        evaluate_signature_expression(expression, atom_hits, &report, b"", &[])
+    }
+
+    fn eval_cond(cond: &RuleCondition, bytes: &[u8]) -> Option<String> {
+        let report = ScanReport::default();
+        let view = ScanView::new(&report);
+        evaluate_condition(cond, &report, &view, bytes)
+    }
+
+    fn unpacker_rules() -> Vec<Rule> {
+        let yaml = r#"
+name: unpackers
+rules:
+  - id: T_UNP_0001
+    title: packed with a known protector
+    severity: medium
+    conditions:
+      - type: unpacker_any
+        signatures:
+          - name: UPack
+            pattern: "60 E8 ?? ?? ?? ?? 5D"
+          - name: ASPack
+            pattern: "FF 25"
+"#;
+        let parsed: YamlRulesFile = yaml_serde::from_str(yaml).expect("unpacker yaml must parse");
+        parsed.rules
+    }
+    #[test]
+    fn relative_offset_alias_requires_exact_distance() {
+        // $a at 0x100, $b at 0x124
+        let atom_hits = hits(&[("a", &[0x100]), ("b", &[0x124])]);
+
+        // $a at $b - 0x24 -> 0x100 == 0x124 - 0x24
+        assert!(eval_expr("$a at $b - 0x24", &atom_hits));
+        // $b at $a + 0x24 -> 0x124 == 0x100 + 0x24
+        assert!(eval_expr("$b at $a + 0x24", &atom_hits));
+        // decimal magnitude, same as the hex form
+        assert!(eval_expr("$a at $b - 36", &atom_hits));
+        // wrong distance in either direction
+        assert!(!eval_expr("$a at $b + 0x24", &atom_hits));
+        assert!(!eval_expr("$a at $b - 0x25", &atom_hits));
+    }
+
+    #[test]
+    fn relative_offset_survives_repeated_occurrences() {
+        // A pattern occurring many times must not lock onto the first hit only.
+        let atom_hits = hits(&[("a", &[0x10, 0x100]), ("b", &[0x200, 0x124])]);
+
+        assert!(eval_expr("$a at $b - 0x24", &atom_hits));
+    }
+
+    #[test]
+    fn yara_style_anchor_offsets_match() {
+        let atom_hits = hits(&[("a", &[0x128]), ("b", &[0x124])]);
+
+        // @a[-4] == @b -> 0x124 == 0x124
+        assert!(eval_expr("@a[-4] == @b", &atom_hits));
+        // @a[4] == @b -> 0x12c != 0x124
+        assert!(!eval_expr("@a[4] == @b", &atom_hits));
+        assert!(eval_expr("@a < 0x200", &atom_hits));
+        assert!(eval_expr("@a >= 0x128", &atom_hits));
+        assert!(!eval_expr("@a > 0x128", &atom_hits));
+    }
+
+    #[test]
+    fn relative_offset_is_false_when_an_atom_did_not_match() {
+        let atom_hits = hits(&[("a", &[0x100])]);
+
+        assert!(!eval_expr("$a at $b + 0x24", &atom_hits));
+    }
+
+    #[test]
+    fn relative_offset_composes_with_boolean_operators() {
+        let atom_hits = hits(&[("a", &[0x100]), ("b", &[0x124])]);
+
+        assert!(eval_expr("$a and $a at $b - 0x24", &atom_hits));
+        assert!(eval_expr("($a at $b - 0x24) and ($b at $a + 0x24)", &atom_hits));
+        assert!(!eval_expr("($a at $b - 0x24) and ($b at $a - 0x24)", &atom_hits));
+    }
+
+    #[test]
+    fn unpacker_any_reports_the_first_matching_packer() {
+        let parsed = unpacker_rules();
+        let RuleCondition::UnpackerAny { signatures } = &parsed[0].conditions[0] else {
+            panic!("expected UnpackerAny, got {:?}", parsed[0].conditions[0]);
+        };
+        assert_eq!(signatures.len(), 2);
+        assert_eq!(signatures[0].name, "UPack");
+
+        let mut data = vec![0u8; 0x40];
+        data.extend_from_slice(&[0x60, 0xE8, 0x11, 0x22, 0x33, 0x44, 0x5D]);
+        data.resize(0x100, 0);
+
+        let matched = eval_cond(&parsed[0].conditions[0], &data)
+            .expect("UPack pattern must match");
+        assert!(matched.contains("UPack"), "evidence should name the packer: {matched}");
+    }
+
+    #[test]
+    fn unpacker_any_does_not_match_clean_bytes() {
+        let parsed = unpacker_rules();
+
+        assert!(eval_cond(&parsed[0].conditions[0], &[0u8; 0x100]).is_none());
+    }
+
+    #[test]
+    fn unpacker_any_ignores_signatures_with_a_bad_pattern() {
+        let parsed = unpacker_rules();
+
+        let mut data = vec![0xFF, 0x25];
+        data.resize(0x100, 0);
+
+        assert!(eval_cond(&parsed[0].conditions[0], &data)
+            .expect("second, valid signature must still match")
+            .contains("ASPack"));
+    }
+
+
 }

@@ -321,6 +321,21 @@ pub enum RuleCondition {
         #[serde(default)]
         excludes: Vec<String>,
     },
+
+    /// Packer / protector identification by byte signature. Matches the first
+    /// signature whose pattern is present and reports the packer name.
+    UnpackerAny {
+        signatures: Vec<UnpackerSignature>,
+    },
+}
+
+/// One packer signature: a display name plus the byte pattern that identifies it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnpackerSignature {
+    /// Packer name reported in the finding evidence, e.g. `UPack`.
+    pub name: String,
+    /// Hex byte pattern, same syntax as [`RuleCondition::BytePattern`].
+    pub pattern: String,
 }
 
 /// Byte window a byte pattern is searched in.
