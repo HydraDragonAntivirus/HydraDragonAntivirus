@@ -80,7 +80,7 @@ hydradragonunicorn = { path = "../hydradragonunicorn" }
 hydradragonextractor = { path = "../hydradragonextractor" }
 
 # Pure-Rust ClamAV-compatible non-hash signature loader and scanner
-hydradragonclamav = { path = "../hydradragonclamav" }
+hydradragonclamav = { path = "../hydradragonclamav_old" }
 
 # Nuitka onefile executable extractor
 nuitka-extractor = { path = "../nuitka-extractor" }
