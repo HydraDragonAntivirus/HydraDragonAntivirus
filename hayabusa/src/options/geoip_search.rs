@@ -1,23 +1,27 @@
 use cidr_utils::cidr::IpCidr;
 use compact_str::CompactString;
 use hashbrown::HashMap;
-use lazy_static::lazy_static;
 use maxminddb::{MaxMindDbError, Reader, geoip2};
 use std::io::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::{net::IpAddr, str::FromStr};
 
-lazy_static! {
-    pub static ref IP_MAP: Mutex<HashMap<IpAddr, CompactString>> = Mutex::new(HashMap::new());
-}
+/// Wraps the three MaxMind GeoLite2 database readers (ASN, Country, City) used to enrich IP
+/// addresses found in event records when the GeoIP option is enabled.
+#[derive(Debug)]
 pub struct GeoIPSearch {
     pub asn_reader: Reader<Vec<u8>>,
     pub country_reader: Reader<Vec<u8>>,
     pub city_reader: Reader<Vec<u8>>,
+    // Cache of IP address -> formatted geo data ("ASN🦅Country🦅City"), so each address is only
+    // looked up in the MaxMind databases once.
+    ip_map: Mutex<HashMap<IpAddr, CompactString>>,
 }
 
 impl GeoIPSearch {
+    /// Opens the three .mmdb databases. `asn_country_city_filename` must list the ASN, Country
+    /// and City database file names in that order.
     pub fn new(path: &Path, asn_country_city_filename: Vec<&str>) -> GeoIPSearch {
         GeoIPSearch {
             asn_reader: maxminddb::Reader::open_readfile(path.join(asn_country_city_filename[0]))
@@ -28,10 +32,13 @@ impl GeoIPSearch {
             .unwrap(),
             city_reader: maxminddb::Reader::open_readfile(path.join(asn_country_city_filename[2]))
                 .unwrap(),
+            ip_map: Mutex::new(HashMap::new()),
         }
     }
 
-    /// check existence files in specified path by GeoIP option.
+    /// Checks that all .mmdb files required by the GeoIP option exist under the given
+    /// directory. Returns Ok(None) when the option was not specified, and an error listing
+    /// every missing file otherwise.
     pub fn check_exist_geo_ip_files(
         geo_ip_dir_path: &Option<PathBuf>,
         check_files: Vec<&str>,
@@ -56,22 +63,21 @@ impl GeoIPSearch {
         }
     }
 
-    /// check target_ip in private IP range.
+    /// Checks whether target_ip falls within one of the CIDR ranges below, which are excluded
+    /// from GeoIP lookup and reported as "Private".
     fn check_in_private_ip_range(&self, target_ip: &IpAddr) -> bool {
         let private_cidr = if target_ip.is_ipv4() {
             vec![
-                IpCidr::from_str("10/8").unwrap(),
-                IpCidr::from_str("172.16/12").unwrap(),
-                IpCidr::from_str("192.168/16").unwrap(),
+                IpCidr::from_str("10.0.0.0/8").unwrap(),
+                IpCidr::from_str("172.16.0.0/12").unwrap(),
+                IpCidr::from_str("192.168.0.0/16").unwrap(),
             ]
         } else {
             vec![
                 IpCidr::from_str("::/128").unwrap(),    // IPv6 Unspecified
-                IpCidr::from_str("2000::/3").unwrap(),  // IPv6 Global Unicast
                 IpCidr::from_str("FE80::/10").unwrap(), // IPv6 Link Local Unicast
-                IpCidr::from_str("FC00::/7").unwrap(),  // IPv6 Unique Local Address
-                IpCidr::from_str("FD00::/8").unwrap(),  // IPv6 Unique Local Address
-                IpCidr::from_str("FF00::/8").unwrap(),  // IPv6 Multicast Address
+                IpCidr::from_str("FC00::/7").unwrap(), // IPv6 Unique Local Address (covers FD00::/8)
+                IpCidr::from_str("FF00::/8").unwrap(), // IPv6 Multicast Address
             ]
         };
         for cidr in private_cidr {
@@ -82,11 +88,16 @@ impl GeoIPSearch {
         false
     }
 
-    /// convert IP address string to geo data
+    /// Resolves an IP address string to geo data in the form "ASN🦅Country🦅City" (the caller
+    /// splits on '🦅' to fill the SrcASN/SrcCountry/SrcCity etc. profile fields). Local and
+    /// private addresses get placeholder values without a database lookup.
     pub fn convert_ip_to_geo(&self, target_ip: &str) -> Result<String, MaxMindDbError> {
+        // Some events (e.g. RDP logons) record the literal string "LOCAL" instead of an IP
+        // address; the first literal checked below is the Japanese-localized equivalent.
         if target_ip == "ローカル" || target_ip == "LOCAL" {
             return Ok("Local🦅-🦅-".to_string());
         }
+        // Strip the IPv4-mapped IPv6 prefix so the address is handled as plain IPv4.
         let target = if target_ip.starts_with("::ffff:") {
             target_ip.replace("::ffff:", "")
         } else {
@@ -108,8 +119,9 @@ impl GeoIPSearch {
             return Ok("Private🦅-🦅-".to_string());
         }
 
-        // If the IP address is the same, the result obtained is the same, so the lookup process is omitted by obtaining the result of a hit from the cache.
-        if let Some(cached_data) = IP_MAP.lock().unwrap().get(&addr) {
+        // The same IP address always resolves to the same geo data, so return the cached result
+        // when available and skip the database lookups.
+        if let Some(cached_data) = self.ip_map.lock().unwrap().get(&addr) {
             return Ok(cached_data.to_string());
         }
         let asn_search = self.asn_reader.lookup(addr);
@@ -149,7 +161,7 @@ impl GeoIPSearch {
         };
 
         let geo_data = format!("{output_asn}🦅{output_country}🦅{output_city}");
-        IP_MAP
+        self.ip_map
             .lock()
             .unwrap()
             .insert(addr, CompactString::from(&geo_data));
@@ -160,7 +172,6 @@ impl GeoIPSearch {
 #[cfg(test)]
 mod tests {
     use super::GeoIPSearch;
-    use crate::options::geoip_search::IP_MAP;
     use compact_str::CompactString;
     use std::{net::IpAddr, path::Path, str::FromStr};
 
@@ -216,7 +227,6 @@ mod tests {
             GeoIPSearch::check_exist_geo_ip_files(&Some(test_path.clone()), target_files.clone()),
             Ok(Some(test_path.clone()))
         );
-        IP_MAP.lock().unwrap().clear();
         let geo_ip = GeoIPSearch::new(&test_path, target_files);
         let expect = "🦅United Kingdom🦅Boxford";
         let actual = geo_ip.convert_ip_to_geo("2.125.160.216");
@@ -229,9 +239,10 @@ mod tests {
         let test_path = Path::new("test_files/mmdb").to_path_buf();
 
         // Test files from https://github.com/maxmind/MaxMind-DB/tree/a8ae5b4ac0aa730e2783f708cdaa208aca20e9ec/test-data
-        // GeoLite2-ASN.mmdb -> GeoLite2.ASN-Test.mmdb
-        // GeoLite2-Country.mmdb -> GeoLite2.Country-Test.mmdb
-        // GeoLite2-City.mmdb -> GeoLite2.City-Test.mmdb
+        // The upstream files were renamed locally as follows:
+        //   GeoLite2-ASN-Test.mmdb     -> GeoLite2-ASN.mmdb
+        //   GeoLite2-Country-Test.mmdb -> GeoLite2-Country.mmdb
+        //   GeoLite2-City-Test.mmdb    -> GeoLite2-City.mmdb
         let target_files = vec![
             "GeoLite2-ASN.mmdb",
             "GeoLite2-Country.mmdb",
@@ -242,11 +253,13 @@ mod tests {
             Ok(Some(test_path.clone()))
         );
         let geo_ip = GeoIPSearch::new(&test_path, target_files);
-        IP_MAP.lock().unwrap().insert(
-            IpAddr::from_str("2.125.160.216").unwrap(),
+        // Pre-populate this instance's cache so the lookup returns the cached value instead of
+        // hitting the databases.
+        geo_ip.ip_map.lock().unwrap().insert(
+            IpAddr::from_str("2.125.160.217").unwrap(),
             "this is dummy".into(),
         );
-        let actual = geo_ip.convert_ip_to_geo("2.125.160.216");
+        let actual = geo_ip.convert_ip_to_geo("2.125.160.217");
         assert!(actual.is_ok());
         assert_eq!(CompactString::from("this is dummy"), actual.unwrap());
     }
@@ -265,7 +278,6 @@ mod tests {
             GeoIPSearch::check_exist_geo_ip_files(&Some(test_path.clone()), target_files.clone()),
             Ok(Some(test_path.clone()))
         );
-        IP_MAP.lock().unwrap().clear();
         let geo_ip = GeoIPSearch::new(&test_path, target_files);
         let loopback = geo_ip.convert_ip_to_geo("127.0.0.1");
         assert!(loopback.is_ok());
@@ -295,7 +307,6 @@ mod tests {
             GeoIPSearch::check_exist_geo_ip_files(&Some(test_path.clone()), target_files.clone()),
             Ok(Some(test_path.clone()))
         );
-        IP_MAP.lock().unwrap().clear();
         let geo_ip = GeoIPSearch::new(&test_path, target_files);
         let loopback = geo_ip.convert_ip_to_geo("::1");
         assert!(loopback.is_ok());
@@ -303,8 +314,20 @@ mod tests {
         let link_local = geo_ip.convert_ip_to_geo("fe80::123:33ef:fe11:1");
         assert!(link_local.is_ok());
         assert_eq!("Private🦅-🦅-", link_local.unwrap());
-        let global_unicast = geo_ip.convert_ip_to_geo("2001:1234:abcd:1234::1");
+        let unspecified = geo_ip.convert_ip_to_geo("::");
+        assert!(unspecified.is_ok());
+        assert_eq!("Private🦅-🦅-", unspecified.unwrap());
+        let unique_local = geo_ip.convert_ip_to_geo("fd12:3456:789a::1");
+        assert!(unique_local.is_ok());
+        assert_eq!("Private🦅-🦅-", unique_local.unwrap());
+        let multicast = geo_ip.convert_ip_to_geo("ff02::1");
+        assert!(multicast.is_ok());
+        assert_eq!("Private🦅-🦅-", multicast.unwrap());
+        // Global unicast addresses must be looked up in the databases instead of being
+        // reported as Private (issue #1819). 2001:218::/32 is Japan in the MaxMind test
+        // data (with no ASN or city entry, so those fields are empty).
+        let global_unicast = geo_ip.convert_ip_to_geo("2001:218::1");
         assert!(global_unicast.is_ok());
-        assert_eq!("Private🦅-🦅-", global_unicast.unwrap());
+        assert_eq!("🦅Japan🦅", global_unicast.unwrap());
     }
 }

@@ -92,8 +92,8 @@ yaml_serde = "0.10.4"
 hayabusa = { path = "../hayabusa" }
 
 # EVTX parser (re-exported by hayabusa but used directly)
-evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git", rev = "5c2bc81" }
-compact_str = "0.9"
+evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git", rev = "170c7a5f28fa4ef853e60e1b620dfacb19138c4f" }
+compact_str = "0.10"
 nested = "0.1"
 tokio = { version = "1", features = ["rt", "macros"] }
 toml = "0.5"

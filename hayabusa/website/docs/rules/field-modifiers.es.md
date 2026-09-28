@@ -1,0 +1,63 @@
+# Modificadores de campo soportados
+
+Esta página contiene una lista generada dinámicamente de todos los modificadores de campo de Sigma y con qué frecuencia se utilizan en las reglas de Sigma y Hayabusa.
+
+## Modificadores de campo soportados por Hayabusa
+| Field Modifier                |   Sigma Count |   Hayabusa Count |
+|:------------------------------|--------------:|-----------------:|
+| all                           |            13 |                0 |
+| base64offsetǀcontains         |             7 |                0 |
+| base64ǀcontains               |             1 |                0 |
+| cased                         |             0 |                0 |
+| cidr                          |            35 |                0 |
+| contains                      |          3081 |               21 |
+| containsǀall                  |          1085 |                0 |
+| containsǀcased                |             0 |                0 |
+| containsǀexpand               |             3 |                0 |
+| containsǀwindash              |           109 |                0 |
+| endswith                      |          3277 |              273 |
+| endswithfield                 |             0 |                0 |
+| endswithǀcased                |             0 |                0 |
+| endswithǀwindash              |             2 |                0 |
+| equalsfield                   |             0 |                0 |
+| exists                        |             0 |                0 |
+| expand                        |            18 |                0 |
+| fieldref                      |             4 |                1 |
+| fieldrefǀcontains             |             0 |                0 |
+| fieldrefǀendswith             |             0 |                2 |
+| fieldrefǀstartswith           |             0 |                0 |
+| gt                            |             0 |                0 |
+| gte                           |             0 |                0 |
+| lt                            |             0 |                0 |
+| lte                           |             0 |                0 |
+| re                            |           188 |               11 |
+| reǀi                          |             2 |                0 |
+| reǀm                          |             0 |                0 |
+| reǀs                          |             0 |                0 |
+| startswith                    |           552 |                6 |
+| startswithǀcased              |             0 |                0 |
+| utf16beǀbase64offsetǀcontains |             0 |                0 |
+| utf16leǀbase64offsetǀcontains |             0 |                0 |
+| utf16ǀbase64offsetǀcontains   |             0 |                0 |
+| wideǀbase64offsetǀcontains    |             2 |                0 |
+
+## Modificadores de campo no soportados por Hayabusa
+Actualmente, todo está soportado.
+
+## Reglas de correlación soportadas por Hayabusa
+| Correlation Rule                 |   Sigma Count |   Hayabusa Count |
+|:---------------------------------|--------------:|-----------------:|
+| event_count                      |             0 |                0 |
+| event_count (with group-by)      |             0 |                1 |
+| temporal                         |             0 |                0 |
+| temporal (with group-by)         |             0 |                0 |
+| temporal_ordered                 |             0 |                0 |
+| temporal_ordered (with group-by) |             0 |                0 |
+| value_count                      |             0 |                0 |
+| value_count (with group-by)      |             0 |                2 |
+
+## Reglas de correlación no soportadas por Hayabusa
+Actualmente, todo está soportado.
+
+Este documento se actualiza dinámicamente cada mes en función de las reglas más recientes.  
+Última actualización: 2026/09/02

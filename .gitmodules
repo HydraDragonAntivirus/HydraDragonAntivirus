@@ -9,3 +9,6 @@
 [submodule "hydradragonunicorn/unicorn-engine-rs"]
 	path = hydradragonunicorn/unicorn-engine-rs
 	url = https://github.com/HydraDragonAntivirus/unicorn.git
+[submodule "hayabusa"]
+	path = hayabusa
+	url = https://github.com/Yamato-Security/hayabusa.git

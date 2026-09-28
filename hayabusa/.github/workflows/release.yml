@@ -8,8 +8,7 @@ on:
     inputs:
       release_ver:
         required: true
-        default: "3.x.x"
-        description: "Version of the release"
+        description: "Exact Cargo package version (without a leading v)"
       branch_or_tag:
         required: true
         default: "main"
@@ -18,6 +17,10 @@ jobs:
   upload:
     runs-on: ${{ matrix.info.os }}
     strategy:
+      # One target failing should not cancel the other eight: `upload-all-platforms` needs them
+      # all, so a cancelled matrix means re-running every build to find out whether the rest were
+      # fine. Let each target report its own result.
+      fail-fast: false
       matrix:
         info:
           - {
@@ -43,6 +46,10 @@ jobs:
           - {
             os: "ubuntu-latest",
             target: "aarch64-unknown-linux-gnu",
+          }
+          - {
+            os: "ubuntu-latest",
+            target: "aarch64-unknown-linux-musl",
           }
           - {
             os: "macos-latest",
@@ -91,11 +98,111 @@ jobs:
           sudo apt-get update
           sudo apt-get install musl-tools
 
+      - name: Install aarch64-unknown-linux-musl toolchain
+        if: matrix.info.target == 'aarch64-unknown-linux-musl'
+        run: |
+          # Cross-compiling to aarch64 musl needs a real aarch64 musl toolchain: musl-tools only
+          # ships an x86_64 musl-gcc, and linking with the glibc gcc-aarch64-linux-gnu produces a
+          # binary that is killed at startup (issue #1332). This static toolchain builds the C
+          # dependencies (vendored OpenSSL, mimalloc) and links against musl correctly.
+          #
+          # Fetched from the cross-tools/musl-cross GitHub release rather than musl.cc. musl.cc is
+          # a single volunteer-run host with no CDN, and it stopped answering entirely, failing
+          # every release run at this step with `curl: (28) Failed to connect to musl.cc port 443`.
+          # GitHub Releases are already a hard dependency of this workflow, so this adds no new
+          # point of failure. Both toolchains are musl-cross-make builds of the same components.
+          TOOLCHAIN_VERSION="20260515"
+          TOOLCHAIN_SHA256="90282c463498dcdab9b96a464a0925d53f30c884b2d7b25e3998999416ae34b8"
+          # Download to a file rather than piping into tar: a failed fetch then reports as a curl
+          # error instead of a confusing `gzip: stdin: unexpected end of file`. -f so an HTTP error
+          # page is never mistaken for the archive, and --retry to ride out a transient blip.
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 \
+            -o /tmp/aarch64-musl-cross.tar.xz \
+            "https://github.com/cross-tools/musl-cross/releases/download/${TOOLCHAIN_VERSION}/aarch64-unknown-linux-musl.tar.xz"
+          # This toolchain compiles and links a published release binary, so pin its hash.
+          echo "${TOOLCHAIN_SHA256}  /tmp/aarch64-musl-cross.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/aarch64-musl-cross.tar.xz -C "$HOME"
+          echo "$HOME/aarch64-unknown-linux-musl/bin" >> "$GITHUB_PATH"
+          echo "CC_aarch64_unknown_linux_musl=aarch64-unknown-linux-musl-gcc" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_unknown_linux_musl=aarch64-unknown-linux-musl-g++" >> "$GITHUB_ENV"
+          echo "AR_aarch64_unknown_linux_musl=aarch64-unknown-linux-musl-ar" >> "$GITHUB_ENV"
+          cat << EOF >> ./.cargo/config.toml
+
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-unknown-linux-musl-gcc"
+          EOF
+
       - name: Build Hayabusa binary
         run: |
           cargo run --release -- update-rules -q
           cargo build --release --target ${{ matrix.info.target }}
 
+      - name: Verify Windows executable metadata
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HAYABUSA_TARGET: ${{ matrix.info.target }}
+          RELEASE_VERSION: ${{ github.event.inputs.release_ver }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_VERSION)) {
+            throw "RELEASE_VERSION must be set before metadata verification."
+          }
+
+          $exe = (Resolve-Path "target/$($env:HAYABUSA_TARGET)/release/hayabusa.exe").Path
+          $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+          $info | Format-List ProductName, FileDescription, CompanyName, FileVersion, `
+            ProductVersion, InternalName, OriginalFilename, LegalCopyright, Comments, IsPreRelease
+
+          # Keep these descriptive values synchronized with [package.metadata.winresource].
+          $expected = @{
+            ProductName      = 'Hayabusa'
+            FileDescription  = 'Hayabusa - Windows Event Log Analyzer'
+            CompanyName      = 'Yamato Security'
+            InternalName     = 'hayabusa'
+            OriginalFilename = 'hayabusa.exe'
+            LegalCopyright   = 'Yamato Security'
+            Comments         = 'Sigma-based threat hunting and digital forensics'
+            FileVersion      = $env:RELEASE_VERSION
+            ProductVersion   = $env:RELEASE_VERSION
+          }
+
+          foreach ($field in $expected.Keys) {
+            $actual = $info.$field
+            if ($actual -cne $expected[$field]) {
+              throw ("Metadata mismatch for {0}: expected '{1}', got '{2}'" -f `
+                $field, $expected[$field], $actual)
+            }
+          }
+
+          # A hyphen in build metadata (after '+') does not indicate a prerelease.
+          $isPreRelease = ($env:RELEASE_VERSION -split '\+', 2)[0].Contains('-')
+          if ($info.IsPreRelease -ne $isPreRelease) {
+            throw "Metadata mismatch for IsPreRelease: expected '$isPreRelease', got '$($info.IsPreRelease)'"
+          }
+
+          $version = [version](($env:RELEASE_VERSION -split '[-+]', 2)[0])
+          foreach ($prefix in @('File', 'Product')) {
+            $fixedParts = @{
+              MajorPart   = $version.Major
+              MinorPart   = $version.Minor
+              BuildPart   = $version.Build
+              PrivatePart = 0
+            }
+            foreach ($part in $fixedParts.Keys) {
+              $field = "$prefix$part"
+              if ($info.$field -ne $fixedParts[$part]) {
+                throw ("Metadata mismatch for {0}: expected '{1}', got '{2}'" -f `
+                  $field, $fixedParts[$part], $info.$field)
+              }
+            }
+          }
+
+          Write-Host "Windows metadata verification passed: $exe"
+
+      # Any Authenticode signing and signature verification must happen here, before
+      # either package copies the executable. Do not change resources after signing.
       - name: Package and Zip - Windows
         if: contains(matrix.info.os, 'windows') == true
         shell: pwsh
@@ -151,6 +258,8 @@ jobs:
                 mv release-binaries/hayabusa release-binaries/hayabusa-${{ github.event.inputs.release_ver }}-lin-x64-musl ;;
             'aarch64-unknown-linux-gnu')
                 mv release-binaries/hayabusa release-binaries/hayabusa-${{ github.event.inputs.release_ver }}-lin-aarch64-gnu ;;
+            'aarch64-unknown-linux-musl')
+                mv release-binaries/hayabusa release-binaries/hayabusa-${{ github.event.inputs.release_ver }}-lin-aarch64-musl ;;
             'aarch64-apple-darwin')
                 mv release-binaries/hayabusa release-binaries/hayabusa-${{ github.event.inputs.release_ver }}-mac-aarch64 ;;
             'x86_64-apple-darwin')
@@ -174,6 +283,8 @@ jobs:
               echo "artifact_name=hayabusa-${{ github.event.inputs.release_ver }}-lin-x64-musl" >> $GITHUB_OUTPUT ;;
             'aarch64-unknown-linux-gnu')
               echo "artifact_name=hayabusa-${{ github.event.inputs.release_ver }}-lin-aarch64-gnu" >> $GITHUB_OUTPUT ;;
+            'aarch64-unknown-linux-musl')
+              echo "artifact_name=hayabusa-${{ github.event.inputs.release_ver }}-lin-aarch64-musl" >> $GITHUB_OUTPUT ;;
             'aarch64-apple-darwin')
               echo "artifact_name=hayabusa-${{ github.event.inputs.release_ver }}-mac-aarch64" >> $GITHUB_OUTPUT ;;
             'x86_64-apple-darwin')
@@ -208,28 +319,6 @@ jobs:
           name: ${{ steps.set_artifact_name_encoded_rule.outputs.artifact_name }}
           path: release-binaries-encoded-rules/*
           include-hidden-files: true
-
-      - name: Setup node
-        if: matrix.info.target == 'aarch64-apple-darwin'
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: 20
-
-      - name: Create PDF
-        if: matrix.info.target == 'aarch64-apple-darwin'
-        run: |
-          npm i -g md-to-pdf
-          md-to-pdf ./*.md --md-file-encoding utf-8
-          mv ./README.pdf ./README-${{ github.event.inputs.release_ver }}-English.pdf
-          mv ./README-Japanese.pdf ./README-${{ github.event.inputs.release_ver }}-Japanese.pdf
-
-      - name: Upload Document Artifacts
-        if: matrix.info.target == 'aarch64-apple-darwin'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: hayabusa-documents
-          path: |
-            ./*.pdf
 
   upload-all-platforms:
     needs: upload

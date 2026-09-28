@@ -141,6 +141,16 @@ def find_clamav_test_exe() -> Path | None:
     return None
 
 
+def find_yarGen_file(*parts: str) -> Path | None:
+    """A file inside the yarGen checkout, when it is present."""
+    root = Path(__file__).resolve().parents[2]
+    for base in (root, root.parent):
+        candidate = base.joinpath("yarGen", *parts)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 class TestStringHelpers(unittest.TestCase):
     def test_ascii_string_length_floor(self):
         self.assertFalse(hg.is_ascii_string("abc"))
@@ -186,15 +196,109 @@ class TestScoring(unittest.TestCase):
         marker = "Qw7Zx2Lm9Rt4Yu1pQ"
         self.assertGreater(hg.score_string(marker), hg.score_string("kernel32"))
 
-    def test_sentence_is_penalised(self):
-        self.assertLess(
-            hg.score_string("this is a normal english sentence that was written"),
-            hg.score_string("Zx9#Qm2vLp7Wc4Kz"),
-        )
+    def test_prose_is_not_penalised_by_the_scorer_itself(self):
+        """
+        Documents a real gap in the ported model.
+
+        yarGen's keyword table has no prose penalty: a lowercase sentence
+        collects "lower with spaces" and scores above a short mixed-case marker.
+        Prose is meant to be removed by the benign corpus (prose appears in
+        every goodware binary) and by PEStudio's allow list, not by the score.
+        This test pins that behaviour so a future change is deliberate.
+        """
+        prose = "this is a normal english sentence that was written"
+        self.assertGreater(hg.score_string(prose), 0)
+
+        # With goodware evidence the same sentence is vetoed outright.
+        self.assertLess(hg.score_string(prose, good_count=500), 0)
+
+    def test_exclude_good_drops_the_string_entirely(self):
+        marker = "RareMarkerXyZ98765"
+        sample = hg.SampleInfo(path="a.exe", name="a.exe", strings=[marker])
+        counts = {marker: 5}
+
+        # yarGen's formula is `goodcount * -1 + 5`, so a string seen in only a
+        # handful of goodware files survives, heavily downweighted.
+        goodware = hg.GoodwareIndex()
+        goodware.counts[marker] = 3
+        kept = hg.rank_strings(sample, counts, 5, goodware, None, exclude_good=False)
+        self.assertEqual([t for t, _ in kept], [marker])
+        self.assertLessEqual(kept[0][1], 2)
+
+        # Seen often enough, the same string scores away on its own.
+        common = hg.GoodwareIndex()
+        common.counts[marker] = 400
+        self.assertEqual(hg.rank_strings(sample, counts, 5, common, None), [])
+
+        # --excludegood removes it regardless of how rare it is in goodware.
+        rare = hg.GoodwareIndex()
+        rare.counts[marker] = 1
+        dropped = hg.rank_strings(sample, counts, 5, rare, None, exclude_good=True)
+        self.assertEqual(dropped, [])
 
     def test_base64_blob_gets_a_bonus(self):
         blob = base64.b64encode(b"payload" * 8).decode()
         self.assertGreaterEqual(hg.score_string(blob), hg.score_string("payload"))
+
+    def test_goodware_occurrence_dominates_everything(self):
+        """
+        The central property: a string goodware is full of must score negative
+        no matter how suspicious it looks. This is what keeps Windows API names
+        and compiler banners out of a generated rule.
+        """
+        api = "GetCurrentProcess"
+        self.assertGreater(hg.score_string(api), 0, "with no goodware data it scores up")
+        self.assertLess(hg.score_string(api, good_count=1235), 0)
+
+    def test_goodware_penalty_scales_with_count(self):
+        one = hg.score_string("SomeMarkerAbc", good_count=1)
+        many = hg.score_string("SomeMarkerAbc", good_count=500)
+        self.assertLess(many, one)
+
+    def test_pestudio_match_scores_five(self):
+        pestudio = hg.PestudioStrings()
+        pestudio.table["thisprogrammustberununderwin32"] = "string"
+        score, category = pestudio.score("ThisprogrammustberununderWin32")
+        self.assertEqual(score, 5.0)
+        self.assertEqual(category, "string")
+        # A non-match is silent.
+        self.assertEqual(pestudio.score("something else")[0], 0.0)
+
+    def test_pestudio_ignores_the_ext_category(self):
+        pestudio = hg.PestudioStrings()
+        pestudio.table[".doc"] = "ext"
+        self.assertEqual(pestudio.score(".doc"), (0.0, ""))
+
+    def test_pestudio_white_list_vetoes(self):
+        pestudio = hg.PestudioStrings()
+        pestudio.white.add("pure virtual function call")
+        self.assertTrue(pestudio.is_white("Pure Virtual Function Call"))
+        self.assertFalse(pestudio.is_white("something else"))
+
+    def test_pestudio_xml_is_loaded_when_present(self):
+        """The real taxonomy that ships with yarGen, when it is there."""
+        path = find_yarGen_file("3rdparty", "strings.xml")
+        if path is None:
+            self.skipTest("yarGen strings.xml not available")
+        pestudio = hg.PestudioStrings.load(path)
+        self.assertTrue(pestudio.available)
+        self.assertGreater(len(pestudio), 2000, "expected the full taxonomy")
+        self.assertGreater(len(pestudio.white), 0, "expected an allow list")
+
+
+    def test_junk_filter_rejects_disassembly_soup(self):
+        for junk in ("D$$)D$D", "D$|;D$", "!!$$$!!", "....", "$$$$$$$$", "a$$$b$$$c"):
+            self.assertTrue(hg.looks_like_junk(junk), f"{junk!r} should be junk")
+
+    def test_junk_filter_keeps_real_literals(self):
+        for real in (
+            "CLAMAV_TEST_PRINTF_STRING_00de_ce35",
+            "Mingw-w64 runtime failure:",
+            r"C:\Windows\System32\cmd.exe",
+            "SvxQz1aZ9Kp",
+            base64.b64encode(b"payload" * 8).decode(),
+        ):
+            self.assertFalse(hg.looks_like_junk(real), f"{real!r} should survive")
 
     def test_discrimination_favours_malware_only_strings(self):
         # In every sample, but never in benign: should be high.
@@ -206,18 +310,17 @@ class TestScoring(unittest.TestCase):
 
     def test_benign_corpus_vetoes_a_string(self):
         marker = "RareMarkerXyZ98765"
-        benign = {"RareMarkerXyZ98765"}
+        goodware = hg.GoodwareIndex()
+        goodware.counts[marker] = 5
         sample = hg.SampleInfo(path="a.exe", name="a.exe", strings=[marker])
-        malware_counts = {marker: 5}
-        benign_counts = {marker: 5}
-        ranked = hg.rank_strings(sample, malware_counts, 5, benign_counts, 5)
+        ranked = hg.rank_strings(sample, {marker: 5}, 5, goodware, None)
         self.assertEqual(ranked, [], "a string in every benign file must be dropped")
 
     def test_rank_sorts_by_score(self):
         a, b = "Qw7Zx2Lm9Rt4Yu1", "Zx9#Qm2vLp7Wc4Kz"
         sample = hg.SampleInfo(path="a.exe", name="a.exe", strings=[a, b])
         counts = {a: 4, b: 4}
-        ranked = hg.rank_strings(sample, counts, 4, {}, 0)
+        ranked = hg.rank_strings(sample, counts, 4, hg.GoodwareIndex(), None)
         self.assertEqual(len(ranked), 2)
         self.assertGreaterEqual(ranked[0][1], ranked[1][1])
 

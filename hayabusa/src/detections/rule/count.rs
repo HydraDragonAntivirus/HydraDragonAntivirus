@@ -1,35 +1,39 @@
 use crate::detections::configs::EventKeyAliasConfig;
-use crate::detections::configs::STORED_EKEY_ALIAS;
 use crate::detections::configs::StoredStatic;
 use crate::detections::detection::EvtxRecordInfo;
 use crate::detections::message;
 use crate::detections::message::AlertMessage;
-use crate::detections::message::ERROR_LOG_STACK;
-use crate::detections::rule::AggResult;
 use crate::detections::rule::RuleNode;
 use crate::detections::rule::aggregation_parser::AggregationConditionToken;
 use chrono::{DateTime, TimeZone, Utc};
 use hashbrown::HashMap;
+use nested::Nested;
 use serde_json::Value;
 use std::num::ParseIntError;
 use std::path::Path;
+use std::sync::Mutex;
 
 use crate::detections::utils;
 
 /// Function to insert count information when a detection occurs.
+/// Called once per record that matched the rule's selection when the rule has an aggregation
+/// condition; it groups the record under its `count() by` key and stores the count() field value.
 pub fn count(
     rule: &mut RuleNode,
     evtx_rec: &EvtxRecordInfo,
     verbose_flag: bool,
     quiet_errors_flag: bool,
     json_input_flag: bool,
+    eventkey_alias: &EventKeyAliasConfig,
+    error_log_stack: &Mutex<Nested<String>>,
 ) {
     let key: String = create_count_key(
         rule,
         &evtx_rec.record,
         verbose_flag,
         quiet_errors_flag,
-        STORED_EKEY_ALIAS.read().unwrap().as_ref().unwrap(),
+        eventkey_alias,
+        error_log_stack,
     );
     let binding = String::default();
     let field_name = match rule.get_agg_condition() {
@@ -47,19 +51,30 @@ pub fn count(
         false,
         verbose_flag,
         quiet_errors_flag,
-        STORED_EKEY_ALIAS.read().unwrap().as_ref().unwrap(),
+        eventkey_alias,
+        error_log_stack,
     )
     .unwrap_or_default();
-    countup(rule, key, field_value, evtx_rec, json_input_flag);
+    countup(
+        rule,
+        key,
+        field_value,
+        evtx_rec,
+        json_input_flag,
+        eventkey_alias,
+    );
 }
 
-/// Function to increment the count of detected records matching the count by condition.
+/// Function to increment the count of detected records for the given `count() by` grouping key,
+/// by appending an AggRecordTimeInfo entry (count() field value, timestamp and identifying
+/// metadata) to the rule's per-key count data.
 pub fn countup(
     rule: &mut RuleNode,
     key: String,
     field_value: String,
     evtx_rec: &EvtxRecordInfo,
     json_input_flag: bool,
+    eventkey_alias: &EventKeyAliasConfig,
 ) {
     let record = &evtx_rec.record;
     let default_time = Utc.with_ymd_and_hms(1977, 1, 1, 0, 0, 0).unwrap();
@@ -67,27 +82,15 @@ pub fn countup(
     // A record missing EventID/Computer/Channel must not panic and abort the whole
     // scan; default to an empty string (mirrors the `unwrap_or(default_time)` used
     // for `time` just above).
-    let event_id = utils::get_event_value(
-        "Event.System.EventID",
-        record,
-        STORED_EKEY_ALIAS.read().unwrap().as_ref().unwrap(),
-    )
-    .map(|v| v.to_string().trim_matches('\"').to_string())
-    .unwrap_or_default();
-    let computer = utils::get_event_value(
-        "Event.System.Computer",
-        record,
-        STORED_EKEY_ALIAS.read().unwrap().as_ref().unwrap(),
-    )
-    .map(|v| v.to_string().trim_matches('\"').to_string())
-    .unwrap_or_default();
-    let channel = utils::get_event_value(
-        "Event.System.Channel",
-        record,
-        STORED_EKEY_ALIAS.read().unwrap().as_ref().unwrap(),
-    )
-    .map(|v| v.to_string().trim_matches('\"').to_string())
-    .unwrap_or_default();
+    let event_id = utils::get_event_value("Event.System.EventID", record, eventkey_alias)
+        .map(|v| v.to_string().trim_matches('\"').to_string())
+        .unwrap_or_default();
+    let computer = utils::get_event_value("Event.System.Computer", record, eventkey_alias)
+        .map(|v| v.to_string().trim_matches('\"').to_string())
+        .unwrap_or_default();
+    let channel = utils::get_event_value("Event.System.Channel", record, eventkey_alias)
+        .map(|v| v.to_string().trim_matches('\"').to_string())
+        .unwrap_or_default();
     let evtx_file_path = evtx_rec.evtx_filepath.to_string();
     let value_map = rule.countdata.entry(key).or_default();
     value_map.push(AggRecordTimeInfo {
@@ -100,9 +103,11 @@ pub fn countup(
     });
 }
 
-/// Function to get the value in the target record from the given alias and remove double quotes.
-///  The reason for removing double quotes is to prevent extra double quotes from appearing in the result display.
-/// is_by_alias is bool because when calling this function, it is either the by value or the field value of count.
+/// Function to get the value in the target record from the given alias, with double quotes
+/// removed. The double quotes are removed to prevent extra quotes from appearing in the result
+/// display. `is_by_alias` indicates whether the alias came from the `count() by` clause (true) or
+/// from the field inside the count() parentheses (false); it only affects the error message text.
+#[allow(clippy::too_many_arguments)]
 fn get_alias_value_in_record(
     rule: &RuleNode,
     alias: &str,
@@ -111,6 +116,7 @@ fn get_alias_value_in_record(
     verbose_flag: bool,
     quiet_errors_flag: bool,
     eventkey_alias: &EventKeyAliasConfig,
+    error_log_stack: &Mutex<Nested<String>>,
 ) -> Option<String> {
     if alias.is_empty() {
         return None;
@@ -120,8 +126,8 @@ fn get_alias_value_in_record(
         None => {
             // This arm is meant to warn-and-continue, so building the diagnostic
             // must not itself panic on a record that also lacks an EventID (or a
-            // rulepath without a file name).
-            let rule_file = Path::new(&rule.rulepath)
+            // rule_path without a file name).
+            let rule_file = Path::new(&rule.rule_path)
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("-");
@@ -140,7 +146,7 @@ fn get_alias_value_in_record(
                 AlertMessage::alert(&errmsg).ok();
             }
             if !quiet_errors_flag {
-                ERROR_LOG_STACK
+                error_log_stack
                     .lock()
                     .unwrap()
                     .push(format!("[ERROR] {errmsg}"));
@@ -150,15 +156,17 @@ fn get_alias_value_in_record(
     }
 }
 
-/// Function to create hashmap keys for grouping information such as groupby in count.
-/// Returns empty string in the following cases:
-/// If groupby is not specified, or the alias specified by groupby does not exist in the record, use only "_". An empty string could not be used to retrieve data by key.
+/// Function to create the hashmap key used to group count() data, e.g. by the `count() by`
+/// clause. If no `by` clause is specified, or an alias named in the `by` clause does not exist in
+/// the record, the placeholder "_" is used instead, because an empty string could not be used to
+/// retrieve data by key.
 pub fn create_count_key(
     rule: &RuleNode,
     record: &Value,
     verbose_flag: bool,
     quiet_errors_flag: bool,
     eventkey_alias: &EventKeyAliasConfig,
+    error_log_stack: &Mutex<Nested<String>>,
 ) -> String {
     let agg_condition = rule.get_agg_condition().unwrap();
     if let Some(_by_field_name) = agg_condition._by_field_name.as_ref() {
@@ -175,6 +183,7 @@ pub fn create_count_key(
                         verbose_flag,
                         quiet_errors_flag,
                         eventkey_alias,
+                        error_log_stack,
                     )
                     .unwrap_or_else(|| "_".to_string()),
                 );
@@ -191,6 +200,7 @@ pub fn create_count_key(
                 verbose_flag,
                 quiet_errors_flag,
                 eventkey_alias,
+                error_log_stack,
             )
             .unwrap_or_else(|| "_".to_string())
         }
@@ -199,22 +209,28 @@ pub fn create_count_key(
     }
 }
 
-/// Function to determine whether the current state of the record matches the condition expression.
+/// Function to evaluate the aggregation condition against all counted data, returning an
+/// AggResult for every timeframe window that satisfies it.
 pub fn aggregation_condition_select(
     rule: &RuleNode,
     stored_static: &StoredStatic,
 ) -> Vec<AggResult> {
-    // Assumes that aliases are registered in the record.
-    let value_map = &rule.countdata;
+    // Assumes count() has already registered the records' alias values into countdata.
+    // countdata is a HashMap, whose iteration order is reseeded per process, so walk the
+    // `count() by` group keys in sorted order. Otherwise the aggregation detections, which an
+    // unsorted timeline writes after the last record, come out in a different order on every run.
+    let mut groups: Vec<(&String, &Vec<AggRecordTimeInfo>)> = rule.countdata.iter().collect();
+    groups.sort_unstable_by_key(|(key, _)| *key);
     let mut ret = Vec::new();
-    for (key, value) in value_map {
+    for (key, value) in groups {
         ret.append(&mut judge_timeframe(rule, value, key, stored_static));
     }
     ret
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-/// Struct holding information inside the parentheses of count and record information.
+/// Per-record data kept for count() evaluation: the value of the field named inside the count()
+/// parentheses, plus the record's timestamp and identifying metadata.
 pub struct AggRecordTimeInfo {
     pub field_value: String,
     pub time: DateTime<Utc>,
@@ -224,44 +240,83 @@ pub struct AggRecordTimeInfo {
     pub evtx_file_path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Struct that outputs the results of aggregation such as count.
+pub struct AggResult {
+    /// The aggregated value, e.g. the count.
+    pub data: i64,
+    /// The grouping value taken from the record for the field specified by "count() by".
+    pub key: String,
+    /// Array of values in detected records for the field specified inside the parentheses of
+    /// count. If nothing is specified inside the parentheses, this is an array of length 0.
+    pub field_values: Vec<String>,
+    /// Time of the first record in the detected block.
+    pub start_datetime: DateTime<Utc>,
+    /// All times and EventIDs of records in the detected block.
+    pub agg_record_time_info: Vec<AggRecordTimeInfo>,
+}
+
+impl AggResult {
+    pub fn new(
+        count_data: i64,
+        key_name: String,
+        field_value: Vec<String>,
+        event_start_timedate: DateTime<Utc>,
+        agg_record_time_info: Vec<AggRecordTimeInfo>,
+    ) -> AggResult {
+        AggResult {
+            data: count_data,
+            key: key_name,
+            field_values: field_value,
+            start_datetime: event_start_timedate,
+            agg_record_time_info,
+        }
+    }
+}
+
 #[derive(Debug)]
-/// Information set in timeframe. A struct that stores only the type and number, since there were no SIGMA rules with multiple units (days, hours, minutes, seconds) combined in timeframe.
+/// Information from the rule's timeframe setting. Only a single unit type and number are stored,
+/// since no SIGMA rule was found that combines multiple units (days, hours, minutes, seconds) in
+/// timeframe.
 pub struct TimeFrameInfo {
-    pub timetype: String,
-    pub timenum: Result<i64, ParseIntError>,
+    pub time_unit: String,
+    pub time_value: Result<i64, ParseIntError>,
 }
 
 impl TimeFrameInfo {
-    /// Function to parse the timeframe string and return a struct.
+    /// Function to parse a timeframe string such as "15m" and return a struct. An unknown unit
+    /// suffix is reported here; a non-numeric number part is kept as an Err in `time_value` and
+    /// reported later by get_sec_timeframe().
     pub fn parse_tframe(value: String, stored_static: &StoredStatic) -> TimeFrameInfo {
-        let mut ttype = "";
+        let mut time_unit = "";
         let mut target_val = value.as_str();
         if target_val.ends_with('s') {
-            ttype = "s";
+            time_unit = "s";
         } else if target_val.ends_with('m') {
-            ttype = "m";
+            time_unit = "m";
         } else if target_val.ends_with('h') {
-            ttype = "h";
+            time_unit = "h";
         } else if target_val.ends_with('d') {
-            ttype = "d";
+            time_unit = "d";
         } else {
             let errmsg = format!("Timeframe is invalid. Input value:{value}");
             if stored_static.verbose_flag {
                 AlertMessage::alert(&errmsg).ok();
             }
             if !stored_static.quiet_errors_flag {
-                ERROR_LOG_STACK
+                stored_static
+                    .error_log_stack
                     .lock()
                     .unwrap()
                     .push(format!("[ERROR] {errmsg}"));
             }
         }
-        if !ttype.is_empty() {
+        if !time_unit.is_empty() {
             target_val = &value[..value.len() - 1];
         }
         TimeFrameInfo {
-            timetype: ttype.to_string(),
-            timenum: target_val.parse::<i64>(),
+            time_unit: time_unit.to_string(),
+            time_value: target_val.parse::<i64>(),
         }
     }
 }
@@ -269,17 +324,17 @@ impl TimeFrameInfo {
 /// Function that returns the result of converting the timeframe value stored in TimeFrameInfo to seconds.
 pub fn get_sec_timeframe(rule: &RuleNode, stored_static: &StoredStatic) -> Option<i64> {
     let timeframe = rule.detection.timeframe.as_ref();
-    let tfi = timeframe?;
-    match &tfi.timenum {
-        Ok(n) => {
-            if tfi.timetype == "d" {
-                Some(n * 86400)
-            } else if tfi.timetype == "h" {
-                Some(n * 3600)
-            } else if tfi.timetype == "m" {
-                Some(n * 60)
+    let timeframe_info = timeframe?;
+    match &timeframe_info.time_value {
+        Ok(time_value) => {
+            if timeframe_info.time_unit == "d" {
+                Some(time_value * 86400)
+            } else if timeframe_info.time_unit == "h" {
+                Some(time_value * 3600)
+            } else if timeframe_info.time_unit == "m" {
+                Some(time_value * 60)
             } else {
-                Some(*n)
+                Some(*time_value)
             }
         }
         Err(err) => {
@@ -288,7 +343,8 @@ pub fn get_sec_timeframe(rule: &RuleNode, stored_static: &StoredStatic) -> Optio
                 AlertMessage::alert(&errmsg).ok();
             }
             if !stored_static.quiet_errors_flag {
-                ERROR_LOG_STACK
+                stored_static
+                    .error_log_stack
                     .lock()
                     .unwrap()
                     .push(format!("[ERROR] {errmsg}"));
@@ -297,7 +353,8 @@ pub fn get_sec_timeframe(rule: &RuleNode, stored_static: &StoredStatic) -> Optio
         }
     }
 }
-/// Function to evaluate whether the condition is satisfied by checking AggregationParseInfo for the processing after the pipe in condition.
+/// Function to evaluate whether the given count satisfies the comparison stored in
+/// AggregationParseInfo, i.e. the part after the pipe in `condition` such as `>= 3`.
 pub fn select_aggcon(cnt: i64, rule: &RuleNode) -> bool {
     let agg_condition = rule.detection.aggregation_condition.as_ref();
     if agg_condition.is_none() {
@@ -315,7 +372,8 @@ pub fn select_aggcon(cnt: i64, rule: &RuleNode) -> bool {
     }
 }
 
-/// Generics for if-let that returns the same type depending on the branch of condition.
+/// Generic helper for an if-else where both branches must return the same type: calls
+/// `process_true` when `condition` holds, otherwise `process_false`.
 fn _if_condition_fn_caller<T: FnMut() -> S, S, U: FnMut() -> S>(
     condition: bool,
     mut process_true: T,
@@ -329,17 +387,18 @@ fn _if_condition_fn_caller<T: FnMut() -> S, S, U: FnMut() -> S>(
 }
 
 /**
- * Trait to absorb differences in how count() counts.
+ * Trait to absorb differences in how count() counts
+ * (distinct field values vs. plain record count).
  */
 trait CountStrategy {
     /**
-     * Adds the data of datas[idx] to the timeframe.
+     * Adds the data of records[idx] to the timeframe.
      */
-    fn add_data(&mut self, idx: i64, datas: &[AggRecordTimeInfo], rule: &RuleNode);
+    fn add_data(&mut self, idx: i64, records: &[AggRecordTimeInfo], rule: &RuleNode);
     /**
-     * Removes the data of datas[idx] from the timeframe.
+     * Removes the data of records[idx] from the timeframe.
      */
-    fn remove_data(&mut self, idx: i64, datas: &[AggRecordTimeInfo], rule: &RuleNode);
+    fn remove_data(&mut self, idx: i64, records: &[AggRecordTimeInfo], rule: &RuleNode);
     /**
      * Returns the value of count().
      */
@@ -347,39 +406,45 @@ trait CountStrategy {
     /**
      * Creates an AggResult.
      */
-    fn create_agg_result(&mut self, datas: &[AggRecordTimeInfo], cnt: i64, key: &str) -> AggResult;
+    fn create_agg_result(
+        &mut self,
+        records: &[AggRecordTimeInfo],
+        cnt: i64,
+        key: &str,
+    ) -> AggResult;
 }
 
 /**
- * Struct representing the calculation method of judge when a field is specified in count.
+ * Counting strategy used when a field is specified inside the count() parentheses:
+ * counts the number of distinct values that field takes within the timeframe.
  */
 struct FieldStrategy {
-    value_2_cnt: HashMap<String, i64>,
+    value_counts: HashMap<String, i64>,
 }
 
 impl CountStrategy for FieldStrategy {
-    fn add_data(&mut self, idx: i64, datas: &[AggRecordTimeInfo], _rule: &RuleNode) {
-        if idx >= datas.len() as i64 || idx < 0 {
+    fn add_data(&mut self, idx: i64, records: &[AggRecordTimeInfo], _rule: &RuleNode) {
+        if idx >= records.len() as i64 || idx < 0 {
             return;
         }
 
-        let value = &datas[idx as usize].field_value;
-        let key_val = self.value_2_cnt.get_key_value_mut(value);
+        let value = &records[idx as usize].field_value;
+        let key_val = self.value_counts.get_key_value_mut(value);
         if let Some(kv) = key_val {
             let (_, val) = kv;
             *val += 1;
         } else {
-            self.value_2_cnt.insert(value.to_string(), 1);
+            self.value_counts.insert(value.to_string(), 1);
         }
     }
 
-    fn remove_data(&mut self, idx: i64, datas: &[AggRecordTimeInfo], _rule: &RuleNode) {
-        if idx >= datas.len() as i64 || idx < 0 {
+    fn remove_data(&mut self, idx: i64, records: &[AggRecordTimeInfo], _rule: &RuleNode) {
+        if idx >= records.len() as i64 || idx < 0 {
             return;
         }
 
-        let record_value = &datas[idx as usize].field_value;
-        let key_val = self.value_2_cnt.get_key_value_mut(record_value);
+        let record_value = &records[idx as usize].field_value;
+        let key_val = self.value_counts.get_key_value_mut(record_value);
         if key_val.is_none() {
             return;
         }
@@ -387,51 +452,54 @@ impl CountStrategy for FieldStrategy {
         let val: &mut i64 = key_val.unwrap().1;
         if val <= &mut 1 {
             // If the value becomes 0, delete the key itself.
-            self.value_2_cnt.remove(record_value);
+            self.value_counts.remove(record_value);
         } else {
             *val += -1; // Decrease the count.
         }
     }
 
     fn count(&mut self) -> i64 {
-        self.value_2_cnt.keys().len() as i64
+        self.value_counts.keys().len() as i64
     }
 
     fn create_agg_result(
         &mut self,
-        datas: &[AggRecordTimeInfo],
+        records: &[AggRecordTimeInfo],
         _cnt: i64,
         key: &str,
     ) -> AggResult {
-        let values: Vec<String> = self.value_2_cnt.drain().map(|(key, _)| key).collect(); // Initialize with drain.
+        // drain() empties the map as it yields entries, so this also resets the counter for the
+        // next timeframe window.
+        let values: Vec<String> = self.value_counts.drain().map(|(key, _)| key).collect();
         AggResult::new(
             values.len() as i64,
             key.to_string(),
             values,
-            datas.first().unwrap().time,
-            datas.to_vec(),
+            records.first().unwrap().time,
+            records.to_vec(),
         )
     }
 }
 
 /**
- * Struct representing the calculation method of judge when no field is specified in count.
+ * Counting strategy used when no field is specified inside the count() parentheses:
+ * simply counts the number of records within the timeframe.
  */
 struct NoFieldStrategy {
     cnt: i64,
 }
 
 impl CountStrategy for NoFieldStrategy {
-    fn add_data(&mut self, idx: i64, datas: &[AggRecordTimeInfo], _rule: &RuleNode) {
-        if idx >= datas.len() as i64 || idx < 0 {
+    fn add_data(&mut self, idx: i64, records: &[AggRecordTimeInfo], _rule: &RuleNode) {
+        if idx >= records.len() as i64 || idx < 0 {
             return;
         }
 
         self.cnt += 1;
     }
 
-    fn remove_data(&mut self, idx: i64, datas: &[AggRecordTimeInfo], _rule: &RuleNode) {
-        if idx >= datas.len() as i64 || idx < 0 {
+    fn remove_data(&mut self, idx: i64, records: &[AggRecordTimeInfo], _rule: &RuleNode) {
+        if idx >= records.len() as i64 || idx < 0 {
             return;
         }
 
@@ -442,95 +510,111 @@ impl CountStrategy for NoFieldStrategy {
         self.cnt
     }
 
-    fn create_agg_result(&mut self, datas: &[AggRecordTimeInfo], cnt: i64, key: &str) -> AggResult {
+    fn create_agg_result(
+        &mut self,
+        records: &[AggRecordTimeInfo],
+        cnt: i64,
+        key: &str,
+    ) -> AggResult {
         let ret = AggResult::new(
             cnt,
             key.to_string(),
             vec![],
-            datas.first().unwrap().time,
-            datas.to_vec(),
+            records.first().unwrap().time,
+            records.to_vec(),
         );
-        self.cnt = 0; // Initialize cnt.
+        self.cnt = 0; // Reset the counter for the next timeframe window.
         ret
     }
 }
 
+/// Picks the counting strategy depending on whether a field is named inside count()'s parentheses.
 fn _create_counter(rule: &RuleNode) -> Box<dyn CountStrategy> {
     let agg_cond = rule.get_agg_condition().unwrap();
     if agg_cond._field_name.is_some() {
         Box::new(FieldStrategy {
-            value_2_cnt: HashMap::new(),
+            value_counts: HashMap::new(),
         })
     } else {
         Box::new(NoFieldStrategy { cnt: 0 })
     }
 }
 
-fn _get_timestamp(idx: i64, datas: &[AggRecordTimeInfo]) -> i64 {
-    datas[idx as usize].time.timestamp()
+fn _get_timestamp(idx: i64, records: &[AggRecordTimeInfo]) -> i64 {
+    records[idx as usize].time.timestamp()
 }
 
-fn _get_timestamp_subsec_nano(idx: i64, datas: &[AggRecordTimeInfo]) -> u32 {
-    datas[idx as usize].time.timestamp_subsec_nanos()
+fn _get_timestamp_subsec_nano(idx: i64, records: &[AggRecordTimeInfo]) -> u32 {
+    records[idx as usize].time.timestamp_subsec_nanos()
 }
 
-// Determine whether data from data[left] to data[right-1] fits within the timeframe.
-fn _is_in_timeframe(left: i64, right: i64, frame: i64, datas: &[AggRecordTimeInfo]) -> bool {
-    let left_time = _get_timestamp(left, datas);
-    let left_time_nano = _get_timestamp_subsec_nano(left, datas);
-    // evtx SystemTime is recorded with up to 7 decimal places of seconds, so this is taken into account.
-    let mut right_time = _get_timestamp(right, datas);
-    let right_time_nano = _get_timestamp_subsec_nano(right, datas);
+// Determine whether all data from data[left] through data[right] (inclusive) fits within the
+// timeframe, i.e. whether the window can be extended to include data[right].
+// Assumes records is sorted in ascending time order.
+fn _is_in_timeframe(left: i64, right: i64, frame: i64, records: &[AggRecordTimeInfo]) -> bool {
+    let left_time = _get_timestamp(left, records);
+    let left_time_nano = _get_timestamp_subsec_nano(left, records);
+    // evtx SystemTime is recorded with up to 7 fractional digits of seconds, but timestamp()
+    // truncates to whole seconds. When the right edge has a larger fractional part than the left,
+    // round the difference up by one second so the sub-second part is taken into account.
+    let mut right_time = _get_timestamp(right, records);
+    let right_time_nano = _get_timestamp_subsec_nano(right, records);
     if right_time_nano > left_time_nano {
         right_time += 1;
     }
     right_time - left_time <= frame
 }
 
-/// Function that returns as an array the AggResults where records satisfying the select condition within the timeframe in the counted data meet the count condition per timeframe.
+/// Function that slides a window over the time-sorted records of one grouping key and returns an
+/// AggResult for each timeframe window whose records satisfy the count condition.
 pub fn judge_timeframe(
     rule: &RuleNode,
-    time_datas: &[AggRecordTimeInfo],
+    time_records: &[AggRecordTimeInfo],
     key: &str,
     stored_static: &StoredStatic,
 ) -> Vec<AggResult> {
     let mut ret: Vec<AggResult> = Vec::new();
-    if time_datas.is_empty() {
+    if time_records.is_empty() {
         return ret;
     }
 
-    // Proceed with processing assuming AggRecordTimeInfo is sorted in time order.
-    let mut datas = time_datas.to_owned();
-    datas.sort_by_key(|a| a.time);
+    // The processing below assumes the AggRecordTimeInfo entries are sorted in time order.
+    let mut records = time_records.to_owned();
+    records.sort_by_key(|record| record.time);
 
-    // If the timeframe setting is not in the rule, set the time difference between the first and last elements as the timeframe.
+    // If the rule has no timeframe setting, use the time difference between the first and last
+    // elements as the timeframe.
     let def_frame =
-        datas.last().unwrap().time.timestamp() - datas.first().unwrap().time.timestamp();
+        records.last().unwrap().time.timestamp() - records.first().unwrap().time.timestamp();
     let frame = get_sec_timeframe(rule, stored_static).unwrap_or(def_frame);
 
     // Consider data[i] in the range left <= i < right to be data within the timeframe.
     let mut left: i64 = 0;
     let mut right: i64 = 0;
     let mut counter = _create_counter(rule);
-    let data_len = datas.len() as i64;
-    // right is an open interval, so +1.
+    let data_len = records.len() as i64;
+    // right is exclusive, so it may go one past the last index (hence the +1).
     while left < data_len && right < data_len + 1 {
         // Increment right as long as it is within the timeframe range.
-        while right < data_len && _is_in_timeframe(left, right, frame, &datas) {
-            counter.add_data(right, &datas, rule);
+        while right < data_len && _is_in_timeframe(left, right, frame, &records) {
+            counter.add_data(right, &records, rule);
             right += 1;
         }
 
         let cnt = counter.count();
         if select_aggcon(cnt, rule) {
             // A timeframe satisfying the condition was found.
-            ret.push(counter.create_agg_result(&datas[left as usize..right as usize], cnt, key));
+            ret.push(counter.create_agg_result(&records[left as usize..right as usize], cnt, key));
             left = right;
         } else {
-            // The condition was not satisfied, so shift right and left by +1.
-            counter.add_data(right, &datas, rule);
-            right += 1;
-            counter.remove_data(left, &datas, rule);
+            // The condition was not satisfied, so slide the window forward by dropping data[left].
+            // `right` is left untouched: the next iteration's inner loop re-extends it from
+            // `left + 1`, re-checking each candidate with `_is_in_timeframe`. Previously this branch
+            // also did an unchecked `add_data(right)` (and `right += 1`), which pulled records[right]
+            // — already known to be outside the timeframe from records[left] — into the window; when
+            // its field value was new that could push count(field) over the threshold across a span
+            // longer than the timeframe, producing a false-positive AggResult (issue #1811).
+            counter.remove_data(left, &records, rule);
             left += 1;
         }
     }
@@ -540,14 +624,13 @@ pub fn judge_timeframe(
 
 #[cfg(test)]
 mod tests {
+    use super::AggResult;
     use crate::detections;
     use crate::detections::configs::Action;
     use crate::detections::configs::Config;
-    use crate::detections::configs::CsvOutputOption;
+    use crate::detections::configs::DfirTimelineOption;
     use crate::detections::configs::OutputOption;
-    use crate::detections::configs::STORED_EKEY_ALIAS;
     use crate::detections::configs::StoredStatic;
-    use crate::detections::rule::AggResult;
     use crate::detections::rule::create_rule;
     use crate::detections::utils;
     use chrono::DateTime;
@@ -575,8 +658,8 @@ mod tests {
     }"#;
 
     fn create_dummy_stored_static() -> StoredStatic {
-        StoredStatic::create_static_data(Some(Config {
-            action: Some(Action::CsvTimeline(CsvOutputOption {
+        StoredStatic::create_static_data(Config {
+            action: Some(Action::DfirTimeline(DfirTimelineOption {
                 output_options: OutputOption {
                     min_level: "informational".to_string(),
                     no_wizard: true,
@@ -585,11 +668,12 @@ mod tests {
                 ..Default::default()
             })),
             ..Default::default()
-        }))
+        })
     }
 
     #[test]
-    /// Test that detection by rule works when there is no description inside count parentheses and no count by description (without timeframe).
+    /// Test that rule detection works when count() has no field argument and no `by` clause
+    /// (without timeframe).
     fn test_count_no_field_and_by() {
         let record_str: &str = r#"
         {
@@ -640,7 +724,8 @@ mod tests {
     }
 
     #[test]
-    /// Test that detection by rule works when there is no description inside count parentheses and no count by description (with timeframe).
+    /// Test that rule detection works when count() has no field argument and no `by` clause
+    /// (with timeframe).
     fn test_count_no_field_and_by_with_timeframe() {
         let record_str: &str = r#"
         {
@@ -701,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    /// Verify that count detection by rule works when there is a description inside the count parentheses.
+    /// Verify that count detection by rule works when count() has a field argument.
     fn test_count_exist_field() {
         let rule_str = r#"
         enabled: true
@@ -732,6 +817,59 @@ mod tests {
         );
     }
 
+    #[test]
+    /// The per-group results of a `count() by` rule must come back ordered by group key, however
+    /// the keys were first seen. `countdata` is a `HashMap` reseeded per process, so iterating it
+    /// directly put these detections, which an unsorted timeline writes last, in a different order
+    /// on every run.
+    fn test_count_by_results_are_ordered_by_group_key() {
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection1:
+                Channel: 'System'
+            condition: selection1 | count() by Computer >= 1
+        details: 'x'
+        "#;
+        let mut rule_yaml = YamlLoader::load_from_str(rule_str).unwrap().into_iter();
+        let mut rule_node = create_rule("testpath".to_string(), rule_yaml.next().unwrap());
+        let dummy_stored_static = create_dummy_stored_static();
+        rule_node.init(&dummy_stored_static).unwrap();
+        let keys = detections::rule::get_detection_keys(&rule_node);
+
+        // 64 distinct computers, first seen in a scrambled order (37 is coprime with 64).
+        let mut computers: Vec<String> = (0..64).map(|i| format!("PC{:02}", i * 37 % 64)).collect();
+        for computer in &computers {
+            let record_str = format!(
+                r#"{{"Event":{{"System":{{"EventID":7040,"Channel":"System","Computer":"{computer}","TimeCreated_attributes":{{"SystemTime":"1996-02-27T01:05:01Z"}}}}}}}}"#
+            );
+            let recinfo = utils::create_rec_info(
+                serde_json::from_str(&record_str).unwrap(),
+                "testpath".to_owned(),
+                &keys,
+                &false,
+                &false,
+                &dummy_stored_static.eventkey_alias,
+            );
+            assert!(rule_node.select(
+                &recinfo,
+                dummy_stored_static.verbose_flag,
+                dummy_stored_static.quiet_errors_flag,
+                dummy_stored_static.json_input_flag,
+                &dummy_stored_static.eventkey_alias,
+                &dummy_stored_static.error_log_stack,
+            ));
+        }
+
+        let result_keys: Vec<String> = rule_node
+            .judge_satisfy_aggcondition(&dummy_stored_static)
+            .into_iter()
+            .map(|agg_result| agg_result.key)
+            .collect();
+        computers.sort();
+        assert_eq!(result_keys, computers);
+    }
+
     /// Build a rule + record, run `select()` (which drives `count()`/`countup()`),
     /// assert the record matched, and return the aggregation results.
     fn run_count_select(rule_str: &str, record_str: &str) -> Vec<AggResult> {
@@ -740,16 +878,23 @@ mod tests {
         let mut rule_node = create_rule("testpath".to_string(), test);
         rule_node.init(&create_dummy_stored_static()).unwrap();
         let dummy_stored_static = create_dummy_stored_static();
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(dummy_stored_static.eventkey_alias.clone());
         let record: serde_json::Value = serde_json::from_str(record_str).unwrap();
         let keys = detections::rule::get_detection_keys(&rule_node);
-        let recinfo = utils::create_rec_info(record, "testpath".to_owned(), &keys, &false, &false);
+        let recinfo = utils::create_rec_info(
+            record,
+            "testpath".to_owned(),
+            &keys,
+            &false,
+            &false,
+            &dummy_stored_static.eventkey_alias,
+        );
         let matched = rule_node.select(
             &recinfo,
             dummy_stored_static.verbose_flag,
             dummy_stored_static.quiet_errors_flag,
             dummy_stored_static.json_input_flag,
             &dummy_stored_static.eventkey_alias,
+            &dummy_stored_static.error_log_stack,
         );
         assert!(matched, "record should match selection1");
         rule_node.judge_satisfy_aggcondition(&dummy_stored_static)
@@ -795,7 +940,8 @@ mod tests {
     }
 
     #[test]
-    /// Verify that count detection by rule works when both a description inside parentheses and a by description are present.
+    /// Verify that count detection by rule works when count() has both a field argument and a
+    /// `by` clause.
     fn test_count_exist_field_and_by() {
         let record_str: &str = r#"
         {
@@ -853,7 +999,8 @@ mod tests {
     }
 
     #[test]
-    /// Verify that count is executed separately for each combination of values when both a description in parentheses and a by description are present in count (when the values specified inside parentheses differ across multiple records).
+    /// Verify that when count() has both a field argument and a `by` clause, counting is done
+    /// separately per `by` value (with the count() field values differing across records).
     fn test_count_exist_field_and_by_with_othervalue_in_timeframe() {
         let record_str: &str = r#"
         {
@@ -911,7 +1058,8 @@ mod tests {
     }
 
     #[test]
-    /// Verify that an empty array is returned when the count condition of the rule is not satisfied due to the timeframe condition.
+    /// Verify that an empty array is returned when the rule's count condition is not satisfied
+    /// because of the timeframe condition.
     fn test_count_not_satisfy_in_timeframe() {
         let record_str: &str = r#"
         {
@@ -941,7 +1089,6 @@ mod tests {
         let test = rule_yaml.next().unwrap();
         let mut rule_node = create_rule("testpath".to_string(), test);
         let dummy_stored_static = create_dummy_stored_static();
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(dummy_stored_static.eventkey_alias.clone());
 
         let init_result = rule_node.init(&dummy_stored_static);
         assert!(init_result.is_ok());
@@ -950,14 +1097,21 @@ mod tests {
             match serde_json::from_str(record) {
                 Ok(rec) => {
                     let keys = detections::rule::get_detection_keys(&rule_node);
-                    let recinfo =
-                        utils::create_rec_info(rec, "testpath".to_owned(), &keys, &false, &false);
+                    let recinfo = utils::create_rec_info(
+                        rec,
+                        "testpath".to_owned(),
+                        &keys,
+                        &false,
+                        &false,
+                        &dummy_stored_static.eventkey_alias,
+                    );
                     let _result = rule_node.select(
                         &recinfo,
                         dummy_stored_static.verbose_flag,
                         dummy_stored_static.quiet_errors_flag,
                         dummy_stored_static.json_input_flag,
                         &dummy_stored_static.eventkey_alias,
+                        &dummy_stored_static.error_log_stack,
                     );
                 }
                 Err(_) => {
@@ -974,7 +1128,102 @@ mod tests {
         assert_eq!(judge_result.len(), 0);
     }
     #[test]
-    /// Verify that count detection by rule works when both a description inside parentheses and a by description are present and exist within the timeframe.
+    /// Regression test for #1811: the sliding window in `judge_timeframe` must not pull a record
+    /// that is outside the timeframe into a window. Two records share EventID 4624 five seconds
+    /// apart, and a third with EventID 4625 arrives ten minutes later. With `count(EventID) >= 2`
+    /// and a one-minute timeframe there is never a one-minute window containing two distinct
+    /// EventIDs, so no alert must be produced. Before the fix, the slide branch did an unchecked
+    /// `add_data(right)`, so the out-of-timeframe 4625 record was combined with the 4624 record
+    /// into a window spanning ten minutes, producing a false-positive AggResult.
+    fn test_count_field_timeframe_no_out_of_frame_false_positive() {
+        let record0: &str = r#"
+        {
+          "Event": {
+            "System": {
+              "EventID": 4624,
+              "Channel": "System",
+              "TimeCreated_attributes": { "SystemTime": "2021-01-01T00:00:00Z" }
+            }
+          },
+          "Event_attributes": { "xmlns": "http://schemas.microsoft.com/win/2004/08/events/event" }
+        }"#;
+        let record1: &str = r#"
+        {
+          "Event": {
+            "System": {
+              "EventID": 4624,
+              "Channel": "System",
+              "TimeCreated_attributes": { "SystemTime": "2021-01-01T00:00:05Z" }
+            }
+          },
+          "Event_attributes": { "xmlns": "http://schemas.microsoft.com/win/2004/08/events/event" }
+        }"#;
+        let record2: &str = r#"
+        {
+          "Event": {
+            "System": {
+              "EventID": 4625,
+              "Channel": "System",
+              "TimeCreated_attributes": { "SystemTime": "2021-01-01T00:10:00Z" }
+            }
+          },
+          "Event_attributes": { "xmlns": "http://schemas.microsoft.com/win/2004/08/events/event" }
+        }"#;
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection1:
+                Channel: 'System'
+            condition: selection1 | count(EventID) >= 2
+            timeframe: 1m
+        details: 'count field timeframe regression'
+        "#;
+        let mut rule_yaml = YamlLoader::load_from_str(rule_str).unwrap().into_iter();
+        let test = rule_yaml.next().unwrap();
+        let mut rule_node = create_rule("testpath".to_string(), test);
+        let dummy_stored_static = create_dummy_stored_static();
+
+        let init_result = rule_node.init(&dummy_stored_static);
+        assert!(init_result.is_ok());
+        let target = vec![record0, record1, record2];
+        for record in target {
+            match serde_json::from_str(record) {
+                Ok(rec) => {
+                    let keys = detections::rule::get_detection_keys(&rule_node);
+                    let recinfo = utils::create_rec_info(
+                        rec,
+                        "testpath".to_owned(),
+                        &keys,
+                        &false,
+                        &false,
+                        &dummy_stored_static.eventkey_alias,
+                    );
+                    let _result = rule_node.select(
+                        &recinfo,
+                        dummy_stored_static.verbose_flag,
+                        dummy_stored_static.quiet_errors_flag,
+                        dummy_stored_static.json_input_flag,
+                        &dummy_stored_static.eventkey_alias,
+                        &dummy_stored_static.error_log_stack,
+                    );
+                }
+                Err(_) => {
+                    panic!("failed to parse json record.");
+                }
+            }
+        }
+        // All three records match the selection and are counted.
+        assert_eq!(
+            rule_node.countdata.get(&"_".to_owned()).unwrap().len() as i32,
+            3
+        );
+        // No one-minute window holds two distinct EventIDs, so there must be no alert.
+        let judge_result = rule_node.judge_satisfy_aggcondition(&dummy_stored_static);
+        assert_eq!(judge_result.len(), 0);
+    }
+    #[test]
+    /// Verify that count detection by rule works when count() has both a field argument and a
+    /// `by` clause and the records fall within the timeframe.
     fn test_count_exist_field_and_by_with_timeframe() {
         let record_str: &str = r#"
         {
@@ -1023,7 +1272,9 @@ mod tests {
     }
 
     #[test]
-    /// Verify that count detection by rule works when both a description inside parentheses and a by description are present and exist within the timeframe (when the items inside the count parentheses differ).
+    /// Verify that count detection by rule works when count() has both a field argument and a
+    /// `by` clause and the records fall within the timeframe (with differing count() field
+    /// values).
     fn test_count_exist_field_and_by_with_timeframe_other_field_value() {
         let record_str: &str = r#"
         {
@@ -1081,7 +1332,7 @@ mod tests {
             test_create_recstr_std("3", "1977-01-09T00:30:20Z"),
         ];
 
-        // timeframe=20s is a just-barely-hit.
+        // timeframe=20s just barely hits.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "20s");
             let default_time = Utc.with_ymd_and_hms(1977, 1, 9, 0, 30, 0).unwrap();
@@ -1108,14 +1359,14 @@ mod tests {
 
     // Verify that timeframe minutes work.
     #[test]
-    fn test_count_timeframe_minitues() {
+    fn test_count_timeframe_minutes() {
         let recs = vec![
             test_create_recstr_std("1", "1977-01-09T00:30:00Z"),
             test_create_recstr_std("2", "1977-01-09T00:40:00Z"),
             test_create_recstr_std("3", "1977-01-09T00:50:00Z"),
         ];
 
-        // timeframe=20m is a just-barely-hit.
+        // timeframe=20m just barely hits.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "20m");
             let default_time = Utc.with_ymd_and_hms(1977, 1, 9, 0, 30, 0).unwrap();
@@ -1165,7 +1416,7 @@ mod tests {
             check_count(&rule_str, &recs, expected_count, expected_agg_result);
         }
 
-        // timeframe=2h is a just-barely-hit.
+        // timeframe=2h just barely hits.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "2h");
             let default_time = Utc.with_ymd_and_hms(1977, 1, 9, 0, 30, 0).unwrap();
@@ -1189,7 +1440,7 @@ mod tests {
             check_count(&rule_str, &recs, expected_count, Vec::new());
         }
 
-        // timeframe=120min is a just-barely-hit.
+        // timeframe=120m just barely hits.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "120m");
             let default_time = Utc.with_ymd_and_hms(1977, 1, 9, 0, 30, 0).unwrap();
@@ -1205,7 +1456,7 @@ mod tests {
             check_count(&rule_str, &recs, expected_count, expected_agg_result);
         }
 
-        // timeframe=119min just barely does not hit.
+        // timeframe=119m just barely does not hit.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "119m");
             let mut expected_count = HashMap::new();
@@ -1223,7 +1474,7 @@ mod tests {
             test_create_recstr_std("3", "1977-01-20T00:30:00Z"),
         ];
 
-        // timeframe=11d is a just-barely-hit.
+        // timeframe=11d just barely hits.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "11d");
             let default_time = Utc.with_ymd_and_hms(1977, 1, 9, 0, 30, 0).unwrap();
@@ -1248,7 +1499,7 @@ mod tests {
         }
     }
 
-    // In evtx, seconds with decimal points may be specified, so verify that this is correctly handled.
+    // evtx timestamps may contain fractional seconds, so verify they are handled correctly.
     #[test]
     fn test_count_timeframe_milsecs() {
         let recs = vec![
@@ -1257,7 +1508,7 @@ mod tests {
             test_create_recstr_std("3", "2021-12-21T10:40:10.0003000Z"),
         ];
 
-        // timeframe=11sec is a just-barely-hit.
+        // timeframe=11s just barely hits.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "11s");
             let default_time = Utc.with_ymd_and_hms(2021, 12, 21, 10, 40, 0).unwrap();
@@ -1273,7 +1524,7 @@ mod tests {
             check_count(&rule_str, &recs, expected_count, expected_agg_result);
         }
 
-        // timeframe=10d just barely does not hit.
+        // timeframe=10s just barely does not hit.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "10s");
             let mut expected_count = HashMap::new();
@@ -1282,7 +1533,7 @@ mod tests {
         }
     }
 
-    // In evtx, seconds with decimal points may be specified, so verify that this is correctly handled.
+    // evtx timestamps may contain fractional seconds, so verify they are handled correctly.
     #[test]
     fn test_count_timeframe_milsecs2() {
         let recs = vec![
@@ -1291,7 +1542,7 @@ mod tests {
             test_create_recstr_std("3", "2021-12-21T10:40:10.0400000Z"),
         ];
 
-        // timeframe=10sec is a just-barely-hit.
+        // timeframe=10s just barely hits.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "10s");
             let default_time = DateTime::<Utc>::from_naive_utc_and_offset(
@@ -1313,7 +1564,7 @@ mod tests {
             check_count(&rule_str, &recs, expected_count, expected_agg_result);
         }
 
-        // timeframe=10d just barely does not hit.
+        // timeframe=9s just barely does not hit.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "9s");
             let mut expected_count = HashMap::new();
@@ -1322,7 +1573,7 @@ mod tests {
         }
     }
 
-    // In evtx, seconds with decimal points may be specified, so verify that this is correctly handled.
+    // evtx timestamps may contain fractional seconds, so verify they are handled correctly.
     #[test]
     fn test_count_timeframe_milsecs3() {
         let recs = vec![
@@ -1331,7 +1582,7 @@ mod tests {
             test_create_recstr_std("3", "2021-12-21T10:40:10.0600000Z"),
         ];
 
-        // timeframe=11sec is a just-barely-hit.
+        // timeframe=11s just barely hits.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "11s");
             let default_time = DateTime::<Utc>::from_naive_utc_and_offset(
@@ -1353,7 +1604,7 @@ mod tests {
             check_count(&rule_str, &recs, expected_count, expected_agg_result);
         }
 
-        // timeframe=10d just barely does not hit.
+        // timeframe=10s just barely does not hit.
         {
             let rule_str = create_std_rule("count(EventID) >= 3", "10s");
             let mut expected_count = HashMap::new();
@@ -1424,11 +1675,10 @@ mod tests {
         }
     }
 
-    // Inspection of timeframe.
-    // timeframe=2h, and after the pipe: count(EventID) >= 3.
+    // Timeframe inspection: timeframe=2h with `count(EventID) >= 3` after the pipe.
     //
-    // In this case, the first 3 rows should not be detected, but rows 2 through 4 should be detected.
-    // Check patterns that detect starting from the middle rather than from the first row.
+    // Here the first 3 rows should not be detected, but rows 2 through 4 should be.
+    // Checks the pattern where detection starts in the middle rather than at the first row.
     // 0:30 EventID=1
     // 1:30 EventID=1
     // 2:30 EventID=2
@@ -1461,7 +1711,7 @@ mod tests {
         check_count(&rule_str, &recs, expected_count, expected_agg_result);
     }
 
-    // Never quite detects.
+    // Comes close but never detects: every 2h window holds only 2 distinct EventIDs.
     #[test]
     fn test_count_timeframe2() {
         let recs = vec![
@@ -1514,8 +1764,9 @@ mod tests {
         }
     }
 
-    // No sentinel is placed in the count implementation; check that it works correctly.
-    // Check that no error occurs when the timeframe of all hit records is narrower than the condition timeframe.
+    // The count implementation places no sentinel at the end of the data; check it still works.
+    // Verify that no error occurs when the time span of all matching records is narrower than the
+    // rule's timeframe.
     #[test]
     fn test_count_sentinel() {
         let recs = vec![
@@ -1550,8 +1801,8 @@ mod tests {
         }
     }
 
-    // There are 4 types of EventIDs from 1:30 to 4:30, and 4 types from 2:30 to 5:30,
-    // Verify that once 4 types are found from 1:30 to 4:30, counting restarts from 5:30.
+    // There are 4 distinct EventIDs from 1:30 to 4:30, and likewise 4 from 2:30 to 5:30.
+    // Verify that once 4 distinct values are found in 1:30-4:30, counting restarts from 5:30.
     #[test]
     fn test_count_timeframe_reset() {
         let recs = vec![
@@ -1617,10 +1868,9 @@ mod tests {
         }
     }
 
-    // Inspection of timeframe.
-    // timeframe=2h, and after the pipe: count(EventID) >= 3.
+    // Timeframe inspection: timeframe=2h with `count(EventID) >= 3` after the pipe.
     //
-    // When the test_count_timeframe() pattern repeats twice.
+    // The test_count_timeframe1() pattern repeated twice.
     #[test]
     fn test_count_timeframe_twice() {
         let recs = vec![
@@ -1705,7 +1955,8 @@ mod tests {
             .replace("${TIME_FRAME}", timeframe)
     }
 
-    /// Test function to verify target numbers for count.
+    /// Test helper: runs the rule against the given records, then asserts both the per-key
+    /// countdata sizes and the resulting AggResults against the expected values.
     fn check_count(
         rule_str: &str,
         records_str: &[String],
@@ -1720,7 +1971,6 @@ mod tests {
             panic!("Failed to init rulenode");
         }
         let dummy_stored_static = create_dummy_stored_static();
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(dummy_stored_static.eventkey_alias.clone());
 
         for record_str in records_str {
             match serde_json::from_str(record_str) {
@@ -1732,6 +1982,7 @@ mod tests {
                         &keys,
                         &false,
                         &false,
+                        &dummy_stored_static.eventkey_alias,
                     );
                     let result = &rule_node.select(
                         &recinfo,
@@ -1739,6 +1990,7 @@ mod tests {
                         dummy_stored_static.quiet_errors_flag,
                         dummy_stored_static.json_input_flag,
                         &dummy_stored_static.eventkey_alias,
+                        &dummy_stored_static.error_log_stack,
                     );
                     assert_eq!(result, &true);
                 }
@@ -1764,20 +2016,23 @@ mod tests {
             expect_data.push(expect_agg.data);
             expect_key.push(expect_agg.key);
             expect_field_values.push(expect_agg.field_values);
-            expect_start_timedate.push(expect_agg.start_timedate);
+            expect_start_timedate.push(expect_agg.start_datetime);
         }
         for agg_result in agg_results {
-            println!("{}", &agg_result.start_timedate);
-            // Storage of start_timedate has already been verified here.
+            println!("{}", agg_result.start_datetime);
+            // The unwrap doubles as the check that start_datetime was stored correctly:
+            // binary_search fails if it is not among the expected values.
             let index = expect_start_timedate
-                .binary_search(&agg_result.start_timedate)
+                .binary_search(&agg_result.start_datetime)
                 .unwrap();
             assert_eq!(agg_result.data, expect_data[index]);
             assert_eq!(agg_result.key, expect_key[index]);
             assert!(agg_result.field_values.len() == expect_field_values[index].len());
             for expect_field_value in &expect_field_values[index] {
-                // Depending on the test, the array order may differ from expected due to timeframe values and field values, so verify the array length and then check whether each expected element exists.
-                // The order of field elements is not relevant for subsequent processing.
+                // Depending on the test, timeframe values and field values can make the array
+                // order differ from the expectation, so verify the array length and then check
+                // that each expected element exists. The order of the field elements does not
+                // matter for subsequent processing.
                 assert!(agg_result.field_values.contains(expect_field_value));
             }
         }

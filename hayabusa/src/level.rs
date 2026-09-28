@@ -1,12 +1,14 @@
-use crate::afterfact::Colors;
 use crate::detections::configs::CURRENT_EXE_PATH;
 use crate::detections::message::AlertMessage;
 use crate::detections::utils;
 use crate::detections::utils::parse_csv;
+use crate::results::Colors;
 use hashbrown::{HashMap, HashSet};
 use lazy_static::lazy_static;
 use rust_embed::Embed;
 lazy_static! {
+    // Computer names listed in config/critical_systems.txt. Alerts for these hosts get their
+    // level raised by one step (see LEVEL::convert). Missing file means an empty set.
     static ref CRITICAL_SYSTEM: HashSet<String> = {
         let current = CURRENT_EXE_PATH.to_path_buf();
         let path = current.join("config/critical_systems.txt");
@@ -23,11 +25,15 @@ use strum::EnumIter;
 
 use termcolor::Color;
 
+/// Embedded copy of config/level_color.txt, used as a fallback when the file cannot be read
+/// from disk.
 #[derive(Embed)]
 #[folder = "config"]
 #[include = "level_color.txt"]
 struct LevelColor;
 
+/// Rule severity level. Variants are declared from lowest to highest severity; use index() for
+/// numeric comparison (e.g. minimum-level filtering).
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, Default, Hash)]
 pub enum LEVEL {
     #[default]
@@ -41,10 +47,12 @@ pub enum LEVEL {
 }
 
 impl LEVEL {
-    pub fn from(s: &str) -> Self {
-        let s = s.to_lowercase();
-        let s = s.as_str();
-        match s {
+    /// Parses a full level name (case-insensitive). Abbreviations such as "info" are not
+    /// accepted; any unrecognized string maps to UNDEFINED.
+    pub fn from(level_str: &str) -> Self {
+        let level_str = level_str.to_lowercase();
+        let level_str = level_str.as_str();
+        match level_str {
             "informational" => LEVEL::INFORMATIONAL,
             "low" => LEVEL::LOW,
             "medium" => LEVEL::MEDIUM,
@@ -78,6 +86,8 @@ impl LEVEL {
         }
     }
 
+    /// Numeric severity rank (higher = more severe), used for sorting detections and for
+    /// minimum-level filtering.
     pub fn index(&self) -> usize {
         match *self {
             LEVEL::UNDEFINED => 0,
@@ -90,11 +100,16 @@ impl LEVEL {
         }
     }
 
+    /// Raises the level by one step when any of the computer names is listed in
+    /// config/critical_systems.txt; otherwise returns the level unchanged. `computer` may
+    /// contain several names joined with " ¦ " (count/correlation results combine the computer
+    /// names of all contributing records).
+    /// INFORMATIONAL stays INFORMATIONAL and EMERGENCY is already the maximum.
     pub fn convert(&self, computer: &str) -> &LEVEL {
         // If the computer is included in CRITICAL_SYSTEM, raise the level.
         let computers = computer.split(" ¦ ");
-        for c in computers {
-            if CRITICAL_SYSTEM.contains(c) {
+        for computer_name in computers {
+            if CRITICAL_SYSTEM.contains(computer_name) {
                 return match self {
                     LEVEL::INFORMATIONAL => &LEVEL::INFORMATIONAL,
                     LEVEL::LOW => &LEVEL::MEDIUM,
@@ -116,7 +131,9 @@ impl PartialEq<str> for LEVEL {
     }
 }
 
-/// Reads the level_color.txt file and returns the corresponding text color mapping.
+/// Reads the level_color.txt file and returns the level-to-text-color mapping. Falls back to
+/// the embedded copy when the file cannot be read from disk, and returns an empty map (no
+/// coloring) when the no_color flag is set.
 pub fn create_output_color_map(no_color_flag: bool) -> HashMap<LEVEL, Colors> {
     let path = utils::check_setting_path(Path::new("."), "config/level_color.txt", false)
         .unwrap_or_else(|| {
@@ -128,7 +145,7 @@ pub fn create_output_color_map(no_color_flag: bool) -> HashMap<LEVEL, Colors> {
             .unwrap_or_default()
         });
     let read_result = match utils::read_csv(path.to_str().unwrap()) {
-        Ok(c) => Ok(c),
+        Ok(records) => Ok(records),
         Err(_) => {
             let level_color = LevelColor::get("level_color.txt").unwrap();
             let embed_level_color =
@@ -145,9 +162,10 @@ pub fn create_output_color_map(no_color_flag: bool) -> HashMap<LEVEL, Colors> {
         return color_map;
     }
     let color_map_contents = match read_result {
-        Ok(c) => c,
+        Ok(records) => records,
         Err(e) => {
-            // If there is no color information, only the normal white output will appear and it will not affect behavior, so it is treated as a warning.
+            // Missing color information only means output falls back to the default uncolored
+            // text and does not affect behavior, so it is treated as a warning, not an error.
             AlertMessage::warn(&e).ok();
             return color_map;
         }
@@ -188,29 +206,32 @@ pub fn create_output_color_map(no_color_flag: bool) -> HashMap<LEVEL, Colors> {
 
 pub fn _get_output_color(color_map: &HashMap<LEVEL, Colors>, level: &LEVEL) -> Option<Color> {
     let mut color = None;
-    if let Some(c) = color_map.get(level) {
-        color = Some(c.output_color);
+    if let Some(colors) = color_map.get(level) {
+        color = Some(colors.output_color);
     }
     color
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::afterfact::Colors;
     use crate::level::{_get_output_color, LEVEL, create_output_color_map};
+    use crate::results::Colors;
     use hashbrown::HashMap;
     use termcolor::Color;
 
     fn check_hashmap_data(target: HashMap<LEVEL, Colors>, expected: HashMap<LEVEL, Colors>) {
         assert_eq!(target.len(), expected.len());
-        for (k, v) in target {
-            assert!(expected.get(&k).is_some());
-            assert_eq!(format!("{v:?}"), format!("{:?}", expected.get(&k).unwrap()));
+        for (level, colors) in target {
+            assert!(expected.get(&level).is_some());
+            assert_eq!(
+                format!("{colors:?}"),
+                format!("{:?}", expected.get(&level).unwrap())
+            );
         }
     }
 
     #[test]
-    /// To confirm that empty character color mapping data is returned when the no_color flag is given.
+    /// Confirms that an empty color map is returned when the no_color flag is given.
     fn test_set_output_color_no_color_flag() {
         let expect: HashMap<LEVEL, Colors> = HashMap::new();
         check_hashmap_data(create_output_color_map(true), expect);

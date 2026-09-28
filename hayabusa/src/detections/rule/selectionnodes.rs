@@ -7,44 +7,81 @@ use yaml_rust2::Yaml;
 
 use super::matchers::{self, DefaultMatcher};
 
-// Nodes under detection-selection in a Rule file implement this trait.
+/// Trait implemented by every node under the detection-selection section of a rule file.
 pub trait SelectionNode: Downcast + Send + Sync {
-    // Determine whether the event log record specified as an argument matches the condition.
-    // Appropriate determination processing must be written for each struct that implements this trait.
+    /// Determines whether the given event log record matches this node's condition.
+    /// Each struct implementing this trait must provide its own matching logic.
     fn select(&self, event_record: &EvtxRecordInfo, eventkey_alias: &EventKeyAliasConfig) -> bool;
 
-    // Perform initialization processing.
-    // Since errors can be returned as a return value, output an error here when the Rule file is incorrect and a SelectionNode cannot be constructed.
-    // AndSelectionNode and others implement a new() function in addition to init(), but new() is meant to only create an instance without writing overly long processing.
-    // This is done to consolidate error handling for Rule file parsing into the init() function.
+    /// Performs initialization.
+    /// Since this method can return errors, report here when the rule file is invalid and a
+    /// SelectionNode cannot be constructed. NarySelectionNode and the like also provide lightweight
+    /// constructors (e.g. `new`/`and`/`or`) in addition to init(), but those are only meant to
+    /// create an instance and should not contain lengthy processing. This keeps the error handling
+    /// for rule file parsing consolidated in init().
     fn init(&mut self) -> Result<(), Vec<String>>;
 
-    // Get child nodes (same meaning as child in graph theory).
-    fn get_childs(&self) -> Vec<&dyn SelectionNode>;
+    /// Gets the child nodes ("child" in the graph-theory sense).
+    fn get_children(&self) -> Vec<&dyn SelectionNode>;
 
-    // Get descendant nodes (same meaning as descendant in graph theory).
+    /// Gets the descendant nodes ("descendant" in the graph-theory sense).
     fn get_descendants(&self) -> Vec<&dyn SelectionNode>;
 }
+// Enable downcasting so callers (e.g. get_detection_keys() in rule/mod.rs) can identify concrete
+// node types such as LeafSelectionNode.
 downcast_rs::impl_downcast!(SelectionNode);
 
-/// Node representing AND conditions under detection-selection.
-pub struct AndSelectionNode {
+/// Logical combinator for a [`NarySelectionNode`]'s children.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LogicalOp {
+    /// AND: the node matches only when **all** children match. Built from a YAML hash (every
+    /// key/value pair must match), from a value list whose field key carries the `|all` modifier,
+    /// and for `and` operators in condition expressions.
+    All,
+    /// OR: the node matches when **any** child matches. Built from a YAML array of values, for `or`
+    /// operators in condition expressions, and when the correlation parser merges referenced rules.
+    Any,
+}
+
+/// Node combining child selection nodes with a logical AND ([`LogicalOp::All`]) or OR
+/// ([`LogicalOp::Any`]). Replaces the former separate AndSelectionNode / AllSelectionNode /
+/// OrSelectionNode types, which differed only in the combinator used by `select`.
+pub struct NarySelectionNode {
+    pub op: LogicalOp,
     pub child_nodes: Vec<Box<dyn SelectionNode>>,
 }
 
-impl AndSelectionNode {
-    pub fn new() -> AndSelectionNode {
-        AndSelectionNode {
+impl NarySelectionNode {
+    pub fn new(op: LogicalOp) -> NarySelectionNode {
+        NarySelectionNode {
+            op,
             child_nodes: vec![],
         }
     }
+
+    /// Convenience constructor for an AND node (matches only when every child matches).
+    pub fn and() -> NarySelectionNode {
+        NarySelectionNode::new(LogicalOp::All)
+    }
+
+    /// Convenience constructor for an OR node (matches when any child matches).
+    pub fn or() -> NarySelectionNode {
+        NarySelectionNode::new(LogicalOp::Any)
+    }
 }
 
-impl SelectionNode for AndSelectionNode {
+impl SelectionNode for NarySelectionNode {
     fn select(&self, event_record: &EvtxRecordInfo, eventkey_alias: &EventKeyAliasConfig) -> bool {
-        self.child_nodes
-            .iter()
-            .all(|child_node| child_node.select(event_record, eventkey_alias))
+        match self.op {
+            LogicalOp::All => self
+                .child_nodes
+                .iter()
+                .all(|child_node| child_node.select(event_record, eventkey_alias)),
+            LogicalOp::Any => self
+                .child_nodes
+                .iter()
+                .any(|child_node| child_node.select(event_record, eventkey_alias)),
+        }
     }
 
     fn init(&mut self) -> Result<(), Vec<String>> {
@@ -70,7 +107,7 @@ impl SelectionNode for AndSelectionNode {
         }
     }
 
-    fn get_childs(&self) -> Vec<&dyn SelectionNode> {
+    fn get_children(&self) -> Vec<&dyn SelectionNode> {
         let mut ret = vec![];
         self.child_nodes.iter().for_each(|child_node| {
             ret.push(child_node.as_ref());
@@ -80,7 +117,7 @@ impl SelectionNode for AndSelectionNode {
     }
 
     fn get_descendants(&self) -> Vec<&dyn SelectionNode> {
-        let mut ret = self.get_childs();
+        let mut ret = self.get_children();
 
         self.child_nodes
             .iter()
@@ -93,139 +130,7 @@ impl SelectionNode for AndSelectionNode {
     }
 }
 
-/// Node representing All conditions under detection-selection.
-pub struct AllSelectionNode {
-    pub child_nodes: Vec<Box<dyn SelectionNode>>,
-}
-
-impl AllSelectionNode {
-    pub fn new() -> AllSelectionNode {
-        AllSelectionNode {
-            child_nodes: vec![],
-        }
-    }
-}
-
-impl SelectionNode for AllSelectionNode {
-    fn select(&self, event_record: &EvtxRecordInfo, eventkey_alias: &EventKeyAliasConfig) -> bool {
-        self.child_nodes
-            .iter()
-            .all(|child_node| child_node.select(event_record, eventkey_alias))
-    }
-
-    fn init(&mut self) -> Result<(), Vec<String>> {
-        let err_msgs = self
-            .child_nodes
-            .iter_mut()
-            .map(|child_node| {
-                let res = child_node.init();
-                if let Err(err) = res { err } else { vec![] }
-            })
-            .fold(
-                vec![],
-                |mut acc: Vec<String>, cur: Vec<String>| -> Vec<String> {
-                    acc.extend(cur);
-                    acc
-                },
-            );
-
-        if err_msgs.is_empty() {
-            Result::Ok(())
-        } else {
-            Result::Err(err_msgs)
-        }
-    }
-
-    fn get_childs(&self) -> Vec<&dyn SelectionNode> {
-        let mut ret = vec![];
-        self.child_nodes.iter().for_each(|child_node| {
-            ret.push(child_node.as_ref());
-        });
-
-        ret
-    }
-
-    fn get_descendants(&self) -> Vec<&dyn SelectionNode> {
-        let mut ret = self.get_childs();
-
-        self.child_nodes
-            .iter()
-            .flat_map(|child_node| child_node.get_descendants())
-            .for_each(|descendant_node| {
-                ret.push(descendant_node);
-            });
-
-        ret
-    }
-}
-
-/// Node representing OR conditions under detection-selection.
-pub struct OrSelectionNode {
-    pub child_nodes: Vec<Box<dyn SelectionNode>>,
-}
-
-impl OrSelectionNode {
-    pub fn new() -> OrSelectionNode {
-        OrSelectionNode {
-            child_nodes: vec![],
-        }
-    }
-}
-
-impl SelectionNode for OrSelectionNode {
-    fn select(&self, event_record: &EvtxRecordInfo, eventkey_alias: &EventKeyAliasConfig) -> bool {
-        self.child_nodes
-            .iter()
-            .any(|child_node| child_node.select(event_record, eventkey_alias))
-    }
-
-    fn init(&mut self) -> Result<(), Vec<String>> {
-        let err_msgs = self
-            .child_nodes
-            .iter_mut()
-            .map(|child_node| {
-                let res = child_node.init();
-                if let Err(err) = res { err } else { vec![] }
-            })
-            .fold(
-                vec![],
-                |mut acc: Vec<String>, cur: Vec<String>| -> Vec<String> {
-                    acc.extend(cur);
-                    acc
-                },
-            );
-
-        if err_msgs.is_empty() {
-            Result::Ok(())
-        } else {
-            Result::Err(err_msgs)
-        }
-    }
-
-    fn get_childs(&self) -> Vec<&dyn SelectionNode> {
-        let mut ret = vec![];
-        self.child_nodes.iter().for_each(|child_node| {
-            ret.push(child_node.as_ref());
-        });
-
-        ret
-    }
-
-    fn get_descendants(&self) -> Vec<&dyn SelectionNode> {
-        let mut ret = self.get_childs();
-
-        self.child_nodes
-            .iter()
-            .flat_map(|child_node| child_node.get_descendants())
-            .for_each(|descendant_node| {
-                ret.push(descendant_node);
-            });
-
-        ret
-    }
-}
-
-/// Node representing Not in condition.
+/// Node representing a `not` in the condition expression; inverts the result of the wrapped node.
 pub struct NotSelectionNode {
     node: Box<dyn SelectionNode>,
 }
@@ -242,23 +147,25 @@ impl SelectionNode for NotSelectionNode {
     }
 
     fn init(&mut self) -> Result<(), Vec<String>> {
+        // Nothing to initialize: this node is created when the condition expression is compiled,
+        // which happens after all named selections have already been initialized.
         Result::Ok(())
     }
 
-    fn get_childs(&self) -> Vec<&dyn SelectionNode> {
+    fn get_children(&self) -> Vec<&dyn SelectionNode> {
         vec![]
     }
 
     fn get_descendants(&self) -> Vec<&dyn SelectionNode> {
-        self.get_childs()
+        self.get_children()
     }
 }
 
-/// Used to reference conditions defined in detection from condition.
+/// Used to reference a named selection defined under detection from the condition expression.
 pub struct RefSelectionNode {
-    // selection_node is owned by name_2_node of DetectionNode, so ownership cannot be given to selection_node of RefSelectionNode.
-    // Therefore, Arc is used so that ownership is shared between name_2_node of DetectionNode and selection_node of RefSelectionNode.
-    // Arc is used instead of Rc for multi-thread support.
+    // selection_node is owned by DetectionNode's name_to_selection map, so RefSelectionNode cannot
+    // take ownership of it. Arc is used so that ownership is shared between name_to_selection and
+    // this field. Arc is used instead of Rc for multi-thread support.
     selection_node: Arc<Box<dyn SelectionNode>>,
 }
 
@@ -276,19 +183,24 @@ impl SelectionNode for RefSelectionNode {
     }
 
     fn init(&mut self) -> Result<(), Vec<String>> {
+        // Nothing to initialize: the referenced selection is initialized by DetectionNode before
+        // the condition expression is compiled.
         Result::Ok(())
     }
 
-    fn get_childs(&self) -> Vec<&dyn SelectionNode> {
+    fn get_children(&self) -> Vec<&dyn SelectionNode> {
         vec![self.selection_node.as_ref().as_ref()]
     }
 
     fn get_descendants(&self) -> Vec<&dyn SelectionNode> {
-        self.get_childs()
+        self.get_children()
     }
 }
 
-/// Leaf node under detection-selection.
+/// Leaf node under detection-selection: a single field/value pair.
+/// key_list holds the chain of YAML keys leading to the value (e.g. `["CommandLine|contains"]` or
+/// `["field", "min_length"]`), key holds the field name with any pipe modifiers stripped, and the
+/// actual comparison is delegated to the LeafMatcher chosen during init().
 pub struct LeafSelectionNode {
     key: String,
     key_list: Nested<String>,
@@ -310,6 +222,9 @@ impl LeafSelectionNode {
         &self.key
     }
 
+    /// Returns the event keys this leaf refers to: the leaf's own field key plus, for field
+    /// comparison modifiers such as `equalsfield`/`fieldref`, the key of the field being compared
+    /// against. Used to decide which values to extract from each record up front.
     pub fn get_keys(&self) -> Vec<&String> {
         let mut keys = vec![];
         if !self.key.is_empty() {
@@ -328,18 +243,21 @@ impl LeafSelectionNode {
         keys
     }
 
+    /// Derives the field name from key_list: the first element with any pipe modifiers
+    /// (e.g. "|contains") stripped off.
     fn _create_key(&self) -> String {
         if self.key_list.is_empty() {
             return String::default();
         }
 
-        let topkey = &self.key_list[0];
-        topkey.split('|').next().unwrap_or_default().to_string()
+        let first_key = &self.key_list[0];
+        first_key.split('|').next().unwrap_or_default().to_string()
     }
 
-    /// Function to get a value from EventJSON in JSON format. Aliases are also considered.
+    /// Gets the value for this leaf's key from the event record JSON.
+    /// Event key aliases are also taken into account.
     fn get_event_value<'a>(&self, record: &'a EvtxRecordInfo) -> Option<&'a String> {
-        // If no key is specified, get the record data as-is.
+        // If no key is specified (a keyword-style rule), match against the whole record string.
         if self.key_list.is_empty() {
             return Option::Some(&record.data_string);
         }
@@ -347,8 +265,9 @@ impl LeafSelectionNode {
         record.get_value(self.get_key())
     }
 
-    /// Gets the list of matchers::LeafMatchers.
-    /// Examine in order from the top, and the first matching Matcher is applied.
+    /// Gets the list of candidate matchers::LeafMatcher implementations.
+    /// They are examined in order from the top, and the first matcher whose is_target_key()
+    /// returns true is applied, so the most permissive matcher (DefaultMatcher) must stay last.
     fn get_matchers(&self) -> Vec<Box<dyn matchers::LeafMatcher>> {
         vec![
             Box::new(matchers::MinlengthMatcher::new()),
@@ -361,12 +280,13 @@ impl LeafSelectionNode {
 
 impl SelectionNode for LeafSelectionNode {
     fn select(&self, event_record: &EvtxRecordInfo, eventkey_alias: &EventKeyAliasConfig) -> bool {
+        // The matcher is set in init(); if init() failed, this node never matches.
         if self.matcher.is_none() {
             return false;
         }
 
-        // EventData requires special handling because XML is in a special format.
-        //// The original XML is in the following format.
+        // EventData requires special handling because its XML has a special format.
+        // The original XML looks like this:
         /*
             <EventData>
             <Data>Available</Data>
@@ -374,8 +294,9 @@ impl SelectionNode for LeafSelectionNode {
             <Data>NewEngineState=Available PreviousEngineState=None SequenceNumber=9 HostName=ConsoleHost HostVersion=2.0 HostId=5cbb33bf-acf7-47cc-9242-141cd0ba9f0c EngineVersion=2.0 RunspaceId=c6e94dca-0daf-418c-860a-f751a9f2cbe1 PipelineId= CommandName= CommandType= ScriptName= CommandPath= CommandLine=</Data>
             </EventData>
         */
-        //// When XML is parsed to JSON, it is in the following format.
-        //// Rules that would result in JSON being an array cannot currently be written.
+        // When the XML is parsed into JSON, it takes the following format.
+        // Rules that target the case where the JSON becomes an array like this cannot currently
+        // be written.
         /*     "EventData": {
                     "Binary": null,
                     "Data": [
@@ -399,9 +320,9 @@ impl SelectionNode for LeafSelectionNode {
                     .is_match(Option::None, event_record);
             }
 
-            // For strings or numbers (not arrays), compare normally.
-            let eventdata_data = values.unwrap();
-            match eventdata_data {
+            let event_data_value = values.unwrap();
+            match event_data_value {
+                // For strings or numbers (not arrays), compare normally.
                 Value::Bool(_) | Value::Number(_) | Value::String(_) => {
                     let event_value = event_record.get_value(self.get_key());
                     return self
@@ -410,18 +331,22 @@ impl SelectionNode for LeafSelectionNode {
                         .unwrap()
                         .is_match(event_value, event_record);
                 }
+                // For arrays, the leaf matches if any element matches.
                 Value::Array(_) => {
-                    return eventdata_data
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .any(|ary_element| {
-                            let event_value = utils::value_to_string(ary_element);
-                            self.matcher
-                                .as_ref()
-                                .unwrap()
-                                .is_match(event_value.as_ref(), event_record)
-                        });
+                    let matcher = self.matcher.as_ref().unwrap();
+                    let per_element = |array_element: &Value| {
+                        let event_value = utils::value_to_string(array_element);
+                        matcher.is_match(event_value.as_ref(), event_record)
+                    };
+                    let array = event_data_value.as_array().unwrap();
+                    // For a negated matcher (`neq`), each element's result is already inverted, so the
+                    // negation must apply over the whole array: NOT(e1 OR e2 OR ...) == (NOT e1) AND (NOT e2) ...
+                    // Combine with `all` in that case; otherwise combine with `any` (a value matches if any element does).
+                    return if matcher.is_negated() {
+                        array.iter().all(per_element)
+                    } else {
+                        array.iter().any(per_element)
+                    };
                 }
                 _ => {
                     return self
@@ -440,9 +365,11 @@ impl SelectionNode for LeafSelectionNode {
             && !self.key_list[0].contains("|")
             && let Some(event_id) = self.select_value.as_i64()
         {
-            // Regex is heavy, so for numeric EventIDs, use exact string matching.
+            // Regex matching is heavy, so when the rule specifies EventID as a plain integer
+            // (no pipe modifiers), use exact string comparison instead.
             return event_value.unwrap_or(&String::default()) == &event_id.to_string();
         }
+        // For the keyless `|all` modifier, match against the entire record JSON string.
         if !self.key_list.is_empty() && self.key_list[0].eq("|all") {
             event_value = Some(&event_record.data_string);
         }
@@ -458,7 +385,7 @@ impl SelectionNode for LeafSelectionNode {
             .into_iter()
             .find(|matcher| matcher.is_target_key(&self.key_list));
 
-        // Error: no matching matcher found.
+        // Error: no matcher accepted this key.
         if self.matcher.is_none() {
             return Result::Err(vec![format!(
                 "Found unknown key. key:{}",
@@ -466,6 +393,7 @@ impl SelectionNode for LeafSelectionNode {
             )]);
         }
 
+        // Error: the YAML value could not be parsed.
         if self.select_value.is_badvalue() {
             return Result::Err(vec![format!(
                 "Cannot parse yml file. key:{}",
@@ -480,7 +408,7 @@ impl SelectionNode for LeafSelectionNode {
             .init(&self.key_list, &self.select_value)
     }
 
-    fn get_childs(&self) -> Vec<&dyn SelectionNode> {
+    fn get_children(&self) -> Vec<&dyn SelectionNode> {
         vec![]
     }
 
@@ -493,14 +421,14 @@ impl SelectionNode for LeafSelectionNode {
 mod tests {
     use crate::detections::{
         self,
-        configs::{Action, Config, CsvOutputOption, OutputOption, STORED_EKEY_ALIAS, StoredStatic},
+        configs::{Action, Config, DfirTimelineOption, OutputOption, StoredStatic},
         rule::tests::parse_rule_from_str,
         utils,
     };
 
     fn create_dummy_stored_static() -> StoredStatic {
-        StoredStatic::create_static_data(Some(Config {
-            action: Some(Action::CsvTimeline(CsvOutputOption {
+        StoredStatic::create_static_data(Config {
+            action: Some(Action::DfirTimeline(DfirTimelineOption {
                 output_options: OutputOption {
                     min_level: "informational".to_string(),
                     no_wizard: true,
@@ -509,26 +437,34 @@ mod tests {
                 ..Default::default()
             })),
             ..Default::default()
-        }))
+        })
     }
 
+    // Parses the rule, wraps the JSON record, and asserts that rule_node.select() returns
+    // expect_select.
     fn check_select(rule_str: &str, record_str: &str, expect_select: bool) {
         let mut rule_node = parse_rule_from_str(rule_str);
         let dummy_stored_static = create_dummy_stored_static();
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(dummy_stored_static.eventkey_alias.clone());
 
         match serde_json::from_str(record_str) {
             Ok(record) => {
                 let keys = detections::rule::get_detection_keys(&rule_node);
-                let recinfo =
-                    utils::create_rec_info(record, "testpath".to_owned(), &keys, &false, &false);
+                let recinfo = utils::create_rec_info(
+                    record,
+                    "testpath".to_owned(),
+                    &keys,
+                    &false,
+                    &false,
+                    &dummy_stored_static.eventkey_alias,
+                );
                 assert_eq!(
                     rule_node.select(
                         &recinfo,
                         dummy_stored_static.verbose_flag,
                         dummy_stored_static.quiet_errors_flag,
                         dummy_stored_static.json_input_flag,
-                        &dummy_stored_static.eventkey_alias
+                        &dummy_stored_static.eventkey_alias,
+                        &dummy_stored_static.error_log_stack
                     ),
                     expect_select
                 );
@@ -540,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_mutiple_regex_and() {
+    fn test_detect_multiple_regex_and() {
         // Verify that AND conditions are correctly detected.
         let rule_str = r#"
         enabled: true
@@ -561,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn test_notdetect_mutiple_regex_and() {
+    fn test_notdetect_multiple_regex_and() {
         // Verify that if even one condition in an AND condition does not match, it is not detected.
         // In this example, the Computer value is different.
         let rule_str = r#"
@@ -628,7 +564,7 @@ mod tests {
 
     #[test]
     fn test_notdetect_or() {
-        // Verify that OR conditions are correctly detected.
+        // Verify that an OR condition does not match when none of the listed values match.
         let rule_str = r#"
         enabled: true
         detection:
@@ -642,6 +578,174 @@ mod tests {
         let record_json_str = r#"
         {
             "Event": {"System": {"EventID": 4103, "Channel": "not detect", "Computer":"DESKTOP-ICHIICHI"}},
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+
+        check_select(rule_str, record_json_str, false);
+    }
+
+    #[test]
+    fn test_neq_contains_all_detect() {
+        // `contains|all|neq` with a list negates the AND-linked comparison (De Morgan):
+        // NOT(contains "cur" AND contains "ity"). "curabc" contains "cur" but not "ity",
+        // so NOT(true AND false) = true -> MATCH.
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection:
+                Channel|contains|all|neq:
+                    - cur
+                    - ity
+        details: 'command=%CommandLine%'
+        "#;
+        let record_json_str = r#"
+        {
+            "Event": {"System": {"EventID": 4103, "Channel": "curabc"}},
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        check_select(rule_str, record_json_str, true);
+    }
+
+    #[test]
+    fn test_neq_contains_all_notdetect() {
+        // NOT(contains "cur" AND contains "ity"). "curity" contains both, so NOT(true AND true) = false.
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection:
+                Channel|contains|all|neq:
+                    - cur
+                    - ity
+        details: 'command=%CommandLine%'
+        "#;
+        let record_json_str = r#"
+        {
+            "Event": {"System": {"EventID": 4103, "Channel": "curity"}},
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        check_select(rule_str, record_json_str, false);
+    }
+
+    #[test]
+    fn test_neq_data_array_notdetect() {
+        // Multi-valued EventData.Data with neq: Data = ["X","Y"], `neq: X`.
+        // The negation applies over the whole field: NOT(any element == X). X is present, so NO MATCH.
+        // (This must agree with condition-level `not` on the same data.)
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection:
+                Data|neq: X
+        details: 'command=%CommandLine%'
+        "#;
+        let record_json_str = r#"
+        {
+            "Event": {"EventData": {"Data": ["X", "Y"]}, "System": {"EventID": 4103, "Channel": "Sec"}},
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        check_select(rule_str, record_json_str, false);
+    }
+
+    #[test]
+    fn test_neq_data_array_detect() {
+        // Data = ["X","Y"], `neq: Z`. Z is absent, so NOT(any element == Z) = NOT(false) = MATCH.
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection:
+                Data|neq: Z
+        details: 'command=%CommandLine%'
+        "#;
+        let record_json_str = r#"
+        {
+            "Event": {"EventData": {"Data": ["X", "Y"]}, "System": {"EventID": 4103, "Channel": "Sec"}},
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        check_select(rule_str, record_json_str, true);
+    }
+
+    #[test]
+    fn test_neq_repeated_is_idempotent() {
+        // Repeating `neq` is idempotent (matches Sigma's SigmaNegateModifier, which sets `negated = true`
+        // rather than toggling). `Channel|neq|neq: Security` against Channel=Security stays a single
+        // negation: NOT(Channel == Security) = false.
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection:
+                Channel|neq|neq: Security
+        details: 'command=%CommandLine%'
+        "#;
+        let record_json_str = r#"
+        {
+            "Event": {"System": {"EventID": 4103, "Channel": "Security"}},
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        check_select(rule_str, record_json_str, false);
+    }
+
+    #[test]
+    fn test_neq_list_detect() {
+        // A list of values under `neq` means "different from ALL of them" (De Morgan).
+        // "PowerShell" differs from both "Security" and "System", so it matches.
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection:
+                Channel|neq:
+                    - Security
+                    - System
+        details: 'command=%CommandLine%'
+        "#;
+
+        let record_json_str = r#"
+        {
+            "Event": {"System": {"EventID": 4103, "Channel": "PowerShell"}},
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+
+        check_select(rule_str, record_json_str, true);
+    }
+
+    #[test]
+    fn test_neq_list_notdetect_first() {
+        // If the field equals any value in the `neq` list, it must not match.
+        // (If the list were treated as OR instead of AND, this would wrongly match.)
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection:
+                Channel|neq:
+                    - Security
+                    - System
+        details: 'command=%CommandLine%'
+        "#;
+
+        let record_json_str = r#"
+        {
+            "Event": {"System": {"EventID": 4103, "Channel": "Security"}},
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+
+        check_select(rule_str, record_json_str, false);
+    }
+
+    #[test]
+    fn test_neq_list_notdetect_second() {
+        // Same as above but matching the second value in the list.
+        let rule_str = r#"
+        enabled: true
+        detection:
+            selection:
+                Channel|neq:
+                    - Security
+                    - System
+        details: 'command=%CommandLine%'
+        "#;
+
+        let record_json_str = r#"
+        {
+            "Event": {"System": {"EventID": 4103, "Channel": "System"}},
             "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
         }"#;
 

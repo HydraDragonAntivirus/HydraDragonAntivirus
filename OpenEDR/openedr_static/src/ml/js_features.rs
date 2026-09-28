@@ -241,10 +241,8 @@ impl AstWalkerCounts {
             Statement::ClassDeclaration(c) => {
                 self.walk_class(c);
             }
-            Statement::ExportNamedDeclaration(decl) => {
-                if let Some(d) = &decl.declaration {
-                    self.walk_declaration(d);
-                }
+            Statement::ExportDeclaration(decl) => {
+                self.walk_declaration(&decl.declaration);
             }
             Statement::ExportDefaultDeclaration(decl) => {
                 self.walk_export_default_kind(&decl.declaration);
@@ -420,7 +418,14 @@ impl AstWalkerCounts {
             }
             Expression::ArrowFunctionExpression(func) => {
                 self.function_count += 1;
-                self.walk_function_body(&func.body);
+                match &func.body {
+                    ArrowFunctionBody::FunctionBody(body) => self.walk_function_body(body),
+                    body => {
+                        if let Some(expr) = body.as_expression() {
+                            self.walk_expression(expr);
+                        }
+                    }
+                }
             }
             Expression::FunctionExpression(func) => {
                 self.walk_function(func);
@@ -538,11 +543,11 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
     // parser choked on (modern syntax, edge cases) looked like that class → false
     // positives. Rejecting unparseable input removes that asymmetry with the PE
     // model, which is exactly why PE rarely false-positives and JS did.
-    if !ret.errors.is_empty() {
+    if !ret.diagnostics.is_empty() {
         return None;
     }
 
-    let parse_errors = ret.errors.len();
+    let parse_errors = ret.diagnostics.len();
     let parse_success = if parse_errors == 0 { 1.0 } else { 0.0 };
 
     let mut walker = AstWalkerCounts::new();

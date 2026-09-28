@@ -282,6 +282,32 @@ def is_boring(text: str) -> bool:
     return False
 
 
+def looks_like_junk(text: str) -> bool:
+    """
+    True for byte soup that happened to be printable.
+
+    The ASCII window is ``\\x1f-\\x7e``, so disassembly bytes land in the
+    candidate set constantly (``D$$)D$D`` and friends). A real literal carries
+    words, paths, format specifiers or keys; junk carries a symbol soup with
+    almost nothing readable in it. Without this a small benign corpus lets that
+    junk through, because nothing knows it is common.
+    """
+    stripped = text.strip()
+    if len(stripped) < 6:
+        return True
+    alnum = sum(1 for c in stripped if c.isalnum())
+    if alnum < 4:
+        return True
+    # A real string is mostly alnum, or a format string with a little structure.
+    if alnum / len(stripped) < 0.55:
+        return True
+    # No letters at all: hex and base64 blobs are handled by their own scores,
+    # and an all-digit run is a version number or a checksum, not a signature.
+    if not any(c.isalpha() for c in stripped):
+        return not (is_base64(stripped) or is_hex_encoded(stripped))
+    return False
+
+
 # --------------------------------------------------------------------------
 # Scoring
 # --------------------------------------------------------------------------
@@ -488,7 +514,14 @@ def score_string(
         score -= 4
     if text.count("0000000000") > 2:
         score -= 5
-    if re.search(r"(?!.*([A-Fa-f0-9])\1{8,})", text):
+    # Deviation from yarGen: upstream writes this as
+    #   r"(?!.*([A-Fa-f0-9])\1{8,})"
+    # which, because of the negative lookahead, matches on *every* string - it
+    # asserts that no 9+ repeated-character run exists, and almost none do. So
+    # upstream subtracts 5 from every candidate, which drives the whole scoring
+    # model negative. The evident intent is "penalise a run of 9+ repeats", so
+    # that is what is implemented here.
+    if re.search(r"([A-Fa-f0-9])\1{8,}", text, re.IGNORECASE):
         score -= 5
 
     for _label, bonus, pattern, flags in BONUSES:
@@ -1034,7 +1067,7 @@ def rank_strings(
             continue
         if pestudio is not None and pestudio.is_white(text):
             continue
-        if is_boring(text):
+        if is_boring(text) or looks_like_junk(text):
             continue
 
         good_count = goodware.count(text)
@@ -1620,7 +1653,7 @@ def build_parser() -> argparse.ArgumentParser:
         "benign corpus (read in sorted order up to the entry budget)",
     )
     parser.add_argument(
-        "--good-db-max-entries", type=int, default=6_000_000,
+        "--good-db-max-entries", type=int, default=10_000_000,
         help="entry budget for --good-db; 0 means load every shard (~95M entries, "
         "several GB of RAM)",
     )
@@ -1767,7 +1800,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if not args.no_inverse and goodware.samples:
         print("[+] Generating inverse (benign exception) rules")
-        for path, sample in _benign_samples(args.good_dir):
+        for path, sample in _benign_samples(args.good_dir).items():
             kept = [
                 (text, score_string(text, goodware.count(text), pestudio))
                 for text in sample.strings

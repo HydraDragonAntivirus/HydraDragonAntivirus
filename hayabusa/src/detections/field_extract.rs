@@ -1,11 +1,17 @@
 use hashbrown::HashMap;
 use serde_json::Value;
 
+/// Extracts extra fields from classic PowerShell events (channel "Windows PowerShell", event IDs
+/// 400/403/600/800). These events pack most of their useful information into one element of the
+/// EventData "Data" array as "Key=Value" lines, which rules cannot reference as fields. This
+/// parses that element and inserts each pair as a regular field of the record. Event ID 800
+/// stores the pairs in the second Data element (array index 1); the other event IDs store them
+/// in the third element (array index 2).
 pub fn extract_fields(
     channel: Option<String>,
     event_id: Option<String>,
     data: &mut Value,
-    key_2_values: &mut HashMap<String, String>,
+    flat_key_to_value: &mut HashMap<String, String>,
 ) {
     if let Some(ch) = channel
         && let Some(eid) = event_id
@@ -13,29 +19,37 @@ pub fn extract_fields(
         && (eid == "400" || eid == "403" || eid == "600" || eid == "800")
     {
         let target_data_index = if eid == "800" { 1 } else { 2 };
-        extract_powershell_classic_fields(data, target_data_index, key_2_values);
+        extract_powershell_classic_fields(data, target_data_index, flat_key_to_value);
     }
 }
 
+/// Recursively searches `data` for an array node (the EventData "Data" array), parses its
+/// `data_index` element as "Key=Value" lines, and inserts the parsed pairs into the object that
+/// directly contains the array (i.e. as siblings of "Data" inside EventData), also recording the
+/// string values in `flat_key_to_value`. The Some return value is only used internally to hand the
+/// parsed fields up one level to the containing object; the outermost call always returns None.
 fn extract_powershell_classic_fields(
     data: &mut Value,
     data_index: usize,
-    key_2_values: &mut HashMap<String, String>,
+    flat_key_to_value: &mut HashMap<String, String>,
 ) -> Option<Value> {
     match data {
         Value::Object(map) => {
             let mut extracted_fields = None;
             for (_, val) in &mut *map {
-                extracted_fields = extract_powershell_classic_fields(val, data_index, key_2_values);
+                extracted_fields =
+                    extract_powershell_classic_fields(val, data_index, flat_key_to_value);
                 if extracted_fields.is_some() {
                     break;
                 }
             }
+            // A direct child array yielded fields: merge them into this object so they sit
+            // alongside the original "Data" array.
             if let Some(Value::Object(fields)) = extracted_fields {
                 for (key, val) in fields {
                     map.insert(key.clone(), val.clone());
-                    if let Value::String(s) = val {
-                        key_2_values.insert(key, s.to_string());
+                    if let Value::String(value_str) = val {
+                        flat_key_to_value.insert(key, value_str.to_string());
                     }
                 }
             }
@@ -44,11 +58,13 @@ fn extract_powershell_classic_fields(
             if let Some(val) = vec.get(data_index)
                 && let Some(powershell_data_str) = val.as_str()
             {
+                // Each "Key=Value" pair sits on its own line separated by "\n\t"; trailing
+                // CR/CRLF is trimmed and lines without '=' are ignored.
                 let fields_data: std::collections::HashMap<&str, &str> = powershell_data_str
                     .trim()
                     .split("\n\t")
-                    .map(|s| s.trim_end_matches("\r\n").trim_end_matches('\r'))
-                    .filter_map(|s| s.split_once('='))
+                    .map(|line| line.trim_end_matches("\r\n").trim_end_matches('\r'))
+                    .filter_map(|line| line.split_once('='))
                     .collect();
                 if let Ok(extracted_fields) = serde_json::to_value(fields_data) {
                     return Some(extracted_fields);

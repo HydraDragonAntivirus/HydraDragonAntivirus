@@ -4,4 +4,5 @@ mod extract_base64;
 mod log_metrics;
 pub mod metrics;
 pub mod search;
+pub mod sort_csv;
 pub mod timelines;

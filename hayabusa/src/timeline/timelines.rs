@@ -1,6 +1,6 @@
 use crate::detections::configs::{Action, EventInfoConfig, StoredStatic};
 use crate::detections::detection::EvtxRecordInfo;
-use crate::detections::message::{AlertMessage, ERROR_LOG_STACK};
+use crate::detections::message::AlertMessage;
 use crate::detections::utils::{
     self, get_writable_color, make_ascii_titlecase, write_color_buffer,
 };
@@ -8,7 +8,6 @@ use crate::timeline::search::search_result_dsp_msg;
 use comfy_table::ColumnConstraint::LowerBoundary;
 use comfy_table::ColumnConstraint::UpperBoundary;
 use comfy_table::Width::Fixed;
-use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::*;
 use compact_str::CompactString;
@@ -25,7 +24,7 @@ use terminal_size::Width;
 use terminal_size::terminal_size;
 
 use super::computer_metrics;
-use super::metrics::EventMetrics;
+use super::metrics::{EventMetrics, LoginEvent, LogonStats};
 use super::search::EventSearch;
 use crate::timeline::config_critical_systems::ConfigCriticalSystems;
 use crate::timeline::extract_base64::{output_all, process_evtx_record_infos};
@@ -33,6 +32,55 @@ use crate::timeline::log_metrics::LogMetrics;
 use hashbrown::HashSet;
 use itertools::Itertools;
 
+/// Maximum width of the "Event" column in the `eid-metrics` table. Uses saturating subtraction so a
+/// terminal narrower than 55 columns does not underflow `terminal_width - 55`: previously that
+/// panicked with "attempt to subtract with overflow" in overflow-checked (dev/test) builds and
+/// silently wrapped to a huge value in release builds, defeating the 45-character floor and letting
+/// the table overflow the very narrow terminals the floor was meant to handle. (#1817)
+fn eid_metrics_event_col_width(terminal_width: u16) -> u16 {
+    cmp::max(terminal_width.saturating_sub(55), 45)
+}
+
+/// Row ordering for the `eid-metrics` table: aggregated count descending, then channel and event ID
+/// ascending.
+///
+/// The tie-break is what makes the output reproducible. The counts live in a `HashMap`, whose
+/// iteration order depends on the per-process `RandomState` seed, so ordering by count alone left
+/// equal-count rows in a different arrangement on every run — the same scan of the same logs
+/// produced a differently ordered table each time, making any two runs pointlessly diff-noisy.
+fn eid_metrics_row_order(
+    (x_key, x_count): (&(CompactString, CompactString), &usize),
+    (y_key, y_count): (&(CompactString, CompactString), &usize),
+) -> cmp::Ordering {
+    let (x_event_id, x_channel) = x_key;
+    let (y_event_id, y_channel) = y_key;
+    y_count
+        .cmp(x_count)
+        .then_with(|| x_channel.cmp(y_channel))
+        .then_with(|| x_event_id.cmp(y_event_id))
+}
+
+/// Row ordering for one of the `logon-summary` tables: logon count for the table being rendered
+/// (`result_index` 0 = successful, 1 = failed) descending, then the grouping key ascending.
+///
+/// Same reasoning as [`eid_metrics_row_order`] — `stats_login_list` is a `HashMap`, so without the
+/// tie-break equal-count rows come out in the per-process hash order.
+fn logon_summary_row_order(
+    (x_key, x_stats): (&LoginEvent, &LogonStats),
+    (y_key, y_stats): (&LoginEvent, &LogonStats),
+    result_index: usize,
+) -> cmp::Ordering {
+    y_stats.counts[result_index]
+        .cmp(&x_stats.counts[result_index])
+        .then_with(|| x_key.cmp(y_key))
+}
+
+/// Aggregated state for the non-detection commands (eid-metrics, logon-summary, log-metrics,
+/// search, extract-base64, config-critical-systems, computer-metrics). Records are fed in
+/// incrementally via `start()` (except for computer-metrics, which fills `stats.stats_computer`
+/// via `computer_metrics::countup_event_by_computer()`) and the collected results are rendered
+/// later by the `*_dsp_msg` methods. The detection commands csv-timeline/json-timeline also use
+/// this struct to track the total record count and the first/last event timestamps.
 #[derive(Debug, Clone)]
 pub struct Timeline {
     pub total_record_cnt: usize,
@@ -62,6 +110,9 @@ impl Timeline {
         }
     }
 
+    /// Dispatches a batch of loaded event records to the aggregator that matches the currently
+    /// running command. Called once per record chunk while the log files are being read; the
+    /// accumulated results are output afterwards by the corresponding `*_dsp_msg` method.
     pub fn start(&mut self, records: &[EvtxRecordInfo], stored_static: &StoredStatic) {
         if stored_static.metrics_flag {
             self.stats.evt_stats_start(
@@ -89,24 +140,25 @@ impl Timeline {
             self.config_critical_systems.process(records);
         } else if matches!(
             stored_static.config.action.as_ref().unwrap(),
-            Action::CsvTimeline(_) | Action::JsonTimeline(_)
+            Action::DfirTimeline(_)
         ) {
             self.stats.stats_time_cnt(records, stored_static);
         }
     }
 
+    /// Output the computers found by the config-critical-systems command, grouped by system type.
     pub fn config_critical_systems_dsp_msg(&mut self, no_color: bool) {
         self.config_critical_systems.output_computers(no_color);
     }
 
-    /// Function to output the statistics message for the metrics command.
+    /// Function to output the statistics message for the eid-metrics command.
     pub fn tm_stats_dsp_msg(
         &mut self,
         event_timeline_config: &EventInfoConfig,
         stored_static: &StoredStatic,
     ) {
         // Create the output message.
-        let mut sammsges: Nested<String> = Nested::new();
+        let mut summary_msgs: Nested<String> = Nested::new();
         let total_event_record = format!(
             "\n\nTotal Event Records: {}\n",
             self.total_record_cnt.to_formatted_string(&Locale::en)
@@ -117,11 +169,11 @@ impl Timeline {
         match &stored_static.config.action.as_ref().unwrap() {
             Action::EidMetrics(option) => {
                 if option.input_args.filepath.is_some() {
-                    sammsges.push(format!("Evtx File Path: {}", self.stats.filepath));
+                    summary_msgs.push(format!("Evtx File Path: {}", self.stats.filepath));
                 }
-                sammsges.push(total_event_record);
+                summary_msgs.push(total_event_record);
                 if let Some(start_time) = self.stats.start_time {
-                    sammsges.push(format!(
+                    summary_msgs.push(format!(
                         "First Timestamp: {}",
                         utils::format_time(
                             &start_time,
@@ -135,7 +187,7 @@ impl Timeline {
                     ));
                 }
                 if let Some(end_time) = self.stats.end_time {
-                    sammsges.push(format!(
+                    summary_msgs.push(format!(
                         "Last Timestamp: {}\n",
                         utils::format_time(
                             &end_time,
@@ -149,7 +201,7 @@ impl Timeline {
                     ));
                 }
                 wtr = if let Some(csv_path) = option.output.as_ref() {
-                    // output to file
+                    // Output to file.
                     match File::create(csv_path) {
                         Ok(file) => {
                             target = Box::new(BufWriter::new(file));
@@ -174,27 +226,24 @@ impl Timeline {
         for header_str in &header {
             header_cells.push(Cell::new(header_str).set_alignment(CellAlignment::Center));
         }
-        if let Some(ref mut w) = wtr {
-            w.write_record(&header).ok();
+        if let Some(ref mut writer) = wtr {
+            writer.write_record(&header).ok();
         }
 
         let mut stats_tb = Table::new();
-        stats_tb
-            .load_preset(UTF8_FULL)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+        stats_tb.load_style(UTF8_FULL.with_rounded_corners());
 
         stats_tb.set_header(header_cells);
 
-        // Sort by aggregated count.
-        let mut mapsorted: Vec<_> = self.stats.stats_list.iter().collect();
-        mapsorted.sort_by(|x, y| y.1.cmp(x.1));
+        let mut sorted_entries: Vec<_> = self.stats.stats_list.iter().collect();
+        sorted_entries.sort_by(|x, y| eid_metrics_row_order(*x, *y));
 
         // Generate an output message for each Event ID.
-        let stats_msges: Nested<Vec<CompactString>> =
-            self.tm_stats_set_msg(mapsorted, event_timeline_config, stored_static);
+        let stats_msgs: Nested<Vec<CompactString>> =
+            self.tm_stats_set_msg(sorted_entries, event_timeline_config, stored_static);
 
-        for msgprint in sammsges.iter() {
-            let mut parts = msgprint.splitn(2, ':');
+        for msg_line in summary_msgs.iter() {
+            let mut parts = msg_line.splitn(2, ':');
             let first_part = parts.next().unwrap_or_default();
             let second_part = format!(": {}", parts.next().unwrap_or_default());
             write_color_buffer(
@@ -216,15 +265,15 @@ impl Timeline {
             .ok();
         }
         if wtr.is_some() {
-            for msg in stats_msges.iter() {
-                if let Some(ref mut w) = wtr {
-                    w.write_record(msg.iter().map(|x| x.as_str())).ok();
+            for msg in stats_msgs.iter() {
+                if let Some(ref mut writer) = wtr {
+                    writer.write_record(msg.iter().map(|x| x.as_str())).ok();
                 }
             }
         }
-        stats_tb.add_rows(stats_msges.iter());
+        stats_tb.add_rows(stats_msgs.iter());
         let terminal_width = match terminal_size() {
-            Some((Width(w), _)) => w,
+            Some((Width(width), _)) => width,
             None => 100,
         };
 
@@ -233,7 +282,7 @@ impl Timeline {
             UpperBoundary(Fixed(9)),  // Maximum number of characters for "percent"
             UpperBoundary(Fixed(20)), // Maximum number of characters for "Channel"
             UpperBoundary(Fixed(12)), // Maximum number of characters for "ID"
-            UpperBoundary(Fixed(cmp::max(terminal_width - 55, 45))), // Maximum number of characters for "Event"
+            UpperBoundary(Fixed(eid_metrics_event_col_width(terminal_width))), // Maximum number of characters for "Event"
         ];
         for (column_index, column) in stats_tb.column_iter_mut().enumerate() {
             let constraint = constraints.get(column_index).unwrap();
@@ -247,7 +296,7 @@ impl Timeline {
     /// Function to output the logon statistics message.
     pub fn tm_logon_stats_dsp_msg(&mut self, stored_static: &StoredStatic) {
         // Create the output message.
-        let mut sammsges: Vec<String> = Vec::new();
+        let mut summary_msgs: Vec<String> = Vec::new();
         let total_event_record = format!(
             "\n\nTotal Event Records: {}\n",
             self.total_record_cnt.to_formatted_string(&Locale::en)
@@ -256,12 +305,12 @@ impl Timeline {
             &stored_static.config.action.as_ref().unwrap()
         {
             if logon_summary_option.input_args.filepath.is_some() {
-                sammsges.push(format!("Evtx File Path: {}", self.stats.filepath));
+                summary_msgs.push(format!("Evtx File Path: {}", self.stats.filepath));
             }
-            sammsges.push(total_event_record);
+            summary_msgs.push(total_event_record);
 
             if let Some(start_time) = self.stats.start_time {
-                sammsges.push(format!(
+                summary_msgs.push(format!(
                     "First Timestamp: {}",
                     utils::format_time(
                         &start_time,
@@ -275,7 +324,7 @@ impl Timeline {
                 ));
             }
             if let Some(end_time) = self.stats.end_time {
-                sammsges.push(format!(
+                summary_msgs.push(format!(
                     "Last Timestamp: {}\n",
                     utils::format_time(
                         &end_time,
@@ -289,8 +338,8 @@ impl Timeline {
                 ));
             }
 
-            for msgprint in sammsges.iter() {
-                let mut parts = msgprint.splitn(2, ':');
+            for msg_line in summary_msgs.iter() {
+                let mut parts = msg_line.splitn(2, ':');
                 let first_part = parts.next().unwrap_or_default();
                 let second_part = format!(": {}", parts.next().unwrap_or_default());
                 write_color_buffer(
@@ -315,34 +364,36 @@ impl Timeline {
             self.tm_loginstats_tb_set_msg(
                 &logon_summary_option.output,
                 stored_static.common_options.no_color,
+                stored_static,
             );
         }
     }
 
-    // Generate an output message for each Event ID.
+    /// Generates one output row per (event ID, channel) pair: count, percentage, abbreviated
+    /// channel, event ID and event title.
     fn tm_stats_set_msg(
         &self,
-        mapsorted: Vec<(&(CompactString, CompactString), &usize)>,
+        sorted_entries: Vec<(&(CompactString, CompactString), &usize)>,
         event_timeline_config: &EventInfoConfig,
         stored_static: &StoredStatic,
     ) -> Nested<Vec<CompactString>> {
-        let mut msges: Nested<Vec<CompactString>> = Nested::new();
+        let mut msgs: Nested<Vec<CompactString>> = Nested::new();
 
-        for ((event_id, channel), event_cnt) in mapsorted.iter() {
+        for ((event_id, channel), event_cnt) in sorted_entries.iter() {
             // Calculate the percentage of counts.
             let rate: f32 = **event_cnt as f32 / self.stats.total as f32;
             let fmted_channel = channel;
 
-            // Get event information (event title, etc.)
-            // Set information for entries registered in channel_eid_info.txt.
-            // Create one line of output message.
+            // Create one line of the output message. The event title is only known for
+            // channel/event-ID pairs registered in channel_eid_info.txt; everything else is
+            // reported as "Unknown".
             let ch = replace_channel_abbr(stored_static, fmted_channel);
 
             if event_timeline_config
                 .get_event_id(fmted_channel, event_id)
                 .is_some()
             {
-                msges.push(vec![
+                msgs.push(vec![
                     CompactString::from(format!("{event_cnt}")),
                     format!("{:.1}%", (rate * 1000.0).round() / 10.0).into(),
                     ch.trim().into(),
@@ -351,11 +402,11 @@ impl Timeline {
                         &event_timeline_config
                             .get_event_id(fmted_channel, event_id)
                             .unwrap()
-                            .evttitle,
+                            .event_title,
                     ),
                 ]);
             } else {
-                msges.push(vec![
+                msgs.push(vec![
                     CompactString::from(format!("{event_cnt}")),
                     format!("{:.1}%", (rate * 1000.0).round() / 10.0).into(),
                     ch.trim().into(),
@@ -364,11 +415,16 @@ impl Timeline {
                 ]);
             }
         }
-        msges
+        msgs
     }
 
     /// Generate output message for login statistics per user.
-    fn tm_loginstats_tb_set_msg(&self, output: &Option<PathBuf>, no_color: bool) {
+    fn tm_loginstats_tb_set_msg(
+        &self,
+        output: &Option<PathBuf>,
+        no_color: bool,
+        stored_static: &StoredStatic,
+    ) {
         if output.is_none() {
             write_color_buffer(
                 &BufferWriter::stdout(ColorChoice::Always),
@@ -380,27 +436,44 @@ impl Timeline {
             write_color_buffer(&BufferWriter::stdout(ColorChoice::Always), None, "", false).ok();
         }
         if self.stats.stats_login_list.is_empty() {
-            let mut loginmsges: Vec<String> = Vec::new();
-            loginmsges.push("-----------------------------------------".to_string());
-            loginmsges.push("|     No logon events were detected.    |".to_string());
-            loginmsges.push("-----------------------------------------\n".to_string());
-            for msgprint in loginmsges.iter() {
-                println!("{msgprint}");
+            let mut login_msgs: Vec<String> = Vec::new();
+            login_msgs.push("-----------------------------------------".to_string());
+            login_msgs.push("|     No logon events were detected.    |".to_string());
+            login_msgs.push("-----------------------------------------\n".to_string());
+            for msg_line in login_msgs.iter() {
+                println!("{msg_line}");
             }
         } else {
-            self.tm_loginstats_tb_dsp_msg("successful", output, no_color);
+            self.tm_loginstats_tb_dsp_msg("successful", output, no_color, stored_static);
             if output.is_none() {
                 println!("\n\n");
             }
-            self.tm_loginstats_tb_dsp_msg("failed", output, no_color);
+            self.tm_loginstats_tb_dsp_msg("failed", output, no_color, stored_static);
         }
     }
 
     /// Output login statistics per user.
-    fn tm_loginstats_tb_dsp_msg(&self, logon_res: &str, output: &Option<PathBuf>, no_color: bool) {
+    fn tm_loginstats_tb_dsp_msg(
+        &self,
+        logon_res: &str,
+        output: &Option<PathBuf>,
+        no_color: bool,
+        stored_static: &StoredStatic,
+    ) {
         let header_column = make_ascii_titlecase(logon_res);
-        let header = vec![
+        // Successful logons show logon times; failed logons show attempt times.
+        let (first_label, last_label) = if logon_res == "failed" {
+            ("First Attempt", "Last Attempt")
+        } else {
+            ("First Logon", "Last Logon")
+        };
+        // With -G, the source IP address of every row is resolved through the MaxMind databases
+        // and three extra columns are appended.
+        let use_geo_ip = stored_static.geo_ip_search.is_some();
+        let mut header = vec![
             header_column.as_str(),
+            first_label,
+            last_label,
             "Event",
             "Target Account",
             "Target Domain",
@@ -411,6 +484,9 @@ impl Timeline {
             "Source Computer",
             "Source IP Address",
         ];
+        if use_geo_ip {
+            header.extend(["Source ASN", "Source Country", "Source City"]);
+        }
         let target;
         if output.is_none() {
             let msg = format!("{} Logons:", make_ascii_titlecase(logon_res));
@@ -425,7 +501,7 @@ impl Timeline {
         }
         let mut wtr = if let Some(csv_path) = output {
             let file_name = csv_path.as_path().display().to_string() + "-" + logon_res + ".csv";
-            // output to file
+            // Output to file.
             match File::create(file_name) {
                 Ok(file) => {
                     target = Box::new(BufWriter::new(file));
@@ -439,49 +515,118 @@ impl Timeline {
         } else {
             None
         };
-        if let Some(ref mut w) = wtr {
-            w.write_record(&header).ok();
+        if let Some(ref mut writer) = wtr {
+            writer.write_record(&header).ok();
         }
 
         let mut logins_stats_tb = Table::new();
-        logins_stats_tb
-            .load_preset(UTF8_FULL)
-            .apply_modifier(UTF8_ROUND_CORNERS);
-        let h = &header;
-        logins_stats_tb.set_header([h[0], h[1], h[2], h[4], h[8], h[9]]);
-        // Set the logon results to aggregate.
-        let vnum = match logon_res {
+        logins_stats_tb.load_style(UTF8_FULL.with_rounded_corners());
+        // The terminal table only shows a subset of the columns (count, first/last time, event,
+        // target account, target computer, source computer, source IP, plus the source country
+        // with -G); the CSV has all of them.
+        let header_ref = &header;
+        let mut terminal_header = vec![
+            header_ref[0],
+            header_ref[1],
+            header_ref[2],
+            header_ref[3],
+            header_ref[4],
+            header_ref[6],
+            header_ref[10],
+            header_ref[11],
+        ];
+        if use_geo_ip {
+            terminal_header.push(header_ref[13]);
+        }
+        logins_stats_tb.set_header(terminal_header);
+        // Index into the per-user [successful, failed] count/first/last arrays.
+        let result_index = match logon_res {
             "successful" => 0,
             "failed" => 1,
             &_ => 0,
         };
-        // Sort by aggregated count.
-        let mut mapsorted: Vec<_> = self.stats.stats_login_list.iter().collect();
-        mapsorted.sort_by(|x, y| y.1[vnum].cmp(&x.1[vnum]));
-        for (e, values) in &mapsorted {
-            // Do not display entries with a count of zero.
-            if values[vnum] == 0 {
-                continue;
-            } else {
-                let vnum_str = values[vnum].to_string();
-                let record_data = vec![
-                    vnum_str.as_str(),
-                    e.channel.as_str(),
-                    e.dst_user.as_str(),
-                    e.dst_domain.as_str(),
-                    e.hostname.as_str(),
-                    e.logontype.as_str(),
-                    e.src_user.as_str(),
-                    e.src_domain.as_str(),
-                    e.source_computer.as_str(),
-                    e.source_ip.as_str(),
-                ];
-                if let Some(ref mut w) = wtr {
-                    w.write_record(&record_data).ok();
+        let tfo = &stored_static
+            .output_option
+            .as_ref()
+            .unwrap()
+            .time_format_options;
+        // Collect only the rows this table will actually emit. `stats_login_list` holds the union
+        // of the successful and failed logon groups, and a group with no logons of the kind being
+        // rendered is not displayed, so filtering first keeps those rows out of the sort — whose
+        // tie-break compares all nine `LoginEvent` strings.
+        let mut sorted_entries: Vec<_> = self
+            .stats
+            .stats_login_list
+            .iter()
+            .filter(|(_, logon_stats)| logon_stats.counts[result_index] != 0)
+            .collect();
+        sorted_entries.sort_by(|x, y| logon_summary_row_order(*x, *y, result_index));
+        for (login_event, values) in &sorted_entries {
+            let vnum_str = values.counts[result_index].to_string();
+            let first_str = match values.first[result_index] {
+                Some(timestamp) => utils::format_time(&timestamp, false, tfo).to_string(),
+                None => "-".to_string(),
+            };
+            let last_str = match values.last[result_index] {
+                Some(timestamp) => utils::format_time(&timestamp, false, tfo).to_string(),
+                None => "-".to_string(),
+            };
+            // The lookup is per displayed row rather than per record, and GeoIPSearch caches
+            // each address, so a repeated source IP costs nothing. Rows whose source IP is not a
+            // resolvable address (e.g. the "-" placeholder for events without one) get "-".
+            let geo_fields: [String; 3] = match &stored_static.geo_ip_search {
+                Some(geo_ip_search) => {
+                    match geo_ip_search.convert_ip_to_geo(login_event.source_ip.as_str()) {
+                        Ok(geo_data) => {
+                            let mut geo_data = geo_data.split('🦅').map(str::to_string);
+                            [
+                                geo_data.next().unwrap_or_default(),
+                                geo_data.next().unwrap_or_default(),
+                                geo_data.next().unwrap_or_default(),
+                            ]
+                        }
+                        Err(_) => ["-".to_string(), "-".to_string(), "-".to_string()],
+                    }
                 }
-                let r = record_data;
-                logins_stats_tb.add_row([r[0], r[1], r[2], r[4], r[8], r[9]]);
+                None => Default::default(),
+            };
+            let mut record_data = vec![
+                vnum_str.as_str(),
+                first_str.as_str(),
+                last_str.as_str(),
+                login_event.channel.as_str(),
+                login_event.dst_user.as_str(),
+                login_event.dst_domain.as_str(),
+                login_event.hostname.as_str(),
+                login_event.logontype.as_str(),
+                login_event.src_user.as_str(),
+                login_event.src_domain.as_str(),
+                login_event.source_computer.as_str(),
+                login_event.source_ip.as_str(),
+            ];
+            if use_geo_ip {
+                record_data.extend(geo_fields.iter().map(String::as_str));
             }
+            if let Some(ref mut writer) = wtr {
+                writer.write_record(&record_data).ok();
+            }
+            let row = record_data;
+            let mut table_row = vec![
+                row[0], row[1], row[2], row[3], row[4], row[6], row[10], row[11],
+            ];
+            if use_geo_ip {
+                // The country is the only GeoIP column the terminal table has room for, so fall
+                // back to the ASN when it is empty. That is where convert_ip_to_geo puts the
+                // "Local"/"Private" placeholders for addresses it does not look up -- without the
+                // fallback a private source IP would show "-", indistinguishable from a row with
+                // no source IP at all. The CSV keeps all three columns as-is.
+                table_row.push(match (geo_fields[1].as_str(), geo_fields[0].as_str()) {
+                    ("" | "-", "" | "-") => "-",
+                    ("" | "-", asn) => asn,
+                    (country, _) => country,
+                });
+            }
+            logins_stats_tb.add_row(table_row);
         }
         // If there is no row data, display a message indicating no detections.
         if logins_stats_tb.row_iter().len() == 0 {
@@ -544,6 +689,8 @@ impl Timeline {
         }
     }
 
+    /// Output the log-metrics results (one row per log file) as CSV or as a terminal table,
+    /// sorted by event count in descending order.
     pub fn log_metrics_dsp_msg(&mut self, stored_static: &StoredStatic) {
         if let Action::LogMetrics(opt) = &stored_static.config.action.as_ref().unwrap() {
             let log_metrics = &mut self.stats.stats_logfile;
@@ -563,27 +710,26 @@ impl Timeline {
                 let mut wrt = WriterBuilder::new().from_writer(file);
                 let _ = wrt.write_record(header);
                 for rec in &mut *log_metrics {
-                    if let Some(r) = Self::create_record_array(rec, stored_static, " ¦") {
-                        let _ = wrt.write_record(r);
+                    if let Some(row) = Self::create_record_array(rec, stored_static, " ¦") {
+                        let _ = wrt.write_record(row);
                     }
                 }
             } else {
                 let mut tb = Table::new();
-                tb.load_preset(UTF8_FULL)
-                    .apply_modifier(UTF8_ROUND_CORNERS)
+                tb.load_style(UTF8_FULL.with_rounded_corners())
                     .set_content_arrangement(ContentArrangement::DynamicFullWidth)
                     .set_header(&header);
                 for rec in &mut *log_metrics {
-                    if let Some(r) = Self::create_record_array(rec, stored_static, "\n") {
+                    if let Some(row) = Self::create_record_array(rec, stored_static, "\n") {
                         tb.add_row(vec![
-                            Cell::new(r[0].to_string()),
-                            Cell::new(r[1].to_string()),
-                            Cell::new(r[2].to_string()),
-                            Cell::new(r[3].to_string()),
-                            Cell::new(r[4].to_string()),
-                            Cell::new(r[5].to_string()),
-                            Cell::new(r[6].to_string()),
-                            Cell::new(r[7].to_string()),
+                            Cell::new(row[0].to_string()),
+                            Cell::new(row[1].to_string()),
+                            Cell::new(row[2].to_string()),
+                            Cell::new(row[3].to_string()),
+                            Cell::new(row[4].to_string()),
+                            Cell::new(row[5].to_string()),
+                            Cell::new(row[6].to_string()),
+                            Cell::new(row[7].to_string()),
                         ]);
                     }
                 }
@@ -596,6 +742,8 @@ impl Timeline {
         }
     }
 
+    /// Output the strings collected by the extract-base64 command. Output failures are reported
+    /// according to the verbose/quiet-errors flags.
     pub fn extract_base64_dsp_msg(&mut self, stored_static: &StoredStatic) {
         match output_all(
             self.extracted_base64_records.clone(),
@@ -609,7 +757,8 @@ impl Timeline {
                     AlertMessage::alert(&errmsg).ok();
                 }
                 if !stored_static.quiet_errors_flag {
-                    ERROR_LOG_STACK
+                    stored_static
+                        .error_log_stack
                         .lock()
                         .unwrap()
                         .push(format!("[ERROR] {errmsg}"));
@@ -618,6 +767,10 @@ impl Timeline {
         }
     }
 
+    /// Builds one log-metrics output row for a single log file. Returns `None` when the file's
+    /// computers are dropped by the --include-computer / --exclude-computer filters. `sep` joins
+    /// multi-value cells (computers, channels, providers) unless overridden by the multiline or
+    /// tab-separator flags.
     fn create_record_array(
         rec: &LogMetrics,
         stored_static: &StoredStatic,
@@ -648,12 +801,12 @@ impl Timeline {
         } else {
             sep
         };
-        let ab_ch: Vec<String> = rec
+        let abbreviated_channels: Vec<String> = rec
             .channels
             .iter()
             .map(|ch| replace_channel_abbr(stored_static, &CompactString::from(ch)))
             .collect();
-        let ab_provider: Vec<String> = rec
+        let abbreviated_providers: Vec<String> = rec
             .providers
             .iter()
             .map(|ch| replace_provider_abbr(stored_static, &CompactString::from(ch)))
@@ -682,31 +835,37 @@ impl Timeline {
                     .time_format_options,
             )
             .into(),
-            ab_ch.iter().sorted().join(sep),
-            ab_provider.iter().sorted().join(sep),
+            abbreviated_channels.iter().sorted().join(sep),
+            abbreviated_providers.iter().sorted().join(sep),
             rec.file_size.to_string(),
         ])
     }
 }
 
+/// Replaces a channel name with its abbreviation from channel_abbreviations.txt (looked up
+/// case-insensitively, falling back to the original name), then shortens generic terms using
+/// the abbreviations defined in generic_abbreviations.txt.
 fn replace_channel_abbr(stored_static: &StoredStatic, fmted_channel: &CompactString) -> String {
-    stored_static.disp_abbr_generic.replace_all(
+    stored_static.generic_abbr_matcher.replace_all(
         stored_static
-            .ch_config
+            .channel_abbr_config
             .get(&fmted_channel.to_ascii_lowercase())
             .unwrap_or(fmted_channel)
             .as_str(),
-        &stored_static.disp_abbr_general_values,
+        &stored_static.generic_abbr_values,
     )
 }
 
+/// Replaces a provider name with its abbreviation from provider_abbreviations.txt (falling back
+/// to the original name), then shortens generic terms using the abbreviations defined in
+/// generic_abbreviations.txt.
 fn replace_provider_abbr(stored_static: &StoredStatic, fmted_provider: &CompactString) -> String {
-    stored_static.disp_abbr_generic.replace_all(
+    stored_static.generic_abbr_matcher.replace_all(
         stored_static
             .provider_abbr_config
             .get(fmted_provider)
             .unwrap_or(fmted_provider),
-        &stored_static.disp_abbr_general_values,
+        &stored_static.generic_abbr_values,
     )
 }
 
@@ -717,18 +876,131 @@ mod tests {
         path::Path,
     };
 
+    #[test]
+    /// #1817: the eid-metrics "Event" column width must not underflow `terminal_width - 55` on a
+    /// terminal narrower than 55 columns (previously panicked in debug builds and wrapped to a huge
+    /// value in release, defeating the 45-character floor).
+    fn test_eid_metrics_event_col_width() {
+        assert_eq!(super::eid_metrics_event_col_width(0), 45); // would underflow with `- 55`
+        assert_eq!(super::eid_metrics_event_col_width(40), 45); // narrow terminal
+        assert_eq!(super::eid_metrics_event_col_width(100), 45); // 100-55=45, at the floor
+        assert_eq!(super::eid_metrics_event_col_width(101), 46); // just above the floor
+        assert_eq!(super::eid_metrics_event_col_width(200), 145);
+    }
+
+    /// The `eid-metrics` row order must be a *total* order, so that the same aggregated counts
+    /// always render in the same sequence. Ordering by count alone left equal-count rows in
+    /// `HashMap` iteration order, which is reseeded per process, so consecutive runs over the same
+    /// logs produced differently ordered tables.
+    #[test]
+    fn test_eid_metrics_row_order_is_total() {
+        let key = |event_id: &str, channel: &str| {
+            (CompactString::from(event_id), CompactString::from(channel))
+        };
+        // Deliberately not in the expected output order, and with three rows tied on 7.
+        let rows = vec![
+            (key("4625", "sec"), 7usize),
+            (key("1", "sysmon"), 9),
+            (key("4624", "sec"), 7),
+            (key("4104", "pwsh"), 7),
+            (key("4688", "sec"), 12),
+        ];
+
+        let sorted = |mut input: Vec<((CompactString, CompactString), usize)>| {
+            input.sort_by(|x, y| super::eid_metrics_row_order((&x.0, &x.1), (&y.0, &y.1)));
+            input
+                .into_iter()
+                .map(|((event_id, channel), count)| format!("{count} {channel} {event_id}"))
+                .collect::<Vec<_>>()
+        };
+
+        // Higher counts first; within the tie on 7, channel ascending then event ID ascending.
+        assert_eq!(
+            sorted(rows.clone()),
+            vec![
+                "12 sec 4688",
+                "9 sysmon 1",
+                "7 pwsh 4104",
+                "7 sec 4624",
+                "7 sec 4625",
+            ]
+        );
+
+        // Any starting arrangement must land on that same order — that is what "total" buys us.
+        let mut rotated = rows.clone();
+        rotated.reverse();
+        assert_eq!(sorted(rotated), sorted(rows.clone()));
+        let mut swapped = rows.clone();
+        swapped.swap(0, 2);
+        assert_eq!(sorted(swapped), sorted(rows));
+    }
+
+    /// Same guarantee for the `logon-summary` tables: ties on the count being rendered are broken
+    /// by the grouping key, so the rows do not shuffle between runs.
+    #[test]
+    fn test_logon_summary_row_order_is_total() {
+        let event = |dst_user: &str, source_ip: &str| LoginEvent {
+            channel: CompactString::from("sec"),
+            dst_user: CompactString::from(dst_user),
+            dst_domain: CompactString::default(),
+            hostname: CompactString::default(),
+            logontype: CompactString::from("3"),
+            src_user: CompactString::default(),
+            src_domain: CompactString::default(),
+            source_computer: CompactString::default(),
+            source_ip: CompactString::from(source_ip),
+        };
+        let stats = |successful: usize, failed: usize| LogonStats {
+            counts: [successful, failed],
+            first: [None, None],
+            last: [None, None],
+        };
+        // `bob` and `alice` tie on successful logons; `carol` ties with `alice` on failed ones.
+        let rows = vec![
+            (event("bob", "10.0.0.2"), stats(4, 1)),
+            (event("carol", "10.0.0.3"), stats(9, 2)),
+            (event("alice", "10.0.0.1"), stats(4, 2)),
+        ];
+
+        let sorted = |input: &Vec<(LoginEvent, LogonStats)>, result_index: usize| {
+            let mut input = input.clone();
+            input.sort_by(|x, y| {
+                super::logon_summary_row_order((&x.0, &x.1), (&y.0, &y.1), result_index)
+            });
+            input
+                .into_iter()
+                .map(|(login_event, logon_stats)| {
+                    format!(
+                        "{} {}",
+                        logon_stats.counts[result_index], login_event.dst_user
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Successful table: carol (9) first, then the 4-tie broken by dst_user ascending.
+        assert_eq!(sorted(&rows, 0), vec!["9 carol", "4 alice", "4 bob"]);
+        // Failed table ranks the same rows differently, and breaks its own tie the same way.
+        assert_eq!(sorted(&rows, 1), vec!["2 alice", "2 carol", "1 bob"]);
+
+        let mut reversed = rows.clone();
+        reversed.reverse();
+        assert_eq!(sorted(&reversed, 0), sorted(&rows, 0));
+        assert_eq!(sorted(&reversed, 1), sorted(&rows, 1));
+    }
+
     use chrono::{DateTime, NaiveDateTime, Utc};
     use compact_str::CompactString;
     use hashbrown::{HashMap, HashSet};
     use nested::Nested;
 
     use crate::detections::configs::TimeFormatOptions;
-    use crate::timeline::metrics::LoginEvent;
+    use crate::timeline::metrics::{LoginEvent, LogonStats};
     use crate::{
         detections::{
             configs::{
-                Action, CommonOptions, Config, DetectCommonOption, EidMetricsOption, InputOption,
-                LogonSummaryOption, STORED_EKEY_ALIAS, StoredStatic,
+                Action, ClobberOption, CommonOptions, Config, DetectCommonOption, EidMetricsOption,
+                InputOption, LogonSummaryOption, StoredStatic, TimeRangeOption,
             },
             utils::create_rec_info,
         },
@@ -736,13 +1008,13 @@ mod tests {
     };
 
     fn create_dummy_stored_static(action: Action) -> StoredStatic {
-        StoredStatic::create_static_data(Some(Config {
+        StoredStatic::create_static_data(Config {
             action: Some(action),
             debug: false,
-        }))
+        })
     }
 
-    /// Test for statistics aggregation of the metrics command.
+    /// Test for the statistics aggregation of the logon-summary command.
     #[test]
     pub fn test_evt_logon_stats() {
         let mut dummy_stored_static =
@@ -780,16 +1052,18 @@ mod tests {
                     utc: false,
                 },
                 output: None,
-                clobber: false,
-                end_timeline: None,
-                start_timeline: None,
+                clobber_opt: ClobberOption { clobber: false },
+                time_range: TimeRangeOption {
+                    end_timeline: None,
+                    start_timeline: None,
+                },
                 remove_duplicate_detections: false,
+                geo_ip: None,
             }));
         dummy_stored_static.logon_summary_flag = true;
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(dummy_stored_static.eventkey_alias.clone());
         let mut timeline = Timeline::default();
 
-        // Test that stats_time_cnt does nothing when there is no record information.
+        // Test that logon_stats_start does nothing when there is no record information.
         timeline.stats.logon_stats_start(&[], &dummy_stored_static);
 
         // Test 1: When there is no target Timestamp information.
@@ -803,23 +1077,24 @@ mod tests {
             },
             "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
         }"#;
-        let mut input_datas = vec![];
+        let mut input_records = vec![];
         let alias_ch_record = serde_json::from_str(no_timestamp_record_str).unwrap();
-        input_datas.push(create_rec_info(
+        input_records.push(create_rec_info(
             alias_ch_record,
             "testpath".to_string(),
             &Nested::<String>::new(),
             &false,
             &false,
+            &dummy_stored_static.eventkey_alias,
         ));
         timeline
             .stats
-            .logon_stats_start(&input_datas, &dummy_stored_static);
+            .logon_stats_start(&input_records, &dummy_stored_static);
         assert!(timeline.stats.start_time.is_none());
         assert!(timeline.stats.end_time.is_none());
 
         // Test 2: When Event.System.TimeCreated_attributes.SystemTime contains a timestamp.
-        let tcreated_attribe_record_str = r#"{
+        let tcreated_attrib_record_str = r#"{
             "Event": {
                 "System": {
                     "EventID": "4624",
@@ -839,19 +1114,20 @@ mod tests {
             "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
         }"#;
 
-        let include_tcreated_attribe_record =
-            serde_json::from_str(tcreated_attribe_record_str).unwrap();
-        input_datas.clear();
-        input_datas.push(create_rec_info(
-            include_tcreated_attribe_record,
+        let include_tcreated_attrib_record =
+            serde_json::from_str(tcreated_attrib_record_str).unwrap();
+        input_records.clear();
+        input_records.push(create_rec_info(
+            include_tcreated_attrib_record,
             "testpath2".to_string(),
             &Nested::<String>::new(),
             &false,
             &false,
+            &dummy_stored_static.eventkey_alias,
         ));
 
         // Test 3: When Event.System.@timestamp contains a timestamp.
-        let timestamp_attribe_record_str = r#"{
+        let timestamp_attrib_record_str = r#"{
             "Event": {
                 "System": {
                     "EventID": 4625,
@@ -866,16 +1142,64 @@ mod tests {
             },
             "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
         }"#;
-        let include_timestamp_record = serde_json::from_str(timestamp_attribe_record_str).unwrap();
-        input_datas.push(create_rec_info(
+        let include_timestamp_record = serde_json::from_str(timestamp_attrib_record_str).unwrap();
+        input_records.push(create_rec_info(
             include_timestamp_record,
             "testpath2".to_string(),
             &Nested::<String>::new(),
             &false,
             &false,
+            &dummy_stored_static.eventkey_alias,
+        ));
+
+        // Test 4: An RDS Gateway logon (EID 302) whose Username carries a "DOMAIN\user" value.
+        // Both the user and the domain are extracted from Event.UserData.EventInfo.Username via
+        // the RdsGtwUsername alias (regression test for #1809, where the dst_domain arm looked
+        // up the misspelled alias "RdsGtwUserName" and always yielded "-").
+        let rds_gtw_record_str = r#"{
+            "Event": {
+                "System": {
+                    "EventID": 302,
+                    "Channel": "Microsoft-Windows-TerminalServices-Gateway/Operational",
+                    "Computer": "GATEWAY01",
+                    "TimeCreated_attributes": {
+                        "SystemTime": "2022-12-23T00:00:00.000Z"
+                    }
+                },
+                "UserData": {
+                    "EventInfo": {
+                        "Username": "CONTOSO\\alice",
+                        "IpAddress": "10.0.0.5"
+                    }
+                }
+            },
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        let rds_gtw_record = serde_json::from_str(rds_gtw_record_str).unwrap();
+        input_records.push(create_rec_info(
+            rds_gtw_record,
+            "testpath3".to_string(),
+            &Nested::<String>::new(),
+            &false,
+            &false,
+            &dummy_stored_static.eventkey_alias,
         ));
 
         let mut expect: HashMap<LoginEvent, [usize; 2]> = HashMap::new();
+        expect.insert(
+            LoginEvent {
+                channel: "RDS-GTW 302".into(),
+                dst_user: "alice".into(),
+                dst_domain: "CONTOSO".into(),
+                hostname: "GATEWAY01".into(),
+                logontype: "-".into(),
+                src_user: "-".into(),
+                src_domain: "-".into(),
+                source_computer: "-".into(),
+                source_ip: "10.0.0.5".into(),
+            },
+            [1, 0],
+        );
         expect.insert(
             LoginEvent {
                 channel: "Sec 4624".into(),
@@ -907,7 +1231,7 @@ mod tests {
 
         timeline
             .stats
-            .logon_stats_start(&input_datas, &dummy_stored_static);
+            .logon_stats_start(&input_records, &dummy_stored_static);
         assert_eq!(
             timeline.stats.start_time,
             Some(DateTime::<Utc>::from_naive_utc_and_offset(
@@ -925,16 +1249,34 @@ mod tests {
             ))
         );
 
-        assert_eq!(timeline.stats.total, 3);
+        assert_eq!(timeline.stats.total, 4);
 
-        for (k, v) in timeline.stats.stats_login_list.iter() {
-            assert!(expect.contains_key(k));
-            assert_eq!(expect.get(k).unwrap(), v);
+        let dt = |date_str: &str| {
+            Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S%.fZ").unwrap(),
+                Utc,
+            ))
+        };
+        for (login_event, values) in timeline.stats.stats_login_list.iter() {
+            assert!(expect.contains_key(login_event));
+            assert_eq!(expect.get(login_event).unwrap(), &values.counts);
+            // Each grouping here has a single record, so first == last == that record's time.
+            // Sec 4625 exercises the @timestamp fallback; the others use TimeCreated SystemTime.
+            let (idx, want) = match login_event.channel.as_str() {
+                "Sec 4624" => (0, dt("2021-12-23T00:00:00.000Z")),
+                "Sec 4625" => (1, dt("2022-12-23T00:00:00.000Z")),
+                "RDS-GTW 302" => (0, dt("2022-12-23T00:00:00.000Z")),
+                _ => continue,
+            };
+            assert_eq!(values.first[idx], want, "first for {}", login_event.channel);
+            assert_eq!(values.last[idx], want, "last for {}", login_event.channel);
         }
     }
 
     #[test]
     pub fn test_tm_stats_dsp_msg() {
+        let output_tmp_dir = tempfile::tempdir().unwrap();
+        let out_test_tm_stats_csv = output_tmp_dir.path().join("test_tm_stats.csv");
         let dummy_stored_static =
             create_dummy_stored_static(Action::EidMetrics(EidMetricsOption {
                 input_args: InputOption {
@@ -969,14 +1311,13 @@ mod tests {
                     us_time: false,
                     utc: false,
                 },
-                output: Some(Path::new("./test_tm_stats.csv").to_path_buf()),
-                clobber: false,
+                output: Some(out_test_tm_stats_csv.clone()),
+                clobber_opt: ClobberOption { clobber: false },
                 remove_duplicate_detections: false,
             }));
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(dummy_stored_static.eventkey_alias.clone());
         let mut timeline = Timeline::default();
-        let mut input_datas = vec![];
-        let timestamp_attribe_record_str = r#"{
+        let mut input_records = vec![];
+        let timestamp_attrib_record_str = r#"{
             "Event": {
                 "System": {
                     "EventID": 4625,
@@ -991,20 +1332,21 @@ mod tests {
             },
             "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
         }"#;
-        let include_timestamp_record = serde_json::from_str(timestamp_attribe_record_str).unwrap();
-        input_datas.push(create_rec_info(
+        let include_timestamp_record = serde_json::from_str(timestamp_attrib_record_str).unwrap();
+        input_records.push(create_rec_info(
             include_timestamp_record,
             "testpath2".to_string(),
             &Nested::<String>::new(),
             &false,
             &false,
+            &dummy_stored_static.eventkey_alias,
         ));
 
         let include_computer: HashSet<CompactString> = HashSet::new();
         let exclude_computer: HashSet<CompactString> = HashSet::new();
 
         timeline.stats.evt_stats_start(
-            &input_datas,
+            &input_records,
             &dummy_stored_static,
             (&include_computer, &exclude_computer),
         );
@@ -1018,18 +1360,25 @@ mod tests {
         let expect = "Total,%,Channel,ID,Event\n".to_owned()
             + &expect_records.join(&"\n").join(",").replace(",\n,", "\n")
             + "\n";
-        match read_to_string("./test_tm_stats.csv") {
+        match read_to_string(&out_test_tm_stats_csv) {
             Err(_) => panic!("Failed to open file."),
-            Ok(s) => {
-                assert_eq!(s, expect);
+            Ok(contents) => {
+                assert_eq!(contents, expect);
             }
         };
         // Delete the file after the test.
-        assert!(remove_file("./test_tm_stats.csv").is_ok());
+        assert!(remove_file(&out_test_tm_stats_csv).is_ok());
     }
 
     #[test]
     pub fn test_tm_logon_stats_dsp_msg() {
+        let output_tmp_dir = tempfile::tempdir().unwrap();
+        let out_test_tm_logon_stats_successful_csv = output_tmp_dir
+            .path()
+            .join("test_tm_logon_stats-successful.csv");
+        let out_test_tm_logon_stats_failed_csv =
+            output_tmp_dir.path().join("test_tm_logon_stats-failed.csv");
+        let out_test_tm_logon_stats = output_tmp_dir.path().join("test_tm_logon_stats");
         let mut dummy_stored_static =
             create_dummy_stored_static(Action::LogonSummary(LogonSummaryOption {
                 input_args: InputOption {
@@ -1064,17 +1413,19 @@ mod tests {
                     us_time: false,
                     utc: false,
                 },
-                output: Some(Path::new("./test_tm_logon_stats").to_path_buf()),
-                clobber: false,
-                end_timeline: None,
-                start_timeline: None,
+                output: Some(out_test_tm_logon_stats.clone()),
+                clobber_opt: ClobberOption { clobber: false },
+                time_range: TimeRangeOption {
+                    end_timeline: None,
+                    start_timeline: None,
+                },
                 remove_duplicate_detections: false,
+                geo_ip: None,
             }));
         dummy_stored_static.logon_summary_flag = true;
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(dummy_stored_static.eventkey_alias.clone());
         let mut timeline = Timeline::default();
-        let mut input_datas = vec![];
-        let tcreated_attribe_record_str = r#"{
+        let mut input_records = vec![];
+        let tcreated_attrib_record_str = r#"{
             "Event": {
                 "System": {
                     "EventID": 4624,
@@ -1093,18 +1444,19 @@ mod tests {
             },
             "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
         }"#;
-        let include_tcreated_attribe_record =
-            serde_json::from_str(tcreated_attribe_record_str).unwrap();
-        input_datas.clear();
-        input_datas.push(create_rec_info(
-            include_tcreated_attribe_record,
+        let include_tcreated_attrib_record =
+            serde_json::from_str(tcreated_attrib_record_str).unwrap();
+        input_records.clear();
+        input_records.push(create_rec_info(
+            include_tcreated_attrib_record,
             "testpath2".to_string(),
             &Nested::<String>::new(),
             &false,
             &false,
+            &dummy_stored_static.eventkey_alias,
         ));
 
-        let timestamp_attribe_record_str = r#"{
+        let timestamp_attrib_record_str = r#"{
             "Event": {
                 "System": {
                     "EventID": 4625,
@@ -1119,97 +1471,258 @@ mod tests {
             },
             "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
         }"#;
-        let include_timestamp_record = serde_json::from_str(timestamp_attribe_record_str).unwrap();
-        input_datas.push(create_rec_info(
+        let include_timestamp_record = serde_json::from_str(timestamp_attrib_record_str).unwrap();
+        input_records.push(create_rec_info(
             include_timestamp_record,
             "testpath2".to_string(),
             &Nested::<String>::new(),
             &false,
             &false,
+            &dummy_stored_static.eventkey_alias,
         ));
 
         timeline
             .stats
-            .logon_stats_start(&input_datas, &dummy_stored_static);
+            .logon_stats_start(&input_records, &dummy_stored_static);
 
         timeline.tm_logon_stats_dsp_msg(&dummy_stored_static);
-        let mut header = [
-            "Successful",
-            "Event",
-            "Target Account",
-            "Target Domain",
-            "Target Computer",
-            "Logon Type",
-            "Source Account",
-            "Source Domain",
-            "Source Computer",
-            "Source IP Address",
-        ];
+        // Expected first/last timestamps, formatted the same way the code does (so the test is
+        // independent of the local timezone). Successful logon uses SystemTime 2021-12-23;
+        // failed logon uses @timestamp 2022-12-23.
+        let tfo = &dummy_stored_static
+            .output_option
+            .as_ref()
+            .unwrap()
+            .time_format_options;
+        let mkdt = |date_str: &str| {
+            DateTime::<Utc>::from_naive_utc_and_offset(
+                NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S%.fZ").unwrap(),
+                Utc,
+            )
+        };
+        let success_t =
+            crate::detections::utils::format_time(&mkdt("2021-12-23T00:00:00.000Z"), false, tfo)
+                .to_string();
+        let failed_t =
+            crate::detections::utils::format_time(&mkdt("2022-12-23T00:00:00.000Z"), false, tfo)
+                .to_string();
 
-        // Login Successful csv output test
-        let expect_success_records = [[
-            "1",
-            "Sec 4624",
-            "testuser",
-            "-",
-            "HAYABUSA-DESKTOP",
-            "3 - Network",
-            "-",
-            "-",
-            "HAYABUSA",
-            "192.168.100.200",
-        ]];
-        let expect_success = header.join(",")
-            + "\n"
-            + &expect_success_records
-                .join(&"\n")
-                .join(",")
-                .replace(",\n,", "\n")
-            + "\n";
-        match read_to_string("./test_tm_logon_stats-successful.csv") {
+        // CSV output test for successful logons.
+        let expect_success = format!(
+            "Successful,First Logon,Last Logon,Event,Target Account,Target Domain,Target Computer,Logon Type,Source Account,Source Domain,Source Computer,Source IP Address\n\
+             1,{success_t},{success_t},Sec 4624,testuser,-,HAYABUSA-DESKTOP,3 - Network,-,-,HAYABUSA,192.168.100.200\n"
+        );
+        match read_to_string(&out_test_tm_logon_stats_successful_csv) {
             Err(_) => panic!("Failed to open file."),
-            Ok(s) => {
-                assert_eq!(s, expect_success);
+            Ok(contents) => {
+                assert_eq!(contents, expect_success);
             }
         };
 
-        // Login Failed csv output test
-        header[0] = "Failed";
-        let expect_failed_records = [[
-            "1",
-            "Sec 4625",
-            "testuser",
-            "-",
-            "HAYABUSA-DESKTOP",
-            "0 - System",
-            "-",
-            "-",
-            "-",
-            "-",
-        ]];
-        let expect_failed = header.join(",")
-            + "\n"
-            + &expect_failed_records
-                .join(&"\n")
-                .join(",")
-                .replace(",\n,", "\n")
-            + "\n";
+        // CSV output test for failed logons.
+        let expect_failed = format!(
+            "Failed,First Attempt,Last Attempt,Event,Target Account,Target Domain,Target Computer,Logon Type,Source Account,Source Domain,Source Computer,Source IP Address\n\
+             1,{failed_t},{failed_t},Sec 4625,testuser,-,HAYABUSA-DESKTOP,0 - System,-,-,-,-\n"
+        );
 
-        match read_to_string("./test_tm_logon_stats-successful.csv") {
+        match read_to_string(&out_test_tm_logon_stats_successful_csv) {
             Err(_) => panic!("Failed to open file."),
-            Ok(s) => {
-                assert_eq!(s, expect_success);
+            Ok(contents) => {
+                assert_eq!(contents, expect_success);
             }
         };
 
-        match read_to_string("./test_tm_logon_stats-failed.csv") {
+        match read_to_string(&out_test_tm_logon_stats_failed_csv) {
             Err(_) => panic!("Failed to open file."),
-            Ok(s) => {
-                assert_eq!(s, expect_failed);
+            Ok(contents) => {
+                assert_eq!(contents, expect_failed);
             }
         };
         // Delete the file after the test.
-        assert!(remove_file("./test_tm_logon_stats-successful.csv").is_ok());
-        assert!(remove_file("./test_tm_logon_stats-failed.csv").is_ok());
+        assert!(remove_file(&out_test_tm_logon_stats_successful_csv).is_ok());
+        assert!(remove_file(&out_test_tm_logon_stats_failed_csv).is_ok());
+    }
+
+    /// Test the -G (GeoIP) columns of the logon-summary CSV output: a routable address is
+    /// resolved through the MaxMind databases, a private address is reported as "Private", and a
+    /// record without a source IP falls back to "-".
+    #[test]
+    pub fn test_tm_logon_stats_dsp_msg_geo_ip() {
+        let output_tmp_dir = tempfile::tempdir().unwrap();
+        let out_prefix = output_tmp_dir.path().join("test_tm_logon_stats_geo_ip");
+        let out_successful_csv = output_tmp_dir
+            .path()
+            .join("test_tm_logon_stats_geo_ip-successful.csv");
+        let out_failed_csv = output_tmp_dir
+            .path()
+            .join("test_tm_logon_stats_geo_ip-failed.csv");
+        let mut dummy_stored_static =
+            create_dummy_stored_static(Action::LogonSummary(LogonSummaryOption {
+                input_args: InputOption {
+                    directory: None,
+                    filepath: Some(Path::new("./dummy.evtx").to_path_buf()),
+                    live_analysis: false,
+                    recover_records: false,
+                    time_offset: None,
+                },
+                common_options: CommonOptions {
+                    no_color: false,
+                    quiet: false,
+                    help: None,
+                },
+                detect_common_options: DetectCommonOption {
+                    json_input: false,
+                    validate_checksums: false,
+                    evtx_file_ext: None,
+                    thread_number: None,
+                    quiet_errors: false,
+                    config: Path::new("./rules/config").to_path_buf(),
+                    verbose: false,
+                    include_computer: None,
+                    exclude_computer: None,
+                },
+                time_format_options: TimeFormatOptions {
+                    european_time: false,
+                    iso_8601: false,
+                    rfc_2822: false,
+                    rfc_3339: false,
+                    us_military_time: false,
+                    us_time: false,
+                    utc: false,
+                },
+                output: Some(out_prefix.clone()),
+                clobber_opt: ClobberOption { clobber: false },
+                time_range: TimeRangeOption {
+                    end_timeline: None,
+                    start_timeline: None,
+                },
+                remove_duplicate_detections: false,
+                // Test databases from https://github.com/maxmind/MaxMind-DB/tree/main/test-data
+                geo_ip: Some(Path::new("test_files/mmdb").to_path_buf()),
+            }));
+        assert!(dummy_stored_static.geo_ip_search.is_some());
+        dummy_stored_static.logon_summary_flag = true;
+        let mut timeline = Timeline::default();
+
+        // A successful logon from a routable address that the test databases know about.
+        let global_ip_record_str = r#"{
+            "Event": {
+                "System": {
+                    "EventID": 4624,
+                    "Channel": "Security",
+                    "Computer":"HAYABUSA-DESKTOP",
+                    "TimeCreated_attributes": {
+                        "SystemTime": "2021-12-23T00:00:00.000Z"
+                    }
+                },
+                "EventData": {
+                    "WorkstationName": "HAYABUSA",
+                    "IpAddress": "2.125.160.216",
+                    "TargetUserName": "testuser",
+                    "LogonType": "3"
+                }
+            },
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        // A failed logon from a private address: reported as "Private" without a lookup.
+        let private_ip_record_str = r#"{
+            "Event": {
+                "System": {
+                    "EventID": 4625,
+                    "Channel": "Security",
+                    "Computer":"HAYABUSA-DESKTOP",
+                    "TimeCreated_attributes": {
+                        "SystemTime": "2022-12-23T00:00:00.000Z"
+                    }
+                },
+                "EventData": {
+                    "IpAddress": "192.168.100.200",
+                    "TargetUserName": "testuser",
+                    "LogonType": "3"
+                }
+            },
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        // A failed logon with no source IP field at all: the "-" placeholder is not an address.
+        let no_ip_record_str = r#"{
+            "Event": {
+                "System": {
+                    "EventID": 4625,
+                    "Channel": "Security",
+                    "Computer":"HAYABUSA-DESKTOP",
+                    "TimeCreated_attributes": {
+                        "SystemTime": "2022-12-23T00:00:00.000Z"
+                    }
+                },
+                "EventData": {
+                    "TargetUserName": "testuser2",
+                    "LogonType": "0"
+                }
+            },
+            "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
+        }"#;
+        let mut input_records = vec![];
+        for record_str in [
+            global_ip_record_str,
+            private_ip_record_str,
+            no_ip_record_str,
+        ] {
+            input_records.push(create_rec_info(
+                serde_json::from_str(record_str).unwrap(),
+                "testpath".to_string(),
+                &Nested::<String>::new(),
+                &false,
+                &false,
+                &dummy_stored_static.eventkey_alias,
+            ));
+        }
+        timeline
+            .stats
+            .logon_stats_start(&input_records, &dummy_stored_static);
+        timeline.tm_logon_stats_dsp_msg(&dummy_stored_static);
+
+        let tfo = &dummy_stored_static
+            .output_option
+            .as_ref()
+            .unwrap()
+            .time_format_options;
+        let mkdt = |date_str: &str| {
+            DateTime::<Utc>::from_naive_utc_and_offset(
+                NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S%.fZ").unwrap(),
+                Utc,
+            )
+        };
+        let success_t =
+            crate::detections::utils::format_time(&mkdt("2021-12-23T00:00:00.000Z"), false, tfo)
+                .to_string();
+        let failed_t =
+            crate::detections::utils::format_time(&mkdt("2022-12-23T00:00:00.000Z"), false, tfo)
+                .to_string();
+
+        // The test City/Country databases resolve 2.125.160.216, but the test ASN database has no
+        // entry for it, so the ASN column is empty.
+        let expect_success = format!(
+            "Successful,First Logon,Last Logon,Event,Target Account,Target Domain,Target Computer,Logon Type,Source Account,Source Domain,Source Computer,Source IP Address,Source ASN,Source Country,Source City\n\
+             1,{success_t},{success_t},Sec 4624,testuser,-,HAYABUSA-DESKTOP,3 - Network,-,-,HAYABUSA,2.125.160.216,,United Kingdom,Boxford\n"
+        );
+        match read_to_string(&out_successful_csv) {
+            Err(_) => panic!("Failed to open file."),
+            Ok(contents) => assert_eq!(contents, expect_success),
+        };
+
+        // The failed rows are ordered by count and then by the logon grouping key, so the
+        // private-address row (Target Account "testuser") comes before the no-IP one.
+        let expect_failed = format!(
+            "Failed,First Attempt,Last Attempt,Event,Target Account,Target Domain,Target Computer,Logon Type,Source Account,Source Domain,Source Computer,Source IP Address,Source ASN,Source Country,Source City\n\
+             1,{failed_t},{failed_t},Sec 4625,testuser,-,HAYABUSA-DESKTOP,3 - Network,-,-,-,192.168.100.200,Private,-,-\n\
+             1,{failed_t},{failed_t},Sec 4625,testuser2,-,HAYABUSA-DESKTOP,0 - System,-,-,-,-,-,-,-\n"
+        );
+        match read_to_string(&out_failed_csv) {
+            Err(_) => panic!("Failed to open file."),
+            Ok(contents) => assert_eq!(contents, expect_failed),
+        };
+
+        assert!(remove_file(&out_successful_csv).is_ok());
+        assert!(remove_file(&out_failed_csv).is_ok());
     }
 }

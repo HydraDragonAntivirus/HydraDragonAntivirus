@@ -17,9 +17,8 @@ use tokio::{runtime::Runtime, spawn, task::JoinHandle};
 use yaml_rust2::Yaml;
 
 use crate::detections::configs::Action;
-use crate::detections::configs::STORED_EKEY_ALIAS;
 use crate::detections::field_data_map::FieldDataMapKey;
-use crate::detections::message::{AlertMessage, DetectInfo, ERROR_LOG_STACK, TAGS_CONFIG};
+use crate::detections::message::{AlertMessage, DetectInfo, TAGS_CONFIG};
 use crate::detections::rule::correlation_parser::parse_correlation_rules;
 use crate::detections::rule::count::{AggRecordTimeInfo, get_sec_timeframe};
 use crate::detections::rule::{self, AggResult, CorrelationType, RuleNode};
@@ -39,27 +38,26 @@ use crate::options::profile::Profile::{
 };
 use crate::yaml::ParseYaml;
 
-use super::configs::{
-    EventKeyAliasConfig, GEOIP_DB_PARSER, GEOIP_DB_YAML, GEOIP_FILTER, STORED_STATIC, StoredStatic,
-};
-use super::message::{self, COMPUTER_MITRE_ATTCK_MAP, COMPUTER_MITRE_ATTCK_UNIQUE_KEYS};
+use super::configs::{EventKeyAliasConfig, StoredStatic};
+use super::message;
 
-// Struct to hold information for one record of an event file.
+/// Struct to hold information for one record of an event file.
 #[derive(Clone, Debug)]
 pub struct EvtxRecordInfo {
     pub evtx_filepath: String, // File path of the event file, used when outputting logs.
     pub record: Value,         // Data for one record serialized in JSON format.
     pub data_string: String,   // Data within one record converted to a string.
-    pub key_2_value: HashMap<String, String>, // Map of hierarchical keys joined by "." and their values.
-    pub recovered_record: bool,               // Whether the record was recovered.
+    pub key_to_value: HashMap<String, String>, // Map of hierarchical keys joined by "." and their values.
+    pub recovered_record: bool,                // Whether the record was recovered.
 }
 
 impl EvtxRecordInfo {
     pub fn get_value(&self, key: &str) -> Option<&String> {
-        self.key_2_value.get(key)
+        self.key_to_value.get(key)
     }
 }
 
+/// Holds all loaded detection rules and runs them against event records.
 #[derive(Debug)]
 pub struct Detection {
     rules: Vec<RuleNode>,
@@ -70,17 +68,24 @@ impl Detection {
         Detection { rules: rule_nodes }
     }
 
-    pub fn start(self, rt: &Runtime, records: Vec<EvtxRecordInfo>) -> (Self, Vec<DetectInfo>) {
-        rt.block_on(self.execute_rules(records))
+    pub fn start(
+        self,
+        runtime: &Runtime,
+        records: Vec<EvtxRecordInfo>,
+        stored_static: Arc<StoredStatic>,
+    ) -> (Self, Vec<DetectInfo>) {
+        runtime.block_on(self.execute_rules(records, stored_static))
     }
 
-    // Parse the rule files.
+    /// Parses the rule files under the given path and returns the successfully initialized rules,
+    /// after applying the level/status/ID filters and resolving correlation rules.
     pub fn parse_rule_files(
         min_level: &str,
         target_level: &str,
         rulespath: &Path,
         exclude_ids: &filter::RuleExclude,
         stored_static: &StoredStatic,
+        html_reporter: &mut htmlreport::HtmlReporter,
     ) -> Vec<RuleNode> {
         // Execute rule file parsing.
         let mut rulefile_loader = ParseYaml::new(stored_static);
@@ -97,14 +102,15 @@ impl Detection {
                 AlertMessage::alert(&errmsg).ok();
             }
             if !stored_static.quiet_errors_flag {
-                ERROR_LOG_STACK
+                stored_static
+                    .error_log_stack
                     .lock()
                     .unwrap()
                     .push(format!("[ERROR] {errmsg}"));
             }
             return vec![];
         }
-        let mut parseerror_count = rulefile_loader.errorrule_count;
+        let mut parse_error_count = rulefile_loader.error_rule_count;
         let return_if_success = |mut rule: RuleNode| {
             let err_msgs_result = rule.init(stored_static);
             if err_msgs_result.is_ok() {
@@ -114,7 +120,7 @@ impl Detection {
             // Output an error if rule file parsing fails.
             err_msgs_result.err().iter().for_each(|err_msgs| {
                 let errmsg_body =
-                    format!("Failed to parse rule file. (FilePath : {})", rule.rulepath);
+                    format!("Failed to parse rule file. (FilePath : {})", rule.rule_path);
                 if stored_static.verbose_flag {
                     AlertMessage::warn(&errmsg_body).ok();
                     err_msgs.iter().for_each(|err_msg| {
@@ -123,22 +129,25 @@ impl Detection {
                     println!();
                 }
                 if !stored_static.quiet_errors_flag {
-                    ERROR_LOG_STACK
+                    stored_static
+                        .error_log_stack
                         .lock()
                         .unwrap()
                         .push(format!("[WARN] {errmsg_body}"));
                     err_msgs.iter().for_each(|err_msg| {
-                        ERROR_LOG_STACK
+                        stored_static
+                            .error_log_stack
                             .lock()
                             .unwrap()
                             .push(format!("[WARN] {err_msg}"));
                     });
                 }
-                parseerror_count += 1;
+                parse_error_count += 1;
             });
             None
         };
-        // parse rule files
+        // Create a RuleNode from each loaded YAML document and keep only the rules that
+        // initialize successfully.
         let mut ret = rulefile_loader
             .files
             .clone()
@@ -146,32 +155,45 @@ impl Detection {
             .map(|rule_file_tuple| rule::create_rule(rule_file_tuple.0, rule_file_tuple.1))
             .filter_map(return_if_success)
             .collect();
-        ret = parse_correlation_rules(ret, stored_static, &mut parseerror_count);
+        ret = parse_correlation_rules(ret, stored_static, &mut parse_error_count);
         if !(stored_static.logon_summary_flag
             || stored_static.search_flag
             || stored_static.metrics_flag
             || stored_static.computer_metrics_flag
             || stored_static.log_metrics_flag)
         {
-            Detection::print_rule_load_info(&rulefile_loader, &parseerror_count, stored_static);
+            Detection::print_rule_load_info(
+                &rulefile_loader,
+                &parse_error_count,
+                stored_static,
+                html_reporter,
+            );
         }
         ret
     }
 
-    // Execute multiple rules against multiple event records, one rule at a time.
-    async fn execute_rules(mut self, records: Vec<EvtxRecordInfo>) -> (Self, Vec<DetectInfo>) {
+    // Execute all rules against all event records; each rule runs in its own async task.
+    async fn execute_rules(
+        mut self,
+        records: Vec<EvtxRecordInfo>,
+        stored_static: Arc<StoredStatic>,
+    ) -> (Self, Vec<DetectInfo>) {
         let records_arc = Arc::new(records);
-        // // Create a thread for each rule and start the threads.
+        // Spawn an async task for each rule and start executing them.
         let rules = self.rules;
-        let handles: Vec<JoinHandle<(RuleNode, Vec<DetectInfo>)>> = rules
-            .into_iter()
-            .map(|rule| {
-                let records_cloned = Arc::clone(&records_arc);
-                spawn(async move { Detection::execute_rule(rule, records_cloned) })
-            })
-            .collect();
+        let handles: Vec<JoinHandle<(RuleNode, Vec<DetectInfo>)>> =
+            rules
+                .into_iter()
+                .map(|rule| {
+                    let records_cloned = Arc::clone(&records_arc);
+                    let stored_static_cloned = Arc::clone(&stored_static);
+                    spawn(async move {
+                        Detection::execute_rule(rule, records_cloned, stored_static_cloned)
+                    })
+                })
+                .collect();
 
-        // Wait for all threads to complete execution.
+        // Wait for all tasks to complete execution.
         let mut rules = vec![];
         let mut all_log_records = vec![];
         for handle in handles {
@@ -182,22 +204,35 @@ impl Detection {
             }
         }
 
-        // rules.into_iter() is called at the top of this function, which transfers ownership through the rule in map to the rule passed as an argument to execute_rule, so self.rules no longer has ownership.
-        // Writing code that returns an object with a member variable that has lost ownership causes a compiler error (compile error E0382), so ownership is returned to self.rules here.
-        // To allow self.rules to regain ownership, Detection::execute_rule returns the rule passed as an argument as the return value.
+        // rules.into_iter() at the top of this function moved every rule out of self.rules and
+        // into execute_rule(), so self.rules no longer has ownership. Returning an object whose
+        // member variable has been moved out of is a compile error (E0382), so ownership is given
+        // back to self.rules here. This is why Detection::execute_rule returns the rule it
+        // received as an argument.
         self.rules = rules;
 
         (self, all_log_records)
     }
 
-    pub fn add_aggcondition_msges(
+    /// Creates the detection messages for rules with an aggregation condition
+    /// (count() rules and correlation rules). Must run after all records have been processed.
+    pub fn add_aggcondition_msgs(
         self,
-        rt: &Runtime,
+        runtime: &Runtime,
         stored_static: &StoredStatic,
     ) -> Vec<DetectInfo> {
-        rt.block_on(self.add_aggcondition_msg(stored_static))
+        runtime.block_on(self.add_aggcondition_msg(stored_static))
     }
 
+    /// Evaluates a Sigma temporal correlation: for each aggregation result of the first
+    /// referenced rule (`ids[0]`), checks that every other referenced rule also produced a
+    /// result within `timeframe`. Only results sharing the base result's `group-by` value
+    /// (`AggResult.key`) are considered, so events from different groups (e.g. different
+    /// Computers) are never correlated together. When `temporal_ordered` is true the referenced
+    /// rules must match in the order they are listed: each match must occur at or after the
+    /// previous rule's match and within the single timeframe window anchored at the base result.
+    /// When false, any result within +/- `timeframe` of the base result counts. Returns the
+    /// base results for which all referenced rules matched.
     fn detect_within_timeframe(
         ids: &[String],
         temporal_ref_all_results: &HashMap<String, Vec<AggResult>>,
@@ -211,25 +246,39 @@ impl Detection {
         {
             for base in base_records {
                 let mut found = false;
-                let mut last_base = base;
+                // Ordered correlations must match the referenced rules in sequence, so track the
+                // timestamp the next rule is allowed to match at. It starts at the base event and
+                // advances to each matched event; every match must also stay within the timeframe
+                // window anchored at the base event.
+                let mut order_floor = base.start_datetime;
+                let window_end = base.start_datetime + timeframe;
                 for id in ids.iter().skip(1) {
                     found = false;
                     if let Some(target_records) = temporal_ref_all_results.get(id.as_str()) {
                         if temporal_ordered {
-                            found = target_records.iter().any(|t| {
-                                (t.start_timedate >= last_base.start_timedate)
-                                    && (t.start_timedate <= last_base.start_timedate + timeframe)
-                            });
+                            // Only consider matches sharing the base's group-by value
+                            // (AggResult.key), then pick the earliest candidate at or after the
+                            // previous match so the remaining rules keep the widest window.
+                            if let Some(next) = target_records
+                                .iter()
+                                .filter(|target| target.key == base.key)
+                                .map(|target| target.start_datetime)
+                                .filter(|&time| time >= order_floor && time <= window_end)
+                                .min()
+                            {
+                                found = true;
+                                order_floor = next;
+                            }
                         } else {
-                            found = target_records.iter().any(|t| {
-                                (t.start_timedate >= base.start_timedate - timeframe)
-                                    && (t.start_timedate <= base.start_timedate + timeframe)
+                            found = target_records.iter().any(|target| {
+                                target.key == base.key
+                                    && (target.start_datetime >= base.start_datetime - timeframe)
+                                    && (target.start_datetime <= base.start_datetime + timeframe)
                             });
                         }
                         if !found {
                             break;
                         }
-                        last_base = base;
                     }
                 }
                 if found {
@@ -243,6 +292,9 @@ impl Detection {
     async fn add_aggcondition_msg(&self, stored_static: &StoredStatic) -> Vec<DetectInfo> {
         let mut ret = vec![];
         let mut detected_temporal_refs: HashMap<String, Vec<AggResult>> = HashMap::new();
+        // First pass: evaluate each rule's aggregation condition. Results of rules referenced by
+        // a temporal correlation rule are stashed in detected_temporal_refs and are only output
+        // directly when the referenced rule has generate: true.
         for rule in &self.rules {
             if !rule.has_agg_condition() {
                 continue;
@@ -261,7 +313,8 @@ impl Detection {
                 }
             }
         }
-        // Temporal rules can only be evaluated after all individual rule evaluations are complete, so loop through rules again to evaluate temporal rules.
+        // Temporal correlation rules can only be evaluated after all individual rule evaluations
+        // are complete, so loop through the rules again to evaluate them.
         for rule in self.rules.iter() {
             let (ref_ids, temporal_ordered) = match &rule.correlation_type {
                 CorrelationType::Temporal(ref_ids) => (ref_ids, false),
@@ -270,7 +323,7 @@ impl Detection {
             };
             if ref_ids
                 .iter()
-                .all(|x| detected_temporal_refs.contains_key(x))
+                .all(|ref_id| detected_temporal_refs.contains_key(ref_id))
             {
                 let mut data = HashMap::new();
                 for id in ref_ids {
@@ -299,10 +352,10 @@ impl Detection {
     fn execute_rule(
         mut rule: RuleNode,
         records: Arc<Vec<EvtxRecordInfo>>,
+        stored_static: Arc<StoredStatic>,
     ) -> (RuleNode, Vec<DetectInfo>) {
         let agg_condition = rule.has_agg_condition();
-        let binding = STORED_STATIC.read().unwrap();
-        let stored_static = binding.as_ref().unwrap();
+        let stored_static = stored_static.as_ref();
         let mut ret = vec![];
         for record_info in records.as_ref() {
             let result = rule.select(
@@ -311,17 +364,24 @@ impl Detection {
                 stored_static.quiet_errors_flag,
                 stored_static.json_input_flag,
                 &stored_static.eventkey_alias,
+                &stored_static.error_log_stack,
             );
             if !result {
                 continue;
             }
 
             if stored_static.pivot_keyword_list_flag {
-                insert_pivot_keyword(&record_info.record, &stored_static.eventkey_alias);
+                insert_pivot_keyword(
+                    &record_info.record,
+                    &stored_static.eventkey_alias,
+                    &stored_static.pivot_keyword,
+                );
                 continue;
             }
 
-            // If no aggregation condition exists, proceed with output as-is.
+            // If the rule has no aggregation condition, output the detection as-is. Rules with an
+            // aggregation condition count matches inside rule.select() and their messages are
+            // created later by add_aggcondition_msg().
             if !agg_condition {
                 ret.push(Detection::create_log_record(
                     &rule,
@@ -334,7 +394,9 @@ impl Detection {
         (rule, ret)
     }
 
-    /// create log record
+    /// Creates a DetectInfo detection message for a single record that matched a rule, filling in
+    /// every column requested by the output profile (timestamp, channel, level, MITRE tags,
+    /// GeoIP data, etc.).
     fn create_log_record(
         rule: &RuleNode,
         record_info: &EvtxRecordInfo,
@@ -346,7 +408,7 @@ impl Detection {
             .as_ref()
             .unwrap()
             .iter()
-            .any(|(_s, p)| *p == RecordID(Default::default()))
+            .any(|(_s, profile)| *profile == RecordID(Default::default()))
         {
             get_serde_number_to_string(
                 &record_info.record["Event"]["System"]["EventRecordID"],
@@ -356,7 +418,7 @@ impl Detection {
         } else {
             CompactString::from("")
         };
-        let ch_str =
+        let channel_str =
             &get_serde_number_to_string(&record_info.record["Event"]["System"]["Channel"], false)
                 .unwrap_or_default();
         let provider = get_serde_number_to_string(
@@ -382,9 +444,11 @@ impl Detection {
 
         let mut profile_converter: HashMap<&str, Profile> = HashMap::new();
         let tags_config_values: Vec<&CompactString> = TAGS_CONFIG.values().collect();
-        let binding = STORED_EKEY_ALIAS.read().unwrap();
-        let eventkey_alias = binding.as_ref().unwrap();
-        let is_json_timeline = matches!(stored_static.config.action, Some(Action::JsonTimeline(_)));
+        let eventkey_alias = &stored_static.eventkey_alias;
+        let is_json_timeline = matches!(
+            &stored_static.config.action,
+            Some(Action::DfirTimeline(opt)) if !matches!(opt.output_type, crate::detections::configs::OutputType::Csv)
+        );
         let computer_name = CompactString::from(
             record_info.record["Event"]["System"]["Computer"]
                 .as_str()
@@ -422,14 +486,14 @@ impl Detection {
                         key.as_str(),
                         Channel(
                             stored_static
-                                .disp_abbr_generic
+                                .generic_abbr_matcher
                                 .replace_all(
                                     stored_static
-                                        .ch_config
-                                        .get(&ch_str.to_ascii_lowercase())
-                                        .unwrap_or(ch_str)
+                                        .channel_abbr_config
+                                        .get(&channel_str.to_ascii_lowercase())
+                                        .unwrap_or(channel_str)
                                         .as_str(),
-                                    &stored_static.disp_abbr_general_values,
+                                    &stored_static.generic_abbr_values,
                                 )
                                 .into(),
                         ),
@@ -470,7 +534,7 @@ impl Detection {
                 }
                 RuleFile(_) => {
                     let rule_file_path = CompactString::from(
-                        Path::new(&rule.rulepath)
+                        Path::new(&rule.rule_path)
                             .file_name()
                             .unwrap_or_default()
                             .to_str()
@@ -492,12 +556,12 @@ impl Detection {
                 MitreTactics(_) => {
                     let tactics = tag_info
                         .iter()
-                        .filter(|x| tags_config_values.contains(&&CompactString::from(*x)));
+                        .filter(|tag| tags_config_values.contains(&&CompactString::from(*tag)));
                     // .map(|x| TAGS_CONFIG.get(x.into()).unwrap());
                     let output_tactics_str = CompactString::from(
                         tactics
                             .clone()
-                            .filter_map(|x| x.split(',').next())
+                            .filter_map(|tag| tag.split(',').next())
                             .join(" ¦ "),
                     );
 
@@ -508,28 +572,31 @@ impl Detection {
 
                     let html_output_tactics_str = tactics
                         .into_iter()
-                        .map(|x| x.split(',').nth(1).unwrap_or_default())
+                        .map(|tag| tag.split(',').nth(1).unwrap_or_default())
                         .collect_vec();
                     if stored_static.html_report_flag && !html_output_tactics_str.is_empty() {
-                        let mut v = COMPUTER_MITRE_ATTCK_MAP
+                        let mut computer_entry = stored_static
+                            .computer_mitre_attck_map
                             .entry(computer_name_to_mitre_tactics.clone())
                             .or_default();
-                        let (_, attck_tac) = v.pair_mut();
+                        let (_, attack_tactics) = computer_entry.pair_mut();
                         for html_attck_tac in html_output_tactics_str {
                             let tactic_key: CompactString = html_attck_tac.into();
                             let unique_key = CompactString::from(format!(
                                 "{}|{}|{}",
-                                &computer_name_to_mitre_tactics, &tactic_key, &rule.rulepath
+                                computer_name_to_mitre_tactics, tactic_key, rule.rule_path
                             ));
-                            let is_unique = COMPUTER_MITRE_ATTCK_UNIQUE_KEYS.insert(unique_key);
+                            let is_unique = stored_static
+                                .computer_mitre_attck_unique_keys
+                                .insert(unique_key);
                             if let Some(entry) =
-                                attck_tac.iter_mut().find(|(t, _, _)| t == tactic_key)
+                                attack_tactics.iter_mut().find(|(t, _, _)| t == tactic_key)
                             {
                                 entry.1 += if is_unique { 1 } else { 0 };
                                 entry.2 += 1;
                             } else {
-                                attck_tac.push((tactic_key, if is_unique { 1 } else { 0 }, 1));
-                                attck_tac.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+                                attack_tactics.push((tactic_key, if is_unique { 1 } else { 0 }, 1));
+                                attack_tactics.sort_unstable_by(|a, b| a.0.cmp(&b.0));
                             }
                         }
                     }
@@ -538,14 +605,14 @@ impl Detection {
                 MitreTags(_) => {
                     let techniques = tag_info
                         .iter()
-                        .filter(|x| {
-                            !tags_config_values.contains(&&CompactString::from(*x))
-                                && (x.starts_with("attack.t")
-                                    || x.starts_with("attack.g")
-                                    || x.starts_with("attack.s"))
+                        .filter(|tag| {
+                            !tags_config_values.contains(&&CompactString::from(*tag))
+                                && (tag.starts_with("attack.t")
+                                    || tag.starts_with("attack.g")
+                                    || tag.starts_with("attack.s"))
                         })
-                        .map(|y| {
-                            let replaced_tag = y.replace("attack.", "");
+                        .map(|tag| {
+                            let replaced_tag = tag.replace("attack.", "");
                             make_ascii_titlecase(&replaced_tag)
                         })
                         .join(" ¦ ");
@@ -554,27 +621,19 @@ impl Detection {
                 OtherTags(_) => {
                     let tags = tag_info
                         .iter()
-                        .filter(|x| {
-                            !(TAGS_CONFIG.values().contains(&CompactString::from(*x))
-                                || x.starts_with("attack.t")
-                                || x.starts_with("attack.g")
-                                || x.starts_with("attack.s"))
+                        .filter(|tag| {
+                            !(TAGS_CONFIG.values().contains(&CompactString::from(*tag))
+                                || tag.starts_with("attack.t")
+                                || tag.starts_with("attack.g")
+                                || tag.starts_with("attack.s"))
                         })
                         .join(" ¦ ");
                     profile_converter.insert(key.as_str(), OtherTags(tags.into()));
                 }
                 RuleAuthor(_) => {
-                    let author = if stored_static.multiline_flag || stored_static.tab_separator_flag
-                    {
-                        rule.yaml["author"]
-                            .as_str()
-                            .unwrap_or("-")
-                            .split([',', '/', ';'])
-                            .map(|x| x.trim())
-                            .join("🛂🛂")
-                    } else {
-                        rule.yaml["author"].as_str().unwrap_or("-").to_string()
-                    };
+                    // Store the raw author string; the multi-author formatting for multiline/tab
+                    // CSV is applied at the output boundary (see results::csv::emit_csv_inner).
+                    let author = rule.yaml["author"].as_str().unwrap_or("-").to_string();
                     profile_converter.insert(key.as_str(), RuleAuthor(author.into()));
                 }
                 RuleCreationDate(_) => {
@@ -625,13 +684,13 @@ impl Detection {
                         key.as_str(),
                         Provider(
                             stored_static
-                                .disp_abbr_generic
+                                .generic_abbr_matcher
                                 .replace_all(
                                     stored_static
                                         .provider_abbr_config
                                         .get(&provider_value)
                                         .unwrap_or(&provider_value),
-                                    &stored_static.disp_abbr_general_values,
+                                    &stored_static.generic_abbr_values,
                                 )
                                 .into(),
                         ),
@@ -659,12 +718,11 @@ impl Detection {
                     if profile_converter.contains_key(key.as_str()) {
                         continue;
                     }
-                    // initialize GeoIP Tgt associated fields
+                    // Initialize the GeoIP Tgt-related fields.
                     profile_converter.insert("TgtASN", TgtASN("".into()));
                     profile_converter.insert("TgtCountry", TgtCountry("".into()));
                     profile_converter.insert("TgtCity", TgtCity("".into()));
-                    let binding = GEOIP_DB_YAML.read().unwrap();
-                    let geo_ip_mapping = binding.as_ref().unwrap();
+                    let geo_ip_mapping = stored_static.geo_ip_db_yaml.as_ref().unwrap();
                     if geo_ip_mapping.is_empty() {
                         continue;
                     }
@@ -672,13 +730,12 @@ impl Detection {
                     if target_alias.is_none() {
                         continue;
                     }
-                    let binding = GEOIP_FILTER.read().unwrap();
-                    let target_condition = binding.as_ref().unwrap();
+                    let target_condition = stored_static.geo_ip_filter.as_ref().unwrap();
                     let mut geoip_target_flag = false;
                     for condition in target_condition.iter() {
                         geoip_target_flag = condition.as_hash().unwrap().iter().any(
                             |(target_channel, target_eids)| {
-                                ch_str.as_str() == target_channel.as_str().unwrap()
+                                channel_str.as_str() == target_channel.as_str().unwrap()
                                     && target_eids
                                         .as_vec()
                                         .unwrap()
@@ -698,15 +755,14 @@ impl Detection {
                             .as_vec()
                             .unwrap()
                             .iter()
-                            .map(|x| x.as_str().unwrap())
+                            .map(|alias| alias.as_str().unwrap())
                             .collect(),
                         &record_info.record,
                         eventkey_alias,
                         false,
                     );
-                    let geo_data = GEOIP_DB_PARSER
-                        .read()
-                        .unwrap()
+                    let geo_data = stored_static
+                        .geo_ip_search
                         .as_ref()
                         .unwrap()
                         .convert_ip_to_geo(&alias_data);
@@ -716,7 +772,7 @@ impl Detection {
                     let binding = geo_data.unwrap();
                     let mut tgt_data = binding
                         .split('🦅')
-                        .map(|x| if x.is_empty() { "" } else { x });
+                        .map(|geo_field| if geo_field.is_empty() { "" } else { geo_field });
                     profile_converter
                         .entry("TgtASN")
                         .and_modify(|p| *p = TgtASN(tgt_data.next().unwrap().to_owned().into()));
@@ -731,27 +787,25 @@ impl Detection {
                     if profile_converter.contains_key(key.as_str()) {
                         continue;
                     }
-                    // initialize GeoIP Tgt associated fields
+                    // Initialize the GeoIP Src-related fields.
                     profile_converter.insert("SrcASN", SrcASN("".into()));
                     profile_converter.insert("SrcCountry", SrcCountry("".into()));
                     profile_converter.insert("SrcCity", SrcCity("".into()));
-                    let binding = GEOIP_DB_YAML.read().unwrap();
-                    let geo_ip_mapping = binding.as_ref().unwrap();
+                    let geo_ip_mapping = stored_static.geo_ip_db_yaml.as_ref().unwrap();
                     if geo_ip_mapping.is_empty() {
                         continue;
                     }
                     let target_alias = &geo_ip_mapping.get("SrcIP");
-                    if target_alias.is_none() || GEOIP_FILTER.read().unwrap().is_none() {
+                    if target_alias.is_none() || stored_static.geo_ip_filter.is_none() {
                         continue;
                     }
 
-                    let binding = GEOIP_FILTER.read().unwrap();
-                    let target_condition = binding.as_ref().unwrap();
+                    let target_condition = stored_static.geo_ip_filter.as_ref().unwrap();
                     let mut geoip_target_flag = false;
                     for condition in target_condition.iter() {
                         geoip_target_flag = condition.as_hash().unwrap().iter().any(
                             |(target_channel, target_eids)| {
-                                ch_str.as_str() == target_channel.as_str().unwrap()
+                                channel_str.as_str() == target_channel.as_str().unwrap()
                                     && target_eids
                                         .as_vec()
                                         .unwrap()
@@ -772,16 +826,15 @@ impl Detection {
                             .as_vec()
                             .unwrap()
                             .iter()
-                            .map(|x| x.as_str().unwrap())
+                            .map(|alias| alias.as_str().unwrap())
                             .collect(),
                         &record_info.record,
                         eventkey_alias,
                         false,
                     );
 
-                    let geo_data = GEOIP_DB_PARSER
-                        .read()
-                        .unwrap()
+                    let geo_data = stored_static
+                        .geo_ip_search
                         .as_ref()
                         .unwrap()
                         .convert_ip_to_geo(&alias_data);
@@ -791,7 +844,7 @@ impl Detection {
                     let binding = geo_data.unwrap();
                     let mut src_data = binding
                         .split('🦅')
-                        .map(|x| if x.is_empty() { "" } else { x });
+                        .map(|geo_field| if geo_field.is_empty() { "" } else { geo_field });
                     profile_converter
                         .entry("SrcASN")
                         .and_modify(|p| *p = SrcASN(src_data.next().unwrap().to_owned().into()));
@@ -809,13 +862,15 @@ impl Detection {
             FieldDataMapKey::default()
         } else {
             FieldDataMapKey {
-                channel: ch_str.clone().to_lowercase(),
+                channel: channel_str.clone().to_lowercase(),
                 event_id: eid.clone(),
             }
         };
-        // If the rule has a details entry, output it as-is; otherwise output the details entry configured for the provider and eventid combination.
+        // If the rule has a details entry, output it as-is. Otherwise fall back to the default
+        // details configured for this provider and event ID combination, and if none exists,
+        // output all of the record's field data.
         let details_fmt_str = match rule.yaml["details"].as_str() {
-            Some(s) => s.to_string(),
+            Some(details) => details.to_string(),
             None => match stored_static
                 .default_details
                 .get(&CompactString::from(format!("{provider}_{eid}")))
@@ -831,7 +886,7 @@ impl Detection {
         };
         let detect_info = DetectInfo {
             detected_time: time,
-            rulepath: CompactString::from(&rule.rulepath),
+            rule_path: CompactString::from(&rule.rule_path),
             ruleid: CompactString::from(rule.yaml["id"].as_str().unwrap_or("-")),
             ruletitle: CompactString::from(rule.yaml["title"].as_str().unwrap_or("-")),
             ruleauthor: CompactString::from(rule.yaml["author"].as_str().unwrap_or("-")),
@@ -840,7 +895,7 @@ impl Detection {
             eventid: eid,
             rec_id,
             detail: CompactString::default(),
-            ext_field: stored_static.profiles.as_ref().unwrap().to_owned(),
+            output_fields: stored_static.profiles.as_ref().unwrap().to_owned(),
             agg_result: None,
             details_convert_map: HashMap::default(),
         };
@@ -859,6 +914,9 @@ impl Detection {
         )
     }
 
+    /// Creates a DetectInfo detection message for one aggregation condition (count/correlation)
+    /// result. Record-specific profile columns are filled with "-" or with deduplicated joined
+    /// values taken from all of the records that contributed to the aggregation.
     fn create_agg_log_record(
         rule: &RuleNode,
         agg_result: AggResult,
@@ -873,7 +931,10 @@ impl Detection {
         let computers =
             Detection::join_agg_values(&agg_result.agg_record_time_info, |x| x.computer.clone());
         let tags_config_values: Vec<&CompactString> = TAGS_CONFIG.values().collect();
-        let is_json_timeline = matches!(stored_static.config.action, Some(Action::JsonTimeline(_)));
+        let is_json_timeline = matches!(
+            &stored_static.config.action,
+            Some(Action::DfirTimeline(opt)) if !matches!(opt.output_type, crate::detections::configs::OutputType::Csv)
+        );
         for (key, profile) in stored_static.profiles.as_ref().unwrap().iter() {
             match profile {
                 Timestamp(_) => {
@@ -881,7 +942,7 @@ impl Detection {
                         key.as_str(),
                         Timestamp(
                             format_time(
-                                &agg_result.start_timedate,
+                                &agg_result.start_datetime,
                                 false,
                                 &stored_static
                                     .output_option
@@ -901,13 +962,13 @@ impl Detection {
                         key.as_str(),
                         Channel(
                             Detection::join_agg_values(&agg_result.agg_record_time_info, |x| {
-                                stored_static.disp_abbr_generic.replace_all(
+                                stored_static.generic_abbr_matcher.replace_all(
                                     stored_static
-                                        .ch_config
+                                        .channel_abbr_config
                                         .get(&CompactString::from(&x.channel.to_ascii_lowercase()))
                                         .unwrap_or(&CompactString::from(&x.channel))
                                         .as_str(),
-                                    &stored_static.disp_abbr_general_values,
+                                    &stored_static.generic_abbr_values,
                                 )
                             })
                             .into(),
@@ -956,7 +1017,7 @@ impl Detection {
                 }
                 RuleFile(_) => {
                     let rule_file_path = CompactString::from(
-                        Path::new(&rule.rulepath)
+                        Path::new(&rule.rule_path)
                             .file_name()
                             .unwrap_or_default()
                             .to_str()
@@ -978,11 +1039,11 @@ impl Detection {
                 MitreTactics(_) => {
                     let tactics = tag_info
                         .iter()
-                        .filter(|x| tags_config_values.contains(&&CompactString::from(*x)));
+                        .filter(|tag| tags_config_values.contains(&&CompactString::from(*tag)));
                     let output_tactics_str = CompactString::from(
                         tactics
                             .clone()
-                            .filter_map(|x| x.split(',').next())
+                            .filter_map(|tag| tag.split(',').next())
                             .join(" ¦ "),
                     );
                     profile_converter.insert(
@@ -993,14 +1054,14 @@ impl Detection {
                 MitreTags(_) => {
                     let techniques = tag_info
                         .iter()
-                        .filter(|x| {
-                            !tags_config_values.contains(&&CompactString::from(*x))
-                                && (x.starts_with("attack.t")
-                                    || x.starts_with("attack.g")
-                                    || x.starts_with("attack.s"))
+                        .filter(|tag| {
+                            !tags_config_values.contains(&&CompactString::from(*tag))
+                                && (tag.starts_with("attack.t")
+                                    || tag.starts_with("attack.g")
+                                    || tag.starts_with("attack.s"))
                         })
-                        .map(|y| {
-                            let replaced_tag = y.replace("attack.", "");
+                        .map(|tag| {
+                            let replaced_tag = tag.replace("attack.", "");
                             make_ascii_titlecase(&replaced_tag)
                         })
                         .join(" ¦ ");
@@ -1009,27 +1070,19 @@ impl Detection {
                 OtherTags(_) => {
                     let tags = tag_info
                         .iter()
-                        .filter(|x| {
-                            !(tags_config_values.contains(&&CompactString::from(*x))
-                                || x.starts_with("attack.t")
-                                || x.starts_with("attack.g")
-                                || x.starts_with("attack.s"))
+                        .filter(|tag| {
+                            !(tags_config_values.contains(&&CompactString::from(*tag))
+                                || tag.starts_with("attack.t")
+                                || tag.starts_with("attack.g")
+                                || tag.starts_with("attack.s"))
                         })
                         .join(" ¦ ");
                     profile_converter.insert(key.as_str(), OtherTags(tags.into()));
                 }
                 RuleAuthor(_) => {
-                    let author = if stored_static.multiline_flag || stored_static.tab_separator_flag
-                    {
-                        rule.yaml["author"]
-                            .as_str()
-                            .unwrap_or("-")
-                            .split([',', '/', ';'])
-                            .map(|x| x.trim())
-                            .join("🛂🛂")
-                    } else {
-                        rule.yaml["author"].as_str().unwrap_or("-").to_string()
-                    };
+                    // Store the raw author string; the multi-author formatting for multiline/tab
+                    // CSV is applied at the output boundary (see results::csv::emit_csv_inner).
+                    let author = rule.yaml["author"].as_str().unwrap_or("-").to_string();
                     profile_converter.insert(key.as_str(), RuleAuthor(author.into()));
                 }
                 RuleCreationDate(_) => {
@@ -1099,8 +1152,8 @@ impl Detection {
             }
         }
         let detect_info = DetectInfo {
-            detected_time: agg_result.start_timedate,
-            rulepath: CompactString::from(&rule.rulepath),
+            detected_time: agg_result.start_datetime,
+            rule_path: CompactString::from(&rule.rule_path),
             ruleid: CompactString::from(rule.yaml["id"].as_str().unwrap_or("-")),
             ruletitle: CompactString::from(rule.yaml["title"].as_str().unwrap_or("-")),
             ruleauthor: CompactString::from(rule.yaml["author"].as_str().unwrap_or("-")),
@@ -1109,12 +1162,11 @@ impl Detection {
             eventid: CompactString::from("-"),
             rec_id: CompactString::from("-"),
             detail: output,
-            ext_field: stored_static.profiles.as_ref().unwrap().to_owned(),
+            output_fields: stored_static.profiles.as_ref().unwrap().to_owned(),
             agg_result: Some(agg_result),
             details_convert_map: HashMap::default(),
         };
-        let binding = STORED_EKEY_ALIAS.read().unwrap();
-        let eventkey_alias = binding.as_ref().unwrap();
+        let eventkey_alias = &stored_static.eventkey_alias;
 
         let field_data_map_key = FieldDataMapKey::default();
 
@@ -1128,6 +1180,8 @@ impl Detection {
         )
     }
 
+    /// Extracts a value from each aggregated record, removes duplicates, and joins the sorted
+    /// values with " ¦ ".
     fn join_agg_values<F>(
         agg_record_time_infos: &[AggRecordTimeInfo],
         extractor: F,
@@ -1164,13 +1218,14 @@ impl Detection {
     /// Function that returns the detection output string for the count portion of the aggregation condition.
     fn create_count_output(rule: &RuleNode, agg_result: &AggResult) -> CompactString {
         let mut ret: String = "".to_string();
-        // Since it is assumed that the aggregation condition already exists when this function is called, the length of the agg_condition array is 2.
+        // This function is only called for rules that have an aggregation condition, so the
+        // unwrap() here is safe.
         let agg_condition = rule.get_agg_condition().unwrap();
         write!(ret, "Count:{}", agg_result.data).ok();
-        let mut sorted_filed_values = agg_result.field_values.clone();
-        sorted_filed_values.sort();
+        let mut sorted_field_values = agg_result.field_values.clone();
+        sorted_field_values.sort();
         if let Some(_field_name) = agg_condition._field_name.as_ref() {
-            write!(ret, " ¦ {}:{}", _field_name, sorted_filed_values.join("/")).ok();
+            write!(ret, " ¦ {}:{}", _field_name, sorted_field_values.join("/")).ok();
         }
 
         if let Some(_by_field_name) = agg_condition._by_field_name.as_ref() {
@@ -1190,6 +1245,9 @@ impl Detection {
         CompactString::from(ret)
     }
 
+    /// Pairs the comma-separated field names in `s1` with the comma-separated values in `s2` and
+    /// joins the resulting "name:value" pairs with " ¦ " (used for `count() by fieldA,fieldB`
+    /// output).
     fn zip_and_concat_strings(s1: &str, s2: &str) -> String {
         let v1: Vec<&str> = s1.split(',').collect();
         let v2: Vec<&str> = s2.split(',').collect();
@@ -1200,12 +1258,16 @@ impl Detection {
             .join(" ¦ ")
     }
 
+    /// Prints the rule loading summary to stdout (rule counts by category, status,
+    /// correlation/expand rules and the total) and accumulates the same lines for the HTML
+    /// report (except the expand-rule lines, which are printed to stdout only).
     pub fn print_rule_load_info(
         parse_yaml: &ParseYaml,
         err_rc: &u128,
         stored_static: &StoredStatic,
+        html_reporter: &mut htmlreport::HtmlReporter,
     ) {
-        let rc = &parse_yaml.rulecounter;
+        let rc = &parse_yaml.rule_type_cnt;
         let ld_rc = &parse_yaml.rule_load_cnt;
         let st_rc = &parse_yaml.rule_status_cnt;
         let cor_rc = &parse_yaml.rule_cor_cnt;
@@ -1270,14 +1332,14 @@ impl Detection {
         let output_opt = stored_static.output_option.as_ref().unwrap();
         let enable_deprecated_flag = output_opt.enable_deprecated_rules;
         let enable_unsupported_flag = output_opt.enable_unsupported_rules;
-        let is_filtered_rule_flag = |x: &CompactString| {
-            x == "deprecated" && !enable_deprecated_flag
-                || x == "unsupported" && !enable_unsupported_flag
+        let is_filtered_rule_flag = |status: &CompactString| {
+            status == "deprecated" && !enable_deprecated_flag
+                || status == "unsupported" && !enable_unsupported_flag
         };
         let total_loaded_rule_cnt: u128 = sorted_st_rc
             .iter()
-            .filter(|(k, _)| !is_filtered_rule_flag(k))
-            .map(|(_, v)| *v)
+            .filter(|(status, _)| !is_filtered_rule_flag(status))
+            .map(|(_, count)| *count)
             .sum();
         sorted_st_rc.sort_by(|a, b| a.0.cmp(b.0));
         sorted_st_rc.into_iter().for_each(|(key, value)| {
@@ -1492,11 +1554,12 @@ impl Detection {
             html_report_stock.push(format!("- {tmp_total_detect_output}"));
         }
         if !html_report_stock.is_empty() {
-            htmlreport::add_md_data("General Overview {#general_overview}", html_report_stock);
+            html_reporter.add_md_data(htmlreport::GENERAL_OVERVIEW_SECTION, html_report_stock);
         }
     }
 
-    /// Retrieve the value of a given alias in a record.
+    /// Retrieves the value of the first alias that resolves in the record, or "-" when none of
+    /// the given aliases yield a value.
     fn get_alias_data(
         target_alias: Vec<&str>,
         record: &Value,
@@ -1535,9 +1598,8 @@ mod tests {
     use crate::detections::configs::Action;
     use crate::detections::configs::CURRENT_EXE_PATH;
     use crate::detections::configs::Config;
-    use crate::detections::configs::CsvOutputOption;
+    use crate::detections::configs::DfirTimelineOption;
     use crate::detections::configs::OutputOption;
-    use crate::detections::configs::STORED_EKEY_ALIAS;
     use crate::detections::configs::StoredStatic;
     use crate::detections::configs::load_eventkey_alias;
     use crate::detections::detection::Detection;
@@ -1549,8 +1611,8 @@ mod tests {
     use crate::options::profile::Profile;
 
     fn create_dummy_stored_static() -> StoredStatic {
-        StoredStatic::create_static_data(Some(Config {
-            action: Some(Action::CsvTimeline(CsvOutputOption {
+        StoredStatic::create_static_data(Config {
+            action: Some(Action::DfirTimeline(DfirTimelineOption {
                 output_options: OutputOption {
                     min_level: "informational".to_string(),
                     include_status: Some(vec!["*".to_string()]),
@@ -1560,7 +1622,7 @@ mod tests {
                 ..Default::default()
             })),
             ..Default::default()
-        }))
+        })
     }
 
     #[test]
@@ -1574,8 +1636,104 @@ mod tests {
             opt_rule_path,
             &filter::exclude_ids(&dummy_stored_static),
             &dummy_stored_static,
+            &mut crate::options::htmlreport::HtmlReporter::default(),
         );
         assert_eq!(5, cole.len());
+    }
+
+    #[test]
+    fn test_detect_within_timeframe_enforces_group_by() {
+        use chrono::Duration;
+        use hashbrown::HashMap;
+
+        let base_time = Utc.with_ymd_and_hms(2024, 1, 1, 10, 0, 0).unwrap();
+        let at = |min: i64| base_time + Duration::minutes(min);
+        // `AggResult.key` holds the group-by value (e.g. the Computer name).
+        let agg = |key: &str, time| AggResult::new(1, key.to_string(), vec![], time, vec![]);
+        let ids = vec!["a".to_string(), "b".to_string()];
+        let timeframe = Duration::minutes(10);
+
+        // Base rule "a" matched for Host1, but rule "b" only matched for Host2 within the
+        // window. The correlation must NOT fire because the matches are from different groups.
+        let mut diff_group: HashMap<String, Vec<AggResult>> = HashMap::new();
+        diff_group.insert("a".to_string(), vec![agg("Host1", at(0))]);
+        diff_group.insert("b".to_string(), vec![agg("Host2", at(5))]);
+        for ordered in [true, false] {
+            assert!(
+                Detection::detect_within_timeframe(&ids, &diff_group, timeframe, ordered)
+                    .is_empty(),
+                "matches from different group-by values must not correlate (ordered={ordered})"
+            );
+        }
+
+        // When rule "b" also matched for Host1 within the window, the correlation fires and the
+        // returned base result is the Host1 group (the mismatched Host2 candidate is ignored).
+        let mut same_group: HashMap<String, Vec<AggResult>> = HashMap::new();
+        same_group.insert("a".to_string(), vec![agg("Host1", at(0))]);
+        same_group.insert(
+            "b".to_string(),
+            vec![agg("Host2", at(3)), agg("Host1", at(5))],
+        );
+        for ordered in [true, false] {
+            let res = Detection::detect_within_timeframe(&ids, &same_group, timeframe, ordered);
+            assert_eq!(
+                res.len(),
+                1,
+                "same-group matches should correlate (ordered={ordered})"
+            );
+            assert_eq!(res[0].key, "Host1");
+        }
+    }
+
+    #[test]
+    fn test_detect_within_timeframe_ordered_enforces_order() {
+        use chrono::Duration;
+        use hashbrown::HashMap;
+
+        let base = Utc.with_ymd_and_hms(2024, 1, 1, 10, 0, 0).unwrap();
+        let at = |min: i64| base + Duration::minutes(min);
+        let agg = |time| AggResult::new(1, "_".to_string(), vec![], time, vec![]);
+        let ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let timeframe = Duration::minutes(10);
+
+        // In-order events a(0) -> b(5) -> c(8) satisfy an ordered correlation.
+        let mut in_order: HashMap<String, Vec<AggResult>> = HashMap::new();
+        in_order.insert("a".to_string(), vec![agg(at(0))]);
+        in_order.insert("b".to_string(), vec![agg(at(5))]);
+        in_order.insert("c".to_string(), vec![agg(at(8))]);
+        assert_eq!(
+            Detection::detect_within_timeframe(&ids, &in_order, timeframe, true).len(),
+            1,
+            "in-order events should satisfy an ordered correlation"
+        );
+
+        // Out-of-order events a(0), c(2), b(5): the rule order is a,b,c but c occurs before b,
+        // so an ordered correlation must NOT fire (regression test for issue #1810).
+        let mut out_of_order: HashMap<String, Vec<AggResult>> = HashMap::new();
+        out_of_order.insert("a".to_string(), vec![agg(at(0))]);
+        out_of_order.insert("b".to_string(), vec![agg(at(5))]);
+        out_of_order.insert("c".to_string(), vec![agg(at(2))]);
+        assert!(
+            Detection::detect_within_timeframe(&ids, &out_of_order, timeframe, true).is_empty(),
+            "out-of-order events must not satisfy an ordered correlation"
+        );
+
+        // The same events DO satisfy an unordered temporal correlation.
+        assert_eq!(
+            Detection::detect_within_timeframe(&ids, &out_of_order, timeframe, false).len(),
+            1,
+            "an unordered correlation ignores event order"
+        );
+
+        // Events that fall outside the timeframe window are not correlated even when ordered.
+        let mut out_of_window: HashMap<String, Vec<AggResult>> = HashMap::new();
+        out_of_window.insert("a".to_string(), vec![agg(at(0))]);
+        out_of_window.insert("b".to_string(), vec![agg(at(5))]);
+        out_of_window.insert("c".to_string(), vec![agg(at(12))]);
+        assert!(
+            Detection::detect_within_timeframe(&ids, &out_of_window, timeframe, true).is_empty(),
+            "events beyond the timeframe window must not correlate"
+        );
     }
 
     #[test]
@@ -1607,7 +1765,7 @@ mod tests {
     }
 
     #[test]
-    fn test_output_aggregation_output_no_filed_by() {
+    fn test_output_aggregation_output_no_field_by() {
         let default_time = Utc.with_ymd_and_hms(1977, 1, 1, 0, 0, 0).unwrap();
         let agg_result: AggResult =
             AggResult::new(2, "_".to_string(), vec![], default_time, vec![]);
@@ -1748,8 +1906,8 @@ mod tests {
     #[test]
     fn test_insert_message_with_geoip() {
         let test_filepath: &str = "test.evtx";
-        let test_rulepath: &str = "test-rule.yml";
-        let dummy_action = Action::CsvTimeline(CsvOutputOption {
+        let test_rule_path: &str = "test-rule.yml";
+        let dummy_action = Action::DfirTimeline(DfirTimelineOption {
             output_options: OutputOption {
                 min_level: "informational".to_string(),
                 no_summary: true,
@@ -1760,10 +1918,10 @@ mod tests {
             output: Some(Path::new("./test_emit_csv.csv").to_path_buf()),
             ..Default::default()
         });
-        let dummy_config = Some(Config {
+        let dummy_config = Config {
             action: Some(dummy_action),
             debug: false,
-        });
+        };
         let stored_static = StoredStatic::create_static_data(dummy_config);
         {
             let eventkey_alias = load_eventkey_alias(
@@ -1776,7 +1934,6 @@ mod tests {
                 .to_str()
                 .unwrap(),
             );
-            *STORED_EKEY_ALIAS.write().unwrap() = Some(eventkey_alias);
 
             let val = r#"
             {
@@ -1798,11 +1955,17 @@ mod tests {
             }
         "#;
             let event: Value = serde_json::from_str(val).unwrap();
-            let dummy_rule = RuleNode::new(test_rulepath.to_string(), Yaml::from_str(""));
+            let dummy_rule = RuleNode::new(test_rule_path.to_string(), Yaml::from_str(""));
             let keys = detections::rule::get_detection_keys(&dummy_rule);
 
-            let input_evtxrecord =
-                utils::create_rec_info(event, test_filepath.to_owned(), &keys, &false, &false);
+            let input_evtxrecord = utils::create_rec_info(
+                event,
+                test_filepath.to_owned(),
+                &keys,
+                &false,
+                &false,
+                &eventkey_alias,
+            );
             {
                 let rule = &dummy_rule;
                 let record_info = &input_evtxrecord;
@@ -1820,9 +1983,9 @@ mod tests {
                     ),
                     ("TgtCity".into(), Profile::TgtCity("Boxford".into())),
                 ];
-                let ext_field = detect_info.ext_field.clone();
+                let output_fields = detect_info.output_fields.clone();
                 for expect in expect_geo_ip_data.iter() {
-                    assert!(ext_field.contains(expect));
+                    assert!(output_fields.contains(expect));
                 }
             };
         }
@@ -1831,8 +1994,8 @@ mod tests {
     #[test]
     fn test_filtered_insert_message_with_geoip() {
         let test_filepath: &str = "test.evtx";
-        let test_rulepath: &str = "test-rule.yml";
-        let dummy_action = Action::CsvTimeline(CsvOutputOption {
+        let test_rule_path: &str = "test-rule.yml";
+        let dummy_action = Action::DfirTimeline(DfirTimelineOption {
             output_options: OutputOption {
                 min_level: "informational".to_string(),
                 no_summary: true,
@@ -1843,10 +2006,10 @@ mod tests {
             output: Some(Path::new("./test_emit_csv.csv").to_path_buf()),
             ..Default::default()
         });
-        let dummy_config = Some(Config {
+        let dummy_config = Config {
             action: Some(dummy_action),
             debug: false,
-        });
+        };
         let stored_static = StoredStatic::create_static_data(dummy_config);
         {
             let eventkey_alias = load_eventkey_alias(
@@ -1859,7 +2022,6 @@ mod tests {
                 .to_str()
                 .unwrap(),
             );
-            *STORED_EKEY_ALIAS.write().unwrap() = Some(eventkey_alias);
 
             let val = r#"
             {
@@ -1881,11 +2043,17 @@ mod tests {
             }
         "#;
             let event: Value = serde_json::from_str(val).unwrap();
-            let dummy_rule = RuleNode::new(test_rulepath.to_string(), Yaml::from_str(""));
+            let dummy_rule = RuleNode::new(test_rule_path.to_string(), Yaml::from_str(""));
             let keys = detections::rule::get_detection_keys(&dummy_rule);
 
-            let input_evtxrecord =
-                utils::create_rec_info(event, test_filepath.to_owned(), &keys, &false, &false);
+            let input_evtxrecord = utils::create_rec_info(
+                event,
+                test_filepath.to_owned(),
+                &keys,
+                &false,
+                &false,
+                &eventkey_alias,
+            );
             {
                 let rule = &dummy_rule;
                 let record_info = &input_evtxrecord;
@@ -1899,9 +2067,9 @@ mod tests {
                     ("TgtCountry".into(), Profile::TgtCountry("".into())),
                     ("TgtCity".into(), Profile::TgtCity("".into())),
                 ];
-                let ext_field = detect_info.ext_field.clone();
+                let output_fields = detect_info.output_fields.clone();
                 for expect in expect_geo_ip_data.iter() {
-                    assert!(ext_field.contains(expect));
+                    assert!(output_fields.contains(expect));
                 }
             };
         }
@@ -1910,7 +2078,7 @@ mod tests {
     #[test]
     fn test_insert_message_extra_field_info() {
         let test_filepath: &str = "test.evtx";
-        let dummy_action = Action::CsvTimeline(CsvOutputOption {
+        let dummy_action = Action::DfirTimeline(DfirTimelineOption {
             output_options: OutputOption {
                 min_level: "informational".to_string(),
                 no_summary: true,
@@ -1922,10 +2090,10 @@ mod tests {
             multiline: true,
             ..Default::default()
         });
-        let dummy_config = Some(Config {
+        let dummy_config = Config {
             action: Some(dummy_action),
             debug: false,
-        });
+        };
         let mut stored_static = StoredStatic::create_static_data(dummy_config);
         stored_static.profiles.as_mut().unwrap().push((
             "ExtraFieldInfo".into(),
@@ -1942,7 +2110,6 @@ mod tests {
                 .to_str()
                 .unwrap(),
             );
-            *STORED_EKEY_ALIAS.write().unwrap() = Some(eventkey_alias);
 
             let val = r#"
             {
@@ -1980,8 +2147,14 @@ mod tests {
             assert!(rule_node.init(&create_dummy_stored_static()).is_ok());
 
             let keys = detections::rule::get_detection_keys(&rule_node);
-            let input_evtxrecord =
-                utils::create_rec_info(event, test_filepath.to_owned(), &keys, &false, &false);
+            let input_evtxrecord = utils::create_rec_info(
+                event,
+                test_filepath.to_owned(),
+                &keys,
+                &false,
+                &false,
+                &eventkey_alias,
+            );
             {
                 let rule = &rule_node;
                 let record_info = &input_evtxrecord;
@@ -1994,9 +2167,9 @@ mod tests {
                         "CommandRLine: hoge ¦ DestAddress: 2.125.160.216".into(),
                     ),
                 )];
-                let ext_field = detect_info.ext_field.clone();
+                let output_fields = detect_info.output_fields.clone();
                 for expect in expect_extra_field_data.iter() {
-                    assert!(ext_field.contains(expect));
+                    assert!(output_fields.contains(expect));
                 }
             };
         }
@@ -2005,7 +2178,7 @@ mod tests {
     #[test]
     fn test_insert_message_multiline_ruleauthor() {
         let test_filepath: &str = "test.evtx";
-        let dummy_action = Action::CsvTimeline(CsvOutputOption {
+        let dummy_action = Action::DfirTimeline(DfirTimelineOption {
             output_options: OutputOption {
                 min_level: "informational".to_string(),
                 no_wizard: true,
@@ -2015,10 +2188,10 @@ mod tests {
             multiline: true,
             ..Default::default()
         });
-        let dummy_config = Some(Config {
+        let dummy_config = Config {
             action: Some(dummy_action),
             debug: false,
-        });
+        };
         let mut stored_static = StoredStatic::create_static_data(dummy_config);
         stored_static
             .profiles
@@ -2036,7 +2209,6 @@ mod tests {
                 .to_str()
                 .unwrap(),
             );
-            *STORED_EKEY_ALIAS.write().unwrap() = Some(eventkey_alias);
 
             let val = r#"
             {
@@ -2074,19 +2246,27 @@ mod tests {
             assert!(rule_node.init(&create_dummy_stored_static()).is_ok());
 
             let keys = detections::rule::get_detection_keys(&rule_node);
-            let input_evtxrecord =
-                utils::create_rec_info(event, test_filepath.to_owned(), &keys, &false, &false);
+            let input_evtxrecord = utils::create_rec_info(
+                event,
+                test_filepath.to_owned(),
+                &keys,
+                &false,
+                &false,
+                &eventkey_alias,
+            );
             {
                 let rule = &rule_node;
                 let record_info = &input_evtxrecord;
                 let stored_static: &StoredStatic = &stored_static.clone();
                 let detect_info = Detection::create_log_record(rule, record_info, stored_static);
 
-                println!("{:?}", detect_info.ext_field);
-                assert!(detect_info.ext_field.iter().any(|x| x
+                println!("{:?}", detect_info.output_fields);
+                // The RuleAuthor field now holds the raw author string; the multiline/tab
+                // author formatting is applied at CSV emit time (results::csv).
+                assert!(detect_info.output_fields.iter().any(|field| field
                     == &(
                         CompactString::from("RuleAuthor"),
-                        Profile::RuleAuthor("Test🛂🛂Test2🛂🛂Test3🛂🛂Test4".into())
+                        Profile::RuleAuthor("Test, Test2/Test3; Test4 ".into())
                     )));
             }
         }

@@ -3,7 +3,7 @@ use crate::detections::message::AlertMessage;
 use crate::detections::utils;
 use crate::timeline::timelines::Timeline;
 use chrono::DateTime;
-use comfy_table::{Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
+use comfy_table::{Table, presets::UTF8_FULL};
 use compact_str::CompactString;
 use csv::{QuoteStyle, WriterBuilder};
 use downcast_rs::__std::process;
@@ -17,15 +17,23 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
+/// Aggregates a single record into the per-computer statistics used by the computer-metrics
+/// command. Every record increments the event count for its `Computer` name. In addition,
+/// System-channel events are mined for host details:
+/// - EID 6009 (logged at every boot): OS version and build number, resolved to a product name.
+/// - EID 6013 (system uptime): the host's timezone.
+/// - EID 12 / 6005 / 6009 (all logged at startup): the most recent boot time, from which the
+///   uptime is later derived as (newest event timestamp - boot time).
 pub fn countup_event_by_computer(
     record: &Value,
     eventkey_alias: &EventKeyAliasConfig,
-    tl: &mut Timeline,
+    timeline: &mut Timeline,
 ) {
     if let Some(computer_name) =
         utils::get_event_value("Event.System.Computer", record, eventkey_alias)
     {
-        let val = tl
+        // Tuple fields: (OS info, boot time, timezone, last event timestamp, event count).
+        let val = timeline
             .stats
             .stats_computer
             .entry(computer_name.to_string().replace('\"', "").into())
@@ -43,18 +51,29 @@ pub fn countup_event_by_computer(
             let os_name = &mut val.0;
             if id == 6009 && os_name.is_empty() && !WIN_VERSIONS.is_empty() {
                 if let Some(arr) = record["Event"]["EventData"]["Data"].as_array() {
+                    // EID 6009 stores the OS version in the first Data element (e.g. "6.01.")
+                    // and the build number in the second (arr[0]/arr[1]). Zero-padded minor
+                    // versions are normalized (e.g. "6.01"
+                    // -> "6.1") to match the (version, build) keys loaded from
+                    // windows_versions.csv into WIN_VERSIONS.
                     let ver = arr[0].as_str().unwrap_or_default().trim_matches('.');
                     let ver = ver.replace(".01", ".1").replace(".00", ".0");
-                    let bui = arr[1].as_str().unwrap_or_default().to_string();
-                    if let Some((win, data)) = WIN_VERSIONS.get(&(ver.clone(), bui.clone())) {
+                    let build_number = arr[1].as_str().unwrap_or_default().to_string();
+                    if let Some((win, data)) =
+                        WIN_VERSIONS.get(&(ver.clone(), build_number.clone()))
+                    {
                         *os_name = format!("Windows {win} ({data})").into();
                     } else {
-                        *os_name = format!("Version: {ver} Build: {bui}").into();
+                        // Unknown combination: fall back to showing the raw version and build.
+                        *os_name = format!("Version: {ver} Build: {build_number}").into();
                     }
                 }
             } else if id == 6013 {
                 let timezone = &mut val.2;
                 if let Some(arr) = record["Event"]["EventData"]["Data"].as_array() {
+                    // EID 6013 stores the timezone in the seventh Data element (arr[6]) as
+                    // "<UTC offset in minutes> <timezone name>" (e.g. "540 Tokyo Standard Time");
+                    // drop the numeric offset prefix and keep only the name.
                     let tz = arr[6].as_str().unwrap_or_default();
                     let tz = match tz.find(' ') {
                         Some(index) => &tz[index + 1..],
@@ -67,6 +86,10 @@ pub fn countup_event_by_computer(
             let evt_time =
                 record["Event"]["System"]["TimeCreated_attributes"]["SystemTime"].to_string();
             let evt_time = evt_time.trim_matches('"').to_string();
+            // EIDs 12 (the OS started), 6005 (the event log service started) and 6009 are all
+            // logged at boot, so the newest of their timestamps is the last boot time. Timestamps
+            // are ISO 8601 strings in a common format, so lexicographic comparison matches
+            // chronological order.
             if id == 12 || id == 6005 || id == 6009 {
                 let uptime = &mut val.1;
                 let evt_time = evt_time.as_str();
@@ -74,6 +97,8 @@ pub fn countup_event_by_computer(
                     *uptime = evt_time.into();
                 }
             }
+            // Also track the newest System-channel event timestamp; the uptime shown to the user
+            // is calculated later as (last timestamp - boot time).
             let last_timestamp = &mut val.3;
             let evt_time = evt_time.as_str();
             if evt_time > last_timestamp.as_str() {
@@ -85,6 +110,9 @@ pub fn countup_event_by_computer(
     }
 }
 
+/// Returns the elapsed time between the last boot (`uptime`) and the newest event
+/// (`last_timestamp`) as a human-readable string, or an empty string if either timestamp is
+/// missing or unparsable, or the difference is not positive.
 fn calc_elapsed_seconds(uptime: &str, last_timestamp: &str) -> String {
     if uptime.is_empty() || last_timestamp.is_empty() {
         return "".to_string();
@@ -104,6 +132,8 @@ fn calc_elapsed_seconds(uptime: &str, last_timestamp: &str) -> String {
     }
 }
 
+/// Formats a duration in seconds as "1Y 2M 3d 4h 5m 6s", approximating a year as 365 days and a
+/// month as 30 days.
 fn format_uptime(seconds: i64) -> String {
     let years = seconds / 31_536_000;
     let months = (seconds % 31_536_000) / 2_592_000;
@@ -114,7 +144,9 @@ fn format_uptime(seconds: i64) -> String {
     format!("{years}Y {months}M {days}d {hours}h {minutes}m {seconds}s")
 }
 
-/// Function that outputs computer names in a record in descending order to the screen or CSV.
+/// Outputs the per-computer metrics (OS information, uptime, timezone and event count) sorted by
+/// event count in descending order, either as a table on the terminal or to a CSV file when an
+/// output path is given.
 pub fn computer_metrics_dsp_msg(
     result_list: &HashMap<
         CompactString,
@@ -149,9 +181,7 @@ pub fn computer_metrics_dsp_msg(
     // Write header
     let header = vec!["Computer", "OS information", "UpTime", "Timezone", "Events"];
     let mut stats_tb = Table::new();
-    stats_tb
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS);
+    stats_tb.load_style(UTF8_FULL.with_rounded_corners());
     if output.is_some() {
         file_wtr.as_mut().unwrap().write_record(&header).ok();
     } else if output.is_none() && !result_list.is_empty() {
@@ -161,6 +191,8 @@ pub fn computer_metrics_dsp_msg(
     // Write contents
     for (computer_name, (os_info, uptime, timezone, last_timestamp, count)) in
         result_list.into_iter().sorted_unstable_by(|a, b| {
+            // Sort by event count in descending order (compare negated counts), breaking ties by
+            // computer name in ascending order.
             let count_cmp = Ord::cmp(
                 &-i64::from_usize(a.1.4).unwrap_or_default(),
                 &-i64::from_usize(b.1.4).unwrap_or_default(),
@@ -172,6 +204,7 @@ pub fn computer_metrics_dsp_msg(
             a.0.cmp(b.0)
         })
     {
+        // CSV output gets the plain number; terminal output gets thousands separators.
         let count_str = if output.is_some() {
             format!("{count}")
         } else {
@@ -205,8 +238,8 @@ mod tests {
 
     use crate::{
         detections::configs::{
-            Action, CommonOptions, ComputerMetricsOption, Config, InputOption, STORED_EKEY_ALIAS,
-            STORED_STATIC, StoredStatic,
+            Action, ClobberOption, CommonOptions, ComputerMetricsOption, Config, InputOption,
+            StoredStatic,
         },
         timeline::{
             computer_metrics::{computer_metrics_dsp_msg, countup_event_by_computer},
@@ -216,13 +249,15 @@ mod tests {
 
     #[test]
     pub fn test_computer_metrics_dsp_msg() {
+        let output_tmp_dir = tempfile::tempdir().unwrap();
+        let out_test_computer_metrics_csv = output_tmp_dir.path().join("test_computer_metrics.csv");
         fn create_dummy_stored_static(action: Action) -> StoredStatic {
-            StoredStatic::create_static_data(Some(Config {
+            StoredStatic::create_static_data(Config {
                 action: Some(action),
                 debug: false,
-            }))
+            })
         }
-        let output = Some(Path::new("./test_computer_metrics.csv").to_path_buf());
+        let output = Some(out_test_computer_metrics_csv.clone());
         let dummy_stored_static =
             create_dummy_stored_static(Action::ComputerMetrics(ComputerMetricsOption {
                 input_args: InputOption {
@@ -243,10 +278,9 @@ mod tests {
                 config: Path::new("./rules/config").to_path_buf(),
                 verbose: false,
                 output: output.clone(),
-                clobber: true,
+                clobber_opt: ClobberOption { clobber: true },
                 validate_checksums: false,
             }));
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(dummy_stored_static.eventkey_alias.clone());
         let mut timeline = Timeline::default();
         let first_test_record_str = r#"{
             "Event": {
@@ -273,8 +307,6 @@ mod tests {
             &dummy_stored_static.eventkey_alias,
             &mut timeline,
         );
-
-        *STORED_STATIC.write().unwrap() = Some(dummy_stored_static.clone());
 
         let second_test_record_str = r#"{
             "Event": {
@@ -313,7 +345,7 @@ mod tests {
         ];
         let expect_str =
             header.join(",") + "\n" + &expect.join(&"\n").join(",").replace(",\n,", "\n") + "\n";
-        match read_to_string("./test_computer_metrics.csv") {
+        match read_to_string(&out_test_computer_metrics_csv) {
             Err(_) => panic!("Failed to open file."),
             Ok(s) => {
                 assert_eq!(s, expect_str);
@@ -321,6 +353,6 @@ mod tests {
         };
 
         // Delete the file after the test.
-        assert!(remove_file("./test_computer_metrics.csv").is_ok());
+        assert!(remove_file(&out_test_computer_metrics_csv).is_ok());
     }
 }

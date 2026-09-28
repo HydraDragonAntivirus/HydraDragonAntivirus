@@ -1,10 +1,13 @@
 use crate::detections::configs::StoredStatic;
 use crate::detections::detection::EvtxRecordInfo;
-use crate::detections::message::{AlertMessage, ERROR_LOG_STACK};
+use crate::detections::message::AlertMessage;
 use crate::detections::utils;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use std::collections::HashSet;
 
+/// Per-log-file summary statistics collected for the log-metrics command: file path/name/size,
+/// event count, first/last event timestamps, and the distinct computer names, channels and
+/// providers seen in the file.
 #[derive(Default, Debug, Clone)]
 pub struct LogMetrics {
     pub filepath: String,
@@ -27,6 +30,9 @@ impl LogMetrics {
             ..Default::default()
         }
     }
+    /// Folds a batch of records from this log file into the metrics: widens the first/last
+    /// timestamp range, collects each record's computer, channel and provider, and increments the
+    /// event count.
     pub fn update(&mut self, records: &[EvtxRecordInfo], stored_static: &StoredStatic) {
         for record in records {
             if let Some(evttime) = utils::get_event_value(
@@ -36,40 +42,24 @@ impl LogMetrics {
             )
             .map(|evt_value| evt_value.to_string().replace("\\\"", "").replace('"', ""))
             {
-                let timestamp = match NaiveDateTime::parse_from_str(
-                    evttime.as_str(),
-                    "%Y-%m-%dT%H:%M:%S%.fZ",
-                ) {
-                    Ok(without_timezone_datetime) => Some(
-                        DateTime::<Utc>::from_naive_utc_and_offset(without_timezone_datetime, Utc),
-                    ),
-                    Err(_) => {
-                        match NaiveDateTime::parse_from_str(
-                            evttime.as_str(),
-                            "%Y-%m-%dT%H:%M:%S%.3f%:z",
-                        ) {
-                            Ok(splunk_json_datetime) => {
-                                Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                                    splunk_json_datetime,
-                                    Utc,
-                                ))
-                            }
-                            Err(e) => {
-                                let errmsg = format!(
-                                    "Timestamp parse error.\nInput: {evttime}\nError: {e}\n"
-                                );
-                                if stored_static.verbose_flag {
-                                    AlertMessage::alert(&errmsg).ok();
-                                }
-                                if !stored_static.quiet_errors_flag {
-                                    ERROR_LOG_STACK
-                                        .lock()
-                                        .unwrap()
-                                        .push(format!("[ERROR] {errmsg}"));
-                                }
-                                None
-                            }
+                // Timestamps use the evtx UTC format ("2021-12-23T00:00:00.000Z") or the Splunk
+                // JSON export format with an explicit offset ("2021-12-23T00:00:00.000+09:00").
+                let timestamp = match utils::parse_evtx_timestamp(evttime.as_str()) {
+                    Ok(ts) => Some(ts),
+                    Err(e) => {
+                        let errmsg =
+                            format!("Timestamp parse error.\nInput: {evttime}\nError: {e}\n");
+                        if stored_static.verbose_flag {
+                            AlertMessage::alert(&errmsg).ok();
                         }
+                        if !stored_static.quiet_errors_flag {
+                            stored_static
+                                .error_log_stack
+                                .lock()
+                                .unwrap()
+                                .push(format!("[ERROR] {errmsg}"));
+                        }
+                        None
                     }
                 };
                 if let Some(timestamp) = timestamp {

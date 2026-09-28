@@ -2,12 +2,14 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
+use std::sync::Arc;
+
 use evtx::{EvtxParser, ParserSettings, RecordAllocation};
 use nested::Nested;
 use hayabusa::detections::configs::{
-    Action, Config, CsvOutputOption, DetectCommonOption, InputOption, OutputOption, StoredStatic,
-    STORED_EKEY_ALIAS, STORED_STATIC,
+    Action, Config, DetectCommonOption, DfirTimelineOption, InputOption, OutputOption, StoredStatic,
 };
+use hayabusa::options::htmlreport::HtmlReporter;
 use hayabusa::detections::detection::{Detection, EvtxRecordInfo};
 use hayabusa::detections::message::DetectInfo;
 use hayabusa::detections::rule;
@@ -58,9 +60,6 @@ impl HayabusaScanner {
             }
         };
 
-        *STORED_EKEY_ALIAS.write().unwrap() = Some(stored_static.eventkey_alias.clone());
-        *STORED_STATIC.write().unwrap() = Some(stored_static.clone());
-
         let exclude_ids = filter::RuleExclude::new();
         let rule_nodes = Detection::parse_rule_files(
             "informational",
@@ -68,6 +67,7 @@ impl HayabusaScanner {
             rules_dir,
             &exclude_ids,
             &stored_static,
+            &mut HtmlReporter::default(),
         );
 
         let mut key_set: HashSet<String> = HashSet::new();
@@ -108,6 +108,7 @@ impl HayabusaScanner {
             &self.rules_dir,
             &exclude_ids,
             stored_static,
+            &mut HtmlReporter::default(),
         );
         if rule_nodes.is_empty() {
             return Vec::new();
@@ -147,6 +148,7 @@ impl HayabusaScanner {
             &self.rules_dir,
             &exclude_ids,
             stored_static,
+            &mut HtmlReporter::default(),
         );
         if rule_nodes.is_empty() {
             return Vec::new();
@@ -183,7 +185,7 @@ fn get_evtx_dir() -> PathBuf {
 
 fn create_minimal_stored_static(rules_dir: &Path) -> Option<StoredStatic> {
     let config = Config {
-        action: Some(Action::CsvTimeline(CsvOutputOption {
+        action: Some(Action::DfirTimeline(DfirTimelineOption {
             output_options: OutputOption {
                 input_args: InputOption {
                     live_analysis: true,
@@ -202,7 +204,7 @@ fn create_minimal_stored_static(rules_dir: &Path) -> Option<StoredStatic> {
         })),
         debug: false,
     };
-    Some(StoredStatic::create_static_data(Some(config)))
+    Some(StoredStatic::create_static_data(config))
 }
 
 fn scan_single_evtx(
@@ -246,11 +248,18 @@ fn scan_single_evtx(
         let records: Vec<EvtxRecordInfo> = batch
             .into_iter()
             .map(|(data, recovered)| {
-                utils::create_rec_info(data, path_str.clone(), rule_keys, &recovered, &no_pwsh)
+                utils::create_rec_info(
+                    data,
+                    path_str.clone(),
+                    rule_keys,
+                    &recovered,
+                    &no_pwsh,
+                    &stored_static.eventkey_alias,
+                )
             })
             .collect();
 
-        let (d_next, detect_infos) = d.start(rt, records);
+        let (d_next, detect_infos) = d.start(rt, records, Arc::new(stored_static.clone()));
         all_detect_infos.extend(detect_infos);
         d = d_next;
     }

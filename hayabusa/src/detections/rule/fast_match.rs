@@ -2,16 +2,20 @@ use crate::detections::configs::WINDASH_CHARACTERS;
 use crate::detections::rule::matchers::PipeElement;
 use crate::detections::utils;
 
-// Since regex matching is slow, this enum is used to match using the faster std::string methods: len/starts_with/ends_with/contains.
+/// Since regex matching is slow, patterns that allow it are instead matched with the faster
+/// std::string methods (len/starts_with/ends_with/contains) via this enum.
 #[derive(PartialEq, Debug)]
 pub enum FastMatch {
     Exact(String),
     StartsWith(String),
     EndsWith(String),
     Contains(String),
+    // Produced by a leading "|all" modifier (a key such as "|all" with no field name); matched
+    // the same way as Contains, but kept distinct so that callers can tell the two apart.
     AllOnly(String),
 }
 
+/// ASCII case-insensitive string equality.
 pub fn eq_ignore_case(event_value_str: &str, match_str: &str) -> bool {
     if match_str.len() == event_value_str.len() {
         return match_str.eq_ignore_ascii_case(event_value_str);
@@ -19,6 +23,8 @@ pub fn eq_ignore_case(event_value_str: &str, match_str: &str) -> bool {
     false
 }
 
+/// ASCII case-insensitive starts_with. Returns None when the event value is not pure ASCII, in
+/// which case the caller has to fall back to a regex match.
 pub fn starts_with_ignore_case(event_value_str: &str, match_str: &str) -> Option<bool> {
     let len = match_str.len();
     if len > event_value_str.len() {
@@ -32,6 +38,8 @@ pub fn starts_with_ignore_case(event_value_str: &str, match_str: &str) -> Option
     None
 }
 
+/// ASCII case-insensitive ends_with. Returns None when the event value is not pure ASCII, in
+/// which case the caller has to fall back to a regex match.
 pub fn ends_with_ignore_case(event_value_str: &str, match_str: &str) -> Option<bool> {
     let len1 = match_str.len();
     let len2 = event_value_str.len();
@@ -46,49 +54,67 @@ pub fn ends_with_ignore_case(event_value_str: &str, match_str: &str) -> Option<b
     None
 }
 
-// Function to convert wildcard matching to the faster std::string methods: len/starts_with/ends_with.
-pub fn convert_to_fast_match(s: &str, ignore_case: bool) -> Option<Vec<FastMatch>> {
-    let wildcard_count = s.chars().filter(|c| *c == '*').count();
-    let is_literal_asterisk = |s: &str| s.ends_with(r"\*") && !s.ends_with(r"\\*");
-    if utils::contains_str(s, "?")
-        || s.ends_with(r"\\\*")
-        || (!s.is_ascii() && utils::contains_str(s, "*"))
+/// Converts a wildcard pattern to FastMatch operations backed by the faster std::string methods
+/// (len/starts_with/ends_with/contains) where possible, returning None for patterns that only
+/// the regex engine can handle. When `ignore_case` is true, Contains/AllOnly patterns are stored
+/// lowercased and check_fast_match() lowercases the event value before comparing;
+/// Exact/StartsWith/EndsWith compare ASCII case-insensitively at match time instead.
+pub fn convert_to_fast_match(pattern: &str, ignore_case: bool) -> Option<Vec<FastMatch>> {
+    let wildcard_count = pattern.chars().filter(|c| *c == '*').count();
+    // A pattern ending in \* is a literal asterisk rather than a wildcard, whereas \\* is an
+    // escaped backslash followed by a wildcard.
+    let is_literal_asterisk =
+        |pattern: &str| pattern.ends_with(r"\*") && !pattern.ends_with(r"\\*");
+    if utils::contains_str(pattern, "?")
+        || pattern.ends_with(r"\\\*")
+        || (!pattern.is_ascii() && utils::contains_str(pattern, "*"))
     {
-        // Patterns that cannot be converted to fast matching use regex match only.
+        // Patterns that fast matching cannot express use the regex match only: '?' wildcards,
+        // a literal backslash followed by a literal asterisk at the end, and non-ASCII patterns
+        // that contain wildcards.
         return None;
-    } else if s.starts_with("allOnly*") && s.ends_with('*') && wildcard_count == 2 {
-        let removed_asterisk = s[8..(s.len() - 1)].replace(r"\\", r"\");
+    } else if pattern.starts_with("allOnly*") && pattern.ends_with('*') && wildcard_count == 2 {
+        // "allOnly*" is the sentinel prefix added by MatchPlan::build_fast_match() (matchers.rs)
+        // for the "|all" modifier: strip it (8 chars) and the trailing '*', and unescape doubled
+        // backslashes.
+        let removed_asterisk = pattern[8..(pattern.len() - 1)].replace(r"\\", r"\");
         if ignore_case {
             return Some(vec![FastMatch::AllOnly(removed_asterisk.to_lowercase())]);
         }
         return Some(vec![FastMatch::AllOnly(removed_asterisk)]);
-    } else if s.starts_with('*')
-        && s.ends_with('*')
+    } else if pattern.starts_with('*')
+        && pattern.ends_with('*')
         && wildcard_count == 2
-        && !is_literal_asterisk(s)
+        && !is_literal_asterisk(pattern)
     {
-        let removed_asterisk = s[1..(s.len() - 1)].replace(r"\\", r"\");
+        let removed_asterisk = pattern[1..(pattern.len() - 1)].replace(r"\\", r"\");
         // If * is only at the beginning and end, convert to contains.
         if ignore_case {
             return Some(vec![FastMatch::Contains(removed_asterisk.to_lowercase())]);
         }
         return Some(vec![FastMatch::Contains(removed_asterisk)]);
-    } else if s.starts_with('*') && wildcard_count == 1 && !is_literal_asterisk(s) {
+    } else if pattern.starts_with('*') && wildcard_count == 1 && !is_literal_asterisk(pattern) {
         // If * is only at the beginning, convert to ends_with.
-        return Some(vec![FastMatch::EndsWith(s[1..].replace(r"\\", r"\"))]);
-    } else if s.ends_with('*') && wildcard_count == 1 && !is_literal_asterisk(s) {
+        return Some(vec![FastMatch::EndsWith(pattern[1..].replace(r"\\", r"\"))]);
+    } else if pattern.ends_with('*') && wildcard_count == 1 && !is_literal_asterisk(pattern) {
         // If * is only at the end, convert to starts_with.
         return Some(vec![FastMatch::StartsWith(
-            s[..(s.len() - 1)].replace(r"\\", r"\"),
+            pattern[..(pattern.len() - 1)].replace(r"\\", r"\"),
         )]);
-    } else if utils::contains_str(s, "*") {
-        // Patterns where * appears in positions other than the beginning or end cannot be converted to starts_with/ends_with, so use regex match only.
+    } else if utils::contains_str(pattern, "*") {
+        // Patterns with * in the middle cannot be converted to starts_with/ends_with, so use the
+        // regex match only.
         return None;
     }
-    // If * is not included, convert to string length match.
-    Some(vec![FastMatch::Exact(s.replace(r"\\", r"\"))])
+    // If the pattern contains no wildcard at all, it is an exact (case-insensitive) match.
+    Some(vec![FastMatch::Exact(pattern.replace(r"\\", r"\"))])
 }
 
+/// Evaluates the fast matchers against a field value. Returns None when the fast path cannot
+/// decide (a non-ASCII value in a starts_with/ends_with comparison); the caller then falls back
+/// to the regex match. A matcher list with more than one element holds alternative variants of a
+/// single pattern (windash dash replacements or base64offset alignments), so any one Contains hit
+/// is a match; base64 is case-sensitive, which is why that branch compares without lowercasing.
 pub fn check_fast_match(
     pipes: &[PipeElement],
     event_value_str: &str,
@@ -113,6 +139,8 @@ pub fn check_fast_match(
                 }
             }
             FastMatch::Contains(s) | FastMatch::AllOnly(s) => {
+                // For windash, compare with the value's first dash-like character replaced by
+                // "/", mirroring how the windash pattern variants were generated.
                 if pipes.contains(&PipeElement::Windash) {
                     Some(utils::contains_str(
                         &event_value_str
@@ -141,30 +169,9 @@ pub fn check_fast_match(
                     utils::contains_str(event_value_str, s)
                 }
             }
+            // Variant lists are only ever built from Contains entries.
             _ => false,
         }))
-    }
-}
-
-pub fn create_fast_match(pipes: &[PipeElement], pattern: &[String]) -> Option<Vec<FastMatch>> {
-    if let Some(element) = pipes.first() {
-        match element {
-            PipeElement::Startswith => {
-                convert_to_fast_match(format!("{}*", pattern[0]).as_str(), true)
-            }
-            PipeElement::Endswith => {
-                convert_to_fast_match(format!("*{}", pattern[0]).as_str(), true)
-            }
-            PipeElement::Contains => {
-                convert_to_fast_match(format!("*{}*", pattern[0]).as_str(), true)
-            }
-            PipeElement::AllOnly => {
-                convert_to_fast_match(format!("allOnly*{}*", pattern[0]).as_str(), true)
-            }
-            _ => None,
-        }
-    } else {
-        None
     }
 }
 

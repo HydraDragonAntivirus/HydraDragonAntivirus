@@ -3,7 +3,6 @@ extern crate yaml_rust2;
 
 use crate::detections::configs::{self, Action, CURRENT_EXE_PATH, StoredStatic};
 use crate::detections::message::AlertMessage;
-use crate::detections::message::ERROR_LOG_STACK;
 use crate::detections::utils;
 use crate::filter::RuleExclude;
 use crate::level::LEVEL;
@@ -23,16 +22,36 @@ lazy_static! {
     static ref DATE_REGEX: Regex = Regex::new(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$").unwrap();
 }
 
+/// Rule ID used by hayabusa's own test rules; exempted from the excluded/noisy rule counts.
+const TEST_RULE_ID: &str = "00000000-0000-0000-0000-000000000000";
+
+/// Loads detection rule YAML files from disk, applies all rule filtering options
+/// (level, status, category, tags, excluded/noisy rule IDs) and keeps the counters
+/// shown in the rule loading summary at startup.
 pub struct ParseYaml {
+    /// Rules that survived filtering, as (rule file path, parsed YAML document) pairs.
     pub files: Vec<(String, Yaml)>,
-    pub rulecounter: HashMap<CompactString, u128>,
+    /// Number of loaded rules per `ruletype` value ("Other" when the key is missing).
+    pub rule_type_cnt: HashMap<CompactString, u128>,
+    /// Number of rules that were not loaded, keyed by the reason ("excluded" or "noisy").
     pub rule_load_cnt: HashMap<CompactString, u128>,
+    /// Number of rules per `status` value, including deprecated/unsupported rules that were
+    /// counted but then skipped.
     pub rule_status_cnt: HashMap<CompactString, u128>,
+    /// Number of correlation rules encountered.
     pub rule_cor_cnt: HashMap<CompactString, u128>,
+    /// For each rule ID referenced from a correlation rule's `rules` list, how many times it is
+    /// referenced.
     pub rule_cor_ref_cnt: HashMap<CompactString, u128>,
+    /// Number of rules that use the Sigma `|expand` field modifier.
     pub rule_expand_cnt: u128,
+    /// Number of `|expand` rules whose placeholders had definitions in config/expand and thus
+    /// remained enabled.
     pub rule_expand_enabled_cnt: u128,
-    pub errorrule_count: u128,
+    /// Number of rules that failed to be read, parsed as YAML, or validated against the
+    /// Hayabusa rule format.
+    pub error_rule_count: u128,
+    /// Status values to exclude, from the --exclude-status option.
     pub exclude_status: HashSet<String>,
     pub loaded_rule_ids: HashSet<CompactString>,
 }
@@ -46,7 +65,7 @@ impl ParseYaml {
         };
         ParseYaml {
             files: Vec::new(),
-            rulecounter: HashMap::new(),
+            rule_type_cnt: HashMap::new(),
             rule_load_cnt: HashMap::from([("excluded".into(), 0_u128), ("noisy".into(), 0_u128)]),
             rule_status_cnt: HashMap::from([
                 ("deprecated".into(), 0_u128),
@@ -56,36 +75,44 @@ impl ParseYaml {
             rule_cor_ref_cnt: Default::default(),
             rule_expand_cnt: Default::default(),
             rule_expand_enabled_cnt: Default::default(),
-            errorrule_count: 0,
+            error_rule_count: 0,
             exclude_status: configs::convert_option_vecs_to_hs(exclude_status_vec.as_ref()),
             loaded_rule_ids: HashSet::new(),
         }
     }
 
+    /// Reads the entire file at `path` into a String.
     pub fn read_file(path: &PathBuf) -> Result<String, String> {
         let mut file_content = String::new();
 
-        let mut fr = fs::File::open(path)
+        let mut file_reader = fs::File::open(path)
             .map(BufReader::new)
             .map_err(|e| e.to_string())?;
 
-        fr.read_to_string(&mut file_content)
+        file_reader
+            .read_to_string(&mut file_content)
             .map_err(|e| e.to_string())?;
 
         Ok(file_content)
     }
 
+    /// Reads an obfuscated rule file (encoded_rules.yml) and decodes it by XORing every byte
+    /// with 0xAA.
     fn read_encoded_file(path: &PathBuf) -> Result<String, String> {
-        let mut fr = fs::File::open(path)
+        let mut file_reader = fs::File::open(path)
             .map(BufReader::new)
             .map_err(|e| e.to_string())?;
         let mut encrypted_content = Vec::new();
-        let _ = fr.read_to_end(&mut encrypted_content);
-        let decode_content = encrypted_content.iter().map(|&b| b ^ 0xAA).collect(); // key: 0xAA
-        let decode_string = String::from_utf8(decode_content).expect("Invalid UTF-8 sequence");
+        file_reader
+            .read_to_end(&mut encrypted_content)
+            .map_err(|e| e.to_string())?;
+        let decode_content: Vec<u8> = encrypted_content.iter().map(|&byte| byte ^ 0xAA).collect(); // key: 0xAA
+        let decode_string = String::from_utf8(decode_content).map_err(|e| e.to_string())?;
         Ok(decode_string)
     }
 
+    /// Counts correlation rules and, for each rule ID listed under a correlation rule's `rules`
+    /// key, how many correlation rules reference it.
     fn update_correlation_counts(&mut self, yaml_docs: &Vec<Yaml>) {
         for doc in yaml_docs {
             if let Some(correlation) = doc["correlation"].as_hash() {
@@ -99,7 +126,7 @@ impl ParseYaml {
                 {
                     for rule in rules_list {
                         if let Some(rule_str) = rule.as_str() {
-                            // Update rules count, storing each unique rule
+                            // Count how many correlation rules reference this rule ID.
                             let rule_entry = self
                                 .rule_cor_ref_cnt
                                 .entry(CompactString::from(rule_str))
@@ -112,6 +139,10 @@ impl ParseYaml {
         }
     }
 
+    /// Recursively loads every .yml rule file under `path` (or the single file itself if `path`
+    /// is a file), applies all rule filtering options (minimum/exact level, status, category,
+    /// tags, excluded/noisy rule IDs) and appends the surviving rules to `self.files`.
+    /// The returned String is always empty; only the io::Result part matters to callers.
     pub fn read_dir<P: AsRef<Path>>(
         &mut self,
         path: P,
@@ -133,6 +164,9 @@ impl ParseYaml {
                 path.as_ref().to_path_buf().display(),
                 err_contents
             );
+            // "(os error 123)" is Windows ERROR_INVALID_NAME (invalid path syntax), which
+            // typically happens when a quoted path ends with a backslash, which escapes the
+            // closing quote and mangles the command-line argument.
             if err_contents.ends_with("123)") {
                 errmsg = format!(
                     "{errmsg}. You may not be able to load evtx files when there are spaces in the directory path. Please enclose the path with double quotes and remove any trailing slash at the end of the path."
@@ -142,7 +176,8 @@ impl ParseYaml {
                 AlertMessage::alert(&errmsg)?;
             }
             if !stored_static.quiet_errors_flag {
-                ERROR_LOG_STACK
+                stored_static
+                    .error_log_stack
                     .lock()
                     .unwrap()
                     .push(format!("[ERROR] {errmsg}"));
@@ -162,7 +197,8 @@ impl ParseYaml {
             {
                 return io::Result::Ok(String::default());
             }
-            // Do not immediately abort when loading individual files.
+            // Do not abort the whole loading process when an individual rule file cannot be read;
+            // just skip that file.
             let mut is_encoded = false;
             let read_content = if path
                 .as_ref()
@@ -188,21 +224,24 @@ impl ParseYaml {
                         AlertMessage::warn(&errmsg)?;
                     }
                     if !stored_static.quiet_errors_flag {
-                        ERROR_LOG_STACK
+                        stored_static
+                            .error_log_stack
                             .lock()
                             .unwrap()
                             .push(format!("[WARN] {errmsg}"));
                     }
-                    self.errorrule_count += 1;
+                    self.error_rule_count += 1;
                     return io::Result::Ok(String::default());
                 }
             };
 
-            // Same here: do not immediately abort when loading individual files.
+            // Likewise, skip files that fail to parse as YAML instead of aborting the whole load.
             match YamlLoader::load_from_str(&read_content) {
                 Ok(contents) => {
                     Self::update_correlation_counts(self, &contents);
                     yaml_docs.extend(contents.into_iter().map(|yaml_content| {
+                        // encoded_rules.yml bundles many rules in one file; each document
+                        // records its original file path in the `rulefile` key.
                         let filepath = if is_encoded {
                             yaml_content["rulefile"]
                                 .as_str()
@@ -224,18 +263,22 @@ impl ParseYaml {
                         AlertMessage::warn(&errmsg)?;
                     }
                     if !stored_static.quiet_errors_flag {
-                        ERROR_LOG_STACK
+                        stored_static
+                            .error_log_stack
                             .lock()
                             .unwrap()
                             .push(format!("[WARN] {errmsg}"));
                     }
-                    self.errorrule_count += 1;
+                    self.error_rule_count += 1;
                 }
             }
         } else {
-            let mut entries = fs::read_dir(path)?;
-            yaml_docs = entries.try_fold(vec![], |mut ret, entry| {
-                let entry = entry?;
+            // Visit the entries in sorted order. `read_dir` order depends on the filesystem, and
+            // detections within a batch are written in rule load order, so without this the same
+            // rules could produce a differently ordered timeline on another OS or filesystem.
+            let mut entries = fs::read_dir(path)?.collect::<io::Result<Vec<_>>>()?;
+            entries.sort_by_cached_key(|entry| entry.file_name());
+            yaml_docs = entries.into_iter().try_fold(vec![], |mut ret, entry| {
                 // Recurse into subdirectories.
                 if entry.file_type()?.is_dir() {
                     self.read_dir(
@@ -259,21 +302,22 @@ impl ParseYaml {
                 }
 
                 let path_str = path.to_str().unwrap();
-                // ignore if yml file in .git folder.
+                // Ignore yml files inside a .git folder.
                 if utils::contains_str(path_str, "/.git/")
                     || utils::contains_str(path_str, "\\.git\\")
                 {
                     return io::Result::Ok(ret);
                 }
 
-                // ignore if tool test yml file in hayabusa-rules.
+                // Ignore the sigmac tool test yml files bundled in the hayabusa-rules repository.
                 if utils::contains_str(path_str, "rules/tools/sigmac/test_files")
                     || utils::contains_str(path_str, "rules\\tools\\sigmac\\test_files")
                 {
                     return io::Result::Ok(ret);
                 }
 
-                // Do not immediately abort when loading individual files.
+                // Do not abort the whole loading process when an individual rule file cannot be read;
+                // just skip that file.
                 let read_content = match Self::read_file(&path) {
                     Ok(content) => content,
                     Err(e) => {
@@ -283,17 +327,18 @@ impl ParseYaml {
                             AlertMessage::warn(&errmsg)?;
                         }
                         if !stored_static.quiet_errors_flag {
-                            ERROR_LOG_STACK
+                            stored_static
+                                .error_log_stack
                                 .lock()
                                 .unwrap()
                                 .push(format!("[WARN] {errmsg}"));
                         }
-                        self.errorrule_count += 1;
+                        self.error_rule_count += 1;
                         return io::Result::Ok(ret);
                     }
                 };
 
-                // Same here: do not immediately abort when loading individual files.
+                // Likewise, skip files that fail to parse as YAML instead of aborting the whole load.
                 match YamlLoader::load_from_str(&read_content) {
                     Ok(contents) => {
                         Self::update_correlation_counts(self, &contents);
@@ -314,12 +359,13 @@ impl ParseYaml {
                             AlertMessage::warn(&errmsg)?;
                         }
                         if !stored_static.quiet_errors_flag {
-                            ERROR_LOG_STACK
+                            stored_static
+                                .error_log_stack
                                 .lock()
                                 .unwrap()
                                 .push(format!("[WARN] {errmsg}"));
                         }
-                        self.errorrule_count += 1;
+                        self.error_rule_count += 1;
                         io::Result::Ok(ret)
                     }
                 }
@@ -327,6 +373,10 @@ impl ParseYaml {
         }
         let exist_output_opt = stored_static.output_option.is_some();
         let files = yaml_docs.into_iter().filter_map(|(filepath, yaml_doc)| {
+            // Expand Sigma `|expand` field modifiers using the placeholder definitions found in
+            // config/expand. `expand_found` is set when a rule uses `|expand`;
+            // `expand_enabled_found` is additionally set when at least one placeholder was
+            // actually replaced. Rules whose placeholders have no definitions are skipped.
             let mut expand_found = false;
             let mut expand_enabled_found = false;
             let place_holder_map = expand_map.as_ref().unwrap();
@@ -344,33 +394,38 @@ impl ParseYaml {
                     return Option::None;
                 }
             };
-            // Ignore excluded rules.
+            // Skip rules whose ID is listed in exclude_rules.txt or noisy_rules.txt.
             let rule_id = &yaml_doc["id"].as_str();
             if rule_id.is_some() {
-                if let Some(v) = exclude_ids
-                    .no_use_rule
+                if let Some(source_path) = exclude_ids
+                    .excluded_rule_sources
                     .get(&rule_id.unwrap_or(&String::default()).to_string())
                 {
-                    let entry_key = if utils::contains_str(v, "exclude_rule") {
+                    // `source_path` is the path of the list file that the rule ID came from
+                    // (exclude_rules.txt or noisy_rules.txt).
+                    let entry_key = if utils::contains_str(source_path, "exclude_rule") {
                         "excluded"
                     } else {
                         "noisy"
                     };
-                    // For test rules (ID: 000...0), exclude them from the excluded rule count.
-                    if v != "00000000-0000-0000-0000-000000000000" {
+                    // Test rules (ID: 000...0) are exempted from the excluded/noisy rule counts.
+                    if rule_id.unwrap_or_default() != TEST_RULE_ID {
                         let entry = self.rule_load_cnt.entry(entry_key.into()).or_insert(0);
                         *entry += 1;
                     }
-                    let enable_noisy_rules = if let Some(o) = stored_static.output_option.as_ref() {
-                        o.enable_noisy_rules
-                    } else {
-                        false
-                    };
+                    let enable_noisy_rules =
+                        if let Some(output_option) = stored_static.output_option.as_ref() {
+                            output_option.enable_noisy_rules
+                        } else {
+                            false
+                        };
 
                     if entry_key == "excluded" || (entry_key == "noisy" && !enable_noisy_rules) {
                         return Option::None;
                     }
                 }
+                // When the -P/--proven-rules option is used, only load rules whose IDs are
+                // listed in proven_rules.txt.
                 if let Some(id) = rule_id
                     && !stored_static.target_ruleids.is_target(id, true)
                 {
@@ -380,12 +435,12 @@ impl ParseYaml {
                 }
             }
 
-            let mut up_rule_status_cnt = |status: &str| {
+            let mut bump_rule_status_cnt = |status: &str| {
                 let status_cnt = self.rule_status_cnt.entry(status.into()).or_insert(0);
                 *status_cnt += 1;
             };
 
-            let mut up_rule_load_cnt = |status: &str| {
+            let mut bump_rule_load_cnt = |status: &str| {
                 let entry = self.rule_load_cnt.entry(status.into()).or_insert(0);
                 *entry += 1;
             };
@@ -396,17 +451,19 @@ impl ParseYaml {
                         AlertMessage::warn(&errmsg).ok();
                     }
                     if !stored_static.quiet_errors_flag {
-                        ERROR_LOG_STACK
+                        stored_static
+                            .error_log_stack
                             .lock()
                             .unwrap()
                             .push(format!("[WARN] Invalid rule. {errmsg} ({filepath})"));
                     }
-                    self.errorrule_count += 1;
+                    self.error_rule_count += 1;
                     return Option::None;
                 }
             }
 
-            // Ignore rules below the specified level.
+            // Ignore rules below the minimum level and, when an exact target level is given
+            // (--exact-level), rules at any other level.
             let doc_level = &yaml_doc["level"]
                 .as_str()
                 .unwrap_or("informational")
@@ -417,45 +474,50 @@ impl ParseYaml {
             if doc_level_num < args_level_num
                 || (target_level_num != 0 && doc_level_num != target_level_num)
             {
-                up_rule_load_cnt("excluded");
+                bump_rule_load_cnt("excluded");
                 return Option::None;
             }
             let status = yaml_doc["status"].as_str();
-            if let Some(s) = yaml_doc["status"].as_str() {
-                // Exclude rules whose status matches the excluded status option, or does not match the include_status option.
-                if self.exclude_status.contains(&s.to_string())
+            if let Some(status_str) = yaml_doc["status"].as_str() {
+                // Exclude rules whose status matches the --exclude-status option or does not
+                // match the --include-status option.
+                if self.exclude_status.contains(&status_str.to_string())
                     || !(is_contained_include_status_all_allowed
-                        || stored_static.include_status.contains(s))
+                        || stored_static.include_status.contains(status_str))
                 {
-                    up_rule_load_cnt("excluded");
+                    bump_rule_load_cnt("excluded");
                     return Option::None;
                 }
 
                 if exist_output_opt
-                    && ((s == "deprecated"
+                    && ((status_str == "deprecated"
                         && !stored_static
                             .output_option
                             .as_ref()
                             .unwrap()
                             .enable_deprecated_rules)
-                        || (s == "unsupported"
+                        || (status_str == "unsupported"
                             && !stored_static
                                 .output_option
                                 .as_ref()
                                 .unwrap()
                                 .enable_unsupported_rules))
                 {
-                    // If the corresponding enable-xxx-rules option is not specified for deprecated or unsupported status, only count the status and then exclude.
-                    up_rule_status_cnt(s);
+                    // Deprecated/unsupported rules are only counted, not loaded, unless the
+                    // corresponding --enable-deprecated-rules / --enable-unsupported-rules
+                    // option is given.
+                    bump_rule_status_cnt(status_str);
                     return Option::None;
                 }
             } else if !is_contained_include_status_all_allowed {
+                // Rules without a status are excluded for the scan commands unless all statuses
+                // are allowed with the wildcard "*".
                 let need_rules = matches!(
                     stored_static.config.action.as_ref().unwrap(),
-                    Action::CsvTimeline(_) | Action::JsonTimeline(_) | Action::PivotKeywordsList(_)
+                    Action::DfirTimeline(_) | Action::PivotKeywordsList(_)
                 );
                 if need_rules {
-                    up_rule_load_cnt("excluded");
+                    bump_rule_load_cnt("excluded");
                     return Option::None;
                 }
             }
@@ -487,18 +549,18 @@ impl ParseYaml {
                 if !include_category.is_empty()
                     && !include_category.contains(&category_in_rule.to_string())
                 {
-                    up_rule_load_cnt("excluded");
+                    bump_rule_load_cnt("excluded");
                     return Option::None;
                 }
                 if !exclude_category.is_empty()
                     && exclude_category.contains(&category_in_rule.to_string())
                 {
-                    up_rule_load_cnt("excluded");
+                    bump_rule_load_cnt("excluded");
                     return Option::None;
                 }
             }
 
-            // Exclude rules that do not have the tags specified by the tags option.
+            // Exclude rules that do not carry any of the tags given by the --include-tag option.
             if exist_output_opt
                 && stored_static
                     .output_option
@@ -520,16 +582,16 @@ impl ParseYaml {
                         target_tags.contains(&tag.as_str().unwrap_or_default().to_string())
                     });
                     if !is_match {
-                        up_rule_load_cnt("excluded");
+                        bump_rule_load_cnt("excluded");
                         return Option::None;
                     }
                 } else {
-                    up_rule_load_cnt("excluded");
+                    bump_rule_load_cnt("excluded");
                     return Option::None;
                 }
             }
 
-            // Exclude rules that have the tag specified by the exclude-tag option.
+            // Exclude rules that carry any of the tags given by the --exclude-tag option.
             if let Some(opt) = stored_static.output_option.as_ref()
                 && let Some(exclude_tag) = opt.exclude_tag.as_ref()
             {
@@ -539,21 +601,21 @@ impl ParseYaml {
                         exclude_tag.contains(&tag.as_str().unwrap_or_default().to_string())
                     });
                     if is_match {
-                        up_rule_load_cnt("excluded");
+                        bump_rule_load_cnt("excluded");
                         return Option::None;
                     }
                 }
             }
 
-            self.rulecounter.insert(
+            self.rule_type_cnt.insert(
                 yaml_doc["ruletype"].as_str().unwrap_or("Other").into(),
-                self.rulecounter
+                self.rule_type_cnt
                     .get(yaml_doc["ruletype"].as_str().unwrap_or("Other"))
                     .unwrap_or(&0)
                     + 1,
             );
 
-            up_rule_status_cnt(status.unwrap_or("undefined"));
+            bump_rule_status_cnt(status.unwrap_or("undefined"));
 
             if stored_static.verbose_flag {
                 println!("Loaded rule: {filepath}");
@@ -567,6 +629,11 @@ impl ParseYaml {
 }
 
 /// Count rules hierarchically by status/level/tags for display in the scan wizard.
+/// The returned map is keyed by status ("excluded"/"noisy" for filtered rules), then by
+/// uppercased level, then by tag bucket ("detection.emerging_threats",
+/// "detection.threat_hunting", "sysmon", "other", or the "duplicated" adjustment bucket).
+/// Under the "excluded"/"noisy" keys the innermost key is instead the rule's lowercased
+/// status (e.g. "test", "experimental", "undefined") rather than a tag bucket.
 pub fn count_rules<P: AsRef<Path>>(
     path: P,
     exclude_ids: &RuleExclude,
@@ -593,7 +660,8 @@ pub fn count_rules<P: AsRef<Path>>(
             return HashMap::default();
         }
 
-        // Do not immediately abort when loading individual files.
+        // Do not abort the whole loading process when an individual rule file cannot be read;
+        // just skip that file.
         let mut is_encoded = false;
         let read_content = if path
             .as_ref()
@@ -613,13 +681,15 @@ pub fn count_rules<P: AsRef<Path>>(
             Err(_) => return HashMap::default(),
         };
 
-        // Same here: do not immediately abort when loading individual files.
+        // Likewise, skip files that fail to parse as YAML instead of aborting the whole load.
         let yaml_contents = match YamlLoader::load_from_str(&read_content) {
             Ok(contents) => contents,
             Err(_) => return HashMap::default(),
         };
 
         yaml_docs.extend(yaml_contents.into_iter().map(|yaml_content| {
+            // encoded_rules.yml bundles many rules in one file; each document records its
+            // original file path in the `rulefile` key.
             let filepath = if is_encoded {
                 yaml_content["rulefile"]
                     .as_str()
@@ -656,27 +726,28 @@ pub fn count_rules<P: AsRef<Path>>(
                 }
 
                 let path_str = path.to_str().unwrap();
-                // ignore if yml file in .git folder.
+                // Ignore yml files inside a .git folder.
                 if utils::contains_str(path_str, "/.git/")
                     || utils::contains_str(path_str, "\\.git\\")
                 {
                     return io::Result::Ok(ret);
                 }
 
-                // ignore if tool test yml file in hayabusa-rules.
+                // Ignore the sigmac tool test yml files bundled in the hayabusa-rules repository.
                 if utils::contains_str(path_str, "rules/tools/sigmac/test_files")
                     || utils::contains_str(path_str, "rules\\tools\\sigmac\\test_files")
                 {
                     return io::Result::Ok(ret);
                 }
 
-                // Do not immediately abort when loading individual files.
+                // Do not abort the whole loading process when an individual rule file cannot be read;
+                // just skip that file.
                 let read_content = match ParseYaml::read_file(&path) {
                     Ok(content) => content,
                     Err(_) => return io::Result::Ok(ret),
                 };
 
-                // Same here: do not immediately abort when loading individual files.
+                // Likewise, skip files that fail to parse as YAML instead of aborting the whole load.
                 let yaml_contents = match YamlLoader::load_from_str(&read_content) {
                     Ok(contents) => contents,
                     Err(e) => {
@@ -686,7 +757,8 @@ pub fn count_rules<P: AsRef<Path>>(
                             AlertMessage::warn(&errmsg)?;
                         }
                         if !stored_static.quiet_errors_flag {
-                            ERROR_LOG_STACK
+                            stored_static
+                                .error_log_stack
                                 .lock()
                                 .unwrap()
                                 .push(format!("[WARN] {errmsg}"));
@@ -705,10 +777,10 @@ pub fn count_rules<P: AsRef<Path>>(
             .unwrap_or_default();
     }
     yaml_docs.into_iter().for_each(|(_filepath, yaml_doc)| {
-        // Ignore excluded rules.
         let empty = vec![];
         let rule_id = &yaml_doc["id"].as_str();
         let rule_tags_vec = yaml_doc["tags"].as_vec().unwrap_or(&empty);
+        // Collect the wizard-relevant tags that this rule carries.
         let included_target_tag_vec = {
             let target_wizard_tags = [
                 "detection.emerging_threats",
@@ -717,22 +789,26 @@ pub fn count_rules<P: AsRef<Path>>(
             ];
             rule_tags_vec
                 .iter()
-                .filter(|x| target_wizard_tags.contains(&x.as_str().unwrap_or_default()))
-                .filter_map(|s| s.as_str())
+                .filter(|tag| target_wizard_tags.contains(&tag.as_str().unwrap_or_default()))
+                .filter_map(|tag| tag.as_str())
                 .collect_vec()
         };
+        // Rules whose ID is listed in exclude_rules.txt / noisy_rules.txt are counted under
+        // "excluded"/"noisy" instead of their own status.
         if rule_id.is_some()
-            && let Some(v) = exclude_ids
-                .no_use_rule
+            && let Some(source_path) = exclude_ids
+                .excluded_rule_sources
                 .get(&rule_id.unwrap_or(&String::default()).to_string())
         {
-            let entry_key = if utils::contains_str(v, "exclude_rule") {
+            // `source_path` is the path of the list file that the rule ID came from
+            // (exclude_rules.txt or noisy_rules.txt).
+            let entry_key = if utils::contains_str(source_path, "exclude_rule") {
                 "excluded"
             } else {
                 "noisy"
             };
-            // For test rules (ID: 000...0), exclude them from the excluded rule count.
-            if v != "00000000-0000-0000-0000-000000000000" {
+            // Test rules (ID: 000...0) are exempted from the excluded/noisy rule counts.
+            if rule_id.unwrap_or_default() != TEST_RULE_ID {
                 let counter = result_container
                     .entry(entry_key.into())
                     .or_insert(HashMap::new());
@@ -757,9 +833,12 @@ pub fn count_rules<P: AsRef<Path>>(
             return;
         }
 
-        if let Some(s) = yaml_doc["status"].as_str() {
-            // In the initial counting for the wizard, check the status and level, then skip further processing.
-            let counter = result_container.entry(s.into()).or_insert(HashMap::new());
+        if let Some(status) = yaml_doc["status"].as_str() {
+            // The wizard's initial count only categorizes rules by status, level and wizard
+            // tags; none of the other load-time filters are applied here.
+            let counter = result_container
+                .entry(status.into())
+                .or_insert(HashMap::new());
             if included_target_tag_vec.is_empty() {
                 *counter
                     .entry(
@@ -773,6 +852,9 @@ pub fn count_rules<P: AsRef<Path>>(
                     .entry("other".into())
                     .or_insert(0) += 1;
             } else {
+                // A rule carrying more than one wizard tag is counted once per tag below, so
+                // record a negative adjustment of -(n-1) in the "duplicated" bucket to keep the
+                // grand total equal to the actual number of rules.
                 if included_target_tag_vec.len() > 1 {
                     *counter
                         .entry(
@@ -805,6 +887,9 @@ pub fn count_rules<P: AsRef<Path>>(
     result_container.to_owned()
 }
 
+/// Validates that a rule contains every key required by the Hayabusa rule format (correlation
+/// rules do not need `logsource`/`detection`) and that the `level`, `status` and `date` values
+/// are valid. On failure, returns all problems joined with " ¦ ".
 pub fn check_hayabusa_rule_fmt(yaml: &Yaml) -> Result<(), String> {
     let mut required_keys = vec![
         "author",
@@ -867,8 +952,8 @@ pub fn check_hayabusa_rule_fmt(yaml: &Yaml) -> Result<(), String> {
 mod tests {
     use crate::detections::configs::Action;
     use crate::detections::configs::Config;
-    use crate::detections::configs::CsvOutputOption;
     use crate::detections::configs::DetectCommonOption;
+    use crate::detections::configs::DfirTimelineOption;
     use crate::detections::configs::OutputOption;
     use crate::detections::configs::StoredStatic;
     use crate::filter;
@@ -884,8 +969,8 @@ mod tests {
     use yaml_rust2::YamlLoader;
 
     fn create_dummy_stored_static() -> StoredStatic {
-        StoredStatic::create_static_data(Some(Config {
-            action: Some(Action::CsvTimeline(CsvOutputOption {
+        StoredStatic::create_static_data(Config {
+            action: Some(Action::DfirTimeline(DfirTimelineOption {
                 output_options: OutputOption {
                     min_level: "informational".to_string(),
                     include_status: Some(vec!["*".to_string()]),
@@ -898,7 +983,7 @@ mod tests {
                 ..Default::default()
             })),
             debug: false,
-        }))
+        })
     }
 
     #[test]
@@ -919,7 +1004,7 @@ mod tests {
     #[test]
     fn test_read_dir_yaml() {
         let exclude_ids = RuleExclude {
-            no_use_rule: HashMap::new(),
+            excluded_rule_sources: HashMap::new(),
         };
         let dummy_stored_static = create_dummy_stored_static();
         let mut yaml = yaml::ParseYaml::new(&dummy_stored_static);
@@ -934,17 +1019,75 @@ mod tests {
     }
 
     #[test]
+    /// Rules must load in the same order however `read_dir` lists the rules directory, because
+    /// detections within a batch are written in rule load order. Each directory's subdirectories
+    /// are loaded first (recursively, in sorted order), then its own files in sorted order.
+    fn test_read_dir_loads_rules_in_sorted_order() {
+        let rule = std::fs::read_to_string("test_files/rules/yaml/1.yml").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // Created in an order that is neither sorted nor reverse-sorted, so the test cannot pass
+        // by accident on a filesystem that lists entries in (reverse) creation order.
+        for name in ["d.yml", "a.yml", "c.yml", "b.yml"] {
+            std::fs::write(root.join(name), &rule).unwrap();
+        }
+        for subdir in ["sub2", "sub1", "sub3"] {
+            std::fs::create_dir(root.join(subdir)).unwrap();
+            for name in ["y.yml", "x.yml"] {
+                std::fs::write(root.join(subdir).join(name), &rule).unwrap();
+            }
+        }
+
+        let exclude_ids = RuleExclude {
+            excluded_rule_sources: HashMap::new(),
+        };
+        let dummy_stored_static = create_dummy_stored_static();
+        let mut yaml = yaml::ParseYaml::new(&dummy_stored_static);
+        yaml.read_dir(
+            root,
+            &String::default(),
+            "",
+            &exclude_ids,
+            &dummy_stored_static,
+        )
+        .unwrap();
+
+        let loaded: Vec<String> = yaml.files.iter().map(|(path, _)| path.clone()).collect();
+        let expected: Vec<String> = [
+            root.join("sub1").join("x.yml"),
+            root.join("sub1").join("y.yml"),
+            root.join("sub2").join("x.yml"),
+            root.join("sub2").join("y.yml"),
+            root.join("sub3").join("x.yml"),
+            root.join("sub3").join("y.yml"),
+            root.join("a.yml"),
+            root.join("b.yml"),
+            root.join("c.yml"),
+            root.join("d.yml"),
+        ]
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect();
+        assert_eq!(loaded, expected);
+    }
+
+    #[test]
     fn test_read_yaml() {
         let path = Path::new("test_files/rules/yaml/1.yml");
         let ret = ParseYaml::read_file(&path.to_path_buf()).unwrap();
         let rule = YamlLoader::load_from_str(&ret).unwrap();
-        for i in rule {
-            if i["title"].as_str().unwrap() == "Sysmon Check command lines" {
+        for doc in rule {
+            if doc["title"].as_str().unwrap() == "Sysmon Check command lines" {
                 assert_eq!(
                     "*",
-                    i["detection"]["selection"]["CommandLine"].as_str().unwrap()
+                    doc["detection"]["selection"]["CommandLine"]
+                        .as_str()
+                        .unwrap()
                 );
-                assert_eq!(1, i["detection"]["selection"]["EventID"].as_i64().unwrap());
+                assert_eq!(
+                    1,
+                    doc["detection"]["selection"]["EventID"].as_i64().unwrap()
+                );
             }
         }
     }
@@ -958,7 +1101,7 @@ mod tests {
     }
 
     #[test]
-    /// no specifed "level" arguments value is adapted default level(informational)
+    /// When no level argument is specified, the default level (informational) should be applied.
     fn test_default_level_read_yaml() {
         let path = Path::new("test_files/rules/level_yaml");
         let dummy_stored_static = create_dummy_stored_static();
@@ -1062,7 +1205,70 @@ mod tests {
             &dummy_stored_static,
         )
         .unwrap();
-        assert_eq!(yaml.rule_load_cnt.get("excluded").unwrap().to_owned(), 5);
+        // The excluded fixture rules all use the null-UUID test-rule ID
+        // (00000000-0000-0000-0000-000000000000), which must be exempted from the
+        // excluded rule count while still being excluded from loading.
+        assert_eq!(yaml.rule_load_cnt.get("excluded").unwrap().to_owned(), 0);
+        assert!(!yaml.files.is_empty());
+        assert!(
+            yaml.files
+                .iter()
+                .all(|(filepath, _)| !filepath.contains("exclude"))
+        );
+    }
+
+    #[test]
+    fn test_exclude_rules_file_real_uuid_still_counted() {
+        let path = Path::new("test_files/rules/yaml");
+        let mut dummy_stored_static = create_dummy_stored_static();
+        dummy_stored_static.include_status = HashSet::from_iter(vec![CompactString::from("*")]);
+        let mut yaml = yaml::ParseYaml::new(&dummy_stored_static);
+        let mut exclude_ids = RuleExclude::new();
+        // The real (non-test) rule ID of test_files/rules/yaml/noisy1.yml; the value only
+        // needs to contain "exclude_rule" to be classified under the "excluded" counter.
+        exclude_ids.excluded_rule_sources.insert(
+            "0090ea60-f4a2-43a8-8657-3a9a4ddcf547".to_string(),
+            "exclude_rules.txt".to_string(),
+        );
+        yaml.read_dir(path, "", "", &exclude_ids, &dummy_stored_static)
+            .unwrap();
+        // A rule with a real UUID must still be counted as excluded and not loaded.
+        assert_eq!(yaml.rule_load_cnt.get("excluded").unwrap().to_owned(), 1);
+        assert!(
+            yaml.files
+                .iter()
+                .all(|(filepath, _)| !filepath.contains("noisy1"))
+        );
+    }
+
+    #[test]
+    fn test_count_rules_null_uuid_excluded_not_counted() {
+        let dummy_stored_static = create_dummy_stored_static();
+        let mut container = HashMap::new();
+        let result = yaml::count_rules(
+            Path::new("test_files/rules/yaml"),
+            &filter::exclude_ids(&dummy_stored_static),
+            &dummy_stored_static,
+            &mut container,
+        );
+        // The only fixture rules matching exclude_rules.txt use the null-UUID test-rule ID,
+        // which is exempted from the count, so no "excluded" entry is created.
+        assert!(!result.contains_key("excluded"));
+
+        // A rule with a real UUID in the exclude list is still counted.
+        let mut exclude_ids = RuleExclude::new();
+        exclude_ids.excluded_rule_sources.insert(
+            "0090ea60-f4a2-43a8-8657-3a9a4ddcf547".to_string(),
+            "exclude_rules.txt".to_string(),
+        );
+        let mut container = HashMap::new();
+        let result = yaml::count_rules(
+            Path::new("test_files/rules/yaml"),
+            &exclude_ids,
+            &dummy_stored_static,
+            &mut container,
+        );
+        assert!(result.contains_key("excluded"));
     }
     #[test]
     fn test_all_noisy_rules_file() {
@@ -1370,6 +1576,20 @@ mod tests {
         std::fs::remove_file(&test_path).expect("Failed to delete test file");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "Hello");
+    }
+
+    #[test]
+    fn test_read_encoded_file_invalid_utf8_returns_err() {
+        // A byte that XOR-decodes (^0xAA) to 0xFF, which is not valid UTF-8. The function must
+        // return Err rather than panicking (regression test for #1831).
+        let test_path = PathBuf::from("test_encoded_file_invalid_utf8");
+        let encoded_content: Vec<u8> = vec![0xFF ^ 0xAA]; // decodes to 0xFF
+        let mut file = File::create(&test_path).expect("Failed to create test file");
+        file.write_all(&encoded_content)
+            .expect("Failed to write to test file");
+        let result = ParseYaml::read_encoded_file(&test_path);
+        std::fs::remove_file(&test_path).expect("Failed to delete test file");
+        assert!(result.is_err());
     }
 
     #[test]

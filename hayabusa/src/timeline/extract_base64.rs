@@ -5,7 +5,6 @@ use crate::detections::utils::{format_time, get_writable_color, write_color_buff
 use base64::Engine;
 use base64::prelude::{BASE64_STANDARD, BASE64_STANDARD_NO_PAD};
 use chrono::{TimeZone, Utc};
-use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, CellAlignment, ContentArrangement, Table};
 use csv::Writer;
@@ -20,9 +19,15 @@ use std::sync::LazyLock;
 use std::{fmt, str};
 use termcolor::{BufferWriter, Color, ColorChoice};
 
+// Matches runs of characters that can appear in a base64 token. \w also allows '_', which is not
+// valid base64, but every candidate token is verified by actually decoding it. Note that the '='
+// padding is not part of the token; see BASE64_PAD below.
 static TOKEN_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\w+/]+").unwrap());
+// Matches the <Base64String> placeholder followed by leftover '=' padding so that the padding can
+// be folded into the placeholder.
 static BASE64_PAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<Base64String>(=*)").unwrap());
 
+/// Metadata of the event record that a candidate base64 string was extracted from.
 struct EvtxInfo {
     ts: String,
     computer: String,
@@ -36,9 +41,9 @@ impl EvtxInfo {
         let default_time = Utc.with_ymd_and_hms(1970, 1, 1, 0, 0, 0).unwrap();
         let ts = get_event_time(val, false).unwrap_or(default_time);
         let ts = format_time(&ts, false, ts_fmt_opt);
-        let d = &val["Event"]["System"];
-        let computer = d["Computer"].as_str().unwrap_or_default().to_string();
-        let rec_id = d["EventRecordID"].as_i64().unwrap().to_string();
+        let system = &val["Event"]["System"];
+        let computer = system["Computer"].as_str().unwrap_or_default().to_string();
+        let rec_id = system["EventRecordID"].as_i64().unwrap().to_string();
         Self {
             ts: ts.to_string(),
             computer,
@@ -49,6 +54,7 @@ impl EvtxInfo {
     }
 }
 
+/// The channel/event ID combinations whose fields are scanned for base64-encoded payloads.
 #[derive(Clone)]
 enum Event {
     Sec4688,
@@ -56,7 +62,11 @@ enum Event {
     System7045,
     PwSh4104,
     PwSh4103,
+    PwSh4102,
+    PwSh4100,
     PwShClassic400,
+    PwShClassic403,
+    PwShClassic600,
 }
 
 impl fmt::Display for Event {
@@ -67,11 +77,18 @@ impl fmt::Display for Event {
             Event::System7045 => write!(f, "Sys 7045"),
             Event::PwSh4104 => write!(f, "PwSh 4104"),
             Event::PwSh4103 => write!(f, "PwSh 4103"),
+            Event::PwSh4102 => write!(f, "PwSh 4102"),
+            Event::PwSh4100 => write!(f, "PwSh 4100"),
             Event::PwShClassic400 => write!(f, "PwShClassic 400"),
+            Event::PwShClassic403 => write!(f, "PwShClassic 403"),
+            Event::PwShClassic600 => write!(f, "PwShClassic 600"),
         }
     }
 }
 
+/// A successfully decoded base64 token, classified by the encoding of its payload. Every variant
+/// carries the original base64 token; the text variants also carry the decoded string, and Binary
+/// carries the raw bytes together with the inferred file type.
 enum Base64Data {
     Utf8(String, String),
     Utf16Le(String, String),
@@ -82,19 +99,21 @@ enum Base64Data {
 
 impl Base64Data {
     fn new(token: &str, payload: &[u8]) -> Self {
+        // Check UTF-16 before UTF-8: ASCII text encoded as UTF-16 contains NUL bytes that would
+        // still pass the ASCII-oriented UTF-8 check, so testing UTF-8 first would misclassify it.
         if is_utf16_le(payload) {
-            let s = utf16_le_to_string(payload).unwrap();
-            return Base64Data::Utf16Le(token.to_string(), s);
+            let decoded = utf16_le_to_string(payload).unwrap();
+            return Base64Data::Utf16Le(token.to_string(), decoded);
         } else if is_utf16_be(payload) {
-            let s = utf16_be_to_string(payload).unwrap();
-            return Base64Data::Utf16Be(token.to_string(), s);
+            let decoded = utf16_be_to_string(payload).unwrap();
+            return Base64Data::Utf16Be(token.to_string(), decoded);
         } else if is_utf8(payload) {
-            let s = str::from_utf8(payload).unwrap();
-            return Base64Data::Utf8(token.to_string(), s.to_string());
+            let decoded = str::from_utf8(payload).unwrap();
+            return Base64Data::Utf8(token.to_string(), decoded.to_string());
         } else {
             let kind = infer::get(payload);
-            if let Some(k) = kind {
-                return Base64Data::Binary(token.to_string(), payload.to_vec(), Some(k));
+            if let Some(file_type) = kind {
+                return Base64Data::Binary(token.to_string(), payload.to_vec(), Some(file_type));
             }
         }
         Base64Data::Unknown(token.to_string())
@@ -110,6 +129,8 @@ impl Base64Data {
         }
     }
 
+    /// Returns the decoded text with control characters removed (so that multi-line payloads stay
+    /// on a single line in the output); empty for binary/unknown payloads.
     fn decoded_str(&self) -> String {
         match self {
             Base64Data::Utf8(_, s) | Base64Data::Utf16Le(_, s) | Base64Data::Utf16Be(_, s) => {
@@ -151,6 +172,9 @@ impl Base64Data {
         }
     }
 
+    /// Returns "Y" if the decoded text itself contains another plausible base64 token (i.e. the
+    /// payload was base64-encoded twice), using the same skip heuristics as
+    /// create_base64_extracted_record().
     fn is_double_encoding(&self) -> String {
         for token in tokenize(self.decoded_str().as_str()) {
             if is_base64(token) {
@@ -184,14 +208,18 @@ impl fmt::Display for Base64Data {
     }
 }
 
-fn is_base64(s: &str) -> bool {
-    if BASE64_STANDARD_NO_PAD.decode(s).is_ok() {
+fn is_base64(token: &str) -> bool {
+    if BASE64_STANDARD_NO_PAD.decode(token).is_ok() {
         true
     } else {
-        BASE64_STANDARD.decode(s).is_ok()
+        BASE64_STANDARD.decode(token).is_ok()
     }
 }
 
+// The three checks below classify a decoded payload as text. They are heuristics: payloads
+// shorter than 5 bytes are considered too ambiguous to classify, and only byte sequences that
+// decode to pure ASCII are accepted (so despite its name, is_utf8() rejects non-ASCII UTF-8 text
+// such as Japanese).
 fn is_utf8(bytes: &[u8]) -> bool {
     if bytes.is_empty() {
         return false;
@@ -222,6 +250,10 @@ fn is_utf16_be(bytes: &[u8]) -> bool {
     UTF_16BE.decode_without_bom_handling(bytes).0.is_ascii()
 }
 
+/// Returns the field values (paired with their event type) that commonly carry base64-encoded
+/// payloads: process creation command lines (Security 4688, Sysmon 1), service image paths
+/// (System 7045) and PowerShell script/payload fields (4100, 4102, 4103, 4104 and classic
+/// 400/403/600).
 fn extract_payload(data: &Value) -> Vec<(Value, Event)> {
     let ch = data["Event"]["System"]["Channel"].as_str();
     let id = data["Event"]["System"]["EventID"].as_i64();
@@ -230,40 +262,65 @@ fn extract_payload(data: &Value) -> Vec<(Value, Event)> {
         && let Some(id) = id
     {
         if ch == "Security" && id == 4688 {
-            let v = data["Event"]["EventData"]["CommandLine"].clone();
-            values.push((v, Event::Sec4688));
+            let command_line = data["Event"]["EventData"]["CommandLine"].clone();
+            values.push((command_line, Event::Sec4688));
         } else if ch == "Microsoft-Windows-Sysmon/Operational" && id == 1 {
-            let v = data["Event"]["EventData"]["CommandLine"].clone();
-            values.push((v, Event::Sysmon1));
-            let v = data["Event"]["EventData"]["ParentCommandLine"].clone();
-            values.push((v, Event::Sysmon1));
+            let command_line = data["Event"]["EventData"]["CommandLine"].clone();
+            values.push((command_line, Event::Sysmon1));
+            let parent_command_line = data["Event"]["EventData"]["ParentCommandLine"].clone();
+            values.push((parent_command_line, Event::Sysmon1));
         } else if (ch == "Microsoft-Windows-PowerShell/Operational"
             || ch == "PowerShellCore/Operational")
             && id == 4104
         {
-            let v = data["Event"]["EventData"]["ScriptBlockText"].clone();
-            values.push((v, Event::PwSh4104));
+            let script_block_text = data["Event"]["EventData"]["ScriptBlockText"].clone();
+            values.push((script_block_text, Event::PwSh4104));
         } else if (ch == "Microsoft-Windows-PowerShell/Operational"
             || ch == "PowerShellCore/Operational")
             && id == 4103
         {
-            let v = data["Event"]["EventData"]["Payload"].clone();
-            values.push((v, Event::PwSh4103));
+            let payload = data["Event"]["EventData"]["Payload"].clone();
+            values.push((payload, Event::PwSh4103));
+        } else if (ch == "Microsoft-Windows-PowerShell/Operational"
+            || ch == "PowerShellCore/Operational")
+            && (id == 4100 || id == 4102)
+        {
+            // 4100 (executing pipeline) and 4102 (execution error) record the invoked command in
+            // ContextInfo ("Host Application = powershell -encodedcommand ...") and the error text
+            // in Payload; scan both.
+            let event = if id == 4100 {
+                Event::PwSh4100
+            } else {
+                Event::PwSh4102
+            };
+            let context_info = data["Event"]["EventData"]["ContextInfo"].clone();
+            values.push((context_info, event.clone()));
+            let payload = data["Event"]["EventData"]["Payload"].clone();
+            values.push((payload, event));
         } else if ch == "Windows PowerShell" && id == 400 {
-            let v = data["Event"]["EventData"]["Data"][2].clone();
-            values.push((v, Event::PwShClassic400));
+            let data_element = data["Event"]["EventData"]["Data"][2].clone();
+            values.push((data_element, Event::PwShClassic400));
+        } else if ch == "Windows PowerShell" && id == 403 {
+            // Classic engine/provider lifecycle events pack "HostApplication=..." into the third
+            // Data element, the same source as event ID 400.
+            let data_element = data["Event"]["EventData"]["Data"][2].clone();
+            values.push((data_element, Event::PwShClassic403));
+        } else if ch == "Windows PowerShell" && id == 600 {
+            let data_element = data["Event"]["EventData"]["Data"][2].clone();
+            values.push((data_element, Event::PwShClassic600));
         } else if ch == "System" && id == 7045 {
-            let v = data["Event"]["EventData"]["ImagePath"].clone();
-            values.push((v, Event::System7045));
+            let image_path = data["Event"]["EventData"]["ImagePath"].clone();
+            values.push((image_path, Event::System7045));
         }
     }
     values
         .iter()
-        .filter(|(v, _)| !v.is_null())
+        .filter(|(value, _)| !value.is_null())
         .cloned()
         .collect()
 }
 
+/// Splits a field value into candidate base64 tokens.
 fn tokenize(payload_str: &str) -> Vec<&str> {
     TOKEN_REGEX
         .find_iter(payload_str)
@@ -271,6 +328,9 @@ fn tokenize(payload_str: &str) -> Vec<&str> {
         .collect()
 }
 
+// Note: chunks(2) assumes an even byte count; an odd-length slice would panic on chunk[1]. In
+// practice is_utf16_le()/is_utf16_be() reject odd-length data because the trailing lone byte
+// decodes to a non-ASCII replacement character.
 fn utf16_le_to_string(bytes: &[u8]) -> Result<String, FromUtf16Error> {
     let utf16_data: Vec<u16> = bytes
         .chunks(2)
@@ -287,6 +347,9 @@ fn utf16_be_to_string(bytes: &[u8]) -> Result<String, FromUtf16Error> {
     String::from_utf16(&utf16_data)
 }
 
+/// Builds one output row per valid base64 token found in the given field value, containing the
+/// record metadata, the token, its decoded form, the field value with the token replaced by a
+/// <Base64String> placeholder, and the classification columns.
 fn create_base64_extracted_record(
     file: &Path,
     possible_base64: &str,
@@ -299,9 +362,11 @@ fn create_base64_extracted_record(
     for token in tokenize(possible_base64) {
         if is_base64(token) {
             if token.len() < 10 || token.chars().all(|c| c.is_alphabetic()) {
-                // Skip short tokens and all alphabetic tokens
+                // Skip tokens that are too short or purely alphabetic: they are usually ordinary
+                // words that merely happen to decode as base64.
                 continue;
             }
+            // is_base64() already verified that one of the two decoders succeeds.
             let payload = match BASE64_STANDARD_NO_PAD.decode(token) {
                 Ok(payload) => payload,
                 Err(_) => BASE64_STANDARD.decode(token).unwrap(),
@@ -310,10 +375,14 @@ fn create_base64_extracted_record(
             if matches!(b64, Base64Data::Unknown(_)) {
                 continue;
             }
+            // Replace the token with a placeholder in the original field value, then fold any
+            // trailing '=' padding (which TOKEN_REGEX cannot capture) into the placeholder.
             let original = possible_base64
                 .replace(b64.base64_str().as_str(), "<Base64String>")
                 .to_string();
             let no_pad_original = BASE64_PAD.replace_all(original.as_str(), "<Base64String>");
+            // A token directly preceded by '-' is most likely a fragment of a hyphenated string
+            // (e.g. a GUID) rather than standalone base64, so skip it to avoid false positives.
             if no_pad_original.contains("-<Base64String>") {
                 continue;
             }
@@ -349,6 +418,8 @@ fn process_record(data: &Value, file: &Path, opt: &TimeFormatOptions) -> Vec<Vec
     records
 }
 
+/// Called for each batch of loaded event records when the extract-base64 command runs; returns
+/// the base64 rows extracted from the batch.
 pub fn process_evtx_record_infos(
     records: &[EvtxRecordInfo],
     opt: &TimeFormatOptions,
@@ -362,6 +433,9 @@ pub fn process_evtx_record_infos(
     all_records
 }
 
+/// Outputs the extracted rows as CSV when an output path is given, otherwise prints the first
+/// four columns as a table on the terminal. In both cases the decoded string of binary payloads
+/// is masked with "(Binary Data)".
 pub fn output_all(
     all_records: Vec<Vec<String>>,
     out_path: Option<&PathBuf>,
@@ -397,6 +471,7 @@ pub fn output_all(
         ];
         wtr.write_record(csv_header)?;
         for row in all_records.clone().iter_mut() {
+            // row[6] is the Binary column; row[3] (the decoded string) is not printable then.
             let binary = row[6].as_str();
             if binary == "Y" {
                 row[3] = "(Binary Data)".to_string();
@@ -408,12 +483,11 @@ pub fn output_all(
         let term_header = ["Timestamp", "Computer", "Base64 String", "Decoded String"];
         let term_header_cells: Vec<Cell> = term_header
             .iter()
-            .map(|s| Cell::new(s).set_alignment(CellAlignment::Center))
+            .map(|header| Cell::new(header).set_alignment(CellAlignment::Center))
             .collect();
         let mut table = Table::new();
         table
-            .load_preset(UTF8_FULL)
-            .apply_modifier(UTF8_ROUND_CORNERS)
+            .load_style(UTF8_FULL.with_rounded_corners())
             .set_content_arrangement(ContentArrangement::DynamicFullWidth)
             .set_header(term_header_cells);
         for row in all_records.clone().iter_mut() {
@@ -516,5 +590,142 @@ mod tests {
             },
         );
         assert_eq!(result, expected);
+    }
+
+    /// Builds a record with the given channel/event ID and `EventData`, then runs the extractor.
+    /// `EventData` is written in hayabusa's real evtx serialization: named `<Data Name="X">`
+    /// elements become flat `EventData.X` string keys, and unnamed `<Data>` elements become a flat
+    /// `EventData.Data` string array.
+    fn ps_extract(channel: &str, event_id: i64, event_data: Value) -> Vec<Vec<String>> {
+        let data = json!({
+            "Event": {
+                "System": {
+                    "Channel": channel,
+                    "EventID": event_id,
+                    "TimeCreated_attributes": {"SystemTime": "2021-12-23T00:00:00.000Z"},
+                    "Computer": "HAYABUSA-DESKTOP",
+                    "EventRecordID": 12345
+                },
+                "EventData": event_data
+            }
+        });
+        process_record(
+            &data,
+            Path::new("test.evtx"),
+            &TimeFormatOptions {
+                iso_8601: true,
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn powershell_operational_4100_extracts_base64_from_flat_context_info() {
+        // Real 4100 events carry the invoked command in a flat EventData.ContextInfo string
+        // ("Host Application = powershell -encodedcommand <b64>"); Payload has no base64 here.
+        let result = ps_extract(
+            "Microsoft-Windows-PowerShell/Operational",
+            4100,
+            json!({
+                "ContextInfo": "        Host Application = powershell -encodedcommand dGVzdCBjb21tYW5k\r\n",
+                "UserData": "",
+                "Payload": "Error Message = the operation failed"
+            }),
+        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0][2], "dGVzdCBjb21tYW5k");
+        assert_eq!(result[0][3], "test command");
+        assert_eq!(result[0][10], "PwSh 4100");
+        assert!(result[0][4].contains("-encodedcommand <Base64String>"));
+    }
+
+    #[test]
+    fn powershell_operational_4102_extracts_base64_from_flat_payload() {
+        // 4102 events can carry base64 in the flat EventData.Payload (error text); ContextInfo
+        // here has none, proving both flat fields are scanned.
+        let result = ps_extract(
+            "Microsoft-Windows-PowerShell/Operational",
+            4102,
+            json!({
+                "ContextInfo": "        Host Application = powershell\r\n",
+                "Payload": "Error Message = dGVzdCBjb21tYW5k"
+            }),
+        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0][2], "dGVzdCBjb21tYW5k");
+        assert_eq!(result[0][3], "test command");
+        assert_eq!(result[0][10], "PwSh 4102");
+    }
+
+    #[test]
+    fn powershell_operational_4100_scans_both_context_info_and_payload() {
+        // base64 in BOTH flat fields yields two hits.
+        let result = ps_extract(
+            "Microsoft-Windows-PowerShell/Operational",
+            4100,
+            json!({
+                "ContextInfo": "Host Application = powershell -encodedcommand dGVzdCBjb21tYW5k",
+                "Payload": "Error Message = aGVsbG8gd29ybGQ="
+            }),
+        );
+        assert_eq!(result.len(), 2);
+        let decoded: Vec<&str> = result.iter().map(|row| row[3].as_str()).collect();
+        assert!(decoded.contains(&"test command"));
+        assert!(decoded.contains(&"hello world"));
+        assert!(result.iter().all(|row| row[10] == "PwSh 4100"));
+    }
+
+    #[test]
+    fn powershell_core_operational_4100_is_also_scanned() {
+        let result = ps_extract(
+            "PowerShellCore/Operational",
+            4100,
+            json!({
+                "ContextInfo": "Host Application = pwsh -encodedcommand dGVzdCBjb21tYW5k",
+                "Payload": ""
+            }),
+        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0][2], "dGVzdCBjb21tYW5k");
+        assert_eq!(result[0][10], "PwSh 4100");
+    }
+
+    #[test]
+    fn powershell_classic_403_and_600_extract_from_data_index_2() {
+        // Real classic events serialize their unnamed <Data> elements as a flat string array; the
+        // "Key=Value" detail blob (with HostApplication) is the third element (index 2), the same
+        // source used by the existing event ID 400 handler.
+        for (event_id, event_name) in [(403, "PwShClassic 403"), (600, "PwShClassic 600")] {
+            let result = ps_extract(
+                "Windows PowerShell",
+                event_id,
+                json!({
+                    "Data": [
+                        "Stopped",
+                        "Available",
+                        "\tNewEngineState=Stopped\r\n\tHostApplication=powershell -encodedcommand dGVzdCBjb21tYW5k\r\n\tEngineVersion=5.1"
+                    ]
+                }),
+            );
+            assert_eq!(result.len(), 1, "event {event_id}");
+            assert_eq!(result[0][2], "dGVzdCBjb21tYW5k");
+            assert_eq!(result[0][3], "test command");
+            assert_eq!(result[0][10], event_name);
+        }
+    }
+
+    #[test]
+    fn powershell_operational_4100_without_base64_yields_nothing() {
+        // A real, benign 4100 (plain powershell.exe path, no encoded command) produces no rows.
+        let result = ps_extract(
+            "Microsoft-Windows-PowerShell/Operational",
+            4100,
+            json!({
+                "ContextInfo": "        Host Application = C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\r\n",
+                "UserData": "",
+                "Payload": "Error Message = the requested operation failed"
+            }),
+        );
+        assert!(result.is_empty());
     }
 }

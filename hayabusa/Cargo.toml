@@ -1,28 +1,41 @@
 [package]
 name = "hayabusa"
-version = "3.10.0-dev"
+version = "4.1.0"
 repository = "https://github.com/Yamato-Security/hayabusa"
 authors = ["Yamato Security @SecurityYamato"]
 edition = "2024"
-rust-version = "1.95.0"
-include = ["src/**/*", "LICENSE.txt", "README.md", "CHANGELOG.md"]
+rust-version = "1.97.1"
+build = "build.rs"
+include = ["src/**/*", "build.rs", "LICENSE.txt", "README.md", "CHANGELOG.md"]
+
+[package.metadata.winresource]
+ProductName = "Hayabusa"
+FileDescription = "Hayabusa - Windows Event Log Analyzer"
+CompanyName = "Yamato Security"
+InternalName = "hayabusa"
+OriginalFilename = "hayabusa.exe"
+LegalCopyright = "Yamato Security"
+Comments = "Sigma-based threat hunting and digital forensics"
+
+[build-dependencies]
+winresource = "0.1.31"
 
 [dependencies]
 aho-corasick = "*"
 base64 = "*"
 bytesize = "2.*"
 chrono = "0.4.*"
-cidr-utils = "0.6.*"
+cidr-utils = "0.7.*"
 clap = { version = "4.*", features = ["derive", "cargo", "color"]}
 colored = "3"
-comfy-table = "7.*"
-compact_str = "0.9.*"
+comfy-table = "8.*"
+compact_str = "0.10.*"
 console = "0.16.*"
 csv = "1.4.*"
 dashmap = "*"
 dialoguer = "*"
 downcast-rs = "2.*"
-evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git" , features = ["fast-alloc"] , rev = "5c2bc81" } # 0.9.7 2026/04/29 update
+evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git" , features = ["fast-alloc"] , rev = "170c7a5f28fa4ef853e60e1b620dfacb19138c4f" } # 0.9.12 2026/09/12 update
 # Enable the vendored-OpenSSL HTTPS/TLS backend for libgit2. The wildcard
 # `0.*` resolved to a build of libgit2 with no TLS transport, so `update-rules`
 # failed with `class=Ssl (16) - there is no TLS stream available`. The project
@@ -55,13 +68,19 @@ strum = { version = "0.28.*", features = ["derive"] }
 termcolor = "*"
 terminal_size = "*"
 tokio = { version = "1", features = ["full"] }
-ureq = "3"
+ureq = "*"
 wildmatch = "2.*"
-yaml-rust2 = "0.11"
+# YAML files are loaded as UTF-8 strings; the optional encoding decoder is unused.
+yaml-rust2 = { version = "0.13", default-features = false }
 rust-embed={version = "8.11.0", features = ["include-exclude", "debug-embed"]}
 encoding_rs = "0.8.35"
 uuid = { version = "1", features = ["v4"] }
 winapi = { version = "0.3.9", features = ["wow64apiset"] }
+
+[dev-dependencies]
+# Used by the file-output unit tests to write into a unique per-test temporary
+# directory instead of the repository root, so the tests are safe to run in parallel.
+tempfile = "3"
 
 [profile.dev]
 debug-assertions = false

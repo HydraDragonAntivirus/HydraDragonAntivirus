@@ -11,15 +11,24 @@ use std::path::Path;
 use std::string::String;
 use yaml_rust2::{Yaml, YamlLoader};
 
+/// All field data conversion rules loaded from the data_mapping config files, keyed by the
+/// (channel, event ID) pair each rule set applies to.
 pub type FieldDataMap = HashMap<FieldDataMapKey, FieldDataMapEntry>;
+/// Conversion rules for one event type: lowercase field name -> converter for that field's value.
 pub type FieldDataMapEntry = HashMap<String, FieldDataConverter>;
 
+/// How a raw field value should be rewritten into a more readable form.
 #[derive(Debug, Clone)]
 pub enum FieldDataConverter {
+    /// Converts a hex string such as "0x44c" into its decimal representation.
     HexToDecimal,
+    /// Replaces substrings via an Aho-Corasick automaton whose patterns pair up with the Vec of
+    /// replacement strings (same index = same rule). The HashSet limits the rewrite to events
+    /// whose provider name is in the set; an empty set means any provider.
     ReplaceStr((AhoCorasick, Vec<String>), HashSet<String>),
 }
 
+/// Identifies the event type a mapping applies to: lowercase channel name plus event ID.
 #[derive(Debug, Eq, Hash, PartialEq, Default, Clone)]
 pub struct FieldDataMapKey {
     pub channel: CompactString,
@@ -27,6 +36,7 @@ pub struct FieldDataMapKey {
 }
 
 impl FieldDataMapKey {
+    /// Builds a key from the Channel and EventID values of a data_mapping YAML document.
     fn new(yaml_data: Yaml) -> FieldDataMapKey {
         FieldDataMapKey {
             channel: CompactString::from(
@@ -45,16 +55,23 @@ impl FieldDataMapKey {
     }
 }
 
+/// Parses one data_mapping YAML document (see rules/config/data_mapping/*.yaml) into the event
+/// type key it applies to and the per-field converters it defines. Returns default (empty) values
+/// when the document defines neither RewriteFieldData nor HexToDecimal.
 fn build_field_data_map(yaml_data: Yaml) -> (FieldDataMapKey, FieldDataMapEntry) {
     let rewrite_field_data = yaml_data["RewriteFieldData"].as_hash();
-    let hex2decimal = if let Some(s) = yaml_data["HexToDecimal"].as_str() {
-        Some(YamlLoader::load_from_str(s).unwrap_or_default())
+    // HexToDecimal may be given as a single scalar or as a list of field names; normalize both
+    // forms into a list of YAML values.
+    let hex_to_decimal = if let Some(hex_to_decimal_str) = yaml_data["HexToDecimal"].as_str() {
+        Some(YamlLoader::load_from_str(hex_to_decimal_str).unwrap_or_default())
     } else {
         yaml_data["HexToDecimal"].as_vec().map(|v| v.to_owned())
     };
-    if rewrite_field_data.is_none() && hex2decimal.is_none() {
+    if rewrite_field_data.is_none() && hex_to_decimal.is_none() {
         return (FieldDataMapKey::default(), FieldDataMapEntry::default());
     }
+    // Provider_Name is optional and may be a single name or a list. When present, the string
+    // rewrites only apply to events emitted by one of these providers.
     let mut providers = HashSet::new();
     if let Some(providers_yaml) = yaml_data["Provider_Name"].as_vec() {
         for provider in providers_yaml {
@@ -64,37 +81,39 @@ fn build_field_data_map(yaml_data: Yaml) -> (FieldDataMapKey, FieldDataMapEntry)
         providers.insert(provider_name.to_string());
     }
     let mut mapping = HashMap::new();
-    if let Some(x) = rewrite_field_data {
-        for (key_yaml, val_yaml) in x.iter() {
+    if let Some(rewrite_hash) = rewrite_field_data {
+        for (key_yaml, val_yaml) in rewrite_hash.iter() {
             let field = key_yaml.as_str().unwrap_or_default();
             let replace_values = val_yaml.as_vec();
             if field.is_empty() || replace_values.is_none() {
                 continue;
             }
-            let mut ptns = vec![];
-            let mut reps = vec![];
+            // Each list element is a one-entry hash of pattern -> replacement. Collect them as
+            // parallel vectors, which is the form AhoCorasick's replace_all expects.
+            let mut patterns = vec![];
+            let mut replacements = vec![];
             for rep_val in replace_values.unwrap() {
                 let entry = rep_val.as_hash();
                 if entry.is_none() {
                     continue;
                 }
                 for (ptn, rep) in entry.unwrap().iter() {
-                    ptns.push(ptn.as_str().unwrap_or_default().to_string());
-                    reps.push(rep.as_str().unwrap_or_default().to_string());
+                    patterns.push(ptn.as_str().unwrap_or_default().to_string());
+                    replacements.push(rep.as_str().unwrap_or_default().to_string());
                 }
             }
-            let ac = AhoCorasick::new(ptns);
-            if ac.is_err() {
+            let automaton = AhoCorasick::new(patterns);
+            if automaton.is_err() {
                 continue;
             }
             mapping.insert(
                 field.to_string().to_lowercase(),
-                ReplaceStr((ac.unwrap(), reps), providers.clone()),
+                ReplaceStr((automaton.unwrap(), replacements), providers.clone()),
             );
         }
     }
 
-    if let Some(fields) = hex2decimal {
+    if let Some(fields) = hex_to_decimal {
         for field in fields {
             if let Some(key) = field.as_str() {
                 mapping.insert(key.to_lowercase(), HexToDecimal);
@@ -104,6 +123,11 @@ fn build_field_data_map(yaml_data: Yaml) -> (FieldDataMapKey, FieldDataMapEntry)
     (FieldDataMapKey::new(yaml_data), mapping)
 }
 
+/// Rewrites a field value according to the loaded data_mapping rules. Returns None when no
+/// mapping exists for the (channel, event ID) key or for the field (lowercase), in which case the
+/// caller should keep the original value. When a mapping exists but does not change the value
+/// (e.g. the provider does not match, or the value is not a valid hex string), the original
+/// string is returned wrapped in Some.
 pub fn convert_field_data(
     data_map: &FieldDataMap,
     data_map_key: &FieldDataMapKey,
@@ -115,7 +139,9 @@ pub fn convert_field_data(
         None => None,
         Some(data_map_entry) => match data_map_entry.get(field) {
             None => None,
-            Some(ReplaceStr(x, providers)) => {
+            Some(ReplaceStr(replace_rule, providers)) => {
+                // A provider restriction is defined: pass the value through unchanged when this
+                // record's provider is not in the set.
                 if !providers.is_empty() {
                     let provider = get_serde_number_to_string(
                         &record["Event"]["System"]["Provider_attributes"]["Name"],
@@ -126,11 +152,13 @@ pub fn convert_field_data(
                         return Some(CompactString::from(field_data_str));
                     }
                 };
-                let (ac, rep) = x;
+                let (automaton, rep) = replace_rule;
                 let mut wtr = vec![];
-                let _ = ac.try_stream_replace_all(field_data_str.as_bytes(), &mut wtr, rep);
+                let _ = automaton.try_stream_replace_all(field_data_str.as_bytes(), &mut wtr, rep);
                 Some(CompactString::from(std::str::from_utf8(&wtr).unwrap()))
             }
+            // Only values with a 0x/0X prefix that parse as u64 are converted; anything else is
+            // passed through unchanged.
             Some(HexToDecimal) => match field_data_str
                 .strip_prefix("0x")
                 .or_else(|| field_data_str.strip_prefix("0X"))
@@ -145,6 +173,7 @@ pub fn convert_field_data(
     }
 }
 
+/// Loads every YAML document from the .yaml files directly under the given directory.
 fn load_yaml_files(dir_path: &Path) -> Result<Vec<Yaml>, String> {
     let path = dir_path.as_os_str().to_str().unwrap_or_default();
     if !dir_path.exists() || !dir_path.is_dir() {
@@ -155,13 +184,16 @@ fn load_yaml_files(dir_path: &Path) -> Result<Vec<Yaml>, String> {
     match fs::read_dir(dir_path) {
         Ok(files) => Ok(files
             .filter_map(|d| d.ok())
-            .filter(|d| d.path().extension().unwrap_or_default() == "yaml")
+            .filter(|entry| entry.path().extension().unwrap_or_default() == "yaml")
             .map(|f| YamlLoader::load_from_str(&fs::read_to_string(f.path()).unwrap_or_default()))
             .filter_map(|y| y.ok())
             .flatten()
             .collect()),
         Err(e) => {
             let mut msg = format!("Failed to open field mapping dir[{path}]. ",);
+            // Windows OS error 123 (ERROR_INVALID_NAME): invalid path syntax. This typically
+            // happens when a quoted path ends with a backslash, which escapes the closing quote
+            // and mangles the command-line argument.
             if e.to_string().ends_with("123)") {
                 msg = format!(
                     "{msg}. You may not be able to load evtx files when there are spaces in the directory path. Please enclose the path with double quotes and remove any trailing slash at the end of the path."
@@ -173,7 +205,12 @@ fn load_yaml_files(dir_path: &Path) -> Result<Vec<Yaml>, String> {
     }
 }
 
+/// Builds the whole field data map, either from the all-in-one config bundle (when present) or
+/// from the .yaml files in the given data_mapping directory. Returns None when the directory
+/// cannot be read.
 pub fn create_field_data_map(dir_path: &Path) -> Option<FieldDataMap> {
+    // In the all-in-one config bundle, every embedded .yaml file except the GeoIP field mapping
+    // is assumed to be a data_mapping file.
     let one_config_values: Vec<String> = ONE_CONFIG_MAP
         .iter()
         .filter(|(key, _)| key.contains(".yaml") && !key.contains("geoip_field_mapping.yaml"))
@@ -193,7 +230,7 @@ pub fn create_field_data_map(dir_path: &Path) -> Option<FieldDataMap> {
     }
     let yaml_data = load_yaml_files(dir_path);
     match yaml_data {
-        Ok(y) => Some(y.into_iter().map(build_field_data_map).collect()),
+        Ok(yaml_docs) => Some(yaml_docs.into_iter().map(build_field_data_map).collect()),
         Err(_) => None,
     }
 }
@@ -211,8 +248,8 @@ mod tests {
     use std::path::Path;
     use yaml_rust2::{Yaml, YamlLoader};
 
-    fn build_yaml(s: &str) -> Yaml {
-        YamlLoader::load_from_str(s)
+    fn build_yaml(yaml_str: &str) -> Yaml {
+        YamlLoader::load_from_str(yaml_str)
             .unwrap_or_default()
             .first()
             .unwrap()
@@ -227,14 +264,14 @@ mod tests {
 
     #[test]
     fn test_convert_field_data_empty_data1() {
-        let r = convert_field_data(
+        let result = convert_field_data(
             &HashMap::new(),
             &FieldDataMapKey::default(),
             "",
             "",
             &Value::Null,
         );
-        assert!(r.is_none());
+        assert!(result.is_none());
     }
 
     #[test]
@@ -245,13 +282,13 @@ mod tests {
             event_id: CompactString::from("4625".to_string()),
         };
         map.insert(key.clone(), HashMap::new());
-        let r = convert_field_data(&map, &key, "", "", &Value::Null);
-        assert!(r.is_none());
+        let result = convert_field_data(&map, &key, "", "", &Value::Null);
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_convert_field_data() {
-        let s = r#"
+        let yaml_str = r#"
             Channel: Security
             EventID: 4624
             RewriteFieldData:
@@ -259,60 +296,60 @@ mod tests {
                     - '0': '0 - SYSTEM'
                     - '2': '2 - INTERACTIVE'
         "#;
-        let (key, entry) = build_field_data_map(build_yaml(s));
+        let (key, entry) = build_field_data_map(build_yaml(yaml_str));
         let mut map = HashMap::new();
         map.insert(key.clone(), entry);
-        let r = convert_field_data(&map, &key, "logontype", "Foo 0", &Value::Null);
-        assert_eq!(r.unwrap(), "Foo 0 - SYSTEM");
+        let result = convert_field_data(&map, &key, "logontype", "Foo 0", &Value::Null);
+        assert_eq!(result.unwrap(), "Foo 0 - SYSTEM");
     }
 
     #[test]
     fn test_build_field_data_map_invalid0() {
-        let s = r#"
+        let yaml_str = r#"
             INVALID
         "#;
-        let r = build_field_data_map(build_yaml(s));
-        assert_eq!(r.0, FieldDataMapKey::default());
+        let result = build_field_data_map(build_yaml(yaml_str));
+        assert_eq!(result.0, FieldDataMapKey::default());
     }
 
     #[test]
     fn test_build_field_data_map_invalid1() {
-        let s = r#"
+        let yaml_str = r#"
             Foo:
                 Bar:
                     - 'A': '1'
         "#;
-        let r = build_field_data_map(build_yaml(s));
-        assert_eq!(r.0, FieldDataMapKey::default());
+        let result = build_field_data_map(build_yaml(yaml_str));
+        assert_eq!(result.0, FieldDataMapKey::default());
     }
 
     #[test]
     fn test_build_field_data_map_invalid2() {
-        let s = r#"
+        let yaml_str = r#"
             Channel: Security
             EventID: 4624
             INVALID: 1
         "#;
-        let r = build_field_data_map(build_yaml(s));
-        assert_eq!(r.0, FieldDataMapKey::default());
-        assert!(r.1.is_empty());
+        let result = build_field_data_map(build_yaml(yaml_str));
+        assert_eq!(result.0, FieldDataMapKey::default());
+        assert!(result.1.is_empty());
     }
 
     #[test]
     fn test_build_field_data_map_invalid3() {
-        let s = r#"
+        let yaml_str = r#"
             Channel: Security
             EventID: 4624
             RewriteFieldData: 'INVALID'
         "#;
-        let r = build_field_data_map(build_yaml(s));
-        assert_eq!(r.0, FieldDataMapKey::default());
-        assert!(r.1.is_empty());
+        let result = build_field_data_map(build_yaml(yaml_str));
+        assert_eq!(result.0, FieldDataMapKey::default());
+        assert!(result.1.is_empty());
     }
 
     #[test]
     fn test_build_field_data_map_valid() {
-        let s = r#"
+        let yaml_str = r#"
             Channel: Security
             EventID: 4624
             RewriteFieldData:
@@ -323,22 +360,30 @@ mod tests {
                     - '%%1832': 'A'
                     - '%%1833': 'B'
         "#;
-        let r = build_field_data_map(build_yaml(s));
+        let result = build_field_data_map(build_yaml(yaml_str));
         let mut wtr = vec![];
-        match r.1.get("elevatedtoken").unwrap() {
+        match result.1.get("elevatedtoken").unwrap() {
             FieldDataConverter::HexToDecimal => panic!(),
-            FieldDataConverter::ReplaceStr(x, _) => {
-                let (ac, rp) = x;
-                let _ = ac.try_stream_replace_all("foo, %%1842, %%1843".as_bytes(), &mut wtr, rp);
+            FieldDataConverter::ReplaceStr(replace_rule, _) => {
+                let (automaton, rp) = replace_rule;
+                let _ = automaton.try_stream_replace_all(
+                    "foo, %%1842, %%1843".as_bytes(),
+                    &mut wtr,
+                    rp,
+                );
                 assert_eq!(b"foo, YES, NO".to_vec(), wtr);
             }
         }
-        match r.1.get("impersonationlevel").unwrap() {
+        match result.1.get("impersonationlevel").unwrap() {
             FieldDataConverter::HexToDecimal => panic!(),
-            FieldDataConverter::ReplaceStr(x, _) => {
+            FieldDataConverter::ReplaceStr(replace_rule, _) => {
                 let mut wtr = vec![];
-                let (ac, rp) = x;
-                let _ = ac.try_stream_replace_all("foo, %%1832, %%1833".as_bytes(), &mut wtr, rp);
+                let (automaton, rp) = replace_rule;
+                let _ = automaton.try_stream_replace_all(
+                    "foo, %%1832, %%1833".as_bytes(),
+                    &mut wtr,
+                    rp,
+                );
                 assert_eq!(b"foo, A, B".to_vec(), wtr);
             }
         }
@@ -346,8 +391,8 @@ mod tests {
 
     #[test]
     fn test_create_field_data_map() {
-        let r = create_field_data_map(Path::new("notexists"));
-        assert!(r.is_none());
+        let result = create_field_data_map(Path::new("notexists"));
+        assert!(result.is_none());
     }
 
     #[test]
@@ -366,7 +411,7 @@ mod tests {
             },
             "Event_attributes": {"xmlns": "http://schemas.microsoft.com/win/2004/08/events/event"}
         }"#;
-        let s = r#"
+        let yaml_str = r#"
             Channel: Security
             EventID: 4624
             RewriteFieldData:
@@ -380,7 +425,7 @@ mod tests {
                     - 'NewProcessId'
                     - 'ProcessId'
         "#;
-        let (key, entry) = build_field_data_map(build_yaml(s));
+        let (key, entry) = build_field_data_map(build_yaml(yaml_str));
         let mut map: FieldDataMap = HashMap::new();
         map.insert(key.clone(), entry);
         match serde_json::from_str(record_json_str) {
