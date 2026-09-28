@@ -51,7 +51,8 @@
 		"configuredTrustMode": 3,
 		"driverPortEventBaseType": {
 			"MLE_DRIVER_PORT_EXPLOIT": 1000026,
-			"MLE_DRIVER_PORT_UNKNOWN_DLL_EXPLOIT": 1000027
+			"MLE_DRIVER_PORT_UNKNOWN_DLL_EXPLOIT": 1000027,
+			"MLE_DOTNET_LOADER_ATTACK_CHAIN": 1000029
 		},
 		"vulnerableDriverPorts": [
 			"*rwfilter*",
@@ -6758,6 +6759,62 @@
 							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
 							{ "name": "isUnknownAccordingToComodo", "value": "@event.file.isUnknownAccordingToComodo" },
 							{ "name": "isUnknownAccordingToCertificate", "value": "@event.file.isUnknownAccordingToCertificate" }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "*",
+				"rule": {
+					"name": "DotNetLoaderAttackChainExploitDetection",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "equal",
+								"args": [ "@event.process.isDotNetLoader", true ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "equal",
+										"args": [ "@event.process.hasUnknownDll", true ]
+									},
+									{
+										"$operation": "equal",
+										"args": [ "@event.process.hasUnknownDllComodo", true ]
+									},
+									{
+										"$operation": "equal",
+										"args": [ "@event.process.hasUnknownDllCertificate", true ]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_DOTNET_LOADER_ATTACK_CHAIN",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.driverPortEventBaseType.MLE_DOTNET_LOADER_ATTACK_CHAIN" },
+							{ "name": "threatName", "value": "Exploit.Win32.DotNetLoader.AttackChain" },
+							{ "name": "threatType", "value": "DOTNET_LOADER_ATTACK_CHAIN" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "quarantineTarget", "value": "@event.process.loaderTargetDll" },
+							{ "name": "targetDll", "value": "@event.process.loaderTargetDll" },
+							{ "name": "startFunction", "value": "@event.process.loaderStartFunction" },
+							{ "name": "dllAttackChain", "value": "@event.process.dllAttackChain" },
+							{ "name": "dllMapping", "value": "@event.process.dllMapping" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
 						]
 					}
 				}

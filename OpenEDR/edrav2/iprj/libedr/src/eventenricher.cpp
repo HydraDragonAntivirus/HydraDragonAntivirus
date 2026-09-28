@@ -759,6 +759,11 @@ namespace {
 		static std::mutex s_portMutex;
 		static std::atomic<bool> s_loadedFromPtm{false};
 		static std::atomic<int> s_configuredTrustMode{3}; // 1: COMODO_FLS, 2: MICROSOFT_CERT, 3: BOTH
+		static std::atomic<bool> s_scanUnknownModules{true};
+		static std::atomic<bool> s_enableDotNetLoaderDetection{true};
+		static std::atomic<bool> s_enableDllAttackChain{true};
+		static std::atomic<bool> s_quarantineUnknownDll{true};
+		static std::atomic<bool> s_scanAllModulesIndiscriminately{false}; // Debugging mode: verifies every DLL regardless of path (heavy CPU)
 		static std::vector<std::wstring> s_vulnerablePortFragments;
 		static std::unordered_set<std::wstring> s_knownPorts;
 
@@ -766,6 +771,50 @@ namespace {
 		{
 			for (auto& c : s) c = static_cast<wchar_t>(std::tolower(static_cast<wint_t>(c)));
 			return s;
+		}
+
+		static inline std::string toHex(uintptr_t val)
+		{
+			std::stringstream ss;
+			ss << std::hex << std::uppercase << val;
+			return ss.str();
+		}
+
+		static std::vector<std::wstring> edrsvcCandidatePaths()
+		{
+			std::vector<std::wstring> out;
+			wchar_t mod[MAX_PATH] = {};
+			if (::GetModuleFileNameW(nullptr, mod, MAX_PATH) > 0)
+			{
+				std::wstring s(mod);
+				auto pos = s.find_last_of(L"\\/");
+				if (pos != std::wstring::npos)
+				{
+					out.push_back(s.substr(0, pos + 1) + L"edrsvc.cfg");
+					out.push_back(s.substr(0, pos + 1) + L"..\\data\\edrsvc.cfg");
+					out.push_back(s.substr(0, pos + 1) + L"data\\edrsvc.cfg");
+				}
+			}
+			out.push_back(L"edrsvc.cfg");
+			out.push_back(L"data\\edrsvc.cfg");
+			out.push_back(L"..\\data\\edrsvc.cfg");
+			out.push_back(L"OpenEDR\\edrav2\\iprj\\edrsvc\\data\\edrsvc.cfg");
+			out.push_back(L"C:\\Program Files\\OpenEDR\\edrsvc.cfg");
+			out.push_back(L"C:\\Program Files\\HydraDragonAntivirus\\OpenEDR\\edrsvc.cfg");
+			return out;
+		}
+
+		static bool extractBoolFromCfg(const std::string& content, const std::string& key, bool defaultVal)
+		{
+			size_t keyPos = content.find("\"" + key + "\"");
+			if (keyPos == std::string::npos) return defaultVal;
+			size_t colon = content.find(':', keyPos);
+			if (colon == std::string::npos) return defaultVal;
+			size_t valPos = content.find_first_not_of(" \t\r\n", colon + 1);
+			if (valPos == std::string::npos) return defaultVal;
+			if (content.compare(valPos, 4, "true") == 0) return true;
+			if (content.compare(valPos, 5, "false") == 0) return false;
+			return defaultVal;
 		}
 
 		static std::vector<std::wstring> ptmCandidatePaths()
@@ -863,6 +912,42 @@ namespace {
 			if (s_loadedFromPtm.load(std::memory_order_relaxed))
 				return;
 
+			// 1. Read scanner settings from edrsvc.cfg (avoids hardcoding unknown scanning & trust options)
+			for (const auto& path : edrsvcCandidatePaths())
+			{
+				std::ifstream ifs(path, std::ios::binary);
+				if (!ifs.is_open()) continue;
+				std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+				if (content.empty()) continue;
+
+				int cfgTrust = extractIntFromPtm(content, "trustMode", 0);
+				if (cfgTrust >= 1 && cfgTrust <= 3)
+					s_configuredTrustMode.store(cfgTrust, std::memory_order_relaxed);
+
+				s_scanUnknownModules.store(extractBoolFromCfg(content, "scanUnknownModules", true), std::memory_order_relaxed);
+				s_enableDotNetLoaderDetection.store(extractBoolFromCfg(content, "enableDotNetLoaderDetection", true), std::memory_order_relaxed);
+				s_enableDllAttackChain.store(extractBoolFromCfg(content, "enableDllAttackChain", true), std::memory_order_relaxed);
+				s_quarantineUnknownDll.store(extractBoolFromCfg(content, "quarantineUnknownDll", true), std::memory_order_relaxed);
+				s_scanAllModulesIndiscriminately.store(extractBoolFromCfg(content, "scanAllModulesIndiscriminately", false), std::memory_order_relaxed);
+
+				if (s_scanAllModulesIndiscriminately.load(std::memory_order_relaxed))
+				{
+					LOGLVL(Critical, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+					LOGLVL(Critical, "!!! WARNING: 'scanAllModulesIndiscriminately' DEBUG MODE IS ACTIVE IN EDRSVC.CFG !!!");
+					LOGLVL(Critical, "!!! ALL DLLs REGARDLESS OF SYSTEM ORIGIN WILL BE SCANNED ON EVERY PROCESS EVENT!  !!!");
+					LOGLVL(Critical, "!!! THIS BREAKS OPTIMIZATION AND CAUSES SEVERE CPU / SYSTEM PERFORMANCE OVERHEAD! !!!");
+					LOGLVL(Critical, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+				}
+
+				LOGLVL(Info, FMT("enricher: Dynamically loaded scanner config from edrsvc.cfg: trustMode="
+					<< s_configuredTrustMode.load()
+					<< ", scanUnknownModules=" << s_scanUnknownModules.load()
+					<< ", dotNetLoader=" << s_enableDotNetLoaderDetection.load()
+					<< ", scanAllModulesIndiscriminately=" << s_scanAllModulesIndiscriminately.load()));
+				break;
+			}
+
+			// 2. Read driver port rules & PTM trust options from ptm.local.src
 			for (const auto& path : ptmCandidatePaths())
 			{
 				std::ifstream ifs(path, std::ios::binary);
@@ -870,7 +955,9 @@ namespace {
 				std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 				if (content.empty()) continue;
 
-				s_configuredTrustMode.store(extractIntFromPtm(content, "configuredTrustMode", 3), std::memory_order_relaxed);
+				int ptmTrust = extractIntFromPtm(content, "configuredTrustMode", 0);
+				if (ptmTrust >= 1 && ptmTrust <= 3)
+					s_configuredTrustMode.store(ptmTrust, std::memory_order_relaxed);
 
 				auto vuln = extractArrayFromPtm(content, "vulnerableDriverPorts");
 				if (!vuln.empty())
@@ -993,20 +1080,177 @@ namespace {
 			return isValid;
 		}
 
+		// ── MegaDumper .NET Inspection Logic (translated to C++) ───────────────
+		// Detects .NET managed assemblies, native loaders, and CLR runtimes even
+		// under heavy obfuscation, packers, or stripped headers.
+		namespace MegaDumperNet
+		{
+			// 1. Checks COM descriptor / CLI header (IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR = 14)
+			static inline bool HasCliHeader(const unsigned char* pHeader, size_t headerSize)
+			{
+				if (!pHeader || headerSize < 0x80) return false;
+				if (pHeader[0] != 0x4D || pHeader[1] != 0x5A) return false; // MZ
+				uint32_t peOffset = *reinterpret_cast<const uint32_t*>(pHeader + 0x3C);
+				if (peOffset == 0 || peOffset + 0x18 > headerSize) return false;
+				if (pHeader[peOffset] != 0x50 || pHeader[peOffset + 1] != 0x45 ||
+				    pHeader[peOffset + 2] != 0 || pHeader[peOffset + 3] != 0) return false; // PE\0\0
+
+				if (peOffset + 26 > headerSize) return false;
+				uint16_t magic = *reinterpret_cast<const uint16_t*>(pHeader + peOffset + 24);
+				bool is64 = (magic == 0x20B);
+				if (magic != 0x10B && magic != 0x20B) return false;
+
+				size_t dataDirBase = peOffset + 4 + 20 + (is64 ? 112 : 96);
+				size_t cliOffset = dataDirBase + (14 * 8);
+				if (cliOffset + 4 > headerSize) return false;
+
+				uint32_t cliRva = *reinterpret_cast<const uint32_t*>(pHeader + cliOffset);
+				return (cliRva != 0);
+			}
+
+			// 2. Centralised list of CLR runtime modules across all generations (from MegaDumper IsClrModuleName)
+			static inline bool IsClrModuleName(const std::string& lowerName)
+			{
+				if (lowerName.find("mscorwks.dll") != std::string::npos) return true; // .NET 2.0-3.5
+				if (lowerName.find("clr.dll") != std::string::npos) return true;      // .NET 4.x
+				if (lowerName.find("mscorlib.dll") != std::string::npos) return true;
+				if (lowerName.find("coreclr.dll") != std::string::npos) return true;  // .NET Core / 5+
+				if (lowerName.find("clrjit.dll") != std::string::npos) return true;
+				return false;
+			}
+
+			// 3. MegaDumper BSJB Signature Scanner
+			// Scans for the .NET Metadata Root Magic: 0x424A5342 ("BSJB" in little endian: 0x42, 0x53, 0x4A, 0x42)
+			// MegaDumper uses this to find .NET metadata in memory even if PE headers are stripped/erased
+			static inline bool HasBsjbSignature(const unsigned char* pData, size_t dataSize)
+			{
+				if (!pData || dataSize < 16) return false;
+				for (size_t i = 0; i + 16 <= dataSize; ++i)
+				{
+					if (pData[i] == 0x42 && pData[i+1] == 0x53 && pData[i+2] == 0x4A && pData[i+3] == 0x42)
+					{
+						uint32_t versionLength = *reinterpret_cast<const uint32_t*>(pData + i + 12);
+						if (versionLength > 0 && versionLength < 256 && (i + 16 + versionLength <= dataSize))
+						{
+							if (pData[i + 16] == 'v') // "v4.0.30319", "v2.0.50727", etc.
+							{
+								return true;
+							}
+						}
+					}
+				}
+				return false;
+			}
+
+			// 4. Scans import descriptors or binary strings for mscoree.dll and _CorExeMain / _CorDllMain
+			static inline bool HasClrImports(const unsigned char* pData, size_t dataSize)
+			{
+				if (!pData || dataSize < 0x200) return false;
+				std::string s(reinterpret_cast<const char*>(pData), dataSize);
+				std::string lowerS;
+				lowerS.reserve(s.size());
+				for (char c : s) lowerS.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+				if (lowerS.find("mscoree.dll") != std::string::npos)
+				{
+					if (s.find("_CorExeMain") != std::string::npos ||
+					    s.find("_CorDllMain") != std::string::npos)
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+
+			// 5. Check if file on disk is .NET (PE header CLI, BSJB magic, or mscoree import)
+			static inline bool CheckFileIsDotNet(const std::wstring& wsFilePath)
+			{
+				if (wsFilePath.empty()) return false;
+				HANDLE hFile = ::CreateFileW(wsFilePath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+					NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+				if (hFile == INVALID_HANDLE_VALUE) return false;
+
+				unsigned char buf[8192] = {};
+				DWORD bytesRead = 0;
+				bool isNet = false;
+				if (::ReadFile(hFile, buf, sizeof(buf), &bytesRead, NULL) && bytesRead >= 0x100)
+				{
+					if (HasCliHeader(buf, bytesRead) || HasBsjbSignature(buf, bytesRead) || HasClrImports(buf, bytesRead))
+					{
+						isNet = true;
+					}
+				}
+				::CloseHandle(hFile);
+				return isNet;
+			}
+
+			// 6. Name similarity check between executable stem and DLL stem
+			static inline bool HasNameSimilarity(const std::string& exeName, const std::string& dllName)
+			{
+				std::string stemExe = exeName;
+				size_t slashE = stemExe.find_last_of("\\/");
+				if (slashE != std::string::npos) stemExe = stemExe.substr(slashE + 1);
+				size_t dotExe = stemExe.rfind('.');
+				if (dotExe != std::string::npos) stemExe = stemExe.substr(0, dotExe);
+
+				std::string stemDll = dllName;
+				size_t slashD = stemDll.find_last_of("\\/");
+				if (slashD != std::string::npos) stemDll = stemDll.substr(slashD + 1);
+				size_t dotDll = stemDll.rfind('.');
+				if (dotDll != std::string::npos) stemDll = stemDll.substr(0, dotDll);
+
+				for (auto& c : stemExe) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				for (auto& c : stemDll) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+				if (stemExe.empty() || stemDll.empty()) return false;
+				if (stemExe == stemDll) return true;
+				if (stemDll.find(stemExe) != std::string::npos || stemExe.find(stemDll) != std::string::npos) return true;
+
+				size_t minLen = (stemExe.size() < stemDll.size()) ? stemExe.size() : stemDll.size();
+				if (minLen >= 4)
+				{
+					size_t prefixLen = 0;
+					while (prefixLen < minLen && stemExe[prefixLen] == stemDll[prefixLen])
+						prefixLen++;
+					if (prefixLen >= 4) return true;
+				}
+				return false;
+			}
+		}
+
 		struct ModuleInspectionResult
 		{
 			bool hasUnknownDllComodo = false;
 			bool hasUnknownDllCertificate = false;
+			bool hasUnknownDll = false;
+			bool isDotNet = false;
+			bool isDotNetLoader = false;
 			std::string firstUnknownDllComodo;
 			std::string firstUnknownDllCert;
+			std::string loaderTargetDll;
+			std::string loaderTargetDllName;
+			std::string loaderStartFunction;
+			std::string dllAttackChain;
+			std::string dllMapping;
 		};
 
 		// Inspects all loaded modules in process memory:
-		// Checks Comodo FLS verdict AND offline Microsoft/Trusted Certificate verdict separately.
+		// Checks Comodo FLS verdict AND offline Microsoft/Trusted Certificate verdict separately,
+		// detects .NET loaders via MegaDumper logic, and builds full DLL attack chain & mapping.
 		static ModuleInspectionResult InspectProcessModules(uint32_t nPid, const std::string& sProcPath)
 		{
 			ModuleInspectionResult res;
 			if (nPid <= 4) return res;
+
+			EnsurePtmLoaded();
+
+			std::string sProcName = sProcPath;
+			size_t pS = sProcName.find_last_of("\\/");
+			if (pS != std::string::npos) sProcName = sProcName.substr(pS + 1);
+
+			// Check if host process binary is .NET
+			bool mainIsNet = MegaDumperNet::CheckFileIsDotNet(Widen(sProcPath));
+			if (mainIsNet) res.isDotNet = true;
 
 			HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, nPid);
 			if (hSnap == INVALID_HANDLE_VALUE) return res;
@@ -1015,6 +1259,10 @@ namespace {
 			me.dwSize = sizeof(MODULEENTRY32W);
 
 			std::wstring wsProc = Widen(sProcPath);
+			bool clrLoaded = false;
+			std::string primaryNetDllPath;
+			std::string primaryNetDllName;
+			std::vector<std::string> moduleEntries;
 
 			if (::Module32FirstW(hSnap, &me))
 			{
@@ -1025,34 +1273,140 @@ namespace {
 						continue;
 
 					std::string modPath = Narrow(me.szExePath);
+					std::string modName = Narrow(me.szModule);
+					std::string modLower = modPath;
+					for (auto& c : modLower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+					std::string modNameLower = modName;
+					for (auto& c : modNameLower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-					// 1. Check Comodo FLS Trust
-					int flsVerdict = DetectionNotifier::getCachedFileVerdict(modPath);
-					if (flsVerdict == 0)
+					// Check CLR runtime module presence
+					if (MegaDumperNet::IsClrModuleName(modNameLower))
 					{
-						std::string threat;
-						flsVerdict = DetectionNotifier::scanFileWithLocalEngines(modPath, threat);
-					}
-					if (flsVerdict != 1)
-					{
-						res.hasUnknownDllComodo = true;
-						if (res.firstUnknownDllComodo.empty())
-							res.firstUnknownDllComodo = modPath;
+						clrLoaded = true;
+						res.isDotNet = true;
 					}
 
-					// 2. Check Microsoft / Authenticode Certificate Trust (Offline, Comodosuz / Hashsiz)
-					std::string vendor;
-					bool isMsOrTrusted = false;
-					bool isSigned = VerifyFileCertificateOffline(me.szExePath, vendor, isMsOrTrusted);
-					if (!isSigned || !isMsOrTrusted)
+					// Check if this module is .NET (PE COM descriptor or BSJB magic)
+					bool modIsNet = MegaDumperNet::CheckFileIsDotNet(me.szExePath);
+					if (modIsNet) res.isDotNet = true;
+
+					bool isSystemDll = (modLower.find("c:\\windows\\system32") != std::string::npos ||
+					                    modLower.find("c:\\windows\\syswow64") != std::string::npos ||
+					                    modLower.find("c:\\windows\\winsxs") != std::string::npos);
+
+					bool forceScanAll = s_scanAllModulesIndiscriminately.load(std::memory_order_relaxed);
+					bool shouldDeepScan = forceScanAll || !isSystemDll;
+
+					bool modFlsClean = true;
+					bool modCertTrusted = true;
+
+					if (shouldDeepScan)
 					{
-						res.hasUnknownDllCertificate = true;
-						if (res.firstUnknownDllCert.empty())
-							res.firstUnknownDllCert = modPath;
+						// 1. Check Comodo FLS Trust
+						int flsVerdict = DetectionNotifier::getCachedFileVerdict(modPath);
+						if (flsVerdict == 0)
+						{
+							std::string threat;
+							flsVerdict = DetectionNotifier::scanFileWithLocalEngines(modPath, threat);
+						}
+						modFlsClean = (flsVerdict == 1);
+						if (!modFlsClean)
+						{
+							res.hasUnknownDllComodo = true;
+							if (res.firstUnknownDllComodo.empty())
+								res.firstUnknownDllComodo = modPath;
+						}
+
+						// 2. Check Microsoft / Authenticode Certificate Trust (Offline, Comodosuz / Hashsiz)
+						std::string vendor;
+						bool isMsOrTrusted = false;
+						bool isSigned = VerifyFileCertificateOffline(me.szExePath, vendor, isMsOrTrusted);
+						modCertTrusted = (isSigned && isMsOrTrusted);
+						if (!modCertTrusted)
+						{
+							res.hasUnknownDllCertificate = true;
+							if (res.firstUnknownDllCert.empty())
+								res.firstUnknownDllCert = modPath;
+						}
+					}
+
+					bool isModTrusted = (modFlsClean && modCertTrusted);
+					std::string startFunc = modIsNet ? "_CorDllMain" : "DllMain";
+
+					if (moduleEntries.size() < 12)
+					{
+						moduleEntries.push_back(modName + "[0x" + toHex(reinterpret_cast<uintptr_t>(me.modBaseAddr)) +
+							(modIsNet ? ",.NET" : ",Native") +
+							(isModTrusted ? ",Trusted" : ",Unknown") +
+							",Start:" + startFunc + "]");
+					}
+
+					// Loader Candidate Detection
+					if (s_enableDotNetLoaderDetection.load(std::memory_order_relaxed))
+					{
+						if (modIsNet)
+						{
+							bool nameSimilar = MegaDumperNet::HasNameSimilarity(sProcName, modName);
+							bool isNonSystem = (modLower.find("c:\\windows\\system32") == std::string::npos &&
+							                    modLower.find("c:\\windows\\syswow64") == std::string::npos &&
+							                    modLower.find("c:\\windows\\winsxs") == std::string::npos);
+
+							if (nameSimilar)
+							{
+								primaryNetDllPath = modPath;
+								primaryNetDllName = modName;
+							}
+							else if (isNonSystem && primaryNetDllPath.empty())
+							{
+								primaryNetDllPath = modPath;
+								primaryNetDllName = modName;
+							}
+						}
 					}
 				} while (::Module32NextW(hSnap, &me));
 			}
 			::CloseHandle(hSnap);
+
+			res.hasUnknownDll = (res.hasUnknownDllComodo || res.hasUnknownDllCertificate);
+
+			// Determine .NET Loader status
+			if (!primaryNetDllPath.empty())
+			{
+				res.isDotNetLoader = true;
+				res.isDotNet = true;
+				res.loaderTargetDll = primaryNetDllPath;
+				res.loaderTargetDllName = primaryNetDllName;
+				res.loaderStartFunction = "_CorDllMain";
+			}
+
+			// Build dllMapping string
+			std::string mappingStr;
+			for (size_t i = 0; i < moduleEntries.size(); ++i)
+			{
+				if (i > 0) mappingStr += " -> ";
+				mappingStr += moduleEntries[i];
+			}
+			res.dllMapping = mappingStr;
+
+			// Build dllAttackChain string
+			if (res.isDotNetLoader)
+			{
+				res.dllAttackChain = "[Loader: " + sProcName + " (PID: " + std::to_string(nPid) + ")] -> [Target DLL: " +
+					res.loaderTargetDllName + " (Start: " + res.loaderStartFunction + ", .NET: YES, Trust: " +
+					(res.hasUnknownDll ? "UNKNOWN/UNTRUSTED" : "TRUSTED") + ")]";
+			}
+			else if (res.hasUnknownDll)
+			{
+				std::string unk = !res.firstUnknownDllComodo.empty() ? res.firstUnknownDllComodo : res.firstUnknownDllCert;
+				size_t uS = unk.find_last_of("\\/");
+				if (uS != std::string::npos) unk = unk.substr(uS + 1);
+				res.dllAttackChain = "[Process: " + sProcName + " (PID: " + std::to_string(nPid) + ")] -> [Injected DLL: " + unk + " (Trust: UNKNOWN)]";
+			}
+			else
+			{
+				res.dllAttackChain = "[Process: " + sProcName + " (PID: " + std::to_string(nPid) + ")]";
+			}
+
 			return res;
 		}
 
@@ -3503,9 +3857,48 @@ void EventEnricher::put(const Variant& vEventRef)
 	vProcess.put("isTrustedAccordingToFls", isProcFlsClean && !modRes.hasUnknownDllComodo);
 	vProcess.put("isTrustedAccordingToCertificate", isProcCertTrusted && !modRes.hasUnknownDllCertificate);
 
+	vProcess.put("isDotNet", modRes.isDotNet);
+	vProcess.put("isDotNetLoader", modRes.isDotNetLoader);
+	vProcess.put("loaderTargetDll", modRes.loaderTargetDll);
+	vProcess.put("loaderTargetDllName", modRes.loaderTargetDllName);
+	vProcess.put("loaderStartFunction", modRes.loaderStartFunction);
+	vProcess.put("dllAttackChain", modRes.dllAttackChain);
+	vProcess.put("dllMapping", modRes.dllMapping);
+	vEvent.put("dllAttackChain", modRes.dllAttackChain);
+	vEvent.put("dllMapping", modRes.dllMapping);
+	vEvent.put("isDotNetLoader", modRes.isDotNetLoader);
+	if (modRes.isDotNetLoader && !modRes.loaderTargetDll.empty())
+	{
+		vEvent.put("loaderTargetDll", modRes.loaderTargetDll);
+		vEvent.put("startFunction", modRes.loaderStartFunction);
+		if (modRes.hasUnknownDll)
+		{
+			vEvent.put("quarantineTarget", modRes.loaderTargetDll);
+		}
+	}
+
 	std::string untrustedReason;
 	bool isProcessTrusted = DriverPortHips::IsProcessTrustedConfigurable(vProcess, sProcPath, nActorPid, modRes, untrustedReason);
 	vProcess.put("isTrusted", isProcessTrusted);
+
+	// Alert on .NET loader with unknown DLL in attack chain
+	if (modRes.isDotNetLoader && modRes.hasUnknownDll)
+	{
+		LOGLVL(Critical, FMT("enricher: [.NET LOADER ATTACK CHAIN DETECTED] Process <" << sProcPath
+			<< "> (PID: " << nActorPid << ") loaded untrusted target DLL <"
+			<< modRes.loaderTargetDll << "> (Start: " << modRes.loaderStartFunction << ")"));
+
+		HANDLE hPipeAlert = ::CreateFileW(L"\\\\.\\pipe\\HydraHipEvent",
+			GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+		if (hPipeAlert != INVALID_HANDLE_VALUE)
+		{
+			std::string alertMsg = "THREAT_ALERT:Exploit.Win32.DotNetLoader.AttackChain|" +
+				sProcPath + "|0|" + modRes.dllAttackChain + "\n";
+			DWORD written = 0;
+			::WriteFile(hPipeAlert, alertMsg.data(), static_cast<DWORD>(alertMsg.size()), &written, NULL);
+			::CloseHandle(hPipeAlert);
+		}
+	}
 
 	// UNFILTERED IMMEDIATE LOCAL FILE & PROCESS SCANNING (PASCAL-STYLE):
 	executeUnfilteredLocalScan(vEvent, vProcess, eEventType, sProcPath);
@@ -3716,13 +4109,14 @@ void EventEnricher::put(const Variant& vEventRef)
 						targetDesc += " [Unknown DLL: " + unknownDllToQuarantine + "]";
 					}
 
-					// 8-field HIPS_ASK protocol expected by edrgui/unit1.pas:
-					// HIPS_ASK:<req_id>|<pid>|<app_name>|<exe_path>|<target>|<verdict>|<sig_status>|<reason>
+					// 9-field HIPS_ASK protocol expected by edrgui/unit1.pas:
+					// HIPS_ASK:<req_id>|<pid>|<app_name>|<exe_path>|<target>|<verdict>|<sig_status>|<reason>|<dll_attack_chain>
 					std::string askMsg = "HIPS_ASK:" + reqId + "|" + std::to_string(nActorPid) + "|" +
 						appName + "|" + sProcPath + "|" + targetDesc + "|" +
 						(isKnownVulnerable ? "malicious" : "suspicious") + "|" +
 						(isProcCertTrusted ? "valid" : "unsigned") + "|" +
-						threatReason + "\n";
+						threatReason + "|" +
+						modRes.dllAttackChain + "\n";
 					DWORD written = 0;
 					::WriteFile(hPipe, askMsg.data(), static_cast<DWORD>(askMsg.size()), &written, NULL);
 					::CloseHandle(hPipe);

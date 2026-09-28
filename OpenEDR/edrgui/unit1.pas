@@ -446,7 +446,7 @@ procedure TForm1.OnHipMessage(Sender: TObject; const AKind, AText: string);
 var
   CleanKind, CleanText: string;
   Parts: TStringList;
-  ReqId, Pid, AppName, ExePath, Target, Verdict, SigStatus, Reason: string;
+  ReqId, Pid, AppName, ExePath, Target, Verdict, SigStatus, Reason, DllChain: string;
   TitleStr, MsgStr, sFlag: string;
   IsRebootReq: Boolean;
   sKey: string;
@@ -468,6 +468,7 @@ begin
 
       ReqId := ''; Pid := '0'; AppName := 'Unknown Application'; ExePath := '';
       Target := ''; Verdict := 'unknown'; SigStatus := 'unsigned'; Reason := 'Default Deny';
+      DllChain := '';
 
       if Parts.Count > 0 then ReqId := Parts[0];
       if Parts.Count > 1 then Pid := Parts[1];
@@ -477,6 +478,7 @@ begin
       if Parts.Count > 5 then Verdict := Parts[5];
       if Parts.Count > 6 then SigStatus := Parts[6];
       if Parts.Count > 7 then Reason := Parts[7];
+      if Parts.Count > 8 then DllChain := Parts[8];
 
       // Record current request into behavior history
       if (FBehaviorLogs <> nil) and (ExePath <> '') then
@@ -545,6 +547,13 @@ begin
       end
       else
         MsgStr := MsgStr + LineEnding + '(No prior API or process behaviors recorded)';
+
+      if DllChain <> '' then
+      begin
+        MsgStr := MsgStr + LineEnding + LineEnding +
+                  '=== 4. DLL ATTACK CHAIN & MODULE MAPPING ===' + LineEnding +
+                  DllChain;
+      end;
 
       TAlertForm.ShowInteractivePrompt(TitleStr, MsgStr, ReqId, ExePath);
     finally
@@ -651,7 +660,13 @@ begin
             'Removal is scheduled for the next system restart.');
         end
         else
-          TAlertForm.ShowAlert('Threat Alert: ' + TitleStr, ExePath, asCritical, 7000);
+        begin
+          if (Parts.Count >= 4) and (Trim(Parts[3]) <> '') then
+            TAlertForm.ShowAlert('Threat Alert: ' + TitleStr,
+              ExePath + LineEnding + LineEnding + 'Attack Chain: ' + Parts[3], asCritical, 8500)
+          else
+            TAlertForm.ShowAlert('Threat Alert: ' + TitleStr, ExePath, asCritical, 7000);
+        end;
       end;
     finally
       Parts.Free;
