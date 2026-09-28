@@ -24,7 +24,8 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ComCtrls, Dialogs,
-  ExtCtrls, Menus, Windows, LCLType, Clipbrd, LCLIntf, fpjson, jsonparser, UGuiNotify, UAlert;
+  ExtCtrls, Menus, Windows, LCLType, Clipbrd, LCLIntf, fpjson, jsonparser,
+  UGuiNotify, UAlert, UVirusKovAlyzer;
 
 type
   TRepForm = class; // forward: worker thread references the form
@@ -102,6 +103,7 @@ type
     CancelActionsBtn: TButton;
     DetPopup: TPopupMenu;
     DetItem: TMenuItem;
+    VirusKovItem: TMenuItem;
     QuarItem: TMenuItem;
     IgnItem: TMenuItem;
     SelAllItem: TMenuItem;
@@ -128,6 +130,8 @@ type
     procedure IgnAllItemClick(Sender: TObject);
     procedure ProcBtnClick(Sender: TObject);
     procedure DetItemClick(Sender: TObject);
+    procedure VirusKovItemClick(Sender: TObject);
+    procedure ResultsViewDblClick(Sender: TObject);
     procedure ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
       State: TCustomDrawState; var DefaultDraw: Boolean);
     procedure FormShowed(Sender: TObject);
@@ -1329,6 +1333,26 @@ begin
   if it.SubItems.Count >= 5 then
     msg := msg + 'Family: ' + it.SubItems[4] + sLineBreak;
   MessageDlg('Program details', msg, mtInformation, [mbOK], 0);
+end;
+
+procedure TRepForm.VirusKovItemClick(Sender: TObject);
+var
+  it: TListItem;
+  p: string;
+begin
+  it := ResultsView.Selected;
+  if it = nil then
+    Exit;
+  p := StripPidPrefix(it.Caption);
+  if FileExists(p) then
+    TVirusKovAlyzerForm.InspectFile(p)
+  else
+    MessageDlg('VirusKovAlyzer', 'File not found or inaccessible: ' + p, mtWarning, [mbOK], 0);
+end;
+
+procedure TRepForm.ResultsViewDblClick(Sender: TObject);
+begin
+  VirusKovItemClick(Sender);
 end;
 
 procedure TRepForm.FormShowed(Sender: TObject);

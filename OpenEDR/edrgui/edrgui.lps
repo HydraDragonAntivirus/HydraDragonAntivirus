@@ -8,10 +8,10 @@
       <Unit>
         <Filename Value="edrgui.lpr"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="3"/>
+        <EditorIndex Value="4"/>
         <TopLine Value="21"/>
         <CursorPos Y="38"/>
-        <UsageCount Value="98"/>
+        <UsageCount Value="127"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -24,7 +24,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="26"/>
         <CursorPos X="3" Y="26"/>
-        <UsageCount Value="98"/>
+        <UsageCount Value="127"/>
       </Unit>
       <Unit>
         <Filename Value="ualert.pas"/>
@@ -32,29 +32,29 @@
         <ComponentName Value="AlertForm"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UAlert"/>
-        <UsageCount Value="98"/>
+        <UsageCount Value="127"/>
       </Unit>
       <Unit>
         <Filename Value="usvccontrol.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="USvcControl"/>
-        <UsageCount Value="98"/>
+        <UsageCount Value="127"/>
       </Unit>
       <Unit>
         <Filename Value="uguinotify.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="UGuiNotify"/>
-        <EditorIndex Value="2"/>
+        <EditorIndex Value="3"/>
         <TopLine Value="60"/>
         <CursorPos X="26" Y="88"/>
-        <UsageCount Value="98"/>
+        <UsageCount Value="127"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="uhippipe.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="UHipPipe"/>
-        <UsageCount Value="98"/>
+        <UsageCount Value="127"/>
       </Unit>
       <Unit>
         <Filename Value="uquar.pas"/>
@@ -64,9 +64,9 @@
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="UQuar"/>
         <EditorIndex Value="1"/>
-        <TopLine Value="69"/>
-        <CursorPos Y="80"/>
-        <UsageCount Value="98"/>
+        <TopLine Value="8"/>
+        <CursorPos X="41" Y="12"/>
+        <UsageCount Value="127"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -77,15 +77,44 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="URep"/>
-        <IsVisibleTab Value="True"/>
-        <TopLine Value="1219"/>
+        <TopLine Value="1264"/>
         <CursorPos X="4" Y="1285"/>
-        <UsageCount Value="98"/>
+        <UsageCount Value="127"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
+      <Unit>
+        <Filename Value="uscan.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="ScanForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="UScan"/>
+        <UsageCount Value="21"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uviruskovalyzer.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="VirusKovAlyzerForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="UVirusKovAlyzer"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="1219"/>
+        <CursorPos X="73" Y="1232"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uviruskovalyzer.lfm"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="10"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
+      </Unit>
     </Units>
-    <JumpHistory HistoryIndex="18">
+    <JumpHistory HistoryIndex="26">
       <Position>
         <Filename Value="urep.pas"/>
         <Caret Line="121" Column="14" TopLine="121"/>
@@ -160,6 +189,38 @@
       <Position>
         <Filename Value="uquar.pas"/>
         <Caret Line="127" Column="15" TopLine="116"/>
+      </Position>
+      <Position>
+        <Filename Value="uguinotify.pas"/>
+        <Caret Line="88" Column="26" TopLine="60"/>
+      </Position>
+      <Position>
+        <Filename Value="uquar.pas"/>
+        <Caret Line="80" TopLine="69"/>
+      </Position>
+      <Position>
+        <Filename Value="uquar.pas"/>
+        <Caret Line="12" Column="41" TopLine="8"/>
+      </Position>
+      <Position>
+        <Filename Value="uviruskovalyzer.pas"/>
+        <Caret Line="1229" Column="3" TopLine="1219"/>
+      </Position>
+      <Position>
+        <Filename Value="uviruskovalyzer.pas"/>
+        <Caret Line="803" Column="17" TopLine="793"/>
+      </Position>
+      <Position>
+        <Filename Value="uviruskovalyzer.pas"/>
+        <Caret Line="833" Column="25" TopLine="823"/>
+      </Position>
+      <Position>
+        <Filename Value="uviruskovalyzer.pas"/>
+        <Caret Line="1846" Column="5" TopLine="1825"/>
+      </Position>
+      <Position>
+        <Filename Value="uviruskovalyzer.pas"/>
+        <Caret Line="1229" Column="3" TopLine="1220"/>
       </Position>
     </JumpHistory>
     <RunParams>

@@ -335,6 +335,7 @@ object RepForm: TRepForm
         TabOrder = 0
         ViewStyle = vsReport
         OnCustomDrawItem = ResultsDrawItem
+        OnDblClick = ResultsViewDblClick
       end
     end
   end
@@ -344,6 +345,10 @@ object RepForm: TRepForm
     object DetItem: TMenuItem
       Caption = 'Details...'
       OnClick = DetItemClick
+    end
+    object VirusKovItem: TMenuItem
+      Caption = 'Inspect with VirusKovAlyzer (Deep Analysis)...'
+      OnClick = VirusKovItemClick
     end
     object QuarItem: TMenuItem
       Caption = 'Quarantine'

@@ -113,6 +113,22 @@
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="URep"/>
       </Unit>
+      <Unit>
+        <Filename Value="uscan.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="ScanForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="UScan"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uviruskovalyzer.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="VirusKovAlyzerForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="UVirusKovAlyzer"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

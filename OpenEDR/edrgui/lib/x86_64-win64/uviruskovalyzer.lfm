@@ -1,0 +1,1035 @@
+object VirusKovAlyzerForm: TVirusKovAlyzerForm
+  Left = 140
+  Height = 850
+  Top = 80
+  Width = 1175
+  Caption = 'VirusKovAlyzer - Advanced Deep File Inspector'
+  ClientHeight = 850
+  ClientWidth = 1175
+  Color = 16052717
+  Constraints.MinHeight = 625
+  Constraints.MinWidth = 1000
+  DesignTimePPI = 120
+  Font.Color = 3813927
+  Font.Height = -15
+  Font.Name = 'Segoe UI'
+  Position = poScreenCenter
+  ShowInTaskBar = stAlways
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  object PnlTopBanner: TPanel
+    Left = 0
+    Height = 108
+    Top = 0
+    Width = 1175
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 108
+    ClientWidth = 1175
+    Color = 3353366
+    ParentBackground = False
+    ParentColor = False
+    TabOrder = 0
+    object PnlBannerAccent: TPanel
+      Left = 0
+      Height = 108
+      Top = 0
+      Width = 6
+      Align = alLeft
+      BevelOuter = bvNone
+      Color = 4808410
+      ParentBackground = False
+      ParentColor = False
+      TabOrder = 0
+    end
+    object LblBannerTitle: TLabel
+      Left = 25
+      Height = 28
+      Top = 10
+      Width = 402
+      Caption = 'VIRUSKOVALYZER - DEEP FILE INSPECTION'
+      Font.Color = clWhite
+      Font.Height = -20
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object LblBannerSub: TLabel
+      Left = 25
+      Height = 17
+      Top = 40
+      Width = 545
+      Caption = 'Native PE Analysis, Shannon Entropy, String Extraction, Engine Telemetry & Read-Only Hex View'
+      Font.Color = 13879224
+      Font.Height = -13
+      Font.Name = 'Segoe UI'
+      ParentColor = False
+      ParentFont = False
+    end
+    object EditFilePath: TEdit
+      Left = 25
+      Height = 28
+      Top = 65
+      Width = 788
+      Anchors = [akTop, akLeft, akRight]
+      Color = 16513784
+      Font.Color = 3813927
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      ReadOnly = True
+      TabOrder = 1
+    end
+    object BtnBrowseFile: TButton
+      Left = 825
+      Height = 32
+      Top = 65
+      Width = 112
+      Anchors = [akTop, akRight]
+      Caption = 'Browse...'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 2
+      OnClick = BtnBrowseFileClick
+    end
+    object BtnRescan: TButton
+      Left = 945
+      Height = 32
+      Top = 65
+      Width = 105
+      Anchors = [akTop, akRight]
+      Caption = 'Re-Scan'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 3
+      OnClick = BtnRescanClick
+    end
+    object BtnCloseTop: TButton
+      Left = 1057
+      Height = 32
+      Top = 65
+      Width = 100
+      Anchors = [akTop, akRight]
+      Caption = 'Close'
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 4
+      OnClick = BtnCloseTopClick
+    end
+  end
+  object PageControl: TPageControl
+    Left = 0
+    Height = 742
+    Top = 108
+    Width = 1175
+    ActivePage = TabGeneral
+    Align = alClient
+    TabIndex = 0
+    TabOrder = 1
+    object TabGeneral: TTabSheet
+      Caption = 'General Intel'
+      ClientHeight = 709
+      ClientWidth = 1167
+      object GbIdentification: TGroupBox
+        Left = 20
+        Height = 165
+        Top = 15
+        Width = 1125
+        Anchors = [akTop, akLeft, akRight]
+        Caption = ' File Identification '
+        ClientHeight = 140
+        ClientWidth = 1121
+        ParentBackground = False
+        TabOrder = 0
+        object LblLocationTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 12
+          Width = 64
+          Caption = 'Location:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblLocationVal: TLabel
+          Left = 112
+          Height = 20
+          Top = 12
+          Width = 979
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+        object LblSizeTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 42
+          Width = 59
+          Caption = 'File Size:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblSizeVal: TLabel
+          Left = 112
+          Height = 20
+          Top = 42
+          Width = 979
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+        object LblArchTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 72
+          Width = 49
+          Caption = 'Target:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblArchVal: TLabel
+          Left = 112
+          Height = 20
+          Top = 72
+          Width = 979
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+        object LblTypeTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 102
+          Width = 65
+          Caption = 'File Type:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblTypeVal: TLabel
+          Left = 112
+          Height = 20
+          Top = 102
+          Width = 979
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+      end
+      object GbHashes: TGroupBox
+        Left = 20
+        Height = 195
+        Top = 190
+        Width = 1125
+        Anchors = [akTop, akLeft, akRight]
+        Caption = ' Cryptographic Hashes & Checksums '
+        ClientHeight = 170
+        ClientWidth = 1121
+        ParentBackground = False
+        TabOrder = 1
+        object LblCrc32Title: TLabel
+          Left = 18
+          Height = 20
+          Top = 15
+          Width = 56
+          Caption = 'CRC-32:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object EditCrc32: TEdit
+          Left = 108
+          Height = 28
+          Top = 11
+          Width = 898
+          Anchors = [akTop, akLeft, akRight]
+          Color = 16513784
+          ReadOnly = True
+          TabOrder = 0
+        end
+        object BtnCopyCrc32: TButton
+          Left = 1015
+          Height = 30
+          Top = 11
+          Width = 88
+          Anchors = [akTop, akRight]
+          Caption = 'Copy'
+          TabOrder = 1
+          OnClick = BtnCopyHashClick
+        end
+        object LblMd5Title: TLabel
+          Left = 18
+          Height = 20
+          Top = 52
+          Width = 38
+          Caption = 'MD5:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object EditMd5: TEdit
+          Left = 108
+          Height = 28
+          Top = 49
+          Width = 898
+          Anchors = [akTop, akLeft, akRight]
+          Color = 16513784
+          ReadOnly = True
+          TabOrder = 2
+        end
+        object BtnCopyMd5: TButton
+          Left = 1015
+          Height = 30
+          Top = 49
+          Width = 88
+          Anchors = [akTop, akRight]
+          Caption = 'Copy'
+          TabOrder = 3
+          OnClick = BtnCopyHashClick
+        end
+        object LblSha1Title: TLabel
+          Left = 18
+          Height = 20
+          Top = 90
+          Width = 49
+          Caption = 'SHA-1:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object EditSha1: TEdit
+          Left = 108
+          Height = 28
+          Top = 86
+          Width = 898
+          Anchors = [akTop, akLeft, akRight]
+          Color = 16513784
+          ReadOnly = True
+          TabOrder = 4
+        end
+        object BtnCopySha1: TButton
+          Left = 1015
+          Height = 30
+          Top = 86
+          Width = 88
+          Anchors = [akTop, akRight]
+          Caption = 'Copy'
+          TabOrder = 5
+          OnClick = BtnCopyHashClick
+        end
+        object LblSha256Title: TLabel
+          Left = 18
+          Height = 20
+          Top = 128
+          Width = 67
+          Caption = 'SHA-256:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object EditSha256: TEdit
+          Left = 108
+          Height = 28
+          Top = 124
+          Width = 898
+          Anchors = [akTop, akLeft, akRight]
+          Color = 16513784
+          ReadOnly = True
+          TabOrder = 6
+        end
+        object BtnCopySha256: TButton
+          Left = 1015
+          Height = 30
+          Top = 124
+          Width = 88
+          Anchors = [akTop, akRight]
+          Caption = 'Copy'
+          TabOrder = 7
+          OnClick = BtnCopyHashClick
+        end
+      end
+      object GbAttributes: TGroupBox
+        Left = 20
+        Height = 90
+        Top = 395
+        Width = 1125
+        Anchors = [akTop, akLeft, akRight]
+        Caption = ' Win32 File Attributes '
+        ClientHeight = 65
+        ClientWidth = 1121
+        ParentBackground = False
+        TabOrder = 2
+        object CbReadOnly: TCheckBox
+          Left = 20
+          Height = 24
+          Top = 18
+          Width = 91
+          Caption = 'Read-Only'
+          Enabled = False
+          TabOrder = 0
+        end
+        object CbHidden: TCheckBox
+          Left = 150
+          Height = 24
+          Top = 18
+          Width = 70
+          Caption = 'Hidden'
+          Enabled = False
+          TabOrder = 1
+        end
+        object CbSystem: TCheckBox
+          Left = 262
+          Height = 24
+          Top = 18
+          Width = 68
+          Caption = 'System'
+          Enabled = False
+          TabOrder = 2
+        end
+        object CbArchive: TCheckBox
+          Left = 375
+          Height = 24
+          Top = 18
+          Width = 70
+          Caption = 'Archive'
+          Enabled = False
+          TabOrder = 3
+        end
+        object CbCompressed: TCheckBox
+          Left = 488
+          Height = 24
+          Top = 18
+          Width = 103
+          Caption = 'Compressed'
+          Enabled = False
+          TabOrder = 4
+        end
+        object CbEncrypted: TCheckBox
+          Left = 638
+          Height = 24
+          Top = 18
+          Width = 87
+          Caption = 'Encrypted'
+          Enabled = False
+          TabOrder = 5
+        end
+      end
+      object GbTimestamps: TGroupBox
+        Left = 20
+        Height = 138
+        Top = 495
+        Width = 1125
+        Anchors = [akTop, akLeft, akRight]
+        Caption = ' Timestamps (Local & UTC) '
+        ClientHeight = 113
+        ClientWidth = 1121
+        ParentBackground = False
+        TabOrder = 3
+        object LblCreatedTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 12
+          Width = 58
+          Caption = 'Created:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblCreatedVal: TLabel
+          Left = 112
+          Height = 20
+          Top = 12
+          Width = 979
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+        object LblModifiedTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 42
+          Width = 67
+          Caption = 'Modified:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblModifiedVal: TLabel
+          Left = 112
+          Height = 20
+          Top = 42
+          Width = 979
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+        object LblAccessedTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 72
+          Width = 68
+          Caption = 'Accessed:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblAccessedVal: TLabel
+          Left = 112
+          Height = 20
+          Top = 72
+          Width = 979
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+      end
+    end
+    object TabSecurity: TTabSheet
+      Caption = 'Security & Engines'
+      ClientHeight = 709
+      ClientWidth = 1167
+      object GbEngineStatic: TGroupBox
+        Left = 20
+        Height = 138
+        Top = 20
+        Width = 1125
+        Anchors = [akTop, akLeft, akRight]
+        Caption = ' Local Engine (openedr_static / owlyshield_ransom ML) '
+        ClientHeight = 113
+        ClientWidth = 1121
+        ParentBackground = False
+        TabOrder = 0
+        object LblStaticVerdictTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 18
+          Width = 96
+          Caption = 'Static Verdict:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblStaticVerdictVal: TLabel
+          Left = 162
+          Height = 20
+          Top = 18
+          Width = 929
+          Anchors = [akTop, akLeft, akRight]
+          Caption = 'Pending...'
+          ParentColor = False
+        end
+        object LblStaticThreatTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 55
+          Width = 107
+          Caption = 'Analysis Detail:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblStaticThreatVal: TLabel
+          Left = 162
+          Height = 20
+          Top = 55
+          Width = 929
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+      end
+      object GbEngineDaemon: TGroupBox
+        Left = 20
+        Height = 138
+        Top = 175
+        Width = 1125
+        Anchors = [akTop, akLeft, akRight]
+        Caption = ' edrsvc Daemon & Cloud Intelligence (JSON-RPC) '
+        ClientHeight = 113
+        ClientWidth = 1121
+        ParentBackground = False
+        TabOrder = 1
+        object LblDaemonKnownTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 18
+          Width = 114
+          Caption = 'Malware DB Hit:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblDaemonKnownVal: TLabel
+          Left = 162
+          Height = 20
+          Top = 18
+          Width = 929
+          Anchors = [akTop, akLeft, akRight]
+          Caption = 'Pending...'
+          ParentColor = False
+        end
+        object LblDaemonFlsTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 55
+          Width = 120
+          Caption = 'Cloud FLS Status:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblDaemonFlsVal: TLabel
+          Left = 162
+          Height = 20
+          Top = 55
+          Width = 929
+          Anchors = [akTop, akLeft, akRight]
+          Caption = '-'
+          ParentColor = False
+        end
+      end
+      object GbSignature: TGroupBox
+        Left = 20
+        Height = 138
+        Top = 330
+        Width = 1125
+        Anchors = [akTop, akLeft, akRight]
+        Caption = ' Authenticode Digital Signature '
+        ClientHeight = 113
+        ClientWidth = 1121
+        ParentBackground = False
+        TabOrder = 2
+        object LblSigStatusTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 18
+          Width = 71
+          Caption = 'Signature:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblSigStatusVal: TLabel
+          Left = 162
+          Height = 20
+          Top = 18
+          Width = 929
+          Anchors = [akTop, akLeft, akRight]
+          Caption = 'Not checked'
+          ParentColor = False
+        end
+        object LblSigPublisherTitle: TLabel
+          Left = 18
+          Height = 20
+          Top = 55
+          Width = 70
+          Caption = 'Publisher:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LblSigPublisherVal: TLabel
+          Left = 162
+          Height = 20
+          Top = 55
+          Width = 929
+          Anchors = [akTop, akLeft, akRight]
+          Caption = 'N/A'
+          ParentColor = False
+        end
+      end
+    end
+    object TabHeaders: TTabSheet
+      Caption = 'PE Headers'
+      ClientHeight = 709
+      ClientWidth = 1167
+      object MemoHeaders: TMemo
+        Left = 0
+        Height = 709
+        Top = 0
+        Width = 1167
+        Align = alClient
+        Color = 16513784
+        Font.Color = 3813927
+        Font.Height = -16
+        Font.Name = 'Consolas'
+        ParentFont = False
+        ReadOnly = True
+        ScrollBars = ssBoth
+        TabOrder = 0
+      end
+    end
+    object TabSections: TTabSheet
+      Caption = 'Sections & Entropy'
+      ClientHeight = 709
+      ClientWidth = 1167
+      object LvSections: TListView
+        Left = 0
+        Height = 709
+        Top = 0
+        Width = 1167
+        Align = alClient
+        Columns = <        
+          item
+            Caption = 'Section'
+            Width = 112
+          end        
+          item
+            Caption = 'Virtual Size'
+            Width = 125
+          end        
+          item
+            Caption = 'Virtual Address'
+            Width = 138
+          end        
+          item
+            Caption = 'Raw Size'
+            Width = 125
+          end        
+          item
+            Caption = 'Raw Offset'
+            Width = 125
+          end        
+          item
+            Caption = 'Characteristics'
+            Width = 138
+          end        
+          item
+            Caption = 'Entropy (0.0-8.0)'
+            Width = 162
+          end        
+          item
+            Caption = 'Packing / Crypt Status'
+            Width = 300
+          end>
+        GridLines = True
+        ReadOnly = True
+        RowSelect = True
+        TabOrder = 0
+        ViewStyle = vsReport
+        OnCustomDrawItem = LvSectionsCustomDrawItem
+      end
+    end
+    object TabImports: TTabSheet
+      Caption = 'Imports'
+      ClientHeight = 709
+      ClientWidth = 1167
+      object PnlImportsTop: TPanel
+        Left = 0
+        Height = 52
+        Top = 0
+        Width = 1167
+        Align = alTop
+        BevelOuter = bvNone
+        ClientHeight = 52
+        ClientWidth = 1167
+        Color = 15395562
+        ParentBackground = False
+        ParentColor = False
+        TabOrder = 0
+        object LblImportFilter: TLabel
+          Left = 18
+          Height = 20
+          Top = 15
+          Width = 79
+          Caption = 'Search API:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object EditImportFilter: TEdit
+          Left = 138
+          Height = 28
+          Top = 11
+          Width = 400
+          TabOrder = 0
+          OnChange = EditImportFilterChange
+        end
+      end
+      object PnlImportsLeft: TPanel
+        Left = 0
+        Height = 657
+        Top = 52
+        Width = 325
+        Align = alLeft
+        BevelOuter = bvNone
+        ClientHeight = 657
+        ClientWidth = 325
+        ParentBackground = False
+        TabOrder = 1
+        object LblImportDllsTitle: TLabel
+          Left = 0
+          Height = 20
+          Top = 0
+          Width = 325
+          Align = alTop
+          Caption = ' Imported DLLs:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object LbImportDlls: TListBox
+          Left = 0
+          Height = 637
+          Top = 20
+          Width = 325
+          Align = alClient
+          ItemHeight = 0
+          TabOrder = 0
+          OnSelectionChange = LbImportDllsSelectionChange
+        end
+      end
+      object LvImportFunctions: TListView
+        Left = 325
+        Height = 657
+        Top = 52
+        Width = 842
+        Align = alClient
+        Columns = <        
+          item
+            Caption = '#'
+            Width = 75
+          end        
+          item
+            Caption = 'Imported Function / API Name'
+            Width = 725
+          end>
+        GridLines = True
+        ReadOnly = True
+        RowSelect = True
+        TabOrder = 2
+        ViewStyle = vsReport
+      end
+    end
+    object TabExports: TTabSheet
+      Caption = 'Exports'
+      ClientHeight = 709
+      ClientWidth = 1167
+      object MemoExportsInfo: TMemo
+        Left = 0
+        Height = 112
+        Top = 0
+        Width = 1167
+        Align = alTop
+        Color = 16513784
+        Font.Color = 3813927
+        Font.Height = -16
+        Font.Name = 'Consolas'
+        ParentFont = False
+        ReadOnly = True
+        ScrollBars = ssVertical
+        TabOrder = 0
+      end
+      object LvExports: TListView
+        Left = 0
+        Height = 597
+        Top = 112
+        Width = 1167
+        Align = alClient
+        Columns = <        
+          item
+            Caption = 'Ordinal'
+            Width = 100
+          end        
+          item
+            Caption = 'RVA'
+            Width = 138
+          end        
+          item
+            Caption = 'Exported Function Name'
+            Width = 875
+          end>
+        GridLines = True
+        ReadOnly = True
+        RowSelect = True
+        TabOrder = 1
+        ViewStyle = vsReport
+      end
+    end
+    object TabStrings: TTabSheet
+      Caption = 'Strings'
+      ClientHeight = 709
+      ClientWidth = 1167
+      object PnlStringsTop: TPanel
+        Left = 0
+        Height = 52
+        Top = 0
+        Width = 1167
+        Align = alTop
+        BevelOuter = bvNone
+        ClientHeight = 52
+        ClientWidth = 1167
+        Color = 15395562
+        ParentBackground = False
+        ParentColor = False
+        TabOrder = 0
+        object LblStringFilter: TLabel
+          Left = 18
+          Height = 20
+          Top = 15
+          Width = 84
+          Caption = 'Search Text:'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+        object EditStringFilter: TEdit
+          Left = 132
+          Height = 28
+          Top = 11
+          Width = 325
+          TabOrder = 0
+          OnChange = EditStringFilterChange
+        end
+        object CbStringFilterCategory: TComboBox
+          Left = 475
+          Height = 28
+          Top = 11
+          Width = 325
+          ItemHeight = 20
+          ItemIndex = 0
+          Items.Strings = (
+            'All Extracted Strings (min 4)'
+            'URLs & IP Endpoints'
+            'Registry Keys & Values'
+            'Executable & Script Extensions'
+          )
+          Style = csDropDownList
+          TabOrder = 1
+          Text = 'All Extracted Strings (min 4)'
+          OnChange = CbStringFilterCategoryChange
+        end
+      end
+      object LvStrings: TListView
+        Left = 0
+        Height = 657
+        Top = 52
+        Width = 1167
+        Align = alClient
+        Columns = <        
+          item
+            Caption = '#'
+            Width = 88
+          end        
+          item
+            Caption = 'Extracted String Content'
+            Width = 1038
+          end>
+        GridLines = True
+        ReadOnly = True
+        RowSelect = True
+        TabOrder = 1
+        ViewStyle = vsReport
+      end
+    end
+    object TabHex: TTabSheet
+      Caption = 'Hex Viewer'
+      ClientHeight = 709
+      ClientWidth = 1167
+      object PnlHexTop: TPanel
+        Left = 0
+        Height = 52
+        Top = 0
+        Width = 1167
+        Align = alTop
+        BevelOuter = bvNone
+        ClientHeight = 52
+        ClientWidth = 1167
+        Color = 15395562
+        ParentBackground = False
+        ParentColor = False
+        TabOrder = 0
+        object BtnHexFirstPage: TButton
+          Left = 12
+          Height = 32
+          Top = 10
+          Width = 85
+          Caption = '<< First'
+          TabOrder = 0
+          OnClick = BtnHexFirstPageClick
+        end
+        object BtnHexPrevPage: TButton
+          Left = 102
+          Height = 32
+          Top = 10
+          Width = 80
+          Caption = '< Prev'
+          TabOrder = 1
+          OnClick = BtnHexPrevPageClick
+        end
+        object BtnHexNextPage: TButton
+          Left = 188
+          Height = 32
+          Top = 10
+          Width = 80
+          Caption = 'Next >'
+          TabOrder = 2
+          OnClick = BtnHexNextPageClick
+        end
+        object BtnHexLastPage: TButton
+          Left = 272
+          Height = 32
+          Top = 10
+          Width = 85
+          Caption = 'Last >>'
+          TabOrder = 3
+          OnClick = BtnHexLastPageClick
+        end
+        object BtnHexGotoOffset: TButton
+          Left = 370
+          Height = 32
+          Top = 10
+          Width = 138
+          Caption = 'Go to Offset...'
+          TabOrder = 4
+          OnClick = BtnHexGotoOffsetClick
+        end
+        object BtnHexCopy: TButton
+          Left = 515
+          Height = 32
+          Top = 10
+          Width = 100
+          Caption = 'Copy'
+          TabOrder = 5
+          OnClick = BtnHexCopyClick
+        end
+        object LblHexPageInfo: TLabel
+          Left = 632
+          Height = 20
+          Top = 15
+          Width = 515
+          Anchors = [akTop, akLeft, akRight]
+          Caption = 'Page 0 of 0'
+          Font.Style = [fsBold]
+          ParentColor = False
+          ParentFont = False
+        end
+      end
+      object MemoHexView: TMemo
+        Left = 0
+        Height = 657
+        Top = 52
+        Width = 1167
+        Align = alClient
+        Color = 16513784
+        Font.Color = 3813927
+        Font.Height = -16
+        Font.Name = 'Consolas'
+        ParentFont = False
+        ReadOnly = True
+        ScrollBars = ssBoth
+        TabOrder = 1
+        WordWrap = False
+      end
+    end
+  end
+  object OpenDialog: TOpenDialog
+    Title = 'Select File for VirusKovAlyzer Deep Inspection'
+    Filter = 'All Files (*.*)|*.*|Executables (*.exe;*.dll;*.sys)|*.exe;*.dll;*.sys'
+    Left = 975
+    Top = 20
+  end
+end

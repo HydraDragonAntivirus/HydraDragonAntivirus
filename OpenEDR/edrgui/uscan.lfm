@@ -267,11 +267,13 @@ object ScanForm: TScanForm
       Font.Height = -12
       HideSelection = False
       MultiSelect = True
+      PopupMenu = PopupMenuResults
       ReadOnly = True
       RowSelect = True
       TabOrder = 0
       ViewStyle = vsReport
       OnCustomDrawItem = ResultsDrawItem
+      OnDblClick = ResultsViewDblClick
     end
   end
   object PollTimer: TTimer
@@ -280,5 +282,13 @@ object ScanForm: TScanForm
     OnTimer = PollTick
     left = 860
     top = 20
+  end
+  object PopupMenuResults: TPopupMenu
+    Left = 800
+    Top = 20
+    object MenuItemInspectVirusKov: TMenuItem
+      Caption = 'Inspect with VirusKovAlyzer (Deep Analysis)...'
+      OnClick = MenuItemInspectVirusKovClick
+    end
   end
 end
