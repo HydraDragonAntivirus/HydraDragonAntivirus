@@ -301,6 +301,12 @@ pub enum RuleCondition {
     /// Hex byte pattern. Supports `{ 4D 5A ?? 90 E8 }` and nibble wildcards like `4?`.
     BytePattern {
         pattern: String,
+        /// Restrict the search to a byte window of the file.
+        #[serde(default)]
+        scope: Option<ByteScope>,
+        /// Known-benign blobs that veto this condition when any of them is present.
+        #[serde(default)]
+        excludes: Vec<String>,
     },
 
     /// Byte pattern group.
@@ -308,7 +314,29 @@ pub enum RuleCondition {
         patterns: Vec<String>,
         #[serde(default)]
         min: Option<usize>,
+        /// Restrict every search in this group to a byte window of the file.
+        #[serde(default)]
+        scope: Option<ByteScope>,
+        /// Known-benign blobs that veto this condition when any of them is present.
+        #[serde(default)]
+        excludes: Vec<String>,
     },
+}
+
+/// Byte window a byte pattern is searched in.
+///
+/// Offsets are resolved against the file size. Negative values count backwards
+/// from the end of the file, so `{ start: -4096 }` restricts the search to the
+/// last 4 KiB (typical for appended overlay payloads) and `{ end: -4096 }`
+/// restricts it to everything but the last 4 KiB.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct ByteScope {
+    /// Inclusive start offset, or negative to count from end of file.
+    #[serde(default)]
+    pub start: Option<i64>,
+    /// Exclusive end offset, or negative to count from end of file.
+    #[serde(default)]
+    pub end: Option<i64>,
 }
 
 fn default_true() -> bool {

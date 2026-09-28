@@ -406,12 +406,22 @@ fn warm_rule_caches(rule: &Rule) {
             } => {
                 let _ = cached_literal_set(values, *nocase);
             }
-            RuleCondition::BytePattern { pattern } => {
+            RuleCondition::BytePattern {
+                pattern, excludes, ..
+            } => {
                 let _ = cached_byte_pattern(pattern);
+                for exclusion in excludes {
+                    let _ = cached_byte_pattern(exclusion);
+                }
             }
-            RuleCondition::ByteSet { patterns, .. } => {
+            RuleCondition::ByteSet {
+                patterns, excludes, ..
+            } => {
                 for pattern in patterns {
                     let _ = cached_byte_pattern(pattern);
+                }
+                for exclusion in excludes {
+                    let _ = cached_byte_pattern(exclusion);
                 }
             }
             RuleCondition::NativeSignature { atoms, .. } => {
@@ -882,19 +892,37 @@ fn evaluate_condition(
             let current = report.features.get(name)?.as_f64()?;
             (current >= *value).then(|| format!("feature {}={} >= {}", name, current, value))
         }
-        RuleCondition::BytePattern { pattern } => {
+        RuleCondition::BytePattern {
+            pattern,
+            scope,
+            excludes,
+        } => {
+            if let Some(hit) = find_excluded_byte(excludes, bytes) {
+                let _ = hit;
+                return None;
+            }
             let compiled = cached_byte_pattern(pattern)?;
-            find_byte_pattern(bytes, compiled.as_ref())
+            let (start, end) = resolve_scope(bytes.len(), scope.as_ref());
+            find_byte_pattern_in(bytes, compiled.as_ref(), start, end)
                 .map(|offset| format!("byte_pattern `{}` at 0x{:x}", pattern, offset))
         }
-        RuleCondition::ByteSet { patterns, min } => {
+        RuleCondition::ByteSet {
+            patterns,
+            min,
+            scope,
+            excludes,
+        } => {
+            if find_excluded_byte(excludes, bytes).is_some() {
+                return None;
+            }
             let needed = min.unwrap_or(1).max(1);
+            let (start, end) = resolve_scope(bytes.len(), scope.as_ref());
             let mut evidence = Vec::new();
             for pattern in patterns {
-                if let Some(compiled) = cached_byte_pattern(pattern) {
-                    if let Some(offset) = find_byte_pattern(bytes, compiled.as_ref()) {
-                        evidence.push(format!("`{}` at 0x{:x}", pattern, offset));
-                    }
+                if let Some(compiled) = cached_byte_pattern(pattern)
+                    && let Some(offset) = find_byte_pattern_in(bytes, compiled.as_ref(), start, end)
+                {
+                    evidence.push(format!("`{}` at 0x{:x}", pattern, offset));
                 }
                 if evidence.len() >= needed {
                     return Some(format!(
@@ -908,6 +936,19 @@ fn evaluate_condition(
             None
         }
     }
+}
+
+/// Returns the offset of the first known-benign blob that vetoes a byte
+/// condition, or `None` when no exclusion is configured or none of them matched.
+fn find_excluded_byte(excludes: &[String], bytes: &[u8]) -> Option<usize> {
+    for exclusion in excludes {
+        if let Some(compiled) = cached_byte_pattern(exclusion) {
+            if let Some(offset) = find_byte_pattern(bytes, compiled.as_ref()) {
+                return Some(offset);
+            }
+        }
+    }
+    None
 }
 
 fn match_string_set_literals(
@@ -2296,6 +2337,45 @@ fn hex_nibble(c: char) -> Option<(u8, u8)> {
 }
 
 fn find_byte_pattern(bytes: &[u8], pattern: &CompiledBytePattern) -> Option<usize> {
+    find_byte_pattern_in(bytes, pattern, 0, bytes.len())
+}
+
+/// Resolve a [`ByteScope`] against a file size into an absolute `[start, end)` window.
+/// Negative offsets count backwards from the end of the file.
+fn resolve_scope(len: usize, scope: Option<&ByteScope>) -> (usize, usize) {
+    let Some(scope) = scope else {
+        return (0, len);
+    };
+    let anchor = |offset: i64| -> usize {
+        if offset < 0 {
+            len.saturating_sub(offset.unsigned_abs() as usize)
+        } else {
+            (offset as usize).min(len)
+        }
+    };
+    let start = scope.start.map(anchor).unwrap_or(0).min(len);
+    let end = scope
+        .end
+        .map(anchor)
+        .unwrap_or(len)
+        .max(start)
+        .min(len);
+    (start, end)
+}
+
+fn find_byte_pattern_in(
+    bytes: &[u8],
+    pattern: &CompiledBytePattern,
+    start: usize,
+    end: usize,
+) -> Option<usize> {
+    if start >= end {
+        return None;
+    }
+    find_byte_pattern_unscoped(&bytes[start..end], pattern).map(|offset| offset + start)
+}
+
+fn find_byte_pattern_unscoped(bytes: &[u8], pattern: &CompiledBytePattern) -> Option<usize> {
     let tokens = pattern.tokens.as_slice();
     if tokens.is_empty() || tokens.len() > bytes.len() {
         return None;
@@ -2412,3 +2492,167 @@ fn path_matches_required(actual_path: &std::path::Path, required: &str) -> bool 
 
 #[allow(dead_code)]
 static _REGEX_COMPILE_GUARD: Lazy<Regex> = Lazy::new(|| Regex::new(".*").unwrap());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pat(pattern: &str) -> CompiledBytePattern {
+        compile_byte_pattern(pattern).expect("pattern must compile")
+    }
+
+    fn scope(start: Option<i64>, end: Option<i64>) -> ByteScope {
+        ByteScope { start, end }
+    }
+
+    #[test]
+    fn scope_defaults_to_whole_file() {
+        assert_eq!(resolve_scope(100, None), (0, 100));
+    }
+
+    #[test]
+    fn scope_absolute_range() {
+        assert_eq!(resolve_scope(100, Some(&scope(Some(10), Some(20)))), (10, 20));
+    }
+
+    #[test]
+    fn scope_negative_counts_from_end() {
+        // last 16 bytes
+        assert_eq!(resolve_scope(100, Some(&scope(Some(-16), None))), (84, 100));
+        // everything but the last 16 bytes
+        assert_eq!(resolve_scope(100, Some(&scope(None, Some(-16)))), (0, 84));
+    }
+
+    #[test]
+    fn scope_clamps_and_repairs_inverted_ranges() {
+        assert_eq!(resolve_scope(100, Some(&scope(Some(500), Some(900)))), (100, 100));
+        assert_eq!(resolve_scope(100, Some(&scope(Some(-500), None))), (0, 100));
+        // end before start must not underflow the window
+        assert_eq!(resolve_scope(100, Some(&scope(Some(80), Some(20)))), (80, 80));
+    }
+
+    #[test]
+    fn find_in_window_respects_scope() {
+        let bytes = b"AAAA-PAYLOAD-BBBB";
+        let needle = pat("50 41 59 4C 4F 41 44");
+        // whole file: found
+        assert!(find_byte_pattern(bytes, &needle).is_some());
+        // window that excludes the hit: not found
+        assert!(find_byte_pattern_in(bytes, &needle, 0, 5).is_none());
+        // window that contains the hit: found, offset is absolute
+        let at = find_byte_pattern_in(bytes, &needle, 5, 12).expect("hit inside window");
+        assert_eq!(&bytes[at..at + 7], b"PAYLOAD");
+    }
+
+    #[test]
+    fn find_in_window_preserves_wildcards() {
+        let bytes = b"\x4D\x5A\x90\x00\xE8";
+        let needle = pat("4D 5A ?? ?? E8");
+        assert_eq!(find_byte_pattern_in(bytes, &needle, 0, 5), Some(0));
+        assert_eq!(find_byte_pattern_in(bytes, &needle, 1, 5), None);
+    }
+
+    #[test]
+    fn exclusion_vetoes_a_matched_pattern() {
+        let bytes = b"good-payload-with-known-benign-marker";
+        let needle = pat("70 61 79 6C 6F 61 64");
+        assert!(find_byte_pattern(bytes, &needle).is_some());
+        // no exclusions configured -> no veto
+        assert!(find_excluded_byte(&[], bytes).is_none());
+        // exclusion present but absent from the file -> no veto
+        assert!(find_excluded_byte(&["DEADBEEF".to_string()], bytes).is_none());
+        // exclusion present -> veto
+        let veto = find_excluded_byte(&["6B 6E 6F 77 6E".to_string()], bytes);
+        assert!(veto.is_some());
+        assert_eq!(&bytes[veto.unwrap()..veto.unwrap() + 5], b"known");
+    }
+
+    #[test]
+    fn yaml_scope_and_excludes_deserialize() {
+        let yaml = r#"
+name: scope-test
+version: "1.0"
+rules:
+  - id: T_SCOPE_0001
+    title: overlay payload in last 4 KiB, unless known benign blob present
+    severity: high
+    verdict: malware
+    conditions:
+      - type: byte_pattern
+        pattern: "{ 50 41 59 4C 4F 41 44 }"
+        scope:
+          start: -4096
+        excludes:
+          - "6B 6E 6F 77 6E"
+      - type: byte_set
+        patterns:
+          - "AA BB"
+          - "CC DD"
+        min: 2
+        scope:
+          start: 0
+          end: 1024
+        excludes:
+          - "EE FF"
+"#;
+        let parsed: YamlRulesFile = yaml_serde::from_str(yaml).expect("yaml must parse");
+        assert_eq!(parsed.rules.len(), 1);
+        let rule = &parsed.rules[0];
+        assert_eq!(rule.conditions.len(), 2);
+
+        match &rule.conditions[0] {
+            RuleCondition::BytePattern {
+                pattern,
+                scope,
+                excludes,
+            } => {
+                assert_eq!(pattern, "{ 50 41 59 4C 4F 41 44 }");
+                assert_eq!(scope.and_then(|s| s.start), Some(-4096));
+                assert_eq!(scope.and_then(|s| s.end), None);
+                assert_eq!(excludes, &vec!["6B 6E 6F 77 6E".to_string()]);
+            }
+            other => panic!("expected BytePattern, got {other:?}"),
+        }
+
+        match &rule.conditions[1] {
+            RuleCondition::ByteSet {
+                patterns,
+                min,
+                scope,
+                excludes,
+            } => {
+                assert_eq!(patterns.len(), 2);
+                assert_eq!(*min, Some(2));
+                assert_eq!(scope.and_then(|s| s.start), Some(0));
+                assert_eq!(scope.and_then(|s| s.end), Some(1024));
+                assert_eq!(excludes, &vec!["EE FF".to_string()]);
+            }
+            other => panic!("expected ByteSet, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn yaml_without_scope_still_deserializes() {
+        let yaml = r#"
+name: back-compat
+rules:
+  - id: T_OLD_0001
+    title: legacy rule, no scope and no excludes
+    severity: low
+    conditions:
+      - type: byte_pattern
+        pattern: "4D 5A"
+"#;
+        let parsed: YamlRulesFile = yaml_serde::from_str(yaml).expect("legacy yaml must still parse");
+        match &parsed.rules[0].conditions[0] {
+            RuleCondition::BytePattern {
+                pattern, scope, excludes, ..
+            } => {
+                assert_eq!(pattern, "4D 5A");
+                assert!(scope.is_none());
+                assert!(excludes.is_empty());
+            }
+            other => panic!("expected BytePattern, got {other:?}"),
+        }
+    }
+}
