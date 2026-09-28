@@ -66,4 +66,5 @@ detection:
 falsepositives:
     - Unknown
 level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_susp_copy_system_dir_lolbin/info.yml
 ruletype: Sigma

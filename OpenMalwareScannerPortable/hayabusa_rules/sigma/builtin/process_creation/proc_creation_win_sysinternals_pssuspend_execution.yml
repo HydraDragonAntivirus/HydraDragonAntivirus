@@ -12,6 +12,7 @@ references:
     - https://twitter.com/0gtweet/status/1638069413717975046
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-03-23
+modified: 2026-06-29
 tags:
     - attack.privilege-escalation
     - attack.discovery
@@ -29,6 +30,7 @@ detection:
         - NewProcessName|endswith:
               - \pssuspend.exe
               - \pssuspend64.exe
+              - \pssuspend64a.exe
     condition: process_creation and selection
 falsepositives:
     - Unknown

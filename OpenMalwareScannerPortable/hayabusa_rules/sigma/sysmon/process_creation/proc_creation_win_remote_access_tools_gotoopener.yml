@@ -32,4 +32,5 @@ detection:
 falsepositives:
     - Legitimate use
 level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_remote_access_tools_gotoopener/info.yml
 ruletype: Sigma

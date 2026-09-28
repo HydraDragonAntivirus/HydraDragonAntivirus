@@ -13,7 +13,7 @@ references:
     - Internal Research
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-24
-modified: 2025-10-26
+modified: 2026-06-29
 tags:
     - attack.resource-development
     - attack.t1588.002
@@ -46,26 +46,35 @@ detection:
             # Please add new values while respecting the alphabetical order
             - \ADExplorer.exe
             - \ADExplorer64.exe
+            - \ADExplorer64a.exe
             - \handle.exe
             - \handle64.exe
+            - \handle64a.exe
             - \livekd.exe
             - \livekd64.exe
             - \procdump.exe
             - \procdump64.exe
+            - \procdump64a.exe
             - \procexp.exe
             - \procexp64.exe
+            - \procexp64a.exe
             - \PsExec.exe
             - \PsExec64.exe
+            - \PsExec64a.exe
             - \PsLoggedon.exe
             - \PsLoggedon64.exe
             - \psloglist.exe
             - \psloglist64.exe
+            - \psloglist64a.exe
             - \pspasswd.exe
             - \pspasswd64.exe
+            - \pspasswd64a.exe
             - \PsPing.exe
             - \PsPing64.exe
+            - \PsPing64a.exe
             - \PsService.exe
             - \PsService64.exe
+            - \PsService64a.exe
             - \sdelete.exe
     condition: registry_set and (selection and not filter)
 falsepositives:

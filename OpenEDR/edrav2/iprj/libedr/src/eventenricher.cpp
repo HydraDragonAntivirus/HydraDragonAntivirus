@@ -4053,10 +4053,9 @@ void EventEnricher::put(const Variant& vEventRef)
 								isSignedTrusted = true;
 						} catch (...) {}
 					}
-					bool isProcessTrusted = isCloudClean || isSignedTrusted;
-					vProcess.put("isTrusted", isProcessTrusted);
+					bool isUsbSrcTrusted = isCloudClean || isSignedTrusted;
 
-					if (!isProcessTrusted && !sProcPath.empty())
+					if (!isUsbSrcTrusted && !sProcPath.empty())
 					{
 						std::wstring wsSrcProc = NormalizeToDosPath(Widen(sProcPath));
 						int similarity = UsbWormDetection::calculateExeSimilarity(wsSrcProc, wsDestPath);
@@ -4092,10 +4091,6 @@ void EventEnricher::put(const Variant& vEventRef)
 							}
 
 							ZeroTrust::recordThreatDetection();
-
-							uint32_t nActorPid = 0;
-							if (vProcess.has("pid")) nActorPid = static_cast<uint32_t>(vProcess["pid"]);
-							else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
 
 							if (nActorPid > 0 && !DetectionNotifier::isProtectionPaused())
 							{

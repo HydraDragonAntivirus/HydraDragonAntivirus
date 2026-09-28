@@ -49,4 +49,5 @@ falsepositives:
     - AV Signature updates
     - Files with Mimikatz in their filename
 level: high
+regression_tests_path: regression_data/rules/windows/builtin/win_alert_mimikatz_keywords/info.yml
 ruletype: Sigma

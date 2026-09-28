@@ -16,7 +16,7 @@ references:
     - https://gist.github.com/GlebSukhodolskiy/0fc5fa5f482903064b448890db1eaf9d # a list with registry keys
 author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur Zinniatullin, oscd.community, Tim Shelton, frack113 (split)
 date: 2019-10-25
-modified: 2026-01-09
+modified: 2026-08-28
 tags:
     - attack.privilege-escalation
     - attack.persistence
@@ -53,7 +53,7 @@ detection:
             - C:\Windows\System32\msiexec.exe
             - C:\Windows\SysWOW64\msiexec.exe
             - C:\Windows\System32\regsvr32.exe
-            - 'C:\Windows\SysWOW64\regsvr32.exe '
+            - C:\Windows\SysWOW64\regsvr32.exe
         ObjectName|contains:
             - \Excel\Addins\AdHocReportingExcelClientLib.AdHocReportingExcelClientAddIn.1\
             - \Excel\Addins\ExcelPlugInShell.PowerMapConnect\
@@ -64,7 +64,7 @@ detection:
             - \Outlook\AddIns\ColleagueImport.ColleagueImportAddin\
             - \Outlook\AddIns\EvernoteCC.EvernoteContactConnector\
             - \Outlook\AddIns\EvernoteOLRD.Connect\
-            - \Outlook\Addins\\OneNote.OutlookAddin
+            - \Outlook\Addins\OneNote.OutlookAddin
             - \Outlook\Addins\DriveFSExtensionLib.Connect\
             - \Outlook\Addins\GoogleAppsSync.Connect\
             - \Outlook\Addins\Microsoft.VbaAddinForOutlook.1\

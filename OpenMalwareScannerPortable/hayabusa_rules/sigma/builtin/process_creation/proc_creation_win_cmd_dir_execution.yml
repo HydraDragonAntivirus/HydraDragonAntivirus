@@ -10,7 +10,7 @@ references:
     - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1217/T1217.md
 author: frack113
 date: 2021-12-13
-modified: 2024-04-14
+modified: 2026-05-18
 tags:
     - attack.discovery
     - attack.t1217
@@ -25,8 +25,11 @@ detection:
         - NewProcessName|endswith: \cmd.exe
         - OriginalFileName: Cmd.Exe
     selection_cli:
-        CommandLine|contains|windash: dir*-s
-    condition: process_creation and (all of selection_*)
+        CommandLine|contains|windash: -s
+        CommandLine|contains: 'dir '
+    filter_main_rmdir:
+        CommandLine|contains: rmdir
+    condition: process_creation and (all of selection_* and not 1 of filter_main_*)
 falsepositives:
     - Likely
 level: low

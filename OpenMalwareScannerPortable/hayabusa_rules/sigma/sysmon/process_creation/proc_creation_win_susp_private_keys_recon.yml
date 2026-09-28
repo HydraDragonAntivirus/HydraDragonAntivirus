@@ -54,4 +54,5 @@ detection:
 falsepositives:
     - Unknown
 level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_susp_private_keys_recon/info.yml
 ruletype: Sigma

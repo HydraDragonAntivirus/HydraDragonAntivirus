@@ -48,4 +48,5 @@ detection:
 falsepositives:
     - Unlikely
 level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_schtasks_reg_loader_encoded/info.yml
 ruletype: Sigma

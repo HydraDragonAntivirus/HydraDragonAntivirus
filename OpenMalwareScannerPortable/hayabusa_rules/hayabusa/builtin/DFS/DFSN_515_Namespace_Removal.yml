@@ -1,0 +1,61 @@
+title: DFS Namespace Removal
+description: Detects removal of a DFS namespace, which may be indicative of a forced authentication attack through tools such as DFSCoerce. If the DFS server specified is not expected, this should be correlated with Named Pipe events to "\netdfs" and NTLM authentications for further investigation.
+id: 0346e3b9-3783-468f-9e07-ef8d490846eb
+level: low
+status: stable
+
+author: Joshua Bishop (skryptkiddie)
+date: 2026-08-24
+modified: 2026-08-24
+
+logsource:
+    product: windows
+    service: dfsn-server
+    definition: Requires events from Microsoft-Windows-DFSN-Server/Admin.
+detection:
+    selection_basic:
+        Channel: Microsoft-Windows-DFSN-Server/Admin
+        EventID: 515
+    condition: selection_basic
+fields:
+    - ServerName
+    - RootShare
+
+falsepositives:
+    - Legitimate DFS Namespace changes.
+tags:
+    - t1187
+    - attack.credential-access
+references:
+    - https://www.praetorian.com/blog/how-to-detect-dfscoerce/
+    - https://github.com/Wh04m1001/DFSCoerce/
+ruletype: hayabusa
+
+sample-message: |
+    Request to remove standalone or clustered dfs namespace completed with status 5. The namepspace server and share name are DfsServer:10.10.3.110 Share:a.
+sample-evtx: |
+    <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+        <System>
+            <Provider Name="Microsoft-Windows-DFSN-Server" Guid="{b6c4e17a-2cac-4273-a390-6f6b8c8c9f01}" /> 
+            <EventID>515</EventID> 
+            <Version>0</Version> 
+            <Level>4</Level> 
+            <Task>2</Task> 
+            <Opcode>50</Opcode> 
+            <Keywords>0x4000000000000002</Keywords> 
+            <TimeCreated SystemTime="2026-06-14T12:15:01.1732783Z" /> 
+            <EventRecordID>4</EventRecordID> 
+            <Correlation /> 
+            <Execution ProcessID="3000" ThreadID="7000" /> 
+            <Channel>Microsoft-Windows-DFSN-Server/Admin</Channel> 
+            <Computer>PRI-DC01.site.com</Computer> 
+            <Security UserID="S-1-5-18" /> 
+        </System>
+        <EventData>
+            <Data Name="ServerName">10.10.3.110</Data> 
+            <Data Name="RootShare">a</Data> 
+            <Data Name="Flags">0</Data> 
+            <Data Name="Status">5</Data> 
+            <Data Name="TimeConsumedInMilliSeconds">80</Data> 
+        </EventData>
+    </Event>

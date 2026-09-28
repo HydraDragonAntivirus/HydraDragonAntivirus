@@ -1,4 +1,4 @@
-title: Antivirus Relevant File Paths Alerts
+title: Antivirus - Relevant File Paths Alerts Signature
 id: a1be9170-2ada-e8bb-285c-3e1ff336189e
 related:
     - id: c9a88268-0047-4824-ba6e-4d81ce0b907c
@@ -11,7 +11,7 @@ references:
     - https://www.nextron-systems.com/?s=antivirus
 author: Florian Roth (Nextron Systems), Arnim Rupp
 date: 2018-09-09
-modified: 2024-11-02
+modified: 2026-06-29
 tags:
     - attack.resource-development
     - attack.t1588

@@ -28,4 +28,5 @@ detection:
 falsepositives:
     - Legitimate use of the library
 level: medium
+regression_tests_path: regression_data/rules/windows/powershell/powershell_script/posh_ps_dotnet_assembly_from_file/info.yml
 ruletype: Sigma

@@ -29,4 +29,5 @@ detection:
 falsepositives:
     - Unknown
 level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_lolbin_replace/info.yml
 ruletype: Sigma

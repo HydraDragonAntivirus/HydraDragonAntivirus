@@ -26,4 +26,5 @@ detection:
 falsepositives:
     - Unknown
 level: medium
+regression_tests_path: regression_data/rules/windows/file/file_event/file_event_win_install_teamviewer_desktop/info.yml
 ruletype: Sigma

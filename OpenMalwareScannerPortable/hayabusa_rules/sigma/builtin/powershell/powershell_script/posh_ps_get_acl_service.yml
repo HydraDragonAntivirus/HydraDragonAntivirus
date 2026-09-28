@@ -38,4 +38,5 @@ detection:
 falsepositives:
     - Legitimate administrative script
 level: medium
+regression_tests_path: regression_data/rules/windows/powershell/powershell_script/posh_ps_get_acl_service/info.yml
 ruletype: Sigma

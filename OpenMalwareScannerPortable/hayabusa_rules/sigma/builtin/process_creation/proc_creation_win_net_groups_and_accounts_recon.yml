@@ -62,4 +62,5 @@ falsepositives:
     - Inventory tool runs
     - Administrative activity
 level: medium
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_net_groups_and_accounts_recon/info.yml
 ruletype: Sigma

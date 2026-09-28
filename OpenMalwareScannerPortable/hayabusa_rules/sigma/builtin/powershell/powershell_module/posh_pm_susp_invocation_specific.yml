@@ -85,4 +85,5 @@ detection:
 falsepositives:
     - Unknown
 level: high
+regression_tests_path: regression_data/rules/windows/powershell/powershell_module/posh_pm_susp_invocation_specific/info.yml
 ruletype: Sigma

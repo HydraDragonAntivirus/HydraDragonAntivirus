@@ -40,4 +40,5 @@ detection:
 falsepositives:
     - Unknown
 level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_lolbin_mavinject_process_injection/info.yml
 ruletype: Sigma

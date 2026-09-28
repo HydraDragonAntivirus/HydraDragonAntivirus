@@ -1,4 +1,4 @@
-title: Antivirus Hacktool Detection
+title: Antivirus - Hacktool Signature
 id: f3d20838-65fe-0575-52a9-fd41ce2a5fdd
 related:
     - id: fa0c05b6-8ad3-468d-8231-c1cbccb64fba
@@ -12,7 +12,7 @@ references:
     - https://www.nextron-systems.com/?s=antivirus
 author: Florian Roth (Nextron Systems), Arnim Rupp
 date: 2021-08-16
-modified: 2024-11-02
+modified: 2026-06-15
 tags:
     - attack.execution
     - attack.t1204
@@ -48,12 +48,15 @@ detection:
               # - 'FRP.'
         - ThreatName|contains:
               - Adfind
+              - BloodH
+              - BloodyAD
               - Brutel
               - BruteR
               - Cobalt
               - COBEACON
               - Cometer
               - DumpCreds
+              - EDRfreeze
               - FastReverseProxy
               - Hacktool
               - Havoc
@@ -70,6 +73,7 @@ detection:
               - PSWTool
               - PWCrack
               - PWDump
+              - Responder
               - Rozena
               - Rusthound
               - Sbelt
@@ -82,8 +86,12 @@ detection:
               - Snaffler
               - SOAPHound
               - Splinter
+              - Stowaway
               - Swrort
+              - Trojan.Hound
               - TurtleLoader
+              - Undefend
+              - Undfnd
     condition: antivirus and selection
 falsepositives:
     - Unlikely

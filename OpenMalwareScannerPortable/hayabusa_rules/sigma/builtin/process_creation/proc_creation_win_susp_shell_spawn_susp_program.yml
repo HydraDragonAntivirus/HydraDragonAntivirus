@@ -68,4 +68,5 @@ falsepositives:
     - Administrative scripts
     - Microsoft SCCM
 level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_susp_shell_spawn_susp_program/info.yml
 ruletype: Sigma

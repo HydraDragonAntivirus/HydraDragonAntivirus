@@ -13,7 +13,7 @@ references:
     - https://learn.microsoft.com/en-us/sysinternals/downloads/procdump
 author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
 date: 2019-11-18
-modified: 2024-06-25
+modified: 2026-06-29
 tags:
     - attack.stealth
     - attack.t1036.003
@@ -37,6 +37,7 @@ detection:
         NewProcessName|endswith:
             - \procdump.exe
             - \procdump64.exe
+            - \procdump64a.exe
     condition: process_creation and ((selection_ofn or all of selection_cli_*) and not 1 of filter_main_*)
 falsepositives:
     - Procdump illegally bundled with legitimate software.

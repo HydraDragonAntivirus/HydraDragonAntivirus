@@ -1,4 +1,4 @@
-title: Antivirus Ransomware Detection
+title: Antivirus - Ransomware Signature
 id: 22f82564-4b51-e901-bf00-ea94ff39b468
 related:
     - id: 4c6ca276-d4d0-4a8c-9e4c-d69832f8671f
@@ -17,7 +17,7 @@ references:
     - https://www.virustotal.com/gui/file/6f0f20da34396166df352bf301b3c59ef42b0bc67f52af3d541b0161c47ede05
 author: Florian Roth (Nextron Systems), Arnim Rupp
 date: 2022-05-12
-modified: 2024-11-02
+modified: 2026-06-15
 tags:
     - attack.t1486
     - attack.impact
@@ -43,12 +43,14 @@ detection:
         Channel: Microsoft-Windows-Windows Defender/Operational
     selection:
         ThreatName|contains:
+            - Babuk
+            - Babyk
             - BlackWorm
             - Chaos
             - Cobra
             - ContiCrypt
             - Crypter
-            - CRYPTES
+            - Cryptes
             - Cryptor
             - CylanCrypt
             - DelShad
@@ -63,8 +65,10 @@ detection:
             - Lockbit
             - Locker
             - Mallox
+            - Medusa
             - Phobos
             - Ransom
+            - Rook
             - Ryuk
             - Ryzerlo
             - Stopcrypt

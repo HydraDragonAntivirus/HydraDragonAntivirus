@@ -13,7 +13,7 @@ references:
     - Internal Research
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-24
-modified: 2023-08-17
+modified: 2026-06-29
 tags:
     - attack.resource-development
     - attack.t1588.002
@@ -39,20 +39,27 @@ detection:
         ProcessName|endswith:
             - \PsExec.exe
             - \PsExec64.exe
+            - \PsExec64a.exe
             - \procdump.exe
             - \procdump64.exe
+            - \procdump64a.exe
             - \handle.exe
             - \handle64.exe
+            - \handle64a.exe
             - \livekd.exe
             - \livekd64.exe
             - \procexp.exe
             - \procexp64.exe
+            - \procexp64a.exe
             - \psloglist.exe
             - \psloglist64.exe
+            - \psloglist64a.exe
             - \pspasswd.exe
             - \pspasswd64.exe
+            - \pspasswd64a.exe
             - \ADExplorer.exe
             - \ADExplorer64.exe
+            - \ADExplorer64a.exe
     filter_optional_null:
         ProcessName: null
     condition: registry_set and (selection and not 1 of filter_main_* and not 1 of filter_optional_*)

@@ -57,4 +57,5 @@ detection:
 falsepositives:
     - Unknown
 level: high
+regression_tests_path: regression_data/rules/windows/registry/registry_set/registry_set_creation_service_susp_folder/info.yml
 ruletype: Sigma

@@ -93,4 +93,5 @@ detection:
 falsepositives:
     - Legitimate usage of DSInternals for administration or audit purpose.
 level: high
+regression_tests_path: regression_data/rules/windows/process_creation/proc_creation_win_powershell_dsinternals_cmdlets/info.yml
 ruletype: Sigma
