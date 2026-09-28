@@ -43,8 +43,15 @@
 			"*.pif",
 			"*.com"
 		],
+		"trustMode": {
+			"COMODO_FLS": 1,
+			"MICROSOFT_CERT": 2,
+			"BOTH": 3
+		},
+		"configuredTrustMode": 3,
 		"driverPortEventBaseType": {
-			"MLE_DRIVER_PORT_EXPLOIT": 1000026
+			"MLE_DRIVER_PORT_EXPLOIT": 1000026,
+			"MLE_DRIVER_PORT_UNKNOWN_DLL_EXPLOIT": 1000027
 		},
 		"vulnerableDriverPorts": [
 			"*rwfilter*",
@@ -6577,6 +6584,73 @@
 			{
 				"eventType": "LLE_FILE_CREATE",
 				"rule": {
+					"name": "DriverPortUnknownDllExploitDetection",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "imatch",
+										"pattern": "@const.vulnerableDriverPorts",
+										"args": [ "@event.file.path" ]
+									},
+									{
+										"$operation": "imatch",
+										"pattern": "@const.vulnerableDriverPorts",
+										"args": [ "@event.file.rawPath" ]
+									}
+								]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "equal",
+										"args": [ "@event.process.hasUnknownDllComodo", true ]
+									},
+									{
+										"$operation": "equal",
+										"args": [ "@event.process.hasUnknownDllCertificate", true ]
+									},
+									{
+										"$operation": "equal",
+										"args": [ "@event.process.hasUnknownDll", true ]
+									}
+								]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_DRIVER_PORT_UNKNOWN_DLL_EXPLOIT",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": "@const.driverPortEventBaseType.MLE_DRIVER_PORT_UNKNOWN_DLL_EXPLOIT" },
+							{ "name": "threatName", "value": "Exploit.Win32.DriverPort.InjectedUnknownDll" },
+							{ "name": "threatType", "value": "DRIVER_PORT_UNKNOWN_DLL" },
+							{ "name": "verdict", "value": 2 },
+							{ "name": "flsVerdict", "value": 2 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "time", "value": "@event.time" },
+							{ "name": "tickTime", "value": "@event.tickTime" },
+							{ "name": "targetPort", "value": "@event.file.rawPath" },
+							{ "name": "quarantineTarget", "value": "@event.process.unknownDllPath" },
+							{ "name": "unknownDllPath", "value": "@event.process.unknownDllPath" },
+							{ "name": "hasUnknownDllComodo", "value": "@event.process.hasUnknownDllComodo" },
+							{ "name": "hasUnknownDllCertificate", "value": "@event.process.hasUnknownDllCertificate" },
+							{ "name": "should_trust_company_whitelist", "value": false },
+							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_CREATE",
+				"rule": {
 					"name": "VulnerableDriverPortExploitDetection",
 					"condition": {
 						"$operation": "and",
@@ -6597,8 +6671,21 @@
 								]
 							},
 							{
-								"$operation": "!equal",
-								"args": [ "@event.process.isTrusted", true ]
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "!equal",
+										"args": [ "@event.process.isTrusted", true ]
+									},
+									{
+										"$operation": "!equal",
+										"args": [ "@event.process.isTrustedAccordingToFls", true ]
+									},
+									{
+										"$operation": "!equal",
+										"args": [ "@event.process.isTrustedAccordingToCertificate", true ]
+									}
+								]
 							}
 						]
 					},
@@ -6620,6 +6707,57 @@
 							{ "name": "targetPort", "value": "@event.file.rawPath" },
 							{ "name": "should_trust_company_whitelist", "value": false },
 							{ "name": "should_trust_comodo_fls_cloud", "value": false }
+						]
+					}
+				}
+			},
+			{
+				"eventType": "LLE_FILE_DATA_WRITE_FULL",
+				"rule": {
+					"name": "UnknownExecutableFileScanDetection",
+					"condition": {
+						"$operation": "and",
+						"args": [
+							{
+								"$operation": "imatch",
+								"pattern": "@const.usbWormExtensions",
+								"args": [ "@event.file.path" ]
+							},
+							{
+								"$operation": "or",
+								"args": [
+									{
+										"$operation": "equal",
+										"args": [ "@event.file.isUnknownAccordingToComodo", true ]
+									},
+									{
+										"$operation": "equal",
+										"args": [ "@event.file.isUnknownAccordingToCertificate", true ]
+									}
+								]
+							},
+							{
+								"$operation": "!equal",
+								"args": [ "@event.process.isTrusted", true ]
+							}
+						]
+					},
+					"createEvent": {
+						"eventType": "MLE_UNKNOWN_FILE_DETECTED",
+						"destination": "OUT",
+						"clone": false,
+						"data": [
+							{ "name": "baseType", "value": 1000028 },
+							{ "name": "threatName", "value": "Suspicious.Win32.UnknownUntrustedBinary" },
+							{ "name": "threatType", "value": "UNKNOWN_UNTRUSTED_FILE" },
+							{ "name": "verdict", "value": 3 },
+							{ "name": "flsVerdict", "value": 3 },
+							{ "name": "process", "value": "@event.process" },
+							{ "name": "processes", "value": "@event.processes" },
+							{ "name": "file", "value": "@event.file" },
+							{ "name": "quarantineTarget", "value": "@event.file.rawPath" },
+							{ "name": "isUnknownAccordingToComodo", "value": "@event.file.isUnknownAccordingToComodo" },
+							{ "name": "isUnknownAccordingToCertificate", "value": "@event.file.isUnknownAccordingToCertificate" }
 						]
 					}
 				}

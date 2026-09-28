@@ -24,6 +24,10 @@
 #include <unordered_map>
 #include <tlhelp32.h>
 #include <dbghelp.h>
+#include <Softpub.h>
+#include <wintrust.h>
+#pragma comment(lib, "wintrust.lib")
+#pragma comment(lib, "crypt32.lib")
 
 namespace cmd {
 
@@ -754,6 +758,7 @@ namespace {
 	{
 		static std::mutex s_portMutex;
 		static std::atomic<bool> s_loadedFromPtm{false};
+		static std::atomic<int> s_configuredTrustMode{3}; // 1: COMODO_FLS, 2: MICROSOFT_CERT, 3: BOTH
 		static std::vector<std::wstring> s_vulnerablePortFragments;
 		static std::unordered_set<std::wstring> s_knownPorts;
 
@@ -778,6 +783,17 @@ namespace {
 			out.push_back(L"ptm.local.src");
 			out.push_back(L"OpenEDR\\edrav2\\iprj\\edrdata\\ptm.local.src");
 			return out;
+		}
+
+		static int extractIntFromPtm(const std::string& content, const std::string& key, int defaultVal)
+		{
+			size_t keyPos = content.find("\"" + key + "\"");
+			if (keyPos == std::string::npos) return defaultVal;
+			size_t colon = content.find(':', keyPos);
+			if (colon == std::string::npos) return defaultVal;
+			size_t numStart = content.find_first_of("0123456789", colon);
+			if (numStart == std::string::npos) return defaultVal;
+			return std::atoi(content.c_str() + numStart);
 		}
 
 		static std::vector<std::wstring> extractArrayFromPtm(const std::string& content, const std::string& arrayKey)
@@ -854,6 +870,8 @@ namespace {
 				std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 				if (content.empty()) continue;
 
+				s_configuredTrustMode.store(extractIntFromPtm(content, "configuredTrustMode", 3), std::memory_order_relaxed);
+
 				auto vuln = extractArrayFromPtm(content, "vulnerableDriverPorts");
 				if (!vuln.empty())
 				{
@@ -866,9 +884,9 @@ namespace {
 					for (auto& w : white) s_knownPorts.insert(w);
 				}
 
-				LOGLVL(Info, FMT("enricher: Dynamically loaded " << s_vulnerablePortFragments.size()
-					<< " vulnerable driver ports and " << s_knownPorts.size()
-					<< " whitelisted baseline ports from ptm.local.src"));
+				LOGLVL(Info, FMT("enricher: Dynamically loaded trustMode=" << s_configuredTrustMode.load()
+					<< ", " << s_vulnerablePortFragments.size() << " vulnerable ports, "
+					<< s_knownPorts.size() << " whitelisted ports from ptm.local.src"));
 				s_loadedFromPtm.store(true, std::memory_order_release);
 				return;
 			}
@@ -916,17 +934,231 @@ namespace {
 			return false;
 		}
 
+		// Verifies digital signature completely offline (hashless, independent of Comodo cloud)
+		// and checks whether the vendor belongs to Microsoft or our trusted vendor list.
+		static bool VerifyFileCertificateOffline(const std::wstring& wsFilePath, std::string& outVendor, bool& outIsMicrosoftOrTrusted)
+		{
+			outVendor.clear();
+			outIsMicrosoftOrTrusted = false;
+			if (wsFilePath.empty()) return false;
+
+			WINTRUST_FILE_INFO fileInfo = { sizeof(WINTRUST_FILE_INFO) };
+			fileInfo.pcwszFilePath = wsFilePath.c_str();
+
+			WINTRUST_DATA winTrustData = { sizeof(WINTRUST_DATA) };
+			winTrustData.dwUIChoice = WTD_UI_NONE;
+			winTrustData.fdwRevocationChecks = WTD_REVOKE_NONE; // Local offline validation
+			winTrustData.dwUnionChoice = WTD_CHOICE_FILE;
+			winTrustData.pFile = &fileInfo;
+			winTrustData.dwStateAction = WTD_STATEACTION_VERIFY;
+			winTrustData.dwProvFlags = WTD_SAFER_FLAG | WTD_CACHE_ONLY_URL_RETRIEVAL;
+
+			GUID actionGuid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+			LONG lStatus = ::WinVerifyTrust(NULL, &actionGuid, &winTrustData);
+
+			bool isValid = (lStatus == ERROR_SUCCESS || lStatus == CERT_E_EXPIRED);
+			if (isValid && winTrustData.hWVTStateData != NULL)
+			{
+				CRYPT_PROVIDER_DATA* pProvData = WTHelperProvDataFromStateData(winTrustData.hWVTStateData);
+				if (pProvData != NULL)
+				{
+					CRYPT_PROVIDER_SGNR* pSigner = WTHelperGetProvSignerFromChain(pProvData, 0, FALSE, 0);
+					if (pSigner != NULL)
+					{
+						CRYPT_PROVIDER_CERT* pCert = WTHelperGetProvCertFromChain(pSigner, 0);
+						if (pCert != NULL && pCert->pCert != NULL)
+						{
+							wchar_t szSubject[256] = {};
+							if (::CertGetNameStringW(pCert->pCert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, NULL, szSubject, 256) > 0)
+							{
+								outVendor = Narrow(szSubject);
+								std::string lowerVendor = outVendor;
+								for (auto& c : lowerVendor) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+								if (lowerVendor.find("microsoft") != std::string::npos ||
+								    lowerVendor.find("comodo") != std::string::npos ||
+								    lowerVendor.find("hydradragon") != std::string::npos)
+								{
+									outIsMicrosoftOrTrusted = true;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			winTrustData.dwStateAction = WTD_STATEACTION_CLOSE;
+			::WinVerifyTrust(NULL, &actionGuid, &winTrustData);
+
+			return isValid;
+		}
+
+		struct ModuleInspectionResult
+		{
+			bool hasUnknownDllComodo = false;
+			bool hasUnknownDllCertificate = false;
+			std::string firstUnknownDllComodo;
+			std::string firstUnknownDllCert;
+		};
+
+		// Inspects all loaded modules in process memory:
+		// Checks Comodo FLS verdict AND offline Microsoft/Trusted Certificate verdict separately.
+		static ModuleInspectionResult InspectProcessModules(uint32_t nPid, const std::string& sProcPath)
+		{
+			ModuleInspectionResult res;
+			if (nPid <= 4) return res;
+
+			HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, nPid);
+			if (hSnap == INVALID_HANDLE_VALUE) return res;
+
+			MODULEENTRY32W me = {};
+			me.dwSize = sizeof(MODULEENTRY32W);
+
+			std::wstring wsProc = Widen(sProcPath);
+
+			if (::Module32FirstW(hSnap, &me))
+			{
+				do
+				{
+					// Skip the main process executable itself (checked separately)
+					if (_wcsicmp(me.szExePath, wsProc.c_str()) == 0)
+						continue;
+
+					std::string modPath = Narrow(me.szExePath);
+
+					// 1. Check Comodo FLS Trust
+					int flsVerdict = DetectionNotifier::getCachedFileVerdict(modPath);
+					if (flsVerdict == 0)
+					{
+						std::string threat;
+						flsVerdict = DetectionNotifier::scanFileWithLocalEngines(modPath, threat);
+					}
+					if (flsVerdict != 1)
+					{
+						res.hasUnknownDllComodo = true;
+						if (res.firstUnknownDllComodo.empty())
+							res.firstUnknownDllComodo = modPath;
+					}
+
+					// 2. Check Microsoft / Authenticode Certificate Trust (Offline, Comodosuz / Hashsiz)
+					std::string vendor;
+					bool isMsOrTrusted = false;
+					bool isSigned = VerifyFileCertificateOffline(me.szExePath, vendor, isMsOrTrusted);
+					if (!isSigned || !isMsOrTrusted)
+					{
+						res.hasUnknownDllCertificate = true;
+						if (res.firstUnknownDllCert.empty())
+							res.firstUnknownDllCert = modPath;
+					}
+				} while (::Module32NextW(hSnap, &me));
+			}
+			::CloseHandle(hSnap);
+			return res;
+		}
+
+		// Checks whether process is trusted based on configurable mode:
+		// Mode 1: Comodo FLS Only
+		// Mode 2: Microsoft / Certificate List Only (Comodosuz)
+		// Mode 3: Both (Must pass Comodo FLS AND Microsoft Certificate verification)
+		static bool IsProcessTrustedConfigurable(
+			const Variant& vProcess,
+			const std::string& sProcPath,
+			uint32_t nPid,
+			const ModuleInspectionResult& modRes,
+			std::string& outUntrustedReason)
+		{
+			if (sProcPath.empty() || nPid <= 4) return false;
+
+			if (ZeroTrust::isRestricted(sProcPath))
+			{
+				outUntrustedReason = "Process is restricted by ZeroTrust policy";
+				return false;
+			}
+
+			// Check Process Executable Comodo FLS Clean
+			bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == 1) ||
+			                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == 1) ||
+			                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
+
+			// Check Process Executable Certificate Offline
+			std::string procVendor;
+			bool procIsMsOrTrusted = false;
+			bool isProcSigned = VerifyFileCertificateOffline(Widen(sProcPath), procVendor, procIsMsOrTrusted);
+			bool isProcCertTrusted = (isProcSigned && procIsMsOrTrusted);
+
+			EnsurePtmLoaded();
+			int mode = s_configuredTrustMode.load(std::memory_order_relaxed);
+
+			// Mode 1: Comodo FLS Only
+			if (mode == 1)
+			{
+				if (!isProcFlsClean)
+				{
+					outUntrustedReason = "Process is not Clean according to Comodo FLS";
+					return false;
+				}
+				if (modRes.hasUnknownDllComodo)
+				{
+					outUntrustedReason = "Process contains unknown DLL according to Comodo FLS: " + modRes.firstUnknownDllComodo;
+					return false;
+				}
+				return true;
+			}
+
+			// Mode 2: Microsoft / Certificate List Only (Comodosuz)
+			if (mode == 2)
+			{
+				if (!isProcCertTrusted)
+				{
+					outUntrustedReason = "Process is not verified in Microsoft/Trusted certificate list (vendor: " + procVendor + ")";
+					return false;
+				}
+				if (modRes.hasUnknownDllCertificate)
+				{
+					outUntrustedReason = "Process contains unverified DLL according to Microsoft Certificate list: " + modRes.firstUnknownDllCert;
+					return false;
+				}
+				return true;
+			}
+
+			// Mode 3: BOTH (Must pass both Comodo FLS AND Microsoft Certificate verification)
+			if (!isProcFlsClean)
+			{
+				outUntrustedReason = "Process is not Clean according to Comodo FLS";
+				return false;
+			}
+			if (!isProcCertTrusted)
+			{
+				outUntrustedReason = "Process is not verified in Microsoft/Trusted certificate list (vendor: " + procVendor + ")";
+				return false;
+			}
+			if (modRes.hasUnknownDllComodo)
+			{
+				outUntrustedReason = "Process contains unknown DLL according to Comodo FLS: " + modRes.firstUnknownDllComodo;
+				return false;
+			}
+			if (modRes.hasUnknownDllCertificate)
+			{
+				outUntrustedReason = "Process contains unverified DLL according to Microsoft Certificate list: " + modRes.firstUnknownDllCert;
+				return false;
+			}
+
+			return true;
+		}
+
 		// Inspects file create events for unauthorized connections to driver communication ports
 		static bool InspectPortAccess(
 			const std::wstring& wsDestPath,
-			const Variant& /*vProcess*/,
+			const Variant& vProcess,
 			const std::string& sProcPath,
 			uint32_t nPid,
-			bool isProcessTrusted,
+			const ModuleInspectionResult& modRes,
 			std::string& outThreatReason,
-			bool& outIsKnownVulnerable)
+			bool& outIsKnownVulnerable,
+			std::string& outUnknownDllToQuarantine)
 		{
 			outIsKnownVulnerable = false;
+			outUnknownDllToQuarantine.clear();
 			if (nPid <= 4) return false; // System idle / kernel
 
 			std::wstring wsPortName;
@@ -935,35 +1167,17 @@ namespace {
 
 			std::wstring p = toLower(wsPortName);
 
-			// Check whitelisted benign ports loaded from ptm.local.src
+			// Check whitelisted benign ports loaded from ptm.local.src (e.g. named pipe, null device)
 			{
 				std::lock_guard<std::mutex> lock(s_portMutex);
 				for (const auto& kp : s_knownPorts)
 				{
 					if (p == kp || p.rfind(kp + L"\\", 0) == 0)
-						return false; // Whitelisted port
+						return false; // Whitelisted benign port
 				}
 			}
 
-			// Core trusted system executables: Windows system binaries signed by Microsoft
-			if (isProcessTrusted)
-			{
-				std::string lowerProc = sProcPath;
-				for (auto& c : lowerProc) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-				if (lowerProc.find("system32\\svchost.exe") != std::string::npos ||
-				    lowerProc.find("system32\\services.exe") != std::string::npos ||
-				    lowerProc.find("system32\\csrss.exe") != std::string::npos ||
-				    lowerProc.find("system32\\lsass.exe") != std::string::npos ||
-				    lowerProc.find("system32\\smss.exe") != std::string::npos ||
-				    lowerProc.find("edrgui.exe") != std::string::npos ||
-				    lowerProc.find("openedr") != std::string::npos ||
-				    lowerProc.find("hydradragon") != std::string::npos)
-				{
-					return false; // Trusted system / EDR caller
-				}
-			}
-
-			// Check if this matches a known vulnerable BYOVD port from ptm.local.src
+			// Check if this matches a known vulnerable BYOVD port from ptm.local.src (\RWFilter, \RTCore64, etc.)
 			{
 				std::lock_guard<std::mutex> lock(s_portMutex);
 				for (const auto& frag : s_vulnerablePortFragments)
@@ -971,20 +1185,48 @@ namespace {
 					if (p.find(frag) != std::wstring::npos)
 					{
 						outIsKnownVulnerable = true;
-						outThreatReason = "CRITICAL BYOVD EXPLOITATION: Vulnerable Driver/Minifilter Port Detected (ptm.local.src policy)";
+						if (modRes.hasUnknownDllComodo || modRes.hasUnknownDllCertificate)
+						{
+							std::string targetDll = !modRes.firstUnknownDllComodo.empty() ? modRes.firstUnknownDllComodo : modRes.firstUnknownDllCert;
+							outUnknownDllToQuarantine = targetDll;
+							outThreatReason = "CRITICAL BYOVD EXPLOITATION with Injected/Unknown DLL (" + targetDll + ") targeting port: " + Narrow(wsPortName);
+						}
+						else
+						{
+							outThreatReason = "CRITICAL BYOVD EXPLOITATION: Vulnerable Driver/Minifilter Port Detected (" + Narrow(wsPortName) + ")";
+						}
 						return true;
 					}
 				}
 			}
 
-			// If untrusted process connects to a new or unknown port:
+			// Special Port Rule Check: If process has unknown DLLs attempting kernel driver port access
+			if (modRes.hasUnknownDllComodo || modRes.hasUnknownDllCertificate)
+			{
+				std::string targetDll = !modRes.firstUnknownDllComodo.empty() ? modRes.firstUnknownDllComodo : modRes.firstUnknownDllCert;
+				outUnknownDllToQuarantine = targetDll;
+				outThreatReason = "HIPS Warning: Driver Port Access with Unknown/Injected DLL (" + targetDll + ")";
+				return true;
+			}
+
+			// Configurable Trust Evaluation (Mode 1, 2, or 3)
+			std::string untrustedReason;
+			bool isStrict = IsProcessTrustedConfigurable(vProcess, sProcPath, nPid, modRes, untrustedReason);
+			if (isStrict)
+			{
+				return false; // Verified clean according to configured policy
+			}
+
+			// If untrusted process connects to a new or unknown driver port:
 			{
 				std::lock_guard<std::mutex> lock(s_portMutex);
 				if (s_knownPorts.find(p) == s_knownPorts.end())
 				{
-					// Add to baseline to avoid spamming alerts for the same port repeatedly
 					s_knownPorts.insert(p);
-					outThreatReason = "HIPS Warning: Untrusted process attempting connection to new/unknown kernel driver port (ptm.local.src)";
+					if (!untrustedReason.empty())
+						outThreatReason = "HIPS Warning: " + untrustedReason + " accessing driver port (" + Narrow(wsPortName) + ")";
+					else
+						outThreatReason = "HIPS Warning: Untrusted process attempting connection to kernel driver port (ptm.local.src)";
 					return true;
 				}
 			}
@@ -3239,6 +3481,32 @@ void EventEnricher::put(const Variant& vEventRef)
 		vProcess.put("verdict", 2);
 	}
 
+	uint32_t nActorPid = 0;
+	if (vProcess.has("pid")) nActorPid = static_cast<uint32_t>(vProcess["pid"]);
+	else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
+
+	// Dual Trust & Unknown DLL Evaluation (Comodo FLS vs Microsoft/Authenticode Certificate):
+	auto modRes = DriverPortHips::InspectProcessModules(nActorPid, sProcPath);
+	bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == 1) ||
+	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == 1) ||
+	                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
+	std::string procVendor;
+	bool procIsMsOrTrusted = false;
+	bool isProcSigned = DriverPortHips::VerifyFileCertificateOffline(Widen(sProcPath), procVendor, procIsMsOrTrusted);
+	bool isProcCertTrusted = (isProcSigned && procIsMsOrTrusted);
+
+	vProcess.put("hasUnknownDllComodo", modRes.hasUnknownDllComodo);
+	vProcess.put("hasUnknownDllCertificate", modRes.hasUnknownDllCertificate);
+	vProcess.put("hasUnknownDll", modRes.hasUnknownDllComodo || modRes.hasUnknownDllCertificate);
+	std::string primaryUnknownDll = !modRes.firstUnknownDllComodo.empty() ? modRes.firstUnknownDllComodo : modRes.firstUnknownDllCert;
+	vProcess.put("unknownDllPath", primaryUnknownDll);
+	vProcess.put("isTrustedAccordingToFls", isProcFlsClean && !modRes.hasUnknownDllComodo);
+	vProcess.put("isTrustedAccordingToCertificate", isProcCertTrusted && !modRes.hasUnknownDllCertificate);
+
+	std::string untrustedReason;
+	bool isProcessTrusted = DriverPortHips::IsProcessTrustedConfigurable(vProcess, sProcPath, nActorPid, modRes, untrustedReason);
+	vProcess.put("isTrusted", isProcessTrusted);
+
 	// UNFILTERED IMMEDIATE LOCAL FILE & PROCESS SCANNING (PASCAL-STYLE):
 	executeUnfilteredLocalScan(vEvent, vProcess, eEventType, sProcPath);
 
@@ -3261,6 +3529,27 @@ void EventEnricher::put(const Variant& vEventRef)
 			vParams.put("cmdRemove", true);
 		if (eEventType == Event::LLE_FILE_DATA_CHANGE)
 			vParams.put("cmdModify", true);
+
+		// Enrich File Trust (Comodo FLS vs Microsoft Certificate list):
+		std::string sFilePathCheck;
+		if (vParams.has("path")) sFilePathCheck = Narrow(vParams.get("path", L""));
+		else if (vParams.has("rawPath")) sFilePathCheck = Narrow(vParams.get("rawPath", L""));
+		if (!sFilePathCheck.empty())
+		{
+			int fileFlsVerdict = DetectionNotifier::getCachedFileVerdict(sFilePathCheck);
+			bool isFileFlsClean = (fileFlsVerdict == 1);
+			std::string fileVendor;
+			bool fileIsMsOrTrusted = false;
+			bool isFileSigned = DriverPortHips::VerifyFileCertificateOffline(Widen(sFilePathCheck), fileVendor, fileIsMsOrTrusted);
+			bool isFileCertTrusted = (isFileSigned && fileIsMsOrTrusted);
+
+			vParams.put("isTrustedAccordingToFls", isFileFlsClean);
+			vParams.put("isTrustedAccordingToCertificate", isFileCertTrusted);
+			vParams.put("isUnknownAccordingToComodo", !isFileFlsClean);
+			vParams.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
+			vEvent.put("isUnknownAccordingToComodo", !isFileFlsClean);
+			vEvent.put("isUnknownAccordingToCertificate", !isFileCertTrusted);
+		}
 
 		// USB Self-Replication Worm Detection:
 		// When an executable (.exe, .scr, .pif, .com) is written to a removable drive,
@@ -3382,23 +3671,7 @@ void EventEnricher::put(const Variant& vEventRef)
 		{
 			std::string threatReason;
 			bool isKnownVulnerable = false;
-			uint32_t nActorPid = 0;
-			if (vProcess.has("pid")) nActorPid = static_cast<uint32_t>(vProcess["pid"]);
-			else if (vProcess.has("id")) nActorPid = static_cast<uint32_t>(vProcess["id"]);
-
-			bool isCloudClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == 1) ||
-			                    (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == 1) ||
-			                    (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
-			bool isSignedTrusted = false;
-			if (vProcess.has("signature"))
-			{
-				try {
-					auto vSig = vProcess["signature"];
-					if (vSig.has("status") && static_cast<int64_t>(vSig["status"]) == 0)
-						isSignedTrusted = true;
-				} catch (...) {}
-			}
-			bool isProcessTrusted = isCloudClean || isSignedTrusted;
+			std::string unknownDllToQuarantine;
 
 			std::wstring wsRawCheck;
 			if (vParams.has("path")) wsRawCheck = vParams.get("path", L"");
@@ -3406,12 +3679,19 @@ void EventEnricher::put(const Variant& vEventRef)
 			if (wsRawCheck.empty() && vParams.has("uniquePath")) wsRawCheck = vParams.get("uniquePath", L"");
 			if (wsRawCheck.empty() && vParams.has("abstractPath")) wsRawCheck = vParams.get("abstractPath", L"");
 
-			if (DriverPortHips::InspectPortAccess(wsRawCheck, vProcess, sProcPath, nActorPid, isProcessTrusted, threatReason, isKnownVulnerable))
+			if (DriverPortHips::InspectPortAccess(wsRawCheck, vProcess, sProcPath, nActorPid, modRes, threatReason, isKnownVulnerable, unknownDllToQuarantine))
 			{
 				std::string portNarrow = Narrow(wsRawCheck);
 				LOGLVL(Critical, FMT("enricher: [DRIVER PORT HIPS ALERT] Process <" << sProcPath
 					<< "> (PID: " << nActorPid << ") attempted access to kernel driver port <"
 					<< portNarrow << "> - " << threatReason));
+
+				if (!unknownDllToQuarantine.empty())
+				{
+					vEvent.put("quarantineTarget", unknownDllToQuarantine);
+					vEvent.put("unknownDllPath", unknownDllToQuarantine);
+					vProcess.put("unknownDllPath", unknownDllToQuarantine);
+				}
 
 				// If it's a known vulnerable BYOVD port (like \RWFilter), suspend immediately to prevent exploit
 				if (isKnownVulnerable && nActorPid > 4)
@@ -3430,12 +3710,18 @@ void EventEnricher::put(const Variant& vEventRef)
 					if (pSlash != std::string::npos) appName = appName.substr(pSlash + 1);
 
 					std::string reqId = "port_" + std::to_string(nActorPid) + "_" + std::to_string(::GetTickCount64());
+					std::string targetDesc = portNarrow;
+					if (!unknownDllToQuarantine.empty())
+					{
+						targetDesc += " [Unknown DLL: " + unknownDllToQuarantine + "]";
+					}
+
 					// 8-field HIPS_ASK protocol expected by edrgui/unit1.pas:
 					// HIPS_ASK:<req_id>|<pid>|<app_name>|<exe_path>|<target>|<verdict>|<sig_status>|<reason>
 					std::string askMsg = "HIPS_ASK:" + reqId + "|" + std::to_string(nActorPid) + "|" +
-						appName + "|" + sProcPath + "|" + portNarrow + "|" +
+						appName + "|" + sProcPath + "|" + targetDesc + "|" +
 						(isKnownVulnerable ? "malicious" : "suspicious") + "|" +
-						(isSignedTrusted ? "valid" : "unsigned") + "|" +
+						(isProcCertTrusted ? "valid" : "unsigned") + "|" +
 						threatReason + "\n";
 					DWORD written = 0;
 					::WriteFile(hPipe, askMsg.data(), static_cast<DWORD>(askMsg.size()), &written, NULL);
