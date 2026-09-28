@@ -8,7 +8,7 @@ description = "HydraDragonAntivirus: Advanced Open Source Antivirus and Python B
 authors = [
     { name = "Emirhan Ucan", email = "130374789+Siradankullanici@users.noreply.github.com" },
 ]
-license = { text = "AGPL-3.0-only" }
+license = { text = "GPL-2.0-later" }
 readme = "README.md"
 requires-python = "==3.12.*"
 keywords = ["antivirus", "reverse engineering", "bytecode", "python", "decompiler", "hydradragon"]
