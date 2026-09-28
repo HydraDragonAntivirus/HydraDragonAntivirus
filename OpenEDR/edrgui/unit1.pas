@@ -41,6 +41,7 @@ type
     MenuPauseResume: TMenuItem;
     MenuMitmToggle: TMenuItem;
     MenuZeroTrust: TMenuItem;
+    MenuEnableCloudToggle: TMenuItem;
     MenuCloudFirstToggle: TMenuItem;
     MenuQuarantine: TMenuItem;
     MenuReputation: TMenuItem;
@@ -56,6 +57,7 @@ type
     procedure MenuPauseResumeClick(Sender: TObject);
     procedure MenuMitmToggleClick(Sender: TObject);
     procedure MenuZeroTrustClick(Sender: TObject);
+    procedure MenuEnableCloudToggleClick(Sender: TObject);
     procedure MenuCloudFirstToggleClick(Sender: TObject);
     procedure MenuQuarantineClick(Sender: TObject);
     procedure QuarFormClosed(Sender: TObject; var CloseAction: TCloseAction);
@@ -74,6 +76,7 @@ type
     FProtectionPaused: Boolean;
     FMitmEnabled: Boolean;
     FZeroTrustEnabled: Boolean;
+    FEnableCloudEnabled: Boolean;
     FCloudFirstEnabled: Boolean;
     FQuarForm: TQuarForm;
     FRepForm: TRepForm;
@@ -89,6 +92,9 @@ type
     function ReadZeroTrustEnabled: Boolean;
     procedure WriteZeroTrustEnabled(AEnabled: Boolean);
     procedure SetZeroTrustCaption(AEnabled: Boolean);
+    function ReadEnableCloudEnabled: Boolean;
+    procedure WriteEnableCloudEnabled(AEnabled: Boolean);
+    procedure SetEnableCloudCaption(AEnabled: Boolean);
     function ReadCloudFirstEnabled: Boolean;
     procedure WriteCloudFirstEnabled(AEnabled: Boolean);
     procedure SetCloudFirstCaption(AEnabled: Boolean);
@@ -166,12 +172,20 @@ begin
   FZeroTrustEnabled := False;
   SetZeroTrustCaption(ReadZeroTrustEnabled);
 
+  // Enable Cloud Reputation toggle (Allow running openedr_static offline without cloud)
+  MenuEnableCloudToggle := TMenuItem.Create(Self);
+  MenuEnableCloudToggle.OnClick := @MenuEnableCloudToggleClick;
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuZeroTrust) + 1,
+    MenuEnableCloudToggle);
+  FEnableCloudEnabled := True;
+  SetEnableCloudCaption(ReadEnableCloudEnabled);
+
   // Cloud-First Scanner Mode toggle (Prefer Cloud FLS before static engine for executables)
   MenuCloudFirstToggle := TMenuItem.Create(Self);
   MenuCloudFirstToggle.OnClick := @MenuCloudFirstToggleClick;
-  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuZeroTrust) + 1,
+  PopupMenu1.Items.Insert(PopupMenu1.Items.IndexOf(MenuEnableCloudToggle) + 1,
     MenuCloudFirstToggle);
-  FCloudFirstEnabled := False;
+  FCloudFirstEnabled := True;
   SetCloudFirstCaption(ReadCloudFirstEnabled);
 
   // Quarantine manager screen (list/restore/delete + exclusions).
@@ -368,6 +382,10 @@ begin
 
   // Keep the Zero Trust caption truthful (queries the live engine state).
   SetZeroTrustCaption(ReadZeroTrustEnabled);
+
+  // Keep the Cloud Reputation & Cloud-First captions truthful
+  SetEnableCloudCaption(ReadEnableCloudEnabled);
+  SetCloudFirstCaption(ReadCloudFirstEnabled);
 
   UpdateMenuEnabled(NewState);
 end;
@@ -1005,6 +1023,96 @@ end;
 procedure TForm1.MenuZeroTrustClick(Sender: TObject);
 begin
   WriteZeroTrustEnabled(not ReadZeroTrustEnabled);
+end;
+
+// ---------------------------------------------------------------------------
+// Cloud Reputation toggle (Enable/Disable Cloud FLS & online scores)
+//
+// When disabled, openedr_static runs completely offline without consulting
+// or trusting cloud scores.
+// ---------------------------------------------------------------------------
+
+function TForm1.ReadEnableCloudEnabled: Boolean;
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+begin
+  try
+    Req := '{"jsonrpc":"2.0","id":1,"method":"getScannerConfig","params":{}}';
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.enableCloud');
+        if d <> nil then
+          FEnableCloudEnabled := d.AsBoolean;
+      finally
+        j.Free;
+      end;
+    end;
+  except
+  end;
+  Result := FEnableCloudEnabled;
+end;
+
+procedure TForm1.WriteEnableCloudEnabled(AEnabled: Boolean);
+var
+  Req, Resp: string;
+  j, d: TJSONData;
+begin
+  if AEnabled then
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setScannerConfig","params":{"enableCloud":true}}'
+  else
+    Req := '{"jsonrpc":"2.0","id":1,"method":"setScannerConfig","params":{"enableCloud":false}}';
+
+  try
+    if HttpPostJson(GUI_RPC_HOST, GUI_RPC_PORT, Req, Resp) then
+    begin
+      j := GetJSON(Resp);
+      try
+        d := j.FindPath('result.success');
+      finally
+        j.Free;
+      end;
+    end;
+  except
+  end;
+
+  FEnableCloudEnabled := AEnabled;
+  SetEnableCloudCaption(AEnabled);
+
+  if AEnabled then
+    TAlertForm.ShowAlert('Cloud Reputation: ENABLED',
+      'OpenEDR will query Cloud FLS and verify online file reputations.',
+      asInfo, 3000)
+  else
+    TAlertForm.ShowAlert('Cloud Reputation: DISABLED (Offline Mode)',
+      'openedr_static will run offline without cloud scores or online lookups.',
+      asInfo, 3000);
+end;
+
+procedure TForm1.SetEnableCloudCaption(AEnabled: Boolean);
+begin
+  if MenuEnableCloudToggle <> nil then
+  begin
+    if AEnabled then
+    begin
+      MenuEnableCloudToggle.Caption := 'Cloud Reputation: ENABLED (Disable)';
+      MenuEnableCloudToggle.Checked := True;
+    end
+    else
+    begin
+      MenuEnableCloudToggle.Caption := 'Cloud Reputation: Disabled (Enable)';
+      MenuEnableCloudToggle.Checked := False;
+    end;
+  end;
+  if MenuCloudFirstToggle <> nil then
+    MenuCloudFirstToggle.Enabled := AEnabled;
+end;
+
+procedure TForm1.MenuEnableCloudToggleClick(Sender: TObject);
+begin
+  WriteEnableCloudEnabled(not ReadEnableCloudEnabled);
 end;
 
 // ---------------------------------------------------------------------------

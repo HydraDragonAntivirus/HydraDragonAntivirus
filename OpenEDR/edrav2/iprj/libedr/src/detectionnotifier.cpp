@@ -334,7 +334,8 @@ bool DetectionNotifier::isKnownMalware(const std::string& sPath, const std::stri
 	return false;
 }
 
-std::atomic<bool> DetectionNotifier::s_cloudFirst{false};
+std::atomic<bool> DetectionNotifier::s_enableCloud{true};
+std::atomic<bool> DetectionNotifier::s_cloudFirst{true};
 std::atomic<int> DetectionNotifier::s_cleanVerdict{1};
 std::atomic<int> DetectionNotifier::s_malwareVerdict{2};
 std::atomic<int> DetectionNotifier::s_unknownVerdictDefault{0};
@@ -379,7 +380,8 @@ void DetectionNotifier::loadScannerConfigFromCfg(const std::string& content)
 		return def;
 	};
 
-	s_cloudFirst.store(extractBool(content, "cloudFirst", false) || extractBool(content, "preferCloudScan", false), std::memory_order_relaxed);
+	s_enableCloud.store(extractBool(content, "enableCloud", true), std::memory_order_relaxed);
+	s_cloudFirst.store(extractBool(content, "cloudFirst", true) || extractBool(content, "preferCloudScan", true), std::memory_order_relaxed);
 	s_cleanVerdict.store(extractInt(content, "cleanVerdict", 1), std::memory_order_relaxed);
 	s_malwareVerdict.store(extractInt(content, "malwareVerdict", 2), std::memory_order_relaxed);
 	s_unknownVerdictDefault.store(extractInt(content, "unknownVerdictDefault", 0), std::memory_order_relaxed);
@@ -1200,24 +1202,21 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		}
 	}
 
-	bool isExeWithoutDll = false;
-	size_t dotPos = lowerPath.rfind('.');
-	if (dotPos != std::string::npos)
-	{
-		std::string ext = lowerPath.substr(dotPos);
-		if (ext == ".exe" && lowerPath.find(".dll") == std::string::npos)
-		{
-			isExeWithoutDll = true;
-		}
-	}
+	// Comprehensive executable checker: checks priority executable/script extensions + MZ magic header for extensionless/renamed payloads
+	bool isExecutable = EventEnricher::isScannablePayload(sUtf8Path);
 
 	int verdict = 0;
+	bool cloudEnabled = s_enableCloud.load(std::memory_order_relaxed);
 	bool preferCloud = s_cloudFirst.load(std::memory_order_relaxed);
 	int cleanCode = s_cleanVerdict.load(std::memory_order_relaxed);
 	int malCode = s_malwareVerdict.load(std::memory_order_relaxed);
 
-	// Cloud-First order for standalone EXEs (dllsiz her exe)
-	if (isExeWithoutDll && preferCloud)
+	if (!cloudEnabled)
+	{
+		// Offline mode: openedr_static runs without cloud and without trusting cloud scores
+		verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
+	}
+	else if (isExecutable && preferCloud)
 	{
 		// 1. Check Comodo Cloud FLS first
 		std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
@@ -2424,6 +2423,8 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	{
 		if (vParams.isDictionaryLike())
 		{
+			if (vParams.has("enableCloud"))
+				s_enableCloud.store(vParams.get("enableCloud", true), std::memory_order_relaxed);
 			if (vParams.has("cloudFirst"))
 				s_cloudFirst.store(vParams.get("cloudFirst", false), std::memory_order_relaxed);
 			if (vParams.has("preferCloudScan"))
@@ -2437,6 +2438,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 		}
 		return Dictionary({
 			{"success", true},
+			{"enableCloud", s_enableCloud.load()},
 			{"cloudFirst", s_cloudFirst.load()},
 			{"cleanVerdict", s_cleanVerdict.load()},
 			{"malwareVerdict", s_malwareVerdict.load()}
@@ -2447,6 +2449,7 @@ Variant DetectionNotifier::execute(Variant vCommand, Variant vParams){
 	{
 		return Dictionary({
 			{"success", true},
+			{"enableCloud", s_enableCloud.load()},
 			{"cloudFirst", s_cloudFirst.load()},
 			{"cleanVerdict", s_cleanVerdict.load()},
 			{"malwareVerdict", s_malwareVerdict.load()},

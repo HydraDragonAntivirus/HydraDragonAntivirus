@@ -49,6 +49,7 @@ type
     FCount: Integer;
     FScanFn: TScanFileFn;
     FCloudFirst: Boolean;
+    FEnableCloud: Boolean;
     FOnePath: string;
     FOneVerdict: TScanVerdict;
     FOneDetail: string;
@@ -65,7 +66,8 @@ type
     procedure Execute; override;
   public
     constructor Create(AScanForm: TScanForm; AMode: TScanMode;
-      const ARoot: WideString; AScanFn: TScanFileFn; ACloudFirst: Boolean = True);
+      const ARoot: WideString; AScanFn: TScanFileFn; ACloudFirst: Boolean = True;
+      AEnableCloud: Boolean = True);
   end;
 
   { TScanForm }
@@ -88,6 +90,7 @@ type
     BrowseBtn: TButton;
     StartBtn: TButton;
     CancelBtn: TButton;
+    ChkEnableCloud: TCheckBox;
     ChkCloudFirst: TCheckBox;
     ScanProgress: TProgressBar;
     StatusLbl: TLabel;
@@ -100,6 +103,7 @@ type
     procedure BrowseBtnClick(Sender: TObject);
     procedure StartBtnClick(Sender: TObject);
     procedure CancelBtnClick(Sender: TObject);
+    procedure ChkEnableCloudChange(Sender: TObject);
     procedure PollTick(Sender: TObject);
     procedure ResultsDrawItem(Sender: TCustomListView; Item: TListItem;
       State: TCustomDrawState; var DefaultDraw: Boolean);
@@ -260,7 +264,8 @@ end;
 { TScanTouchThread }
 
 constructor TScanTouchThread.Create(AScanForm: TScanForm; AMode: TScanMode;
-  const ARoot: WideString; AScanFn: TScanFileFn; ACloudFirst: Boolean = True);
+  const ARoot: WideString; AScanFn: TScanFileFn; ACloudFirst: Boolean = True;
+  AEnableCloud: Boolean = True);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
@@ -270,6 +275,7 @@ begin
   FCount := 0;
   FScanFn := AScanFn;
   FCloudFirst := ACloudFirst;
+  FEnableCloud := AEnableCloud;
 end;
 
 procedure TScanTouchThread.PushProgress;
@@ -397,8 +403,7 @@ procedure TScanTouchThread.ScanOneFile(const APath: WideString);
 var
   v, cloudVer: Integer;
   h, cloudName: string;
-  u8, ext: string;
-  isExeWithoutDll: Boolean;
+  u8: string;
 begin
   if Terminated then
     Exit;
@@ -412,72 +417,90 @@ begin
   FOneVerdict := svUnknown;
   FOneDetail := 'Static: unknown';
 
-  ext := LowerCase(ExtractFileExt(string(APath)));
-  isExeWithoutDll := (ext = '.exe') and (Pos('.dll', LowerCase(string(APath))) = 0);
-
-  // Cloud-First mode for standalone executables (dllsiz her exe):
-  if isExeWithoutDll and FCloudFirst then
+  // Cloud-enabled mode vs pure offline openedr_static mode:
+  if FEnableCloud then
   begin
-    // Check Cloud FLS / Known malware first
-    if RpcCheckKnown(u8, h) then
+    if FCloudFirst then
     begin
-      FOneVerdict := svKnown;
-      FOneDetail := 'Cloud-First: Known-malware database';
-    end
-    else if RpcCheckCloudReputation(u8, cloudVer, cloudName) then
-    begin
-      if cloudVer = 2 then
+      // 1. Check Cloud FLS / Known malware first
+      if RpcCheckKnown(u8, h) then
       begin
-        FOneVerdict := svMalicious;
-        if cloudName <> '' then
-          FOneDetail := 'Cloud-First: ' + cloudName
-        else
-          FOneDetail := 'Cloud-First: Cloud FLS Malicious verdict';
+        FOneVerdict := svKnown;
+        FOneDetail := 'Cloud-First: Known-malware database';
       end
-      else if cloudVer = 1 then
+      else if RpcCheckCloudReputation(u8, cloudVer, cloudName) then
       begin
-        FOneVerdict := svSafe;
-        FOneDetail := 'Cloud-First: Cloud FLS Clean / Whitelisted';
+        if cloudVer = 2 then
+        begin
+          FOneVerdict := svMalicious;
+          if cloudName <> '' then
+            FOneDetail := 'Cloud-First: ' + cloudName
+          else
+            FOneDetail := 'Cloud-First: Cloud FLS Malicious verdict';
+        end
+        else if cloudVer = 1 then
+        begin
+          FOneVerdict := svSafe;
+          FOneDetail := 'Cloud-First: Cloud FLS Clean / Whitelisted';
+        end;
       end;
-    end;
 
-    // If Cloud did not provide definitive verdict, fall back to local openedr_static:
-    if (FOneVerdict = svUnknown) and Assigned(FScanFn) then
+      // 2. If Cloud did not provide definitive verdict, fall back to local openedr_static:
+      if (FOneVerdict = svUnknown) and Assigned(FScanFn) then
+      begin
+        v := FScanFn(PWideChar(APath), Cardinal(Length(APath)));
+        if v = 2 then
+        begin
+          FOneVerdict := svMalicious;
+          FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+        end
+        else if v = 1 then
+        begin
+          FOneVerdict := svSafe;
+          FOneDetail := 'Static: clean/trusted';
+        end;
+      end;
+    end
+    else
     begin
-      v := FScanFn(PWideChar(APath), Cardinal(Length(APath)));
-      if v = 2 then
+      // Standard order: Local openedr_static first
+      if Assigned(FScanFn) then
       begin
-        FOneVerdict := svMalicious;
-        FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
-      end
-      else if v = 1 then
+        v := FScanFn(PWideChar(APath), Cardinal(Length(APath)));
+        if v = 2 then
+        begin
+          FOneVerdict := svMalicious;
+          FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+        end
+        else if v = 1 then
+        begin
+          FOneVerdict := svSafe;
+          FOneDetail := 'Static: clean/trusted';
+        end;
+      end;
+      if (FOneVerdict = svUnknown) and RpcCheckKnown(u8, h) then
       begin
-        FOneVerdict := svSafe;
-        FOneDetail := 'Static: clean/trusted';
+        FOneVerdict := svKnown;
+        FOneDetail := 'Known-malware database';
       end;
     end;
   end
   else
   begin
-    // Standard order: Local openedr_static first
+    // Pure offline static scan: runs openedr_static without consulting cloud or trusting cloud scores
     if Assigned(FScanFn) then
     begin
       v := FScanFn(PWideChar(APath), Cardinal(Length(APath)));
       if v = 2 then
       begin
         FOneVerdict := svMalicious;
-        FOneDetail := 'Static indicator (openedr_static: ClamAV/YARA/ML/signer)';
+        FOneDetail := 'Offline Static (openedr_static: ClamAV/YARA/ML/signer)';
       end
       else if v = 1 then
       begin
         FOneVerdict := svSafe;
-        FOneDetail := 'Static: clean/trusted';
+        FOneDetail := 'Offline Static: clean/trusted';
       end;
-    end;
-    if (FOneVerdict = svUnknown) and RpcCheckKnown(u8, h) then
-    begin
-      FOneVerdict := svKnown;
-      FOneDetail := 'Known-malware database';
     end;
   end;
 
@@ -837,10 +860,15 @@ begin
   StartBtn.Enabled := False;
   CancelBtn.Enabled := True;
   StatusLbl.Caption := 'Scanning...';
-  FThread := TScanTouchThread.Create(Self, Mode, Root, FScanFn, ChkCloudFirst.Checked);
+  FThread := TScanTouchThread.Create(Self, Mode, Root, FScanFn, ChkCloudFirst.Checked, ChkEnableCloud.Checked);
   FThread.OnTerminate := @TouchDone;
   FThread.Start;
   PollTimer.Enabled := True;
+end;
+
+procedure TScanForm.ChkEnableCloudChange(Sender: TObject);
+begin
+  ChkCloudFirst.Enabled := ChkEnableCloud.Checked;
 end;
 
 procedure TScanForm.CancelBtnClick(Sender: TObject);

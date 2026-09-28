@@ -764,7 +764,8 @@ namespace {
 		static std::atomic<bool> s_enableDllAttackChain{true};
 		static std::atomic<bool> s_quarantineUnknownDll{true};
 		static std::atomic<bool> s_scanAllModulesIndiscriminately{false};
-		static std::atomic<bool> s_cloudFirst{false};
+		static std::atomic<bool> s_enableCloud{true};
+		static std::atomic<bool> s_cloudFirst{true};
 		static std::atomic<int> s_cleanVerdict{1};
 		static std::atomic<int> s_malwareVerdict{2};
 		static std::atomic<int> s_unknownVerdictDefault{0};
@@ -971,7 +972,8 @@ namespace {
 				s_enableDllAttackChain.store(extractBoolFromCfg(content, "enableDllAttackChain", true), std::memory_order_relaxed);
 				s_quarantineUnknownDll.store(extractBoolFromCfg(content, "quarantineUnknownDll", true), std::memory_order_relaxed);
 				s_scanAllModulesIndiscriminately.store(extractBoolFromCfg(content, "scanAllModulesIndiscriminately", false), std::memory_order_relaxed);
-				s_cloudFirst.store(extractBoolFromCfg(content, "cloudFirst", false) || extractBoolFromCfg(content, "preferCloudScan", false), std::memory_order_relaxed);
+				s_enableCloud.store(extractBoolFromCfg(content, "enableCloud", true), std::memory_order_relaxed);
+				s_cloudFirst.store(extractBoolFromCfg(content, "cloudFirst", true) || extractBoolFromCfg(content, "preferCloudScan", true), std::memory_order_relaxed);
 
 				s_cleanVerdict.store(extractIntFromPtm(content, "cleanVerdict", 1), std::memory_order_relaxed);
 				s_malwareVerdict.store(extractIntFromPtm(content, "malwareVerdict", 2), std::memory_order_relaxed);
@@ -3154,8 +3156,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			continue;
 		}
 
-		// Check if the event or file is already verified clean by FLS / Cloud
-		if (vEvent.has("file"))
+		// Check if the event or file is already verified clean by FLS / Cloud (only if enableCloud is active)
+		if (s_enableCloud.load(std::memory_order_relaxed) && vEvent.has("file"))
 		{
 			Variant vF = vEvent.get("file");
 			if (vF.isDictionaryLike())

@@ -184,17 +184,30 @@ object ScanForm: TScanForm
       TabOrder = 1
       OnClick = CancelBtnClick
     end
-    object ChkCloudFirst: TCheckBox
+    object ChkEnableCloud: TCheckBox
       Left = 285
       Height = 22
-      Top = 34
-      Width = 360
-      Caption = 'Cloud-First (Query Cloud FLS before static scan for executables)'
+      Top = 10
+      Width = 500
+      Caption = 'Enable Cloud Reputation (Uncheck to run openedr_static offline)'
       Checked = True
       Font.Color = 3813927
       Font.Name = 'Segoe UI'
       ParentFont = False
       TabOrder = 4
+      OnChange = ChkEnableCloudChange
+    end
+    object ChkCloudFirst: TCheckBox
+      Left = 285
+      Height = 22
+      Top = 34
+      Width = 500
+      Caption = 'Cloud-First (Query Cloud FLS before static scan for executables)'
+      Checked = True
+      Font.Color = 3813927
+      Font.Name = 'Segoe UI'
+      ParentFont = False
+      TabOrder = 5
     end
     object ScanProgress: TProgressBar
       Left = 18

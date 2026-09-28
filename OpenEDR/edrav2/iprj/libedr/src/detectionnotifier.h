@@ -101,6 +101,7 @@ public:
 	///
 	/// Configurable verdict codes loaded from edrsvc.cfg (avoids hardcoded verdict numbers)
 	///
+	static std::atomic<bool> s_enableCloud;
 	static std::atomic<bool> s_cloudFirst;
 	static std::atomic<int> s_cleanVerdict;
 	static std::atomic<int> s_malwareVerdict;
