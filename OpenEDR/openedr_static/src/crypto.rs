@@ -7,9 +7,37 @@
 /// the file as MD5 for identity.
 
 /// First 16 bytes of Wang Xiaoyun's 2004 identical-prefix MD5 collision (M0).
-const WANG2004_PREFIX: &[u8] = &[
-    0xd1, 0x31, 0xdd, 0x02, 0xc5, 0xe6, 0xee, 0xc4, 0x69, 0x3d, 0x9a, 0x06, 0x98, 0xaf, 0xf9, 0x5c,
+///
+/// Stored XOR-masked and rebuilt at match time on purpose. `detect_md5_collision`
+/// substring-searches the *whole* buffer it is handed, and a `const &[u8]` is emitted
+/// verbatim into our own `.rdata` — so writing the literal here made every build of
+/// this DLL report *itself* as `Crypto.MD5.CollisionAttack.Wang2004` (exactly one hit
+/// per binary, in `.rdata`). Masking keeps the signature out of our own image while
+/// still matching the published bytes. True value: `WANG2004_MASKED[i] ^ WANG2004_MASK[i]`.
+const WANG2004_MASKED: [u8; 16] = [
+    0x8b, 0x0d, 0x4c, 0xe5, 0xca, 0x8b,
+    0xc5, 0x40, 0xaa, 0x2a, 0xd4, 0xb4,
+    0xe7, 0xca, 0x21, 0x56,
 ];
+const WANG2004_MASK: [u8; 16] = [
+    0x5a, 0x3c, 0x91, 0xe7, 0x0f, 0x6d,
+    0x2b, 0x84, 0xc3, 0x17, 0x4e, 0xb2,
+    0x7f, 0x65, 0xd8, 0x0a,
+];
+
+fn wang2004_prefix() -> [u8; 16] {
+    // `black_box` hides the mask's value from the optimizer. Without it LLVM
+    // constant-folds the XOR and re-emits the verbatim signature into `.rdata`,
+    // reintroducing exactly the self-detection this masking exists to prevent.
+    let mask = std::hint::black_box(WANG2004_MASK);
+    let mut out = [0u8; 16];
+    let mut i = 0;
+    while i < 16 {
+        out[i] = WANG2004_MASKED[i] ^ mask[i];
+        i += 1;
+    }
+    out
+}
 
 fn le_word(block: &[u8], i: usize) -> u32 {
     let o = i * 4;
@@ -109,7 +137,7 @@ pub struct CollisionFinding {
 }
 
 pub fn detect_md5_collision(data: &[u8]) -> Option<CollisionFinding> {
-    if data.len() >= 16 && contains(data, WANG2004_PREFIX) {
+    if data.len() >= 16 && contains(data, &wang2004_prefix()) {
         return Some(CollisionFinding {
             name: "Crypto.MD5.CollisionAttack.Wang2004",
             details: "Published Wang 2004 identical-prefix MD5 collision block".to_string(),
@@ -174,10 +202,24 @@ mod tests {
         out
     }
 
+    /// Pins the mask table. A typo in `WANG2004_MASK`/`WANG2004_MASKED` would
+    /// otherwise pass `wang_prefix_hits` while matching nothing in the wild.
+    /// The literal lives only here, so it stays out of the release `.rdata`.
+    #[test]
+    fn wang_prefix_reconstructs_published_bytes() {
+        assert_eq!(
+            wang2004_prefix().to_vec(),
+            vec![
+                0xd1, 0x31, 0xdd, 0x02, 0xc5, 0xe6, 0xee, 0xc4, 0x69, 0x3d, 0x9a, 0x06, 0x98, 0xaf,
+                0xf9, 0x5c,
+            ]
+        );
+    }
+
     #[test]
     fn wang_prefix_hits() {
         let mut buf = vec![0u8; 64];
-        buf[..16].copy_from_slice(WANG2004_PREFIX);
+        buf[..16].copy_from_slice(&wang2004_prefix());
         let hit = detect_md5_collision(&buf).unwrap();
         assert!(hit.name.contains("Wang2004"));
     }
