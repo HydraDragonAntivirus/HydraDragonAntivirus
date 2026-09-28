@@ -4,6 +4,14 @@
 
 <p align="center">
   <img
+    src="viruskov/viruskov-wordmark.svg"
+    width="850"
+    alt="VirusKov Antivirus"
+  />
+</p>
+
+<p align="center">
+  <img
     width="1024"
     height="1024"
     alt="Hydra Dragon Antivirus"
