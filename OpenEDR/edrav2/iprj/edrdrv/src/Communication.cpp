@@ -1285,68 +1285,6 @@ VOID DrainQueuedHypervisorEvents(_Inout_updates_bytes_(OutputBufferLength) PVOID
 
 #endif // OWLY_HYPERVISOR_SUPPORT
 
-NTSTATUS InitCommData()
-{
-    NTSTATUS status;
-    OBJECT_ATTRIBUTES oa;
-    UNICODE_STRING uniString;
-    PSECURITY_DESCRIPTOR sd = NULL;
-
-#if OWLY_HYPERVISOR_SUPPORT
-    EnsureQueuedHypervisorEventsInitialized();
-#endif
-
-    RtlInitUnicodeString(&uniString, ComPortName);
-
-    //
-    // Build the default security descriptor first.
-    //
-    status = FltBuildDefaultSecurityDescriptor(&sd, FLT_PORT_ALL_ACCESS);
-    if (!NT_SUCCESS(status))
-    {
-#if IS_DEBUG_IRP
-        DbgPrint("!!! FSfilter: FltBuildDefaultSecurityDescriptor failed: 0x%X\n", status);
-#endif
-        return status;
-    }
-
-    // Keep the default Filter Manager security descriptor. Do NOT install a
-    // NULL DACL here. The connect callback below performs the final identity
-    // check, but the object ACL should still reject low-privilege opens before
-    // they reach RWFConnect.
-
-    InitializeObjectAttributes(
-        &oa,
-        &uniString,
-        OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
-        NULL,
-        sd);
-
-    status = FltCreateCommunicationPort(
-        commHandle->Filter,
-        &commHandle->ServerPort,
-        &oa,
-        NULL,
-        RWFConnect,
-        RWFDissconnect,
-        RWFNewMessage,
-        1);
-
-    //
-    // Always free the security descriptor after FltCreateCommunicationPort.
-    //
-    FltFreeSecurityDescriptor(sd);
-
-    if (!NT_SUCCESS(status))
-    {
-#if IS_DEBUG_IRP
-        DbgPrint("!!! FSfilter: FltCreateCommunicationPort failed: 0x%X\n", status);
-#endif
-    }
-
-    return status;
-}
-
 BOOLEAN IsCommClosed()
 {
     return commHandle->CommClosed;
@@ -1377,64 +1315,6 @@ void CommClose()
 }
 
 NTSTATUS
-RWFConnect(_In_ PFLT_PORT ClientPort, _In_opt_ PVOID ServerPortCookie,
-           _In_reads_bytes_opt_(SizeOfContext) PVOID ConnectionContext, _In_ ULONG SizeOfContext,
-           _Outptr_result_maybenull_ PVOID
-
-               *ConnectionCookie)
-{
-    UNREFERENCED_PARAMETER(ServerPortCookie);
-    UNREFERENCED_PARAMETER(ConnectionContext);
-    UNREFERENCED_PARAMETER(SizeOfContext);
-    UNREFERENCED_PARAMETER(ConnectionCookie = NULL);
-
-    FLT_ASSERT(commHandle->ClientPort == NULL);
-
-
-#if IS_DEBUG_IRP
-    DbgPrint("!!! FSfilter: RWFConnect - ACCEPTED connection\n");
-#endif
-
-    //
-    //  Set the user process and port.
-    //
-
-    commHandle->ClientPort = ClientPort;
-#if IS_DEBUG_IRP
-    DbgPrint("!!! user connected, port=0x%p\n", ClientPort);
-#endif
-
-    return STATUS_SUCCESS;
-}
-
-VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie)
-{
-    UNREFERENCED_PARAMETER(ConnectionCookie);
-
-#if IS_DEBUG_IRP
-    DbgPrint("!!! user disconnected, port=0x%p\n", commHandle->ClientPort);
-#endif
-
-    //
-    //  Close our handle to the connection: note, since we limited max connections to 1,
-    //  another connect will not be allowed until we return from the disconnect routine.
-    //
-
-    FltCloseClientPort(commHandle->Filter, &commHandle->ClientPort);
-
-    //
-    //  Reset the user-process field.
-    //
-#if IS_DEBUG_IRP
-    DbgPrint("Disconnent\n");
-#endif
-    commHandle->CommClosed = TRUE;
-
-    if (driverData != NULL)
-    {
-        driverData->ClearIrps();
-    }
-}
 
 static NTSTATUS OwlyGetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *Name)
 {

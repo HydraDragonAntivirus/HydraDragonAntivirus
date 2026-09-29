@@ -682,6 +682,36 @@ NTSTATUS setProcessOptionState(Context* pCtx, Context* pParentCtx, ProcessOption
 //
 //
 //
+//
+// Walks the process ancestry looking for our own user-mode counterpart.
+//
+// The seed is g_pCommonData->nConnetedProcess, captured by fltport's
+// notifyOnConnect and cleared on disconnect. No path is involved, so this keeps
+// working across install directories, volumes and renames. The walk is
+// depth-limited so a recycled PID chain cannot spin.
+//
+static bool isProductProcessTree(HANDLE nStartPid)
+{
+	if (g_pCommonData == nullptr || g_pCommonData->nConnetedProcess == 0)
+		return false;
+
+	HANDLE nPid = nStartPid;
+	for (ULONG nDepth = 0; nPid != 0 && nDepth < 8; ++nDepth)
+	{
+		if ((ULONG_PTR)nPid == g_pCommonData->nConnetedProcess)
+			return true;
+
+		ContextPtr pAncestorCtx;
+		(void)getContext(nPid, pAncestorCtx, false);
+		if (!pAncestorCtx)
+			break;
+
+		nPid = pAncestorCtx->processInfo.nParentPid;
+	}
+
+	return false;
+}
+
 NTSTATUS applyRules(Context* pCtx)
 {
 	if (pCtx == nullptr)
@@ -709,13 +739,31 @@ NTSTATUS applyRules(Context* pCtx)
 		}
 	}
 
-	// Set options for this product processes
-	if (testFlag(pCtx->processInfo.nFlags, (UINT32)ProcessInfoFlags::ThisProductProcess))
+	// Set options for this product's own processes.
+	//
+	// Identified with no hardcoded path: our user-mode counterpart is whoever
+	// connected to the driver communication port, and fltport's notifyOnConnect
+	// records that PID in nConnetedProcess. Processes it spawned inherit the same
+	// treatment, so the engine never reports - or rescans - its own binaries.
+	//
+	// Re-evaluated on every context fill rather than once at connect time, since
+	// applyRules also runs when a process context is rebuilt. The scheme this
+	// replaces was a "\\Device\\HarddiskVolume3\\Program Files\\..." table, which
+	// matched only where the system volume happens to be numbered 3 and, even on
+	// a match, forced fIsTrusted without ever forcing fSendEvents - so edrsvc.exe
+	// went on reporting its own file opens, including openedr_static.dll, which
+	// carries the published Wang MD5-collision block that
+	// Crypto.MD5.CollisionAttack.Wang2004 matches.
+	if (isProductProcessTree(pCtx->processInfo.nPid))
 	{
 		// Always trusted
 		if (!pCtx->fIsTrusted.isForced())
 		{
 			pCtx->fIsTrusted = OptionState(true, OptionState::Reason::Forced, false);
+		}
+		if (!pCtx->fSendEvents.isForced())
+		{
+			pCtx->fSendEvents = OptionState(false, OptionState::Reason::Forced, false);
 		}
 	}
 

@@ -20,7 +20,6 @@ enum class ProcessInfoFlags : UINT32
 {
 	CsrssProcess		= 1 << 0, ///< csrss process
 	SystemLikeProcess	= 1 << 1, ///< SYSTEM(4) process or similar
-	ThisProductProcess  = 1 << 2, ///< This product process
 };
 
 inline static constexpr ULONG_PTR c_nIdleProcessPid = 0;

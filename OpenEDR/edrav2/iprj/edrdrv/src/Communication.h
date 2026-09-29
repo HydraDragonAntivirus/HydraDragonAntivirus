@@ -12,7 +12,6 @@
 extern "C" {
 #endif
 
-NTSTATUS InitCommData();
 NTSTATUS InitVmmCommunication();
 VOID CleanupVmmCommunication();
 
@@ -21,17 +20,9 @@ void CommClose();
 
 BOOLEAN IsCommClosed();
 
-// AMFConnect: Handles user mode application which connects to the driver
 
 NTSTATUS
-RWFConnect(
-    _In_ PFLT_PORT ClientPort,
-    _In_opt_ PVOID ServerPortCookie,
-    _In_reads_bytes_opt_(SizeOfContext) PVOID ConnectionContext,
-    _In_ ULONG SizeOfContext,
-    _Outptr_result_maybenull_ PVOID* ConnectionCookie);
 
-// AMFConnect: handle messages recieved from user mode
 
 NTSTATUS RWFNewMessage(
     IN PVOID PortCookie,
@@ -41,9 +32,7 @@ NTSTATUS RWFNewMessage(
     IN ULONG OutputBufferLength,
     OUT PULONG ReturnOutputBufferLength);
 
-// AMFDissconnect: Handles user mode application which dissconnects from the driver
 
-VOID RWFDissconnect(_In_opt_ PVOID ConnectionCookie);
 
 typedef struct _OWLY_HV_EVENT_DETAILS
 {

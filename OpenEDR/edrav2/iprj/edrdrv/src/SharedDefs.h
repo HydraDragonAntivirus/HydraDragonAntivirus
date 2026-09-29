@@ -33,11 +33,6 @@ Environment :
 //
 
 //
-//  Name of port used to communicate
-//
-
-const WCHAR *const ComPortName = L"\\RWFilter";
-
 // Quarantine directory path (shared across all components)
 const WCHAR *const QuarantinePath = L"\\??\\C:\\ProgramData\\HydraDragonQuarantine";
 

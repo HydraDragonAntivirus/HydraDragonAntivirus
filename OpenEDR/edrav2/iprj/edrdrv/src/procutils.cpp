@@ -73,18 +73,22 @@ struct SpecialProcFlags
 	UINT32 nFlags;				// Process Flags
 };
 
-//
-//
-//
-// SECURITY: Use full device paths to prevent malware from spoofing on other drives (D:, Z:, etc.)
-// ProcessImageFileName returns paths like: \Device\HarddiskVolume3\Program Files\...
-// Change HarddiskVolume3 to match your system volume (typically Volume3 for C: drive)
+	// Windows processes classified by image path.
+	//
+	// Our own components are deliberately NOT listed here. They used to be, as
+	// three hardcoded "\\Device\\HarddiskVolume3\\Program Files\\..." entries, and
+	// that table is why the product kept scanning itself: it only matched where
+	// the system volume happens to be numbered 3, and the branch it fed forced
+	// fIsTrusted without ever forcing fSendEvents. Self-identification is now
+	// path-free and runtime-derived - see procmon::isProductProcessTree.
+	//
+	// SECURITY: full device paths, so a look-alike on another volume (D:, Z:)
+	// cannot pass for the real thing. That fragility is exactly why the product
+	// entries were dropped rather than re-pointed at some other volume number.
+	//
 static SpecialProcFlags g_specialProcFlags[] =
 {
 	{ U_STAT(L"\\Device\\HarddiskVolume3\\windows\\system32\\csrss.exe"), (UINT32)ProcessInfoFlags::CsrssProcess },
-	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\OpenEDR\\edrsvc.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\OpenEDR\\edrcon.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
-	{ U_STAT(L"\\Device\\HarddiskVolume3\\Program Files\\HydraDragonAntivirus\\OpenEDR\\edrgui.exe"), (UINT32)ProcessInfoFlags::ThisProductProcess },
 };
 
 NTSTATUS getProcessFlagsByName(PUNICODE_STRING pusImageName, UINT32* pnFlags)

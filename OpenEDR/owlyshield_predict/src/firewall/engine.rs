@@ -3143,6 +3143,51 @@ impl FirewallEngine {
 }
 
 impl FirewallEngine {
+    /// Opens the NETWORK-layer handle, retrying briefly before giving up.
+    ///
+    /// A single attempt is fragile in both directions: the driver service can
+    /// still be starting when the service first calls in, and still unloading
+    /// after a previous stop. Both surface as `CreateFile(L"\\\\.\\WinDivert")`
+    /// failing and both clear on their own, so a few retries recover them.
+    ///
+    /// Worth knowing when reading a failure: the vendored driver never returns
+    /// ERROR_ACCESS_DENIED (only INVALID_PARAMETER, INSUFFICIENT_RESOURCES and
+    /// INVALID_DEVICE_STATE), so that error can only come from the CreateFile in
+    /// the DLL - the device could not be opened at all. The usual cause is the
+    /// caller not running elevated.
+    fn open_network_divert_with_retry(
+        filter: &str,
+        priority: i16,
+    ) -> Result<WinDivert<windivert::prelude::NetworkLayer>, WinDivertError> {
+        const ATTEMPTS: u32 = 10;
+        const DELAY_MS: u64 = 500;
+
+        let mut last_err = None;
+        for attempt in 1..=ATTEMPTS {
+            match WinDivert::network(filter, priority, WinDivertFlags::new()) {
+                Ok(d) => {
+                    if attempt > 1 {
+                        let ts = Self::now_ts();
+                        emit_log_event(LogEntry {
+                            id: format!("{}-divert-retry-ok", ts),
+                            timestamp: ts,
+                            level: LogLevel::Info,
+                            message: format!("WinDivert Open succeeded on attempt {attempt}/{ATTEMPTS}"),
+                        });
+                    }
+                    return Ok(d);
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < ATTEMPTS {
+                        std::thread::sleep(Duration::from_millis(DELAY_MS));
+                    }
+                }
+            }
+        }
+        Err(last_err.expect("ATTEMPTS is non-zero, so the loop runs"))
+    }
+
     pub fn start(&self) {
         // Auto-install the proxy CA into Windows Trusted Root so browsers
         // CA generation and installation is now handled by start_embedded_proxy() on demand.
@@ -3159,9 +3204,13 @@ impl FirewallEngine {
         // Priority 0 is fine.
         let divert_priority: i16 = 0;
         let filter = "true";
-        let divert = match WinDivert::network(filter, divert_priority, WinDivertFlags::new()) {
+        let divert = match Self::open_network_divert_with_retry(filter, divert_priority) {
             Ok(d) => {
-                let _ = d.set_param(WinDivertParam::QueueLength, 32768);
+                // WINDIVERT_PARAM_QUEUE_LENGTH_MAX is 16384. The previous 32768
+                // was rejected by the driver and the error discarded by `let _ =`,
+                // so the queue silently stayed at its 4096 default.
+                const QUEUE_LENGTH: u64 = 16384;
+                let _ = d.set_param(WinDivertParam::QueueLength, QUEUE_LENGTH);
                 let _ = d.set_param(WinDivertParam::QueueTime, 8000);
                 let _ = d.set_param(WinDivertParam::QueueSize, 32 * 1024 * 1024);
                 WinDivertArc(Arc::new(d))
@@ -3172,7 +3221,10 @@ impl FirewallEngine {
                     id: format!("{}-divert-fail", ts),
                     timestamp: ts,
                     level: LogLevel::Error,
-                    message: format!("WinDivert Open Failed: {:?}", e),
+                    // `{}` not `{:?}`: Display carries the actual explanation
+                    // ("Running without elevated access rights"), while the
+                    // derived Debug is just the variant name.
+                    message: format!("WinDivert Open Failed: {e}"),
                 });
                 return;
             }
@@ -3273,26 +3325,39 @@ impl FirewallEngine {
                 .spawn(move || {
                     // Traffic path must preempt NORMAL-priority scan workers under load.
                     prioritize_traffic_thread();
-                    if let Ok(flow_divert) = WinDivert::flow("true", 0, WinDivertFlags::new()) {
-                        let flow_arc = WinDivertArc(Arc::new(flow_divert));
-                        *flow_divert_handle.lock().unwrap() = Some(flow_arc.clone());
-                        let mut flow_buf = [0u8; 1024];
-                        while !stop_flow.load(Ordering::Relaxed) {
-                            match flow_arc.0.recv(Some(&mut flow_buf)) {
-                                Ok(flow_packet) => {
-                                    let pid = flow_packet.address.process_id();
-                                    let local_port = flow_packet.address.local_port();
-                                    if pid != 0 && local_port != 0 {
-                                        am_flow.update_port_mapping(local_port, pid);
+                    match WinDivert::flow("true", 0, WinDivertFlags::new()) {
+                        Ok(flow_divert) => {
+                            let flow_arc = WinDivertArc(Arc::new(flow_divert));
+                            *flow_divert_handle.lock().unwrap() = Some(flow_arc.clone());
+                            let mut flow_buf = [0u8; 1024];
+                            while !stop_flow.load(Ordering::Relaxed) {
+                                match flow_arc.0.recv(Some(&mut flow_buf)) {
+                                    Ok(flow_packet) => {
+                                        let pid = flow_packet.address.process_id();
+                                        let local_port = flow_packet.address.local_port();
+                                        if pid != 0 && local_port != 0 {
+                                            am_flow.update_port_mapping(local_port, pid);
+                                        }
                                     }
-                                }
-                                Err(_) => {
-                                    if stop_flow.load(Ordering::Relaxed) {
-                                        break;
+                                    Err(_) => {
+                                        if stop_flow.load(Ordering::Relaxed) {
+                                            break;
+                                        }
+                                        std::thread::sleep(Duration::from_millis(5));
                                     }
-                                    std::thread::sleep(Duration::from_millis(5));
                                 }
                             }
+                        }
+                        Err(e) => {
+                            // Previously swallowed: `if let Ok(..)` with no else arm, so a
+                            // FLOW-layer failure produced no log entry at all.
+                            let ts = Self::now_ts();
+                            emit_log_event(LogEntry {
+                                id: format!("{}-divert-flow-fail", ts),
+                                timestamp: ts,
+                                level: LogLevel::Error,
+                                message: format!("WinDivert FLOW open failed: {e}"),
+                            });
                         }
                     }
                 })

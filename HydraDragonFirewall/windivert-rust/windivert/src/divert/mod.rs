@@ -20,7 +20,7 @@ use windows::{
                 CloseServiceHandle, ControlService, OpenSCManagerA, OpenServiceA,
                 SC_MANAGER_ALL_ACCESS, SERVICE_CONTROL_STOP, SERVICE_STATUS,
             },
-            Threading::{CreateEventA, TlsAlloc, TlsGetValue, TlsSetValue},
+            Threading::{CreateEventA, TlsAlloc, TlsFree, TlsGetValue, TlsSetValue},
         },
     },
 };
@@ -29,7 +29,7 @@ use windows::{
 #[non_exhaustive]
 pub struct WinDivert<L: layer::WinDivertLayerTrait> {
     handle: HANDLE,
-    _tls_idx: u32,
+    tls_idx: u32,
     _layer: PhantomData<L>,
 }
 
@@ -43,7 +43,6 @@ impl<L: layer::WinDivertLayerTrait> WinDivert<L> {
         flags: WinDivertFlags,
     ) -> Result<Self, WinDivertError> {
         let filter = CString::new(filter)?;
-        let windivert_tls_idx = unsafe { TlsAlloc() };
         let handle = unsafe { sys::WinDivertOpen(filter.as_ptr(), layer, priority, flags) };
         if handle.is_invalid() {
             let open_err = WinDivertOpenError::try_from(std::io::Error::last_os_error())?;
@@ -51,7 +50,10 @@ impl<L: layer::WinDivertLayerTrait> WinDivert<L> {
         } else {
             Ok(Self {
                 handle,
-                _tls_idx: windivert_tls_idx,
+                // Allocated only once the open succeeded. It used to be taken
+                // before WinDivertOpen, so every failed attempt - exactly what a
+                // retry loop produces - leaked a TLS slot.
+                tls_idx: unsafe { TlsAlloc() },
                 _layer: PhantomData::<L>,
             })
         }
@@ -91,12 +93,27 @@ impl<L: layer::WinDivertLayerTrait> WinDivert<L> {
         }
     }
 
-    /// Handle close function.
-    pub fn close(&mut self, action: CloseAction) -> WinResult<()> {
+    /// Closes the driver handle and releases the TLS slot. Idempotent: the handle
+    /// is invalidated first, so a second call - or the `Drop` below running after
+    /// an explicit `close()` - is a no-op instead of a double close.
+    fn close_handle(&mut self) -> WinResult<()> {
+        if self.handle.is_invalid() {
+            return Ok(());
+        }
         let res = unsafe { sys::WinDivertClose(self.handle) };
+        self.handle = HANDLE::default();
+        unsafe {
+            TlsFree(self.tls_idx);
+        }
         if !res.as_bool() {
             return Err(WinError::from(unsafe { GetLastError() }));
         }
+        Ok(())
+    }
+
+    /// Handle close function.
+    pub fn close(&mut self, action: CloseAction) -> WinResult<()> {
+        self.close_handle()?;
         match action {
             CloseAction::Uninstall => WinDivert::uninstall(),
             CloseAction::Nothing => Ok(()),
@@ -110,6 +127,18 @@ impl<L: layer::WinDivertLayerTrait> WinDivert<L> {
             return Err(WinError::from(unsafe { GetLastError() }));
         }
         Ok(())
+    }
+}
+
+/// Closes the driver handle when the last `Arc` goes away.
+///
+/// There was no `Drop` at all and `WinDivertClose` had no call site in the crate,
+/// so the kernel handle outlived the Rust value: a `Stop` -> `Start` cycle left
+/// the previous handle open and still diverting every packet at the old filter,
+/// and the TLS index from `TlsAlloc` was never released either.
+impl<L: layer::WinDivertLayerTrait> Drop for WinDivert<L> {
+    fn drop(&mut self) {
+        let _ = self.close_handle();
     }
 }
 
