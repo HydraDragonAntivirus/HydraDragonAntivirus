@@ -1,0 +1,2898 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VIRUSKOV WIKI | MLE_RANSOM_BEHAVIOR &mdash; Davranış Tabanlı Fidye Yazılımı Tespit Kuralı</title>
+  <meta name="description" content="VIRUSKOV Wiki - MLE_RANSOM_BEHAVIOR kuralının tam teknik dokümantasyonu: kernel minifilter tetikleyicileri, PTM politika motoru, distinctCounter kayan pencere sayacı, dokuz katmanlı süzgeç, entropi analizi, yanıt zinciri ve bilinen sınırlar.">
+  <link rel="icon" type="image/svg+xml" href="../viruskov-fav.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #06090a;
+      --bg-surface: #0b1114;
+      --bg-surface-elevated: #10191d;
+      --bg-card: #0d1519;
+      --bg-terminal: #050708;
+      --border-subtle: #18262b;
+      --border-strong: #273e46;
+      --border-focus: #ff3344;
+      --text-main: #e8eff2;
+      --text-muted: #799099;
+      --text-dim: #4d5f66;
+      --accent-red: #ff3344;
+      --accent-red-hover: #e02435;
+      --accent-red-dim: rgba(255, 51, 68, 0.12);
+      --accent-red-glow: rgba(255, 51, 68, 0.25);
+      --accent-green: #00ff66;
+      --accent-green-dim: rgba(0, 255, 102, 0.1);
+      --accent-amber: #ffb703;
+      --accent-amber-dim: rgba(255, 183, 3, 0.12);
+      --accent-cyan: #00e5ff;
+      --accent-cyan-dim: rgba(0, 229, 255, 0.1);
+      --accent-violet: #b57bff;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-display: 'Space Grotesk', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; scroll-padding-top: 100px; }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.6;
+      background-image:
+        linear-gradient(rgba(255, 51, 68, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    ::selection { background: var(--accent-red); color: #fff; }
+
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--bg-terminal); }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-red); }
+
+    .mono { font-family: var(--font-mono); }
+    .container { max-width: 1320px; margin: 0 auto; padding: 0 24px; }
+
+    /* ---------- TOP TELEMETRY ---------- */
+    .top-telemetry {
+      background: #040607;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding: 6px 0;
+      letter-spacing: 0.5px;
+    }
+    .telemetry-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .telemetry-item { display: inline-flex; align-items: center; gap: 8px; }
+    .status-dot {
+      width: 7px; height: 7px; background: var(--accent-green); border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulseGreen 2s infinite ease-in-out;
+    }
+    @keyframes pulseGreen {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    a.telemetry-link { color: var(--text-main); text-decoration: none; }
+    a.telemetry-link:hover { color: var(--accent-red); }
+
+    /* ---------- HEADER ---------- */
+    header {
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(6, 9, 10, 0.94);
+      backdrop-filter: blur(14px);
+      position: sticky; top: 0; z-index: 1000;
+    }
+    .header-inner { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; gap: 20px; }
+    .brand-link { display: flex; align-items: center; gap: 14px; text-decoration: none; }
+    .brand-logo-img { height: 32px; width: auto; display: block; }
+    nav { display: flex; align-items: center; gap: 20px; }
+    @media (max-width: 1180px) { nav { display: none; } }
+    .nav-link {
+      font-family: var(--font-mono); font-size: 0.74rem; color: var(--text-muted);
+      text-decoration: none; text-transform: uppercase; letter-spacing: 1px;
+      transition: color 0.2s ease; display: inline-flex; align-items: center; gap: 4px;
+    }
+    .nav-link:hover { color: var(--text-main); }
+    .nav-link.highlight { color: var(--accent-red); font-weight: 700; }
+    .header-actions { display: flex; align-items: center; gap: 10px; }
+    .btn {
+      font-family: var(--font-mono); font-size: 0.8rem; font-weight: 700; text-decoration: none;
+      padding: 11px 20px; display: inline-flex; align-items: center; gap: 10px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); cursor: pointer; border: none;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .btn-red { background: var(--accent-red); color: #fff; border: 1px solid var(--accent-red); box-shadow: 0 4px 20px var(--accent-red-glow); }
+    .btn-red:hover { background: var(--accent-red-hover); transform: translateY(-2px); box-shadow: 0 6px 24px var(--accent-red-glow); }
+    .btn-ghost { background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-subtle); }
+    .btn-ghost:hover { border-color: var(--border-strong); background: var(--bg-surface-elevated); transform: translateY(-2px); }
+    .btn-amber { background: var(--accent-amber); color: #20180a; border: 1px solid var(--accent-amber); }
+    .btn-amber:hover { background: #ffc633; transform: translateY(-2px); }
+    .btn-sm { padding: 7px 14px; font-size: 0.72rem; }
+
+    /* ---------- WIKI LAYOUT ---------- */
+    .wiki-layout {
+      display: grid;
+      grid-template-columns: 272px minmax(0, 1fr);
+      gap: 40px;
+      align-items: start;
+      padding: 34px 0 60px;
+    }
+    @media (max-width: 1040px) {
+      .wiki-layout { grid-template-columns: 1fr; gap: 26px; }
+    }
+
+    .toc {
+      position: sticky; top: 100px;
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      padding: 20px 18px; max-height: calc(100vh - 140px); overflow-y: auto;
+      font-family: var(--font-mono); font-size: 0.74rem;
+    }
+    @media (max-width: 1040px) { .toc { position: static; max-height: none; } }
+    .toc-title {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px;
+      color: var(--accent-red); font-weight: 800; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .toc a {
+      display: block; color: var(--text-muted); text-decoration: none;
+      padding: 4px 0 4px 10px; border-left: 2px solid var(--border-subtle);
+      line-height: 1.35; transition: all 0.15s ease;
+    }
+    .toc a:hover { color: var(--text-main); border-left-color: var(--border-strong); }
+    .toc a.sub { padding-left: 22px; font-size: 0.7rem; color: #5f747d; }
+    .toc-sep { height: 1px; background: var(--border-subtle); margin: 12px 0; }
+
+    /* ---------- ARTICLE ---------- */
+    article { min-width: 0; }
+
+    .crumb {
+      font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px;
+    }
+    .crumb a { color: var(--text-muted); text-decoration: none; }
+    .crumb a:hover { color: var(--accent-red); }
+
+    .article-title {
+      font-size: clamp(1.9rem, 4.4vw, 3rem); font-weight: 900; letter-spacing: -1.5px;
+      line-height: 1.1; text-transform: uppercase; margin-bottom: 8px;
+    }
+    .article-title .hl { color: var(--accent-red); }
+    .article-sub {
+      font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);
+      margin-bottom: 22px; line-height: 1.8;
+    }
+    .article-rule { height: 3px; background: var(--accent-red); width: 90px; margin-bottom: 30px; }
+
+    .hero-lead {
+      font-size: 1.1rem; line-height: 1.7; color: var(--text-main);
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-left: 4px solid var(--accent-red); padding: 20px 22px; margin-bottom: 30px;
+    }
+    .hero-lead strong { color: #fff; }
+
+    h2.wiki-h2 {
+      font-size: clamp(1.3rem, 2.6vw, 1.8rem); font-weight: 800; letter-spacing: -0.6px;
+      text-transform: uppercase; margin: 46px 0 16px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex; align-items: baseline; gap: 12px; scroll-margin-top: 104px;
+    }
+    h2.wiki-h2 .num {
+      font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-red); font-weight: 700;
+      flex-shrink: 0;
+    }
+    h3.wiki-h3 {
+      font-size: 1.08rem; font-weight: 800; color: #fff; margin: 28px 0 10px;
+      scroll-margin-top: 104px;
+    }
+    h4.wiki-h4 {
+      font-family: var(--font-mono); font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan);
+      margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 1px;
+      scroll-margin-top: 104px;
+    }
+    p { margin-bottom: 14px; color: var(--text-muted); font-size: 0.97rem; }
+    p strong { color: var(--text-main); }
+    p em { color: #b9cbd3; font-style: italic; }
+    article ul, article ol { margin: 0 0 18px 22px; color: var(--text-muted); font-size: 0.95rem; }
+    article ul { list-style: none; }
+    article ol { list-style: decimal; }
+    article li { margin-bottom: 8px; }
+    article ul li::before { content: '\25B8'; color: var(--accent-red); margin-right: 9px; font-family: var(--font-mono); }
+    article ol li::marker { color: var(--accent-red); font-family: var(--font-mono); font-weight: 700; }
+    article a { color: var(--accent-cyan); }
+    code {
+      font-family: var(--font-mono); font-size: 0.86em; background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle); padding: 1px 6px; color: #ffd166;
+      word-break: break-word;
+    }
+    .c-red { color: var(--accent-red); font-weight: 700; }
+    .c-green { color: var(--accent-green); font-weight: 700; }
+    .c-amber { color: var(--accent-amber); font-weight: 700; }
+    .c-cyan { color: var(--accent-cyan); font-weight: 700; }
+    .c-violet { color: var(--accent-violet); font-weight: 700; }
+
+    /* ---------- SPEC CARD ---------- */
+    .spec-card {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-top: 3px solid var(--accent-red); margin: 24px 0 34px;
+    }
+    .spec-row { display: grid; grid-template-columns: 230px minmax(0, 1fr); border-bottom: 1px solid var(--border-subtle); }
+    .spec-row:last-child { border-bottom: none; }
+    @media (max-width: 720px) { .spec-row { grid-template-columns: 1fr; } }
+    .spec-key {
+      font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1px; padding: 12px 16px;
+      background: var(--bg-terminal); border-right: 1px solid var(--border-subtle);
+    }
+    .spec-val { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-main); padding: 12px 16px; word-break: break-word; }
+
+    /* ---------- CODE BLOCKS ---------- */
+    .code-block {
+      background: var(--bg-terminal); border: 1px solid #1c2b30; border-left: 3px solid var(--accent-cyan);
+      margin: 16px 0 20px; overflow-x: auto;
+    }
+    .code-block.red { border-left-color: var(--accent-red); }
+    .code-block.green { border-left-color: var(--accent-green); }
+    .code-block.amber { border-left-color: var(--accent-amber); }
+    .code-head {
+      font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1.4px; padding: 8px 14px;
+      border-bottom: 1px solid #1c2b30; background: #070b0c;
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    }
+    .code-head .src { color: var(--accent-cyan); }
+    .code-block.red .code-head .src { color: var(--accent-red); }
+    .code-block.green .code-head .src { color: var(--accent-green); }
+    .code-block.amber .code-head .src { color: var(--accent-amber); }
+    .code-block pre {
+      padding: 14px 16px; font-family: var(--font-mono); font-size: 0.78rem;
+      line-height: 1.65; color: #c4d6de; white-space: pre;
+    }
+    .tok-key { color: #7fb3ff; }
+    .tok-str { color: #ffd166; }
+    .tok-num { color: #00e5ff; }
+    .tok-op { color: #ff8fa3; }
+    .tok-cm { color: #5a6f78; }
+
+    /* ---------- CALLOUTS ---------- */
+    .callout {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-left: 4px solid var(--accent-cyan); padding: 16px 18px; margin: 18px 0 22px;
+      font-size: 0.92rem; line-height: 1.65; color: var(--text-muted);
+    }
+    .callout .co-title {
+      font-family: var(--font-mono); font-size: 0.7rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 1.4px; color: var(--accent-cyan);
+      margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+    }
+    .callout strong { color: var(--text-main); }
+    .callout.warn { border-left-color: var(--accent-amber); }
+    .callout.warn .co-title { color: var(--accent-amber); }
+    .callout.danger { border-left-color: var(--accent-red); }
+    .callout.danger .co-title { color: var(--accent-red); }
+    .callout.ok { border-left-color: var(--accent-green); }
+    .callout.ok .co-title { color: var(--accent-green); }
+    .callout.violet { border-left-color: var(--accent-violet); }
+    .callout.violet .co-title { color: var(--accent-violet); }
+
+    /* ---------- TABLES ---------- */
+    .table-wrap { overflow-x: auto; margin: 18px 0 24px; border: 1px solid var(--border-subtle); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 560px; }
+    thead th {
+      background: var(--bg-terminal); color: var(--accent-red); font-family: var(--font-mono);
+      font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1.1px; text-align: left;
+      padding: 11px 14px; border-bottom: 1px solid var(--border-strong); font-weight: 800; white-space: nowrap;
+    }
+    tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); vertical-align: top; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--bg-surface); }
+    tbody td code { font-size: 0.8rem; }
+    td .ok-mark { color: var(--accent-green); font-weight: 800; }
+    td .no-mark { color: var(--accent-red); font-weight: 800; }
+    td .warn-mark { color: var(--accent-amber); font-weight: 800; }
+
+    /* ---------- PIPELINE ---------- */
+    .pipeline {
+      background: var(--bg-terminal); border: 1px solid #1c2b30; padding: 20px;
+      font-family: var(--font-mono); font-size: 0.76rem; line-height: 1.9; color: #a4bcc7;
+      overflow-x: auto; margin: 18px 0 24px; white-space: pre;
+    }
+    .pipeline b { color: var(--accent-green); }
+    .pipeline i { color: var(--accent-red); font-style: normal; }
+    .pipeline u { color: var(--accent-cyan); text-decoration: none; }
+    .pipeline s { color: var(--accent-amber); text-decoration: none; }
+
+    /* ---------- STAGE BLOCKS ---------- */
+    .stage {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-left: 4px solid var(--border-strong); padding: 20px 22px; margin: 22px 0 26px;
+    }
+    .stage.active { border-left-color: var(--accent-red); }
+    .stage.cyan { border-left-color: var(--accent-cyan); }
+    .stage.green { border-left-color: var(--accent-green); }
+    .stage-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .stage-num {
+      font-family: var(--font-mono); font-size: 0.68rem; font-weight: 800; letter-spacing: 1.4px;
+      background: var(--bg-surface-elevated); border: 1px solid var(--border-strong);
+      padding: 3px 10px; color: var(--text-muted);
+    }
+    .stage.active .stage-num { color: var(--accent-red); border-color: var(--accent-red); }
+    .stage.cyan .stage-num { color: var(--accent-cyan); border-color: var(--accent-cyan); }
+    .stage.green .stage-num { color: var(--accent-green); border-color: var(--accent-green); }
+    .stage-title { font-size: 1rem; font-weight: 800; color: #fff; }
+    .stage p:last-child { margin-bottom: 0; }
+
+    /* ---------- FILTER CARDS ---------- */
+    .filter-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 18px 20px; margin: 14px 0; }
+    .filter-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+    .filter-idx {
+      font-family: var(--font-mono); font-size: 0.76rem; font-weight: 800;
+      color: var(--bg-base); background: var(--accent-red); padding: 2px 9px; flex-shrink: 0;
+    }
+    .filter-name { font-family: var(--font-mono); font-size: 0.84rem; font-weight: 700; color: #fff; word-break: break-word; }
+    .filter-why { font-size: 0.92rem; color: var(--text-muted); line-height: 1.65; }
+    .filter-why strong { color: var(--text-main); }
+
+    /* ---------- REASON GRID ---------- */
+    .reason-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 22px 0 26px; }
+    .reason-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-top: 3px solid var(--accent-red); padding: 20px; }
+    .reason-idx { font-family: var(--font-mono); font-size: 0.68rem; color: var(--accent-red); letter-spacing: 1.4px; font-weight: 800; margin-bottom: 8px; }
+    .reason-title { font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 8px; line-height: 1.3; }
+    .reason-text { font-size: 0.88rem; color: var(--text-muted); line-height: 1.6; }
+    .reason-text strong { color: var(--text-main); }
+
+    /* ---------- STAT GRID ---------- */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 22px 0 28px; }
+    .stat-box { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 16px 18px; }
+    .stat-num { font-family: var(--font-mono); font-size: 1.35rem; font-weight: 800; color: var(--accent-red); }
+    .stat-num.g { color: var(--accent-green); }
+    .stat-num.a { color: var(--accent-amber); }
+    .stat-num.c { color: var(--accent-cyan); }
+    .stat-lbl { font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; line-height: 1.4; }
+
+    /* ---------- FAQ ---------- */
+    .faq-item { background: var(--bg-card); border: 1px solid var(--border-subtle); padding: 18px 20px; margin-bottom: 12px; }
+    .faq-q { font-size: 0.98rem; font-weight: 800; color: #fff; margin-bottom: 8px; display: flex; gap: 10px; }
+    .faq-q .q-mark { color: var(--accent-cyan); font-family: var(--font-mono); flex-shrink: 0; }
+    .faq-a { font-size: 0.92rem; color: var(--text-muted); line-height: 1.65; }
+    .faq-a strong { color: var(--text-main); }
+
+    /* ---------- SUPPORT PANEL ---------- */
+    .support-panel {
+      background: linear-gradient(135deg, #0e161a 0%, #131d22 100%);
+      border: 1px solid var(--border-strong); border-left: 4px solid var(--accent-amber);
+      padding: 30px 28px; margin: 44px 0 0;
+    }
+    .support-title { font-size: 1.25rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .support-text { font-size: 0.95rem; color: var(--text-muted); line-height: 1.7; }
+    .support-text strong { color: var(--text-main); }
+    .mailbox {
+      display: inline-flex; align-items: center; gap: 12px; margin: 18px 0;
+      background: var(--bg-terminal); border: 1px solid var(--accent-amber);
+      padding: 14px 18px; font-family: var(--font-mono); font-size: 1rem;
+      color: var(--accent-amber); text-decoration: none; font-weight: 700;
+      transition: all 0.2s ease; word-break: break-all;
+    }
+    .mailbox:hover { background: var(--accent-amber-dim); transform: translateY(-2px); }
+    .support-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+
+    .article-nav { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 46px 0 0; padding-top: 22px; border-top: 1px solid var(--border-subtle); }
+
+    /* ---------- FOOTER ---------- */
+    footer { border-top: 1px solid var(--border-subtle); padding: 42px 0; background: var(--bg-surface); margin-top: 40px; }
+    .footer-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 22px; font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-muted); }
+    .footer-inner strong { color: var(--text-main); }
+    .footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
+    .footer-links a { color: var(--text-muted); text-decoration: none; transition: color 0.2s ease; }
+    .footer-links a:hover { color: var(--accent-red); }
+    .badge-pill {
+      font-family: var(--font-mono); font-size: 0.68rem; padding: 2px 8px;
+      background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border-subtle); color: var(--text-muted);
+    }
+    .tag { display: inline-block; font-family: var(--font-mono); font-size: 0.66rem; padding: 3px 8px; background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); color: #9cb2ba; margin: 0 5px 5px 0; }
+  </style>
+</head>
+<body>
+
+  <!-- LIVE TELEMETRY BAR -->
+  <div class="top-telemetry">
+    <div class="container telemetry-inner">
+      <div class="telemetry-item">
+        <span class="status-dot"></span>
+        <span>VIRUSKOV WIKI &bull; MOTOR: PTM / PATTERNSMATCHING v2</span>
+      </div>
+      <div class="telemetry-item">
+        <span>ODAK KURAL: <span style="color: var(--accent-red);">MLE_RANSOM_BEHAVIOR</span> &bull; baseType 1000008</span>
+      </div>
+      <div class="telemetry-item">
+        <a class="telemetry-link" href="../index.html">&larr; ANA SAYFA</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER -->
+  <header>
+    <div class="container header-inner">
+      <a href="../index.html" class="brand-link">
+        <img src="../viruskov-wordmark.svg" alt="VIRUSKOV Logo" class="brand-logo-img">
+      </a>
+
+      <nav>
+        <a href="#kunya" class="nav-link highlight">Künye</a>
+        <a href="#mimari" class="nav-link">Mimari</a>
+        <a href="#anatomi" class="nav-link">Anatomi</a>
+        <a href="#suzgecler" class="nav-link">Süzgeçler</a>
+        <a href="#sayac" class="nav-link">Sayaç</a>
+        <a href="#entropy" class="nav-link">Entropi</a>
+        <a href="#kernel" class="nav-link">Kernel</a>
+        <a href="#yanit" class="nav-link">Yanıt</a>
+        <a href="#neden" class="nav-link">Neden Mükemmel</a>
+        <a href="#sinirlar" class="nav-link">Sınırlar</a>
+        <a href="#sss" class="nav-link">SSS</a>
+      </nav>
+
+      <div class="header-actions">
+        <a href="mailto:viruskov@viruskov.com" class="btn btn-ghost btn-sm">
+          <span>DESTEK</span>
+          <span>&rarr;</span>
+        </a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-red btn-sm">
+          <span>REPO</span>
+          <span>&nearr;</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <div class="container wiki-layout">
+
+    <!-- ============ SIDEBAR TOC ============ -->
+    <aside class="toc">
+      <div class="toc-title">&#9642; İÇİNDEKİLER</div>
+      <a href="#kunya">1 &mdash; Künye</a>
+      <a href="#tek-cumle">2 &mdash; Bir Cümlede</a>
+      <a href="#neden-davranis">3 &mdash; Neden Davranış</a>
+      <a href="#mimari">4 &mdash; Uçtan Uca Mimari</a>
+      <a href="#ptm-motor">5 &mdash; PTM Motoru</a>
+      <a class="sub" href="#ptm-directive">5.1 &mdash; Yönergeler</a>
+      <a class="sub" href="#ptm-operasyon">5.2 &mdash; Operasyonlar</a>
+      <a class="sub" href="#ptm-wildcard">5.3 &mdash; Joker Eşleme</a>
+      <a href="#anatomi">6 &mdash; Kural Anatomisi</a>
+      <a class="sub" href="#asama-1">6.1 &mdash; Aşama 1: Okuma</a>
+      <a class="sub" href="#asama-2">6.2 &mdash; Aşama 2: Aday</a>
+      <a class="sub" href="#asama-3">6.3 &mdash; Aşama 3: Değerlendirme</a>
+      <a class="sub" href="#asama-4">6.4 &mdash; Aşama 4: Karar</a>
+      <a class="sub" href="#asama-5">6.5 &mdash; Aşama 5: Temizlik</a>
+      <a href="#suzgecler">7 &mdash; Dokuz Süzgeç</a>
+      <a href="#sayac">8 &mdash; distinctCounter</a>
+      <a href="#dosya-alanlari">9 &mdash; Dosya Alanları</a>
+      <a href="#entropy">10 &mdash; Shannon Entropisi</a>
+      <a href="#beyazliste">11 &mdash; Beyaz Liste</a>
+      <a href="#kernel">12 &mdash; Kernel Tarafı</a>
+      <a href="#neden-iki-asama">13 &mdash; Neden İki Aşamalı</a>
+      <a href="#yanit">14 &mdash; Yanıt Zinciri</a>
+      <a href="#neden">15 &mdash; Neden Mükemmel</a>
+      <a href="#sinirlar">16 &mdash; Dürüst Sınırlar</a>
+      <a href="#komsu">17 &mdash; Komşu Kurallar</a>
+      <a href="#analist">18 &mdash; Analist El Kitabı</a>
+      <a href="#sss">19 &mdash; SSS</a>
+      <a href="#kaynak">20 &mdash; Kaynak Haritası</a>
+      <div class="toc-sep"></div>
+      <a href="../index.html" style="color: var(--accent-red);">&larr; Ana Sayfa</a>
+      <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber);">Destek &amp; Bağış</a>
+    </aside>
+
+    <!-- ============ ARTICLE ============ -->
+    <article>
+
+      <div class="crumb">
+        <a href="../index.html">VIRUSKOV</a> / WIKI / TESPİT KURALLARI / <span style="color: var(--accent-red);">MLE_RANSOM_BEHAVIOR</span>
+      </div>
+
+      <h1 class="article-title">
+        MLE_RANSOM_<span class="hl">BEHAVIOR</span><br>
+        Fidye Yazılımı Tespit Kuralının Tam Anatomisi
+      </h1>
+      <p class="article-sub">
+        OpenEDR &times; Hydra Dragon çekirdeği &bull; PTM / PatternsMatching v2 politika motoru<br>
+        Kural Kimliği: <span class="c-red">RANSOM_BEHAVIOR</span> &nbsp;|&nbsp; Yayın Olay Tipi: <span class="c-red">MLE_RANSOM_BEHAVIOR</span> &nbsp;|&nbsp; baseType: <span class="c-red">1000008</span><br>
+        Politika Kaynağı: <code>OpenEDR/edrav2/iprj/edrdata/ptm.local.src</code> &nbsp;&bull;&nbsp; Satır 4636 &ndash; 5129
+      </p>
+      <div class="article-rule"></div>
+
+      <div class="hero-lead">
+        <strong>MLE_RANSOM_BEHAVIOR</strong>, bir dosyanın hash'ine, derleyicisine ya da paketleyicisine bakmaz.
+        Çekirdekte gördüğü <strong>tek şey davranıştır</strong>: bir süreç, kullanıcının kişisel
+        dosyalarına <strong>60 saniye içinde en az 3 ayrı hedefe</strong> yazıyor, yeniden adlandırıyor
+        ya da siliyor; bu hedefler <strong>metin dosyası değil</strong> ve <strong>şifrelenmiş gibi
+        yüksek entropili</strong> veri taşıyor. Bu üçlü &mdash; <em>kitle &times; hacim &times; içerik</em>
+        &mdash; eşleştiği anda motor, saldırganın <strong>proses imajını karantinaya alır ve
+        süreci anında öldürür</strong>. Bu sayfa, bunun her tek satırını, her tek süzgecini ve
+        her bilinen sınırını açar.
+      </div>
+
+      <!-- ============ 1 KÜNYE ============ -->
+      <h2 class="wiki-h2" id="kunya"><span class="num">01</span> Künye</h2>
+
+      <p>
+        Aşağıdaki tablo, kuralın kimlik bilgilerini ve teknik parametrelerini tek yerde toplar.
+        Bu değerlerin tamamı depodaki kaynak koddan <strong>birebir alınmıştır</strong>; hiçbiri
+        tahmin değildir. Kaynak satırları ve dosya yolları her hücrede verilmiştir.
+      </p>
+
+      <div class="spec-card">
+        <div class="spec-row"><div class="spec-key">Kural Adı (policy pattern)</div><div class="spec-val c-red">RANSOM_BEHAVIOR</div></div>
+        <div class="spec-row"><div class="spec-key">Yayın Olayı (createEvent)</div><div class="spec-val c-red">MLE_RANSOM_BEHAVIOR</div></div>
+        <div class="spec-row"><div class="spec-key">baseType (eventBaseType)</div><div class="spec-val c-amber">1000008</div></div>
+        <div class="spec-row"><div class="spec-key">Kural Tipi</div><div class="spec-val c-cyan">DAVRANIŞ TANI / POLİTİKA (behavior)</div></div>
+        <div class="spec-row"><div class="spec-key">Politika Grubu</div><div class="spec-val">patternsMatching</div></div>
+        <div class="spec-row"><div class="spec-key">Politika Bağımlılığı</div><div class="spec-val">common (version 2)</div></div>
+        <div class="spec-row"><div class="spec-key">Motor</div><div class="spec-val">PTM v2 &mdash; PatternsMatching / EVM</div></div>
+        <div class="spec-row"><div class="spec-key">Kaynak Dosya</div><div class="spec-val">OpenEDR/edrav2/iprj/edrdata/ptm.local.src</div></div>
+        <div class="spec-row"><div class="spec-key">Satır Aralığı</div><div class="spec-val">4636 &ndash; 5129 (toplam 16 kural maddesi)</div></div>
+        <div class="spec-row"><div class="spec-key">Aşama Sayısı</div><div class="spec-val c-green">5 mantıksal aşama: KAYIT &rarr; ADAY &rarr; DEĞERLENDİRME &rarr; KARAR &rarr; TEMİZLİK</div></div>
+        <div class="spec-row"><div class="spec-key">Süzgeç Sayısı (aşama 4)</div><div class="spec-val c-amber">9 bağımsız filtre, tek AND zincirinde</div></div>
+        <div class="spec-row"><div class="spec-key">Sayaç Eşiği</div><div class="spec-val c-cyan">3 AYRI hedef dosya</div></div>
+        <div class="spec-row"><div class="spec-key">Sayaç Penceresi</div><div class="spec-val c-cyan">60000 ms (60 saniye) kayan pencere</div></div>
+        <div class="spec-row"><div class="spec-key">Kaynak Olay Sayısı</div><div class="spec-val">10 farklı kernel dosya olayı tetikler</div></div>
+        <div class="spec-row"><div class="spec-key">Beyaz Liste</div><div class="spec-val">8 sistem yolu kalıbı</div></div>
+        <div class="spec-row"><div class="spec-key">Uzantı Gözcüsü</div><div class="spec-val">1479 kullanıcı dosyası uzantısı</div></div>
+        <div class="spec-row"><div class="spec-key">Güvenlik Seviyesi</div><div class="spec-val c-red">3 &mdash; CRITICAL (kaynak kodda sabit)</div></div>
+        <div class="spec-row"><div class="spec-key">Varsayılan Yanıt</div><div class="spec-val c-red">KARANTİNA + SÜRECİ ÖLDÜR + GERİ YÜKLE</div></div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num">16</div><div class="stat-lbl">Kural Maddesi</div></div>
+        <div class="stat-box"><div class="stat-num c">10</div><div class="stat-lbl">Kernel Tetikleyicisi</div></div>
+        <div class="stat-box"><div class="stat-num a">9</div><div class="stat-lbl">Karar Süzgütü</div></div>
+        <div class="stat-box"><div class="stat-num g">1479</div><div class="stat-lbl">İzlenen Uzantı</div></div>
+        <div class="stat-box"><div class="stat-num">3 / 60s</div><div class="stat-lbl">Eşik / Pencere</div></div>
+        <div class="stat-box"><div class="stat-num c">Ring-0</div><div class="stat-lbl">Tespit Katmanı</div></div>
+      </div>
+
+      <!-- ============ 2 TEK CÜMLE ============ -->
+      <h2 class="wiki-h2" id="tek-cumle"><span class="num">02</span> Bir Cümlede</h2>
+
+      <p>
+        <strong>Yeni veya imzası bilinmeyen bir fidye yazılımı</strong>, sisteme indirilip
+        çalıştırıldığı andan itibaren <strong>derlenmiş kod imzasına bakılmadan</strong> tespit
+        edilir. Çünkü kural, kodun <em>ne yaptığına</em> bakar:
+      </p>
+
+      <ol>
+        <li>Kernel dosya sistemi süzgeci (minifilter), <strong>60 saniye içinde 3 veya daha fazla ayrı kullanıcı dosyasına</strong> yazma / yeniden adlandırma / silme işlemi yapan bir süreci kayda geçirir.</li>
+        <li>Politika motoru o dosyaların <strong>metin olmadığını</strong> (ilk 64 KiB'lık ASCII taramasıyla) ve <strong>şifreli veri gibi yüksek entropili</strong> olduğunu doğrular.</li>
+        <li>Hedeflerin <strong>kullanıcı profilinde</strong> (<code>C:\Users\...</code>) ve <strong>AppData / Temp / Windows / Program Files dışında</strong> olduğunu doğrular.</li>
+        <li>Tüm koşullar tutarsa <code>MLE_RANSOM_BEHAVIOR</code> olayı üretilir; motor <strong>sürecin imaj dosyasını karantinaya alır</strong> ve <strong>süreci Global ID ile öldürür</strong>.</li>
+        <li>Kernel'in <strong>RansomShield</strong> modülü daha önce kaydettiği özgün dosya kopyalarını geri yükler.</li>
+      </ol>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Bunun pratik anlamı</div>
+        Fidye yazılımı ailesi <strong>dün ya da bugün</strong> derlenmiş olsun, paketlenmiş olsun,
+        ismi hiç görülmemiş bir isim taşısın, <strong>farkı yoktur</strong>. Kural bir <em>aileyi</em>
+        değil, <em>bir davranışı</em> tarif eder. Bu yüzden imza veritabanını güncellemeye
+        gerek kalmadan sıfırıncı gün fidye yazılımı da aynı kapıdan geçer.
+      </div>
+
+      <!-- ============ 3 NEDEN DAVRANIŞ ============ -->
+      <h2 class="wiki-h2" id="neden-davranis"><span class="num">03</span> Neden Bu Kural Bir İmza Değil, Bir Davranış Kuralı?</h2>
+
+      <p>
+        Klasik antivirüs düşüncesi şöyledir: &ldquo;Bu dosyayı daha önce gördüm, SHA-256'sı
+        listede var, zararlı.&rdquo; Bu yöntem iki yerde kırılır.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Yaklaşım</th>
+              <th>Ne yapıyor</th>
+              <th>Kırılma noktası</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Hash imzası</strong></td>
+              <td>Dosyanın özetini sabit bir listede arar</td>
+              <td>Tek bir bayt değişse hash değişir. <span class="c-red">Atlatma: 1 saniye.</span></td>
+            </tr>
+            <tr>
+              <td><strong>YARA / bayt imzası</strong></td>
+              <td>İçerikte sabit dizi arar</td>
+              <td>Polimorfik kod, XOR şifreleme, UPX/Themida paketleme. <span class="c-red">Atlatma: dakikalar.</span></td>
+            </tr>
+            <tr>
+              <td><strong>Paketleyici tanıma</strong></td>
+              <td>Derleyicinin bıraktığı imzayı okur</td>
+              <td>Yeni sürüm derleyici imzayı değiştirir. <span class="c-red">Atlatma: tek güncelleme.</span></td>
+            </tr>
+            <tr>
+              <td><strong>Yapay zekâ destekli statik ML</strong></td>
+              <td>PE başlıklarından sapma skorlar</td>
+              <td>İyi yazılmış zararlı, meşru PE başlığını taklit eder. <span class="c-red">Zayıf ayrım.</span></td>
+            </tr>
+            <tr>
+              <td style="border-left:3px solid var(--accent-red);"><strong class="c-red">MLE_RANSOM_BEHAVIOR</strong></td>
+              <td><strong>Dosya sistemi I/O akışını izler, şifreleme işlemini kendi hâlinde tanır</strong></td>
+              <td><span class="c-green">Kod değişse de davranış değişmez. Şifreleme zorunlu bir adımdır.</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout violet">
+        <div class="co-title">&#9654; Temel fikir</div>
+        <strong>Fidye yazılımının tek değişmez zorunluluğu vardır: kullanıcının dosyasını okumak
+        ve geri döndürülemez biçimde bozmak.</strong>
+        Kod imzası, paketleyici, dosya adı, hata mesajı, uzantı &mdash; hepsi değişebilir.
+        Ama &ldquo;onlarca kullanıcı dosyasına arka arkaya yazıp geri döndürülemez hâle getirmek&rdquo;
+        eylemi değişmez. Kural tam olarak bu eylemi imzalar.
+      </div>
+
+      <!-- ============ 4 MİMARİ ============ -->
+      <h2 class="wiki-h2" id="mimari"><span class="num">04</span> Uçtan Uca Mimari: Olayın Yolculuğu</h2>
+
+      <p>
+        Kuralın arkasında sekiz ayrı katman var. Olayın yolculuğunu baştan sona izleyelim.
+      </p>
+
+      <div class="pipeline">
+<b>[1] RING-0  &mdash;  edrdrv.sys (minifilter)</b>
+    IRP_MJ_CREATE / CLEANUP / WRITE / READ / SET_INFORMATION
+    IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION   (mmap yakalama)
+        |
+        |  LLE_FILE_CREATE  /  LLE_FILE_DATA_READ_FULL  /  LLE_FILE_DATA_WRITE_FULL
+        |  LLE_FILE_MAP_READ  /  LLE_FILE_MAP_WRITE  /  LLE_FILE_DATA_CHANGE
+        |  LLE_FILE_RENAME  /  LLE_FILE_DELETE
+        v
+<b>[2] LBVS WIRE PROTOCOL</b>   (libsysmon/inc/edrdrvapi.hpp)
+    Sema tabanlı, çözümlenmiş adlandırılmış byte akışı
+        |
+        v
+<u>[3] libsysmon CONTROLLER</u>   (controller.cpp)
+    SysmonEvent -&gt; Event enum eşlemesi, "type" etiketi
+        |
+        v
+<u>[4] EventEnricher</u>   (eventenricher.cpp)
+    Süreç zenginleştirme, processes[] zinciri, dosya nesnesi
+    -&gt; file alanları TAMBEL PROXY (64KB okuma sadece istendiğinde)
+        |
+        v
+<u>[5] KUYRUK: match_patterns</u>   (qsc/match_patterns.qsc)
+        |
+        v
+<s>[6] PTM POLİTİKA MOTORU</s>   (ptm.local.src / RANSOM_BEHAVIOR)
+        |
+        |   destination "IN"  -&gt; geri dönüş match_patterns  (durum makinesi)
+        |   destination "OUT" -&gt; enrich_mle kuyruğu          (tespit çıkışı)
+        v
+<u>[7] enrich_mle -&gt; check_for_valkyrie -&gt; transform_for_cloud -&gt; output</u>
+        |
+        v
+<u>[8] DetectionNotifier</u>   (detectionnotifier.cpp)
+    Güven kontrolü -&gt; GID ile ÖLDÜR -&gt; KARANTİNA -&gt; GERİ YÜKLE -&gt; GUI
+      </div>
+
+      <p>
+        Kritik ayrım şudur: <code>destination: "IN"</code> olayı motorun <em>icine</em> tutar
+        (bu bir tespit değil, bir durum makinesi adımıdır); <code>destination: "OUT"</code> ise
+        olayı motor dışına, zenginleştirme ve yanıt zincirine çıkarır.
+        <strong>MLE_RANSOM_BEHAVIOR <code>OUT</code> ile yayılır</strong> &mdash; yani gerçek
+        bir tespittir.
+      </p>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Neden iki kuyruk?</div>
+        <code>IN</code> olayları aynı kuyruğa geri beslenir; böylece politika dosyası
+        <em>olay üretip kendi kuralına geri göndererek</em> çok aşamalı bir durum makinesi
+        kurabilir. Bu, tek bir dosya işlemi üzerinde &ldquo;oku &rarr; yaz &rarr; say &rarr; karar ver&rdquo;
+        zinciri kurmanın en temiz yoludur ve tam olarak MLE_RANSOM_BEHAVIOR'ın mimarisidir.
+      </div>
+
+      <!-- ============ 5 PTM MOTORU ============ -->
+      <h2 class="wiki-h2" id="ptm-motor"><span class="num">05</span> Altyapı: PTM (PatternsMatching) Motoru</h2>
+
+      <p>
+        Kural, JSON tabanlı bir politika dilinde tanımlıdır. Derlendiğinde ürüne gömülür ve
+        <strong>denetlenebilir</strong> kalır &mdash; yani bu sayfadaki her satır, üründe çalışan
+        gerçek kodun satırıdır. Motor C++ ile yazılmıştır
+        (<code>libedr/src/policy_v2.cpp</code>, <code>policycompiler.cpp</code>,
+        <code>policyoperation.cpp</code>, <code>signcontext.cpp</code>).
+      </p>
+
+      <h3 class="wiki-h3" id="ptm-directive">5.1 &mdash; Yönergeler (Directives)</h3>
+
+      <p>Her kural maddesi, bir <code>"rule"</code> sözlüğü içinde yönergelerden oluşur:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Yönerge</th><th>Ne yapar</th><th>Bu Kuralda Nerede</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>condition</code></td>
+              <td>Filtre. Sağlanmazsa kural <strong>her zaman</strong> eşleşir.</td>
+              <td>Aşama 1a/1b ve aşama 5'te yok; aday üretimi ve karar kurallarında var</td>
+            </tr>
+            <tr>
+              <td><code>saveContext</code></td>
+              <td>Sepet (<code>basket</code>) içine anahtar + veri + <strong>yaşam süresi (ms)</strong> ile kayıt yazar.</td>
+              <td>Aşama 1a, 1b &mdash; <code>RANSOM_FILE_READ_WRITE</code> sepeti</td>
+            </tr>
+            <tr>
+              <td><code>loadContext</code></td>
+              <td>Sepetten okur. <code>@context.*</code> kullanımı bunu zorunlu kılar.</td>
+              <td><span class="c-amber">Bu kuralda kullanılmıyor</span> (bkz. Bölüm 16)</td>
+            </tr>
+            <tr>
+              <td><code>deleteContext</code></td>
+              <td>Sepetten anahtar veya grup siler.</td>
+              <td>Aşama 5 &mdash; süreç sonlandığında</td>
+            </tr>
+            <tr>
+              <td><code>createEvent</code></td>
+              <td>Yeni olay üretir. <code>destination</code>: <code>IN</code> / <code>OUT</code> / <code>IN_OUT</code>. <code>clone:false</code> ise yalnızca <code>data</code>'daki alanlar taşınır.</td>
+              <td>Aşama 2, 3 ve 4 &mdash; kuralın kalbi</td>
+            </tr>
+            <tr>
+              <td><code>distinctCounter</code></td>
+              <td><strong>Kayan pencerede ayrı değer sayar</strong>, eşik aşılınca <code>flag</code> alanına boolean yazar.</td>
+              <td>Aşama 4 &mdash; <code>ransomFileDistinct</code> sepeti</td>
+            </tr>
+            <tr>
+              <td><code>discard</code></td>
+              <td>Olayı düşürür.</td>
+              <td><span class="c-amber">Kullanılmıyor</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; Kritik motor kısıtı: kural başına tek <code>condition</code></div>
+        <strong>Bir kural sözlüğünde yalnızca bir <code>condition</code> anahtarı olabilir.</strong>
+        Motor yönergeleri bir <code>unordered_map&lt;Directive, DirectivePtr&gt;</code> içinde tutar;
+        ikinci bir <code>condition</code> yazılırsa ilk sessizce düşer. Bu yüzden aşama 4'teki
+        dokuz süzgecin <strong>tamamı tek bir <code>"and"</code> zincirinde birleştirilmiştir</strong>.
+        Bu, kuralın yazılış biçiminin bir kısıtından doğan bilinçli bir tasarım kararıdır ve
+        <code>ptm.local.src</code> içinde de açıkça belgelenmiştir.
+      </div>
+
+      <h3 class="wiki-h3" id="ptm-operasyon">5.2 &mdash; Operasyonlar ve Değerlendirme Semantiği</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Operasyon</th><th>Arity</th><th>Anlamı</th><th>Bu Kuralda</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>imatch</code></td><td>1 değer + <code>pattern</code></td><td><strong>Büyük/küçük harf duyarsız</strong> joker eşlemesi</td><td><code>*\users\*</code> vb.</td></tr>
+            <tr><td><code>!imatch</code></td><td>1 değer + <code>pattern</code></td><td>Eşleşmezse <code>true</code></td><td>Beyaz liste kontrolleri</td></tr>
+            <tr><td><code>and</code> / <code>or</code></td><td>&ge; 2</td><td>Mantıksal birleştirme (<strong>kısa devre yok</strong>, hepsi değerlendirilir)</td><td>Süzgeç zinciri</td></tr>
+            <tr><td><code>equal</code> / <code>!equal</code></td><td>tam 2</td><td>Tip bazlı eşitlik</td><td><code>type == "OTHER"</code>, <code>isAsciiText</code></td></tr>
+            <tr><td><code>greater</code></td><td>tam 2</td><td><strong>Tam sayı</strong> karşılaştırma; null/bool/string &rarr; 0 sayılır</td><td>Entropi eşiği</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3" id="ptm-wildcard">5.3 &mdash; Joker (Wildcard) Eşleme Semantiği</h3>
+
+      <p>
+        <code>imatch</code> operatörü joker kalıpları <strong>iki ayrı motora</strong> dağıtır ve
+        bu seçim performansı doğrudan etkiler:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Kalıp Biçimi</th><th>Derlenen Motor</th><th>Anlam</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>*\Windows\*</code></td>
+              <td><code>StringMatcher</code>, mod <code>all</code></td>
+              <td>&ldquo;içinde <code>\Windows\</code> geçiyor&rdquo; &mdash; hızlı yol, regex yok</td>
+            </tr>
+            <tr>
+              <td><code>*.docx</code></td>
+              <td><code>StringMatcher</code>, mod <code>end</code></td>
+              <td>&ldquo;sonu <code>.docx</code> ile bitiyor&rdquo; &mdash; 1479 uzantı bu yolda</td>
+            </tr>
+            <tr>
+              <td><code>C:\Windows\explorer.exe</code></td>
+              <td><code>StringMatcher</code>, mod <code>begin</code></td>
+              <td>&ldquo;ile <strong>başlıyor</strong>&rdquo; (yani <code>.exe.bak</code> de eşleşir)</td>
+            </tr>
+            <tr>
+              <td><code>*\*.*.*</code></td>
+              <td><strong>POSIX regex</strong> (temel)</td>
+              <td>Ortada joker varsa regex yoluna düşer; <code>*</code>&rarr;<code>.*</code>, <code>?</code>&rarr;<code>.</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Önemli ayrım</div>
+        Baştaki ve sondaki <code>*</code> karakterleri birer &ldquo;regex jokeri&rdquo; değildir;
+        bunlar <strong>çapa (anchor)</strong> görevi görür ve <code>begin</code> / <code>end</code> /
+        <code>all</code> modlarına dönüştürülür. 1479 uzantılık liste bu yüzden regex derlenmeden,
+        tek bir <code>StringMatcher</code> tablosu olarak çalışır &mdash; bu, canlı sistemde
+        <strong>onlarca mikrosaniyelik</strong> maliyet demektir.
+      </div>
+
+      <!-- ============ 6 ANATOMİ ============ -->
+      <h2 class="wiki-h2" id="anatomi"><span class="num">06</span> Kuralın Anatomisi: 16 Madde, 5 Aşama</h2>
+
+      <p>
+        <code>RANSOM_BEHAVIOR</code> deseni 16 kural maddesinden oluşur. Bu maddeler beş mantıksal
+        aşama hâlinde gruplanır. Aşağıda her aşama, ilgili kaynak kodla birlikte açıklanmıştır.
+      </p>
+
+      <!-- AŞAMA 1 -->
+      <div class="stage cyan" id="asama-1">
+        <div class="stage-head">
+          <span class="stage-num">AŞAMA 1</span>
+          <span class="stage-title">Okuma Tarafının Kaydedilmesi &mdash; <code>saveContext</code></span>
+        </div>
+        <p>
+          İki kural maddesi, sistem dışı bir dosyanın <strong>tam olarak okunduğunu</strong> kayda
+          geçirir. Amaç &ldquo;bu süreç şu dosyayı okudu&rdquo; bilgisini 120 saniye boyunca
+          saklamaktır. Bu, ileride &ldquo;okuyan &rarr; yazan&rdquo; eşleşmesi kurulabilmesi için
+          temeldir (bkz. Bölüm 16, madde 3: bu sepet şu an yalnızca yazılır, okunmaz).
+        </p>
+      </div>
+
+      <h4 class="wiki-h4">Madde 1a &mdash; LLE_FILE_DATA_READ_FULL</h4>
+      <p>
+        Dosya, <strong>eksiksiz ve sıralı</strong> biçimde baştan sona okunduğunda üretilen kernel
+        olayını yakalar. Minifilter bunu ancak <code>readInfo.nNextPos == nSizeAtCreation</code>
+        koşulu sağlandığında yapar &mdash; yani kısmi okumalar sayılmaz.
+      </p>
+
+      <div class="code-block cyan">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; AŞAMA 1a</span><span>saveContext / 120000 ms</span></div>
+<pre>{
+  "eventType": <span class="tok-str">"LLE_FILE_DATA_READ_FULL"</span>,
+  "rule": {
+    "condition": {
+      "$operation": <span class="tok-str">"!imatch"</span>,
+      "pattern":   <span class="tok-str">"@const.ransomSystemExclusions"</span>,
+      "args": [ <span class="tok-str">"@event.file.path"</span> ]
+    },
+    "saveContext": {
+      "basket":    <span class="tok-str">"@const.ransomBasket.readWrite"</span>,   <span class="tok-cm">// "RANSOM_FILE_READ_WRITE"</span>
+      "key":       <span class="tok-str">"@event.file.path"</span>,
+      "lifetime":  <span class="tok-num">120000</span>,                              <span class="tok-cm">// 120 saniye (ms)</span>
+      "data": { <span class="tok-str">"file"</span>: <span class="tok-str">"@event.file"</span> }
+    }
+  }
+}</pre>
+      </div>
+
+      <h4 class="wiki-h4">Madde 1b &mdash; LLE_FILE_MAP_READ (bellek eşleme ile okuma)</h4>
+      <p>
+        Aynı iş, <strong>haritalama (mmap)</strong> yoluyla yapılıyorsa. Birçok modern fidye yazılımı
+        dosyayı <code>CreateFile</code> + <code>ReadFile</code> ile değil,
+        <code>NtCreateSection</code> + <code>NtMapViewOfSection</code> ile belleğe eşler. Bu yol
+        <strong>hiç <code>IRP_MJ_READ</code> göndermez</strong>; dolayısıyla yukarıdaki madde 1a
+        onu yakalayamaz. Minifilter bu yüzden
+        <code>IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION</code> IRP'sinin
+        <code>PAGE_READONLY</code> sayfa korumasını ayrı bir olaya çevirir.
+      </p>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Neden bu ayrı madde önemli?</div>
+        <code>LLE_FILE_MAP_READ</code> ve <code>LLE_FILE_MAP_WRITE</code> maddeleri olmasaydı,
+        haritalama tabanlı şifreleyiciler &mdash; Rust/Go/C++ ile yazılmış modern fidye
+        yazılımlarının büyük bölümü &mdash; <strong>tamamen görünmez</strong> olurdu. İki satır,
+        kuralı &ldquo;okuma yapan herkesi yakalar&rdquo; seviyesine taşıyan asıl teknik karardır.
+      </div>
+
+      <!-- AŞAMA 2 -->
+      <div class="stage" id="asama-2">
+        <div class="stage-head">
+          <span class="stage-num">AŞAMA 2</span>
+          <span class="stage-title">Aday Olayın Üretimi &mdash; <code>MLE_RANSOM_CANDIDATE</code></span>
+        </div>
+        <p>
+          <strong>On maddelik</strong> bu blok, motorun kalbidir. Sistem dışı bir dosya üzerinde
+          <em>her türlü</em> yazma, değiştirme, yeniden adlandırma veya silme eylemi
+          <code>MLE_RANSOM_CANDIDATE</code> olayına dönüştürülür. Burada <strong>hiçbir karar
+          verilmez</strong>; sadece olay kayda geçer.
+        </p>
+        <p>
+          <code>destination: "IN"</code> olduğu için bu olay motorun içinde kalır ve aşama 3'te
+          tekrar işlenmek üzere <code>match_patterns</code> kuyruğuna geri beslenir.
+        </p>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Madde</th><th>Kaynak Olay</th><th>Ne Zaman Üretilir (Kernel)</th><th>Not</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>2a</td><td><code>LLE_FILE_CREATE</code></td>
+              <td><code>IRP_MJ_CREATE</code> sonrası &mdash; dosya oluşturuldu veya kırpıldı</td>
+              <td>Yeni şifreli dosya oluşturan modelin ilk adımı</td>
+            </tr>
+            <tr>
+              <td>2b</td><td><code>LLE_FILE_DATA_WRITE_FULL</code></td>
+              <td><code>IRP_MJ_CLEANUP</code> sonrası &mdash; dosya <strong>baştan sona</strong> yazıldı</td>
+              <td><span class="c-green">Entropi yalnızca bu olayda ölçülür</span></td>
+            </tr>
+            <tr>
+              <td>2c</td><td><code>LLE_FILE_MAP_WRITE</code></td>
+              <td><code>ACQUIRE_FOR_SECTION_SYNC</code> &mdash; <code>PAGE_READWRITE</code> / <code>WRITECOPY</code> / <code>EXECUTE_READWRITE</code></td>
+              <td>mmap tabanlı şifreleme</td>
+            </tr>
+            <tr>
+              <td>2d</td><td><code>LLE_FILE_DATA_CHANGE</code></td>
+              <td><code>IRP_MJ_CLEANUP</code> &mdash; tutamaç dosyayı kirletmiş</td>
+              <td>Kaba &ldquo;dosya değişti&rdquo; bayrağı</td>
+            </tr>
+            <tr>
+              <td>2e</td><td><code>RF10*</code></td>
+              <td>&mdash;</td>
+              <td><span class="c-amber">Derlemede düşer (Bölüm 16)</span></td>
+            </tr>
+            <tr>
+              <td>2f</td><td><code>LLE_FILE_RENAME</code></td>
+              <td><code>IRP_MJ_SET_INFORMATION</code> &mdash; <code>FileRenameInformation(Ex)</code></td>
+              <td><code>.docx</code> &rarr; <code>.docx.locked</code> hamleleri</td>
+            </tr>
+            <tr>
+              <td>2g</td><td><code>LLE_FILE_DELETE</code></td>
+              <td><code>IRP_MJ_CLEANUP</code> &mdash; silme bayrağı ya da <code>FileDispositionInformation</code></td>
+              <td>Özgün dosyayı silip şifreli kopyayı bırakma</td>
+            </tr>
+            <tr>
+              <td>2h</td><td><code>RF4*</code></td>
+              <td>&mdash;</td>
+              <td><span class="c-amber">Derlemede düşer (Bölüm 16)</span></td>
+            </tr>
+            <tr>
+              <td>2f&prime;</td><td><code>LLE_FILE_RENAME</code></td>
+              <td colspan="2"><span class="c-amber">2f'in birebir kopyası &mdash; fazlalık (Bölüm 16)</span></td>
+            </tr>
+            <tr>
+              <td>2g&prime;</td><td><code>LLE_FILE_DELETE</code></td>
+              <td colspan="2"><span class="c-amber">2g'nin birebir kopyası &mdash; fazlalık (Bölüm 16)</span></td>
+            </tr>
+            <tr>
+              <td>2h&prime;</td><td><code>RF4*</code></td>
+              <td colspan="2"><span class="c-amber">2h'nin birebir kopyası &mdash; fazlalık</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Sekiz gerçek madde (2a&ndash;2g) aynı kalıbı paylaşır. Tamamı aşağıdaki yapıdadır &mdash;
+        madde 2b örneği:
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; AŞAMA 2b (tüm aday üreticileri bu kalıbı paylaşır)</span><span>createEvent / IN</span></div>
+<pre>{
+  "eventType": <span class="tok-str">"LLE_FILE_DATA_WRITE_FULL"</span>,
+  "rule": {
+    "condition": {
+      "$operation": <span class="tok-str">"!imatch"</span>,
+      "pattern":   <span class="tok-str">"@const.ransomSystemExclusions"</span>,
+      "args": [ <span class="tok-str">"@event.file.path"</span> ]
+    },
+    "createEvent": {
+      "eventType":   <span class="tok-str">"MLE_RANSOM_CANDIDATE"</span>,
+      "destination": <span class="tok-str">"IN"</span>,            <span class="tok-cm">// motorun içinde kalır</span>
+      "clone":       false,
+      "data": [
+        { "name": <span class="tok-str">"baseType"</span>,         "value": <span class="tok-str">"@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR"</span> },
+        { "name": <span class="tok-str">"process"</span>,          "value": <span class="tok-str">"@event.process"</span> },
+        { "name": <span class="tok-str">"processes"</span>,        "value": <span class="tok-str">"@event.processes"</span> },
+        { "name": <span class="tok-str">"destination"</span>,      "value": <span class="tok-str">"@event.file"</span> },
+        { "name": <span class="tok-str">"time"</span>,             "value": <span class="tok-str">"@event.time"</span> },
+        { "name": <span class="tok-str">"tickTime"</span>,         "value": <span class="tok-str">"@event.tickTime"</span> },
+        { "name": <span class="tok-str">"quarantineTarget"</span>, "value": <span class="tok-str">"@event.file.path"</span> }
+      ]
+    }
+  }
+}</pre>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; <code>clone: false</code> neden her yerde var?</div>
+        Varsayılan <code>clone: true</code> olsaydı, tetikleyen olayın <strong>tüm alanları</strong>
+        yeni olaya otomatik kopyalanırdı. <code>clone: false</code> ile motor yalnızca
+        <code>data</code> dizisinde <strong>elle listelenen</strong> alanları taşır. Bu, zincirin
+        her adımında hangi alanın bilinçli olarak taşındığını (ve <strong>hangisinin bilinçli
+        olarak taşınmadığını</strong>) görünür kılar &mdash; yani politikanın okunabilirliği ve
+        denetlenebilirliği kazanılır.
+      </div>
+
+      <!-- AŞAMA 3 -->
+      <div class="stage" id="asama-3">
+        <div class="stage-head">
+          <span class="stage-num">AŞAMA 3</span>
+          <span class="stage-title">Adaydan Değerlendirmeye &mdash; <code>MLE_RANSOM_EVALUATE</code></span>
+        </div>
+        <p>
+          <code>MLE_RANSOM_CANDIDATE</code> olayını alan motor, onu
+          <code>MLE_RANSOM_EVALUATE</code> olayına dönüştürür. Bu tek maddelik kural,
+          <strong>kararın kendisinden ayrılmış saf bir adım</strong> olarak tasarlanmıştır ve
+          üç şey yapar:
+        </p>
+        <ul>
+          <li>Etiket değişikliği: artık bu olay &ldquo;bir dosyaya dokunuldu&rdquo; değil, &ldquo;şüpheli dosya&rdquo;dır.</li>
+          <li>Alan normalizasyonu: <code>destination</code> alanı, aşama 2'de <code>@event.file</code> iken burada <code>@event.destination</code> olarak okunur &mdash; yani önceki olayın taşıdığı alan.</li>
+          <li>Zaman damgası taşıma: <code>time</code> ve <code>tickTime</code> korunur, böylece sayaç ve analiz zaman çizelgesi doğru kalır.</li>
+        </ul>
+      </div>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; AŞAMA 3</span><span>createEvent / IN</span></div>
+<pre>{
+  "eventType": <span class="tok-str">"MLE_RANSOM_CANDIDATE"</span>,
+  "rule": {
+    "createEvent": {
+      "eventType":   <span class="tok-str">"MLE_RANSOM_EVALUATE"</span>,
+      "destination": <span class="tok-str">"IN"</span>,
+      "clone":       false,
+      "data": [
+        { "name": <span class="tok-str">"baseType"</span>,    "value": <span class="tok-str">"@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR"</span> },
+        { "name": <span class="tok-str">"process"</span>,     "value": <span class="tok-str">"@event.process"</span> },
+        { "name": <span class="tok-str">"processes"</span>,   "value": <span class="tok-str">"@event.processes"</span> },
+        { "name": <span class="tok-str">"destination"</span>, "value": <span class="tok-str">"@event.destination"</span> },
+        { "name": <span class="tok-str">"source"</span>,      "value": <span class="tok-str">"@event.source"</span> },
+        { "name": <span class="tok-str">"time"</span>,        "value": <span class="tok-str">"@event.time"</span> },
+        { "name": <span class="tok-str">"tickTime"</span>,    "value": <span class="tok-str">"@event.tickTime"</span> }
+      ]
+    }
+  }
+}</pre>
+      </div>
+
+      <!-- AŞAMA 4 -->
+      <div class="stage active" id="asama-4">
+        <div class="stage-head">
+          <span class="stage-num">AŞAMA 4</span>
+          <span class="stage-title">Karar &mdash; <code>distinctCounter</code> + Dokuz Süzgeç &rarr; <code>MLE_RANSOM_BEHAVIOR</code></span>
+        </div>
+        <p>
+          Kuralın <strong>kalbi</strong>. Burada iki şey aynı anda olur:
+        </p>
+        <ol>
+          <li><code>distinctCounter</code> çalışır: süreç kimliği (PID) başına, son 60 saniyede kaç <strong>ayrı</strong> hedef dosyaya dokunulduğu sayılır. 3'e ulaşınca <code>@event.RansomThresholdMet = true</code> yazılır.</li>
+          <li><code>condition</code> çalışır: dokuz süzgecin tamamı tutmalıdır. Tutan tutarsa nihai tespit olayı <code>OUT</code> ile dışarı çıkar.</li>
+        </ol>
+      </div>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; Değerlendirme sırası: sayaç ÖNCE, koşul SONRA</div>
+        Derleyici yönergeleri <strong>sabit bir sırada</strong> üretir:
+        <code>distinctCounter</code> &rarr; <code>condition</code>.
+        Yani <strong>her</strong> <code>MLE_RANSOM_EVALUATE</code> sayacı besler &mdash; koşul daha
+        sonra değerlendirilir. Bunun pratik sonucu Bölüm 16'da ayrıntılı olarak ele alınmıştır;
+        şimdilik şunu bilin: <strong>sayaç &ldquo;potansiyel aday&rdquo; sayar, kesin şüpheliyi değil.</strong>
+      </div>
+
+      <div class="code-block red">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; AŞAMA 4, createEvent (5100-5116)</span><span>createEvent / OUT &mdash; GERÇEK TESPİT</span></div>
+<pre>"createEvent": {
+  "eventType":   <span class="tok-str">"MLE_RANSOM_BEHAVIOR"</span>,
+  "destination": <span class="tok-str">"OUT"</span>,              <span class="tok-cm">// TESPİT ÇIKIŞI: motoru terk eder</span>
+  "clone":       false,
+  "data": [
+    { "name": <span class="tok-str">"baseType"</span>,                       "value": <span class="tok-str">"@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR"</span> },
+    { "name": <span class="tok-str">"process"</span>,                        "value": <span class="tok-str">"@event.process"</span> },
+    { "name": <span class="tok-str">"processes"</span>,                      "value": <span class="tok-str">"@event.processes"</span> },
+    { "name": <span class="tok-str">"destination"</span>,                    "value": <span class="tok-str">"@event.destination"</span> },
+    { "name": <span class="tok-str">"time"</span>,                           "value": <span class="tok-str">"@event.time"</span> },
+    { "name": <span class="tok-str">"tickTime"</span>,                       "value": <span class="tok-str">"@event.tickTime"</span> },
+    { "name": <span class="tok-str">"quarantineTarget"</span>,               "value": <span class="tok-str">"@event.process.imageFile.rawPath"</span> },
+    { "name": <span class="tok-str">"should_trust_company_whitelist"</span>, "value": true },
+    { "name": <span class="tok-str">"should_trust_comodo_fls_cloud"</span>,  "value": true }
+  ]
+}</pre>
+      </div>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; En kritik satır: <code>quarantineTarget</code></div>
+        Aday aşamasında <code>quarantineTarget</code> <strong>şifrelenen dosyayı</strong> işaret
+        ederdi. Nihai tespitte ise <code>@event.process.imageFile.rawPath</code> &mdash; yani
+        <strong>saldırganın kendi çalıştırılabilir dosyasının yolu</strong> &mdash; atanır.
+        <br><br>
+        Bu, tüm kuralın en önemli mimari kararıdır: <strong>mağdur olan dosya değil, suç işleyen
+        sürektir.</strong> Karantina, fidye yazılımının ikili dosyasına uygulanır; kullanıcının
+        verisi <code>RansomShield</code> tarafından geri yüklenir.
+      </div>
+
+      <!-- AŞAMA 5 -->
+      <div class="stage green" id="asama-5">
+        <div class="stage-head">
+          <span class="stage-num">AŞAMA 5</span>
+          <span class="stage-title">Bağlam Temizliği &mdash; <code>deleteContext</code></span>
+        </div>
+        <p>
+          Süreç sonlandığında (<code>LLE_PROCESS_DELETE</code>) okuma sepeti temizlenmeye çalışılır.
+          Bu, uzun süre çalışan bir makinede belleğin şişmesini önleyen <strong>hijyen maddesidir</strong>.
+        </p>
+        <div class="code-block green">
+          <div class="code-head"><span class="src">ptm.local.src &mdash; AŞAMA 5</span><span>deleteContext</span></div>
+<pre>{
+  "eventType": <span class="tok-str">"LLE_PROCESS_DELETE"</span>,
+  "rule": {
+    "deleteContext": {
+      "basket": <span class="tok-str">"@const.ransomBasket.readWrite"</span>,
+      "group":  <span class="tok-str">"@event.process.id"</span>
+    }
+  }
+}</pre>
+        </div>
+        <div class="callout warn">
+          <div class="co-title">&#9654; Dürüst not</div>
+          Aşama 1a/1b kayıtları <code>group</code> alanı <em>olmadan</em> yazılırken, aşama 5
+          <code>group</code> ile silmeyi dener. Motor bu eşleşmeyi kuramadığı için temizlik
+          pratikte <strong>120 saniyelik TTL üzerinden</strong> gerçekleşir. Bu, işlevsel bir
+          sorun değildir; kuralı etkilemez, yalnızca kaydın yaşam süresi belirleyicidir.
+          Ayrıntı Bölüm 16'da.
+        </div>
+      </div>
+
+      <!-- ============ 7 SÜZGECLER ============ -->
+      <h2 class="wiki-h2" id="suzgecler"><span class="num">07</span> Dokuz Süzgeç, Tek Tek</h2>
+
+      <p>
+        Aşama 4'ün <code>condition</code> alanı, <strong>tek bir <code>"and"</code> zincirinde</strong>
+        birleştirilmiş dokuz bağımsız filtredir. Kural tetiklenmesi için <strong>hepsinin</strong>
+        aynı anda tutması gerekir. Bu, <strong>varsayılan olarak kapalı</strong> (fail-safe) bir
+        tasarımdır: yanlış pozitif değil, <strong>kaçırılan tespit</strong> üzerine kuruludur.
+      </p>
+
+      <div class="code-block amber">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; AŞAMA 4: distinctCounter + CONDITION (4991-5099)</span><span>9 FİLTRE</span></div>
+<pre>"rule": {
+  "distinctCounter": {
+    "basket":    <span class="tok-str">"ransomFileDistinct"</span>,
+    "key":       <span class="tok-str">"@event.process.pid"</span>,          <span class="tok-cm">// HER SÜREÇ AYRI SAYILIR</span>
+    "values":    [ <span class="tok-str">"@event.destination.path"</span> ],  <span class="tok-cm">// sayılan değer</span>
+    "threshold": <span class="tok-num">3</span>,
+    "window":    <span class="tok-num">60000</span>,
+    "flag":      <span class="tok-str">"@event.RansomThresholdMet"</span>
+  },
+  "condition": {
+    "$operation": <span class="tok-str">"and"</span>,
+    "args": [
+      <span class="tok-cm">// [1] AKTÖR beyaz listede mi?</span>
+      { "$operation": <span class="tok-str">"!imatch"</span>, "pattern": <span class="tok-str">"@const.ransomSystemExclusions"</span>,
+        "args": [ <span class="tok-str">"@event.process.imageFile.rawPath"</span> ] },
+
+      <span class="tok-cm">// [2] HEDEF beyaz listede mi?</span>
+      { "$operation": <span class="tok-str">"!imatch"</span>, "pattern": <span class="tok-str">"@const.ransomSystemExclusions"</span>,
+        "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+
+      <span class="tok-cm">// [3] HEDEF kullanıcının kendi verisi mi?  (zorunlu +)</span>
+      { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"*\\users\\*"</span>,
+        "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+
+      <span class="tok-cm">// [4] AppData hariç mi?  (tarayıcı / cache FP koruması)</span>
+      { "$operation": <span class="tok-str">"!imatch"</span>, "pattern": <span class="tok-str">"*\\appdata\\*"</span>,
+        "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+
+      <span class="tok-cm">// [5] MOTW ADS değil mi?  (indirilen dosya / FP koruması)</span>
+      { "$operation": <span class="tok-str">"!imatch"</span>, "pattern": <span class="tok-str">"*:Zone.Identifier*"</span>,
+        "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+
+      <span class="tok-cm">// [6] Hedef çalıştırılabilir bir dosya değil mi?</span>
+      { "$operation": <span class="tok-str">"equal"</span>, "args": [ <span class="tok-str">"@event.destination.type"</span>, <span class="tok-str">"OTHER"</span> ] },
+
+      <span class="tok-cm">// [7] UZANTILI dosya  AND  KULLANICI UZANTISI  AND  ENTROPİ</span>
+      { "$operation": <span class="tok-str">"and"</span>, "args": [
+          { "$operation": <span class="tok-str">"or"</span>, "args": [
+              { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"*\\*.*.*"</span>, "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+              { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"*\\*.*.*"</span>, "args": [ <span class="tok-str">"@event.source.path"</span>      ] } ] },
+          { "$operation": <span class="tok-str">"or"</span>, "args": [
+              { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"@const.ransomFileExtensions"</span>, "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+              { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"@const.ransomFileExtensions"</span>, "args": [ <span class="tok-str">"@event.source.path"</span>      ] } ] },
+          { "$operation": <span class="tok-str">"or"</span>, "args": [
+              { "$operation": <span class="tok-str">"greater"</span>, "args": [ <span class="tok-str">"@event.destination.owlyEntropy"</span>, <span class="tok-num">6</span> ] },
+              { "$operation": <span class="tok-str">"greater"</span>, "args": [ <span class="tok-str">"@event.destination.entropy"</span>,      <span class="tok-num">6</span> ] },
+              { "$operation": <span class="tok-str">"greater"</span>, "args": [ <span class="tok-str">"@event.owlyEntropy"</span>,               <span class="tok-num">6</span> ] },
+              { "$operation": <span class="tok-str">"greater"</span>, "args": [ <span class="tok-str">"@event.entropy"</span>,                   <span class="tok-num">6</span> ] } ] }
+      ] },
+
+      <span class="tok-cm">// [8] Hedef METİN DOSYASI DEĞİL mi?  (asıl metin koruması)</span>
+      { "$operation": <span class="tok-str">"!equal"</span>, "args": [ <span class="tok-str">"@event.destination.isAsciiText"</span>, true ] },
+
+      <span class="tok-cm">// [9] HACİM eşiği aşıldı mı?  (60 sn içinde 3+ AYRI hedef)</span>
+      { "$operation": <span class="tok-str">"equal"</span>, "args": [ <span class="tok-str">"@event.RansomThresholdMet"</span>, true ] }
+    ]
+  }
+}</pre>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S1</span>
+          <span class="filter-name">!imatch(ransomSystemExclusions, @event.process.imageFile.rawPath)</span>
+        </div>
+        <div class="filter-why">
+          <strong>Aktör beyaz listesi.</strong> &ldquo;Şifreleyen süreç&rdquo; kontrol edilir,
+          &ldquo;şifrelenen dosya&rdquo; değil. <code>C:\Windows\</code>,
+          <code>C:\Program Files\</code> altından çalışan meşru araçlar (güncelleyiciler, kurulum
+          sihirbazları, antivirüs motorları) bu süzgeçle elenir.
+          <strong>Neden aktör kontrolü?</strong> Bir kurulum sihirbazı
+          <code>C:\Users\alice\Desktop</code> altına da yazabilir; ama
+          <code>C:\Windows\Temp\</code> içindeki bir <code>setup.exe</code> onlarca kullanıcı
+          dosyasına yazmaz. Aktörü elemek, hedefe bakmaktan <strong>çok daha güvenilir</strong>
+          bir yanlış pozitif kesicidir.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S2</span>
+          <span class="filter-name">!imatch(ransomSystemExclusions, @event.destination.path)</span>
+        </div>
+        <div class="filter-why">
+          <strong>Hedef beyaz listesi.</strong> Hedef yolun kendisi 8 sistem kalıbından birine
+          benzememeli. Bkz. Bölüm 11. Bu süzgeç olmadan <strong>güncelleme motorları</strong>,
+          <strong>tarayıcı önbellekleri</strong> ve <strong>kurulum önbellekleri</strong> kuralı
+          periyodik olarak tetiklerdi.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S3</span>
+          <span class="filter-name">imatch("*\\users\\*", @event.destination.path) &mdash; <span class="c-amber">ZORUNLU (+)</span></span>
+        </div>
+        <div class="filter-why">
+          <strong>Coğrafya daraltması.</strong> Tek zorunlu pozitif koşul budur: hedef
+          <strong>bir kullanıcı profilinin içinde</strong> olmak zorundadır. Fidye yazılımının
+          <em>neden</em> şifrelediği bellidir &mdash; <code>C:\Users\alice\Documents</code>,
+          <code>Desktop</code>, <code>Downloads</code>, <code>Photos</code> gibi kişisel veri
+          yığınları. <code>C:\Windows</code> veya ağ sürücülerini şifreleyen bir araç
+          <strong>kural tarafından hedeflenmez</strong>. Bu tek koşul, kurumsal masaüstünde yanlış
+          pozitif oranını dramatik biçimde düşürür.
+          <br><strong>Not:</strong> Bu kalıp <code>StringMatcher</code> &ldquo;içinde geçiyor&rdquo;
+          modunda derlenir. Kurulum adı her zaman İngilizce kalır (<code>\Users\</code>), bu yüzden
+          yerelleştirilmiş Windows kurulumlarında da çalışır.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S4</span>
+          <span class="filter-name">!imatch("*\\appdata\\*", @event.destination.path)</span>
+        </div>
+        <div class="filter-why">
+          <strong>Uygulama verisi koruması.</strong> <code>AppData</code> içinde Chrome, Firefox,
+          VS Code, Steam, Discord gibi yüzlerce uygulama <strong>sürekli olarak</strong> onlarca
+          dosyaya yazar. Bunlar &ldquo;çok sayıda dosyaya yazan meşru süreçler&rdquo;dir ve
+          kullanıcının asıl değerli verisi <strong>burada değildir</strong>. Bu süzgeç, en gürültülü
+          yanlış pozitif kaynağını kapatır.
+          <br><strong>Çelişki notu:</strong> S3 <code>\users\</code> içinde <code>\AppData\</code>'yu
+          arar; S2 zaten <code>*\AppData\*</code> kalıbını içerir. Dolayısıyla <strong>S4, S2 ile
+          birebir aynı</strong> kontrolü yapar ve bugün itibarıyla <strong>ek bir filtre
+          değildir</strong> &mdash; savunma derinliği ve okunabilirlik için bilinçli olarak
+          tekrarlanmıştır.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S5</span>
+          <span class="filter-name">!imatch("*:Zone.Identifier*", @event.destination.path)</span>
+        </div>
+        <div class="filter-why">
+          <strong>Mark-of-the-Web koruması.</strong> NTFS <strong>alternatif veri akışları</strong>ndaki
+          <code>Zone.Identifier</code>, &ldquo;bu dosya internetten indirildi&rdquo; işaretidir.
+          <strong>Marka yöntemi (Mark of the Web) saldırıları</strong> tam olarak bu akışı kullanır:
+          indirilen bir dosyanın MOTW akışına dokunarak kurumsal dosyaları &ldquo;internet kökenli&rdquo;
+          hâle getirir ve kullanıcıyı uyarıyla kandırır. Bu süzgeç, bu tür teknikleri kuralın
+          kapsamı dışına iter.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S6</span>
+          <span class="filter-name">equal(@event.destination.type, "OTHER")</span>
+        </div>
+        <div class="filter-why">
+          <strong>Hedef bir çalıştırılabilir değil.</strong> Dosya tipi, uzantının yapılandırılmış
+          çalıştırılabilir listesine (<code>.exe;.dll;.sys;.cpl;.mui;.tlb;.scr</code>) girip
+          girmemesine göre belirlenir. Kural yalnızca <code>"OTHER"</code> hedefleri kabul eder,
+          yani <strong>belge, tablo, görsel, video, arşiv, kaynak kodu ve veritabanı</strong>.
+          <br><strong>Neden önemli?</strong> Bir zararlının kendi ikili dosyasını değiştirmesi
+          (kalıcılık kazanmak için) bu kuralı tetiklemez &mdash; bu tür eylemler
+          <code>MLE_PUA_REGISTRY_WRITE</code> ve <code>MLE_FILE_COPY</code> gibi komşu kuralların
+          alanıdır. Kuralın <strong>tek bir amacı vardır</strong>: kullanıcı verisini imha etmek.
+          Tek amaç, düşük yanlış pozitif demektir.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S7</span>
+          <span class="filter-name">uzantı var  AND  kullanıcı dosyası uzantısı  AND  entropi &gt; 6</span>
+        </div>
+        <div class="filter-why">
+          Üç alt koşulun AND&amp;OR yapısıdır. <strong>7a:</strong> hedefte (veya kaynakta) bir
+          nokta bulunmalı &mdash; uzantısız geçici dosyalar elenir. <strong>7b:</strong> uzantı
+          <strong>1479</strong> kalıplı kullanıcı verisi listesinden biri olmalı. <strong>7c:</strong>
+          Shannon entropisi eşiği aşmalı. Bu üçlü, kuralın &ldquo;bu bir veri dosyası mı, bu
+          şifrelenmiş mi?&rdquo; sorusuna cevap verir.
+          <br>
+          <strong>Pratik sonuç:</strong> <code>C:\Users\alice\Notes.txt</code> dosyasına düz metin
+          yazan bir metin editörü elenir (7b: <code>.txt</code> listede, ama 8. süzgeç
+          <code>isAsciiText=true</code> &rarr; elenir). Aynı dosyayı şifreleyen fidye yazılımı
+          <strong>geçer</strong>.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S8</span>
+          <span class="filter-name">!equal(@event.destination.isAsciiText, true) &mdash; <span class="c-green">ASIL METİN KORUMASI</span></span>
+        </div>
+        <div class="filter-why">
+          <strong>En güçlü tek süzgeç.</strong> Dosyanın ilk <strong>64 KiB</strong>'si okunur;
+          <code>TAB/LF/CR</code> ve <code>0x20-0x7E</code> dışındaki baytların oranı
+          <strong>%15 + 1</strong> eşiğini aşarsa dosya &ldquo;metin değildir&rdquo; olarak
+          işaretlenir.
+          <br>
+          <strong>Neyi okur, ne zaman okur?</strong> Bu alan, <strong>kuralın değerlendirildiği
+          andaki diskteki güncel içeriğin ilk 64 KiB'sıdır</strong> &mdash; yani
+          <strong>saldırganın az önce yazdığı ciphertext</strong>. Uzantıya, dosya adına veya
+          &ldquo;şüpheli dosya&rdquo; etiketine bakmaz. Aşama 4, <code>LLE_FILE_DATA_WRITE_FULL</code>
+          olayında çalıştığı için dosya bu anda <strong>şifrelenmiş hâldedir</strong> ve tarama
+          şifre metnini görür. Bir metin editörü aynı dosyaya düz metin yazdığında ise tarama
+          düz metni görür ve eler. Aynı süzgeç, iki tamamen farklı sonucu üretir.
+          <br>
+          <strong>Neden bu kadar belirleyici?</strong> Bir JPEG, bir MP4, bir <code>.docx</code>
+          (ZIP), bir <code>.xlsx</code>, bir veritabanı dosyası &mdash; hepsi metin <em>gibi</em>
+          görünür ama asla metin değildir. Kural yalnızca <strong>açıkça metin olan</strong>
+          dosyaları eler. Bu, &ldquo;şifreleme yapmış gibi görünen ama aslında sıkıştırılmış bir
+          klasör kopyalama işlemi&rdquo; ile &ldquo;gerçek şifreleme&rdquo; arasındaki ayrımı kurar.
+          <br>
+          <strong>Fail-closed davranışı:</strong> dosya silinmiş, okunamıyor ya da 0 bayt okunduysa
+          sonuç <code>false</code>&mdash; yani &ldquo;metin değil&rdquo;&mdash; döner. Kural, kanıt
+          toplayamazsa <strong>sert davranır</strong> ve dosyayı elmez. Bu bilinçli bir tercihtir:
+          yanlış negatif (kaçırılan gerçek şifreleme) maliyeti, yanlış pozitif (kullanıcının
+          meşru dosyasının karantinaya alınması) maliyetinden daha yüksektir.
+          <br>
+          <strong>Tetikleyiciye göre ince ayrıntı:</strong> <code>LLE_FILE_CREATE</code> üzerinde
+          dosya henüz boş olduğundan 0 bayt okunur ve süzgeç <strong>geçer</strong>;
+          <code>LLE_FILE_RENAME</code> / <code>LLE_FILE_DELETE</code> üzerinde ise içerik
+          o âna kadarki hâlidir &mdash; henüz şifrelenmemiş bir dosyada süzgeç eleyebilir. Kuralın
+          asıl tetikleyicisi <code>LLE_FILE_DATA_WRITE_FULL</code> olduğu için bu, normal şifreleme
+          akışında bir sorun yaratmaz.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S9</span>
+          <span class="filter-name">equal(@event.RansomThresholdMet, true) &mdash; <span class="c-red">KÜTLE EŞİĞİ</span></span>
+        </div>
+        <div class="filter-why">
+          <strong>Kuralın can damarı.</strong> Diğer sekiz süzgeç tek başına bir dosya işlemini
+          tanımlar; <strong>bu süzgeç onu bir saldırıya çevirir.</strong> 60 saniye içinde
+          <strong>3 veya daha fazla AYRI hedef dosyaya</strong> dokunulmuş olması gerekir.
+          Bkz. Bölüm 8. Tek bir dosyaya yapılan işlem, ne kadar şüpheli olursa olsun
+          <strong>asla tetiklemez</strong>. Bu, &ldquo;bir kullanıcı bir fotoğrafını düzenledi&rdquo;
+          ile &ldquo;birisi diski şifreliyor&rdquo; arasındaki farkı kuran şeydir.
+        </div>
+      </div>
+
+      <!-- ============ 8 SAYAÇ ============ -->
+      <h2 class="wiki-h2" id="sayac"><span class="num">08</span> <code>distinctCounter</code>: Kayan Pencerede Ayrı Değer Sayacı</h2>
+
+      <p>
+        <code>distinctCounter</code>, motorun en özgün yönergesidir. Basit bir sayaç değildir:
+        <strong>aynı değerin tekrarı sayıya katkı yapmaz</strong>. Bu küçük ama kritik ayrım,
+        kuralın neden &ldquo;3 dosya&rdquo; dediğini açar.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; distinctCounter yapılandırması</span><span>THRESHOLD 3 / WINDOW 60000ms</span></div>
+<pre>"distinctCounter": {
+  "basket":    <span class="tok-str">"ransomFileDistinct"</span>,        <span class="tok-cm">// ayrı sayaç alanı (konteyner)</span>
+  "key":       <span class="tok-str">"@event.process.pid"</span>,         <span class="tok-cm">// HER SÜREÇ AYRI SAYILIR</span>
+  "values":    [ <span class="tok-str">"@event.destination.path"</span> ], <span class="tok-cm">// sayılan değer: HEDEF YOLU</span>
+  "threshold": <span class="tok-num">3</span>,                             <span class="tok-cm">// 3 AYRI hedef</span>
+  "window":    <span class="tok-num">60000</span>,                         <span class="tok-cm">// 60 saniye kayan pencere</span>
+  "flag":      <span class="tok-str">"@event.RansomThresholdMet"</span>    <span class="tok-cm">// sonuç buraya yazılır</span>
+}</pre>
+      </div>
+
+      <h3 class="wiki-h3">8.1 &mdash; Semantik: ne sayıyor, ne saymıyor?</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Özellik</th><th>Davranış</th><th>Fidye Yazılımı Açısından Anlamı</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Sayılan</strong></td>
+              <td>Aynı anahtar içinde <strong>birerinden FARKLI</strong>, boş olmayan değerler</td>
+              <td>&ldquo;Kaç farklı dosyaya dokundu?&rdquo; &mdash; doğru soru</td>
+            </tr>
+            <tr>
+              <td><strong>Sayılmayan</strong></td>
+              <td>Aynı dosyaya tekrar tekrar yazılması</td>
+              <td>Yedekleme aracının 500 kez aynı dosyayı yazması &rarr; sayaç = 1, eşik geçilmez <span class="ok-mark">&#10003;</span></td>
+            </tr>
+            <tr>
+              <td><strong>Anahtar</strong></td>
+              <td><code>@event.process.pid</code> &mdash; PID bazlı</td>
+              <td><strong>Süreç izolasyonu</strong>: iki farklı zararlı birbirinin sayacını dolduramaz; bir yedekleme aracı sayacı kirletemez</td>
+            </tr>
+            <tr>
+              <td><strong>Pencere</strong></td>
+              <td>60000 ms; her çağrıda süresi dolan kayıtlar <strong>seyrek olarak temizlenir</strong></td>
+              <td>Yavaş, dağınık şifreleme (her 40 saniyede 1 dosya) <strong>eşiği geçmez</strong> &mdash; bilinçli trade-off</td>
+            </tr>
+            <tr>
+              <td><strong>Bayrak</strong></td>
+              <td><code>Size &gt;= threshold</code> olduğu sürece <code>true</code> &mdash; <strong>kenar değil, seviye (latching)</strong></td>
+              <td>Pencere dolmadan tespit <strong>devam eder</strong>; her yeni dosya yeniden tetikler</td>
+            </tr>
+            <tr>
+              <td><strong>Temizlik</strong></td>
+              <td>Açık bir sıfırlama yolu <strong>yoktur</strong>; yalnızca pencere süresi dolar</td>
+              <td>Bkz. Bölüm 16 &mdash; kasıtlı veya kasıtsız bir sonuç</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">8.2 &mdash; Somut Senaryo</h3>
+
+      <div class="pipeline">
+PID 4711  &mdash;  <s>suspect.exe</s>   (0. saniye)
+  yaz  C:\Users\alice\Documents\sozlesme.docx    -&gt; AYRI #1   sayaç = 1
+  yaz  C:\Users\alice\Photos\tatil.jpg          -&gt; AYRI #2   sayaç = 2
+  yaz  C:\Users\alice\Desktop\butce.xlsx       -&gt; AYRI #3   <b>RansomThresholdMet = TRUE</b>
+                                       |
+                                       +--&gt; S1..S8 doğrulanır  ==&gt;  <i>MLE_RANSOM_BEHAVIOR</i>
+                                       |
+                                       +--&gt; yaz  C:\Users\alice\Videos\dogum.mov
+                                                -&gt; AYRI #4   bayrak HALA TRUE
+                                                     ==&gt;  <i>ikinci MLE_RANSOM_BEHAVIOR</i>
+  <b>60 saniye sonra:</b> tüm kayıtlar bayatlanır, pencere temizlenir
+  <b>61. saniye:</b> yeni bir yazma -&gt; sayaç yeniden 1'den başlar
+  </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Neden 3 ve neden 60 saniye?</div>
+        <strong>3 eşiği</strong>, üç sayıyı birden dengeler: (a) tek dosyaya müdahale etmeyen
+        meşru yazılımları eler, (b) iki dosyalık örnek fidye yazılımı numunelerini
+        (<em>test numunelerinde sık görülür</em>) engeller, (c) gerçek şifreleme turlarında dosya
+        sayısı hızla onlara çıktığı için tespiti ertelemez.
+        <br>
+        <strong>60 saniyelik pencere</strong>, &ldquo;sık kullanıcı eylemi&rdquo; ile &ldquo;makine
+        hızıyla yapılan toplu işlem&rdquo; arasındaki makul zaman farkını yakalar. Bir insan
+        60 saniyede 3 belgeyi şifrelemez; bir fidye yazılımı saniyeler içinde yüzlerce yapar.
+        <br>
+        <strong>Ticari bir taviz:</strong> &ldquo;yavaş sürünen&rdquo;, dosya başına birkaç dakika
+        bekleyen sofistike şifreleyiciler bu pencereyi aşabilir. Bunu yakalayan başka bir
+        kural değil, <strong>kombine edilmiş zamansal davranış</strong> olacaktır. Bu, kuralın
+        bilinen ve <a href="#sinirlar">dürüstçe belgelenmiş</a> sınırıdır.
+      </div>
+
+      <!-- ============ 9 DOSYA ALANLARI ============ -->
+      <h2 class="wiki-h2" id="dosya-alanlari"><span class="num">09</span> Dosya Nesnesi: Hangi Alana Bakılıyor?</h2>
+
+      <p>
+        Kuralın <code>@event.destination.*</code> ve <code>@event.file.*</code> ifadeleri,
+        sürücüden gelen ham bir yol değil, <strong>zenginleştirilmiş bir dosya nesnesinin
+        alanlarına</strong> işaret eder. Bu nesne tembel (lazy) üretilir: <strong>bir alan
+        gerçekten okunmadıkça diskte de okunmaz.</strong>
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Alan</th><th>Kaynağı</th><th>Kuralda Kullanımı</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>path</code></td>
+              <td>Normalize edilmiş, insan tarafından okunabilir yol</td>
+              <td>S1, S2, S3, S4, S5, S7, S9 &mdash; yolun <strong>kendisi</strong></td>
+            </tr>
+            <tr>
+              <td><code>type</code></td>
+              <td>Uzantı yapılandırılmış çalıştırılabilir listesinde mi? (<code>EXECUTABLE</code> / <code>OTHER</code>)</td>
+              <td>S6 &mdash; <code>== "OTHER"</code></td>
+            </tr>
+            <tr>
+              <td><code>isAsciiText</code></td>
+              <td><strong>Tembel</strong> 64 KiB örnek + %15 yazdırılamaz bayt testi. <strong>Okuma zamanı: kural değerlendirildiği andaki diskteki güncel içerik</strong> &mdash; yani şifreleme yapıldıysa ciphertext.</td>
+              <td>S8 &mdash; <code>!= true</code></td>
+            </tr>
+            <tr>
+              <td><code>size</code></td>
+              <td>Tembel dosya boyutu</td>
+              <td>Doğrudan kullanılmıyor (kernel zaten tam-okuma / tam-yazma eşiğini uygular)</td>
+            </tr>
+            <tr>
+              <td><code>rawHash</code></td>
+              <td>Okuma/yazma dizisi boyunca xxh64</td>
+              <td>Bu kuralda doğrudan kullanılmıyor; <code>MLE_FILE_COPY</code> kuralında kullanılır</td>
+            </tr>
+            <tr>
+              <td><code>renameTarget</code></td>
+              <td>Yalnızca yeniden adlandırma olaylarında yeni ad</td>
+              <td>Yok &mdash; aday olaya taşınmıyor</td>
+            </tr>
+            <tr>
+              <td><code>volume</code></td>
+              <td>{guid, type, device} &mdash; sabit / çıkarılabilir / ağ</td>
+              <td>Bu kuralda yok (USB kurallarında kullanılır)</td>
+            </tr>
+            <tr>
+              <td><code>owlyEntropy</code></td>
+              <td><strong>Olay kök alanı</strong> &mdash; yalnızca tam yazma olayında</td>
+              <td>S7c</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Tembel değerlendirmenin güvenlik ve performans değeri</div>
+        <code>isAsciiText</code> her dosya olayında 64 KiB disk okuması demektir. Sistem
+        bunu <strong>tembel bir vekil nesne</strong> (lambda proxy) olarak kurar: kural o alana
+        <strong>gerçekten dokunmadıkça</strong> hiçbir bayt okunmaz. 10 kernel tetikleyicisinden
+        hiçbiri bu alanı okumuyorsa, 64 KiB harcanmaz. Bu, bir EDR'ın canlı sistemde
+        kullanılabilir olmasının temelidir.
+      </div>
+
+      <!-- ============ 10 ENTROPİ ============ -->
+      <h2 class="wiki-h2" id="entropy"><span class="num">10</span> Shannon Entropisi: Q24 Sabit Nokta ile Hesaplama</h2>
+
+      <p>
+        Entropi, verinin ne kadar &ldquo;rastgele&rdquo; olduğunun ölçüsüdür. Şifreli veri
+        (AES, ChaCha) teorik maksimuma, yani <strong>8 bit/byte</strong>'a yakın değerdir.
+        Düz metin ise 3,5&ndash;5 bandındadır. Bu fark, &ldquo;şifreli mi?&rdquo; sorusunu
+        sayısal bir ölçüte çevirir.
+      </p>
+
+      <h3 class="wiki-h3">10.1 &mdash; Algoritma</h3>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">edrdrv/src/ShanonEntropy.cpp + ShanonEntropy.h</span><span>RING-0 &mdash; FLOAT YOK</span></div>
+<pre><span class="tok-cm">// ENTROPY_ONE_Q24 = 2^24.  Aralık: [0, 8 * ENTROPY_ONE_Q24]
+// Float'a çevirmek için: (double)sonuç / (double)ENTROPY_ONE_Q24
+constexpr ULONGLONG ENTROPY_ONE_Q24 = 1ULL &lt;&lt; 24;</span>
+
+ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
+{
+    <span class="tok-key">if</span> (!buffer || size == 0) <span class="tok-key">return</span> 0;
+
+    <span class="tok-cm">// 256 kovalı bayt histogramı</span>
+    ULONGLONG bkt[256] = {};
+    <span class="tok-key">for</span> (size_t i = 0; i &lt; size; i++) bkt[buffer[i]]++;
+
+    ULONGLONG slQ24 = OwlyLog2Q24((ULONGLONG)size);        <span class="tok-cm">// log2(N)</span>
+    ULONGLONG wsum  = 0;
+    <span class="tok-key">for</span> (ULONG i = 0; i &lt; 256; i++)
+        <span class="tok-key">if</span> (bkt[i]) wsum += bkt[i] * OwlyLog2Q24(bkt[i]);
+
+    ULONGLONG avg  = wsum / (ULONGLONG)size;               <span class="tok-cm">// (1/N) * SUM n_i*log2(n_i)</span>
+    ULONGLONG eQ24 = (slQ24 &gt; avg) ? (slQ24 - avg) : 0;   <span class="tok-cm">// H = log2(N) - (1/N)*SUM(...)</span>
+    <span class="tok-key">if</span> (eQ24 &gt; c_EntMaxQ24) eQ24 = c_EntMaxQ24;   <span class="tok-cm">// 8 ile sınırla</span>
+    <span class="tok-key">return</span> eQ24;
+}</pre>
+      </div>
+
+      <h3 class="wiki-h3">10.2 &mdash; Neden Q24 sabit nokta?</h3>
+
+      <div class="callout violet">
+        <div class="co-title">&#9654; Kernel içinde kayan nokta yasak</div>
+        Bu hesap <strong>Ring-0'da, her yazma işleminin post-operasyonunda</strong> çalışır.
+        Kayan nokta işlemleri (SSE/MMX) Windows çekirdeğinde <strong>kesin olarak yasaktır</strong>
+        &mdash; bir istisna, işlem iptaline ve sistem kararsızlığına yol açar.
+        <br><br>
+        Bu yüzden <code>log2</code> fonksiyonu <strong>atanh serisiyle</strong> tam sayı
+        aritmetiğinde yeniden yazılmıştır (<code>/3, /5, /7, /9, /11, /13</code> terimleri),
+        24 kesirli bit (<code>Q24</code>) kullanılır ve sonuç sert biçimde
+        <code>8 &times; 2^24</code> değerine kırpılır. <strong>Hassasiyet yaklaşık
+        6&times;10^-8 bit/byte</strong>'dır &mdash; bu, karar eşiği olan &ldquo;6&rdquo; için
+        fazlasıyla yeterlidir.
+      </div>
+
+      <h3 class="wiki-h3">10.3 &mdash; Nerede ve nasıl örneklenir?</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Özellik</th><th>Değer</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Örnekleme yeri</strong></td><td>Yalnızca <strong>yazma</strong> işlemi (pre/post write, her MDL sayfası ve her doğrudan tampon)</td></tr>
+            <tr><td><strong>Özetleme</strong></td><td>Dizideki <strong>maksimum</strong> parça entropisi</td></tr>
+            <tr><td><strong>Yayın</strong></td><td>Yalnızca <code>LLE_FILE_DATA_WRITE_FULL</code> olayında (<code>owlyEntropy</code> + <code>owlyIsEntropyCalc=1</code>)</td></tr>
+            <tr><td><strong>Tip</strong></td><td><code>uint64</code> Q24 sabit nokta &mdash; ham değer, ölçeklenmemiş</td></tr>
+            <tr><td><strong>Doğruluk notu</strong></td><td>Seri 6 terimde kesildiği ve mantis kesildiği için IEEE kesin değildir; pratik aralıklarda birkaç ULP sapma</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">10.4 &mdash; Tipik değerler</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>İçerik</th><th>Teorik H (bit/byte)</th><th>Q24 Ham Değer</th><th>Kuralda Sonuç</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Tamamen sabit (sıfırlar)</td><td>0,0</td><td>0</td><td><span class="no-mark">ELE</span></td></tr>
+            <tr><td>İngilizce metin, kaynak kodu, <code>.txt/.js/.html/.json</code></td><td>3,5 &ndash; 5,0</td><td>58.720.256 &ndash; 83.886.080</td><td><span class="warn-mark">S8 ile elenir</span></td></tr>
+            <tr><td>Derlenmiş PE (kod + veri karışımı)</td><td>6,0 &ndash; 7,2</td><td>100.663.296 &ndash; 120.795.955</td><td><span class="ok-mark">GEÇER</span></td></tr>
+            <tr><td>Sıkıştırılmış arşiv (<code>.zip/.7z/.zst</code>)</td><td>7,9 &ndash; 8,0</td><td>&asymp;132.120.000 &ndash; 134.217.728</td><td><span class="ok-mark">GEÇER</span></td></tr>
+            <tr><td>Taze AES/ChaCha şifre metni</td><td>7,9 &ndash; 8,0</td><td>&asymp;132.120.000 &ndash; 134.217.728</td><td><span class="ok-mark">GEÇER</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; Ölçekleme kusuru (bilinen sınır)</div>
+        Sürücü entropiyi <strong>ham Q24 tam sayısı</strong> olarak yazar (0 &hellip; 134.217.728),
+        ancak politika kuralı bunu <code>6</code> ile karşılaştırır &mdash; yani
+        <strong>ham Q24</strong> ile karşılaştırır. Bu, &ldquo;3,6&times;10^-7
+        bit/byte'den büyükse geç&rdquo; anlamına gelir; yani pratikte &ldquo;bu olay bir tam yazma
+        olayı mıydı?&rdquo; sorusuna dönüşür.
+        <br><br>
+        Ölçekleme <code>filemon.cpp</code> yorumunda (&ldquo;Rust tarafı 1&lt;&lt;24 ile böler&rdquo;)
+        belirtilmiştir ve bu, <strong>OwlyShield Rust tüketicisi</strong> için geçerlidir;
+        PTM/C++ yolunda ölçekleme yapılmaz. Sonuç olarak <strong>gerçekten çalışan entropi
+        ayrımı 8. süzgeçtir</strong> (<code>isAsciiText</code>), 7c bloğu ise &ldquo;tam yazma
+        olayı mıydı&rdquo; filtresi olarak işlev görür. Ayrıntı ve önerilen düzeltme:
+        <a href="#sinirlar">Bölüm 16</a>.
+      </div>
+
+      <!-- ============ 11 BEYAZ LİSTE ============ -->
+      <h2 class="wiki-h2" id="beyazliste"><span class="num">11</span> Beyaz Liste ve Uzantı Gözcüsü</h2>
+
+      <h3 class="wiki-h3">11.1 &mdash; Sistem İstisnaları (8 kayıt)</h3>
+
+      <p>
+        Bu liste, kuralın en sıkı çalışan iki süzgecini besler (S1 ve S2). Yorum satırı kaynakta
+        açıkça belirtilmiştir: <em>&ldquo;System and browser cache paths excluded from ransomware
+        tripping (FP reduction)&rdquo;</em> &mdash; yanlış pozitif azaltma amacıyla sistem ve
+        tarayıcı önbellek yolları hariç tutuldu.
+      </p>
+
+      <div class="code-block amber">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; @const.ransomSystemExclusions (satır 1660-1670)</span><span>8 KAYIT</span></div>
+<pre><span class="tok-cm">// System and browser cache paths excluded from ransomware tripping (FP reduction)</span>
+<span class="tok-str">"ransomSystemExclusions"</span>: [
+  <span class="tok-str">"*\\Windows\\*"</span>,                <span class="tok-cm">// mod "all"   &lt;-- içinde \Windows\</span>
+  <span class="tok-str">"C:\\Windows\\explorer.exe"</span>,   <span class="tok-cm">// mod "begin" &lt;-- İLE BAŞLIYOR</span>
+  <span class="tok-str">"*\\Program Files\\*"</span>,          <span class="tok-cm">// mod "all"</span>
+  <span class="tok-str">"*\\Program Files (x86)\\*"</span>,    <span class="tok-cm">// mod "all"</span>
+  <span class="tok-str">"*\\ProgramData\\*"</span>,            <span class="tok-cm">// mod "all"</span>
+  <span class="tok-str">"*\\AppData\\*"</span>,                <span class="tok-cm">// mod "all"  (harf duyarsız)</span>
+  <span class="tok-str">"*\\Temp\\*"</span>,                   <span class="tok-cm">// mod "all"</span>
+  <span class="tok-str">"*:Zone.Identifier*"</span>            <span class="tok-cm">// mod "all"  &lt;-- NTFS ADS</span>
+],</pre>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; <code>C:\Windows\explorer.exe</code> satırının ince ayrıntısı</div>
+        Bu kalıp joker içermediği için <strong>önek (<code>begin</code>) eşlemesine</strong> dönüşür.
+        Yani <code>C:\Windows\explorer.exe</code> ile <strong>başlayan</strong> her yol eşleşir
+        &mdash; <code>C:\Windows\explorer.exe.bak</code> gibi. Bu, bilinçli bir genişliktir: kurucu
+        masaüstü yedekleme aracı <code>explorer.exe.bak</code> oluşturduğunda da elenir.
+        <br>
+        Aynı şekilde <code>*\Windows\*</code> zaten <code>C:\Windows\</code> altını kapsar; bu
+        satır <strong>redundanttır</strong> ama <code>explorer.exe</code> adı özellikle
+        belirtildiği için, sonradan <code>\Windows\</code> kalıbının daraltılması hâlinde
+        korunabilir bir yedek olarak bırakılmış görünür.
+      </div>
+
+      <h3 class="wiki-h3">11.2 &mdash; Kullanıcı Dosyası Uzantı Gözcüsü (1479 kayıt)</h3>
+
+      <p>
+        Kaynak yorumu şunu söyler: <em>&ldquo;Extensions of user files whose encryption is treated
+        as ransomware-relevant. Scopes the file-encryption candidate so extensionless / temp files
+        do not FP.&rdquo;</em>
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; @const.ransomFileExtensions (satır 137-1619)</span><span>1479 KAYIT</span></div>
+<pre><span class="tok-cm">// Extensions of user files whose encryption is treated as ransomware-relevant.</span>
+<span class="tok-cm">// Scopes the file-encryption candidate so extensionless / temp files do not FP.</span>
+<span class="tok-str">"ransomFileExtensions"</span>: [
+  <span class="tok-str">"*.0"</span>, <span class="tok-str">"*.0nv"</span>, <span class="tok-str">"*.0rv"</span>, <span class="tok-str">"*.1"</span>, <span class="tok-str">"*.10"</span>, <span class="tok-str">"*.10-config"</span>,
+  <span class="tok-str">"*.12"</span>, <span class="tok-str">"*.13"</span>, <span class="tok-str">"*.14"</span>, <span class="tok-str">"*.15"</span>, <span class="tok-str">"*.16"</span>, <span class="tok-str">"*.17"</span>,
+  <span class="tok-str">"*.18"</span>, <span class="tok-str">"*.199"</span>, <span class="tok-str">"*.1cd"</span>, <span class="tok-str">"*.1m"</span>, <span class="tok-str">"*.20"</span>, <span class="tok-str">"*.25"</span>,
+  <span class="tok-str">"*.3fr"</span>, <span class="tok-str">"*.3gp"</span>, <span class="tok-str">"*.3g2"</span>, <span class="tok-str">"*.amr"</span>, <span class="tok-str">"*.avi"</span>, <span class="tok-str">"*.bak"</span>,
+  <span class="tok-str">"*.blend"</span>, <span class="tok-str">"*.bmp"</span>, <span class="tok-str">"*.cdr"</span>, <span class="tok-str">"*.cpp"</span>, <span class="tok-str">"*.cr3"</span>, <span class="tok-str">"*.csv"</span>,
+  <span class="tok-str">"*.dbf"</span>, <span class="tok-str">"*.dll"</span>, <span class="tok-str">"*.doc"</span>, <span class="tok-str">"*.docx"</span>, <span class="tok-str">"*.dot"</span>, <span class="tok-str">"*.dotx"</span>,
+  <span class="tok-str">"*.dwg"</span>, <span class="tok-str">"*.eml"</span>, <span class="tok-str">"*.enc"</span>, <span class="tok-str">"*.encrypted"</span>, <span class="tok-str">"*.flac"</span>, <span class="tok-str">"*.gif"</span>,
+  <span class="tok-str">"*.gz"</span>, <span class="tok-str">"*.htm"</span>, <span class="tok-str">"*.html"</span>, <span class="tok-str">"*.ico"</span>, <span class="tok-str">"*.indd"</span>, <span class="tok-str">"*.java"</span>,
+  <span class="tok-str">"*.jpeg"</span>, <span class="tok-str">"*.jpg"</span>, <span class="tok-str">"*.js"</span>, <span class="tok-str">"*.json"</span>, <span class="tok-str">"*.locked"</span>, <span class="tok-str">"*.log"</span>,
+  <span class="tok-str">"*.mdb"</span>, <span class="tok-str">"*.mdf"</span>, <span class="tok-str">"*.mkv"</span>, <span class="tok-str">"*.mov"</span>, <span class="tok-str">"*.mp3"</span>, <span class="tok-str">"*.mp4"</span>,
+  <span class="tok-str">"*.odt"</span>, <span class="tok-str">"*.pdf"</span>, <span class="tok-str">"*.php"</span>, <span class="tok-str">"*.png"</span>, <span class="tok-str">"*.ppt"</span>, <span class="tok-str">"*.pptx"</span>,
+  <span class="tok-str">"*.psd"</span>, <span class="tok-str">"*.py"</span>, <span class="tok-str">"*.rar"</span>, <span class="tok-str">"*.rb"</span>, <span class="tok-str">"*.rtf"</span>, <span class="tok-str">"*.sln"</span>,
+  <span class="tok-str">"*.sql"</span>, <span class="tok-str">"*.tar"</span>, <span class="tok-str">"*.tiff"</span>, <span class="tok-str">"*.txt"</span>, <span class="tok-str">"*.vhd"</span>, <span class="tok-str">"*.vmdk"</span>,
+  <span class="tok-str">"*.wav"</span>, <span class="tok-str">"*.webm"</span>, <span class="tok-str">"*.webp"</span>, <span class="tok-str">"*.wmv"</span>, <span class="tok-str">"*.xls"</span>, <span class="tok-str">"*.xlsx"</span>,
+  <span class="tok-str">"*.xml"</span>, <span class="tok-str">"*.zip"</span>, <span class="tok-str">"*.zip-o-matic"</span>, <span class="tok-str">"*.zoo"</span>, <span class="tok-str">"*.zst"</span>
+  <span class="tok-cm">// ... alfabetik, 1479 kayıt, *.0 -&gt; *.zst</span>
+],</pre>
+      </div>
+
+      <h4 class="wiki-h4">Listeyi analiz edersek</h4>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Kategori</th><th>Örnekler</th><th>Amacı</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Fidye yazılımı tipi kurban uzantı</strong></td>
+              <td><code>*.doc *.docx *.xls *.xlsx *.ppt *.pptx *.pdf *.jpg *.png *.psd *.ai *.dwg *.mdb *.sql *.bak *.vmdk *.vhd</code></td>
+              <td>Klasik &ldquo;dosyası şifrelenebilir&rdquo; listesi</td>
+            </tr>
+            <tr>
+              <td><strong>Aileye özgü ekler</strong></td>
+              <td><code>*.locked *.crypt *.enc *.encrypted *.ryk *.ryuk *.wcry *.wncry *.wnry *.locky *.zepto *.odin *.thor</code></td>
+              <td>Görünürken çıkan özgün ekler; ikinci tur dalga tespitini güçlendirir</td>
+            </tr>
+            <tr>
+              <td><strong>Geliştirici / veritabanı / VM</strong></td>
+              <td><code>*.sln *.cs *.java *.py *.rb *.go *.rs *.sql *.mdf *.ldf *.sqlite*</code></td>
+              <td>Yüksek değerli &ldquo;özgün emek&rdquo; dosyaları en çok kaybedilen tür</td>
+            </tr>
+            <tr>
+              <td><strong>Medya / yaratıcı</strong></td>
+              <td><code>*.blend *.psd *.indd *.cdr *.aep *.prproj *.raw</code></td>
+              <td>Fotoğraf ve video arşivleri &mdash; genelde en çok foto olan dizin</td>
+            </tr>
+            <tr>
+              <td><strong>Yapısal olarak <em>geniş</em> girişler</strong></td>
+              <td><code>*.0 *.1 ... *.100</code>, <code>*.log *.tmp *.dat</code></td>
+              <td><span class="c-amber">Düşük sinyal</span> ama süzgeç 7a &amp; 7b ile birleşince etkisiz</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Listeyi daraltan tasarım: iki katmanlı koruma</div>
+        <code>ransomFileExtensions</code> bilinçli olarak <strong>geniş</strong> bir listeye
+        dayanır &mdash; 1479 uzantı, tek bir StringMatcher tablosunda neredeyse maliyetsizdir.
+        <strong>Daraltma, sonraki süzgece bırakılmıştır</strong> (7a: nokta var mı; S8: metin mi
+        değil mi; S9: 3+ ayrı hedef). Bu, <strong>bir listeyi devamlı güncel tutma yükünü
+        kaldırırken</strong> tespit gücünü korumanın doğru mimarisidir: geniş aday havuzu +
+        katlı sert filtreler, dar ve güncellenmeye muhtaç bir aday havuzundan iyidir.
+      </div>
+
+      <!-- ============ 12 KERNEL ============ -->
+      <h2 class="wiki-h2" id="kernel"><span class="num">12</span> Kernel Tarafı: Hangi IRP, Hangi Olay?</h2>
+
+      <p>
+        Kuralın tetikleyicilerinin tamamı Ring-0'da üretilir. Minifilter, yedi IRP major
+        fonksiyonunu kaydeder. Bu kayıt, kuralın <strong>tamamını</strong> belirler:
+      </p>
+
+      <div class="code-block red">
+        <div class="code-head"><span class="src">edrdrv/src/filemon.cpp (2645-2661)</span><span>MINIFILTER KAYDI</span></div>
+<pre>CONST FLT_OPERATION_REGISTRATION c_Callbacks[] =
+{
+    { IRP_MJ_CREATE,  0, preCreate,  postCreate  },
+    { IRP_MJ_CLEANUP, 0, preCleanup, postCleanup },
+    { IRP_MJ_SET_INFORMATION, FLTFL_OPERATION_REGISTRATION_SKIP_PAGING_IO, preSetFileInfo, postSetFileInfo },
+    { IRP_MJ_WRITE,   0, preWrite,   postWrite   },
+    { IRP_MJ_READ,    0, preRead,    postRead    },
+    { IRP_MJ_DEVICE_CONTROL, 0, preDeviceControl, nullptr },
+    { IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION, 0, preAcquireForSectionSync, nullptr },
+
+    { IRP_MJ_OPERATION_END }
+};</pre>
+      </div>
+
+      <h3 class="wiki-h3">12.1 &mdash; Sürücü Tarafı Olay Kodları</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>SysmonEvent</th><th>Kod</th><th>LLE Değeri</th><th>Üretim Yeri</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>FileCreate</code></td><td>0x0007</td><td><code>LLE_FILE_CREATE</code> = 0x0003</td><td><code>postCreate</code></td></tr>
+            <tr><td><code>FileDelete</code></td><td>0x0008</td><td><code>LLE_FILE_DELETE</code> = 0x0004</td><td><code>postCleanup</code> / <code>postSetFileInfo</code></td></tr>
+            <tr><td><code>FileClose</code></td><td>0x0009</td><td><code>LLE_FILE_CLOSE</code> = 0x0005</td><td><code>postCleanup</code></td></tr>
+            <tr><td><code>FileDataChange</code></td><td>0x000A</td><td><code>LLE_FILE_DATA_CHANGE</code> = 0x0006</td><td><code>postCleanup</code></td></tr>
+            <tr><td><code>FileDataReadFull</code></td><td>0x000B</td><td><code>LLE_FILE_DATA_READ_FULL</code> = 0x0007</td><td><code>postCleanup</code></td></tr>
+            <tr><td><code>FileDataWriteFull</code></td><td>0x000C</td><td><code>LLE_FILE_DATA_WRITE_FULL</code> = 0x0008</td><td><code>postCleanup</code></td></tr>
+            <tr><td><code>FileMapRead</code></td><td>0x0011</td><td><code>LLE_FILE_MAP_READ</code> = 0x0034</td><td><code>preAcquireForSectionSync</code></td></tr>
+            <tr><td><code>FileMapWrite</code></td><td>0x0012</td><td><code>LLE_FILE_MAP_WRITE</code> = 0x0035</td><td><code>preAcquireForSectionSync</code></td></tr>
+            <tr><td><code>FileRename</code></td><td>0x0014</td><td><code>LLE_FILE_RENAME</code> = 0x0032</td><td><code>postSetFileInfo</code></td></tr>
+            <tr><td><code>OwlyPreImageSaved</code></td><td>0x0017</td><td><code>LLE_FILE_PREIMAGE_SAVED</code> = 0x0037</td><td>RansomShield</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">12.2 &mdash; &ldquo;Tam okuma&rdquo; ve &ldquo;tam yazma&rdquo; nasıl kanıtlanır?</h3>
+
+      <p>
+        Bu, kuralın en sağlam mühendislik parçasıdır. Minifilter <strong>hiçbir zaman
+        &ldquo;dosyaya yazıldı&rdquo; demez</strong>; bunu <strong>kanıtlar</strong>:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Kanıt</th><th>Koşul</th><th>Neden Önemli</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Başlangıç boyutu</strong></td>
+              <td><code>postCreate</code> anında <code>nSizeAtCreation</code> kaydedilir</td>
+              <td>Tam yazma dedektörü <strong>yalnızca boyut 0 iken</strong> (yeni/kırpılmış dosya) armed edilir</td>
+            </tr>
+            <tr>
+              <td><strong>Sıralı konum</strong></td>
+              <td><code>nNextPos</code> her yazma/okuma sonrası ilerletilir; tam okuma için <code>nNextPos == nSizeAtCreation</code> gerekir</td>
+              <td><strong>Kısmi okuma/yazma sayılmaz</strong> &mdash; rastgele erişim elenir</td>
+            </tr>
+            <tr>
+              <td><strong>Boyut sınırları</strong></td>
+              <td>Toplam yazılan/okunan boyut <code>[nMinFullActFileSize, nMaxFullActFileSize]</code> aralığında olmalı</td>
+              <td>Log dosyaları, cache, geçici artefaktlar &mdash; devasa veya minik dosyalar elenir</td>
+            </tr>
+            <tr>
+              <td><strong>Kırpma önleme</strong></td>
+              <td><code>eCreationStatus</code> &mdash; <code>FILE_CREATED</code> / <code>FILE_OVERWRITTEN</code> / <code>FILE_SUPERSEDED</code> / <code>FILE_OPENED</code></td>
+              <td>&ldquo; Aç dosya, sonra yaz&rdquo; ile &ldquo;oluştur ve yaz&rdquo; ayırt edilir</td>
+            </tr>
+            <tr>
+              <td><strong>Yedekleme adı istisnası</strong></td>
+              <td>Yolu içeren <code>HydraDragonBackups</code> giren dosyalar atlanır</td>
+              <td><strong>Kendi geri yükleme mekanizması</strong> kendi kendini tetiklemez &mdash; önemli bir önlem</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Önemli: bu teknik, BYOVD ve anti-EDR atlatmaya dayanık</div>
+        Biçim yazılımında yazan zarilı, <em>özgün dosyanın üzerine in-place</em> yazar, çift
+        dosya üretir ya da yeni dosya oluşturup orijinali siler. Bu üç modelin üçü de
+        &ldquo;IRP_MJ_CREATE + WRITE/CLEANUP + SET_INFORMATION&rdquo; izi bırakır &mdash;
+        <strong>API hooking yapmadan</strong> yakalanır. Klasik kancalama tabanlı AV'ler
+        (usermode) bunu görmez; Ring-0 minifilter görür.
+      </div>
+
+      <h3 class="wiki-h3">12.3 &mdash; mmap yolu: görünmez olanın yakalanması</h3>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">edrdrv/src/filemon.cpp (2564-2573) &mdash; sürücü yorumu, birebir</span><span>NEDEN AYRI BİR IRP?</span></div>
+<pre><span class="tok-cm">/*  mmap ile yapılan okuma/yazma HİÇBİR IRP_MJ_READ / IRP_MJ_WRITE
+    üretmez.  NtCreateSection + NtMapViewOfSection doğrudan belleğe
+    eşler.  Bu yüzden tek görünür sinyal, section edinme IRP'sidir.  */</span></pre>
+      </div>
+
+      <p>
+        Sürücü, <code>PAGE_READONLY</code> korumasını okuma niyeti, <code>PAGE_READWRITE</code> /
+        <code>PAGE_WRITECOPY</code> / <code>PAGE_EXECUTE_READWRITE</code> / <code>PAGE_EXECUTE_WRITECOPY</code>
+        korumalarını yazma niyeti olarak sınıflandırır. <code>accessMask</code> alanına sayfa
+        koruması yazılır.
+      </p>
+
+      <div class="callout violet">
+        <div class="co-title">&#9654; Modern şifreleyicilerin tercihi</div>
+        Rust (özgür yazılım dili), Go ve C++ ile yazılan profesyonel fidye yazılımlarının belirgin bir
+        bölümü dosyaları <code>mmap</code> ile işler &mdash; çünkü bu yol <strong>daha hızlıdır</strong>
+        ve kullanıcı modundaki API kancalarına <strong>iz bırakmaz</strong>. LLE_FILE_MAP_READ ve
+        LLE_FILE_MAP_WRITE maddeleri olmasa, bu sınıf fidye yazılımı kurala <strong>tamamen
+        görünmez</strong> olurdu.
+      </div>
+
+      <!-- ============ 13 İKİ AŞAMALI ============ -->
+      <h2 class="wiki-h2" id="neden-iki-asama"><span class="num">13</span> Neden İki Ara Olay Var?</h2>
+
+      <p>
+        <code>MLE_RANSOM_CANDIDATE</code> ve <code>MLE_RANSOM_EVALUATE</code> ara olayları
+        &ldquo;gereksiz işlem&rdquo; gibi görünebilir. Değildir. Üç somut faydaları vardır:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Fayda</th><th>Açıklama</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Sözdeşleme (decoupling)</strong></td>
+              <td>Aşama 2 sadece <strong>toplama</strong> yapar, aşama 4 sadece <strong>karar</strong> verir. İki sorumluluk tek yerde birleştirilseydi, eşik hesabı üretim mantığının içine gömülür ve değiştirilemez hâle gelirdi.</td>
+            </tr>
+            <tr>
+              <td><strong>Kural izlenebilirliği</strong></td>
+              <td>Log ve debugger akışında her adım ayrı bir olay adıyla görünür. &ldquo;Aday üretildi ama eşik tutmadı&rdquo; ile &ldquo;Aday bile üretilmedi&rdquo; ayırt edilebilir &mdash; bu, üretimdeki kütüphaneler için kritik bir ayrım yeteneğidir.</td>
+            </tr>
+            <tr>
+              <td><strong>Politika genişletilebilirliği</strong></td>
+              <td><code>MLE_RANSOM_EVALUATE</code> çıkışı herkese açık bir noktadır. Gelecekte yeni bir kural (örn. &ldquo;farklı eşik, farklı pencere&rdquo;) aynı aday akışına bağlanabilir; mevcut kurala hiç dokunulmadan.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Kurumsal mimari dersi</div>
+        <strong>Toplama ile karar ayrımı</strong>, büyük olay işleme sistemlerinde standart bir
+        kalıptır. Kural bu kalibi <em>veritabanında değil, dosya sistemi gözleminde</em>
+        uygular. Ucuz, denetlenebilir ve üzerine inşa edilebilir.
+      </div>
+
+      <!-- ============ 14 YANIT ============ -->
+      <h2 class="wiki-h2" id="yanit"><span class="num">14</span> Yanıt Zinciri: Tespitten Sonrası Ne Olur?</h2>
+
+      <p>
+        Tespit üretilmesi bir son değildir. <code>MLE_RANSOM_BEHAVIOR</code> olayı
+        <code>OUT</code> ile zenginleştirme, güven kontrolü, öldürme, karantina ve geri yükleme
+        zincirinden geçer. Aşağıdaki akış <code>DetectionNotifier::execute("put")</code>
+        içindeki gerçek sıradır.
+      </p>
+
+      <div class="pipeline">
+<u>MLE_RANSOM_BEHAVIOR</u>  (baseType 1000008, OUT)
+   |
+   |--&gt; [1] <b>severity = 3 (CRITICAL)</b> + <b>alert_kind = "critical"</b>   &lt;-- her tespitte sabit
+   |
+   |--&gt; [2] Başlık sentezi  +  <b>quarantineTarget</b> kilidi
+   |         &lt;- @event.process.imageFile.rawPath  (SALDIRGANIN İKİLİSİ)
+   |
+   |--&gt; [3] OwlyShield verdict senkronizasyonu   (owlyshield_update_process_verdict)
+   |
+   |--&gt; [4] <s>GÜVEN KONTROLÜ</s>  (aşağıda ayrıntılı)
+   |         should_trust_company_whitelist = true
+   |         should_trust_comodo_fls_cloud  = true
+   |            -&gt; güvenilir imzalı / FLS SAFE  ==&gt;  öldürme + karantina <b>İPTAL</b>
+   |            -&gt; kötü / PUA üreticisi         ==&gt; sıkı uygulama (strict enforcement)
+   |
+   |--&gt; [5] <i>SÜRECİ ÖLDÜR</i>  &mdash; edrdrv IOCTL
+   |         DeviceIoControl(\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA})
+   |         msgType = 6 (MESSAGE_KILL_ONLY_GID),  hedef = Global ID
+   |
+   |--&gt; [6] <i>KARANTİNA</i>  &mdash; owlyshield_ransom.dll
+   |         owlyshield_dll_quarantine_file(dosyaYolu)
+   |         + recordMalwareDetection()  (kalıcı veritabanı kaydı)
+   |         hata hâlinde: \\.\pipe\HydraHipEvent üzerinden
+   |                     "Malicious file locked! Please restart your computer..."
+   |
+   |--&gt; [7] <b>GERİ YÜKLE</b>  &mdash; EventEnricher::rollbackRansomBackups()
+   |         Süreç, kök süreç, sadece GID &mdash; üçü için ön-image geri yükleme
+   |         (RansomShield'in %PROGRAMDATA%\HydraDragonBackups altına
+   |          kaydettiği özgün kopyalar)
+   |
+   +--&gt; [8] GUI bildirimi  +  1000 kayıtlı halka tamponuna ekleme
+</div>
+
+      <h3 class="wiki-h3">14.1 &mdash; Neden <code>quarantineTarget</code> sürecin imajıdır?</h3>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; Kritik mimari karar</div>
+        Aday aşamasında <code>quarantineTarget</code> <strong>şifrelenen dosyayı</strong> işaret
+        eder. Nihai tespitte ise <strong>sürecin kendi imaj dosyası</strong> atanır.
+        <br><br>
+        Bu, kuralın en büyük ayırt edici özelliğidir. Klasik EDR'lar genellikle
+        <strong>mağdur dosyayı karantinaya alır</strong> &mdash; bu, kullanıcının verisini
+        korumaz, sadece zararlı dosyayı uzaklaştırır. Viruskov ise
+        <strong>aracı yok eder, veriyi geri yükler</strong>. İkisi arasındaki fark, bir ürünün
+        &ldquo;tespit eden&rdquo; mi yoksa &ldquo;kurtaran&rdquo; mi olduğudur.
+      </div>
+
+      <h3 class="wiki-h3">14.2 &mdash; Güven bayrakları: <code>should_trust_*</code></h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Bayrak</th><th>Değer</th><th>Etkisi</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>should_trust_company_whitelist</code></td>
+              <td class="c-amber">true</td>
+              <td><code>owlyshield_is_trusted_company_signer</code> çağrısına izin verir. Güvenilir kurum imzalı bir ikili &rarr; <strong>öldürme + karantina iptal edilir</strong> (alarm kaydı yine tutulur).</td>
+            </tr>
+            <tr>
+              <td><code>should_trust_comodo_fls_cloud</code></td>
+              <td class="c-amber">true</td>
+              <td>FLS bulutu <code>verdict = 1 (SAFE)</code> dönerse veto verir. Ayrıca <code>verdict = 4 (FAIL/ERROR)</code> durumunda da veto verir &mdash; böylece bulut kesintisi tespit sistemini felç etmez.</td>
+            </tr>
+            <tr>
+              <td><code>owlyshield_is_malicious_company_signer</code></td>
+              <td class="c-red">güven bayraklarını geçersiz kılar</td>
+              <td>Kötü / PUA üreticisi tespit edilirse <code>verdict = 2</code>'ye zorlanır ve <strong>sıkı uygulama</strong> devreye girer; beyaz liste devre dışı kalır.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; Bu seçim bilinçli ve doğru</div>
+        Fidye yazılımının &ldquo;çalıştırılan dosyası&rdquo; çoğu zaman imzasız bir ara binary
+        olabilir (LiveWire, PowerShell, script host, imza çalıntısı kod). Bu yüzden
+        <code>should_trust_*</code> bayrakları bu kuralda <strong>açık tutulmuştur</strong>
+        (<code>false</code> değil). Bu, kurumsal güvenlikte &ldquo;imzalı = güvenli&rdquo;
+        varsayımının doğru tarafta durmasını sağlar. Aynı anda
+        &ldquo;güvenilir imzalı &rarr; şifreleme yapan exe&rdquo; senaryosu teknik olarak imkânsıza
+        yakın olduğu için bu ayar pratikte FP üretmez, yalnızca imzalı ancak davranışı düşürülmüş
+        (supply-chain) vakaları doğru muameleye alır.
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Zararsızlaştırmada yapılmayanlar</div>
+        <code>put</code> yolunda <strong>ağ engelleme (firewall / IPC block)</strong>,
+        <strong>bootkit / sürücü temizliği</strong> veya <strong>buluta MLE gönderimi</strong>
+        <strong>yapılmaz</strong>. Bunlar ayrı modüllerin alanıdır. MLE_RANSOM_BEHAVIOR
+        <strong>tek işine odaklanır</strong>: saldırganı durdur, veriyi geri getir, analiste bildir.
+      </div>
+
+      <!-- ============ 15 NEDEN MÜKEMMEL ============ -->
+      <h2 class="wiki-h2" id="neden"><span class="num">15</span> Neden Mükemmel Bir Ransomware Kuralı?</h2>
+
+      <p>
+        &ldquo;Mükemmel&rdquo; burada şu anlama geliyor: <strong>sıfırıncı gün farkından
+        bağımsız, hedef odaklı, kanıt temelli, ve kanıtlanabilir olarak kurtarıcı.</strong>
+        Aşağıda on iki somut gerekçe.
+      </p>
+
+      <div class="reason-grid">
+        <div class="reason-card">
+          <div class="reason-idx">R01 &bull; BAĞIMSIZLIK</div>
+          <div class="reason-title">Koddan tamamen bağımsız</div>
+          <div class="reason-text">Kural, dosyanın içeriğine, hash'ine, derleyicisine, paketleyicisine ve <strong>boyutuna bile bakmaz</strong>. Zararlı kodu tamamen değiştirilse, yeniden paketlense, yeni bir dilde yeniden yazılsa &mdash; kural aynen çalışır. Bu, <strong>tek başına</strong> sıfırıncı gün kapsamıdır.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R02 &bull; ZORUNLULUK</div>
+          <div class="reason-title">Şifreleme zorunlu bir adımdır</div>
+          <div class="reason-text">Fidye yazılımının amacını yerine getirmesi için <strong>dosyayı geri döndürülemez şekilde bozması şarttır</strong>. &ldquo;Yok et&quot;, &ldquo;şifrele&quot;, &ldquo;uzaktan sil&quot; &mdash; üçü de aynı dosya sistemi izini bırakır. Bu, kuralı <strong>zorunlu bir davranışa</strong> bağlar: atlanması mümkün değildir.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R03 &bull; ADLIMSIZ</div>
+          <div class="reason-title">Şifreleme çift taraflıdır</div>
+          <div class="reason-text">Aile, varyant, derleme tarihi, dil, paketleyici &mdash; hiçbiri önemsizdir. Kural &ldquo;bu bir <strong>LockBit</strong>&rdquo; değil, &ldquo;bu bir <strong>şifreleme</strong>&rdquo; der. Bu yüzden yeni varyantlar <strong>ayrı iş</strong> değildir.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R04 &bull; RING-0</div>
+          <div class="reason-title">Çekirdekte gözlem</div>
+          <div class="reason-text">Tespit <strong>usermode kancalarına değil, IRP'lere</strong> bakar. Bu, iki kritik avantaj sağlar: (a) usermode API kaçakları çalışmaz, (b) BYOVD ile antivirüsün bellekten silinmesi tespiti <strong>engellemez</strong> &mdash; motor çoktan çalışıyordur.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R05 &bull; MMAP</div>
+          <div class="reason-title">Görünmeyi izlemeyi yakalar</div>
+          <div class="reason-text"><code>NtMapViewOfSection</code> hiçbir <code>IRP_MJ_READ/WRITE</code> üretmez. LLE_FILE_MAP_READ / MAP_WRITE maddeleri sayesinde haritalama tabanlı şifreleyiciler de yakalanır. Birçok EDR bu yolu <strong>tamamen kaçar</strong>.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R06 &bull; KÜTLE</div>
+          <div class="reason-title">Tek işlem yeterli değil</div>
+          <div class="reason-text">60 saniyede <strong>3 ayrı hedef</strong> eşiği, tek dosya işlemlerini tamamen devre dışı bırakır. Bu, kuralın en önemli FP güvenlik ağıdır: &ldquo;bir kullanıcı bir dosyasıyla uğraştı&rdquo; ile &ldquo;birisi toplu şifreliyor&rdquo; birbirinden <strong>matematiksel olarak</strong> ayrılır.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R07 &bull; AYRIK SAYIM</div>
+          <div class="reason-title">Tekrarlar sayılmaz</div>
+          <div class="reason-text"><code>distinctCounter</code> <strong>ayrı değer</strong> sayar. 500 kez aynı dosyaya yazan bir yedekleme aracı sayacı dolduramaz. Bu, &ldquo;çok sayıda işlem&quot; ile &ldquo;çok sayıda <strong>farklı</strong> dosya&quot; arasındaki kritik ayrımı yapar.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R08 &bull; SÜREÇ İZOLASYONU</div>
+          <div class="reason-title">Anahtar = PID</div>
+          <div class="reason-text">Sayaç <strong>süreç başına</strong> tutulur. İki farklı uygulama birbirinin sayacını dolduramaz; bir tarayıcı eklentisi başka bir sürecin başarısını &ldquo;miras&quot; alamaz. Bu, kurumsal ortamda yanlış pozitif zincirini kırar.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R09 &bull; İÇERİK KANITI</div>
+          <div class="reason-title">İçerik, dosya adına değil</div>
+          <div class="reason-text"><code>isAsciiText</code> (64 KiB, %15 kuralı) dosyanın <strong>gerçek içeriğini</strong> ölçer. &ldquo;Zararlı, çünkü adında .doc vardı&quot; değil, &ldquo;zararlı, çünkü bu artık düz metin değil&quot; der. Uzantılara göre karar vermek, kurumsal e-posta şifreleme ve belge işleme yazılımlarını sürekli yanlış pozitife sokardı.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R10 &bull; KONTROL MEKANİZMASI</div>
+          <div class="reason-title">Tembel değerlendirme</div>
+          <div class="reason-text">64 KiB'lık içerik taraması yalnızca <strong>kural o alana gerçekten dokunduğunda</strong> çalışır. Aynı kural, hem canlı bir sistemde kullanılabilir hem de ispatlanabilir bir FP oranına sahiptir. &ldquo;Sıkışık ama yavaş&quot; değil.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R11 &bull; KURTARMA</div>
+          <div class="reason-title">Sadece tespit değil, kurtarma</div>
+          <div class="reason-text">Karantina <strong>saldırganın ikilisine</strong> uygulanır, <strong>kullanıcının verisi geri yüklenir</strong> (RansomShield ön-image). Tespit edilen ama verisi kaybedilen bir sistem, kurtarılmış sayılmaz. Bu kural, tespit ile <strong>eylemi</strong> birleştirir.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R12 &bull; DENETLENEBİLİRLİK</div>
+          <div class="reason-title">Kapalı kutu değil, okunabilir politika</div>
+          <div class="reason-text">Kural JSON'da, <strong>16 madde hâlinde, her hâliyle</strong> duruyor. Şu an okuduğunuz her şey ürünün içinde birebir var. &ldquo;Neden bu alarmı attı?&rdquo; sorusunun cevabı bir destek talebine değil, bir <strong>ekran görüntüsüne</strong> gelir. Bu, projenin temel felsefesidir: <em>Security by Obscurity</em> değil, <em>Security by Legibility</em>.</div>
+        </div>
+      </div>
+
+      <h3 class="wiki-h3">15.1 &mdash; Saldırgana karşı bu kuralı nasıl atlamaya çalışırsınız?</h3>
+
+      <p>
+        Güvenli tarafı test etmek için, bir red team sorusunu cevaplamak gerekir:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Saldırgan Tekniği</th><th>Kurala Etkisi</th><th>Neden</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Paketleme / polimorfik kod</td>
+              <td class="ok-mark">ETKİSİZ</td>
+              <td>Kural koda değil, dosya sistemi işlemine bakar</td>
+            </tr>
+            <tr>
+              <td>API kancalama ile <code>ReadFile</code>/<code>WriteFile</code> atlama</td>
+              <td class="ok-mark">ETKİSİZ</td>
+              <td>IRP katmanı gözleniyor; usermode API görünmez değil, <strong>ilgisiz</strong></td>
+            </tr>
+            <tr>
+              <td>Doğrudan <code>NtWriteFile</code> / <code>ZwWriteFile</code></td>
+              <td class="ok-mark">ETKİSİZ</td>
+              <td>Aynı IRP'ye iner</td>
+            </tr>
+            <tr>
+              <td>Yerleşik dosya sistemi API'leri (<code>SetFileInformationByHandle</code> ile silme)</td>
+              <td class="ok-mark">ETKİSİZ</td>
+              <td>IRP_MJ_SET_INFORMATION izlenir</td>
+            </tr>
+            <tr>
+              <td>Dosya sistemi filtresi (minifilter) ile öndenleme</td>
+              <td class="warn-mark">ZOR &mdash; kötü niyetli</td>
+              <td>Çalışan bir &ldquo;meşru&quot; minifilter görünür; o da tanımlanması gereken ayrı bir yazılımdır</td>
+            </tr>
+            <tr>
+              <td>WMI / uzak yönetim ile toplu şifreleme</td>
+              <td class="ok-mark">ETKİSİZ</td>
+              <td>Yine aynı dosya sistemi işlemi</td>
+            </tr>
+            <tr>
+              <td>Sadece <code>C:\</code> kökünü şifreleme (kullanıcı dışı)</td>
+              <td class="no-mark">KAPSAM DIŞI</td>
+              <td>S3 süzgeci <code>\users\</code> zorunlu kılıyor &mdash; bu bilinçli bir <strong>sınırdır</strong> (bkz. Bölüm 16)</td>
+            </tr>
+            <tr>
+              <td>Dosya başına birkaç dakika bekleyerek yavaş şifreleme</td>
+              <td class="no-mark">KAÇIRILIR</td>
+              <td>60 saniyelik pencere aşılır &mdash; bilinen sınır (bkz. Bölüm 16)</td>
+            </tr>
+            <tr>
+              <td>Önce <code>AppData</code> altına yazıp oradan taşıma</td>
+              <td class="no-mark">KAPSAM DIŞI</td>
+              <td>S2 &amp; S4 <code>\AppData\</code>'yi tamamen eler</td>
+            </tr>
+            <tr>
+              <td>Yedekleri sil, sonra şifrele</td>
+              <td class="ok-mark">ETKİSİZ</td>
+              <td>Komşu kural <code>MLE_RANSOM_SHADOW_COPY_DELETE</code> devreye girer (Bölüm 17)</td>
+            </tr>
+            <tr>
+              <td>Düz metin hedefleme (yalnızca <code>.txt</code> şifrele)</td>
+              <td class="no-mark">KALDIRILIR</td>
+              <td>S8 <code>isAsciiText</code> koruması metin dosyalarını <strong>bilerek</strong> bırakır &mdash; FP azaltma tercihi</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Matematiksel özet</div>
+        <strong>Korunan:</strong> İmza değişimi, paketleme, API kaçakları, kod tamamen yeniden
+        yazımı, mmap, yerleşik API'ler, yeni dil, yeni derleyici, uzaktan çalıştırma.<br>
+        <strong>Aşılır:</strong> Yavaş şifreleme, disk kökü şifreleme, salt metin hedefleme.<br>
+        <strong>Bu, ticari bir trade-off.</strong> Her EDR bu dengeyi yapar; Viruskov bunu
+        <strong>gizlemez</strong>, tam olarak bu sayfada olduğu gibi belgeler.
+      </div>
+
+      <!-- ============ 16 SINIRLAR ============ -->
+      <h2 class="wiki-h2" id="sinirlar"><span class="num">16</span> Dürüst Sınırlar ve Bilinen Kusurlar</h2>
+
+      <p>
+        Bu bölüm bilinçli olarak yazılmıştır. Bir ürünün güçlü yanlarını anlatmak kolaydır;
+        <strong>zayıf yanlarını aynı sayfada, aynı cesaretle anlatmak</strong> ise güveni
+        insani kılar. Aşağıdaki maddeler, kaynak kod incelemesiyle tespit edilmiş
+        <strong>gerçek bulgulardır</strong> &mdash; ne varsayım, ne kötü niyet, sadece açık gerçek.
+      </p>
+
+      <h3 class="wiki-h3">16.1 &mdash; Tasarımdan kaynaklanan sınırlar</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Sınır</th><th>Etki</th><th>Düzeltme Yolu</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td><strong>60 saniyelik pencere</strong> dosya başına birkaç dakika bekleyen sofistike şifreleyicileri kaçırır</td>
+              <td>Orta &mdash; yüksek hacimli her şifreleme yine yakalanır</td>
+              <td>Pencereyi 5-10 dakikaya çıkarmak, eşiği 5-10'a çıkarmak veya <strong>zamansal oran</strong> (dosya/sn) metriği eklemek</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td><strong>S3 <code>*\users\*</code> zorunluluğu</strong> disk kökünü veya ağ sürücüsünü şifreleyenleri kapsam dışı bırakır</td>
+              <td>Düşük &mdash; bu hedefler genelde kullanıcı verisi değildir</td>
+              <td>Yeni bir kural: <code>MLE_RANSOM_BEHAVIOR_SYSTEM</code> (yol bağımsız, <code>C:\Windows</code> hariç)</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td><strong>Yalnızca tam yazma olaylarında entropi ölçülüyor</strong> &mdash; <code>LLE_FILE_MAP_WRITE</code> için entropi üretilmiyor</td>
+              <td>Düşük &mdash; S8 <code>isAsciiText</code> bu yolu zaten kapatıyor</td>
+              <td><code>preAcquireForSectionSync</code> içinde mmap sayfası örneklemesi</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td><strong>S4, S2 ile aynı kontrol</strong> (çift denetim)</td>
+              <td>Yok &mdash; savunma derinliği, maliyeti sıfır</td>
+              <td>Korunması önerilir; okunabilirlik ve örnek olma değeri yüksek</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td><strong><code>ransomFileExtensions</code> çok geniş</strong> (sayısal ve kısa uzantılar, <code>*.0</code> &hellip; <code>*.100</code>)</td>
+              <td>Düşük &mdash; 7a + S8 + S9 birlikte filtreliyor</td>
+              <td>Listeyi gerçek kurban uzantılarına daraltmak. <em>Not: 165. satırdaki <code>"*.2538)"</code> kaydı bir yazım hatasıdır.</em></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">16.2 &mdash; Kodda doğrudan doğrulanmış kusurlar</h3>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; KUSUR 1 &mdash; Üç kural maddesi birebir tekrar ediyor</div>
+        <code>LLE_FILE_RENAME</code> (2f), <code>LLE_FILE_DELETE</code> (2g) ve
+        <code>RF4*</code> (2h) maddeleri &mdash; her biri <strong>iki kez</strong> yazılmış.
+        Toplam 16 maddenin <strong>3'ü gereksiz</strong>.
+        <br>
+        <strong>Etki:</strong> <span class="ok-mark">Yok.</span> Aynı olay için aynı
+        <code>MLE_RANSOM_CANDIDATE</code> üretilir; sayaç ayrı değer saydığı için ikinci
+        üretim sayacı değiştirmez. Ancak politikanın okunabilirliğini <strong>zarlar</strong>
+        ve ileride biri düzeltilirse diğeri değişmiş olur.
+        <br>
+        <strong>Düzeltme:</strong> 2f', 2g' ve 2h' maddelerini silin. 16 madde &rarr; 13 madde.
+      </div>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; KUSUR 2 &mdash; <code>RF10*</code> ve <code>RF4*</code> derlemede düşer</div>
+        Politika derleyicisi, joker içeren <code>eventType</code> anahtarlarını
+        <strong>önek eşlemesiyle</strong> genişletir ve <strong>yalnızca aynı politikada
+        jokersiz olarak geçen olay tiplerine</strong> bakar. <code>RF10*</code> için önek
+        <code>"RF10"</code>, <code>RF4*</code> için <code>"RF4"</code> &mdash; ikisi de
+        <strong>sıfır</strong> eşleşme üretir, anahtar silinir ve kural <strong>sessizce</strong>
+        kaybolur.
+        <br>
+        <strong>Temel neden:</strong> <code>RF*</code> takma adları (v1 / eski EVM motorunun
+        olay sınıf adları: <code>RF4 = LLE_FILE_DELETE</code>, <code>RF10 = LLE_FILE_DATA_CHANGE</code>)
+        <strong>v2 motorunda tanımlı değildir</strong>. Doğru kullanılmaları gereken isimler
+        <code>LLE_FILE_DELETE</code> ve <code>LLE_FILE_DATA_CHANGE</code>'dir.
+        <br>
+        <strong>Etki:</strong> <span class="ok-mark">Fonksiyonel kayıp yok.</span> Kastedilen
+        iki olay (<code>LLE_FILE_DATA_CHANGE</code> = madde 2d, <code>LLE_FILE_DELETE</code> =
+        madde 2g) <strong>zaten doğrudal olarak kapsanmış</strong>. Geriye yalnızca derlenmiş
+        çıktıda üç kuralın kaybolması ve derleyicinin <strong>uyarı üretmemesi</strong> kalıyor.
+        <br>
+        <strong>Düzeltme:</strong> 2e, 2h ve 2h' maddelerini tamamen silin; kuralın mantığını
+        değiştirmez.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; KUSUR 3 &mdash; Okuma sepeti yazılıyor ama okunmuyor</div>
+        Aşama 1a ve 1b, <code>saveContext</code> ile <code>RANSOM_FILE_READ_WRITE</code>
+        sepetine kayıt yazar. Ancak <strong><code>RANSOM_BEHAVIOR</code> içinde bu sepeti okuyan
+        hiçbir <code>loadContext</code> yoktur</strong>. Aşama 2 yalnızca <code>LLE_FILE_CREATE</code>
+        ve yazma/haritalama/değiştirme/rename/delete olaylarını tetikler &mdash;
+        <strong>okuma olayları tetikleyici değildir</strong>.
+        <br>
+        <strong>Etki:</strong> <span class="ok-mark">Kuralı etkilemez</span> (eşik kararı
+        tamamen yazma tarafındadır). Yalnızca 120 saniye boyunca gereksiz bir bellek
+        harcanır. Aşama 1 tamamen <strong>yasal</strong> ve gelişim için hazır bir temel
+        olmaktadır: &ldquo;okuyan &rarr; yazan&rdquo; korelasyonu kurmak isteyen bir kural
+        buraya bağlanabilir.
+        <br>
+        <strong>Düzeltme seçenekleri:</strong> (a) Aşama 1'i kaldır, (b) bir
+        <code>loadContext</code> ile &ldquo;önce bu dosya okundu mu?&rdquo; kontrolü ekle
+        (&ldquo;fiziksel kopyalama + silme&rdquo; modeli için gerekli), (c) olduğu gibi bırak.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; KUSUR 4 &mdash; Aşama 5 temizliği eşleşmiyor</div>
+        Aşama 1 kayıtları <code>group</code> alanı olmadan yazılır; aşama 5 ise
+        <code>group: "@event.process.id"</code> ile silmeyi dener. Motor, kayıtları
+        <strong>boş grup işaretiyle</strong> sakladığı için grup bazlı silme <strong>hiçbir şeyi
+        bulamaz</strong>.
+        <br>
+        <strong>Etki:</strong> <span class="ok-mark">İşlevsel değil</span> &mdash; 120 saniyelik
+        TTL zaten bu işi doğru şekilde yapmaktadır. Yalnızca süreç daha erken bitse kayıt
+        gereksizce 120 saniye bekler.
+        <br>
+        <strong>Düzeltme:</strong> Aşama 1a/1b'ye <code>"group": "@event.process.id"</code>
+        eklemek.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; KUSUR 5 &mdash; Entropi ölçeklenmemiş</div>
+        Sürücü entropiyi <strong>ham Q24 tam sayısı</strong> yazar; politika ise onu
+        <code>6</code> ile karşılaştırır. Böylece <code>owlyEntropy &gt; 6</code>, pratikte
+        &ldquo;değer 6'dan büyük mü?&rdquo; değil, &ldquo;değer neredeyse sıfırdan büyük mü?&rdquo;
+        sorusuna dönüşür.
+        <br>
+        Ayrıca şu dört dal <strong>hiçbir zaman tetiklenmez</strong>:
+        <code>@event.destination.owlyEntropy</code> (şemada <strong>yok</strong>;
+        alan olay kökündedir), <code>@event.destination.entropy</code> / <code>@event.entropy</code>
+        (<strong>hiçbir yerde tanımlı değil</strong>). Yalnızca <code>@event.owlyEntropy</code>
+        dalıdır.
+        <br>
+        <strong>Etki:</strong> <span class="warn-mark">Orta.</span> 7c bloğu pratikte
+        &ldquo;bu bir <code>LLE_FILE_DATA_WRITE_FULL</code> olayı mıydı?&rdquo; filtresine
+        dönüşür. Gerçek entropi ayrımı <strong>8. süzgece</strong> (S8) yüklenmiştir.
+        <br>
+        <strong>Düzeltme:</strong> (a) enricher'da <code>owlyEntropy / (1&lt;&lt;24)</code> ile
+        ondalık dönüşüm yapıp <code>file.entropy</code> alanı üretmek, (b) eşiği Q24 cinsinden
+        yazmak: <code>greater(@event.owlyEntropy, 100663296)</code> (= 6 &times; 2^24),
+        (c) olmayan <code>destination.owlyEntropy</code> / <code>entropy</code> dallarını kaldırmak.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; KUSUR 6 &mdash; <code>@event.source</code> daima null</div>
+        <code>source</code> alanı yalnızca <code>MLE_FILE_COPY*</code> olaylarında doldurulur.
+        <code>MLE_RANSOM_CANDIDATE</code> ise LLE dosya olaylarından üretildiği için
+        <strong><code>source</code> hiçbir zaman taşınmaz</strong> &mdash; aday aşamasında
+        zaten okunmuyor, değerlendirme aşamasında da <code>null</code> kalır.
+        <br>
+        <strong>Etki:</strong> <span class="ok-mark">Çok düşük.</span> 7b'nin ikinci dalı
+        (<code>imatch(ransomFileExtensions, @event.source.path)</code>) kalıcı olarak
+        <code>false</code> döner; 7a'nın ikinci dalı da aynı şekilde. Yani bu iki dal
+        <strong>etkisiz kod</strong>dır ve kaldırılabilir.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; KUSUR 7 &mdash; Yorum dosyası ile kod uyuşmuyor</div>
+        <code>ptm.local.src</code> içindeki aşama 4 yorumu şu ifadeleri içeriyor:
+        &ldquo;The entropy <strong>&gt; 6.8</strong> clause...&rdquo; ve
+        &ldquo;plain explorer copies of text <code>.js</code> must <strong>never reach the
+        counter</strong>&rdquo;.
+        <br>
+        Her iki ifade de <strong>yanlıştır</strong>: (1) kodda eşik <code>6</code>,
+        <code>6.8</code> değil; (2) sayaç <code>condition</code>'den <strong>önce</strong>
+        çalıştığı için metin kopyalamaları sayacı <em>besler</em> (kuralın kendi süzgeci onları
+        eler, ama sayaç onları görür).
+        <br>
+        <strong>Etki:</strong> <span class="ok-mark">Yok</span> &mdash; yorum yanıltıcı olduğu için
+        etkilidir. <strong>Düzeltme:</strong> Yorumu gerçek kodla hizalamak.
+      </div>
+
+      <h3 class="wiki-h3">16.3 &mdash; Derleme ve üretim zinciri notları</h3>
+
+      <ul>
+        <li><strong>Geliştirici derleme aracı:</strong> <code>edrdata/compile_ptm.bat</code>,
+            <code>edrcon.exe compile -o ptm.act common.src ptm.local.src</code>. Üretilen
+            <code>ptm.act</code>, <code>srcBinInstall</code> ve <code>srcBinUpgrade</code>
+            dizinlerine senkronize edilir.</li>
+        <li><strong>Ürün kendisi de derler:</strong> Servis başlangıcında politika yeniden
+            derlenir; geliştirici betiği yalnızca kolaylıktır.</li>
+        <li><strong>Sınır testi:</strong> <code>distinctCounter</code> için yalnızca eşik ve
+            pencere belirlenir; <strong>eşik, pencere, anahtar, sayılan değer</strong> tamamen
+            politika dosyasından gelir &mdash; motorda tek bir kurala özel sabit yoktur.</li>
+      </ul>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Bu sayfa neden var?</div>
+        Bir EDR'in kalitesi, <strong>hata oranından çok, hatalarını ne kadar hızlı ve dürüstçe
+        kabul ettiğiyle</strong> ölçülür. Yukarıdaki yedi kusur, <strong>kapatılmamış olabilir</strong>;
+        ama <strong>bilinmektedir</strong>. Bu, projenin &ldquo;Security by Obscurity yerine
+        Security by Legibility&rdquo; felsefesinin somut uygulamasıdır.
+      </div>
+
+      <!-- ============ 17 KOMŞU KURALLAR ============ -->
+      <h2 class="wiki-h2" id="komsu"><span class="num">17</span> Komşu Kurallar: Tek Başına Yaşamaz</h2>
+
+      <p>
+        MLE_RANSOM_BEHAVIOR, fidye yazılımı savunmasının tek parçasıdır. Aşağıdaki komşu
+        kurallar, <strong>ona birlikte bakan</strong> ve birbirini tamamlayan katmanlardır.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Kural / Olay</th><th>baseType</th><th>Görevi</th><th>İlişki</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>MLE_RANSOM_SHADOW_COPY_DELETE</code></td>
+              <td>1000009</td>
+              <td>Gölge kopya / yedekleme yok etme komutlarını izler</td>
+              <td><strong>Önce gelir.</strong> Fidye yazılımı şifrelemeden önce yedekleri siler. Bu kural yakalarsa veri kaybı olmaz.</td>
+            </tr>
+            <tr>
+              <td><code>RANSOM_BEHAVIOR</code></td>
+              <td>1000008</td>
+              <td>Bu sayfanın konusu</td>
+              <td><strong>Ana tespit</strong></td>
+            </tr>
+            <tr>
+              <td><code>CRYPTO_API_MASS</code></td>
+              <td>&mdash;</td>
+              <td>Kripto API kullanımını ölçer (<code>CryptEncrypt</code> vb.)</td>
+              <td><strong>Tamamlayıcı.</strong> Dosyaya dokunmadan önce kriptografik iş yapan zararlılar için erken sinyal.</td>
+            </tr>
+            <tr>
+              <td><code>RANSOM_COUNTER_INIT</code></td>
+              <td>&mdash;</td>
+              <td>Süreç başına işlem sayacı başlatır (TTL 24 saat)</td>
+              <td><strong>Temel.</strong> Gelecekte süreç başına toplam işlem limitleri için.</td>
+            </tr>
+            <tr>
+              <td><code>LLE_FILE_PREIMAGE_SAVED</code> / <code>RansomShield</code></td>
+              <td>0x0037</td>
+              <td>Şifrelemeden <strong>önce</strong> özgün dosyanın yedeğini alır</td>
+              <td><strong>Bu, verinin neden kurtarıldığının cevabıdır.</strong> MLE tetiklendiğinde <code>rollbackRansomBackups</code> bu kopyaları geri yükler.</td>
+            </tr>
+            <tr>
+              <td><code>MLE_FILE_COPY*</code></td>
+              <td>1000001+</td>
+              <td>USB / ağ kopyalama tespiti</td>
+              <td><strong>Dengel.</strong> Exfiltration (çıktı) için. 1000008 <em>iç</em> (destruction) ile tamamlanır.</td>
+            </tr>
+            <tr>
+              <td><code>MLE_DRIVER_INSTALL_TAMPER</code></td>
+              <td>1000021</td>
+              <td>Sürücü / özel muafiyet manipülasyonu</td>
+              <td><strong>Ön muhafız.</strong> &ldquo;Kendini devre dışı bırak&rdquo; girişimini engeller.</td>
+            </tr>
+            <tr>
+              <td><code>MLE_FLS_MALICIOUS_VERDICT</code></td>
+              <td>1000010</td>
+              <td>Bulut FLS verdict = MALWARE</td>
+              <td><strong>Ortak güven kapısı.</strong> Aynı <code>should_trust_comodo_fls_cloud</code> mekanizmasını kullanır.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block amber">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; @const.ransomShadowDeleteCmdLines</span><span>7 KOMUT KALIBI</span></div>
+<pre><span class="tok-str">"ransomShadowDeleteCmdLines"</span>: [
+  <span class="tok-str">"*vssadmin*delete shadows*"</span>,
+  <span class="tok-str">"*wmic*shadowcopy delete*"</span>,
+  <span class="tok-str">"*wmic*shadowcopy*delete*"</span>,
+  <span class="tok-str">"*wbadmin*delete catalog*"</span>,
+  <span class="tok-str">"*bcdedit*recoveryenabled*no*"</span>,
+  <span class="tok-str">"*wbadmin*delete systemstatebackup*"</span>,
+  <span class="tok-str">"*vssadmin*resize shadowstorage*"</span>
+]</pre>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Birlikte çalışma sırası</div>
+        <s>1.</s> <code>vssadmin delete shadows</code> &rarr; <code>MLE_RANSOM_SHADOW_COPY_DELETE</code><br>
+        <s>2.</s> <code>CryptEncrypt</code> çağrıları &rarr; <code>CRYPTO_API_MASS</code><br>
+        <s>3.</s> Kullanıcı dosyaları okunur &rarr; <strong>RansomShield</strong> ön-image yedek alır<br>
+        <s>4.</s> Dosyalar şifrelenir &rarr; <strong>MLE_RANSOM_BEHAVIOR</strong> (3. dosyada tetikler)<br>
+        <s>5.</s> Süreç öldürülür, ikili karantinaya alınır<br>
+        <s>6.</s> <code>rollbackRansomBackups</code> ile <strong>veri geri yüklenir</strong>
+      </div>
+
+      <!-- ============ 18 ANALİST ============ -->
+      <h2 class="wiki-h2" id="analist"><span class="num">18</span> Analist El Kitabı</h2>
+
+      <p>
+        Bir SOC analisti veya bir güvenlik araştırmacı bu kuraldan nasıl faydalanır?
+        Aşağıdaki yol, doğru tarafı okumanın en hızlı yoludur.
+      </p>
+
+      <h3 class="wiki-h3">18.1 &mdash; Tespit edildiğinde ilk bakacağınız 8 alan</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Alan</th><th>Sorulacak Soru</th><th>Kritik Değer</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>quarantineTarget</code></td><td>Hangi ikili karantinaya alındı?</td><td>Dosya adı, yolu, imzası</td></tr>
+            <tr><td><code>process.id</code> / <code>process.pid</code></td><td>Global ID nedir? (kill hedefi)</td><td><span class="c-cyan">Önemli</span> &mdash; analiz izinde kullanılır</td></tr>
+            <tr><td><code>process.cmdLine</code></td><td>Nasıl başlatıldı?</td><td><code>powershell -enc</code>, <code>mshta</code>, <code>wmic</code> ipuçları</td></tr>
+            <tr><td><code>process.imageFile.rawPath</code></td><td>Nerede duruyordu?</td><td><code>%APPDATA%</code>, <code>%TEMP%</code> = yüksek öncelik</td></tr>
+            <tr><td><code>destination.path</code></td><td>Hangi dosyaya dokundu?</td><td>Son vurulan hedef (tek dosya, &lt; 3 ise eşik tutmadı)</td></tr>
+            <tr><td><code>destination.abstractPath</code></td><td>Hedefin &ldquo;mantıksal&rdquo; adı ne?</td><td><code>%appdata%</code> gibi belirteçleri çıkar; GUI'de daha okunur</td></tr>
+            <tr><td><code>processes[]</code></td><td>Kim bu süreci başlattı?</td><td>Üst zincir &mdash; ilk bulunan <strong>güvenilmeyen</strong> ataya kadar in</td></tr>
+            <tr><td><code>time</code> / <code>tickTime</code></td><td>Zaman çizelgesi nasıl?</td><td>İlk olay, 3. dosya, şifreleme süresi</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">18.2 &mdash; Yanlış pozitif triage kararı</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Görünen</th><th>Değerlendirme</th><th>Karar</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Süreç <code>C:\Windows\</code> veya <code>Program Files</code> altında</td>
+              <td>S1 zaten elemisti &mdash; muhtemelen farklı bir alarm</td>
+              <td>Triage etmeyin</td>
+            </tr>
+            <tr>
+              <td>Hedef yollar <code>AppData</code> altında</td>
+              <td>S2/S4 elemisti &mdash; muhtemelen cache/uygulama işlemi</td>
+              <td>Triage etmeyin</td>
+            </tr>
+            <tr>
+              <td>Hedefler <code>C:\Users\</code> altında, metin dosyaları</td>
+              <td>S8 bırakmış olabilir &mdash; belge düzenleyici / eşitleme aracı olabilir</td>
+              <td>Süreç imzası ve <code>cmdLine</code>'a bakın</td>
+            </tr>
+            <tr>
+              <td>Süreç güvenilir kurum imzalı, verdict SAFE</td>
+              <td>Güven kapısı kuralı zaten uyguladı (öldürme olmamalı)</td>
+              <td>Entegrasyon testi olabilir; kaydedin</td>
+            </tr>
+            <tr>
+              <td>Süreç imzasız, <code>%TEMP%</code>'de, işlem sayacı yüksek</td>
+              <td>Klasik <strong>ilk çalıştırma</strong> profili</td>
+              <td><strong>Yüksek öncelik</strong> &mdash; geri yükleme doğrulayın</td>
+            </tr>
+            <tr>
+              <td><code>processes[]</code> zincirinde bir <code>winword.exe</code> / <code>excel.exe</code> görünüyor</td>
+              <td>Belge makrosu veya COM hijacking olabilir</td>
+              <td>Yüksek öncelik; makro analizi yapın</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">18.3 &mdash; Kuralı değiştirmek istiyorsanız</h3>
+
+      <p>
+        Kural <strong>hariciden değiştirilebilir</strong> değildir; kaynak kod modifikasyonları
+        güvenlik açığı riski taşır. En temiz yol, politika dosyasını fork edip
+        <code>edrdata/ptm.local.src</code> içinde <code>RANSOM_BEHAVIOR</code> bloğunu
+        düzenlemektir. En sık ihtiyaç duyulan değişiklikler:
+      </p>
+
+      <div class="code-block green">
+        <div class="code-head"><span class="src">SIK KULLANILACAK AYAR NOKTALARI</span><span>4 SATIR</span></div>
+<pre><span class="tok-cm">// 1) Hassasiyet / tolerans ayarı  (varsayılan 3/60s)</span>
+"threshold": 3,        <span class="tok-cm">// 2 yaparsanız test örnekleri de yakalanır</span>
+"window":    60000,    <span class="tok-cm">// 300000 yaparsanız yavaş şifreleyiciler de yakalanır</span>
+
+<span class="tok-cm">// 2) Coğrafya ayarı  (zorunlu pozitif koşul)</span>
+"pattern": "*\\users\\*"   <span class="tok-cm">// ağ sürücüleri için ayrı bir kural açın</span>
+
+<span class="tok-cm">// 3) Yeni korunacak yol eklemek</span>
+<span class="tok-str">"ransomSystemExclusions"</span>: [ ..., <span class="tok-str">"*\\OneDrive\\*"</span>, <span class="tok-str">"*\\Google\\Drive\\*"</span> ]</pre>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; Uyarı</div>
+        <code>ransomSystemExclusions</code> listesine <strong>geniş</strong> bir yol eklemek
+        (<code>*\OneDrive\*</code> gibi) o klasördeki <strong>gerçek</strong> fidye şifrelemesini
+        de gizler. Kurumsal bulut eşitleme klasörleri gerçek bir hedef olduğu için,
+        bu tür genişletmeler dikkatli yapılmalıdır.
+      </div>
+
+      <!-- ============ 19 SSS ============ -->
+      <h2 class="wiki-h2" id="sss"><span class="num">19</span> Sık Sorulan Sorular</h2>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">01</span>Bu kural bir YARA kuralı mı?</div>
+        <div class="faq-a">
+          <strong>Hayır.</strong> Bu bir <em>PTM v2 politika kuralıdır</em> (JSON), C++ motorunda
+          değerlendirilir. YARA &times; Viruskov projesinde ayrıca ve <strong>birbirini tamamlayıcı</strong>
+          olarak çalışır: YARA <em>dosyanın içeriğine</em> bakar, MLE_RANSOM_BEHAVIOR ise
+          <em>eyleme</em>. İkisi birlikte hem statik hem dinamik kapsama sahiptir.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">02</span>Tek bir dosyayı şifreleyen zararlı yakalanır mı?</div>
+        <div class="faq-a">
+          <strong>Hayır.</strong> S9 süzgeci 60 saniyede <strong>en az 3 ayrı hedef</strong> ister.
+          Bu bilinçli bir tasarım kararıdır: tek dosya şifrelemek çoğu zaman kullanıcı ya da
+          yedekleme yazılımı davranışıdır. Kuralı tek dosyada çalıştırmak isteyenler için
+          <code>threshold: 1</code> denenebilir &mdash; ama yanlış pozitif oranı ciddi şekilde artar.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">03</span>Sadece metin dosyalarını şifreleyen zararlı?</div>
+        <div class="faq-a">
+          <strong>Hayır, bu kapsam dışıdır.</strong> S8 (<code>!equal(isAsciiText, true)</code>)
+          metin dosyalarını bilerek bırakır. Sebep: kurumsal e-posta şifreleme, belge
+          işleme yazılımları ve eşitleme istemcileri sürekli olarak metin dosyaları
+          yazar; bu dosyaları kapsama almak FP oranını kullanılamaz hâle getirirdi.
+          Bu, <strong>bilinçli bir FP/recall trade-off</strong>'dur.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">04</span>Antivirüsüm zaten var, bu neden gerekli?</div>
+        <div class="faq-a">
+          Üç somut neden: <strong>(1)</strong> Ticari AV'ler kullanıcı modunda çalışır;
+          BYOVD ile bir kerede bellekten silinebilirler &mdash; bu kural <em>zaten çalışırken</em>
+          tespit yapar. <strong>(2)</strong> Güç veya ağ bağlantısı durumunda beyaz listeler güncellenemez;
+          bu kural <em>harici imza istemez</em>. <strong>(3)</strong> Sigorta, denetim ve olay
+          tespiti (DFIR) için <em>kanıt niteliğinde</em> bir zaman çizelgesi üretir.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">05</span>Verilerim ne olacak, gerçekten geri yükleniyor mu?</div>
+        <div class="faq-a">
+          <strong>Evet, dosya sistemi diskinin zaten orijinal verisini koruyorsa.</strong>
+          Minifilter, bir dosyaya <em>in-place</em> yazmadan önce <code>preSetFileInfo</code>
+          aşamasında orijinal içeriğin ön-image'ini <code>%PROGRAMDATA%\HydraDragonBackups</code>
+          altına kaydeder. MLE tetiklendiğinde <code>EventEnricher::rollbackRansomBackups()</code>
+          bu kopyaları geri yükler.
+          <br>
+          <strong>Önemli sınır:</strong> Geri yükleme yalnızca <strong>ön-image alınabildiği</strong>
+          dosyalarda başarılıdır. Şifreleyici &ldquo;önce oku, şifreli yeni dosya oluştur, sonra
+          orijinali sil&rdquo; modelini kullanırsa, minifilter yine ön-image'i alır
+          (&ldquo;her fidye ailesine karşı genel muhafız&rdquo; yorumu kodda açıkça belirtilir),
+          ancak diskten tamamen silinmiş veri geri getirilemez.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">06</span>Kural güvenilir bir yazılım tarafından tetiklenirse?</div>
+        <div class="faq-a">
+          <strong>İki katmanlı koruma var.</strong> (1) S1/S2 beyaz listesi, (2)
+          <code>should_trust_company_whitelist</code> ve
+          <code>should_trust_comodo_fls_cloud</code> güven kapısı. İkisi de geçerli ise
+          süreç öldürülmez ve karantinaya alınmaz; yalnızca alarm kaydedilir. Ancak
+          <code>owlyshield_is_malicious_company_signer</code> kötü/PUA üreticisi tespit ederse
+          <strong>güven bayrakları geçersiz kılınır</strong> ve katı uygulama devreye girer.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">07</span>Gerçek bir numune ile örneklenebilir mi?</div>
+        <div class="faq-a">
+          Evet &mdash; <a href="https://www.youtube.com/watch?v=2ZxJmZ3XTEM" target="_blank">YouTube'daki
+          sıfırıncı gün örneği</a> ile kuralın canlı bir tespit görüntüsü paylaşılmıştır.
+          <br>
+          <span class="c-amber"><strong>Önemli:</strong></span> Fidye yazılımı numunelerini
+          <strong>kendi makinenizde çalıştırmayın</strong>. Bilerek bir sisteme bulaştırmak
+          yasal sonuçlar doğurabilir. Bu projede konteyner / sanal ortam dışında
+          numune çalıştırmak için teknik destek gerekmez &mdash; <strong>bütünleşme testi yapmayın</strong>.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">08</span>Bu kuralı kim, hangi süreç için yazdı?</div>
+        <div class="faq-a">
+          Kural, <strong>OpenEDR</strong> (COMODO tarafından açık kaynak yayımlanmış EDR çekirdeği)
+          fork'u üzerinde, <strong>VIRUSKOV / Hydra Dragon</strong> projesi kapsamında
+          geliştirilmiştir. Proje lideri: <strong>Emirhan Uçan</strong>. Tüm kaynak kod
+          <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank">açık depoda</a> durur;
+          bu sayfadaki her iddia doğrudan o koddan alınmıştır.
+        </div>
+      </div>
+
+      <!-- ============ 20 KAYNAK ============ -->
+      <h2 class="wiki-h2" id="kaynak"><span class="num">20</span> Kaynak Haritası</h2>
+
+      <p>
+        Bu sayfadaki her iddianın <strong>kaynak dosyası</strong>. Politika motoru açık kaynak
+        olduğu için, okuduğunuz her şey doğrudan doğrulanabilir.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Dosya</th><th>İlgili Bölüm</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>OpenEDR/edrav2/iprj/edrdata/ptm.local.src</code><br><span class="c-dim">4636&ndash;5129</span></td>
+              <td><strong>RANSOM_BEHAVIOR kuralının tamamı</strong> &mdash; 16 madde, 5 aşama</td>
+            </tr>
+            <tr>
+              <td><code>ptm.local.src</code> <span class="c-dim">137&ndash;1619</span></td>
+              <td><code>@const.ransomFileExtensions</code> &mdash; 1479 uzantı</td>
+            </tr>
+            <tr>
+              <td><code>ptm.local.src</code> <span class="c-dim">1660&ndash;1670</span></td>
+              <td><code>@const.ransomSystemExclusions</code> &mdash; 8 beyaz liste kalıbı</td>
+            </tr>
+            <tr>
+              <td><code>ptm.local.src</code> <span class="c-dim">18&ndash;36</span></td>
+              <td><code>ransomShadowDeleteCmdLines</code>, <code>ransomEventBaseType</code>, <code>ransomBasket</code></td>
+            </tr>
+            <tr>
+              <td><code>ptm.local.src</code> <span class="c-dim">4555&ndash;4631</span></td>
+              <td><code>CRYPTO_API_MASS</code> ve <code>RANSOM_COUNTER_INIT</code> komşu kuralları</td>
+            </tr>
+            <tr>
+              <td><code>edrdata/common.src</code> <span class="c-dim">9&ndash;28, 87</span></td>
+              <td><code>eventBaseType: MLE_RANSOM_BEHAVIOR = 1000008</code> ve <code>eventTypes</code> kaydı</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/policy_v2.cpp</code> <span class="c-dim">258&ndash;1197</span></td>
+              <td>PTM v2 motoru: <code>saveContext</code>, <code>distinctCounter</code>, <code>createEvent</code>, yönerge sırası</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/policyoperation.cpp</code> <span class="c-dim">367&ndash;600</span></td>
+              <td><code>imatch</code> / <code>!imatch</code>, joker &rarr; regex/StringMatcher dönüşümü</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/policycompiler.cpp</code> <span class="c-dim">262&ndash;296</span></td>
+              <td>Joker <code>eventType</code> genişletmesi &mdash; <code>RF10*</code> / <code>RF4*</code> kaybının nedeni</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/signcontext.cpp</code> <span class="c-dim">87&ndash;538</span></td>
+              <td>Sepet (basket) ve <code>distinctCounter</code> çalışma zamanı semantiği</td>
+            </tr>
+            <tr>
+              <td><code>libcore/src/string.cpp</code> <span class="c-dim">21&ndash;50</span></td>
+              <td><code>convertWildcardToRegex</code> &mdash; <code>*</code>&rarr;<code>.*</code>, <code>?</code>&rarr;<code>.</code></td>
+            </tr>
+            <tr>
+              <td><code>edrdrv/src/filemon.cpp</code> <span class="c-dim">1320&ndash;1554, 2564&ndash;2661</span></td>
+              <td>Minifilter geri çağırmaları, tam okuma/yazma kanıtı, mmap sınıflandırması, entropi örnekleme</td>
+            </tr>
+            <tr>
+              <td><code>edrdrv/src/ShanonEntropy.cpp</code></td>
+              <td>Q24 Shannon entropi hesabı (tam sayı, çekirdek içi)</td>
+            </tr>
+            <tr>
+              <td><code>libsyswin/src/filedataprovider.cpp</code> <span class="c-dim">790&ndash;1236</span></td>
+              <td>Dosya nesnesi alanları, <code>isAsciiTextFile</code> (64 KiB / %15 kuralı)</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/detectionnotifier.cpp</code> <span class="c-dim">488&ndash;2148</span></td>
+              <td>Tespit sınıflandırması, güven kapısı, GID ile öldürme, karantina, geri yükleme</td>
+            </tr>
+            <tr>
+              <td><code>libsysmon/inc/edrdrvapi.hpp</code> <span class="c-dim">42&ndash;307</span></td>
+              <td>Sürücü &rarr; servis telemetri şeması, <code>SysmonEvent</code> kodları</td>
+            </tr>
+            <tr>
+              <td><code>libcore/inc/events.hpp</code> <span class="c-dim">19&ndash;117</span></td>
+              <td><code>Event</code> numaraları, <code>MLE_MASK</code>, <code>createMle</code></td>
+            </tr>
+            <tr>
+              <td><code>edrdata/compile_ptm.bat</code></td>
+              <td>Politikanın <code>ptm.act</code> olarak derlenmesi</td>
+            </tr>
+            <tr>
+              <td><code>edrdata/compiler.cfg</code> <span class="c-dim">10&ndash;138, 330&ndash;477</span></td>
+              <td>Olay sınıfı şemaları, varsayılan değerler, eski <code>RF*</code>/<code>RP*</code> takma adları</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="spec-card" style="margin-top:28px;">
+        <div class="spec-row"><div class="spec-key">Kural Kimliği</div><div class="spec-val c-red">RANSOM_BEHAVIOR / MLE_RANSOM_BEHAVIOR</div></div>
+        <div class="spec-row"><div class="spec-key">baseType</div><div class="spec-val c-amber">1000008</div></div>
+        <div class="spec-row"><div class="spec-key">Motor</div><div class="spec-val">PTM v2 (PatternsMatching / EVM)</div></div>
+        <div class="spec-row"><div class="spec-key">Tespit Katmanı</div><div class="spec-val c-cyan">Ring-0 (edrdrv.sys minifilter) + User-mode politika motoru</div></div>
+        <div class="spec-row"><div class="spec-key">Kural Maddesi</div><div class="spec-val">16 (3 tanesi tekrarlı / ölü kod &mdash; Bkz. Bölüm 16)</div></div>
+        <div class="spec-row"><div class="spec-key">Eşik</div><div class="spec-val">3 ayrı hedef / 60000 ms kayan pencere</div></div>
+        <div class="spec-row"><div class="spec-key">Güven Seviyesi</div><div class="spec-val c-red">3 &mdash; CRITICAL</div></div>
+        <div class="spec-row"><div class="spec-key">Yanıt</div><div class="spec-val">Karantina (saldırgan ikilisi) + GID ile öldürme + ön-image geri yükleme</div></div>
+        <div class="spec-row"><div class="spec-key">Lisans</div><div class="spec-val">Açık kaynak (OpenEDR fork: BSD-3 / VirusKat katkıları)</div></div>
+      </div>
+
+      <div class="tag" style="margin-top:14px;">RANSOM_BEHAVIOR</div>
+      <div class="tag">MLE_RANSOM_CANDIDATE</div>
+      <div class="tag">MLE_RANSOM_EVALUATE</div>
+      <div class="tag">distinctCounter</div>
+      <div class="tag">saveContext</div>
+      <div class="tag">createEvent</div>
+      <div class="tag">imatch</div>
+      <div class="tag">StringMatcher</div>
+      <div class="tag">Shannon Entropy Q24</div>
+      <div class="tag">minifilter</div>
+      <div class="tag">IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION</div>
+      <div class="tag">isAsciiText</div>
+      <div class="tag">RansomShield</div>
+      <div class="tag">OwlyShield</div>
+      <div class="tag">Ring-0</div>
+      <div class="tag">PTM v2</div>
+      <div class="tag">EDR</div>
+      <div class="tag">anti-ransomware</div>
+
+      <!-- ============ SUPPORT PANEL ============ -->
+      <div class="support-panel">
+        <div class="support-title">
+          <span class="c-amber">✦</span> Destek, Katkı ve Bağış
+        </div>
+        <p class="support-text">
+          Bu wiki ve <code>MLE_RANSOM_BEHAVIOR</code> dokümantasyonu, projenin açık kaynak
+          felsefesinin bir parçasıdır: <strong>hiçbir şey gizli değildir</strong>. Bu kuralı
+          okudunuz, kaynak kodunu incelediniz, hatta bu sayfadaki
+          <a href="#sinirlar"><strong>bilinen kusurları</strong></a> bile gördünüz.
+          <br><br>
+          Projeye katkı yapmak, ek kural yazmak, ya da sadece <strong>finansal destek</strong>
+          (sunucu / test ortamı / imza sertifikasyonu masrafları) göstermek isteyenler için:
+          <strong>viruskov@viruskov.com</strong>. Tüm talepler doğrudan proje liderine ulaşır &mdash;
+          aracı yoktur, komisyon yoktur; <strong>kutunun içinde ne olduğunu</strong> bu sayfalarda
+          gördüğünüz gibi, bağış akışında da görürsünüz.
+        </p>
+        <a href="mailto:viruskov@viruskov.com" class="mailbox">
+          <span>✉</span>
+          <span>viruskov@viruskov.com</span>
+        </a>
+        <p class="support-text" style="font-size:0.88rem;">
+          Konu satırında kısa bir açıklama yazmanız yeterli: <code>[KATKI]</code>,
+          <code>[KURAL]</code>, <code>[BİLGİ]</code> veya <code>[DESTEK]</code>.
+        </p>
+        <div class="support-links">
+          <a href="mailto:viruskov@viruskov.com" class="btn btn-amber">
+            <span>MAİL GÖNDER</span>
+            <span>&rarr;</span>
+          </a>
+          <a href="../index.html" class="btn btn-ghost">
+            <span>ANA SAYFA</span>
+            <span>&larr;</span>
+          </a>
+          <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost">
+            <span>KAYNAK KODU İNCELE</span>
+            <span>&nearr;</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="article-nav">
+        <a href="../index.html" class="btn btn-ghost btn-sm">
+          <span>&larr; VIRUSKOV ANA SAYFA</span>
+        </a>
+        <a href="#kunya" class="btn btn-red btn-sm">
+          <span>BAŞLIĞA DÖN</span>
+          <span>&uarr;</span>
+        </a>
+      </div>
+
+    </article>
+  </div>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <div class="container footer-inner">
+      <div>
+        &copy; 2026 <strong>VIRUSKOV</strong> &bull; Açık Kaynak Kurumsal EDR &amp; Antivirüs Sistemi.<br>
+        Wiki: <strong>MLE_RANSOM_BEHAVIOR</strong> &mdash; kaynak kodla birebir doğrulanmış teknik dokümantasyon.<br>
+        Kurucu &amp; Proje Lideri: <strong>Emirhan Uçan</strong>.
+      </div>
+      <div class="footer-links">
+        <a href="../index.html">Ana Sayfa</a>
+        <a href="#kunya">Künye</a>
+        <a href="#anatomi">Anatomi</a>
+        <a href="#neden">Neden Mükemmel</a>
+        <a href="#sinirlar">Sınırlar</a>
+        <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber);">viruskov@viruskov.com</a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--accent-red); font-weight: 700;">GitHub Repo</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

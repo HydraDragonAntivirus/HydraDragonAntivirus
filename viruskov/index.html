@@ -902,16 +902,16 @@
       margin-bottom: 12px;
     }
 
-    /* TRANSPARENT DONATION BOX */
-    .donation-panel {
+    /* TRANSPARENT SUPPORT / WIKI PANEL */
+    .wiki-panel {
       background: linear-gradient(135deg, #0e161a 0%, #131d22 100%);
       border: 1px solid var(--border-strong);
-      border-left: 4px solid var(--accent-amber);
+      border-left: 4px solid var(--accent-cyan);
       padding: 36px 32px;
       margin-top: 40px;
     }
 
-    .donation-header {
+    .wiki-panel-header {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
@@ -920,7 +920,7 @@
       margin-bottom: 18px;
     }
 
-    .donation-title {
+    .wiki-panel-title {
       font-size: 1.4rem;
       font-weight: 800;
       color: #fff;
@@ -929,18 +929,20 @@
       gap: 10px;
     }
 
-    .donation-notice {
-      background: rgba(255, 183, 3, 0.08);
-      border: 1px solid rgba(255, 183, 3, 0.25);
-      padding: 14px 18px;
-      font-size: 0.88rem;
-      color: #ffd166;
-      line-height: 1.6;
-      margin-bottom: 20px;
+    .wiki-notice {
+      background: rgba(0, 229, 255, 0.07);
+      border: 1px solid rgba(0, 229, 255, 0.25);
+      padding: 16px 18px;
+      font-size: 0.9rem;
+      color: #8ceaff;
+      line-height: 1.7;
+      margin-bottom: 22px;
       font-family: var(--font-mono);
     }
 
-    .donation-details {
+    .wiki-notice strong { color: #cdf5ff; }
+
+    .wiki-panel-details {
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -949,15 +951,422 @@
       line-height: 1.6;
     }
 
-    .donation-details strong {
-      color: var(--text-main);
-    }
+    .wiki-panel-details strong { color: var(--text-main); }
 
-    .donation-links {
+    .wiki-panel-links {
       display: flex;
       flex-wrap: wrap;
       gap: 12px;
       margin-top: 20px;
+    }
+
+    .btn-amber {
+      background: var(--accent-amber);
+      color: #20180a;
+      border: 1px solid var(--accent-amber);
+      box-shadow: 0 4px 20px rgba(255, 183, 3, 0.25);
+    }
+
+    .btn-amber:hover {
+      background: #ffc633;
+      transform: translateY(-2px);
+    }
+
+    /* ==================================================================== */
+    /* MLE_RANSOM_BEHAVIOR RULE SECTION                                       */
+    /* ==================================================================== */
+    .ransom-rule-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-top: 3px solid var(--accent-red);
+      padding: 28px 26px;
+      margin: 28px 0 30px;
+    }
+
+    .rrc-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+
+    .rrc-badge {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--accent-cyan);
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      display: block;
+    }
+
+    .rrc-title {
+      font-size: 1.5rem;
+      font-weight: 900;
+      color: #fff;
+      font-family: var(--font-mono);
+      line-height: 1.25;
+    }
+
+    .rrc-id {
+      text-align: center;
+      background: var(--bg-terminal);
+      border: 1px solid var(--accent-red);
+      padding: 12px 20px;
+      flex-shrink: 0;
+    }
+
+    .rrc-id-label {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1.6px;
+    }
+
+    .rrc-id-value {
+      font-family: var(--font-mono);
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--accent-red);
+      line-height: 1.2;
+    }
+
+    .rrc-lead {
+      font-size: 1rem;
+      line-height: 1.75;
+      color: var(--text-muted);
+      border-left: 3px solid var(--border-strong);
+      padding-left: 18px;
+      margin-bottom: 24px;
+    }
+
+    .rrc-lead strong { color: var(--text-main); }
+
+    .rrc-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .rrc-metric {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .rrc-metric .v {
+      font-family: var(--font-mono);
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--accent-red);
+    }
+
+    .rrc-metric .v.green { color: var(--accent-green); }
+    .rrc-metric .v.amber { color: var(--accent-amber); }
+    .rrc-metric .v.cyan { color: var(--accent-cyan); }
+
+    .rrc-metric .l {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      line-height: 1.4;
+    }
+
+    .rrc-source {
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      background: var(--bg-terminal);
+      border: 1px solid var(--border-subtle);
+      padding: 11px 14px;
+      word-break: break-word;
+    }
+
+    .rrc-source-label {
+      color: var(--accent-cyan);
+      letter-spacing: 1.4px;
+      margin-right: 8px;
+    }
+
+    .rrc-source code {
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: #ffd166;
+      font-size: 0.78rem;
+    }
+
+    .ransom-split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 850px) {
+      .ransom-split { grid-template-columns: 1fr; }
+    }
+
+    .ransom-col {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      padding: 28px 26px;
+    }
+
+    .ransom-col.threats { border-left: 3px solid var(--accent-red); }
+    .ransom-col.solution { border-left: 3px solid var(--accent-green); }
+    .ransom-col .card-title { margin-bottom: 4px; }
+    .ransom-col .solution-list li, .ransom-col .threat-list li { font-size: 0.88rem; }
+
+    .ransom-pipeline {
+      background: var(--bg-terminal);
+      border: 1px solid #1c2b30;
+      border-left: 3px solid var(--accent-cyan);
+      padding: 24px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      line-height: 1.95;
+      color: #a4bcc7;
+      overflow-x: auto;
+      white-space: pre;
+      margin-bottom: 30px;
+    }
+
+    .p-b { color: var(--accent-green); font-weight: 700; }
+    .p-u { color: var(--accent-cyan); font-weight: 700; }
+    .p-s { color: var(--accent-amber); font-weight: 700; }
+    .p-d { color: var(--text-dim); }
+
+    .rrc-subtitle {
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: #fff;
+      text-transform: uppercase;
+      letter-spacing: -0.4px;
+      margin-bottom: 16px;
+    }
+
+    .rrc-stages {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+
+    .rrc-stage {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-left: 3px solid var(--border-strong);
+      padding: 20px 20px 22px;
+    }
+
+    .rrc-stage.hot {
+      border-left-color: var(--accent-red);
+      background: #120e11;
+    }
+
+    .rrc-stage-num {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--text-dim);
+      letter-spacing: 1.5px;
+      margin-bottom: 8px;
+    }
+
+    .rrc-stage.hot .rrc-stage-num { color: var(--accent-red); font-weight: 700; }
+
+    .rrc-stage-title {
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+
+    .rrc-stage p {
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+      margin-bottom: 0;
+    }
+
+    .rrc-stage code { font-size: 0.8rem; padding: 0 4px; }
+
+    .ransom-response { margin-bottom: 36px; }
+
+    .rr-resp-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .rr-step {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-bottom: 2px solid var(--accent-amber);
+      padding: 18px 18px 20px;
+    }
+
+    .rr-step-num {
+      font-family: var(--font-mono);
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--accent-amber);
+      margin-bottom: 6px;
+    }
+
+    .rr-step-title {
+      font-size: 0.98rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .rr-step p {
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+      margin-bottom: 0;
+    }
+
+    .rr-step code { font-size: 0.79rem; padding: 0 4px; }
+
+    .rrc-honest {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-left: 4px solid var(--accent-amber);
+      padding: 28px 26px;
+    }
+
+    .rrc-honest-head {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .rrc-honest > p {
+      font-size: 0.94rem;
+      line-height: 1.7;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    .rrc-honest-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .rrc-honest-list li {
+      position: relative;
+      padding-left: 24px;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    .rrc-honest-list li::before {
+      content: '\25B8';
+      position: absolute;
+      left: 0;
+      top: 0;
+      color: var(--accent-amber);
+      font-family: var(--font-mono);
+      font-weight: 800;
+    }
+
+    .rrc-honest-list strong { color: var(--text-main); }
+    .rrc-honest-list code { font-size: 0.82rem; padding: 0 4px; }
+
+    /* WIKI CARDS */
+    .wiki-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+      gap: 18px;
+      margin-top: 22px;
+    }
+
+    .wiki-card {
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-top: 3px solid var(--accent-cyan);
+      padding: 22px 20px 20px;
+      text-decoration: none;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .wiki-card:hover {
+      border-color: var(--accent-cyan);
+      transform: translateY(-4px);
+      background: var(--bg-surface-elevated);
+    }
+
+    .wiki-card.donate {
+      border-top-color: var(--accent-amber);
+    }
+
+    .wiki-card.donate:hover { border-color: var(--accent-amber); }
+
+    .wiki-card-tag {
+      font-family: var(--font-mono);
+      font-size: 0.64rem;
+      color: var(--accent-cyan);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .wiki-card.donate .wiki-card-tag { color: var(--accent-amber); }
+
+    .wiki-card-title {
+      font-size: 1.06rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 10px;
+      line-height: 1.35;
+    }
+
+    .wiki-card-desc {
+      font-size: 0.86rem;
+      line-height: 1.65;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      flex-grow: 1;
+    }
+
+    .wiki-card-desc strong { color: var(--text-main); }
+    .wiki-card-desc code { font-size: 0.8rem; }
+
+    .wiki-card-go {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      letter-spacing: 1px;
+    }
+
+    .wiki-card.donate .wiki-card-go { color: var(--accent-amber); }
+
+    .topic-pill {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      background: var(--bg-terminal);
+      border: 1px solid var(--border-strong);
+      padding: 5px 12px;
     }
 
     /* FOOTER */
@@ -1047,10 +1456,11 @@
       <nav>
         <a href="#tarihce" class="nav-link highlight">Tarihçe & Dürüst Kronoloji</a>
         <a href="#teknik-evrim" class="nav-link">Teknik Evrim</a>
+        <a href="#ransom-kurali" class="nav-link">Fidye Yazılımı Kuralı</a>
         <a href="#manifesto" class="nav-link">Manifesto</a>
         <a href="#mimari" class="nav-link">Mimari</a>
         <a href="#ittifak" class="nav-link">Ekip & İttifak</a>
-        <a href="#bagis" class="nav-link">Şeffaf Bağış</a>
+        <a href="#wiki" class="nav-link">Wiki & Destek</a>
       </nav>
 
       <div class="header-actions">
@@ -1058,6 +1468,10 @@
           <span>Proje Lideri:</span>
           <strong>Emirhan Uçan</strong>
         </div>
+        <a href="wiki/index.html" class="btn btn-ghost btn-sm">
+          <span>WİKİ</span>
+          <span>&rarr;</span>
+        </a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-red btn-sm">
           <span>REPO</span>
           <span>&nearr;</span>
@@ -1092,11 +1506,15 @@
           <span>DÜRÜST TARİHÇEYİ İNCELE</span>
           <span>&darr;</span>
         </a>
-        <a href="#teknik-evrim" class="btn btn-ghost">
-          <span>TEKNİK EVRİM ŞEMASI</span>
-          <span>&rarr;</span>
+        <a href="#ransom-kurali" class="btn btn-outline-red">
+          <span>MLE_RANSOM_BEHAVIOR KURALI</span>
+          <span>&darr;</span>
         </a>
-        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-outline-red">
+        <a href="wiki/index.html" class="btn btn-ghost">
+          <span>DOKÜMANTASYON WİKİSİ</span>
+          <span>&nearr;</span>
+        </a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost">
           <span>KAYNAK KODLARINI İNCELE</span>
           <span>&nearr;</span>
         </a>
@@ -1886,41 +2304,338 @@
       </div>
     </section>
 
-    <!-- TRANSPARENT DONATION SECTION -->
-    <section class="section-wrap" id="bagis">
-      <div class="donation-panel">
-        <div class="donation-header">
-          <h2 class="donation-title">
-            <span class="text-amber">✦</span> Bağış Politikası
+    <!-- ==================================================================== -->
+    <!-- MLE_RANSOM_BEHAVIOR RULE PREVIEW SECTION                              -->
+    <!-- ==================================================================== -->
+    <section class="section-wrap" id="ransom-kurali">
+      <div class="section-header">
+        <div class="section-tag">TESPİT KURALLARI WİKİSİ &bull; ÖZEL DOKÜMANTASYON</div>
+        <h2 class="section-title">MLE_RANSOM_BEHAVIOR: Fidye Yazılımı Kuralının Tam Anatomisi</h2>
+        <p class="section-desc">
+          Bu projenin en iddialı kuralı, imza değil — davranıştır. Tamamını, her detayıyla,
+          kaynak koddan doğrulanmış biçimde <a href="wiki/index.html" style="color: var(--accent-red); font-weight: 700;">VIRUSKOV Wiki</a>
+          sayfamızda belgeledik. Aşağıda kuralın özeti ve mimari haritası var.
+        </p>
+      </div>
+
+      <!-- RULE IDENTITY CARD -->
+      <div class="ransom-rule-card">
+        <div class="rrc-head">
+          <div>
+            <div class="rrc-badge">PTM v2 &bull; PATTERNSMATCHING &bull; RING-0 TETİKLEYİCİ</div>
+            <h3 class="rrc-title">RANSOM_BEHAVIOR &rarr; <span class="text-red">MLE_RANSOM_BEHAVIOR</span></h3>
+          </div>
+          <div class="rrc-id">
+            <div class="rrc-id-label">baseType</div>
+            <div class="rrc-id-value">1000008</div>
+          </div>
+        </div>
+
+        <p class="rrc-lead">
+          Kural, bir dosyanın hash'ine, derleyicisine veya paketleyicisine <strong>hiç bakmaz</strong>.
+          Çekirdekte gördüğü tek şey davranıştır: bir süreç, <strong>60 saniye içinde en az 3 ayrı
+          kullanıcı dosyasına</strong> yazıyor / yeniden adlandırıyor / siliyor; bu dosyalar
+          <strong>metin değil</strong> ve <strong>şifreli veri gibi yüksek entropili</strong>.
+          Üçlü tuttuğu anda motor, saldırganın <strong>proses imajını karantinaya alır ve süreci
+          anında öldürür</strong>; veri ise <strong>RansomShield</strong> ile geri yüklenir.
+        </p>
+
+        <div class="rrc-metrics">
+          <div class="rrc-metric"><span class="v red">16</span><span class="l">Kural Maddesi</span></div>
+          <div class="rrc-metric"><span class="v cyan">10</span><span class="l">Kernel Tetikleyicisi</span></div>
+          <div class="rrc-metric"><span class="v amber">9</span><span class="l">Karar Süzgütü</span></div>
+          <div class="rrc-metric"><span class="v green">1479</span><span class="l">İzlenen Uzantı</span></div>
+          <div class="rrc-metric"><span class="v">3 / 60s</span><span class="l">Eşik / Pencere</span></div>
+        </div>
+
+        <div class="rrc-source">
+          <span class="rrc-source-label">KAYNAK</span>
+          <code>OpenEDR/edrav2/iprj/edrdata/ptm.local.src</code> &nbsp;&bull;&nbsp; satır 4636 &ndash; 5129
+        </div>
+      </div>
+
+      <!-- WHY BEHAVIOR -->
+      <div class="ransom-split">
+        <div class="ransom-col threats">
+          <h3 class="card-title">
+            <span class="text-red">✖</span> İmza Yaklaşımı Neden Kırılır?
+          </h3>
+          <ul class="threat-list">
+            <li class="threat-item">
+              <span class="icon">[!]</span>
+              <div><strong>Hash imzası:</strong> Tek bir bayt değişse özet değişir. <em>Atlatma: 1 saniye.</em></div>
+            </li>
+            <li class="threat-item">
+              <span class="icon">[!]</span>
+              <div><strong>YARA / bayt imzası:</strong> Polimorfik kod, XOR şifreleme, UPX/Themida paketleme. <em>Atlatma: dakikalar.</em></div>
+            </li>
+            <li class="threat-item">
+              <span class="icon">[!]</span>
+              <div><strong>Paketleyici tanıma:</strong> Yeni derleyici sürümü imzayı değiştirir. <em>Atlatma: tek güncelleme.</em></div>
+            </li>
+            <li class="threat-item">
+              <span class="icon">[!]</span>
+              <div><strong>Statik ML:</strong> İyi yazılmış zararlı meşru PE başlığını taklit eder. <em>Zayıf ayrım.</em></div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="ransom-col solution">
+          <h3 class="card-title">
+            <span class="text-green">✔</span> MLE_RANSOM_BEHAVIOR Neden Geçer?
+          </h3>
+          <ul class="solution-list">
+            <li class="solution-item">
+              <span class="icon">[✓]</span>
+              <div><strong>Zorunlu davranış:</strong> Fidye yazılımının amacını yerine getirmesi için dosyayı geri döndürülemez bozması <em>şarttır</em>. Atlanamaz.</div>
+            </li>
+            <li class="solution-item">
+              <span class="icon">[✓]</span>
+              <div><strong>Kütle eşiği:</strong> 60 saniyede <strong>3 ayrı hedef</strong>. Tek dosya işlemi asla tetiklemez — en güçlü FP kalkanı.</div>
+            </li>
+            <li class="solution-item">
+              <span class="icon">[✓]</span>
+              <div><strong>Ayrık sayım:</strong> <code>distinctCounter</code> aynı değerin tekrarını saymaz. 500 kez aynı dosyaya yazan yedekleme aracı eşiği geçemez.</div>
+            </li>
+            <li class="solution-item">
+              <span class="icon">[✓]</span>
+              <div><strong>İçerik kanıtı:</strong> <code>isAsciiText</code> hedef dosyanın ilk 64 KiB'sını <em>karar anındaki hâliyle</em> okur — yani saldırganın az önce yazdığı ciphertext'i. Uzantıya değil <em>içeriğe</em> bakar.</div>
+            </li>
+            <li class="solution-item">
+              <span class="icon">[✓]</span>
+              <div><strong>mmap kapsaması:</strong> <code>NtMapViewOfSection</code> hiçbir <code>IRP_MJ_READ/WRITE</code> üretmez — özel IRP kaydı bunu yakalar.</div>
+            </li>
+            <li class="solution-item">
+              <span class="icon">[✓]</span>
+              <div><strong>Adı değil eylemi hedefler:</strong> LockBit değil, Wiper değil — "şifreleme" eylemi. Yeni varyantlar ayrı iş değildir.</div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- PIPELINE -->
+      <div class="section-header" style="margin-top:44px; margin-bottom:18px;">
+        <div class="section-tag">UÇTAN UCA VERİ AKIŞI</div>
+        <h3 class="rrc-subtitle">Tespitten Kurtarmaya: 8 Katman</h3>
+      </div>
+
+      <div class="ransom-pipeline">
+<span class="p-b">[1] RING-0 — edrdrv.sys (minifilter)</span>   IRP_MJ_CREATE / CLEANUP / WRITE / READ / SET_INFORMATION
+                                        + ACQUIRE_FOR_SECTION_SYNCHRONIZATION (mmap)
+       |
+       v
+<span class="p-u">[2] LBVS telemetri protokolü</span>              <span class="p-d">libsysmon/inc/edrdrvapi.hpp</span>
+       |
+       v
+<span class="p-u">[3] libsysmon controller</span>                 SysmonEvent &rarr; Event enum eşlemesi
+       |
+       v
+<span class="p-u">[4] EventEnricher</span>                        Süreç/parent zinciri + tembel dosya nesnesi
+       |                                                     (64 KiB okuma sadece kural istediğinde)
+       v
+<span class="p-u">[5] Kuyruk: match_patterns</span>              qsc/match_patterns.qsc
+       |
+       v
+<span class="p-s">[6] PTM POLİTİKA MOTORU — RANSOM_BEHAVIOR</span>
+       |       Aşama 1  saveContext            (okuma kaydı, 120 s)
+       |       Aşama 2  MLE_RANSOM_CANDIDATE   &rarr; destination "IN"
+       |       Aşama 3  MLE_RANSOM_EVALUATE    &rarr; destination "IN"
+       |       Aşama 4  distinctCounter (3/60 s) + 9 süzgeç
+       |               &rarr; MLE_RANSOM_BEHAVIOR &rarr; destination "OUT"  = GERÇEK TESPİT
+       |       Aşama 5  deleteContext          (temizlik)
+       |
+       v
+<span class="p-u">[7] enrich_mle &rarr; valkyrie &rarr; cloud transform &rarr; output</span>
+       |
+       v
+<span class="p-b">[8] DetectionNotifier</span>                    Güven kapısı &rarr; GID ile ÖLDÜR
+                                                             &rarr; İKİLİYİ KARANTİNA ET
+                                                             &rarr; VERİYİ GERİ YÜKLE
+      </div>
+
+      <!-- FIVE STAGES -->
+      <div class="rrc-stages">
+        <div class="rrc-stage">
+          <div class="rrc-stage-num">AŞAMA 1</div>
+          <h4 class="rrc-stage-title">Okuma Kaydı — <code>saveContext</code></h4>
+          <p>Haritalama (<code>mmap</code>) dahil, sistem dışı bir dosyanın <em>tam</em> okunduğunu 120 saniyelik sepette saklar. <code>LLE_FILE_MAP_READ</code> maddesi olmasaydı modern mmap tabanlı şifreleyiciler görünmez olurdu.</p>
+        </div>
+        <div class="rrc-stage">
+          <div class="rrc-stage-num">AŞAMA 2</div>
+          <h4 class="rrc-stage-title">Aday Üretimi — 10 Tetikleyici</h4>
+          <p><code>LLE_FILE_CREATE</code>, <code>DATA_WRITE_FULL</code>, <code>MAP_WRITE</code>, <code>DATA_CHANGE</code>, <code>FILE_RENAME</code>, <code>FILE_DELETE</code> ve eşleri → <code>MLE_RANSOM_CANDIDATE</code> (IN). Burada <strong>karar verilmez</strong>, sadece kayıt tutulur.</p>
+        </div>
+        <div class="rrc-stage">
+          <div class="rrc-stage-num">AŞAMA 3</div>
+          <h4 class="rrc-stage-title">Adaydan Değerlendirmeye</h4>
+          <p>Aday, <code>MLE_RANSOM_EVALUATE</code>'a dönüştürülür. Toplama ile kararın ayrılması, kurala ileride yeni eşik/pencere senaryolarının bağlanabileceği bir genişleme noktası kazandırır.</p>
+        </div>
+        <div class="rrc-stage hot">
+          <div class="rrc-stage-num">AŞAMA 4</div>
+          <h4 class="rrc-stage-title">Karar — Sayaç + 9 Süzgeç</h4>
+          <p><code>distinctCounter</code> PID başına 3 ayrı hedef sayar, ardından 9 süzgeç (aktör beyaz listesi, hedef beyaz listesi, <code>\users\</code> zorunluluğu, AppData dışı, MOTW ADS dışı, çalıştırılabilir değil, uzantı + entropi, metin değil, eşik aşıldı) tek <code>AND</code> zincirinde uygulanır. Sonuç: <strong>OUT</strong> = gerçek tespit.</p>
+        </div>
+        <div class="rrc-stage">
+          <div class="rrc-stage-num">AŞAMA 5</div>
+          <h4 class="rrc-stage-title">Temizlik — <code>deleteContext</code></h4>
+          <p>Süreç sonlandığında okuma sepeti temizlenir. Uzun süre açık kalan makinelerde bellek şişmesini önleyen hijyen maddesidir.</p>
+        </div>
+      </div>
+
+      <!-- RESPONSE -->
+      <div class="ransom-response">
+        <h3 class="rrc-subtitle">Tespit Anında Ne Olur?</h3>
+        <div class="rr-resp-steps">
+          <div class="rr-step">
+            <div class="rr-step-num">01</div>
+            <div class="rr-step-title">Güven Kapısı</div>
+            <p><code>should_trust_company_whitelist</code> ve <code>should_trust_comodo_fls_cloud</code> = <code>true</code>. Güvenilir imzalı veya FLS-SAFE ikilide müdahale edilmez. Kötü/PUA üreticisi tespit edilirse bu bayraklar geçersiz kılınır.</p>
+          </div>
+          <div class="rr-step">
+            <div class="rr-step-num">02</div>
+            <div class="rr-step-title">Süreci Öldür</div>
+            <p><code>edrdrv</code> sürücüsüne GID ile <code>IOCTL</code> gönderilir (<code>MESSAGE_KILL_ONLY_GID</code>). Saldırganın süreci anında sonlanır — şifreleme devam edemez.</p>
+          </div>
+          <div class="rr-step">
+            <div class="rr-step-num">03</div>
+            <div class="rr-step-title">İkiliyi Karantina Et</div>
+            <p><code>quarantineTarget</code> = <code>@event.process.imageFile.rawPath</code>, yani <strong>saldırganın kendi dosyası</strong>. <code>owlyshield_ransom.dll</code> ile karantinaya alınır ve kalıcı kayıt yapılır.</p>
+          </div>
+          <div class="rr-step">
+            <div class="rr-step-num">04</div>
+            <div class="rr-step-title">Veriyi Geri Yükle</div>
+            <p>Minifilter, şifreleme <em>öncesi</em> özgün dosyanın on-image'ini <code>%PROGRAMDATA%\HydraDragonBackups</code> altına aldı. <code>rollbackRansomBackups()</code> ile mağdurun verisi geri yüklenir.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- HONEST LIMITS -->
+      <div class="rrc-honest">
+        <div class="rrc-honest-head">
+          <span class="text-amber">✦</span>
+          <h3 class="rrc-subtitle" style="margin:0;">Dürüst Kalan: Bilinen Sınırlar</h3>
+          <span class="badge-pill" style="background: rgba(255,183,3,0.2); color:#ffb703; font-weight:700;">AÇIK BELGELENMİŞ</span>
+        </div>
+        <p>
+          Bu proje kapalı kutu değil. Kuralı incelerken bulduğumuz ve kaynak kodda doğruladığımız
+          sınır ve kusurları gizlemedik; hepsini wiki'de madde madde açıkladık:
+        </p>
+        <ul class="rrc-honest-list">
+          <li><strong>60 saniyelik pencere</strong> &mdash; dosya başına birkaç dakika bekleyen yavaş şifreleyiciler kapsam dışıdır.</li>
+          <li><strong>Sadece metin hedefleme</strong> &mdash; <code>isAsciiText</code> koruması bilinçli olarak metin dosyalarını bırakır (FP/recall trade-off).</li>
+          <li><strong>3 tekrarlı kural maddesi</strong> &mdash; <code>LLE_FILE_RENAME</code>, <code>LLE_FILE_DELETE</code> ve <code>RF4*</code> ikişer kez yazılmış; işlevsel etkisi yok, okunabilirlikten düşüyor.</li>
+          <li><strong><code>RF10*</code> / <code>RF4*</code> derlemede düşüyor</strong> &mdash; v1 motorunun takma adları v2'de tanımsız; derleyici sessizce siliyor. Kapsanan olaylar zaten doğrudan maddelerle karşılandığı için tespit kaybı yok.</li>
+          <li><strong>Entropi ölçeklenmemiş</strong> &mdash; sürücü ham Q24 sabit nokta yazıyor, politika 6 ile karşılaştırıyor; gerçek içerik ayrımı <code>isAsciiText</code> süzgecine yüklenmiş durumda.</li>
+          <li><strong>Okuma sepeti yazılıyor ama okunmuyor</strong> &mdash; aşama 1 şu an için gelişime açık, gelenek üzerine kurulmuş bir temel.</li>
+        </ul>
+      </div>
+
+      <div class="wiki-panel-links" style="margin-top: 34px;">
+        <a href="wiki/index.html" class="btn btn-red">
+          <span>WİKİ'DE 20 BÖLÜMLÜK TAM DOKÜMANTASYONU AÇ</span>
+          <span>&nearr;</span>
+        </a>
+        <a href="https://www.youtube.com/watch?v=2ZxJmZ3XTEM" target="_blank" class="btn btn-ghost">
+          <span>CANLI TESPİT VİDEOSU (YOUTUBE)</span>
+          <span>&nearr;</span>
+        </a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost">
+          <span>POLİTİKA KODUNU OKU (PTM.LOCAL.SRC)</span>
+          <span>&rarr;</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- WIKI + SUPPORT SECTION (replaces the old donation section)            -->
+    <!-- ==================================================================== -->
+    <section class="section-wrap" id="wiki">
+      <div class="wiki-panel">
+        <div class="wiki-panel-header">
+          <h2 class="wiki-panel-title">
+            <span class="text-cyan">▤</span> Viruskov Wiki &amp; Destek Masası
           </h2>
-          <span class="badge-pill" style="background: rgba(255, 183, 3, 0.2); color: #ffb703; font-weight: 700;">DÜRÜST BİLGİLENDİRME</span>
+          <span class="badge-pill" style="background: rgba(0,229,255,0.15); color:#00e5ff; font-weight:700;">KAYNAK KODLA DOĞRULANMIŞ</span>
         </div>
 
-        <div class="donation-notice">
-          <strong>ÖNEMLİ VE ŞEFFAF AÇIKLAMA:</strong> Mevcut bağış kanalı, projenin eski adı olan "Hydra Dragon" adıyla gözükse ve toplanan desteklerin bir kısmı Emirhan Uçan'a aktarılacak olsa da, doğrudan <strong>Ramiz Dayı'nın (Yusif Musayev)</strong> hesabına bağlıdır ve aracı platform %11.7 komisyon kesmektedir.
+        <div class="wiki-notice">
+          <strong>BİLGİLENDİRME:</strong> Daha önce bu bölümde bir bağış politikası yer alıyordu.
+          Artık bağış <strong>hiçbir aracı platform, komisyon veya üçüncü taraf hesap üzerinden
+          yürütülmüyor</strong>. Projeye katkıda bulunmak, ek kural yazmak, ya da finansal destek
+          göstermek isteyen <strong>herkes</strong> doğrudan proje liderine ulaşır:
+          <strong>viruskov@viruskov.com</strong>. Aracısız, komisyonsuz, şeffaf.
         </div>
 
-        <div class="donation-details">
-          <p>
-            Biz topluluğumuza karşı her zaman %100 dürüstüz. Şu an için Yusif (Ramiz Dayı) bu hesapla bağış kabul sürecini idare etmektedir. Ancak tavsiyemiz; komisyonsuz ve doğrudan <strong>site tabanlı resmi bağış sistemimizin</strong> açılmasını beklemenizdir.
-          </p>
-          <p>
-            Yine de projeye şimdiden bir kahve ısmarlamak ve sunucu / test ortamı giderlerine katkıda bulunmak isterseniz; geliştirilmesi artık <strong>bırakılmış (aktif olmayan)</strong> <strong>HydraDragonAV-Mobile</strong> GitHub deposuna giderek oradaki <strong>"Sponsor"</strong> butonuna tıklayabilir ve destek kanalına ulaşabilirsiniz (not: mobil antivirüs projesi terk edilmiştir, repo sadece sponsor butonu için kullanılmaktadır):
-          </p>
-        </div>
-
-        <div class="donation-links">
-          <a href="https://github.com/HydraDragonAntivirus/HydraDragonAV-Mobile" target="_blank" class="btn btn-red">
-            <span>SPONSOR BUTONUNA GİT (HYDRADRAGONAV-MOBILE &bull; PROJE BIRAKILDI)</span>
-            <span>&nearr;</span>
+        <div class="wiki-cards">
+          <a href="wiki/index.html" class="wiki-card">
+            <div class="wiki-card-tag">WİKİ &bull; 20 BÖLÜM</div>
+            <h3 class="wiki-card-title">MLE_RANSOM_BEHAVIOR — Tam Dokümantasyon</h3>
+            <p class="wiki-card-desc">
+              Kuralın 16 maddesi, 5 aşaması, 9 süzgütü, <code>distinctCounter</code> semantiği,
+              Q24 Shannon entropi hesabı, kernel IRP eşlemesi, yanıt zinciri, 12 gerekçe ve
+              bilinen sınır/kusurların tam listesi. Kaynak satırlarıyla birlikte.
+            </p>
+            <span class="wiki-card-go">WİKİYİ AÇ &rarr;</span>
           </a>
-          <a href="https://github.com/elnureisayeva1-cloud" target="_blank" class="btn btn-ghost">
-            <span>YUSİF MUSAYEV (RAMİZ) GİTHUB</span>
+
+          <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="wiki-card">
+            <div class="wiki-card-tag">KAYNAK &bull; DOĞRULANABİLİR</div>
+            <h3 class="wiki-card-title">Politikayı Kendiniz Okuyun</h3>
+            <p class="wiki-card-desc">
+              Bu sitedeki her teknik iddia doğrudan depodaki kaynak koddan alınmıştır.
+              <code>ptm.local.src</code> satır 4636&ndash;5129 aralığı, <code>policy_v2.cpp</code> motoru,
+              <code>filemon.cpp</code> ve <code>ShanonEntropy.cpp</code> hepsi açık.
+              Wiki'de satır numaralarıyla işaret edildi.
+            </p>
+            <span class="wiki-card-go">DEPOYU AÇ &rarr;</span>
+          </a>
+
+          <a href="mailto:viruskov@viruskov.com" class="wiki-card donate">
+            <div class="wiki-card-tag">DESTEK &bull; BAĞIŞ</div>
+            <h3 class="wiki-card-title">Projeye Katkı &amp; Finansal Destek</h3>
+            <p class="wiki-card-desc">
+              Sunucu, test ortamı, imza sertifikasyonu ve EDR Ar-Ge masrafları projenin
+              gerçek giderleridir. Bağış yapmak, ek kural geliştirmek, hata bildirmek veya
+              kurumsal entegrasyon konuşmak isteyenler tek adrese yazabilir.
+              <strong>Talepler doğrudan proje liderine ulaşır.</strong>
+            </p>
+            <span class="wiki-card-go">MAİL AT &rarr;</span>
+          </a>
+        </div>
+
+        <div class="wiki-panel-details" style="margin-top: 24px;">
+          <p>
+            <strong>Nasıl yardımcı olabilirsiniz?</strong> Konu satırına kısa bir etiket yazmanız yeterli:
+          </p>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin: 12px 0 18px;">
+            <span class="topic-pill">[DESTEK]</span>
+            <span class="topic-pill">[KATKI]</span>
+            <span class="topic-pill">[KURAL]</span>
+            <span class="topic-pill">[HATA]</span>
+            <span class="topic-pill">[KURUMSAL]</span>
+            <span class="topic-pill">[EĞİTİM]</span>
+          </div>
+          <p style="margin-bottom: 0;">
+            <strong>Neden doğrudan e-posta, neden sponsor butonu değil?</strong>
+            Bu sitenin kuruluş amacı <em>şeffaflık</em>: projenin ne yaptığını, nasıl çalıştığını ve
+            nerede zayıf olduğunu aynı sayfada göstermek. Aracı bir platforma bağış butonu
+            koymak, o şeffaflığın kendisiyle çelişirdi. Bu yüzden tek adres, tek muhatap,
+            aracısız akış.
+          </p>
+        </div>
+
+        <div class="wiki-panel-links">
+          <a href="mailto:viruskov@viruskov.com" class="btn btn-amber">
+            <span>VIRUSKOV@VIRUSKOV.COM</span>
             <span>&rarr;</span>
           </a>
+          <a href="wiki/index.html" class="btn btn-red">
+            <span>DOKÜMANTASYON WİKİSİ</span>
+            <span>&nearr;</span>
+          </a>
           <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost">
-            <span>YILDIZ ATARAK DESTEK OL (GITHUB)</span>
-            <span>★</span>
+            <span>GITHUB REPO</span>
+            <span>&nearr;</span>
           </a>
         </div>
       </div>
@@ -1938,10 +2653,12 @@
       <div class="footer-links">
         <a href="#tarihce">Tarihçe</a>
         <a href="#teknik-evrim">Teknik Evrim</a>
+        <a href="#ransom-kurali">Fidye Yazılımı Kuralı</a>
         <a href="#manifesto">Manifesto</a>
         <a href="#mimari">Mimari</a>
         <a href="#ittifak">Topluluk</a>
-        <a href="#bagis">Bağış</a>
+        <a href="wiki/index.html" style="color: var(--accent-cyan);">Wiki</a>
+        <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber); font-weight: 700;">Destek</a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--accent-red); font-weight: 700;">GitHub Repo</a>
       </div>
     </div>
