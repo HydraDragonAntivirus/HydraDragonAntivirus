@@ -61,6 +61,24 @@ impl StaticEngine {
         let base = base_dir.to_path_buf();
         diagnostics::log("init-start", &format!("base={}", base.display()));
 
+        // Per-step timing. The whole of init() runs behind a OnceLock, so the
+        // first caller of the engine - and every other caller queued behind it -
+        // pays for all of it. On a 2-core VM this was measured at ~72s, which
+        // is the whole startup stall, so it matters which of these steps is
+        // responsible. Logged one line per step to openedr_static_engine.log
+        // under the "init-step" event.
+        macro_rules! timed {
+            ($name:literal, $e:expr) => {{
+                let t0 = std::time::Instant::now();
+                let v = $e;
+                diagnostics::log(
+                    "init-step",
+                    &format!("{}={}ms", $name, t0.elapsed().as_millis()),
+                );
+                v
+            }};
+        }
+
         let database_dir = base.join("database");
         let rules_dir = if base.join("yara_rules").is_dir() {
             base.join("yara_rules")
@@ -84,16 +102,17 @@ impl StaticEngine {
             base.join("yara_rules").join("registry_rules.yaml")
         };
 
-        let clam = ClamScanner::new(&database_dir);
-        let yara = YaraScanner::new(&rules_dir);
-        let ml = MlScanner::new(&models_dir);
+        let clam = timed!("clam", ClamScanner::new(&database_dir));
+        let yara = timed!("yara", YaraScanner::new(&rules_dir));
+        let ml = timed!("ml_models", MlScanner::new(&models_dir));
         let signers_dir = base.join("signer_rules");
-        let signers = SignerDb::load_from_dir(&signers_dir);
-        let pua_registry = PuaRegistryMatcher::load(&registry_rules_path);
+        let signers = timed!("signer_rules", SignerDb::load_from_dir(&signers_dir));
+        let pua_registry = timed!("registry_rules", PuaRegistryMatcher::load(&registry_rules_path));
 
         // HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
         // in-scan with FileType tags (PE/APK gating lives in rule data).
         let mut string_rules = PeStringRules::default();
+        timed!("hydradragonsig_rules", {
         for dir in [
             base.join("hydradragonsig_rules"),
             base.join("rules").join("hydradragonsig"),
@@ -116,6 +135,7 @@ impl StaticEngine {
                 }
             }
         }
+        });
 
         let hayabusa_dir = if base.join("hayabusa_rules").is_dir() {
             base.join("hayabusa_rules")
@@ -124,7 +144,7 @@ impl StaticEngine {
         } else {
             base.join("hayabusa_rules")
         };
-        let hayabusa = HayabusaScanner::new(&hayabusa_dir);
+        let hayabusa = timed!("hayabusa", HayabusaScanner::new(&hayabusa_dir));
 
         diagnostics::log(
             "engine-status",

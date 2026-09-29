@@ -2399,7 +2399,7 @@
             </li>
             <li class="solution-item">
               <span class="icon">[✓]</span>
-              <div><strong>İçerik kanıtı:</strong> <code>isAsciiText</code> hedef dosyanın ilk 64 KiB'sını <em>karar anındaki hâliyle</em> okur — yani saldırganın az önce yazdığı ciphertext'i. Uzantıya değil <em>içeriğe</em> bakar.</div>
+              <div><strong>İçerik kanıtı:</strong> <code>isAsciiText</code> hedef dosyanın <em>karar anındaki</em> ilk 8 KiB'ını okur — yani saldırganın az önce yazdığı ciphertext'i (%15+1 yazdırılamaz bayt, fail-fast). Uzantıya değil <em>içeriğe</em> bakar.</div>
             </li>
             <li class="solution-item">
               <span class="icon">[✓]</span>
@@ -2431,7 +2431,7 @@
        |
        v
 <span class="p-u">[4] EventEnricher</span>                        Süreç/parent zinciri + tembel dosya nesnesi
-       |                                                     (64 KiB okuma sadece kural istediğinde)
+       |                                                     (64 KiB I/O, 8 KiB analiz — sadece istendiğinde)
        v
 <span class="p-u">[5] Kuyruk: match_patterns</span>              qsc/match_patterns.qsc
        |

@@ -573,7 +573,7 @@
 
       <ol>
         <li>Kernel dosya sistemi süzgeci (minifilter), <strong>60 saniye içinde 3 veya daha fazla ayrı kullanıcı dosyasına</strong> yazma / yeniden adlandırma / silme işlemi yapan bir süreci kayda geçirir.</li>
-        <li>Politika motoru o dosyaların <strong>metin olmadığını</strong> (ilk 64 KiB'lık ASCII taramasıyla) ve <strong>şifreli veri gibi yüksek entropili</strong> olduğunu doğrular.</li>
+        <li>Politika motoru o dosyaların <strong>metin olmadığını</strong> (ilk 8 KiB'lık ASCII taramasıyla) ve <strong>şifreli veri gibi yüksek entropili</strong> olduğunu doğrular.</li>
         <li>Hedeflerin <strong>kullanıcı profilinde</strong> (<code>C:\Users\...</code>) ve <strong>AppData / Temp / Windows / Program Files dışında</strong> olduğunu doğrular.</li>
         <li>Tüm koşullar tutarsa <code>MLE_RANSOM_BEHAVIOR</code> olayı üretilir; motor <strong>sürecin imaj dosyasını karantinaya alır</strong> ve <strong>süreci Global ID ile öldürür</strong>.</li>
         <li>Kernel'in <strong>RansomShield</strong> modülü daha önce kaydettiği özgün dosya kopyalarını geri yükler.</li>
@@ -1355,18 +1355,64 @@
           <span class="filter-name">!equal(@event.destination.isAsciiText, true) &mdash; <span class="c-green">ASIL METİN KORUMASI</span></span>
         </div>
         <div class="filter-why">
-          <strong>En güçlü tek süzgeç.</strong> Dosyanın ilk <strong>64 KiB</strong>'si okunur;
-          <code>TAB/LF/CR</code> ve <code>0x20-0x7E</code> dışındaki baytların oranı
-          <strong>%15 + 1</strong> eşiğini aşarsa dosya &ldquo;metin değildir&rdquo; olarak
-          işaretlenir.
+          <strong>En güçlü tek süzgeç.</strong> Dosyanın diskteki <strong>güncel</strong> ilk
+          64 KiB'ı okunur, ancak metin olup olmadığına <strong>yalnızca ilk 8192 bayta (8 KiB)</strong>
+          bakılarak karar verilir: <code>\t \n \r</code> ve <code>0x20-0x7E</code> dışındaki
+          baytların sayısı <code>8 KiB &times; %15 + 1 = 1229</code> eşiğine ulaşırsa dosya
+          &ldquo;metin değildir&rdquo; olarak işaretlenir (fail-fast).
           <br>
-          <strong>Neyi okur, ne zaman okur?</strong> Bu alan, <strong>kuralın değerlendirildiği
-          andaki diskteki güncel içeriğin ilk 64 KiB'sıdır</strong> &mdash; yani
-          <strong>saldırganın az önce yazdığı ciphertext</strong>. Uzantıya, dosya adına veya
-          &ldquo;şüpheli dosya&rdquo; etiketine bakmaz. Aşama 4, <code>LLE_FILE_DATA_WRITE_FULL</code>
-          olayında çalıştığı için dosya bu anda <strong>şifrelenmiş hâldedir</strong> ve tarama
-          şifre metnini görür. Bir metin editörü aynı dosyaya düz metin yazdığında ise tarama
-          düz metni görür ve eler. Aynı süzgeç, iki tamamen farklı sonucu üretir.
+          <strong>Neyi okur, ne zaman okur?</strong> Alan, <strong>kuralın değerlendirildiği
+          andaki diskteki güncel içeriği</strong> okur &mdash; yani saldırganın az önce yazdığı
+          <strong>ciphertext</strong>. Uzantıya, dosya adına veya &ldquo;şüpheli dosya&rdquo;
+          etiketine bakmaz. Aşama 4 çoğunlukla <code>LLE_FILE_DATA_WRITE_FULL</code> üzerinde
+          çalıştığı için dosya bu anda <strong>şifrelenmiş hâldedir</strong> ve tarama şifre metnini
+          görür. Aynı süzgeç, metin editörünün aynı dosyaya yazdığı düz metni ise eler.
+          <br><br>
+          <strong>Ölçüm penceresi: 8 KiB, eşik %15 + 1, fail-fast.</strong> Uygulama 64 KiB'a
+          kadar tek seferde okur, ancak <strong>analiz yalnızca ilk 8192 bayt üzerinde</strong>
+          yapılır ve eşik dolur doldurulmaz &mdash; daha fazla bayt okunmaz:
+        </div>
+
+        <div class="code-block">
+          <div class="code-head"><span class="src">libsyswin/src/filedataprovider.cpp (1195-1210) &mdash; birebir</span><span>SADECE İLK 8 KiB</span></div>
+<pre><span class="tok-cm">// Content-based ASCII-text check. Exact C++ port of:</span>
+<span class="tok-cm">//   fn looks_like_ascii_text(data: &amp;[u8]) -&gt; bool</span>
+<span class="tok-cm">// Empty input -&gt; false. Samples at most the first 8192 bytes, fail-fast once</span>
+<span class="tok-cm">// the non-printable count reaches 15% + 1. Printable set: \t \n \r 0x20..=0x7E.</span>
+<span class="tok-key">bool</span> FileDataProvider::is_look_like_ascii_text(<span class="tok-key">const</span> uint8_t* data, size_t len)
+{
+    <span class="tok-key">if</span> (data == <span class="tok-key">nullptr</span> || len == 0) <span class="tok-key">return</span> <span class="tok-key">false</span>;
+    <span class="tok-key">const</span> size_t sampleLen = len &lt; 8192 ? len : 8192;        <span class="tok-cm">// &lt;-- ANALİZ PENCERESİ 8 KiB</span>
+    <span class="tok-key">const</span> size_t threshold = sampleLen * 15 / 100 + 1;  <span class="tok-cm">// 8192'de = 1229 bayt</span>
+    size_t nonPrintable = 0;
+    <span class="tok-key">for</span> (size_t i = 0; i &lt; sampleLen; ++i)
+    {
+        <span class="tok-key">const</span> uint8_t b = data[i];
+        <span class="tok-key">const</span> bool printable = (b == <span class="tok-str">'\t'</span> || b == <span class="tok-str">'\n'</span> || b == <span class="tok-str">'\r'</span> || (b &gt;= 0x20 &amp;&amp; b &lt;= 0x7E));
+        <span class="tok-key">if</span> (!printable &amp;&amp; ++nonPrintable &gt;= threshold)
+            <span class="tok-key">return</span> <span class="tok-key">false</span>;                             <span class="tok-cm">// &lt;-- FAIL-FAST</span>
+    }
+    <span class="tok-key">return</span> <span class="tok-key">true</span>;
+}</pre>
+        </div>
+
+        <div class="filter-why" style="margin-top:14px;">
+          <strong>Akış (1217-1236).</strong>
+          <code>isAsciiTextFile()</code> &rarr; dosya nesnesinde <code>deleted</code> işareti varsa
+          <strong>disk hiç okunmadan</strong> <code>false</code> &rarr; <code>getFileStream()</code> ile
+          dosya <code>Read | ShareRead | ShareWrite</code> modunda açılır (gerekirse süreç token'ı ile
+          <strong>impersonation</strong> denenerek ikinci kez açılır) &rarr; <strong>64 KiB'a kadar
+          offset 0'dan tek seferde okunur</strong> &rarr; okunan bayt 0 ise <code>false</code> &rarr;
+          yukarıdaki 8 KiB'lık analiz.
+          <br>
+          <code>ShareWrite</code> bayrağı sayesinde dosya, saldırganın <strong>o anda açık
+          yazma tutamaçlarıyla</strong> birlikte okunabilir &mdash; yani şifreleme sürerken dosya
+          kilitli değildir ve tarama yine içeriği görür.
+          <br>
+          <strong>Neden 8 KiB yeterli?</strong> Bir düz metin dosyasının ilk 8 KiB'i zaten
+          yazdırılabilir karakterlerden oluşur; şifre metninde ise 1229 bayta ulaşmak (~15%)
+          rastgele dağılımda <strong>neredeyse garanti</strong> edilir. Bu, maliyeti 64 KiB
+          tarama yerine <strong>8 KiB + fail-fast</strong>'e indirir.
           <br>
           <strong>Neden bu kadar belirleyici?</strong> Bir JPEG, bir MP4, bir <code>.docx</code>
           (ZIP), bir <code>.xlsx</code>, bir veritabanı dosyası &mdash; hepsi metin <em>gibi</em>
@@ -1374,7 +1420,7 @@
           dosyaları eler. Bu, &ldquo;şifreleme yapmış gibi görünen ama aslında sıkıştırılmış bir
           klasör kopyalama işlemi&rdquo; ile &ldquo;gerçek şifreleme&rdquo; arasındaki ayrımı kurar.
           <br>
-          <strong>Fail-closed davranışı:</strong> dosya silinmiş, okunamıyor ya da 0 bayt okunduysa
+          <strong>Fail-closed davranışı:</strong> dosya silinmiş, açılamıyor ya da 0 bayt okunduysa
           sonuç <code>false</code>&mdash; yani &ldquo;metin değil&rdquo;&mdash; döner. Kural, kanıt
           toplayamazsa <strong>sert davranır</strong> ve dosyayı elmez. Bu bilinçli bir tercihtir:
           yanlış negatif (kaçırılan gerçek şifreleme) maliyeti, yanlış pozitif (kullanıcının
@@ -1383,9 +1429,10 @@
           <strong>Tetikleyiciye göre ince ayrıntı:</strong> <code>LLE_FILE_CREATE</code> üzerinde
           dosya henüz boş olduğundan 0 bayt okunur ve süzgeç <strong>geçer</strong>;
           <code>LLE_FILE_RENAME</code> / <code>LLE_FILE_DELETE</code> üzerinde ise içerik
-          o âna kadarki hâlidir &mdash; henüz şifrelenmemiş bir dosyada süzgeç eleyebilir. Kuralın
-          asıl tetikleyicisi <code>LLE_FILE_DATA_WRITE_FULL</code> olduğu için bu, normal şifreleme
-          akışında bir sorun yaratmaz.
+          o âna kadarki hâlidir &mdash; henüz şifrelenmemiş bir dosyada süzgeç eleyebilir
+          (<code>LLE_FILE_DELETE</code>'de ayrıca <code>deleted</code> işareti okuma yapmadan
+          <code>false</code> döndürür). Kuralın asıl tetikleyicisi <code>LLE_FILE_DATA_WRITE_FULL</code>
+          olduğu için bu, normal şifreleme akışında bir sorun yaratmaz.
         </div>
       </div>
 
@@ -1529,7 +1576,7 @@ PID 4711  &mdash;  <s>suspect.exe</s>   (0. saniye)
             </tr>
             <tr>
               <td><code>isAsciiText</code></td>
-              <td><strong>Tembel</strong> 64 KiB örnek + %15 yazdırılamaz bayt testi. <strong>Okuma zamanı: kural değerlendirildiği andaki diskteki güncel içerik</strong> &mdash; yani şifreleme yapıldıysa ciphertext.</td>
+              <td>Diskten <strong>64 KiB</strong> okunur (offset 0, <code>ShareRead|ShareWrite</code>, gerekirse impersonation ile); metin analizi <strong>yalnızca ilk 8 KiB (8192 bayt)</strong> üzerinde yapılır, eşik <code>%15+1</code> (8 KiB'de 1229 bayt), fail-fast. Okuma anı: kuralın değerlendirildiği andaki güncel içerik &mdash; yani şifrelendiyse ciphertext.</td>
               <td>S8 &mdash; <code>!= true</code></td>
             </tr>
             <tr>
@@ -1563,10 +1610,15 @@ PID 4711  &mdash;  <s>suspect.exe</s>   (0. saniye)
 
       <div class="callout ok">
         <div class="co-title">&#9654; Tembel değerlendirmenin güvenlik ve performans değeri</div>
-        <code>isAsciiText</code> her dosya olayında 64 KiB disk okuması demektir. Sistem
-        bunu <strong>tembel bir vekil nesne</strong> (lambda proxy) olarak kurar: kural o alana
+        <code>isAsciiText</code> her değerlendirmede diskten okuma demektir. Sistem bunu
+        <strong>tembel bir vekil nesne</strong> (lambda proxy) olarak kurar: kural o alana
         <strong>gerçekten dokunmadıkça</strong> hiçbir bayt okunmaz. 10 kernel tetikleyicisinden
-        hiçbiri bu alanı okumuyorsa, 64 KiB harcanmaz. Bu, bir EDR'ın canlı sistemde
+        hiçbiri bu alanı okumuyorsa, tek bir bayt harcanmaz.
+        <br><br>
+        Dokunulduğunda ise iş <strong>çift katmanlı</strong> olarak ucuzdur: 64 KiB'lık I/O
+        tek çağrıda yapılır, ama <strong>analiz ilk 8 KiB'de fail-fast</strong> tamamlanır.
+        Yani tipik şifre metninde karar yaklaşık <strong>1229 bayt</strong> okunduktan sonra
+        verilir &mdash; kalan 63 KiB hiç taranmaz. Bu, bir EDR'ın canlı sistemde
         kullanılabilir olmasının temelidir.
       </div>
 
@@ -2110,12 +2162,12 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
         <div class="reason-card">
           <div class="reason-idx">R09 &bull; İÇERİK KANITI</div>
           <div class="reason-title">İçerik, dosya adına değil</div>
-          <div class="reason-text"><code>isAsciiText</code> (64 KiB, %15 kuralı) dosyanın <strong>gerçek içeriğini</strong> ölçer. &ldquo;Zararlı, çünkü adında .doc vardı&quot; değil, &ldquo;zararlı, çünkü bu artık düz metin değil&quot; der. Uzantılara göre karar vermek, kurumsal e-posta şifreleme ve belge işleme yazılımlarını sürekli yanlış pozitife sokardı.</div>
+          <div class="reason-text"><code>isAsciiText</code> dosyanın <strong>gerçek içeriğini</strong> ölçer: diskten okunan ilk 8 KiB'da %15+1 yazdırılamaz bayt arar. &ldquo;Zararlı, çünkü adında .doc vardı&quot; değil, &ldquo;zararlı, çünkü bu artık düz metin değil&quot; der. Uzantılara göre karar vermek, kurumsal e-posta şifreleme ve belge işleme yazılımlarını sürekli yanlış pozitife sokardı.</div>
         </div>
         <div class="reason-card">
           <div class="reason-idx">R10 &bull; KONTROL MEKANİZMASI</div>
           <div class="reason-title">Tembel değerlendirme</div>
-          <div class="reason-text">64 KiB'lık içerik taraması yalnızca <strong>kural o alana gerçekten dokunduğunda</strong> çalışır. Aynı kural, hem canlı bir sistemde kullanılabilir hem de ispatlanabilir bir FP oranına sahiptir. &ldquo;Sıkışık ama yavaş&quot; değil.</div>
+          <div class="reason-text">İçerik taraması yalnızca <strong>kural o alana gerçekten dokunduğunda</strong> çalışır. Dokunulduğunda 64 KiB'lık I/O yapılır ama karar ilk 8 KiB'de fail-fast verilir. Aynı kural, hem canlı bir sistemde kullanılabilir hem de ispatlanabilir bir FP oranına sahiptir. &ldquo;Sıkışık ama yavaş&quot; değil.</div>
         </div>
         <div class="reason-card">
           <div class="reason-idx">R11 &bull; KURTARMA</div>
@@ -2763,7 +2815,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
             </tr>
             <tr>
               <td><code>libsyswin/src/filedataprovider.cpp</code> <span class="c-dim">790&ndash;1236</span></td>
-              <td>Dosya nesnesi alanları, <code>isAsciiTextFile</code> (64 KiB / %15 kuralı)</td>
+              <td>Dosya nesnesi alanları, <code>isAsciiTextFile</code> (1195-1236): 64 KiB I/O, 8 KiB analiz penceresi, %15+1 eşiği, fail-fast</td>
             </tr>
             <tr>
               <td><code>libedr/src/detectionnotifier.cpp</code> <span class="c-dim">488&ndash;2148</span></td>
