@@ -1,0 +1,2 @@
+readd generic ransomware string rule for detection come from 100days with yara rule and ignore KVRT by whitelisting
+https://github.com/petermstewart/100DaysofYARA-2024/blob/main/petermstewart/HUNT_Ransomware_generic_strings.yar
