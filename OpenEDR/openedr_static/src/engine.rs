@@ -102,41 +102,6 @@ impl StaticEngine {
             base.join("yara_rules").join("registry_rules.yaml")
         };
 
-        let clam = timed!("clam", ClamScanner::new(&database_dir));
-        let yara = timed!("yara", YaraScanner::new(&rules_dir));
-        let ml = timed!("ml_models", MlScanner::new(&models_dir));
-        let signers_dir = base.join("signer_rules");
-        let signers = timed!("signer_rules", SignerDb::load_from_dir(&signers_dir));
-        let pua_registry = timed!("registry_rules", PuaRegistryMatcher::load(&registry_rules_path));
-
-        // HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
-        // in-scan with FileType tags (PE/APK gating lives in rule data).
-        let mut string_rules = PeStringRules::default();
-        timed!("hydradragonsig_rules", {
-        for dir in [
-            base.join("hydradragonsig_rules"),
-            base.join("rules").join("hydradragonsig"),
-            base.join("yara_rules").join("hydradragonsig_rules"),
-        ] {
-            if dir.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&dir) {
-                    for entry in entries.flatten() {
-                        let p = entry.path();
-                        if p.is_file()
-                            && p.extension()
-                                .and_then(|e| e.to_str())
-                                .map_or(false, |e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
-                        {
-                            if let Ok(text) = std::fs::read_to_string(&p) {
-                                let _ = string_rules.load_yaml(&text);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        });
-
         let hayabusa_dir = if base.join("hayabusa_rules").is_dir() {
             base.join("hayabusa_rules")
         } else if base.join("rules").join("hayabusa").is_dir() {
@@ -144,7 +109,66 @@ impl StaticEngine {
         } else {
             base.join("hayabusa_rules")
         };
-        let hayabusa = timed!("hayabusa", HayabusaScanner::new(&hayabusa_dir));
+        let signers_dir = base.join("signer_rules");
+
+        // These seven loads are independent of each other and each of them is
+        // slow enough to dominate: measured at ~72s in total on a 2-core VM,
+        // which is the entire startup stall, because init() sits behind a
+        // OnceLock and every caller queues behind it. Loading them sequentially
+        // means the wall time is the SUM of the steps; on separate threads it
+        // becomes the SLOWEST one. Scoped threads so the path borrows stay tied
+        // to this function and nothing has to be 'static or leaked.
+        let t_scope = std::time::Instant::now();
+        let mut string_rules = PeStringRules::default();
+        let (clam, yara, ml, signers, pua_registry, hayabusa) = std::thread::scope(|s| {
+            let h_clam = s.spawn(|| timed!("clam", ClamScanner::new(&database_dir)));
+            let h_yara = s.spawn(|| timed!("yara", YaraScanner::new(&rules_dir)));
+            let h_ml = s.spawn(|| timed!("ml_models", MlScanner::new(&models_dir)));
+            let h_signers = s.spawn(|| timed!("signer_rules", SignerDb::load_from_dir(&signers_dir)));
+            let h_pua = s.spawn(|| timed!("registry_rules", PuaRegistryMatcher::load(&registry_rules_path)));
+            let h_hayabusa = s.spawn(|| timed!("hayabusa", HayabusaScanner::new(&hayabusa_dir)));
+
+            // HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
+            // in-scan with FileType tags (PE/APK gating lives in rule data).
+            // Runs on this thread while the others load.
+            timed!("hydradragonsig_rules", {
+                for dir in [
+                    base.join("hydradragonsig_rules"),
+                    base.join("rules").join("hydradragonsig"),
+                    base.join("yara_rules").join("hydradragonsig_rules"),
+                ] {
+                    if dir.is_dir() {
+                        if let Ok(entries) = std::fs::read_dir(&dir) {
+                            for entry in entries.flatten() {
+                                let p = entry.path();
+                                if p.is_file()
+                                    && p.extension()
+                                        .and_then(|e| e.to_str())
+                                        .map_or(false, |e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
+                                {
+                                    if let Ok(text) = std::fs::read_to_string(&p) {
+                                        let _ = string_rules.load_yaml(&text);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            (
+                h_clam.join().expect("clam loader panicked"),
+                h_yara.join().expect("yara loader panicked"),
+                h_ml.join().expect("ml loader panicked"),
+                h_signers.join().expect("signer loader panicked"),
+                h_pua.join().expect("registry rule loader panicked"),
+                h_hayabusa.join().expect("hayabusa loader panicked"),
+            )
+        });
+        diagnostics::log(
+            "init-step",
+            &format!("init_total_parallel={}ms", t_scope.elapsed().as_millis()),
+        );
 
         diagnostics::log(
             "engine-status",
