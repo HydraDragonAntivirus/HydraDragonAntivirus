@@ -20,10 +20,7 @@ void CommClose();
 
 BOOLEAN IsCommClosed();
 
-
-NTSTATUS
-
-
+// handle messages recieved from user mode
 NTSTATUS RWFNewMessage(
     IN PVOID PortCookie,
     IN PVOID InputBuffer,

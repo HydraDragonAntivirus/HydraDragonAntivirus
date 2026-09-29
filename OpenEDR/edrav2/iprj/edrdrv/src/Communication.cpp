@@ -1314,8 +1314,6 @@ void CommClose()
     commHandle->CommClosed = TRUE;
 }
 
-NTSTATUS
-
 static NTSTATUS OwlyGetProcessNameByHandle(_In_ HANDLE ProcessHandle, _Out_ PUNICODE_STRING *Name)
 {
     if (Name == NULL)
