@@ -99,24 +99,6 @@
 				<File Id="SanctumDllFile" Source="..\..\..\..\..\hydradragon\Sanctum\System32\sanctum.dll" KeyPath="yes" />
 				<RemoveFile Id="RemovingSanctumDll" Directory="$(var.SysFolder)" Name="sanctum.dll" On="uninstall" />
 			</Component>
-			<Component Id="WinDivertDriverComponent" Guid="{2F6C1A45-8D3E-4B72-9E10-5C4A7D82F913}" Directory="DRIVERSDIR">
-				<!-- Installed as a service so WinDivertOpen() never has to auto-install the driver at
-					 runtime. When \\.\WinDivert is absent the WinDivert DLL falls back to
-					 WinDivertDriverInstall(), which calls OpenSCManager(SC_MANAGER_ALL_ACCESS) /
-					 CreateService(SERVICE_ALL_ACCESS); either failing with ERROR_ACCESS_DENIED is
-					 propagated verbatim by WinDivertOpen, which then surfaces as a misleading
-					 "Open(AccessDenied)" even though the device - not the privileges - was the
-					 problem. Registering the service here keeps that path unreachable. -->
-				<File Id="WinDivertSysFile" Source="$(var.SourceBinDir)WinDivert64.sys" KeyPath="yes" Name="WinDivert64.sys" />
-				<ServiceInstall Id="WinDivertServiceInstall" Name="WinDivert" DisplayName="WinDivert" Description="WinDivert packet interception driver used by the HydraDragon firewall engine." Type="kernelModeDriver" Start="demand" ErrorControl="normal" Vital="no" />
-				<!-- Stop="both", not just "uninstall": a loaded kernel driver's image is locked by
-					 the loader, so on a MajorUpgrade the replacement of WinDivert64.sys fails with a
-					 sharing violation unless the running driver is stopped first. The old package
-					 never owned this service, so nothing else stops it. Nothing restarts it here
-					 either - the service is demand-started, and WinDivertOpen() starts it on the
-					 first firewall start. -->
-				<ServiceControl Id="StopWinDivert" Name="WinDivert" Stop="both" Remove="uninstall" Wait="yes" />
-			</Component>
 			<Component Id="ElamInstallerComponent" Guid="{7F4B0E92-3C1D-4A6B-9E25-1C8D5A2F0B31}" Directory="SANCTUMDIR">
 				<File Id="ElamInstallerFile" Source="..\..\..\..\..\hydradragon\Sanctum\elam_installer.exe" KeyPath="yes" />
 				<ServiceInstall Id="ElamInstallerServiceInstall" Name="elam_installer" DisplayName="Sanctum ELAM Installer" Description="Runs elam_installer.exe automatically at boot to register sanctum_elam." Type="ownProcess" Start="auto" ErrorControl="normal" Vital="no" />
