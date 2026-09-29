@@ -35,6 +35,54 @@ namespace cmd {
 #define CMD_COMPONENT "enricher"
 
 namespace {
+	//
+	// Lowercased directory this module was loaded from, without a trailing
+	// separator - i.e. the product install directory. Derived at runtime from this
+	// module's own image (edrsvc.exe) rather than hardcoded, so it follows
+	// whatever install prefix is in use.
+	//
+	// Lives in the first anonymous namespace because it is needed both by the
+	// module deep-scan (InspectProcessModules) and by the per-event candidate
+	// loop, and those sit in different scopes.
+	//
+	const std::string& GetOwnInstallDirLower()
+	{
+		static const std::string s_dir = []()
+		{
+			char szExe[MAX_PATH] = "";
+			DWORD nLen = ::GetModuleFileNameA(nullptr, szExe, MAX_PATH);
+			if (nLen == 0 || nLen >= MAX_PATH)
+				return std::string();
+
+			std::string sPath(szExe, nLen);
+			const size_t nSlash = sPath.find_last_of("\\/");
+			if (nSlash == std::string::npos)
+				return std::string();
+
+			std::string sDir = sPath.substr(0, nSlash);
+			for (auto& c : sDir) c = (char)::tolower((unsigned char)c);
+			return sDir;
+		}();
+
+		return s_dir;
+	}
+
+	//
+	// True when `sLowerPath` sits inside the product install directory. Compares
+	// per path component: the trailing-separator check keeps a sibling such as
+	// "...\\OpenEDR2\\x.dll" out.
+	//
+	bool IsPathUnderOwnInstallDir(const std::string& sLowerPath)
+	{
+		const std::string& sDir = GetOwnInstallDirLower();
+		if (sDir.empty() || sLowerPath.size() <= sDir.size())
+			return false;
+		if (sLowerPath.compare(0, sDir.size(), sDir) != 0)
+			return false;
+		const char cNext = sLowerPath[sDir.size()];
+		return cNext == '\\' || cNext == '/';
+	}
+
 	bool containsInterpetatorCmd(const std::wstring& cmdLine)
 	{
 		return (cmdLine.find(L"cmd.exe") != std::string::npos)
@@ -1338,16 +1386,28 @@ namespace {
 					bool modIsNet = MegaDumperNet::CheckFileIsDotNet(me.szExePath);
 					if (modIsNet) res.isDotNet = true;
 
+					// Two separate reasons not to deep-scan, deliberately not merged:
+					//   isSystemDll - lives in the Windows tree; scanning every system DLL on
+					//                 every process is prohibitive.
+					//   isOwnModule  - one of our own components (see IsPathUnderOwnInstallDir).
+					//                 These carry the signature tables and constant pools the
+					//                 engines search for, so scanning them both guarantees
+					//                 self-detection and re-enters the self-scan loop.
 					bool isSystemDll = (modLower.find("c:\\windows\\system32") != std::string::npos ||
 					                    modLower.find("c:\\windows\\syswow64") != std::string::npos ||
 					                    modLower.find("c:\\windows\\winsxs") != std::string::npos);
+					bool isOwnModule = IsPathUnderOwnInstallDir(modLower);
 
 					bool modFlsClean = true;
 					bool modCertTrusted = true;
 
 					bool forceScanAll = s_scanAllModulesIndiscriminately.load(std::memory_order_relaxed);
-					bool shouldDeepScan = forceScanAll || !isSystemDll;
+					bool shouldDeepScan = forceScanAll || (!isSystemDll && !isOwnModule);
 
+					// 1. ClamAV/YARA/ML scan - only for modules that are not already known-good
+					//    by location. Scanning every system DLL on every process is prohibitive, so
+					//    c:\windows\{system32,syswow64,winsxs} is skipped unless
+					//    scanAllModulesIndiscriminately is turned on (defaults to off).
 					if (shouldDeepScan)
 					{
 						// 1. Check Comodo FLS Trust
@@ -1365,17 +1425,26 @@ namespace {
 								res.firstUnknownDllComodo = modPath;
 						}
 
-						// 2. Check Microsoft / Authenticode Certificate Trust (Offline, Comodosuz / Hashsiz)
-						std::string vendor;
-						bool isMsOrTrusted = false;
-						bool isSigned = VerifyFileCertificateOffline(me.szExePath, vendor, isMsOrTrusted);
-						modCertTrusted = (isSigned && isMsOrTrusted);
-						if (!modCertTrusted)
-						{
-							res.hasUnknownDllCertificate = true;
-							if (res.firstUnknownDllCert.empty())
-								res.firstUnknownDllCert = modPath;
-						}
+					}
+
+					// 2. Authenticode certificate trust - ALWAYS, including for modules under
+					//    c:\windows\{system32,syswow64,winsxs}.
+					//
+					//    This used to sit inside the shouldDeepScan block above, so a DLL dropped into
+					//    system32 was never signature-checked either: modFlsClean and modCertTrusted both
+					//    kept their `true` initialisers and the module was reported as "Trusted" purely
+					//    because of where it lived. Being in the Windows tree is not a trust signal -
+					//    anything able to write there can plant an unsigned DLL, and WinVerifyTrust is
+					//    cheap and offline, so it runs for every module.
+					std::string vendor;
+					bool isMsOrTrusted = false;
+					bool isSigned = VerifyFileCertificateOffline(me.szExePath, vendor, isMsOrTrusted);
+					modCertTrusted = (isSigned && isMsOrTrusted);
+					if (!modCertTrusted)
+					{
+						res.hasUnknownDllCertificate = true;
+						if (res.firstUnknownDllCert.empty())
+							res.firstUnknownDllCert = modPath;
 					}
 
 					bool isModTrusted = (modFlsClean && modCertTrusted);
@@ -3137,6 +3206,22 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		std::string lowerDos = dos;
 		for (auto& c : lowerDos) c = (char)::tolower((unsigned char)c);
 		if (!seenPaths.insert(lowerDos).second) continue;
+
+		// Product self-exclusion: never scan our own install tree.
+		//
+		// The component binaries ARE the detection material: openedr_static.dll
+		// carries the published Wang MD5-collision block that
+		// Crypto.MD5.CollisionAttack.Wang2004 matches, and the engines search
+		// every rule table, signature and constant pool the product ships. Worse,
+		// scanning a file reads it, which raises a fresh file-create event, which
+		// re-enqueues the same scan - a self-feeding loop that buried real
+		// telemetry (output_events appearing minutes late).
+		//
+		// This is a path-prefix exclusion: anything dropped into our own install
+		// directory is not scanned. The directory is expected to be admin-writable
+		// only, the same assumption the driver's hook-exclude rules already make.
+		if (IsPathUnderOwnInstallDir(lowerDos))
+			continue;
 
 		// Fast path: if already cached as Clean, skip heavy static scanning completely
 		int cachedVerdict = DetectionNotifier::getCachedFileVerdict(dos);
