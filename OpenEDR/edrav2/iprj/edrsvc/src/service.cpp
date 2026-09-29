@@ -735,6 +735,19 @@ Variant WinService::execute(Variant vCommand, Variant vParams)
 	///
 	/// @fn Variant WinService::execute()
 	///
+	/// ##### warmupStaticEngine()
+	/// Starts loading the openedr_static engine on a background thread.
+	///  * returns immediately; the load runs in parallel with the rest of startup.
+	///
+	else if (vCommand == "warmupStaticEngine")
+	{
+		cmd::warmUpStaticEngine();
+		return Dictionary({ { "started", true } });
+	}
+
+	///
+	/// @fn Variant WinService::execute()
+	///
 	/// ##### allowUnload()
 	/// Disable/enable services stopping
 	///  * value [bool] - value to set;

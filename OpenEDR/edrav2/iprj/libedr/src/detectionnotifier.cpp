@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cctype>
 #include <mutex>
+#include <thread>
 #include <tlhelp32.h>
 
 // Set component for logging
@@ -34,6 +35,39 @@
 #define CMD_COMPONENT "detnotif"
 
 namespace cmd {
+
+void warmUpStaticEngine()
+{
+	// Only the first call starts a thread; EnsureInitialized() is itself one-shot
+	// behind a function-local static, so a later call just returns the module.
+	static std::atomic<bool> s_started{ false };
+	if (s_started.exchange(true))
+		return;
+
+	std::thread([]()
+	{
+		const ULONGLONG t0 = ::GetTickCount64();
+		DWORD nError = ERROR_SUCCESS;
+		HMODULE hModule = openedr_static::EnsureInitialized("startup-warmup", &nError);
+		const ULONGLONG nElapsed = ::GetTickCount64() - t0;
+
+		if (hModule)
+		{
+			LOGLVL(Detailed, "detnotif: openedr_static engine ready after " << nElapsed
+				<< " ms (startup warm-up)");
+		}
+		else
+		{
+			// EnsureInitialized() throttles retries to one per 5s, so the first
+			// verdict request after a failure gets nullptr and the trust check
+			// fails closed until the next attempt. Say so in the log rather than
+			// leaving it to be inferred from a burst of untrusted modules.
+			LOGLVL(Critical, "detnotif: openedr_static warm-up FAILED after " << nElapsed
+				<< " ms, error=0x" << std::hex << nError << std::dec
+				<< "; the first verdict request will retry");
+		}
+	}).detach();
+}
 
 namespace {
 
