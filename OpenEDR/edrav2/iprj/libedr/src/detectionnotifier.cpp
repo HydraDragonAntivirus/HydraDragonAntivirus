@@ -693,12 +693,17 @@ namespace {
 typedef char* (*OpenedrScanFileFn)(const char*);
 typedef char* (*OpenedrScanPidFn)(uint32_t, uint64_t);
 typedef void (*OpenedrFreeStringFn)(char*);
+// Signature-only check (bitmask + optional signer out). Lets callers ask the
+// engine "is this trusted" without paying for a full scan. Optional: an older
+// openedr_static.dll simply leaves this null and the caller falls back.
+typedef uint32_t (*OpenedrCheckSignatureFn)(const char*, char**);
 
 struct OpenedrStaticBinding {
 	HMODULE hDll = nullptr;
 	OpenedrScanFileFn fnScanFile = nullptr;
 	OpenedrScanPidFn fnScanPid = nullptr;
 	OpenedrFreeStringFn fnFreeString = nullptr;
+	OpenedrCheckSignatureFn fnCheckSignature = nullptr;
 	std::atomic<bool> ready{ false };
 	std::atomic<bool> logged{ false };
 };
@@ -727,6 +732,10 @@ static void InitOpenedrStatic()
 	auto fnScan = reinterpret_cast<OpenedrScanFileFn>(::GetProcAddress(hDll, "openedr_static_scan_file"));
 	auto fnScanPid = reinterpret_cast<OpenedrScanPidFn>(::GetProcAddress(hDll, "openedr_static_scan_pid"));
 	auto fnFree = reinterpret_cast<OpenedrFreeStringFn>(::GetProcAddress(hDll, "openedr_static_free_string"));
+	// Optional: absent on an older openedr_static.dll, and that must not block
+	// scanning, so it is not part of the "exports-missing" gate below.
+	auto fnCheckSig = reinterpret_cast<OpenedrCheckSignatureFn>(
+		::GetProcAddress(hDll, "openedr_static_check_file_signature"));
 	if (!fnScan || !fnFree)
 	{
 		s_openedrLoadError.store(ERROR_PROC_NOT_FOUND);
@@ -740,6 +749,12 @@ static void InitOpenedrStatic()
 	s_openedr.fnScanFile = fnScan;
 	s_openedr.fnScanPid = fnScanPid;
 	s_openedr.fnFreeString = fnFree;
+	s_openedr.fnCheckSignature = fnCheckSig;
+	if (!fnCheckSig)
+	{
+		openedr_static::WriteLog("export-optional-missing",
+			"openedr_static_check_file_signature not present; module trust falls back");
+	}
 	s_openedr.ready.store(true);
 }
 
@@ -1178,6 +1193,54 @@ int DetectionNotifier::getCachedFileVerdict(const std::string& sUtf8Path)
 		return it->second.verdict;
 	}
 	return 0;
+}
+
+//
+// Signature-only trust check, delegated to openedr_static.
+//
+// Returns true when the file carries a valid Authenticode signature AND its
+// signer is in the engine's trusted vendor list (`signer_rules/`). This is the
+// same authority the full scan uses, reached without paying for ClamAV/YARA/ML.
+//
+// Bits: 1 = signed, 2 = trusted vendor, 4 = malicious vendor. Fails closed: if
+// the engine cannot be reached, or an older openedr_static.dll without the
+// export is loaded, the file is reported as NOT trusted rather than silently
+// defaulting to trusted.
+//
+bool DetectionNotifier::isFileSignatureTrusted(const std::string& sUtf8Path, std::string* pSignerOut)
+{
+	if (pSignerOut)
+		pSignerOut->clear();
+	if (sUtf8Path.empty())
+		return false;
+
+	InitOpenedrStatic();
+	if (!s_openedr.ready.load() || !s_openedr.fnCheckSignature)
+		return false;
+
+	char* pszSigner = nullptr;
+	uint32_t nFlags = 0;
+	try
+	{
+		nFlags = s_openedr.fnCheckSignature(sUtf8Path.c_str(), &pszSigner);
+	}
+	catch (...)
+	{
+		nFlags = 0;
+	}
+
+	if (pszSigner)
+	{
+		if (pSignerOut)
+			*pSignerOut = pszSigner;
+		s_openedr.fnFreeString(pszSigner);
+	}
+
+	// A module on the malicious-vendor list is never trusted, even if it also
+	// matched a trusted rule.
+	if (nFlags & 0x4u)
+		return false;
+	return (nFlags & 0x1u) != 0 && (nFlags & 0x2u) != 0;
 }
 
 int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut)

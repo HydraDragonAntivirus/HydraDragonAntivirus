@@ -637,6 +637,65 @@ pub extern "C" fn openedr_static_is_trusted_signer(signer: *const c_char) -> u32
     signer_flag(|e| e.is_trusted_signer(name))
 }
 
+/// Authenticode + `signer_rules` check for one file, without scanning it.
+///
+/// Returns a bitmask:
+///   1 = file has a valid Authenticode signature
+///   2 = signer matches `signer_rules/` trusted vendors
+///   4 = signer matches `signer_rules/` malicious vendors
+///
+/// The signer subject is written to `out_signer` when non-null; release it with
+/// `openedr_static_free_string`.
+///
+/// Why this exists: the signature check is the single authority for "is this
+/// file trusted", but it was only reachable through `openedr_static_scan_file`,
+/// which couples it to a full ClamAV/YARA/ML pass. A caller that only needs the
+/// trust answer therefore had two bad options - pay for a scan it did not want,
+/// or (as libedr's per-module classification did) skip verification entirely for
+/// the modules it declined to scan. The check is cached in signers.rs, so
+/// repeat calls for the same path are cheap.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_check_file_signature(
+    file_path: *const c_char,
+    out_signer: *mut *mut c_char,
+) -> u32 {
+    if file_path.is_null() {
+        return 0;
+    }
+    let Ok(path_str) = (unsafe { CStr::from_ptr(file_path) }).to_str() else {
+        return 0;
+    };
+
+    let mut flags = 0u32;
+    let mut signer: Option<String> = None;
+
+    if let Ok(lock) = get_or_init_engine(None) {
+        if let Ok(engine) = lock.read() {
+            let (is_signed, _win_trust_trusted, name, _status, _is_catalog) =
+                crate::signers::verify_authenticode(Path::new(path_str));
+            if is_signed {
+                flags |= 1;
+            }
+            signer = name;
+            if let Some(ref s) = signer {
+                if engine.is_trusted_signer(s) {
+                    flags |= 2;
+                }
+                if engine.is_malicious_signer(s) {
+                    flags |= 4;
+                }
+            }
+        }
+    }
+
+    if !out_signer.is_null() {
+        unsafe {
+            *out_signer = to_c_string(signer.unwrap_or_default());
+        }
+    }
+    flags
+}
+
 /// Returns 1 when `signer` matches `malicious_vendors.yaml`.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_is_malicious_signer(signer: *const c_char) -> u32 {

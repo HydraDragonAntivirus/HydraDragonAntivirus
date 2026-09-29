@@ -128,19 +128,17 @@ use std::sync::Mutex;
 #[cfg(windows)]
 use std::sync::OnceLock;
 #[cfg(windows)]
-use windows::Win32::Foundation::{ERROR_SUCCESS, HWND};
+use windows::Win32::Foundation::{ERROR_SUCCESS, HANDLE, HWND};
 #[cfg(windows)]
 use windows::Win32::Security::Cryptography::{
-    CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext,
-    CertGetNameStringW, CryptMsgClose, CryptQueryObject, CERT_NAME_SIMPLE_DISPLAY_TYPE,
-    CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_FORMAT_FLAG_BINARY,
-    CERT_QUERY_OBJECT_FILE, HCERTSTORE,
+    CertGetNameStringW, CERT_NAME_SIMPLE_DISPLAY_TYPE,
 };
 #[cfg(windows)]
 use windows::Win32::Security::WinTrust::{
     WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_CATALOG_INFO, WINTRUST_DATA,
     WINTRUST_DATA_UICONTEXT, WINTRUST_FILE_INFO, WTD_CHOICE_FILE,
-    WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
+    WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE, WTHelperGetProvSignerFromChain,
+    WTHelperProvDataFromStateData,
 };
 
 #[cfg(windows)]
@@ -223,6 +221,63 @@ pub fn verify_authenticode(path: &Path) -> (bool, bool, Option<String>, String, 
     result
 }
 
+/// Display name of the certificate that actually signed the file, taken from the
+/// chain WinVerifyTrust just built.
+///
+/// This used to be `CertEnumCertificatesInStore(store, None)` on a store opened
+/// with `CryptQueryObject(..., PKCS7_SIGNED_EMBED, ...)`, which returns
+/// whichever certificate happens to sit first in the store - the CA/issuer, not
+/// the publisher. Every Microsoft binary therefore reported "Microsoft Windows
+/// Production PCA 2011" instead of "Microsoft Windows", so no entry in
+/// `signer_rules/trusted_signers.yaml` could ever match and the signer field was
+/// useless for trust decisions.
+///
+/// `pasCertChain[0].pCert` is the signer certificate itself. This also works for
+/// catalog-signed files (cmd.exe, conhost.exe, ...), where the embedded PKCS#7
+/// route is unavailable - the catalog SIP puts the member's own certificate at
+/// the head of the chain.
+///
+/// Safety: `state` must be the live `hWVTStateData` of a `WTD_STATEACTION_VERIFY`
+/// WinVerifyTrust call that has not yet been closed with `WTD_STATEACTION_CLOSE`.
+#[cfg(windows)]
+unsafe fn signer_subject_from_state(state: HANDLE) -> Option<String> {
+    if state.is_invalid() {
+        return None;
+    }
+    unsafe {
+        let prov = WTHelperProvDataFromStateData(state);
+        if prov.is_null() {
+            return None;
+        }
+        let sgnr = WTHelperGetProvSignerFromChain(prov, 0, false, 0);
+        if sgnr.is_null() {
+            return None;
+        }
+        let sgnr = &*sgnr;
+        if sgnr.pasCertChain.is_null() || sgnr.csCertChain == 0 {
+            return None;
+        }
+        let signer_cert = &*sgnr.pasCertChain;
+        if signer_cert.pCert.is_null() {
+            return None;
+        }
+
+        let mut name_buf = [0u16; 256];
+        let len = CertGetNameStringW(
+            signer_cert.pCert,
+            CERT_NAME_SIMPLE_DISPLAY_TYPE,
+            0,
+            None,
+            Some(&mut name_buf),
+        );
+        if len > 1 {
+            Some(String::from_utf16_lossy(&name_buf[..(len as usize - 1)]))
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(windows)]
 fn verify_authenticode_uncached(path: &Path) -> (bool, bool, Option<String>, String, bool) {
     use std::os::windows::ffi::OsStrExt;
@@ -273,50 +328,19 @@ fn verify_authenticode_uncached(path: &Path) -> (bool, bool, Option<String>, Str
 
     let mut is_trusted = result == ERROR_SUCCESS.0 as i32;
 
-    // Extract certificate subject name
-    let mut signer_name = None;
-    unsafe {
-        let mut msg_and_cert_encoding = windows::Win32::Security::Cryptography::CERT_QUERY_ENCODING_TYPE::default();
-        let mut content_type = windows::Win32::Security::Cryptography::CERT_QUERY_CONTENT_TYPE::default();
-        let mut format_type = windows::Win32::Security::Cryptography::CERT_QUERY_FORMAT_TYPE::default();
-        let mut cert_store: HCERTSTORE = HCERTSTORE::default();
-        let mut crypt_msg: *mut std::ffi::c_void = std::ptr::null_mut();
-
-        if CryptQueryObject(
-            CERT_QUERY_OBJECT_FILE,
-            path_wide.as_ptr() as *const _,
-            CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-            CERT_QUERY_FORMAT_FLAG_BINARY,
-            0,
-            Some(&mut msg_and_cert_encoding),
-            Some(&mut content_type),
-            Some(&mut format_type),
-            Some(&mut cert_store),
-            Some(&mut crypt_msg),
-            None,
-        ).is_ok() {
-            if !cert_store.is_invalid() {
-                let cert_ctx = CertEnumCertificatesInStore(cert_store, None);
-                if !cert_ctx.is_null() {
-                    let mut name_buf = [0u16; 256];
-                    let len = CertGetNameStringW(
-                        cert_ctx,
-                        CERT_NAME_SIMPLE_DISPLAY_TYPE,
-                        0,
-                        None,
-                        Some(&mut name_buf),
-                    );
-                    if len > 1 {
-                        signer_name = Some(String::from_utf16_lossy(&name_buf[..(len as usize - 1)]));
-                    }
-                    let _ = CertFreeCertificateContext(Some(cert_ctx));
-                }
-                let _ = CertCloseStore(Some(cert_store), 0);
-            }
-            if !crypt_msg.is_null() {
-                let _ = CryptMsgClose(Some(crypt_msg));
-            }
-        }
+    // Extract the publisher name from the chain WinVerifyTrust just verified,
+    // then release the state. The state was previously never closed on this
+    // path, leaking a handle per verified file.
+    let mut signer_name = unsafe { signer_subject_from_state(win_trust_data.hWVTStateData) };
+    if !win_trust_data.hWVTStateData.is_invalid() {
+        win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
+        let _ = unsafe {
+            WinVerifyTrust(
+                HWND::default(),
+                &mut action_guid,
+                &mut win_trust_data as *mut _ as _,
+            )
+        };
     }
 
     // Catalog-signed files (conhost.exe, notepad.exe, cmd.exe, ...) often carry
@@ -388,7 +412,7 @@ unsafe extern "system" {
 }
 
 /// Verifies a file against the Windows Catalog database (CatRoot .cat files).
-/// Returns the catalog signer name (e.g. "Microsoft Windows Production PCA 2011")
+/// Returns the publisher name (e.g. "Microsoft Windows")
 /// when the file hash matches a member of a valid, trusted catalog.
 unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
     use windows::Win32::Foundation::HANDLE;
@@ -495,6 +519,9 @@ unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
                 &mut win_trust_data as *mut _ as _,
             );
 
+            // Read the signer while the state is still open.
+            let catalog_signer = signer_subject_from_state(win_trust_data.hWVTStateData);
+
             win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
             let _ = WinVerifyTrust(
                 HWND::default(),
@@ -503,13 +530,7 @@ unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
             );
 
             if verify_result == ERROR_SUCCESS.0 as i32 {
-                // Signer name is read from the catalog file's own embedded signature.
-                let signer = get_signer_name_from_file(&cat_info_struct.catalog_file).ok();
-                if signer.is_some() {
-                    trusted_signer = signer;
-                } else {
-                    trusted_signer = Some("Microsoft Windows".to_string());
-                }
+                trusted_signer = catalog_signer.or_else(|| Some("Microsoft Windows".to_string()));
                 let _ = CryptCATAdminReleaseCatalogContext(cat_admin, cat_info, 0);
                 break;
             }
@@ -520,60 +541,6 @@ unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
         let _ = CryptCATAdminReleaseContext(cat_admin, 0);
         let _ = windows::Win32::Foundation::CloseHandle(file_handle);
         trusted_signer
-    }
-}
-
-/// Reads the display name of the first certificate in a signed file's
-/// embedded PKCS#7 (used for catalog files backing catalog signatures).
-unsafe fn get_signer_name_from_file(path_wide: &[u16]) -> Result<String, ()> {
-    let wide_nul: Vec<u16> = if path_wide.last() == Some(&0) {
-        path_wide.to_vec()
-    } else {
-        path_wide.iter().copied().chain(std::iter::once(0)).collect()
-    };
-    unsafe {
-        let mut store: HCERTSTORE = HCERTSTORE::default();
-        let mut msg: *mut std::ffi::c_void = std::ptr::null_mut();
-        if CryptQueryObject(
-            CERT_QUERY_OBJECT_FILE,
-            wide_nul.as_ptr() as *const _,
-            CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-            CERT_QUERY_FORMAT_FLAG_BINARY,
-            0,
-            None,
-            None,
-            None,
-            Some(&mut store),
-            Some(&mut msg),
-            None,
-        )
-        .is_err()
-        {
-            return Err(());
-        }
-        if store.is_invalid() {
-            return Err(());
-        }
-        let cert_ctx = CertEnumCertificatesInStore(store, None);
-        if cert_ctx.is_null() {
-            let _ = CertCloseStore(Some(store), 0);
-            return Err(());
-        }
-        let mut name_buf = [0u16; 256];
-        let len = CertGetNameStringW(
-            cert_ctx,
-            CERT_NAME_SIMPLE_DISPLAY_TYPE,
-            0,
-            None,
-            Some(&mut name_buf),
-        );
-        let _ = CertFreeCertificateContext(Some(cert_ctx));
-        let _ = CertCloseStore(Some(store), 0);
-        if len > 1 {
-            Ok(String::from_utf16_lossy(&name_buf[..(len as usize - 1)]))
-        } else {
-            Err(())
-        }
     }
 }
 

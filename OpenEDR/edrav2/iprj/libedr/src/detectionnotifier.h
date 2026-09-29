@@ -76,6 +76,9 @@ public:
 	/// Returns 2 for malicious (with threat name in sThreatNameOut), 1 for safe, 0 for clean/unknown.
 	///
 	static int scanFileWithLocalEngines(const std::string& sUtf8Path, std::string& sThreatNameOut);
+	// Authenticode + signer_rules trust check via openedr_static, without a scan.
+	// pSignerOut, when given, receives the publisher name (for diagnostics).
+	static bool isFileSignatureTrusted(const std::string& sUtf8Path, std::string* pSignerOut = nullptr);
 
 	///
 	/// Fast query of the dynamic verdict cache (1=Clean, 2=Malicious, 3=Suspicious, 0=Unknown/Uncached).

@@ -1117,64 +1117,6 @@ namespace {
 			return false;
 		}
 
-		// Verifies digital signature completely offline (hashless, independent of Comodo cloud)
-		// and checks whether the vendor belongs to Microsoft or our trusted vendor list.
-		static bool VerifyFileCertificateOffline(const std::wstring& wsFilePath, std::string& outVendor, bool& outIsMicrosoftOrTrusted)
-		{
-			outVendor.clear();
-			outIsMicrosoftOrTrusted = false;
-			if (wsFilePath.empty()) return false;
-
-			WINTRUST_FILE_INFO fileInfo = { sizeof(WINTRUST_FILE_INFO) };
-			fileInfo.pcwszFilePath = wsFilePath.c_str();
-
-			WINTRUST_DATA winTrustData = { sizeof(WINTRUST_DATA) };
-			winTrustData.dwUIChoice = WTD_UI_NONE;
-			winTrustData.fdwRevocationChecks = WTD_REVOKE_NONE; // Local offline validation
-			winTrustData.dwUnionChoice = WTD_CHOICE_FILE;
-			winTrustData.pFile = &fileInfo;
-			winTrustData.dwStateAction = WTD_STATEACTION_VERIFY;
-			winTrustData.dwProvFlags = WTD_SAFER_FLAG | WTD_CACHE_ONLY_URL_RETRIEVAL;
-
-			GUID actionGuid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-			LONG lStatus = ::WinVerifyTrust(NULL, &actionGuid, &winTrustData);
-
-			bool isValid = (lStatus == ERROR_SUCCESS || lStatus == CERT_E_EXPIRED);
-			if (isValid && winTrustData.hWVTStateData != NULL)
-			{
-				CRYPT_PROVIDER_DATA* pProvData = WTHelperProvDataFromStateData(winTrustData.hWVTStateData);
-				if (pProvData != NULL)
-				{
-					CRYPT_PROVIDER_SGNR* pSigner = WTHelperGetProvSignerFromChain(pProvData, 0, FALSE, 0);
-					if (pSigner != NULL)
-					{
-						CRYPT_PROVIDER_CERT* pCert = WTHelperGetProvCertFromChain(pSigner, 0);
-						if (pCert != NULL && pCert->pCert != NULL)
-						{
-							wchar_t szSubject[256] = {};
-							if (::CertGetNameStringW(pCert->pCert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, NULL, szSubject, 256) > 0)
-							{
-								outVendor = Narrow(szSubject);
-								std::string lowerVendor = outVendor;
-								for (auto& c : lowerVendor) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-								if (lowerVendor.find("microsoft") != std::string::npos ||
-								    lowerVendor.find("comodo") != std::string::npos ||
-								    lowerVendor.find("hydradragon") != std::string::npos)
-								{
-									outIsMicrosoftOrTrusted = true;
-								}
-							}
-						}
-					}
-				}
-			}
-
-			winTrustData.dwStateAction = WTD_STATEACTION_CLOSE;
-			::WinVerifyTrust(NULL, &actionGuid, &winTrustData);
-
-			return isValid;
-		}
 
 		// ── MegaDumper .NET Inspection Logic (translated to C++) ───────────────
 		// Detects .NET managed assemblies, native loaders, and CLR runtimes even
@@ -1430,16 +1372,25 @@ namespace {
 					// 2. Authenticode certificate trust - ALWAYS, including for modules under
 					//    c:\windows\{system32,syswow64,winsxs}.
 					//
-					//    This used to sit inside the shouldDeepScan block above, so a DLL dropped into
-					//    system32 was never signature-checked either: modFlsClean and modCertTrusted both
-					//    kept their `true` initialisers and the module was reported as "Trusted" purely
-					//    because of where it lived. Being in the Windows tree is not a trust signal -
-					//    anything able to write there can plant an unsigned DLL, and WinVerifyTrust is
-					//    cheap and offline, so it runs for every module.
-					std::string vendor;
-					bool isMsOrTrusted = false;
-					bool isSigned = VerifyFileCertificateOffline(me.szExePath, vendor, isMsOrTrusted);
-					modCertTrusted = (isSigned && isMsOrTrusted);
+					//    This used to sit inside the shouldDeepScan block above, so a DLL
+					//    dropped into system32 was never signature-checked at all: both
+					//    modFlsClean and modCertTrusted kept their `true` initialisers and
+					//    the module was reported as "Trusted" purely because of where it
+					//    lived. Being in the Windows tree is not a trust signal - anything
+					//    able to write there can plant an unsigned DLL.
+					//
+					//    The check is delegated to openedr_static, which is the single
+					//    authority for trust (Authenticode + signer_rules/ vendor lists).
+					//    The former local WinVerifyTrust helper is gone: it accepted
+					//    CERT_E_EXPIRED, ran with WTD_REVOKE_NONE (so a revoked
+					//    certificate passed), and classified the signer by
+					//    case-insensitive substring - a certificate whose subject merely
+					//    contained "microsoft", "comodo" or "hydradragon" was trusted.
+					//
+					//    Deliberately outside the shouldDeepScan block: openedr_static's
+					//    check is cached and cheap, and it is the only verification that
+					//    runs for modules the deep scan skips.
+					modCertTrusted = DetectionNotifier::isFileSignatureTrusted(modPath);
 					if (!modCertTrusted)
 					{
 						res.hasUnknownDllCertificate = true;
@@ -1552,10 +1503,10 @@ namespace {
 			                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == 1);
 
 			// Check Process Executable Certificate Offline
+			// Single authority: openedr_static (Authenticode + signer_rules/ vendor lists).
+			// The vendor name is kept because it is reported in the rejection reason below.
 			std::string procVendor;
-			bool procIsMsOrTrusted = false;
-			bool isProcSigned = VerifyFileCertificateOffline(Widen(sProcPath), procVendor, procIsMsOrTrusted);
-			bool isProcCertTrusted = (isProcSigned && procIsMsOrTrusted);
+			bool isProcCertTrusted = DetectionNotifier::isFileSignatureTrusted(sProcPath, &procVendor);
 
 			EnsurePtmLoaded();
 			int mode = s_configuredTrustMode.load(std::memory_order_relaxed);
@@ -3978,10 +3929,12 @@ void EventEnricher::put(const Variant& vEventRef)
 	bool isProcFlsClean = (vProcess.has("verdict") && static_cast<int64_t>(vProcess["verdict"]) == cleanCode) ||
 	                      (vProcess.has("flsVerdict") && static_cast<int64_t>(vProcess["flsVerdict"]) == cleanCode) ||
 	                      (DetectionNotifier::getCachedFileVerdict(sProcPath) == cleanCode);
-	std::string procVendor;
-	bool procIsMsOrTrusted = false;
-	bool isProcSigned = DriverPortHips::VerifyFileCertificateOffline(Widen(sProcPath), procVendor, procIsMsOrTrusted);
-	bool isProcCertTrusted = (isProcSigned && procIsMsOrTrusted);
+	// openedr_static is the single authority for certificate trust. The previous
+	// local WinVerifyTrust call accepted CERT_E_EXPIRED, ran with WTD_REVOKE_NONE
+	// (so a revoked certificate passed) and classified the signer by case-insensitive
+	// substring ("microsoft", "comodo", "hydradragon") - a certificate whose subject
+	// merely contained one of those words was treated as trusted.
+	bool isProcCertTrusted = DetectionNotifier::isFileSignatureTrusted(sProcPath);
 
 	vProcess.put("hasUnknownDllComodo", modRes.hasUnknownDllComodo);
 	vProcess.put("hasUnknownDllCertificate", modRes.hasUnknownDllCertificate);
@@ -4066,10 +4019,8 @@ void EventEnricher::put(const Variant& vEventRef)
 			int fileFlsVerdict = DetectionNotifier::getCachedFileVerdict(sFilePathCheck);
 			bool isFileFlsClean = (fileFlsVerdict == DriverPortHips::s_cleanVerdict.load(std::memory_order_relaxed));
 			bool isFileUnknown = DriverPortHips::isUnknownVerdict(fileFlsVerdict);
-			std::string fileVendor;
-			bool fileIsMsOrTrusted = false;
-			bool isFileSigned = DriverPortHips::VerifyFileCertificateOffline(Widen(sFilePathCheck), fileVendor, fileIsMsOrTrusted);
-			bool isFileCertTrusted = (isFileSigned && fileIsMsOrTrusted);
+			// openedr_static is the single authority for certificate trust.
+			bool isFileCertTrusted = DetectionNotifier::isFileSignatureTrusted(sFilePathCheck);
 
 			vParams.put("isTrustedAccordingToFls", isFileFlsClean);
 			vParams.put("isTrustedAccordingToCertificate", isFileCertTrusted);
