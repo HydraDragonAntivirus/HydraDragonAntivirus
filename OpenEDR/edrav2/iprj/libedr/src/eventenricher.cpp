@@ -2982,65 +2982,6 @@ static void AsyncRescanAndQuarantine(std::string dos, uint32_t nPid)
 }
 } // namespace
 
-std::unordered_set<std::string> EventEnricher::s_priorityExtensions = {
-	".exe", ".dll", ".sys", ".drv", ".ocx", ".cpl", ".scr", ".com", ".pif", ".bin",
-	".bat", ".cmd", ".ps1", ".vbs", ".vbe", ".vb", ".vbscript", ".js", ".jse", ".ws", ".wsf",
-	".wsh", ".hta", ".sct", ".shb", ".shs", ".rgs", ".reg", ".job", ".msc", ".lnk", ".url",
-	".msi", ".msp", ".mst", ".isu", ".inx", ".ins", ".inf", ".inf1", ".paf", ".u3p",
-	".gadget", ".action", ".app", ".command", ".workflow", ".osx", ".ipa", ".apk",
-	".out", ".run", ".csh", ".ksh", ".prg", ".jar", ".ear", ".elf", ".vir",
-	".0xe", ".73k", ".89k", ".a6p", ".ac", ".acc", ".acr", ".actm", ".ahk", ".air",
-	".arscript", ".as", ".asb", ".awk", ".azw2", ".beam", ".btm", ".cel", ".celx", ".chm",
-	".cof", ".crt", ".dek", ".dld", ".dmc", ".docm", ".dotm", ".dxl", ".ebm", ".ebs",
-	".ebs2", ".ecf", ".eham", ".es", ".ex4", ".exopc", ".ezs", ".fas", ".fky", ".fpi",
-	".frs", ".fxp", ".gs", ".ham", ".hms", ".hpf", ".iim", ".ipf", ".isp", ".jsx",
-	".kix", ".lo", ".ls", ".mam", ".mcr", ".mel", ".mpx", ".mrc", ".ms", ".mxe",
-	".nexe", ".obs", ".ore", ".otm", ".pex", ".plx", ".potm", ".ppam", ".ppsm", ".pptm",
-	".prc", ".pvd", ".pwc", ".pyc", ".pyo", ".qpx", ".rbx", ".rox", ".rpj", ".s2a",
-	".sbs", ".sca", ".scar", ".scb", ".script", ".smm", ".spr", ".tcp", ".thm", ".tlb",
-	".tms", ".udf", ".upx", ".vlx", ".vpm", ".wcm", ".widget", ".wiz", ".wpk", ".wpm",
-	".xap", ".xbap", ".xlam", ".xlm", ".xlsm", ".xltm", ".xqt", ".xys", ".zl9"
-};
-
-bool EventEnricher::isScannablePayload(const std::string& sPath)
-{
-	if (sPath.empty())
-		return false;
-
-	size_t dotPos = sPath.rfind('.');
-	if (dotPos != std::string::npos && dotPos + 1 < sPath.size())
-	{
-		std::string ext = sPath.substr(dotPos);
-		for (auto& c : ext) c = (char)::tolower((unsigned char)c);
-		if (s_priorityExtensions.find(ext) != s_priorityExtensions.end())
-			return true;
-	}
-
-	// Fast 2-byte header check for PE magic 'MZ' (catches extensionless or renamed payloads)
-	int nWide = ::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), -1, nullptr, 0);
-	if (nWide > 1)
-	{
-		std::wstring ws(static_cast<size_t>(nWide), L'\0');
-		if (::MultiByteToWideChar(CP_UTF8, 0, sPath.c_str(), -1, &ws[0], nWide) > 0)
-		{
-			ws.resize(static_cast<size_t>(nWide - 1));
-			HANDLE hFile = ::CreateFileW(ws.c_str(), GENERIC_READ,
-				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-				nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-			if (hFile != INVALID_HANDLE_VALUE)
-			{
-				char magic[2] = { 0, 0 };
-				DWORD dwRead = 0;
-				BOOL bRead = ::ReadFile(hFile, magic, 2, &dwRead, nullptr);
-				::CloseHandle(hFile);
-				if (bRead && dwRead == 2 && magic[0] == 'M' && magic[1] == 'Z')
-					return true;
-			}
-		}
-	}
-	return false;
-}
-
 void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProcess, Event eEventType, const std::string& sProcPath)
 {
 	// Requirement 1 & 3: Only UNKNOWN or Threat events undergo deep static scan!
@@ -3210,8 +3151,6 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 			}
 		}
 
-		const bool bPriorityPayload = isProc || isScannablePayload(dos);
-
 		// Process executable images only need evaluation at process creation or when unknown;
 		// do not rescan the already running process image on routine sub-events!
 		if (isProc && eEventType != Event::LLE_PROCESS_CREATE && cachedVerdict != 0)
@@ -3220,8 +3159,9 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		}
 
 		// A. Synchronous scan (ClamAV, YARA-X, ML, Signer, EICAR)
-		// Payload files are scanned inline before the event is emitted.
-		// Unknown files are deferred to a background rescan so the inline path stays short.
+		// Everything except the mid-write file events is scanned inline, before the
+		// event is emitted. A file that is being written right now has no final
+		// content yet, so those fall through to the async rescan below.
 		const bool bDeferredFileEvent = !isProc &&
 			(eEventType == Event::LLE_FILE_CREATE ||
 			 eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
@@ -3229,13 +3169,13 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 
 		std::string sThreat;
 		int r = 0;
-		if (!bDeferredFileEvent && bPriorityPayload)
+		if (!bDeferredFileEvent)
 			r = DetectionNotifier::scanFileWithLocalEngines(dos, sThreat);
 
-		// Rescan race / Deferred scans:
-		// Priority payloads mid-write AND non-priority unknown files are queued for
-		// background rescan so ALL unknown files are STILL 100% SCANNED!
-		if (r == 0 && (bDeferredFileEvent || !bPriorityPayload ||
+		// Rescan race / Deferred scans: an inline scan that comes back Unknown
+		// (0 bytes, or locked at Create) needs one re-read once the writer is done,
+		// so a locked or empty file is never left unscanned.
+		if (r == 0 && (bDeferredFileEvent ||
 			eEventType == Event::LLE_FILE_CLOSE))
 		{
 			std::error_code ec;
@@ -3691,25 +3631,7 @@ void EventEnricher::finalConstruct(Variant vConfig)
 			Dictionary({ {"command", pCmdReceiver} })));
 	}
 
-	if (vConfig.isDictionaryLike())
-	{
-		Variant vExts = vConfig.get("priorityExtensions", vConfig.get("scannableExtensions", {}));
-		if (vExts.getType() == variant::ValueType::Sequence && vExts.getSize() > 0)
-		{
-			s_priorityExtensions.clear();
-			for (size_t i = 0; i < vExts.getSize(); ++i)
-			{
-				std::string ext = vExts[i];
-				if (!ext.empty())
-				{
-					if (ext[0] != '.') ext = "." + ext;
-					for (auto& c : ext) c = (char)::tolower((unsigned char)c);
-					s_priorityExtensions.insert(ext);
-				}
-			}
-		}
-	}
-	
+		
 	std::scoped_lock _lock(m_mtxQueue);
 	if (m_threadPool.getThreadsCount() == 0)
 		m_threadPool.addThreads(1);
@@ -4828,57 +4750,18 @@ void EventEnricher::processQueueEvent()
 		if (pProvider == nullptr)
 			error::InvalidArgument(SL, "Provider interface is undefined").throwException();
 
-		// Drain available events in batches and prioritize into queues
-		for (int i = 0; i < 64; ++i)
-		{
-			auto vOptEvent = pProvider->get();
-			if (!vOptEvent)
-				break;
-
-			bool bUnknown = isUnknownOrThreatEvent(vOptEvent.value());
-			std::scoped_lock lock(m_mtxPriorityQueues);
-			if (bUnknown)
-			{
-				m_unknownQueue.push_back(std::move(vOptEvent.value()));
-			}
-			else
-			{
-				// No cap here on purpose. This fills up to 64 events per call and
-				// drains one, so any cap drops events that output_events then never
-				// shows - the log and the stream just go quiet with nothing to show
-				// for it. The size limit that used to sit here is gone; backpressure
-				// belongs on the put() side, not on discarding.
-				m_benignQueue.push_back(std::move(vOptEvent.value()));
-			}
-		}
-
-		// Events leave the enricher in arrival order.
+		// One event in, one event out, in arrival order.
 		//
-		// This used to hold unknown events back only for Benign ones, ten to one, on
-		// the grounds that unknown matters more. That stalled output_events: a burst of
-		// unknown events (a scan storm, or one process loading many modules) could sit
-		// ahead of benign events indefinitely, so the stream looked frozen while the
-		// enricher was busy. Unknown still gets scanned and still gets reported; the
-		// split only decided when, not what, so the queues drain in order instead.
-		Variant nextEvent;
-		{
-			std::scoped_lock lock(m_mtxPriorityQueues);
-			if (!m_unknownQueue.empty())
-			{
-				nextEvent = std::move(m_unknownQueue.front());
-				m_unknownQueue.pop_front();
-			}
-			else if (!m_benignQueue.empty())
-			{
-				nextEvent = std::move(m_benignQueue.front());
-				m_benignQueue.pop_front();
-			}
-		}
-
-		if (!nextEvent.isEmpty())
-		{
-			put(nextEvent);
-		}
+		// This is the shape from before d9d8dd218, restored on purpose. That commit
+		// added two staging queues (Unknown and Benign) drained under a ratio, and
+		// 497d8bcc6 turned the ratio into ten-to-one. Under load the staging queues
+		// absorbed up to 64 events per call while only one left per call, and the
+		// ratio then held Benign events back behind the Unknown backlog, so
+		// output_events went quiet while the enricher was still busy. There is no
+		// backlog here to starve anything: the provider queue is the only queue.
+		auto vEvent = pProvider->get();
+		if (vEvent)
+			put(vEvent.value());
 	}
 	CMD_PREPARE_CATCH
 	catch (error::Exception& e)
@@ -4890,7 +4773,6 @@ void EventEnricher::processQueueEvent()
 		error::RuntimeError(SL, "Fail to parse event from queue").log();
 	}
 }
-
 //
 //
 //

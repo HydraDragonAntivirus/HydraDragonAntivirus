@@ -1434,9 +1434,6 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		}
 	}
 
-	// Comprehensive executable checker: checks priority executable/script extensions + MZ magic header for extensionless/renamed payloads
-	bool isExecutable = EventEnricher::isScannablePayload(sUtf8Path);
-
 	int verdict = 0;
 	bool cloudEnabled = s_enableCloud.load(std::memory_order_relaxed);
 	bool preferCloud = s_cloudFirst.load(std::memory_order_relaxed);
@@ -1448,7 +1445,7 @@ int DetectionNotifier::scanFileWithLocalEngines(const std::string& sUtf8Path, st
 		// Offline mode: openedr_static runs without cloud and without trusting cloud scores
 		verdict = staticScanVerdictName(sUtf8Path, sThreatNameOut);
 	}
-	else if (isExecutable && preferCloud)
+	else if (preferCloud)
 	{
 		// 1. Check Comodo Cloud FLS first
 		std::string sHash = sha1HexOfFileUtf8(sUtf8Path);
