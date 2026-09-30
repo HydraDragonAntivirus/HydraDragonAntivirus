@@ -30,8 +30,8 @@ $source = Join-Path (Split-Path $crate) "rust-driver-makefile.toml"
 if (-not (Test-Path $source)) { throw "rust-driver-makefile.toml not found at $source" }
 New-Item -ItemType Directory -Force -Path "target" | Out-Null
 $dest = "target\rust-driver-makefile.toml"
-if (Test-Path -PathType Leaf $dest) { Remove-Item $dest -Force }
-New-Item -ItemType SymbolicLink -Path $dest -Target $source -Force
+if (Test-Path $dest) { Remove-Item $dest -Force }
+Copy-Item -Path $source -Destination $dest -Force
 Write-Host "staged driver/target/rust-driver-makefile.toml from $source"
 '''
 

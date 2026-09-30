@@ -89,8 +89,8 @@ jobs:
           $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
           $destFile = "target\rust-driver-makefile.toml"
           if (Test-Path $sourceFile) {
-            if (Test-Path -PathType Leaf $destFile) { Remove-Item $destFile -Force }
-            New-Item -ItemType SymbolicLink -Path $destFile -Target $sourceFile -Force
+            if (Test-Path $destFile) { Remove-Item $destFile -Force }
+            Copy-Item -Path $sourceFile -Destination $destFile -Force
           }
       - name: Build Driver (Debug)
         working-directory: Sanctum
