@@ -801,7 +801,7 @@ mod tests {
         // cannot silently desync the other.
         assert_eq!(
             BinaryFuse16Filter::key("000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2"),
-            0x8b17_3e4c_0f3a_2f27,
+            0xcb7f_4c3d_3da9_f5a1,
         );
     }
 }

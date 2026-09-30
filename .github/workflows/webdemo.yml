@@ -37,7 +37,7 @@ jobs:
           test -f "$WASM" || { echo "missing $WASM"; find OpenEDR/openedr_web/target -name '*.wasm' 2>/dev/null; exit 1; }
           rm -rf _site && mkdir -p _site
           cp -r docs/* _site/
-          mkdir -p _site/webdemo/models _site/webdemo/hash_rules _site/webdemo/xorfilter_rules _site/webdemo/vendor
+          mkdir -p _site/webdemo/models _site/webdemo/xorfilter_rules _site/webdemo/vendor
           cp OpenEDR/openedr_web/www/index.html OpenEDR/openedr_web/www/app.js _site/webdemo/
           cp OpenEDR/openedr_web/www/vendor/README.txt _site/webdemo/vendor/
           cp "$WASM" _site/webdemo/openedr_web.wasm
@@ -53,14 +53,16 @@ jobs:
               echo "skip missing models/$f"
             fi
           done
-          # XOR filter rules (.xf)
+          # XOR filter rules (.xf). `xorfilter_rules/` is the only home for these:
+          # the web demo fetches `xorfilter_rules/<name>.xf` and openedr_static
+          # loads `xorfilter_rules/benign_sha256.xf`. No hash_rules/ fallback.
           for f in url_whitelist.xf benign_sha256.xf; do
             if [ -f "OpenEDR/openedr_web/www/xorfilter_rules/$f" ]; then
               cp "OpenEDR/openedr_web/www/xorfilter_rules/$f" _site/webdemo/xorfilter_rules/
             elif [ -f "docs/xorfilter_rules/$f" ]; then
               cp "docs/xorfilter_rules/$f" _site/webdemo/xorfilter_rules/
-            elif [ -f "OpenMalwareScannerPortable/models/$f" ]; then
-              cp "OpenMalwareScannerPortable/models/$f" _site/webdemo/xorfilter_rules/
+            elif [ -f "OpenMalwareScannerPortable/xorfilter_rules/$f" ]; then
+              cp "OpenMalwareScannerPortable/xorfilter_rules/$f" _site/webdemo/xorfilter_rules/
             else
               echo "skip missing xorfilter_rules/$f"
             fi

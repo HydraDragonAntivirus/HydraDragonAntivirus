@@ -1,17 +1,24 @@
 """Build the SHA-256 benign whitelist.
 
-New workflow (txt is gitignored, .xf is tracked):
+Workflow (txt is gitignored, .xf is tracked):
   1. This script hashes the benign corpora into a LOCAL temp .txt
-     (never committed — see **/benign_sha256.txt in .gitignore).
+     (never committed - see **/benign_sha256.txt in .gitignore).
   2. Build the BinaryFuse16 filter (~29x smaller: 17 MB txt -> 0.6 MB xf):
        cargo run -p xorfilter_writer --release -- benign_sha256.txt benign_sha256.xf
   3. Copy the .xf to every tracked location (see XF_OUTPUT_FILES below)
-     and `git add` them. The desktop engine (openedr_static) and the web
-     demo (openedr_web) both load the .xf — no .txt path remains.
+     and `git add` them.
 
-Legacy: the old script wrote benign_sha256.txt into 4 tracked locations
-(68 MB total). Those files are deleted; the engine keeps a transient
-.txt->xf in-memory fallback only so old installs don't break.
+The .txt is ONE bare lowercase SHA-256 hex digest per line - no signer prefix.
+That is what makes the same .xf usable by both consumers, which each fold the
+key the same way (FNV-1a-64 over the ASCII-lowercased bytes):
+  - openedr_web   -> web_load_benign_whitelist -> is_benign(sha256_hex)
+  - openedr_static-> SignerDb::is_benign(sha256_hex), loaded from
+                     xorfilter_rules/benign_sha256.xf at init
+
+Both are BinaryFuse16 (tag 16, version 2), so one build serves both.
+
+`xorfilter_rules/` is the ONLY home for a .xf. The old hash_rules/ and
+database/ destinations were removed with the hash-only layouts they served.
 """
 import os
 import hashlib
@@ -31,13 +38,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TMP_TXT = os.path.join(HERE, ".benign_sha256.build.txt")
 TMP_XF = os.path.join(HERE, ".benign_sha256.build.xf")
 
-# Tracked .xf destinations (web demo + portable runtime; NOTE: openedr_static
-# does NOT use a benign whitelist — no static destinations here).
+# Tracked .xf destinations. Every one of these is under xorfilter_rules/.
 XF_OUTPUT_FILES = [
     os.path.join(HERE, "OpenEDR", "openedr_web", "www", "xorfilter_rules", "benign_sha256.xf"),
-    os.path.join(HERE, "OpenEDR", "openedr_web", "www", "hash_rules", "benign_sha256.xf"),
-    os.path.join(HERE, "OpenMalwareScannerPortable", "hash_rules", "benign_sha256.xf"),
-    os.path.join(HERE, "OpenMalwareScannerPortable", "database", "benign_sha256.xf"),
     os.path.join(HERE, "OpenMalwareScannerPortable", "xorfilter_rules", "benign_sha256.xf"),
     os.path.join(HERE, "docs", "xorfilter_rules", "benign_sha256.xf"),
 ]
