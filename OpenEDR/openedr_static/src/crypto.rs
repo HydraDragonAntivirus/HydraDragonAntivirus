@@ -77,43 +77,55 @@ fn is_unicoll_pair(a: &[u8], b: &[u8]) -> bool {
     xor_words_equal_except(a, b, &[(8, 0x8000_0000)])
 }
 
-/// Real HashClash collision blocks look random (high entropy). Installer
-/// binaries contain long zero / 0xFF padding runs where 15 equal words +
-/// a single high-bit flip happens by chance (e.g. 64x 0x00 next to
-/// 32x 0x00 + 0x80000000 + 28x 0x00 at offset 7816704 of a 72MB
-/// installer). Gate the differential match on block plausibility so
-/// such padding is never reported as a collision attack.
+/// Real HashClash collision blocks look random (high entropy > 5.2 bits/byte).
+/// Machine code in compiled binaries (e.g. GCC/Clang template instantiations in
+/// filec.exe or Free Pascal in lazarus.exe) frequently contains adjacent 64-byte
+/// functions that differ by exactly 128 bytes in a 32-bit RIP-relative displacement
+/// (matching δM8 = 2^31 by pure chance). Also, zero/0xFF padding in installers
+/// can trigger 15-word equality. Gate on high entropy, distinct byte density,
+/// and absence of repetitive machine code structures so compiled code is never
+/// falsely reported as a cryptographic collision attack.
 fn plausible_block(block: &[u8]) -> bool {
     debug_assert!(block.len() == 64);
-    // At least 25% non-zero bytes (random block: ~63.75).
+    // At least 50% non-zero bytes (random block: ~63.75).
     let nonzero = block.iter().filter(|&&b| b != 0).count();
-    if nonzero < 16 {
+    if nonzero < 32 {
         return false;
     }
-    // At least 16 distinct byte values (random block: ~57).
-    // Sort-free distinct count over 256 values.
-    let mut seen = [false; 256];
+    // At least 40 distinct byte values (random block: ~57, machine code: usually < 35).
+    let mut freq = [0u8; 256];
     let mut distinct = 0usize;
     for &b in block {
-        if !seen[b as usize] {
-            seen[b as usize] = true;
+        if freq[b as usize] == 0 {
             distinct += 1;
         }
+        freq[b as usize] += 1;
     }
-    if distinct < 16 {
+    if distinct < 40 {
+        return false;
+    }
+    // Minimum Shannon entropy of 5.0 bits/byte (random block: ~5.5-5.9; machine code with repeated opcodes: < 4.8).
+    let mut entropy = 0.0f32;
+    for &c in &freq {
+        if c > 0 {
+            let p = (c as f32) / 64.0;
+            entropy -= p * p.log2();
+        }
+    }
+    if entropy < 5.0 {
         return false;
     }
     // Bit population away from extremes (random block: ~256).
     let pop: u32 = block.iter().map(|b| b.count_ones()).sum();
-    if pop < 64 || pop > 448 {
+    if pop < 128 || pop > 384 {
         return false;
     }
-    // No long run of a single repeated byte (random block: never 16x).
+    // No long run of a single repeated byte (random block: never >= 8x).
     let mut run = 1usize;
     for w in block.windows(2) {
         if w[0] == w[1] {
             run += 1;
-            if run >= 16 {
+            if run >= 8 {
                 return false;
             }
         } else {
@@ -294,6 +306,22 @@ mod tests {
     #[test]
     fn random_bytes_clean() {
         let data = (0u8..200).collect::<Vec<_>>();
+        assert!(detect_md5_collision(&data).is_none());
+    }
+
+    /// Regression: filec.exe (File Centipede) and lazarus.exe (Free Pascal)
+    /// contain aligned compiler-generated template / inline functions where
+    /// RIP-relative displacements differ by 128 bytes (word 8, 2^31 bit).
+    /// Machine code must NOT be reported as a HashClash collision attack.
+    #[test]
+    fn compiler_machine_code_unicoll_rejected() {
+        // filec.exe offset 0x814B8
+        let a = hex::decode("0f1f8400000000004585c074134183f801741d4183f802741f31c0c30f1f4000488d0569cc920048890131c0c30f1f0031c0488911c36690488b02488901ebd9").unwrap();
+        let b = hex::decode("0f1f8400000000004585c074134183f801741d4183f802741f31c0c30f1f4000488d05e9cc920048890131c0c30f1f0031c0488911c36690488b02488901ebd9").unwrap();
+        assert!(is_unicoll_pair(&a, &b));
+        assert!(!plausible_pair(&a, &b));
+        let mut data = a;
+        data.extend_from_slice(&b);
         assert!(detect_md5_collision(&data).is_none());
     }
 }
