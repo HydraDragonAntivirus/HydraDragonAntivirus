@@ -1,0 +1,61 @@
+name: Build OpenEDR Static DLL
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths:
+      - 'OpenEDR/openedr_static/**'
+      - 'hydradragonsig/**'
+      - 'hydradragonunicorn/**'
+      - 'pefile-rs/**'
+      - 'hayabusa/**'
+      - '.github/workflows/openedr-static.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'OpenEDR/openedr_static/**'
+      - '.github/workflows/openedr-static.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows x64 DLL
+    runs-on: windows-latest
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "OpenEDR/openedr_static -> target"
+
+      - name: Build openedr_static (Release)
+        working-directory: OpenEDR/openedr_static
+        run: cargo build --release --verbose
+
+      - name: Upload openedr_static DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openedr_static-windows-x64
+          path: |
+            OpenEDR/openedr_static/target/release/openedr_static.dll
+            OpenEDR/openedr_static/target/release/openedr_static.lib
+          if-no-files-found: error
+          retention-days: 30
