@@ -16,10 +16,30 @@ description = "Build the usermode client for Sanctum."
 command = "cargo"
 args = ["build", "--release", "-p", "um_engine"]
 
+[tasks.stage-driver-makefile]
+description = "Create a symlink to rust-driver-makefile.toml from the wdk-build crate into driver/target/."
+script_runner = "@powershell"
+cwd = "driver"
+script = '''
+$ErrorActionPreference = "Stop"
+$crate = (cargo metadata --format-version 1 | ConvertFrom-Json).packages |
+    Where-Object { $_.name -eq "wdk-build" } |
+    Select-Object -First 1 -ExpandProperty manifest_path
+if (-not $crate) { throw "wdk-build crate not found in cargo metadata" }
+$source = Join-Path (Split-Path $crate) "rust-driver-makefile.toml"
+if (-not (Test-Path $source)) { throw "rust-driver-makefile.toml not found at $source" }
+New-Item -ItemType Directory -Force -Path "target" | Out-Null
+$dest = "target\rust-driver-makefile.toml"
+if (Test-Path -PathType Leaf $dest) { Remove-Item $dest -Force }
+New-Item -ItemType SymbolicLink -Path $dest -Target $source -Force
+Write-Host "staged driver/target/rust-driver-makefile.toml from $source"
+'''
+
 [tasks.build-driver]
 description = "Build and package the Sanctum kernel driver."
 workspace = false
 cwd = "driver"
+dependencies = ["stage-driver-makefile"]
 env = { CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = false, CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY = "${CARGO_MAKE_WORKING_DIRECTORY}/driver" }
 command = "cargo"
 args = ["make", "default"]
@@ -28,6 +48,7 @@ args = ["make", "default"]
 description = "Build and package the Sanctum kernel driver in release mode."
 workspace = false
 cwd = "driver"
+dependencies = ["stage-driver-makefile"]
 env = { CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = false, CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY = "${CARGO_MAKE_WORKING_DIRECTORY}/driver" }
 command = "cargo"
 args = ["make", "release"]

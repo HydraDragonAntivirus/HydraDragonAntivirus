@@ -1,34 +1,30 @@
 extend = "target/rust-driver-makefile.toml"
 
+# target/rust-driver-makefile.toml must be a symlink to the copy inside the wdk-build crate
+# so that `path = "."` dependencies inside that makefile resolve to the wdk-build crate.
+# We create the symlink via PowerShell to avoid invoking rust-script, which compiles heavy
+# dependencies and triggers MSVC 'LNK1104: cannot open file' in CI environments.
 [config]
-# Do not remove this load_script.
-#
-# It is not a plain file copy: load_rust_driver_makefile() creates a *symlink*
-# from target/rust-driver-makefile.toml to the copy that ships in the wdk-build
-# crate. That symlink is load bearing. Every script in the linked makefile
-# declares its dependency as
-#
-#     wdk-build = { path = ".", version = "0.5.1" }
-#
-# so `path = "."` only resolves to the wdk-build crate while the makefile is a
-# symlink into it. Stage the file with a plain copy - which is what this file
-# used to be preceded by in CI - and the build fails with
-#
-#     error: no matching package named `wdk-build` found
-#     location searched: ...\Sanctum\driver\target
-#
-# The function also repairs a bad or stale target/rust-driver-makefile.toml:
-# if the destination exists but is not a symlink to the right file, it removes
-# the destination and relinks it.
-load_script = '''
-#!@rust
-//! ```cargo
-//! [dependencies]
-//! wdk-build = "0.5.1"
-//! ```
-#![allow(unused_doc_comments)]
+load_script = [
+    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (-not (Test-Path 'target\\rust-driver-makefile.toml')) { $crate = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq 'wdk-build' } | Select-Object -First 1 -ExpandProperty manifest_path; if ($crate) { $src = Join-Path (Split-Path $crate) 'rust-driver-makefile.toml'; New-Item -ItemType Directory -Force -Path 'target' | Out-Null; $dest = 'target\\rust-driver-makefile.toml'; if (Test-Path -PathType Leaf $dest) { Remove-Item $dest -Force }; New-Item -ItemType SymbolicLink -Path $dest -Target $src -Force; Write-Host 'Symlinked $dest -> $src' } }\""
+]
 
-wdk_build::cargo_make::load_rust_driver_makefile()?
+[tasks.stage-driver-makefile]
+description = "Create a symlink to rust-driver-makefile.toml from the wdk-build crate into target/."
+script_runner = "@powershell"
+script = '''
+$ErrorActionPreference = "Stop"
+$crate = (cargo metadata --format-version 1 | ConvertFrom-Json).packages |
+    Where-Object { $_.name -eq "wdk-build" } |
+    Select-Object -First 1 -ExpandProperty manifest_path
+if (-not $crate) { throw "wdk-build crate not found in cargo metadata" }
+$source = Join-Path (Split-Path $crate) "rust-driver-makefile.toml"
+if (-not (Test-Path $source)) { throw "rust-driver-makefile.toml not found at $source" }
+New-Item -ItemType Directory -Force -Path "target" | Out-Null
+$dest = "target\rust-driver-makefile.toml"
+if (Test-Path -PathType Leaf $dest) { Remove-Item $dest -Force }
+New-Item -ItemType SymbolicLink -Path $dest -Target $source -Force
+Write-Host "staged target\rust-driver-makefile.toml from $source"
 '''
 
 [tasks.release]
