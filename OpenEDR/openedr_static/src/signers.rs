@@ -40,11 +40,29 @@ pub struct SignerDb {
     trusted: Vec<PatternItem>,
     malicious: Vec<PatternItem>,
     pua: Vec<PatternItem>,
+    /// Signer+hash benign whitelist. Owned by the signer side on purpose: the
+    /// whitelist is only meaningful together with the certificate subject, and
+    /// the signer is already extracted here.
+    benign: Option<BinaryFuse16Filter>,
 }
+
+/// File name of the signer+hash benign whitelist inside the rule directories.
+pub const BENIGN_XF: &str = "benign_sha256.xf";
+
+/// Separator between the signer display name and the SHA-256 in a whitelist
+/// key. `|` cannot appear in a hex digest and is not emitted by
+/// `CertGetNameStringW(CERT_NAME_SIMPLE_DISPLAY_TYPE)` output for the vendors we
+/// ship, so a key cannot be forged by moving characters between the two fields.
+pub const BENIGN_KEY_SEP: char = '|';
 
 impl SignerDb {
     pub fn pattern_counts(&self) -> (usize, usize, usize) {
         (self.trusted.len(), self.malicious.len(), self.pua.len())
+    }
+
+    /// True when a signer+hash whitelist was loaded and can answer queries.
+    pub fn benign_loaded(&self) -> bool {
+        self.benign.is_some()
     }
 
     pub fn load_from_dir(dir: &Path) -> Self {
@@ -57,6 +75,58 @@ impl SignerDb {
         db.malicious = Self::load_file(&dir.join("malicious_vendors.yaml"));
         db.pua = Self::load_file(&dir.join("pua_vendors.yaml"));
         db
+    }
+
+    /// Load the signer+hash benign whitelist from `xorfilter_rules/benign_sha256.xf`.
+    ///
+    /// Returns `false` when the file is missing or is not a valid filter; the
+    /// whitelist then simply stays disabled, which is not an error — an install
+    /// built without a corpus ships no `.xf`.
+    pub fn load_benign_whitelist(&mut self, xf_path: &Path) -> bool {
+        let Ok(bytes) = std::fs::read(xf_path) else {
+            return false;
+        };
+        match BinaryFuse16Filter::from_bytes(&bytes) {
+            Some(f) => {
+                self.benign = Some(f);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Install a filter loaded from bytes at runtime (FFI parity with the web
+    /// engine, which receives the `.xf` over `wasm-bindgen`).
+    pub fn set_benign_whitelist(&mut self, data: &[u8]) -> bool {
+        match BinaryFuse16Filter::from_bytes(data) {
+            Some(f) => {
+                self.benign = Some(f);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Signer+hash whitelist hit.
+    ///
+    /// The key is `<signer>|<sha256>`, so a hit requires BOTH the exact
+    /// certificate subject and the exact file content: reusing a whitelisted
+    /// hash under a different publisher (or a whitelisted publisher over
+    /// tampered content) does not match. Both halves are folded to lowercase by
+    /// `BinaryFuse16Filter::key`, so signer casing and hex casing cannot cause a
+    /// miss.
+    ///
+    /// An absent signer yields an empty left half, which is exactly the key the
+    /// builder writes for an unsigned corpus file (`|<sha256>`) — unsigned files
+    /// are therefore still whitelisted, and only unsigned files can match them.
+    pub fn is_benign(&self, signer: Option<&str>, sha256_hex: &str) -> bool {
+        if sha256_hex.is_empty() {
+            return false;
+        }
+        match &self.benign {
+            Some(f) => f.contains(&benign_key(signer, sha256_hex)),
+            None => false,
+        }
     }
 
     fn load_file(path: &Path) -> Vec<PatternItem> {
@@ -118,6 +188,130 @@ impl SignerDb {
             }
         }
         false
+    }
+}
+
+/// The whitelist key for one file: `<signer>|<sha256>`.
+///
+/// A missing/empty signer becomes an empty left half (`|<sha256>`) rather than
+/// being skipped, so the builder and the query agree on unsigned corpus files.
+pub fn benign_key(signer: Option<&str>, sha256_hex: &str) -> String {
+    let mut key = String::with_capacity(sha256_hex.len() + 48);
+    if let Some(s) = signer {
+        key.push_str(s.trim());
+    }
+    key.push(BENIGN_KEY_SEP);
+    key.push_str(sha256_hex);
+    key
+}
+
+/// Self-contained BinaryFuse16 filter (web parity, zero deps).
+///
+/// Same on-disk format and query path as `hydradragonxorfilter` and as
+/// `openedr_web::engine::BinaryFuse16Filter` (tag 16, version 2, FNV-1a
+/// lowercased key): a `.xf` built offline with `xorfilter_writer` loads here
+/// byte-for-byte. Kept inline so `openedr_static` builds with plain
+/// `cargo build` — no AES/SSE2 RUSTFLAGS (the shared crate pulls `gxhash`,
+/// which requires them).
+#[derive(Clone)]
+pub struct BinaryFuse16Filter {
+    seed: u64,
+    seg_len: u32,
+    seg_len_mask: u32,
+    seg_count_len: u32,
+    count: usize,
+    fingerprints: Vec<u16>,
+}
+
+impl std::fmt::Debug for BinaryFuse16Filter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BinaryFuse16Filter")
+            .field("count", &self.count)
+            .finish_non_exhaustive()
+    }
+}
+
+impl BinaryFuse16Filter {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 32 || bytes[0] != 16 || bytes[1] != 2 {
+            return None;
+        }
+        let seed = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
+        let seg_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?);
+        let seg_len_mask = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
+        let seg_count_len = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
+        let count = usize::try_from(u64::from_le_bytes(bytes[24..32].try_into().ok()?)).ok()?;
+        if 32 + count.checked_mul(2)? > bytes.len() {
+            return None;
+        }
+        let mut fingerprints = Vec::with_capacity(count);
+        for i in 0..count {
+            let off = 32 + i * 2;
+            fingerprints.push(u16::from_le_bytes([bytes[off], bytes[off + 1]]));
+        }
+        Some(Self {
+            seed,
+            seg_len,
+            seg_len_mask,
+            seg_count_len,
+            count,
+            fingerprints,
+        })
+    }
+
+    /// Number of `u16` fingerprints in the filter (≈ keys × 1.23).
+    pub fn len(&self) -> usize {
+        self.count
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    pub fn contains(&self, s: &str) -> bool {
+        let k = Self::key(s);
+        let hash = Self::mix64(k.wrapping_add(self.seed));
+        let f = hash as u16;
+        let (h0, h1, h2) = Self::hash_of_hash(hash, self.seg_len, self.seg_len_mask, self.seg_count_len);
+        let c = self.count;
+        if h0 as usize >= c || h1 as usize >= c || h2 as usize >= c {
+            return false;
+        }
+        let fp = self.fingerprints[h0 as usize] ^ self.fingerprints[h1 as usize] ^ self.fingerprints[h2 as usize];
+        f ^ fp == 0
+    }
+
+    /// FNV-1a-64 over the ASCII-lowercased bytes. Deterministic and platform
+    /// independent, and case-insensitive so signer/hex casing can never cause a
+    /// miss.
+    #[inline(always)]
+    fn key(s: &str) -> u64 {
+        const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+        const PRIME: u64 = 0x0000_0100_0000_01b3;
+        let mut h = OFFSET;
+        for b in s.bytes() {
+            h ^= b.to_ascii_lowercase() as u64;
+            h = h.wrapping_mul(PRIME);
+        }
+        h
+    }
+
+    #[inline(always)]
+    fn mix64(k: u64) -> u64 {
+        const MIX_C1: u64 = 0xff51_afd7_ed55_8ccd;
+        let r = (k as u128).wrapping_mul(MIX_C1 as u128);
+        (r ^ (r >> 64)) as u64
+    }
+
+    #[inline(always)]
+    fn hash_of_hash(hash: u64, seg_len: u32, seg_len_mask: u32, seg_count_len: u32) -> (u32, u32, u32) {
+        let hi = ((hash as u128 * seg_count_len as u128) >> 64) as u64;
+        let h0 = hi as u32;
+        let mut h1 = h0 + seg_len;
+        let mut h2 = h1 + seg_len;
+        h1 ^= ((hash >> 18) as u32) & seg_len_mask;
+        h2 ^= (hash as u32) & seg_len_mask;
+        (h0, h1, h2)
     }
 }
 
@@ -547,4 +741,106 @@ unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
 #[cfg(not(windows))]
 pub fn verify_authenticode(_path: &Path) -> (bool, bool, Option<String>, String, bool) {
     (false, false, None, "unsupported_platform".to_string(), false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A hand-built BinaryFuse16 image that contains exactly one key.
+    ///
+    /// With `seg_count_len = 1` and `seg_len_mask = 0` the three slots always
+    /// resolve to indices 0, 1 and 2, so storing the key's fingerprint in slot 0
+    /// and zeroing the other two makes `contains()` true for that key alone.
+    /// Building it here keeps the test independent of any shipped `.xf`.
+    fn one_key_filter(item: &str) -> Vec<u8> {
+        const SEED: u64 = 0x0123_4567_89ab_cdef;
+        let fingerprint = BinaryFuse16Filter::mix64(
+            BinaryFuse16Filter::key(item).wrapping_add(SEED),
+        ) as u16;
+
+        let mut bytes = Vec::with_capacity(32 + 6);
+        bytes.push(16); // tag
+        bytes.push(2); // version
+        bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&SEED.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // seg_len
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // seg_len_mask
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // seg_count_len
+        bytes.extend_from_slice(&3u64.to_le_bytes()); // count
+        bytes.extend_from_slice(&fingerprint.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn filter_rejects_garbage_headers() {
+        assert!(BinaryFuse16Filter::from_bytes(b"").is_none());
+        assert!(BinaryFuse16Filter::from_bytes(b"nope").is_none());
+        assert!(BinaryFuse16Filter::from_bytes(&[16u8, 2, 0, 0]).is_none());
+        // Right tag/version but a fingerprint count that runs past the buffer.
+        let mut truncated = vec![0u8; 32];
+        truncated[0] = 16;
+        truncated[1] = 2;
+        truncated[24..32].copy_from_slice(&16u64.to_le_bytes());
+        assert!(BinaryFuse16Filter::from_bytes(&truncated).is_none());
+    }
+
+    #[test]
+    fn filter_round_trips_one_key_and_is_case_insensitive() {
+        let hash = "000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2";
+        let key = benign_key(Some("Microsoft Corporation"), hash);
+        let f = BinaryFuse16Filter::from_bytes(&one_key_filter(&key)).expect("must parse");
+
+        assert_eq!(f.len(), 3);
+        assert!(!f.is_empty());
+        assert!(f.contains(&key));
+        // Case folding: neither half of the key is case sensitive.
+        assert!(f.contains(&benign_key(
+            Some("MICROSOFT CORPORATION"),
+            &hash.to_ascii_uppercase()
+        )));
+
+        // Different signer, same hash -> miss. Same signer, different hash -> miss.
+        assert!(!f.contains(&benign_key(Some("Contoso Ltd"), hash)));
+        assert!(!f.contains(&benign_key(Some("Microsoft Corporation"), "aa".repeat(32).as_str())));
+        // Unsigned key does not match a signed whitelist entry.
+        assert!(!f.contains(&benign_key(None, hash)));
+    }
+
+    #[test]
+    fn benign_key_shape_is_stable_and_never_collides() {
+        assert_eq!(
+            benign_key(Some("Microsoft Corporation"), "aabb"),
+            "Microsoft Corporation|aabb"
+        );
+        // Unsigned: empty left half, exactly what the builder writes.
+        assert_eq!(benign_key(None, "aabb"), "|aabb");
+        assert_eq!(benign_key(Some("   "), "aabb"), "|aabb");
+        // The split is unambiguous because the right half is always a hex digest,
+        // which cannot contain the separator.
+        let digest = "000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2";
+        assert!(!digest.contains(BENIGN_KEY_SEP));
+        assert_eq!(benign_key(Some("A"), digest).matches(BENIGN_KEY_SEP).count(), 1);
+    }
+
+    #[test]
+    fn missing_filter_or_empty_sha256_never_whitelists() {
+        let mut db = SignerDb::default();
+        assert!(!db.benign_loaded());
+        assert!(!db.is_benign(Some("Microsoft Corporation"), "aabb"));
+        assert!(!db.set_benign_whitelist(b"not a filter"));
+        assert!(!db.is_benign(None, ""));
+
+        let hash = "000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2";
+        assert!(db.set_benign_whitelist(&one_key_filter(&benign_key(
+            Some("Microsoft Corporation"),
+            hash
+        ))));
+        assert!(db.benign_loaded());
+        assert!(db.is_benign(Some("Microsoft Corporation"), hash));
+        assert!(!db.is_benign(None, hash));
+        assert!(!db.is_benign(Some("Microsoft Corporation"), ""));
+    }
 }

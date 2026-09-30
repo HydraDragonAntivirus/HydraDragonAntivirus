@@ -60,6 +60,7 @@ impl StaticEngine {
     /// - `yara_rules/` for YARA (.yar, .yara, .yrc)
     /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, apk_trees.bin, *.onnx)
     /// - `signer_rules/` for trusted_signers.yaml, etc.
+    /// - `xorfilter_rules/` for benign_sha256.xf (signer+hash benign whitelist)
     /// - `hydradragonsig_rules/` for hydradragonsig string-rule YAML (in-scan HydraSig layer)
     /// - `ptm.local.src` or `ptm/` for PUA registry patterns
     pub fn init(base_dir: &Path) -> Self {
@@ -115,6 +116,7 @@ impl StaticEngine {
             base.join("hayabusa_rules")
         };
         let signers_dir = base.join("signer_rules");
+        let xf_dir = base.join("xorfilter_rules");
 
         // These loads are independent of each other and each of them is
         // slow enough to dominate: measured at ~72s in total on a 2-core VM,
@@ -133,7 +135,21 @@ impl StaticEngine {
             let h_clam = s.spawn(|| timed!("clam", ClamScanner::new(&database_dir)));
             let h_yara = s.spawn(|| timed!("yara", YaraScanner::new(&rules_dir)));
             let h_ml = s.spawn(|| timed!("ml_models", MlScanner::new(&models_dir)));
-            let h_signers = s.spawn(|| timed!("signer_rules", SignerDb::load_from_dir(&signers_dir)));
+            let h_signers = s.spawn(|| {
+                timed!("signer_rules", {
+                    let mut db = SignerDb::load_from_dir(&signers_dir);
+                    let benign_path = xf_dir.join(crate::signers::BENIGN_XF);
+                    if db.load_benign_whitelist(&benign_path) {
+                        diagnostics::log(
+                            "init-step",
+                            "benign_whitelist=loaded (signer+sha256 keys)",
+                        );
+                    } else {
+                        diagnostics::log("init-step", "benign_whitelist=absent");
+                    }
+                    db
+                })
+            });
             let h_pua = s.spawn(|| timed!("registry_rules", PuaRegistryMatcher::load(&registry_rules_path)));
 
             // HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
@@ -180,7 +196,7 @@ impl StaticEngine {
         diagnostics::log(
             "engine-status",
             &format!(
-                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; generic_model_file={}; generic_loaded={}; generic_used_for_file_verdict={}; signer_dir={}; signer_counts={}/{}/{}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}",
+                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; generic_model_file={}; generic_loaded={}; generic_used_for_file_verdict={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}",
                 base.display(),
                 database_dir.is_dir(),
                 clam.is_loaded(),
@@ -203,6 +219,7 @@ impl StaticEngine {
                 signers.pattern_counts().0,
                 signers.pattern_counts().1,
                 signers.pattern_counts().2,
+                signers.benign_loaded(),
                 registry_rules_path.display(),
                 pua_registry.pattern_count(),
                 string_rules.pattern_count(),
@@ -242,6 +259,22 @@ impl StaticEngine {
 
     pub fn is_pua_signer(&self, signer: &str) -> bool {
         self.signers.is_pua(signer)
+    }
+
+    /// Signer+hash benign-whitelist hit. See `SignerDb::is_benign`.
+    pub fn is_benign(&self, signer: Option<&str>, sha256_hex: &str) -> bool {
+        self.signers.is_benign(signer, sha256_hex)
+    }
+
+    /// True when a signer+hash whitelist `.xf` was loaded at init.
+    pub fn benign_whitelist_loaded(&self) -> bool {
+        self.signers.benign_loaded()
+    }
+
+    /// Install a signer+hash whitelist `.xf` from bytes (web parity:
+    /// `web_load_benign_whitelist`).
+    pub fn load_benign_whitelist(&mut self, data: &[u8]) -> bool {
+        self.signers.set_benign_whitelist(data)
     }
 
     /// Runtime model load from bytes: kind 0=PE, 1=JS, 2=URL, 3=APK (web parity).
@@ -647,6 +680,16 @@ impl StaticEngine {
                 }
             }
 
+            // 0.2 Signer+hash benign whitelist (BinaryFuse16 `.xf`, keys are
+            // `<signer>|<sha256>`). Gated on an empty detection list, so a
+            // malicious/PUA signer or a crypto-collision hit above has already
+            // pushed a detection and this cannot whitewash the file.
+            //
+            // It has to run here rather than at the top of the function: the key
+            // needs the signer, and the signer is only known after WinTrust.
+            let benign_hit =
+                detections.is_empty() && self.is_benign(signer_name.as_deref(), &sha256_hex);
+
             signer_details = Some(SignerDetails {
                 is_signed,
                 is_trusted: is_trusted || trusted_by_yaml,
@@ -654,6 +697,23 @@ impl StaticEngine {
                 status,
                 is_catalog_signed,
             });
+
+            // A whitelist hit short-circuits the whole scan. It is reported as a
+            // plain Clean with the signer attached, exactly like the trusted-
+            // signer fast-path below: the caller can see who published the file.
+            if benign_hit {
+                return StaticScanReport {
+                    target: target_name.to_string(),
+                    file_size,
+                    sha256: sha256_hex,
+                    verdict: "Clean".to_string(),
+                    max_threat_score: 0.0,
+                    detections: Vec::new(),
+                    signer_info: signer_details,
+                    pua_registry_matches: Vec::new(),
+                    scan_time_ms: start_time.elapsed().as_millis() as u64,
+                };
+            }
 
             // Fast-path for trusted authenticode binaries with no signer alert
             if (is_trusted || trusted_by_yaml) && detections.is_empty() {

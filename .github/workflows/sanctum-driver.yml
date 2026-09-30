@@ -50,14 +50,23 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script --version 0.30.0
-      # rust-script caches a compiled host binary per script hash under
-      # %LOCALAPPDATA%\rust-script\binaries. A half-written cache entry makes the
-      # next build die inside link.exe with
+      # rust-script compiles and caches a host binary per script hash under
+      # %LOCALAPPDATA%\rust-script\binaries. A half-written entry makes the next
+      # build die inside link.exe with
       #   LNK1104: cannot open file ...\out\<hash>.exe
-      # which says nothing about the driver source - the driver was never
-      # compiled. Clearing the cache is cheap and turns that into a rebuild.
+      # Delete the directory directly rather than calling `rust-script
+      # --clear-cache`: on a fresh runner that directory does not exist yet and
+      # rust-script exits non-zero on it, failing the step over nothing.
       - name: Clear rust-script cache
-        run: rust-script --clear-cache
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:LOCALAPPDATA 'rust-script\binaries'
+          if (Test-Path -LiteralPath $cache) {
+            Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "removed $cache"
+          } else {
+            Write-Host "no rust-script cache at $cache, nothing to do"
+          }
       - name: Setup WDK
         shell: pwsh
         run: |
@@ -117,14 +126,23 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script --version 0.30.0
-      # rust-script caches a compiled host binary per script hash under
-      # %LOCALAPPDATA%\rust-script\binaries. A half-written cache entry makes the
-      # next build die inside link.exe with
+      # rust-script compiles and caches a host binary per script hash under
+      # %LOCALAPPDATA%\rust-script\binaries. A half-written entry makes the next
+      # build die inside link.exe with
       #   LNK1104: cannot open file ...\out\<hash>.exe
-      # which says nothing about the driver source - the driver was never
-      # compiled. Clearing the cache is cheap and turns that into a rebuild.
+      # Delete the directory directly rather than calling `rust-script
+      # --clear-cache`: on a fresh runner that directory does not exist yet and
+      # rust-script exits non-zero on it, failing the step over nothing.
       - name: Clear rust-script cache
-        run: rust-script --clear-cache
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:LOCALAPPDATA 'rust-script\binaries'
+          if (Test-Path -LiteralPath $cache) {
+            Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "removed $cache"
+          } else {
+            Write-Host "no rust-script cache at $cache, nothing to do"
+          }
       - name: Setup WDK
         shell: pwsh
         run: |

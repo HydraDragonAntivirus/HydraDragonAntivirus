@@ -25,6 +25,8 @@ use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
+use sha2::Digest;
+
 use engine::StaticEngine;
 
 static GLOBAL_ENGINE: OnceLock<RwLock<StaticEngine>> = OnceLock::new();
@@ -32,19 +34,24 @@ static GLOBAL_ENGINE: OnceLock<RwLock<StaticEngine>> = OnceLock::new();
 /// Signer rules loaded on their own, without the rest of the engine.
 ///
 /// The Authenticode trust check needs no ClamAV database, no YARA rules and no
-/// models - only the signer lists and WinVerifyTrust. Routing it through
-/// get_or_init_engine() made every per-module trust check wait for the whole
-/// engine, which is what stalled the enrichment pool during startup. The signer
-/// lists are a few hundred small YAML files, so they load in milliseconds and
-/// the trust answer is available immediately, and stays available while the
-/// heavy components are still loading.
+/// models - only the signer lists, the signer+hash whitelist and WinVerifyTrust.
+/// Routing it through get_or_init_engine() made every per-module trust check
+/// wait for the whole engine, which is what stalled the enrichment pool during
+/// startup. The signer lists are a few hundred small YAML files and the `.xf` is
+/// under a megabyte, so they load in milliseconds and the trust answer is
+/// available immediately, and stays available while the heavy components are
+/// still loading.
 static EARLY_SIGNERS: OnceLock<crate::signers::SignerDb> = OnceLock::new();
 static EARLY_SIGNERS_START: OnceLock<()> = OnceLock::new();
 
 fn signers_db() -> Option<&'static crate::signers::SignerDb> {
     let _ = EARLY_SIGNERS_START.get_or_init(|| {
         let dir = resolve_resource_root(None);
-        let db = crate::signers::SignerDb::load_from_dir(&dir.join("signer_rules"));
+        let mut db = crate::signers::SignerDb::load_from_dir(&dir.join("signer_rules"));
+        db.load_benign_whitelist(
+            &dir.join("xorfilter_rules")
+                .join(crate::signers::BENIGN_XF),
+        );
         let _ = EARLY_SIGNERS.set(db);
     });
     EARLY_SIGNERS.get()
@@ -715,6 +722,7 @@ pub extern "C" fn openedr_static_is_trusted_signer(signer: *const c_char) -> u32
 ///   1 = file has a valid Authenticode signature
 ///   2 = signer matches `signer_rules/` trusted vendors
 ///   4 = signer matches `signer_rules/` malicious vendors
+///   8 = `<signer>|<sha256>` is in the benign whitelist (`.xf`)
 ///
 /// The signer subject is written to `out_signer` when non-null; release it with
 /// `openedr_static_free_string`.
@@ -742,9 +750,9 @@ pub extern "C" fn openedr_static_check_file_signature(
     let mut signer: Option<String> = None;
 
     // Deliberately NOT get_or_init_engine(): the trust answer needs the signer
-    // lists and WinVerifyTrust, nothing else. Going through the engine made every
-    // per-module trust check queue behind the full load, which is what turned the
-    // enrichment pool into a wait at startup.
+    // lists, the benign whitelist and WinVerifyTrust, nothing else. Going through
+    // the engine made every per-module trust check queue behind the full load,
+    // which is what turned the enrichment pool into a wait at startup.
     if let Some(db) = signers_db() {
         let (is_signed, _win_trust_trusted, name, _status, _is_catalog) =
             crate::signers::verify_authenticode(Path::new(path_str));
@@ -758,6 +766,18 @@ pub extern "C" fn openedr_static_check_file_signature(
             }
             if db.is_malicious(s) {
                 flags |= 4;
+            }
+            // Whitelist keys are `<signer>|<sha256>`, so the digest has to be read
+            // here rather than reused from a scan report. A malicious/PUA signer
+            // vetoes the whitelist so a repackaged binary cannot inherit it.
+            let vetoed = db.is_malicious(s) || db.is_pua(s);
+            if !vetoed && db.benign_loaded() {
+                if let Ok(data) = std::fs::read(path_str) {
+                    let sha256_hex = hex::encode(sha2::Sha256::digest(&data));
+                    if db.is_benign(signer.as_deref(), &sha256_hex) {
+                        flags |= 8;
+                    }
+                }
             }
         }
     }
@@ -794,6 +814,28 @@ pub extern "C" fn openedr_static_is_pua_signer(signer: *const c_char) -> u32 {
         Err(_) => return 0,
     };
     signer_flag(|e| e.is_pua_signer(name))
+}
+
+/// Install the signer+hash benign whitelist (BinaryFuse16 `.xf` bytes) at
+/// runtime. Returns 1 on success, 0 on a parse failure.
+///
+/// Web parity (`web_load_benign_whitelist`): a deployer that ships the `.xf`
+/// outside the resource root can push it here instead. Keys must be
+/// `<signer>|<sha256>` — the same lines the offline builder writes.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_load_benign_whitelist(data: *const u8, len: usize) -> i32 {
+    let Some(bytes) = take_c_bytes(data, len) else {
+        return 0;
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.load_benign_whitelist(&bytes) as i32
 }
 
 /// Scan a Windows EVTX log file for threat events using Hayabusa rules.
