@@ -46,11 +46,14 @@ impl FairScheduler {
 
     pub async fn submit(&self, session_id: i64, job: Job) {
         let mut guard = self.inner.lock().await;
-        let q = guard.queues.entry(session_id).or_default();
-        if q.is_empty() {
+        let is_first = {
+            let q = guard.queues.entry(session_id).or_default();
+            q.push_back(job);
+            q.len() == 1
+        };
+        if is_first {
             guard.order.push_back(session_id);
         }
-        q.push_back(job);
         drop(guard);
         self.notify.notify_one();
     }

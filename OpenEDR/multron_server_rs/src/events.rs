@@ -101,8 +101,9 @@ impl EventLog {
             event.time = Utc::now();
             let line = event.console_line();
             guard.events.push(event);
-            if guard.events.len() > EVENT_HISTORY {
-                guard.events.drain(0..guard.events.len() - EVENT_HISTORY);
+            let len = guard.events.len();
+            if len > EVENT_HISTORY {
+                guard.events.drain(0..len - EVENT_HISTORY);
             }
             line
         };

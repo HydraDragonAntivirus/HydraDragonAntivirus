@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::extract::{Query, State};
 use axum::http::header::HeaderMap;
@@ -11,13 +10,13 @@ use axum::response::{Html, IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
 use crate::config::{app_dir, CliArgs, SavedSettings};
 use crate::engine_adapter::EngineAdapter;
 use crate::events::EventLog;
-use crate::scan_server::{ClientInfo, ScanServer};
+use crate::scan_server::ScanServer;
 
 static DASHBOARD_HTML: &str = include_str!("dashboard.html");
 
