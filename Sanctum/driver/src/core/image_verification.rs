@@ -11,7 +11,7 @@ use core::{
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-use alloc::{format, string::ToString};
+use alloc::{format, string::{String, ToString}};
 use wdk::{nt_success, println};
 use wdk_sys::{BOOLEAN, NTSTATUS, UNICODE_STRING};
 

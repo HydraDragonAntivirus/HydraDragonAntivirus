@@ -1,6 +1,6 @@
 //! This module handles callback implementations and and other function related to processes.
 
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::{
     ffi::c_void,
     iter::once,
@@ -278,7 +278,7 @@ extern "C" fn image_load_callback(
                 drv_name
             );
             println!("[sanctum] [DRIVER_LOAD] {}", drv_name);
-            let ptr = crate::device_comms::DRIVER_MESSAGES.load(core::sync::atomic::Ordering::SeqCst);
+            let ptr = crate::DRIVER_MESSAGES.load(core::sync::atomic::Ordering::SeqCst);
             if !ptr.is_null() {
                 let messages = unsafe { &mut *ptr };
                 messages.add_message_to_queue(log_msg);
