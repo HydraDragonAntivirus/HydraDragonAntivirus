@@ -180,7 +180,10 @@ async fn ws_handler(
     }
 
     let client_ip = addr.ip().to_string();
-    ws.on_upgrade(move |socket| handle_socket(socket, server, client_ip))
+    let max_bytes = (server.cfg.max_mb as usize) * 1024 * 1024 + 1024 * 1024;
+    ws.max_message_size(max_bytes)
+        .max_frame_size(max_bytes)
+        .on_upgrade(move |socket| handle_socket(socket, server, client_ip))
 }
 
 async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: String) {
@@ -271,6 +274,18 @@ async fn run_session(
         }
     });
 
+    // Periodic ping task to prevent proxy / Cloudflare tunnel idle disconnects
+    let ping_tx = outgoing_tx.clone();
+    let ping_task = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(20));
+        loop {
+            interval.tick().await;
+            if ping_tx.send(Message::Ping(Vec::new())).await.is_err() {
+                break;
+            }
+        }
+    });
+
     // 1. Handshake: wait for `hello`
     let hello_msg = match tokio::time::timeout(Duration::from_secs(30), ws_rx.next()).await {
         Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<ClientMessage>(&t)
@@ -313,7 +328,7 @@ async fn run_session(
             Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<ClientMessage>(&t)
                 .map_err(|e| format!("invalid JSON message: {}", e))?,
             Ok(Some(Ok(Message::Close(_)))) | Ok(None) => break,
-            Ok(Some(Ok(Message::Ping(_)))) => continue,
+            Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => continue,
             _ => break,
         };
 
@@ -398,7 +413,7 @@ async fn run_session(
                 Ok(Some(Ok(Message::Binary(bin)))) => {
                     upload_data.extend_from_slice(&bin);
                 }
-                Ok(Some(Ok(Message::Ping(_)))) => continue,
+                Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => continue,
                 _ => {
                     upload_err = Some("upload timeout or connection dropped");
                     break;
@@ -499,6 +514,7 @@ async fn run_session(
             .await;
     }
 
+    ping_task.abort();
     drop(outgoing_tx);
     let _ = writer_task.await;
     Ok(())

@@ -17,8 +17,11 @@ command = "cargo"
 args = ["build", "--release", "-p", "um_engine"]
 
 [tasks.stage-driver-makefile]
-description = "Create a symlink to rust-driver-makefile.toml from the wdk-build crate into driver/target/."
-script_runner = "@powershell"
+description = "Create a copy of rust-driver-makefile.toml from the wdk-build crate into driver/target/."
+workspace = false
+script_runner = "powershell"
+script_runner_args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+script_extension = "ps1"
 cwd = "driver"
 script = '''
 $ErrorActionPreference = "Stop"
