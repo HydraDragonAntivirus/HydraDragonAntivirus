@@ -1,34 +1,15 @@
 extend = "target/rust-driver-makefile.toml"
 
-# target/rust-driver-makefile.toml must be a symlink to the copy inside the wdk-build crate
-# so that `path = "."` dependencies inside that makefile resolve to the wdk-build crate.
-# We create the symlink via PowerShell to avoid invoking rust-script, which compiles heavy
-# dependencies and triggers MSVC 'LNK1104: cannot open file' in CI environments.
 [config]
-load_script = [
-    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (-not (Test-Path 'target\\rust-driver-makefile.toml')) { $pkg = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq 'wdk-build' } | Select-Object -First 1 -ExpandProperty manifest_path; if ($pkg) { $dir = (Split-Path $pkg) -replace '\\\\', '/'; $src = Join-Path (Split-Path $pkg) 'rust-driver-makefile.toml'; New-Item -ItemType Directory -Force -Path 'target' | Out-Null; $txt = (Get-Content -Raw $src) -replace 'path = \\\"\\.\\\"', \\\"path = `\\\"$dir`\\\"\\\"; Set-Content -Path 'target\\rust-driver-makefile.toml' -Value $txt; Write-Host 'Staged target\\rust-driver-makefile.toml with resolved wdk-build path' } }\""
-]
+load_script = '''
+#!@rust
+//! ```cargo
+//! [dependencies]
+//! wdk-build = "0.5.1"
+//! ```
+#![allow(unused_doc_comments)]
 
-[tasks.stage-driver-makefile]
-description = "Stage rust-driver-makefile.toml from the wdk-build crate into target/ with resolved crate path."
-script_runner = "powershell"
-script_runner_args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
-script_extension = "ps1"
-script = '''
-$ErrorActionPreference = "Stop"
-$crate = (cargo metadata --format-version 1 | ConvertFrom-Json).packages |
-    Where-Object { $_.name -eq "wdk-build" } |
-    Select-Object -First 1 -ExpandProperty manifest_path
-if (-not $crate) { throw "wdk-build crate not found in cargo metadata" }
-$wdkDir = (Split-Path $crate) -replace '\\', '/'
-$source = Join-Path (Split-Path $crate) "rust-driver-makefile.toml"
-if (-not (Test-Path $source)) { throw "rust-driver-makefile.toml not found at $source" }
-New-Item -ItemType Directory -Force -Path "target" | Out-Null
-$dest = "target\rust-driver-makefile.toml"
-$content = Get-Content -Raw $source
-$newContent = $content -replace 'path = "\."', "path = `"$wdkDir`""
-Set-Content -Path $dest -Value $newContent
-Write-Host "staged target\rust-driver-makefile.toml with resolved wdk-build path: $wdkDir"
+wdk_build::cargo_make::load_rust_driver_makefile()?
 '''
 
 [tasks.release]

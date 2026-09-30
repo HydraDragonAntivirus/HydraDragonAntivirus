@@ -50,23 +50,6 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script --version 0.30.0
-      # rust-script compiles and caches a host binary per script hash under
-      # %LOCALAPPDATA%\rust-script\binaries. A half-written entry makes the next
-      # build die inside link.exe with
-      #   LNK1104: cannot open file ...\out\<hash>.exe
-      # Delete the directory directly rather than calling `rust-script
-      # --clear-cache`: on a fresh runner that directory does not exist yet and
-      # rust-script exits non-zero on it, failing the step over nothing.
-      - name: Clear rust-script cache
-        shell: pwsh
-        run: |
-          $cache = Join-Path $env:LOCALAPPDATA 'rust-script\binaries'
-          if (Test-Path -LiteralPath $cache) {
-            Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "removed $cache"
-          } else {
-            Write-Host "no rust-script cache at $cache, nothing to do"
-          }
       - name: Setup WDK
         shell: pwsh
         run: |
@@ -86,15 +69,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path "target" | Out-Null
           cargo fetch
           $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
-          $wdkDir = $wdkBuildPath -replace '\\', '/'
           $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
           $destFile = "target\rust-driver-makefile.toml"
-          if (Test-Path $sourceFile) {
-            $content = Get-Content -Raw $sourceFile
-            $newContent = $content -replace 'path = "\."', "path = `"$wdkDir`""
-            Set-Content -Path $destFile -Value $newContent
-            Write-Host "Staged $destFile with resolved wdk-build path: $wdkDir"
-          }
+          if (Test-Path $sourceFile) { Copy-Item $sourceFile $destFile -Force }
       - name: Build Driver (Debug)
         working-directory: Sanctum
         run: cargo make build-driver
@@ -132,23 +109,6 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script --version 0.30.0
-      # rust-script compiles and caches a host binary per script hash under
-      # %LOCALAPPDATA%\rust-script\binaries. A half-written entry makes the next
-      # build die inside link.exe with
-      #   LNK1104: cannot open file ...\out\<hash>.exe
-      # Delete the directory directly rather than calling `rust-script
-      # --clear-cache`: on a fresh runner that directory does not exist yet and
-      # rust-script exits non-zero on it, failing the step over nothing.
-      - name: Clear rust-script cache
-        shell: pwsh
-        run: |
-          $cache = Join-Path $env:LOCALAPPDATA 'rust-script\binaries'
-          if (Test-Path -LiteralPath $cache) {
-            Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "removed $cache"
-          } else {
-            Write-Host "no rust-script cache at $cache, nothing to do"
-          }
       - name: Setup WDK
         shell: pwsh
         run: |
@@ -170,10 +130,7 @@ jobs:
           $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
           $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
           $destFile = "target\rust-driver-makefile.toml"
-          if (Test-Path $sourceFile) {
-            if (Test-Path -PathType Leaf $destFile) { Remove-Item $destFile -Force }
-            New-Item -ItemType SymbolicLink -Path $destFile -Target $sourceFile -Force
-          }
+          if (Test-Path $sourceFile) { Copy-Item $sourceFile $destFile -Force }
       - name: Build and Sign Driver (with ELAM Hash Sync)
         id: build_driver
         working-directory: Sanctum/driver
