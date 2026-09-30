@@ -722,7 +722,7 @@ pub extern "C" fn openedr_static_is_trusted_signer(signer: *const c_char) -> u32
 ///   1 = file has a valid Authenticode signature
 ///   2 = signer matches `signer_rules/` trusted vendors
 ///   4 = signer matches `signer_rules/` malicious vendors
-///   8 = `<signer>|<sha256>` is in the benign whitelist (`.xf`)
+///   8 = SHA-256 is in the benign whitelist (`.xf`)
 ///
 /// The signer subject is written to `out_signer` when non-null; release it with
 /// `openedr_static_free_string`.
@@ -767,14 +767,15 @@ pub extern "C" fn openedr_static_check_file_signature(
             if db.is_malicious(s) {
                 flags |= 4;
             }
-            // Whitelist keys are `<signer>|<sha256>`, so the digest has to be read
-            // here rather than reused from a scan report. A malicious/PUA signer
-            // vetoes the whitelist so a repackaged binary cannot inherit it.
+            // The whitelist is keyed on the digest alone, so it needs no signer —
+            // but a malicious/PUA vendor vetoes it, matching the scan path where
+            // the vendor hit is already a detection and the whitelist is gated on
+            // an empty detection list.
             let vetoed = db.is_malicious(s) || db.is_pua(s);
             if !vetoed && db.benign_loaded() {
                 if let Ok(data) = std::fs::read(path_str) {
                     let sha256_hex = hex::encode(sha2::Sha256::digest(&data));
-                    if db.is_benign(signer.as_deref(), &sha256_hex) {
+                    if db.is_benign(&sha256_hex) {
                         flags |= 8;
                     }
                 }

@@ -85,10 +85,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "target" | Out-Null
           cargo fetch
-          $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
-          $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
-          $destFile = "target\rust-driver-makefile.toml"
-          if (Test-Path $sourceFile) { Copy-Item $sourceFile $destFile -Force }
+      # target/rust-driver-makefile.toml is deliberately not staged here.
+      #
+      # It has to be a symlink into the wdk-build crate, because every script in
+      # that makefile depends on `wdk-build = { path = ".", version = "0.5.1" }`
+      # and `path = "."` only resolves through the symlink. Copying the file here
+      # left a real file behind and the build failed with
+      # "no matching package named `wdk-build` found". The load_script in
+      # Sanctum/driver/makefile.toml creates (and repairs) the symlink.
       - name: Build Driver (Debug)
         working-directory: Sanctum
         run: cargo make build-driver
@@ -161,10 +165,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "target" | Out-Null
           cargo fetch
-          $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
-          $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
-          $destFile = "target\rust-driver-makefile.toml"
-          if (Test-Path $sourceFile) { Copy-Item $sourceFile $destFile -Force }
+      # No staging of target/rust-driver-makefile.toml here either - see the note
+      # in the ci job. It must be a symlink into the wdk-build crate, and the
+      # load_script in Sanctum/driver/makefile.toml creates and repairs it.
       - name: Build and Sign Driver (with ELAM Hash Sync)
         id: build_driver
         working-directory: Sanctum/driver

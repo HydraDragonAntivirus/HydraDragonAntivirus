@@ -1,38 +1,34 @@
-# The driver build is driven by target/rust-driver-makefile.toml, which is a
-# verbatim copy of the one that ships in the wdk-build crate.
-#
-# It used to be generated here by a [config] load_script that called
-# wdk_build::cargo_make::load_rust_driver_makefile(). That made every build
-# depend on rust-script being able to compile a throwaway host binary for the
-# script, which is where CI died:
-#
-#   linking with `link.exe` failed: exit code: 1104
-#   LINK : fatal error LNK1104: cannot open file
-#     '...\rust-script\binaries\release\build\<hash>\<nonce>\out\<hash>.exe'
-#
-# Note the path: that is rust-script's own cache, not this crate. The driver was
-# never compiled, so the failure said nothing about the driver source.
-#
-# The generated makefile is static, so generating it once and keeping it is fine.
-# CI stages it in .github/workflows/sanctum-driver.yml before building. Run
-# `cargo make stage-driver-makefile` after bumping the wdk-build version, or when
-# the file is missing, to refresh it locally.
 extend = "target/rust-driver-makefile.toml"
 
-[tasks.stage-driver-makefile]
-description = "Copy rust-driver-makefile.toml from the wdk-build crate into target/."
-script_runner = "@powershell"
-script = '''
-$ErrorActionPreference = "Stop"
-$crate = (cargo metadata --format-version 1 | ConvertFrom-Json).packages |
-    Where-Object { $_.name -eq "wdk-build" } |
-    Select-Object -First 1 -ExpandProperty manifest_path
-if (-not $crate) { throw "wdk-build crate not found in cargo metadata" }
-$source = Join-Path (Split-Path $crate) "rust-driver-makefile.toml"
-if (-not (Test-Path $source)) { throw "rust-driver-makefile.toml not found at $source" }
-New-Item -ItemType Directory -Force -Path "target" | Out-Null
-Copy-Item $source "target\rust-driver-makefile.toml" -Force
-Write-Host "staged target\rust-driver-makefile.toml from $source"
+[config]
+# Do not remove this load_script.
+#
+# It is not a plain file copy: load_rust_driver_makefile() creates a *symlink*
+# from target/rust-driver-makefile.toml to the copy that ships in the wdk-build
+# crate. That symlink is load bearing. Every script in the linked makefile
+# declares its dependency as
+#
+#     wdk-build = { path = ".", version = "0.5.1" }
+#
+# so `path = "."` only resolves to the wdk-build crate while the makefile is a
+# symlink into it. Stage the file with a plain copy - which is what this file
+# used to be preceded by in CI - and the build fails with
+#
+#     error: no matching package named `wdk-build` found
+#     location searched: ...\Sanctum\driver\target
+#
+# The function also repairs a bad or stale target/rust-driver-makefile.toml:
+# if the destination exists but is not a symlink to the right file, it removes
+# the destination and relinks it.
+load_script = '''
+#!@rust
+//! ```cargo
+//! [dependencies]
+//! wdk-build = "0.5.1"
+//! ```
+#![allow(unused_doc_comments)]
+
+wdk_build::cargo_make::load_rust_driver_makefile()?
 '''
 
 [tasks.release]

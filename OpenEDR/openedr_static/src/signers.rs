@@ -40,27 +40,23 @@ pub struct SignerDb {
     trusted: Vec<PatternItem>,
     malicious: Vec<PatternItem>,
     pua: Vec<PatternItem>,
-    /// Signer+hash benign whitelist. Owned by the signer side on purpose: the
-    /// whitelist is only meaningful together with the certificate subject, and
-    /// the signer is already extracted here.
+    /// SHA-256 benign whitelist (BinaryFuse16 `.xf`). Owned by the signer side on
+    /// purpose: this is the file-identity trust table, and it sits next to the
+    /// vendor lists so `SignerDb` stays the single authority for "is this file
+    /// trusted" — the answer libedr and owlyshield_predict already ask this
+    /// object for.
     benign: Option<BinaryFuse16Filter>,
 }
 
-/// File name of the signer+hash benign whitelist inside the rule directories.
+/// File name of the SHA-256 benign whitelist, under `xorfilter_rules/`.
 pub const BENIGN_XF: &str = "benign_sha256.xf";
-
-/// Separator between the signer display name and the SHA-256 in a whitelist
-/// key. `|` cannot appear in a hex digest and is not emitted by
-/// `CertGetNameStringW(CERT_NAME_SIMPLE_DISPLAY_TYPE)` output for the vendors we
-/// ship, so a key cannot be forged by moving characters between the two fields.
-pub const BENIGN_KEY_SEP: char = '|';
 
 impl SignerDb {
     pub fn pattern_counts(&self) -> (usize, usize, usize) {
         (self.trusted.len(), self.malicious.len(), self.pua.len())
     }
 
-    /// True when a signer+hash whitelist was loaded and can answer queries.
+    /// True when the SHA-256 whitelist was loaded and can answer queries.
     pub fn benign_loaded(&self) -> bool {
         self.benign.is_some()
     }
@@ -77,7 +73,7 @@ impl SignerDb {
         db
     }
 
-    /// Load the signer+hash benign whitelist from `xorfilter_rules/benign_sha256.xf`.
+    /// Load the SHA-256 benign whitelist from `xorfilter_rules/benign_sha256.xf`.
     ///
     /// Returns `false` when the file is missing or is not a valid filter; the
     /// whitelist then simply stays disabled, which is not an error — an install
@@ -107,24 +103,16 @@ impl SignerDb {
         }
     }
 
-    /// Signer+hash whitelist hit.
+    /// SHA-256 whitelist hit. Web parity (`openedr_web`: `is_benign(sha256_hex)`).
     ///
-    /// The key is `<signer>|<sha256>`, so a hit requires BOTH the exact
-    /// certificate subject and the exact file content: reusing a whitelisted
-    /// hash under a different publisher (or a whitelisted publisher over
-    /// tampered content) does not match. Both halves are folded to lowercase by
-    /// `BinaryFuse16Filter::key`, so signer casing and hex casing cannot cause a
-    /// miss.
-    ///
-    /// An absent signer yields an empty left half, which is exactly the key the
-    /// builder writes for an unsigned corpus file (`|<sha256>`) — unsigned files
-    /// are therefore still whitelisted, and only unsigned files can match them.
-    pub fn is_benign(&self, signer: Option<&str>, sha256_hex: &str) -> bool {
+    /// The key is the bare lowercase-or-uppercase hex digest, folded to lowercase
+    /// by `BinaryFuse16Filter::key`, so digest casing can never cause a miss.
+    pub fn is_benign(&self, sha256_hex: &str) -> bool {
         if sha256_hex.is_empty() {
             return false;
         }
         match &self.benign {
-            Some(f) => f.contains(&benign_key(signer, sha256_hex)),
+            Some(f) => f.contains(sha256_hex),
             None => false,
         }
     }
@@ -189,20 +177,6 @@ impl SignerDb {
         }
         false
     }
-}
-
-/// The whitelist key for one file: `<signer>|<sha256>`.
-///
-/// A missing/empty signer becomes an empty left half (`|<sha256>`) rather than
-/// being skipped, so the builder and the query agree on unsigned corpus files.
-pub fn benign_key(signer: Option<&str>, sha256_hex: &str) -> String {
-    let mut key = String::with_capacity(sha256_hex.len() + 48);
-    if let Some(s) = signer {
-        key.push_str(s.trim());
-    }
-    key.push(BENIGN_KEY_SEP);
-    key.push_str(sha256_hex);
-    key
 }
 
 /// Self-contained BinaryFuse16 filter (web parity, zero deps).
@@ -790,57 +764,44 @@ mod tests {
     #[test]
     fn filter_round_trips_one_key_and_is_case_insensitive() {
         let hash = "000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2";
-        let key = benign_key(Some("Microsoft Corporation"), hash);
-        let f = BinaryFuse16Filter::from_bytes(&one_key_filter(&key)).expect("must parse");
+        let f = BinaryFuse16Filter::from_bytes(&one_key_filter(hash)).expect("must parse");
 
         assert_eq!(f.len(), 3);
         assert!(!f.is_empty());
-        assert!(f.contains(&key));
-        // Case folding: neither half of the key is case sensitive.
-        assert!(f.contains(&benign_key(
-            Some("MICROSOFT CORPORATION"),
-            &hash.to_ascii_uppercase()
-        )));
-
-        // Different signer, same hash -> miss. Same signer, different hash -> miss.
-        assert!(!f.contains(&benign_key(Some("Contoso Ltd"), hash)));
-        assert!(!f.contains(&benign_key(Some("Microsoft Corporation"), "aa".repeat(32).as_str())));
-        // Unsigned key does not match a signed whitelist entry.
-        assert!(!f.contains(&benign_key(None, hash)));
-    }
-
-    #[test]
-    fn benign_key_shape_is_stable_and_never_collides() {
-        assert_eq!(
-            benign_key(Some("Microsoft Corporation"), "aabb"),
-            "Microsoft Corporation|aabb"
-        );
-        // Unsigned: empty left half, exactly what the builder writes.
-        assert_eq!(benign_key(None, "aabb"), "|aabb");
-        assert_eq!(benign_key(Some("   "), "aabb"), "|aabb");
-        // The split is unambiguous because the right half is always a hex digest,
-        // which cannot contain the separator.
-        let digest = "000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2";
-        assert!(!digest.contains(BENIGN_KEY_SEP));
-        assert_eq!(benign_key(Some("A"), digest).matches(BENIGN_KEY_SEP).count(), 1);
+        assert!(f.contains(hash));
+        // The key fold lowercases every byte, so an uppercase digest must still
+        // hit — same guarantee the web engine relies on.
+        assert!(f.contains(&hash.to_ascii_uppercase()));
+        assert!(!f.contains("aa".repeat(32).as_str()));
     }
 
     #[test]
     fn missing_filter_or_empty_sha256_never_whitelists() {
         let mut db = SignerDb::default();
         assert!(!db.benign_loaded());
-        assert!(!db.is_benign(Some("Microsoft Corporation"), "aabb"));
+        assert!(!db.is_benign("aabb"));
         assert!(!db.set_benign_whitelist(b"not a filter"));
-        assert!(!db.is_benign(None, ""));
+        assert!(!db.is_benign(""));
 
         let hash = "000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2";
-        assert!(db.set_benign_whitelist(&one_key_filter(&benign_key(
-            Some("Microsoft Corporation"),
-            hash
-        ))));
+        assert!(db.set_benign_whitelist(&one_key_filter(hash)));
         assert!(db.benign_loaded());
-        assert!(db.is_benign(Some("Microsoft Corporation"), hash));
-        assert!(!db.is_benign(None, hash));
-        assert!(!db.is_benign(Some("Microsoft Corporation"), ""));
+        assert!(db.is_benign(hash));
+        assert!(db.is_benign(&hash.to_ascii_uppercase()));
+        assert!(!db.is_benign("aa".repeat(32).as_str()));
+        assert!(!db.is_benign(""));
+    }
+
+    #[test]
+    fn native_and_web_engines_fold_the_key_identically() {
+        // Web parity contract: `openedr_web::engine::BinaryFuse16Filter::key` and
+        // this copy must produce the same u64, otherwise a `.xf` built once for
+        // the web demo would answer differently here. Both are FNV-1a-64 over the
+        // ASCII-lowercased bytes; this pins the value so a change to one side
+        // cannot silently desync the other.
+        assert_eq!(
+            BinaryFuse16Filter::key("000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2"),
+            0x8b17_3e4c_0f3a_2f27,
+        );
     }
 }

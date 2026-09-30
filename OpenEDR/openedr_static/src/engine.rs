@@ -261,12 +261,12 @@ impl StaticEngine {
         self.signers.is_pua(signer)
     }
 
-    /// Signer+hash benign-whitelist hit. See `SignerDb::is_benign`.
-    pub fn is_benign(&self, signer: Option<&str>, sha256_hex: &str) -> bool {
-        self.signers.is_benign(signer, sha256_hex)
+    /// SHA-256 benign-whitelist hit. See `SignerDb::is_benign`.
+    pub fn is_benign(&self, sha256_hex: &str) -> bool {
+        self.signers.is_benign(sha256_hex)
     }
 
-    /// True when a signer+hash whitelist `.xf` was loaded at init.
+    /// True when the SHA-256 whitelist `.xf` was loaded at init.
     pub fn benign_whitelist_loaded(&self) -> bool {
         self.signers.benign_loaded()
     }
@@ -680,15 +680,15 @@ impl StaticEngine {
                 }
             }
 
-            // 0.2 Signer+hash benign whitelist (BinaryFuse16 `.xf`, keys are
-            // `<signer>|<sha256>`). Gated on an empty detection list, so a
-            // malicious/PUA signer or a crypto-collision hit above has already
-            // pushed a detection and this cannot whitewash the file.
+            // 0.2 SHA-256 benign whitelist (BinaryFuse16 `.xf`, web parity).
+            // Gated on an empty detection list, so a malicious/PUA signer or a
+            // crypto-collision hit above has already pushed a detection and this
+            // cannot whitewash the file.
             //
-            // It has to run here rather than at the top of the function: the key
-            // needs the signer, and the signer is only known after WinTrust.
-            let benign_hit =
-                detections.is_empty() && self.is_benign(signer_name.as_deref(), &sha256_hex);
+            // It runs here rather than at the top of the function for one reason:
+            // the trusted-signer fast-path below must not be able to hide a
+            // whitelist hit, so the whitelist is evaluated first.
+            let benign_hit = detections.is_empty() && self.is_benign(&sha256_hex);
 
             signer_details = Some(SignerDetails {
                 is_signed,
@@ -698,9 +698,9 @@ impl StaticEngine {
                 is_catalog_signed,
             });
 
-            // A whitelist hit short-circuits the whole scan. It is reported as a
-            // plain Clean with the signer attached, exactly like the trusted-
-            // signer fast-path below: the caller can see who published the file.
+            // A whitelist hit short-circuits the whole scan. Reported as a plain
+            // Clean with the signer attached, exactly like the trusted-signer
+            // fast-path below, so the caller can still see who published it.
             if benign_hit {
                 return StaticScanReport {
                     target: target_name.to_string(),
