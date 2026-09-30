@@ -21,6 +21,7 @@ env:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   build-windows:
@@ -60,4 +61,18 @@ jobs:
           path: OpenMalwareScannerPortable
           if-no-files-found: error
           retention-days: 30
+
+      - name: Create Pull Request with multron_server.exe
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(multron): update multron_server.exe in OpenMalwareScannerPortable"
+          title: "Update multron_server.exe in OpenMalwareScannerPortable"
+          body: "Automated build of native Rust multron_server.exe placed into OpenMalwareScannerPortable folder."
+          add-paths: OpenMalwareScannerPortable/multron_server.exe
+          branch: "auto-update-multron-server"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, multron, development-version
+
 
