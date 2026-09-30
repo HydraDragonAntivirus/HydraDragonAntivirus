@@ -17,7 +17,7 @@ command = "cargo"
 args = ["build", "--release", "-p", "um_engine"]
 
 [tasks.stage-driver-makefile]
-description = "Create a copy of rust-driver-makefile.toml from the wdk-build crate into driver/target/."
+description = "Stage rust-driver-makefile.toml from the wdk-build crate into driver/target/ with resolved crate path."
 workspace = false
 script_runner = "powershell"
 script_runner_args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
@@ -29,13 +29,15 @@ $crate = (cargo metadata --format-version 1 | ConvertFrom-Json).packages |
     Where-Object { $_.name -eq "wdk-build" } |
     Select-Object -First 1 -ExpandProperty manifest_path
 if (-not $crate) { throw "wdk-build crate not found in cargo metadata" }
+$wdkDir = (Split-Path $crate) -replace '\\', '/'
 $source = Join-Path (Split-Path $crate) "rust-driver-makefile.toml"
 if (-not (Test-Path $source)) { throw "rust-driver-makefile.toml not found at $source" }
 New-Item -ItemType Directory -Force -Path "target" | Out-Null
 $dest = "target\rust-driver-makefile.toml"
-if (Test-Path $dest) { Remove-Item $dest -Force }
-Copy-Item -Path $source -Destination $dest -Force
-Write-Host "staged driver/target/rust-driver-makefile.toml from $source"
+$content = Get-Content -Raw $source
+$newContent = $content -replace 'path = "\."', "path = `"$wdkDir`""
+Set-Content -Path $dest -Value $newContent
+Write-Host "staged $dest with resolved wdk-build path: $wdkDir"
 '''
 
 [tasks.build-driver]

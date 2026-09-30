@@ -86,11 +86,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path "target" | Out-Null
           cargo fetch
           $wdkBuildPath = (cargo metadata --format-version 1 | ConvertFrom-Json).packages | Where-Object { $_.name -eq "wdk-build" } | Select-Object -First 1 -ExpandProperty manifest_path | Split-Path
+          $wdkDir = $wdkBuildPath -replace '\\', '/'
           $sourceFile = Join-Path $wdkBuildPath "rust-driver-makefile.toml"
           $destFile = "target\rust-driver-makefile.toml"
           if (Test-Path $sourceFile) {
-            if (Test-Path $destFile) { Remove-Item $destFile -Force }
-            Copy-Item -Path $sourceFile -Destination $destFile -Force
+            $content = Get-Content -Raw $sourceFile
+            $newContent = $content -replace 'path = "\."', "path = `"$wdkDir`""
+            Set-Content -Path $destFile -Value $newContent
+            Write-Host "Staged $destFile with resolved wdk-build path: $wdkDir"
           }
       - name: Build Driver (Debug)
         working-directory: Sanctum
