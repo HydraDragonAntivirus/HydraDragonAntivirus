@@ -48,10 +48,16 @@ jobs:
         working-directory: OpenEDR/multron_server_rs
         run: cargo build --release --verbose
 
-      - name: Upload multron_server artifact
+      - name: Copy multron_server.exe to OpenMalwareScannerPortable
+        shell: pwsh
+        run: |
+          Copy-Item OpenEDR/multron_server_rs/target/release/multron_server.exe -Destination OpenMalwareScannerPortable/multron_server.exe -Force
+
+      - name: Upload OpenMalwareScannerPortable
         uses: actions/upload-artifact@v4
         with:
-          name: multron_server-windows-x64
-          path: OpenEDR/multron_server_rs/target/release/multron_server.exe
+          name: OpenMalwareScannerPortable
+          path: OpenMalwareScannerPortable
           if-no-files-found: error
           retention-days: 30
+

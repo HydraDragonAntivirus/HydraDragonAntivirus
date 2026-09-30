@@ -50,12 +50,16 @@ jobs:
         working-directory: OpenEDR/openedr_static
         run: cargo build --release --verbose
 
-      - name: Upload openedr_static DLL artifact
+      - name: Copy openedr_static.dll to OpenMalwareScannerPortable
+        shell: pwsh
+        run: |
+          Copy-Item OpenEDR/openedr_static/target/release/openedr_static.dll -Destination OpenMalwareScannerPortable/openedr_static.dll -Force
+
+      - name: Upload OpenMalwareScannerPortable
         uses: actions/upload-artifact@v4
         with:
-          name: openedr_static-windows-x64
-          path: |
-            OpenEDR/openedr_static/target/release/openedr_static.dll
-            OpenEDR/openedr_static/target/release/openedr_static.lib
+          name: OpenMalwareScannerPortable
+          path: OpenMalwareScannerPortable
           if-no-files-found: error
           retention-days: 30
+
