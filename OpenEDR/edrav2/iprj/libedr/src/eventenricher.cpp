@@ -4843,8 +4843,12 @@ void EventEnricher::processQueueEvent()
 			}
 			else
 			{
-				if (m_benignQueue.size() < 10000)
-					m_benignQueue.push_back(std::move(vOptEvent.value()));
+				// No cap here on purpose. This fills up to 64 events per call and
+				// drains one, so any cap drops events that output_events then never
+				// shows - the log and the stream just go quiet with nothing to show
+				// for it. The size limit that used to sit here is gone; backpressure
+				// belongs on the put() side, not on discarding.
+				m_benignQueue.push_back(std::move(vOptEvent.value()));
 			}
 		}
 
