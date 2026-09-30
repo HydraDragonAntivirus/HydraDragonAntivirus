@@ -50,6 +50,14 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script --version 0.30.0
+      # rust-script caches a compiled host binary per script hash under
+      # %LOCALAPPDATA%\rust-script\binaries. A half-written cache entry makes the
+      # next build die inside link.exe with
+      #   LNK1104: cannot open file ...\out\<hash>.exe
+      # which says nothing about the driver source - the driver was never
+      # compiled. Clearing the cache is cheap and turns that into a rebuild.
+      - name: Clear rust-script cache
+        run: rust-script --clear-cache
       - name: Setup WDK
         shell: pwsh
         run: |
@@ -109,6 +117,14 @@ jobs:
           tool: cargo-make
       - name: Install rust-script
         run: cargo install rust-script --version 0.30.0
+      # rust-script caches a compiled host binary per script hash under
+      # %LOCALAPPDATA%\rust-script\binaries. A half-written cache entry makes the
+      # next build die inside link.exe with
+      #   LNK1104: cannot open file ...\out\<hash>.exe
+      # which says nothing about the driver source - the driver was never
+      # compiled. Clearing the cache is cheap and turns that into a rebuild.
+      - name: Clear rust-script cache
+        run: rust-script --clear-cache
       - name: Setup WDK
         shell: pwsh
         run: |
