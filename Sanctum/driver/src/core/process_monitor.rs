@@ -48,8 +48,8 @@ use wdk_sys::{
     ntddk::{
         IoGetCurrentProcess, KeDelayExecutionThread, KeQuerySystemTimePrecise,
         MmMapViewInSystemSpace, MmUnmapViewInSystemSpace, ObOpenObjectByPointer,
-        ObReferenceObjectByHandle, ObfDereferenceObject, PsCreateSystemThread, PsGetProcessId,
-        RtlInitUnicodeString, ZwClose, ZwOpenSection,
+        ObReferenceObjectByHandle, ObReferenceObjectByPointer, ObfDereferenceObject,
+        PsCreateSystemThread, PsGetProcessId, RtlInitUnicodeString, ZwClose, ZwOpenSection,
     },
 };
 
@@ -837,6 +837,13 @@ fn walk_processes_get_details(processes: &mut BTreeMap<u32, Process>) {
             break;
         }
 
+        // Read the successor while `entry` is still linked. Once the process is
+        // unlinked its Flink is not ours to read any more.
+        let next = unsafe { (*entry).Flink };
+        if next.is_null() || (next as usize) < 0xFFFF_8000_0000_0000 {
+            break;
+        }
+
         // Get the record for the _EPROCESS
         let p_e_process =
             unsafe { (entry as *mut u8).sub(active_process_links_offset) } as *mut _EPROCESS;
@@ -844,40 +851,55 @@ fn walk_processes_get_details(processes: &mut BTreeMap<u32, Process>) {
             break;
         }
 
-        let pid = unsafe { PsGetProcessId(p_e_process as *mut _) } as usize;
-
-        // We can't get a handle / process details for the System Idle Process
-        if pid == 0 {
-            entry = unsafe { (*entry).Flink };
+        // Pin the process for as long as we hold this raw pointer.
+        //
+        // Walking ActiveProcessLinks hands us an EPROCESS* that we own no reference
+        // to. A process can exit the instant we read its Flink: the kernel unlinks
+        // it, the refcount drops to zero and the object is freed. Every later use
+        // then touches freed memory, and the ObOpenObjectByPointer inside
+        // extract_process_details calls ObReferenceObjectByPointerWithTag
+        // internally, which on a zero refcount raises REFERENCE_BY_POINTER (0x18)
+        // and bugchecks the machine. Holding our own reference closes that window.
+        if !nt_success(unsafe {
+            ObReferenceObjectByPointer(
+                p_e_process as *mut _,
+                0,
+                *PsProcessType,
+                KernelMode as _,
+            )
+        }) {
+            entry = next;
             continue;
         }
 
-        // Pull out the process details we need to add to our process list
-        let process_details = match extract_process_details(p_e_process, pid) {
-            Ok(p) => p,
-            Err(e) => {
-                println!(
-                    "[sanctum] [-] Failed to get process data during process walk. {:?}",
-                    e
-                );
-                entry = unsafe { (*entry).Flink };
-                continue;
-            }
-        };
+        let pid = unsafe { PsGetProcessId(p_e_process as *mut _) } as usize;
 
-        let pid = process_details.pid;
-        let img = process_details.process_image.clone();
-        if processes
-            .insert(process_details.pid, process_details)
-            .is_some()
-        {
-            println!(
-                "[sanctum] [-] Duplicate pid found whilst walking processes? pid: {}, image: {}",
-                pid, img
-            );
+        // The System Idle Process has no image and no handle, so skip the detail
+        // extraction for it rather than taking an early continue.
+        if pid != 0 {
+            // Pull out the process details we need to add to our process list
+            match extract_process_details(p_e_process, pid) {
+                Ok(process_details) => {
+                    let pid = process_details.pid;
+                    let img = process_details.process_image.clone();
+                    if processes.insert(process_details.pid, process_details).is_some() {
+                        println!(
+                            "[sanctum] [-] Duplicate pid found whilst walking processes? pid: {}, image: {}",
+                            pid, img
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "[sanctum] [-] Failed to get process data during process walk. {:?}",
+                        e
+                    );
+                }
+            }
         }
 
-        entry = unsafe { (*entry).Flink };
+        unsafe { ObfDereferenceObject(p_e_process as *mut _) };
+        entry = next;
     }
 }
 
