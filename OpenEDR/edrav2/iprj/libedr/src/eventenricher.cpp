@@ -3220,8 +3220,8 @@ void EventEnricher::executeUnfilteredLocalScan(Variant& vEvent, Variant& vProces
 		}
 
 		// A. Synchronous scan (ClamAV, YARA-X, ML, Signer, EICAR)
-		// Priority payloads scan inline immediately with top priority (10x faster).
-		// Non-priority unknown files are deferred to background rescan so they do not block priority tasks.
+		// Payload files are scanned inline before the event is emitted.
+		// Unknown files are deferred to a background rescan so the inline path stays short.
 		const bool bDeferredFileEvent = !isProc &&
 			(eEventType == Event::LLE_FILE_CREATE ||
 			 eEventType == Event::LLE_FILE_DATA_WRITE_FULL ||
@@ -4680,7 +4680,7 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 		static_cast<Event>(static_cast<int>(vEvent.get("baseEventType"))) :
 		static_cast<Event>(static_cast<int>(vEvent.get("baseType")));
 
-	// 2. Process creation: unknown/unverified executables get top priority (10x ratio)
+	// 2. Process creation: unknown/unverified executables are classified unknown
 	if (eEventType == Event::LLE_PROCESS_CREATE || vEvent.has("childProcess"))
 	{
 		Variant vProc = vEvent.has("process") ? vEvent.get("process") :
@@ -4704,7 +4704,7 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 					return false; // Cached clean -> routine queue
 			}
 		}
-		// Not verified clean -> UNKNOWN EXECUTABLE! Top 10x priority!
+		// Not verified clean -> UNKNOWN EXECUTABLE
 		return true;
 	}
 
@@ -4718,7 +4718,7 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 		bool isMatched = vHook.get("isJsonMatched", false);
 
 		// Cross-process injection (e.g. CreateRemoteThread, WriteProcessMemory into different PID)
-		// or explicitly matched security hook rule -> TOP PRIORITY UNKNOWN/THREAT (10x)!
+		// or explicitly matched security hook rule -> UNKNOWN/THREAT
 		if ((tgtPid != 0 && tgtPid != srcPid) || isMatched)
 		{
 			return true;
@@ -4749,7 +4749,7 @@ bool EventEnricher::isUnknownOrThreatEvent(const Variant& vEvent)
 			}
 		}
 
-		// Routine internal API hook: defer as benign (10x lower priority)
+		// Routine internal API hook: classify as benign
 		return false;
 	}
 
@@ -4848,29 +4848,26 @@ void EventEnricher::processQueueEvent()
 			}
 		}
 
-		// Requirement 3: 10x higher priority for Unknown events over Benign events.
-		// Drain up to 10 Unknown events for every 1 Benign event.
-		// Benign events are deferred as much as possible.
-		static int s_unknownBatchCounter = 0;
+		// Events leave the enricher in arrival order.
+		//
+		// This used to hold unknown events back only for Benign ones, ten to one, on
+		// the grounds that unknown matters more. That stalled output_events: a burst of
+		// unknown events (a scan storm, or one process loading many modules) could sit
+		// ahead of benign events indefinitely, so the stream looked frozen while the
+		// enricher was busy. Unknown still gets scanned and still gets reported; the
+		// split only decided when, not what, so the queues drain in order instead.
 		Variant nextEvent;
 		{
 			std::scoped_lock lock(m_mtxPriorityQueues);
-			if (!m_unknownQueue.empty() && (s_unknownBatchCounter < 10 || m_benignQueue.empty()))
+			if (!m_unknownQueue.empty())
 			{
 				nextEvent = std::move(m_unknownQueue.front());
 				m_unknownQueue.pop_front();
-				s_unknownBatchCounter++;
 			}
 			else if (!m_benignQueue.empty())
 			{
 				nextEvent = std::move(m_benignQueue.front());
 				m_benignQueue.pop_front();
-				s_unknownBatchCounter = 0;
-			}
-			else if (!m_unknownQueue.empty())
-			{
-				nextEvent = std::move(m_unknownQueue.front());
-				m_unknownQueue.pop_front();
 			}
 		}
 
