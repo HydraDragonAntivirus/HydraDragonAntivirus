@@ -1,0 +1,54 @@
+name: Build Multron Server
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths:
+      - 'OpenEDR/multron_server_rs/**'
+      - 'OpenEDR/openedr_static/**'
+      - '.github/workflows/multron-server.yml'
+  pull_request:
+    branches: ["**"]
+    paths:
+      - 'OpenEDR/multron_server_rs/**'
+      - 'OpenEDR/openedr_static/**'
+      - '.github/workflows/multron-server.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows x64 Binary
+    runs-on: windows-latest
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "OpenEDR/multron_server_rs -> target"
+
+      - name: Build multron_server (Release)
+        working-directory: OpenEDR/multron_server_rs
+        run: cargo build --release --verbose
+
+      - name: Upload multron_server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: multron_server-windows-x64
+          path: OpenEDR/multron_server_rs/target/release/multron_server.exe
+          if-no-files-found: error
+          retention-days: 30

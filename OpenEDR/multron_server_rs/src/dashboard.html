@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multron Scan Server</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --panel: #ffffff; --panel2: #f7f8fa; --border: #e2e6ec;
+    --text: #1d2330; --muted: #6b7482; --accent: #0078d4; --accent-hover: #106ebe;
+    --green: #1f9d55; --red: #d63a3a; --orange: #d98200; --gray: #8a93a1;
+    --green-bg: #e7f6ed; --red-bg: #fdeaea; --orange-bg: #fdf1dd; --blue-bg: #e5f1fb;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #1a1e24; --panel2: #20252c; --border: #2c323b;
+      --text: #e4e7ec; --muted: #9aa3b0; --accent: #3a96dd; --accent-hover: #5aa8e4;
+      --green: #3ec27a; --red: #f06262; --orange: #f0a030; --gray: #7d8694;
+      --green-bg: #173325; --red-bg: #3a1c1e; --orange-bg: #3a2c14; --blue-bg: #16293b;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: .2px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); color: var(--muted); }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); }
+  .pill.ok { background: var(--green-bg); color: var(--green); } .pill.ok .dot { background: var(--green); }
+  .pill.bad { background: var(--red-bg); color: var(--red); } .pill.bad .dot { background: var(--red); }
+  .pill.wait { background: var(--orange-bg); color: var(--orange); } .pill.wait .dot { background: var(--orange); }
+  header .spacer { flex: 1; }
+  main { display: grid; grid-template-columns: 340px 1fr; gap: 16px; padding: 16px 24px 24px; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 12px; font-weight: 700; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; font-weight: 600; }
+  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel2); color: var(--text); font: inherit; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input:disabled, select:disabled { opacity: .6; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 6px; padding: 9px 16px; cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; width: 100%; margin-top: 14px; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.danger { background: var(--red); color: #fff; width: 100%; margin-top: 14px; }
+  button.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); padding: 5px 12px; font-size: 12px; }
+  button.ghost.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .error { color: var(--red); font-size: 12px; margin-top: 8px; min-height: 16px; word-break: break-word; }
+  .addr { font-family: Consolas, monospace; font-size: 12.5px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; margin-top: 4px; word-break: break-all; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .addr button { padding: 2px 8px; font-size: 11px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .limits { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 12.5px; }
+  .limits span:nth-child(odd) { color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 1200px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .stat .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12px; color: var(--muted); }
+  .stat.threat .v { color: var(--red); }
+  .tablewrap { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); background: var(--panel2); padding: 7px 10px; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
+  td { padding: 6px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.mono { font-family: Consolas, monospace; font-size: 12px; white-space: nowrap; }
+  td.file { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.detail { color: var(--muted); max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty { color: var(--muted); text-align: center; padding: 18px; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+  .t-clean { background: var(--green-bg); color: var(--green); }
+  .t-malicious { background: var(--red-bg); color: var(--red); }
+  .t-suspicious { background: var(--orange-bg); color: var(--orange); }
+  .t-error, .t-rejected { background: var(--orange-bg); color: var(--orange); }
+  .t-unknown, .t-disconnect, .t-info { background: var(--panel2); color: var(--muted); }
+  .t-connect { background: var(--blue-bg); color: var(--accent); }
+  tr.threat td { background: color-mix(in srgb, var(--red-bg) 55%, transparent); }
+  .feedbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .feedbar h2 { margin: 0 8px 0 0; }
+  .feedbar .spacer { flex: 1; }
+  .feedbar label.chk { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--text); }
+  .feedbar label.chk input { width: auto; }
+  #feedWrap { max-height: 520px; }
+  #clientsWrap { max-height: 260px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Multron Scan Server</h1>
+  <span id="enginePill" class="pill wait"><span class="dot"></span><span>Engine loading…</span></span>
+  <span id="serverPill" class="pill"><span class="dot"></span><span>Stopped</span></span>
+  <span class="spacer"></span>
+  <span id="uptime" class="hint" style="margin:0"></span>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card">
+      <h2>Listener</h2>
+      <label for="host">Listen on</label>
+      <select id="host">
+        <option value="127.0.0.1">This PC only (127.0.0.1) — for cloudflared</option>
+        <option value="0.0.0.0">All network interfaces (0.0.0.0) — LAN clients</option>
+      </select>
+      <div class="row2">
+        <div>
+          <label for="port">Port</label>
+          <input id="port" type="number" min="1" max="65535" value="9443">
+        </div>
+        <div>
+          <label for="path">Path</label>
+          <input id="path" type="text" value="/scan">
+        </div>
+      </div>
+      <button id="startBtn" class="primary">Start server</button>
+      <button id="stopBtn" class="danger" hidden>Stop server</button>
+      <div id="listenError" class="error"></div>
+
+      <label>Client address (this PC)</label>
+      <div class="addr"><span id="localUrl">—</span><button class="ghost" data-copy="localUrl">Copy</button></div>
+      <div id="lanBlock" hidden>
+        <label>Client address (other PCs on the network)</label>
+        <div id="lanUrls"></div>
+      </div>
+      <label>cloudflared service</label>
+      <div class="addr"><span id="tunnelUrl">—</span><button class="ghost" data-copy="tunnelUrl">Copy</button></div>
+      <div class="hint">Through the tunnel the client uses <b>wss://your-domain<span id="pathHint">/scan</span></b>.</div>
+    </section>
+
+    <section class="card">
+      <h2>Engine &amp; limits</h2>
+      <div class="limits" id="limits"></div>
+      <div id="engineError" class="error"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <div class="stats">
+      <div class="stat"><div class="v" id="sConn">0</div><div class="l">Connected clients</div></div>
+      <div class="stat"><div class="v" id="sScanned">0</div><div class="l">Files scanned</div></div>
+      <div class="stat threat"><div class="v" id="sThreats">0</div><div class="l">Threats found</div></div>
+      <div class="stat"><div class="v" id="sErrors">0</div><div class="l">Scan errors</div></div>
+      <div class="stat"><div class="v" id="sQueued">0</div><div class="l">Waiting for engine</div></div>
+      <div class="stat"><div class="v" id="sMem">0</div><div class="l">MB in flight</div></div>
+    </div>
+
+    <section class="card">
+      <h2>Connected clients</h2>
+      <div class="tablewrap" id="clientsWrap">
+        <table>
+          <thead><tr><th>#</th><th>Address</th><th>App</th><th>Connected</th><th>Scanned</th><th>Threats</th><th>In flight</th></tr></thead>
+          <tbody id="clients"><tr><td colspan="7" class="empty">No clients connected</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="feedbar">
+        <h2>Live feed</h2>
+        <button class="ghost active" data-filter="all">All</button>
+        <button class="ghost" data-filter="files">Files</button>
+        <button class="ghost" data-filter="threats">Threats</button>
+        <button class="ghost" data-filter="problems">Errors</button>
+        <button class="ghost" data-filter="connections">Connections</button>
+        <span class="spacer"></span>
+        <label class="chk"><input type="checkbox" id="pause"> Pause</label>
+        <button class="ghost" id="clearBtn">Clear</button>
+      </div>
+      <div class="tablewrap" id="feedWrap">
+        <table>
+          <thead><tr><th>Time</th><th>Client</th><th>Event</th><th>File</th><th>Size</th><th>Threat / detail</th><th>Time</th></tr></thead>
+          <tbody id="feed"><tr><td colspan="7" class="empty">Waiting for events…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const MAX_ROWS = 1000;
+  let seq = 0, formLoaded = false, filter = "all", running = false, lastLan = [];
+  const feed = [];            // all received events (newest last), capped
+  let pendingWhilePaused = 0;
+
+  const fmtSize = n => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? (n / 1024).toFixed(1) + " KB" : (n || 0) + " B";
+  const fmtTime = t => new Date(t).toLocaleTimeString();
+  const fmtAgo = t => {
+    const s = Math.max(0, Math.round((Date.now() - new Date(t)) / 1000));
+    if (s < 60) return s + "s ago";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    return Math.floor(s / 3600) + "h " + Math.floor(s % 3600 / 60) + "m ago";
+  };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  function setPill(pill, cls, text) {
+    pill.className = "pill " + cls;
+    pill.lastElementChild.textContent = text;
+  }
+
+  function currentForm() {
+    return { host: $("host").value, port: parseInt($("port").value, 10), path: $("path").value.trim() || "/scan" };
+  }
+
+  function updateAddresses(state) {
+    const f = running ? { host: state.server.host, port: state.server.port, path: state.server.path } : currentForm();
+    const path = "/" + (f.path || "/scan").replace(/^\/+|\/+$/g, "");
+    $("localUrl").textContent = `ws://127.0.0.1:${f.port}${path}`;
+    $("tunnelUrl").textContent = `http://127.0.0.1:${f.port}`;
+    $("pathHint").textContent = path;
+
+    const lan = $("lanUrls");
+    lan.replaceChildren();
+    const show = f.host === "0.0.0.0" && (state.lanAddresses || []).length > 0;
+    $("lanBlock").hidden = !show;
+    if (show) {
+      for (const ip of state.lanAddresses) {
+        const box = el("div", "addr");
+        const span = el("span", null, `ws://${ip}:${f.port}${path}`);
+        const btn = el("button", "ghost", "Copy");
+        btn.onclick = () => navigator.clipboard.writeText(span.textContent);
+        box.append(span, btn);
+        lan.append(box);
+      }
+    }
+  }
+
+  function renderState(state) {
+    lastLan = state.lanAddresses || [];
+    const eng = state.engine;
+    if (eng.status === "ready") setPill($("enginePill"), "ok", `Engine ready (${(eng.loadMs / 1000).toFixed(1)} s)`);
+    else if (eng.status === "error") setPill($("enginePill"), "bad", "Engine failed");
+    else setPill($("enginePill"), "wait", "Engine loading…");
+    $("engineError").textContent = eng.error || "";
+
+    running = state.server.running;
+    const s = state.server;
+    if (running) setPill($("serverPill"), "ok", `Listening on ${s.host}:${s.port}${s.path}`);
+    else setPill($("serverPill"), s.error ? "bad" : "", s.error ? "Stopped (error)" : "Stopped");
+    $("uptime").textContent = running ? "Running since " + new Date(s.startedAt).toLocaleString() : "";
+
+    if (!formLoaded || running) {
+      $("host").value = s.host === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1";
+      $("port").value = s.port;
+      $("path").value = s.path;
+      formLoaded = true;
+    }
+    for (const id of ["host", "port", "path"]) $(id).disabled = running;
+    $("startBtn").hidden = running;
+    $("stopBtn").hidden = !running;
+    $("startBtn").disabled = eng.status !== "ready";
+    $("startBtn").textContent = eng.status === "ready" ? "Start server" : "Waiting for engine…";
+    if (running) $("listenError").textContent = "";
+    else if (s.error && !$("listenError").textContent) $("listenError").textContent = s.error;
+
+    updateAddresses(state);
+
+    const l = state.limits;
+    const limits = $("limits");
+    limits.replaceChildren();
+    for (const [k, v] of [["Engine", eng.name], ["Parallel scans", l.workers], ["Files per client", l.pipeline],
+                          ["Max clients", l.maxConns], ["Max file size", l.maxMB + " MB"], ["Memory limit", l.maxInflightMB + " MB"],
+                          ["Signature check", l.signatureCheck ? "on" : "off (memory only)"], ["Verdict cache", l.cache ? "on" : "off"]]) {
+      limits.append(el("span", null, k), el("span", null, String(v)));
+    }
+
+    const st = state.stats;
+    $("sConn").textContent = st.connections;
+    $("sScanned").textContent = st.scanned;
+    $("sThreats").textContent = st.threats;
+    $("sErrors").textContent = st.errors;
+    $("sQueued").textContent = st.queued;
+    $("sMem").textContent = Number(st.inflightMB).toFixed(1);
+
+    const tbody = $("clients");
+    tbody.replaceChildren();
+    const clients = (state.clients || []).sort((a, b) => a.id - b.id);
+    if (clients.length === 0) {
+      const tr = el("tr"); const td = el("td", "empty", "No clients connected"); td.colSpan = 7; tr.append(td); tbody.append(tr);
+    }
+    for (const c of clients) {
+      const tr = el("tr");
+      tr.append(el("td", "num", c.id), el("td", "mono", c.address), el("td", null, c.app || "—"),
+                el("td", null, fmtAgo(c.connectedAt)), el("td", "num", c.scanned),
+                el("td", "num", c.threats), el("td", "num", c.inFlight));
+      if (c.threats > 0) tr.className = "threat";
+      tbody.append(tr);
+    }
+  }
+
+  function matches(e) {
+    switch (filter) {
+      case "files": return e.kind === "result" || e.kind === "error" || e.kind === "rejected";
+      case "threats": return e.kind === "result" && (e.verdict === "malicious" || e.verdict === "suspicious");
+      case "problems": return e.kind === "error" || e.kind === "rejected";
+      case "connections": return e.kind === "connect" || e.kind === "disconnect";
+      default: return true;
+    }
+  }
+
+  function eventRow(e) {
+    const tr = el("tr");
+    const label = e.kind === "result" ? e.verdict : e.kind;
+    const tag = el("span", "tag t-" + label, label);
+    const who = e.client ? `${e.client} #${e.session}` : "server";
+    let detail = e.threat || e.message || e.detail || "";
+    if (e.kind === "result" && e.threat && e.detail) detail = e.threat + " — " + e.detail;
+    const tdTag = el("td"); tdTag.append(tag);
+    const tdFile = el("td", "file", e.file || ""); if (e.file) tdFile.title = e.file + (e.sha256 ? "\nSHA-256: " + e.sha256 : "");
+    const tdDetail = el("td", "detail", detail); tdDetail.title = detail;
+    tr.append(el("td", "mono", fmtTime(e.time)), el("td", "mono", who), tdTag, tdFile,
+              el("td", "num", e.size ? fmtSize(e.size) : ""), tdDetail, el("td", "num", e.ms ? e.ms + " ms" : ""));
+    if (e.kind === "result" && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
+    return tr;
+  }
+
+  function renderFeed() {
+    const tbody = $("feed");
+    tbody.replaceChildren();
+    const rows = feed.filter(matches).slice(-MAX_ROWS).reverse(); // newest on top
+    if (rows.length === 0) {
+      const tr = el("tr"); const td = el("td", "empty", "No events"); td.colSpan = 7; tr.append(td); tbody.append(tr);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const e of rows) frag.append(eventRow(e));
+    tbody.append(frag);
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch("/api/state?since=" + seq, { cache: "no-store" });
+      const state = await res.json();
+      if (state.events && state.events.length) {
+        feed.push(...state.events);
+        if (feed.length > 4 * MAX_ROWS) feed.splice(0, feed.length - 4 * MAX_ROWS);
+        if ($("pause").checked) pendingWhilePaused += state.events.length;
+        else renderFeed();
+      }
+      seq = state.seq;
+      renderState(state);
+      $("pause").parentElement.lastChild.textContent = pendingWhilePaused ? ` Pause (${pendingWhilePaused} new)` : " Pause";
+    } catch (err) {
+      setPill($("serverPill"), "bad", "Dashboard lost the server");
+    }
+    setTimeout(poll, 1000);
+  }
+
+  async function post(url, body) {
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body || {}) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+  }
+
+  $("startBtn").onclick = async () => {
+    $("listenError").textContent = "";
+    $("startBtn").disabled = true;
+    try { await post("/api/start", currentForm()); }
+    catch (err) { $("listenError").textContent = err.message; }
+    finally { $("startBtn").disabled = false; }
+  };
+  $("stopBtn").onclick = async () => {
+    if (!confirm("Stop the server? Connected clients will be disconnected.")) return;
+    try { await post("/api/stop"); } catch (err) { $("listenError").textContent = err.message; }
+  };
+  for (const id of ["host", "port", "path"]) $(id).addEventListener("input", () => updateAddresses({ server: {}, lanAddresses: lastLan }));
+
+  document.querySelectorAll("[data-filter]").forEach(btn => btn.onclick = () => {
+    document.querySelectorAll("[data-filter]").forEach(b => b.classList.toggle("active", b === btn));
+    filter = btn.dataset.filter;
+    renderFeed();
+  });
+  document.querySelectorAll("[data-copy]").forEach(btn => btn.onclick = () => navigator.clipboard.writeText($(btn.dataset.copy).textContent));
+  $("pause").onchange = () => { if (!$("pause").checked) { pendingWhilePaused = 0; renderFeed(); } };
+  $("clearBtn").onclick = () => { feed.length = 0; pendingWhilePaused = 0; renderFeed(); };
+
+  poll();
+})();
+</script>
+</body>
+</html>
