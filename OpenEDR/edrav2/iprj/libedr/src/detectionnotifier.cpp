@@ -731,6 +731,9 @@ typedef void (*OpenedrFreeStringFn)(char*);
 // engine "is this trusted" without paying for a full scan. Optional: an older
 // openedr_static.dll simply leaves this null and the caller falls back.
 typedef uint32_t (*OpenedrCheckSignatureFn)(const char*, char**);
+// 1 once the engine has finished loading, 0 while it is still loading. Never
+// blocks, so a caller can skip the engine and decide for itself.
+typedef uint32_t (*OpenedrIsReadyFn)();
 
 struct OpenedrStaticBinding {
 	HMODULE hDll = nullptr;
@@ -738,6 +741,7 @@ struct OpenedrStaticBinding {
 	OpenedrScanPidFn fnScanPid = nullptr;
 	OpenedrFreeStringFn fnFreeString = nullptr;
 	OpenedrCheckSignatureFn fnCheckSignature = nullptr;
+	OpenedrIsReadyFn fnIsReady = nullptr;
 	std::atomic<bool> ready{ false };
 	std::atomic<bool> logged{ false };
 };
@@ -770,6 +774,8 @@ static void InitOpenedrStatic()
 	// scanning, so it is not part of the "exports-missing" gate below.
 	auto fnCheckSig = reinterpret_cast<OpenedrCheckSignatureFn>(
 		::GetProcAddress(hDll, "openedr_static_check_file_signature"));
+	auto fnReady = reinterpret_cast<OpenedrIsReadyFn>(
+		::GetProcAddress(hDll, "openedr_static_is_ready"));
 	if (!fnScan || !fnFree)
 	{
 		s_openedrLoadError.store(ERROR_PROC_NOT_FOUND);
@@ -784,6 +790,7 @@ static void InitOpenedrStatic()
 	s_openedr.fnScanPid = fnScanPid;
 	s_openedr.fnFreeString = fnFree;
 	s_openedr.fnCheckSignature = fnCheckSig;
+	s_openedr.fnIsReady = fnReady;
 	if (!fnCheckSig)
 	{
 		openedr_static::WriteLog("export-optional-missing",
@@ -985,6 +992,112 @@ static bool pathExistsUtf8(const std::string& sUtf8Path)
 	return true;
 }
 
+// Paths that arrived before the engine finished loading.
+//
+// openedr_static used to be a hard gate: the first scan request initialised it
+// inline and every other request parked until it was done, so nothing was
+// reported at all during that window. The engine is now non-blocking, so a scan
+// that arrives early is simply skipped - but skipping is not enough on its own.
+// The verdict is deliberately not cached when it is unknown, so a file that
+// produces further events gets retried by itself; a file that is written once
+// and never touched again would not. These are the ones that would be lost, so
+// they are remembered here and scanned again once the engine is up.
+static std::mutex s_mtxPendingRescan;
+static std::set<std::string> s_pendingRescan;
+static std::atomic<bool> s_rescanWatcherStarted{ false };
+// Bounded so a burst of events during a long load cannot grow this without end.
+static constexpr size_t kMaxPendingRescan = 4096;
+
+static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNameOut);
+static void EngineRescanWatcher();
+
+static bool openedrEngineReady()
+{
+	if (!s_openedr.ready.load() || !s_openedr.fnIsReady)
+		return false;
+	try
+	{
+		return s_openedr.fnIsReady() != 0;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+static void DeferEngineRescan(const std::string& sUtf8Path)
+{
+	{
+		std::lock_guard<std::mutex> lock(s_mtxPendingRescan);
+		if (s_pendingRescan.size() >= kMaxPendingRescan)
+		{
+			auto it = s_pendingRescan.begin();
+			if (it != s_pendingRescan.end())
+				s_pendingRescan.erase(it);
+		}
+		s_pendingRescan.insert(sUtf8Path);
+	}
+
+	// One watcher, ever. It exits once the engine is up and the list is drained.
+	if (!s_rescanWatcherStarted.exchange(true))
+	{
+		try
+		{
+			std::thread(EngineRescanWatcher).detach();
+		}
+		catch (...)
+		{
+			s_rescanWatcherStarted.store(false);
+		}
+	}
+}
+
+// Re-scans whatever was skipped while the engine was loading. Runs off the
+// enrichment pool, so it cannot block event processing.
+static void EngineRescanWatcher()
+{
+	try
+	{
+		for (int i = 0; i < 600 && !openedrEngineReady(); ++i)   // 5 min cap
+			::Sleep(500);
+
+		if (!openedrEngineReady())
+		{
+			openedr_static::WriteLog("rescan-abandoned",
+				"engine still not ready after 5 min; " +
+				std::to_string(s_pendingRescan.size()) + " path(s) not rescanned");
+			return;
+		}
+
+		for (;;)
+		{
+			std::string path;
+			{
+				std::lock_guard<std::mutex> lock(s_mtxPendingRescan);
+				if (s_pendingRescan.empty())
+					return;
+				path = *s_pendingRescan.begin();
+				s_pendingRescan.erase(s_pendingRescan.begin());
+			}
+			if (!pathExistsUtf8(path))
+				continue;
+
+			std::string sName;
+			const int nVerdict = staticScanVerdictName(path, sName);
+			// 2 = malicious, 3 = suspicious. A late finding is still a finding, so
+			// record it the same way a live one is recorded rather than dropping it.
+			if (nVerdict == 2 || nVerdict == 3)
+			{
+				LOGLVL(Critical, FMT("detnotif: late detection on <" << path << "> verdict=" << nVerdict << " name=" << sName << " (engine finished loading after the event was reported)"));
+				DetectionNotifier::recordMalwareDetection(path, sha1HexOfFileUtf8(path));
+			}
+		}
+	}
+	catch (...)
+	{
+	}
+}
+
 // Static-engine verdict with human-readable cause (first detection name).
 // Display-only (reputation screen): 1 clean, 2 malicious, 3 suspicious,
 // 4 scanned/unknown, 0 unavailable or scan error. No cloud, no execution.
@@ -1042,15 +1155,29 @@ static int staticScanVerdictName(const std::string& sUtf8Path, std::string& sNam
 					continue;
 				return 0;
 			}
-			std::string report(json);
-			s_openedr.fnFreeString(json);
-			std::string verdict;
-			if (!OpenedrReportVerdict(report, verdict))
+		std::string report(json);
+		s_openedr.fnFreeString(json);
+		std::string verdict;
+		if (!OpenedrReportVerdict(report, verdict))
+		{
+			// The engine is still loading. Not an error: the scan is deferred, not
+			// failed, and the verdict is not cached so the next event retries it
+			// anyway. Remember the path for the watcher as well, because a file that
+			// is written once would otherwise never be looked at.
+			if (report.find("engine-loading") != std::string::npos)
 			{
-				openedr_static::WriteLog("report-invalid", "missing/invalid verdict; bytes=" +
-					std::to_string(report.size()) + "; file=" + sUtf8Path);
+				if (!s_openedr.logged.exchange(true))
+				{
+					openedr_static::WriteLog("scan-deferred",
+						"engine still loading; scans are deferred and re-run when it is ready");
+				}
+				DeferEngineRescan(sUtf8Path);
 				return 0;
 			}
+			openedr_static::WriteLog("report-invalid", "missing/invalid verdict; bytes=" +
+				std::to_string(report.size()) + "; file=" + sUtf8Path);
+			return 0;
+		}
 			if (verdict == "Malicious" || verdict == "Suspicious")
 			{
 				std::string name;

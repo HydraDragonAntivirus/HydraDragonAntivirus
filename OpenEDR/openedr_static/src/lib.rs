@@ -29,6 +29,36 @@ use engine::StaticEngine;
 
 static GLOBAL_ENGINE: OnceLock<RwLock<StaticEngine>> = OnceLock::new();
 
+/// Signer rules loaded on their own, without the rest of the engine.
+///
+/// The Authenticode trust check needs no ClamAV database, no YARA rules and no
+/// models - only the signer lists and WinVerifyTrust. Routing it through
+/// get_or_init_engine() made every per-module trust check wait for the whole
+/// engine, which is what stalled the enrichment pool during startup. The signer
+/// lists are a few hundred small YAML files, so they load in milliseconds and
+/// the trust answer is available immediately, and stays available while the
+/// heavy components are still loading.
+static EARLY_SIGNERS: OnceLock<crate::signers::SignerDb> = OnceLock::new();
+static EARLY_SIGNERS_START: OnceLock<()> = OnceLock::new();
+
+fn signers_db() -> Option<&'static crate::signers::SignerDb> {
+    let _ = EARLY_SIGNERS_START.get_or_init(|| {
+        let dir = resolve_resource_root(None);
+        let db = crate::signers::SignerDb::load_from_dir(&dir.join("signer_rules"));
+        let _ = EARLY_SIGNERS.set(db);
+    });
+    EARLY_SIGNERS.get()
+}
+
+/// 1 once the full engine has finished loading, 0 while it is still loading.
+/// Never blocks, and the answer does not depend on the caller being willing to
+/// wait - so a caller can skip the engine entirely and let the other scanners
+/// decide instead of queueing behind the load.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_is_ready() -> u32 {
+    u32::from(GLOBAL_ENGINE.get().is_some())
+}
+
 fn get_dll_directory() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
@@ -131,6 +161,29 @@ fn resolve_resource_root(base_dir: Option<PathBuf>) -> PathBuf {
     base_dir.unwrap_or(dll_dir)
 }
 
+/// Marker string used in the JSON report when the engine is not up yet.
+const ENGINE_LOADING: &str = "engine-loading";
+
+/// The engine if it has finished loading, without ever waiting for it.
+///
+/// This used to block: the first caller ran StaticEngine::init() inline and every
+/// other caller parked on the OnceLock for the whole duration. That is what made
+/// the engine a global gate on the event pipeline - a scan request could not
+/// proceed until the whole engine was up, and on a slow machine that was the
+/// entire startup stall.
+///
+/// Now nothing waits. A caller that arrives early gets Err(ENGINE_LOADING) and
+/// can decide what to do about it; libedr records the path and re-scans it once
+/// `openedr_static_is_ready()` flips to 1, so skipping costs a retry rather than
+/// a detection.
+fn try_get_engine() -> Result<&'static RwLock<StaticEngine>, String> {
+    GLOBAL_ENGINE
+        .get()
+        .ok_or_else(|| ENGINE_LOADING.to_string())
+}
+
+/// Blocks until the engine is loaded, running the load if nobody has yet.
+/// Only for callers that genuinely cannot proceed without it.
 fn get_or_init_engine(base_dir: Option<PathBuf>) -> Result<&'static RwLock<StaticEngine>, String> {
     if let Some(engine) = GLOBAL_ENGINE.get() {
         return Ok(engine);
@@ -157,7 +210,12 @@ fn error_json(msg: &str) -> *mut c_char {
 
 /// Initialize the static scanner engine explicitly with a custom rules/database directory.
 /// If base_rules_dir is NULL, defaults to looking for directories next to the loaded DLL.
-/// Returns 0 on success, or -1 on failure.
+///
+/// Returns 0 as soon as the load has been STARTED, or -1 if it could not be.
+/// It does not wait for the load to finish: the engine takes a long time (the
+/// ClamAV database, the YARA rules and the ML models), and a caller that blocked
+/// here would hold up whatever called it. Query openedr_static_is_ready() for
+/// the current state instead.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_init(base_rules_dir: *const c_char) -> i32 {
     let path = if !base_rules_dir.is_null() {
@@ -169,17 +227,31 @@ pub extern "C" fn openedr_static_init(base_rules_dir: *const c_char) -> i32 {
         None
     };
 
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| get_or_init_engine(path))) {
-        Ok(Ok(_)) => 0,
-        Ok(Err(error)) => {
-            diagnostics::log("init-failed", &error);
-            -1
-        }
-        Err(_) => {
-            diagnostics::log("init-panic", "static engine initialization panicked");
-            -1
-        }
+    if GLOBAL_ENGINE.get().is_some() {
+        return 0;
     }
+
+    // One loader, ever. If a load is already running, this call is a no-op - which
+    // is what keeps a second openedr_static_init from starting a duplicate load.
+    static LOAD_STARTED: OnceLock<()> = OnceLock::new();
+    let started = LOAD_STARTED.get_or_init(|| {
+        std::thread::spawn(|| {
+            let t0 = std::time::Instant::now();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                get_or_init_engine(path)
+            }));
+            match result {
+                Ok(Ok(_)) => diagnostics::log(
+                    "init-done",
+                    &format!("engine ready in {}ms", t0.elapsed().as_millis()),
+                ),
+                Ok(Err(e)) => diagnostics::log("init-failed", &e),
+                Err(_) => diagnostics::log("init-panic", "static engine initialization panicked"),
+            }
+        });
+    });
+    let _ = started;
+    0
 }
 
 /// Scan a file on disk by its path.
@@ -196,7 +268,7 @@ pub extern "C" fn openedr_static_scan_file(file_path: *const c_char) -> *mut c_c
     };
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let engine_lock = match get_or_init_engine(None) {
+        let engine_lock = match try_get_engine() {
             Ok(lock) => lock,
             Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
         };
@@ -227,7 +299,7 @@ pub extern "C" fn openedr_static_scan_file(file_path: *const c_char) -> *mut c_c
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_scan_pid(pid: u32, max_mb: u64) -> *mut c_char {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let engine_lock = match get_or_init_engine(None) {
+        let engine_lock = match try_get_engine() {
             Ok(lock) => lock,
             Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
         };
@@ -332,7 +404,7 @@ pub extern "C" fn openedr_static_check_registry(reg_path: *const c_char) -> *mut
 /// Returns 1 when the shared static engine loaded the URL tree model.
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_url_model_loaded() -> u32 {
-    let engine_lock = match get_or_init_engine(None) {
+    let engine_lock = match try_get_engine() {
         Ok(lock) => lock,
         Err(_) => return 0,
     };
@@ -602,7 +674,7 @@ pub extern "C" fn openedr_static_is_unwhitelisted_subdomain(host: *const c_char)
 /// APK tree-bundle readiness (web parity: 1 = `apk_trees.bin` loaded).
 #[unsafe(no_mangle)]
 pub extern "C" fn openedr_static_apk_loaded() -> u32 {
-    match get_or_init_engine(None) {
+    match try_get_engine() {
         Ok(lock) => match lock.read() {
             Ok(engine) => engine.apk_ml_loaded() as u32,
             Err(_) => 0,
@@ -612,7 +684,7 @@ pub extern "C" fn openedr_static_apk_loaded() -> u32 {
 }
 
 fn signer_flag(f: impl FnOnce(&engine::StaticEngine) -> bool) -> u32 {
-    match get_or_init_engine(None) {
+    match try_get_engine() {
         Ok(lock) => match lock.read() {
             Ok(engine) => f(&engine) as u32,
             Err(_) => 0,
@@ -669,21 +741,23 @@ pub extern "C" fn openedr_static_check_file_signature(
     let mut flags = 0u32;
     let mut signer: Option<String> = None;
 
-    if let Ok(lock) = get_or_init_engine(None) {
-        if let Ok(engine) = lock.read() {
-            let (is_signed, _win_trust_trusted, name, _status, _is_catalog) =
-                crate::signers::verify_authenticode(Path::new(path_str));
-            if is_signed {
-                flags |= 1;
+    // Deliberately NOT get_or_init_engine(): the trust answer needs the signer
+    // lists and WinVerifyTrust, nothing else. Going through the engine made every
+    // per-module trust check queue behind the full load, which is what turned the
+    // enrichment pool into a wait at startup.
+    if let Some(db) = signers_db() {
+        let (is_signed, _win_trust_trusted, name, _status, _is_catalog) =
+            crate::signers::verify_authenticode(Path::new(path_str));
+        if is_signed {
+            flags |= 1;
+        }
+        signer = name;
+        if let Some(ref s) = signer {
+            if db.is_trusted(s) {
+                flags |= 2;
             }
-            signer = name;
-            if let Some(ref s) = signer {
-                if engine.is_trusted_signer(s) {
-                    flags |= 2;
-                }
-                if engine.is_malicious_signer(s) {
-                    flags |= 4;
-                }
+            if db.is_malicious(s) {
+                flags |= 4;
             }
         }
     }

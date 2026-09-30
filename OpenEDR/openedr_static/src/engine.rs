@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use sha1collisiondetection::Sha1CD;
 use sha2::{Sha256, Digest as Sha256Digest};
@@ -44,7 +44,12 @@ pub struct StaticEngine {
     ml: MlScanner,
     signers: SignerDb,
     pua_registry: PuaRegistryMatcher,
-    hayabusa: HayabusaScanner,
+    /// Hayabusa (Sigma) is only used by the EVTX / live-event-log scans, i.e. the
+    /// scheduled scan - never by the per-file scan. It was built in init(), so
+    /// every service start paid for loading the whole Sigma rule set even though
+    /// nothing would use it for hours. Built on first use instead.
+    hayabusa_dir: PathBuf,
+    hayabusa: std::sync::OnceLock<HayabusaScanner>,
     string_rules: PeStringRules,
     pub url_engine: crate::url_rules::UrlThreatEngine,
 }
@@ -111,22 +116,25 @@ impl StaticEngine {
         };
         let signers_dir = base.join("signer_rules");
 
-        // These seven loads are independent of each other and each of them is
+        // These loads are independent of each other and each of them is
         // slow enough to dominate: measured at ~72s in total on a 2-core VM,
         // which is the entire startup stall, because init() sits behind a
         // OnceLock and every caller queues behind it. Loading them sequentially
         // means the wall time is the SUM of the steps; on separate threads it
         // becomes the SLOWEST one. Scoped threads so the path borrows stay tied
         // to this function and nothing has to be 'static or leaked.
+        //
+        // Hayabusa is deliberately NOT here: see the `hayabusa` field. It is a
+        // scheduled-scan component, so paying for it on every boot only slowed
+        // startup down.
         let t_scope = std::time::Instant::now();
         let mut string_rules = PeStringRules::default();
-        let (clam, yara, ml, signers, pua_registry, hayabusa) = std::thread::scope(|s| {
+        let (clam, yara, ml, signers, pua_registry) = std::thread::scope(|s| {
             let h_clam = s.spawn(|| timed!("clam", ClamScanner::new(&database_dir)));
             let h_yara = s.spawn(|| timed!("yara", YaraScanner::new(&rules_dir)));
             let h_ml = s.spawn(|| timed!("ml_models", MlScanner::new(&models_dir)));
             let h_signers = s.spawn(|| timed!("signer_rules", SignerDb::load_from_dir(&signers_dir)));
             let h_pua = s.spawn(|| timed!("registry_rules", PuaRegistryMatcher::load(&registry_rules_path)));
-            let h_hayabusa = s.spawn(|| timed!("hayabusa", HayabusaScanner::new(&hayabusa_dir)));
 
             // HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
             // in-scan with FileType tags (PE/APK gating lives in rule data).
@@ -162,7 +170,6 @@ impl StaticEngine {
                 h_ml.join().expect("ml loader panicked"),
                 h_signers.join().expect("signer loader panicked"),
                 h_pua.join().expect("registry rule loader panicked"),
-                h_hayabusa.join().expect("hayabusa loader panicked"),
             )
         });
         diagnostics::log(
@@ -200,7 +207,7 @@ impl StaticEngine {
                 pua_registry.pattern_count(),
                 string_rules.pattern_count(),
                 hayabusa_dir.display(),
-                hayabusa.is_loaded(),
+                "deferred",
             ),
         );
 
@@ -210,7 +217,8 @@ impl StaticEngine {
             ml,
             signers,
             pua_registry,
-            hayabusa,
+            hayabusa_dir,
+            hayabusa: std::sync::OnceLock::new(),
             string_rules,
             url_engine: crate::url_rules::UrlThreatEngine::new(),
         }
@@ -260,14 +268,25 @@ impl StaticEngine {
         self.set_string_rules(yaml)
     }
 
+    /// The Hayabusa scanner, built on first use.
+    ///
+    /// Only the scheduled EVTX scan reaches this, so the Sigma rules are loaded
+    /// when that scan runs rather than on every service start. If two callers
+    /// race here, OnceLock lets one of them wait - which is fine, because by then
+    /// they are both inside the scheduled scan anyway.
+    fn hayabusa(&self) -> &HayabusaScanner {
+        self.hayabusa
+            .get_or_init(|| HayabusaScanner::new(&self.hayabusa_dir))
+    }
+
     /// Scan a Windows EVTX log file for threat events using Hayabusa rules.
     pub fn scan_evtx(&self, path: &Path) -> Vec<HayabusaEventMatch> {
-        self.hayabusa.scan_evtx_file(path)
+        self.hayabusa().scan_evtx_file(path)
     }
 
     /// Scan live Windows system event logs (C:\Windows\System32\Winevt\Logs\) using Hayabusa rules.
     pub fn scan_system_events(&self) -> Vec<HayabusaEventMatch> {
-        self.hayabusa.scan_system_events()
+        self.hayabusa().scan_system_events()
     }
 
     /// Scan a file on disk. Evaluates WinTrust signature, ClamAV, YARA, and PE/JS ML.
