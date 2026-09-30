@@ -734,6 +734,10 @@ typedef uint32_t (*OpenedrCheckSignatureFn)(const char*, char**);
 // 1 once the engine has finished loading, 0 while it is still loading. Never
 // blocks, so a caller can skip the engine and decide for itself.
 typedef uint32_t (*OpenedrIsReadyFn)();
+// Sigma / Hayabusa scan of the live Windows event logs. Optional: only the
+// scheduled scan uses it, and it is the only thing that makes the engine load
+// Hayabusa at all.
+typedef char* (*OpenedrScanSystemEventsFn)();
 
 struct OpenedrStaticBinding {
 	HMODULE hDll = nullptr;
@@ -742,6 +746,7 @@ struct OpenedrStaticBinding {
 	OpenedrFreeStringFn fnFreeString = nullptr;
 	OpenedrCheckSignatureFn fnCheckSignature = nullptr;
 	OpenedrIsReadyFn fnIsReady = nullptr;
+	OpenedrScanSystemEventsFn fnScanSystemEvents = nullptr;
 	std::atomic<bool> ready{ false };
 	std::atomic<bool> logged{ false };
 };
@@ -776,6 +781,8 @@ static void InitOpenedrStatic()
 		::GetProcAddress(hDll, "openedr_static_check_file_signature"));
 	auto fnReady = reinterpret_cast<OpenedrIsReadyFn>(
 		::GetProcAddress(hDll, "openedr_static_is_ready"));
+	auto fnSysEvents = reinterpret_cast<OpenedrScanSystemEventsFn>(
+		::GetProcAddress(hDll, "openedr_static_scan_system_events"));
 	if (!fnScan || !fnFree)
 	{
 		s_openedrLoadError.store(ERROR_PROC_NOT_FOUND);
@@ -791,6 +798,7 @@ static void InitOpenedrStatic()
 	s_openedr.fnFreeString = fnFree;
 	s_openedr.fnCheckSignature = fnCheckSig;
 	s_openedr.fnIsReady = fnReady;
+	s_openedr.fnScanSystemEvents = fnSysEvents;
 	if (!fnCheckSig)
 	{
 		openedr_static::WriteLog("export-optional-missing",
@@ -2714,6 +2722,110 @@ bool DetectionNotifier::resumeSuspendedProcess(uint32_t pid)
 	return zerotrust::ResumeProcessByPid(pid);
 }
 
+
+// Sigma (Hayabusa) scheduled scan.
+//
+// Defined at the end of the file on purpose: these need the openedr_static
+// binding and InitOpenedrStatic, which live further down. Names in an anonymous
+// namespace stay visible for the rest of the translation unit, but the definitions have
+// to carry the cmd:: qualification to be reachable from the service.
+//
+// Runs the Sigma (Hayabusa) scan over the live Windows event logs and returns
+// the engine's JSON report, or an empty string if the engine is not usable.
+//
+// This is the scheduled scan. It is also the only thing in the product that
+// makes the engine load Hayabusa at all - the per-file scan never touches it -
+// so the Sigma rule set is loaded on the first run of this function rather than
+// on every service start.
+std::string runSigmaEventScan()
+{
+	InitOpenedrStatic();
+	if (!s_openedr.ready.load() || !s_openedr.fnScanSystemEvents)
+		return std::string();
+
+	// The engine loads in the background; a scan now would be deferred, and the
+	// deferral path exists for per-file work, not for a periodic job that can
+	// simply wait its turn.
+	if (!openedrEngineReady())
+		return std::string();
+
+	char* pszReport = nullptr;
+	try
+	{
+		pszReport = s_openedr.fnScanSystemEvents();
+	}
+	catch (...)
+	{
+		return std::string();
+	}
+	if (!pszReport)
+		return std::string();
+
+	std::string sReport(pszReport);
+	s_openedr.fnFreeString(pszReport);
+	return sReport;
+}
+
+void startSigmaScanTimer(unsigned nIntervalMs)
+{
+	// One timer per process. nIntervalMs == 0 disables it.
+	if (nIntervalMs == 0)
+		return;
+	static std::atomic<bool> s_started{ false };
+	if (s_started.exchange(true))
+		return;
+
+	try
+	{
+		std::thread([nIntervalMs]()
+		{
+			// Wait for the engine rather than spinning on it: until it is up the
+			// scan would return nothing anyway, and the first run is the slow one
+			// because it loads the Sigma rules.
+			int nWaited = 0;
+			while (!openedrEngineReady() && nWaited < 30 * 60 * 1000)
+			{
+				::Sleep(1000);
+				nWaited += 1000;
+			}
+			if (!openedrEngineReady())
+			{
+				LOGLVL(Critical, "detnotif: Sigma timer gave up waiting for the engine after 30 min");
+				return;
+			}
+
+			for (ULONGLONG nRun = 1; ; ++nRun)
+			{
+				const ULONGLONG t0 = ::GetTickCount64();
+				const std::string sReport = runSigmaEventScan();
+				const ULONGLONG nMs = ::GetTickCount64() - t0;
+				if (!sReport.empty())
+				{
+					// The full report goes to the engine log; the service log only
+					// gets the size and the duration so it stays readable.
+					openedr_static::WriteLog("sigma-scan",
+						"run=" + std::to_string(nRun) + " bytes=" +
+						std::to_string(sReport.size()) + " ms=" + std::to_string(nMs));
+					LOGLVL(Detailed, FMT("detnotif: Sigma event-log scan run=" << nRun << " bytes=" << sReport.size() << " ms=" << nMs));
+				}
+				else
+				{
+					openedr_static::WriteLog("sigma-scan-failed",
+						"run=" + std::to_string(nRun) + " engine not usable");
+				}
+				::Sleep(nIntervalMs);
+			}
+		}).detach();
+	}
+	catch (...)
+	{
+		s_started.store(false);
+	}
+}
+
 } // namespace cmd
 
 /// @}
+
+
+//

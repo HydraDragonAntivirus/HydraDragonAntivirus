@@ -31,6 +31,18 @@ namespace cmd
 /// finds the module already loaded (EnsureInitialized is one-shot). Safe to
 /// call more than once; only the first call does anything.
 void warmUpStaticEngine();
+
+/// Runs the Sigma (Hayabusa) scan over the live Windows event logs once and
+/// returns the engine's JSON report (empty if the engine is not usable).
+/// This is the scheduled scan, and the only thing that makes the engine load
+/// Hayabusa at all.
+std::string runSigmaEventScan();
+
+/// Starts a background timer that runs runSigmaEventScan() every nIntervalMs.
+/// Returns immediately. nIntervalMs == 0 disables it. The timer lives in this
+/// process, so there is no external artifact to remove or tamper with, and it
+/// waits for the engine before its first run.
+void startSigmaScanTimer(unsigned nIntervalMs);
 } // namespace cmd
 
 // Declaration of linking dependences (statical libraries)

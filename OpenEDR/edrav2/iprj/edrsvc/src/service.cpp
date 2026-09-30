@@ -748,6 +748,31 @@ Variant WinService::execute(Variant vCommand, Variant vParams)
 	///
 	/// @fn Variant WinService::execute()
 	///
+	/// ##### startSigmaScanTimer()
+	/// Starts the in-process timer that runs the Sigma (Hayabusa) event-log scan
+	///  * intervalMs [int] - period in milliseconds; 0 or missing disables it.
+	///
+	else if (vCommand == "startSigmaScanTimer")
+	{
+		// Read as text and parse: getCatalogData is the config accessor this class
+		// has, and the period is a plain integer in debug.cfg.
+		const std::string sInterval = getCatalogData("app.config.extern.debug.sigmaScan.intervalMs", "0");
+		unsigned nInterval = 0;
+		try
+		{
+			nInterval = sInterval.empty() ? 0u : static_cast<unsigned>(std::stoul(sInterval));
+		}
+		catch (...)
+		{
+			nInterval = 0;   // unparseable means disabled, not "scan every tick"
+		}
+		cmd::startSigmaScanTimer(nInterval);
+		return Dictionary({ { "intervalMs", nInterval } });
+	}
+
+	///
+	/// @fn Variant WinService::execute()
+	///
 	/// ##### allowUnload()
 	/// Disable/enable services stopping
 	///  * value [bool] - value to set;
