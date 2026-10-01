@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Multron Scan Server</title>
+<title>Multron Antivirus Cloud</title>
 <style>
   :root {
     --bg: #f4f6f9; --panel: #ffffff; --panel2: #f7f8fa; --border: #e2e6ec;
@@ -12,14 +12,12 @@
     --green-bg: #e7f6ed; --red-bg: #fdeaea; --orange-bg: #fdf1dd; --blue-bg: #e5f1fb;
     color-scheme: light;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #111418; --panel: #1a1e24; --panel2: #20252c; --border: #2c323b;
-      --text: #e4e7ec; --muted: #9aa3b0; --accent: #3a96dd; --accent-hover: #5aa8e4;
-      --green: #3ec27a; --red: #f06262; --orange: #f0a030; --gray: #7d8694;
-      --green-bg: #173325; --red-bg: #3a1c1e; --orange-bg: #3a2c14; --blue-bg: #16293b;
-      color-scheme: dark;
-    }
+  :root[data-theme="dark"] {
+    --bg: #111418; --panel: #1a1e24; --panel2: #20252c; --border: #2c323b;
+    --text: #e4e7ec; --muted: #9aa3b0; --accent: #3a96dd; --accent-hover: #5aa8e4;
+    --green: #3ec27a; --red: #f06262; --orange: #f0a030; --gray: #7d8694;
+    --green-bg: #173325; --red-bg: #3a1c1e; --orange-bg: #3a2c14; --blue-bg: #16293b;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
@@ -85,13 +83,19 @@
   #feedWrap { max-height: 520px; }
   #clientsWrap { max-height: 260px; }
 </style>
+<script>
+  let theme = localStorage.getItem("theme");
+  if (!theme) theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", theme);
+</script>
 </head>
 <body>
 <header>
-  <h1>Multron Scan Server</h1>
+  <h1>Multron Antivirus Cloud</h1>
   <span id="enginePill" class="pill wait"><span class="dot"></span><span>Engine loading…</span></span>
   <span id="serverPill" class="pill"><span class="dot"></span><span>Stopped</span></span>
   <span class="spacer"></span>
+  <button id="themeBtn" class="ghost" style="padding: 4px 8px; font-size: 14px;" title="Toggle dark mode"></button>
   <span id="uptime" class="hint" style="margin:0"></span>
 </header>
 
@@ -399,6 +403,17 @@
   document.querySelectorAll("[data-copy]").forEach(btn => btn.onclick = () => navigator.clipboard.writeText($(btn.dataset.copy).textContent));
   $("pause").onchange = () => { if (!$("pause").checked) { pendingWhilePaused = 0; renderFeed(); } };
   $("clearBtn").onclick = () => { feed.length = 0; pendingWhilePaused = 0; renderFeed(); };
+
+  const updateThemeBtn = () => {
+    $("themeBtn").textContent = document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
+  };
+  updateThemeBtn();
+  $("themeBtn").onclick = () => {
+    const newTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", newTheme);
+    localStorage.setItem("theme", newTheme);
+    updateThemeBtn();
+  };
 
   poll();
 })();
