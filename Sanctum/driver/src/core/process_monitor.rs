@@ -861,12 +861,7 @@ fn walk_processes_get_details(processes: &mut BTreeMap<u32, Process>) {
         // internally, which on a zero refcount raises REFERENCE_BY_POINTER (0x18)
         // and bugchecks the machine. Holding our own reference closes that window.
         if !nt_success(unsafe {
-            ObReferenceObjectByPointer(
-                p_e_process as *mut _,
-                0,
-                *PsProcessType,
-                KernelMode as _,
-            )
+            ObReferenceObjectByPointer(p_e_process as *mut _, 0, *PsProcessType, KernelMode as _)
         }) {
             entry = next;
             continue;
@@ -882,7 +877,10 @@ fn walk_processes_get_details(processes: &mut BTreeMap<u32, Process>) {
                 Ok(process_details) => {
                     let pid = process_details.pid;
                     let img = process_details.process_image.clone();
-                    if processes.insert(process_details.pid, process_details).is_some() {
+                    if processes
+                        .insert(process_details.pid, process_details)
+                        .is_some()
+                    {
                         println!(
                             "[sanctum] [-] Duplicate pid found whilst walking processes? pid: {}, image: {}",
                             pid, img
