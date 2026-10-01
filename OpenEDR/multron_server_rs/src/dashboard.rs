@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 use crate::config::{app_dir, CliArgs, SavedSettings};
 use crate::engine_adapter::EngineAdapter;
 use crate::events::EventLog;
+use crate::limits::LimitSettings;
 use crate::scan_server::ScanServer;
 
 static DASHBOARD_HTML: &str = include_str!("dashboard.html");
@@ -67,6 +68,13 @@ impl AppState {
         }
         if !cfg.path.is_empty() {
             settings.path = cfg.path.clone();
+        }
+
+        // Limits saved from the dashboard win over the command-line defaults.
+        if let Some(saved) = settings.limits.take() {
+            let applied = scan_server.apply_limits(saved);
+            eprintln!("[limits] loaded from multron_server.json");
+            settings.limits = Some(applied);
         }
 
         Arc::new(Self {
@@ -161,7 +169,11 @@ impl AppState {
         *self.started_at.write().await = Some(Utc::now());
 
         s.autostart = true;
-        *self.settings.write().await = s.clone();
+        {
+            let mut g = self.settings.write().await;
+            s.limits = g.limits.take();
+            *g = s.clone();
+        }
         self.save_settings().await;
 
         self.events.add(crate::events::Event {
@@ -222,6 +234,9 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/state", get(handle_state))
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
+        .route("/api/limits", post(handle_limits))
+        .route("/api/limits/reset", post(handle_limits_reset))
+        .route("/api/unban", post(handle_unban))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
 }
@@ -300,17 +315,15 @@ async fn handle_state(
         },
         "limits": {
             "workers": app.cfg.workers,
-            "pipeline": app.cfg.pipeline,
-            "maxConns": app.cfg.max_conns,
-            "maxPerIp": app.cfg.max_per_ip,
             "token": !app.cfg.token.is_empty(),
             "hashWhitelist": app.engine.whitelist_active(),
             "hashSignatures": app.engine.malicious_hash_count(),
-            "maxMB": app.cfg.max_mb,
-            "maxInflightMB": app.cfg.max_inflight_mb,
             "cache": app.cfg.cache(),
             "signatureCheck": !app.cfg.memory_only,
+            "maxFileMBCeiling": crate::config::MAX_FILE_MB,
         },
+        "editableLimits": srv.limits.get(),
+        "bannedIps": srv.limiter.banned_now(),
         "lanAddresses": lan_addresses(),
         "stats": {
             "connections": clients.len(),
@@ -332,6 +345,9 @@ async fn handle_state(
             "engineScans": ld(&srv.stats.engine_scans),
             "engineCrashes": ld(&srv.stats.engine_crashes),
             "rejectedAuth": ld(&srv.stats.rejected_auth),
+            "blocked": ld(&srv.limiter.blocked),
+            "bansTotal": ld(&srv.limiter.bans),
+            "bannedNow": srv.limiter.banned_now().len(),
             "cacheSize": srv.cache.len(),
             "keptUnknown": ld(&app.engine.kept_files),
             "uploadSavedPct": saved_pct,
@@ -363,6 +379,58 @@ async fn handle_start(
 async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     app.stop_listener(true).await;
     Json(serde_json::json!({"ok": true}))
+}
+
+fn info_event(app: &AppState, message: String) {
+    app.events.add(crate::events::Event {
+        seq: 0,
+        time: Utc::now(),
+        kind: "info".to_string(),
+        session: None,
+        client: None,
+        verdict: None,
+        file: None,
+        size: None,
+        ms: None,
+        threat: None,
+        detail: None,
+        sha256: None,
+        message: Some(message),
+    });
+}
+
+/// Saves new limits from the dashboard. They apply at once and survive a restart.
+async fn handle_limits(
+    State(app): State<Arc<AppState>>,
+    Json(new): Json<LimitSettings>,
+) -> impl IntoResponse {
+    let applied = app.scan_server.apply_limits(new);
+    app.settings.write().await.limits = Some(applied.clone());
+    app.save_settings().await;
+    info_event(
+        &app,
+        format!(
+            "limits changed: max file {} MB, {} conn/IP, {} connects/min, {} MB upload/h, {} msg/s, {} checks/s, ban after {} strikes for {} min",
+            applied.max_mb, applied.max_per_ip, applied.connects_per_min, applied.upload_mb_per_hour,
+            applied.msgs_per_sec, applied.checks_per_sec, applied.ban_strikes, applied.ban_minutes
+        ),
+    );
+    Json(serde_json::json!({"ok": true, "limits": applied}))
+}
+
+/// Back to the command-line values; the saved limits are removed.
+async fn handle_limits_reset(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let applied = app.scan_server.apply_limits(LimitSettings::from_args(&app.cfg));
+    app.settings.write().await.limits = None;
+    app.save_settings().await;
+    info_event(&app, "limits reset to the command-line values".into());
+    Json(serde_json::json!({"ok": true, "limits": applied}))
+}
+
+async fn handle_unban(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let n = app.scan_server.limiter.unban_all();
+    info_event(&app, format!("{n} blocked IP(s) unblocked"));
+    Json(serde_json::json!({"ok": true, "unbanned": n}))
 }
 
 fn lan_addresses() -> Vec<String> {

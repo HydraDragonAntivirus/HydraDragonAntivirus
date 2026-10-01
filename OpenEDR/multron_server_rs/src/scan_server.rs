@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, State};
-use axum::http::HeaderMap;
-use axum::response::Response;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use chrono::Utc;
@@ -23,7 +23,15 @@ use crate::cache::{now_secs, parse_sha, CachedVerdict, Sha, VerdictCache};
 use crate::config::{app_dir, CliArgs};
 use crate::engine_adapter::{EngineAdapter, ResultMessage, ENGINE_NAME};
 use crate::events::{Event, EventLog};
+use crate::limits::{LimitSettings, LiveLimits};
+use crate::ratelimit::{Bucket, RateLimiter};
 use crate::scheduler::FairScheduler;
+
+/// Largest single WebSocket message. Files arrive in 256 KiB chunks and JSON stays small,
+/// so nobody can make the server buffer a 100 MB frame.
+const MAX_WS_MESSAGE: usize = 1024 * 1024;
+/// Uploads slower than this are cut off (stops connections that trickle bytes to hold memory).
+const MIN_UPLOAD_BYTES_PER_SEC: i64 = 64 * 1024;
 
 /// 3 = hash-first: the client sends `check` batches of SHA-256s and uploads only the
 /// files the server answers with `need_upload`. Version 2 clients (scan only) still work.
@@ -129,6 +137,8 @@ pub struct ScanServer {
     pub events: Arc<EventLog>,
     pub cache: VerdictCache,
     pub stats: Stats,
+    pub limiter: RateLimiter,
+    pub limits: Arc<LiveLimits>,
 
     inflight: StdMutex<HashMap<Sha, InflightEntry>>,
     next_token: AtomicU64,
@@ -169,7 +179,12 @@ impl ScanServer {
             eprintln!("[cache] {} verdicts loaded", cache.len());
         }
 
+        let limits = Arc::new(LiveLimits::new(LimitSettings::from_args(&cfg)));
+        let limiter = RateLimiter::new(Arc::clone(&limits));
+
         Arc::new(Self {
+            limiter,
+            limits,
             cfg,
             engine,
             scheduler,
@@ -317,10 +332,18 @@ impl ScanServer {
         }
     }
 
+    /// Applies limits edited in the dashboard; returns them as stored (clamped).
+    pub fn apply_limits(&self, s: LimitSettings) -> LimitSettings {
+        let s = self.limits.set(s);
+        self.budget.resize(s.max_inflight_mb * 1024 * 1024);
+        s
+    }
+
     fn acquire_ip(&self, ip: &str) -> bool {
+        let max = self.limits.max_per_ip();
         let mut g = self.per_ip.lock().unwrap();
         let n = g.entry(ip.to_string()).or_insert(0);
-        if self.cfg.max_per_ip > 0 && *n >= self.cfg.max_per_ip {
+        if max > 0 && *n >= max {
             return false;
         }
         *n += 1;
@@ -397,9 +420,13 @@ async fn ws_handler(
         }
     }
 
-    let max_bytes = (server.cfg.max_mb as usize) * 1024 * 1024 + 1024 * 1024;
-    ws.max_message_size(max_bytes)
-        .max_frame_size(max_bytes)
+    // Banned addresses and connection floods are refused before the upgrade (cheap 429).
+    if let Err(msg) = server.limiter.on_connect(&client_ip) {
+        return (StatusCode::TOO_MANY_REQUESTS, msg).into_response();
+    }
+
+    ws.max_message_size(MAX_WS_MESSAGE)
+        .max_frame_size(MAX_WS_MESSAGE)
         .on_upgrade(move |socket| handle_socket(socket, server, client_ip))
 }
 
@@ -413,7 +440,7 @@ async fn reject(mut socket: WebSocket, msg: &str) {
 
 async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: String) {
     let current = server.active_connections.fetch_add(1, Ordering::SeqCst);
-    if current >= server.cfg.max_conns {
+    if current >= server.limits.max_conns() {
         server.active_connections.fetch_sub(1, Ordering::SeqCst);
         reject(socket, "server busy, try again later").await;
         return;
@@ -522,10 +549,18 @@ async fn session_loop(
     session: &Arc<SessionHandle>,
 ) -> Result<(), String> {
     // 1. Handshake
-    let hello = match tokio::time::timeout(Duration::from_secs(30), ws_rx.next()).await {
-        Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<ClientMessage>(&t)
-            .map_err(|e| format!("invalid hello JSON: {}", e))?,
-        _ => return Err("handshake timeout or invalid initial message".to_string()),
+    let hello = match tokio::time::timeout(Duration::from_secs(10), ws_rx.next()).await {
+        Ok(Some(Ok(Message::Text(t)))) => match serde_json::from_str::<ClientMessage>(&t) {
+            Ok(m) => m,
+            Err(e) => {
+                server.limiter.strike(&session.address);
+                return Err(format!("invalid hello JSON: {}", e));
+            }
+        },
+        _ => {
+            server.limiter.strike(&session.address);
+            return Err("handshake timeout or invalid initial message".to_string());
+        }
     };
 
     if hello.r#type != "hello" {
@@ -544,6 +579,7 @@ async fn session_loop(
         && !constant_time_eq(hello.token.as_bytes(), server.cfg.token.as_bytes())
     {
         server.stats.rejected_auth.fetch_add(1, Ordering::Relaxed);
+        server.limiter.strike(&session.address);
         send_error(out, None, "invalid token");
         return Err("invalid token".into());
     }
@@ -553,6 +589,7 @@ async fn session_loop(
     }
 
     *session.app.write().await = hello.client.chars().take(64).collect();
+    let pipeline = server.limits.pipeline().max(1);
 
     send_json(
         out,
@@ -560,23 +597,50 @@ async fn session_loop(
             "type": "hello_ok",
             "version": PROTOCOL_VERSION,
             "engine": ENGINE_NAME,
-            "pipeline": server.cfg.pipeline,
-            "checkBatch": server.cfg.max_check_batch,
-            "maxMB": server.cfg.max_mb,
+            "pipeline": pipeline,
+            "checkBatch": server.limits.max_check_batch(),
+            "maxMB": server.limits.max_mb(),
         }),
     );
 
-    let slots = Arc::new(Semaphore::new(server.cfg.pipeline.max(1)));
-    let max_bytes = server.cfg.max_mb * 1024 * 1024;
+    let slots = Arc::new(Semaphore::new(pipeline));
+
+    // Per-connection flood limits (one second of burst headroom on top of the rate).
+    // Rates are read on every message, so a change in the dashboard applies at once.
+    let msg_rate = || server.limits.msgs_per_sec() as f64;
+    let check_rate = || server.limits.checks_per_sec() as f64;
+    let mut msg_bucket = Bucket::full(msg_rate() * 2.0);
+    let mut check_bucket = Bucket::full(check_rate() * 2.0);
+    let flood = |what: &str| {
+        server.limiter.strike(&session.address);
+        send_error(out, None, &format!("too many {what}, slow down"));
+        Err(format!("flood: too many {what}"))
+    };
 
     // 2. Requests
     loop {
-        let msg = match tokio::time::timeout(Duration::from_secs(1800), ws_rx.next()).await {
-            Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<ClientMessage>(&t)
-                .map_err(|e| format!("invalid JSON message: {}", e))?,
+        let msg = match tokio::time::timeout(Duration::from_secs(600), ws_rx.next()).await {
+            Ok(Some(Ok(Message::Text(t)))) => {
+                if !msg_bucket.take(1.0, msg_rate() * 2.0, msg_rate()) {
+                    return flood("messages");
+                }
+                match serde_json::from_str::<ClientMessage>(&t) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        server.limiter.strike(&session.address);
+                        return Err(format!("invalid JSON message: {}", e));
+                    }
+                }
+            }
             Ok(Some(Ok(Message::Close(_)))) | Ok(None) => break,
-            Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => continue,
+            Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => {
+                if !msg_bucket.take(1.0, msg_rate() * 2.0, msg_rate()) {
+                    return flood("messages");
+                }
+                continue;
+            }
             Ok(Some(Ok(Message::Binary(_)))) => {
+                server.limiter.strike(&session.address);
                 send_error(out, None, "unexpected binary data");
                 return Err("binary data without send_file".into());
             }
@@ -585,11 +649,17 @@ async fn session_loop(
         };
 
         match msg.r#type.as_str() {
-            "check" => handle_check(server, session, out, msg.items, max_bytes)?,
+            "check" => {
+                if !check_bucket.take(msg.items.len().max(1) as f64, check_rate() * 2.0, check_rate()) {
+                    return flood("hash checks");
+                }
+                handle_check(server, session, out, msg.items, server.limits.max_bytes())?
+            }
             "scan" => {
-                handle_scan(ws_rx, out, server, session, &slots, msg, max_bytes).await?;
+                handle_scan(ws_rx, out, server, session, &slots, msg, server.limits.max_bytes()).await?;
             }
             other => {
+                server.limiter.strike(&session.address);
                 send_error(out, None, "unknown message type");
                 return Err(format!("unexpected message: {other}"));
             }
@@ -607,7 +677,7 @@ fn handle_check(
     items: Vec<CheckItem>,
     max_bytes: i64,
 ) -> Result<(), String> {
-    if items.len() > server.cfg.max_check_batch {
+    if items.len() > server.limits.max_check_batch() {
         send_error(out, None, "check batch too large");
         return Err(format!("check batch of {} items", items.len()));
     }
@@ -632,7 +702,7 @@ fn handle_check(
 
         if it.size < 0 || it.size > max_bytes {
             reject_file(server, session, out, it.id, &name, it.size, &sha_hex,
-                &format!("file too large (limit {} MB)", server.cfg.max_mb));
+                &format!("file too large (limit {} MB)", server.limits.max_mb()));
             continue;
         }
 
@@ -686,10 +756,16 @@ async fn handle_scan(
 
     if msg.size < 0 || msg.size > max_bytes {
         reject_file(server, session, out, id, &name, msg.size, &sha_hex,
-            &format!("file too large (limit {} MB)", server.cfg.max_mb));
+            &format!("file too large (limit {} MB)", server.limits.max_mb()));
         return Ok(());
     }
     let size = msg.size;
+
+    if !server.limiter.take_upload(&session.address, size) {
+        reject_file(server, session, out, id, &name, size, &sha_hex,
+            "upload limit for this hour reached, try again later");
+        return Ok(());
+    }
 
     let slot = Arc::clone(slots).acquire_owned().await.map_err(|e| e.to_string())?;
     let budget = server.budget.acquire(size).await;
@@ -697,11 +773,22 @@ async fn handle_scan(
 
     send_json(out, &serde_json::json!({"type": "send_file", "id": id}));
 
+    let deadline = tokio::time::Instant::now()
+        + Duration::from_secs(60 + (size / MIN_UPLOAD_BYTES_PER_SEC) as u64);
     let mut data: Vec<u8> = Vec::with_capacity(size as usize);
     while (data.len() as i64) < size {
-        match tokio::time::timeout(Duration::from_secs(120), ws_rx.next()).await {
+        let wait = deadline
+            .saturating_duration_since(tokio::time::Instant::now())
+            .min(Duration::from_secs(120));
+        if wait.is_zero() {
+            server.limiter.strike(&session.address);
+            send_error(out, Some(id), "upload too slow");
+            return Err("upload too slow".into());
+        }
+        match tokio::time::timeout(wait, ws_rx.next()).await {
             Ok(Some(Ok(Message::Binary(bin)))) => {
                 if data.len() as i64 + bin.len() as i64 > size {
+                    server.limiter.strike(&session.address);
                     send_error(out, Some(id), "more bytes than announced");
                     return Err("upload larger than announced size".into());
                 }
@@ -714,6 +801,7 @@ async fn handle_scan(
 
     let calculated: String = Sha256::digest(&data).encode_hex_upper();
     if calculated != sha_hex {
+        server.limiter.strike(&session.address);
         reject_file(server, session, out, id, &name, size, &sha_hex,
             "sha256 of the uploaded bytes does not match");
         return Ok(());

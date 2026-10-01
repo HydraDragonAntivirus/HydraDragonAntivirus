@@ -4,6 +4,8 @@ mod config;
 mod dashboard;
 mod engine_adapter;
 mod events;
+mod limits;
+mod ratelimit;
 mod scan_server;
 mod scheduler;
 
@@ -21,7 +23,8 @@ use scan_server::ScanServer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = CliArgs::parse();
+    let mut args = CliArgs::parse();
+    args.enforce_limits();
 
     let events = Arc::new(EventLog::new());
 
