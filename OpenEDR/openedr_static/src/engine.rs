@@ -25,6 +25,10 @@ use crate::yara::YaraScanner;
 /// Web parity (`openedr_web/src/engine.rs::APK_TREE_THRESHOLD`).
 pub const APK_TREE_THRESHOLD: f32 = 0.8;
 
+/// PE tree-model decision threshold. Retuned to 0.90 to eliminate false positives
+/// on non-standard compilers/tools (MinGW DWARF sections, PyInstaller/decompilers, Lazarus).
+pub const PE_TREE_THRESHOLD: f32 = 0.90;
+
 /// Generic whole-buffer ML fallback threshold. Fires only when every other
 /// layer (ClamAV/YARA/HydraSig/PE/JS/APK ML) found nothing, so keep it at the
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
@@ -544,7 +548,7 @@ impl StaticEngine {
             }
             if buf.starts_with(b"MZ") {
                 if let Some(prob) = self.ml.predict_pe(&buf) {
-                    if prob >= 0.71 {
+                    if prob >= PE_TREE_THRESHOLD {
                         report.detections.push(DetectionItem {
                             layer: "Memory_ML".to_string(),
                             name: "Memory.PE.HighConfidence".to_string(),
@@ -889,7 +893,7 @@ impl StaticEngine {
         if !is_apk_file {
             if data.starts_with(b"MZ") {
                 if let Some(prob) = self.ml.predict_pe(data) {
-                    if prob >= 0.71 {
+                    if prob >= PE_TREE_THRESHOLD {
                         detections.push(DetectionItem {
                             layer: "PE_ML".to_string(),
                             name: "MalwareNet.PE.HighConfidence".to_string(),
@@ -970,7 +974,7 @@ impl StaticEngine {
                                 max_score = max_score.max(0.95);
                             }
                             if let Some(prob) = self.ml.predict_pe(&dumped) {
-                                if prob >= 0.71 {
+                                if prob >= PE_TREE_THRESHOLD {
                                     detections.push(DetectionItem {
                                         layer: "Unicorn_Unpacker_ML".to_string(),
                                         name: "Unpacked.MalwareNet.PE.HighConfidence".to_string(),
@@ -1040,7 +1044,7 @@ impl StaticEngine {
 
             if stripped_data.starts_with(b"MZ") {
                 if let Some(prob) = self.ml.predict_pe(stripped_data) {
-                    if prob >= 0.71 {
+                    if prob >= PE_TREE_THRESHOLD {
                         detections.push(DetectionItem {
                             layer: "Heuristic_Stripped_PE_ML".to_string(),
                             name: "Stripped.MalwareNet.PE.HighConfidence".to_string(),
@@ -1136,7 +1140,7 @@ impl StaticEngine {
                                     max_score = max_score.max(0.90);
                                 }
                                 if let Some(prob) = self.ml.predict_pe(pe_blob) {
-                                    if prob >= 0.71 {
+                                    if prob >= PE_TREE_THRESHOLD {
                                         overlay_confirmed = true;
                                         detections.push(DetectionItem {
                                             layer: "Heuristic_Overlay_PE_ML".to_string(),
@@ -1229,7 +1233,7 @@ impl StaticEngine {
                         }
                         if entry.data.starts_with(b"MZ") {
                             if let Some(prob) = self.ml.predict_pe(&entry.data) {
-                                if prob >= 0.71 {
+                                if prob >= PE_TREE_THRESHOLD {
                                     detections.push(DetectionItem {
                                         layer: "Archive_PE_ML".to_string(),
                                         name: format!("Archive:{}:MalwareNet.PE.HighConfidence", entry.name),
