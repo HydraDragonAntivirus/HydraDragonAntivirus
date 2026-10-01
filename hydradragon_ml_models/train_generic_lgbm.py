@@ -59,9 +59,19 @@ FEATURE_NAMES = [
     "has_mz",
     "has_pe_sig",
     "has_zip_magic",
+    "str_count_log",
+    "str_avg_len_log",
+    "str_max_len_log",
+    "str_density",
+    "str_entropy_avg",
+    "str_entropy_var",
+    "str_delta_var",
+    "str_digit_ratio",
+    "str_symbol_ratio",
+    "str_hex_ratio",
 ]
 N_FEATS = len(FEATURE_NAMES)
-assert N_FEATS == 20
+assert N_FEATS == 30
 
 CAP = 8 * 1024 * 1024  # 8 MiB inspect cap
 CHUNK_SIZE = 4096
@@ -175,6 +185,72 @@ def featurize_buffer(data: bytes) -> list:
 
     has_zip = 1.0 if len(data) >= 4 and data[:4] == b"PK\x03\x04" else 0.0
 
+    # 5. Whole-File String Mathematical Profile (10 features)
+    str_count = 0
+    str_total_len = 0
+    str_max_len = 0
+    str_digits = 0
+    str_symbols = 0
+    str_hex = 0
+    str_ents = []
+    str_deltas = []
+
+    start_idx = None
+    for i, b in enumerate(buf):
+        if (0x20 <= b <= 0x7E) or b in (9, 10, 13):
+            if start_idx is None:
+                start_idx = i
+        elif start_idx is not None:
+            slen = i - start_idx
+            if slen >= 5:
+                str_count += 1
+                str_total_len += slen
+                if slen > str_max_len:
+                    str_max_len = slen
+                if len(str_ents) < 300:
+                    slice_b = buf[start_idx:i]
+                    str_ents.append(_shannon_entropy(slice_b))
+                    for sb in slice_b:
+                        if 48 <= sb <= 57:
+                            str_digits += 1
+                        elif (65 <= sb <= 70) or (97 <= sb <= 102):
+                            str_hex += 1
+                        elif not ((65 <= sb <= 90) or (97 <= sb <= 122)):
+                            str_symbols += 1
+                    for k in range(len(slice_b) - 1):
+                        str_deltas.append(abs(int(slice_b[k + 1]) - int(slice_b[k])))
+            start_idx = None
+
+    if start_idx is not None:
+        slen = len(buf) - start_idx
+        if slen >= 5:
+            str_count += 1
+            str_total_len += slen
+            if slen > str_max_len:
+                str_max_len = slen
+
+    avg_str_len = str_total_len / str_count if str_count > 0 else 0.0
+    str_density = str_total_len / n if n > 0 else 0.0
+
+    if str_ents:
+        avg_e = sum(str_ents) / len(str_ents)
+        var_e = sum((e - avg_e) ** 2 for e in str_ents) / len(str_ents)
+    else:
+        avg_e = 0.0
+        var_e = 0.0
+
+    if str_deltas:
+        avg_d = sum(str_deltas) / len(str_deltas)
+        var_d = sum((d - avg_d) ** 2 for d in str_deltas) / len(str_deltas)
+        str_delta_var = math.sqrt(var_d) / 128.0
+    else:
+        str_delta_var = 0.0
+
+    sample_chars = max(1, str_total_len)
+    str_digit_ratio = min(1.0, str_digits / sample_chars)
+    str_symbol_ratio = min(1.0, str_symbols / sample_chars)
+    str_hex_ratio = min(1.0, (str_digits + str_hex) / sample_chars)
+
     return [
         _ln1p(total_len),
         _ln1p(sn),
@@ -196,6 +272,16 @@ def featurize_buffer(data: bytes) -> list:
         has_mz,
         has_pe,
         has_zip,
+        _ln1p(str_count),
+        _ln1p(avg_str_len),
+        _ln1p(str_max_len),
+        str_density,
+        avg_e,
+        var_e,
+        str_delta_var,
+        str_digit_ratio,
+        str_symbol_ratio,
+        str_hex_ratio,
     ]
 
 

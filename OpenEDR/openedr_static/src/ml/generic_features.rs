@@ -189,7 +189,81 @@ pub fn extract_generic_features(data: &[u8]) -> [f32; GENERIC_FEATURE_COUNT] {
     }
     let has_zip = if data.len() >= 4 && &data[0..4] == b"PK\x03\x04" { 1.0 } else { 0.0 };
 
-    // Assemble 20 features
+    // 5. Whole-File String Mathematical Profile (10 features)
+    let mut str_count = 0u32;
+    let mut str_total_len = 0u32;
+    let mut str_max_len = 0u32;
+    let mut str_digits = 0u32;
+    let mut str_symbols = 0u32;
+    let mut str_hex = 0u32;
+    let mut str_entropies = Vec::new();
+    let mut str_deltas = Vec::new();
+
+    let mut start_idx = None;
+    for (i, &b) in buf.iter().enumerate() {
+        if matches!(b, 0x20..=0x7E | b'\t' | b'\r' | b'\n') {
+            if start_idx.is_none() {
+                start_idx = Some(i);
+            }
+        } else if let Some(s_idx) = start_idx.take() {
+            let slen = (i - s_idx) as u32;
+            if slen >= 5 {
+                str_count += 1;
+                str_total_len += slen;
+                if slen > str_max_len {
+                    str_max_len = slen;
+                }
+                if str_entropies.len() < 300 {
+                    let slice = &buf[s_idx..i];
+                    str_entropies.push(shannon_entropy(slice));
+                    for &sb in slice {
+                        if (b'0'..=b'9').contains(&sb) { str_digits += 1; }
+                        else if (b'a'..=b'f').contains(&sb) || (b'A'..=b'F').contains(&sb) { str_hex += 1; }
+                        else if !(b'a'..=b'z').contains(&sb) && !(b'A'..=b'Z').contains(&sb) { str_symbols += 1; }
+                    }
+                    for w in slice.windows(2) {
+                        str_deltas.push((w[1] as f32 - w[0] as f32).abs());
+                    }
+                }
+            }
+        }
+    }
+    if let Some(s_idx) = start_idx {
+        let slen = (buf.len() - s_idx) as u32;
+        if slen >= 5 {
+            str_count += 1;
+            str_total_len += slen;
+            if slen > str_max_len {
+                str_max_len = slen;
+            }
+        }
+    }
+
+    let avg_str_len = if str_count > 0 { str_total_len as f32 / str_count as f32 } else { 0.0 };
+    let str_density = clamp01(str_total_len as f32 / n);
+
+    let (str_entropy_avg, str_entropy_var) = if !str_entropies.is_empty() {
+        let avg_e = str_entropies.iter().sum::<f32>() / str_entropies.len() as f32;
+        let var_e = str_entropies.iter().map(|&e| (e - avg_e) * (e - avg_e)).sum::<f32>() / str_entropies.len() as f32;
+        (avg_e, var_e)
+    } else {
+        (0.0, 0.0)
+    };
+
+    let str_delta_var = if !str_deltas.is_empty() {
+        let avg_d = str_deltas.iter().sum::<f32>() / str_deltas.len() as f32;
+        let var_d = str_deltas.iter().map(|&d| (d - avg_d) * (d - avg_d)).sum::<f32>() / str_deltas.len() as f32;
+        (var_d.sqrt()) / 128.0
+    } else {
+        0.0
+    };
+
+    let sample_chars = str_total_len.max(1) as f32;
+    let str_digit_ratio = clamp01(str_digits as f32 / sample_chars);
+    let str_symbol_ratio = clamp01(str_symbols as f32 / sample_chars);
+    let str_hex_ratio = clamp01((str_digits + str_hex) as f32 / sample_chars);
+
+    // Assemble 30 features
     let mut out = [0.0f32; GENERIC_FEATURE_COUNT];
     out[0]  = ln1p(total_len as f32);
     out[1]  = ln1p(sn);
@@ -211,5 +285,15 @@ pub fn extract_generic_features(data: &[u8]) -> [f32; GENERIC_FEATURE_COUNT] {
     out[17] = has_mz;
     out[18] = has_pe;
     out[19] = has_zip;
+    out[20] = ln1p(str_count as f32);
+    out[21] = ln1p(avg_str_len);
+    out[22] = ln1p(str_max_len as f32);
+    out[23] = str_density;
+    out[24] = str_entropy_avg;
+    out[25] = str_entropy_var;
+    out[26] = str_delta_var;
+    out[27] = str_digit_ratio;
+    out[28] = str_symbol_ratio;
+    out[29] = str_hex_ratio;
     out
 }

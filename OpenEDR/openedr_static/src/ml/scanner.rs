@@ -8,8 +8,8 @@ use super::tree_model::TreeEnsembleModel;
 
 /// Master router input width: [is_pe, is_js, is_apk, is_url, pe, js, apk, url].
 pub const MASTER_FEATURE_COUNT: usize = 8;
-/// Generic whole-buffer string/entropy model input width (train_generic_lgbm.py).
-pub const GENERIC_FEATURE_COUNT: usize = 20;
+/// Generic whole-buffer string/entropy model input width (train_generic_lgbm.py: 20 byte + 10 string stats).
+pub const GENERIC_FEATURE_COUNT: usize = 30;
 
 pub struct MlScanner {
     pe_trees: Option<TreeEnsembleModel>,
