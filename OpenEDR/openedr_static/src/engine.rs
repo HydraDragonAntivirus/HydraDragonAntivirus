@@ -59,6 +59,7 @@ pub struct StaticEngine {
     hayabusa_dir: PathBuf,
     hayabusa: std::sync::OnceLock<HayabusaScanner>,
     string_rules: PeStringRules,
+    pub yargen: crate::yargen_matcher::YarGenMatcher,
     pub url_engine: crate::url_rules::UrlThreatEngine,
 }
 
@@ -236,6 +237,9 @@ impl StaticEngine {
             ),
         );
 
+        let yargen_dir = base.join("yargen_strings");
+        let yargen = timed!("yargen_strings", crate::yargen_matcher::YarGenMatcher::from_dir(&yargen_dir));
+
         Self {
             clam,
             yara,
@@ -245,6 +249,7 @@ impl StaticEngine {
             hayabusa_dir,
             hayabusa: std::sync::OnceLock::new(),
             string_rules,
+            yargen,
             url_engine: crate::url_rules::UrlThreatEngine::new(),
         }
     }
@@ -893,6 +898,24 @@ impl StaticEngine {
             }
         }
 
+        // 4b. YarGen curated string signatures (daachorse 5.0.0 double-array AC)
+        if self.yargen.is_loaded() {
+            let (mal_hits, ben_hits, evidence) = self.yargen.scan_buffer(data);
+            if mal_hits >= 3 && ben_hits == 0 {
+                let score = 0.92f32;
+                detections.push(DetectionItem {
+                    layer: "YarGen_Strings".to_string(),
+                    name: format!("YarGen.Signature.HitCount_{}", mal_hits),
+                    score: Some(score),
+                    details: Some(format!(
+                        "Matched {} curated malicious signatures (0 benign hits). Samples: {:?}",
+                        mal_hits, evidence
+                    )),
+                });
+                max_score = max_score.max(score);
+            }
+        }
+
         // 5. Machine Learning (PE / JS) — skipped for APKs (APK forest above).
         if !is_apk_file {
             if data.starts_with(b"MZ") {
@@ -976,6 +999,21 @@ impl StaticEngine {
                                     details: Some("YARA rule matched on Unicorn emulated unpacked payload".to_string()),
                                 });
                                 max_score = max_score.max(0.95);
+                            }
+                            if self.yargen.is_loaded() {
+                                let (mal_hits, ben_hits, evidence) = self.yargen.scan_buffer(&dumped);
+                                if mal_hits >= 3 && ben_hits == 0 {
+                                    detections.push(DetectionItem {
+                                        layer: "Unicorn_Unpacker_YarGen".to_string(),
+                                        name: format!("Unpacked:YarGen.HitCount_{}", mal_hits),
+                                        score: Some(0.96),
+                                        details: Some(format!(
+                                            "Unicorn emulated memory matched {} yarGen signatures. Samples: {:?}",
+                                            mal_hits, evidence
+                                        )),
+                                    });
+                                    max_score = max_score.max(0.96);
+                                }
                             }
                             if let Some(prob) = self.ml.predict_pe(&dumped) {
                                 if prob >= PE_TREE_THRESHOLD {

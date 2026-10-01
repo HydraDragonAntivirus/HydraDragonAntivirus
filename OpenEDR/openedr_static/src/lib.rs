@@ -13,6 +13,7 @@ pub mod signers;
 pub mod string_rules;
 pub mod url_rules;
 pub mod yara;
+pub mod yargen_matcher;
 
 /// HydraDragonSig deterministic file-content signature engine (external
 /// Yamdle/YAML rules, daachorse matcher, pefile-rs PE parsing).
