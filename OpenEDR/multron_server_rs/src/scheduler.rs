@@ -1,85 +1,104 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
-use tokio::sync::{Mutex, Notify};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
 pub type Job = Box<dyn FnOnce() + Send + 'static>;
 
+/// Engine thread pool. Scans are CPU-bound and synchronous, so they run on their own
+/// OS threads (not tokio's blocking pool): the network side never waits for a thread,
+/// the stack is big enough for deep archive recursion, and a panic only fails one file.
+///
+/// Jobs are queued per client and taken round-robin, so one client sending 100k files
+/// does not make everybody else wait behind it.
 pub struct FairScheduler {
     inner: Mutex<SchedulerInner>,
-    notify: Notify,
+    cv: Condvar,
+    busy: AtomicUsize,
+    workers: usize,
 }
 
+#[derive(Default)]
 struct SchedulerInner {
     queues: HashMap<i64, VecDeque<Job>>,
     order: VecDeque<i64>,
+    queued: usize,
 }
 
 impl FairScheduler {
-    pub fn new(workers: usize) -> Arc<Self> {
+    pub fn new(workers: usize, stack_mb: usize) -> Arc<Self> {
+        let workers = workers.max(1);
         let sched = Arc::new(Self {
-            inner: Mutex::new(SchedulerInner {
-                queues: HashMap::new(),
-                order: VecDeque::new(),
-            }),
-            notify: Notify::new(),
+            inner: Mutex::new(SchedulerInner::default()),
+            cv: Condvar::new(),
+            busy: AtomicUsize::new(0),
+            workers,
         });
 
-        sched.start_workers(workers);
+        for n in 0..workers {
+            let s = Arc::clone(&sched);
+            std::thread::Builder::new()
+                .name(format!("engine-{n}"))
+                .stack_size(stack_mb.max(8) * 1024 * 1024)
+                .spawn(move || s.worker_loop())
+                .expect("cannot start engine thread");
+        }
         sched
     }
 
-    fn start_workers(self: &Arc<Self>, workers: usize) {
-        for _ in 0..workers {
-            let sched = Arc::clone(self);
-            tokio::spawn(async move {
-                loop {
-                    let job = sched.next_job().await;
-                    // Run the scan job on a dedicated blocking OS thread with full native stack
-                    let _ = tokio::task::spawn_blocking(move || {
-                        job();
-                    })
-                    .await;
-                }
-            });
-        }
-    }
-
-    pub async fn submit(&self, session_id: i64, job: Job) {
-        let mut guard = self.inner.lock().await;
-        let is_first = {
-            let q = guard.queues.entry(session_id).or_default();
-            q.push_back(job);
-            q.len() == 1
-        };
-        if is_first {
-            guard.order.push_back(session_id);
-        }
-        drop(guard);
-        self.notify.notify_one();
-    }
-
-    async fn next_job(&self) -> Job {
+    fn worker_loop(&self) {
         loop {
-            let mut guard = self.inner.lock().await;
-            if let Some(session_id) = guard.order.pop_front() {
-                if let Some(q) = guard.queues.get_mut(&session_id) {
-                    if let Some(job) = q.pop_front() {
-                        if !q.is_empty() {
-                            guard.order.push_back(session_id);
-                        } else {
-                            guard.queues.remove(&session_id);
-                        }
-                        return job;
-                    }
-                }
-            }
-            drop(guard);
-            self.notify.notified().await;
+            let job = self.next_job();
+            self.busy.fetch_add(1, Ordering::Relaxed);
+            // A panicking scan drops its result sender; the waiting side reports it as an error.
+            let _ = catch_unwind(AssertUnwindSafe(job));
+            self.busy.fetch_sub(1, Ordering::Relaxed);
         }
     }
 
-    pub async fn queued(&self) -> usize {
-        let guard = self.inner.lock().await;
-        guard.queues.values().map(|q| q.len()).sum()
+    pub fn submit(&self, session_id: i64, job: Job) {
+        let mut g = self.inner.lock().unwrap();
+        let q = g.queues.entry(session_id).or_default();
+        q.push_back(job);
+        let first = q.len() == 1;
+        g.queued += 1;
+        if first {
+            g.order.push_back(session_id);
+        }
+        drop(g);
+        self.cv.notify_one();
+    }
+
+    fn next_job(&self) -> Job {
+        let mut g = self.inner.lock().unwrap();
+        loop {
+            while let Some(sid) = g.order.pop_front() {
+                let Some(q) = g.queues.get_mut(&sid) else { continue };
+                let Some(job) = q.pop_front() else {
+                    g.queues.remove(&sid);
+                    continue;
+                };
+                if q.is_empty() {
+                    g.queues.remove(&sid);
+                } else {
+                    g.order.push_back(sid);
+                }
+                g.queued -= 1;
+                return job;
+            }
+            g = self.cv.wait(g).unwrap();
+        }
+    }
+
+    pub fn queued(&self) -> usize {
+        self.inner.lock().unwrap().queued
+    }
+
+    pub fn busy(&self) -> usize {
+        self.busy.load(Ordering::Relaxed)
+    }
+
+    pub fn workers(&self) -> usize {
+        self.workers
     }
 }

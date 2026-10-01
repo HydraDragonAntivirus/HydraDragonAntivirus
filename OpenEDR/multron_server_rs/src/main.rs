@@ -1,4 +1,5 @@
 mod budget;
+mod cache;
 mod config;
 mod dashboard;
 mod engine_adapter;
@@ -32,7 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(PathBuf::from(&args.work_dir))
     };
 
-    let engine = EngineAdapter::new(work_dir);
+    let engine = EngineAdapter::new(
+        work_dir,
+        !args.no_hash_whitelist,
+        !args.no_keep_unknown,
+        args.keep_unknown_gb,
+    );
     let custom_rules = if args.rules.is_empty() {
         None
     } else {
