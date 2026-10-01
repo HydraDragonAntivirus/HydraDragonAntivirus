@@ -136,12 +136,12 @@ impl VerdictCache {
 
     pub fn get(&self, sha: &Sha) -> Option<CachedVerdict> {
         let mut g = self.inner.lock().unwrap();
-        let v = g.map.get(sha)?;
+        let v = g.map.get(sha)?.clone();
         if now_secs() - v.at > self.ttl_for(&v.verdict) {
             g.map.remove(sha);
             return None;
         }
-        Some(v.clone())
+        Some(v)
     }
 
     pub fn put(&self, sha: Sha, v: CachedVerdict) {

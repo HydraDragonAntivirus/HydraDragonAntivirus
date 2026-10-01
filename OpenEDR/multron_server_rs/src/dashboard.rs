@@ -277,6 +277,11 @@ async fn handle_state(
     let ld = |a: &std::sync::atomic::AtomicI64| a.load(std::sync::atomic::Ordering::Relaxed);
     let checked = ld(&srv.stats.checked);
     let uploads = ld(&srv.stats.uploads);
+    let saved_pct = if checked > 0 {
+        100.0 * (checked - uploads).max(0) as f64 / checked as f64
+    } else {
+        0.0
+    };
 
     let state = serde_json::json!({
         "engine": {
@@ -329,7 +334,7 @@ async fn handle_state(
             "rejectedAuth": ld(&srv.stats.rejected_auth),
             "cacheSize": srv.cache.len(),
             "keptUnknown": ld(&app.engine.kept_files),
-            "uploadSavedPct": if checked > 0 { 100.0 * (checked - uploads).max(0) as f64 / checked as f64 } else { 0.0 },
+            "uploadSavedPct": saved_pct,
         },
         "clients": clients,
         "events": events,

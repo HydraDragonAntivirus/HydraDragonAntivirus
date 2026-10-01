@@ -58,13 +58,13 @@ impl FairScheduler {
 
     pub fn submit(&self, session_id: i64, job: Job) {
         let mut g = self.inner.lock().unwrap();
-        let q = g.queues.entry(session_id).or_default();
+        let inner = &mut *g;
+        let q = inner.queues.entry(session_id).or_default();
         q.push_back(job);
-        let first = q.len() == 1;
-        g.queued += 1;
-        if first {
-            g.order.push_back(session_id);
+        if q.len() == 1 {
+            inner.order.push_back(session_id);
         }
+        inner.queued += 1;
         drop(g);
         self.cv.notify_one();
     }
@@ -72,19 +72,22 @@ impl FairScheduler {
     fn next_job(&self) -> Job {
         let mut g = self.inner.lock().unwrap();
         loop {
-            while let Some(sid) = g.order.pop_front() {
-                let Some(q) = g.queues.get_mut(&sid) else { continue };
-                let Some(job) = q.pop_front() else {
-                    g.queues.remove(&sid);
-                    continue;
-                };
-                if q.is_empty() {
-                    g.queues.remove(&sid);
-                } else {
-                    g.order.push_back(sid);
+            {
+                let inner = &mut *g;
+                while let Some(sid) = inner.order.pop_front() {
+                    let Some(q) = inner.queues.get_mut(&sid) else { continue };
+                    let job = q.pop_front();
+                    let empty = q.is_empty();
+                    if empty {
+                        inner.queues.remove(&sid);
+                    } else {
+                        inner.order.push_back(sid);
+                    }
+                    if let Some(job) = job {
+                        inner.queued -= 1;
+                        return job;
+                    }
                 }
-                g.queued -= 1;
-                return job;
             }
             g = self.cv.wait(g).unwrap();
         }

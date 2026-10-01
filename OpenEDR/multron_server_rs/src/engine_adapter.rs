@@ -162,7 +162,7 @@ impl EngineAdapter {
             return Some(hash_result("malicious", Some("EICAR-Test-File"), "EICAR standard antivirus test file (hash)", 1.0, sha_hex, "hash"));
         }
         if let Some(name) = self.malicious.read().unwrap().get(sha) {
-            return Some(hash_result("malicious", Some(name), "Matched SHA-256 signature", 1.0, sha_hex, "hash"));
+            return Some(hash_result("malicious", Some(name.as_str()), "Matched SHA-256 signature", 1.0, sha_hex, "hash"));
         }
         if self.whitelist_enabled {
             if let Some(engine) = self.engine.get() {
