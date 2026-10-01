@@ -15,7 +15,6 @@ pub struct FairScheduler {
     inner: Mutex<SchedulerInner>,
     cv: Condvar,
     busy: AtomicUsize,
-    workers: usize,
 }
 
 #[derive(Default)]
@@ -32,7 +31,6 @@ impl FairScheduler {
             inner: Mutex::new(SchedulerInner::default()),
             cv: Condvar::new(),
             busy: AtomicUsize::new(0),
-            workers,
         });
 
         for n in 0..workers {
@@ -99,9 +97,5 @@ impl FairScheduler {
 
     pub fn busy(&self) -> usize {
         self.busy.load(Ordering::Relaxed)
-    }
-
-    pub fn workers(&self) -> usize {
-        self.workers
     }
 }

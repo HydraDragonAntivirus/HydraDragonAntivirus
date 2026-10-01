@@ -215,33 +215,41 @@ impl EngineAdapter {
         let mut res = build_result(&report, sha);
         res.scan_ms = started.elapsed().as_millis() as i64;
 
-        if let Some(p) = temp_path {
-            self.keep_or_remove(&p, &res, sha, &safe_filename, data.len() as u64);
-        }
+        self.keep_or_remove(temp_path.as_deref(), data, &res, sha, &safe_filename);
         Ok(res)
     }
 
-    /// Unknown files are kept as `<SHA256>_<name>` for later analysis; everything else
-    /// (clean, and malicious samples, which are never stored) is deleted.
-    fn keep_or_remove(&self, path: &Path, res: &ResultMessage, sha: &str, name: &str, size: u64) {
+    /// Unknown files are kept in the work folder (multron_incoming) as `<SHA256>_<name>`
+    /// for later analysis; everything else (clean, and malicious samples, which are never
+    /// stored) is deleted. When the scan ran from memory the bytes are written directly.
+    fn keep_or_remove(&self, temp: Option<&Path>, data: &[u8], res: &ResultMessage, sha: &str, name: &str) {
+        let size = data.len() as u64;
         let keep = self.keep_unknown
             && res.verdict == "unknown"
+            && !data.is_empty()
             && self.kept_bytes.load(Ordering::Relaxed) + size <= self.keep_limit_bytes;
+
         if keep {
-            if let Some(dir) = path.parent() {
+            if let Some(dir) = &self.work_dir {
+                let name = if name.is_empty() { "file" } else { name };
                 let target = dir.join(format!("{}_{}", sha, name));
-                if target.exists() {
-                    let _ = std::fs::remove_file(path);
-                    return;
-                }
-                if std::fs::rename(path, &target).is_ok() {
+                let stored = if target.exists() {
+                    false
+                } else if let Some(p) = temp {
+                    std::fs::rename(p, &target).is_ok()
+                } else {
+                    std::fs::write(&target, data).is_ok()
+                };
+                if stored {
                     self.kept_bytes.fetch_add(size, Ordering::Relaxed);
                     self.kept_files.fetch_add(1, Ordering::Relaxed);
                     return;
                 }
             }
         }
-        let _ = std::fs::remove_file(path);
+        if let Some(p) = temp {
+            let _ = std::fs::remove_file(p);
+        }
     }
 }
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Multron Scan Server</title>
+<title>Multron Antivirus Cloud</title>
 <style>
   :root {
     --bg: #f4f6f9; --panel: #ffffff; --panel2: #f7f8fa; --border: #e2e6ec;
@@ -12,14 +12,12 @@
     --green-bg: #e7f6ed; --red-bg: #fdeaea; --orange-bg: #fdf1dd; --blue-bg: #e5f1fb;
     color-scheme: light;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #111418; --panel: #1a1e24; --panel2: #20252c; --border: #2c323b;
-      --text: #e4e7ec; --muted: #9aa3b0; --accent: #3a96dd; --accent-hover: #5aa8e4;
-      --green: #3ec27a; --red: #f06262; --orange: #f0a030; --gray: #7d8694;
-      --green-bg: #173325; --red-bg: #3a1c1e; --orange-bg: #3a2c14; --blue-bg: #16293b;
-      color-scheme: dark;
-    }
+  :root[data-theme="dark"] {
+    --bg: #111418; --panel: #1a1e24; --panel2: #20252c; --border: #2c323b;
+    --text: #e4e7ec; --muted: #9aa3b0; --accent: #3a96dd; --accent-hover: #5aa8e4;
+    --green: #3ec27a; --red: #f06262; --orange: #f0a030; --gray: #7d8694;
+    --green-bg: #173325; --red-bg: #3a1c1e; --orange-bg: #3a2c14; --blue-bg: #16293b;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
@@ -82,16 +80,28 @@
   .feedbar .spacer { flex: 1; }
   .feedbar label.chk { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--text); }
   .feedbar label.chk input { width: auto; }
+  .limitform { display: grid; grid-template-columns: 1fr 96px; gap: 6px 10px; align-items: center; }
+  .limitform label { margin: 0; font-weight: 500; color: var(--text); }
+  .limitform label small { display: block; color: var(--muted); font-size: 11px; }
+  .limitform input { padding: 5px 8px; text-align: right; }
+  .limitform input.dirty { border-color: var(--accent); }
+  .btnrow { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   #feedWrap { max-height: 520px; }
   #clientsWrap { max-height: 260px; }
 </style>
+<script>
+  let theme = localStorage.getItem("theme");
+  if (!theme) theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", theme);
+</script>
 </head>
 <body>
 <header>
-  <h1>Multron Scan Server</h1>
+  <h1>Multron Antivirus Cloud</h1>
   <span id="enginePill" class="pill wait"><span class="dot"></span><span>Engine loading…</span></span>
   <span id="serverPill" class="pill"><span class="dot"></span><span>Stopped</span></span>
   <span class="spacer"></span>
+  <button id="themeBtn" class="ghost" style="padding: 4px 8px; font-size: 14px;" title="Toggle dark mode"></button>
   <span id="uptime" class="hint" style="margin:0"></span>
 </header>
 
@@ -134,6 +144,18 @@
       <div class="limits" id="limits"></div>
       <div id="engineError" class="error"></div>
     </section>
+
+    <section class="card">
+      <h2>Limits</h2>
+      <div class="limitform" id="limitForm"></div>
+      <button id="saveLimitsBtn" class="primary">Save limits</button>
+      <div class="btnrow">
+        <button id="resetLimitsBtn" class="ghost">Command-line defaults</button>
+        <button id="unbanBtn" class="ghost">Unblock all IPs</button>
+      </div>
+      <div id="limitsMsg" class="hint"></div>
+      <div id="bannedList" class="hint"></div>
+    </section>
   </div>
 
   <div class="col">
@@ -154,6 +176,8 @@
       <div class="stat"><div class="v" id="sGb">0</div><div class="l">GB received</div></div>
       <div class="stat"><div class="v" id="sKnown">0</div><div class="l">Known verdicts</div></div>
       <div class="stat"><div class="v" id="sKept">0</div><div class="l">Unknown files kept</div></div>
+      <div class="stat threat"><div class="v" id="sBlocked">0</div><div class="l">Requests blocked</div></div>
+      <div class="stat threat"><div class="v" id="sBanned">0</div><div class="l">IPs blocked now</div></div>
     </div>
 
     <section class="card">
@@ -271,13 +295,15 @@
     const l = state.limits;
     const limits = $("limits");
     limits.replaceChildren();
-    for (const [k, v] of [["Engine", eng.name], ["Parallel scans", l.workers], ["Files per client", l.pipeline],
-                          ["Max clients", l.maxConns], ["Max file size", l.maxMB + " MB"], ["Memory limit", l.maxInflightMB + " MB"],
+    for (const [k, v] of [["Engine", eng.name], ["Engine threads", l.workers],
                           ["Signature check", l.signatureCheck ? "on" : "off (memory only)"], ["Verdict cache", l.cache ? "on" : "off"],
-                          ["Per-IP limit", l.maxPerIp || "none"], ["Token", l.token ? "required" : "off"],
+                          ["Token", l.token ? "required" : "off"],
                           ["Hash whitelist", l.hashWhitelist ? "on" : "off"], ["Hash signatures", l.hashSignatures]]) {
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
+    renderLimitForm(state.editableLimits, l.maxFileMBCeiling);
+    const banned = state.bannedIps || [];
+    $("bannedList").textContent = banned.length ? "Blocked now: " + banned.join(", ") : "";
 
     const st = state.stats;
     $("sConn").textContent = st.connections;
@@ -296,6 +322,8 @@
     $("sGb").textContent = Number(st.gbUploaded).toFixed(2);
     $("sKnown").textContent = st.cacheSize;
     $("sKept").textContent = st.keptUnknown;
+    $("sBlocked").textContent = st.blocked;
+    $("sBanned").textContent = st.bannedNow;
 
     const tbody = $("clients");
     tbody.replaceChildren();
@@ -371,6 +399,62 @@
     setTimeout(poll, 1000);
   }
 
+  // Editable limits: [key, label, hint, min, max]
+  const LIMIT_FIELDS = [
+    ["maxMb", "Max file size (MB)", "never above 100", 1, 100],
+    ["maxInflightMb", "Upload memory (MB)", "all clients together", 1, 8192],
+    ["maxConns", "Max clients", "connections at once", 1, 100000],
+    ["maxPerIp", "Connections per IP", "0 = no limit", 0, 10000],
+    ["pipeline", "Uploads per client", "new connections", 1, 16],
+    ["maxCheckBatch", "Hashes per check", "new connections", 1, 1024],
+    ["connectsPerMin", "Connects / IP / min", "", 1, 10000],
+    ["uploadMbPerHour", "Upload / IP / hour (MB)", "hash answers are free", 1, 1000000],
+    ["msgsPerSec", "Messages / connection / s", "", 1, 100000],
+    ["checksPerSec", "Hash checks / connection / s", "", 1, 1000000],
+    ["banStrikes", "Strikes before block", "", 1, 1000],
+    ["banMinutes", "Block time (min)", "", 1, 10080],
+  ];
+  let limitsBuilt = false;
+
+  function renderLimitForm(cur, ceiling) {
+    if (!cur) return;
+    const form = $("limitForm");
+    if (!limitsBuilt) {
+      for (const [key, label, hint, min, max] of LIMIT_FIELDS) {
+        const lab = el("label", null, label);
+        lab.htmlFor = "lim_" + key;
+        if (hint) lab.append(el("small", null, hint));
+        const inp = el("input");
+        inp.type = "number"; inp.id = "lim_" + key; inp.min = min;
+        inp.max = key === "maxMb" ? ceiling : max; inp.step = 1;
+        inp.oninput = () => inp.classList.add("dirty");
+        form.append(lab, inp);
+      }
+      limitsBuilt = true;
+    }
+    // Do not overwrite a value the user is editing.
+    for (const [key] of LIMIT_FIELDS) {
+      const inp = $("lim_" + key);
+      if (!inp.classList.contains("dirty") && document.activeElement !== inp) inp.value = cur[key];
+    }
+  }
+
+  function readLimitForm() {
+    const out = {};
+    for (const [key, label, , min, max] of LIMIT_FIELDS) {
+      const v = Number($("lim_" + key).value);
+      if (!Number.isFinite(v) || v < min || v > max) throw new Error(`${label}: ${min} – ${max}`);
+      out[key] = Math.round(v);
+    }
+    return out;
+  }
+
+  function limitsSaved(msg) {
+    for (const [key] of LIMIT_FIELDS) $("lim_" + key).classList.remove("dirty");
+    $("limitsMsg").textContent = msg;
+    setTimeout(() => { if ($("limitsMsg").textContent === msg) $("limitsMsg").textContent = ""; }, 4000);
+  }
+
   async function post(url, body) {
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body || {}) });
     const data = await res.json().catch(() => ({}));
@@ -389,6 +473,22 @@
     if (!confirm("Stop the server? Connected clients will be disconnected.")) return;
     try { await post("/api/stop"); } catch (err) { $("listenError").textContent = err.message; }
   };
+  $("saveLimitsBtn").onclick = async () => {
+    try {
+      const r = await post("/api/limits", readLimitForm());
+      for (const [key] of LIMIT_FIELDS) $("lim_" + key).value = r.limits[key];
+      limitsSaved("Saved. Applies now and after a restart.");
+    } catch (err) { $("limitsMsg").textContent = err.message; }
+  };
+  $("resetLimitsBtn").onclick = async () => {
+    if (!confirm("Go back to the command-line limits?")) return;
+    try { await post("/api/limits/reset"); limitsSaved("Back to the command-line limits."); }
+    catch (err) { $("limitsMsg").textContent = err.message; }
+  };
+  $("unbanBtn").onclick = async () => {
+    try { const r = await post("/api/unban"); limitsSaved(`${r.unbanned} IP(s) unblocked.`); }
+    catch (err) { $("limitsMsg").textContent = err.message; }
+  };
   for (const id of ["host", "port", "path"]) $(id).addEventListener("input", () => updateAddresses({ server: {}, lanAddresses: lastLan }));
 
   document.querySelectorAll("[data-filter]").forEach(btn => btn.onclick = () => {
@@ -399,6 +499,17 @@
   document.querySelectorAll("[data-copy]").forEach(btn => btn.onclick = () => navigator.clipboard.writeText($(btn.dataset.copy).textContent));
   $("pause").onchange = () => { if (!$("pause").checked) { pendingWhilePaused = 0; renderFeed(); } };
   $("clearBtn").onclick = () => { feed.length = 0; pendingWhilePaused = 0; renderFeed(); };
+
+  const updateThemeBtn = () => {
+    $("themeBtn").textContent = document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
+  };
+  updateThemeBtn();
+  $("themeBtn").onclick = () => {
+    const newTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", newTheme);
+    localStorage.setItem("theme", newTheme);
+    updateThemeBtn();
+  };
 
   poll();
 })();

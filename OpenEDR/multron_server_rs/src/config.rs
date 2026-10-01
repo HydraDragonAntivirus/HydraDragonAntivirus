@@ -49,9 +49,33 @@ pub struct CliArgs {
     #[arg(long, default_value = "")]
     pub token: String,
 
-    /// Largest accepted file in MB
-    #[arg(long, default_value_t = 100)]
+    /// Largest accepted file in MB (never more than 100)
+    #[arg(long, default_value_t = MAX_FILE_MB)]
     pub max_mb: i64,
+
+    /// New connections one IP may open per minute
+    #[arg(long, default_value_t = 20)]
+    pub connects_per_min: u32,
+
+    /// MB one IP may upload per hour (files answered by hash do not count)
+    #[arg(long, default_value_t = 2048)]
+    pub upload_mb_per_hour: u32,
+
+    /// Messages one connection may send per second
+    #[arg(long, default_value_t = 100)]
+    pub msgs_per_sec: u32,
+
+    /// Hashes one connection may check per second
+    #[arg(long, default_value_t = 3000)]
+    pub checks_per_sec: u32,
+
+    /// Limit violations before an IP is blocked
+    #[arg(long, default_value_t = 3)]
+    pub ban_strikes: u32,
+
+    /// Minutes an IP stays blocked
+    #[arg(long, default_value_t = 15)]
+    pub ban_minutes: u64,
 
     /// Memory for uploaded files waiting for or in analysis (all clients together), in MB
     #[arg(long, default_value_t = 768)]
@@ -102,9 +126,26 @@ pub struct CliArgs {
     pub keep_unknown_gb: u64,
 }
 
+/// Hard ceiling for one uploaded file. --max-mb can lower it, never raise it.
+pub const MAX_FILE_MB: i64 = 100;
+
 impl CliArgs {
     pub fn cache(&self) -> bool {
         !self.no_cache
+    }
+
+    /// Clamps values that would let one client use too much memory or disk.
+    pub fn enforce_limits(&mut self) {
+        if self.max_mb > MAX_FILE_MB || self.max_mb < 1 {
+            eprintln!("[config] --max-mb {} not allowed, using {}", self.max_mb, MAX_FILE_MB);
+            self.max_mb = self.max_mb.clamp(1, MAX_FILE_MB);
+        }
+        self.max_inflight_mb = self.max_inflight_mb.clamp(self.max_mb, 8192);
+        self.pipeline = self.pipeline.clamp(1, 16);
+        self.max_check_batch = self.max_check_batch.clamp(1, 1024);
+        self.msgs_per_sec = self.msgs_per_sec.max(1);
+        self.checks_per_sec = self.checks_per_sec.max(1);
+        self.ban_strikes = self.ban_strikes.max(1);
     }
 }
 
@@ -122,6 +163,9 @@ pub struct SavedSettings {
     pub path: String,
     #[serde(default)]
     pub autostart: bool,
+    /// Limits edited in the dashboard; None until they are changed there once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<crate::limits::LimitSettings>,
 }
 
 impl Default for SavedSettings {
@@ -131,6 +175,7 @@ impl Default for SavedSettings {
             port: 9443,
             path: "/scan".to_string(),
             autostart: false,
+            limits: None,
         }
     }
 }
