@@ -755,14 +755,14 @@ pub extern "C" fn openedr_static_check_file_signature(
     // the engine made every per-module trust check queue behind the full load,
     // which is what turned the enrichment pool into a wait at startup.
     if let Some(db) = signers_db() {
-        let (is_signed, _win_trust_trusted, name, _status, _is_catalog) =
+        let (is_signed, win_trust_trusted, name, _status, _is_catalog) =
             crate::signers::verify_authenticode(Path::new(path_str));
         if is_signed {
             flags |= 1;
         }
         signer = name;
         if let Some(ref s) = signer {
-            if db.is_trusted(s) {
+            if win_trust_trusted && db.is_trusted(s) {
                 flags |= 2;
             }
             if db.is_malicious(s) {

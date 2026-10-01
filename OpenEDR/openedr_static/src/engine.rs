@@ -688,7 +688,7 @@ impl StaticEngine {
                         details: Some("Matched pua_vendors.yaml".to_string()),
                     });
                     max_score = max_score.max(0.85);
-                } else if self.signers.is_trusted(signer) {
+                } else if is_trusted && self.signers.is_trusted(signer) {
                     trusted_by_yaml = true;
                 }
             }
@@ -703,9 +703,14 @@ impl StaticEngine {
             // whitelist hit, so the whitelist is evaluated first.
             let benign_hit = detections.is_empty() && self.is_benign(&sha256_hex);
 
+            // A binary is ONLY treated as trusted if:
+            // 1. Its cryptographic signature passed WinVerifyTrust / Catalog verification (is_trusted == true).
+            // 2. AND its signer is explicitly verified against trusted_signers.yaml (trusted_by_yaml == true).
+            let is_fully_trusted = is_trusted && trusted_by_yaml;
+
             signer_details = Some(SignerDetails {
                 is_signed,
-                is_trusted: is_trusted || trusted_by_yaml,
+                is_trusted: is_fully_trusted,
                 signer_name,
                 status,
                 is_catalog_signed,
@@ -728,8 +733,8 @@ impl StaticEngine {
                 };
             }
 
-            // Fast-path for trusted authenticode binaries with no signer alert
-            if (is_trusted || trusted_by_yaml) && detections.is_empty() {
+            // Fast-path ONLY for binaries that are cryptographically valid AND vetted in trusted_signers.yaml
+            if is_fully_trusted && detections.is_empty() {
                 return StaticScanReport {
                     target: target_name.to_string(),
                     file_size,
