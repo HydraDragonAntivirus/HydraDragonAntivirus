@@ -1321,11 +1321,11 @@ impl StaticEngine {
         }
     }
 
-    /// URL score via ML model (openedr_static strictly uses Machine Learning >= 0.90).
+    /// URL score via ML model (openedr_static strictly uses Machine Learning >= 0.85).
     /// Returns (probability, is_malicious, is_whitelisted, is_blacklisted).
     pub fn scan_url(&self, raw_url: &str) -> (f32, bool, bool, bool) {
         let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
-        let is_malicious = prob >= 0.90;
+        let is_malicious = prob >= 0.85;
         (prob, is_malicious, false, false)
     }
 

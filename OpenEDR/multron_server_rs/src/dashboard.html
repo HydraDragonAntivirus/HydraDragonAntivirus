@@ -144,6 +144,16 @@
       <div class="stat"><div class="v" id="sErrors">0</div><div class="l">Scan errors</div></div>
       <div class="stat"><div class="v" id="sQueued">0</div><div class="l">Waiting for engine</div></div>
       <div class="stat"><div class="v" id="sMem">0</div><div class="l">MB in flight</div></div>
+      <div class="stat"><div class="v" id="sBusy">0</div><div class="l">Engine threads busy</div></div>
+      <div class="stat"><div class="v" id="sChecked">0</div><div class="l">Hashes checked</div></div>
+      <div class="stat"><div class="v" id="sUploads">0</div><div class="l">Files uploaded</div></div>
+      <div class="stat"><div class="v" id="sSaved">0</div><div class="l">% answered by hash</div></div>
+      <div class="stat"><div class="v" id="sCache">0</div><div class="l">Cache hits</div></div>
+      <div class="stat"><div class="v" id="sWl">0</div><div class="l">Whitelist hits</div></div>
+      <div class="stat"><div class="v" id="sShared">0</div><div class="l">Shared with other clients</div></div>
+      <div class="stat"><div class="v" id="sGb">0</div><div class="l">GB received</div></div>
+      <div class="stat"><div class="v" id="sKnown">0</div><div class="l">Known verdicts</div></div>
+      <div class="stat"><div class="v" id="sKept">0</div><div class="l">Unknown files kept</div></div>
     </div>
 
     <section class="card">
@@ -263,7 +273,9 @@
     limits.replaceChildren();
     for (const [k, v] of [["Engine", eng.name], ["Parallel scans", l.workers], ["Files per client", l.pipeline],
                           ["Max clients", l.maxConns], ["Max file size", l.maxMB + " MB"], ["Memory limit", l.maxInflightMB + " MB"],
-                          ["Signature check", l.signatureCheck ? "on" : "off (memory only)"], ["Verdict cache", l.cache ? "on" : "off"]]) {
+                          ["Signature check", l.signatureCheck ? "on" : "off (memory only)"], ["Verdict cache", l.cache ? "on" : "off"],
+                          ["Per-IP limit", l.maxPerIp || "none"], ["Token", l.token ? "required" : "off"],
+                          ["Hash whitelist", l.hashWhitelist ? "on" : "off"], ["Hash signatures", l.hashSignatures]]) {
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
 
@@ -274,6 +286,16 @@
     $("sErrors").textContent = st.errors;
     $("sQueued").textContent = st.queued;
     $("sMem").textContent = Number(st.inflightMB).toFixed(1);
+    $("sBusy").textContent = `${st.busy} / ${l.workers}`;
+    $("sChecked").textContent = st.checked;
+    $("sUploads").textContent = st.uploads;
+    $("sSaved").textContent = Number(st.uploadSavedPct).toFixed(1);
+    $("sCache").textContent = st.cacheHits;
+    $("sWl").textContent = st.whitelistHits + st.hashSigHits;
+    $("sShared").textContent = st.sharedHits;
+    $("sGb").textContent = Number(st.gbUploaded).toFixed(2);
+    $("sKnown").textContent = st.cacheSize;
+    $("sKept").textContent = st.keptUnknown;
 
     const tbody = $("clients");
     tbody.replaceChildren();

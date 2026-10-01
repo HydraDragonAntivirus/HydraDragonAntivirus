@@ -271,8 +271,17 @@ async fn handle_state(
     let clients = app.scan_server.get_clients().await;
     let (events, seq) = app.events.since(q.since);
 
-    let queued = app.scan_server.scheduler.queued().await;
-    let inflight_mb = app.scan_server.budget.in_use().await as f64 / (1024.0 * 1024.0);
+    let srv = &app.scan_server;
+    let queued = srv.scheduler.queued();
+    let inflight_mb = srv.budget.in_use_bytes() as f64 / (1024.0 * 1024.0);
+    let ld = |a: &std::sync::atomic::AtomicI64| a.load(std::sync::atomic::Ordering::Relaxed);
+    let checked = ld(&srv.stats.checked);
+    let uploads = ld(&srv.stats.uploads);
+    let saved_pct = if checked > 0 {
+        100.0 * (checked - uploads).max(0) as f64 / checked as f64
+    } else {
+        0.0
+    };
 
     let state = serde_json::json!({
         "engine": {
@@ -293,9 +302,13 @@ async fn handle_state(
             "workers": app.cfg.workers,
             "pipeline": app.cfg.pipeline,
             "maxConns": app.cfg.max_conns,
+            "maxPerIp": app.cfg.max_per_ip,
+            "token": !app.cfg.token.is_empty(),
+            "hashWhitelist": app.engine.whitelist_active(),
+            "hashSignatures": app.engine.malicious_hash_count(),
             "maxMB": app.cfg.max_mb,
             "maxInflightMB": app.cfg.max_inflight_mb,
-            "cache": app.cfg.cache,
+            "cache": app.cfg.cache(),
             "signatureCheck": !app.cfg.memory_only,
         },
         "lanAddresses": lan_addresses(),
@@ -306,7 +319,22 @@ async fn handle_state(
             "threats": app.scan_server.total_threats.load(std::sync::atomic::Ordering::Relaxed),
             "errors": app.scan_server.total_errors.load(std::sync::atomic::Ordering::Relaxed),
             "queued": queued,
+            "busy": srv.scheduler.busy(),
             "inflightMB": inflight_mb,
+            "inflightFiles": srv.inflight_files(),
+            "checked": checked,
+            "uploads": uploads,
+            "gbUploaded": ld(&srv.stats.bytes_uploaded) as f64 / (1024.0 * 1024.0 * 1024.0),
+            "cacheHits": ld(&srv.stats.cache_hits),
+            "whitelistHits": ld(&srv.stats.whitelist_hits),
+            "hashSigHits": ld(&srv.stats.hash_sig_hits),
+            "sharedHits": ld(&srv.stats.shared_hits),
+            "engineScans": ld(&srv.stats.engine_scans),
+            "engineCrashes": ld(&srv.stats.engine_crashes),
+            "rejectedAuth": ld(&srv.stats.rejected_auth),
+            "cacheSize": srv.cache.len(),
+            "keptUnknown": ld(&app.engine.kept_files),
+            "uploadSavedPct": saved_pct,
         },
         "clients": clients,
         "events": events,

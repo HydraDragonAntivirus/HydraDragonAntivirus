@@ -1,14 +1,22 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
-use tokio::sync::RwLock;
 
 use openedr_static::engine::StaticEngine;
 use openedr_static::report::StaticScanReport;
 use serde::{Deserialize, Serialize};
 
+use crate::cache::{parse_sha, Sha};
+
 pub const ENGINE_NAME: &str = "OpenEDR static";
+
+const EICAR_SHA256: &str = "275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F";
+
+/// Optional hash signatures: one SHA-256 per line, optionally `SHA256:ThreatName`.
+/// Looked up next to the exe and in the rules folder.
+const MALICIOUS_HASH_FILES: &[&str] = &["malicious_sha256.txt", "hash_rules/malicious_sha256.txt"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResultMessage {
@@ -22,6 +30,9 @@ pub struct ResultMessage {
     pub score: f64,
     pub sha256: String,
     pub scan_ms: i64,
+    /// How the verdict was found: "scan", "cache", "whitelist", "hash", "shared".
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,100 +44,166 @@ pub struct EngineStatus {
 }
 
 pub struct EngineAdapter {
-    engine: RwLock<Option<Arc<StaticEngine>>>,
-    status: RwLock<String>,
+    engine: OnceLock<Arc<StaticEngine>>,
     error_msg: RwLock<String>,
     load_ms: AtomicI64,
     work_dir: Option<PathBuf>,
     file_seq: AtomicI64,
+    malicious: RwLock<HashMap<Sha, String>>,
+    whitelist_enabled: bool,
+    keep_unknown: bool,
+    keep_limit_bytes: u64,
+    kept_bytes: AtomicU64,
+    pub kept_files: AtomicI64,
 }
 
 impl EngineAdapter {
-    pub fn new(work_dir: Option<PathBuf>) -> Arc<Self> {
+    pub fn new(
+        work_dir: Option<PathBuf>,
+        whitelist_enabled: bool,
+        keep_unknown: bool,
+        keep_unknown_gb: u64,
+    ) -> Arc<Self> {
+        let mut kept = (0u64, 0i64);
         if let Some(ref dir) = work_dir {
             let _ = std::fs::create_dir_all(dir);
-            remove_leftover_uploads(dir);
+            kept = remove_leftover_uploads(dir);
         }
 
         Arc::new(Self {
-            engine: RwLock::new(None),
-            status: RwLock::new("loading".to_string()),
+            engine: OnceLock::new(),
             error_msg: RwLock::new(String::new()),
             load_ms: AtomicI64::new(0),
             work_dir,
             file_seq: AtomicI64::new(0),
+            malicious: RwLock::new(HashMap::new()),
+            whitelist_enabled,
+            keep_unknown,
+            keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
+            kept_bytes: AtomicU64::new(kept.0),
+            kept_files: AtomicI64::new(kept.1),
         })
     }
 
     pub fn start_loading(self: &Arc<Self>, custom_rules_dir: Option<PathBuf>) {
         let adapter = Arc::clone(self);
-        tokio::task::spawn_blocking(move || {
-            let started = Instant::now();
-            let rules_dir = resolve_rules_dir(custom_rules_dir);
-            eprintln!("[engine] loading from: {}", rules_dir.display());
+        std::thread::Builder::new()
+            .name("engine-load".into())
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                let started = Instant::now();
+                let rules_dir = resolve_rules_dir(custom_rules_dir);
+                eprintln!("[engine] loading from: {}", rules_dir.display());
 
-            let engine = StaticEngine::init(&rules_dir);
-            let elapsed = started.elapsed().as_millis() as i64;
-            adapter.load_ms.store(elapsed, Ordering::Relaxed);
+                let mut dirs = vec![rules_dir.clone()];
+                dirs.push(crate::config::app_dir());
+                let hashes = load_malicious_hashes(&dirs);
+                if !hashes.is_empty() {
+                    eprintln!("[engine] {} malicious SHA-256 signatures loaded", hashes.len());
+                }
+                *adapter.malicious.write().unwrap() = hashes;
 
-            let engine_arc = Arc::new(engine);
+                match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
+                    Ok(engine) => {
+                        let elapsed = started.elapsed().as_millis() as i64;
+                        adapter.load_ms.store(elapsed, Ordering::Relaxed);
+                        if adapter.whitelist_enabled && !engine.benign_whitelist_loaded() {
+                            eprintln!("[engine] benign_sha256.xf not found, hash whitelist is off");
+                        }
+                        let _ = adapter.engine.set(Arc::new(engine));
+                        eprintln!("[engine] ready in {} ms", elapsed);
+                    }
+                    Err(_) => {
+                        *adapter.error_msg.write().unwrap() = "engine failed to load (panic in init)".into();
+                        eprintln!("[engine] failed to load");
+                    }
+                }
+            })
+            .expect("cannot start engine loader");
+    }
 
-            tokio::spawn(async move {
-                let mut eng_lock = adapter.engine.write().await;
-                *eng_lock = Some(engine_arc);
-                let mut st_lock = adapter.status.write().await;
-                *st_lock = "ready".to_string();
-            });
-
-            eprintln!("[engine] ready in {} ms", elapsed);
-        });
+    pub fn ready(&self) -> bool {
+        self.engine.get().is_some()
     }
 
     pub async fn is_ready(&self) -> bool {
-        self.status.read().await.as_str() == "ready"
+        self.ready()
     }
 
     pub async fn get_status(&self) -> EngineStatus {
+        let error = self.error_msg.read().unwrap().clone();
+        let status = if self.ready() {
+            "ready"
+        } else if !error.is_empty() {
+            "error"
+        } else {
+            "loading"
+        };
         EngineStatus {
-            status: self.status.read().await.clone(),
-            error: self.error_msg.read().await.clone(),
+            status: status.to_string(),
+            error,
             load_ms: self.load_ms.load(Ordering::Relaxed),
             name: ENGINE_NAME.to_string(),
         }
     }
 
-    pub async fn scan(&self, data: &[u8], name: &str, sha: &str) -> Result<ResultMessage, String> {
-        let engine_arc = {
-            let guard = self.engine.read().await;
-            guard.clone().ok_or_else(|| "engine not ready".to_string())?
-        };
+    pub fn malicious_hash_count(&self) -> usize {
+        self.malicious.read().unwrap().len()
+    }
+
+    pub fn whitelist_active(&self) -> bool {
+        self.whitelist_enabled && self.engine.get().is_some_and(|e| e.benign_whitelist_loaded())
+    }
+
+    /// Verdict from the SHA-256 alone, without the file: hash signatures first (a
+    /// malicious hit must win), then the engine's benign whitelist. None = upload needed.
+    pub fn hash_lookup(&self, sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {
+        if sha_hex == EICAR_SHA256 {
+            return Some(hash_result("malicious", Some("EICAR-Test-File"), "EICAR standard antivirus test file (hash)", 1.0, sha_hex, "hash"));
+        }
+        if let Some(name) = self.malicious.read().unwrap().get(sha) {
+            return Some(hash_result("malicious", Some(name.as_str()), "Matched SHA-256 signature", 1.0, sha_hex, "hash"));
+        }
+        if self.whitelist_enabled {
+            if let Some(engine) = self.engine.get() {
+                if engine.is_benign(sha_hex) {
+                    return Some(hash_result("clean", None, "Known benign file (whitelist)", 0.0, sha_hex, "whitelist"));
+                }
+            }
+        }
+        None
+    }
+
+    /// Runs on an engine thread. The file is written to the work folder first so the
+    /// engine can check its Authenticode signature; it falls back to an in-memory scan.
+    pub fn scan_blocking(&self, data: &[u8], name: &str, sha: &str) -> Result<ResultMessage, String> {
+        let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
 
         let started = Instant::now();
         let safe_filename = file_system_name(name);
+        let mut temp_path: Option<PathBuf> = None;
 
-        // Attempt scan via temporary file if work_dir is configured (allows Authenticode signature verification)
         let report = if let Some(ref dir) = self.work_dir {
             let seq = self.file_seq.fetch_add(1, Ordering::Relaxed);
-            let filename = format!("{:08}_{}", seq, safe_filename);
-            let path = dir.join(filename);
-
-            let file_scan_res = if std::fs::write(&path, data).is_ok() {
-                let rep = engine_arc.scan_file(&path);
-                let _ = std::fs::remove_file(&path);
-                Some(rep)
+            let path = dir.join(format!("{:08}_{}", seq % 100_000_000, temp_name(&safe_filename, data)));
+            let rep = if std::fs::write(&path, data).is_ok() {
+                temp_path = Some(path.clone());
+                Some(engine.scan_file(&path))
             } else {
                 None
             };
-
-            match file_scan_res {
+            match rep {
                 Some(r) if !r.verdict.eq_ignore_ascii_case("Error") => r,
-                _ => engine_arc.scan_bytes(data, name),
+                _ => engine.scan_bytes(data, name),
             }
         } else {
-            engine_arc.scan_bytes(data, name)
+            engine.scan_bytes(data, name)
         };
 
         if report.verdict.eq_ignore_ascii_case("Error") {
+            if let Some(p) = temp_path {
+                let _ = std::fs::remove_file(p);
+            }
             let err_msg = report
                 .detections
                 .first()
@@ -137,7 +214,48 @@ impl EngineAdapter {
 
         let mut res = build_result(&report, sha);
         res.scan_ms = started.elapsed().as_millis() as i64;
+
+        if let Some(p) = temp_path {
+            self.keep_or_remove(&p, &res, sha, &safe_filename, data.len() as u64);
+        }
         Ok(res)
+    }
+
+    /// Unknown files are kept as `<SHA256>_<name>` for later analysis; everything else
+    /// (clean, and malicious samples, which are never stored) is deleted.
+    fn keep_or_remove(&self, path: &Path, res: &ResultMessage, sha: &str, name: &str, size: u64) {
+        let keep = self.keep_unknown
+            && res.verdict == "unknown"
+            && self.kept_bytes.load(Ordering::Relaxed) + size <= self.keep_limit_bytes;
+        if keep {
+            if let Some(dir) = path.parent() {
+                let target = dir.join(format!("{}_{}", sha, name));
+                if target.exists() {
+                    let _ = std::fs::remove_file(path);
+                    return;
+                }
+                if std::fs::rename(path, &target).is_ok() {
+                    self.kept_bytes.fetch_add(size, Ordering::Relaxed);
+                    self.kept_files.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+            }
+        }
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sha: &str, source: &str) -> ResultMessage {
+    ResultMessage {
+        r#type: "result".to_string(),
+        id: 0,
+        verdict: verdict.to_string(),
+        threat: threat.map(|t| t.to_string()),
+        detail: Some(detail.to_string()),
+        score,
+        sha256: sha.to_string(),
+        scan_ms: 0,
+        source: source.to_string(),
     }
 }
 
@@ -157,6 +275,7 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         score: report.max_threat_score as f64,
         sha256: sha.to_string(),
         scan_ms: report.scan_time_ms as i64,
+        source: "scan".to_string(),
     };
 
     if !report.detections.is_empty() {
@@ -164,6 +283,7 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         let details: Vec<String> = report
             .detections
             .iter()
+            .take(8)
             .map(|d| format!("{} ({})", d.name, d.layer))
             .collect();
         res.detail = Some(details.join(", "));
@@ -176,6 +296,30 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     }
 
     res
+}
+
+fn load_malicious_hashes(dirs: &[PathBuf]) -> HashMap<Sha, String> {
+    let mut out = HashMap::new();
+    for dir in dirs {
+        for rel in MALICIOUS_HASH_FILES {
+            let Ok(text) = std::fs::read_to_string(dir.join(rel)) else { continue };
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                let (hash, name) = match line.split_once([':', ',', ' ', '\t']) {
+                    Some((h, n)) if !n.trim().is_empty() => (h, n.trim()),
+                    Some((h, _)) => (h, "HashSignature.Malicious"),
+                    None => (line, "HashSignature.Malicious"),
+                };
+                if let Some(sha) = parse_sha(hash) {
+                    out.insert(sha, name.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {
@@ -197,9 +341,6 @@ fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {
         candidates.push(cwd.join("OpenEDR"));
     }
 
-    candidates.push(PathBuf::from(r"C:\Users\semae\Downloads\OpenMalwareScannerPortable"));
-    candidates.push(PathBuf::from(r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenEDR"));
-
     for c in &candidates {
         if c.join("database").is_dir() || c.join("yara_rules").is_dir() || c.join("models").is_dir() {
             return c.clone();
@@ -209,24 +350,53 @@ fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {
     PathBuf::from(".")
 }
 
-fn remove_leftover_uploads(dir: &Path) {
+/// Deletes temp files left by a previous run; returns (bytes, count) of kept unknown files.
+fn remove_leftover_uploads(dir: &Path) -> (u64, i64) {
+    let mut kept = (0u64, 0i64);
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.len() >= 9 && name.chars().take(8).all(|c| c.is_ascii_digit()) && name.chars().nth(8) == Some('_') {
-                    let _ = std::fs::remove_file(&path);
-                }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            let b = name.as_bytes();
+            if b.len() >= 9 && b[..8].iter().all(|c| c.is_ascii_digit()) && b[8] == b'_' {
+                let _ = std::fs::remove_file(&path);
+            } else if b.len() > 65 && b[64] == b'_' && b[..64].iter().all(|c| c.is_ascii_hexdigit()) {
+                kept.0 += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                kept.1 += 1;
             }
         }
     }
+    kept
+}
+
+/// Name used for the temp file. Executables uploaded with a sample extension such as
+/// `.vir` get `.exe` so the engine treats them as PE files.
+fn temp_name(safe: &str, data: &[u8]) -> String {
+    let mut name: String = safe.chars().take(80).collect();
+    if name.is_empty() {
+        name = "file".into();
+    }
+    if data.starts_with(b"MZ") {
+        let lower = name.to_ascii_lowercase();
+        let is_pe_ext = [".exe", ".dll", ".sys", ".scr", ".ocx", ".cpl", ".efi", ".drv", ".com"]
+            .iter()
+            .any(|e| lower.ends_with(e));
+        if !is_pe_ext {
+            name.push_str(".exe");
+        }
+    }
+    name
 }
 
 pub fn file_system_name(name: &str) -> String {
-    name.chars()
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    base.chars()
         .map(|c| match c {
             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if c.is_control() => '_',
             _ => c,
         })
-        .collect()
+        .collect::<String>()
+        .trim_matches(['.', ' '])
+        .to_string()
 }

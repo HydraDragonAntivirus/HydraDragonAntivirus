@@ -25,29 +25,65 @@ pub struct CliArgs {
     #[arg(long, default_value = "")]
     pub rules: String,
 
-    /// Files scanned by the engine at the same time (all clients together)
+    /// Engine threads: files scanned at the same time (all clients together)
     #[arg(long, default_value_t = default_workers())]
     pub workers: usize,
 
+    /// Stack size of one engine thread in MB (deep archives / emulation need a big stack)
+    #[arg(long, default_value_t = 64)]
+    pub worker_stack_mb: usize,
+
     /// Files one client may have uploading or in analysis at the same time
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 4)]
     pub pipeline: usize,
 
     /// Maximum simultaneous client connections
-    #[arg(long, default_value_t = 64)]
+    #[arg(long, default_value_t = 2048)]
     pub max_conns: usize,
+
+    /// Maximum simultaneous connections from one IP address (0 = no limit)
+    #[arg(long, default_value_t = 8)]
+    pub max_per_ip: usize,
+
+    /// Shared secret the client must send in hello (empty = no token)
+    #[arg(long, default_value = "")]
+    pub token: String,
 
     /// Largest accepted file in MB
     #[arg(long, default_value_t = 100)]
     pub max_mb: i64,
 
-    /// Memory for files waiting for or in analysis (all clients together), in MB
-    #[arg(long, default_value_t = 1024)]
+    /// Memory for uploaded files waiting for or in analysis (all clients together), in MB
+    #[arg(long, default_value_t = 768)]
     pub max_inflight_mb: i64,
 
-    /// Answer repeated files (same SHA-256) from memory instead of asking for upload again
+    /// Hashes one client may ask about in a single check message
+    #[arg(long, default_value_t = 512)]
+    pub max_check_batch: usize,
+
+    /// Do not answer known files (same SHA-256) from the verdict cache
     #[arg(long)]
-    pub cache: bool,
+    pub no_cache: bool,
+
+    /// Verdicts kept in memory (oldest are dropped first)
+    #[arg(long, default_value_t = 500_000)]
+    pub cache_entries: usize,
+
+    /// Days a clean/malicious/suspicious verdict stays valid
+    #[arg(long, default_value_t = 14)]
+    pub cache_days: i64,
+
+    /// Hours an "unknown" verdict stays valid (rules get updated, so recheck sooner)
+    #[arg(long, default_value_t = 24)]
+    pub unknown_cache_hours: i64,
+
+    /// Do not save the verdict cache to multron_cache.jsonl (lost on restart)
+    #[arg(long)]
+    pub no_cache_file: bool,
+
+    /// Do not answer from the engine's SHA-256 whitelist without an upload
+    #[arg(long)]
+    pub no_hash_whitelist: bool,
 
     /// Folder where uploaded files are kept only while scanned
     #[arg(long, default_value = "")]
@@ -56,17 +92,27 @@ pub struct CliArgs {
     /// Never write uploaded files to disk (faster, but signatures are not checked)
     #[arg(long)]
     pub memory_only: bool,
+
+    /// Do not keep files the engine could not classify (unknown) in the work folder
+    #[arg(long)]
+    pub no_keep_unknown: bool,
+
+    /// Disk space for kept unknown files in GB; no more are kept above it
+    #[arg(long, default_value_t = 20)]
+    pub keep_unknown_gb: u64,
+}
+
+impl CliArgs {
+    pub fn cache(&self) -> bool {
+        !self.no_cache
+    }
 }
 
 fn default_workers() -> usize {
-    let cpus = num_cpus();
-    (cpus / 2).max(2)
-}
-
-fn num_cpus() -> usize {
-    std::thread::available_parallelism()
+    let cpus = std::thread::available_parallelism()
         .map(|p| p.get())
-        .unwrap_or(4)
+        .unwrap_or(4);
+    cpus.saturating_sub(1).max(2)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
