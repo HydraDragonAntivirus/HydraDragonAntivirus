@@ -29,6 +29,10 @@ pub const APK_TREE_THRESHOLD: f32 = 0.8;
 /// on non-standard compilers/tools (MinGW DWARF sections, PyInstaller/decompilers, Lazarus).
 pub const PE_TREE_THRESHOLD: f32 = 0.90;
 
+/// JS tree-model decision threshold. Set to 0.85 (Malicious cutoff) to eliminate
+/// false positives in the 0.75-0.84 suspicious range on minified/bundled JS files.
+pub const JS_TREE_THRESHOLD: f32 = 0.85;
+
 /// Generic whole-buffer ML fallback threshold. Fires only when every other
 /// layer (ClamAV/YARA/HydraSig/PE/JS/APK ML) found nothing, so keep it at the
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
@@ -909,7 +913,7 @@ impl StaticEngine {
             {
                 if let Ok(source) = std::str::from_utf8(data) {
                     if let Some(prob) = self.ml.predict_js(source) {
-                        if prob >= 0.75 {
+                        if prob >= JS_TREE_THRESHOLD {
                             detections.push(DetectionItem {
                                 layer: "JS_ML".to_string(),
                                 name: "MalwareNet.JS.HighConfidence".to_string(),
@@ -1321,11 +1325,11 @@ impl StaticEngine {
         }
     }
 
-    /// URL score via ML model (openedr_static strictly uses Machine Learning >= 0.85).
+    /// URL score via ML model (openedr_static strictly uses Machine Learning >= 0.9).
     /// Returns (probability, is_malicious, is_whitelisted, is_blacklisted).
     pub fn scan_url(&self, raw_url: &str) -> (f32, bool, bool, bool) {
         let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
-        let is_malicious = prob >= 0.85;
+        let is_malicious = prob >= 0.9;
         (prob, is_malicious, false, false)
     }
 
@@ -1359,7 +1363,7 @@ impl StaticEngine {
         if let Some(body) = page_content {
             // 1. JS ML tree prediction on scripts/content
             if let Some(js_prob) = self.ml.predict_js(body) {
-                if js_prob >= 0.75 {
+                if js_prob >= JS_TREE_THRESHOLD {
                     report.detections.push(crate::url_rules::UrlRuleHit {
                         rule_id: "CONTENT_JS_ML_MALWARE".to_string(),
                         title: "MalwareNet JS Tree Classification".to_string(),
