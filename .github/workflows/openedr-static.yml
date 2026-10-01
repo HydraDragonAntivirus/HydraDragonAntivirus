@@ -23,6 +23,7 @@ env:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   build-windows:
@@ -55,11 +56,17 @@ jobs:
         run: |
           Copy-Item OpenEDR/openedr_static/target/release/openedr_static.dll -Destination OpenMalwareScannerPortable/openedr_static.dll -Force
 
-      - name: Upload OpenMalwareScannerPortable
-        uses: actions/upload-artifact@v4
+      - name: Create Pull Request with openedr_static.dll
+        if: github.event_name != 'pull_request' && !startsWith(github.ref_name, 'auto-update-')
+        uses: peter-evans/create-pull-request@v8
         with:
-          name: OpenMalwareScannerPortable
-          path: OpenMalwareScannerPortable
-          if-no-files-found: error
-          retention-days: 30
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(openedr): update openedr_static.dll in OpenMalwareScannerPortable"
+          title: "Update openedr_static.dll in OpenMalwareScannerPortable"
+          body: "Automated build of openedr_static.dll placed into OpenMalwareScannerPortable folder."
+          add-paths: OpenMalwareScannerPortable/openedr_static.dll
+          branch: "auto-update-openedr-static"
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          labels: binaries, automated-pr, openedr, development-version
 
