@@ -7,232 +7,9 @@ version: "1.0"
 # eliminate false positives from legitimate software.
 rules:
 
-  # ── Rule 1: Cross-Category Suspicious Combination ──────────────
-  # Fires when >= 3 distinct indicator categories match.
-  # Each condition represents one category with N APIs that must be
-  # present for that category to count.
-  - id: HEUR-CROSS-001
-    title: "Cross-Category Suspicious Indicator Combination"
-    description: "Multiple independent suspicious indicator categories detected"
-    severity: high
-    verdict: malware
-    confidence: 88
-    score: 92
-    family: "Heuristic.CrossCategory"
-    tags: [heuristic, multi-category, suspicious-combination]
-    mitre:
-      - id: T1027
-        name: Obfuscated Files or Information
-        tactic: Defense Evasion
-    logic: threshold
-    threshold: 3
-    conditions:
 
-      # ── Category: Process Injection (any 1 of injection primitives)
-      - type: import_set
-        min: 1
-        names:
-          - "CreateRemoteThread"
-          - "VirtualAllocEx"
-          - "VirtualProtectEx"
-          - "WriteProcessMemory"
-          - "QueueUserAPC"
-          - "SetWindowsHookEx"
-          - "SetThreadContext"
-          - "GetThreadContext"
-          - "ReadProcessMemory"
 
-      # ── Category: Native API Process Manipulation (any 3)
-      - type: import_set
-        min: 3
-        names:
-          - "ZwOpenProcess"
-          - "ZwAllocateVirtualMemory"
-          - "ZwFreeVirtualMemory"
-          - "ZwWriteVirtualMemory"
-          - "ZwReadVirtualMemory"
-          - "ZwProtectVirtualMemory"
-          - "ZwCreateThreadEx"
-          - "ZwResumeThread"
-          - "ZwDuplicateObject"
-          - "ZwQuerySystemInformation"
-          - "ZwQueryInformationProcess"
-          - "ZwSetValueKey"
-          - "ZwCreateFile"
-          - "ZwReadFile"
-          - "ZwClose"
-
-      # ── Category: Network / Socket (any 4 of socket APIs)
-      - type: import_set
-        min: 4
-        names:
-          - "WSAStartup"
-          - "WSACleanup"
-          - "socket"
-          - "bind"
-          - "listen"
-          - "accept"
-          - "connect"
-          - "send"
-          - "recv"
-          - "sendto"
-          - "recvfrom"
-          - "select"
-          - "WSAAccept"
-          - "WSAConnect"
-          - "WSASend"
-          - "WSARecv"
-          - "WSASendTo"
-          - "WSARecvFrom"
-          - "WSASocketA"
-          - "WSASocketW"
-          - "WSAEventSelect"
-          - "WSACreateEvent"
-          - "WSACloseEvent"
-          - "WSASetEvent"
-          - "WSAResetEvent"
-
-      # ── Category: URL Downloader (any)
-      - type: import_any
-        names:
-          - "URLDownloadToFileA"
-          - "URLDownloadToFileW"
-
-      # ── Category: Code Execution (any 1 of exec primitives)
-      - type: import_set
-        min: 1
-        names:
-          - "ShellExecuteA"
-          - "ShellExecuteExA"
-          - "ShellExecuteW"
-          - "ShellExecuteExW"
-          - "WinExec"
-          - "CreateProcessA"
-
-      # ── Category: Memory / Virtual Operations (any 2)
-      - type: import_set
-        min: 2
-        names:
-          - "VirtualProtect"
-          - "VirtualAlloc"
-          - "VirtualProtectEx"
-          - "VirtualAllocEx"
-          - "VirtualFree"
-          - "VirtualFreeEx"
-
-      # ── Category: Registry Persistence (any 1)
-      - type: import_set
-        min: 1
-        names:
-          - "RegSetValueExA"
-          - "RegSetValueExW"
-          - "RegCreateKeyExA"
-          - "RegCreateKeyExW"
-
-      # ── Category: Service Persistence (any 2)
-      - type: import_set
-        min: 2
-        names:
-          - "CreateServiceA"
-          - "CreateServiceW"
-          - "StartServiceA"
-          - "StartServiceW"
-          - "OpenSCManagerA"
-          - "OpenSCManagerW"
-          - "ControlService"
-          - "DeleteService"
-
-      # ── Category: File Destruction / Move (any 1)
-      - type: import_set
-        min: 1
-        names:
-          - "DeleteFileA"
-          - "DeleteFileW"
-          - "MoveFileExA"
-          - "MoveFileA"
-          - "MoveFileWithProgressA"
-          - "RemoveDirectoryA"
-          - "RemoveDirectoryW"
-
-      # ── Category: File Write / Copy (any 2)
-      - type: import_set
-        min: 2
-        names:
-          - "WriteFile"
-          - "CreateFileA"
-          - "CreateFileW"
-          - "CopyFileA"
-          - "CopyFileW"
-
-      # ── Category: Internet / WinINet (any 2)
-      - type: import_set
-        min: 2
-        names:
-          - "InternetReadFile"
-          - "InternetOpenA"
-          - "InternetOpenUrlA"
-          - "InternetConnectA"
-          - "InternetCloseHandle"
-          - "HttpOpenRequestA"
-          - "HttpSendRequestA"
-          - "InternetReadFileExA"
-
-      # ── Category: Physical Drive / Raw Disk Access
-      - type: string_set
-        min: 1
-        nocase: true
-        values:
-          - '\\.\PhysicalDrive'
-          - '\\.\Scsi'
-          - '\device\physicalmemory'
-
-      # ── Category: Sensitive System File Access
-      - type: string_set
-        min: 1
-        nocase: true
-        values:
-          - '\drivers\etc\hosts'
-          - 'drivers\etc\hosts'
-          - 'system32\drivers\etc\hosts'
-          - 'etc\hosts'
-          - '\boot.ini'
-          - '\ntldr'
-          - '\bootmgr'
-          - 'boot\.ini'
-          - 'ntldr'
-          - 'bootmgr'
-
-      # ── Category: Registry Persistence Paths
-      - type: string_set
-        min: 1
-        nocase: true
-        values:
-          - '\currentversion\run'
-          - '\policies\explorer\run'
-          - 'software\microsoft\windows\currentversion\runonce'
-          - 'software\microsoft\windows\currentversion\run'
-          - 'software\microsoft\internet explorer\main'
-
-      # ── Category: Known Sensitive Process Names
-      - type: string_set
-        min: 1
-        nocase: true
-        values:
-          - 'explorer.exe'
-          - 'winlogon.exe'
-          - 'csrss.exe'
-          - 'smss.exe'
-          - 'services.exe'
-          - 'svchost.exe'
-          - 'lsass.exe'
-          - 'alg.exe'
-          - 'spoolsv.exe'
-
-      # ── Category: Heavy Suspicious Import Count
-      - type: suspicious_import_count
-        min: 12
-
-  # ── Rule 2: Hosts File Tampering + File Write ──────────────────
+  # ── Rule 1: Hosts File Tampering + File Write ──────────────────
   # Specific known-bad pattern: modifying the hosts file to redirect
   # traffic. Requires both the string reference AND file write APIs.
   - id: HEUR-HOSTS-001
@@ -268,20 +45,152 @@ rules:
           - "CopyFileA"
           - "CopyFileW"
 
-  # ── Rule 3: Process Name Masquerading ──────────────────────────
-  # File named after a critical system process (suspicious).
-  - id: HEUR-PROC-001
-    title: "Suspicious Process Name Masquerading"
-    severity: medium
-    verdict: suspicious
-    confidence: 70
-    score: 60
-    family: "Heuristic.Masquerade"
-    tags: [masquerading, process-spoof, suspicious-name]
+  # ── Rule 4: DirectStorage DLL Side-Loading / Hooking Trojan ────
+  - id: MALW-WIN-DSTORAGE-HOOK
+    title: "DirectStorage Sideloading Hook Payload"
+    description: "Detects DirectStorage hijacking DLL containing embedded proxy configuration and hook paths"
+    severity: critical
+    verdict: malware
+    confidence: 99
+    score: 100
+    family: "Trojan.Win64.DStorageHook"
+    tags: [sideloading, dll-hijack, proxy-dll, directstorage]
     mitre:
-      - id: T1036.005
-        name: "Masquerading: Match Legitimate Name or Location"
-        tactic: Defense Evasion
+      - id: T1574.002
+        name: "Hijack Execution Flow: DLL Side-Loading"
+        tactic: Persistence
+    logic: all
     conditions:
-      - type: path_regex
-        pattern: '(?i)(explorer|winlogon|csrss|smss|services|svchost|lsass|alg|spoolsv)\.exe$'
+      - type: string_set
+        min: 2
+        values:
+          - "dstorage.ini"
+          - "dstorage_o.dll"
+          - "hook/src/hook.rs"
+      - type: export_set
+        min: 1
+        names:
+          - "DStorageGetFactory"
+          - "DStorageCreateCompressionCodec"
+
+  # ── Rule 5: Heavily Obfuscated Section Padding Malware ────────
+  - id: MALW-WIN-OBF-SECTIONS
+    title: "Heavily Obfuscated High-Entropy PE Malware"
+    description: "Detects compiled binary with randomized section names and extreme entropy (> 7.7)"
+    severity: critical
+    verdict: malware
+    confidence: 98
+    score: 98
+    family: "Trojan.Win64.ObfuscatedPE"
+    tags: [packer, high-entropy, section-obfuscation]
+    mitre:
+      - id: T1027.002
+        name: "Obfuscated Files or Information: Software Packing"
+        tactic: Defense Evasion
+    logic: all
+    conditions:
+      - type: string_set
+        min: 2
+        values:
+          - ".datazzj"
+          - ".rdatato"
+          - ".xdataqx"
+          - ".CRTzzyp"
+      - type: section_entropy
+        min: 7.5
+
+  # ── Rule 6: C2 Stealth Payload with Fake AppStore Service ──────
+  - id: MALW-WIN-STEALTH-APPSTORE
+    title: "Trojanized Fake AppStore Service Binary"
+    description: "Detects backdoor payload impersonating AppStoreSRV service with WTS and UserEnv injection"
+    severity: critical
+    verdict: malware
+    confidence: 96
+    score: 95
+    family: "Trojan.Win64.AppStoreBackdoor"
+    tags: [backdoor, masquerade, wts-token]
+    mitre:
+      - id: T1036
+        name: "Masquerading"
+        tactic: Defense Evasion
+    logic: all
+    conditions:
+      - type: string_set
+        min: 1
+        values:
+          - "AppStoreSRV.pdb"
+      - type: import_set
+        min: 2
+        names:
+          - "WTSQueryUserToken"
+          - "CreateProcessAsUserW"
+
+  # ── Rule 7: Padded PDB Zero-Day Loader ─────────────────────────
+  - id: MALW-WIN-PADDED-PDB-LOADER
+    title: "Padded PDB Zero-Day Loader"
+    description: "Detects zero-day loader with padded single-digit debug path (.textbss2 section)"
+    severity: critical
+    verdict: malware
+    confidence: 97
+    score: 98
+    family: "Trojan.Win32.PaddedPdbLoader"
+    tags: [loader, zeroday, evasion]
+    mitre:
+      - id: T1140
+        name: "Deobfuscate/Decode Files or Information"
+        tactic: Defense Evasion
+    logic: all
+    conditions:
+      - type: string_set
+        min: 1
+        values:
+          - "11111111111111111111111111111111111111111111111111111111.pdb"
+      - type: string_set
+        min: 1
+        values:
+          - ".textbss2"
+
+  # ── Rule 8: Win64 Fixed Epilogue Zero-Day Payload ─────────────
+  - id: MALW-WIN64-FIXED-EPILOGUE
+    title: "Win64 Polymorphic Payload (Fixed Entry Vector)"
+    description: "Detects 64-bit zero-day payload family with identical 32-byte EntryPoint code vector and BCrypt/WinHttp communication"
+    severity: critical
+    verdict: malware
+    confidence: 99
+    score: 100
+    family: "Trojan.Win64.ZeroDayCampaign"
+    tags: [zeroday, win64, c2-agent]
+    mitre:
+      - id: T1071.001
+        name: "Application Layer Protocol: Web Protocols"
+        tactic: Command and Control
+    logic: all
+    conditions:
+      - type: byte_pattern
+        pattern: "{ 48 83 ec 28 e8 0b 00 00 00 48 83 c4 28 e9 7a fe ff ff cc cc 48 89 5c 24 18 55 48 8b ec 48 83 ec }"
+      - type: import_set
+        min: 2
+        names:
+          - "WinHttpOpenRequest"
+          - "BCryptFinishHash"
+
+  # ── Rule 9: LZUK Raw Compressed Container Payload ──────────────
+  - id: MALW-GEN-LZUK-CONTAINER
+    title: "LZUK Raw Encrypted Container"
+    description: "Detects raw LZUK-packed 16KB zero-day drop container"
+    severity: high
+    verdict: malware
+    confidence: 95
+    score: 90
+    family: "Malware.Container.LZUK"
+    tags: [container, lzuk, packer]
+    logic: all
+    conditions:
+      - type: byte_pattern
+        pattern: "{ 4c 5a 55 4b 03 00 00 00 00 00 00 00 }"
+        scope:
+          offset: 0
+          length: 16
+      - type: file_size_lte
+        bytes: 32768
+

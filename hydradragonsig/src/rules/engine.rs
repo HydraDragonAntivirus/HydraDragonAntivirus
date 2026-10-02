@@ -24,6 +24,7 @@ struct ScanView {
     decoded_lower: Vec<String>,
     imports_lower: Vec<String>,
     dlls_lower: Vec<String>,
+    exports_lower: Vec<String>,
 }
 
 impl ScanView {
@@ -59,11 +60,23 @@ impl ScanView {
             .map(|pe| pe.dlls.iter().map(|dll| dll.to_ascii_lowercase()).collect())
             .unwrap_or_default();
 
+        let exports_lower = report
+            .pe
+            .as_ref()
+            .map(|pe| {
+                pe.exports
+                    .iter()
+                    .map(|exp| exp.to_ascii_lowercase())
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Self {
             strings_lower,
             decoded_lower,
             imports_lower,
             dlls_lower,
+            exports_lower,
         }
     }
 }
@@ -798,6 +811,52 @@ fn evaluate_condition(
                 .iter()
                 .find(|imp| re.is_match(imp))
                 .map(|imp| format!("import_regex `{}` matched {}", pattern, imp))
+        }
+        RuleCondition::ExportAny { names } => {
+            let pe = report.pe.as_ref()?;
+            names.iter().find_map(|name| {
+                let needle = name.to_ascii_lowercase();
+                view.exports_lower
+                    .iter()
+                    .position(|exp| exp == &needle)
+                    .map(|idx| format!("export_any matched {}", pe.exports[idx]))
+            })
+        }
+        RuleCondition::ExportAll { names } => {
+            let _pe = report.pe.as_ref()?;
+            let found: Vec<_> = names
+                .iter()
+                .filter(|name| {
+                    let needle = name.to_ascii_lowercase();
+                    view.exports_lower.iter().any(|exp| exp == &needle)
+                })
+                .cloned()
+                .collect();
+            (found.len() == names.len()).then(|| format!("export_all matched {}", found.join(", ")))
+        }
+        RuleCondition::ExportSet { names, min } => {
+            let pe = report.pe.as_ref()?;
+            let needed = min.unwrap_or(1).max(1);
+            let mut found = Vec::new();
+            for name in names {
+                let needle = name.to_ascii_lowercase();
+                if let Some(idx) = view
+                    .exports_lower
+                    .iter()
+                    .position(|exp| exp == &needle)
+                {
+                    found.push(pe.exports[idx].clone());
+                }
+                if found.len() >= needed {
+                    return Some(format!(
+                        "export_set matched {}/{}: {}",
+                        found.len(),
+                        needed,
+                        found.join(", ")
+                    ));
+                }
+            }
+            None
         }
         RuleCondition::DllAny { names } => {
             let pe = report.pe.as_ref()?;

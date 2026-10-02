@@ -91,6 +91,9 @@ impl Rule {
                 | RuleCondition::ImportAll { .. }
                 | RuleCondition::ImportSet { .. }
                 | RuleCondition::ImportRegex { .. }
+                | RuleCondition::ExportAny { .. }
+                | RuleCondition::ExportAll { .. }
+                | RuleCondition::ExportSet { .. }
                 | RuleCondition::DllAny { .. }
                 | RuleCondition::DllRegex { .. }
                 | RuleCondition::SuspiciousImportCount { .. }
@@ -245,6 +248,17 @@ pub enum RuleCondition {
     },
     ImportRegex {
         pattern: String,
+    },
+    ExportAny {
+        names: Vec<String>,
+    },
+    ExportAll {
+        names: Vec<String>,
+    },
+    ExportSet {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
     },
     DllAny {
         names: Vec<String>,
