@@ -157,7 +157,39 @@ class ComprehensiveFilter:
             "keep_files_unfiltered": ["ftm", "idb", "crb"],
             # Drop legacy base database (main.*) and metadata (.info, COPYING, cfg)
             # to save ~350MB RAM while keeping fresh active daily.* and heuristics.
-            "exclude_files": ["main.*", "*.info", "COPYING*", "*.cfg", "freshclam.dat"],
+            # "exclude_files": ["main.*", "*.info", "COPYING*", "*.cfg", "freshclam.dat"],
+            "exclude_files": ["*.info", "COPYING*", "*.cfg", "freshclam.dat"],
+            "drop_extensions": ["cvd", "cld", "sign"],
+            "unpack_bytecode_cvd": True,
+        },
+        "hydradragon": {
+            "description": "HydraDragon AV engine (hydradragonclamav / openedr_static): "
+            "keep ALL platforms and ALL signature types except hash-based DBs "
+            "(bloom filters handle those) and specific PUA packer categories "
+            "that the engine unpacks itself. Unpacks CVDs to loose files. "
+            "Loads .ign2 files from --external-ign2-dir to drop false positives.",
+            # No platform filtering — keep everything.
+            "include_platforms": [],
+            "exclude_platforms": [],
+            # PUA packer categories HydraDragon unpacks natively.
+            "exclude_pua": [
+                "PUA.Win.Packer",
+                "PUA.Win.Trojan.Packed",
+                "PUA.Win.Trojan.Molebox",
+                "PUA.Win.Packer.Upx",
+                "PUA.Doc.Packed",
+            ],
+            # Hash DBs: engine skips them (xor-filter pipeline owns hashes).
+            # cvd/cld/sign: carriers the engine cannot read (bytecode.cvd is
+            # unpacked to .cbc instead).
+            "exclude_types": ["hdb", "hdu", "hsb", "hsu", "mdb", "mdu",
+                              "msb", "msu", "imp", "fp", "sfp",
+                              "cvd", "cld", "sign"],
+            # No NDB/LDB target restriction — keep all file types.
+            "ndb_types": None,
+            "ldb_targets": None,
+            "keep_files_unfiltered": ["ftm", "idb", "crb"],
+            "exclude_files": ["*.info", "COPYING*", "*.cfg", "freshclam.dat"],
             "drop_extensions": ["cvd", "cld", "sign"],
             "unpack_bytecode_cvd": True,
         },
@@ -169,6 +201,9 @@ class ComprehensiveFilter:
         # Signature names listed in .ign / .ign2 ignore files — any signature
         # with one of these names is dropped during filtering.
         self.ignore_names = set()
+        # PUA signature-name prefixes to drop (prefix match, so
+        # "PUA.Win.Packer" also covers "PUA.Win.Packer.Upx-6").
+        self.exclude_pua = []
 
     def log(self, message):
         """Log an informational message if verbose mode is enabled."""
@@ -193,9 +228,26 @@ class ComprehensiveFilter:
             raise
 
     def unpack_cvd(self, cvd_path, extract_dir):
-        """Unpack a CVD/CLD file."""
+        """Unpack a CVD/CLD file. Falls back to pure-Python when sigtool is unavailable."""
         self.log(f"Unpacking {cvd_path}")
-        self.run_command(["sigtool", "--unpack", cvd_path], cwd=extract_dir)
+        try:
+            self.run_command(["sigtool", "--unpack", cvd_path], cwd=extract_dir)
+            return
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError):
+            self.log("sigtool not found, using Python fallback")
+        # Pure-Python: 512-byte ClamAV-VDB header + gzip tar.
+        import gzip
+        import tarfile
+        import io
+        with open(cvd_path, "rb") as f:
+            blob = f.read()
+        if len(blob) <= 512:
+            return
+        body = blob[512:]
+        raw = gzip.decompress(body)
+        tar = tarfile.open(fileobj=io.BytesIO(raw))
+        tar.extractall(path=extract_dir)
+        tar.close()
 
     def _get_effective_prefix(self, name):
         """For PUA.X.Y, return X as the effective platform. Otherwise return first segment."""
@@ -203,6 +255,12 @@ class ComprehensiveFilter:
         if len(parts) >= 2 and parts[0] == "PUA":
             return parts[1]
         return parts[0]
+
+    def _is_excluded_pua(self, name):
+        """True when a signature name matches an excluded PUA prefix."""
+        if not self.exclude_pua or not name:
+            return False
+        return any(name.startswith(p) for p in self.exclude_pua)
 
     def _load_ignore_file(self, file_path, is_ign2=False):
         """Read signature ignore list from .ign or .ign2 file."""
@@ -234,6 +292,11 @@ class ComprehensiveFilter:
 
         if name and ("eicar" in name.lower() or "test.eicar" in name.lower()):
             return True
+
+        # Drop signatures matching excluded PUA packer prefixes (prefix match,
+        # so "PUA.Win.Packer" also covers "PUA.Win.Packer.Upx-6").
+        if self._is_excluded_pua(name):
+            return False
 
         # Subfamily kill-list (e.g. doc/macro-oriented TwinWave branches that
         # can never confirm on PE in this engine yet burn full-buffer
@@ -518,7 +581,7 @@ class ComprehensiveFilter:
         self.log(f"LDB: kept {filtered_count}/{original_count}")
 
     def exclude_file_type(self, file_path):
-        """Exclude an entire file type by making it empty."""
+        """Exclude an entire file type by deleting it."""
         if not os.path.exists(file_path):
             return
 
@@ -530,12 +593,14 @@ class ComprehensiveFilter:
                 1 for line in f if line.strip() and not line.startswith("#")
             )
 
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(f"# {ext.upper()} signatures excluded entirely\n")
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
 
         self.stats[ext]["original"] += original_count
         self.stats[ext]["filtered"] += 0
-        self.log(f"Excluded entire file: {basename} ({original_count} signatures)")
+        self.log(f"Removed excluded file: {basename} ({original_count} signatures)")
 
     def _get_bytecode_platform(self, file_path):
         """Extract the platform prefix from a ClamAV bytecode .cbc file."""
@@ -599,8 +664,10 @@ class ComprehensiveFilter:
         keep_unfiltered = {e.lower() for e in (keep_unfiltered or [])}
         drop_extensions = {e.lower() for e in (drop_extensions or [])}
 
-        # Load ignore list from .ign and .ign2 files in the source directory
-        self.ignore_names = set()
+        # Load ignore list from .ign and .ign2 files in the source directory,
+        # merging with any externally-loaded names (--external-ign2-dir).
+        external_names = set(self.ignore_names)  # preserve pre-loaded names
+        self.ignore_names = external_names
         for item in os.listdir(src_dir):
             item_lower = item.lower()
             if item_lower.endswith(".ign") or item_lower.endswith(".ign2"):
@@ -631,7 +698,10 @@ class ComprehensiveFilter:
             self.filter_ndb(str(ndb_file), exclude_platforms, include_platforms, ndb_types, keep_if_contains, exclude_contains)
 
         for hdb_file in Path(dst_dir).glob("*.hdb"):
-            self.filter_hdb(str(hdb_file), exclude_platforms, include_platforms, keep_if_contains)
+            if "hdb" in exclude_file_types:
+                self.exclude_file_type(str(hdb_file))
+            else:
+                self.filter_hdb(str(hdb_file), exclude_platforms, include_platforms, keep_if_contains)
 
         for hsb_file in Path(dst_dir).glob("*.hsb"):
             if "hsb" in exclude_file_types:
@@ -801,7 +871,7 @@ class ComprehensiveFilter:
         """Delete database files that contain no real signatures."""
         db_exts = {"ndb", "hdb", "hsb", "mdb", "ldb", "cdb", "crb", "ftm",
                     "idb", "ign", "ign2", "msb", "ndu", "hdu", "hsu", "mdu",
-                    "msu", "ldu", "pdb", "wdb"}
+                    "msu", "ldu", "pdb", "wdb", "fp", "sfp"}
         for f in Path(directory).iterdir():
             if not f.is_file():
                 continue
@@ -878,6 +948,79 @@ class ComprehensiveFilter:
                          exclude_contains)
 
         # Print statistics
+        self.print_statistics()
+        print(f"\nFiltered database deployed to: {output_dir}")
+        print("\nTo use with ClamAV, add to /etc/clamav/clamd.conf:")
+        print(f"  DatabaseDirectory {output_dir}")
+
+    def filter_cvds_only(
+        self,
+        src_dir,
+        output_dir,
+        exclude_platforms=None,
+        include_platforms=None,
+        ndb_types=None,
+        exclude_file_types=None,
+        keep_if_contains=None,
+        exclude_files=None,
+        ldb_targets=None,
+        keep_unfiltered=None,
+        drop_extensions=None,
+        unpack_bytecode=False,
+        exclude_contains=None,
+    ):
+        """Unpack and filter only CVD/CLD files from src_dir.
+
+        Unlike filter_directory (which copies and filters ALL files), this
+        method finds every *.cvd and *.cld in src_dir, unpacks each one into
+        a temporary directory, filters the unpacked content, and writes the
+        results into output_dir.  Loose .ndb/.ldb/etc. files in src_dir are
+        ignored.
+        """
+        exclude_platforms = set(exclude_platforms or [])
+        include_platforms = set(include_platforms or [])
+        exclude_file_types = set(exclude_file_types or [])
+        keep_if_contains = set(keep_if_contains or [])
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Collect CVD/CLD files to process.
+        cvd_files = sorted(
+            f for f in os.listdir(src_dir)
+            if f.lower().endswith((".cvd", ".cld"))
+        )
+        if not cvd_files:
+            self.error(f"No CVD/CLD files found in {src_dir}")
+            return
+
+        for cvd_name in cvd_files:
+            cvd_path = os.path.join(src_dir, cvd_name)
+            print(f"[ClamJuice] Unpacking and filtering {cvd_name} ...")
+            with tempfile.TemporaryDirectory() as temp_unpack_dir, tempfile.TemporaryDirectory() as temp_filter_dir:
+                self.unpack_cvd(cvd_path, temp_unpack_dir)
+                self._filter_dir(
+                    temp_unpack_dir, temp_filter_dir, exclude_platforms,
+                    include_platforms, ndb_types, exclude_file_types,
+                    keep_if_contains, exclude_files, ldb_targets,
+                    keep_unfiltered, drop_extensions, unpack_bytecode,
+                    exclude_contains,
+                )
+                for item in os.listdir(temp_filter_dir):
+                    s = os.path.join(temp_filter_dir, item)
+                    d = os.path.join(output_dir, item)
+                    if os.path.isfile(s):
+                        shutil.copy2(s, d)
+
+        self._remove_empty_dbs(output_dir)
+        # If drop_extensions includes CVD carriers, make sure no raw CVD/CLD
+        # archives remain in the output directory (e.g. if src_dir == output_dir).
+        if drop_extensions:
+            for item in os.listdir(output_dir):
+                if "." in item and item.rsplit(".", 1)[-1].lower() in drop_extensions:
+                    try:
+                        os.remove(os.path.join(output_dir, item))
+                    except OSError:
+                        pass
         self.print_statistics()
         print(f"\nFiltered database deployed to: {output_dir}")
         print("\nTo use with ClamAV, add to /etc/clamav/clamd.conf:")
@@ -1001,6 +1144,11 @@ File Types:
     parser.add_argument("--input", "-i", help="Input CVD/CLD file path")
     parser.add_argument("--directory", "-d", help="Already-extracted database directory (alternative to --input)")
     parser.add_argument("--output", "-o", help="Output directory path")
+    parser.add_argument(
+        "--cvd-only", action="store_true",
+        help="With --directory: process ONLY .cvd/.cld files (unpack each, "
+        "filter, merge into output). Ignores loose .ndb/.ldb/etc. files.",
+    )
 
     parser.add_argument(
         "--profile",
@@ -1029,6 +1177,18 @@ File Types:
 
     parser.add_argument(
         "--exclude-files", help="Comma-separated filenames or wildcards to exclude (e.g., main.*,*.info,COPYING)"
+    )
+
+    parser.add_argument(
+        "--exclude-pua",
+        help="Comma-separated PUA signature-name prefixes to drop (prefix match). "
+        "E.g., PUA.Win.Packer,PUA.Doc.Packed",
+    )
+
+    parser.add_argument(
+        "--external-ign2-dir",
+        help="Directory containing .ign2 files to load for signature exclusion "
+        "(e.g., HydraDragonAVPortable/database)",
     )
 
     parser.add_argument(
@@ -1065,6 +1225,8 @@ File Types:
                 print(f"  Keep if name contains: {', '.join(profile['keep_if_contains'])}")
             if profile.get("exclude_name_contains"):
                 print(f"  Drop if name contains: {', '.join(profile['exclude_name_contains'])}")
+            if profile.get("exclude_pua"):
+                print(f"  Excluded PUA prefixes: {', '.join(profile['exclude_pua'])}")
             if profile.get("keep_files_unfiltered"):
                 print(f"  Kept whole: {', '.join(profile['keep_files_unfiltered'])}")
             if profile.get("drop_extensions"):
@@ -1086,6 +1248,7 @@ File Types:
     ndb_types = None
     exclude_types = None
     keep_if_contains = None
+    exclude_pua = None
 
     if args.profile:
         profile = ComprehensiveFilter.PROFILES[args.profile]
@@ -1094,6 +1257,7 @@ File Types:
         exclude_types = profile.get("exclude_types", [])
         ndb_types = profile.get("ndb_types")
         keep_if_contains = profile.get("keep_if_contains")
+        exclude_pua = profile.get("exclude_pua")
         extra_opts = {
             "exclude_files": profile.get("exclude_files"),
             "ldb_targets": profile.get("ldb_targets"),
@@ -1110,10 +1274,11 @@ File Types:
             not args.exclude_platforms
             and not args.include_platforms
             and not args.exclude_types
+            and not args.exclude_pua
         ):
             print(
                 "Error: Must specify --profile, --exclude-platforms, "
-                "--include-platforms, or --exclude-types"
+                "--include-platforms, --exclude-types, or --exclude-pua"
             )
             sys.exit(1)
 
@@ -1136,14 +1301,43 @@ File Types:
     if args.exclude_files:
         extra_opts["exclude_files"] = [f.strip() for f in args.exclude_files.split(",")]
 
+    if args.exclude_pua:
+        exclude_pua = [p.strip() for p in args.exclude_pua.split(",")]
+
     if exclude_platforms and include_platforms:
         print("Note: exclude_platforms checked first, then include_platforms")
 
     # Run filter
     filter_tool = ComprehensiveFilter(verbose=args.verbose)
 
+    # Set PUA exclusion prefixes on the filter instance.
+    if exclude_pua:
+        filter_tool.exclude_pua = list(exclude_pua)
+        print(f"Excluding PUA prefixes: {', '.join(filter_tool.exclude_pua)}")
+
+    # Load external .ign2 files (e.g. from HydraDragonAVPortable/database).
+    external_ign2_dir = args.external_ign2_dir
+    if external_ign2_dir and os.path.isdir(external_ign2_dir):
+        for item in sorted(os.listdir(external_ign2_dir)):
+            if item.lower().endswith((".ign2", ".ign")):
+                fp = os.path.join(external_ign2_dir, item)
+                if os.path.isfile(fp):
+                    filter_tool._load_ignore_file(fp, is_ign2=item.lower().endswith(".ign2"))
+                    print(f"Loaded ignore file: {item} ({len(filter_tool.ignore_names)} names total)")
+
     try:
-        if args.directory:
+        if args.directory and getattr(args, 'cvd_only', False):
+            filter_tool.filter_cvds_only(
+                src_dir=args.directory,
+                output_dir=args.output,
+                exclude_platforms=exclude_platforms,
+                include_platforms=include_platforms,
+                ndb_types=ndb_types,
+                exclude_file_types=exclude_types,
+                keep_if_contains=keep_if_contains,
+                **extra_opts,
+            )
+        elif args.directory:
             filter_tool.filter_directory(
                 src_dir=args.directory,
                 output_dir=args.output,
