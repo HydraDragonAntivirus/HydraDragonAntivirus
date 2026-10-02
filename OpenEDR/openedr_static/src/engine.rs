@@ -1556,7 +1556,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                             &entry.data,
                             "Archive_",
                             &format!("archive entry '{}'", entry.name),
-                            entry_is_compressed_document(&entry.name),
+                            Self::entry_is_compressed_document(&entry.name),
                         ) {
                             max_score = max_score.max(d.score.unwrap_or(0.0));
                             detections.push(d);
