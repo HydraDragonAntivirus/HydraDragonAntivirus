@@ -1912,6 +1912,7 @@ dependencies = [
  "daachorse",
  "digest 0.11.3",
  "hex",
+ "hydradragonunicorn",
  "image",
  "log",
  "md-5 0.11.0",

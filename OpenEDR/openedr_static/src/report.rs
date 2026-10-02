@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectionItem {
@@ -20,6 +20,48 @@ pub struct SignerDetails {
     pub is_catalog_signed: bool,
 }
 
+/// A first-class in-memory object to be scanned by the engine.
+#[derive(Debug, Clone)]
+pub struct ScanObject {
+    pub name: String,
+    pub path: String,
+    pub bytes: Vec<u8>,
+    pub depth: u32,
+    pub origin_type: String, // "ArchiveMember", "UnpackedPE", "Overlay", "Stripped"
+}
+
+impl ScanObject {
+    pub fn new(
+        name: impl Into<String>,
+        path: impl Into<String>,
+        bytes: Vec<u8>,
+        depth: u32,
+        origin_type: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            path: path.into(),
+            bytes,
+            depth,
+            origin_type: origin_type.into(),
+        }
+    }
+}
+
+/// A scanned child object (archive member, emulated unpacked payload, overlay, or stripped padding)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedObject {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+    pub depth: u32,
+    pub origin_type: String, // "ArchiveMember", "UnpackedPE", "Overlay", "Stripped"
+    pub verdict: String,
+    pub max_threat_score: f32,
+    pub detections: Vec<DetectionItem>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StaticScanReport {
     pub target: String,
@@ -30,6 +72,8 @@ pub struct StaticScanReport {
     pub detections: Vec<DetectionItem>,
     pub signer_info: Option<SignerDetails>,
     pub pua_registry_matches: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extracted_objects: Vec<ExtractedObject>,
     pub scan_time_ms: u64,
 }
 

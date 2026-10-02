@@ -37,3 +37,4 @@ pub use scanner::{
     CleanVerdict, LogScanObserver, NullScanObserver, ScanModule, ScanObserver, ScanResult,
     ScanService, ScanVerdict,
 };
+pub use unpacker::{UnpackerEngine, UnpackerError};

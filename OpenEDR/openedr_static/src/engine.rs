@@ -15,7 +15,7 @@ use crate::ml::scanner::MlScanner;
 use crate::pe_strings;
 use crate::ptm_registry::PuaRegistryMatcher;
 use crate::report::{
-    DetectionItem, MemoryScanReport, RegistryCheckReport, SignerDetails, StaticScanReport,
+    DetectionItem, ExtractedObject, MemoryScanReport, RegistryCheckReport, ScanObject, SignerDetails, StaticScanReport,
 };
 use crate::signers::{verify_authenticode, BinaryFuse16Filter, SignerDb};
 use crate::string_rules::{self, PeStringRules};
@@ -595,6 +595,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                     }],
                     signer_info: None,
                     pua_registry_matches: Vec::new(),
+                    extracted_objects: Vec::new(),
                     scan_time_ms: t0.elapsed().as_millis() as u64,
                 };
             }
@@ -815,6 +816,215 @@ fn entry_is_compressed_document(name: &str) -> bool {
         }
     }
 
+    /// Global multi-engine evaluation over any in-memory byte slice.
+    /// Evaluates ClamAV, YARA-X, HydraDragonSig (strings + PE imports/exports),
+    /// ML models, and embedded URLs uniformly, with automatic origin-prefix tagging.
+    fn scan_bytes_core(
+        &self,
+        bytes: &[u8],
+        name: &str,
+        origin_prefix: &str,
+        layer_prefix: &str,
+        detections: &mut Vec<DetectionItem>,
+        max_score: &mut f32,
+    ) {
+        if bytes.is_empty() {
+            return;
+        }
+
+        let is_pe = bytes.starts_with(b"MZ");
+        let is_js = name.to_ascii_lowercase().ends_with(".js")
+            || name.to_ascii_lowercase().ends_with(".mjs")
+            || is_js_content(bytes);
+        let is_pdf = name.to_ascii_lowercase().ends_with(".pdf") || bytes.starts_with(b"%PDF");
+
+        // 1. ClamAV
+        for m in self.clam.scan_bytes(bytes, name) {
+            let det_name = if origin_prefix.is_empty() {
+                m.name
+            } else {
+                format!("{}{}", origin_prefix, m.name)
+            };
+            detections.push(DetectionItem {
+                layer: format!("{}ClamAV", layer_prefix),
+                name: det_name,
+                score: Some(1.0),
+                details: Some(format!("matched view {:?}", m.view)),
+            });
+            *max_score = max_score.max(1.0);
+        }
+
+        // 2. YARA-X
+        let yara_slice: &[u8] = if bytes.len() > 32 * 1024 * 1024 {
+            &bytes[..32 * 1024 * 1024]
+        } else {
+            bytes
+        };
+        for ym in self.yara.scan_bytes(yara_slice) {
+            let det_name = if origin_prefix.is_empty() {
+                ym
+            } else {
+                format!("{}{}", origin_prefix, ym)
+            };
+            detections.push(DetectionItem {
+                layer: format!("{}YARA", layer_prefix),
+                name: det_name,
+                score: Some(0.95),
+                details: None,
+            });
+            *max_score = max_score.max(0.95);
+        }
+
+        // 3. HydraDragonSig (strings + PE imports/exports/sections)
+        let capped: &[u8] = if bytes.len() > 16 * 1024 * 1024 {
+            &bytes[..16 * 1024 * 1024]
+        } else {
+            bytes
+        };
+        let raw = pe_strings::extract_strings(capped);
+        let strings: Vec<String> = raw.iter().map(|s| string_rules::normalize_text(s)).collect();
+        let sha256_hex = {
+            let mut hasher = Sha256::new();
+            hasher.update(bytes);
+            hex::encode(hasher.finalize())
+        };
+        for hit in self.string_rules.scan_bytes(
+            bytes,
+            name,
+            &sha256_hex,
+            &strings,
+            is_pe,
+            false,
+            10,
+        ) {
+            let rule_name = if hit.rule.is_empty() {
+                "HydraSig.Match".to_string()
+            } else {
+                hit.rule.clone()
+            };
+            let det_name = if origin_prefix.is_empty() {
+                rule_name
+            } else {
+                format!("{}{}", origin_prefix, rule_name)
+            };
+            let mut details = hit.title.clone();
+            if let Some(ev) = hit.evidence.first() {
+                details.push_str(" | ");
+                details.push_str(&ev.chars().take(120).collect::<String>());
+            }
+            let score = hit.score as f32 / 100.0;
+            detections.push(DetectionItem {
+                layer: format!("{}HydraSig", layer_prefix),
+                name: det_name,
+                score: Some(score),
+                details: Some(details),
+            });
+            *max_score = max_score.max(score);
+        }
+
+        // 4. ML (PE / JS)
+        if is_pe {
+            if let Some(prob) = self.ml.predict_pe(bytes) {
+                if prob >= PE_TREE_THRESHOLD {
+                    let det_name = if origin_prefix.is_empty() {
+                        "MalwareNet.PE.HighConfidence".to_string()
+                    } else {
+                        format!("{}MalwareNet.PE.HighConfidence", origin_prefix)
+                    };
+                    detections.push(DetectionItem {
+                        layer: format!("{}PE_ML", layer_prefix),
+                        name: det_name,
+                        score: Some(prob),
+                        details: Some(format!("PE malware probability: {:.2}%", prob * 100.0)),
+                    });
+                    *max_score = max_score.max(prob);
+                }
+            }
+        } else if is_js {
+            if let Ok(source) = std::str::from_utf8(bytes) {
+                if let Some(prob) = self.ml.predict_js(source) {
+                    if prob >= JS_TREE_THRESHOLD {
+                        let det_name = if origin_prefix.is_empty() {
+                            "MalwareNet.JS.HighConfidence".to_string()
+                        } else {
+                            format!("{}MalwareNet.JS.HighConfidence", origin_prefix)
+                        };
+                        detections.push(DetectionItem {
+                            layer: format!("{}JS_ML", layer_prefix),
+                            name: det_name,
+                            score: Some(prob),
+                            details: Some(format!("JS malware probability: {:.2}%", prob * 100.0)),
+                        });
+                        *max_score = max_score.max(prob);
+                    }
+                }
+            }
+        }
+
+        // 5. Embedded URLs
+        for d in self.embedded_url_detections(bytes, layer_prefix, &format!("payload '{name}'"), is_pdf) {
+            *max_score = max_score.max(d.score.unwrap_or(0.0));
+            detections.push(d);
+        }
+    }
+
+    /// Scan a first-class extracted object (archive member, emulated unpacked PE, overlay, or stripped buffer).
+    /// Runs all detection engines (ClamAV, YARA-X, HydraDragonSig, ML, embedded URLs, and PE heuristics)
+    /// on the in-memory bytes and returns an isolated `ExtractedObject`.
+    pub fn scan_object(&self, object: &ScanObject) -> ExtractedObject {
+        let mut obj_detections = Vec::new();
+        let mut obj_max_score = 0.0f32;
+
+        let sha256 = {
+            let mut hasher = Sha256::new();
+            hasher.update(&object.bytes);
+            hex::encode(hasher.finalize())
+        };
+
+        // Multi-engine evaluation on object bytes
+        self.scan_bytes_core(
+            &object.bytes,
+            &object.name,
+            "",
+            "",
+            &mut obj_detections,
+            &mut obj_max_score,
+        );
+
+        // PE-specific heuristics on the extracted object
+        if object.bytes.starts_with(b"MZ") {
+            if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(&object.bytes) {
+                obj_detections.push(DetectionItem {
+                    layer: "Heuristic_PE".to_string(),
+                    name: "HEUR:Win32.Susp.PE.RVATrick".to_string(),
+                    score: Some(0.90),
+                    details: Some(detail),
+                });
+                obj_max_score = obj_max_score.max(0.90);
+            }
+        }
+
+        let verdict = if obj_max_score >= 0.85 {
+            "Malicious"
+        } else if obj_max_score >= 0.50 || !obj_detections.is_empty() {
+            "Suspicious"
+        } else {
+            "Clean"
+        };
+
+        ExtractedObject {
+            name: object.name.clone(),
+            path: object.path.clone(),
+            size: object.bytes.len() as u64,
+            sha256,
+            depth: object.depth,
+            origin_type: object.origin_type.clone(),
+            verdict: verdict.to_string(),
+            max_threat_score: obj_max_score,
+            detections: obj_detections,
+        }
+    }
+
     fn scan_bytes_internal(
         &self,
         data: &[u8],
@@ -835,6 +1045,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
 
         let mut detections = Vec::new();
         let mut max_score: f32 = 0.0;
+        let mut extracted_objects: Vec<ExtractedObject> = Vec::new();
 
         if is_sha1_collision {
             detections.push(DetectionItem {
@@ -867,6 +1078,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                 detections: Vec::new(),
                 signer_info: None,
                 pua_registry_matches: Vec::new(),
+                extracted_objects: Vec::new(),
                 scan_time_ms: start_time.elapsed().as_millis() as u64,
             };
         }
@@ -888,6 +1100,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                 detections: Vec::new(),
                 signer_info: None,
                 pua_registry_matches: Vec::new(),
+                extracted_objects: Vec::new(),
                 scan_time_ms: start_time.elapsed().as_millis() as u64,
             };
         }
@@ -971,6 +1184,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                     detections: Vec::new(),
                     signer_info: signer_details,
                     pua_registry_matches: Vec::new(),
+                    extracted_objects: Vec::new(),
                     scan_time_ms: start_time.elapsed().as_millis() as u64,
                 };
             }
@@ -986,6 +1200,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                     detections: Vec::new(),
                     signer_info: signer_details,
                     pua_registry_matches: Vec::new(),
+                    extracted_objects: Vec::new(),
                     scan_time_ms: start_time.elapsed().as_millis() as u64,
                 };
             }
@@ -1246,39 +1461,25 @@ fn entry_is_compressed_document(name: &str) -> bool {
                     let _ = unpacker.emu();
                     if let Ok(dumped) = unpacker.dump_bytes() {
                         if !dumped.is_empty() && dumped != data {
-                            // Rescan emulated unpacked buffer with ClamAV, YARA-X, and ML
-                            let unp_clam = self.clam.scan_bytes(&dumped, target_name);
-                            for m in unp_clam {
-                                detections.push(DetectionItem {
-                                    layer: "Unicorn_Unpacker_ClamAV".to_string(),
-                                    name: format!("Unpacked:{}", m.name),
-                                    score: Some(1.0),
-                                    details: Some("Detected inside memory dumped by Unicorn CPU emulation".to_string()),
-                                });
-                                max_score = max_score.max(1.0);
-                            }
-                            let unp_yara = self.yara.scan_bytes(&dumped);
-                            for y_name in unp_yara {
-                                detections.push(DetectionItem {
-                                    layer: "Unicorn_Unpacker_YARA".to_string(),
-                                    name: format!("Unpacked:{}", y_name),
-                                    score: Some(0.95),
-                                    details: Some("YARA rule matched on Unicorn emulated unpacked payload".to_string()),
-                                });
-                                max_score = max_score.max(0.95);
-                            }
+                            let obj = ScanObject::new(
+                                format!("{target_name}.unpacked.bin"),
+                                format!("{target_name} -> [Unicorn:Unpacked]"),
+                                dumped,
+                                1,
+                                "UnpackedPE",
+                            );
+                            let extracted = self.scan_object(&obj);
 
-                            if let Some(prob) = self.ml.predict_pe(&dumped) {
-                                if prob >= PE_TREE_THRESHOLD {
-                                    detections.push(DetectionItem {
-                                        layer: "Unicorn_Unpacker_ML".to_string(),
-                                        name: "Unpacked.MalwareNet.PE.HighConfidence".to_string(),
-                                        score: Some(prob),
-                                        details: Some(format!("Unpacked payload malware probability: {:.2}%", prob * 100.0)),
-                                    });
-                                    max_score = max_score.max(prob);
-                                }
+                            max_score = max_score.max(extracted.max_threat_score);
+                            for d in &extracted.detections {
+                                detections.push(DetectionItem {
+                                    layer: format!("Unicorn_Unpacker_{}", d.layer),
+                                    name: format!("Unpacked:{}", d.name),
+                                    score: d.score,
+                                    details: d.details.clone(),
+                                });
                             }
+                            extracted_objects.push(extracted);
                         }
                     }
                 }
@@ -1298,59 +1499,42 @@ fn entry_is_compressed_document(name: &str) -> bool {
             let is_inflated = (trailing_zeros >= 65536)
                 || (data.len() > 1024 * 1024 && trailing_zeros as f64 / data.len() as f64 >= 0.20 && trailing_zeros >= 32768);
 
-        if is_inflated && non_zero_end > 0 {
-            detections.push(DetectionItem {
-                layer: "Heuristic".to_string(),
-                name: "Heuristic.File.InflatedNullPadding".to_string(),
-                score: Some(0.80),
-                details: Some(format!(
-                    "Detected {} KB of trailing 0x00 null padding (stripped {} KB -> {} KB)",
-                    trailing_zeros / 1024,
-                    data.len() / 1024,
-                    non_zero_end / 1024
-                )),
-            });
-            max_score = max_score.max(0.80);
-
-            // Rescan stripped buffer with ClamAV, YARA-X, and ML
-            let stripped_data = &data[..non_zero_end];
-
-            let cl_matches = self.clam.scan_bytes(stripped_data, target_name);
-            for m in cl_matches {
+            if is_inflated && non_zero_end > 0 {
                 detections.push(DetectionItem {
-                    layer: "Heuristic_Stripped_ClamAV".to_string(),
-                    name: format!("Stripped:{}", m.name),
-                    score: Some(1.0),
-                    details: Some("Detected inside stripped payload after removing null padding".to_string()),
+                    layer: "Heuristic".to_string(),
+                    name: "Heuristic.File.InflatedNullPadding".to_string(),
+                    score: Some(0.80),
+                    details: Some(format!(
+                        "Detected {} KB of trailing 0x00 null padding (stripped {} KB -> {} KB)",
+                        trailing_zeros / 1024,
+                        data.len() / 1024,
+                        non_zero_end / 1024
+                    )),
                 });
-                max_score = max_score.max(1.0);
-            }
+                max_score = max_score.max(0.80);
 
-            let yr_matches = self.yara.scan_bytes(stripped_data);
-            for ym in yr_matches {
-                detections.push(DetectionItem {
-                    layer: "Heuristic_Stripped_YARA".to_string(),
-                    name: format!("Stripped:{}", ym),
-                    score: Some(0.95),
-                    details: Some("YARA rule matched on stripped payload after removing null padding".to_string()),
-                });
-                max_score = max_score.max(0.95);
-            }
+                // Rescan stripped buffer as first-class object
+                let stripped_data = data[..non_zero_end].to_vec();
+                let obj = ScanObject::new(
+                    format!("{target_name}.stripped.bin"),
+                    format!("{target_name} -> [StrippedPadding]"),
+                    stripped_data,
+                    1,
+                    "Stripped",
+                );
+                let extracted = self.scan_object(&obj);
 
-            if stripped_data.starts_with(b"MZ") {
-                if let Some(prob) = self.ml.predict_pe(stripped_data) {
-                    if prob >= PE_TREE_THRESHOLD {
-                        detections.push(DetectionItem {
-                            layer: "Heuristic_Stripped_PE_ML".to_string(),
-                            name: "Stripped.MalwareNet.PE.HighConfidence".to_string(),
-                            score: Some(prob),
-                            details: Some(format!("Stripped payload malware probability: {:.2}%", prob * 100.0)),
-                        });
-                        max_score = max_score.max(prob);
-                    }
+                max_score = max_score.max(extracted.max_threat_score);
+                for d in &extracted.detections {
+                    detections.push(DetectionItem {
+                        layer: format!("Heuristic_Stripped_{}", d.layer),
+                        name: format!("Stripped:{}", d.name),
+                        score: d.score,
+                        details: d.details.clone(),
+                    });
                 }
+                extracted_objects.push(extracted);
             }
-        }
         }
 
         // 8. Heuristic: PE Overlay Extraction & Embedded Executable Rescan
@@ -1376,87 +1560,37 @@ fn entry_is_compressed_document(name: &str) -> bool {
                 if max_pe_offset > 0 && max_pe_offset < data.len() {
                     let overlay = &data[max_pe_offset..];
                     if overlay.len() >= 512 {
-                        // Validated embedded-PE search: random "MZ" byte pairs inside
-                        // compressed SFX payloads (7z/Inno/NSIS) must NOT count.
-                        // Require MZ + e_lfanew + PE\0\0 + sane NumberOfSections.
                         let embedded_pe_offset = find_valid_embedded_pe(overlay);
                         let has_embedded_pe = embedded_pe_offset.is_some();
                         let is_sfx_archive = overlay.starts_with(b"PK\x03\x04")
                             || overlay.starts_with(b"7z\xBC\xAF\x27\x1C")
                             || overlay.starts_with(b"Rar!\x1A\x07");
 
-                        // Always rescan overlay content with engines (real detection value).
-                        // Standalone heuristic fires ONLY on validated binder (has_embedded_pe).
-                        // Legit SFX (7z/Inno/NSIS) and bare large overlays alone are NOT detections.
-                        let mut overlay_confirmed = false;
+                        let obj = ScanObject::new(
+                            "overlay.bin",
+                            format!("{target_name} -> [PE:Overlay]"),
+                            overlay.to_vec(),
+                            1,
+                            "Overlay",
+                        );
+                        let extracted = self.scan_object(&obj);
+                        let overlay_confirmed = !extracted.detections.is_empty();
 
-                        let ov_clam = self.clam.scan_bytes(overlay, "overlay.bin");
-                        for m in ov_clam {
-                            overlay_confirmed = true;
+                        max_score = max_score.max(extracted.max_threat_score);
+                        for d in &extracted.detections {
                             detections.push(DetectionItem {
-                                layer: "Heuristic_Overlay_ClamAV".to_string(),
-                                name: format!("Overlay:{}", m.name),
-                                score: Some(1.0),
-                                details: Some("Detected inside PE overlay payload".to_string()),
+                                layer: format!("Heuristic_Overlay_{}", d.layer),
+                                name: format!("Overlay:{}", d.name),
+                                score: d.score,
+                                details: d.details.clone(),
                             });
-                            max_score = max_score.max(1.0);
                         }
-
-                        let ov_yara = self.yara.scan_bytes(overlay);
-                        for ym in ov_yara {
-                            overlay_confirmed = true;
-                            detections.push(DetectionItem {
-                                layer: "Heuristic_Overlay_YARA".to_string(),
-                                name: format!("Overlay:{}", ym),
-                                score: Some(0.95),
-                                details: Some("YARA rule matched inside PE overlay".to_string()),
-                            });
-                            max_score = max_score.max(0.95);
-                        }
-
-                        // ML on overlay only if it starts with a validated PE image,
-                        // or on the validated embedded slice.
-                        let ml_target: Option<&[u8]> = if embedded_pe_offset == Some(0) {
-                            Some(overlay)
-                        } else if let Some(off) = embedded_pe_offset {
-                            Some(&overlay[off..])
-                        } else {
-                            None
-                        };
-                        if let Some(pe_blob) = ml_target {
-                            if pe_blob.starts_with(b"MZ") {
-                                if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(pe_blob) {
-                                    detections.push(DetectionItem {
-                                        layer: "Heuristic_Overlay".to_string(),
-                                        name: "HEUR:Win32.Susp.PE.RVATrick".to_string(),
-                                        score: Some(0.90),
-                                        details: Some(format!("{detail} in overlay PE")),
-                                    });
-                                    max_score = max_score.max(0.90);
-                                }
-                                if let Some(prob) = self.ml.predict_pe(pe_blob) {
-                                    if prob >= PE_TREE_THRESHOLD {
-                                        overlay_confirmed = true;
-                                        detections.push(DetectionItem {
-                                            layer: "Heuristic_Overlay_PE_ML".to_string(),
-                                            name: "Overlay.MalwareNet.PE.HighConfidence".to_string(),
-                                            score: Some(prob),
-                                            details: Some(format!("Overlay PE malware probability: {:.2}%", prob * 100.0)),
-                                        });
-                                        max_score = max_score.max(prob);
-                                    }
-                                }
-                            }
-                        }
+                        extracted_objects.push(extracted);
 
                         // Standalone binder heuristic: validated MZ->PE only.
                         // SFX archives (7z/PK/Rar) without validated PE or engine hit: silent.
                         if has_embedded_pe {
                             let off = embedded_pe_offset.unwrap_or(0);
-                            // SFX self-extractors legitimately carry an archive after the stub;
-                            // a validated PE deep inside an SFX archive start is still a binder,
-                            // but an SFX archive with no engine confirmation is left silent above.
-                            // Here we have a real second PE image, so flag it.
                             let _ = (off, is_sfx_archive);
                             detections.push(DetectionItem {
                                 layer: "Heuristic_Overlay".to_string(),
@@ -1506,48 +1640,57 @@ fn entry_is_compressed_document(name: &str) -> bool {
             match hydradragonextractor::extract_archive_from_bytes(data, false) {
                 Ok(entries) => {
                     for entry in entries {
-                        let child_clam = self.clam.scan_bytes(&entry.data, &entry.name);
-                        for m in child_clam {
+                        let obj = ScanObject::new(
+                            entry.name.clone(),
+                            format!("{target_name} -> {}", entry.name),
+                            entry.data.clone(),
+                            1,
+                            "ArchiveMember",
+                        );
+                        let extracted = self.scan_object(&obj);
+
+                        max_score = max_score.max(extracted.max_threat_score);
+                        for d in &extracted.detections {
                             detections.push(DetectionItem {
-                                layer: "Archive_ClamAV".to_string(),
-                                name: format!("Archive:{}:{}", entry.name, m.name),
-                                score: Some(1.0),
-                                details: Some(format!("Extracted file: {}", entry.name)),
+                                layer: format!("Archive_{}", d.layer),
+                                name: format!("Archive:{}:{}", entry.name, d.name),
+                                score: d.score,
+                                details: d.details.clone(),
                             });
-                            max_score = max_score.max(1.0);
                         }
-                        let child_yara = self.yara.scan_bytes(&entry.data);
-                        for ym in child_yara {
-                            detections.push(DetectionItem {
-                                layer: "Archive_YARA".to_string(),
-                                name: format!("Archive:{}:{}", entry.name, ym),
-                                score: Some(0.95),
-                                details: Some(format!("Extracted file: {}", entry.name)),
-                            });
-                            max_score = max_score.max(0.95);
-                        }
-                        if entry.data.starts_with(b"MZ") {
-                            if let Some(prob) = self.ml.predict_pe(&entry.data) {
-                                if prob >= PE_TREE_THRESHOLD {
-                                    detections.push(DetectionItem {
-                                        layer: "Archive_PE_ML".to_string(),
-                                        name: format!("Archive:{}:MalwareNet.PE.HighConfidence", entry.name),
-                                        score: Some(prob),
-                                        details: Some(format!("Child PE malware probability: {:.2}%", prob * 100.0)),
-                                    });
-                                    max_score = max_score.max(prob);
+
+                        // Also check if child entry itself is a packed PE: run Unicorn once if packed
+                        if entry.data.starts_with(b"MZ") && entry.data.len() >= 0x1000 {
+                            if let Ok(sub_sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(&entry.data) {
+                                let mut sub_unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sub_sample, "memory");
+                                if sub_unpacker.init_uc().is_ok() {
+                                    let _ = sub_unpacker.emu();
+                                    if let Ok(sub_dumped) = sub_unpacker.dump_bytes() {
+                                        if !sub_dumped.is_empty() && sub_dumped != entry.data {
+                                            let sub_obj = ScanObject::new(
+                                                format!("{}.unpacked.bin", entry.name),
+                                                format!("{target_name} -> {} -> [Unicorn:Unpacked]", entry.name),
+                                                sub_dumped,
+                                                2,
+                                                "UnpackedPE",
+                                            );
+                                            let sub_extracted = self.scan_object(&sub_obj);
+                                            max_score = max_score.max(sub_extracted.max_threat_score);
+                                            for d in &sub_extracted.detections {
+                                                detections.push(DetectionItem {
+                                                    layer: format!("Archive_Unpacked_{}", d.layer),
+                                                    name: format!("Archive:{}:Unpacked:{}", entry.name, d.name),
+                                                    score: d.score,
+                                                    details: d.details.clone(),
+                                                });
+                                            }
+                                            extracted_objects.push(sub_extracted);
+                                        }
+                                    }
                                 }
                             }
-                            if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(&entry.data) {
-                                detections.push(DetectionItem {
-                                    layer: "Heuristic_Archive".to_string(),
-                                    name: "HEUR:Win32.Susp.PE.RVATrick".to_string(),
-                                    score: Some(0.90),
-                                    details: Some(format!("{} in extracted '{}'", detail, entry.name)),
-                                });
-                                max_score = max_score.max(0.90);
-                            }
                         }
+
                         // Embedded URLs inside the entry. This is the only path
                         // that sees an Office macro body: `word/vbaProject.bin`
                         // and friends are deflated ZIP members, so their URLs
@@ -1561,6 +1704,8 @@ fn entry_is_compressed_document(name: &str) -> bool {
                             max_score = max_score.max(d.score.unwrap_or(0.0));
                             detections.push(d);
                         }
+
+                        extracted_objects.push(extracted);
                     }
                 }
                 Err(err) => {
@@ -1604,6 +1749,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
             detections,
             signer_info: signer_details,
             pua_registry_matches: Vec::new(),
+            extracted_objects,
             scan_time_ms: start_time.elapsed().as_millis() as u64,
         }
     }

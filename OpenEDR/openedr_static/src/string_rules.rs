@@ -72,6 +72,14 @@ impl PeStringRules {
             Some(rs) if !strings.is_empty() && cap > 0 => rs,
             _ => return Vec::new(),
         };
+        let pe = if is_pe {
+            hydradragonsig::scanner::pe::scan_pe(data)
+        } else {
+            None
+        };
+        let is_pe32 = pe.as_ref().map_or(false, |p| !p.is_64);
+        let is_pe64 = pe.as_ref().map_or(false, |p| p.is_64);
+
         let mut report = ScanReport {
             path: PathBuf::from(target_name),
             // No clock on wasm32-unknown-unknown; epoch is never read by
@@ -83,7 +91,7 @@ impl PeStringRules {
                 sha256: sha256_hex.to_string(),
                 md5: String::new(),
             },
-            pe: None,
+            pe,
             file_type: FileTypeInfo {
                 primary: if is_pe {
                     "pe".to_string()
@@ -103,8 +111,8 @@ impl PeStringRules {
                 is_plain_text: false,
                 is_binary: true,
                 is_pe,
-                is_pe32: false,
-                is_pe64: false,
+                is_pe32,
+                is_pe64,
                 is_elf: false,
                 is_elf32: false,
                 is_elf64: false,
