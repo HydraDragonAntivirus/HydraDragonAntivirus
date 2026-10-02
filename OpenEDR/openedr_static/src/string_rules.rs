@@ -203,8 +203,7 @@ fn shannon_entropy(data: &[u8]) -> f64 {
     entropy
 }
 
-/// Normalize a raw binary string for matching: lowercase + forward
-/// slashes to backslashes.
+/// Preserves the raw string for exact-case and slash matching in RuleSet.
 pub fn normalize_text(s: &str) -> String {
-    s.to_lowercase().replace('/', "\\")
+    s.to_string()
 }

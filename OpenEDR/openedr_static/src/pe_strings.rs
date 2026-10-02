@@ -1,12 +1,11 @@
 //! Raw string extraction from binary blobs (ASCII + UTF-16LE).
 //!
-//! Feeds [`super::string_rules`] with searchable text. Lowercases ASCII
-//! A-Z inline so matching is a plain substring search.
+//! Feeds [`super::string_rules`] with searchable text preserving original case.
 
 /// Minimum run length that counts as a string.
 pub const MIN_LEN: usize = 5;
 
-/// Extract lowercased ASCII and UTF-16LE strings of at least `MIN_LEN` chars.
+/// Extract ASCII and UTF-16LE strings of at least `MIN_LEN` chars.
 pub fn extract_strings(data: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     extract_ascii(data, &mut out);
@@ -14,15 +13,11 @@ pub fn extract_strings(data: &[u8]) -> Vec<String> {
     out
 }
 
-fn push_lower(out: &mut Vec<String>, buf: &[u8]) {
+fn push_string(out: &mut Vec<String>, buf: &[u8]) {
     if buf.len() < MIN_LEN {
         return;
     }
-    let mut s = Vec::with_capacity(buf.len());
-    for &b in buf {
-        s.push(if b.is_ascii_uppercase() { b + 32 } else { b });
-    }
-    if let Ok(text) = std::str::from_utf8(&s) {
+    if let Ok(text) = std::str::from_utf8(buf) {
         out.push(text.to_string());
     }
 }
@@ -39,11 +34,11 @@ fn extract_ascii(data: &[u8], out: &mut Vec<String>) {
                 start = Some(i);
             }
         } else if let Some(s) = start.take() {
-            push_lower(out, &data[s..i]);
+            push_string(out, &data[s..i]);
         }
     }
     if let Some(s) = start {
-        push_lower(out, &data[s..]);
+        push_string(out, &data[s..]);
     }
 }
 
@@ -59,13 +54,13 @@ fn extract_utf16le(data: &[u8], out: &mut Vec<String>) {
             i += 2;
         } else {
             if !buf.is_empty() {
-                push_lower(out, &buf);
+                push_string(out, &buf);
                 buf.clear();
             }
             i += 1;
         }
     }
     if !buf.is_empty() {
-        push_lower(out, &buf);
+        push_string(out, &buf);
     }
 }

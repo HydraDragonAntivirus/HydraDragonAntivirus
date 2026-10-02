@@ -881,8 +881,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
         } else {
             bytes
         };
-        let raw = pe_strings::extract_strings(capped);
-        let strings: Vec<String> = raw.iter().map(|s| string_rules::normalize_text(s)).collect();
+        let strings = pe_strings::extract_strings(capped);
         let sha256_hex = {
             let mut hasher = Sha256::new();
             hasher.update(bytes);
@@ -1251,11 +1250,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
             }
             // HydraSig over capped APK strings with APK file-type tags.
             {
-                let raw = apk::apk_strings_capped(data);
-                let strings: Vec<String> = raw
-                    .iter()
-                    .map(|s| string_rules::normalize_text(s))
-                    .collect();
+                let strings = apk::apk_strings_capped(data);
                 for hit in self.string_rules.scan_bytes(
                     yara_slice,
                     target_name,
@@ -1332,9 +1327,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
             } else {
                 data
             };
-            let raw = pe_strings::extract_strings(capped);
-            let strings: Vec<String> =
-                raw.iter().map(|s| string_rules::normalize_text(s)).collect();
+            let strings = pe_strings::extract_strings(capped);
             for hit in
                 self.string_rules
                     .scan_bytes(data, target_name, &sha256_hex, &strings, is_pe, false, 10)
