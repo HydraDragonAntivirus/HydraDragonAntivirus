@@ -1,23 +1,19 @@
 //! PE-aware passes: code-referenced strings and stack-built strings.
 //!
-//! Both passes disassemble the executable sections of a PE with capstone. The
-//! whole module is best-effort: if goblin cannot parse the file as a PE, or
-//! capstone cannot be built, we simply return without touching `out`, leaving the
-//! ASCII/wide results from the linear scan untouched.
+//! Both passes disassemble the executable sections of a PE with iced-x86. The
+//! whole module is best-effort: if pefile-rs cannot parse the file as a PE,
+//! we simply return without touching `out`, leaving the ASCII/wide results from
+//! the linear scan untouched.
 
 use std::collections::HashSet;
 
-use capstone::Capstone;
-use capstone::arch::ArchOperand;
-use capstone::arch::BuildsCapstone;
-use capstone::arch::x86::{ArchMode as X86Mode, X86OperandType};
-use goblin::Object;
+use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register};
+use pefile_rs::PE;
 
 use crate::scan::decode_at;
-use crate::{ExtractOptions, ExtractedString, StringKind};
+use crate::{ExtractOptions, ExtractedString, StringKind, is_printable_ascii};
 
-/// A single executable section laid out so we can map virtual addresses back to
-/// file offsets.
+/// A single section laid out so we can map virtual addresses back to file offsets.
 struct CodeSection {
     /// File offset of the section's raw data.
     file_off: usize,
@@ -40,33 +36,18 @@ pub(crate) fn scan_pe(
     known: &HashSet<String>,
     out: &mut Vec<ExtractedString>,
 ) {
-    // Parse only as PE; anything else (ELF, archive, raw) is out of scope here.
-    let pe = match Object::parse(data) {
-        Ok(Object::PE(pe)) => pe,
-        _ => return,
-    };
-
-    let image_base = pe.image_base;
-
-    // Pick bitness from the optional header magic / goblin's is_64 flag.
-    let mode = if pe.is_64 {
-        X86Mode::Mode64
-    } else {
-        X86Mode::Mode32
-    };
-
-    // Build capstone with detail enabled so operands are populated. Bail out
-    // quietly on any failure.
-    let cs = match Capstone::new().x86().mode(mode).detail(true).build() {
-        Ok(cs) => cs,
+    // Parse only as PE; anything else is out of scope here.
+    let pe = match PE::parse(data) {
+        Ok(pe) => pe,
         Err(_) => return,
     };
 
-    // Collect every section that has raw data on disk. We disassemble the
-    // executable ones, but a code reference usually points into .rdata/.data,
-    // so all sections participate in virtual-address-to-file-offset mapping.
+    let image_base = pe.optional_header.image_base;
+    let bitness = if pe.is_64bit { 64 } else { 32 };
+
     const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
     const IMAGE_SCN_CNT_CODE: u32 = 0x0000_0020;
+
     let mut sections: Vec<CodeSection> = Vec::new();
     for section in &pe.sections {
         let start = section.pointer_to_raw_data as usize;
@@ -75,8 +56,8 @@ pub(crate) fn scan_pe(
             continue;
         }
         let end = (start + size).min(data.len());
-        let is_exec =
-            section.characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE) != 0;
+        let is_exec = section.is_executable()
+            || (section.characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE) != 0);
         sections.push(CodeSection {
             file_off: start,
             bytes: data[start..end].to_vec(),
@@ -84,50 +65,102 @@ pub(crate) fn scan_pe(
             is_exec,
         });
     }
+
     if sections.is_empty() {
         return;
     }
 
-    // Track texts emitted by these passes so the two passes don't fight and we
-    // don't re-emit something already in `known`.
     let mut emitted: HashSet<String> = HashSet::new();
 
-    for section in &sections {
-        if !section.is_exec {
-            continue;
-        }
-        let insns = match cs.disasm_all(&section.bytes, section.va) {
-            Ok(insns) => insns,
-            Err(_) => continue,
-        };
+    let is_arm32 = matches!(pe.file_header.machine, 0x01c0 | 0x01c2 | 0x01c4);
+    let is_arm64 = pe.file_header.machine == 0xaa64;
 
-        if opts.code_refs {
-            for insn in insns.iter() {
-                code_ref_for_insn(
-                    &cs, insn, section.va, data, &sections, min_len, known, &mut emitted, out,
-                );
+    if is_arm64 {
+        use yaxpeax_arch::{Decoder, U8Reader};
+        let decoder = yaxpeax_arm::armv8::a64::InstDecoder::default();
+        for section in &sections {
+            if !section.is_exec || section.bytes.is_empty() {
+                continue;
+            }
+            let mut offset = 0;
+            while offset + 4 <= section.bytes.len() {
+                let mut reader = U8Reader::new(&section.bytes[offset..]);
+                if let Ok(inst) = decoder.decode(&mut reader) {
+                    if opts.code_refs {
+                        let curr_va = section.va.wrapping_add(offset as u64);
+                        arm64_code_ref(&inst, curr_va, data, &sections, min_len, known, &mut emitted, out);
+                    }
+                    offset += 4;
+                } else {
+                    offset += 4;
+                }
             }
         }
+    } else if is_arm32 {
+        use yaxpeax_arch::{Decoder, U8Reader};
+        let decoder = yaxpeax_arm::armv7::InstDecoder::default();
+        for section in &sections {
+            if !section.is_exec || section.bytes.is_empty() {
+                continue;
+            }
+            let mut offset = 0;
+            while offset + 2 <= section.bytes.len() {
+                let mut reader = U8Reader::new(&section.bytes[offset..]);
+                if let Ok(inst) = decoder.decode(&mut reader) {
+                    if opts.code_refs {
+                        let curr_va = section.va.wrapping_add(offset as u64);
+                        arm32_code_ref(&inst, curr_va, data, &sections, min_len, known, &mut emitted, out);
+                    }
+                    offset += 4;
+                } else {
+                    offset += 2;
+                }
+            }
+        }
+    } else {
+        for section in &sections {
+            if !section.is_exec || section.bytes.is_empty() {
+                continue;
+            }
 
-        if opts.stack_strings {
-            stack_strings_in_section(
-                &cs,
-                &insns,
-                min_len,
-                known,
-                &mut emitted,
-                out,
-            );
+            let mut decoder =
+                Decoder::with_ip(bitness, &section.bytes, section.va, DecoderOptions::NONE);
+
+            let mut insns: Vec<Instruction> = Vec::new();
+            while decoder.can_decode() {
+                let mut insn = Instruction::default();
+                decoder.decode_out(&mut insn);
+                insns.push(insn);
+            }
+
+            if opts.code_refs {
+                for insn in &insns {
+                    code_ref_for_insn(
+                        insn, data, &sections, min_len, known, &mut emitted, out,
+                    );
+                }
+            }
+
+            if opts.stack_strings {
+                stack_strings_in_section(
+                    &insns,
+                    min_len,
+                    known,
+                    &mut emitted,
+                    out,
+                );
+            }
+
+            if opts.opcode_patterns {
+                detect_opcode_patterns(&insns, &mut emitted, out);
+            }
         }
     }
 }
 
 /// Inspect one instruction's memory operands for a reference to string data.
-#[allow(clippy::too_many_arguments)]
 fn code_ref_for_insn(
-    cs: &Capstone,
-    insn: &capstone::Insn,
-    _section_va: u64,
+    insn: &Instruction,
     data: &[u8],
     sections: &[CodeSection],
     min_len: usize,
@@ -135,51 +168,35 @@ fn code_ref_for_insn(
     emitted: &mut HashSet<String>,
     out: &mut Vec<ExtractedString>,
 ) {
-    let detail = match cs.insn_detail(insn) {
-        Ok(d) => d,
-        Err(_) => return,
-    };
-
-    for op in detail.arch_detail().operands() {
-        let ArchOperand::X86Operand(x86) = op else {
+    let op_count = insn.op_count();
+    for op_idx in 0..op_count {
+        if insn.op_kind(op_idx) != OpKind::Memory {
             continue;
-        };
-        let X86OperandType::Mem(mem) = x86.op_type else {
-            continue;
-        };
+        }
 
-        // We only resolve absolute and RIP-relative references; anything indexed
-        // by a non-RIP base/index register is data-dependent and skipped.
-        let base = mem.base();
-        let index = mem.index();
-        let disp = mem.disp();
-
-        let target_va: Option<u64> = if base.0 == 0 && index.0 == 0 {
-            // Absolute address: disp is the virtual address directly.
-            if disp > 0 { Some(disp as u64) } else { None }
-        } else if index.0 == 0 && is_rip(cs, base) {
-            // RIP-relative: VA = address of next instruction + disp.
-            let next = insn.address().wrapping_add(insn.bytes().len() as u64);
-            Some(next.wrapping_add(disp as u64))
+        let target_va: Option<u64> = if insn.is_ip_rel_memory_operand() {
+            Some(insn.ip_rel_memory_address())
+        } else if insn.memory_base() == Register::None && insn.memory_index() == Register::None {
+            let disp = insn.memory_displacement64();
+            if disp > 0 {
+                Some(disp)
+            } else {
+                None
+            }
         } else {
             None
         };
 
         let Some(va) = target_va else { continue };
 
-        // Map the VA back to a file offset inside one of our sections.
         let Some(off) = va_to_file_off(va, sections, data.len()) else {
             continue;
         };
 
         if let Some((text, kind)) = decode_at(data, off, min_len) {
-            // Only emit as CodeRef if it isn't an exact text already found by the
-            // plain ASCII/wide passes, and hasn't been emitted by us yet.
             if known.contains(&text) || !emitted.insert(text.clone()) {
                 continue;
             }
-            // Carry forward the underlying decode kind only for offset purposes;
-            // the kind reported is CodeRef so callers know how it was found.
             let _ = kind;
             out.push(ExtractedString {
                 text,
@@ -191,24 +208,16 @@ fn code_ref_for_insn(
 }
 
 /// Recover strings built on the stack via immediate-to-memory `mov` runs.
-///
-/// We look for consecutive `mov [reg +/- disp], imm` instructions whose
-/// immediate bytes are printable, group them by base register, order them by
-/// displacement, and reconstruct the byte sequence. Byte / word / dword
-/// immediates are all handled.
 fn stack_strings_in_section(
-    cs: &Capstone,
-    insns: &capstone::Instructions,
+    insns: &[Instruction],
     min_len: usize,
     known: &HashSet<String>,
     emitted: &mut HashSet<String>,
     out: &mut Vec<ExtractedString>,
 ) {
-    // (base register id, displacement) -> printable byte. We keep a flat list and
-    // flush it whenever the moves stop being part of a string build.
-    let mut fragments: Vec<(u16, i64, u8)> = Vec::new();
+    let mut fragments: Vec<(Register, i64, u8)> = Vec::new();
 
-    let flush = |frags: &mut Vec<(u16, i64, u8)>,
+    let flush = |frags: &mut Vec<(Register, i64, u8)>,
                  emitted: &mut HashSet<String>,
                  out: &mut Vec<ExtractedString>| {
         if frags.is_empty() {
@@ -218,59 +227,43 @@ fn stack_strings_in_section(
         frags.clear();
     };
 
-    for insn in insns.iter() {
-        let mnemonic = insn.mnemonic().unwrap_or("");
-        if mnemonic != "mov" {
-            // A non-mov breaks the current build; flush what we have.
+    for insn in insns {
+        if insn.mnemonic() != Mnemonic::Mov {
             flush(&mut fragments, emitted, out);
             continue;
         }
 
-        let detail = match cs.insn_detail(insn) {
-            Ok(d) => d,
-            Err(_) => {
+        if insn.op_count() != 2 || insn.op0_kind() != OpKind::Memory {
+            flush(&mut fragments, emitted, out);
+            continue;
+        }
+
+        let base = insn.memory_base();
+        let index = insn.memory_index();
+        if base == Register::None || index != Register::None {
+            flush(&mut fragments, emitted, out);
+            continue;
+        }
+
+        let (imm, width) = match insn.op1_kind() {
+            OpKind::Immediate8
+            | OpKind::Immediate8to16
+            | OpKind::Immediate8to32
+            | OpKind::Immediate8to64 => (insn.immediate8() as u64, 1),
+            OpKind::Immediate16 => (insn.immediate16() as u64, 2),
+            OpKind::Immediate32 | OpKind::Immediate32to64 => (insn.immediate32() as u64, 4),
+            OpKind::Immediate64 => (insn.immediate64(), 8),
+            _ => {
                 flush(&mut fragments, emitted, out);
                 continue;
             }
         };
-        let ops: Vec<ArchOperand> = detail.arch_detail().operands();
-        if ops.len() != 2 {
-            flush(&mut fragments, emitted, out);
-            continue;
-        }
 
-        // Destination is operand 0, source is operand 1 for AT&T-style capstone
-        // ordering used here (Intel syntax, dest first).
-        let (ArchOperand::X86Operand(dst), ArchOperand::X86Operand(src)) =
-            (ops[0].clone(), ops[1].clone())
-        else {
-            flush(&mut fragments, emitted, out);
-            continue;
-        };
-
-        let (X86OperandType::Mem(mem), X86OperandType::Imm(imm)) =
-            (dst.op_type, src.op_type)
-        else {
-            flush(&mut fragments, emitted, out);
-            continue;
-        };
-
-        // Require a simple [base + disp] destination on the stack.
-        let base = mem.base();
-        if base.0 == 0 || mem.index().0 != 0 {
-            flush(&mut fragments, emitted, out);
-            continue;
-        }
-
-        // Spread the immediate over the operand's byte width and append each
-        // printable byte at its displacement. Width is inferred from the
-        // immediate magnitude, capped at 8 bytes.
-        let width = imm_width(imm);
         let mut all_printable = true;
         let mut bytes = [0u8; 8];
         for (i, slot) in bytes.iter_mut().enumerate().take(width) {
-            *slot = ((imm as u64) >> (8 * i)) as u8;
-            if !crate::is_printable_ascii(*slot) {
+            *slot = ((imm >> (8 * i)) & 0xff) as u8;
+            if !is_printable_ascii(*slot) {
                 all_printable = false;
                 break;
             }
@@ -280,9 +273,9 @@ fn stack_strings_in_section(
             continue;
         }
 
-        let disp = mem.disp();
+        let disp = insn.memory_displacement64() as i64;
         for (i, &b) in bytes.iter().enumerate().take(width) {
-            fragments.push((base.0, disp + i as i64, b));
+            fragments.push((base, disp + i as i64, b));
         }
     }
 
@@ -291,14 +284,12 @@ fn stack_strings_in_section(
 
 /// Reconstruct one or more strings from collected `(base, disp, byte)` fragments.
 fn reconstruct_stack_string(
-    frags: &mut [(u16, i64, u8)],
+    frags: &mut [(Register, i64, u8)],
     min_len: usize,
     known: &HashSet<String>,
     emitted: &mut HashSet<String>,
     out: &mut Vec<ExtractedString>,
 ) {
-    // Group by base register, then walk displacements in order; a gap of more
-    // than one byte ends the current run.
     frags.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
     let mut i = 0;
@@ -310,7 +301,6 @@ fn reconstruct_stack_string(
             let (_, disp, byte) = frags[i];
             match prev_disp {
                 Some(p) if disp == p => {
-                    // Duplicate write to the same slot; keep the later one.
                     run.pop();
                     run.push(byte as char);
                 }
@@ -318,7 +308,6 @@ fn reconstruct_stack_string(
                     run.push(byte as char);
                 }
                 Some(_) => {
-                    // Discontinuity: emit the run so far and start fresh.
                     emit_stack_run(&run, min_len, known, emitted, out);
                     run.clear();
                     run.push(byte as char);
@@ -354,32 +343,7 @@ fn emit_stack_run(
     });
 }
 
-/// Infer the byte width of an immediate from its magnitude (1, 2, 4, or 8).
-fn imm_width(imm: i64) -> usize {
-    let u = imm as u64;
-    if u <= 0xff {
-        1
-    } else if u <= 0xffff {
-        2
-    } else if u <= 0xffff_ffff {
-        4
-    } else {
-        8
-    }
-}
-
-/// True if `reg` is the instruction pointer (rip/eip/ip) for RIP-relative refs.
-fn is_rip(cs: &Capstone, reg: capstone::RegId) -> bool {
-    matches!(
-        cs.reg_name(reg).as_deref(),
-        Some("rip") | Some("eip") | Some("ip")
-    )
-}
-
-/// Map a virtual address back to a file offset, if it lands inside a known
-/// executable or data range we captured. We search our executable sections; for
-/// data sections we approximate by also accepting any VA that resolves within
-/// the captured section bytes.
+/// Map a virtual address back to a file offset, if it lands inside a known section range.
 fn va_to_file_off(va: u64, sections: &[CodeSection], data_len: usize) -> Option<usize> {
     for s in sections {
         let start = s.va;
@@ -394,3 +358,149 @@ fn va_to_file_off(va: u64, sections: &[CodeSection], data_len: usize) -> Option<
     }
     None
 }
+
+#[allow(clippy::too_many_arguments)]
+fn arm64_code_ref(
+    inst: &yaxpeax_arm::armv8::a64::Instruction,
+    curr_va: u64,
+    data: &[u8],
+    sections: &[CodeSection],
+    min_len: usize,
+    known: &HashSet<String>,
+    emitted: &mut HashSet<String>,
+    out: &mut Vec<ExtractedString>,
+) {
+    use yaxpeax_arm::armv8::a64::{Opcode, Operand};
+    match inst.opcode {
+        Opcode::LDR | Opcode::ADR | Opcode::ADRP => {
+            for op in &[inst.operands[1], inst.operands[2]] {
+                if let Operand::PCOffset(offset) = op {
+                    let target_va = if inst.opcode == Opcode::ADRP {
+                        ((curr_va & !0xfff) as i64).wrapping_add(*offset) as u64
+                    } else {
+                        (curr_va as i64).wrapping_add(*offset) as u64
+                    };
+                    if let Some(off) = va_to_file_off(target_va, sections, data.len()) {
+                        if let Some((text, kind)) = decode_at(data, off, min_len) {
+                            if !known.contains(&text) && emitted.insert(text.clone()) {
+                                let _ = kind;
+                                out.push(ExtractedString {
+                                    text,
+                                    kind: StringKind::CodeRef,
+                                    offset: Some(off),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn arm32_code_ref(
+    inst: &yaxpeax_arm::armv7::Instruction,
+    curr_va: u64,
+    data: &[u8],
+    sections: &[CodeSection],
+    min_len: usize,
+    known: &HashSet<String>,
+    emitted: &mut HashSet<String>,
+    out: &mut Vec<ExtractedString>,
+) {
+    use yaxpeax_arm::armv7::{Opcode, Operand};
+    if inst.opcode == Opcode::LDR {
+        for op in &[inst.operands[1], inst.operands[2]] {
+            let offset_opt = match op {
+                Operand::RegDerefPreindexOffset(reg, imm, add, _) if reg.number() == 15 => {
+                    Some(if *add { *imm as i64 } else { -(*imm as i64) })
+                }
+                Operand::RegDerefPostindexOffset(reg, imm, add, _) if reg.number() == 15 => {
+                    Some(if *add { *imm as i64 } else { -(*imm as i64) })
+                }
+                _ => None,
+            };
+            if let Some(disp) = offset_opt {
+                let target_va = (curr_va + 8).wrapping_add(disp as u64);
+                if let Some(off) = va_to_file_off(target_va, sections, data.len()) {
+                    if let Some((text, kind)) = decode_at(data, off, min_len) {
+                        if !known.contains(&text) && emitted.insert(text.clone()) {
+                            let _ = kind;
+                            out.push(ExtractedString {
+                                text,
+                                kind: StringKind::CodeRef,
+                                offset: Some(off),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Detect characteristic or obfuscated opcode patterns (PEB lookup, direct syscalls, API hashing).
+fn detect_opcode_patterns(
+    insns: &[Instruction],
+    emitted: &mut HashSet<String>,
+    out: &mut Vec<ExtractedString>,
+) {
+    let mut i = 0;
+    while i < insns.len() {
+        let insn = &insns[i];
+
+        // 1. PEB lookup: fs:[0x30] in x86 or gs:[0x60] in x64
+        if insn.op_count() >= 2 && insn.op1_kind() == OpKind::Memory {
+            let seg = insn.segment_prefix();
+            let disp = insn.memory_displacement64();
+            if (seg == Register::FS && (disp == 0x30 || disp == 0x18))
+                || (seg == Register::GS && (disp == 0x60 || disp == 0x30))
+            {
+                let tag = "opc:peb_lookup".to_string();
+                if emitted.insert(tag.clone()) {
+                    out.push(ExtractedString {
+                        text: tag,
+                        kind: StringKind::OpcodePattern,
+                        offset: Some(insn.ip() as usize),
+                    });
+                }
+            }
+        }
+
+        // 2. Direct Syscall / Sysenter stub
+        if insn.mnemonic() == Mnemonic::Syscall || insn.mnemonic() == Mnemonic::Sysenter {
+            let tag = "opc:direct_syscall".to_string();
+            if emitted.insert(tag.clone()) {
+                out.push(ExtractedString {
+                    text: tag,
+                    kind: StringKind::OpcodePattern,
+                    offset: Some(insn.ip() as usize),
+                });
+            }
+        }
+
+        // 3. API Hashing ROR/ROL loop
+        if insn.mnemonic() == Mnemonic::Ror || insn.mnemonic() == Mnemonic::Rol {
+            let end_look = (i + 4).min(insns.len());
+            for next in &insns[i + 1..end_look] {
+                if next.mnemonic() == Mnemonic::Add || next.mnemonic() == Mnemonic::Xor {
+                    let tag = "opc:api_hash_ror".to_string();
+                    if emitted.insert(tag.clone()) {
+                        out.push(ExtractedString {
+                            text: tag,
+                            kind: StringKind::OpcodePattern,
+                            offset: Some(insn.ip() as usize),
+                        });
+                    }
+                    break;
+                }
+            }
+        }
+
+        i += 1;
+    }
+}
+
+

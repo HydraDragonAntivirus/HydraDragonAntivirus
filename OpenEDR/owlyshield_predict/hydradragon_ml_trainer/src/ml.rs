@@ -1,11 +1,11 @@
-#[path = "../../src/ml/features.rs"]
+#[path = "../../../openedr_static/src/ml/features.rs"]
 pub mod features;
 
-#[path = "../../src/ml/pe_features.rs"]
+#[path = "../../../openedr_static/src/ml/pe_features.rs"]
 pub mod pe_features;
 
-#[path = "../../src/ml/js_features.rs"]
+#[path = "../../../openedr_static/src/ml/js_features.rs"]
 pub mod js_features;
 
-#[path = "../../src/ml/model.rs"]
+#[path = "../../../openedr_static/src/ml/model.rs"]
 pub mod model;

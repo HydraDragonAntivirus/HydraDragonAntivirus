@@ -16,7 +16,9 @@ serde_yaml = "0.9"
 sha2 = "0.11"
 hex = "0.4"
 regex = "1.12"
-capstone = "0.14"
+iced-x86 = "1.21"
+yaxpeax-arm = "0.5"
+yaxpeax-arch = "0.3"
 oxc_parser = "0.152.0"
 oxc_ast = "0.152.0"
 oxc_allocator = "0.152.0"
@@ -30,6 +32,7 @@ hydradragonsig = { path = "../../hydradragonsig", default-features = false }
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
 hydradragonextractor = { path = "../owlyshield_predict/hydradragonextractor" }
 hydradragonunicorn = { path = "../../hydradragonunicorn" }
+hydradragondecompiler = { path = "../../hydradragondecompiler" }
 pefile-rs = { path = "../../pefile-rs" }
 hayabusa = { path = "../../hayabusa" }
 evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git", rev = "170c7a5f28fa4ef853e60e1b620dfacb19138c4f" }

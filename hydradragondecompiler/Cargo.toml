@@ -6,12 +6,10 @@ description = "Decompiler-lite string extractor that pulls extra strings out of 
 license = "GPL-2.0-or-later"
 
 [dependencies]
-# PE / object parsing (mirrors the goblin major used by hydradragonav, 0.10.5).
-goblin = "0.10"
-# x86 16/32/64 disassembly for code-referenced and stack-built strings.
-# Pinned to the same major.minor as hydradragonav so the bundled build that
-# already works there works here too.
-capstone = "0.14"
+pefile-rs = { path = "../pefile-rs" }
+iced-x86 = "1.21"
+yaxpeax-arm = "0.5"
+yaxpeax-arch = "0.3"
 # Error handling, matching the sibling crates.
 thiserror = "2"
 # CLI argument parsing.

@@ -7,13 +7,15 @@ description = "Standalone PE and JavaScript ML trainer for HydraDragonAV scannin
 [dependencies]
 burn = { version = "0.21", features = ["std", "ndarray", "autodiff"], default-features = false }
 burn-ndarray = "0.21"
-capstone = "0.14"
+iced-x86 = "1.21"
+yaxpeax-arm = "0.5"
+yaxpeax-arch = "0.3"
 clap = { version = "4", features = ["derive"] }
 goblin = "0.10.5"
-oxc_allocator = "0.135"
-oxc_ast = "0.135"
-oxc_parser = "0.135"
-oxc_span = "0.135"
+oxc_allocator = "0.152.0"
+oxc_ast = "0.152.0"
+oxc_parser = "0.152.0"
+oxc_span = "0.152.0"
 rand = "0.9"
 rayon = "1.11"
 regex = "1.12.2"

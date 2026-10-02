@@ -87,6 +87,7 @@ fn kind_label(kind: &StringKind) -> &'static str {
         StringKind::Wide => "WIDE",
         StringKind::CodeRef => "CODEREF",
         StringKind::StackString => "STACK",
+        StringKind::OpcodePattern => "OPCODE",
     }
 }
 

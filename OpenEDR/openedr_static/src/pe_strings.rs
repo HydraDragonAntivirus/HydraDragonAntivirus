@@ -1,16 +1,26 @@
-//! Raw string extraction from binary blobs (ASCII + UTF-16LE).
+//! Deep string extraction from binary blobs (ASCII + UTF-16LE + CodeRef + StackStrings)
+//! backed by pure-Rust [`hydradragondecompiler`].
 //!
 //! Feeds [`super::string_rules`] with searchable text preserving original case.
 
-/// Minimum run length that counts as a string.
-pub const MIN_LEN: usize = 5;
+use hydradragondecompiler::{extract_strings as decompile_strings, ExtractOptions};
 
-/// Extract ASCII and UTF-16LE strings of at least `MIN_LEN` chars.
+/// Minimum run length that counts as a string.
+pub const MIN_LEN: usize = 4;
+
+/// Extract ASCII, UTF-16LE, PE code-referenced strings, and stack strings.
 pub fn extract_strings(data: &[u8]) -> Vec<String> {
-    let mut out = Vec::new();
-    extract_ascii(data, &mut out);
-    extract_utf16le(data, &mut out);
-    out
+    let opts = ExtractOptions {
+        min_len: MIN_LEN,
+        ascii: true,
+        wide: true,
+        code_refs: true,
+        stack_strings: true,
+        opcode_patterns: true,
+        max_strings: 50_000,
+    };
+    let recovered = decompile_strings(data, &opts);
+    recovered.into_iter().map(|s| s.text).collect()
 }
 
 fn push_string(out: &mut Vec<String>, buf: &[u8]) {
@@ -22,11 +32,11 @@ fn push_string(out: &mut Vec<String>, buf: &[u8]) {
     }
 }
 
-fn is_print(b: u8) -> bool {
+pub fn is_print(b: u8) -> bool {
     matches!(b, 0x20..=0x7E | b'\t' | b'\r' | b'\n')
 }
 
-fn extract_ascii(data: &[u8], out: &mut Vec<String>) {
+pub fn extract_ascii(data: &[u8], out: &mut Vec<String>) {
     let mut start = None::<usize>;
     for (i, &b) in data.iter().enumerate() {
         if is_print(b) {
@@ -42,7 +52,7 @@ fn extract_ascii(data: &[u8], out: &mut Vec<String>) {
     }
 }
 
-fn extract_utf16le(data: &[u8], out: &mut Vec<String>) {
+pub fn extract_utf16le(data: &[u8], out: &mut Vec<String>) {
     // Printable-ASCII word followed by 0x00, repeated.
     let mut buf: Vec<u8> = Vec::new();
     let mut i = 0;

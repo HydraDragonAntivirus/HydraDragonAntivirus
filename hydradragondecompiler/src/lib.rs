@@ -16,7 +16,7 @@
 //!    that build a string byte-by-byte on the stack. These never appear as a
 //!    contiguous run in the file at all, so a plain scanner cannot see them.
 //!
-//! Everything beyond the ASCII/wide passes is best-effort: if goblin or capstone
+//! Everything beyond the ASCII/wide passes is best-effort: if pefile-rs or iced-x86
 //! fails for any reason we simply skip the code-ref/stack passes and still return
 //! the ASCII and wide results.
 
@@ -38,6 +38,8 @@ pub enum StringKind {
     CodeRef,
     /// String assembled on the stack via immediate-to-memory moves.
     StackString,
+    /// Characteristic or obfuscated opcode sequence (API hashing, PEB lookup, indirect syscall).
+    OpcodePattern,
 }
 
 /// A single recovered string.
@@ -65,6 +67,8 @@ pub struct ExtractOptions {
     pub code_refs: bool,
     /// Run the stack-string pass (PE only).
     pub stack_strings: bool,
+    /// Run the opcode pattern pass (PE only).
+    pub opcode_patterns: bool,
     /// Hard cap on the number of strings returned.
     pub max_strings: usize,
 }
@@ -77,6 +81,7 @@ impl Default for ExtractOptions {
             wide: true,
             code_refs: true,
             stack_strings: true,
+            opcode_patterns: true,
             max_strings: 100_000,
         }
     }
@@ -114,8 +119,8 @@ pub fn extract_strings(data: &[u8], opts: &ExtractOptions) -> Vec<ExtractedStrin
     }
 
     // Code-ref and stack-string passes need a PE. They are wrapped so any
-    // goblin/capstone failure just leaves the ASCII/wide results intact.
-    if opts.code_refs || opts.stack_strings {
+    // pefile-rs/iced-x86 failure just leaves the ASCII/wide results intact.
+    if opts.code_refs || opts.stack_strings || opts.opcode_patterns {
         // The text of plain ASCII/wide finds, so code-ref strings that merely
         // re-discover an already-listed run get deduped away.
         let known: std::collections::HashSet<String> =
@@ -152,6 +157,7 @@ enum StringKindTag {
     Wide,
     CodeRef,
     StackString,
+    OpcodePattern,
 }
 
 impl From<&StringKind> for StringKindTag {
@@ -161,6 +167,7 @@ impl From<&StringKind> for StringKindTag {
             StringKind::Wide => StringKindTag::Wide,
             StringKind::CodeRef => StringKindTag::CodeRef,
             StringKind::StackString => StringKindTag::StackString,
+            StringKind::OpcodePattern => StringKindTag::OpcodePattern,
         }
     }
 }

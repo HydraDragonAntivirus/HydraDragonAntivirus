@@ -1886,6 +1886,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hydradragondecompiler"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "iced-x86",
+ "pefile-rs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "yaxpeax-arch",
+ "yaxpeax-arm",
+]
+
+[[package]]
 name = "hydradragonextractor"
 version = "0.1.0"
 dependencies = [
@@ -1912,7 +1926,6 @@ dependencies = [
  "daachorse",
  "digest 0.11.3",
  "hex",
- "hydradragonunicorn",
  "image",
  "log",
  "md-5 0.11.0",
@@ -1971,6 +1984,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "iced-x86"
+version = "1.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c447cff8c7f384a7d4f741cfcff32f75f3ad02b406432e8d6c878d56b1edf6b"
+dependencies = [
+ "lazy_static",
 ]
 
 [[package]]
@@ -2997,7 +3019,6 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 name = "openedr_static"
 version = "0.1.0"
 dependencies = [
- "capstone",
  "compact_str",
  "daachorse",
  "evtx",
@@ -3006,9 +3027,11 @@ dependencies = [
  "hayabusa",
  "hex",
  "hydradragonclamav",
+ "hydradragondecompiler",
  "hydradragonextractor",
  "hydradragonsig",
  "hydradragonunicorn",
+ "iced-x86",
  "nested",
  "oxc_allocator",
  "oxc_ast",
@@ -3025,6 +3048,8 @@ dependencies = [
  "url",
  "windows",
  "yara-x",
+ "yaxpeax-arch",
+ "yaxpeax-arm",
 ]
 
 [[package]]
@@ -4963,9 +4988,9 @@ dependencies = [
 
 [[package]]
 name = "walrus"
-version = "0.26.5"
+version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25b63a2bc6e4acb4cf69080068a531bad4530791098230e972ffcb64fd1dc266"
+checksum = "e124668d1bce62ae1d2183c1e85da2b08aa53f36baa3b975427fa6f0ec2fb1e8"
 dependencies = [
  "anyhow",
  "gimli 0.32.3",
@@ -5649,9 +5674,9 @@ checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yara-x"
-version = "1.20.0"
+version = "1.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "015b06cc60800856d04c3115ef6b7c6cbb95f59f20a9df4358dd2f85f3d5b391"
+checksum = "01380fac6a879db2b11b5a3586075ec220988805c98a21497f6895fb35c9d373"
 dependencies = [
  "annotate-snippets",
  "anyhow",
@@ -5719,9 +5744,9 @@ dependencies = [
 
 [[package]]
 name = "yara-x-macros"
-version = "1.20.0"
+version = "1.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a120badca58e15c6cebaff85386c23b75c31f78c06ccb68d24bd7a27293563ed"
+checksum = "9263fd7b6df0643f7179e498ba4f316ad7aab8802e39b43a432ad7e7849757fc"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -5731,9 +5756,9 @@ dependencies = [
 
 [[package]]
 name = "yara-x-parser"
-version = "1.20.0"
+version = "1.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c20ace34cd6497968bfcb513c7bc2c3712b559e3fd1332f81ae49593da88cc5c"
+checksum = "c22368f8704927061c57ab970df41972a38c8717da10b3973677457272ed7b7f"
 dependencies = [
  "ascii_tree",
  "bitflags 2.13.2",
@@ -5749,9 +5774,9 @@ dependencies = [
 
 [[package]]
 name = "yara-x-proto"
-version = "1.20.0"
+version = "1.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2dc99d76871efa8710596d02d48eeabca62d27076b0443ab29f574724c61388"
+checksum = "8b54abf1452ca15477915e8d69feba875b00109f93fa3e3350ca6ece825a52ce"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -5759,6 +5784,29 @@ dependencies = [
  "protobuf",
  "protobuf-codegen",
  "yansi",
+]
+
+[[package]]
+name = "yaxpeax-arch"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36274fcc5403da2a7636ffda4d02eca12a1b2b8267b9d2e04447bd2ccfc72082"
+dependencies = [
+ "num-traits",
+ "serde",
+ "serde_derive",
+]
+
+[[package]]
+name = "yaxpeax-arm"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79f8d9808ad0b7e434882c66e50704138e7c0bdf3408a9f3159c50603dc3168c"
+dependencies = [
+ "bitvec",
+ "serde",
+ "serde_derive",
+ "yaxpeax-arch",
 ]
 
 [[package]]

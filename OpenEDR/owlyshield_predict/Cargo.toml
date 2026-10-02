@@ -56,7 +56,7 @@ brotli = "8.0"
 
 # ML / Burn / Disassembly / JavaScript parser
 goblin = "0.10.5"
-capstone = "0.12"
+iced-x86 = "1.21"
 oxc_parser = "0.135"
 oxc_ast = "0.135"
 oxc_allocator = "0.135"

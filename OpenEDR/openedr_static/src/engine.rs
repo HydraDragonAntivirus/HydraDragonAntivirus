@@ -1446,8 +1446,28 @@ fn entry_is_compressed_document(name: &str) -> bool {
             }
         }
 
-        // 6. Unicorn PE CPU Emulation & Unpacker (Heuristic analysis)
-        if data.starts_with(b"MZ") && data.len() >= 0x1000 {
+        // 6. Unicorn PE CPU Emulation & Unpacker (Tier 3: Conditional Generic Dynamic Unpacking)
+        let is_pe_candidate = data.starts_with(b"MZ") && data.len() >= 0x1000;
+        let should_unpack = is_pe_candidate && (max_score < 0.95) && {
+            if let Ok(pe) = pefile_rs::PE::parse(data) {
+                let has_packer_section = pe.sections.iter().any(|s| {
+                    let name = s.name.to_lowercase();
+                    name.contains("upx")
+                        || name.contains("aspack")
+                        || name.contains("vmp")
+                        || name.contains("themida")
+                        || name.contains("nsp")
+                        || name.contains("pack")
+                        || s.get_entropy(data) >= 7.2
+                });
+                let is_high_entropy = pefile_rs::utils::calculate_entropy(data) >= 7.1;
+                has_packer_section || is_high_entropy
+            } else {
+                false
+            }
+        };
+
+        if should_unpack {
             if let Ok(sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(data) {
                 let mut unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sample, "memory");
                 if unpacker.init_uc().is_ok() {

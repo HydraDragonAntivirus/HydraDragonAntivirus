@@ -1,5 +1,4 @@
-use capstone::arch::BuildsCapstone;
-use capstone::arch::x86::ArchMode as X86Mode;
+use iced_x86::{Decoder, DecoderOptions, Mnemonic};
 
 use super::features::PeFeatureVector;
 
@@ -261,17 +260,71 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
     let sec_entropy_min = *entropies.first().unwrap_or(&0.0);
     let sec_entropy_max = *entropies.last().unwrap_or(&0.0);
 
-    let mode = if pe.machine == 0x8664 {
-        X86Mode::Mode64
-    } else {
-        X86Mode::Mode32
-    };
+    let is_arm32 = matches!(pe.machine, 0x01c0 | 0x01c2 | 0x01c4);
+    let is_arm64 = pe.machine == 0xaa64;
+    let bitness = if pe.machine == 0x8664 { 64 } else { 32 };
 
     let mut total_instructions = 0u64;
     let mut total_add = 0u64;
     let mut total_mov = 0u64;
 
-    if let Ok(cs) = capstone::Capstone::new().x86().mode(mode).build() {
+    if is_arm64 {
+        use yaxpeax_arch::{Decoder, U8Reader};
+        let decoder = yaxpeax_arm::armv8::a64::InstDecoder::default();
+        for section in sections {
+            let start = section.pointer_to_raw_data as usize;
+            let size = section.size_of_raw_data as usize;
+            let code = if start < bytes.len() {
+                &bytes[start..(start + size).min(bytes.len().min(start + 65536))]
+            } else {
+                continue;
+            };
+            let mut offset = 0;
+            while offset + 4 <= code.len() {
+                let mut reader = U8Reader::new(&code[offset..]);
+                if let Ok(inst) = decoder.decode(&mut reader) {
+                    total_instructions += 1;
+                    match inst.opcode {
+                        yaxpeax_arm::armv8::a64::Opcode::ADD => total_add += 1,
+                        yaxpeax_arm::armv8::a64::Opcode::MOVZ
+                        | yaxpeax_arm::armv8::a64::Opcode::MOVN
+                        | yaxpeax_arm::armv8::a64::Opcode::MOVK => total_mov += 1,
+                        _ => {}
+                    }
+                    offset += 4;
+                } else {
+                    offset += 4;
+                }
+            }
+        }
+    } else if is_arm32 {
+        use yaxpeax_arch::{Decoder, U8Reader};
+        let decoder = yaxpeax_arm::armv7::InstDecoder::default();
+        for section in sections {
+            let start = section.pointer_to_raw_data as usize;
+            let size = section.size_of_raw_data as usize;
+            let code = if start < bytes.len() {
+                &bytes[start..(start + size).min(bytes.len().min(start + 65536))]
+            } else {
+                continue;
+            };
+            let mut offset = 0;
+            while offset + 2 <= code.len() {
+                let mut reader = U8Reader::new(&code[offset..]);
+                if let Ok(inst) = decoder.decode(&mut reader) {
+                    total_instructions += 1;
+                    match inst.opcode {
+                        yaxpeax_arm::armv7::Opcode::ADD => total_add += 1,
+                        yaxpeax_arm::armv7::Opcode::MOV => total_mov += 1,
+                        _ => {}
+                    }
+                    offset += 4;
+                } else {
+                    offset += 2;
+                }
+            }
+        }
+    } else {
         for section in sections {
             let start = section.pointer_to_raw_data as usize;
             let size = section.size_of_raw_data as usize;
@@ -284,14 +337,13 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
                 continue;
             }
             let base_addr = pe.image_base.wrapping_add(section.virtual_address as u64);
-            if let Ok(insns) = cs.disasm_all(code, base_addr) {
-                for insn in insns.iter() {
-                    total_instructions += 1;
-                    match insn.mnemonic() {
-                        Some(m) if m == "add" => total_add += 1,
-                        Some(m) if m == "mov" => total_mov += 1,
-                        _ => {}
-                    }
+            let mut decoder = Decoder::with_ip(bitness, code, base_addr, DecoderOptions::NONE);
+            for insn in &mut decoder {
+                total_instructions += 1;
+                match insn.mnemonic() {
+                    Mnemonic::Add => total_add += 1,
+                    Mnemonic::Mov => total_mov += 1,
+                    _ => {}
                 }
             }
         }
