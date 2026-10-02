@@ -88,7 +88,7 @@ def load_exclude_set(filepath):
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             name = line.strip()
-            if not name:
+            if not name or name.startswith("#") or name.startswith("//"):
                 continue
             if name.lower().startswith("rule "):
                 name = name[5:].strip()

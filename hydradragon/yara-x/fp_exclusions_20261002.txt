@@ -1,0 +1,25 @@
+# ==============================================================================
+# HydraDragon Antivirus / YARA-X False Positive Exclusion List
+# Generated: 2026-10-02
+# ==============================================================================
+
+# Target: atiesrxx.exe (628.5 KB) & atieclxx.exe (952.5 KB) - AMD Radeon Settings / External Events Service
+# Reason: The DFIR Report rule hunting tdrE934.exe matched AMD display driver utility binaries
+#         due to loose condition (8 of them) matching common compiler runtime strings and cert URLs.
+sig_4641_tdrE934
+
+# Target: Everything.exe (2.1 MB) - Voidtools Everything Desktop Search Engine
+# Reason: Paranoid Ninja Cobalt Strike hunter rule contains generic bytecode/opcode sequences
+#         ($core = { 49 B9 01 01 01 01 01 01 01 01 49 0F AF D1 49 83 F8 40 })
+#         that match standard 64-bit fast bitmask/multiply operations in search indexers.
+HKTL_CobaltStrike_CS_Core_Oct23
+
+# Target: vmnat.exe (625.4 KB) - VMware Network Address Translation Service
+# Reason: Audio codec lookup table byte sequence ($a0 = 256-byte exponent table from FFmpeg/libavcodec)
+#         which is compiled into VMware's embedded media/NAT binaries.
+libavcodec_wp_exp2_table__8_byt_256_
+
+# Target: git.exe (4.1 MB) - Git for Windows binary
+# Reason: Non-malicious utility rule that simply flags Apple Property List (.plist) files or DTD URLs
+#         ($dtd = "http://www.apple.com/DTDs/PropertyList-1.0.dtd") embedded inside git binaries.
+file_plist (private rule)

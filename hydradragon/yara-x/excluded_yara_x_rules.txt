@@ -163,3 +163,12 @@ plugx_loader_apphelp
 RTF_Shellcode
 cn_utf8_windows_terminal
 ttp_pe_size_of_code_gt_filesize
+# --- FP Exclusions Added 2026-10-02 ---
+# FP on AMD Radeon Settings / External Events Service (atiesrxx.exe / atieclxx.exe)
+sig_4641_tdrE934
+# FP on Everything desktop search indexer (Everything.exe - matches 64-bit bitmask logic)
+HKTL_CobaltStrike_CS_Core_Oct23
+# FP on VMware NAT Service (vmnat.exe - matches FFmpeg libavcodec audio exp table)
+libavcodec_wp_exp2_table__8_byt_256_
+# FP on Git for Windows (git.exe - utility rule detecting Apple plist DTD URL string)
+file_plist
