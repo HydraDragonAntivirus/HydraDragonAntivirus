@@ -2633,3 +2633,201 @@ rule nSpackV2x: LiuXingPing {
 }
 
 
+// ===== removed from C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\yara-x\rules\clean_rules.yar (20261002_161802) =====
+rule VxCompiler {
+  strings:
+    $a0 = { 8C C3 83 C3 10 2E 01 1E ?? 02 2E 03 1E ?? 02 53 1E }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+rule _Vx_Compiler_ {
+  meta:
+    description = "Vx: Compiler"
+
+  strings:
+    $0 = { 8C C3 83 C3 10 2E 01 1E ?? 02 2E 03 1E ?? 02 53 1E }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _VideoLanClient__UnknownCompiler_ {
+  meta:
+    description = "Video-Lan-Client -> (UnknownCompiler)"
+
+  strings:
+    $0 = { 55 89 E5 83 EC 08 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? FF FF ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _Microsoft_Basic_Compiler_v560_198297_ {
+  meta:
+    description = "Microsoft Basic Compiler v5.60 1982-97"
+
+  strings:
+    $0 = { 9A ?? ?? ?? ?? 9A ?? ?? ?? ?? 9A ?? ?? ?? ?? 33 DB BA ?? ?? 9A ?? ?? ?? ?? C7 06 ?? ?? ?? ?? 33 DB }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _File_Analyzer_Compiled_Datafile_Version_ {
+  meta:
+    description = "File Analyzer Compiled Datafile Version"
+
+  strings:
+    $0 = "File Analyzer Compiled Datafile Version"
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _Exact_Audio_Copy__UnknownCompiler_ {
+  meta:
+    description = "Exact Audio Copy -> (UnknownCompiler)"
+
+  strings:
+    $0 = { E8 ?? ?? ?? 00 31 ED 55 89 E5 81 EC ?? 00 00 00 8D BD ?? FF FF FF B9 ?? 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _Borland_precompiled_header_file_ {
+  meta:
+    description = "Borland precompiled header file"
+
+  strings:
+    $0 = "TPS"
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _MASMTASM_Lenguaje_Compilador_ {
+  meta:
+    description = "MASM/TASM (Lenguaje Compilador)"
+
+  strings:
+    $0 = { 6A 00 E8 ?? ?? 00 00 A3 ?? ?? 40 00 ?? ?? ?? ?? ?? ?? ?? 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _MultiEdits_compiled_macros_ {
+  meta:
+    description = "MultiEdit`s compiled macros"
+
+  strings:
+    $0 = { 1E AA }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _Batch_Compiler_10_ {
+  meta:
+    description = "Batch Compiler 1.0"
+
+  strings:
+    $0 = { FC BD 58 01 8B 6E 00 8B 66 02 8B 5E 04 B4 4A CD 21 A1 2C 00 89 46 1A 8B 5E 00 FF E3 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _Unknown_Protected_Mode_compiler_1_ {
+  meta:
+    description = "Unknown Protected Mode compiler (1)"
+
+  strings:
+    $0 = { FA BC ?? ?? 8C C8 8E D8 E8 ?? ?? E8 ?? ?? E8 ?? ?? 66 B8 ?? ?? ?? ?? 66 C1 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _MS_RunTime_Library_OS2__FORTRAN_Compiler_1989_ {
+  meta:
+    description = "MS Run-Time Library (OS/2) & FORTRAN Compiler 1989"
+
+  strings:
+    $0 = { B4 30 CD 21 86 E0 2E A3 ?? ?? 3D ?? ?? 73 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _Unknown_Protected_Mode_compiler_2_ {
+  meta:
+    description = "Unknown Protected Mode compiler (2)"
+
+  strings:
+    $0 = { FA FC 0E 1F E8 ?? ?? 8C C0 66 0F B7 C0 66 C1 E0 ?? 66 67 A3 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _Compiled_InstallSHIELD_Installation_Script_ {
+  meta:
+    description = "Compiled InstallSHIELD Installation Script"
+
+  strings:
+    $0 = { B8 C9 0C 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule _CRK_Compiler_120_ {
+  meta:
+    description = "CRK Compiler 1.20"
+
+  strings:
+    $0 = { 2F 4D 47 2F EB 04 00 00 00 00 C8 08 00 00 E8 00 00 0E 07 C6 46 FE 00 E8 00 00 E8 00 00 8B 0E 00 00 E3 02 EB 03 E9 D4 00 2B C0 89 46 F8 B8 00 00 89 46 FC C7 46 FA 00 00 51 BA 00 00 F6 06 00 07 01 74 03 BA 00 00 E8 B5 00 8B 56 FC BB 0F 00 E8 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule Compilation_in_LNK {
+  meta:
+    description = "Identifies compilation artefacts in shortcut (LNK) files."
+    author      = "@bartblaze"
+    date        = "2020-01"
+    tlp         = "White"
+
+  strings:
+    $ = "vbc.exe" ascii wide nocase
+    $ = "csc.exe" ascii wide nocase
+
+  condition:
+    isLNK and any of them
+}
+
+rule compiler_midl {
+  meta:
+    author = "@tylabs"
+
+  strings:
+    $s1 = "Created by MIDL version " wide
+
+  condition:
+    any of them
+}
+
+rule Video_Lan_Client_____UnknownCompiler_ {
+  strings:
+    $a0 = { 55 89 E5 83 EC 08 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? FF FF ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? 00 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
