@@ -37,6 +37,7 @@ pub enum FileKind {
     Jpeg,
     Gif,
     Riff,
+    Lnk,
     AsciiText,
     Unknown,
     Empty,
@@ -62,6 +63,7 @@ impl FileKind {
             FileKind::Jpeg => "CL_TYPE_JPEG",
             FileKind::Gif => "CL_TYPE_GIF",
             FileKind::Riff => "CL_TYPE_RIFF",
+            FileKind::Lnk => "CL_TYPE_LNK",
             FileKind::AsciiText => "CL_TYPE_TEXT_ASCII",
             FileKind::Unknown => "UNKNOWN",
             FileKind::Empty => "EMPTY",
@@ -150,6 +152,22 @@ fn macho_valid(data: &[u8]) -> bool {
         magic,
         0xfeed_face | 0xcefa_edfe | 0xfeed_facf | 0xcffa_edfe | 0xcafe_babe | 0xbeba_feca
     ) || matches!(le, 0xfeed_face | 0xcefa_edfe | 0xfeed_facf | 0xcffa_edfe)
+}
+
+/// Windows shortcut: a Shell Link header (`HeaderSize` == 0x4C) immediately
+/// followed by the fixed `ShellLink` CLSID 00021401-0000-0000-C000-000000000046.
+///
+/// Without this a `.lnk` lands in `Unknown` — it is NUL-dense binary, so
+/// `is_plain_text` rejects it — and `scan_bytes_internal` returns "Unknown"
+/// before any layer runs. That hid shortcuts from ClamAV, YARA and the
+/// embedded-URL layer alike, even though a shortcut whose target is a remote
+/// share or a script is exactly the dropper vector this engine should see.
+fn is_lnk(data: &[u8]) -> bool {
+    const LINK_CLSID: [u8; 16] = [
+        0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x46,
+    ];
+    data.len() >= 20 && data[0] == 0x4C && &data[4..20] == &LINK_CLSID[..]
 }
 
 fn has(data: &[u8], pat: &[u8]) -> bool {
@@ -279,6 +297,8 @@ pub fn detect(data: &[u8]) -> FileTypeReport {
         FileKind::Elf
     } else if macho {
         FileKind::MachO
+    } else if is_lnk(data) {
+        FileKind::Lnk
     } else if apk {
         FileKind::Apk
     } else if is_zip {
@@ -409,6 +429,30 @@ mod tests {
         v[18..20].copy_from_slice(&62u16.to_le_bytes());
         v[20..24].copy_from_slice(&1u32.to_le_bytes());
         v
+    }
+
+    #[test]
+    fn lnk_is_classified_not_unknown() {
+        // Shell Link header (0x4C) + the fixed ShellLink CLSID. A shortcut whose
+        // target is a remote share must reach the scanner.
+        let mut lnk = vec![0x00u8; 0x60];
+        lnk[0] = 0x4C;
+        lnk[4..20].copy_from_slice(&[
+            0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x46,
+        ]);
+        let r = detect(&lnk);
+        assert_eq!(r.file_type, "CL_TYPE_LNK");
+        assert!(!r.is_unknown, "a .lnk must not be gated out as unclassifiable");
+    }
+
+    #[test]
+    fn a_lnk_looking_prefix_alone_is_not_enough() {
+        // HeaderSize 0x4C but the wrong CLSID — must stay unclassifiable rather
+        // than dragging every NUL-dense blob into the full pipeline.
+        let mut junk = vec![0x00u8; 0x60];
+        junk[0] = 0x4C;
+        assert!(detect(&junk).is_unknown);
     }
 
     #[test]

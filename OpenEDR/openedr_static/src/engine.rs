@@ -286,6 +286,18 @@ impl StaticEngine {
             &format!("init_total_parallel={}ms", t_scope.elapsed().as_millis()),
         );
 
+        // The embedded-URL layer is gated on `url_loaded()`. Without
+        // `models/url_trees.bin` it becomes a silent no-op on every file, which
+        // reads as "we scanned and found nothing" rather than "this capability
+        // is off", so say so once at init instead.
+        if !ml.url_loaded() {
+            diagnostics::log(
+                "capability-disabled",
+                "Embedded_URL_ML: models/url_trees.bin missing or unparseable; \
+                 embedded C2/phishing URL detection is OFF for every scan",
+            );
+        }
+
         diagnostics::log(
             "engine-status",
             &format!(
@@ -377,7 +389,77 @@ impl StaticEngine {
         self.signers.set_benign_whitelist(data)
     }
 
-    /// True when the URL/domain/IP whitelist `.xf` was loaded at init.
+    /// Harvest every `http(s)` URL in `data` and score it with the URL forest.
+///
+/// `origin` prefixes the layer name so a finding lifted out of an archive entry
+/// is not reported as if it came from the parent file; `context` names the
+/// container in the details. `inflate` additionally decompresses Flate streams
+/// first, which is required for formats that do not store their payload as
+/// contiguous bytes — PDF text and Office macro bodies.
+///
+/// Whitelist-then-ML, nothing else: see the layer 4c comment in
+/// `scan_bytes_internal` for why no rule matching happens here.
+fn embedded_url_detections(
+    &self,
+    data: &[u8],
+    origin: &str,
+    context: &str,
+    inflate: bool,
+) -> Vec<DetectionItem> {
+    if !self.ml.url_loaded() {
+        return Vec::new();
+    }
+
+    let mut candidates = embedded_url::extract_urls(data);
+    if inflate {
+        candidates.extend(embedded_url::extract_urls_from_streams(data));
+    }
+
+    let mut out: Vec<DetectionItem> = Vec::new();
+    let mut scored = 0usize;
+    for candidate in candidates {
+        let (whitelisted, blacklisted) = self.check_whitelist_blacklist(&candidate.host);
+        if whitelisted {
+            continue;
+        }
+        let ml_prob = self.ml.predict_url(&candidate.url).unwrap_or(0.0);
+        let (prob, reason) = if blacklisted {
+            (1.0f32, " (CIDR blacklist)".to_string())
+        } else if ml_prob >= EMBEDDED_URL_ML_THRESHOLD {
+            (ml_prob, String::new())
+        } else {
+            continue;
+        };
+        out.push(DetectionItem {
+            layer: format!("{origin}Embedded_URL_ML"),
+            name: "Dropper.EmbeddedC2Url".to_string(),
+            score: Some(prob),
+            details: Some(format!(
+                "URL embedded in {context} scored {:.2}% malicious{reason} (host {}): {}",
+                prob * 100.0,
+                candidate.host,
+                candidate.url.chars().take(200).collect::<String>()
+            )),
+        });
+        scored += 1;
+        if scored >= MAX_EMBEDDED_URL_DETECTIONS {
+            break;
+        }
+    }
+    out
+}
+
+/// Archive members that hide their payload behind a second layer of
+/// compression. `word/vbaProject.bin` is an OLE compound file whose streams are
+/// themselves deflated, so the raw pass over the extracted member finds nothing;
+/// XML parts such as `word/_rels/document.xml.rels` are already plain text once
+/// extracted and need no extra pass.
+fn entry_is_compressed_document(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".bin") || lower.ends_with(".pdf")
+}
+
+/// True when the URL/domain/IP whitelist `.xf` was loaded at init.
     pub fn url_whitelist_loaded(&self) -> bool {
         self.url_whitelist.is_some()
     }
@@ -791,8 +873,12 @@ impl StaticEngine {
 
         // File-type gate FIRST: unclassifiable content is not scanned at
         // all — verdict Unknown, straight out. No signer/YARA/ClamAV/ML/unicorn
-        // work is spent on it.
-        if filetype::detect(data).is_unknown {
+        // work is spent on it. The report is kept because the embedded-URL
+        // layer below needs to know whether the format compresses its payload;
+        // `detect` is not cheap on a large file (it can parse a PE header), so
+        // it is called once per scan rather than twice.
+        let file_type = filetype::detect(data);
+        if file_type.is_unknown {
             return StaticScanReport {
                 target: target_name.to_string(),
                 file_size,
@@ -1089,37 +1175,11 @@ impl StaticEngine {
         // storage.googleapis.com and the rest — are kept out of the whitelist
         // precisely so they reach step 2. Being listed is not a detection: a
         // GitHub link is scored like any other URL.
-        if !is_apk_file && self.ml.url_loaded() {
-            let mut embedded_hits = 0usize;
-            for candidate in embedded_url::extract_urls(data) {
-                let (whitelisted, blacklisted) = self.check_whitelist_blacklist(&candidate.host);
-                if whitelisted {
-                    continue;
-                }
-                let ml_prob = self.ml.predict_url(&candidate.url).unwrap_or(0.0);
-                let (prob, reason) = if blacklisted {
-                    (1.0f32, " (CIDR blacklist)".to_string())
-                } else if ml_prob >= EMBEDDED_URL_ML_THRESHOLD {
-                    (ml_prob, String::new())
-                } else {
-                    continue;
-                };
-                detections.push(DetectionItem {
-                    layer: "Embedded_URL_ML".to_string(),
-                    name: "Dropper.EmbeddedC2Url".to_string(),
-                    score: Some(prob),
-                    details: Some(format!(
-                        "URL embedded in the file scored {:.2}% malicious{reason} (host {}): {}",
-                        prob * 100.0,
-                        candidate.host,
-                        candidate.url.chars().take(200).collect::<String>()
-                    )),
-                });
-                max_score = max_score.max(prob);
-                embedded_hits += 1;
-                if embedded_hits >= MAX_EMBEDDED_URL_DETECTIONS {
-                    break;
-                }
+        if !is_apk_file {
+            let is_pdf = file_type.file_type == filetype::FileKind::Pdf.as_str();
+            for d in self.embedded_url_detections(data, "", "the file", is_pdf) {
+                max_score = max_score.max(d.score.unwrap_or(0.0));
+                detections.push(d);
             }
         }
 
@@ -1487,6 +1547,19 @@ impl StaticEngine {
                                 });
                                 max_score = max_score.max(0.90);
                             }
+                        }
+                        // Embedded URLs inside the entry. This is the only path
+                        // that sees an Office macro body: `word/vbaProject.bin`
+                        // and friends are deflated ZIP members, so their URLs
+                        // are invisible to the parent-file pass.
+                        for d in self.embedded_url_detections(
+                            &entry.data,
+                            "Archive_",
+                            &format!("archive entry '{}'", entry.name),
+                            entry_is_compressed_document(&entry.name),
+                        ) {
+                            max_score = max_score.max(d.score.unwrap_or(0.0));
+                            detections.push(d);
                         }
                     }
                 }

@@ -39,6 +39,16 @@ pub const MAX_URL_LEN: usize = 2048;
 /// "URL" is noise.
 pub const MIN_URL_LEN: usize = 12;
 
+/// Flate streams inflated per buffer.
+const MAX_STREAMS: usize = 64;
+
+/// Inflated bytes taken from a single stream.
+const MAX_STREAM_INFLATED: usize = 4 * 1024 * 1024;
+
+/// Inflated bytes taken from one buffer in total. A decompression bomb in a
+/// malformed file therefore costs a fixed amount of work, not unbounded memory.
+const MAX_INFLATED_TOTAL: usize = 32 * 1024 * 1024;
+
 /// A URL harvested from a file, with its host pre-computed for the whitelist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddedUrl {
@@ -209,6 +219,10 @@ impl Collector {
         }
         self.urls.len() < MAX_URLS
     }
+
+    fn full(&self) -> bool {
+        self.urls.len() >= MAX_URLS
+    }
 }
 
 /// Harvest every usable `http(s)` URL from `data`, capped at [`MAX_URLS`].
@@ -220,6 +234,93 @@ pub fn extract_urls(data: &[u8]) -> Vec<EmbeddedUrl> {
     let mut c = Collector::default();
     if scan_ascii(buf, &mut c) {
         scan_utf16le(buf, &mut c);
+    }
+    c.urls
+}
+
+/// Byte offset of `needle` in `hay` at or after `from`.
+fn find_kw(hay: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || from >= hay.len() {
+        return None;
+    }
+    hay[from..]
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|p| p + from)
+}
+
+/// Inflate one `stream` payload, capped at `cap` bytes. PDF writes zlib
+/// (RFC 1950) streams but some producers emit raw deflate, so both are tried.
+/// Reads are capped through `take`, so a bomb cannot allocate its way out
+/// before the cap is checked.
+fn inflate_stream(compressed: &[u8], cap: usize) -> Option<Vec<u8>> {
+    use std::io::Read;
+
+    let decoders: [Box<dyn Read>; 2] = [
+        Box::new(flate2::read::ZlibDecoder::new(compressed)),
+        Box::new(flate2::read::DeflateDecoder::new(compressed)),
+    ];
+    for out in decoders {
+        let mut buf = Vec::new();
+        let mut limited = out.take(cap as u64);
+        if limited.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+            return Some(buf);
+        }
+    }
+    None
+}
+
+/// Harvest URLs from the Flate-compressed streams inside `data`.
+///
+/// PDF text and Office macro bodies are stored deflated, so a raw byte scan
+/// never sees their links at all — for a phishing PDF this pass is the only one
+/// that finds anything. Walks `>>stream` … `endstream` regions, inflates each,
+/// and runs the same extraction over the result.
+///
+/// The `>>` requirement is what makes this safe to run on arbitrary bytes: only
+/// a dictionary-closing token can precede a real stream, so the word "stream"
+/// appearing in document text (or inside `endstream`) is never mistaken for
+/// one.
+///
+/// Bounded on all three axes — stream count, per-stream inflated size, total
+/// inflated size. Streams that fail to inflate are skipped silently; the `>>`
+/// token means plenty of false starts are expected and harmless.
+pub fn extract_urls_from_streams(data: &[u8]) -> Vec<EmbeddedUrl> {
+    let buf = &data[..data.len().min(SCAN_CAP)];
+    let mut c = Collector::default();
+    let mut budget = MAX_INFLATED_TOTAL;
+    let mut streams = 0usize;
+    let mut i = 0usize;
+
+    while !c.full() && streams < MAX_STREAMS && budget > 0 {
+        let Some(kw) = find_kw(buf, i, b"stream") else {
+            break;
+        };
+        i = kw + b"stream".len();
+        if kw < 2 || &buf[kw - 2..kw] != b">>" {
+            continue;
+        }
+        // Skip the EOL after the keyword; PDF mandates one.
+        let mut body = i;
+        if body < buf.len() && buf[body] == b'\r' {
+            body += 1;
+        }
+        if body < buf.len() && buf[body] == b'\n' {
+            body += 1;
+        }
+        let Some(end) = find_kw(buf, body, b"endstream") else {
+            break;
+        };
+        i = end + b"endstream".len();
+
+        let per_stream = MAX_STREAM_INFLATED.min(budget);
+        let Some(inflated) = inflate_stream(&buf[body..end], per_stream) else {
+            continue;
+        };
+        budget = budget.saturating_sub(inflated.len());
+        streams += 1;
+        scan_ascii(&inflated, &mut c);
+        scan_utf16le(&inflated, &mut c);
     }
     c.urls
 }
@@ -406,6 +507,47 @@ mod tests {
         let at = SCAN_CAP + 16;
         data[at..at + 20].copy_from_slice(b"https://late.tld/a");
         assert!(extract_urls(&data).is_empty());
+    }
+
+    #[test]
+    fn finds_urls_hidden_inside_a_flate_stream() {
+        use std::io::Write;
+
+        // `<< /Filter /FlateDecode >>\nstream\n<deflate>\nendstream`
+        let payload = b"BT /F1 12 Tf (open https://a8f7d9a.xyz/gate.pdf) Tj ET";
+        let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        enc.write_all(payload).unwrap();
+        let compressed = enc.finish().unwrap();
+
+        let mut pdf = b"%PDF-1.7\n<< /Length 999 /Filter /FlateDecode >>\nstream\n".to_vec();
+        pdf.extend_from_slice(&compressed);
+        pdf.extend_from_slice(b"\nendstream\n%%EOF");
+
+        assert!(extract_urls(&pdf).is_empty(), "the compressed pass must see nothing");
+        let hosts: Vec<String> = extract_urls_from_streams(&pdf)
+            .into_iter()
+            .map(|u| u.host)
+            .collect();
+        assert_eq!(hosts, vec!["a8f7d9a.xyz"]);
+    }
+
+    #[test]
+    fn stream_keyword_without_a_dict_close_is_not_a_stream() {
+        // The word "stream" in document text must not trigger inflation.
+        let data = b"%PDF-1.7\nsee the stream below\nendstream\n";
+        assert!(extract_urls_from_streams(data).is_empty());
+    }
+
+    #[test]
+    fn stream_pass_respects_the_total_budget() {
+        // Many streams, each tiny: the count cap must stop the walk well before
+        // the end of a large buffer.
+        let mut data = Vec::new();
+        for _ in 0..(MAX_STREAMS + 20) {
+            data.extend_from_slice(b"<< >>\nstream\nnot-deflate\nendstream\n");
+        }
+        // Nothing inflates, so the only observable effect is that it terminates.
+        assert!(extract_urls_from_streams(&data).is_empty());
     }
 
     #[test]

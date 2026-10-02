@@ -263,6 +263,14 @@ impl UrlThreatEngine {
         let file: UrlRuleFile = serde_yaml::from_str(yaml_str)
             .map_err(|e| format!("YAML parse error: {e}"))?;
 
+        // Replace, not merge. The two host/id lists are additive on the Rust
+        // side (they're sets), so without this a runtime reload through
+        // `openedr_static_load_url_rules` could only ever add hosts — it could
+        // never retire one that the previous document declared. Clear first so
+        // the document is the single source of truth.
+        self.unwhitelist_subdomains.clear();
+        self.deterministic_rules.clear();
+
         for sub in file.unwhitelist_subdomains {
             let clean = sub.trim().to_lowercase();
             if !clean.is_empty() {
