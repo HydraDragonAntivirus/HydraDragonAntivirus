@@ -17,7 +17,7 @@ sha2 = "0.11"
 hex = "0.4"
 regex = "1.12"
 url = "2.5"
-yara-x = "1.20"
+yara-x = "1.21"
 # Pure-Rust DEFLATE (miniz_oxide backend) for APK ZIP entry inflation.
 # wasm32-unknown-unknown compatible: no OS, no threads, no network.
 flate2 = "1"

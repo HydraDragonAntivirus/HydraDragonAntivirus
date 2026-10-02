@@ -154,7 +154,11 @@ fn parse_pe_headers(
     let coff_offset = sig_offset + 4;
 
     let machine = read_u16(data, coff_offset);
-    if machine != 0x14c && machine != 0x8664 {
+    let is_supported_machine = matches!(
+        machine,
+        0x14c | 0x8664 | 0x1c0 | 0x1c2 | 0x1c4 | 0xaa64 | 0xa641 | 0xa64e
+    );
+    if !is_supported_machine {
         return None;
     }
 
@@ -486,10 +490,22 @@ pub fn fix_imports_by_rebuilding(
         }
 
         // IAT (null-terminated)
-        for entry in &iat_entries {
-            let _ = dll.iat_data.write_u32::<LittleEndian>(*entry);
+        if is_pe64 {
+            for entry in &iat_entries {
+                let val64 = if (*entry & IMAGE_SNAP_BY_ORDINAL) != 0 {
+                    0x8000000000000000u64 | (*entry & 0xFFFF) as u64
+                } else {
+                    *entry as u64
+                };
+                let _ = dll.iat_data.write_u64::<LittleEndian>(val64);
+            }
+            let _ = dll.iat_data.write_u64::<LittleEndian>(0u64);
+        } else {
+            for entry in &iat_entries {
+                let _ = dll.iat_data.write_u32::<LittleEndian>(*entry);
+            }
+            let _ = dll.iat_data.write_u32::<LittleEndian>(0u32);
         }
-        let _ = dll.iat_data.write_u32::<LittleEndian>(0u32);
 
         dll_entries.push((dll_name.clone(), dll));
     }
@@ -884,12 +900,25 @@ pub fn dump_image(
     }
 
     // 1. Fix OEP: read current instruction pointer and write to address_of_entry_point
-    let ip = if is_pe64 {
-        uc.reg_read(unicorn_engine::RegisterX86::RIP)
-            .map_err(|e| UnpackerError::EmulatorError(format!("failed to read RIP: {e}")))? as u64
-    } else {
-        uc.reg_read(unicorn_engine::RegisterX86::EIP)
-            .map_err(|e| UnpackerError::EmulatorError(format!("failed to read EIP: {e}")))? as u64
+    let ip = match uc.get_arch() {
+        unicorn_engine::unicorn_const::Arch::X86 => {
+            if is_pe64 {
+                uc.reg_read(unicorn_engine::RegisterX86::RIP)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("failed to read RIP: {e}")))? as u64
+            } else {
+                uc.reg_read(unicorn_engine::RegisterX86::EIP)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("failed to read EIP: {e}")))? as u64
+            }
+        }
+        unicorn_engine::unicorn_const::Arch::ARM => {
+            uc.reg_read(unicorn_engine::RegisterARM::PC)
+                .map_err(|e| UnpackerError::EmulatorError(format!("failed to read PC: {e}")))? as u64
+        }
+        unicorn_engine::unicorn_const::Arch::ARM64 => {
+            uc.reg_read(unicorn_engine::RegisterARM64::PC)
+                .map_err(|e| UnpackerError::EmulatorError(format!("failed to read PC: {e}")))? as u64
+        }
+        _ => base_addr,
     };
 
     let oep_rva = (ip - base_addr) as u32;
@@ -1020,12 +1049,25 @@ pub fn dump_image_to_bytes(
     }
 
     // 1. Fix OEP
-    let ip = if is_pe64 {
-        uc.reg_read(unicorn_engine::RegisterX86::RIP)
-            .map_err(|e| UnpackerError::EmulatorError(format!("failed to read RIP: {e}")))? as u64
-    } else {
-        uc.reg_read(unicorn_engine::RegisterX86::EIP)
-            .map_err(|e| UnpackerError::EmulatorError(format!("failed to read EIP: {e}")))? as u64
+    let ip = match uc.get_arch() {
+        unicorn_engine::unicorn_const::Arch::X86 => {
+            if is_pe64 {
+                uc.reg_read(unicorn_engine::RegisterX86::RIP)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("failed to read RIP: {e}")))? as u64
+            } else {
+                uc.reg_read(unicorn_engine::RegisterX86::EIP)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("failed to read EIP: {e}")))? as u64
+            }
+        }
+        unicorn_engine::unicorn_const::Arch::ARM => {
+            uc.reg_read(unicorn_engine::RegisterARM::PC)
+                .map_err(|e| UnpackerError::EmulatorError(format!("failed to read PC: {e}")))? as u64
+        }
+        unicorn_engine::unicorn_const::Arch::ARM64 => {
+            uc.reg_read(unicorn_engine::RegisterARM64::PC)
+                .map_err(|e| UnpackerError::EmulatorError(format!("failed to read PC: {e}")))? as u64
+        }
+        _ => base_addr,
     };
 
     let oep_rva = (ip - base_addr) as u32;

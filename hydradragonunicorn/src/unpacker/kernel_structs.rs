@@ -185,3 +185,126 @@ impl FileTime {
         buf
     }
 }
+
+// ---------------------------------------------------------------------------
+// 64-bit Kernel Structures
+// ---------------------------------------------------------------------------
+
+pub struct Teb64 {
+    pub stack_base: u64,
+    pub stack_limit: u64,
+    pub addr_of_teb: u64,
+    pub process_id: u64,
+    pub curr_thread_id: u64,
+    pub proc_env_block: u64,
+}
+
+impl Teb64 {
+    pub fn new(
+        stack_base: u64,
+        stack_limit: u64,
+        teb_base: u64,
+        process_id: u64,
+        thread_id: u64,
+        peb_base: u64,
+    ) -> Self {
+        Self {
+            stack_base,
+            stack_limit,
+            addr_of_teb: teb_base,
+            process_id,
+            curr_thread_id: thread_id,
+            proc_env_block: peb_base,
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = vec![0u8; 0x80];
+        let mut w = Cursor::new(&mut buf[..]);
+        let _ = w.write_u64::<LittleEndian>(0); // 0x00: ExceptionList
+        let _ = w.write_u64::<LittleEndian>(self.stack_base); // 0x08: StackBase
+        let _ = w.write_u64::<LittleEndian>(self.stack_limit); // 0x10: StackLimit
+        let _ = w.write_u64::<LittleEndian>(0); // 0x18: SubSystemTib
+        let _ = w.write_u64::<LittleEndian>(0); // 0x20: FiberData
+        let _ = w.write_u64::<LittleEndian>(0); // 0x28: ArbitraryUserPointer
+        let _ = w.write_u64::<LittleEndian>(self.addr_of_teb); // 0x30: Self (TEB pointer)
+        let _ = w.write_u64::<LittleEndian>(0); // 0x38: EnvironmentPointer
+        let _ = w.write_u64::<LittleEndian>(self.process_id); // 0x40: UniqueProcess
+        let _ = w.write_u64::<LittleEndian>(self.curr_thread_id); // 0x48: UniqueThread
+        let _ = w.write_u64::<LittleEndian>(0); // 0x50: ActiveRpcHandle
+        let _ = w.write_u64::<LittleEndian>(0); // 0x58: ThreadLocalStoragePointer
+        let _ = w.write_u64::<LittleEndian>(self.proc_env_block); // 0x60: ProcessEnvironmentBlock (PEB)
+        buf
+    }
+}
+
+pub struct Peb64 {
+    pub image_base_address: u64,
+    pub ldr: u64,
+}
+
+impl Peb64 {
+    pub fn new(image_base: u64, ldr_ptr: u64) -> Self {
+        Self {
+            image_base_address: image_base,
+            ldr: ldr_ptr,
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = vec![0u8; 0x30];
+        buf[0] = 0; // InheritedAddressSpace
+        buf[1] = 0; // ReadImageFileExecOptions
+        buf[2] = 0; // BeingDebugged
+        buf[3] = 0; // BitField
+        let mut w = Cursor::new(&mut buf[8..]);
+        let _ = w.write_u64::<LittleEndian>(0); // 0x08: Mutant
+        let _ = w.write_u64::<LittleEndian>(self.image_base_address); // 0x10: ImageBaseAddress
+        let _ = w.write_u64::<LittleEndian>(self.ldr); // 0x18: Ldr
+        buf
+    }
+}
+
+pub struct PebLdrData64 {
+    pub length: u32,
+    pub initialized: u32,
+    pub ss_handle: u64,
+    pub in_load_order_first: u64,
+    pub in_load_order_last: u64,
+    pub in_memory_order_first: u64,
+    pub in_memory_order_last: u64,
+    pub in_init_order_first: u64,
+    pub in_init_order_last: u64,
+}
+
+impl PebLdrData64 {
+    pub fn new(list_entry_base: u64) -> Self {
+        Self {
+            length: 0x58,
+            initialized: 1,
+            ss_handle: 0,
+            in_load_order_first: list_entry_base,
+            in_load_order_last: list_entry_base + 48,
+            in_memory_order_first: list_entry_base,
+            in_memory_order_last: list_entry_base + 48,
+            in_init_order_first: list_entry_base,
+            in_init_order_last: list_entry_base + 48,
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(0x58);
+        let mut w = Cursor::new(&mut buf);
+        let _ = w.write_u32::<LittleEndian>(self.length);
+        let _ = w.write_u32::<LittleEndian>(self.initialized);
+        let _ = w.write_u64::<LittleEndian>(self.ss_handle);
+        let _ = w.write_u64::<LittleEndian>(self.in_load_order_first);
+        let _ = w.write_u64::<LittleEndian>(self.in_load_order_last);
+        let _ = w.write_u64::<LittleEndian>(self.in_memory_order_first);
+        let _ = w.write_u64::<LittleEndian>(self.in_memory_order_last);
+        let _ = w.write_u64::<LittleEndian>(self.in_init_order_first);
+        let _ = w.write_u64::<LittleEndian>(self.in_init_order_last);
+        buf
+    }
+}
+

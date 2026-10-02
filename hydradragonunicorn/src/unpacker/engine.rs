@@ -7,12 +7,46 @@ use std::time::Instant;
 use unicorn_engine::unicorn_const::{
     uc_error, Arch, HookType as UcHookType, MemType, Mode, Prot, SECOND_SCALE,
 };
-use unicorn_engine::{RegisterX86, UcHookId, Unicorn};
+use unicorn_engine::{RegisterARM, RegisterARM64, RegisterX86, UcHookId, Unicorn};
 
 use crate::unpacker::error::{UnpackerError, UnpackerResult};
-use crate::unpacker::kernel_structs::{Peb, PebLdrData, Teb};
+use crate::unpacker::kernel_structs::{Peb, Peb64, PebLdrData, PebLdrData64, Teb, Teb64};
 use crate::unpacker::packers::{self, UnpackerConfig};
 use vmpunpacker;
+
+// ---------------------------------------------------------------------------
+// Architecture enumeration
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeArch {
+    X86,
+    X64,
+    Arm32,
+    Arm64,
+}
+
+impl PeArch {
+    pub fn from_pe(machine: u16, magic: u16) -> Self {
+        match machine {
+            0xaa64 | 0xa641 | 0xa64e => PeArch::Arm64,
+            0x1c0 | 0x1c2 | 0x1c4 => PeArch::Arm32,
+            0x8664 => PeArch::X64,
+            0x14c => PeArch::X86,
+            _ => {
+                if magic == 0x20b {
+                    PeArch::X64
+                } else {
+                    PeArch::X86
+                }
+            }
+        }
+    }
+
+    pub fn is_64(&self) -> bool {
+        matches!(self, PeArch::X64 | PeArch::Arm64)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -49,7 +83,7 @@ pub struct PeHeader {
 pub struct OptionalHeader {
     pub magic: u16,
     pub address_of_entry_point: u32,
-    pub image_base: u32,
+    pub image_base: u64,
     pub section_alignment: u32,
     pub file_alignment: u32,
     pub size_of_image: u32,
@@ -330,8 +364,14 @@ impl UnpackerEngine {
     // ------------------------------------------------------------------
 
     pub fn init_uc(&mut self) -> UnpackerResult<()> {
-        let mut uc = Unicorn::new(Arch::X86, Mode::MODE_32)
-            .map_err(|e| UnpackerError::EmulatorError(format!("uc_open: {:?}", e)))?;
+        let arch = PeArch::from_pe(self.sample.pe_header.machine, self.sample.opt_header.magic);
+        let is_64 = arch.is_64();
+        let mut uc = match arch {
+            PeArch::X86 => Unicorn::new(Arch::X86, Mode::MODE_32),
+            PeArch::X64 => Unicorn::new(Arch::X86, Mode::MODE_64),
+            PeArch::Arm32 => Unicorn::new(Arch::ARM, Mode::THUMB),
+            PeArch::Arm64 => Unicorn::new(Arch::ARM64, Mode::LITTLE_ENDIAN),
+        }.map_err(|e| UnpackerError::EmulatorError(format!("uc_open: {:?}", e)))?;
 
         let pe_data = self.sample.raw_bytes.clone();
         let image_base = self.sample.base_addr;
@@ -352,34 +392,68 @@ impl UnpackerEngine {
         uc.mem_map(TEB_ADDR, teb_size, Prot::READ | Prot::WRITE)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_map TEB: {:?}", e)))?;
 
-        let teb = Teb::new(
-            (STACK_ADDR + STACK_SIZE) as u32,
-            STACK_ADDR as u32,
-            TEB_ADDR as u32,
-            0x1000,
-            0x1001,
-            PEB_ADDR as u32,
-        );
-        uc.mem_write(TEB_ADDR, &teb.to_bytes())
-            .map_err(|e| UnpackerError::EmulatorError(format!("mem_write TEB: {:?}", e)))?;
+        if is_64 {
+            let teb = Teb64::new(
+                STACK_ADDR + STACK_SIZE,
+                STACK_ADDR,
+                TEB_ADDR,
+                0x1000,
+                0x1001,
+                PEB_ADDR,
+            );
+            uc.mem_write(TEB_ADDR, &teb.to_bytes())
+                .map_err(|e| UnpackerError::EmulatorError(format!("mem_write TEB: {:?}", e)))?;
+            if arch == PeArch::X64 {
+                let _ = uc.reg_write(RegisterX86::GS_BASE as i32, TEB_ADDR);
+            } else if arch == PeArch::Arm64 {
+                // Windows on ARM64 platform register X18 points to TEB
+                let _ = uc.reg_write(RegisterARM64::X18 as i32, TEB_ADDR);
+            }
+        } else {
+            let teb = Teb::new(
+                (STACK_ADDR + STACK_SIZE) as u32,
+                STACK_ADDR as u32,
+                TEB_ADDR as u32,
+                0x1000,
+                0x1001,
+                PEB_ADDR as u32,
+            );
+            uc.mem_write(TEB_ADDR, &teb.to_bytes())
+                .map_err(|e| UnpackerError::EmulatorError(format!("mem_write TEB: {:?}", e)))?;
+            if arch == PeArch::X86 {
+                let _ = uc.reg_write(RegisterX86::FS_BASE as i32, TEB_ADDR);
+            }
+        }
 
         // --- Map PEB ---
         let peb_size = page_align(0x1000);
         uc.mem_map(PEB_ADDR, peb_size, Prot::READ | Prot::WRITE)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_map PEB: {:?}", e)))?;
 
-        let peb = Peb::new(image_base as u32, LDR_ADDR as u32);
-        uc.mem_write(PEB_ADDR, &peb.to_bytes())
-            .map_err(|e| UnpackerError::EmulatorError(format!("mem_write PEB: {:?}", e)))?;
+        if is_64 {
+            let peb = Peb64::new(image_base, LDR_ADDR);
+            uc.mem_write(PEB_ADDR, &peb.to_bytes())
+                .map_err(|e| UnpackerError::EmulatorError(format!("mem_write PEB: {:?}", e)))?;
+        } else {
+            let peb = Peb::new(image_base as u32, LDR_ADDR as u32);
+            uc.mem_write(PEB_ADDR, &peb.to_bytes())
+                .map_err(|e| UnpackerError::EmulatorError(format!("mem_write PEB: {:?}", e)))?;
+        }
 
         // --- Map LDR ---
         let ldr_size = page_align(0x2000);
         uc.mem_map(LDR_ADDR, ldr_size, Prot::READ | Prot::WRITE)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_map LDR: {:?}", e)))?;
 
-        let peb_ldr = PebLdrData::new((LDR_ADDR + 0x30) as u32);
-        uc.mem_write(LDR_ADDR, &peb_ldr.to_bytes())
-            .map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR: {:?}", e)))?;
+        if is_64 {
+            let peb_ldr = PebLdrData64::new(LDR_ADDR + 0x58);
+            uc.mem_write(LDR_ADDR, &peb_ldr.to_bytes())
+                .map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR: {:?}", e)))?;
+        } else {
+            let peb_ldr = PebLdrData::new((LDR_ADDR + 0x30) as u32);
+            uc.mem_write(LDR_ADDR, &peb_ldr.to_bytes())
+                .map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR: {:?}", e)))?;
+        }
 
         // --- Map stack at 0x0 ---
         let stack_size = page_align(STACK_SIZE);
@@ -417,29 +491,72 @@ impl UnpackerEngine {
         }
 
         // --- Set up LDR entries for loaded DLLs ---
-        let ldr_entries_base = LDR_ADDR + 0x30;
-        setup_ldr_entries(&mut uc, ldr_entries_base, &dll_bases)?;
+        let ldr_entries_base = if is_64 { LDR_ADDR + 0x58 } else { LDR_ADDR + 0x30 };
+        setup_ldr_entries(&mut uc, ldr_entries_base, &dll_bases, is_64)?;
 
         // --- Initialize registers ---
         let esp_val = STACK_ADDR + STACK_SIZE / 2;
-        uc.reg_write(RegisterX86::ESP as i32, esp_val)
-            .map_err(|e| UnpackerError::EmulatorError(format!("reg_write ESP: {:?}", e)))?;
-        uc.reg_write(RegisterX86::EBP as i32, esp_val)
-            .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EBP: {:?}", e)))?;
-
         let start_addr = entrypoint(&self.sample.opt_header);
-        uc.reg_write(RegisterX86::EAX as i32, start_addr)
-            .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EAX: {:?}", e)))?;
-        uc.reg_write(RegisterX86::EBX as i32, start_addr)
-            .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EBX: {:?}", e)))?;
-        uc.reg_write(RegisterX86::ECX as i32, start_addr)
-            .map_err(|e| UnpackerError::EmulatorError(format!("reg_write ECX: {:?}", e)))?;
-        uc.reg_write(RegisterX86::EDX as i32, start_addr)
-            .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EDX: {:?}", e)))?;
-        uc.reg_write(RegisterX86::ESI as i32, start_addr)
-            .map_err(|e| UnpackerError::EmulatorError(format!("reg_write ESI: {:?}", e)))?;
-        uc.reg_write(RegisterX86::EDI as i32, start_addr)
-            .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EDI: {:?}", e)))?;
+        match arch {
+            PeArch::X86 => {
+                uc.reg_write(RegisterX86::ESP as i32, esp_val)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write ESP: {:?}", e)))?;
+                uc.reg_write(RegisterX86::EBP as i32, esp_val)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EBP: {:?}", e)))?;
+                uc.reg_write(RegisterX86::EAX as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EAX: {:?}", e)))?;
+                uc.reg_write(RegisterX86::EBX as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EBX: {:?}", e)))?;
+                uc.reg_write(RegisterX86::ECX as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write ECX: {:?}", e)))?;
+                uc.reg_write(RegisterX86::EDX as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EDX: {:?}", e)))?;
+                uc.reg_write(RegisterX86::ESI as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write ESI: {:?}", e)))?;
+                uc.reg_write(RegisterX86::EDI as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write EDI: {:?}", e)))?;
+            }
+            PeArch::X64 => {
+                uc.reg_write(RegisterX86::RSP as i32, esp_val)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RSP: {:?}", e)))?;
+                uc.reg_write(RegisterX86::RBP as i32, esp_val)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RBP: {:?}", e)))?;
+                uc.reg_write(RegisterX86::RAX as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RAX: {:?}", e)))?;
+                uc.reg_write(RegisterX86::RBX as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RBX: {:?}", e)))?;
+                uc.reg_write(RegisterX86::RCX as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RCX: {:?}", e)))?;
+                uc.reg_write(RegisterX86::RDX as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RDX: {:?}", e)))?;
+                uc.reg_write(RegisterX86::RSI as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RSI: {:?}", e)))?;
+                uc.reg_write(RegisterX86::RDI as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RDI: {:?}", e)))?;
+                uc.reg_write(RegisterX86::RIP as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write RIP: {:?}", e)))?;
+            }
+            PeArch::Arm32 => {
+                uc.reg_write(RegisterARM::SP as i32, esp_val)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write SP: {:?}", e)))?;
+                uc.reg_write(RegisterARM::PC as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write PC: {:?}", e)))?;
+                uc.reg_write(RegisterARM::R0 as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write R0: {:?}", e)))?;
+                uc.reg_write(RegisterARM::R1 as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write R1: {:?}", e)))?;
+            }
+            PeArch::Arm64 => {
+                uc.reg_write(RegisterARM64::SP as i32, esp_val)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write SP: {:?}", e)))?;
+                uc.reg_write(RegisterARM64::PC as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write PC: {:?}", e)))?;
+                uc.reg_write(RegisterARM64::X0 as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write X0: {:?}", e)))?;
+                uc.reg_write(RegisterARM64::X1 as i32, start_addr)
+                    .map_err(|e| UnpackerError::EmulatorError(format!("reg_write X1: {:?}", e)))?;
+            }
+        }
 
         // --- Store imported function info & patch IAT with hook addresses ---
         self.parse_and_patch_imports(&mut uc, image_base)?;
@@ -655,6 +772,7 @@ impl UnpackerEngine {
         let raw = &self.sample.raw_bytes;
         let opt = &self.sample.opt_header;
         let sections = &self.sample.sections;
+        let is_64 = opt.magic == 0x20b;
         if opt.data_directory.len() <= 1 {
             return Ok(());
         }
@@ -690,6 +808,7 @@ impl UnpackerEngine {
         let mut all_imports: Vec<String> = Vec::new();
         let mut import_descriptors: HashMap<String, ImportDescriptor> = HashMap::new();
         let mut hook_addr = self.hook_addr;
+        let thunk_size: u32 = if is_64 { 8 } else { 4 };
 
         while desc_off + 20 <= raw.len() {
             let orig_first_thunk = u32::from_le_bytes(raw[desc_off..desc_off + 4].try_into().unwrap());
@@ -711,21 +830,38 @@ impl UnpackerEngine {
             let thunk_rva_base = if orig_first_thunk != 0 { orig_first_thunk } else { first_thunk };
             let mut thunk_idx = 0;
 
-            while let Some(t_off) = rva_to_off(thunk_rva_base + thunk_idx * 4) {
-                if t_off + 4 > raw.len() { break; }
-                let thunk_val = u32::from_le_bytes(raw[t_off..t_off + 4].try_into().unwrap());
-                if thunk_val == 0 { break; }
+            loop {
+                let thunk_rva = thunk_rva_base.wrapping_add(thunk_idx * thunk_size);
+                let t_off = match rva_to_off(thunk_rva) {
+                    Some(o) => o,
+                    None => break,
+                };
+                if t_off + (thunk_size as usize) > raw.len() {
+                    break;
+                }
 
-                let func_name = if (thunk_val & 0x80000000) != 0 {
-                    format!("Ordinal{}", thunk_val & 0xFFFF)
-                } else if let Some(ibn_off) = rva_to_off(thunk_val) {
+                let (is_ordinal, ordinal_val, hint_name_rva) = if is_64 {
+                    let val = u64::from_le_bytes(raw[t_off..t_off + 8].try_into().unwrap());
+                    if val == 0 { break; }
+                    let ord = (val & 0x8000000000000000) != 0;
+                    (ord, (val & 0xFFFF) as u32, (val & 0x7FFFFFFF) as u32)
+                } else {
+                    let val = u32::from_le_bytes(raw[t_off..t_off + 4].try_into().unwrap());
+                    if val == 0 { break; }
+                    let ord = (val & 0x80000000) != 0;
+                    (ord, val & 0xFFFF, val & 0x7FFFFFFF)
+                };
+
+                let func_name = if is_ordinal {
+                    format!("Ordinal{}", ordinal_val)
+                } else if let Some(ibn_off) = rva_to_off(hint_name_rva) {
                     if ibn_off + 2 < raw.len() {
-                        read_cstring(ibn_off + 2).unwrap_or_else(|| format!("Ordinal{}", thunk_val))
+                        read_cstring(ibn_off + 2).unwrap_or_else(|| format!("Ordinal{}", ordinal_val))
                     } else {
-                        format!("Ordinal{}", thunk_val)
+                        format!("Ordinal{}", ordinal_val)
                     }
                 } else {
-                    format!("Ordinal{}", thunk_val)
+                    format!("Ordinal{}", ordinal_val)
                 };
 
                 let name_lower = func_name.to_lowercase();
@@ -752,11 +888,16 @@ impl UnpackerEngine {
                     all_imports.push(format!("{}.{}", dll_name, func_name));
 
                     // Patch IAT in Unicorn memory
-                    let iat_addr = image_base + (first_thunk + thunk_idx * 4) as u64;
-                    let hook_bytes = (hook_addr as u32).to_le_bytes();
-                    let _ = uc.mem_write(iat_addr, &hook_bytes);
-
-                    hook_addr += 4;
+                    let iat_addr = image_base + (first_thunk.wrapping_add(thunk_idx * thunk_size)) as u64;
+                    if is_64 {
+                        let hook_bytes = hook_addr.to_le_bytes();
+                        let _ = uc.mem_write(iat_addr, &hook_bytes);
+                        hook_addr += 8;
+                    } else {
+                        let hook_bytes = (hook_addr as u32).to_le_bytes();
+                        let _ = uc.mem_write(iat_addr, &hook_bytes);
+                        hook_addr += 4;
+                    }
                 }
 
                 thunk_idx += 1;
@@ -987,74 +1128,96 @@ fn setup_ldr_entries(
     uc: &mut Unicorn<'static, ()>,
     base: u64,
     dlls: &[(String, u64, u32)],
+    is_64: bool,
 ) -> UnpackerResult<()> {
+    let entry_size = if is_64 { 0x80u64 } else { LDR_ENTRY_SIZE };
     let mut prev_entry = base;
 
     for (i, (name, dll_base, size)) in dlls.iter().enumerate() {
-        let entry_addr = base + (i as u64) * LDR_ENTRY_SIZE;
-        let next_addr = base + ((i + 1) as u64) * LDR_ENTRY_SIZE;
+        let entry_addr = base + (i as u64) * entry_size;
+        let next_addr = base + ((i + 1) as u64) * entry_size;
         let prev_link = if i == 0 {
-            entry_addr + LDR_ENTRY_SIZE * (dlls.len() as u64)
+            entry_addr + entry_size * (dlls.len() as u64)
         } else {
             prev_entry
         };
 
-        // Build minimal LDR_DATA_TABLE_ENTRY (32-bit):
-        // +0x00: InLoadOrderLinks (LIST_ENTRY: Flink, Blink)
-        // +0x08: InMemoryOrderLinks (LIST_ENTRY)
-        // +0x10: InInitializationOrderLinks (LIST_ENTRY)
-        // +0x18: DllBase
-        // +0x1C: EntryPoint
-        // +0x20: SizeOfImage
-        // +0x24: FullDllName (UNICODE_STRING: Length, MaxLength, Buffer)
-        // +0x2C: BaseDllName (UNICODE_STRING)
-        // +0x34: Flags
-        let mut entry = vec![0u8; LDR_ENTRY_SIZE as usize];
+        let mut entry = vec![0u8; entry_size as usize];
 
-        // InLoadOrderLinks
-        let flink = if i + 1 < dlls.len() {
-            next_addr as u32
+        if is_64 {
+            let flink = if i + 1 < dlls.len() { next_addr } else { base };
+            let blink = if i > 0 { prev_link } else { base };
+
+            // InLoadOrderLinks (0..16)
+            entry[0..8].copy_from_slice(&flink.to_le_bytes());
+            entry[8..16].copy_from_slice(&blink.to_le_bytes());
+
+            // InMemoryOrderLinks (16..32)
+            entry[16..24].copy_from_slice(&flink.to_le_bytes());
+            entry[24..32].copy_from_slice(&blink.to_le_bytes());
+
+            // InInitializationOrderLinks (32..48)
+            entry[32..40].copy_from_slice(&flink.to_le_bytes());
+            entry[40..48].copy_from_slice(&blink.to_le_bytes());
+
+            // DllBase (48..56)
+            entry[48..56].copy_from_slice(&dll_base.to_le_bytes());
+
+            // EntryPoint (56..64) = 0
+            entry[56..64].copy_from_slice(&0u64.to_le_bytes());
+
+            // SizeOfImage (64..68)
+            entry[64..68].copy_from_slice(&size.to_le_bytes());
+
+            // Flags (104..108)
+            if entry.len() >= 108 {
+                entry[104..108].copy_from_slice(&0x1000u32.to_le_bytes());
+            }
         } else {
-            base as u32 // loop back to LDR
-        };
-        let blink = if i > 0 {
-            prev_link as u32
-        } else {
-            base as u32
-        };
-        entry[0..4].copy_from_slice(&flink.to_le_bytes());
-        entry[4..8].copy_from_slice(&blink.to_le_bytes());
+            let flink = if i + 1 < dlls.len() {
+                next_addr as u32
+            } else {
+                base as u32 // loop back to LDR
+            };
+            let blink = if i > 0 {
+                prev_link as u32
+            } else {
+                base as u32
+            };
+            entry[0..4].copy_from_slice(&flink.to_le_bytes());
+            entry[4..8].copy_from_slice(&blink.to_le_bytes());
 
-        // InMemoryOrderLinks
-        entry[8..12].copy_from_slice(&flink.to_le_bytes());
-        entry[12..16].copy_from_slice(&blink.to_le_bytes());
+            // InMemoryOrderLinks
+            entry[8..12].copy_from_slice(&flink.to_le_bytes());
+            entry[12..16].copy_from_slice(&blink.to_le_bytes());
 
-        // InInitializationOrderLinks
-        entry[16..20].copy_from_slice(&flink.to_le_bytes());
-        entry[20..24].copy_from_slice(&blink.to_le_bytes());
+            // InInitializationOrderLinks
+            entry[16..20].copy_from_slice(&flink.to_le_bytes());
+            entry[20..24].copy_from_slice(&blink.to_le_bytes());
 
-        // DllBase
-        entry[24..28].copy_from_slice(&(*dll_base as u32).to_le_bytes());
+            // DllBase
+            entry[24..28].copy_from_slice(&(*dll_base as u32).to_le_bytes());
 
-        // EntryPoint (0 = no entry point needed for emulation)
-        entry[28..32].copy_from_slice(&0u32.to_le_bytes());
+            // EntryPoint (0 = no entry point needed for emulation)
+            entry[28..32].copy_from_slice(&0u32.to_le_bytes());
 
-        // SizeOfImage
-        entry[32..36].copy_from_slice(&size.to_le_bytes());
+            // SizeOfImage
+            entry[32..36].copy_from_slice(&size.to_le_bytes());
 
-        // FullDllName (UNICODE_STRING: just store Length next to entry)
-        let name_len = (name.len() * 2) as u16;
-        entry[36..38].copy_from_slice(&name_len.to_le_bytes()); // Length
-        entry[38..40].copy_from_slice(&name_len.to_le_bytes()); // MaxLength
-        entry[40..44].copy_from_slice(&0u32.to_le_bytes()); // Buffer (null for simplicity)
+            // FullDllName (UNICODE_STRING: just store Length next to entry)
+            let name_len = (name.len() * 2) as u16;
+            entry[36..38].copy_from_slice(&name_len.to_le_bytes()); // Length
+            entry[38..40].copy_from_slice(&name_len.to_le_bytes()); // MaxLength
+            entry[40..44].copy_from_slice(&0u32.to_le_bytes()); // Buffer (null for simplicity)
 
-        // BaseDllName
-        entry[44..46].copy_from_slice(&name_len.to_le_bytes());
-        entry[46..48].copy_from_slice(&name_len.to_le_bytes());
-        entry[48..52].copy_from_slice(&0u32.to_le_bytes());
+            // BaseDllName
+            entry[44..46].copy_from_slice(&name_len.to_le_bytes());
+            entry[46..48].copy_from_slice(&name_len.to_le_bytes());
+            entry[48..52].copy_from_slice(&0u32.to_le_bytes());
 
-        // Flags: 0x1000 (LDRP_ENTRY_PROCESSED)
-        entry[52..56].copy_from_slice(&0x1000u32.to_le_bytes());
+            // Flags: 0x1000 (LDRP_ENTRY_PROCESSED)
+            entry[52..56].copy_from_slice(&0x1000u32.to_le_bytes());
+        }
 
         uc.mem_write(entry_addr, &entry)
             .map_err(|e| UnpackerError::EmulatorError(format!("mem_write LDR entry: {:?}", e)))?;
@@ -1134,20 +1297,28 @@ pub fn parse_pe_bytes(
     }
 
     let magic = u16::from_le_bytes(data[opt_offset..opt_offset + 2].try_into().unwrap());
-    if magic == 0x20b {
-        return Err(UnpackerError::InvalidPeFile("64-bit not supported".into()));
-    }
-    if magic != 0x10b {
+    if magic != 0x10b && magic != 0x20b {
         return Err(UnpackerError::InvalidPeFile(format!("unknown magic 0x{:x}", magic)));
     }
+    let is_pe64 = magic == 0x20b;
 
     let address_of_entry_point = if opt_offset + 20 <= data.len() {
         u32::from_le_bytes(data[opt_offset + 16..opt_offset + 20].try_into().unwrap())
     } else { 0 };
 
-    let image_base = if opt_offset + 32 <= data.len() {
-        u32::from_le_bytes(data[opt_offset + 28..opt_offset + 32].try_into().unwrap())
-    } else { 0x400000 };
+    let image_base: u64 = if is_pe64 {
+        if opt_offset + 32 <= data.len() {
+            u64::from_le_bytes(data[opt_offset + 24..opt_offset + 32].try_into().unwrap())
+        } else {
+            0x140000000
+        }
+    } else {
+        if opt_offset + 32 <= data.len() {
+            u32::from_le_bytes(data[opt_offset + 28..opt_offset + 32].try_into().unwrap()) as u64
+        } else {
+            0x400000
+        }
+    };
 
     let section_alignment = if opt_offset + 36 <= data.len() {
         u32::from_le_bytes(data[opt_offset + 32..opt_offset + 36].try_into().unwrap())
@@ -1177,12 +1348,23 @@ pub fn parse_pe_bytes(
         u16::from_le_bytes(data[opt_offset + 70..opt_offset + 72].try_into().unwrap())
     } else { 0 };
 
-    let num_rva = if opt_offset + 96 <= data.len() {
-        u32::from_le_bytes(data[opt_offset + 92..opt_offset + 96].try_into().unwrap()) as usize
-    } else { 0 };
+    let (num_rva, dd_start) = if is_pe64 {
+        let n = if opt_offset + 112 <= data.len() {
+            u32::from_le_bytes(data[opt_offset + 108..opt_offset + 112].try_into().unwrap()) as usize
+        } else {
+            0
+        };
+        (n, opt_offset + 112)
+    } else {
+        let n = if opt_offset + 96 <= data.len() {
+            u32::from_le_bytes(data[opt_offset + 92..opt_offset + 96].try_into().unwrap()) as usize
+        } else {
+            0
+        };
+        (n, opt_offset + 96)
+    };
 
     let mut data_directories = Vec::new();
-    let dd_start = opt_offset + 96;
     for i in 0..num_rva.min(16) {
         let entry_off = dd_start + i * 8;
         if entry_off + 8 <= data.len() {
