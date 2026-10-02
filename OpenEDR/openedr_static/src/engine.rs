@@ -7,6 +7,7 @@ use crate::apk;
 use crate::crypto;
 use crate::clam::ClamScanner;
 use crate::diagnostics;
+use crate::embedded_url;
 use crate::ml::filetype;
 use crate::hayabusa_scanner::{HayabusaEventMatch, HayabusaScanner};
 use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
@@ -16,7 +17,7 @@ use crate::ptm_registry::PuaRegistryMatcher;
 use crate::report::{
     DetectionItem, MemoryScanReport, RegistryCheckReport, SignerDetails, StaticScanReport,
 };
-use crate::signers::{verify_authenticode, SignerDb};
+use crate::signers::{verify_authenticode, BinaryFuse16Filter, SignerDb};
 use crate::string_rules::{self, PeStringRules};
 use crate::yara::YaraScanner;
 
@@ -37,6 +38,17 @@ pub const JS_TREE_THRESHOLD: f32 = 0.85;
 /// layer (ClamAV/YARA/HydraSig/PE/JS/APK ML) found nothing, so keep it at the
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
 pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
+
+/// Embedded-URL layer threshold: a URL harvested from the file's own bytes must
+/// clear this before the file is called a dropper/stager. Same 0.90 bar
+/// `StaticEngine::scan_url` applies to a live URL, so the desktop static scan
+/// and the live firewall path never disagree about the same string.
+pub const EMBEDDED_URL_ML_THRESHOLD: f32 = 0.90;
+
+/// Cap on `Embedded_URL_ML` detections attached to one file. A sample with 300
+/// embedded links should not return 300 findings — the cap is enough to triage
+/// and the URLs themselves are in the details.
+const MAX_EMBEDDED_URL_DETECTIONS: usize = 8;
 
 /// Canonical EICAR SHA-256 (standard test file). Web had a typo variant;
 /// both are accepted, plus a prefix check so any EICAR build flags.
@@ -59,6 +71,12 @@ pub struct StaticEngine {
     hayabusa_dir: PathBuf,
     hayabusa: std::sync::OnceLock<HayabusaScanner>,
     string_rules: PeStringRules,
+    /// Tranco 1M domain/IP whitelist (`.xf`). Gates the embedded-URL layer so a
+    /// benign link sitting inside a document never becomes a finding.
+    url_whitelist: Option<BinaryFuse16Filter>,
+    /// Compiled CIDR whitelist/blacklist tables (`src/cidr_*.bin`, byte-identical
+    /// copies of the `openedr_web` tables). The IP half of the same gate.
+    cidr_engine: crate::cidr::CidrEngine,
     pub url_engine: crate::url_rules::UrlThreatEngine,
 }
 
@@ -69,6 +87,8 @@ impl StaticEngine {
     /// - `models/` for ML models (pe_trees.bin, js_trees.bin, url_trees.bin, apk_trees.bin, *.onnx)
     /// - `signer_rules/` for trusted_signers.yaml, etc.
     /// - `xorfilter_rules/` for benign_sha256.xf (signer+hash benign whitelist)
+    ///   and url_whitelist.xf (Tranco 1M domain/IP whitelist for URLs)
+    /// - `url_rules/` for url_threat_rules.yaml (loaded, never embedded)
     /// - `hydradragonsig_rules/` for hydradragonsig string-rule YAML (in-scan HydraSig layer)
     /// - `ptm.local.src` or `ptm/` for PUA registry patterns
     pub fn init(base_dir: &Path) -> Self {
@@ -123,6 +143,20 @@ impl StaticEngine {
         } else {
             base.join("hayabusa_rules")
         };
+        // URL threat rules are data, not code. Two accepted layouts, same as the
+        // other rule sets: `url_rules/<file>` first, then `rules/<file>`.
+        // A path that exists in neither is still returned so the loader reports
+        // it as absent instead of silently skipping the log line.
+        let url_rules_file = crate::url_rules::URL_RULES_FILE;
+        let url_rules_candidates = [
+            base.join(crate::url_rules::URL_RULES_DIR).join(url_rules_file),
+            base.join("rules").join(url_rules_file),
+        ];
+        let url_rules_path = url_rules_candidates
+            .iter()
+            .find(|p| p.is_file())
+            .cloned()
+            .unwrap_or_else(|| url_rules_candidates[0].clone());
         let signers_dir = base.join("signer_rules");
         let xf_dir = base.join("xorfilter_rules");
 
@@ -139,7 +173,28 @@ impl StaticEngine {
         // startup down.
         let t_scope = std::time::Instant::now();
         let mut string_rules = PeStringRules::default();
-        let (clam, yara, ml, signers, pua_registry) = std::thread::scope(|s| {
+        // URL threat rules load on this thread: the document is ~7 KB of YAML,
+        // so there is nothing to parallelise, and it has to be finished before
+        // the engine is handed out.
+        let url_engine = timed!("url_threat_rules", {
+            let mut e = crate::url_rules::UrlThreatEngine::new();
+            match e.load_from_file(&url_rules_path) {
+                Ok(count) => diagnostics::log(
+                    "init-step",
+                    &format!(
+                        "url_threat_rules=loaded ({} rules, {} unwhitelisted)",
+                        count,
+                        e.unwhitelisted_count()
+                    ),
+                ),
+                Err(err) => diagnostics::log(
+                    "init-step",
+                    &format!("url_threat_rules=absent ({err}); URL layer falls back to ML only"),
+                ),
+            }
+            e
+        });
+        let (clam, yara, ml, signers, pua_registry, url_whitelist) = std::thread::scope(|s| {
             let h_clam = s.spawn(|| timed!("clam", ClamScanner::new(&database_dir)));
             let h_yara = s.spawn(|| timed!("yara", YaraScanner::new(&rules_dir)));
             let h_ml = s.spawn(|| timed!("ml_models", MlScanner::new(&models_dir)));
@@ -160,7 +215,36 @@ impl StaticEngine {
             });
             let h_pua = s.spawn(|| timed!("registry_rules", PuaRegistryMatcher::load(&registry_rules_path)));
 
-            // HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
+            // Tranco 1M domain/IP whitelist. Read on its own thread because it
+            // is a ~12 MB `.xf` sitting in the page cache — deserialising it
+            // inline would serialise a step that is otherwise parallel.
+            let h_url_wl = s.spawn(|| {
+                timed!("url_whitelist", {
+                    let p = xf_dir.join(crate::signers::URL_WHITELIST_XF);
+                    match std::fs::read(&p) {
+                        Ok(bytes) => {
+                            let filter = BinaryFuse16Filter::from_bytes(&bytes);
+                            diagnostics::log(
+                                "init-step",
+                                &format!(
+                                    "url_whitelist={}",
+                                    match &filter {
+                                        Some(f) => format!("loaded ({} keys)", f.len()),
+                                        None => "parse-failed".to_string(),
+                                    }
+                                ),
+                            );
+                            filter
+                        }
+                        Err(_) => {
+                            diagnostics::log("init-step", "url_whitelist=absent");
+                            None
+                        }
+                    }
+                })
+            });
+
+// HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
             // in-scan with FileType tags (PE/APK gating lives in rule data).
             // Runs on this thread while the others load.
             timed!("hydradragonsig_rules", {
@@ -194,6 +278,7 @@ impl StaticEngine {
                 h_ml.join().expect("ml loader panicked"),
                 h_signers.join().expect("signer loader panicked"),
                 h_pua.join().expect("registry rule loader panicked"),
+                h_url_wl.join().expect("url whitelist loader panicked"),
             )
         });
         diagnostics::log(
@@ -204,7 +289,7 @@ impl StaticEngine {
         diagnostics::log(
             "engine-status",
             &format!(
-                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; generic_model_file={}; generic_loaded={}; generic_used_for_file_verdict={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}",
+                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; generic_model_file={}; generic_loaded={}; generic_used_for_file_verdict={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}",
                 base.display(),
                 database_dir.is_dir(),
                 clam.is_loaded(),
@@ -228,11 +313,16 @@ impl StaticEngine {
                 signers.pattern_counts().1,
                 signers.pattern_counts().2,
                 signers.benign_loaded(),
+                xf_dir.join(crate::signers::URL_WHITELIST_XF).is_file(),
+                url_whitelist.is_some(),
                 registry_rules_path.display(),
                 pua_registry.pattern_count(),
                 string_rules.pattern_count(),
                 hayabusa_dir.display(),
                 "deferred",
+                url_rules_path.display(),
+                url_engine.rule_count(),
+                url_engine.unwhitelisted_count(),
             ),
         );
 
@@ -245,7 +335,9 @@ impl StaticEngine {
             hayabusa_dir,
             hayabusa: std::sync::OnceLock::new(),
             string_rules,
-            url_engine: crate::url_rules::UrlThreatEngine::new(),
+            url_whitelist,
+            cidr_engine: crate::cidr::CidrEngine::new(),
+            url_engine,
         }
     }
 
@@ -283,6 +375,75 @@ impl StaticEngine {
     /// `web_load_benign_whitelist`).
     pub fn load_benign_whitelist(&mut self, data: &[u8]) -> bool {
         self.signers.set_benign_whitelist(data)
+    }
+
+    /// True when the URL/domain/IP whitelist `.xf` was loaded at init.
+    pub fn url_whitelist_loaded(&self) -> bool {
+        self.url_whitelist.is_some()
+    }
+
+    /// Install the Tranco 1M URL/domain/IP whitelist from bytes (web parity:
+    /// `web_load_url_whitelist`).
+    pub fn load_url_whitelist(&mut self, data: &[u8]) -> bool {
+        match BinaryFuse16Filter::from_bytes(data) {
+            Some(f) => {
+                self.url_whitelist = Some(f);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether `host` is covered by the benign signatures. Returns
+    /// `(is_whitelisted, is_blacklisted)`.
+    ///
+    /// Direct port of `openedr_web::engine::check_whitelist_blacklist`, using the
+    /// same data: the CIDR whitelist/blacklist tables (`src/cidr_*.bin`,
+    /// byte-identical copies of the web ones) and the Tranco 1M `.xf` filter
+    /// (`xorfilter_rules/url_whitelist.xf`). Order matters and is preserved —
+    /// blacklist wins over whitelist, and CIDR is consulted before the filter:
+    ///
+    /// 1. CIDR blacklist.
+    /// 2. CIDR whitelist (only when not blacklisted).
+    /// 3. `.xf` filter on the host, then on each parent domain.
+    ///
+    /// Step 3 is skipped when the host is in the `unwhitelist_subdomains`
+    /// *include* list from `url_threat_rules.yaml` — that is how
+    /// `raw.githubusercontent.com` and friends stay scannable.
+    ///
+    /// With no `.xf` loaded, step 3 answers `false` for everything: an install
+    /// without the filter gets ML rather than a blanket pass.
+    pub fn check_whitelist_blacklist(&self, host: &str) -> (bool, bool) {
+        let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+        if host.is_empty() {
+            return (false, false);
+        }
+
+        // 1. CIDR blacklist (IPv4 & IPv6).
+        if self.cidr_engine.is_blacklisted(&host) {
+            return (false, true);
+        }
+        // 2. CIDR whitelist, unless blacklisted above.
+        if self.cidr_engine.is_whitelisted(&host) {
+            return (true, false);
+        }
+        // 3. Tranco 1M `.xf`, unless the host is explicitly unwhitelisted.
+        if let Some(filter) = self.url_whitelist.as_ref() {
+            if !self.url_engine.is_unwhitelisted(&host) {
+                if filter.contains(&host) {
+                    return (true, false);
+                }
+                let parts: Vec<&str> = host.split('.').collect();
+                // 1..len-1 walks the parent domains but stops short of the bare
+                // TLD — a `.com` entry would whitelist the whole internet.
+                for i in 1..parts.len().saturating_sub(1) {
+                    if filter.contains(&parts[i..].join(".")) {
+                        return (true, false);
+                    }
+                }
+            }
+        }
+        (false, false)
     }
 
     /// Runtime model load from bytes: kind 0=PE, 1=JS, 2=URL, 3=APK (web parity).
@@ -895,6 +1056,70 @@ impl StaticEngine {
                     details: Some(details),
                 });
                 max_score = max_score.max(score);
+            }
+        }
+
+        // 4c. Embedded-URL C2 / phishing layer. Stage-1 droppers, phishing
+        // documents and macro stagers carry a *link*, not a payload: harvest
+        // every http(s) URL out of the file's own bytes (ASCII + UTF-16LE) and
+        // score it with the same URL forest the live firewall path uses.
+        //
+        // Placement matters for false positives. This runs after the
+        // SHA-256-benign and trusted-signer fast paths above, so a signed,
+        // publisher-trusted binary or document can never reach it — only
+        // unsigned samples are judged on their links.
+        //
+        // Two inputs, nothing else:
+        //
+        // 1. `check_whitelist_blacklist` — the Tranco `.xf`, the CIDR tables and
+        //    the `unwhitelist_subdomains` list in url_threat_rules.yaml. A
+        //    whitelisted host is skipped outright: a benign link sitting inside
+        //    a document is not a finding. A CIDR-blacklisted host is Malicious
+        //    on its own, because that is deterministic rather than a guess.
+        // 2. The URL ML, at the same 0.90 bar `scan_url` applies to a live URL.
+        //
+        // No rule matching happens here. The patterns in url_threat_rules.yaml
+        // are tuned for a URL a person chose to visit and would fire on every
+        // ordinary link inside a document; that judgement belongs to the
+        // inspection path (`openedr_static_inspect_url` / the firewall), which
+        // has liveness and page content to work with. This layer only answers
+        // "is one of these links malicious", and the model answers it.
+        //
+        // Hosts in `unwhitelist_subdomains` — raw.githubusercontent.com,
+        // storage.googleapis.com and the rest — are kept out of the whitelist
+        // precisely so they reach step 2. Being listed is not a detection: a
+        // GitHub link is scored like any other URL.
+        if !is_apk_file && self.ml.url_loaded() {
+            let mut embedded_hits = 0usize;
+            for candidate in embedded_url::extract_urls(data) {
+                let (whitelisted, blacklisted) = self.check_whitelist_blacklist(&candidate.host);
+                if whitelisted {
+                    continue;
+                }
+                let ml_prob = self.ml.predict_url(&candidate.url).unwrap_or(0.0);
+                let (prob, reason) = if blacklisted {
+                    (1.0f32, " (CIDR blacklist)".to_string())
+                } else if ml_prob >= EMBEDDED_URL_ML_THRESHOLD {
+                    (ml_prob, String::new())
+                } else {
+                    continue;
+                };
+                detections.push(DetectionItem {
+                    layer: "Embedded_URL_ML".to_string(),
+                    name: "Dropper.EmbeddedC2Url".to_string(),
+                    score: Some(prob),
+                    details: Some(format!(
+                        "URL embedded in the file scored {:.2}% malicious{reason} (host {}): {}",
+                        prob * 100.0,
+                        candidate.host,
+                        candidate.url.chars().take(200).collect::<String>()
+                    )),
+                });
+                max_score = max_score.max(prob);
+                embedded_hits += 1;
+                if embedded_hits >= MAX_EMBEDDED_URL_DETECTIONS {
+                    break;
+                }
             }
         }
 

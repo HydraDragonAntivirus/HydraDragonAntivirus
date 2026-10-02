@@ -2,19 +2,34 @@
 //! Evaluates protocol schemes, pattern regexes (Discord/Telegram webhooks,
 //! droppers, phishing keywords), BinaryFuse16 whitelist overrides,
 //! PyFunceble-style liveness, and ML model outputs into a final verdict.
+//!
+//! The rule set is **not** compiled in: it is read from
+//! `url_rules/url_threat_rules.yaml` next to the engine resources and can also be
+//! pushed at runtime through `openedr_static_load_url_rules`. Adding a host to
+//! `unwhitelist_subdomains`, or a rule id to `deterministic_rules`, needs no
+//! rebuild.
 
 use std::collections::HashSet;
+use std::path::Path;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-pub const DEFAULT_URL_RULES_YAML: &str = include_str!("url_threat_rules.yaml");
+/// Directory under the engine resource root holding the rule documents.
+pub const URL_RULES_DIR: &str = "url_rules";
+
+/// File name of the rule document inside [`URL_RULES_DIR`].
+pub const URL_RULES_FILE: &str = "url_threat_rules.yaml";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UrlRuleFile {
     pub rules: Vec<UrlRuleDef>,
     #[serde(default)]
     pub unwhitelist_subdomains: Vec<String>,
+    /// Rule ids kept as data. Declared here so the Telegram / Discord-webhook
+    /// ids have one place to live; the embedded-URL layer does not read them.
+    #[serde(default)]
+    pub deterministic_rules: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,16 +115,148 @@ pub struct UrlThreatReport {
 pub struct UrlThreatEngine {
     rules: Vec<CompiledUrlRule>,
     unwhitelist_subdomains: HashSet<String>,
+    deterministic_rules: HashSet<String>,
+}
+
+/// Decomposed URL, shared by [`UrlThreatEngine::inspect`] and
+/// [`UrlThreatEngine::match_deterministic_rules`] so both see identical
+/// scheme/host/path.
+struct UrlParts {
+    scheme: String,
+    host: String,
+    port: u16,
+    path: String,
+    query: String,
+    is_ip: bool,
+}
+
+/// Accepts both absolute URLs and bare `host/path` input (prepending `https://`
+/// for the parse, then reporting `unknown` as the scheme when it was absent).
+fn parse_parts(url_str: &str) -> UrlParts {
+    let parsed = Url::parse(url_str).or_else(|_| Url::parse(&format!("https://{}", url_str)));
+    match parsed {
+        Ok(u) => {
+            let scheme = u.scheme().to_lowercase();
+            let host = u.host_str().unwrap_or("").to_lowercase();
+            let port = u.port().unwrap_or(if scheme == "https" { 443 } else { 80 });
+            let clean_host = host
+                .strip_prefix('[')
+                .and_then(|x| x.strip_suffix(']'))
+                .unwrap_or(&host)
+                .to_string();
+            UrlParts {
+                is_ip: clean_host.parse::<std::net::IpAddr>().is_ok(),
+                scheme,
+                host,
+                port,
+                path: u.path().to_string(),
+                query: u.query().unwrap_or("").to_string(),
+            }
+        }
+        Err(_) => {
+            let host = url_str
+                .split('/')
+                .next()
+                .unwrap_or("")
+                .to_lowercase();
+            let clean_host = host
+                .strip_prefix('[')
+                .and_then(|x| x.strip_suffix(']'))
+                .unwrap_or(&host)
+                .to_string();
+            UrlParts {
+                scheme: "unknown".to_string(),
+                is_ip: clean_host.parse::<std::net::IpAddr>().is_ok(),
+                host,
+                port: 80,
+                path: String::new(),
+                query: String::new(),
+            }
+        }
+    }
+}
+
+/// Evaluate every condition on `rule` and report whether any of them matched.
+/// Each condition is an OR term — that is the rule set's own semantics.
+fn rule_matches(
+    rule: &CompiledUrlRule,
+    url_str: &str,
+    p: &UrlParts,
+    is_cidr_blacklisted: bool,
+    page_content: Option<&str>,
+) -> bool {
+    let mut matched = false;
+
+    if let Some(ref re) = rule.url_re {
+        if re.is_match(url_str) {
+            matched = true;
+        }
+    }
+    if let Some(ref re) = rule.host_re {
+        if re.is_match(&p.host) {
+            matched = true;
+        }
+    }
+    if let Some(ref re) = rule.path_re {
+        if re.is_match(&p.path) {
+            matched = true;
+        }
+    }
+    if let Some(ref re) = rule.query_re {
+        if re.is_match(&p.query) {
+            matched = true;
+        }
+    }
+    if let Some(ref schemes) = rule.schemes {
+        if schemes.contains(&p.scheme) {
+            matched = true;
+        }
+    }
+    if let Some(ref ports) = rule.ports {
+        if ports.contains(&p.port) {
+            matched = true;
+        }
+    }
+    if let Some(ref tlds) = rule.tlds {
+        if tlds.iter().any(|tld| p.host.ends_with(tld)) {
+            matched = true;
+        }
+    }
+    if let Some(expected_ip) = rule.is_ip {
+        if expected_ip == p.is_ip {
+            matched = true;
+        }
+    }
+    if let Some(expected_bl) = rule.cidr_blacklisted {
+        if expected_bl == is_cidr_blacklisted {
+            matched = true;
+        }
+    }
+    if let Some(ref re) = rule.body_re {
+        if let Some(content) = page_content {
+            if re.is_match(content) {
+                matched = true;
+            }
+        }
+    }
+
+    matched
 }
 
 impl UrlThreatEngine {
+    /// An empty engine: no rules, no unwhitelist set, no deterministic ids.
+    /// Callers load the rule document from disk via [`Self::load_from_file`] or
+    /// [`Self::load_yaml`]; nothing is baked into the binary.
     pub fn new() -> Self {
-        let mut engine = Self {
-            rules: Vec::new(),
-            unwhitelist_subdomains: HashSet::new(),
-        };
-        let _ = engine.load_yaml(DEFAULT_URL_RULES_YAML);
-        engine
+        Self::default()
+    }
+
+    /// Read and compile the rule document at `path`. Thin wrapper over
+    /// [`Self::load_yaml`] so callers do not each repeat the `read_to_string`.
+    /// Returns the compiled rule count.
+    pub fn load_from_file(&mut self, path: &Path) -> Result<usize, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        self.load_yaml(&text)
     }
 
     pub fn load_yaml(&mut self, yaml_str: &str) -> Result<usize, String> {
@@ -120,6 +267,16 @@ impl UrlThreatEngine {
             let clean = sub.trim().to_lowercase();
             if !clean.is_empty() {
                 self.unwhitelist_subdomains.insert(clean);
+            }
+        }
+
+        // Rule ids are matched case-insensitively against the rule definitions,
+        // so a typo in the id list is a silent no-op rather than a match
+        // against the wrong rule.
+        for id in file.deterministic_rules {
+            let clean = id.trim().to_string();
+            if !clean.is_empty() {
+                self.deterministic_rules.insert(clean);
             }
         }
 
@@ -206,7 +363,55 @@ impl UrlThreatEngine {
         }
     }
 
-    /// Full inspection evaluating Rust YAML rules, whitelist, liveness and ML.
+    /// Number of ids listed in `deterministic_rules`.
+    pub fn deterministic_rule_count(&self) -> usize {
+        self.deterministic_rules.len()
+    }
+
+    /// Number of hosts in `unwhitelist_subdomains`.
+    pub fn unwhitelisted_count(&self) -> usize {
+        self.unwhitelist_subdomains.len()
+    }
+
+/// Evaluate **only** the rules named in the rule document's
+/// `deterministic_rules` list against `raw_url`, returning the ids that matched,
+/// in rule-set order.
+///
+/// Which rules those are is decided by data, not code: adding a Telegram or
+/// webhook pattern here means editing the YAML, not this file. The list is
+/// deliberately narrow — a URL carrying a bot token or a webhook id is a C2
+/// endpoint whatever the rest of the string looks like, whereas the rest of the
+/// rule set is tuned for a URL a person chose to visit and would fire on every
+/// benign link inside a document.
+///
+/// Deliberately narrower than [`UrlThreatEngine::inspect`]: no page content, no
+/// CIDR input, and `skip_if_whitelisted` is not consulted — the caller has
+/// already decided the host is worth scoring.
+pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
+    if self.deterministic_rules.is_empty() {
+        return Vec::new();
+    }
+    let url_str = raw_url.trim();
+    let p = parse_parts(url_str);
+    let mut hits = Vec::new();
+    for rule in &self.rules {
+        if !self
+            .deterministic_rules
+            .iter()
+            .any(|id| id.eq_ignore_ascii_case(&rule.id))
+        {
+            continue;
+        }
+        // No page content and no CIDR input on this path: only the
+        // url/host/path/query conditions can apply.
+        if rule_matches(rule, url_str, &p, false, None) {
+            hits.push(rule.id.clone());
+        }
+    }
+    hits
+}
+
+/// Full inspection evaluating Rust YAML rules, whitelist, liveness and ML.
     /// liveness_code: 0 = unknown, 1 = active, 2 = inactive/dead
     pub fn inspect(
         &self,
@@ -218,29 +423,11 @@ impl UrlThreatEngine {
         page_content: Option<&str>,
     ) -> UrlThreatReport {
         let url_str = raw_url.trim();
-        let parsed = Url::parse(url_str).or_else(|_| {
-            Url::parse(&format!("https://{}", url_str))
-        });
-
-        let (scheme, host, port, path, query, is_ip) = match parsed {
-            Ok(ref u) => {
-                let s = u.scheme().to_lowercase();
-                let h = u.host_str().unwrap_or("").to_lowercase();
-                let p = u.port().unwrap_or(if s == "https" { 443 } else { 80 });
-                let path = u.path().to_string();
-                let q = u.query().unwrap_or("").to_string();
-                let clean_h = h.strip_prefix('[').and_then(|x| x.strip_suffix(']')).unwrap_or(&h);
-                let is_ip = clean_h.parse::<std::net::IpAddr>().is_ok();
-                (s, h, p, path, q, is_ip)
-            }
-            Err(_) => {
-                let parts: Vec<&str> = url_str.split('/').collect();
-                let h = parts.get(0).copied().unwrap_or("").to_lowercase();
-                let clean_h = h.strip_prefix('[').and_then(|x| x.strip_suffix(']')).unwrap_or(&h);
-                let is_ip = clean_h.parse::<std::net::IpAddr>().is_ok();
-                ("unknown".to_string(), h, 80, "".to_string(), "".to_string(), is_ip)
-            }
-        };
+        let p = parse_parts(url_str);
+        let scheme = p.scheme.clone();
+        let host = p.host.clone();
+        let port = p.port;
+        let is_ip = p.is_ip;
 
         let mut detections = Vec::new();
         let mut whitelist_bypassed = false;
@@ -268,71 +455,7 @@ impl UrlThreatEngine {
                 continue;
             }
 
-            let mut matched = false;
-
-            if let Some(ref re) = rule.url_re {
-                if re.is_match(url_str) {
-                    matched = true;
-                }
-            }
-
-            if let Some(ref re) = rule.host_re {
-                if re.is_match(&host) {
-                    matched = true;
-                }
-            }
-
-            if let Some(ref re) = rule.path_re {
-                if re.is_match(&path) {
-                    matched = true;
-                }
-            }
-
-            if let Some(ref re) = rule.query_re {
-                if re.is_match(&query) {
-                    matched = true;
-                }
-            }
-
-            if let Some(ref schemes) = rule.schemes {
-                if schemes.contains(&scheme) {
-                    matched = true;
-                }
-            }
-
-            if let Some(ref ports) = rule.ports {
-                if ports.contains(&port) {
-                    matched = true;
-                }
-            }
-
-            if let Some(ref tlds) = rule.tlds {
-                if tlds.iter().any(|tld| host.ends_with(tld)) {
-                    matched = true;
-                }
-            }
-
-            if let Some(expected_ip) = rule.is_ip {
-                if expected_ip == is_ip {
-                    matched = true;
-                }
-            }
-
-            if let Some(expected_bl) = rule.cidr_blacklisted {
-                if expected_bl == is_cidr_blacklisted {
-                    matched = true;
-                }
-            }
-
-            if let Some(ref re) = rule.body_re {
-                if let Some(content) = page_content {
-                    if re.is_match(content) {
-                        matched = true;
-                    }
-                }
-            }
-
-            if matched {
+            if rule_matches(rule, url_str, &p, is_cidr_blacklisted, page_content) {
                 if rule.override_whitelist && is_whitelisted {
                     is_whitelisted = false;
                     whitelist_bypassed = true;

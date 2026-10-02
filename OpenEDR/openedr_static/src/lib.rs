@@ -1,7 +1,9 @@
 pub mod apk;
+pub mod cidr;
 pub mod clam;
 pub mod crypto;
 pub mod diagnostics;
+pub mod embedded_url;
 pub mod engine;
 pub mod hayabusa_scanner;
 pub mod hosts;
@@ -110,9 +112,11 @@ fn has_engine_resources(root: &Path) -> bool {
         "models",
         "database",
         "yara_rules",
-        "rules",
         "signer_rules",
         "hydradragonsig_rules",
+        "registry_rules",
+        "xorfilter_rules",
+        "url_rules",
     ] {
         if root.join(name).is_dir() {
             return true;
@@ -837,6 +841,29 @@ pub extern "C" fn openedr_static_load_benign_whitelist(data: *const u8, len: usi
         Err(_) => return 0,
     };
     engine.load_benign_whitelist(&bytes) as i32
+}
+
+/// Install the Tranco 1M URL/domain/IP whitelist (BinaryFuse16 `.xf` bytes) at
+/// runtime. Returns 1 on success, 0 on a parse failure.
+///
+/// Web parity (`web_load_url_whitelist`): a deployer that ships the `.xf`
+/// outside `xorfilter_rules/` can push it here instead. While it is absent the
+/// embedded-URL layer still scores every harvested URL — it just has no
+/// exclusion list to soften well-known hosts.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_load_url_whitelist(data: *const u8, len: usize) -> i32 {
+    let Some(bytes) = take_c_bytes(data, len) else {
+        return 0;
+    };
+    let engine_lock = match get_or_init_engine(None) {
+        Ok(lock) => lock,
+        Err(_) => return 0,
+    };
+    let mut engine = match engine_lock.write() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    engine.load_url_whitelist(&bytes) as i32
 }
 
 /// Scan a Windows EVTX log file for threat events using Hayabusa rules.

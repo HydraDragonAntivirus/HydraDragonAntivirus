@@ -51,6 +51,10 @@ pub struct SignerDb {
 /// File name of the SHA-256 benign whitelist, under `xorfilter_rules/`.
 pub const BENIGN_XF: &str = "benign_sha256.xf";
 
+/// File name of the URL/domain/IP whitelist (BinaryFuse16 `.xf`, Tranco 1M),
+/// under `xorfilter_rules/`. Web parity: `openedr_web`'s `url_whitelist`.
+pub const URL_WHITELIST_XF: &str = "url_whitelist.xf";
+
 impl SignerDb {
     pub fn pattern_counts(&self) -> (usize, usize, usize) {
         (self.trusted.len(), self.malicious.len(), self.pua.len())
