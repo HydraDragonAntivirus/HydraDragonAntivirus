@@ -84,8 +84,12 @@ pub(crate) fn scan_pe(
             }
             let mut offset = 0;
             while offset + 4 <= section.bytes.len() {
-                let mut reader = U8Reader::new(&section.bytes[offset..]);
-                if let Ok(inst) = decoder.decode(&mut reader) {
+                let slice = &section.bytes[offset..];
+                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut reader = U8Reader::new(slice);
+                    decoder.decode(&mut reader)
+                }));
+                if let Ok(Ok(inst)) = decoded {
                     if opts.code_refs {
                         let curr_va = section.va.wrapping_add(offset as u64);
                         arm64_code_ref(&inst, curr_va, data, &sections, min_len, known, &mut emitted, out);
@@ -105,8 +109,12 @@ pub(crate) fn scan_pe(
             }
             let mut offset = 0;
             while offset + 2 <= section.bytes.len() {
-                let mut reader = U8Reader::new(&section.bytes[offset..]);
-                if let Ok(inst) = decoder.decode(&mut reader) {
+                let slice = &section.bytes[offset..];
+                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut reader = U8Reader::new(slice);
+                    decoder.decode(&mut reader)
+                }));
+                if let Ok(Ok(inst)) = decoded {
                     if opts.code_refs {
                         let curr_va = section.va.wrapping_add(offset as u64);
                         arm32_code_ref(&inst, curr_va, data, &sections, min_len, known, &mut emitted, out);

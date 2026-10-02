@@ -80,6 +80,8 @@ struct Sample {
 }
 
 fn main() {
+    std::panic::set_hook(Box::new(|_| {}));
+
     let cli = Cli::parse();
 
     let threads = match &cli.command {
@@ -167,7 +169,11 @@ fn collect_pe_samples(dir: &Path, label: usize, samples: &mut Vec<Sample>) {
                 }
             };
 
-            let features: PeFeatureVector = ml::pe_features::extract_pe_features(&bytes)?;
+            let features: PeFeatureVector = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ml::pe_features::extract_pe_features(&bytes)
+            }))
+            .ok()
+            .flatten()?;
 
             Some(Sample {
                 features: features.to_array().to_vec(),
@@ -211,7 +217,11 @@ fn collect_js_samples(dir: &Path, label: usize, samples: &mut Vec<Sample>) {
                 }
             };
 
-            let features: JsFeatureVector = ml::js_features::extract_js_features(&source)?;
+            let features: JsFeatureVector = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ml::js_features::extract_js_features(&source)
+            }))
+            .ok()
+            .flatten()?;
 
             Some(Sample {
                 features: features.to_array().to_vec(),

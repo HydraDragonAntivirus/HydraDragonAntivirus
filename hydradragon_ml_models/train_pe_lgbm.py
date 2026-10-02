@@ -8,11 +8,13 @@ trains an ultra-fast LightGBM model with class balancing, and exports to ONNX.
 import os
 import sys
 import math
+import struct
+import shutil
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import pefile
-import capstone
+from iced_x86 import Decoder, DecoderOptions, Mnemonic
 import lightgbm as lgb
 import joblib
 from sklearn.model_selection import train_test_split
@@ -202,22 +204,47 @@ def extract_pe_features_from_file(filepath: str):
         num_debug_entries = ln1p(float(len(getattr(pe, "DIRECTORY_ENTRY_DEBUG", []))))
         cert_size = certificate_table_size
 
-        # Disassembly snippet (first code section)
+        # Disassembly snippet (first code section) with pure-Rust iced-x86 & pure ARM bitmask decoder
         total_instructions = 0.0
         total_add = 0.0
         total_mov = 0.0
         try:
-            mode = capstone.CS_MODE_64 if opt.Magic == 0x20B else capstone.CS_MODE_32
-            md = capstone.Cs(capstone.CS_ARCH_X86, mode)
+            is_arm64 = (coff.Machine == 0xAA64)
+            is_arm32 = (coff.Machine in (0x1C0, 0x1C2, 0x1C4))
             for section in sections:
                 if section.Characteristics & 0x00000020: # IMAGE_SCN_CNT_CODE
                     code_data = section.get_data()[:65536] # inspect first 64KB
-                    for insn in md.disasm(code_data, section.VirtualAddress):
-                        total_instructions += 1
-                        if insn.mnemonic == "add":
-                            total_add += 1
-                        elif insn.mnemonic == "mov":
-                            total_mov += 1
+                    if is_arm64:
+                        # ARM64: 4-byte fixed instructions
+                        for offset in range(0, len(code_data) - 3, 4):
+                            word = struct.unpack_from("<I", code_data, offset)[0]
+                            total_instructions += 1
+                            # ADD (immediate or shifted register)
+                            if (word & 0x1F000000) == 0x0B000000 or (word & 0x7F000000) == 0x11000000:
+                                total_add += 1
+                            # MOVZ / MOVN / MOVK
+                            elif (word & 0x7F800000) in (0x52800000, 0x12800000, 0x72800000):
+                                total_mov += 1
+                    elif is_arm32:
+                        # ARM32: 4-byte instructions
+                        for offset in range(0, len(code_data) - 3, 4):
+                            word = struct.unpack_from("<I", code_data, offset)[0]
+                            total_instructions += 1
+                            if (word & 0x0C000000) == 0:
+                                op = (word >> 21) & 0xF
+                                if op == 0x4: # ADD
+                                    total_add += 1
+                                elif op == 0xD: # MOV
+                                    total_mov += 1
+                    else:
+                        bitness = 64 if opt.Magic == 0x20B else 32
+                        decoder = Decoder(bitness, code_data, ip=section.VirtualAddress, options=DecoderOptions.NONE)
+                        for insn in decoder:
+                            total_instructions += 1
+                            if insn.mnemonic == Mnemonic.ADD:
+                                total_add += 1
+                            elif insn.mnemonic == Mnemonic.MOV:
+                                total_mov += 1
                     break
         except Exception:
             pass
@@ -264,11 +291,52 @@ def find_files(dir_path: str, max_files: int = 200000):
                 return files
     return files
 
+class StandardTree:
+    def __init__(self):
+        self.nodes = []
+
+    def emit(self):
+        out = [struct.pack("<I", len(self.nodes))]
+        for (i, f, t, l, r, leaf, w) in self.nodes:
+            out.append(struct.pack("<IIfIIBf", i, f, t, l, r, 1 if leaf else 0, w))
+        return b"".join(out)
+
+def convert_lightgbm_standard(dump):
+    trees = []
+    for info in dump["tree_info"]:
+        t, nxt = StandardTree(), [0]
+        def new_id():
+            nxt[0] += 1
+            return nxt[0]
+        queue = [(info["tree_structure"], 0)]
+        nodes = {}
+        while queue:
+            node, nid = queue.pop(0)
+            if "leaf_value" in node:
+                nodes[nid] = (nid, 0, 0.0, 0, 0, True, float(node["leaf_value"]))
+            else:
+                l, r = new_id(), new_id()
+                nodes[nid] = (nid, int(node["split_feature"]), float(node["threshold"]), l, r, False, 0.0)
+                queue.append((node["left_child"], l))
+                queue.append((node["right_child"], r))
+        t.nodes = [nodes[k] for k in sorted(nodes)]
+        trees.append(t)
+    return trees
+
+def export_standard_tree_bundle(clf, out_path: str):
+    dump = clf.booster_.dump_model()
+    trees = convert_lightgbm_standard(dump)
+    raw = struct.pack("<I", len(trees)) + b"".join(t.emit() for t in trees)
+    with open(out_path, "wb") as f:
+        f.write(raw)
+    print(f"  [+] Exported standard tree bundle: {out_path} ({len(raw):,} bytes, {len(trees)} trees)", flush=True)
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train LightGBM PE Model and Export to ONNX")
     parser.add_argument("--malicious", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder", help="Directory of malicious PEs")
     parser.add_argument("--benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2", help="Directory of benign PEs")
     parser.add_argument("--output-onnx", type=str, default="pe_model.onnx", help="Output ONNX model path")
+    parser.add_argument("--output-bin", type=str, default="pe_trees.bin", help="Output binary tree bundle (openedr_static format)")
     parser.add_argument("--max-samples-per-class", type=int, default=100000, help="Max samples to train from each class")
     parser.add_argument("--cache-file", type=str, default=None, help="Legacy single-file cache (joblib)")
     parser.add_argument("--chunk-dir", type=str, default="cache_chunks_pe", help="Directory to store feature chunks")
@@ -425,6 +493,14 @@ def main():
     with open(args.output_onnx, "wb") as f:
         f.write(onnx_model.SerializeToString())
     print(f"[+] ONNX model successfully saved to {args.output_onnx}!")
+
+    print(f"[*] Exporting standard binary tree bundle: {args.output_bin}...")
+    export_standard_tree_bundle(clf, args.output_bin)
+
+    openedr_dest = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "OpenEDR", "openedr_static", "models", "pe_trees.bin"))
+    if os.path.exists(os.path.dirname(openedr_dest)):
+        shutil.copy2(args.output_bin, openedr_dest)
+        print(f"[+] Successfully synced tree model to engine: {openedr_dest}")
 
 if __name__ == "__main__":
     main()

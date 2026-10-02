@@ -281,8 +281,12 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
             };
             let mut offset = 0;
             while offset + 4 <= code.len() {
-                let mut reader = U8Reader::new(&code[offset..]);
-                if let Ok(inst) = decoder.decode(&mut reader) {
+                let slice = &code[offset..];
+                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut reader = U8Reader::new(slice);
+                    decoder.decode(&mut reader)
+                }));
+                if let Ok(Ok(inst)) = decoded {
                     total_instructions += 1;
                     match inst.opcode {
                         yaxpeax_arm::armv8::a64::Opcode::ADD => total_add += 1,
@@ -310,8 +314,12 @@ pub fn extract_pe_features(bytes: &[u8]) -> Option<PeFeatureVector> {
             };
             let mut offset = 0;
             while offset + 2 <= code.len() {
-                let mut reader = U8Reader::new(&code[offset..]);
-                if let Ok(inst) = decoder.decode(&mut reader) {
+                let slice = &code[offset..];
+                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut reader = U8Reader::new(slice);
+                    decoder.decode(&mut reader)
+                }));
+                if let Ok(Ok(inst)) = decoded {
                     total_instructions += 1;
                     match inst.opcode {
                         yaxpeax_arm::armv7::Opcode::ADD => total_add += 1,
