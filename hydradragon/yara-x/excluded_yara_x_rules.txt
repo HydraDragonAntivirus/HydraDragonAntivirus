@@ -70,6 +70,7 @@ IDAnt_wanna
 ImportTableIsBad
 InnoSetupInstaller
 Insta11Strings
+IsBeyondImageSize
 IsConsole
 IsDLL
 IsELF32
@@ -168,6 +169,7 @@ executable_au3
 executable_elf32
 executable_elf64
 executable_pe
+executable_win_rtl
 file_plist
 gif_animated
 ima_adpcm_step_table__32_lil_356_

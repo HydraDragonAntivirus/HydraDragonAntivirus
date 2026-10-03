@@ -3661,4 +3661,52 @@ rule libfaad2_Q_Fract_allpass_Qmf__flt32___32_lil_1536_ {
     $a0
 }
 
+// ===== MANUALLY EXCLUDED RULE: executable_win_rtl =====
+// Reason: High False Positive (FP) risk in antivirus / threat detection.
+// Analysis: Informational/classification rule from QuickSand (@tylabs, rank=10).
+// Matches LZNT1 (Windows RtlCompressBuffer) compressed PE DOS stub ("This program cannot be run in DOS mode").
+// Does NOT detect malicious payload or exploit; triggers on legitimate Windows binaries,
+// installers (MSI/setup), Windows updates, and clean software packages.
+rule executable_win_rtl {
+  meta:
+    is_exe    = true
+    type      = "win-rtl"
+    rank      = 10
+    revision  = "100"
+    date      = "July 29 2015"
+    desc      = "Right to Left compression LZNT1"
+    author    = "@tylabs"
+    copyright = "QuickSand.io 2015"
+    tlp       = "green"
 
+  strings:
+    $s1 = { 20 70 72 6F 67 72 61 6D 00 20 63 61 6E 6E 6F 74 20 00 62 65 20 72 75 6E 20 69 00 6E 20 44 4F 53 20 6D 6F }  // string.RTL.This program cannot be run in DOS mode
+
+  condition:
+    1 of them
+}
+
+// ===== MANUALLY EXCLUDED RULE: IsBeyondImageSize =====
+// Reason: Critical False Positive (FP) risk in antivirus / threat detection.
+// Analysis: PE header anomaly / sanity check rule by _pusher_ (PECheck).
+// Architectural Flaw: Hardcodes 32-bit PE offset (0x50) for SizeOfImage. On 64-bit (PE32+)
+// executables, ImageBase is 8 bytes so offset 0x50 reads OS version numbers (~10) instead
+// of SizeOfImage, making the condition evaluate to TRUE on almost ALL modern 64-bit binaries.
+// Furthermore, section alignment anomalies and SFX/installer overlays are common in clean software.
+rule IsBeyondImageSize: PECheck {
+  meta:
+    author      = "_pusher_"
+    date        = "2016-07"
+    description = "Data Beyond ImageSize Check"
+
+  condition:
+    // MZ signature at offset 0 and ...
+    uint16(0) == 0x5A4D and
+    // ... PE signature at offset stored in MZ header at 0x3C
+    uint32(uint32(0x3C)) == 0x00004550 and
+    for any i in (0..pe.sections.len() - 1):
+    (
+      (pe.sections[i].virtual_address + pe.sections[i].virtual_size) > (uint32(uint32(0x3C) + 0x50)) or
+      (pe.sections[i].raw_data_offset + pe.sections[i].raw_data_size) > filesize
+    )
+}
