@@ -1172,15 +1172,6 @@ fn entry_is_compressed_document(name: &str) -> bool {
                 }
             }
 
-            // 0.2 SHA-256 benign whitelist (BinaryFuse16 `.xf`, web parity).
-            // Gated on an empty detection list, so a malicious/PUA signer or a
-            // crypto-collision hit above has already pushed a detection and this
-            // cannot whitewash the file.
-            //
-            // It runs here rather than at the top of the function for one reason:
-            // the trusted-signer fast-path below must not be able to hide a
-            // whitelist hit, so the whitelist is evaluated first.
-            let benign_hit = detections.is_empty() && self.is_benign(&sha256_hex);
 
             // A binary is ONLY treated as trusted if:
             // 1. Its cryptographic signature passed WinVerifyTrust / Catalog verification (is_trusted == true).
@@ -1194,40 +1185,41 @@ fn entry_is_compressed_document(name: &str) -> bool {
                 status,
                 is_catalog_signed,
             });
+        }
 
-            // A whitelist hit short-circuits the whole scan. Reported as a plain
-            // Clean with the signer attached, exactly like the trusted-signer
-            // fast-path below, so the caller can still see who published it.
-            if benign_hit {
-                return StaticScanReport {
-                    target: target_name.to_string(),
-                    file_size,
-                    sha256: sha256_hex,
-                    verdict: "Clean".to_string(),
-                    max_threat_score: 0.0,
-                    detections: Vec::new(),
-                    signer_info: signer_details,
-                    pua_registry_matches: Vec::new(),
-                    extracted_objects: Vec::new(),
-                    scan_time_ms: start_time.elapsed().as_millis() as u64,
-                };
-            }
+        // 0.2 SHA-256 benign whitelist (NSRL / Tranco BinaryFuse16 `.xf`, web parity).
+        // Gated on an empty detection list, so a malicious/PUA signer or an EICAR
+        // hit above cannot be whitewashed.
+        // Works for both on-disk files and raw memory byte scans.
+        if detections.is_empty() && self.is_benign(&sha256_hex) {
+            return StaticScanReport {
+                target: target_name.to_string(),
+                file_size,
+                sha256: sha256_hex,
+                verdict: "Clean".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: signer_details,
+                pua_registry_matches: Vec::new(),
+                extracted_objects: Vec::new(),
+                scan_time_ms: start_time.elapsed().as_millis() as u64,
+            };
+        }
 
-            // Fast-path ONLY for binaries that are cryptographically valid AND vetted in trusted_signers.yaml
-            if is_fully_trusted && detections.is_empty() {
-                return StaticScanReport {
-                    target: target_name.to_string(),
-                    file_size,
-                    sha256: sha256_hex,
-                    verdict: "Clean".to_string(),
-                    max_threat_score: 0.0,
-                    detections: Vec::new(),
-                    signer_info: signer_details,
-                    pua_registry_matches: Vec::new(),
-                    extracted_objects: Vec::new(),
-                    scan_time_ms: start_time.elapsed().as_millis() as u64,
-                };
-            }
+        // Fast-path ONLY for binaries that are cryptographically valid AND vetted in trusted_signers.yaml
+        if signer_details.as_ref().map_or(false, |s| s.is_trusted) && detections.is_empty() {
+            return StaticScanReport {
+                target: target_name.to_string(),
+                file_size,
+                sha256: sha256_hex,
+                verdict: "Clean".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: signer_details,
+                pua_registry_matches: Vec::new(),
+                extracted_objects: Vec::new(),
+                scan_time_ms: start_time.elapsed().as_millis() as u64,
+            };
         }
 
         // 2a. APK path (web parity): own forest + heuristics + capped YARA/HydraSig.
