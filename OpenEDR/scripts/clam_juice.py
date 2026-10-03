@@ -137,10 +137,7 @@ class ComprehensiveFilter:
             # every binary (including the DROPADABASE mimikatz set — kept out
             # for the speed trial; restore by dropping "twinw" below if a
             # TwinWave FOUND ever matters). Case-insensitive.
-            "exclude_name_contains": ["twinw", "twiwave", "twinclam",
-                                      "twinwave.evildoc", "twinwave.evilxll",
-                                      "twinwave.evillnk", "twinwave.evilnk",
-                                      "twinwave.onenote", "twinwave.cmdobfus"],
+            "exclude_name_contains": [],
             # Hash DBs: engine skips them (xor-filter pipeline owns hashes).
             # cvd/cld/sign: carriers the engine cannot read (bytecode.cvd is
             # unpacked to .cbc instead, see below). .cdb IS kept (Win/Foxhole
@@ -301,6 +298,23 @@ class ComprehensiveFilter:
         except Exception as e:
             self.error(f"Failed to read ignore file {file_path}: {e}")
 
+    def _is_unofficial_signature(self, name):
+        """Check if a signature comes from an unofficial third-party source."""
+        if not name:
+            return False
+        lowered = name.lower()
+        if "unofficial" in lowered:
+            return True
+        unofficial_vendors = (
+            "securiteinfo", "sanesecurity", "porcupine", "malwarepatrol",
+            "oitc", "scamnailer", "foxhole", "yararules", "interserver",
+            "miscreantpunch", "crdf", "bofhland", "junk"
+        )
+        parts = lowered.split(".")
+        if parts[0] in unofficial_vendors or (len(parts) > 1 and parts[1] == "com"):
+            return True
+        return False
+
     def should_keep_signature(self, name, exclude_platforms, include_platforms, keep_if_contains=None, exclude_contains=None):
         """Determine if a signature should be kept based on its name."""
         if name and name in self.ignore_names:
@@ -330,6 +344,10 @@ class ComprehensiveFilter:
 
         if exclude_platforms and prefix in exclude_platforms:
             return False
+
+        # Unofficial / third-party community signatures: preserve unless explicitly excluded by platform
+        if self._is_unofficial_signature(name):
+            return True
 
         if include_platforms and prefix in include_platforms:
             return True
