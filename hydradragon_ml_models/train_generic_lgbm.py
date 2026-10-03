@@ -302,7 +302,9 @@ def collect_all_files(dir_path: str):
         print(f"[!] Path not found: {dir_path}", flush=True)
         return paths
     print(f"[*] Scanning all files in: {dir_path} ...", flush=True)
-    for root, _, files in os.walk(dir_path):
+    for root, dirs, files in os.walk(dir_path):
+        # Exclude hidden, huggingface and temporary cache folders (.cache, .git, etc.)
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__"]
         for f in files:
             paths.append(os.path.join(root, f))
     print(f"[+] Found {len(paths):,} total files in: {dir_path}", flush=True)
@@ -357,7 +359,7 @@ def main():
         },
         {
             "name": "Mobile / Android APKs",
-            "benign": r"C:\Users\semae\OneDrive\Belgeler\Github\HydraDragonAV-Mobile\dataset\benign",
+            "benign": r"C:\Users\semae\OneDrive\Belgeler\Github\HydraDragonAV-Mobile\dataset\benign\F-Droid",
             "malicious": r"C:\Users\semae\OneDrive\Belgeler\Github\HydraDragonAV-Mobile\dataset\malware",
         },
     ]

@@ -1,3 +1,6 @@
+# NSRL Whitelist XORFilter
+OpenMalwareScannerPortable/xorfilter_rules/benign_sha256.xf
+
 # Multron JSONL Cache
 OpenMalwareScannerPortable/multron_cache.jsonl
 

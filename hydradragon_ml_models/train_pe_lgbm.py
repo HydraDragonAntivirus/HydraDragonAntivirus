@@ -346,17 +346,19 @@ def parse_args():
     parser.add_argument("--train-only", action="store_true", help="Only train from existing chunk directory")
     return parser.parse_args()
 
-def collect_features_batch(file_batch, workers):
+def collect_features_batch(file_batch, executor):
     features = []
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(extract_pe_features_from_file, p): p for p in file_batch}
-        for future in as_completed(futures):
+    futures = [executor.submit(extract_pe_features_from_file, p) for p in file_batch]
+    for future in as_completed(futures):
+        try:
             res = future.result()
             if res is not None:
                 features.append(res)
+        except Exception:
+            pass
     return features
 
-def extract_chunks_to_disk(file_list, workers, label_name, label_val, chunk_dir, chunk_size):
+def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir, chunk_size):
     os.makedirs(chunk_dir, exist_ok=True)
     total_files = len(file_list)
     print(f"[*] Extracting {label_name} PEs ({total_files} files) into chunks of {chunk_size} to {chunk_dir}...")
@@ -373,7 +375,7 @@ def extract_chunks_to_disk(file_list, workers, label_name, label_val, chunk_dir,
             chunk_idx += 1
             continue
             
-        feats = collect_features_batch(chunk_files, workers)
+        feats = collect_features_batch(chunk_files, executor)
         if feats:
             X_chunk = np.array(feats, dtype=np.float32)
             y_chunk = np.full(len(feats), label_val, dtype=np.int32)
@@ -447,8 +449,9 @@ def main():
         ben_files = find_files(args.benign, args.max_samples_per_class) if os.path.exists(args.benign) else []
         print(f"[+] Discovered {len(mal_files)} malicious PEs and {len(ben_files)} benign PEs.")
         
-        extract_chunks_to_disk(mal_files, args.workers, "MALICIOUS", 1, args.chunk_dir, args.chunk_size)
-        extract_chunks_to_disk(ben_files, args.workers, "BENIGN", 0, args.chunk_dir, args.chunk_size)
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            extract_chunks_to_disk(mal_files, executor, "MALICIOUS", 1, args.chunk_dir, args.chunk_size)
+            extract_chunks_to_disk(ben_files, executor, "BENIGN", 0, args.chunk_dir, args.chunk_size)
 
     if args.extract_only:
         print("[+] Feature extraction finished. Exiting as --extract-only was specified.")
