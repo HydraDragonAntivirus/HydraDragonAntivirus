@@ -602,7 +602,17 @@ fn entry_is_compressed_document(name: &str) -> bool {
     /// If 0 KB or unreachable (permission denied, locked, absent), directly skips.
     pub fn scan_file(&self, path: &Path) -> StaticScanReport {
         let t0 = Instant::now();
-        let target_str = path.display().to_string();
+        let target_str = match std::fs::canonicalize(path) {
+            Ok(p) => {
+                let s = p.to_string_lossy().to_string();
+                if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                    stripped.to_string()
+                } else {
+                    s
+                }
+            }
+            Err(_) => path.display().to_string(),
+        };
 
         // 1. Unreachable check: path absent or not a regular file -> directly skip
         if !path.exists() || !path.is_file() {

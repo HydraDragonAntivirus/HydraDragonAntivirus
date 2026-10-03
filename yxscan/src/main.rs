@@ -147,13 +147,19 @@ fn read_range(path: &Path, offset: u64, length: Option<u64>) -> std::io::Result<
 }
 
 fn main() {
-    let args = match parse_args() {
+    let mut args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
             eprintln!("ERROR: {e}");
             std::process::exit(2);
         }
     };
+
+    // Guarantee that target is always a clean, absolute full path
+    if let Ok(abs) = std::fs::canonicalize(&args.target) {
+        let s = abs.to_string_lossy().to_string();
+        args.target = PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s));
+    }
 
     let rules = {
         let t = Instant::now();

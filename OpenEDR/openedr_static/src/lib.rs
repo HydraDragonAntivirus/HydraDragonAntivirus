@@ -302,6 +302,43 @@ pub extern "C" fn openedr_static_scan_file(file_path: *const c_char) -> *mut c_c
     }
 }
 
+/// Scan a file on disk and return results in Elastic Common Schema (ECS 8.x) JSON format.
+/// Returns a JSON-formatted string allocated on the heap. Caller MUST free using `openedr_static_free_string`.
+#[unsafe(no_mangle)]
+pub extern "C" fn openedr_static_scan_file_ecs(file_path: *const c_char) -> *mut c_char {
+    if file_path.is_null() {
+        return error_json("file_path pointer is null");
+    }
+
+    let path_str = match unsafe { CStr::from_ptr(file_path) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => return error_json("Invalid UTF-8 in file_path"),
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let engine_lock = match try_get_engine() {
+            Ok(lock) => lock,
+            Err(e) => return error_json(&format!("Failed to initialize engine: {}", e)),
+        };
+
+        let engine = match engine_lock.read() {
+            Ok(guard) => guard,
+            Err(_) => return error_json("Engine lock poisoned"),
+        };
+
+        let report = engine.scan_file(Path::new(&path_str));
+        match report.to_ecs_json_pretty() {
+            Ok(json) => to_c_string(json),
+            Err(e) => error_json(&format!("ECS JSON serialization error: {}", e)),
+        }
+    }));
+
+    match result {
+        Ok(ptr) => ptr,
+        Err(_) => error_json("Panic occurred during static scan"),
+    }
+}
+
 /// Scan a live process' committed readable memory by PID (Windows only).
 /// `pid`: target process id. `max_mb`: total-bytes cap (0 = default 256 MiB).
 /// Read-only snapshots; nothing is executed. Per region: ClamAV + YARA
