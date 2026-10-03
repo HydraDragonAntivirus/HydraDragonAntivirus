@@ -3,7 +3,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use yara_x::{Compiler, Scanner};
+use yara_x::{Compiler, Rules, Scanner};
 
 struct Args {
     rules: PathBuf,
@@ -120,33 +120,95 @@ fn main() {
         }
     };
 
-    eprintln!("[1/3] compiling rules: {}", args.rules.display());
-    let t = Instant::now();
-    let source = match std::fs::read_to_string(&args.rules) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("ERROR: cannot read rules file: {e}");
-            std::process::exit(2);
+    let rules = {
+        let t = Instant::now();
+        // 1. Check if user provided a .yrc directly or if a corresponding .yrc exists next to the .yar
+        let yrc_candidate = if args.rules.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("yrc")).unwrap_or(false) {
+            Some(args.rules.clone())
+        } else {
+            let candidate = args.rules.with_extension("yrc");
+            if candidate.exists() {
+                Some(candidate)
+            } else {
+                None
+            }
+        };
+
+        let mut loaded_rules: Option<Rules> = None;
+
+        if let Some(ref yrc_path) = yrc_candidate {
+            if let Ok(raw_bytes) = std::fs::read(yrc_path) {
+                if let Ok(r) = Rules::deserialize(&raw_bytes) {
+                    eprintln!("[1/3] loaded pre-compiled rules: {}", yrc_path.display());
+                    eprintln!(
+                        "      size: {:.1} MB, loaded in {:.3}s, total rules = {}",
+                        raw_bytes.len() as f64 / 1048576.0,
+                        t.elapsed().as_secs_f64(),
+                        r.iter().count()
+                    );
+                    loaded_rules = Some(r);
+                }
+            }
+        }
+
+        if let Some(r) = loaded_rules {
+            r
+        } else {
+            // Check if args.rules itself is already binary serialized rules
+            if let Ok(raw_bytes) = std::fs::read(&args.rules) {
+                if let Ok(r) = Rules::deserialize(&raw_bytes) {
+                    eprintln!("[1/3] loaded pre-compiled rules directly from {}", args.rules.display());
+                    eprintln!(
+                        "      size: {:.1} MB, loaded in {:.3}s, total rules = {}",
+                        raw_bytes.len() as f64 / 1048576.0,
+                        t.elapsed().as_secs_f64(),
+                        r.iter().count()
+                    );
+                    r
+                } else {
+                    // Need to compile from source
+                    eprintln!("[1/3] compiling rules from source: {}", args.rules.display());
+                    let source = match String::from_utf8(raw_bytes) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("ERROR: cannot read rules file as UTF-8: {e}");
+                            std::process::exit(2);
+                        }
+                    };
+                    eprintln!(
+                        "      source: {:.1} MB, read in {:.2}s",
+                        source.len() as f64 / 1048576.0,
+                        t.elapsed().as_secs_f64()
+                    );
+
+                    let mut compiler = Compiler::new();
+                    if let Err(e) = compiler.add_source(source.as_str()) {
+                        eprintln!("ERROR: compile failed: {e}");
+                        std::process::exit(2);
+                    }
+                    let r = compiler.build();
+                    eprintln!(
+                        "      compiled in {:.2}s, total rules = {}",
+                        t.elapsed().as_secs_f64(),
+                        r.iter().count()
+                    );
+
+                    // Auto-save compiled .yrc next to the rules file for next runs!
+                    let auto_yrc = args.rules.with_extension("yrc");
+                    if let Ok(serialized) = r.serialize() {
+                        if std::fs::write(&auto_yrc, &serialized).is_ok() {
+                            eprintln!("      cached pre-compiled rules to {}", auto_yrc.display());
+                        }
+                    }
+
+                    r
+                }
+            } else {
+                eprintln!("ERROR: cannot open rules file: {}", args.rules.display());
+                std::process::exit(2);
+            }
         }
     };
-    eprintln!(
-        "      source: {:.1} MB, read in {:.1}s",
-        source.len() as f64 / 1048576.0,
-        t.elapsed().as_secs_f64()
-    );
-
-    let t = Instant::now();
-    let mut compiler = Compiler::new();
-    if let Err(e) = compiler.add_source(source.as_str()) {
-        eprintln!("ERROR: compile failed: {e}");
-        std::process::exit(2);
-    }
-    let rules = compiler.build();
-    eprintln!(
-        "      compiled in {:.1}s, total rules = {}",
-        t.elapsed().as_secs_f64(),
-        rules.iter().count()
-    );
 
     eprintln!("[2/3] loading target: {}", args.target.display());
     let t = Instant::now();

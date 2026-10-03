@@ -282,12 +282,12 @@ def extract_pe_features_from_file(filepath: str):
     except Exception:
         return None
 
-def find_files(dir_path: str, max_files: int = 200000):
+def find_files(dir_path: str, max_files: int = 0):
     files = []
     for root, _, filenames in os.walk(dir_path):
         for f in filenames:
             files.append(os.path.join(root, f))
-            if len(files) >= max_files:
+            if max_files > 0 and len(files) >= max_files:
                 return files
     return files
 
@@ -337,7 +337,7 @@ def parse_args():
     parser.add_argument("--benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2", help="Directory of benign PEs")
     parser.add_argument("--output-onnx", type=str, default="pe_model.onnx", help="Output ONNX model path")
     parser.add_argument("--output-bin", type=str, default="pe_trees.bin", help="Output binary tree bundle (openedr_static format)")
-    parser.add_argument("--max-samples-per-class", type=int, default=100000, help="Max samples to train from each class")
+    parser.add_argument("--max-samples-per-class", type=int, default=0, help="Max samples to train from each class (0 = unlimited)")
     parser.add_argument("--cache-file", type=str, default=None, help="Legacy single-file cache (joblib)")
     parser.add_argument("--chunk-dir", type=str, default="cache_chunks_pe", help="Directory to store feature chunks")
     parser.add_argument("--chunk-size", type=int, default=5000, help="Number of files per disk chunk to avoid RAM blowup")

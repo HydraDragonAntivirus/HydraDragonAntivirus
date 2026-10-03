@@ -4,4 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-yara-x = "1.21"
+yara-x = { version = "1.21", default-features = false, features = ["constant-folding", "fast-regexp"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
