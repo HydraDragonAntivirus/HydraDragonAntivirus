@@ -4683,3 +4683,22 @@ rule TASM___MASM {
   condition:
     $a0 at pe.entry_point
 }
+
+// wiresock.sys 77653fa1cfae5ecc2b537040bc2b263848a2e0ede8e011552d93ab9a4979e036
+
+rule SUSP_PE_Unusual_Imported_Library_Names {
+  meta:
+    description = "look for PE's whose imported libraries don't end in DLL, and aren't common EXE names"
+    author      = "Greg Lesnewich"
+    date        = "2024-01-14"
+    version     = "1.0"
+    DaysOfYARA  = "14/100"
+
+  condition:
+    for any imp in pe.import_details:
+    (
+      not imp.library_name iendswith ".dll" and
+      not imp.library_name iequals "WINSPOOL.DRV" and
+      not imp.library_name iequals "ntoskrnl.exe"
+    )
+}
