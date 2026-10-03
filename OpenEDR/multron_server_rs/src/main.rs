@@ -83,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     detail: None,
                     sha256: None,
                     message: Some(format!("auto start failed: {}", e)),
+                    origin_type: None,
                 });
             }
         }

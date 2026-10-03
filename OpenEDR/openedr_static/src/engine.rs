@@ -18,7 +18,7 @@ use crate::report::{
     DetectionItem, ExtractedObject, MemoryScanReport, RegistryCheckReport, ScanObject, SignerDetails, StaticScanReport,
 };
 use crate::signers::{verify_authenticode, BinaryFuse16Filter, SignerDb};
-use crate::string_rules::{self, PeStringRules};
+use crate::string_rules::PeStringRules;
 use crate::yara::YaraScanner;
 
 /// APK tree-model decision threshold. From `apk_trees.meta.json`

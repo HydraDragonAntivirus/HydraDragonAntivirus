@@ -160,6 +160,7 @@ impl AppState {
                     detail: None,
                     sha256: None,
                     message: Some(format!("listener stopped: {}", e)),
+                    origin_type: None,
                 });
             }
         });
@@ -190,6 +191,7 @@ impl AppState {
             detail: None,
             sha256: None,
             message: Some(format!("listening on ws://{}{}", bind_addr, path)),
+            origin_type: None,
         });
 
         Ok(())
@@ -223,6 +225,7 @@ impl AppState {
                 detail: None,
                 sha256: None,
                 message: Some("server stopped".to_string()),
+                origin_type: None,
             });
         }
     }
@@ -396,6 +399,7 @@ fn info_event(app: &AppState, message: String) {
         detail: None,
         sha256: None,
         message: Some(message),
+        origin_type: None,
     });
 }
 

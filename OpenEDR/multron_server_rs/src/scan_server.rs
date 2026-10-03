@@ -273,6 +273,7 @@ impl ScanServer {
                     sha256: sha_hex.to_string(),
                     scan_ms: 0,
                     source: "cache".into(),
+                    extracted_objects: Vec::new(),
                 });
             }
         }
@@ -851,6 +852,7 @@ async fn handle_scan(
                     sha256: sha_hex.clone(),
                     scan_ms: 0,
                     source: "scan".into(),
+                    extracted_objects: Vec::new(),
                 })
             }
             Ok(Err(e)) => Err(e),
