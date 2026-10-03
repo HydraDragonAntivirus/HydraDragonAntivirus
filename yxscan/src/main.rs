@@ -13,6 +13,7 @@ struct Args {
     length: Option<u64>,
     limit_rules: usize,
     timeout_secs: u64,
+    max_files: Option<usize>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -23,6 +24,7 @@ fn parse_args() -> Result<Args, String> {
     let mut length = None;
     let mut limit_rules = usize::MAX;
     let mut timeout_secs = 0u64;
+    let mut max_files = None;
 
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -73,10 +75,19 @@ fn parse_args() -> Result<Args, String> {
                     .parse()
                     .map_err(|_| "bad --timeout")?;
             }
+            "--max-files" | "--limit-files" | "-n" => {
+                i += 1;
+                max_files = Some(
+                    argv.get(i)
+                        .ok_or("--max-files needs a value")?
+                        .parse()
+                        .map_err(|_| "bad --max-files value")?,
+                );
+            }
             "-h" | "--help" => {
                 println!(
-                    "yxscan --rules <r.yar> --target <file> [--out hits.txt] [--offset N] \
-                     [--length N] [--limit-rules N] [--timeout secs]"
+                    "yxscan --rules <r.yar|r.yrc> --target <file|dir> [--out hits.txt] [--max-files N] \
+                     [--offset N] [--length N] [--limit-rules N] [--timeout secs]"
                 );
                 std::process::exit(0);
             }
@@ -93,15 +104,26 @@ fn parse_args() -> Result<Args, String> {
         length,
         limit_rules,
         timeout_secs,
+        max_files,
     })
 }
 
-fn collect_target_files(dir: &Path, files: &mut Vec<PathBuf>) {
+fn collect_target_files(dir: &Path, files: &mut Vec<PathBuf>, max_files: Option<usize>) {
+    if let Some(max) = max_files {
+        if files.len() >= max {
+            return;
+        }
+    }
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
+            if let Some(max) = max_files {
+                if files.len() >= max {
+                    break;
+                }
+            }
             let path = entry.path();
             if path.is_dir() {
-                collect_target_files(&path, files);
+                collect_target_files(&path, files, max_files);
             } else if path.is_file() {
                 files.push(path);
             }
@@ -227,14 +249,43 @@ fn main() {
         eprintln!("[2/3] discovering files in directory: {}", args.target.display());
         let t_disc = Instant::now();
         let mut target_files = Vec::new();
-        collect_target_files(&args.target, &mut target_files);
+        collect_target_files(&args.target, &mut target_files, args.max_files);
+        if let Some(max) = args.max_files {
+            target_files.truncate(max);
+        }
         eprintln!(
-            "      found {} files in {:.2}s",
+            "      found {} files in {:.2}s{}",
             target_files.len(),
-            t_disc.elapsed().as_secs_f64()
+            t_disc.elapsed().as_secs_f64(),
+            if let Some(m) = args.max_files {
+                format!(" (capped at --max-files {m})")
+            } else {
+                String::new()
+            }
         );
 
-        eprintln!("[3/3] scanning {} files ...", target_files.len());
+        // Pre-create output report file to stream hits in real time as they are found
+        let out_file = File::create(&args.out).unwrap_or_else(|e| {
+            eprintln!("ERROR: cannot create output file {}: {e}", args.out.display());
+            std::process::exit(2);
+        });
+        let mut w = std::io::BufWriter::new(out_file);
+        writeln!(
+            w,
+            "# yara-x scan report (live-streamed)\n# rules     : {}\n# target dir: {}\n# files     : {}\n# max files : {}\n# ----------------------------------------\n# file_path\trule_id\tnamespace\tpatterns\ttags",
+            args.rules.display(),
+            args.target.display(),
+            target_files.len(),
+            args.max_files.map(|n| n.to_string()).unwrap_or_else(|| "unlimited".to_string())
+        )
+        .unwrap();
+        w.flush().unwrap();
+
+        eprintln!(
+            "[3/3] scanning {} files (streaming hits live to {})...",
+            target_files.len(),
+            args.out.display()
+        );
         let t_scan = Instant::now();
         let mut scanner = Scanner::new(&rules);
         scanner.max_matches_per_pattern(1_000_000);
@@ -244,7 +295,7 @@ fn main() {
 
         let mut total_bytes = 0u64;
         let mut total_matches = 0usize;
-        let mut hit_rows: Vec<String> = Vec::new();
+        let mut unwritten_hits = 0usize;
 
         for (idx, file_path) in target_files.iter().enumerate() {
             if let Ok(data) = std::fs::read(file_path) {
@@ -252,6 +303,7 @@ fn main() {
                 if let Ok(results) = scanner.scan(&data) {
                     for r in results.matching_rules() {
                         total_matches += 1;
+                        unwritten_hits += 1;
                         let id = r.identifier();
                         let ns = r.namespace();
                         let npat = r.patterns().filter(|p| !p.is_private()).count();
@@ -261,22 +313,35 @@ fn main() {
                         } else {
                             tags.join(",")
                         };
-                        hit_rows.push(format!(
+                        writeln!(
+                            w,
                             "{}\t{id}\tns={ns}\tpatterns={npat}\ttags={tag_str}",
                             file_path.display()
-                        ));
+                        )
+                        .unwrap();
                     }
                 }
             }
+
+            // Immediately flush to disk on any new hits or periodic intervals so progress is never lost
+            if unwritten_hits > 0 || (idx + 1) % 100 == 0 {
+                w.flush().unwrap();
+                unwritten_hits = 0;
+            }
+
             if (idx + 1) % 1000 == 0 || idx + 1 == target_files.len() {
+                w.flush().unwrap();
                 eprintln!(
-                    "      scanned {}/{} files ({} hits)...",
+                    "      scanned {}/{} files ({} hits saved to {})...",
                     idx + 1,
                     target_files.len(),
-                    total_matches
+                    total_matches,
+                    args.out.display()
                 );
             }
         }
+
+        w.flush().unwrap();
 
         let elapsed = t_scan.elapsed().as_secs_f64();
         let mbs = if elapsed > 0.0 {
@@ -285,41 +350,14 @@ fn main() {
             0.0
         };
 
-        hit_rows.sort();
-        hit_rows.dedup();
-
-        let file = File::create(&args.out).unwrap_or_else(|e| {
-            eprintln!("ERROR: cannot create {}: {e}", args.out.display());
-            std::process::exit(2);
-        });
-        let mut w = std::io::BufWriter::new(file);
-        writeln!(
-            w,
-            "# yara-x scan report (directory mode)\n# rules     : {}\n# target dir: {}\n# files     : {}\n# total size: {:.2} MB\n# elapsed   : {:.1}s\n# throughput: {:.1} MB/s\n# total hits: {}\n# unique records: {}\n",
-            args.rules.display(),
-            args.target.display(),
-            target_files.len(),
-            total_bytes as f64 / 1048576.0,
-            elapsed,
-            mbs,
-            total_matches,
-            hit_rows.len()
-        )
-        .unwrap();
-        for row in &hit_rows {
-            writeln!(w, "{row}").unwrap();
-        }
-        w.flush().unwrap();
-
         eprintln!(
-            "done in {:.1}s ({:.1} MB/s); total files = {}, matches = {}; unique hits = {}",
+            "done in {:.1}s ({:.1} MB/s); total files = {}, matches = {}; saved live to: {}",
             elapsed,
             mbs,
             target_files.len(),
             total_matches,
-            hit_rows.len()
+            args.out.display()
         );
-        eprintln!("report: {}", args.out.display());
     } else {
         eprintln!("[2/3] loading target file: {}", args.target.display());
         let t = Instant::now();
