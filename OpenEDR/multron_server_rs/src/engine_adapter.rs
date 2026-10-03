@@ -182,6 +182,22 @@ impl EngineAdapter {
         let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
 
         let started = Instant::now();
+        if data.is_empty() {
+            let res = ResultMessage {
+                r#type: "result".to_string(),
+                id: 0,
+                verdict: "skipped".to_string(),
+                threat: None,
+                detail: Some("0 KB / empty file skipped".to_string()),
+                score: 0.0,
+                sha256: sha.to_string(),
+                scan_ms: started.elapsed().as_millis() as i64,
+                source: "scan".to_string(),
+                extracted_objects: Vec::new(),
+            };
+            return Ok(res);
+        }
+
         let safe_filename = file_system_name(name);
         let mut temp_path: Option<PathBuf> = None;
 
@@ -273,7 +289,7 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
 fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     let raw_verdict = report.verdict.to_lowercase();
     let verdict = match raw_verdict.as_str() {
-        "clean" | "malicious" | "suspicious" | "unknown" => raw_verdict,
+        "clean" | "malicious" | "suspicious" | "unknown" | "skipped" => raw_verdict,
         _ => "unknown".to_string(),
     };
 

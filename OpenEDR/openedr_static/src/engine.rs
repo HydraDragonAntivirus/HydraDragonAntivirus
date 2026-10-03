@@ -599,25 +599,56 @@ fn entry_is_compressed_document(name: &str) -> bool {
     }
 
     /// Scan a file on disk. Evaluates WinTrust signature, ClamAV, YARA, and PE/JS ML.
+    /// If 0 KB or unreachable (permission denied, locked, absent), directly skips.
     pub fn scan_file(&self, path: &Path) -> StaticScanReport {
         let t0 = Instant::now();
         let target_str = path.display().to_string();
 
-        let data = match std::fs::read(path) {
-            Ok(d) => d,
-            Err(e) => {
+        // 1. Unreachable check: path absent or not a regular file -> directly skip
+        if !path.exists() || !path.is_file() {
+            return StaticScanReport {
+                target: target_str,
+                file_size: 0,
+                sha256: String::new(),
+                verdict: "Skipped".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: None,
+                pua_registry_matches: Vec::new(),
+                extracted_objects: Vec::new(),
+                scan_time_ms: t0.elapsed().as_millis() as u64,
+            };
+        }
+
+        // 2. 0 KB check via metadata -> directly skip before reading
+        if let Ok(meta) = path.metadata() {
+            if meta.len() == 0 {
                 return StaticScanReport {
                     target: target_str,
                     file_size: 0,
                     sha256: String::new(),
-                    verdict: "Error".to_string(),
+                    verdict: "Skipped".to_string(),
                     max_threat_score: 0.0,
-                    detections: vec![DetectionItem {
-                        layer: "IO".to_string(),
-                        name: format!("Failed to read file: {e}"),
-                        score: None,
-                        details: None,
-                    }],
+                    detections: Vec::new(),
+                    signer_info: None,
+                    pua_registry_matches: Vec::new(),
+                    extracted_objects: Vec::new(),
+                    scan_time_ms: t0.elapsed().as_millis() as u64,
+                };
+            }
+        }
+
+        // 3. Read attempt: if unreachable, permission denied, locked -> directly skip
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(_) => {
+                return StaticScanReport {
+                    target: target_str,
+                    file_size: 0,
+                    sha256: String::new(),
+                    verdict: "Skipped".to_string(),
+                    max_threat_score: 0.0,
+                    detections: Vec::new(),
                     signer_info: None,
                     pua_registry_matches: Vec::new(),
                     extracted_objects: Vec::new(),
@@ -625,6 +656,22 @@ fn entry_is_compressed_document(name: &str) -> bool {
                 };
             }
         };
+
+        // 4. 0 KB check on read bytes -> directly skip
+        if data.is_empty() {
+            return StaticScanReport {
+                target: target_str,
+                file_size: 0,
+                sha256: String::new(),
+                verdict: "Skipped".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: None,
+                pua_registry_matches: Vec::new(),
+                extracted_objects: Vec::new(),
+                scan_time_ms: t0.elapsed().as_millis() as u64,
+            };
+        }
 
         self.scan_bytes_internal(&data, &target_str, Some(path), t0)
     }
@@ -1056,6 +1103,22 @@ fn entry_is_compressed_document(name: &str) -> bool {
         disk_path: Option<&Path>,
         start_time: Instant,
     ) -> StaticScanReport {
+        // 0 KB / empty buffer: directly skip (no hashing, no collision detection)
+        if data.is_empty() {
+            return StaticScanReport {
+                target: target_name.to_string(),
+                file_size: 0,
+                sha256: String::new(),
+                verdict: "Skipped".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: None,
+                pua_registry_matches: Vec::new(),
+                extracted_objects: Vec::new(),
+                scan_time_ms: start_time.elapsed().as_millis() as u64,
+            };
+        }
+
         let file_size = data.len() as u64;
 
         let mut sha1_hasher = Sha1CD::default();
@@ -1089,22 +1152,6 @@ fn entry_is_compressed_document(name: &str) -> bool {
                 details: Some(md5_hit.details),
             });
             max_score = max_score.max(1.0);
-        }
-
-        // Empty files scan as Unknown (web parity: never Error).
-        if data.is_empty() {
-            return StaticScanReport {
-                target: target_name.to_string(),
-                file_size,
-                sha256: sha256_hex,
-                verdict: "Unknown".to_string(),
-                max_threat_score: 0.0,
-                detections: Vec::new(),
-                signer_info: None,
-                pua_registry_matches: Vec::new(),
-                extracted_objects: Vec::new(),
-                scan_time_ms: start_time.elapsed().as_millis() as u64,
-            };
         }
 
         // File-type gate FIRST: unclassifiable content is not scanned at
