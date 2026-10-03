@@ -146,8 +146,8 @@ class ComprehensiveFilter:
             "exclude_types": ["hdb", "hdu", "hsb", "hsu", "mdb", "mdu",
                               "msb", "msu", "imp", "fp", "sfp",
                               "cvd", "cld", "sign"],
-            "ndb_types": ["0", "1"],  # Any, PE ("*" normalized to Any)
-            "ldb_targets": ["0", "1"],  # Any, PE (missing Target = generic)
+            "ndb_types": None,  # Keep all target types (PE, Any, Mail, HTML, PDF, etc.)
+            "ldb_targets": None,
             # First field is NOT a signature name here: ftm starts with the
             # magictype, crb with a serial label, idb names are tiny anyway.
             "keep_files_unfiltered": ["ftm", "idb", "crb"],
