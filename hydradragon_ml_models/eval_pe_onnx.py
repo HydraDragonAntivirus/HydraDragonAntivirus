@@ -16,6 +16,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from train_pe_lgbm import extract_pe_features_from_file
 
 def scan_single_file(p):
+    if not p or not os.path.exists(p) or not os.path.isfile(p):
+        return None
     feat = extract_pe_features_from_file(p)
     if feat is None:
         return None

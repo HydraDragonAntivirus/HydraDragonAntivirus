@@ -32,7 +32,9 @@ def main():
 
     for fp in files:
         try:
-            scan_file_pure_onnx(fp)
+            r = scan_file_pure_onnx(fp)
+            if r is None:
+                print(f"[-] Skipped unreadable or empty file: {fp}")
         except Exception as e:
             print(f"[!] Failed to scan {fp}: {e}")
 

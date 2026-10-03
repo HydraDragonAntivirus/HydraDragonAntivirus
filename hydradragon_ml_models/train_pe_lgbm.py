@@ -67,14 +67,8 @@ def shannon_entropy(data: bytes) -> float:
             ent -= p * math.log2(p)
     return float(ent)
 
-def extract_pe_features_from_file(filepath: str):
-    try:
-        with open(filepath, "rb") as f:
-            data = f.read()
-    except Exception:
-        return None
-
-    if len(data) < 64 or data[:2] != b"MZ":
+def extract_pe_features_from_data(data: bytes):
+    if not data or len(data) < 64 or data[:2] != b"MZ":
         return None
 
     try:
@@ -281,6 +275,16 @@ def extract_pe_features_from_file(filepath: str):
         return vector
     except Exception:
         return None
+
+def extract_pe_features_from_file(filepath: str):
+    if not filepath or not os.path.isfile(filepath):
+        return None
+    try:
+        with open(filepath, "rb") as f:
+            data = f.read()
+    except Exception:
+        return None
+    return extract_pe_features_from_data(data)
 
 def find_files(dir_path: str, max_files: int = 0):
     files = []

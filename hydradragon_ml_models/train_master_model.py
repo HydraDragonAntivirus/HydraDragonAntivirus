@@ -84,9 +84,13 @@ def extract_master_features_from_data(data: bytes, entity_type: str = "generic")
     return str_feats + ext_feats
 
 def extract_master_features_from_file(file_path: str, entity_type: str = "generic") -> Optional[List[float]]:
+    if not file_path or not os.path.isfile(file_path):
+        return None
     try:
         with open(file_path, "rb") as f:
             data = f.read(10 * 1024 * 1024) # Cap at 10 MB per file
+        if not data or len(data) == 0:
+            return None
         return extract_master_features_from_data(data, entity_type)
     except Exception:
         return None
@@ -232,6 +236,10 @@ def parse_args():
     return parser.parse_args()
 
 def scan_target(target: str, model_path: str = "hydradragon_master.onnx"):
+    if not os.path.isabs(model_path):
+        candidate = os.path.join(os.path.dirname(__file__), model_path)
+        if os.path.exists(candidate):
+            model_path = candidate
     if not os.path.exists(model_path):
         print(f"[!] Model not found: {model_path}. Train the model first.")
         return
@@ -240,16 +248,27 @@ def scan_target(target: str, model_path: str = "hydradragon_master.onnx"):
     sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
     in_name = sess.get_inputs()[0].name
 
-    if target.startswith("http://") or target.startswith("https://") or ("." in target and not os.path.exists(target)):
+    is_url = target.startswith("http://") or target.startswith("https://") or target.startswith("ftp://")
+    if is_url:
         # URL or Domain target
         data = target.encode("utf-8")
         feats = extract_master_features_from_data(data, "url")
     else:
         # File target
+        if not os.path.exists(target):
+            print(f"[!] Target not found or inaccessible: {target}")
+            return
+        if os.path.isdir(target):
+            print(f"[!] Target is a directory, single file expected: {target}")
+            return
         feats = extract_master_features_from_file(target, "generic")
         if feats is None:
-            print(f"[!] Could not read file: {target}")
+            print(f"[!] Could not read file or feature extraction returned None: {target}")
             return
+
+    if feats is None:
+        print(f"[-] Features are None, skipping: {target}")
+        return
 
     X_in = np.array([feats], dtype=np.float32)
     res = sess.run(None, {in_name: X_in})

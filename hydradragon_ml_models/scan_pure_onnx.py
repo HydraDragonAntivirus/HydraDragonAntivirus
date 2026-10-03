@@ -14,7 +14,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(BASE_DIR), "OpenEDR", "openedr_web", "tools"))
 
-from train_pe_lgbm import extract_pe_features_from_file
+from train_pe_lgbm import extract_pe_features_from_file, extract_pe_features_from_data
 from train_js_lgbm import extract_js_features_from_file, extract_js_features_from_source
 from train_url_lgbm import extract_url_features
 from apk_train import apk_features
@@ -90,6 +90,9 @@ def detect_type(data: bytes, path: str):
 
 
 def scan_bytes_pure_onnx(data: bytes, path_hint=""):
+    if not data or len(data) == 0:
+        return None
+
     ftype = detect_type(data, path_hint)
 
     is_pe = 1.0 if ftype == "pe" else 0.0
@@ -100,38 +103,14 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
     pe_prob = js_prob = apk_prob = url_prob = 0.0
     detail = {}
 
-    # PE: in-memory via temp file (MZ check)
-    if data.startswith(b"MZ"):
-        import tempfile
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".exe") as tf:
-                tf.write(data[:10 * 1024 * 1024])
-                tmp = tf.name
-            try:
-                pf = extract_pe_features_from_file(tmp)
-                if pf is not None:
-                    pe_prob = predict_prob("pe", pf)
-                    detail["pe"] = pe_prob
-            finally:
-                os.unlink(tmp)
-        except Exception:
-            pass
-
     # Match training distribution: only the routed domain prob is active.
-    # PE route
+    # PE route: strictly requires MZ and valid PE structure
     if ftype == "pe" and data.startswith(b"MZ"):
-        import tempfile
         try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".exe") as tf:
-                tf.write(data[:10 * 1024 * 1024])
-                tmp = tf.name
-            try:
-                pf = extract_pe_features_from_file(tmp)
-                if pf is not None:
-                    pe_prob = predict_prob("pe", pf)
-                    detail["pe"] = pe_prob
-            finally:
-                os.unlink(tmp)
+            pf = extract_pe_features_from_data(data)
+            if pf is not None:
+                pe_prob = predict_prob("pe", pf)
+                detail["pe"] = pe_prob
         except Exception:
             pass
     # APK route
@@ -189,18 +168,11 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
                 pass
         else:
             if data.startswith(b"MZ"):
-                import tempfile
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".exe") as tf:
-                        tf.write(data[:10 * 1024 * 1024])
-                        tmp = tf.name
-                    try:
-                        pf = extract_pe_features_from_file(tmp)
-                        if pf is not None:
-                            pe_prob = predict_prob("pe", pf)
-                            detail["pe"] = pe_prob
-                    finally:
-                        os.unlink(tmp)
+                    pf = extract_pe_features_from_data(data)
+                    if pf is not None:
+                        pe_prob = predict_prob("pe", pf)
+                        detail["pe"] = pe_prob
                 except Exception:
                     pass
             try:
@@ -213,6 +185,18 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
 
     # Master 8-vector: [is_pe,is_js,is_apk,is_url,pe,js,apk,url]
     master_vec = [is_pe, is_js, is_apk, is_url, pe_prob, js_prob, apk_prob, url_prob]
+
+    # If all vector elements are 0, buffer has no recognized malicious traits -> 100% benign
+    if all(v == 0.0 for v in master_vec):
+        return {
+            "ftype": ftype,
+            "master_vec": master_vec,
+            "mal_prob": 0.0,
+            "label": 0,
+            "experts": {"pe": 0.0, "js": 0.0, "apk": 0.0, "url": 0.0},
+            "detail": detail,
+        }
+
     sess, inp = get_sess("master")
     mal_prob = 0.0
     label = 0
@@ -239,15 +223,28 @@ def scan_bytes_pure_onnx(data: bytes, path_hint=""):
 
 
 def scan_file_pure_onnx(target_path, model_path=None):
-    if not os.path.exists(target_path):
-        print(f"[!] File not found: {target_path}")
+    if not target_path or not os.path.exists(target_path):
+        print(f"[!] File not found or inaccessible: {target_path}")
         return None
     if os.path.isdir(target_path):
         print(f"[!] Directory given, single file expected: {target_path}")
         return None
-    with open(target_path, "rb") as f:
-        data = f.read(10 * 1024 * 1024)
+    try:
+        with open(target_path, "rb") as f:
+            data = f.read(10 * 1024 * 1024)
+    except Exception as e:
+        print(f"[!] Cannot read file {target_path}: {e}")
+        return None
+
+    if not data or len(data) == 0:
+        print(f"[-] Empty file, skipping: {target_path}")
+        return None
+
     r = scan_bytes_pure_onnx(data, target_path)
+    if r is None:
+        print(f"[-] Unscannable / empty buffer: {target_path}")
+        return None
+
     verdict = "MALICIOUS" if r["label"] == 1 else "BENIGN"
     print("=" * 65)
     print(f" TARGET:       {target_path}")

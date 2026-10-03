@@ -44,8 +44,13 @@ def _sess():
 
 def scan_bytes(data: bytes):
     """Returns (label, mal_prob). One vector per buffer."""
+    if not data or len(data) == 0:
+        return 0, 0.0
     s, inp = _sess()
-    X = np.array([featurize_one(data[:READ_CAP])], dtype=np.float32)
+    feat = featurize_one(data[:READ_CAP])
+    if feat is None:
+        return 0, 0.0
+    X = np.array([feat], dtype=np.float32)
     res = s.run(None, {inp: X})
     label = int(res[0][0])
     mal = float(res[1][0].get(1, 0.0)) if len(res) > 1 and isinstance(res[1], list) else float(label)
@@ -53,8 +58,23 @@ def scan_bytes(data: bytes):
 
 
 def scan_file(path):
-    with open(path, "rb") as fh:
-        data = fh.read(10 * 1024 * 1024)
+    if not path or not os.path.exists(path):
+        print(f"[!] File not found or inaccessible: {path}")
+        return None
+    if os.path.isdir(path):
+        print(f"[!] Directory given, single file expected: {path}")
+        return None
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(10 * 1024 * 1024)
+    except Exception as e:
+        print(f"[!] Cannot open {path}: {e}")
+        return None
+
+    if not data or len(data) == 0:
+        print(f"[-] Empty file, skipping: {path}")
+        return None
+
     label, mal = scan_bytes(data)
     print("=" * 60)
     print(f" TARGET:    {path}")
