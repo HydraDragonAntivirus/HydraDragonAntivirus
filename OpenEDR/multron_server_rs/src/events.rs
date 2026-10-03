@@ -29,6 +29,8 @@ pub struct Event {
     pub sha256: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_type: Option<String>,
 }
 
 impl Event {
@@ -60,6 +62,20 @@ impl Event {
                         line.push_str(" [");
                         line.push_str(m);
                         line.push(']');
+                    }
+                }
+                line
+            }
+            "extracted" => {
+                let verdict = self.verdict.as_deref().unwrap_or("unknown");
+                let file = self.file.as_deref().unwrap_or("");
+                let size_str = format_size(self.size.unwrap_or(0));
+                let origin = self.origin_type.as_deref().unwrap_or("Extracted");
+                let mut line = format!("[{} #{}] {:<10} ↳ [{}] {} ({})", client, session, verdict, origin, file, size_str);
+                if let Some(t) = &self.threat {
+                    if !t.is_empty() {
+                        line.push_str(" -> ");
+                        line.push_str(t);
                     }
                 }
                 line

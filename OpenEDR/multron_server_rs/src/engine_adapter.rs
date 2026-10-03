@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
 use openedr_static::engine::StaticEngine;
-use openedr_static::report::StaticScanReport;
+use openedr_static::report::{ExtractedObject, StaticScanReport};
 use serde::{Deserialize, Serialize};
 
 use crate::cache::{parse_sha, Sha};
@@ -33,6 +33,8 @@ pub struct ResultMessage {
     /// How the verdict was found: "scan", "cache", "whitelist", "hash", "shared".
     #[serde(skip_serializing_if = "String::is_empty", default)]
     pub source: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extracted_objects: Vec<ExtractedObject>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +266,7 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
         sha256: sha.to_string(),
         scan_ms: 0,
         source: source.to_string(),
+        extracted_objects: Vec::new(),
     }
 }
 
@@ -284,7 +287,10 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         sha256: sha.to_string(),
         scan_ms: report.scan_time_ms as i64,
         source: "scan".to_string(),
+        extracted_objects: report.extracted_objects.clone(),
     };
+
+    let mut detail_parts = Vec::new();
 
     if !report.detections.is_empty() {
         res.threat = Some(report.detections[0].name.clone());
@@ -294,13 +300,40 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
             .take(8)
             .map(|d| format!("{} ({})", d.name, d.layer))
             .collect();
-        res.detail = Some(details.join(", "));
+        detail_parts.push(details.join(", "));
     } else if let Some(ref signer) = report.signer_info {
         if signer.is_trusted {
             if let Some(ref name) = signer.signer_name {
-                res.detail = Some(format!("Signed by {}", name));
+                detail_parts.push(format!("Signed by {}", name));
             }
         }
+    }
+
+    // Explicitly summarize extracted objects (Unicorn unpacked, archives, overlays)
+    if !report.extracted_objects.is_empty() {
+        let unpacked_count = report.extracted_objects.iter().filter(|o| o.origin_type == "UnpackedPE").count();
+        let archive_count = report.extracted_objects.iter().filter(|o| o.origin_type == "ArchiveMember").count();
+        let overlay_count = report.extracted_objects.iter().filter(|o| o.origin_type == "Overlay").count();
+
+        let mut summary_tags = Vec::new();
+        if unpacked_count > 0 {
+            let total_unpacked_bytes: u64 = report.extracted_objects.iter().filter(|o| o.origin_type == "UnpackedPE").map(|o| o.size).sum();
+            summary_tags.push(format!("Unicorn Unpacked: {} PE ({} KB)", unpacked_count, (total_unpacked_bytes + 1023) / 1024));
+        }
+        if archive_count > 0 {
+            summary_tags.push(format!("Archive: {} items", archive_count));
+        }
+        if overlay_count > 0 {
+            summary_tags.push(format!("Overlay: {} items", overlay_count));
+        }
+
+        if !summary_tags.is_empty() {
+            detail_parts.push(format!("[{}]", summary_tags.join(" | ")));
+        }
+    }
+
+    if !detail_parts.is_empty() {
+        res.detail = Some(detail_parts.join(" — "));
     }
 
     res

@@ -1468,12 +1468,17 @@ fn entry_is_compressed_document(name: &str) -> bool {
         };
 
         if should_unpack {
+            eprintln!("[unicorn] initiating PE CPU emulation for: {}", target_name);
             if let Ok(sample) = hydradragonunicorn::unpacker::engine::Sample::from_bytes(data) {
                 let mut unpacker = hydradragonunicorn::unpacker::engine::UnpackerEngine::new(sample, "memory");
                 if unpacker.init_uc().is_ok() {
-                    let _ = unpacker.emu();
+                    let emu_start = std::time::Instant::now();
+                    let emu_res = unpacker.emu();
+                    let emu_ms = emu_start.elapsed().as_millis();
+                    eprintln!("[unicorn] emulation ended for {} in {} ms (status: {:?})", target_name, emu_ms, emu_res);
                     if let Ok(dumped) = unpacker.dump_bytes() {
                         if !dumped.is_empty() && dumped != data {
+                            eprintln!("[unicorn] successfully unpacked {} bytes payload for {}", dumped.len(), target_name);
                             let obj = ScanObject::new(
                                 format!("{target_name}.unpacked.bin"),
                                 format!("{target_name} -> [Unicorn:Unpacked]"),
@@ -1493,9 +1498,17 @@ fn entry_is_compressed_document(name: &str) -> bool {
                                 });
                             }
                             extracted_objects.push(extracted);
+                        } else {
+                            eprintln!("[unicorn] memory dump matches original or empty for {}", target_name);
                         }
+                    } else {
+                        eprintln!("[unicorn] dump_bytes failed for {}", target_name);
                     }
+                } else {
+                    eprintln!("[unicorn] init_uc failed for {}", target_name);
                 }
+            } else {
+                eprintln!("[unicorn] Sample::from_bytes parse failed for {}", target_name);
             }
         }
 

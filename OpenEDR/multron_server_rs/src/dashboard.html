@@ -343,8 +343,8 @@
 
   function matches(e) {
     switch (filter) {
-      case "files": return e.kind === "result" || e.kind === "error" || e.kind === "rejected";
-      case "threats": return e.kind === "result" && (e.verdict === "malicious" || e.verdict === "suspicious");
+      case "files": return e.kind === "result" || e.kind === "extracted" || e.kind === "error" || e.kind === "rejected";
+      case "threats": return (e.kind === "result" || e.kind === "extracted") && (e.verdict === "malicious" || e.verdict === "suspicious");
       case "problems": return e.kind === "error" || e.kind === "rejected";
       case "connections": return e.kind === "connect" || e.kind === "disconnect";
       default: return true;
@@ -353,17 +353,28 @@
 
   function eventRow(e) {
     const tr = el("tr");
-    const label = e.kind === "result" ? e.verdict : e.kind;
+    const label = (e.kind === "result" || e.kind === "extracted") ? e.verdict : e.kind;
     const tag = el("span", "tag t-" + label, label);
     const who = e.client ? `${e.client} #${e.session}` : "server";
     let detail = e.threat || e.message || e.detail || "";
-    if (e.kind === "result" && e.threat && e.detail) detail = e.threat + " — " + e.detail;
-    const tdTag = el("td"); tdTag.append(tag);
-    const tdFile = el("td", "file", e.file || ""); if (e.file) tdFile.title = e.file + (e.sha256 ? "\nSHA-256: " + e.sha256 : "");
+    if ((e.kind === "result" || e.kind === "extracted") && e.threat && e.detail) detail = e.threat + " — " + e.detail;
+    const tdTag = el("td"); 
+    tdTag.append(tag);
+    if (e.origin_type) {
+      const badge = el("span", "tag t-info", e.origin_type);
+      badge.style.marginLeft = "4px";
+      tdTag.append(badge);
+    }
+    const tdFile = el("td", "file", e.file || ""); 
+    if (e.file) tdFile.title = e.file + (e.sha256 ? "\nSHA-256: " + e.sha256 : "");
+    if (e.kind === "extracted") {
+      tdFile.style.paddingLeft = "20px";
+      tdFile.style.fontStyle = "italic";
+    }
     const tdDetail = el("td", "detail", detail); tdDetail.title = detail;
     tr.append(el("td", "mono", fmtTime(e.time)), el("td", "mono", who), tdTag, tdFile,
               el("td", "num", e.size ? fmtSize(e.size) : ""), tdDetail, el("td", "num", e.ms ? e.ms + " ms" : ""));
-    if (e.kind === "result" && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
+    if ((e.kind === "result" || e.kind === "extracted") && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
     return tr;
   }
 

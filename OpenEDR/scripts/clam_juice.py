@@ -140,8 +140,7 @@ class ComprehensiveFilter:
             "exclude_name_contains": ["twinw", "twiwave", "twinclam",
                                       "twinwave.evildoc", "twinwave.evilxll",
                                       "twinwave.evillnk", "twinwave.evilnk",
-                                      "twinwave.onenote", "twinwave.cmdobfus",
-                                      "securiteinfo", "securiteinfo.com"],
+                                      "twinwave.onenote", "twinwave.cmdobfus"],
             # Hash DBs: engine skips them (xor-filter pipeline owns hashes).
             # cvd/cld/sign: carriers the engine cannot read (bytecode.cvd is
             # unpacked to .cbc instead, see below). .cdb IS kept (Win/Foxhole
@@ -250,11 +249,28 @@ class ComprehensiveFilter:
         tar.close()
 
     def _get_effective_prefix(self, name):
-        """For PUA.X.Y, return X as the effective platform. Otherwise return first segment."""
+        """Extract the effective platform prefix (e.g. Win, Andr, Linux).
+        Handles PUA (PUA.Win.X -> Win) and third-party unofficial vendors
+        (SecuriteInfo.com.Win.X -> Win, SecuriteInfo.Win.X -> Win, Sanesecurity.Win.X -> Win).
+        """
         parts = name.split(".")
-        if len(parts) >= 2 and parts[0] == "PUA":
-            return parts[1]
-        return parts[0]
+        if not parts:
+            return ""
+
+        idx = 0
+        p0_lower = parts[0].lower()
+        if p0_lower in ("securiteinfo", "sanesecurity", "porcupine", "malwarepatrol", "yararules"):
+            idx = 1
+            if p0_lower == "securiteinfo" and len(parts) > 2 and parts[1].lower() == "com":
+                idx = 2
+
+        rem = parts[idx:]
+        if not rem:
+            return parts[0]
+
+        if len(rem) >= 2 and rem[0].upper() == "PUA":
+            return rem[1]
+        return rem[0]
 
     def _is_excluded_pua(self, name):
         """True when a signature name matches an excluded PUA prefix."""
@@ -307,10 +323,6 @@ class ComprehensiveFilter:
                 if sub.lower() in lowered:
                     return False
 
-        # Drop third-party SecuriteInfo signatures (e.g. SecuriteInfo.com.*)
-        if name and "securiteinfo" in name.lower():
-            return False
-
         if not name or "." not in name:
             return len(include_platforms) == 0
 
@@ -321,6 +333,11 @@ class ComprehensiveFilter:
 
         if include_platforms and prefix in include_platforms:
             return True
+
+        # Generic malware types without explicit OS prefix (e.g. SecuriteInfo.com.Trojan-1234 or Trojan.Generic)
+        if include_platforms and "Win" in include_platforms:
+            if prefix.lower() in ("trojan", "malware", "backdoor", "exploit", "ransomware", "virus", "worm", "dropper", "heuristics", "heuristic", "generic"):
+                return True
 
         if keep_if_contains and name:
             for kw in keep_if_contains:
@@ -1315,9 +1332,21 @@ File Types:
         filter_tool.exclude_pua = list(exclude_pua)
         print(f"Excluding PUA prefixes: {', '.join(filter_tool.exclude_pua)}")
 
-    # Load external .ign2 files (e.g. from HydraDragonAVPortable/database).
+    # Load external .ign2 files (e.g. from HydraDragonAVPortable/database or securiteinfo.ign2).
     external_ign2_dir = args.external_ign2_dir
+    if not external_ign2_dir:
+        cand_dirs = [
+            os.path.join(os.path.dirname(__file__), "..", "..", "HydraDragonAVPortable", "database"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "hydradragon", "database"),
+            os.path.join(os.path.dirname(__file__), "..", "database"),
+        ]
+        for cd in cand_dirs:
+            if os.path.isdir(cd) and any(f.lower().endswith((".ign2", ".ign")) for f in os.listdir(cd)):
+                external_ign2_dir = cd
+                break
+
     if external_ign2_dir and os.path.isdir(external_ign2_dir):
+        print(f"Loading official & SecuriteInfo FP ignore rules from: {external_ign2_dir}")
         for item in sorted(os.listdir(external_ign2_dir)):
             if item.lower().endswith((".ign2", ".ign")):
                 fp = os.path.join(external_ign2_dir, item)

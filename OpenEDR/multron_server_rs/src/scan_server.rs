@@ -929,7 +929,36 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
         detail: res.detail.clone(),
         sha256: Some(res.sha256.clone()),
         message: if res.source == "scan" { None } else { Some(res.source.clone()) },
+        origin_type: None,
     });
+
+    // Record each extracted object as a sub-event in the live feed
+    for obj in &res.extracted_objects {
+        let sub_threat_name = obj.detections.first().map(|d| d.name.clone());
+        let sub_detail = if !obj.detections.is_empty() {
+            let d_names: Vec<String> = obj.detections.iter().take(4).map(|d| format!("{} ({})", d.name, d.layer)).collect();
+            Some(d_names.join(", "))
+        } else {
+            Some(format!("Unpacked payload ({:.1} KB)", (obj.size as f64) / 1024.0))
+        };
+
+        server.events.add(Event {
+            seq: 0,
+            time: Utc::now(),
+            kind: "extracted".to_string(),
+            session: Some(session.id),
+            client: Some(session.address.clone()),
+            verdict: Some(obj.verdict.to_lowercase()),
+            file: Some(format!("↳ {}", obj.name)),
+            size: Some(obj.size as i64),
+            ms: None,
+            threat: sub_threat_name,
+            detail: sub_detail,
+            sha256: Some(obj.sha256.clone()),
+            message: Some(obj.origin_type.clone()),
+            origin_type: Some(obj.origin_type.clone()),
+        });
+    }
 }
 
 fn simple_event(kind: &str, session: Option<i64>, client: Option<String>, message: Option<String>) -> Event {
@@ -947,6 +976,7 @@ fn simple_event(kind: &str, session: Option<i64>, client: Option<String>, messag
         detail: None,
         sha256: None,
         message,
+        origin_type: None,
     }
 }
 

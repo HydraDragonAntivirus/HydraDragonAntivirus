@@ -2007,6 +2007,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hydradragondecompiler"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "iced-x86",
+ "pefile-rs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "yaxpeax-arch",
+ "yaxpeax-arm",
+]
+
+[[package]]
 name = "hydradragonextractor"
 version = "0.1.0"
 dependencies = [
@@ -2126,6 +2140,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "iced-x86"
+version = "1.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c447cff8c7f384a7d4f741cfcff32f75f3ad02b406432e8d6c878d56b1edf6b"
+dependencies = [
+ "lazy_static",
 ]
 
 [[package]]
@@ -3195,17 +3218,19 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 name = "openedr_static"
 version = "0.1.0"
 dependencies = [
- "capstone",
  "compact_str",
+ "daachorse",
  "evtx",
  "flate2",
  "generic-array 0.14.9",
  "hayabusa",
  "hex",
  "hydradragonclamav",
+ "hydradragondecompiler",
  "hydradragonextractor",
  "hydradragonsig",
  "hydradragonunicorn",
+ "iced-x86",
  "nested",
  "oxc_allocator",
  "oxc_ast",
@@ -3222,6 +3247,8 @@ dependencies = [
  "url",
  "windows",
  "yara-x",
+ "yaxpeax-arch",
+ "yaxpeax-arm",
 ]
 
 [[package]]
@@ -6152,6 +6179,29 @@ dependencies = [
  "protobuf",
  "protobuf-codegen",
  "yansi",
+]
+
+[[package]]
+name = "yaxpeax-arch"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36274fcc5403da2a7636ffda4d02eca12a1b2b8267b9d2e04447bd2ccfc72082"
+dependencies = [
+ "num-traits",
+ "serde",
+ "serde_derive",
+]
+
+[[package]]
+name = "yaxpeax-arm"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79f8d9808ad0b7e434882c66e50704138e7c0bdf3408a9f3159c50603dc3168c"
+dependencies = [
+ "bitvec",
+ "serde",
+ "serde_derive",
+ "yaxpeax-arch",
 ]
 
 [[package]]

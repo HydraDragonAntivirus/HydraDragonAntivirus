@@ -13,9 +13,6 @@ hydradragon/website/top10milliondomains.csv
 # HydradragonAVPortablev2 release .gitignore
 OpenMalwareScannerPortable.7z
 
-# Filtered ClamAV Files
-clamav_database_filterme/
-
 # Filtered ClamAV Windows Database Files
 clamav_database_windows/
 
