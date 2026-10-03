@@ -408,7 +408,7 @@ impl OffsetSpec {
             .filter_map(|(s, e)| {
                 let s = s.max(base);
                 let e = e.min(end);
-                if s < e {
+                if s < e || (s == e && self.max_shift.is_none_or(|m| m == 0)) {
                     Some((s - base, e - base))
                 } else {
                     None

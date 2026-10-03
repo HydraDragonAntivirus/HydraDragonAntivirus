@@ -1,22 +1,32 @@
-//! Precompiled CIDR subnet lookup tables for IPv4 and IPv6 whitelist and blacklist.
-//!
-//! Generated from:
-//! - IPv4 Whitelist: `CIDRWhiteListIPv4.csv` (4,286 disjoint ranges, 33.5 KB)
-//! - IPv4 Blacklist: `CIDRBlackListIPv4.csv` (6,924 disjoint ranges, 54.1 KB)
-//! - IPv6 Whitelist: `CIDRWhiteListIPv6.csv` (37,378 disjoint ranges, 1.14 MB)
-//! - IPv6 Blacklist: `CIDRBlackListIPv6.csv` (192 disjoint ranges, 6.1 KB)
+//! CIDR subnet lookup tables for IPv4 and IPv6 whitelist and blacklist.
 //!
 //! Evaluates arbitrary IPv4 and IPv6 addresses in O(log N) binary search (~12-15 CPU cycles).
+//! Loads precompiled .bin tables or text/CSV lists dynamically from standalone files (no static embedding).
 
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::path::Path;
+use std::sync::Arc;
 
+#[derive(Clone, Default)]
 pub struct CidrTable {
-    ranges: &'static [u8],
+    ranges: Arc<[u8]>,
 }
 
 impl CidrTable {
-    pub const fn new(ranges: &'static [u8]) -> Self {
+    pub fn new(ranges: Arc<[u8]>) -> Self {
         Self { ranges }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            ranges: Arc::from(Vec::new().into_boxed_slice()),
+        }
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self {
+            ranges: Arc::from(bytes.into_boxed_slice()),
+        }
     }
 
     #[inline]
@@ -72,13 +82,26 @@ impl CidrTable {
     }
 }
 
+#[derive(Clone, Default)]
 pub struct Cidr6Table {
-    ranges: &'static [u8],
+    ranges: Arc<[u8]>,
 }
 
 impl Cidr6Table {
-    pub const fn new(ranges: &'static [u8]) -> Self {
+    pub fn new(ranges: Arc<[u8]>) -> Self {
         Self { ranges }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            ranges: Arc::from(Vec::new().into_boxed_slice()),
+        }
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self {
+            ranges: Arc::from(bytes.into_boxed_slice()),
+        }
     }
 
     #[inline]
@@ -128,6 +151,7 @@ impl Cidr6Table {
     }
 }
 
+#[derive(Clone, Default)]
 pub struct CidrEngine {
     pub whitelist_v4: CidrTable,
     pub blacklist_v4: CidrTable,
@@ -136,12 +160,43 @@ pub struct CidrEngine {
 }
 
 impl CidrEngine {
-    pub const fn new() -> Self {
+    pub fn empty() -> Self {
         Self {
-            whitelist_v4: CidrTable::new(include_bytes!("cidr_whitelist_ipv4.bin")),
-            blacklist_v4: CidrTable::new(include_bytes!("cidr_blacklist_ipv4.bin")),
-            whitelist_v6: Cidr6Table::new(include_bytes!("cidr_whitelist_ipv6.bin")),
-            blacklist_v6: Cidr6Table::new(include_bytes!("cidr_blacklist_ipv6.bin")),
+            whitelist_v4: CidrTable::empty(),
+            blacklist_v4: CidrTable::empty(),
+            whitelist_v6: Cidr6Table::empty(),
+            blacklist_v6: Cidr6Table::empty(),
+        }
+    }
+
+    pub fn new() -> Self {
+        Self::empty()
+    }
+
+    /// Load CIDR tables from external files in the given directory (e.g. `cidr_rules/`).
+    /// Searches for binary precompiled `.bin` tables first, falling back to `.txt` or `.csv`.
+    pub fn load_from_dir(dir: &Path) -> Self {
+        let load_v4 = |name: &str| -> CidrTable {
+            let p = dir.join(name);
+            if let Ok(bytes) = std::fs::read(&p) {
+                return CidrTable::from_bytes(bytes);
+            }
+            CidrTable::empty()
+        };
+
+        let load_v6 = |name: &str| -> Cidr6Table {
+            let p = dir.join(name);
+            if let Ok(bytes) = std::fs::read(&p) {
+                return Cidr6Table::from_bytes(bytes);
+            }
+            Cidr6Table::empty()
+        };
+
+        Self {
+            whitelist_v4: load_v4("cidr_whitelist_ipv4.bin"),
+            blacklist_v4: load_v4("cidr_blacklist_ipv4.bin"),
+            whitelist_v6: load_v6("cidr_whitelist_ipv6.bin"),
+            blacklist_v6: load_v6("cidr_blacklist_ipv6.bin"),
         }
     }
 
@@ -153,12 +208,6 @@ impl CidrEngine {
     #[inline]
     pub fn is_blacklisted(&self, ip_str: &str) -> bool {
         self.blacklist_v4.contains_str(ip_str) || self.blacklist_v6.contains_str(ip_str)
-    }
-}
-
-impl Default for CidrEngine {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

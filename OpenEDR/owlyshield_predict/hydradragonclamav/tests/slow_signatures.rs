@@ -12,8 +12,22 @@ fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
 }
 
-fn load_real_database() -> (Engine, impl AsRef<Path>) {
-    let db_path = workspace_root().join("database");
+fn load_real_database() -> (Engine, PathBuf) {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut db_path = None;
+    for ancestor in manifest_dir.ancestors() {
+        let p1 = ancestor.join("database");
+        if p1.is_dir() {
+            db_path = Some(p1);
+            break;
+        }
+        let p2 = ancestor.join("hydradragon").join("database");
+        if p2.is_dir() {
+            db_path = Some(p2);
+            break;
+        }
+    }
+    let db_path = db_path.unwrap_or_else(|| workspace_root().join("database"));
     assert!(
         db_path.exists(),
         "database directory not found at {}",

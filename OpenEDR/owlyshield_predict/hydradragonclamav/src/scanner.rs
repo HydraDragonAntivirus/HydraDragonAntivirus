@@ -1047,15 +1047,49 @@ impl Engine {
                 }
             }
         }
-        // Signatures where every subsig has no indexable atom (all
-        // AutoMatch/External) are never visited by the slot loop — their subsigs
-        // return unconditional counts (AutoMatch=1, External=0).  Mark them as
-        // candidates so they are still evaluated.
+        // Signatures that were not activated by the slot loop might still match if
+        // their unsatisfied subsigs are AutoMatch or External. Use boolean satisfiability:
+        // if the expression can still match given the atom slot results, keep it as candidate.
+        let mut test_counts: Vec<usize> = Vec::new();
+        let mut test_evaluated: Vec<bool> = Vec::new();
+
         for (si, sub_slots) in self.atomfilter_db.log_subsig_slots.iter().enumerate() {
             if set[si] {
                 continue;
             }
-            if sub_slots.iter().any(|s| matches!(s, crate::atomfilter::SubsigSlot::AutoMatch)) {
+            let has_unindexed = sub_slots
+                .iter()
+                .any(|s| !matches!(s, crate::atomfilter::SubsigSlot::Atom(_)));
+            if !has_unindexed {
+                continue;
+            }
+            let sig = &self.database.logical[si];
+            let n = sig.subsignatures.len();
+            test_counts.clear();
+            test_counts.resize(n, 0);
+            test_evaluated.clear();
+            test_evaluated.resize(n, false);
+
+            for (i, slot) in sub_slots.iter().enumerate().take(n) {
+                match *slot {
+                    crate::atomfilter::SubsigSlot::Atom(slot_id) => {
+                        let hit = slot_counts.get(slot_id)
+                            >= self.atomfilter_db.slots[slot_id as usize].threshold;
+                        test_counts[i] = if hit { 1 } else { 0 };
+                        test_evaluated[i] = true;
+                    }
+                    crate::atomfilter::SubsigSlot::AutoMatch => {
+                        test_counts[i] = 1;
+                        test_evaluated[i] = false;
+                    }
+                    crate::atomfilter::SubsigSlot::External => {
+                        test_counts[i] = 0;
+                        test_evaluated[i] = false;
+                    }
+                }
+            }
+
+            if sig.expression.can_still_match(&test_counts, &test_evaluated) {
                 set[si] = true;
             }
         }
@@ -1319,18 +1353,22 @@ impl Engine {
         // non-monotone (`=N`/`<N`) or AutoMatch shapes keep the old path.
         // This kills the dominant waste class: signatures whose gate subsig
         // is absent while sibling subsigs' weak atoms matched.
-        if !signature.expression.has_nonmonotone_compare() {
-            let gated = subsigs.iter().enumerate().all(|(i, s)| {
-                !matches!(s, Subsignature::Body { .. })
-                    || sub_slots.is_some_and(|slots| {
-                        matches!(slots.get(i), Some(crate::atomfilter::SubsigSlot::Atom(_)))
-                    })
-            });
-            if gated
-                && !signature
-                    .expression
-                    .can_still_match(&bufs.counts, &bufs.evaluated)
-            {
+        // Pre-verify cutoff: slot counts are UPPER bounds of the true subsig
+        // counts (every pattern hit contains its indexed atom, so atom-absent
+        // means pattern-absent). Mark atom-absent subsigs as evaluated; if the
+        // expression cannot still match, skip every expensive re-verification below.
+        {
+            let mut pre_eval = vec![false; n];
+            for (i, subsig) in subsigs.iter().enumerate() {
+                if matches!(subsig, Subsignature::Body { .. }) {
+                    if let Some(slots) = sub_slots {
+                        if matches!(slots.get(i), Some(crate::atomfilter::SubsigSlot::Atom(_))) {
+                            pre_eval[i] = true;
+                        }
+                    }
+                }
+            }
+            if !signature.expression.can_still_match(&bufs.counts, &pre_eval) {
                 return;
             }
         }
@@ -2924,4 +2962,37 @@ mod tests {
         assert!(miss.is_empty(), "EICAR signature must not fire on benign content");
     }
 
+    #[test]
+    fn twinwave_fixed_alternation_logical_sig_scans_instantly() {
+        let src = SourceLocation {
+            path: std::sync::Arc::from(std::path::Path::new("twinwave.ldb")),
+            line: 1,
+        };
+        let line = "TwinWave.EvilDoc.DOCXSTRGOOD.RTFSTR.I_E_X.210820;Engine:81-255,Target:0;(0&1&2);0:7B5C7274;5C6F626A656374::i;(3639|3439)3630(3635|3435)3630(3738|3538)::i";
+        let (sig, _) = parse_logical_signature(line, src).unwrap();
+        let database = Database {
+            logical: vec![sig],
+            ..Default::default()
+        };
+        let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
+        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+
+        // Test non-RTF content: must finish instantaneously and not match
+        let t0 = std::time::Instant::now();
+        let miss = engine.scan_bytes(b"This is a benign document with no RTF header at all 60 60 60", ScanOptions::default());
+        let elapsed = t0.elapsed();
+        assert!(miss.is_empty());
+        assert!(elapsed.as_millis() < 50, "Non-RTF file must skip quickly: took {:?}", elapsed);
+
+        // Test matching RTF content containing {\rt, \object, and hex 6960656078
+        // 0:7B5C7274 = {\rt
+        // 5C6F626A656374 = \object
+        // 3639 3630 3635 3630 3738 = 6960656078
+        let matching_rtf = b"{\\rt\\ansi this is an RTF document \\object some data 6960656078 tail";
+        let hit = engine.scan_bytes(matching_rtf, ScanOptions::default());
+        assert_eq!(hit.len(), 1);
+        assert_eq!(hit[0].name, "TwinWave.EvilDoc.DOCXSTRGOOD.RTFSTR.I_E_X.210820");
+    }
+
 }
+

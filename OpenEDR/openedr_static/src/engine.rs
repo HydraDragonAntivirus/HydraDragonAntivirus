@@ -194,7 +194,9 @@ impl StaticEngine {
             }
             e
         });
-        let (clam, yara, ml, signers, pua_registry, url_whitelist) = std::thread::scope(|s| {
+        let cidr_dir = base.join("cidr_rules");
+
+        let (clam, yara, ml, signers, pua_registry, url_whitelist, cidr_engine) = std::thread::scope(|s| {
             let h_clam = s.spawn(|| timed!("clam", ClamScanner::new(&database_dir)));
             let h_yara = s.spawn(|| timed!("yara", YaraScanner::new(&rules_dir)));
             let h_ml = s.spawn(|| timed!("ml_models", MlScanner::new(&models_dir)));
@@ -244,7 +246,24 @@ impl StaticEngine {
                 })
             });
 
-// HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
+            let h_cidr = s.spawn(|| {
+                timed!("cidr_tables", {
+                    let engine = crate::cidr::CidrEngine::load_from_dir(&cidr_dir);
+                    diagnostics::log(
+                        "init-step",
+                        &format!(
+                            "cidr_tables=loaded (v4_wl={}, v4_bl={}, v6_wl={}, v6_bl={})",
+                            engine.whitelist_v4.count(),
+                            engine.blacklist_v4.count(),
+                            engine.whitelist_v6.count(),
+                            engine.blacklist_v6.count(),
+                        ),
+                    );
+                    engine
+                })
+            });
+
+            // HydraSig string rules (web parity): hydradragonsig RuleSet evaluated
             // in-scan with FileType tags (PE/APK gating lives in rule data).
             // Runs on this thread while the others load.
             timed!("hydradragonsig_rules", {
@@ -279,6 +298,7 @@ impl StaticEngine {
                 h_signers.join().expect("signer loader panicked"),
                 h_pua.join().expect("registry rule loader panicked"),
                 h_url_wl.join().expect("url whitelist loader panicked"),
+                h_cidr.join().expect("cidr loader panicked"),
             )
         });
         diagnostics::log(
@@ -301,7 +321,7 @@ impl StaticEngine {
         diagnostics::log(
             "engine-status",
             &format!(
-                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; generic_model_file={}; generic_loaded={}; generic_used_for_file_verdict={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}",
+                "base={}; clam_dir_exists={}; clam_loaded={}; yara_dir={}; yara_loaded={}; yara_rule_bundles={}; models_dir={}; pe_model_file={}; pe_loaded={}; js_model_file={}; js_loaded={}; url_model_file={}; url_loaded={}; apk_model_file={}; apk_loaded={}; generic_model_file={}; generic_loaded={}; generic_used_for_file_verdict={}; signer_dir={}; signer_counts={}/{}/{}; benign_whitelist={}; url_whitelist_file={}; url_whitelist_loaded={}; registry_rules={}; registry_patterns={}; string_rules={}; hayabusa_dir={}; hayabusa_loaded={}; url_rules_file={}; url_rules={}; url_unwhitelisted_hosts={}; cidr_dir={}; cidr_counts={}/{}/{}/{}",
                 base.display(),
                 database_dir.is_dir(),
                 clam.is_loaded(),
@@ -335,6 +355,11 @@ impl StaticEngine {
                 url_rules_path.display(),
                 url_engine.rule_count(),
                 url_engine.unwhitelisted_count(),
+                cidr_dir.display(),
+                cidr_engine.whitelist_v4.count(),
+                cidr_engine.blacklist_v4.count(),
+                cidr_engine.whitelist_v6.count(),
+                cidr_engine.blacklist_v6.count(),
             ),
         );
 
@@ -348,7 +373,7 @@ impl StaticEngine {
             hayabusa: std::sync::OnceLock::new(),
             string_rules,
             url_whitelist,
-            cidr_engine: crate::cidr::CidrEngine::new(),
+            cidr_engine,
             url_engine,
         }
     }

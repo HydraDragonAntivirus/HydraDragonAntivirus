@@ -1701,18 +1701,135 @@ pub struct MatchRange {
     pub end: usize,
 }
 
+/// Unrolls patterns with fixed-length alternations if the product of branch counts <= max_variants.
+fn expand_fixed_alternations(raw: &str, max_variants: usize) -> Vec<String> {
+    if !raw.contains('(') {
+        return vec![raw.to_string()];
+    }
+
+    enum Segment {
+        Literal(String),
+        Alternation(Vec<String>),
+    }
+
+    let b = raw.as_bytes();
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut curr_literal = String::new();
+    let mut i = 0;
+
+    while i < b.len() {
+        if b[i] == b'!' && raw[i..].starts_with("!(") {
+            if let Some(close_rel) = raw[i..].find(')') {
+                let close_idx = i + close_rel;
+                curr_literal.push_str(&raw[i..=close_idx]);
+                i = close_idx + 1;
+                continue;
+            }
+        }
+
+        if b[i] == b'(' {
+            if let Some(close_rel) = raw[i..].find(')') {
+                let close_idx = i + close_rel;
+                let inner = &raw[i + 1..close_idx];
+                if inner.contains('|') {
+                    let branches: Vec<&str> = inner.split('|').collect();
+                    let all_valid_hex = branches.iter().all(|br| {
+                        !br.is_empty()
+                            && br.len() % 2 == 0
+                            && br.len() >= 4 // multi-byte hex (2+ bytes per branch)
+                            && br.bytes().all(|c| c.is_ascii_hexdigit())
+                    });
+                    let same_len = all_valid_hex
+                        && branches.windows(2).all(|w| w[0].len() == w[1].len());
+
+                    if same_len && branches.len() > 1 {
+                        if !curr_literal.is_empty() {
+                            segments.push(Segment::Literal(std::mem::take(&mut curr_literal)));
+                        }
+                        segments.push(Segment::Alternation(
+                            branches.iter().map(|s| s.to_string()).collect(),
+                        ));
+                        i = close_idx + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        curr_literal.push(b[i] as char);
+        i += 1;
+    }
+
+    if !curr_literal.is_empty() {
+        segments.push(Segment::Literal(curr_literal));
+    }
+
+    let alt_count = segments
+        .iter()
+        .filter(|s| matches!(s, Segment::Alternation(_)))
+        .count();
+
+    // Single alternations are handled natively by Special::AltStrFixed / AltChar.
+    // Multiple chained alternations (e.g. TwinWave signatures) fragment patterns into <3 byte
+    // pieces, starving the atom filter into AutoMatch. We expand when alt_count >= 2.
+    if alt_count < 2 {
+        return vec![raw.to_string()];
+    }
+
+    let mut total_combos: usize = 1;
+    for seg in &segments {
+        if let Segment::Alternation(branches) = seg {
+            total_combos = total_combos.saturating_mul(branches.len());
+            if total_combos > max_variants {
+                return vec![raw.to_string()];
+            }
+        }
+    }
+
+    if total_combos <= 1 {
+        return vec![raw.to_string()];
+    }
+
+    let mut combos = vec![String::new()];
+    for seg in segments {
+        match seg {
+            Segment::Literal(lit) => {
+                for c in &mut combos {
+                    c.push_str(&lit);
+                }
+            }
+            Segment::Alternation(branches) => {
+                let mut next = Vec::with_capacity(combos.len() * branches.len());
+                for prefix in &combos {
+                    for choice in &branches {
+                        let mut s = prefix.clone();
+                        s.push_str(choice);
+                        next.push(s);
+                    }
+                }
+                combos = next;
+            }
+        }
+    }
+
+    combos
+}
+
 /// Compile a hex signature string into Pattern variants (handles modifiers).
 pub fn compile_pattern_variants(raw: &str, modifiers: Modifiers) -> Result<Vec<Pattern>, String> {
     let mut variants = Vec::new();
+    let expanded = expand_fixed_alternations(raw, 32);
 
-    if !modifiers.wide || modifiers.ascii {
-        let (inst, specials) = parse_with_modifiers(raw, modifiers.nocase, false)?;
-        variants.push(Pattern::from_parsed(inst, specials, modifiers.fullword));
-    }
+    for exp_raw in expanded {
+        if !modifiers.wide || modifiers.ascii {
+            let (inst, specials) = parse_with_modifiers(&exp_raw, modifiers.nocase, false)?;
+            variants.push(Pattern::from_parsed(inst, specials, modifiers.fullword));
+        }
 
-    if modifiers.wide {
-        let (inst, specials) = parse_with_modifiers(raw, modifiers.nocase, true)?;
-        variants.push(Pattern::from_parsed(inst, specials, modifiers.fullword));
+        if modifiers.wide {
+            let (inst, specials) = parse_with_modifiers(&exp_raw, modifiers.nocase, true)?;
+            variants.push(Pattern::from_parsed(inst, specials, modifiers.fullword));
+        }
     }
 
     Ok(variants)
@@ -1731,7 +1848,9 @@ fn parse_with_modifiers(raw: &str, nocase: bool, wide: bool) -> Result<(Vec<u16>
         for inst in &mut base {
             if (*inst & CLI_MATCH_METADATA) == CLI_MATCH_CHAR {
                 let byte = (*inst & 0xff) as u8;
-                *inst = byte.to_ascii_lowercase() as u16 | CLI_MATCH_NOCASE;
+                if byte.to_ascii_lowercase() != byte.to_ascii_uppercase() {
+                    *inst = byte.to_ascii_lowercase() as u16 | CLI_MATCH_NOCASE;
+                }
             }
         }
     }
@@ -2180,6 +2299,28 @@ mod tests {
         data[0] = 0x41;
         data[3001] = 0x42;
         assert!(pat.is_match(&data));
+    }
+
+    #[test]
+    fn multiple_fixed_alternations_expand_and_match() {
+        // TwinWave signature pattern with 3 alternations (8 combinations)
+        let raw = "(3639|3439)3630(3635|3435)3630(3738|3538)";
+        let pats = compile_pattern_variants(raw, Modifiers::default()).unwrap();
+        assert_eq!(pats.len(), 8);
+        // Each variant must have extracted a full 10-byte atom
+        for p in &pats {
+            let atom = p.required_atom().expect("unrolled pattern must have exact atom");
+            assert_eq!(atom.len(), 10);
+        }
+        // Test match against one valid combination: 3639 3630 3635 3630 3738
+        let target = &[0x36, 0x39, 0x36, 0x30, 0x36, 0x35, 0x36, 0x30, 0x37, 0x38];
+        assert!(pats.iter().any(|p| p.is_match(target)));
+        // Test match against another valid combination: 3439 3630 3435 3630 3538
+        let target2 = &[0x34, 0x39, 0x36, 0x30, 0x34, 0x35, 0x36, 0x30, 0x35, 0x38];
+        assert!(pats.iter().any(|p| p.is_match(target2)));
+        // Negative test: invalid byte
+        let invalid = &[0x36, 0x39, 0x36, 0x30, 0x99, 0x99, 0x36, 0x30, 0x37, 0x38];
+        assert!(!pats.iter().any(|p| p.is_match(invalid)));
     }
 
 }
