@@ -92,8 +92,8 @@ It contains low-level system components and experimental security drivers that r
 ## POC
 
 - 📺 **Proof of Concept (POC) Video**: [https://www.youtube.com/watch?v=2ZxJmZ3XTEM&t](https://www.youtube.com/watch?v=2ZxJmZ3XTEM&t)
-
-- Demo: https://hydradragonantivirus.github.io/HydraDragonAntivirus/
+- ⚠️ **GitHub Pages Demo**: [https://hydradragonantivirus.github.io/HydraDragonAntivirus/](https://hydradragonantivirus.github.io/HydraDragonAntivirus/)  
+  *(**Notice**: The GitHub Pages deployment is outdated and currently broken. The Multron Server backend, dashboard, WebSocket protocols, and detection engines are under rapid active development and updated constantly, causing the static GitHub Pages site to be out of sync.)*
 
 ## One Man Project
 
