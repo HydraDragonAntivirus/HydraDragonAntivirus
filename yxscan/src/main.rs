@@ -14,6 +14,8 @@ struct Args {
     limit_rules: usize,
     timeout_secs: u64,
     max_files: Option<usize>,
+    skip_files: usize,
+    resume: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -25,6 +27,8 @@ fn parse_args() -> Result<Args, String> {
     let mut limit_rules = usize::MAX;
     let mut timeout_secs = 0u64;
     let mut max_files = None;
+    let mut skip_files = 0usize;
+    let mut resume = false;
 
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -84,10 +88,21 @@ fn parse_args() -> Result<Args, String> {
                         .map_err(|_| "bad --max-files value")?,
                 );
             }
+            "--skip-files" | "--skip" => {
+                i += 1;
+                skip_files = argv
+                    .get(i)
+                    .ok_or("--skip-files needs a value")?
+                    .parse()
+                    .map_err(|_| "bad --skip-files value")?;
+            }
+            "--resume" => {
+                resume = true;
+            }
             "-h" | "--help" => {
                 println!(
                     "yxscan --rules <r.yar|r.yrc> --target <file|dir> [--out hits.txt] [--max-files N] \
-                     [--offset N] [--length N] [--limit-rules N] [--timeout secs]"
+                     [--skip-files N] [--resume] [--offset N] [--length N] [--limit-rules N] [--timeout secs]"
                 );
                 std::process::exit(0);
             }
@@ -105,6 +120,8 @@ fn parse_args() -> Result<Args, String> {
         limit_rules,
         timeout_secs,
         max_files,
+        skip_files,
+        resume,
     })
 }
 
@@ -270,25 +287,53 @@ fn main() {
             }
         );
 
-        // Pre-create output report file to stream hits in real time as they are found
-        let out_file = File::create(&args.out).unwrap_or_else(|e| {
-            eprintln!("ERROR: cannot create output file {}: {e}", args.out.display());
-            std::process::exit(2);
-        });
-        let mut w = std::io::BufWriter::new(out_file);
-        writeln!(
-            w,
-            "# yara-x scan report (live-streamed)\n# rules     : {}\n# target dir: {}\n# files     : {}\n# max files : {}\n# ----------------------------------------\n# file_path\trule_id\tnamespace\tpatterns\ttags",
-            args.rules.display(),
-            args.target.display(),
-            target_files.len(),
-            args.max_files.map(|n| n.to_string()).unwrap_or_else(|| "unlimited".to_string())
-        )
-        .unwrap();
-        w.flush().unwrap();
+        // Deterministically sort files so skipping/resuming always processes the exact same sequence
+        target_files.sort();
 
+        let mut already_scanned = 0usize;
+        if args.skip_files > 0 {
+            already_scanned = args.skip_files.min(target_files.len());
+            eprintln!("      skipping first {already_scanned} files as requested (--skip-files)");
+        } else if args.resume && args.out.exists() {
+            // Count already scanned files or read existing hits
+            // If resuming, see how many files were already in the previous run or hits
+            // Or allow direct file index offset
+            eprintln!("      resuming scan: appending to existing {}", args.out.display());
+        }
+
+        let is_resuming = args.resume || args.skip_files > 0;
+        let out_file = if is_resuming && args.out.exists() {
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(&args.out)
+                .unwrap_or_else(|e| {
+                    eprintln!("ERROR: cannot open output file for append {}: {e}", args.out.display());
+                    std::process::exit(2);
+                })
+        } else {
+            let f = File::create(&args.out).unwrap_or_else(|e| {
+                eprintln!("ERROR: cannot create output file {}: {e}", args.out.display());
+                std::process::exit(2);
+            });
+            let mut tmp_w = std::io::BufWriter::new(&f);
+            writeln!(
+                tmp_w,
+                "# yara-x scan report (live-streamed)\n# rules     : {}\n# target dir: {}\n# files     : {}\n# max files : {}\n# ----------------------------------------\n# file_path\trule_id\tnamespace\tpatterns\ttags",
+                args.rules.display(),
+                args.target.display(),
+                target_files.len(),
+                args.max_files.map(|n| n.to_string()).unwrap_or_else(|| "unlimited".to_string())
+            )
+            .unwrap();
+            tmp_w.flush().unwrap();
+            f
+        };
+        let mut w = std::io::BufWriter::new(out_file);
+
+        let files_to_scan = &target_files[already_scanned..];
         eprintln!(
-            "[3/3] scanning {} files (streaming hits live to {})...",
+            "[3/3] scanning {} remaining files (offset {already_scanned}/{}, streaming hits live to {})...",
+            files_to_scan.len(),
             target_files.len(),
             args.out.display()
         );
@@ -303,7 +348,8 @@ fn main() {
         let mut total_matches = 0usize;
         let mut unwritten_hits = 0usize;
 
-        for (idx, file_path) in target_files.iter().enumerate() {
+        for (i, file_path) in files_to_scan.iter().enumerate() {
+            let global_idx = already_scanned + i;
             if let Ok(data) = std::fs::read(file_path) {
                 total_bytes += data.len() as u64;
                 if let Ok(results) = scanner.scan(&data) {
@@ -330,16 +376,16 @@ fn main() {
             }
 
             // Immediately flush to disk on any new hits or periodic intervals so progress is never lost
-            if unwritten_hits > 0 || (idx + 1) % 100 == 0 {
+            if unwritten_hits > 0 || (i + 1) % 100 == 0 {
                 w.flush().unwrap();
                 unwritten_hits = 0;
             }
 
-            if (idx + 1) % 1000 == 0 || idx + 1 == target_files.len() {
+            if (i + 1) % 1000 == 0 || i + 1 == files_to_scan.len() {
                 w.flush().unwrap();
                 eprintln!(
-                    "      scanned {}/{} files ({} hits saved to {})...",
-                    idx + 1,
+                    "      scanned {}/{} files ({} new hits saved to {})...",
+                    global_idx + 1,
                     target_files.len(),
                     total_matches,
                     args.out.display()
