@@ -254,11 +254,12 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                 file_info[filePath]["hash"] = sha256sum
                 file_info[filePath]["imphash"], file_info[filePath]["exports"] = get_pe_info(fileData)
                 if fileData[:2] == b"MZ":
-                    pe_imps, susp_imps, max_ent, is_pkd, pkd_secs, exps = extract_pe_advanced(filePath)
+                    pe_imps, susp_imps, max_ent, is_pkd, pkd_secs, dist_secs, exps = extract_pe_advanced(filePath)
                     file_info[filePath]["suspicious_imports"] = susp_imps
                     file_info[filePath]["max_section_entropy"] = max_ent
                     file_info[filePath]["is_packed"] = is_pkd
                     file_info[filePath]["packed_sections"] = pkd_secs
+                    file_info[filePath]["distinctive_sections"] = dist_secs
                     file_info[filePath]["exports"] = exps
                     file_info[filePath]["icons"] = extract_pe_icons(filePath)
                 else:
@@ -266,6 +267,7 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                     file_info[filePath]["max_section_entropy"] = 0.0
                     file_info[filePath]["is_packed"] = False
                     file_info[filePath]["packed_sections"] = []
+                    file_info[filePath]["distinctive_sections"] = []
                     file_info[filePath]["exports"] = []
                     file_info[filePath]["icons"] = []
                 file_info[filePath]["apk"] = extract_apk_metadata(filePath)
@@ -719,16 +721,24 @@ MITRE_API_MAP = {
     "CryptDecrypt": ("T1486", "Data Encrypted for Impact", "Impact"),
 }
 
+STANDARD_PE_SECTIONS = {
+    ".text", ".data", ".rdata", ".idata", ".edata", ".rsrc", ".reloc",
+    ".pdata", ".tls", ".bss", ".didata", ".cormeta", ".sbss", ".sdata",
+    ".debug", ".drectve", ".gfids", ".giats", ".gljmp", ".guard",
+    "text", "data", "rdata", "rsrc", "bss"
+}
+
 KNOWN_PACKER_SECTIONS = re.compile(r"^(upx[0-9]?|\.upx|\.aspack|\.vmp[0-9]?|\.themida|\.fsg|\.petite|\.nsp[0-9]?|\.pecrypt)$", re.IGNORECASE)
 
 
 def extract_pe_advanced(file_path: str):
-    """Extract imports, suspicious APIs, max section entropy, packed status, and exports."""
+    """Extract imports, suspicious APIs, max section entropy, packed status, distinctive sections, and exports."""
     imports = []
     suspicious_found = []
     max_entropy = 0.0
     is_packed = False
     packed_section_names = []
+    distinctive_section_names = []
     pe_exports = []
     try:
         pe = pefile.PE(file_path, fast_load=False)
@@ -751,13 +761,30 @@ def extract_pe_advanced(file_path: str):
                 ent = sec.get_entropy()
                 if ent > max_entropy:
                     max_entropy = ent
-                s_name = sec.Name.decode("ascii", errors="ignore").strip("\x00").strip()
-                if KNOWN_PACKER_SECTIONS.match(s_name):
+                s_name = sec.Name.decode("latin1", errors="ignore").strip("\x00").strip()
+                if not s_name:
+                    continue
+                if KNOWN_PACKER_SECTIONS.match(s_name) or s_name.upper().startswith("UPX") or s_name.upper().startswith("MEW"):
                     is_packed = True
                     packed_section_names.append(s_name)
+                # Check for distinctive, non-standard section names
+                if s_name.lower() not in STANDARD_PE_SECTIONS:
+                    if all(32 <= ord(c) < 127 for c in s_name) and len(s_name) >= 3:
+                        distinctive_section_names.append(s_name)
+
+            if len(packed_section_names) > 0 or (max_entropy >= 7.2 and (len(pe.sections) <= 3 or max_entropy >= 7.5)):
+                is_packed = True
     except Exception:
         pass
-    return imports, sorted(list(set(suspicious_found))), max_entropy, is_packed, packed_section_names, sorted(list(set(pe_exports)))
+    return (
+        imports,
+        sorted(list(set(suspicious_found))),
+        max_entropy,
+        is_packed,
+        packed_section_names,
+        sorted(list(set(distinctive_section_names))),
+        sorted(list(set(pe_exports))),
+    )
 
 
 def extract_apk_metadata(file_path: str):
@@ -1455,6 +1482,29 @@ def get_file_name_stem(filename: str) -> str:
     return stem or fileBase
 
 
+def is_clean_string(s: str) -> bool:
+    """Check if string is printable text without unprintable control characters."""
+    if not s or len(s.strip()) < 3:
+        return False
+    return not any(ord(c) < 32 or ord(c) == 127 for c in s)
+
+
+def yaml_escape(s: str) -> str:
+    """Escape backslashes, double quotes, and control characters for YAML double-quoted scalar."""
+    out = []
+    for c in s:
+        code = ord(c)
+        if c == "\\":
+            out.append("\\\\")
+        elif c == '"':
+            out.append('\\"')
+        elif code < 32 or code == 127:
+            out.append(f"\\x{code:02x}")
+        else:
+            out.append(c)
+    return "".join(out)
+
+
 def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_info, good_opcodes_db, out_path):
     """Generate deterministic HydraDragonSig YAML rules with multi-factor conditions and exclude bytes."""
     lines = [
@@ -1504,8 +1554,13 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
             for s in file_strings.get(fp, []):
                 merged_str_counter[s] += 1
 
+        clean_candidates = [
+            s for s in merged_str_counter.keys()
+            if is_clean_string(s[8:] if s.startswith("UTF16LE:") else s)
+        ]
+
         ranked_strings = sorted(
-            merged_str_counter.keys(),
+            clean_candidates,
             key=lambda s: (merged_str_counter[s], stringScores.get(s, 0)),
             reverse=True
         )[:15]
@@ -1557,7 +1612,7 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
         # Condition 2: string_set (with wide and ascii support)
         if ranked_strings:
             min_str = 2 if len(ranked_strings) >= 3 else 1
-            has_wide = any(s.startswith("UTF16LE:") for s in merged_str_counter.keys())
+            has_wide = any(s.startswith("UTF16LE:") for s in ranked_strings)
             c_str = [
                 "      - type: string_set",
                 f"        min: {min_str}",
@@ -1569,30 +1624,22 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
             c_str.append("        values:")
             for s in ranked_strings:
                 raw_val = s[8:] if s.startswith("UTF16LE:") else s
-                escaped = raw_val.replace("\\", "\\\\").replace('"', '\\"')
+                escaped = yaml_escape(raw_val)
                 c_str.append(f'          - "{escaped}"')
             condition_blocks.append(c_str)
 
-        # Condition 3: byte_pattern / byte_set with excludes (the exclude bytes!)
+        # Condition 3: byte_pattern / byte_set (opcodes strictly absent from benign database)
         if merged_opcodes:
             c_bytes = []
             if len(merged_opcodes) == 1:
                 c_bytes.append("      - type: byte_pattern")
                 c_bytes.append(f'        pattern: "{{ {merged_opcodes[0]} }}"')
-                if benign_excludes:
-                    c_bytes.append("        excludes:")
-                    for ex in benign_excludes:
-                        c_bytes.append(f'          - "{ex}"')
             else:
                 c_bytes.append("      - type: byte_set")
                 c_bytes.append("        min: 1")
                 c_bytes.append("        patterns:")
                 for op in merged_opcodes[:3]:
                     c_bytes.append(f'          - "{{ {op} }}"')
-                if benign_excludes:
-                    c_bytes.append("        excludes:")
-                    for ex in benign_excludes:
-                        c_bytes.append(f'          - "{ex}"')
             condition_blocks.append(c_bytes)
 
         # Condition 4: PE Icon fingerprints (dhash & phash)
@@ -1671,17 +1718,28 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
             ]
             condition_blocks.append(c_ent)
 
-        # Condition 9: Packed PE & Section Name Regex
+        # Condition 9: Packed PE (Heuristic Check)
         any_packed = any(file_info.get(fp, {}).get("is_packed", False) for fp in member_files)
         if any_packed:
-            c_pck = [
-                "      - type: packed_pe",
-                "      - type: section_name_regex",
-                '        pattern: "(?i)^(\\.?(upx|aspack|vmp|themida|fsg)|upx[0-9])$"'
-            ]
-            condition_blocks.append(c_pck)
+            condition_blocks.append(["      - type: packed_pe"])
 
-        # Condition 10: APK Features & Permissions
+        # Condition 10: Section Name Regex (Strictly from ACTUAL distinctive sections observed in samples)
+        merged_dist_secs = []
+        for fp in member_files:
+            for s in file_info.get(fp, {}).get("distinctive_sections", []):
+                if s not in merged_dist_secs:
+                    merged_dist_secs.append(s)
+
+        if merged_dist_secs:
+            escaped_sec_names = [re.escape(s) for s in merged_dist_secs[:4]]
+            sec_pattern = f"(?i)^({'|'.join(escaped_sec_names)})$"
+            c_sec = [
+                "      - type: section_name_regex",
+                f"        pattern: '{sec_pattern}'"
+            ]
+            condition_blocks.append(c_sec)
+
+        # Condition 11: APK Features & Permissions
         max_dangerous_perms = max([file_info.get(fp, {}).get("apk", {}).get("dangerous_perm_count", 0) for fp in member_files] or [0])
         max_dex_files = max([file_info.get(fp, {}).get("apk", {}).get("dex_files", 0) for fp in member_files] or [0])
         if fmt == "apk":
@@ -1725,6 +1783,9 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
         if len(condition_blocks) >= 4:
             lines.append("    logic: threshold")
             lines.append("    threshold: 3")
+        elif len(condition_blocks) == 3:
+            lines.append("    logic: threshold")
+            lines.append("    threshold: 2")
         else:
             lines.append("    logic: all")
 
