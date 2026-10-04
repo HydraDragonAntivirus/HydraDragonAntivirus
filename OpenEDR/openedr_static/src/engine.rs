@@ -1501,23 +1501,10 @@ fn entry_is_compressed_document(name: &str) -> bool {
             }
         }
 
-        // 5b. Generic whole-buffer ML fallback: scans any buffer when previous layers found nothing.
-        if detections.is_empty() && max_score < GENERIC_TREE_THRESHOLD {
-            if let Some(prob) = self.ml.predict_generic_bytes(data) {
-                if prob >= GENERIC_TREE_THRESHOLD {
-                    detections.push(DetectionItem {
-                        layer: "Generic_ML".to_string(),
-                        name: "MalwareNet.Generic.HighConfidence".to_string(),
-                        score: Some(prob),
-                        details: Some(format!(
-                            "Generic whole-buffer malware probability: {:.2}%",
-                            prob * 100.0
-                        )),
-                    });
-                    max_score = max_score.max(prob);
-                }
-            }
-        }
+        // Note: Generic_ML fallback has been decommissioned from issuing direct malware verdicts
+        // to prevent false positives on raw binary blobs, ELF binaries, and non-PE data files.
+        // Specialized ML engines (PE, JS, APK) handle their respective formats, while YARA-X,
+        // HydraSig, and ClamAV provide exact high-confidence detection across all file types.
 
         // 6. Unicorn PE CPU Emulation & Unpacker (Tier 3: Conditional Generic Dynamic Unpacking)
         let is_pe_candidate = is_pe && data.len() >= 0x1000;
