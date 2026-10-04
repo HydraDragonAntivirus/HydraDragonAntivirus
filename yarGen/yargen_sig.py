@@ -2327,8 +2327,7 @@ def get_file_range(size):
             print("File Size Eval: SampleSize (b): {0} SizeWithMultiplier (b/Kb): {1} / {2} RoundedSize: {3}".format(str(size), str(max_size_b), str(max_size_kb), str(max_size)))
     except Exception:
         traceback.print_exc()
-    finally:
-        return size_string
+    return size_string
 
 
 def get_timestamp_basic(date_obj=None):
