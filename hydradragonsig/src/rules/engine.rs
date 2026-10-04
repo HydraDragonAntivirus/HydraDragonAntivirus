@@ -2999,6 +2999,15 @@ rules:
         }
     }
 
+    #[test]
+    fn parses_generated_malware_pilot_rules() {
+        let path = std::path::Path::new("../OpenMalwareScannerPortable/hydradragonsig_rules/malware_pilot_rules.yaml");
+        if path.exists() {
+            let ruleset = RuleSet::from_yaml_file(path).expect("malware_pilot_rules.yaml must parse cleanly");
+            assert!(!ruleset.rules.is_empty(), "Generated ruleset should not be empty");
+        }
+    }
+
     fn hits(entries: &[(&str, &[usize])]) -> HashMap<String, AtomMatch> {
         entries
             .iter()

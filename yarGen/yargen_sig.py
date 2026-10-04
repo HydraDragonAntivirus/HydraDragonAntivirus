@@ -254,13 +254,19 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                 file_info[filePath]["hash"] = sha256sum
                 file_info[filePath]["imphash"], file_info[filePath]["exports"] = get_pe_info(fileData)
                 if fileData[:2] == b"MZ":
-                    pe_imps, susp_imps, max_ent = extract_pe_advanced(filePath)
+                    pe_imps, susp_imps, max_ent, is_pkd, pkd_secs, exps = extract_pe_advanced(filePath)
                     file_info[filePath]["suspicious_imports"] = susp_imps
                     file_info[filePath]["max_section_entropy"] = max_ent
+                    file_info[filePath]["is_packed"] = is_pkd
+                    file_info[filePath]["packed_sections"] = pkd_secs
+                    file_info[filePath]["exports"] = exps
                     file_info[filePath]["icons"] = extract_pe_icons(filePath)
                 else:
                     file_info[filePath]["suspicious_imports"] = []
                     file_info[filePath]["max_section_entropy"] = 0.0
+                    file_info[filePath]["is_packed"] = False
+                    file_info[filePath]["packed_sections"] = []
+                    file_info[filePath]["exports"] = []
                     file_info[filePath]["icons"] = []
                 file_info[filePath]["apk"] = extract_apk_metadata(filePath)
 
@@ -680,11 +686,50 @@ def extract_pe_icons(file_path: str) -> list[tuple[str, str]]:
     return results
 
 
+MITRE_API_MAP = {
+    # Process Injection
+    "VirtualAlloc": ("T1055", "Process Injection", "Defense Evasion"),
+    "VirtualAllocEx": ("T1055", "Process Injection", "Defense Evasion"),
+    "VirtualProtect": ("T1055", "Process Injection", "Defense Evasion"),
+    "VirtualProtectEx": ("T1055", "Process Injection", "Defense Evasion"),
+    "WriteProcessMemory": ("T1055", "Process Injection", "Defense Evasion"),
+    "ReadProcessMemory": ("T1055", "Process Injection", "Defense Evasion"),
+    "CreateRemoteThread": ("T1055.002", "Process Injection: Portable Executable Injection", "Defense Evasion"),
+    "NtCreateThreadEx": ("T1055.002", "Process Injection: Portable Executable Injection", "Defense Evasion"),
+    "QueueUserAPC": ("T1055.004", "Process Injection: Asynchronous Procedure Call", "Defense Evasion"),
+    "SetThreadContext": ("T1055.003", "Process Injection: Thread Execution Hijacking", "Defense Evasion"),
+    # Persistence
+    "RegSetValueExA": ("T1547.001", "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder", "Persistence"),
+    "RegSetValueExW": ("T1547.001", "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder", "Persistence"),
+    # Privilege Escalation / Token Manipulation
+    "AdjustTokenPrivileges": ("T1134", "Access Token Manipulation", "Privilege Escalation"),
+    "LookupPrivilegeValueA": ("T1134", "Access Token Manipulation", "Privilege Escalation"),
+    "LookupPrivilegeValueW": ("T1134", "Access Token Manipulation", "Privilege Escalation"),
+    # Anti-Debugging
+    "IsDebuggerPresent": ("T1497.001", "Virtualization/Sandbox Evasion: System Checks", "Defense Evasion"),
+    "CheckRemoteDebuggerPresent": ("T1497.001", "Virtualization/Sandbox Evasion: System Checks", "Defense Evasion"),
+    "NtQueryInformationProcess": ("T1497.001", "Virtualization/Sandbox Evasion: System Checks", "Defense Evasion"),
+    # Ingress Tool Transfer / Command & Control
+    "InternetOpenA": ("T1105", "Ingress Tool Transfer", "Command and Control"),
+    "InternetOpenUrlA": ("T1105", "Ingress Tool Transfer", "Command and Control"),
+    "URLDownloadToFileA": ("T1105", "Ingress Tool Transfer", "Command and Control"),
+    "URLDownloadToFileW": ("T1105", "Ingress Tool Transfer", "Command and Control"),
+    # Encryption for Impact
+    "CryptEncrypt": ("T1486", "Data Encrypted for Impact", "Impact"),
+    "CryptDecrypt": ("T1486", "Data Encrypted for Impact", "Impact"),
+}
+
+KNOWN_PACKER_SECTIONS = re.compile(r"^(upx[0-9]?|\.upx|\.aspack|\.vmp[0-9]?|\.themida|\.fsg|\.petite|\.nsp[0-9]?|\.pecrypt)$", re.IGNORECASE)
+
+
 def extract_pe_advanced(file_path: str):
-    """Extract imports, suspicious APIs, and max section entropy from PE file."""
+    """Extract imports, suspicious APIs, max section entropy, packed status, and exports."""
     imports = []
     suspicious_found = []
     max_entropy = 0.0
+    is_packed = False
+    packed_section_names = []
+    pe_exports = []
     try:
         pe = pefile.PE(file_path, fast_load=False)
         if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
@@ -695,14 +740,24 @@ def extract_pe_advanced(file_path: str):
                         imports.append(name)
                         if name in SUSPICIOUS_IMPORTS:
                             suspicious_found.append(name)
+        if hasattr(pe, "DIRECTORY_ENTRY_EXPORT"):
+            for exp in getattr(pe.DIRECTORY_ENTRY_EXPORT, "symbols", []):
+                if exp.name:
+                    exp_name = exp.name.decode("ascii", errors="ignore")
+                    if exp_name not in ("DllMain", "malloc", "free"):
+                        pe_exports.append(exp_name)
         if hasattr(pe, "sections"):
             for sec in pe.sections:
                 ent = sec.get_entropy()
                 if ent > max_entropy:
                     max_entropy = ent
+                s_name = sec.Name.decode("ascii", errors="ignore").strip("\x00").strip()
+                if KNOWN_PACKER_SECTIONS.match(s_name):
+                    is_packed = True
+                    packed_section_names.append(s_name)
     except Exception:
         pass
-    return imports, sorted(list(set(suspicious_found))), max_entropy
+    return imports, sorted(list(set(suspicious_found))), max_entropy, is_packed, packed_section_names, sorted(list(set(pe_exports)))
 
 
 def extract_apk_metadata(file_path: str):
@@ -1476,55 +1531,69 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
         tags = [fmt, "malware", clean_tag]
         tags_str = ", ".join(list(dict.fromkeys(tags)))
 
-        lines.append(f"  - id: {rule_id}")
-        lines.append(f'    title: "Malware.{fmt.upper()}.{stem}"')
-        lines.append("    description: >")
-        lines.append(f"      Detection for {stem} ({len(member_files)} sample(s)).")
-        lines.append(f"      Samples: {file_listing}")
-        lines.append("    severity: critical")
-        lines.append("    verdict: malware")
-        lines.append("    confidence: 95")
-        lines.append(f'    family: "{stem}"')
-        lines.append("    score: 95")
-        lines.append(f"    tags: [{tags_str}]")
-        lines.append("    logic: all")
-        lines.append("    conditions:")
+        # Feature 1: MITRE ATT&CK Technique Mapping
+        mitre_entries = []
+        for fp in member_files:
+            for imp in file_info.get(fp, {}).get("suspicious_imports", []):
+                if imp in MITRE_API_MAP:
+                    m_id, m_name, m_tac = MITRE_API_MAP[imp]
+                    if not any(m["id"] == m_id for m in mitre_entries):
+                        mitre_entries.append({"id": m_id, "name": m_name, "tactic": m_tac})
+            apk_info = file_info.get(fp, {}).get("apk", {})
+            if apk_info.get("dangerous_perm_count", 0) >= 3:
+                if not any(m["id"] == "T1437" for m in mitre_entries):
+                    mitre_entries.append({"id": "T1437", "name": "Application Layer Protocol: Mobile C2", "tactic": "Command and Control"})
+
+        # Build condition blocks
+        condition_blocks = []
 
         # Condition 1: file_type
-        lines.append("      - type: file_type")
-        lines.append(f"        values: [{fmt}]")
+        c_ft = [
+            "      - type: file_type",
+            f"        values: [{fmt}]"
+        ]
+        condition_blocks.append(c_ft)
 
-        # Condition 2: string_set
+        # Condition 2: string_set (with wide and ascii support)
         if ranked_strings:
             min_str = 2 if len(ranked_strings) >= 3 else 1
-            lines.append("      - type: string_set")
-            lines.append(f"        min: {min_str}")
-            lines.append("        nocase: true")
-            lines.append("        values:")
+            has_wide = any(s.startswith("UTF16LE:") for s in merged_str_counter.keys())
+            c_str = [
+                "      - type: string_set",
+                f"        min: {min_str}",
+                "        nocase: true",
+                "        ascii: true"
+            ]
+            if has_wide:
+                c_str.append("        wide: true")
+            c_str.append("        values:")
             for s in ranked_strings:
                 raw_val = s[8:] if s.startswith("UTF16LE:") else s
                 escaped = raw_val.replace("\\", "\\\\").replace('"', '\\"')
-                lines.append(f'          - "{escaped}"')
+                c_str.append(f'          - "{escaped}"')
+            condition_blocks.append(c_str)
 
         # Condition 3: byte_pattern / byte_set with excludes (the exclude bytes!)
         if merged_opcodes:
+            c_bytes = []
             if len(merged_opcodes) == 1:
-                lines.append("      - type: byte_pattern")
-                lines.append(f'        pattern: "{{ {merged_opcodes[0]} }}"')
+                c_bytes.append("      - type: byte_pattern")
+                c_bytes.append(f'        pattern: "{{ {merged_opcodes[0]} }}"')
                 if benign_excludes:
-                    lines.append("        excludes:")
+                    c_bytes.append("        excludes:")
                     for ex in benign_excludes:
-                        lines.append(f'          - "{ex}"')
+                        c_bytes.append(f'          - "{ex}"')
             else:
-                lines.append("      - type: byte_set")
-                lines.append("        min: 1")
-                lines.append("        patterns:")
+                c_bytes.append("      - type: byte_set")
+                c_bytes.append("        min: 1")
+                c_bytes.append("        patterns:")
                 for op in merged_opcodes[:3]:
-                    lines.append(f'          - "{{ {op} }}"')
+                    c_bytes.append(f'          - "{{ {op} }}"')
                 if benign_excludes:
-                    lines.append("        excludes:")
+                    c_bytes.append("        excludes:")
                     for ex in benign_excludes:
-                        lines.append(f'          - "{ex}"')
+                        c_bytes.append(f'          - "{ex}"')
+            condition_blocks.append(c_bytes)
 
         # Condition 4: PE Icon fingerprints (dhash & phash)
         merged_icon_dhashes = []
@@ -1537,16 +1606,19 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
                     merged_icon_phashes.append(ph)
 
         if merged_icon_dhashes:
-            lines.append("      - type: pe_icon_any")
-            lines.append("        dhash:")
+            c_icon = [
+                "      - type: pe_icon_any",
+                "        dhash:"
+            ]
             for dh in merged_icon_dhashes[:3]:
-                lines.append(f'          - "{dh}"')
-            lines.append("        dhash_max_distance: 4")
+                c_icon.append(f'          - "{dh}"')
+            c_icon.append("        dhash_max_distance: 4")
             if merged_icon_phashes:
-                lines.append("        phash:")
+                c_icon.append("        phash:")
                 for ph in merged_icon_phashes[:3]:
-                    lines.append(f'          - "{ph}"')
-                lines.append("        phash_max_distance: 4")
+                    c_icon.append(f'          - "{ph}"')
+                c_icon.append("        phash_max_distance: 4")
+            condition_blocks.append(c_icon)
 
         # Condition 5: Suspicious PE Imports
         merged_susp_imports = []
@@ -1556,29 +1628,109 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
                     merged_susp_imports.append(imp)
 
         if merged_susp_imports:
-            lines.append("      - type: import_any")
-            lines.append("        names:")
+            c_imp = [
+                "      - type: import_any",
+                "        names:"
+            ]
             for imp in merged_susp_imports[:5]:
-                lines.append(f'          - "{imp}"')
+                c_imp.append(f'          - "{imp}"')
+            condition_blocks.append(c_imp)
 
-        # Condition 6: High Section Entropy
+        # Condition 6: Suspicious Import Count Threshold
+        max_susp_cnt = max([len(file_info.get(fp, {}).get("suspicious_imports", [])) for fp in member_files] or [0])
+        if max_susp_cnt >= 3:
+            c_cnt = [
+                "      - type: suspicious_import_count",
+                f"        min: {min(max_susp_cnt, 3)}"
+            ]
+            condition_blocks.append(c_cnt)
+
+        # Condition 7: Export Set (Characteristic DLL / PE Exports)
+        merged_exports = []
+        for fp in member_files:
+            for exp in file_info.get(fp, {}).get("exports", []):
+                if exp not in merged_exports:
+                    merged_exports.append(exp)
+
+        if merged_exports:
+            c_exp = [
+                "      - type: export_set",
+                "        min: 1",
+                "        names:"
+            ]
+            for exp in merged_exports[:5]:
+                c_exp.append(f'          - "{exp}"')
+            condition_blocks.append(c_exp)
+
+        # Condition 8: High Section Entropy
         max_ent = max([file_info.get(fp, {}).get("max_section_entropy", 0.0) for fp in member_files] or [0.0])
         if max_ent >= 7.2:
-            lines.append("      - type: section_entropy")
-            lines.append("        min: 7.2")
+            c_ent = [
+                "      - type: section_entropy",
+                "        min: 7.2"
+            ]
+            condition_blocks.append(c_ent)
 
-        # Condition 7: APK Features & Permissions
+        # Condition 9: Packed PE & Section Name Regex
+        any_packed = any(file_info.get(fp, {}).get("is_packed", False) for fp in member_files)
+        if any_packed:
+            c_pck = [
+                "      - type: packed_pe",
+                "      - type: section_name_regex",
+                '        pattern: "(?i)^(\\.?(upx|aspack|vmp|themida|fsg)|upx[0-9])$"'
+            ]
+            condition_blocks.append(c_pck)
+
+        # Condition 10: APK Features & Permissions
         max_dangerous_perms = max([file_info.get(fp, {}).get("apk", {}).get("dangerous_perm_count", 0) for fp in member_files] or [0])
         max_dex_files = max([file_info.get(fp, {}).get("apk", {}).get("dex_files", 0) for fp in member_files] or [0])
         if fmt == "apk":
             if max_dangerous_perms >= 3:
-                lines.append("      - type: feature_gte")
-                lines.append("        name: dangerous_perm_count")
-                lines.append(f"        value: {float(max_dangerous_perms):.1f}")
+                c_apk = [
+                    "      - type: feature_gte",
+                    "        name: dangerous_perm_count",
+                    f"        value: {float(max_dangerous_perms):.1f}"
+                ]
+                condition_blocks.append(c_apk)
             elif max_dex_files >= 1:
-                lines.append("      - type: feature_gte")
-                lines.append("        name: dex_files")
-                lines.append(f"        value: {float(max_dex_files):.1f}")
+                c_apk = [
+                    "      - type: feature_gte",
+                    "        name: dex_files",
+                    f"        value: {float(max_dex_files):.1f}"
+                ]
+                condition_blocks.append(c_apk)
+
+        # Build rule header and metadata
+        lines.append(f"  - id: {rule_id}")
+        lines.append(f'    title: "Malware.{fmt.upper()}.{stem}"')
+        lines.append("    description: >")
+        lines.append(f"      Detection for {stem} ({len(member_files)} sample(s)).")
+        lines.append(f"      Samples: {file_listing}")
+        lines.append("    severity: critical")
+        lines.append("    verdict: malware")
+        lines.append("    confidence: 95")
+        lines.append(f'    family: "{stem}"')
+        lines.append("    score: 95")
+        lines.append(f"    tags: [{tags_str}]")
+
+        # MITRE ATT&CK Mapping output
+        if mitre_entries:
+            lines.append("    mitre:")
+            for m in mitre_entries:
+                lines.append(f'      - id: {m["id"]}')
+                lines.append(f'        name: "{m["name"]}"')
+                lines.append(f'        tactic: {m["tactic"]}')
+
+        # Feature 6: Adaptive Rule Logic & Threshold
+        if len(condition_blocks) >= 4:
+            lines.append("    logic: threshold")
+            lines.append("    threshold: 3")
+        else:
+            lines.append("    logic: all")
+
+        lines.append("    conditions:")
+        for block in condition_blocks:
+            lines.extend(block)
 
         lines.append("")
 
