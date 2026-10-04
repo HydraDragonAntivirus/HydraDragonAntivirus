@@ -564,15 +564,15 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
     let hex_encoded = RE_HEX_ENCODED.find_iter(source).count() as f32;
     let unicode_encoded = RE_UNICODE_ENCODED.find_iter(source).count() as f32;
     let char_code = RE_CHAR_CODE.find_iter(source).count() as f32;
-    let base64 = RE_BASE64.find_iter(source).count() as f32;
+    let base64 = 0.0f32; // Do not treat base64 operations as obfuscation
     let escape = RE_ESCAPE.find_iter(source).count() as f32;
     let bracket_notation = RE_BRACKET_NOTATION.find_iter(source).count() as f32;
 
     let obfuscation_score =
-        hex_encoded + unicode_encoded + char_code + base64 + escape + bracket_notation;
+        hex_encoded + unicode_encoded + char_code + escape + bracket_notation;
     let is_obfuscated = if obfuscation_score > 10.0 { 1.0 } else { 0.0 };
 
-    let crypto_refs = RE_CRYPTO.find_iter(source).count() as f32;
+    let crypto_refs = 0.0f32; // Standard cryptographic hashing (sha256/md5) is a utility, not malware
     let network_ops = RE_NETWORK.find_iter(source).count() as f32;
     let file_ops = RE_FILE_OPS.find_iter(source).count() as f32;
     let registry_ops = RE_REGISTRY.find_iter(source).count() as f32;
@@ -582,8 +582,7 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
     // from a different angle (catches string-wrapped names the AST misses).
     let suspicious_api_calls_regex = RE_SUSPICIOUS_APIS.find_iter(source).count() as f32;
 
-    let suspicious_score = crypto_refs * 2.0
-        + network_ops * 3.0
+    let suspicious_score = network_ops * 3.0
         + file_ops * 4.0
         + registry_ops * 5.0
         + process_ops * 5.0;
@@ -683,7 +682,7 @@ fn extract_string_features(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) 
     let avg = lengths.iter().sum::<f32>() / total;
     let max = lengths.iter().cloned().fold(0.0f32, f32::max);
     let long = strings.iter().filter(|s| s.len() > 100).count() as f32;
-    let b64 = strings.iter().filter(|s| RE_BASE64_STR.is_match(s)).count() as f32;
+    let b64 = 0.0f32; // Innocent lookup tables and alphanumeric sequences are not malware base64
     let urls = strings.iter().filter(|s| RE_URL_STR.is_match(s)).count() as f32;
     let hex = strings
         .iter()

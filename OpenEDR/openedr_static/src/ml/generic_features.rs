@@ -216,10 +216,18 @@ pub fn extract_generic_features(data: &[u8]) -> [f32; GENERIC_FEATURE_COUNT] {
                 if str_entropies.len() < 300 {
                     let slice = &buf[s_idx..i];
                     str_entropies.push(shannon_entropy(slice));
-                    for &sb in slice {
-                        if (b'0'..=b'9').contains(&sb) { str_digits += 1; }
-                        else if (b'a'..=b'f').contains(&sb) || (b'A'..=b'F').contains(&sb) { str_hex += 1; }
-                        else if !(b'a'..=b'z').contains(&sb) && !(b'A'..=b'Z').contains(&sb) { str_symbols += 1; }
+                    let is_hex_token = slice.len() >= 8 && slice.iter().all(|&sb| {
+                        (b'0'..=b'9').contains(&sb)
+                            || (b'a'..=b'f').contains(&sb)
+                            || (b'A'..=b'F').contains(&sb)
+                    });
+                    if is_hex_token {
+                        str_hex += slice.len() as u32;
+                    } else {
+                        for &sb in slice {
+                            if (b'0'..=b'9').contains(&sb) { str_digits += 1; }
+                            else if !(b'a'..=b'z').contains(&sb) && !(b'A'..=b'Z').contains(&sb) { str_symbols += 1; }
+                        }
                     }
                     for w in slice.windows(2) {
                         str_deltas.push((w[1] as f32 - w[0] as f32).abs());

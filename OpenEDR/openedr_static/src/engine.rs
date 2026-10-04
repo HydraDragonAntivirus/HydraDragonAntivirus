@@ -876,7 +876,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                 });
                 report.max_threat_score = report.max_threat_score.max(0.95);
             }
-            if buf.starts_with(b"MZ") {
+            if buf.starts_with(b"MZ") && pefile_rs::PE::parse(&buf).is_ok() {
                 if let Some(prob) = self.ml.predict_pe(&buf) {
                     if prob >= PE_TREE_THRESHOLD {
                         report.detections.push(DetectionItem {
@@ -914,11 +914,9 @@ fn entry_is_compressed_document(name: &str) -> bool {
             return;
         }
 
-        let is_pe = bytes.starts_with(b"MZ");
-        let is_js = name.to_ascii_lowercase().ends_with(".js")
-            || name.to_ascii_lowercase().ends_with(".mjs")
-            || is_js_content(bytes);
-        let is_pdf = name.to_ascii_lowercase().ends_with(".pdf") || bytes.starts_with(b"%PDF");
+        let is_pe = bytes.starts_with(b"MZ") && pefile_rs::PE::parse(bytes).is_ok();
+        let is_js = is_js_content(bytes);
+        let is_pdf = bytes.starts_with(b"%PDF");
 
         // 1. ClamAV
         for m in self.clam.scan_bytes(bytes, name) {
@@ -1073,7 +1071,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
         );
 
         // PE-specific heuristics on the extracted object
-        if object.bytes.starts_with(b"MZ") {
+        if object.bytes.starts_with(b"MZ") && pefile_rs::PE::parse(&object.bytes).is_ok() {
             if let Some(detail) = hydradragonextractor::heuristics::inspect_pe_rva_trick(&object.bytes) {
                 obj_detections.push(DetectionItem {
                     layer: "Heuristic_PE".to_string(),
@@ -1465,9 +1463,16 @@ fn entry_is_compressed_document(name: &str) -> bool {
             }
         }
 
-        // 5. Machine Learning (PE / JS) — skipped for APKs (APK forest above).
+        // 5. Machine Learning (PE / JS) — verified via PE parser, zero extension dependency.
+        let is_pe = file_type.pe_result.is_some()
+            || file_type.file_type == filetype::FileKind::MsExe.as_str()
+            || pefile_rs::PE::parse(data).is_ok();
+
+        let is_js = file_type.source_language.as_deref() == Some("javascript")
+            || is_js_content(data);
+
         if !is_apk_file {
-            if data.starts_with(b"MZ") {
+            if is_pe {
                 if let Some(prob) = self.ml.predict_pe(data) {
                     if prob >= PE_TREE_THRESHOLD {
                         detections.push(DetectionItem {
@@ -1479,10 +1484,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                         max_score = max_score.max(prob);
                     }
                 }
-            } else if target_name.to_ascii_lowercase().ends_with(".js")
-                || target_name.to_ascii_lowercase().ends_with(".mjs")
-                || is_js_content(data)
-            {
+            } else if is_js {
                 if let Ok(source) = std::str::from_utf8(data) {
                     if let Some(prob) = self.ml.predict_js(source) {
                         if prob >= JS_TREE_THRESHOLD {
@@ -1499,11 +1501,8 @@ fn entry_is_compressed_document(name: &str) -> bool {
             }
         }
 
-        // 5b. Generic whole-buffer ML fallback (non-APK only): runs ONLY when
-        // every layer above found nothing. Catches non-PE/non-JS payloads
-        // (scripts-in-blob, packed blobs, unknown formats) the experts miss.
-        if !is_apk_file && detections.is_empty() && max_score < GENERIC_TREE_THRESHOLD
-        {
+        // 5b. Generic whole-buffer ML fallback: scans any buffer when previous layers found nothing.
+        if detections.is_empty() && max_score < GENERIC_TREE_THRESHOLD {
             if let Some(prob) = self.ml.predict_generic_bytes(data) {
                 if prob >= GENERIC_TREE_THRESHOLD {
                     detections.push(DetectionItem {
@@ -1521,7 +1520,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
         }
 
         // 6. Unicorn PE CPU Emulation & Unpacker (Tier 3: Conditional Generic Dynamic Unpacking)
-        let is_pe_candidate = data.starts_with(b"MZ") && data.len() >= 0x1000;
+        let is_pe_candidate = is_pe && data.len() >= 0x1000;
         let should_unpack = is_pe_candidate && (max_score < 0.95) && {
             if let Ok(pe) = pefile_rs::PE::parse(data) {
                 let has_packer_section = pe.sections.iter().any(|s| {
