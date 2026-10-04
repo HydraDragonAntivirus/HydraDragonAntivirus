@@ -4780,3 +4780,115 @@ rule RogueBraviaxSampleA {
   condition:
     (3 of them) or (any of ($str*))
 }
+
+// SOS.dll Microsoft cbfe465001cd354f948f3ef83927de545def501f6e23a07df21affbb0e9be425
+rule RNG__32_lil_AND_ {
+  strings:
+    $a0 = { ff ff ff 7f [0-20] 1d f3 01 00 }
+
+  condition:
+    $a0
+}
+
+// libssl-3-x64.dll bfc059e16951fa90cc14489a8263f35c6703e762f2f5413682b4f7935bbced57
+rule Win_Downloader_Tibs_52 {
+  strings:
+    $a0 = "Rich"
+
+    $a1 = { 15 00 00 00 00 00 00 00 00 00 ?? ?? 15 00 ?? ?? 15 00 ?? ?? 15 00 00 00 00 00 00 00 00 00 ?? ?? 15 00 ?? ?? 15 00 ?? ?? 15 00 00 00 00 00 00 00 00 00 ?? ?? 15 00 ?? ?? 15 00 ?? ?? 15 00 00 00 00 00 00 00 00 00 ?? ?? 15 00 ?? ?? 15 00 }
+
+  condition:
+    $a0 and $a1
+}
+
+// Xeno.dll with no virus version
+rule pastebin {
+  meta:
+    description   = "Detection patterns for the tool 'pastebin' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "pastebin"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: pastebin raw access content - abused by malwares to retrieve payloads
+    // Reference: pastebin.com
+    $string1 = /pastebin\.com.*\/raw\/.*\s/ nocase ascii wide
+    // Description: pastebin raw access content - abused by malwares to retrieve payloads
+    // Reference: pastebin.com
+    $string2 = /pastebin\.com.*\/rw\// nocase ascii wide
+    // Description: pastebin POST url - abused by malwares to exfiltrate informations
+    // Reference: pastebin.com
+    $string3 = /pastebin\.com.*api\/api_post\.php/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+// VMWare Tool gio-2.0-0.dll
+rule aspack_108b {
+  meta:
+    author      = "PEiD"
+    description = "ASPack 1.08.00 - 1.08.04 -> Alexey Solodovnikov"
+    group       = "105"
+    function    = "1"
+
+  strings:
+    $a0 = { ?? 90 75 01 ?? E9 }
+
+  condition:
+    $a0
+}
+
+// 00567863009ce23913a4656cef18fffa955e41136d7e67e8b61b97c222584773 Jcl150.bpl
+rule mime_mso {
+  meta:
+    comment = "mime mso detection"
+    ref     = "http://blog.malwaretracker.com/2015/03/return-of-mime-mso-now-with-macros.html"
+    author  = "@mwtracker"
+
+  strings:
+    $a = "application/x-mso"
+    $b = "MIME-Version"
+    $c = "ocxstg001.mso"
+    $d = "?mso-application"
+
+  condition:
+    $a and $b or $c or $d
+}
+
+rule _Microsoft_Visual_Cpp_V80_ {
+  meta:
+    description = "Microsoft Visual C++ V8.0"
+
+  strings:
+    $0 = { 6A 14 68 ?? ?? ?? ?? E8 ?? ?? ?? ?? BB 94 00 00 00 53 6A 00 8B ?? ?? ?? ?? ?? FF D7 50 FF ?? ?? ?? ?? ?? 8B F0 85 F6 75 0A 6A 12 E8 ?? ?? ?? ?? 59 EB 18 89 1E 56 FF ?? ?? ?? ?? ?? 56 85 C0 75 14 50 FF D7 50 FF ?? ?? ?? ?? ?? B8 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+rule ms_vc6_dll {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 6.0 DLL"
+    group       = "15"
+    function    = "17"
+
+  strings:
+    $a0 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 57 8B 7D 10 85 F6 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+rule _Microsoft_Visual_Cpp_60_Debug_Version_ {
+  meta:
+    description = "Microsoft Visual C++ 6.0 (Debug Version)"
+
+  strings:
+    $0 = { 55 8B EC 51 ?? ?? ?? 01 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
