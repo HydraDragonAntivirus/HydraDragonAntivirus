@@ -4892,3 +4892,11257 @@ rule _Microsoft_Visual_Cpp_60_Debug_Version_ {
   condition:
     $0 at pe.entry_point
 }
+
+// --- REMOVED FALSE POSITIVE RULES FROM DATA2 BENCHMARK ---
+
+rule DotNet_Reactor {
+  meta:
+    id          = "1zLgWF57AJIATVZNMOyilu"
+    fingerprint = "43687ec89c0f6dc52e93395ae5966e25bc1c2d2c7634936b6e9835773af19fa3"
+    version     = "1.1"
+    date        = "2024-03-20"
+    modified    = "2024-04-02"
+    status      = "RELEASED"
+    sharing     = "TLP:WHITE"
+    source      = "BARTBLAZE"
+    author      = "@bartblaze"
+    description = "Identifies .NET Reactor, which offers .NET code protection such as obfuscation, encryption and so on."
+    category    = "INFO"
+    reference_a = "https://www.eziriz.com/dotnet_reactor.htm"
+    reference_b = "https://unprotect.it/technique/net-reactor/"
+
+  strings:
+    $s1 = "{11111-22222-20001-00001}" ascii wide fullword
+    $s2 = "{11111-22222-20001-00002}" ascii wide fullword
+    $s3 = "{11111-22222-40001-00001}" ascii wide fullword
+    $s4 = "{11111-22222-40001-00002}" ascii wide fullword
+
+    //{.1.1.1.1.1.-.2.2.2.2.2.-.2.0.0.0.1.-.0.0.0.0.1.}
+    $x1 = { 7B 00 31 00 31 00 31 00 31 00 31 00 2D 00 32 00 32 00 32 00 32 00 32 00 2D 00 32 00 30 00 30 00 30 00 31 00 2D 00 30 00 30 00 30 00 30 00 31 00 7D }
+
+    //{.1.1.1.1.1.-.2.2.2.2.2.-.2.0.0.0.1.-.0.0.0.0.2.}
+    $x2 = { 7B 00 31 00 31 00 31 00 31 00 31 00 2D 00 32 00 32 00 32 00 32 00 32 00 2D 00 32 00 30 00 30 00 30 00 31 00 2D 00 30 00 30 00 30 00 30 00 32 00 7D }
+
+    //{.1.1.1.1.1.-.2.2.2.2.2.-.4.0.0.0.1.-.0.0.0.0.1.}
+    $x3 = { 7B 00 31 00 31 00 31 00 31 00 31 00 2D 00 32 00 32 00 32 00 32 00 32 00 2D 00 34 00 30 00 30 00 30 00 31 00 2D 00 30 00 30 00 30 00 30 00 31 00 7D }
+
+    //{.1.1.1.1.1.-.2.2.2.2.2.-.4.0.0.0.1.-.0.0.0.0.2.}
+    $x4 = { 7B 00 31 00 31 00 31 00 31 00 31 00 2D 00 32 00 32 00 32 00 32 00 32 00 2D 00 34 00 30 00 30 00 30 00 31 00 2D 00 30 00 30 00 30 00 30 00 32 00 7D }
+
+  condition:
+    2 of ($s*) or 2 of ($x*)
+}
+
+
+rule SEH__v4: AntiDebug SEH {
+  // VS 8.0+
+
+  meta:
+    weight    = 1
+    Author    = "naxonez"
+    reference = "https://github.com/naxonez/yaraRules/blob/master/AntiDebugging.yara"
+
+  strings:
+    $ = "____except__handler4"
+    $ = "____local__unwind4"
+    $ = "__XcptFilter"
+
+  condition:
+    any of them
+}
+
+
+rule Check_Qemu_Description {
+  meta:
+    Author      = "Nick Hoffman"
+    Description = "Checks for QEMU systembiosversion key"
+    Sample      = "de1af0e97e94859d372be7fcf3a5daa5"
+
+  strings:
+    $key   = "HARDWARE\\Description\\System" nocase wide ascii
+    $value = "SystemBiosVersion" nocase wide ascii
+    $data  = "QEMU" wide nocase ascii
+
+  condition:
+    all of them
+}
+
+
+rule Check_Qemu_DeviceMap {
+  meta:
+    Author      = "Nick Hoffman"
+    Description = "Checks for Qemu reg keys"
+    Sample      = "de1af0e97e94859d372be7fcf3a5daa5"
+
+  strings:
+    $key   = "HARDWARE\\DEVICEMAP\\Scsi\\Scsi Port 0\\Scsi Bus 0\\Target Id 0\\Logical Unit Id 0" nocase wide ascii
+    $value = "Identifier" nocase wide ascii
+    $data  = "QEMU" wide nocase ascii
+
+  condition:
+    all of them
+}
+
+
+rule Check_VBox_DeviceMap {
+  meta:
+    Author      = "Nick Hoffman"
+    Description = "Checks Vbox registry keys"
+    Sample      = "de1af0e97e94859d372be7fcf3a5daa5"
+
+  strings:
+    $key   = "HARDWARE\\DEVICEMAP\\Scsi\\Scsi Port 0\\Scsi Bus 0\\Target Id 0\\Logical Unit Id 0" nocase wide ascii
+    $value = "Identifier" nocase wide ascii
+    $data  = "VBOX" nocase wide ascii
+
+  condition:
+    all of them
+}
+
+
+rule Check_VBox_Guest_Additions {
+  meta:
+    Author      = "Nick Hoffman"
+    Description = "Checks for the existence of the guest additions registry key"
+    Sample      = "de1af0e97e94859d372be7fcf3a5daa5"
+
+  strings:
+    $key = "SOFTWARE\\Oracle\\VirtualBox Guest Additions" wide ascii nocase
+
+  condition:
+    any of them
+}
+
+
+rule Check_VBox_VideoDrivers {
+  meta:
+    Author      = "Nick Hoffman"
+    Description = "Checks for reg keys of Vbox video drivers"
+    Sample      = "de1af0e97e94859d372be7fcf3a5daa5"
+
+  strings:
+    $key   = "HARDWARE\\Description\\System" nocase wide ascii
+    $value = "VideoBiosVersion" wide nocase ascii
+    $data  = "VIRTUALBOX" nocase wide ascii
+
+  condition:
+    all of them
+}
+
+
+rule Check_VMWare_DeviceMap {
+  meta:
+    Author      = "Nick Hoffman"
+    Description = "Checks for the existence of VmWare Registry Keys"
+    Sample      = "de1af0e97e94859d372be7fcf3a5daa5"
+
+  strings:
+    $key   = "HARDWARE\\DEVICEMAP\\Scsi\\Scsi Port 0\\Scsi Bus 0\\Target Id 0\\Logical Unit Id 0" wide ascii nocase
+    $value = "Identifier" wide nocase ascii
+    $data  = "VMware" wide nocase ascii
+
+  condition:
+    all of them
+}
+
+
+rule Check_Wine {
+  meta:
+    Author      = "Nick Hoffman"
+    Description = "Checks for the existence of Wine"
+    Sample      = "de1af0e97e94859d372be7fcf3a5daa5"
+
+  strings:
+    $ = "wine_get_unix_file_name"
+
+  condition:
+    any of them
+}
+
+
+rule anti_dbgtools {
+  meta:
+    author      = "x0r"
+    description = "Checks for the presence of known debug tools"
+    version     = "0.1"
+
+  strings:
+    $f1  = "procexp.exe" nocase
+    $f2  = "procmon.exe" nocase
+    $f3  = "processmonitor.exe" nocase
+    $f4  = "wireshark.exe" nocase
+    $f5  = "fiddler.exe" nocase
+    $f6  = "windbg.exe" nocase
+    $f7  = "ollydbg.exe" nocase
+    $f8  = "winhex.exe" nocase
+    $f9  = "processhacker.exe" nocase
+    $f10 = "hiew32.exe" nocase
+    $c11 = "\\\\.\\NTICE"
+    $c12 = "\\\\.\\SICE"
+    $c13 = "\\\\.\\Syser"
+    $c14 = "\\\\.\\SyserBoot"
+    $c15 = "\\\\.\\SyserDbgMsg"
+
+  condition:
+    any of them
+}
+
+
+rule antivm_bios {
+  meta:
+    author      = "x0r"
+    description = "AntiVM checks for Bios version"
+    version     = "0.2"
+
+  strings:
+    $p1 = "HARDWARE\\DESCRIPTION\\System" nocase
+    $p2 = "HARDWARE\\DESCRIPTION\\System\\BIOS" nocase
+    $c1 = "RegQueryValue"
+    $r1 = "SystemBiosVersion"
+    $r2 = "VideoBiosVersion"
+    $r3 = "SystemManufacturer"
+
+  condition:
+    1 of ($p*) and 1 of ($c*) and 1 of ($r*)
+}
+
+
+rule disable_registry {
+  meta:
+    author      = "x0r"
+    description = "Disable Registry editor"
+    version     = "0.1"
+
+  strings:
+    $p1 = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" nocase
+    $c1 = "RegSetValue"
+    $r1 = "DisableRegistryTools"
+    $r2 = "DisableRegedit"
+
+  condition:
+    1 of ($p*) and $c1 and 1 of ($r*)
+}
+
+
+rule disable_taskmanager {
+  meta:
+    author      = "x0r"
+    description = "Disable Task Manager"
+    version     = "0.1"
+
+  strings:
+    $p1 = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" nocase
+    $r1 = "DisableTaskMgr"
+
+  condition:
+    1 of ($p*) and 1 of ($r*)
+}
+
+
+rule check_patchlevel {
+  meta:
+    author      = "x0r"
+    description = "Check if hotfix are applied"
+    version     = "0.1"
+
+  strings:
+    $p1 = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Hotfix" nocase
+
+  condition:
+    any of them
+}
+
+
+rule Cobalt_functions {
+  meta:
+    author      = "@j0sm1"
+    url         = "https://www.securityartwork.es/2017/06/16/analisis-del-powershell-usado-fin7/"
+    description = "Detect functions coded with ROR edi,D; Detect CobaltStrike used by differents groups APT"
+
+  strings:
+    $h1 = { 58 A4 53 E5 }  // VirtualAllocEx
+    $h2 = { 4C 77 26 07 }  // LoadLibraryEx
+    $h3 = { 6A C9 9C C9 }  // DNSQuery_UTF8
+    $h4 = { 44 F0 35 E0 }  // Sleep
+    $h5 = { F4 00 8E CC }  // lstrlen
+
+  condition:
+    2 of ($h*)
+}
+
+
+rule FVEY_ShadowBrokers_Jan17_Screen_Strings {
+  meta:
+    description = "Detects strings derived from the ShadowBroker's leak of Windows tools/exploits"
+    author      = "Florian Roth"
+    reference   = "https://bit.no.com:43110/theshadowbrokers.bit/post/message7/"
+    date        = "2017-01-08"
+
+  strings:
+    $x1 = "Danderspritz" ascii wide fullword
+    $x2 = "DanderSpritz" ascii wide fullword
+    $x3 = "PeddleCheap" ascii wide fullword
+    $x4 = "ChimneyPool Addres" ascii wide fullword
+    $a1 = "Getting remote time" fullword ascii
+    $a2 = "RETRIEVED" fullword ascii
+    $b1 = "Added Ops library to Python search path" fullword ascii
+    $b2 = "target: z0.0.0.1" fullword ascii
+    $c1 = "Psp_Avoidance" fullword ascii
+    $c2 = "PasswordDump" fullword ascii
+    $c3 = "InjectDll" fullword ascii
+    $c4 = "EventLogEdit" fullword ascii
+    $c5 = "ProcessModify" fullword ascii
+    $d1 = "Mcl_NtElevation" fullword ascii wide
+    $d2 = "Mcl_NtNativeApi" fullword ascii wide
+    $d3 = "Mcl_ThreatInject" fullword ascii wide
+    $d4 = "Mcl_NtMemory" fullword ascii wide
+
+  condition:
+    filesize < 2000KB and (1 of ($x*) or all of ($a*) or 1 of ($b*) or (uint16(0) == 0x5a4d and 1 of ($c*)) or 3 of ($c*) or (uint16(0) == 0x5a4d and 3 of ($d*)))
+}
+
+
+rule WildNeutron_Sample_8 {
+  meta:
+    description = "Wild Neutron APT Sample Rule - file 758e6b519f6c0931ff93542b767524fc1eab589feb5cfc3854c77842f9785c92"
+    author      = "Florian Roth"
+    reference   = "https://securelist.com/blog/research/71275/wild-neutron-economic-espionage-threat-actor-returns-with-new-tricks/"
+    date        = "2015-07-10"
+    score       = 60
+    hash        = "758e6b519f6c0931ff93542b767524fc1eab589feb5cfc3854c77842f9785c92"
+
+  strings:
+    $x1  = "RunFile: couldn't load SHELL32.DLL!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '27.00' */
+    $x2  = "RunFile: couldn't find ShellExecuteExA/W in SHELL32.DLL!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '35.00' */
+    $x3  = "Error executing CreateProcess()!!" fullword wide  /* PEStudio Blacklist: strings */ /* score: '31.00' */
+    $x4  = "cmdcmdline" fullword wide  /* score: '11.00' */
+    $x5  = "Invalid input handle!!!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '10.00' */
+    $s1  = "Process %d terminated" fullword wide  /* PEStudio Blacklist: strings */ /* score: '24.00' */
+    $s2  = "Process is not running any more" fullword wide  /* PEStudio Blacklist: strings */ /* score: '22.00' */
+    $s3  = "javacpl.exe" fullword wide  /* score: '3.00' */ /* Goodware String - occured 2 times */
+    $s4  = "Windows NT Version %lu.%lu" fullword wide  /* PEStudio Blacklist: os */ /* score: '19.00' */
+    $s5  = "Usage: destination [reference]" fullword wide  /* PEStudio Blacklist: strings */ /* score: '16.00' */
+    $s6  = ".com;.exe;.bat;.cmd" fullword wide  /* score: '15.00' */
+    $s7  = ") -%s-> %s (" fullword ascii  /* score: '14.00' */
+    $s8  = "cmdextversion" fullword wide  /* score: '14.00' */
+    $s9  = "Invalid pid (%s)" fullword wide  /* PEStudio Blacklist: strings */ /* score: '13.00' */
+    $s10 = "\"%s\" /K %s" fullword wide  /* score: '11.02' */
+    $s11 = "Error setting %s (%s)" fullword wide  /* score: '11.00' */
+    $s12 = "DEBUG: Cannot allocate memory for ptrNextNode->ptrNext!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '10.00' */
+    $s13 = "Failed to build full directory path" fullword wide  /* score: '10.00' */
+    $s14 = "DEBUG: Cannot allocate memory for ptrFileArray!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '9.00' */
+    $s15 = "%-8s %-3s  %*s %s  %s" fullword wide  /* score: '8.00' */
+    $s16 = " %%%c in (%s) do " fullword wide  /* score: '8.00' */
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 1677KB and 2 of ($x*) and 6 of ($s*)
+}
+
+
+rule PE_File_pyinstaller {
+  meta:
+    author      = "Didier Stevens (https://DidierStevens.com)"
+    description = "Detect PE file produced by pyinstaller"
+    reference   = "https://isc.sans.edu/diary/21057"
+
+  strings:
+    $a = "pyi-windows-manifest-filename"
+
+  condition:
+    pe.resources.len() > 0 and $a
+}
+
+
+rule ReactOS_cmd_valid {
+  meta:
+    description = "ReactOS cmd.exe with correct file name - maybe packed with software or part of hacker toolset"
+    author      = "Florian Roth"
+    date        = "05.11.14"
+    reference   = "http://www.elifulkerson.com/articles/suzy-sells-cmd-shells.php"
+    score       = 30
+    hash        = "b88f050fa69d85af3ff99af90a157435296cbb6e"
+
+  strings:
+    $s1 = "ReactOS Command Processor" fullword wide
+    $s2 = "Copyright (C) 1994-1998 Tim Norman and others" fullword wide
+    $s3 = "Eric Kohl and others" fullword wide
+    $s4 = "ReactOS Operating System" fullword wide
+
+  condition:
+    all of ($s*)
+}
+
+
+rule network_smtp_vb {
+  meta:
+    author      = "x0r"
+    description = "Communications smtp"
+    version     = "0.1"
+
+  strings:
+    $c1 = "CDO.Message" nocase
+    $c2 = "cdoSMTPServer" nocase
+    $c3 = "cdoSendUsingMethod" nocase
+    $c4 = "cdoex.dll" nocase
+    $c5 = "/cdo/configuration/smtpserver" nocase
+
+  condition:
+    any of them
+}
+
+
+rule network_p2p_win {
+  meta:
+    author      = "x0r"
+    description = "Communications over P2P network"
+    version     = "0.1"
+
+  strings:
+    $c1  = "PeerCollabExportContact"
+    $c2  = "PeerCollabGetApplicationRegistrationInfo"
+    $c3  = "PeerCollabGetEndpointName"
+    $c4  = "PeerCollabGetEventData"
+    $c5  = "PeerCollabGetInvitationResponse"
+    $c6  = "PeerCollabGetPresenceInfo"
+    $c7  = "PeerCollabGetSigninOptions"
+    $c8  = "PeerCollabInviteContact"
+    $c9  = "PeerCollabInviteEndpoint"
+    $c10 = "PeerCollabParseContact"
+    $c11 = "PeerCollabQueryContactData"
+    $c12 = "PeerCollabRefreshEndpointData"
+    $c13 = "PeerCollabRegisterApplication"
+    $c14 = "PeerCollabRegisterEvent"
+    $c15 = "PeerCollabSetEndpointName"
+    $c16 = "PeerCollabSetObject"
+    $c17 = "PeerCollabSetPresenceInfo"
+    $c18 = "PeerCollabSignout"
+    $c19 = "PeerCollabUnregisterApplication"
+    $c20 = "PeerCollabUpdateContact"
+
+  condition:
+    5 of them
+}
+
+
+rule cred_ie7 {
+  meta:
+    author      = "x0r"
+    description = "Steal IE 7 credential"
+    version     = "0.1"
+
+  strings:
+    $f1 = "Crypt32.dll" nocase
+    $c1 = "CryptUnprotectData"
+    $s1 = "abe2869f-9b47-4cd9-a358-c22904dba7f7" nocase
+
+  condition:
+    all of them
+}
+
+
+rule rat_rdp {
+  meta:
+    author      = "x0r"
+    description = "Remote Administration toolkit enable RDP"
+    version     = "0.1"
+
+  strings:
+    $p1 = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server" nocase
+    $p2 = "software\\microsoft\\windows nt\\currentversion\\terminal server" nocase
+    $p3 = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp" nocase
+    $r1 = "EnableAdminTSRemote"
+    $c1 = "net start termservice"
+    $c2 = "sc config termservice start"
+
+  condition:
+    any of them
+}
+
+
+rule Win_Adware_Dropper_31 {
+  strings:
+    $a0 = { 65 4c 61 62 65 6c 32 2d 31 34 34 30 0d 06 09 2a 86 48 86 f7 0d 01 01 05 05 00 03 81 81 00 76 b2 9c ee 13 9f 1b f6 2d 34 92 94 45 73 34 dc 8e 6b 2e 5c fc 4c 7d 89 eb c3 68 f1 d7 99 0f 2e 1d 17 c8 b5 16 8b be cd 8a 05 06 f2 19 49 3a 03 5b 05 c9 20 8e 6d 52 e1 76 81 a0 c3 65 8a 22 67 e4 1c 53 53 37 46 bf bc d7 2f eb 7b 9e d0 14 45 6c 40 21 08 e2 5d 75 76 66 30 1e f4 df 82 8a 2f bd f3 a2 0c bf 1d db 9f 14 a2 9a 72 37 4d b0 77 48 e8 4a 3f 09 ce 55 }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Downloader_Dadobra_31 {
+  strings:
+    $a0 = { 52 40 3b 50 40 0f 9f c1 eb 11 8b 4a 40 03 4a 48 8b 50 40 03 50 48 3b ca 0f 9c c1 8b c1 5b 59 5d c3 90 55 8b ec 83 c4 f0 53 56 57 88 55 ff 8b d8 8b 45 08 8b 70 fc 8b 76 08 8b 45 08 8b 40 fc 2b 30 85 f6 7c 09 8a 45 ff 04 fd 2c 02 73 03 8b 73 48 8b 45 08 8b 40 fc 8b 40 0c 8b 55 08 8b 52 fc 2b 42 04 89 45 f0 83 7d f0 00 7c 08 8a 45 ff 48 2c 02 73 06 8b 43 4c 89 45 f0 80 7d ff 01 75 24 80 bb 2b 02 00 00 02 75 1b 8b 43 40 89 45 f8 8b 43 44 89 45 f4 6a }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Downloader_Banload_78 {
+  strings:
+    $a0 = { bb ff ff ff ff 3c 2e 75 0a 39 ce 74 b8 ac e8 5a 00 00 00 89 5d dc 89 75 d8 51 52 e8 95 00 00 00 5a 8b 5d e0 29 cb 73 02 31 db 80 7d e7 2d 75 0a 29 ca 73 04 01 d1 31 d2 f3 a4 87 d9 29 ca 73 04 01 d1 31 d2 b0 20 f3 aa 87 d9 29 ca 73 04 01 d1 31 d2 f3 a4 83 7d f0 00 74 0a 52 8d 45 f0 e8 1c ff ff ff 5a 59 8b 75 d8 e9 47 ff ff ff 31 db 3c 2a 74 22 3c 30 72 3d 3c 39 77 39 69 db 0a 00 00 00 2c 30 0f b6 c0 01 c3 39 ce 74 03 ac eb e4 58 e9 30 ff ff ff 8b }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Downloader_Tibs_53 {
+  strings:
+    $a0 = "Rich"
+
+    $a1 = { 15 00 00 00 00 00 00 00 00 00 ?? ?? 15 00 ?? ?? 15 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ?? ?? 15 00 00 00 00 00 }
+
+  condition:
+    $a0 and $a1
+}
+
+
+rule Win_Spyware_Zbot_1286 {
+  strings:
+    $a0 = { e8 ?? 00 00 00 5e c2 18 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Trojan_Fakealert_15 {
+  strings:
+    $a0 = { 3f 76 03 6a 3f 5e 8b 4f 04 3b 4f 08 75 47 83 fe 20 73 1e bb 00 00 00 80 8b ce d3 eb 8d 74 06 04 f7 d3 21 5c 90 44 fe 0e 75 28 8b 4d 08 21 19 eb 21 8d 4e e0 bb 00 00 00 80 d3 eb 8d 4c 06 04 f7 d3 21 9c 90 c4 00 00 00 fe 09 75 06 8b 4d 08 21 59 04 8b 5d 0c 8b 4f 08 8b 77 04 89 71 04 8b 4f 04 8b 77 08 89 71 08 8b 75 10 03 75 fc 89 75 10 c1 fe 04 4e 83 fe 3f 76 03 6a 3f 5e 8b 4d f4 8b 7c f1 04 8d 0c f1 89 7b 04 89 4b 08 89 59 04 8b 4b 04 89 59 08 8b }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Trojan_Lineage_83 {
+  strings:
+    $a0 = { 85 d2 74 31 53 56 57 89 c6 89 d7 8b 4f fc 57 8b 56 fc 4a 78 1b 8a 06 46 29 d1 7e 14 f2 ae 75 10 89 cb 56 57 89 d1 f3 a6 5f 5e 74 0c 89 d9 eb ec 5a 31 c0 eb 08 31 c0 c3 5a 89 f8 29 d0 5f 5e 5b c3 8d 40 00 53 56 57 89 c3 89 d6 31 ff 85 d2 7e }
+
+    $a1 = "..............................................."
+
+  condition:
+    $a0 and $a1
+}
+
+
+rule Win_Trojan_SdBot_1947 {
+  strings:
+    $a0 = { 81 ec 54 03 00 00 8d 4c 24 04 50 e8 a8 03 00 00 8b 8c 24 5c 03 00 00 8b 94 24 58 03 00 00 51 52 8d 4c 24 0c e8 0d 04 00 00 84 c0 75 0a 83 c8 ff 81 c4 54 03 00 00 c3 8b 8c 24 60 03 00 00 8d 04 24 50 51 8d 4c 24 0c e8 e8 05 00 00 84 c0 75 0a 83 c8 ff 81 c4 54 03 00 00 c3 8b 04 24 81 c4 54 03 00 00 c2 10 00 00 01 02 03 04 05 06 07 08 0a 0c 0e 10 14 18 1c 20 28 30 38 40 50 60 70 80 a0 c0 e0 }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Trojan_Packed_42 {
+  strings:
+    $a0 = { 58 00 e8 }
+
+    $a1 = { 45 00 8b 55 04 83 c5 }
+
+  condition:
+    $a0 and $a1
+}
+
+
+rule Win_Trojan_Agent_34416 {
+  strings:
+    $a0 = { 03 c1 57 89 47 08 89 2f 56 89 56 34 e8 fd 07 00 00 83 c4 0c 5f 5e 5d 5b 83 c4 10 c3 8b 44 24 24 8b 4c 24 28 89 46 20 89 5e 1c 8b 1f 8b c5 89 4f 04 8b 4f 08 2b c3 6a fd 03 c8 57 89 4f 08 89 2f 56 89 56 34 e8 c5 07 00 00 83 c4 0c 5f 5e 5d 5b 83 c4 10 c3 8b 4c 24 24 8b 44 24 28 89 4e 20 89 5e 1c 8b 1f }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Trojan_Peed_258 {
+  strings:
+    $a0 = { 55 8b ec ?? ec 10 53 56 57 }
+
+    $a1 = { 5f 5e 5b c9 c3 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+
+  condition:
+    $a0 and $a1
+}
+
+
+rule Win_Trojan_Crypted_32 {
+  strings:
+    $a0 = { 90 90 60 90 90 90 90 }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Trojan_Tagort_3 {
+  strings:
+    $a0 = { 64 0f e8 89 1c b5 2a 39 4d 1e f7 24 8d 57 95 e1 1b 70 21 25 d1 32 58 4f c2 3e 55 75 91 fc a0 15 a3 51 a1 9c 82 87 ef 07 51 8a d1 28 90 cd f5 95 25 54 35 4b b1 3f a1 d0 fb ff f3 05 16 38 7c 1e ad 40 10 c8 2e e6 70 d0 1f 3f a3 1b 81 a0 36 af bb 54 58 d7 da c3 14 ad 6d 5d a2 4c 33 df 58 33 bf 47 2e f4 37 8b 62 b9 1e 5d 43 02 f6 81 4b 82 f7 21 4c c2 9c 85 40 0b dd 85 c2 04 b2 13 e4 ea ea e5 5e ed bf 9d 6f 41 7c 38 81 f3 83 73 40 e5 20 39 c5 07 18 43 }
+
+  condition:
+    $a0
+}
+
+
+rule Win_Trojan_Downloader_67957 {
+  strings:
+    $a0 = { 3C 58 0F 85 ?? ?? ?? ?? 80 7C 2E FF 30 75 01 45 45 8A 44 2E FF 8B D0 80 C2 D0 80 EA 0A 72 12 80 C2 F9 80 EA 06 72 17 80 C2 E6 80 EA 06 72 1C EB 7A 8B F8 81 E7 FF 00 00 00 83 EF 30 EB 18 8B F8 81 E7 FF 00 00 00 83 EF 37 EB 0B 8B F8 81 E7 FF 00 00 00 83 EF 57 83 7C 24 0C 00 75 09 83 7C 24 08 00 72 47 EB 02 7C 43 81 7C 24 0C FF FF FF 0F 75 09 83 7C 24 08 FF 76 04 EB 30 7F 2E 8B C7 99 52 50 8B 44 24 10 8B 54 24 14 0F A4 C2 04 C1 E0 04 03 04 24 13 54 24 04 83 C4 08 89 44 24 08 89 54 24 0C 45 33 DB E9 ?? ?? ?? ?? 80 7C 24 10 00 0F 84 ?? ?? ?? ?? 8B 44 24 08 8B 54 24 0C F7 D8 83 D2 00 F7 DA 89 44 24 08 89 54 24 0C E9 ?? ?? ?? ?? 8A 44 2E FF 8B D0 80 C2 D0 80 EA 0A 73 62 8B F8 81 E7 FF 00 00 00 83 EF 30 83 7C 24 0C 00 75 09 83 7C 24 08 00 72 49 EB 02 7C 45 81 7C 24 0C CC CC CC 0C 75 0C 81 7C 24 08 CC CC CC CC 76 04 EB 2F 7F 2D }
+
+  condition:
+    $a0
+}
+
+
+rule Delphi_RandomRange {
+  meta:
+    author      = "_pusher_"
+    description = "Look for RandomRange function"
+    date        = "2016-06"
+    version     = "0.1"
+
+  strings:
+    $c0 = { 56 8B F2 8B D8 3B F3 7D 0E 8B C3 2B C6 E8 ?? ?? ?? ?? 03 C6 5E 5B C3 8B C6 2B C3 E8 ?? ?? ?? ?? 03 C3 5E 5B C3 }
+
+  condition:
+    $c0
+}
+
+
+rule Delphi_IntToStr {
+  meta:
+    author      = "_pusher_"
+    description = "Look for IntToStr function"
+    date        = "2016-04"
+    version     = "0.1"
+
+  strings:
+    $c0 = { 55 8B EC 81 C4 00 FF FF FF 53 56 8B F2 8B D8 FF 75 0C FF 75 08 8D 85 00 FF FF FF E8 ?? ?? ?? ?? 8D 95 00 FF FF FF 8B C6 E8 ?? ?? ?? ?? EB 0E 8B 0E 8B C6 BA ?? ?? ?? ?? E8 ?? ?? ?? ?? 8B 06 E8 ?? ?? ?? ?? 33 D2 8A D3 3B C2 72 E3 5E 5B 8B E5 5D C2 08 00 }
+    //x64 rad
+    $c1 = { 53 48 83 EC 20 48 89 CB 48 85 D2 7D 10 48 89 D9 48 F7 DA 41 B0 01 E8 ?? ?? ?? ?? EB 0B 48 89 D9 4D 33 C0 E8 ?? ?? ?? ?? 48 89 D8 48 83 C4 20 5B C3 }
+
+  condition:
+    any of them
+}
+
+
+rule VC6_Random {
+  meta:
+    author      = "_pusher_"
+    description = "Look for Random function"
+    date        = "2016-02"
+
+  strings:
+    $c0 = { A1 ?? ?? ?? ?? 69 C0 FD 43 03 00 05 C3 9E 26 00 A3 ?? ?? ?? ?? C1 F8 10 25 FF 7F 00 00 C3 }
+
+  condition:
+    $c0
+}
+
+
+rule DCP_RIJNDAEL_Init {
+  meta:
+    author      = "_pusher_"
+    description = "Look for DCP RijnDael Init"
+    date        = "2016-07"
+
+  strings:
+    $c0 = { 55 8B EC 51 53 56 57 89 4D FC 8B FA 8B D8 8B 75 08 56 8B D7 8B 4D FC 8B C3 E8 ?? ?? ?? ?? 8B D7 8B 4D FC 8B C3 8B 38 FF 57 ?? 85 F6 75 25 8D 43 38 33 C9 BA 10 00 00 00 E8 ?? ?? ?? ?? 8D 4B 38 8D 53 38 8B C3 8B 30 FF 56 ?? 8B C3 8B 10 FF 52 ?? EB 16 8D 53 38 8B C6 B9 10 00 00 00 E8 ?? ?? ?? ?? 8B C3 8B 10 FF 52 ?? 5F 5E 5B 59 5D C2 04 00 }
+
+  condition:
+    $c0
+}
+
+
+rule hacktool_windows_mimikatz_modules {
+  meta:
+    description = "Mimikatz credential dump tool: Modules"
+    reference   = "https://github.com/gentilkiwi/mimikatz"
+    author      = "@fusionrace"
+    md5_1       = "0c87c0ca04f0ab626b5137409dded15ac66c058be6df09e22a636cc2bcb021b8"
+    md5_2       = "0c91f4ca25aedf306d68edaea63b84efec0385321eacf25419a3050f2394ee3b"
+    md5_3       = "09054be3cc568f57321be32e769ae3ccaf21653e5d1e3db85b5af4421c200669"
+    md5_4       = "004c07dcd04b4e81f73aacd99c7351337f894e4dac6c91dcfaadb4a1510a967c"
+    md5_5       = "0fee62bae204cf89d954d2cbf82a76b771744b981aef4c651caab43436b5a143"
+
+  strings:
+    $s1 = "mimilib" fullword ascii wide
+    $s2 = "mimidrv" fullword ascii wide
+    $s3 = "mimilove" fullword ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule XYPayload: Payload {
+  meta:
+    description   = "Identifier for payloads using XXXXYYYY/YYYYXXXX markers"
+    author        = "Seth Hardy"
+    last_modified = "2014-05-05"
+
+  strings:
+    $start_marker = "XXXXYYYY"
+    $end_marker   = "YYYYXXXX"
+
+  condition:
+    $start_marker and $end_marker
+}
+
+
+rule sfb_24_960__16_lil_94_ {
+  strings:
+    $a0 = { 04 00 08 00 0c 00 10 00 14 00 18 00 1c 00 20 00 24 00 28 00 2c 00 34 00 3c 00 44 00 4c 00 54 00 5c 00 64 00 6c 00 74 00 7c 00 88 00 94 00 a0 00 ac 00 bc 00 cc 00 dc 00 f0 00 04 01 1c 01 34 01 50 01 6c 01 8c 01 b0 01 d4 01 fc 01 28 02 58 02 8c 02 c0 02 00 03 40 03 80 03 c0 03 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Snefru_S_box_2__32_lil_1024_ {
+  strings:
+    $a0 = { e3 e4 8f 4a cd 99 7d f2 ca 40 4a d0 94 f1 5f cb 5a 27 68 36 be 16 48 ff 4c 39 8b a7 db e9 6b 4c d2 38 ec 4e 80 ec 96 42 f8 96 ce cd 38 2f 8c 88 f5 08 55 e7 14 64 91 7b 4a a1 0a 06 27 f3 14 a2 af 8d 60 be c2 de bb 1e e9 8c f9 61 fe 56 21 e9 a3 d7 22 4f d9 a8 76 3f 33 4b 9a 55 59 29 ad 38 9e 7e f1 f3 91 ba e1 85 fb a6 eb e5 8c d4 dc 73 78 ff c3 f5 58 60 1b 48 f7 97 32 8a f4 3b 1f 8f b2 5a 78 93 5b 4a 7a 47 5d eb 34 63 2e 1b 25 6d 2d 10 a9 74 fa 8f e3 07 62 9c 5c 91 ea 75 c2 cc ec 73 e2 6b 70 dd bd 3e 6c 79 95 d8 1b a9 54 dc 81 df af c9 73 3f 63 23 b4 19 51 27 67 6b 9f b1 22 6e 75 50 e2 52 b1 2b a2 46 ea 76 32 e2 53 a3 d6 6a 59 2f 0b db 1e 0b a4 d9 d3 02 43 78 b4 78 90 3e 89 64 ad ca f0 40 d7 3a 8d f6 07 17 fd 46 ef 67 9c 1c de 86 e0 b5 a6 6c ee 96 74 47 a3 9a 8a f4 a4 1b fd ab 01 8d f6 e1 3e 18 7a aa f8 5f ae fa e4 17 b0 83 39 30 8b 66 08 6c 82 43 ac d4 9f 84 c5 e6 53 fb fe 92 ce c4 ca c1 88 13 50 43 cf 18 11 44 08 b3 4f ec 86 8e a0 53 c5 e0 0f 9e 25 15 1c f9 05 be 45 ac b5 7c 98 d7 87 14 ba 49 40 89 93 57 48 76 87 d5 7f 72 58 a9 c3 e3 df 58 77 cf 36 f4 11 4d 9e 39 a9 bf a5 f0 3b a3 61 ef 60 ac 4c a6 ba d0 a8 04 72 d5 0d 03 0f 32 3d b8 45 30 b2 ca f0 f2 66 e3 8d 00 5d 81 3a a4 97 c8 f3 2d 35 1d 1d 57 cc b9 44 87 f3 8b 92 90 20 72 eb 24 a1 eb 5e ce 99 fb 93 42 b9 3b 9c 54 da 28 28 a2 b8 aa 85 77 19 a4 96 02 c7 33 9b 25 f6 25 21 da 85 5c ee bd 15 df e8 c7 b7 15 75 ef ab e2 c1 9b c1 fc 68 f8 7f 41 34 44 88 14 79 51 82 62 1c c1 d5 c6 dc 05 47 0e e0 0d 70 22 18 af d2 d3 a0 22 e8 9b f1 69 b6 35 5c b5 2b c4 52 12 80 0a fc f0 5b 11 56 d8 d7 3c 9d 5f 3f b4 16 65 30 c2 47 1c 23 a1 7e 20 49 f1 95 a7 09 52 d8 cc b3 34 54 fe ae 67 4e 92 83 2c ac cb 62 66 61 d1 ed 5e aa 81 e6 84 6b d2 57 5d c4 5c 46 fa a8 c3 3a 7e c6 0c 7c bf a1 9a 8a e1 6f 0a 2f c3 0d c0 2c b2 69 03 28 3d 4f 55 4e 99 d3 80 f4 68 e6 f5 cf ad 65 b2 8e 3a 31 98 26 83 09 8a 56 bd 6a ae c8 4b 2b 6d f5 69 c8 ea 17 0f c7 b6 2e 77 3c 34 41 9f 42 07 1d ab 50 6f 6a 82 7c 09 a2 fe 83 c2 12 19 99 58 18 ce 39 48 44 e4 d5 35 86 2d ff b1 d0 65 17 7f 5a 86 b1 9f 6d 32 20 28 e5 59 e1 ad 90 00 49 71 3c 75 98 8b dd 9d da 91 a6 a5 bb 82 03 0d 30 c9 04 89 00 b0 6c 08 bd d3 69 6e a7 e7 d4 24 d0 4f 24 05 0c 5e 1a 10 cb 7d 94 6a 7b f7 40 e8 03 50 0c 7d 1f 0f 37 7c ed 45 52 80 3f 3d 5e e0 0e 88 06 79 35 cd bf ba 97 c6 7e 1a 24 23 05 8c df c8 6e 0c 89 a5 29 d1 02 5b a7 c7 e7 1d d8 12 66 2a be d9 ab 63 42 1f b6 fd 73 de 0a 68 00 2a 36 9e 64 56 55 ed 33 31 f2 0b fa 90 2a a0 10 29 46 9d 9d 94 dd dc d1 a0 d4 b7 c9 cf e5 7b 67 d2 b3 36 cb 95 10 94 cd 13 13 33 f7 db c0 e8 c6 b7 4b 41 81 f7 6d 01 0b 51 57 11 de b0 2c f6 b0 d6 cc 4e 07 bb b7 95 13 7f f9 2c 79 ee 3e d6 6f ea 8e 93 d6 5b 64 fc 02 af b8 7a b5 da 84 37 db 8e 8f 31 16 87 01 1a 4d 16 41 61 f2 26 b9 e6 72 b3 06 2b fc f8 04 0e c0 7a 9a b8 27 37 a5 bc e9 97 2f 74 2a 9c 7d 1f 3b bc 71 b4 65 71 29 4c 9b 60 51 53 92 20 12 21 e7 5a d1 e5 4b 45 5f b9 ff c0 19 f9 0e dd c9 70 2d 6f bf c5 74 09 63 62 aa 98 4d 1e d9 01 6e bb 84 21 1e 3c c4 70 15 59 43 4d 23 85 7b ae bc 06 fb b6 76 ee 31 54 26 5d bc fd 3d 49 77 ed e4 2e 71 c5 37 04 38 a8 1a 26 ef 2e }
+
+  condition:
+    $a0
+}
+
+
+rule ICE__block_cipher__ice_smod__32_lil_64_ {
+  strings:
+    $a0 = { 4d 01 00 00 39 01 00 00 f9 01 00 00 71 01 00 00 7b 01 00 00 77 01 00 00 3f 01 00 00 87 01 00 00 69 01 00 00 bd 01 00 00 c3 01 00 00 8d 01 00 00 8d 01 00 00 a9 01 00 00 8b 01 00 00 f9 01 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule PSX_VAG_f_decoder__flt32___32_lil_40_ {
+  strings:
+    $a0 = { 00 00 00 00 00 00 00 00 00 00 70 3f 00 00 00 00 00 00 e6 3f 00 00 50 bf 00 00 c4 3f 00 00 5c bf 00 00 f4 3f 00 00 70 bf }
+
+  condition:
+    $a0
+}
+
+
+rule SOSEMANUK_mul_ia__32_lil_1024_ {
+  strings:
+    $a0 = { 00 00 00 00 cd 40 0f 18 33 80 1e 30 fe c0 11 28 66 a9 3c 60 ab e9 33 78 55 29 22 50 98 69 2d 48 cc fb 78 c0 01 bb 77 d8 ff 7b 66 f0 32 3b 69 e8 aa 52 44 a0 67 12 4b b8 99 d2 5a 90 54 92 55 88 31 5f f0 29 fc 1f ff 31 02 df ee 19 cf 9f e1 01 57 f6 cc 49 9a b6 c3 51 64 76 d2 79 a9 36 dd 61 fd a4 88 e9 30 e4 87 f1 ce 24 96 d9 03 64 99 c1 9b 0d b4 89 56 4d bb 91 a8 8d aa b9 65 cd a5 a1 62 be 49 52 af fe 46 4a 51 3e 57 62 9c 7e 58 7a 04 17 75 32 c9 57 7a 2a 37 97 6b 02 fa d7 64 1a ae 45 31 92 63 05 3e 8a 9d c5 2f a2 50 85 20 ba c8 ec 0d f2 05 ac 02 ea fb 6c 13 c2 36 2c 1c da 53 e1 b9 7b 9e a1 b6 63 60 61 a7 4b ad 21 a8 53 35 48 85 1b f8 08 8a 03 06 c8 9b 2b cb 88 94 33 9f 1a c1 bb 52 5a ce a3 ac 9a df 8b 61 da d0 93 f9 b3 fd db 34 f3 f2 c3 ca 33 e3 eb 07 73 ec f3 c4 d5 92 a4 09 95 9d bc f7 55 8c 94 3a 15 83 8c a2 7c ae c4 6f 3c a1 dc 91 fc b0 f4 5c bc bf ec 08 2e ea 64 c5 6e e5 7c 3b ae f4 54 f6 ee fb 4c 6e 87 d6 04 a3 c7 d9 1c 5d 07 c8 34 90 47 c7 2c f5 8a 62 8d 38 ca 6d 95 c6 0a 7c bd 0b 4a 73 a5 93 23 5e ed 5e 63 51 f5 a0 a3 40 dd 6d e3 4f c5 39 71 1a 4d f4 31 15 55 0a f1 04 7d c7 b1 0b 65 5f d8 26 2d 92 98 29 35 6c 58 38 1d a1 18 37 05 a6 6b db f6 6b 2b d4 ee 95 eb c5 c6 58 ab ca de c0 c2 e7 96 0d 82 e8 8e f3 42 f9 a6 3e 02 f6 be 6a 90 a3 36 a7 d0 ac 2e 59 10 bd 06 94 50 b2 1e 0c 39 9f 56 c1 79 90 4e 3f b9 81 66 f2 f9 8e 7e 97 34 2b df 5a 74 24 c7 a4 b4 35 ef 69 f4 3a f7 f1 9d 17 bf 3c dd 18 a7 c2 1d 09 8f 0f 5d 06 97 5b cf 53 1f 96 8f 5c 07 68 4f 4d 2f a5 0f 42 37 3d 66 6f 7f f0 26 60 67 0e e6 71 4f c3 a6 7e 57 21 03 8d e1 ec 43 82 f9 12 83 93 d1 df c3 9c c9 47 aa b1 81 8a ea be 99 74 2a af b1 b9 6a a0 a9 ed f8 f5 21 20 b8 fa 39 de 78 eb 11 13 38 e4 09 8b 51 c9 41 46 11 c6 59 b8 d1 d7 71 75 91 d8 69 10 5c 7d c8 dd 1c 72 d0 23 dc 63 f8 ee 9c 6c e0 76 f5 41 a8 bb b5 4e b0 45 75 5f 98 88 35 50 80 dc a7 05 08 11 e7 0a 10 ef 27 1b 38 22 67 14 20 ba 0e 39 68 77 4e 36 70 89 8e 27 58 44 ce 28 40 43 bd c4 b3 8e fd cb ab 70 3d da 83 bd 7d d5 9b 25 14 f8 d3 e8 54 f7 cb 16 94 e6 e3 db d4 e9 fb 8f 46 bc 73 42 06 b3 6b bc c6 a2 43 71 86 ad 5b e9 ef 80 13 24 af 8f 0b da 6f 9e 23 17 2f 91 3b 72 e2 34 9a bf a2 3b 82 41 62 2a aa 8c 22 25 b2 14 4b 08 fa d9 0b 07 e2 27 cb 16 ca ea 8b 19 d2 be 19 4c 5a 73 59 43 42 8d 99 52 6a 40 d9 5d 72 d8 b0 70 3a 15 f0 7f 22 eb 30 6e 0a 26 70 61 12 e5 d6 1f 45 28 96 10 5d d6 56 01 75 1b 16 0e 6d 83 7f 23 25 4e 3f 2c 3d b0 ff 3d 15 7d bf 32 0d 29 2d 67 85 e4 6d 68 9d 1a ad 79 b5 d7 ed 76 ad 4f 84 5b e5 82 c4 54 fd 7c 04 45 d5 b1 44 4a cd d4 89 ef 6c 19 c9 e0 74 e7 09 f1 5c 2a 49 fe 44 b2 20 d3 0c 7f 60 dc 14 81 a0 cd 3c 4c e0 c2 24 18 72 97 ac d5 32 98 b4 2b f2 89 9c e6 b2 86 84 7e db ab cc b3 9b a4 d4 4d 5b b5 fc 80 1b ba e4 87 68 56 17 4a 28 59 0f b4 e8 48 27 79 a8 47 3f e1 c1 6a 77 2c 81 65 6f d2 41 74 47 1f 01 7b 5f 4b 93 2e d7 86 d3 21 cf 78 13 30 e7 b5 53 3f ff 2d 3a 12 b7 e0 7a 1d af 1e ba 0c 87 d3 fa 03 9f b6 37 a6 3e 7b 77 a9 26 85 b7 b8 0e 48 f7 b7 16 d0 9e 9a 5e 1d de 95 46 e3 1e 84 6e 2e 5e 8b 76 7a cc de fe b7 8c d1 e6 49 4c c0 ce 84 0c cf d6 1c 65 e2 9e d1 25 ed 86 2f e5 fc ae e2 a5 f3 b6 }
+
+  condition:
+    $a0
+}
+
+
+rule MD2_MD2_INT_S__32_lil_1024_ {
+  strings:
+    $a0 = { 29 00 00 00 2e 00 00 00 43 00 00 00 c9 00 00 00 a2 00 00 00 d8 00 00 00 7c 00 00 00 01 00 00 00 3d 00 00 00 36 00 00 00 54 00 00 00 a1 00 00 00 ec 00 00 00 f0 00 00 00 06 00 00 00 13 00 00 00 62 00 00 00 a7 00 00 00 05 00 00 00 f3 00 00 00 c0 00 00 00 c7 00 00 00 73 00 00 00 8c 00 00 00 98 00 00 00 93 00 00 00 2b 00 00 00 d9 00 00 00 bc 00 00 00 4c 00 00 00 82 00 00 00 ca 00 00 00 1e 00 00 00 9b 00 00 00 57 00 00 00 3c 00 00 00 fd 00 00 00 d4 00 00 00 e0 00 00 00 16 00 00 00 67 00 00 00 42 00 00 00 6f 00 00 00 18 00 00 00 8a 00 00 00 17 00 00 00 e5 00 00 00 12 00 00 00 be 00 00 00 4e 00 00 00 c4 00 00 00 d6 00 00 00 da 00 00 00 9e 00 00 00 de 00 00 00 49 00 00 00 a0 00 00 00 fb 00 00 00 f5 00 00 00 8e 00 00 00 bb 00 00 00 2f 00 00 00 ee 00 00 00 7a 00 00 00 a9 00 00 00 68 00 00 00 79 00 00 00 91 00 00 00 15 00 00 00 b2 00 00 00 07 00 00 00 3f 00 00 00 94 00 00 00 c2 00 00 00 10 00 00 00 89 00 00 00 0b 00 00 00 22 00 00 00 5f 00 00 00 21 00 00 00 80 00 00 00 7f 00 00 00 5d 00 00 00 9a 00 00 00 5a 00 00 00 90 00 00 00 32 00 00 00 27 00 00 00 35 00 00 00 3e 00 00 00 cc 00 00 00 e7 00 00 00 bf 00 00 00 f7 00 00 00 97 00 00 00 03 00 00 00 ff 00 00 00 19 00 00 00 30 00 00 00 b3 00 00 00 48 00 00 00 a5 00 00 00 b5 00 00 00 d1 00 00 00 d7 00 00 00 5e 00 00 00 92 00 00 00 2a 00 00 00 ac 00 00 00 56 00 00 00 aa 00 00 00 c6 00 00 00 4f 00 00 00 b8 00 00 00 38 00 00 00 d2 00 00 00 96 00 00 00 a4 00 00 00 7d 00 00 00 b6 00 00 00 76 00 00 00 fc 00 00 00 6b 00 00 00 e2 00 00 00 9c 00 00 00 74 00 00 00 04 00 00 00 f1 00 00 00 45 00 00 00 9d 00 00 00 70 00 00 00 59 00 00 00 64 00 00 00 71 00 00 00 87 00 00 00 20 00 00 00 86 00 00 00 5b 00 00 00 cf 00 00 00 65 00 00 00 e6 00 00 00 2d 00 00 00 a8 00 00 00 02 00 00 00 1b 00 00 00 60 00 00 00 25 00 00 00 ad 00 00 00 ae 00 00 00 b0 00 00 00 b9 00 00 00 f6 00 00 00 1c 00 00 00 46 00 00 00 61 00 00 00 69 00 00 00 34 00 00 00 40 00 00 00 7e 00 00 00 0f 00 00 00 55 00 00 00 47 00 00 00 a3 00 00 00 23 00 00 00 dd 00 00 00 51 00 00 00 af 00 00 00 3a 00 00 00 c3 00 00 00 5c 00 00 00 f9 00 00 00 ce 00 00 00 ba 00 00 00 c5 00 00 00 ea 00 00 00 26 00 00 00 2c 00 00 00 53 00 00 00 0d 00 00 00 6e 00 00 00 85 00 00 00 28 00 00 00 84 00 00 00 09 00 00 00 d3 00 00 00 df 00 00 00 cd 00 00 00 f4 00 00 00 41 00 00 00 81 00 00 00 4d 00 00 00 52 00 00 00 6a 00 00 00 dc 00 00 00 37 00 00 00 c8 00 00 00 6c 00 00 00 c1 00 00 00 ab 00 00 00 fa 00 00 00 24 00 00 00 e1 00 00 00 7b 00 00 00 08 00 00 00 0c 00 00 00 bd 00 00 00 b1 00 00 00 4a 00 00 00 78 00 00 00 88 00 00 00 95 00 00 00 8b 00 00 00 e3 00 00 00 63 00 00 00 e8 00 00 00 6d 00 00 00 e9 00 00 00 cb 00 00 00 d5 00 00 00 fe 00 00 00 3b 00 00 00 00 00 00 00 1d 00 00 00 39 00 00 00 f2 00 00 00 ef 00 00 00 b7 00 00 00 0e 00 00 00 66 00 00 00 58 00 00 00 d0 00 00 00 e4 00 00 00 a6 00 00 00 77 00 00 00 72 00 00 00 f8 00 00 00 eb 00 00 00 75 00 00 00 4b 00 00 00 0a 00 00 00 31 00 00 00 44 00 00 00 50 00 00 00 b4 00 00 00 8f 00 00 00 ed 00 00 00 1f 00 00 00 1a 00 00 00 db 00 00 00 99 00 00 00 8d 00 00 00 33 00 00 00 9f 00 00 00 11 00 00 00 83 00 00 00 14 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule sfb_48_960_and_sfb_32_960__16_lil_100_ {
+  strings:
+    $a0 = { 04 00 08 00 0c 00 10 00 14 00 18 00 1c 00 20 00 24 00 28 00 30 00 38 00 40 00 48 00 50 00 58 00 60 00 6c 00 78 00 84 00 90 00 a0 00 b0 00 c4 00 d8 00 f0 00 08 01 24 01 40 01 60 01 80 01 a0 01 c0 01 e0 01 00 02 20 02 40 02 60 02 80 02 a0 02 c0 02 e0 02 00 03 20 03 40 03 60 03 80 03 a0 03 c0 03 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule VC1_non_uniform_implicit_quantizers__8_byt_32_ {
+  strings:
+    $a0 = { 00 00 00 00 00 00 00 00 00 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1b 1d 1f }
+
+  condition:
+    $a0
+}
+
+
+rule Snefru_S_box_1__32_lil_1024_ {
+  strings:
+    $a0 = { 09 1d 4a 07 5a 0e a1 52 f8 a3 75 92 6c 50 82 4b 1b 7e df 37 c5 b3 78 4c da b1 fa ce 7e 26 72 f4 f6 45 30 b6 c0 1f 6a d6 e3 98 02 40 94 0c e6 27 b8 f1 d2 87 cc 56 9e df 03 18 cd 45 98 e0 35 1d 36 c7 e7 cc f1 3b 48 03 d7 07 73 1f 48 f9 e8 c6 11 c1 13 e6 ff c6 55 39 7c ed 70 11 41 da 95 8e f4 1b c3 99 21 80 da a4 fb 94 5f 7b 1f a5 0d dd 77 aa 62 65 23 cb 6b 55 c6 ac 1b db b9 40 80 79 8f 37 e5 bf e6 55 1d 73 ee bf a5 da 60 bc 9b 38 a4 fb 33 1b 04 72 56 9c 68 6c c2 36 69 9d ee 77 88 3e eb 8a ce b5 50 2d 90 e7 79 95 fc 3c b1 42 2b d3 fb 33 a7 03 05 ee 24 28 86 b5 ad 1e e4 15 f7 2e 41 c8 75 12 44 9d 82 c5 ce 2f b7 83 f4 5f df 31 39 8f 7b 2a 5d 2e f9 7b 46 49 a9 de 53 06 35 ce 84 26 5c 5e 65 7e d8 71 27 f1 67 cc 15 bb a1 7c 09 ab 52 cf 3d 98 26 f0 dd 10 57 7f 26 21 b4 f6 58 2c 65 32 04 31 01 8c ab 0b 99 20 49 d5 19 e6 aa ac 4a e5 4c 94 39 3d d1 f2 32 fc d3 ad 40 8a a0 cd 51 d4 b0 e2 ae 08 fe 9e d2 0f d5 b9 fd d7 5c ea dd 49 a7 c9 53 22 ea 13 aa eb 2d 83 0f 64 be 24 6a 92 3e e0 de 1c e0 29 18 9f f5 8b b6 00 9d 0f 46 8b 23 e1 34 8e 7d 1e db 9a 61 93 9f 2f b3 76 ec 2c 97 bd 76 a9 1f e3 10 bb 8f a6 9d a4 3b fb 1d c4 87 85 d0 d1 ad a5 bf 84 cf f3 50 11 e1 d4 bc a6 ff d9 8c 01 f6 c3 72 05 f1 ae 2f 4b a6 74 59 95 dc e7 d5 35 ae 2a 7f 58 6f 5b fe 53 e3 a9 74 b6 4f ca a8 24 ba 04 5f 87 c6 e5 66 62 bc dc 3f c0 c5 6b 02 ef 1e 66 ab 0b 74 ed e4 34 8e 05 cf 46 e9 b7 25 81 69 88 ed 48 ec 72 a3 73 10 b1 eb 85 34 a1 9c 42 a2 a2 47 75 40 fa 13 67 b7 50 7d c3 18 54 a5 2d 19 96 4b b0 0b 17 1e 02 8a 51 d1 13 ac b0 2a fa 63 09 e1 10 6e 4a dc 2b 47 58 62 d9 f8 f7 ea 39 91 97 38 65 85 8d 42 70 99 c0 7a 4d 32 48 cb 23 76 44 64 e3 bb 8c 0e 6b 0c 6e b0 63 6d d3 84 4c 24 3f 71 c9 42 35 c1 8d 22 2b bb 25 03 cb e9 d6 c0 f8 6b 06 11 de 27 93 64 a8 3e f8 31 fc 06 04 d8 7d 61 dd 16 f9 d3 79 9f d8 c2 44 51 61 31 5d b4 eb 58 29 00 28 37 0a 89 56 08 38 5b f0 44 e8 3a 12 16 9e 83 86 83 0d 4b 91 3c b4 06 c5 5e ba 3c cf c9 f5 60 7c a0 b2 de 22 15 27 9c 5d ef a0 7b c7 0b 36 45 4f 8b 7d 01 c1 29 dc 5a e4 9b 90 59 a7 93 d2 2c 41 b1 96 d7 d7 30 ff c8 00 80 4a a3 23 91 5c c1 4e b5 78 4e 71 2e e4 b9 47 4d ea f3 78 5b 8f 07 7f 3a 59 6c 34 1a 7a a8 a3 12 fe cb 9b 63 99 43 3d 8e 6d ef b2 28 60 d4 b8 ca d5 2f 6c 56 52 67 62 f3 a2 f2 01 0a ae 96 bc 20 89 9a 70 87 6e 14 b4 e2 b9 08 63 ba a7 bd 64 92 68 ed af a2 f2 37 60 e0 69 29 f5 a6 43 db 0a 00 14 81 82 f0 bd d0 90 9e 54 c9 19 73 6a 3f 20 4f af cc 1a 6d 4e 71 89 05 47 4d 16 07 5f 66 67 70 61 20 ec b2 82 21 0c 81 9c 2b a0 22 97 28 53 86 76 a9 f6 79 41 0e 14 49 88 77 9f 5d e1 88 9a 54 db ca 25 6f f3 57 d1 c3 21 a4 32 8a e9 68 b3 0d cd 92 5a d4 a8 7a 75 78 c2 0a c2 c7 51 b5 08 e8 91 94 84 d6 5a c7 4d be 33 7c 69 33 ca f0 ba 4e 5b 12 46 b3 77 d6 59 f2 c8 d9 30 0c 86 af d0 fa d0 7f 1c 2c f7 0f fe 43 6f 8d 5c 3b ec fd 57 97 ad b6 6a 89 df 2a d2 85 17 17 18 2d e2 bf 02 17 09 b8 6d af 16 b2 80 9a 4f 5e e8 6e 30 1c 7a f5 9b c4 6f 1c a1 f7 3a e7 15 e2 81 cd 3f 36 68 c8 57 93 3e 55 fd 52 ef 4c ab 8b 3b 95 f4 8c 3c bd ee fc be 14 b7 25 fd 3d d8 98 c4 8d 1a 2e 0d ac 66 f9 e9 45 74 38 0e e5 19 54 43 c4 be 7e 5e d9 b8 90 aa 96 3a 1a ff }
+
+  condition:
+    $a0
+}
+
+
+rule Snefru_S_box_5__32_lil_1024_ {
+  strings:
+    $a0 = { 21 11 4f 4b 81 30 18 ba 1f f4 84 c7 ac 0b 7d d1 67 22 3d 08 1e 36 b1 37 05 ad 81 35 bc f6 a2 fd dd 2c 89 1e 3a 3c 6d b5 46 0e 14 32 ab 8a 8d 13 d4 73 47 e1 df 71 0e 5b 55 e0 1f 5d d3 91 b9 3f 71 6c f4 f1 8c 98 25 a3 80 6e f6 10 48 63 00 b1 60 9f 6a 72 ba f8 67 3b f4 4e 11 4e 15 21 c5 05 1c a1 5c 4c d8 ef e1 99 b3 83 1b 47 24 e5 f7 cb f5 82 ad 43 3b a9 0c 69 b2 1b a6 fa b5 32 a8 12 43 f9 34 b7 a7 ae 22 bd 26 c6 fe 88 e7 c3 80 5e 5e af 3e be 52 76 61 44 75 44 72 a5 95 96 3b bb 8f ee 3f 7f eb 7d 4e 96 2d 05 8c 51 2b bc 0b 2a 5c 5f 17 c2 89 38 7b 9a 0c 8d 0d a7 29 dd cc ea 58 66 cd cc e6 25 bb 34 90 10 39 b8 6f 35 51 f6 9e 7c 98 52 cd c1 16 0c 3c 2d 37 8e bd eb c6 2f e3 a3 5d 6e 39 72 e2 b0 38 57 68 5f 86 17 41 45 f8 65 7f 06 40 8b 77 61 65 2e ab 81 f9 f0 c8 14 ce b4 b7 a6 ec ea 36 40 0a b0 62 bf 02 5e fd ec a6 49 54 04 28 fd 0a b2 73 d2 66 21 63 a8 13 0d 56 87 50 89 30 75 1a d5 7a 3f 65 2d c3 db db 3c 4f df c9 80 d9 12 58 3d f3 b1 fb 53 c0 85 f1 c0 7e 3d 3c 7a 10 64 64 68 a0 07 76 85 2e 62 12 1d 66 34 f3 97 17 99 4c db 7c 60 69 64 3d 04 6e 56 db 1e ef 79 8d 89 05 2c 25 8e 57 c9 01 01 38 cd 77 43 e0 46 a9 c7 1c 7d 37 b8 52 65 08 26 19 20 c5 00 75 b9 44 6b 29 ed b4 48 86 36 d5 5c 99 62 00 14 73 82 8b bd ae f9 c7 c0 44 38 94 e7 2d 7c 70 a7 a1 33 c2 28 e5 8a 12 e8 2b 5a 07 4a 8f 1f ca d7 5e 2b 64 b5 7e 93 11 7e da 6f 6c 5d 9b e4 4e 24 b3 b4 a4 53 aa 18 34 13 06 3a a3 67 60 4d 68 58 ba 83 fe 4d df 9b 61 f2 49 74 50 84 9f 70 cb 33 d1 ca 3f 1c 94 de 84 e4 2a f5 ed 77 1d 78 f0 95 43 7e 59 3b 10 ae bb 31 23 92 c8 50 ce 42 53 81 f0 e6 d0 41 d9 e7 6b ed 28 50 9b c4 d2 b3 3e 9c 4d ad 6e fb 01 d2 be d5 5b a4 4b 7f cb ff 06 78 9d 57 5b bb 21 f8 ad 92 d5 59 31 0c be d0 76 b6 e3 d4 5a 16 07 01 d2 39 e9 0f fd aa bc 49 e5 cf ff 55 83 f7 c1 2e a5 09 9a f3 72 27 b4 3e 5d 5a b5 19 79 06 4a 02 f7 b3 83 8c 1d ba 42 86 ea d9 ac ac c4 52 d3 87 45 1f 93 60 d7 97 5f a0 2c d4 ec 1c 7b c8 fc e2 e2 94 0f b6 0b 4b a3 67 c9 40 dd fc 27 0a 15 0b 04 9e ee d3 e9 29 2e 58 41 2b c2 4a b8 e1 c4 6a 1a a5 ca bc 0e f3 7a 23 09 b7 c3 eb 19 9d a5 c4 8a c9 4b 28 93 1a d4 e9 18 20 fa 6b 51 d6 b2 73 fa a2 f9 11 f1 bf 09 ce aa 70 a4 41 22 8f 88 25 e8 54 e7 77 8e 0d 33 f7 16 ab 8e 15 42 88 d6 c5 f6 a6 85 c6 de 2f b8 e5 96 3a ea 09 36 15 de 6d da 19 a9 4f 9f be c0 26 69 6f ed 9e f2 55 55 f0 85 c2 6f e0 23 6d d7 9c 92 2a 45 af b7 4c c7 ef 32 47 6b 9d ee 08 e4 8b 0d 1d 40 22 9d 45 6c ee 82 cb 87 75 62 68 74 e8 87 de bd 5c 78 42 79 98 4d b9 af 31 2f 0f 1e c1 2a fc e8 30 ef 61 32 cf e1 23 30 1a cf 86 2f aa 4a e2 02 f2 ff dc 08 8d c6 37 48 76 cc 74 63 a2 88 3e 7c 9f 7d c5 9c 94 7f a0 26 dd b0 fa 9e c3 a1 79 f8 c8 b9 7b e6 dc 35 a4 b0 f4 e0 9a 2c 91 e4 03 56 d8 bf 9b 3a 95 d6 90 82 fb 5f cd eb 0a 9a 6a 20 16 14 7a 78 6c 6a f1 a0 d9 74 4f bf 29 91 ce 8b 8f 54 93 5a 0e b1 8c 03 ab 1b d1 8a 1b 49 ff 27 e3 20 da 53 00 dc 51 cf 90 6d fe 92 da 47 ca 90 03 97 80 95 a8 af 5b dc a9 c1 e3 31 39 b6 46 04 84 fb 69 d0 63 99 02 46 d7 d1 ec 24 71 13 e6 91 07 fc 18 59 48 4c d0 35 d6 33 ac 96 df 03 d3 f2 66 ae 56 70 24 a8 b2 a7 a1 9c cc d8 27 98 e9 b6 17 0f 59 f5 7b 57 f5 97 fe a2 d8 71 54 }
+
+  condition:
+    $a0
+}
+
+
+rule anti_debug__PEB_IsDebugged__8_byt_12_ {
+  strings:
+    $a0 = { 64 a1 30 00 00 00 0f b6 40 02 85 c0 }
+
+  condition:
+    $a0
+}
+
+
+rule ADPCM_index_table__step_variation___8_byt_16_ {
+  strings:
+    $a0 = { FF FF FF FF 02 04 06 08 FF FF FF FF 02 04 06 08 }
+
+  condition:
+    $a0
+}
+
+
+rule khazad_c__32_lil_72_ {
+  strings:
+    $a0 = { 74 2f 54 ba 4d d2 d3 53 bf 8d ac 50 4c 9a 52 70 d1 97 d5 ea a6 5b 51 33 99 a8 48 de fc b7 32 db 9b 91 9e e3 6e 41 bb e2 95 6b cb a5 02 b1 f3 a1 14 1d c4 cc 5d da 63 c3 cd 7d dc 5f 5c 6c 5a 7f ed ff 26 f7 8e 6f 9d e8 }
+
+  condition:
+    $a0
+}
+
+
+rule Misty_md5const__32_big_256_ {
+  strings:
+    $a0 = { d7 6a a4 78 e8 c7 b7 56 24 20 70 db c1 bd ce ee f5 7c 0f af 47 87 c6 2a a8 30 46 13 fd 46 95 01 69 80 98 d8 8b 44 f7 af ff ff 5b b1 89 5c d7 be 6b 90 11 22 fd 98 71 93 a6 79 43 8e 49 b4 08 21 f6 1e 25 62 c0 40 b3 40 26 5e 5a 51 e9 b6 c7 aa d6 2f 10 5d 02 44 14 53 d8 a1 e6 81 e7 d3 fb c8 21 e1 cd e6 c3 37 07 d6 f4 d5 0d 87 45 5a 14 ed a9 e3 e9 05 fc ef a3 f8 67 6f 02 d9 8d 2a 4c 8a ff fa 39 42 87 71 f6 81 6d 9d 61 22 fd e5 38 0c a4 be ea 44 4b de cf a9 f6 bb 4b 60 be bf bc 70 28 9b 7e c6 ea a1 27 fa d4 ef 30 85 04 88 1d 05 d9 d4 d0 39 e6 db 99 e5 1f a2 7c f8 c4 ac 56 65 f4 29 22 44 43 2a ff 97 ab 94 23 a7 fc 93 a0 39 65 5b 59 c3 8f 0c cc 92 ff ef f4 7d 85 84 5d d1 6f a8 7e 4f fe 2c e6 e0 a3 01 43 14 4e 08 11 a1 f7 53 7e 82 bd 3a f2 35 2a d7 d2 bb eb 86 d3 91 }
+
+  condition:
+    $a0
+}
+
+
+rule DMC_compression__32_lil_AND_ {
+  strings:
+    $a0 = { cd cc 4c 3e [0-20] cd cc 4c 3e [0-20] cd cc 4c 3e [0-20] cd cc 4c 3e }
+
+  condition:
+    $a0
+}
+
+
+rule Snefru_S_box_0__32_lil_1024_ {
+  strings:
+    $a0 = { 1b 00 f9 64 f6 cd dd fe e2 f1 8f 7c 14 15 d7 11 d3 18 8c 8b 1e 88 df dd 56 50 ab 6e e1 d8 ce 88 59 89 14 49 d5 6f c5 69 03 4f 99 b7 3e ee bc 0f 40 49 26 3c 58 7e 55 21 c2 3f 4b e1 91 f5 5c 2e ce f8 ef dc 48 16 2a 09 36 29 81 be 6a 0c 7b ff 37 10 25 d5 f1 48 a4 af 5a c9 af 7d 3f 9c a6 1e e7 ab 17 a4 23 e4 90 58 c0 70 cb b0 f7 25 50 c8 e3 97 4d 24 5f 59 f3 1f 96 63 ec c4 17 1e 18 59 77 b4 35 e6 bf 7d 4e 35 53 77 6f 79 cc 52 eb 66 95 f9 c3 77 27 a9 e3 32 d6 ae cc 80 9d e8 2b 4e 28 bd 5b 37 05 3d 1a ad b3 42 1b 2b 71 4c c4 16 a8 bf 54 4d 7a dc 7d e5 44 81 6d ec 6b 04 71 5a 50 96 22 d8 24 8f fc 87 09 0e c6 cb 66 03 39 b6 92 60 f7 d9 0b a7 93 d3 8a a0 31 1d c9 71 d9 9c 45 f4 1e 5c 94 b6 fa 86 65 41 b4 fd be fc aa 8e eb c6 ca 4b e5 94 7a fb 4e d0 89 57 35 cf 13 fa a9 8d 6b 23 00 f0 33 41 1c 26 24 62 3b f2 12 f4 a4 56 5e e7 16 21 02 30 1f 7f f1 ba f9 72 98 d0 9c 69 a3 c1 aa 02 e8 f1 dc 45 d1 0d 93 e0 dc 4f f0 12 84 8d 76 f3 d0 6c 3d b7 e6 3d 7f 73 ba 84 f2 30 3a b4 69 9f 56 44 ca ea e4 00 b0 e3 8d b5 c8 13 91 95 e9 fe 2e d6 83 1f 86 90 74 98 d6 ce ee 3c 79 2f 30 1c 57 e8 d1 65 36 48 31 b0 07 ab 4f 84 4c 91 e8 3b bf 15 9a 2a 3f 2c d4 5f b9 9e 2d 47 e7 92 5b cc 97 22 82 27 5f ee 62 b5 77 53 cf bb 8e db dd de 61 f9 60 5c 9b c5 0d 91 d3 1b ad 06 d2 26 d8 14 85 b2 52 6b cf 5e bb 78 ea 7f ac 79 48 50 84 a8 34 ed 3c 1d e5 36 1d 74 53 17 ed ca 47 8c ef 40 0a 9d 21 e2 45 31 70 eb 27 da a3 0b 73 df 89 87 3c 18 a6 c0 9a 73 c6 df 58 9a c1 34 b1 54 2e 24 3e ac 02 39 49 cc 99 da 2d 7b 01 bc 15 8f c7 38 fd 29 8f 31 d5 27 f5 af 4a 60 18 68 9c f2 ec a2 8a c3 c3 d4 19 10 6e 93 fb a8 39 7b ed 20 19 61 68 0b 6f 90 a0 89 9e 82 c7 1c 4b ef 52 99 8c 9e 0e 85 90 3a 06 cd 8e 2f 00 67 b7 8c ac cf 11 4b a2 ea 6c 4e 8b 98 df 66 f0 46 08 ec 7e ca 64 a6 bb c7 bd 17 1d 83 e6 75 f5 63 0e 35 64 97 42 0d 87 47 a2 a4 6c 02 87 d5 67 81 ab ad b6 61 d2 64 65 aa 7b 23 da 70 4a c7 e1 25 a0 01 c9 a1 da a5 b0 0e 41 f7 70 76 ea 5a c0 51 32 fa 3d 93 1a ff 59 07 b8 0a 01 56 78 cb de 5f f8 ed 32 3f b9 db be ae 6d 32 f8 39 c5 58 08 d2 e4 8b 63 9b 0a c8 72 a5 9f a1 e0 28 fc 99 20 43 cd c3 37 3a 85 c5 95 bf 2a c1 92 b3 d7 07 a7 6a 61 6a f6 52 b1 83 d4 12 5e 5b 43 96 2b 80 75 3e 33 2b a5 3b a5 51 9f a9 57 e1 a1 bd 0c e7 c2 78 e0 7c ae fc 67 22 60 d1 4d ac ff 2a 47 09 51 4a 3a b8 b2 0a 79 e5 04 7a 80 fd 0d 34 22 e9 16 b9 9b 5e 9d e2 f4 4a 62 f5 af d9 a9 4c fe 2c bd 6b 20 f6 b7 e3 07 6e 74 c2 b6 b9 42 5b bc 19 69 a0 0f c4 f2 f0 b5 7a 21 72 f3 9d c1 14 ae 2d 80 f3 b4 be 94 e0 ff 1a 10 a2 5d 57 29 05 7c b2 cd 55 b2 dd 3b a3 7d b3 28 65 db 05 0c 74 c4 62 6a e9 46 28 78 40 06 d7 30 6d 2c 8e f4 bb de d3 e2 bc fa 37 9e 04 34 e6 b5 01 8d 6d 88 2d 7e 2e 5a 7e 13 20 41 d7 97 0f e9 06 ba 3e 5d e4 86 33 ad b8 25 1b 05 13 54 53 03 0c 75 9b c8 71 d0 fb 38 c6 a1 11 7f 19 fb 08 0f ef 51 86 44 f8 63 95 40 38 43 44 2f 45 55 4d 46 5d 4c 76 d8 03 38 d6 b8 b1 2f ba 0b a7 10 d2 b3 94 a7 92 66 eb d9 c2 09 d4 26 85 83 68 15 8a db a6 98 6c 1f 75 88 9a 76 de 68 46 ee c9 73 a3 82 1a 49 aa 96 08 81 36 23 42 cb 55 2c f6 04 54 1c 9f 5c b1 4f f7 12 43 6e c0 72 5d fe 6f 8b 67 a8 8a 29 d1 7c 33 fd ce 11 82 }
+
+  condition:
+    $a0
+}
+
+
+rule Anubis_T5__32_lil_1024_ {
+  strings:
+    $a0 = { 00 00 00 00 08 06 02 01 10 0c 04 02 18 0a 06 03 20 18 08 04 28 1e 0a 05 30 14 0c 06 38 12 0e 07 40 30 10 08 48 36 12 09 50 3c 14 0a 58 3a 16 0b 60 28 18 0c 68 2e 1a 0d 70 24 1c 0e 78 22 1e 0f 80 60 20 10 88 66 22 11 90 6c 24 12 98 6a 26 13 a0 78 28 14 a8 7e 2a 15 b0 74 2c 16 b8 72 2e 17 c0 50 30 18 c8 56 32 19 d0 5c 34 1a d8 5a 36 1b e0 48 38 1c e8 4e 3a 1d f0 44 3c 1e f8 42 3e 1f 1d c0 40 20 15 c6 42 21 0d cc 44 22 05 ca 46 23 3d d8 48 24 35 de 4a 25 2d d4 4c 26 25 d2 4e 27 5d f0 50 28 55 f6 52 29 4d fc 54 2a 45 fa 56 2b 7d e8 58 2c 75 ee 5a 2d 6d e4 5c 2e 65 e2 5e 2f 9d a0 60 30 95 a6 62 31 8d ac 64 32 85 aa 66 33 bd b8 68 34 b5 be 6a 35 ad b4 6c 36 a5 b2 6e 37 dd 90 70 38 d5 96 72 39 cd 9c 74 3a c5 9a 76 3b fd 88 78 3c f5 8e 7a 3d ed 84 7c 3e e5 82 7e 3f 3a 9d 80 40 32 9b 82 41 2a 91 84 42 22 97 86 43 1a 85 88 44 12 83 8a 45 0a 89 8c 46 02 8f 8e 47 7a ad 90 48 72 ab 92 49 6a a1 94 4a 62 a7 96 4b 5a b5 98 4c 52 b3 9a 4d 4a b9 9c 4e 42 bf 9e 4f ba fd a0 50 b2 fb a2 51 aa f1 a4 52 a2 f7 a6 53 9a e5 a8 54 92 e3 aa 55 8a e9 ac 56 82 ef ae 57 fa cd b0 58 f2 cb b2 59 ea c1 b4 5a e2 c7 b6 5b da d5 b8 5c d2 d3 ba 5d ca d9 bc 5e c2 df be 5f 27 5d c0 60 2f 5b c2 61 37 51 c4 62 3f 57 c6 63 07 45 c8 64 0f 43 ca 65 17 49 cc 66 1f 4f ce 67 67 6d d0 68 6f 6b d2 69 77 61 d4 6a 7f 67 d6 6b 47 75 d8 6c 4f 73 da 6d 57 79 dc 6e 5f 7f de 6f a7 3d e0 70 af 3b e2 71 b7 31 e4 72 bf 37 e6 73 87 25 e8 74 8f 23 ea 75 97 29 ec 76 9f 2f ee 77 e7 0d f0 78 ef 0b f2 79 f7 01 f4 7a ff 07 f6 7b c7 15 f8 7c cf 13 fa 7d d7 19 fc 7e df 1f fe 7f 74 27 1d 80 7c 21 1f 81 64 2b 19 82 6c 2d 1b 83 54 3f 15 84 5c 39 17 85 44 33 11 86 4c 35 13 87 34 17 0d 88 3c 11 0f 89 24 1b 09 8a 2c 1d 0b 8b 14 0f 05 8c 1c 09 07 8d 04 03 01 8e 0c 05 03 8f f4 47 3d 90 fc 41 3f 91 e4 4b 39 92 ec 4d 3b 93 d4 5f 35 94 dc 59 37 95 c4 53 31 96 cc 55 33 97 b4 77 2d 98 bc 71 2f 99 a4 7b 29 9a ac 7d 2b 9b 94 6f 25 9c 9c 69 27 9d 84 63 21 9e 8c 65 23 9f 69 e7 5d a0 61 e1 5f a1 79 eb 59 a2 71 ed 5b a3 49 ff 55 a4 41 f9 57 a5 59 f3 51 a6 51 f5 53 a7 29 d7 4d a8 21 d1 4f a9 39 db 49 aa 31 dd 4b ab 09 cf 45 ac 01 c9 47 ad 19 c3 41 ae 11 c5 43 af e9 87 7d b0 e1 81 7f b1 f9 8b 79 b2 f1 8d 7b b3 c9 9f 75 b4 c1 99 77 b5 d9 93 71 b6 d1 95 73 b7 a9 b7 6d b8 a1 b1 6f b9 b9 bb 69 ba b1 bd 6b bb 89 af 65 bc 81 a9 67 bd 99 a3 61 be 91 a5 63 bf 4e ba 9d c0 46 bc 9f c1 5e b6 99 c2 56 b0 9b c3 6e a2 95 c4 66 a4 97 c5 7e ae 91 c6 76 a8 93 c7 0e 8a 8d c8 06 8c 8f c9 1e 86 89 ca 16 80 8b cb 2e 92 85 cc 26 94 87 cd 3e 9e 81 ce 36 98 83 cf ce da bd d0 c6 dc bf d1 de d6 b9 d2 d6 d0 bb d3 ee c2 b5 d4 e6 c4 b7 d5 fe ce b1 d6 f6 c8 b3 d7 8e ea ad d8 86 ec af d9 9e e6 a9 da 96 e0 ab db ae f2 a5 dc a6 f4 a7 dd be fe a1 de b6 f8 a3 df 53 7a dd e0 5b 7c df e1 43 76 d9 e2 4b 70 db e3 73 62 d5 e4 7b 64 d7 e5 63 6e d1 e6 6b 68 d3 e7 13 4a cd e8 1b 4c cf e9 03 46 c9 ea 0b 40 cb eb 33 52 c5 ec 3b 54 c7 ed 23 5e c1 ee 2b 58 c3 ef d3 1a fd f0 db 1c ff f1 c3 16 f9 f2 cb 10 fb f3 f3 02 f5 f4 fb 04 f7 f5 e3 0e f1 f6 eb 08 f3 f7 93 2a ed f8 9b 2c ef f9 83 26 e9 fa 8b 20 eb fb b3 32 e5 fc bb 34 e7 fd a3 3e e1 fe ab 38 e3 ff }
+
+  condition:
+    $a0
+}
+
+
+rule asf_ext_stream_audio__8_byt_16_ {
+  strings:
+    $a0 = { 9d 8c 17 31 e1 03 28 45 b5 82 3d f9 db 22 f5 03 }
+
+  condition:
+    $a0
+}
+
+
+rule Snefru_S_box_4__32_lil_1024_ {
+  strings:
+    $a0 = { cb 97 22 cb 44 a1 48 db 4b be 6c a1 6c 1d ea bb b7 b6 f6 5a b6 10 81 8a f9 6e 23 f9 e6 83 8f c9 b8 65 9c 0f 89 4a 2d 25 68 f0 97 a4 2d ed d7 a5 45 28 c2 94 c4 c8 a1 9d 2e 2e 7c e2 b4 a2 8b 6e fb 17 dd c3 82 d4 8c 49 9f 6a fe 0d 29 58 70 b0 c1 6d 1e 9a 7c 71 29 f8 3a 8e bb 07 02 0b 3c da c7 2f f8 1a 55 09 b7 73 9c 37 04 7a 28 0a e2 5e e5 2a 71 83 6d 7c c4 f4 56 ba 72 df 8d 85 94 d7 09 f7 0c 8c 90 f3 f0 18 35 9b c6 b6 db 01 2f bf ca 4d a7 2f 27 91 cd d0 ec 6c e6 bd 46 bd ee 3d c3 8f c8 57 6f 40 e1 ce 5a 38 66 00 4f 44 c3 f3 d5 d5 79 3a b9 1e 75 75 85 81 7f 3e 05 26 1c 52 6e ab aa e1 0f b8 eb 38 04 e9 e7 be 47 96 cb 61 4e 90 54 ea e4 00 ae 05 5f c6 7a 2d a1 51 77 08 15 29 d8 dc 16 ee 21 09 3b d3 86 dd 1a 49 bd d6 f0 ad fb 40 d2 cb 32 42 10 8d 80 33 42 8c 09 39 99 31 3f 19 7a e4 c1 0b 49 b1 82 4a 8a 5a b6 02 8e dc 4c 10 2c f5 a8 24 77 60 5c 68 c9 95 9f c7 50 fe 11 1d cd af 8d c0 03 9a 1a 7b d8 11 1f 1c 7f 0e 25 84 48 b2 9d 97 01 05 dc eb 95 33 55 b9 a8 5e c0 e3 4c 1c e5 b1 81 e6 b0 13 66 77 40 3b 87 30 db 36 fc c9 17 ee f2 ec 53 6c 8f c5 cc ad 0b 66 27 c4 7d 86 d5 ef a5 54 6d 9b ff ae f1 6f 52 79 78 8e e0 ff 2b 9e 34 d0 61 87 ad db 0b e0 d3 a8 99 ae e2 f6 03 cc 07 d8 0e fd e3 8a 50 0e ab 82 41 b7 5d 24 49 43 65 a4 20 d1 41 a6 46 b2 b0 7a 3b af bb 88 64 2a 1f 0d 3a 4b 8c e5 c7 e7 eb f2 af 3f fd 5f 44 90 93 c3 38 cf e7 07 5d 99 36 1b 4f f2 91 68 6f 35 be bc 6e 6d 62 e2 a9 8d 0e 52 fd 50 1e 9e ca 5b f3 2c 47 37 57 50 07 69 ed fd c5 7e 2a 89 ab 0c ba 12 24 fb bf de 28 17 88 a9 00 a0 79 ce 43 d8 dd 20 2e 04 53 f8 e8 4f 3c 9c 65 56 19 d1 39 27 20 61 8a a7 75 03 96 80 11 06 42 70 78 9f e0 85 96 7e d1 ab af 3e 51 1b 63 eb 01 1e 33 21 ad 26 94 c0 90 a8 60 cf 13 76 1b 78 7e 81 d7 13 91 a3 58 fa 57 e9 9e b9 31 41 da ef b1 28 a7 fb ac 66 4a 94 68 ff d1 4f a4 77 22 15 33 7f fa b3 ff 59 5b 93 df a6 df d9 12 fa 3f 6f bf c6 f6 0c 52 89 6a dd 9e 65 39 a7 4d 54 38 25 05 8b 21 ea 30 7c 25 55 34 c2 b2 7f 92 15 6b 43 4a 14 8b 7b 10 ba 97 ac 19 12 32 04 73 06 b3 1a 83 31 24 5c 5a c5 3e cd 0f aa e8 6b 60 e5 9b f1 88 5c ee 41 08 4c 67 72 e3 1f f4 c4 f9 11 ae 9d 1b 9f d0 76 4e 86 31 c7 37 e6 a6 23 7d d9 5c 3d f5 32 80 19 16 b8 84 0f fa 93 70 08 ef ca 7e 48 74 88 73 cc f2 98 c6 b5 5f 64 59 36 85 cd 0d 47 62 20 e9 e8 ed 16 b5 da 06 6b 00 39 b4 78 86 b7 95 fc e1 7d 8e 5d 54 59 5b 46 14 a0 7b fe 7b 3f d2 f7 18 8b bc 92 92 35 59 03 f7 f4 ce 55 17 73 b2 74 c2 1f de 79 bd bf a0 c8 cc 98 93 22 ce 02 a6 62 61 46 b9 bc 06 d2 36 53 fe 75 a3 d2 83 b4 6a 6a a4 a5 02 47 3d d7 e9 a2 f1 e0 a2 23 0a 14 89 91 dc 18 1d 58 2b 92 9a b3 12 62 35 82 a9 32 f4 d5 a3 c2 56 d3 4d 5b 76 5f c8 fc 0a 45 37 e1 15 44 bc df ec e8 ea e3 0d ed 13 2b d4 60 71 f9 3d f1 a2 5d fc 71 40 53 45 c1 2f 74 87 f0 51 57 5e f5 f8 c1 b3 67 74 87 6b ac ac aa cf 7d c0 3b 98 95 b1 b0 9b 48 23 42 18 2c 26 67 4b 96 1c 27 d3 2b 72 64 26 72 30 45 d6 de 43 a3 2a 0a a0 16 f7 d4 d9 d6 da b4 5e 34 84 21 0c 99 2c 51 08 2d d9 29 9a 70 be 2e 69 4c 14 01 9d 4b 58 34 d6 4e 63 e4 cf 63 c9 ec aa 84 69 3c ef 56 d0 4e 76 69 a5 9c d4 80 3e 8f c5 e7 ba b5 f5 ca b5 30 64 3a f3 63 de bb e4 a9 98 22 b8 f6 1d 3c 67 4d }
+
+  condition:
+    $a0
+}
+
+
+rule Snefru_S_box_7__32_lil_1024_ {
+  strings:
+    $a0 = { 90 25 67 7e bb 13 a5 be e6 6f 90 2c 2b 9c 02 86 74 4f dc 55 8e 39 53 05 47 96 e0 63 ab 0b fd ca df 37 4c 26 0f 21 72 82 69 a6 af 67 5f 8a d9 12 c4 23 ab 8c d1 8b c6 75 70 04 37 c3 4e 7f f3 33 ff 92 39 28 67 3a 3a e7 83 f2 32 10 c2 9f ad f5 5d 0c 3f 96 45 bc 4f 66 1c a4 2b 20 80 2d c0 c7 84 1e 73 54 f5 85 10 8a fb 80 1d 60 55 8e 96 2f 12 68 e9 35 78 8f 5a e4 62 e6 7d bd ad 6e 6e 3b ef c5 97 80 81 67 0b 07 f3 08 e5 b1 e3 fa e4 24 05 78 1a b8 18 c9 0f ec 4b 77 c8 43 a9 12 25 9b 04 ad 05 2b 6f 53 c2 32 e0 36 f2 ed cf b0 c4 8b 37 b8 ce ba 89 b2 35 45 c3 94 0e 0d d0 71 a3 a5 58 5a 69 ad 7d 43 e3 39 fc bf 86 91 3b 8c 03 21 f9 df a9 0a ce 06 1f 5d a4 f8 de 62 b4 a2 40 f7 68 58 57 a2 c1 83 26 68 ac 0f b3 db 28 19 fe 61 11 65 8a 46 f4 d5 1c c6 00 98 4d e5 f7 d7 98 6b a5 b6 18 84 d2 a5 09 5f 0b e8 b4 90 52 c8 b2 49 77 1c f1 69 7e 2b 41 17 ed c0 6f 7f cc 8d 83 56 a2 46 95 6e 19 86 75 d0 9a 9b 7b 08 1d a0 31 d2 15 d4 46 af fd 60 70 09 57 f6 20 d9 9f 3f 2d 88 c9 c3 e7 3a 9b 0d a0 e8 be 7e e6 4f b2 0e f8 2e 0c 6b 91 c1 a0 fe df f4 eb b3 7e b9 dd 84 ff fd f1 14 8b ff 72 05 6b e9 8c 50 4b f6 6e 0a 22 ae 5a ae 23 44 5e ce be c2 7c 56 27 de 63 5c 93 fc 73 55 07 47 f0 27 5b e6 22 fd 21 e1 53 87 66 f2 d7 f5 eb 2d 8d e0 47 83 03 da 5e ac e9 eb 7c 2a 2e d9 e8 3f e4 2f 54 23 50 bd a7 1f 02 41 9b cf 39 ba 0d 9d 2a 90 b8 9c 8b 9d 24 a7 7a 66 6d 0f ec a9 bf 5e f2 4d 59 6a 38 09 60 79 91 75 3b 02 c8 79 2c ea ea 07 9d c9 e1 5e cb 64 3d ab 9c 1a 27 95 db 76 2f 01 8e c0 1a 48 fb 3d e7 22 2f 87 5c d1 48 29 79 2c 78 a4 32 d2 50 6f 8a 72 f0 78 b1 aa 87 5a 9c c1 e2 c4 87 73 76 ee 64 18 2a 1b d3 10 8d 7b 61 31 71 d1 56 c4 ea 0e 06 9e 79 d8 48 b5 45 b6 65 cb 43 40 29 fb 74 a8 30 d0 12 4b 13 74 68 7d 1f 9a ef 18 4c 1d 63 d7 da c7 29 58 fa 30 fa cd b0 4b 08 c5 e2 20 cd 92 40 69 c1 d4 c0 3e 28 03 3f 81 17 a9 01 7d 58 9a 8f 1f 04 70 dc b1 6a dc d5 e3 ae dd 42 97 82 31 2d 02 8c 19 cb af 9e 1c 49 6c bc 5b 3a 29 d3 d3 07 00 d5 16 20 88 bb 04 41 2a 5c 3c f8 7a ee 37 25 40 b0 8e ba ec 13 93 99 47 fc bf 44 a7 55 89 33 d6 85 ef a7 99 44 50 86 6a ca a6 97 32 3d bb 36 82 4a b3 4f be cc 6d 94 33 14 06 7b fc 19 ce c6 c6 c3 cc ae 54 62 e3 a1 ed b7 77 9e dd 33 a1 6a 35 f9 eb 88 cf 3c 51 17 b4 a1 e2 bd e5 2e 97 cd 24 38 85 ee f4 52 57 e8 42 11 6c 09 f3 a4 3e 4a 93 b5 b2 aa 28 d6 df 3e ea ac 59 2c b9 1e a0 bc 64 99 38 d4 5d 30 da b7 59 9a 01 93 ca d2 11 b9 d3 a6 fa ca 2e 77 4e 76 17 65 72 0e 5b 4e fb a8 91 8f a3 b5 63 06 1d 92 f1 f4 30 b6 51 00 b5 b3 cc 16 b7 59 1b bd 4a 26 5f 6c 14 de e2 34 f1 6c 7c f6 00 95 b7 e1 b0 c7 4e aa 98 34 3b c7 0c a3 76 42 65 71 a8 1b 8d 16 52 0a 74 23 1a d0 e0 d6 61 d1 9e 24 a3 36 9f 7f bb 3e 99 1b 49 b9 fe db dc 5d 36 c5 ff 0c 81 82 03 ec 71 bf e7 49 22 46 70 81 48 5b 4a a2 f3 d9 e4 88 42 43 c2 f5 0b 51 e1 7f 25 0d 4c b6 95 66 f0 64 41 08 db f7 aa 9d 11 b1 73 b8 7b 9f 8f 96 45 84 d6 a6 34 7a f0 0a 3d 94 53 6d 16 dd f9 af 57 89 7a e5 3c ba f8 1e 62 c9 27 10 e9 da 5c 98 89 51 c8 fe 38 15 94 d8 15 61 13 3c 44 a8 ab 31 f9 01 4d 60 f7 ed 34 6b 26 5f b4 14 de d4 d5 35 ac d8 52 85 d8 cf 15 21 cd c5 cb 4d 6d d7 4c 54 ef 80 7c 75 ee 92 bc f6 a1 56 1e }
+
+  condition:
+    $a0
+}
+
+
+rule Borland_Jfif_CbB_Table__32_lil_1024_ {
+  strings:
+    $a0 = { 1D FF FF FF 1F FF FF FF 21 FF FF FF 22 FF FF FF 24 FF FF FF 26 FF FF FF 28 FF FF FF 2A FF FF FF 2B FF FF FF 2D FF FF FF 2F FF FF FF 31 FF FF FF 32 FF FF FF 34 FF FF FF 36 FF FF FF 38 FF FF FF 3A FF FF FF 3B FF FF FF 3D FF FF FF 3F FF FF FF 41 FF FF FF 42 FF FF FF 44 FF FF FF 46 FF FF FF 48 FF FF FF 49 FF FF FF 4B FF FF FF 4D FF FF FF 4F FF FF FF 51 FF FF FF 52 FF FF FF 54 FF FF FF 56 FF FF FF 58 FF FF FF 59 FF FF FF 5B FF FF FF 5D FF FF FF 5F FF FF FF 61 FF FF FF 62 FF FF FF 64 FF FF FF 66 FF FF FF 68 FF FF FF 69 FF FF FF 6B FF FF FF 6D FF FF FF 6F FF FF FF 70 FF FF FF 72 FF FF FF 74 FF FF FF 76 FF FF FF 78 FF FF FF 79 FF FF FF 7B FF FF FF 7D FF FF FF 7F FF FF FF 80 FF FF FF 82 FF FF FF 84 FF FF FF 86 FF FF FF 88 FF FF FF 89 FF FF FF 8B FF FF FF 8D FF FF FF 8F FF FF FF 90 FF FF FF 92 FF FF FF 94 FF FF FF 96 FF FF FF 97 FF FF FF 99 FF FF FF 9B FF FF FF 9D FF FF FF 9F FF FF FF A0 FF FF FF A2 FF FF FF A4 FF FF FF A6 FF FF FF A7 FF FF FF A9 FF FF FF AB FF FF FF AD FF FF FF AE FF FF FF B0 FF FF FF B2 FF FF FF B4 FF FF FF B6 FF FF FF B7 FF FF FF B9 FF FF FF BB FF FF FF BD FF FF FF BE FF FF FF C0 FF FF FF C2 FF FF FF C4 FF FF FF C6 FF FF FF C7 FF FF FF C9 FF FF FF CB FF FF FF CD FF FF FF CE FF FF FF D0 FF FF FF D2 FF FF FF D4 FF FF FF D5 FF FF FF D7 FF FF FF D9 FF FF FF DB FF FF FF DD FF FF FF DE FF FF FF E0 FF FF FF E2 FF FF FF E4 FF FF FF E5 FF FF FF E7 FF FF FF E9 FF FF FF EB FF FF FF ED FF FF FF EE FF FF FF F0 FF FF FF F2 FF FF FF F4 FF FF FF F5 FF FF FF F7 FF FF FF F9 FF FF FF FB FF FF FF FC FF FF FF FE FF FF FF 00 00 00 00 02 00 00 00 04 00 00 00 05 00 00 00 07 00 00 00 09 00 00 00 0B 00 00 00 0C 00 00 00 0E 00 00 00 10 00 00 00 12 00 00 00 13 00 00 00 15 00 00 00 17 00 00 00 19 00 00 00 1B 00 00 00 1C 00 00 00 1E 00 00 00 20 00 00 00 22 00 00 00 23 00 00 00 25 00 00 00 27 00 00 00 29 00 00 00 2B 00 00 00 2C 00 00 00 2E 00 00 00 30 00 00 00 32 00 00 00 33 00 00 00 35 00 00 00 37 00 00 00 39 00 00 00 3A 00 00 00 3C 00 00 00 3E 00 00 00 40 00 00 00 42 00 00 00 43 00 00 00 45 00 00 00 47 00 00 00 49 00 00 00 4A 00 00 00 4C 00 00 00 4E 00 00 00 50 00 00 00 52 00 00 00 53 00 00 00 55 00 00 00 57 00 00 00 59 00 00 00 5A 00 00 00 5C 00 00 00 5E 00 00 00 60 00 00 00 61 00 00 00 63 00 00 00 65 00 00 00 67 00 00 00 69 00 00 00 6A 00 00 00 6C 00 00 00 6E 00 00 00 70 00 00 00 71 00 00 00 73 00 00 00 75 00 00 00 77 00 00 00 78 00 00 00 7A 00 00 00 7C 00 00 00 7E 00 00 00 80 00 00 00 81 00 00 00 83 00 00 00 85 00 00 00 87 00 00 00 88 00 00 00 8A 00 00 00 8C 00 00 00 8E 00 00 00 90 00 00 00 91 00 00 00 93 00 00 00 95 00 00 00 97 00 00 00 98 00 00 00 9A 00 00 00 9C 00 00 00 9E 00 00 00 9F 00 00 00 A1 00 00 00 A3 00 00 00 A5 00 00 00 A7 00 00 00 A8 00 00 00 AA 00 00 00 AC 00 00 00 AE 00 00 00 AF 00 00 00 B1 00 00 00 B3 00 00 00 B5 00 00 00 B7 00 00 00 B8 00 00 00 BA 00 00 00 BC 00 00 00 BE 00 00 00 BF 00 00 00 C1 00 00 00 C3 00 00 00 C5 00 00 00 C6 00 00 00 C8 00 00 00 CA 00 00 00 CC 00 00 00 CE 00 00 00 CF 00 00 00 D1 00 00 00 D3 00 00 00 D5 00 00 00 D6 00 00 00 D8 00 00 00 DA 00 00 00 DC 00 00 00 DE 00 00 00 DF 00 00 00 E1 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Generic_squared_map__32_big_64_ {
+  strings:
+    $a0 = { 00 00 00 00 00 00 00 01 00 00 00 04 00 00 00 05 00 00 00 10 00 00 00 11 00 00 00 14 00 00 00 15 00 00 00 40 00 00 00 41 00 00 00 44 00 00 00 45 00 00 00 50 00 00 00 51 00 00 00 54 00 00 00 55 }
+
+  condition:
+    $a0
+}
+
+
+rule liba52_bit_reverse_512__8_byt_128_ {
+  strings:
+    $a0 = { 00 40 20 60 10 50 30 70 08 48 28 68 18 58 38 78 04 44 24 64 14 54 34 74 0c 4c 2c 6c 1c 5c 3c 7c 02 42 22 62 12 52 32 72 0a 4a 2a 6a 1a 5a 3a 7a 06 46 26 66 16 56 36 76 0e 4e 2e 6e 1e 5e 3e 7e 01 41 21 61 11 51 31 71 09 49 29 69 19 59 39 79 05 45 25 65 15 55 35 75 0d 4d 2d 6d 1d 5d 3d 7d 03 43 23 63 13 53 33 73 0b 4b 2b 6b 1b 5b 3b 7b 07 47 27 67 17 57 37 77 0f 4f 2f 6f 1f 5f 3f 7f }
+
+  condition:
+    $a0
+}
+
+
+rule MS_ADPCM_AdaptationTable__16_lil_32_ {
+  strings:
+    $a0 = { e6 00 e6 00 e6 00 e6 00 33 01 99 01 00 02 66 02 00 03 66 02 00 02 99 01 33 01 e6 00 e6 00 e6 00 }
+
+  condition:
+    $a0
+}
+
+
+rule ICE__block_cipher__ice_pbox__32_lil_128_ {
+  strings:
+    $a0 = { 01 00 00 00 80 00 00 00 00 04 00 00 00 20 00 00 00 00 08 00 00 00 20 00 00 00 00 01 00 00 00 40 08 00 00 00 20 00 00 00 00 01 00 00 00 40 00 00 00 00 01 00 00 00 80 00 00 00 00 04 00 00 00 20 04 00 00 00 10 00 00 00 00 02 00 00 00 80 00 00 00 00 02 00 00 00 40 00 00 00 00 08 00 00 00 10 02 00 00 00 40 00 00 00 00 08 00 00 00 10 00 00 00 00 04 00 00 00 10 00 00 00 00 02 00 00 00 80 }
+
+  condition:
+    $a0
+}
+
+
+rule anti_debug__Softice_____SIWVID__8_byt_STR_11_ {
+  strings:
+    $a0 = { 5c 5c 2e 5c 53 49 57 56 49 44 00 }
+
+  condition:
+    $a0
+}
+
+
+rule SOSEMANUK_mul_a__32_lil_1024_ {
+  strings:
+    $a0 = { 00 00 00 00 13 cf 9f e1 26 37 97 6b 35 f8 08 8a 4c 6e 87 d6 5f a1 18 37 6a 59 10 bd 79 96 8f 5c 98 dc a7 05 8b 13 38 e4 be eb 30 6e ad 24 af 8f d4 b2 20 d3 c7 7d bf 32 f2 85 b7 b8 e1 4a 28 59 99 11 e7 0a 8a de 78 eb bf 26 70 61 ac e9 ef 80 d5 7f 60 dc c6 b0 ff 3d f3 48 f7 b7 e0 87 68 56 01 cd 40 0f 12 02 df ee 27 fa d7 64 34 35 48 85 4d a3 c7 d9 5e 6c 58 38 6b 94 50 b2 78 5b cf 53 9b 22 67 14 88 ed f8 f5 bd 15 f0 7f ae da 6f 9e d7 4c e0 c2 c4 83 7f 23 f1 7b 77 a9 e2 b4 e8 48 03 fe c0 11 10 31 5f f0 25 c9 57 7a 36 06 c8 9b 4f 90 47 c7 5c 5f d8 26 69 a7 d0 ac 7a 68 4f 4d 02 33 80 1e 11 fc 1f ff 24 04 17 75 37 cb 88 94 4e 5d 07 c8 5d 92 98 29 68 6a 90 a3 7b a5 0f 42 9a ef 27 1b 89 20 b8 fa bc d8 b0 70 af 17 2f 91 d6 81 a0 cd c5 4e 3f 2c f0 b6 37 a6 e3 79 a8 47 9f 44 ce 28 8c 8b 51 c9 b9 73 59 43 aa bc c6 a2 d3 2a 49 fe c0 e5 d6 1f f5 1d de 95 e6 d2 41 74 07 98 69 2d 14 57 f6 cc 21 af fe 46 32 60 61 a7 4b f6 ee fb 58 39 71 1a 6d c1 79 90 7e 0e e6 71 06 55 29 22 15 9a b6 c3 20 62 be 49 33 ad 21 a8 4a 3b ae f4 59 f4 31 15 6c 0c 39 9f 7f c3 a6 7e 9e 89 8e 27 8d 46 11 c6 b8 be 19 4c ab 71 86 ad d2 e7 09 f1 c1 28 96 10 f4 d0 9e 9a e7 1f 01 7b 04 66 a9 3c 17 a9 36 dd 22 51 3e 57 31 9e a1 b6 48 08 2e ea 5b c7 b1 0b 6e 3f b9 81 7d f0 26 60 9c ba 0e 39 8f 75 91 d8 ba 8d 99 52 a9 42 06 b3 d0 d4 89 ef c3 1b 16 0e f6 e3 1e 84 e5 2c 81 65 9d 77 4e 36 8e b8 d1 d7 bb 40 d9 5d a8 8f 46 bc d1 19 c9 e0 c2 d6 56 01 f7 2e 5e 8b e4 e1 c1 6a 05 ab e9 33 16 64 76 d2 23 9c 7e 58 30 53 e1 b9 49 c5 6e e5 5a 0a f1 04 6f f2 f9 8e 7c 3d 66 6f 97 88 35 50 84 47 aa b1 b1 bf a2 3b a2 70 3d da db e6 b2 86 c8 29 2d 67 fd d1 25 ed ee 1e ba 0c 0f 54 92 55 1c 9b 0d b4 29 63 05 3e 3a ac 9a df 43 3a 15 83 50 f5 8a 62 65 0d 82 e8 76 c2 1d 09 0e 99 d2 5a 1d 56 4d bb 28 ae 45 31 3b 61 da d0 42 f7 55 8c 51 38 ca 6d 64 c0 c2 e7 77 0f 5d 06 96 45 75 5f 85 8a ea be b0 72 e2 34 a3 bd 7d d5 da 2b f2 89 c9 e4 6d 68 fc 1c 65 e2 ef d3 fa 03 0c aa 52 44 1f 65 cd a5 2a 9d c5 2f 39 52 5a ce 40 c4 d5 92 53 0b 4a 73 66 f3 42 f9 75 3c dd 18 94 76 f5 41 87 b9 6a a0 b2 41 62 2a a1 8e fd cb d8 18 72 97 cb d7 ed 76 fe 2f e5 fc ed e0 7a 1d 95 bb b5 4e 86 74 2a af b3 8c 22 25 a0 43 bd c4 d9 d5 32 98 ca 1a ad 79 ff e2 a5 f3 ec 2d 3a 12 0d 67 12 4b 1e a8 8d aa 2b 50 85 20 38 9f 1a c1 41 09 95 9d 52 c6 0a 7c 67 3e 02 f6 74 f1 9d 17 08 cc fb 78 1b 03 64 99 2e fb 6c 13 3d 34 f3 f2 44 a2 7c ae 57 6d e3 4f 62 95 eb c5 71 5a 74 24 90 10 5c 7d 83 df c3 9c b6 27 cb 16 a5 e8 54 f7 dc 7e db ab cf b1 44 4a fa 49 4c c0 e9 86 d3 21 91 dd 1c 72 82 12 83 93 b7 ea 8b 19 a4 25 14 f8 dd b3 9b a4 ce 7c 04 45 fb 84 0c cf e8 4b 93 2e 09 01 bb 77 1a ce 24 96 2f 36 2c 1c 3c f9 b3 fd 45 6f 3c a1 56 a0 a3 40 63 58 ab ca 70 97 34 2b 93 ee 9c 6c 80 21 03 8d b5 d9 0b 07 a6 16 94 e6 df 80 1b ba cc 4f 84 5b f9 b7 8c d1 ea 78 13 30 0b 32 3b 69 18 fd a4 88 2d 05 ac 02 3e ca 33 e3 47 5c bc bf 54 93 23 5e 61 6b 2b d4 72 a4 b4 35 0a ff 7b 66 19 30 e4 87 2c c8 ec 0d 3f 07 73 ec 46 91 fc b0 55 5e 63 51 60 a6 6b db 73 69 f4 3a 92 23 dc 63 81 ec 43 82 b4 14 4b 08 a7 db d4 e9 de 4d 5b b5 cd 82 c4 54 f8 7a cc de eb b5 53 3f }
+
+  condition:
+    $a0
+}
+
+
+rule Camellia_s2__8_byt_256_ {
+  strings:
+    $a0 = { e0 05 58 d9 67 4e 81 cb c9 0b ae 6a d5 18 5d 82 46 df d6 27 8a 32 4b 42 db 1c 9e 9c 3a ca 25 7b 0d 71 5f 1f f8 d7 3e 9d 7c 60 b9 be bc 8b 16 34 4d c3 72 95 ab 8e ba 7a b3 02 b4 ad a2 ac d8 9a 17 1a 35 cc f7 99 61 5a e8 24 56 40 e1 63 09 33 bf 98 97 85 68 fc ec 0a da 6f 53 62 a3 2e 08 af 28 b0 74 c2 bd 36 22 38 64 1e 39 2c a6 30 e5 44 fd 88 9f 65 87 6b f4 23 48 10 d1 51 c0 f9 d2 a0 55 a1 41 fa 43 13 c4 2f a8 b6 3c 2b c1 ff c8 a5 20 89 00 90 47 ef ea b7 15 06 cd b5 12 7e bb 29 0f b8 07 04 9b 94 21 66 e6 ce ed e7 3b fe 7f c5 a4 37 b1 4c 91 6e 8d 76 03 2d de 96 26 7d c6 5c d3 f2 4f 19 3f dc 79 1d 52 eb f3 6d 5e fb 69 b2 f0 31 0c d4 cf 8c e2 75 a9 4a 57 84 11 45 1b f5 e4 0e 73 aa f1 dd 59 14 6c 92 54 d0 78 70 e3 49 80 50 a7 f6 77 93 86 83 2a c7 5b e9 ee 8f 01 3d }
+
+  condition:
+    $a0
+}
+
+
+rule Generic_squared_map__32_lil_64_ {
+  strings:
+    $a0 = { 00 00 00 00 01 00 00 00 04 00 00 00 05 00 00 00 10 00 00 00 11 00 00 00 14 00 00 00 15 00 00 00 40 00 00 00 41 00 00 00 44 00 00 00 45 00 00 00 50 00 00 00 51 00 00 00 54 00 00 00 55 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule anti_debug__Softice_____NTICE__8_byt_STR_10_ {
+  strings:
+    $a0 = { 5c 5c 2e 5c 4e 54 49 43 45 00 }
+
+  condition:
+    $a0
+}
+
+
+rule G_711_A__to_u_law_conversions__79_79___8_byt_128_ {
+  strings:
+    $a0 = { 01 03 05 07 09 0b 0d 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 20 20 21 21 22 22 23 23 24 25 26 27 28 29 2a 2b 2c 2d 2e 2f 30 30 31 31 32 33 34 35 36 37 38 39 3a 3b 3c 3d 3e 3f 40 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 4f 50 51 52 53 54 55 56 57 58 59 5a 5b 5c 5d 5e 5f 60 61 62 63 64 65 66 67 68 69 6a 6b 6c 6d 6e 6f 70 71 72 73 74 75 76 77 78 79 7a 7b 7c 7d 7e 7f }
+
+  condition:
+    $a0
+}
+
+
+rule ulaw_table__16_lil_512_ {
+  strings:
+    $a0 = { 84 82 84 86 84 8A 84 8E 84 92 84 96 84 9A 84 9E 84 A2 84 A6 84 AA 84 AE 84 B2 84 B6 84 BA 84 BE 84 C1 84 C3 84 C5 84 C7 84 C9 84 CB 84 CD 84 CF 84 D1 84 D3 84 D5 84 D7 84 D9 84 DB 84 DD 84 DF 04 E1 04 E2 04 E3 04 E4 04 E5 04 E6 04 E7 04 E8 04 E9 04 EA 04 EB 04 EC 04 ED 04 EE 04 EF 04 F0 C4 F0 44 F1 C4 F1 44 F2 C4 F2 44 F3 C4 F3 44 F4 C4 F4 44 F5 C4 F5 44 F6 C4 F6 44 F7 C4 F7 44 F8 A4 F8 E4 F8 24 F9 64 F9 A4 F9 E4 F9 24 FA 64 FA A4 FA E4 FA 24 FB 64 FB A4 FB E4 FB 24 FC 64 FC 94 FC B4 FC D4 FC F4 FC 14 FD 34 FD 54 FD 74 FD 94 FD B4 FD D4 FD F4 FD 14 FE 34 FE 54 FE 74 FE 8C FE 9C FE AC FE BC FE CC FE DC FE EC FE FC FE 0C FF 1C FF 2C FF 3C FF 4C FF 5C FF 6C FF 7C FF 88 FF 90 FF 98 FF A0 FF A8 FF B0 FF B8 FF C0 FF C8 FF D0 FF D8 FF E0 FF E8 FF F0 FF F8 FF 00 00 7C 7D 7C 79 7C 75 7C 71 7C 6D 7C 69 7C 65 7C 61 7C 5D 7C 59 7C 55 7C 51 7C 4D 7C 49 7C 45 7C 41 7C 3E 7C 3C 7C 3A 7C 38 7C 36 7C 34 7C 32 7C 30 7C 2E 7C 2C 7C 2A 7C 28 7C 26 7C 24 7C 22 7C 20 FC 1E FC 1D FC 1C FC 1B FC 1A FC 19 FC 18 FC 17 FC 16 FC 15 FC 14 FC 13 FC 12 FC 11 FC 10 FC 0F 3C 0F BC 0E 3C 0E BC 0D 3C 0D BC 0C 3C 0C BC 0B 3C 0B BC 0A 3C 0A BC 09 3C 09 BC 08 3C 08 BC 07 5C 07 1C 07 DC 06 9C 06 5C 06 1C 06 DC 05 9C 05 5C 05 1C 05 DC 04 9C 04 5C 04 1C 04 DC 03 9C 03 6C 03 4C 03 2C 03 0C 03 EC 02 CC 02 AC 02 8C 02 6C 02 4C 02 2C 02 0C 02 EC 01 CC 01 AC 01 8C 01 74 01 64 01 54 01 44 01 34 01 24 01 14 01 04 01 F4 00 E4 00 D4 00 C4 00 B4 00 A4 00 94 00 84 00 78 00 70 00 68 00 60 00 58 00 50 00 48 00 40 00 38 00 30 00 28 00 20 00 18 00 10 00 08 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule MD5MAC__32_lil_48_ {
+  strings:
+    $a0 = { 97 ef 45 ac 29 0f 43 cd 45 7e 1b 55 1c 80 11 34 b1 77 ce 96 2e 72 8e 7c 5f 5a ab 0a 36 43 be 18 9d 21 b4 21 bc 87 b9 4d a2 9d 27 bd c7 5b d7 c3 }
+
+  condition:
+    $a0
+}
+
+
+rule ima_adpcm_step_table__16_lil_178_ {
+  strings:
+    $a0 = { 07 00 08 00 09 00 0a 00 0b 00 0c 00 0d 00 0e 00 10 00 11 00 13 00 15 00 17 00 19 00 1c 00 1f 00 22 00 25 00 29 00 2d 00 32 00 37 00 3c 00 42 00 49 00 50 00 58 00 61 00 6b 00 76 00 82 00 8f 00 9d 00 ad 00 be 00 d1 00 e6 00 fd 00 17 01 33 01 51 01 73 01 98 01 c1 01 ee 01 20 02 56 02 92 02 d4 02 1c 03 6c 03 c3 03 24 04 8e 04 02 05 83 05 10 06 ab 06 56 07 12 08 e0 08 c3 09 bd 0a d0 0b ff 0c 4c 0e ba 0f 4c 11 07 13 ee 14 06 17 54 19 dc 1b a5 1e b6 21 15 25 ca 28 df 2c 5b 31 4b 36 b9 3b b2 41 44 48 7e 4f 71 57 2f 60 ce 69 62 74 ff 7f }
+
+  condition:
+    $a0
+}
+
+
+rule TNS_filter_long_SSR_tnsMaxBandsLong__8_byt_12_ {
+  strings:
+    $a0 = { 1c 1c 1b 1a 1a 1a 1d 1d 17 17 17 13 }
+
+  condition:
+    $a0
+}
+
+
+rule Snefru_S_box_6__32_lil_1024_ {
+  strings:
+    $a0 = { a1 27 a3 83 51 9f 37 9f 07 d0 a7 40 23 74 30 11 c1 87 45 22 3b d6 27 ac ea 64 7e 3b a6 bf 1c 2e 00 60 99 09 2c 0e bc 03 8a 47 c4 d4 ab e0 42 45 d4 26 da fe cb 0f d1 c1 96 f5 52 82 5c eb 94 44 14 f3 62 a3 fd 81 ba f5 76 a3 c3 75 ca 14 a2 4c dd de 64 e1 97 fa 88 50 e0 30 09 4b e8 b7 cf 2f b2 f4 a6 33 11 42 e9 c7 74 c7 66 2d ae 8b be 43 45 d4 63 c6 30 b1 8e 90 15 be e3 f4 66 d5 b9 63 b5 96 93 52 43 e7 1b 1e 3f f6 5f 4d 83 4a 5e 98 f7 9d ab 71 f5 c6 16 c5 b4 9a c1 85 e4 ae 4d 1f 31 34 97 f2 5e dc 13 b7 9a 15 2e 3f 16 da 24 c8 6a 37 bf 06 ec 23 fe b2 22 1c 9b e3 5f cb ee f1 52 2d e8 08 c2 86 56 56 93 ea 0a ab 9f 21 47 fd d7 ab db eb 85 a1 04 24 b9 12 73 8c 28 d8 f2 a8 da 02 89 0c 63 2b b4 65 62 ef bb c0 ef 4c 3e 4e 18 80 8f 78 b7 ba 1e ee 9d 8f 92 93 03 29 3d 68 89 06 b6 d3 dc 0d cb af 7a c4 a4 88 3d 9c dd f6 a0 fc a5 7e 44 72 6d 8a 20 f1 11 be b8 91 ff 04 c0 c8 2d 8d db 7f f9 27 47 1f 9e 7f c7 f0 34 17 8e ed f3 26 bf f2 f8 0d 9e 3d 83 b0 e5 a4 20 e4 e6 ca 23 a4 72 67 61 95 49 c0 e6 9a f2 41 59 07 12 28 e1 d8 4f 6f 0f 00 05 6b 0d 3c 1c 92 ef 6c 64 c2 2b b8 08 b0 6c 39 6f 8a 60 5d c8 82 77 6d aa 50 65 18 09 ec 6f 6b 13 0b e7 28 88 56 ce 57 84 af d3 ec 95 5a 33 23 d2 0c f4 91 26 3b 6a 7b b6 b3 32 bd fb a6 54 37 f0 88 d0 8e 7c e8 67 f8 46 17 85 20 c6 f9 10 64 42 04 38 35 a7 10 ca c2 7f a2 de 1a 79 dd bd 76 f4 2c 74 92 ee f7 98 0e 1d 93 4e 16 b3 35 c8 b9 99 0a 06 69 1e 53 4c b4 fe 66 7b fa 53 5b 8a c9 e9 aa 95 7d 7b 46 2f 30 de 11 b8 74 bd 6a 86 f3 2d d3 b3 b5 a4 57 31 fc 19 fe 51 d2 ac 8e 5d 0b d5 ff 71 da a3 05 ea 47 e1 a9 c6 05 58 e9 0e ca 4d 03 39 99 df 5e dc 25 b1 3c 08 79 50 84 76 86 6d 7d 75 cf bc b6 72 59 c9 59 8d a7 41 8d ad c4 d3 2a 36 2a 91 99 17 d1 ff 07 14 60 17 09 f5 dc d0 69 70 58 d6 1e 82 e0 27 94 b5 db 4b 1a 91 73 c3 4f 90 7c 92 fb 4a 84 5d 95 8c 6f bb c5 c0 e8 87 b9 7a b6 6c d9 29 a5 81 71 1f f9 06 1b 8b 61 0c bb 18 e7 5b 61 d7 8b 59 3a a9 d5 1b f8 ae 54 e3 36 21 77 9c fd 44 ce 7e a5 cd 10 0b 6e d6 87 67 89 79 3d 04 18 2c 1b 68 bd df 3e 2b e6 f6 15 54 b8 68 ef 35 db 96 38 e2 b5 b7 12 29 90 48 cb a5 98 4f 9e a8 77 eb 62 a2 24 7c 21 f6 52 41 96 0a 08 b2 49 e7 3e d2 53 69 6d fb 48 90 d1 03 19 94 e4 49 94 86 78 6e bf fa 6c 35 fb 65 13 26 3a eb c1 4b 42 70 25 19 a1 82 a7 9c 01 0e 7e 3f 9d 75 75 12 9c 39 20 f0 ed ce bc 57 ad 77 32 15 5c 40 45 a8 81 56 73 aa bc 60 9b d5 cc 9b 62 2a a6 10 cd 5c a2 cf 65 5b 2b 32 58 53 1c 3a 4e fd 55 0d 79 d9 31 7d c3 6b f0 71 1d fc 4a 33 55 ed ae 34 16 46 ba 78 4b 69 bb 73 5c 3a 5f 4a 76 3c 6a a9 cc b0 8f 4c 68 25 f7 2f 38 e5 4f af 63 01 1d 8f 7a a0 5a ed a8 05 e2 38 ad 0b c3 1f cf 22 ff 2e 2e 43 72 8b 51 c2 32 4e ce 87 34 02 ac e0 7a 98 a0 9f 70 5a 39 3b 0a f8 43 40 5b 36 8c e4 a9 21 85 9a 14 6b ee 7d d0 f3 d2 ac 46 fc df 58 89 3c 22 a1 b3 c4 31 1d b1 3e 4d 7f cd ad e3 28 0f be 00 b1 e5 24 48 c5 aa ba d7 c9 e9 01 70 d4 9b b0 49 f1 80 0f 2f 02 66 48 40 0c 02 2a 19 fa 6e 8d 3f 07 67 f9 7b ec 13 1a 01 55 36 57 e1 af e6 6e 5f 84 d9 25 44 cc de cc e2 1a 51 d8 b4 81 df 55 9e 80 d7 d9 83 d8 d6 8c 97 c7 2c c5 7c 78 5e d1 33 00 dd 37 c9 50 a0 cd 5d f7 97 80 e5 9d 29 61 b2 e2 41 f1 54 5a ea }
+
+  condition:
+    $a0
+}
+
+
+rule MS_ADPCM_AdaptationTable__32_lil_64_ {
+  strings:
+    $a0 = { e6 00 00 00 e6 00 00 00 e6 00 00 00 e6 00 00 00 33 01 00 00 99 01 00 00 00 02 00 00 66 02 00 00 00 03 00 00 66 02 00 00 00 02 00 00 99 01 00 00 33 01 00 00 e6 00 00 00 e6 00 00 00 e6 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule ICE__block_cipher__ice_sxor__32_lil_64_ {
+  strings:
+    $a0 = { 83 00 00 00 85 00 00 00 9b 00 00 00 cd 00 00 00 cc 00 00 00 a7 00 00 00 ad 00 00 00 41 00 00 00 4b 00 00 00 2e 00 00 00 d4 00 00 00 33 00 00 00 ea 00 00 00 cb 00 00 00 2e 00 00 00 04 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule TNS_filter_short_SSR_tnsMaxBandsShort__8_byt_12_ {
+  strings:
+    $a0 = { 07 07 07 06 06 06 07 07 08 08 08 07 }
+
+  condition:
+    $a0
+}
+
+
+rule Generic_squared_map__8_byt_16_ {
+  strings:
+    $a0 = { 00 01 04 05 10 11 14 15 40 41 44 45 50 51 54 55 }
+
+  condition:
+    $a0
+}
+
+
+rule G_711_u__to_A_law_conversions__81_82___8_byt_128_ {
+  strings:
+    $a0 = { 01 01 02 02 03 03 04 04 05 05 06 06 07 07 08 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1b 1d 1f 21 22 23 24 25 26 27 28 29 2a 2b 2c 2e 30 31 32 33 34 35 36 37 38 39 3a 3b 3c 3d 3e 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 51 52 53 54 55 56 57 58 59 5a 5b 5c 5d 5e 5f 60 61 62 63 64 65 66 67 68 69 6a 6b 6c 6d 6e 6f 70 71 72 73 74 75 76 77 78 79 7a 7b 7c 7d 7e 7f 80 }
+
+  condition:
+    $a0
+}
+
+
+rule Erlang__32_lil_AND_ {
+  strings:
+    $a0 = { b9 79 37 9e [0-20] 72 f3 6e 3c [0-20] 2b 6d a6 da [0-20] e4 e6 dd 78 [0-20] 9d 60 15 17 [0-20] 56 da 4c b5 [0-20] 0f 54 84 53 [0-20] c8 cd bb f1 [0-20] 81 47 f3 8f [0-20] 3a c1 2a 2e [0-20] f3 3a 62 cc [0-20] ac b4 99 6a [0-20] 65 2e d1 08 [0-20] 1e a8 08 a7 [0-20] d7 21 40 45 }
+
+  condition:
+    $a0
+}
+
+
+rule Creative_ADPCM_table__32_lil_32_ {
+  strings:
+    $a0 = { e6 00 00 00 e6 00 00 00 e6 00 00 00 e6 00 00 00 33 01 00 00 99 01 00 00 00 02 00 00 66 02 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule anti_debug__Softice_____SICE__8_byt_STR_9_ {
+  strings:
+    $a0 = { 5c 5c 2e 5c 53 49 43 45 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Smacker_palmap__8_byt_64_ {
+  strings:
+    $a0 = { 00 04 08 0c 10 14 18 1c 20 24 28 2c 30 34 38 3c 41 45 49 4d 51 55 59 5d 61 65 69 6d 71 75 79 7d 82 86 8a 8e 92 96 9a 9e a2 a6 aa ae b2 b6 ba be c3 c7 cb cf d3 d7 db df e3 e7 eb ef f3 f7 fb ff }
+
+  condition:
+    $a0
+}
+
+
+rule Camellia_s4__8_byt_256_ {
+  strings:
+    $a0 = { 70 2c b3 c0 e4 57 ea ae 23 6b 45 a5 ed 4f 1d 92 86 af 7c 1f 3e dc 5e 0b a6 39 d5 5d d9 5a 51 6c 8b 9a fb b0 74 2b f0 84 df cb 34 76 6d a9 d1 04 14 3a de 11 32 9c 53 f2 fe cf c3 7a 24 e8 60 69 aa a0 a1 62 54 1e e0 64 10 00 a3 75 8a e6 09 dd 87 83 cd 90 73 f6 9d bf 52 d8 c8 c6 81 6f 13 63 e9 a7 9f bc 29 f9 2f b4 78 06 e7 71 d4 ab 88 8d 72 b9 f8 ac 36 2a 3c f1 40 d3 bb 43 15 ad 77 80 82 ec 27 e5 85 35 0c 41 ef 93 19 21 0e 4e 65 bd b8 8f eb ce 30 5f c5 1a e1 ca 47 3d 01 d6 56 4d 0d 66 cc 2d 12 20 b1 99 4c c2 7e 05 b7 31 17 d7 58 61 1b 1c 0f 16 18 22 44 b2 b5 91 08 a8 fc 50 d0 7d 89 97 5b 95 ff d2 c4 48 f7 db 03 da 3f 94 5c 02 4a 33 67 f3 7f e2 9b 26 37 3b 96 4b be 2e 79 8c 6e 8e f5 b6 fd 59 98 6a 46 ba 25 42 a2 fa 07 55 ee 0a 49 68 38 a4 28 7b c9 c1 e3 f4 c7 9e }
+
+  condition:
+    $a0
+}
+
+
+rule sfb_8_960__16_lil_80_ {
+  strings:
+    $a0 = { 0c 00 18 00 24 00 30 00 3c 00 48 00 54 00 60 00 6c 00 78 00 84 00 90 00 9c 00 ac 00 bc 00 cc 00 dc 00 ec 00 fc 00 0c 01 20 01 34 01 48 01 5c 01 74 01 8c 01 a4 01 c0 01 dc 01 fc 01 20 02 44 02 6c 02 98 02 c8 02 fc 02 34 03 70 03 b0 03 c0 03 }
+
+  condition:
+    $a0
+}
+
+
+rule CN_Honker__mysql_injectV1_1_Creak_DomainBlastingTool_super_Injection1 {
+  meta:
+    description = "Sample from CN Honker Pentest Toolset - from files mysql_injectV1.1_Creak.exe, DomainBlastingTool.exe, super Injection1.exe"
+    author      = "Florian Roth"
+    reference   = "Disclosed CN Honker Pentest Toolset"
+    date        = "2015-06-23"
+    score       = 70
+    super_rule  = 1
+    hash0       = "a1f066789f48a76023598c5777752c15f91b76b0"
+    hash1       = "6fb6b9d8eb15da3ceabb8cc030eb1bf0fe743485"
+    hash2       = "8ff2df40c461f6c42b92b86095296187f2b59b14"
+
+  strings:
+    $s1 = "Dark Teal" fullword wide
+    $s2 = "TRzFrameControllerProperty" fullword ascii
+    $s3 = "hkeyLocalMachine" fullword ascii  /* PEStudio Blacklist: strings */
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 3000KB and all of them
+}
+
+
+rule RansomImportDetect {
+  meta:
+    Description = "Ransom.Gen.ab"
+    ThreatLevel = "3"
+
+  condition:
+    (pe.imports("Kernel32.dll", "FindFirstFileW") or pe.imports("Kernel32.dll", "FindFirstFileA")) and
+    (pe.imports("Kernel32.dll", "FindNextFileW") or pe.imports("Kernel32.dll", "FindNextFileA")) and
+    (pe.imports("Advapi32.dll", "CryptAcquireContextW") or pe.imports("Advapi32.dll", "CryptAcquireContextA")) and
+    pe.imports("Advapi32.dll", "CryptEncrypt") and
+    pe.imports("Advapi32.dll", "CryptGenRandom")
+}
+
+
+rule TrojanGBotSampleA_Malex {
+  meta:
+    Description = "Trojan.GBot.sm"
+    ThreatLevel = "5"
+
+  strings:
+    $     = "My name is \"G-Bot\" or \"GBot\"!" ascii wide
+    $     = "C:\\WINDOWS\\WinUpdaterstd\\svchost.exe" ascii wide
+    $hex0 = { 85 d2 74 ?? 8b ?? ?? 41 7f ?? 50 52 8b ?? ?? e8 ?? ?? ?? ?? 89 c2 58 52 8b ?? ?? e8 ?? ?? ?? ?? 5a 58 eb ?? f0 ?? ?? ?? 87 ?? 85 d2 74 ?? 8b ?? ?? 49 7c ?? f0 ?? ?? ?? 75 ?? 8d ?? ?? e8 ?? ?? ?? ?? c3 }
+    $hex1 = { 53 56 8b f2 8b d8 66 ?? ?? ?? 66 3d b0 d7 72 ?? 66 3d b3 d7 76 ?? bb 66 00 00 00 eb ?? 66 3d b0 d7 74 ?? 8b c3 e8 ?? ?? ?? ?? 66 ?? ?? ?? 80 ?? ?? ?? 75 ?? 83 ?? ?? ?? 75 ?? c7 ?? ?? ?? ?? ?? ?? 8b c3 ff ?? ?? 8b d8 85 db 74 ?? 8b c3 e8 ?? ?? ?? ?? 8b c3 5e 5b c3 }
+
+  condition:
+    any of them
+}
+
+
+rule TrojanRansomRevetonSample {
+  meta:
+    Description = "Trojan.Reveton.sm"
+    ThreatLevel = "5"
+
+  strings:
+    $a = "JimmMonsterNew" ascii wide
+    $  = "regedit.exe" ascii wide
+    $  = "rundll32.exe" ascii wide
+    $  = "msconfig.lnk" ascii wide
+    $  = "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon" ascii wide
+    $  = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Shell" ascii wide
+    $  = "Software\\Microsoft\\Windows\\CurrentVersion\\Run\\ctfmon.exe" ascii wide
+
+  condition:
+    (3 of them) or $a
+}
+
+
+rule appraisel_exe {
+  strings:
+    $decode_function = { 8B 38 83 C0 04 8D 8F FF FE FE FE F7 D7 23 CF 23 CD 75 39 8B 38 83 C0 04 8D 8F FF FE FE FE F7 D7 23 CF 23 CD 75 26 8B 38 83 C0 04 8D 8F FF FE FE FE F7 D7 23 CF 23 CD 75 13 8B 38 83 C0 04 8D 8F FF FE FE FE F7 D7 23 CF 23 CD 74 B4 }
+
+  condition:
+    $decode_function
+}
+
+
+rule virtualbox_detection {
+  strings:
+    $s1 = "HARDWARE\\ACPI\\DSDT\\VBOX__" nocase wide ascii
+    $s2 = "\\\\.\\VBoxMiniRdrDN" nocase wide ascii
+    $s3 = "VBoxHook.dll" nocase wide ascii
+    $s4 = "SOFTWARE\\Oracle\\VirtualBox Guest Additions" nocase wide ascii
+    $s5 = "SYSTEM\\CurrentControlSet\\Enum\\IDE" nocase wide ascii
+    $s6 = "HARDWARE\\DESCRIPTION\\System" nocase wide ascii
+    $s7 = "SystemBiosVersion" nocase wide ascii
+    $s8 = "VideoBiosVersion" nocase wide ascii
+
+  condition:
+    uint16be(0) == 0x4d5a and 5 of ($s*)
+}
+
+
+rule vb_pcode: info compiler vb {
+  meta:
+    // author = "@h3x2b <tracker _AT h3x.eu>"
+    description = "VisualBasic compiled to P-Code bytecode"
+  // http://waleedassar.blogspot.com/2012/03/visual-basic-malware-part-1.html
+
+  strings:
+    $str_vb_01    = "VB5"
+    $str_vb_pcode = { E9 E9 E9 E9 CC CC CC CC CC CC CC CC CC CC CC CC 9E 9E 9E 9E }
+
+  condition:
+    ($str_vb_01)
+    and $str_vb_pcode
+}
+
+
+rule vb_native: info compiler vb {
+  meta:
+    // author = "@h3x2b <tracker _AT h3x.eu>"
+    description = "VisualBasic compiled to Native code, http://waleedassar.blogspot.com/2012/03/visual-basic-malware-part-1.html"
+
+  strings:
+    $str_vb_01    = "VB5"
+    $str_vb_ncode = { E9 E9 E9 E9 CC CC CC CC CC CC CC CC CC CC CC CC 55 8B EC }
+
+  condition:
+    ($str_vb_01)
+    and $str_vb_ncode
+}
+
+
+rule compiled_autoit {
+  strings:
+    $str1 = "This is a compiled AutoIt script. AV researchers please email avsupport@autoitscript.com for support."
+
+  condition:
+    all of them
+}
+
+
+rule MSFTConnectionManagerPhonebook {
+  strings:
+    $cmpbk1  = "cmpbk32.dll"
+    $cmpbk2  = "PhoneBookEnumNumbersWithRegionsZero"
+    $cmpbk3  = "PhoneBookLoad"
+    $cmpbk4  = "PhoneBookUnload"
+    $cmpbk5  = "PhoneBookGetCurrentCountryId"
+    $cmpbk6  = "PhoneBookGetCountryNameA"
+    $cmpbk7  = "PhoneBookFreeFilter"
+    $cmpbk8  = "PhoneBookCopyFilter"
+    $cmpbk9  = "PhoneBookMatchFilter"
+    $cmpbk10 = "PhoneBookGetCountryId"
+    $cmpbk11 = "PhoneBookGetPhoneDescA"
+    $cmpbk12 = "PhoneBookHasPhoneType"
+    $cmpbk13 = "PhoneBookGetRegionNameA"
+    $cmpbk14 = "PhoneBookEnumRegions"
+    $cmpbk15 = "PhoneBookParseInfoA"
+    $cmpbk16 = "PhoneBookGetPhoneDUNA"
+    $cmpbk17 = "PhoneBookGetPhoneDispA"
+    $cmpbk18 = "PhoneBookGetPhoneCanonicalA"
+    $cmpbk19 = "PhoneBookGetPhoneType"
+    $cmpbk20 = "PhoneBookEnumNumbers"
+    $cmpbk21 = "PhoneBookMergeChanges"
+    $cmpbk22 = "PhoneBookGetPhoneNonCanonicalA"
+
+  condition:
+    12 of them
+}
+
+
+rule AutoIt: packer {
+  meta:
+    author      = "Jean-Philippe Teissier / @Jipe_"
+    description = "AutoIT packer"
+    date        = "2013-02-01"
+    filetype    = "memory"
+    version     = "1.0"
+
+  strings:
+    $a = "This is a compiled AutoIt script. AV researchers please email avsupport@autoitscript.com for support."
+
+  condition:
+    $a
+}
+
+
+rule upx_1_00_to_1_07: Packer {
+  meta:
+    author      = "Kevin Falcoz"
+    date_create = "19/03/2013"
+    description = "UPX 1.00 to 1.07"
+
+  strings:
+    $str1 = { 60 BE 00 ?0 4? 00 8D BE 00 B0 F? FF ?7 8? [3] ?0 9? [0-9] 90 90 90 90 [0-2] 8A 06 46 88 07 47 01 DB 75 07 8B 1E 83 EE FC 11 DB 72 ED B8 01 00 00 00 01 DB 75 07 8B 1E 83 EE FC 11 DB 11 C0 }
+
+  condition:
+    $str1 at (pe.entry_point)
+}
+
+
+rule pecompact2: Packer {
+  meta:
+    author      = "Kevin Falcoz"
+    date_create = "25/02/2013"
+    description = "PECompact"
+
+  strings:
+    $str1 = { B8 [3] 00 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 }  /*EntryPoint*/
+
+  condition:
+    $str1 at (pe.entry_point)
+}
+
+
+rule YahLover: Worm {
+  meta:
+    author      = "Kevin Falcoz"
+    date        = "10/06/2013"
+    description = "YahLover"
+
+  strings:
+    $signature1 = { 42 00 49 00 54 00 52 00 4F 00 54 00 41 00 54 00 45 00 00 00 42 00 49 00 54 00 53 00 48 00 49 00 46 00 54 00 00 00 00 00 42 00 49 00 54 00 58 00 4F 00 52 }
+
+  condition:
+    $signature1
+}
+
+
+rule PECompact2xxSlimLoaderBitSumTechnologies {
+  strings:
+    $a0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 32 00 }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+
+rule PECompactV2XBitsumTechnologies {
+  strings:
+    $a0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+
+rule Upackv037v038BetaStripbaserelocationtableOptionDwing {
+  strings:
+    $a0 = { 53 18 33 C0 55 40 51 D3 E0 8B EA 91 FF 56 4C 33 }
+
+  condition:
+    $a0
+}
+
+
+rule ASPackv212AlexeySolodovnikov {
+  strings:
+    $a0 = { 60 E8 03 00 00 00 E9 EB 04 5D 45 55 C3 E8 01 }
+    $a1 = { 60 E8 03 00 00 00 E9 EB 04 5D 45 55 C3 E8 01 00 00 00 EB 5D BB ED FF FF FF 03 DD 81 EB }
+
+  condition:
+    $a0 at (pe.entry_point) or $a1 at (pe.entry_point)
+}
+
+
+rule Upackv038betaDwing {
+  strings:
+    $a0 = { BE B0 11 ?? ?? AD 50 FF 76 34 EB 7C 48 01 ?? ?? 0B 01 4C 6F 61 64 4C 69 62 72 61 72 79 41 00 00 18 10 00 00 10 00 00 00 00 ?? ?? ?? 00 00 ?? ?? 00 10 00 00 00 02 00 00 04 00 00 00 00 00 38 00 04 00 00 00 00 00 00 00 00 ?? ?? ?? 00 02 00 00 00 00 00 00 }
+    $a1 = { BE B0 11 ?? ?? AD 50 FF 76 34 EB 7C 48 01 ?? ?? 0B 01 4C 6F 61 64 4C 69 62 72 61 72 79 41 00 00 18 10 00 00 10 00 00 00 00 ?? ?? ?? 00 00 ?? ?? 00 10 00 00 00 02 00 00 04 00 00 00 00 00 38 00 04 00 00 00 00 00 00 00 00 ?? ?? ?? 00 02 00 00 00 00 00 00 ?? 00 00 ?? 00 00 ?? 00 00 ?? ?? 00 00 00 10 00 00 10 00 00 00 00 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 EE ?? ?? ?? 14 00 00 00 00 ?? ?? ?? ?? ?? ?? 00 FF 76 38 AD 50 8B 3E BE F0 ?? ?? ?? 6A 27 59 F3 A5 FF 76 04 83 C8 FF 8B DF AB EB 1C 00 00 00 00 47 65 74 50 72 6F 63 41 64 64 72 65 73 73 00 00 ?? ?? ?? ?? ?? 00 00 00 40 AB 40 B1 04 F3 AB C1 E0 0A B5 ?? F3 AB 8B 7E 0C 57 51 E9 ?? ?? ?? ?? E3 B1 04 D3 E0 03 E8 8D 53 18 33 C0 55 40 51 D3 E0 8B EA 91 FF 56 4C 33 D2 59 D1 E8 13 D2 E2 FA 5D 03 EA 45 59 89 6B 08 56 8B F7 2B F5 F3 A4 AC 5E B1 80 AA 3B 7E 34 0F 82 97 FE FF FF 58 5F 59 E3 1B 8A 07 47 04 18 3C 02 73 F7 8B 07 3C ?? 75 F1 B0 00 0F C8 03 46 38 2B C7 AB E2 E5 5E 5D 59 51 59 46 AD 85 C0 74 1F }
+
+  condition:
+    $a0 at (pe.entry_point) or $a1 at (pe.entry_point)
+}
+
+
+rule PECompact2xxBitSumTechnologies {
+  strings:
+    $a0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D 70 61 63 74 32 00 }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+
+rule Upackv039finalDwing {
+  strings:
+    $a0 = { 56 10 E2 E3 B1 04 D3 E0 03 E8 8D 53 18 33 C0 55 40 51 D3 E0 8B EA 91 }
+    $a1 = { FF 76 38 AD 50 8B 3E BE F0 ?? ?? ?? 6A 27 59 F3 A5 FF 76 04 83 C8 FF }
+
+  condition:
+    $a0 or $a1
+}
+
+
+rule SoftSentryv30 {
+  strings:
+    $a0 = { 55 8B EC 83 EC ?? 53 56 57 E9 B0 06 }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+
+rule UpackV037Dwing {
+  strings:
+    $a0 = { 0B 01 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 18 10 00 00 10 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? 00 10 00 00 00 02 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 ?? ?? ?? ?? 14 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 47 65 74 50 72 6F 63 41 64 64 72 65 73 73 00 00 }
+    $a1 = { 60 E8 09 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? 33 C9 5E 87 0E }
+    $a2 = { BE ?? ?? ?? ?? AD 50 FF ?? ?? EB }
+
+  condition:
+    $a0 at (pe.entry_point) or $a1 at (pe.entry_point) or $a2 at (pe.entry_point)
+}
+
+
+rule ProtectSharewareV11eCompservCMS {
+  strings:
+    $a0 = { 53 00 74 00 72 00 69 00 6E 00 67 00 46 00 69 00 6C 00 65 00 49 00 6E 00 66 00 6F 00 00 00 ?? 01 00 00 01 00 30 00 34 00 30 00 39 00 30 00 34 00 42 00 30 00 00 00 34 00 ?? 00 01 00 43 00 6F 00 6D 00 70 00 61 00 6E 00 79 00 4E 00 61 00 6D 00 65 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule NeoLitev20 {
+  strings:
+    $a0 = { E9 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 4E 65 6F 4C 69 74 65 }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+
+rule PECompactv2xx {
+  strings:
+    $a0 = { B8 ?? ?? ?? 00 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D 70 61 63 74 32 00 }
+
+  condition:
+    $a0
+}
+
+
+rule DevC4992BloodshedSoftware {
+  strings:
+    $a0 = { 55 89 E5 83 EC 08 C7 04 24 01 00 00 00 FF 15 ?? ?? ?? 00 E8 C8 FE FF FF 90 8D B4 26 00 00 00 00 55 89 E5 83 EC 08 C7 04 24 02 00 00 00 FF 15 ?? ?? ?? 00 E8 A8 FE FF FF 90 8D B4 26 00 00 00 00 55 8B 0D ?? ?? ?? 00 89 E5 5D FF E1 8D 74 26 00 55 8B 0D }
+
+  condition:
+    $a0 at (pe.entry_point)
+}
+
+
+rule D1S1Gv11betaD1N {
+  strings:
+    $a0 = { 00 00 00 00 ?? ?? ?? ?? 00 00 00 00 00 00 01 00 0A 00 00 00 18 00 00 80 00 00 00 00 ?? ?? ?? ?? 00 00 00 00 02 00 00 00 88 00 00 80 38 00 00 80 96 00 00 80 50 00 00 80 00 00 00 00 ?? ?? ?? ?? 00 00 00 00 00 00 01 00 00 00 00 00 68 00 00 00 00 00 00 00 ?? ?? ?? ?? 00 00 00 00 00 00 01 00 00 00 00 00 78 00 00 00 B0 ?? ?? 00 10 00 00 00 00 00 00 00 00 00 00 00 C0 ?? ?? ?? ?? 00 00 00 00 00 00 00 00 00 00 00 06 00 44 00 56 00 43 00 4C 00 41 00 4C 00 0B 00 50 00 41 00 43 00 4B 00 41 00 47 00 45 00 49 00 4E 00 46 00 4F 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule mhtml {
+  meta:
+    author      = "Niels Warnars"
+    date        = "2016/04/26"
+    description = "Word/Excel MHTML file format detection"
+
+  strings:
+    $str1       = "MIME-Version:"
+    $str2       = "Content-Location:"
+    $email_str1 = "From:"
+    $email_str2 = "Subject:"
+
+  condition:
+    all of ($str*) and not any of ($email_str*)
+}
+
+
+rule wow32_exe {
+  meta:
+    description  = "wow32-exe"
+    thread_level = 3
+    in_the_wild  = true
+    reference    = "https://www.optiv.com/blog/autoit-scripting-in-pos-malware"
+
+  strings:
+    $a = "avsupport@autoitscript.com" wide ascii
+    $b = "compiled AutoIt script" wide ascii
+
+  condition:
+    $a and $b
+}
+
+
+rule cdosys_dll {
+  meta:
+    description  = "cdosys-dll"
+    thread_level = 3
+    in_the_wild  = true
+    reference    = "https://www.optiv.com/blog/autoit-scripting-in-pos-malware"
+
+  strings:
+    $a = "Microsoft CDO for Windows Library" wide ascii
+    $b = "CDOSYS.DLL" wide ascii
+
+  condition:
+    $a and $b
+}
+
+
+rule _Armadillo_v1xx__v2xx {
+  meta:
+    description = "Armadillo v1.xx - v2.xx"
+
+  strings:
+    $0 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 57 8B 7D 10 85 F6 }
+
+  condition:
+    $0 at (pe.entry_point)
+}
+
+
+rule excel_document {
+  strings:
+    $rootentry = { 52 00 6f 00 6f 00 74 00 20 00 45 00 6e 00 74 00 72 00 79 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+    $workbook  = "Workbook" wide nocase
+    $msexcel   = "Microsoft Excel" nocase
+
+  condition:
+    all of them
+}
+
+
+rule word_document {
+  strings:
+    $rootentry = { 52 00 6f 00 6f 00 74 00 20 00 45 00 6e 00 74 00 72 00 79 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+    $worddoc   = "WordDocument" wide
+    $msworddoc = "MSWordDoc" nocase
+
+  condition:
+    $rootentry and ($worddoc or $msworddoc)
+}
+
+
+rule powerpoint_document {
+  strings:
+    $pptdoc    = "PowerPoint Document" wide nocase
+    $rootentry = { 52 00 6f 00 6f 00 74 00 20 00 45 00 6e 00 74 00 72 00 79 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+
+  condition:
+    all of them
+}
+
+
+rule _ASPack_v211d_ {
+  meta:
+    description = "ASPack v2.11d"
+
+  strings:
+    $0 = { 60 E8 03 ?? ?? ?? E9 EB 04 5D 45 55 C3 E8 01 ?? ?? ?? EB 5D BB ED FF FF FF 03 DD 81 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _PESHiELD_v02__v02b__v02b2_ {
+  meta:
+    description = "PESHiELD v0.2 / v0.2b / v0.2b2"
+
+  strings:
+    $0 = { 60 E8 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Obsidium_v1111_ {
+  meta:
+    description = "Obsidium v1.1.1.1"
+
+  strings:
+    $0 = { E8 AB }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Obsidium_v10061_ {
+  meta:
+    description = "Obsidium v1.0.0.61"
+
+  strings:
+    $0 = { E8 47 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _NeoLite_vxx_ {
+  meta:
+    description = "NeoLite vx.x"
+
+  strings:
+    $0 = { E9 9B ?? ?? ?? }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Obsidium_v10059_Final_ {
+  meta:
+    description = "Obsidium v1.0.0.59 Final"
+
+  strings:
+    $0 = { E8 AF }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _ASProtect_v11_BRS_ {
+  meta:
+    description = "ASProtect v1.1 BRS"
+
+  strings:
+    $0 = { 68 01 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _CrunchPE_v30xx_ {
+  meta:
+    description = "Crunch/PE v3.0.x.x"
+
+  condition:
+    uint8(pe.entry_point) == 0xEB
+}
+
+
+rule _ASPack_v212_ {
+  meta:
+    description = "ASPack v2.12"
+
+  strings:
+    $0 = { 60 E8 03 ?? ?? ?? E9 EB 04 5D 45 55 C3 E8 }
+    $1 = { A8 03 ?? ?? 61 75 08 B8 01 ?? ?? ?? C2 0C ?? 68 ?? ?? ?? ?? C3 8B 85 26 04 ?? ?? 8D 8D 3B 04 ?? ?? 51 50 FF }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _DevCpp_4992__Bloodshed_Software_ {
+  meta:
+    description = "Dev-C++ 4.9.9.2 -> Bloodshed Software"
+
+  strings:
+    $0 = { 55 89 E5 83 EC 08 C7 04 24 01 00 00 00 FF 15 ?? ?? ?? 00 E8 C8 FE FF FF 90 8D B4 26 00 00 00 00 55 89 E5 83 EC 08 C7 04 24 02 00 00 00 FF 15 ?? ?? ?? 00 E8 A8 FE FF FF 90 8D B4 26 00 00 00 00 55 8B 0D ?? ?? ?? 00 89 E5 5D FF E1 8D 74 26 00 55 8B 0D }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _InstallShield_2000_ {
+  meta:
+    description = "InstallShield 2000"
+
+  strings:
+    $0 = { 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 64 A1 ?? ?? ?? ?? 50 64 89 25 ?? ?? ?? ?? 83 C4 ?? 53 56 57 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Upack_v037__v038_Beta_Strip_base_relocation_table_Option_Dwing_ {
+  meta:
+    description = "Upack v0.37 ~ v0.38 Beta (Strip base relocation table Option)-> Dwing"
+
+  strings:
+    $0 = { 53 18 33 C0 55 40 51 D3 E0 8B EA 91 FF 56 4C 33 }
+
+  condition:
+    $0
+}
+
+
+rule _PECompact_v2xx_ {
+  meta:
+    description = "PECompact v2.xx"
+
+  strings:
+    $0 = { B8 ?? ?? ?? 00 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D 70 61 63 74 32 00 }
+
+  condition:
+    $0
+}
+
+
+rule _ASProtect_v12x_New_Strain_ {
+  meta:
+    description = "ASProtect v1.2x (New Strain)"
+
+  strings:
+    $0 = { 68 01 ?? ?? ?? E8 01 ?? ?? ?? C3 C3 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _D1S1G_v11_beta__D1N_ {
+  meta:
+    description = "D1S1G v1.1 beta --> D1N"
+
+  strings:
+    $0 = { 00 00 00 00 ?? ?? ?? ?? 00 00 00 00 00 00 01 00 0A 00 00 00 18 00 00 80 00 00 00 00 ?? ?? ?? ?? 00 00 00 00 02 00 00 00 88 00 00 80 38 00 00 80 96 00 00 80 50 00 00 80 00 00 00 00 ?? ?? ?? ?? 00 00 00 00 00 00 01 00 00 00 00 00 68 00 00 00 00 00 00 00 ?? ?? ?? ?? 00 00 00 00 00 00 01 00 00 00 00 00 78 00 00 00 B0 ?? ?? 00 10 00 00 00 00 00 00 00 00 00 00 00 C0 ?? ?? ?? ?? 00 00 00 00 00 00 00 00 00 00 00 06 00 44 00 56 00 43 00 4C 00 41 00 4C 00 0B 00 50 00 41 00 43 00 4B 00 41 00 47 00 45 00 49 00 4E 00 46 00 4F 00 00 00 }
+
+  condition:
+    $0
+}
+
+
+rule _Upack_V037__Dwing_ {
+  meta:
+    description = "Upack V0.37 -> Dwing"
+
+  strings:
+    $0 = { 0B 01 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 18 10 00 00 10 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? 00 10 00 00 00 02 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 ?? ?? ?? ?? 14 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 47 65 74 50 72 6F 63 41 64 64 72 65 73 73 00 00 }
+    $1 = { 60 E8 09 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? 33 C9 5E 87 0E }
+    $2 = { BE ?? ?? ?? ?? AD 50 FF ?? ?? EB }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point or $2 at pe.entry_point
+}
+
+
+rule _Upack_v039_final__Dwing_ {
+  meta:
+    description = "Upack v0.39 final -> Dwing"
+
+  strings:
+    $0 = { 56 10 E2 E3 B1 04 D3 E0 03 E8 8D 53 18 33 C0 55 40 51 D3 E0 8B EA 91 }
+    $1 = { FF 76 38 AD 50 8B 3E BE F0 ?? ?? ?? 6A 27 59 F3 A5 FF 76 04 83 C8 FF }
+
+  condition:
+    $0 or $1
+}
+
+
+rule _ASProtect_V2X_DLL__Alexey_Solodovnikov_ {
+  meta:
+    description = "ASProtect V2.X DLL -> Alexey Solodovnikov"
+
+  strings:
+    $0 = { 60 E8 03 00 00 00 E9 ?? ?? 5D 45 55 C3 E8 01 00 00 00 EB 5D BB ?? ?? ?? ?? 03 DD }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _ASPack_v212__Alexey_Solodovnikov_ {
+  meta:
+    description = "ASPack v2.12 -> Alexey Solodovnikov"
+
+  strings:
+    $0 = { 60 E8 03 00 00 00 E9 EB 04 5D 45 55 C3 E8 01 }
+    $1 = { 60 E8 03 00 00 00 E9 EB 04 5D 45 55 C3 E8 01 00 00 00 EB 5D BB ED FF FF FF 03 DD 81 EB }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _Protect_Shareware_V11__eCompserv_CMS_ {
+  meta:
+    description = "Protect Shareware V1.1 -> eCompserv CMS"
+
+  strings:
+    $0 = { 53 00 74 00 72 00 69 00 6E 00 67 00 46 00 69 00 6C 00 65 00 49 00 6E 00 66 00 6F 00 00 00 ?? 01 00 00 01 00 30 00 34 00 30 00 39 00 30 00 34 00 42 00 30 00 00 00 34 00 ?? 00 01 00 43 00 6F 00 6D 00 70 00 61 00 6E 00 79 00 4E 00 61 00 6D 00 65 00 00 00 00 }
+
+  condition:
+    $0
+}
+
+
+rule _PECompact_2xx_Slim_Loader__BitSum_Technologies_ {
+  meta:
+    description = "PECompact 2.xx (Slim Loader) --> BitSum Technologies"
+
+  strings:
+    $0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 32 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _PECompact_2xx__BitSum_Technologies_ {
+  meta:
+    description = "PECompact 2.xx --> BitSum Technologies"
+
+  strings:
+    $0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D 70 61 63 74 32 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _WinZip_32bit_6x_ {
+  meta:
+    description = "WinZip (32-bit) 6.x"
+
+  strings:
+    $0 = { FF 15 FC 81 40 00 B1 22 38 08 74 02 B1 20 40 80 38 00 74 10 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _PECompact_V2X_Bitsum_Technologies_ {
+  meta:
+    description = "PECompact V2.X-> Bitsum Technologies"
+
+  strings:
+    $0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Upack_v038_beta__Dwing_ {
+  meta:
+    description = "Upack v0.38 beta -> Dwing"
+
+  strings:
+    $0 = { BE B0 11 ?? ?? AD 50 FF 76 34 EB 7C 48 01 ?? ?? 0B 01 4C 6F 61 64 4C 69 62 72 61 72 79 41 00 00 18 10 00 00 10 00 00 00 00 ?? ?? ?? 00 00 ?? ?? 00 10 00 00 00 02 00 00 04 00 00 00 00 00 38 00 04 00 00 00 00 00 00 00 00 ?? ?? ?? 00 02 00 00 00 00 00 00 }
+    $1 = { BE B0 11 ?? ?? AD 50 FF 76 34 EB 7C 48 01 ?? ?? 0B 01 4C 6F 61 64 4C 69 62 72 61 72 79 41 00 00 18 10 00 00 10 00 00 00 00 ?? ?? ?? 00 00 ?? ?? 00 10 00 00 00 02 00 00 04 00 00 00 00 00 38 00 04 00 00 00 00 00 00 00 00 ?? ?? ?? 00 02 00 00 00 00 00 00 ?? 00 00 ?? 00 00 ?? 00 00 ?? ?? 00 00 00 10 00 00 10 00 00 00 00 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 EE ?? ?? ?? 14 00 00 00 00 ?? ?? ?? ?? ?? ?? 00 FF 76 38 AD 50 8B 3E BE F0 ?? ?? ?? 6A 27 59 F3 A5 FF 76 04 83 C8 FF 8B DF AB EB 1C 00 00 00 00 47 65 74 50 72 6F 63 41 64 64 72 65 73 73 00 00 ?? ?? ?? ?? ?? 00 00 00 40 AB 40 B1 04 F3 AB C1 E0 0A B5 ?? F3 AB 8B 7E 0C 57 51 E9 ?? ?? ?? ?? E3 B1 04 D3 E0 03 E8 8D 53 18 33 C0 55 40 51 D3 E0 8B EA 91 FF 56 4C 33 D2 59 D1 E8 13 D2 E2 FA 5D 03 EA 45 59 89 6B 08 56 8B F7 2B F5 F3 A4 AC 5E B1 80 AA 3B 7E 34 0F 82 97 FE FF FF 58 5F 59 E3 1B 8A 07 47 04 18 3C 02 73 F7 8B 07 3C ?? 75 F1 B0 00 0F C8 03 46 38 2B C7 AB E2 E5 5E 5D 59 51 59 46 AD 85 C0 74 1F }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _ASProtect_133__21_Registered__Alexey_Solodovnikov_ {
+  meta:
+    description = "ASProtect 1.33 - 2.1 Registered -> Alexey Solodovnikov"
+
+  strings:
+    $0 = { 68 01 ?? ?? ?? E8 01 00 00 00 C3 C3 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_70_DLL_ {
+  meta:
+    description = "Microsoft Visual C++ 7.0 DLL"
+
+  strings:
+    $0 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 85 F6 57 8B 7D 10 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 01 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Upack_V038__Dwing____20080321_ {
+  meta:
+    description = "Upack V0.38 -> Dwing   * 20080321"
+
+  strings:
+    $0 = { 58 8D 54 83 58 FF 16 72 5B 2C 03 73 02 B0 00 3C 07 72 02 2C 03 50 0F B6 6F FF ?? ?? ?? 69 ED 00 0C 00 00 8D AC 2B 08 10 00 00 B0 01 E3 2A 8B D7 2B 53 08 8A 2A 33 D2 84 E9 0F 95 C6 52 FE C6 8A D0 8D 54 95 00 FF 16 5A 9F 12 C0 D0 E9 74 0E 9E 1A F2 74 E3 B4 00 33 C9 B5 01 FF 56 50 33 C9 E9 FB 00 00 00 04 F9 1A C0 B1 30 8B 6B 08 03 D1 FF 16 73 49 03 D1 FF 16 72 17 03 D1 FF 16 72 27 24 02 04 09 50 8B C7 2B 43 08 8A 00 E9 CD 00 00 00 83 C2 60 FF 16 87 6B 0C 73 0C 03 D1 FF 16 87 6B 10 73 03 87 6B 14 24 03 04 08 50 55 8D 93 78 07 00 00 FF 56 54 5D 91 E9 95 00 00 00 24 03 04 07 50 87 6B 0C 87 6B 10 89 6B 14 8D 93 C0 0B 00 00 FF 56 54 6A 03 59 50 48 3B C1 72 02 8B C1 C1 E0 06 B1 40 8D AC 83 78 03 00 00 FF 56 4C 3C 04 8B E8 72 5C 33 ED D1 E8 13 ED 48 45 91 45 D3 E5 80 F9 05 8D 94 AB 78 01 00 00 76 2B 80 E9 04 33 C0 8B 53 FC D1 2B 8B 12 0F CA 2B 53 04 03 C0 3B 13 72 06 8B 13 40 01 53 04 FF 56 10 }
+
+  condition:
+    $0
+}
+
+
+rule _Visual_Cpp_2008_Release__Microsoft_ {
+  meta:
+    description = "Visual C++ 2008 Release -> Microsoft"
+
+  strings:
+    $0 = { E8 ?? ?? ?? ?? E9 A4 FE FF FF }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_42_DLL_ {
+  meta:
+    description = "Microsoft Visual C++ 4.2 (DLL)"
+
+  strings:
+    $0 = { 53 B8 ?? ?? ?? ?? 8B ?? ?? ?? 56 57 85 DB 55 75 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _UPX_v0896__v102__v105_v124__Markus__Laszlo_overlay_ {
+  meta:
+    description = "UPX v0.89.6 - v1.02 / v1.05 -v1.24 -> Markus & Laszlo [overlay"
+
+  strings:
+    $0 = { 60 BE ?? ?? ?? ?? 8D BE ?? ?? ?? ?? 57 EB 0B 90 8A 06 46 88 07 47 01 DB 75 ?? 8B 1E 83 ?? ?? 11 DB 72 ?? B8 01 00 00 00 01 DB 75 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _PeCompact_253_DLL__BitSum_Technologies_ {
+  meta:
+    description = "PeCompact 2.53 DLL --> BitSum Technologies"
+
+  strings:
+    $0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D 70 61 63 74 32 00 }
+    $1 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D 70 61 63 74 32 00 00 00 00 08 0C 00 48 E1 01 56 57 53 55 8B 5C 24 1C 85 DB 0F 84 AB 21 E8 BD 0E E6 60 0D }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _RAR_SFX_ {
+  meta:
+    description = "RAR SFX"
+
+  strings:
+    $0 = { E8 ?? ?? ?? ?? 50 E8 ?? ?? ?? ?? 00 00 00 00 90 }
+    $1 = { 80 3A 52 75 2D 80 7A 01 61 75 27 80 7A 02 72 75 21 80 7A 03 21 75 1B 80 7A 04 1A 75 15 80 7A 05 07 75 0F 80 7A 06 00 75 09 }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_70_DLL_Method_3_ {
+  meta:
+    description = "Microsoft Visual C++ 7.0 DLL Method 3"
+
+  strings:
+    $0 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 85 F6 57 8B 7D 10 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_C_20_ {
+  meta:
+    description = "Microsoft Visual C 2.0"
+
+  strings:
+    $0 = { 64 A1 00 00 00 00 55 8B EC 6A FF 68 }
+    $1 = { 53 56 57 BB ?? ?? ?? ?? 8B ?? ?? ?? 55 3B FB 75 }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _PowerBASICCC_30x_ {
+  meta:
+    description = "PowerBASIC/CC 3.0x"
+
+  strings:
+    $0 = { 55 8B EC 53 56 57 BB 00 ?? ?? 00 66 2E F7 05 ?? ?? ?? 00 04 00 0F 85 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_60_DLL_ {
+  meta:
+    description = "Microsoft Visual C++ 6.0 DLL"
+
+  strings:
+    $0 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 57 8B 7D 10 85 F6 75 09 83 3D ?? ?? ?? ?? ?? EB 26 83 FE 01 74 05 83 FE 02 75 22 A1 ?? ?? ?? ?? 85 C0 74 09 57 56 53 FF D0 85 C0 74 0C 57 56 53 E8 15 FF FF FF 85 C0 75 04 33 C0 EB 4E }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_v71_DLL_Debug_ {
+  meta:
+    description = "Microsoft Visual C++ v7.1 DLL (Debug)"
+
+  strings:
+    $0 = { 55 89 E5 83 EC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 55 89 E5 83 EC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 55 ?? ?? ?? ?? ?? ?? ?? ?? ?? FF ?? ?? ?? ?? 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_42_ {
+  meta:
+    description = "Microsoft Visual C++ 4.2"
+
+  strings:
+    $0 = { 64 A1 00 00 00 00 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 50 64 ?? ?? ?? ?? ?? ?? 83 ?? ?? 53 56 57 89 }
+    $1 = { 64 A1 00 00 00 00 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 50 64 ?? ?? ?? ?? ?? ?? 83 ?? ?? 53 56 57 89 ?? ?? C7 }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _MPRESS_V200V20X__MATCODE_Software__20090423_ {
+  meta:
+    description = "MPRESS V2.00-V2.0X -> MATCODE Software * 20090423"
+
+  strings:
+    $0 = { 60 E8 00 00 00 00 58 05 ?? ?? ?? ?? 8B 30 03 F0 2B C0 8B FE 66 AD C1 E0 0C 8B C8 50 AD 2B C8 03 F1 8B C8 57 51 49 8A 44 39 06 88 04 31 75 F6 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _UPX_v30_EXE_LZMA__Markus_Oberhumer__Laszlo_Molnar__John_Reiser_ {
+  meta:
+    description = "UPX v3.0 (EXE_LZMA) -> Markus Oberhumer & Laszlo Molnar & John Reiser"
+
+  strings:
+    $0 = { 60 BE ?? ?? ?? ?? 8D BE ?? ?? ?? FF 57 89 E5 8D 9C 24 80 C1 FF FF 31 C0 50 39 DC 75 FB 46 46 53 68 ?? ?? ?? 00 57 83 C3 04 53 68 ?? ?? ?? 00 56 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _MingWin32__Dev_Cpp_v4991_ {
+  meta:
+    description = "MingWin32 - Dev C++ v4.9.9.1"
+
+  strings:
+    $0 = { 55 89 E5 83 EC 08 C7 04 24 01 00 00 00 FF 15 ?? ?? ?? 00 E8 C8 FE FF FF 90 8D B4 26 00 00 00 00 55 89 E5 83 EC 08 C7 04 24 02 00 00 00 FF 15 ?? ?? ?? 00 E8 A8 FE FF FF 90 8D B4 26 00 00 00 00 55 8B 0D ?? ?? ?? 00 89 E5 5D FF E1 8D 74 26 00 55 8B 0D ?? ?? ?? 00 89 E5 5D FF E1 90 90 90 90 55 89 E5 5D E9 ?? ?? 00 00 90 90 90 90 90 90 90 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _PeCompact_v208__Bitsum_Technologiessignature_by_loveboom_ {
+  meta:
+    description = "PeCompact v2.08 -> Bitsum Technologies(signature by loveboom)"
+
+  strings:
+    $0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _PowerBASICWin_70x_ {
+  meta:
+    description = "PowerBASIC/Win 7.0x"
+
+  strings:
+    $0 = { 55 8B EC 53 56 57 BB 00 ?? 40 00 66 2E F7 05 ?? ?? 40 00 04 00 0F 85 DB 00 00 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_60_ {
+  meta:
+    description = "Microsoft Visual C++ 6.0"
+
+  strings:
+    $0 = { 55 8B EC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 10 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 10 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 10 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 }
+    $1 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 57 8B 7D 10 85 F6 ?? ?? 83 }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _ZProtect_v144__lifeengines_ {
+  meta:
+    description = "ZProtect v1.4.4 -> lifeengines"
+
+  strings:
+    $0 = { E8 ?? 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? FF }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_v71_EXE_ {
+  meta:
+    description = "Microsoft Visual C++ v7.1 EXE"
+
+  strings:
+    $0 = { 6A ?? 68 ?? ?? ?? 01 E8 ?? ?? 00 00 66 81 3D 00 00 00 01 4D 5A 75 ?? A1 3C 00 00 01 ?? ?? 00 00 00 01 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_30_old_crap_ {
+  meta:
+    description = "Microsoft Visual C++ (3.0 old crap)"
+
+  strings:
+    $0 = { 64 A1 00 00 00 00 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 50 64 ?? ?? ?? ?? ?? ?? 83 ?? ?? 53 56 57 89 ?? ?? FF }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Upack_038_beta__Dwing_ {
+  meta:
+    description = "Upack 0.38 beta -> Dwing"
+
+  strings:
+    $0 = { BE B0 11 ?? ?? AD 50 FF 76 34 EB 7C 48 01 ?? ?? 0B 01 4C 6F 61 64 4C 69 62 72 61 72 79 41 00 00 18 10 00 00 10 00 00 00 00 ?? ?? ?? 00 00 ?? ?? 00 10 00 00 00 02 00 00 04 00 00 00 00 00 38 00 04 00 00 00 00 00 00 00 00 ?? ?? ?? 00 02 00 00 00 00 00 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Microsoft_Visual_Cpp_70_ {
+  meta:
+    description = "Microsoft Visual C++ 7.0"
+
+  strings:
+    $0 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 57 8B 7D 10 ?? ?? 83 }
+    $1 = { 6A 0C 68 ?? ?? ?? ?? E8 ?? ?? ?? ?? 33 C0 40 89 45 E4 8B 75 0C }
+    $2 = { 55 8B EC 53 8B 5D 08 56 8B 75 0C 85 F6 57 8B 7D 10 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 01 }
+    $3 = { 6A 18 68 ?? ?? ?? ?? E8 ?? ?? ?? ?? BF 94 00 00 00 8B C7 E8 ?? ?? ?? ?? 89 }
+    $4 = { 6A 60 68 ?? ?? ?? ?? E8 ?? ?? ?? ?? BF 94 00 00 00 8B C7 E8 ?? ?? ?? ?? 89 }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point or $2 at pe.entry_point or $3 at pe.entry_point or $4 at pe.entry_point
+}
+
+
+rule _ASProtect_123_RC4__130824__Solodovnikov_Alexey_ {
+  meta:
+    description = "ASProtect 1.23 RC4 - 1.3.08.24 -> Solodovnikov Alexey"
+
+  strings:
+    $0 = { 68 01 ?? ?? 00 E8 01 00 00 00 C3 C3 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _PECompact_20x_Heuristic_Mode__Jeremy_Collake_ {
+  meta:
+    description = "PECompact 2.0x Heuristic Mode -> Jeremy Collake"
+
+  strings:
+    $0 = { B8 ?? ?? ?? 00 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D 70 61 63 74 32 00 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _MingWin32_v_ {
+  meta:
+    description = "MingWin32 v?.?"
+
+  strings:
+    $0 = { 55 89 E5 83 EC 08 C7 04 24 ?? 00 00 00 FF 15 ?? ?? ?? 00 E8 ?? FE FF FF 90 8D B4 26 00 00 00 00 55 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _UPX_302_ {
+  meta:
+    description = "UPX 3.02"
+
+  strings:
+    $0 = { 60 BE ?? ?? ?? ?? 8D BE ?? ?? ?? ?? 57 89 E5 8D 9C }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _PECompact_v20_ {
+  meta:
+    description = "PECompact v2.0"
+
+  strings:
+    $0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 6F 6D }
+    $1 = { B8 ?? ?? ?? ?? 05 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 CC 90 90 90 90 }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _DevCue_4992__Bloodshed_Software_ {
+  meta:
+    description = "Dev-Cue 4.9.9.2 -> Bloodshed Software"
+
+  strings:
+    $0 = { 55 89 E5 83 EC 08 C7 04 24 01 00 00 00 FF 15 ?? ?? ?? 00 E8 C8 FE FF FF 90 8D }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule _Borland_Delphi_3__Portions_Copyright_c_198397_Borland_h_ {
+  meta:
+    description = "Borland Delphi 3 -> Portions Copyright (c) 1983,97 Borland (h)"
+
+  strings:
+    $0 = { 50 6F 72 74 69 6F 6E 73 20 43 6F 70 79 72 69 67 68 74 20 28 63 29 20 31 39 38 33 2C 39 37 20 42 6F 72 6C 61 6E 64 00 }
+
+  condition:
+    $0
+}
+
+
+rule _Borland_Delphi_5__Portions_Copyright_c_198399_Borland_h_ {
+  meta:
+    description = "Borland Delphi 5 -> Portions Copyright (c) 1983,99 Borland (h)"
+
+  strings:
+    $0 = { 50 6F 72 74 69 6F 6E 73 20 43 6F 70 79 72 69 67 68 74 20 28 63 29 20 31 39 38 33 2C 39 39 20 42 6F 72 6C 61 6E 64 00 }
+
+  condition:
+    $0
+}
+
+
+rule APT10_Malware_Sample_Gen {
+  meta:
+    description = "APT 10 / Cloud Hopper malware campaign"
+    license     = "https://creativecommons.org/licenses/by-nc/4.0/"
+    author      = "Florian Roth"
+    reference   = "https://www.pwc.co.uk/issues/cyber-security-data-privacy/insights/operation-cloud-hopper.html"
+    date        = "2017-04-06"
+    score       = 80
+    type        = "file"
+
+  strings:
+    /* C2 Servers */
+    $c2_1    = "002562066559681.r3u8.com" ascii
+    $c2_2    = "031168053846049.r3u8.com" ascii
+    $c2_3    = "0625.have8000.com" ascii
+    $c2_4    = "1.gadskysun.com" ascii
+    $c2_5    = "100fanwen.com" ascii
+    $c2_6    = "11.usyahooapis.com" ascii
+    $c2_7    = "19518473326.r3u8.com" ascii
+    $c2_8    = "1960445709311199.r3u8.com" ascii
+    $c2_9    = "1j.www1.biz" ascii
+    $c2_10   = "1z.itsaol.com" ascii
+    $c2_11   = "2012yearleft.com" ascii
+    $c2_12   = "2014.zzux.com" ascii
+    $c2_13   = "202017845.r3u8.com" ascii
+    $c2_14   = "2139465544784.r3u8.com" ascii
+    $c2_15   = "2789203959848958.r3u8.com" ascii
+    $c2_16   = "5590428449750026.r3u8.com" ascii
+    $c2_17   = "5q.niushenghuo.info" ascii
+    $c2_18   = "6r.suibian2010.info" ascii
+    $c2_19   = "9gowg.tech" ascii
+    $c2_20   = "Hamiltion.catholicmmb.com" ascii
+    $c2_21   = "a.wubangtu.info" ascii
+    $c2_22   = "a1.suibian2010.info" ascii
+    $c2_24   = "abc.wikaba.com" ascii
+    $c2_25   = "abcd120719.6600.org" ascii
+    $c2_26   = "abcd120807.3322.org" ascii
+    $c2_27   = "acc.emailfound.info" ascii
+    $c2_28   = "acc.lehigtapp.com" ascii
+    $c2_29   = "acsocietyy.com" ascii
+    $c2_31   = "ad.webbooting.com" ascii
+    $c2_32   = "additional.sexidude.com" ascii
+    $c2_33   = "af.zyns.com" ascii
+    $c2_34   = "afc.https443.org" ascii
+    $c2_35   = "ako.ddns.us" ascii
+    $c2_36   = "androidmusicapp.onmypc.us" ascii
+    $c2_37   = "announcements.toythieves.com" ascii
+    $c2_38   = "anvprn.com" ascii
+    $c2_39   = "aotuo.9966.org" ascii
+    $c2_40   = "apec.qtsofta.com" ascii
+    $c2_41   = "app.lehigtapp.com" ascii
+    $c2_42   = "apple.cmdnetview.com" ascii
+    $c2_43   = "apple.defensewar.org" ascii
+    $c2_44   = "apple.ikwb.com" ascii
+    $c2_45   = "appledownload.ourhobby.com" ascii
+    $c2_46   = "appleimages.itemdb.com" ascii
+    $c2_47   = "appleimages.longmusic.com" ascii
+    $c2_48   = "applelib120102.9966.org" ascii
+    $c2_49   = "applemirror.organiccrap.com" ascii
+    $c2_50   = "applemirror.squirly.info" ascii
+    $c2_51   = "applemusic.isasecret.com" ascii
+    $c2_52   = "applemusic.itemdb.com" ascii
+    $c2_53   = "applemusic.wikaba.com" ascii
+    $c2_54   = "applemusic.xxuz.com" ascii
+    $c2_55   = "applemusic.zzux.com" ascii
+    $c2_56   = "apples.sytes.net" ascii
+    $c2_57   = "appleupdate.itemdb.com" ascii
+    $c2_58   = "architectisusa.com" ascii
+    $c2_59   = "area.wthelpdesk.com" ascii
+    $c2_60   = "army.xxuz.com" ascii
+    $c2_61   = "art.p6p6.net" ascii
+    $c2_62   = "asfzx.x24hr.com" ascii
+    $c2_64   = "availab.wikaba.com" ascii
+    $c2_65   = "availability.justdied.com" ascii
+    $c2_66   = "ba.my03.com" ascii
+    $c2_67   = "baby.macforlinux.net" ascii
+    $c2_68   = "baby.myie12.com" ascii
+    $c2_69   = "baby.usmirocomney.net" ascii
+    $c2_70   = "back.jungleheart.com" ascii
+    $c2_71   = "back.mofa.dynamic-dns.net" ascii
+    $c2_72   = "bak.have8000.com" ascii
+    $c2_73   = "bak.ignorelist.com" ascii
+    $c2_74   = "bak.un.dnsrd.com" ascii
+    $c2_75   = "balance1.wikaba.com" ascii
+    $c2_76   = "balk.n7go.com" ascii
+    $c2_77   = "banana.cmdnetview.com" ascii
+    $c2_78   = "barrybaker.6600.org" ascii
+    $c2_79   = "bbs.jungleheart.com" ascii
+    $c2_80   = "bdoncloud.com" ascii
+    $c2_81   = "be.mrslove.com" ascii
+    $c2_82   = "be.yourtrap.com" ascii
+    $c2_83   = "belowto.com" ascii
+    $c2_84   = "bethel.webhop.net" ascii
+    $c2_85   = "bexm.cleansite.biz" ascii
+    $c2_86   = "bezu.itemdb.com" ascii
+    $c2_87   = "bk56.twilightparadox.com" ascii
+    $c2_88   = "blaaaaaaaaaaaa.windowsupdate.3-a.net" ascii
+    $c2_89   = "blog.defensewar.org" ascii
+    $c2_90   = "brand.fartit.com" ascii
+    $c2_91   = "bridgeluxlightmadness.com" ascii
+    $c2_92   = "bulletproof.squirly.info" ascii
+    $c2_93   = "cao.p6p6.net" ascii
+    $c2_94   = "cata.qtsofta.com" ascii
+    $c2_95   = "catholicmmb.com" ascii
+    $c2_96   = "cc.dynamicdns.co.uk" ascii
+    $c2_97   = "ccfchrist.com" ascii
+    $c2_98   = "ccupdatedata.authorizeddns.net" ascii
+    $c2_99   = "cd.usyahooapis.com" ascii
+    $c2_100  = "cdn.incloud-go.com" ascii
+    $c2_101  = "center.shenajou.com" ascii
+    $c2_102  = "cgei493860.r3u8.com" ascii
+    $c2_103  = "chaindungeons.com" ascii
+    $c2_104  = "chibashiri.com" ascii
+    $c2_105  = "childrenstow.com" ascii
+    $c2_106  = "cia.ezua.com" ascii
+    $c2_107  = "cia.toh.info" ascii
+    $c2_108  = "ciaoci.chickenkiller.com" ascii
+    $c2_109  = "civilwar123.authorizeddns.org" ascii
+    $c2_110  = "civilwar520.onmypc.org" ascii
+    $c2_111  = "ckusshani.com" ascii
+    $c2_112  = "cloud-kingl.com" ascii
+    $c2_113  = "cloud-maste.com" ascii
+    $c2_114  = "cloudns.8800.org" ascii
+    $c2_115  = "cmdnetview.com" ascii
+    $c2_116  = "cms.sindeali.com" ascii
+    $c2_117  = "cnnews.mylftv.com" ascii
+    $c2_118  = "commissioner.shenajou.com" ascii
+    $c2_119  = "commons.onedumb.com" ascii
+    $c2_120  = "contactus.myddns.com" ascii
+    $c2_121  = "contactus.onmypc.us" ascii
+    $c2_122  = "contract.4mydomain.com" ascii
+    $c2_123  = "contractus.qpoe.com" ascii
+    $c2_124  = "contractus.zzux.com" ascii
+    $c2_125  = "coreck.suayay.com" ascii
+    $c2_128  = "ctdl.windowsupdate.itsaol.com" ascii
+    $c2_129  = "ctdl.windowsupdate.nsatcdns.com" ascii
+    $c2_130  = "ctldl.appledownload.ourhobby.com" ascii
+    $c2_131  = "ctldl.applemusic.itemdb.com" ascii
+    $c2_132  = "ctldl.itunesmusic.jkub.com" ascii
+    $c2_133  = "ctldl.microsoftmusic.onedumb.com" ascii
+    $c2_134  = "ctldl.microsoftupdate.qhigh.com" ascii
+    $c2_135  = "ctldl.windowsupdate.authorizeddns.org" ascii
+    $c2_136  = "ctldl.windowsupdate.authorizeddns.us" ascii
+    $c2_137  = "ctldl.windowsupdate.dnset.com" ascii
+    $c2_138  = "ctldl.windowsupdate.esmtp.biz" ascii
+    $c2_139  = "ctldl.windowsupdate.ezua.com" ascii
+    $c2_140  = "ctldl.windowsupdate.gettrials.com" ascii
+    $c2_141  = "ctldl.windowsupdate.itsaol.com" ascii
+    $c2_142  = "ctldl.windowsupdate.lflinkup.com" ascii
+    $c2_143  = "ctldl.windowsupdate.mrface.com" ascii
+    $c2_144  = "ctldl.windowsupdate.nsatcdns.com" ascii
+    $c2_145  = "ctldl.windowsupdate.organiccrap.com" ascii
+    $c2_146  = "ctldl.windowsupdate.x24hr.com" ascii
+    $c2_147  = "cvnx.zyns.com" ascii
+    $c2_148  = "cwiinatonal.com" ascii
+    $c2_149  = "daddy.gostudyantivirus.com" ascii
+    $c2_150  = "dcc.jimingroup.com" ascii
+    $c2_151  = "dd.ddns.us" ascii
+    $c2_152  = "de.onmypc.info" ascii
+    $c2_153  = "dear.loveddos.com" ascii
+    $c2_154  = "dec.seyesb.acmetoy.com" ascii
+    $c2_155  = "dedgesuite.net" ascii
+    $c2_156  = "dedydns.ns01.us" ascii
+    $c2_157  = "defensewar.org" ascii
+    $c2_158  = "demoones.com" ascii
+    $c2_159  = "department.shenajou.com" ascii
+    $c2_160  = "details.squirly.info" ascii
+    $c2_161  = "development.shenajou.com" ascii
+    $c2_162  = "devilcase.acmetoy.com" ascii
+    $c2_163  = "dfgwerzc.3322.org" ascii
+    $c2_164  = "dick.ccfchrist.com" ascii
+    $c2_165  = "digsby.ourhobby.com" ascii
+    $c2_166  = "disruptive.https443.net" ascii
+    $c2_167  = "dlmix.ourdvs.com" ascii
+    $c2_168  = "dnspoddwg.authorizeddns.org" ascii
+    $c2_170  = "document.methoder.com" ascii
+    $c2_171  = "document.shenajou.com" ascii
+    $c2_172  = "domainnow.yourtrap.com" ascii
+    $c2_173  = "download.applemusic.itemdb.com" ascii
+    $c2_174  = "download.microsoftmusic.onedumb.com" ascii
+    $c2_175  = "download.windowsupdate.authorizeddns.org" ascii
+    $c2_176  = "download.windowsupdate.dedgesuite.net" ascii
+    $c2_177  = "download.windowsupdate.dnset.com" ascii
+    $c2_178  = "download.windowsupdate.itsaol.com" ascii
+    $c2_179  = "download.windowsupdate.lflinkup.com" ascii
+    $c2_180  = "download.windowsupdate.nsatcdns.com" ascii
+    $c2_181  = "download.windowsupdate.x24hr.com" ascii
+    $c2_182  = "downloadlink.mypicture.info" ascii
+    $c2_183  = "drives.methoder.com" ascii
+    $c2_184  = "dst.1dumb.com" ascii
+    $c2_185  = "duosay.com" ascii
+    $c2_186  = "dyncojinf.6600.org" ascii
+    $c2_187  = "dynsbluecheck.7766.org" ascii
+    $c2_188  = "ea.onmypc.info" ascii
+    $c2_189  = "ea.rebatesrule.net" ascii
+    $c2_190  = "edgar.ccfchrist.com" ascii
+    $c2_191  = "ehshiroshima.mylftv.com" ascii
+    $c2_192  = "emailfound.info" ascii
+    $c2_193  = "eric-averyanov.wha.la" ascii
+    $c2_194  = "essashi.com" ascii
+    $c2_195  = "eu.acmetoy.com" ascii
+    $c2_196  = "eu.wha.la" ascii
+    $c2_197  = "eu.zzux.com" ascii
+    $c2_198  = "everydayfilmlink.com" ascii
+    $c2_199  = "ewe.toshste.com" ascii
+    $c2_200  = "eweek.2waky.com" ascii
+    $c2_201  = "exprenum.com" ascii
+    $c2_202  = "express.lflinkup.com" ascii
+    $c2_203  = "extraordinary.dynamic-dns.net" ascii
+    $c2_204  = "f068v.site" ascii
+    $c2_205  = "fabian.ccfchrist.com" ascii
+    $c2_206  = "fastemail.dnsrd.com" ascii
+    $c2_207  = "fastmail2.com" ascii
+    $c2_208  = "fbi.sexxxy.biz" ascii
+    $c2_209  = "fbi.zyns.com" ascii
+    $c2_210  = "fcztqbg.zj.r3u8.com" ascii
+    $c2_211  = "feed.jungleheart.com" ascii
+    $c2_212  = "fftpoor.com" ascii
+    $c2_213  = "fg.v4.download.windowsupdates.dnsrd.com" ascii
+    $c2_214  = "fgipv6.download.windowsupdate.com.mwcname.com" ascii
+    $c2_215  = "file.zzux.com" ascii
+    $c2_216  = "files.architectisusa.com" ascii
+    $c2_217  = "film.everydayfilmlink.com" ascii
+    $c2_218  = "filmlist.everydayfilmlink.com" ascii
+    $c2_219  = "findme.epac.to" ascii
+    $c2_220  = "fire.mrface.com" ascii
+    $c2_221  = "fish.toh.info" ascii
+    $c2_222  = "fiveavmersi.websegoo.net" ascii
+    $c2_223  = "fjs.wikaba.com" ascii
+    $c2_224  = "flea.poulsenv.com" ascii
+    $c2_225  = "flynews.edns.biz" ascii
+    $c2_226  = "fo.mysecondarydns.com" ascii
+    $c2_227  = "foal.wchildress.com" ascii
+    $c2_228  = "follow.wha.la" ascii
+    $c2_229  = "foo.shenajou.com" ascii
+    $c2_230  = "for.ddns.mobi" ascii
+    $c2_231  = "fr.wikaba.com" ascii
+    $c2_232  = "franck.demoones.com" ascii
+    $c2_233  = "ftp.2014.zzux.com" ascii
+    $c2_234  = "ftp.additional.sexidude.com" ascii
+    $c2_235  = "ftp.afc.https443.org" ascii
+    $c2_236  = "ftp.announcements.toythieves.com" ascii
+    $c2_237  = "ftp.apple.ikwb.com" ascii
+    $c2_238  = "ftp.appledownload.ourhobby.com" ascii
+    $c2_239  = "ftp.appleimages.itemdb.com" ascii
+    $c2_240  = "ftp.appleimages.longmusic.com" ascii
+    $c2_241  = "ftp.appleimages.organiccrap.com" ascii
+    $c2_242  = "ftp.applemirror.organiccrap.com" ascii
+    $c2_243  = "ftp.applemirror.squirly.info" ascii
+    $c2_244  = "ftp.applemusic.isasecret.com" ascii
+    $c2_245  = "ftp.applemusic.itemdb.com" ascii
+    $c2_246  = "ftp.applemusic.wikaba.com" ascii
+    $c2_247  = "ftp.applemusic.xxuz.com" ascii
+    $c2_248  = "ftp.applemusic.zzux.com" ascii
+    $c2_249  = "ftp.appleupdate.itemdb.com" ascii
+    $c2_250  = "ftp.architectisusa.com" ascii
+    $c2_251  = "ftp.asfzx.x24hr.com" ascii
+    $c2_252  = "ftp.availab.wikaba.com" ascii
+    $c2_253  = "ftp.availability.justdied.com" ascii
+    $c2_254  = "ftp.back.jungleheart.com" ascii
+    $c2_255  = "ftp.balance1.wikaba.com" ascii
+    $c2_256  = "ftp.be.mrslove.com" ascii
+    $c2_257  = "ftp.brand.fartit.com" ascii
+    $c2_258  = "ftp.bulletproof.squirly.info" ascii
+    $c2_259  = "ftp.cia.ezua.com" ascii
+    $c2_260  = "ftp.cia.toh.info" ascii
+    $c2_261  = "ftp.civilwar123.authorizeddns.org" ascii
+    $c2_262  = "ftp.civilwar520.onmypc.org" ascii
+    $c2_263  = "ftp.cloudfileserverbs.dynamicdns.co.uk" ascii
+    $c2_264  = "ftp.cnnews.mylftv.com" ascii
+    $c2_265  = "ftp.commons.onedumb.com" ascii
+    $c2_266  = "ftp.contractus.qpoe.com" ascii
+    $c2_267  = "ftp.cvnx.zyns.com" ascii
+    $c2_268  = "ftp.de.onmypc.info" ascii
+    $c2_269  = "ftp.details.squirly.info" ascii
+    $c2_270  = "ftp.devilcase.acmetoy.com" ascii
+    $c2_271  = "ftp.disruptive.https443.net" ascii
+    $c2_272  = "ftp.domainnow.yourtrap.com" ascii
+    $c2_273  = "ftp.ea.onmypc.info" ascii
+    $c2_274  = "ftp.ehshiroshima.mylftv.com" ascii
+    $c2_275  = "ftp.eric-averyanov.wha.la" ascii
+    $c2_276  = "ftp.eu.acmetoy.com" ascii
+    $c2_277  = "ftp.eu.wha.la" ascii
+    $c2_278  = "ftp.eu.zzux.com" ascii
+    $c2_279  = "ftp.fbi.sexxxy.biz" ascii
+    $c2_280  = "ftp.file.zzux.com" ascii
+    $c2_281  = "ftp.findme.epac.to" ascii
+    $c2_282  = "ftp.fire.mrface.com" ascii
+    $c2_283  = "ftp.fjs.wikaba.com" ascii
+    $c2_284  = "ftp.fr.wikaba.com" ascii
+    $c2_285  = "ftp.fuck.ikwb.com" ascii
+    $c2_286  = "ftp.fuckmm.dns-dns.com" ascii
+    $c2_287  = "ftp.generat.almostmy.com" ascii
+    $c2_288  = "ftp.goldtoyota.com" ascii
+    $c2_289  = "ftp.goodmusic.justdied.com" ascii
+    $c2_290  = "ftp.helpus.ddns.info" ascii
+    $c2_291  = "ftp.hii.qhigh.com" ascii
+    $c2_292  = "ftp.innocent-isayev.sexidude.com" ascii
+    $c2_293  = "ftp.invoices.sexxxy.biz" ascii
+    $c2_294  = "ftp.iphone.vizvaz.com" ascii
+    $c2_295  = "ftp.itlans.isasecret.com" ascii
+    $c2_296  = "ftp.itunesdownload.jkub.com" ascii
+    $c2_297  = "ftp.itunesdownload.wikaba.com" ascii
+    $c2_298  = "ftp.itunesimages.itemdb.com" ascii
+    $c2_299  = "ftp.itunesimages.itsaol.com" ascii
+    $c2_300  = "ftp.itunesimages.qpoe.com" ascii
+    $c2_301  = "ftp.itunesmirror.fartit.com" ascii
+    $c2_302  = "ftp.itunesmirror.itsaol.com" ascii
+    $c2_303  = "ftp.itunesmusic.ikwb.com" ascii
+    $c2_304  = "ftp.itunesmusic.jetos.com" ascii
+    $c2_305  = "ftp.itunesmusic.jkub.com" ascii
+    $c2_306  = "ftp.itunesmusic.zzux.com" ascii
+    $c2_307  = "ftp.itunesupdate.itsaol.com" ascii
+    $c2_308  = "ftp.itunesupdates.organiccrap.com" ascii
+    $c2_309  = "ftp.japanfilmsite.ikwb.com" ascii
+    $c2_310  = "ftp.jimin.mymom.info" ascii
+    $c2_311  = "ftp.jp.serveuser.com" ascii
+    $c2_312  = "ftp.key.zzux.com" ascii
+    $c2_313  = "ftp.knowledge.sellclassics.com" ascii
+    $c2_314  = "ftp.lan.dynssl.com" ascii
+    $c2_315  = "ftp.latestnews.epac.to" ascii
+    $c2_316  = "ftp.latestnews.organiccrap.com" ascii
+    $c2_317  = "ftp.leedong.longmusic.com" ascii
+    $c2_318  = "ftp.macfee.mrface.com" ascii
+    $c2_319  = "ftp.maffc.mrface.com" ascii
+    $c2_320  = "ftp.malware.dsmtp.com" ascii
+    $c2_321  = "ftp.manager.jetos.com" ascii
+    $c2_322  = "ftp.martin.sellclassics.com" ascii
+    $c2_323  = "ftp.mason.vizvaz.com" ascii
+    $c2_324  = "ftp.mediapath.organiccrap.com" ascii
+    $c2_325  = "ftp.microsoft.got-game.org" ascii
+    $c2_326  = "ftp.microsoft.mrface.com" ascii
+    $c2_327  = "ftp.microsoftimages.organiccrap.com" ascii
+    $c2_328  = "ftp.microsoftmusic.mrbasic.com" ascii
+    $c2_329  = "ftp.microsoftqckmanager.pcanywhere.net" ascii
+    $c2_330  = "ftp.microsoftupdate.mrbasic.com" ascii
+    $c2_331  = "ftp.microsoftupdate.qhigh.com" ascii
+    $c2_332  = "ftp.micrsoftware.dsmtp.com" ascii
+    $c2_333  = "ftp.mircsoft.compress.to" ascii
+    $c2_334  = "ftp.mmy.ddns.us" ascii
+    $c2_335  = "ftp.mod.jetos.com" ascii
+    $c2_336  = "ftp.mofa.dynamic-dns.net" ascii
+    $c2_337  = "ftp.mofa.ns01.info" ascii
+    $c2_338  = "ftp.moscowdic.trickip.org" ascii
+    $c2_339  = "ftp.msg.ezua.com" ascii
+    $c2_340  = "ftp.musicfile.ikwb.com" ascii
+    $c2_341  = "ftp.musicjj.zzux.com" ascii
+    $c2_342  = "ftp.mymusicbox.vizvaz.com" ascii
+    $c2_343  = "ftp.myphpwebsite.itsaol.com" ascii
+    $c2_344  = "ftp.myrestroomimage.isasecret.com" ascii
+    $c2_345  = "ftp.na.americanunfinished.com" ascii
+    $c2_346  = "ftp.na.onmypc.org" ascii
+    $c2_347  = "ftp.newsdata.jkub.com" ascii
+    $c2_348  = "ftp.newsroom.cleansite.info" ascii
+    $c2_349  = "ftp.no.authorizeddns.org" ascii
+    $c2_350  = "ftp.nsa.mefound.com" ascii
+    $c2_351  = "ftp.nt.mynumber.org" ascii
+    $c2_352  = "ftp.nttdata.otzo.com" ascii
+    $c2_353  = "ftp.nz.compress.to" ascii
+    $c2_354  = "ftp.ol.almostmy.com" ascii
+    $c2_355  = "ftp.oracleupdate.dns04.com" ascii
+    $c2_356  = "ftp.portal.mrface.com" ascii
+    $c2_357  = "ftp.portal.sendsmtp.com" ascii
+    $c2_358  = "ftp.portalser.dynamic-dns.net" ascii
+    $c2_359  = "ftp.praskovya-matveyeva.mefound.com" ascii
+    $c2_360  = "ftp.praskovya-ulyanova.dumb1.com" ascii
+    $c2_361  = "ftp.products.almostmy.com" ascii
+    $c2_362  = "ftp.products.cleansite.us" ascii
+    $c2_363  = "ftp.products.serveuser.com" ascii
+    $c2_364  = "ftp.purchase.lflinkup.org" ascii
+    $c2_365  = "ftp.recent.dns-stuff.com" ascii
+    $c2_366  = "ftp.recent.fartit.com" ascii
+    $c2_367  = "ftp.referred.gr8domain.biz" ascii
+    $c2_368  = "ftp.referred.yourtrap.com" ascii
+    $c2_369  = "ftp.register.ourhobby.com" ascii
+    $c2_370  = "ftp.registration2.instanthq.com" ascii
+    $c2_371  = "ftp.registrations.4pu.com" ascii
+    $c2_372  = "ftp.registrations.organiccrap.com" ascii
+    $c2_373  = "ftp.remeberdata.iownyour.org" ascii
+    $c2_374  = "ftp.reserveds.onedumb.com" ascii
+    $c2_375  = "ftp.rethem.almostmy.com" ascii
+    $c2_376  = "ftp.sdmsg.onmypc.org" ascii
+    $c2_377  = "ftp.se.toythieves.com" ascii
+    $c2_378  = "ftp.secertnews.mrbasic.com" ascii
+    $c2_379  = "ftp.senseye.ikwb.com" ascii
+    $c2_380  = "ftp.senseye.mrbonus.com" ascii
+    $c2_381  = "ftp.septdlluckysystem.jungleheart.com" ascii
+    $c2_382  = "ftp.seraphim-yurieva.justdied.com" ascii
+    $c2_383  = "ftp.serv.justdied.com" ascii
+    $c2_384  = "ftp.server1.proxydns.com" ascii
+    $c2_385  = "ftp.seyesb.acmetoy.com" ascii
+    $c2_386  = "ftp.shugiin.jkub.com" ascii
+    $c2_387  = "ftp.singed.otzo.com" ascii
+    $c2_388  = "ftp.sstday.jkub.com" ascii
+    $c2_389  = "ftp.support1.mrface.com" ascii
+    $c2_390  = "ftp.supportus.mefound.com" ascii
+    $c2_391  = "ftp.svc.dynssl.com" ascii
+    $c2_392  = "ftp.synssl.dnset.com" ascii
+    $c2_393  = "ftp.tamraj.fartit.com" ascii
+    $c2_394  = "ftp.tfa.longmusic.com" ascii
+    $c2_395  = "ftp.thunder.wikaba.com" ascii
+    $c2_396  = "ftp.ticket.instanthq.com" ascii
+    $c2_397  = "ftp.ticket.serveuser.com" ascii
+    $c2_398  = "ftp.tokyofile.2waky.com" ascii
+    $c2_399  = "ftp.tophost.dynamicdns.co.uk" ascii
+    $c2_400  = "ftp.transfer.lflinkup.org" ascii
+    $c2_401  = "ftp.transfer.mrbasic.com" ascii
+    $c2_402  = "ftp.transfer.vizvaz.com" ascii
+    $c2_403  = "ftp.ugreen.itemdb.com" ascii
+    $c2_404  = "ftp.uk.dynamicdns.org.uk" ascii
+    $c2_405  = "ftp.un.ddns.info" ascii
+    $c2_406  = "ftp.un.dnsrd.com" ascii
+    $c2_407  = "ftp.usa.itsaol.com" ascii
+    $c2_408  = "ftp.well.itsaol.com" ascii
+    $c2_409  = "ftp.well.mrbasic.com" ascii
+    $c2_410  = "ftp.wike.wikaba.com" ascii
+    $c2_411  = "ftp.windowfile.itemdb.com" ascii
+    $c2_412  = "ftp.windowsimages.itemdb.com" ascii
+    $c2_413  = "ftp.windowsimages.qhigh.com" ascii
+    $c2_414  = "ftp.windowsmirrors.vizvaz.com" ascii
+    $c2_415  = "ftp.windowsupdate.2waky.com" ascii
+    $c2_416  = "ftp.windowsupdate.3-a.net" ascii
+    $c2_417  = "ftp.windowsupdate.authorizeddns.us" ascii
+    $c2_418  = "ftp.windowsupdate.dns05.com" ascii
+    $c2_419  = "ftp.windowsupdate.esmtp.biz" ascii
+    $c2_420  = "ftp.windowsupdate.ezua.com" ascii
+    $c2_421  = "ftp.windowsupdate.fartit.com" ascii
+    $c2_422  = "ftp.windowsupdate.gettrials.com" ascii
+    $c2_423  = "ftp.windowsupdate.instanthq.com" ascii
+    $c2_424  = "ftp.windowsupdate.jungleheart.com" ascii
+    $c2_425  = "ftp.windowsupdate.lflink.com" ascii
+    $c2_426  = "ftp.windowsupdate.mrface.com" ascii
+    $c2_427  = "ftp.windowsupdate.mylftv.com" ascii
+    $c2_428  = "ftp.windowsupdate.rebatesrule.net" ascii
+    $c2_429  = "ftp.windowsupdate.sellclassics.com" ascii
+    $c2_430  = "ftp.windowsupdate.serveusers.com" ascii
+    $c2_431  = "ftp.yandexr.sellclassics.com" ascii
+    $c2_432  = "fu.epac.to" ascii
+    $c2_433  = "fuck.ikwb.com" ascii
+    $c2_434  = "fuckanti.com" ascii
+    $c2_435  = "fuckdd.8800.org" ascii
+    $c2_436  = "fuckmm.8800.org" ascii
+    $c2_437  = "fuckmm.dns-dns.com" ascii
+    $c2_438  = "fukuoka.cloud-maste.com" ascii
+    $c2_439  = "g3ypf.online" ascii
+    $c2_440  = "gadskysun.com" ascii
+    $c2_441  = "gavin.ccfchrist.com" ascii
+    $c2_442  = "generat.almostmy.com" ascii
+    $c2_443  = "generousd.hopto.org" ascii
+    $c2_444  = "gensuzuki.6600.org" ascii
+    $c2_446  = "gh.mysecondarydns.com" ascii
+    $c2_447  = "gifuonlineshopping.mynumber.org" ascii
+    $c2_448  = "glicense.shenajou.com" ascii
+    $c2_449  = "globalnews.wikaba.com" ascii
+    $c2_450  = "gmail.com.mailsserver.com" ascii
+    $c2_451  = "gmpcw.com" ascii
+    $c2_452  = "gold.polopurple.com" ascii
+    $c2_453  = "goldtoyota.com" ascii
+    $c2_454  = "goodmusic.justdied.com" ascii
+    $c2_455  = "goodsampjp.com" ascii
+    $c2_456  = "gooesdataios.instanthq.com" ascii
+    $c2_457  = "google.macforlinux.net" ascii
+    $c2_458  = "google.usrobothome.com" ascii
+    $c2_459  = "googlemeail.com" ascii
+    $c2_460  = "gostudyantivirus.com" ascii
+    $c2_461  = "gostudymbaa.com" ascii
+    $c2_462  = "gotourisma.com" ascii
+    $c2_463  = "gt4study.com" ascii
+    $c2_464  = "gtsofta.com" ascii
+    $c2_465  = "haoyujd.info" ascii
+    $c2_466  = "happy.workerisgood.com" ascii
+    $c2_467  = "have8000.com" ascii
+    $c2_468  = "helpus.ddns.info" ascii
+    $c2_469  = "helshellfucde.8866.org" ascii
+    $c2_470  = "hg8fmv.racing" ascii
+    $c2_471  = "hii.qhigh.com" ascii
+    $c2_472  = "hk.2012yearleft.com" ascii
+    $c2_473  = "hk.cmdnetview.com" ascii
+    $c2_474  = "hk.have8000.com" ascii
+    $c2_475  = "hk.loveddos.com" ascii
+    $c2_476  = "home.trickip.org" ascii
+    $c2_477  = "hostport9.net" ascii
+    $c2_478  = "hotmai.info" ascii
+    $c2_479  = "hotmail.com.mailsserver.com" ascii
+    $c2_480  = "hukuoka.cloud-maste.com" ascii
+    $c2_481  = "iamges.itunesmusic.jkub.com" ascii
+    $c2_482  = "ibmmsg.strangled.net" ascii
+    $c2_483  = "icfeds.cf" ascii
+    $c2_484  = "idpmus.hostport9.net" ascii
+    $c2_486  = "im.suibian2010.info" ascii
+    $c2_487  = "image.websago.info" ascii
+    $c2_488  = "images.itunesmusic.jkub.com" ascii
+    $c2_489  = "images.thedomais.info" ascii
+    $c2_490  = "images.tyoto-go-jp.com" ascii
+    $c2_491  = "images.windowsupdate.organiccrap.com" ascii
+    $c2_492  = "imap.architectisusa.com" ascii
+    $c2_493  = "imap.dnset.com" ascii
+    $c2_494  = "imap.lflink.com" ascii
+    $c2_495  = "imap.onmypc.net" ascii
+    $c2_496  = "imap.ygto.com" ascii
+    $c2_497  = "img.station155.com" ascii
+    $c2_498  = "improvejpese.com" ascii
+    $c2_499  = "incloud-go.com" ascii
+    $c2_500  = "incloud-obert.com" ascii
+    $c2_501  = "ingemar.catholicmmb.com" ascii
+    $c2_502  = "innocent-isayev.sexidude.com" ascii
+    $c2_503  = "innov-tec.com.ua" ascii
+    $c2_504  = "inspgon.re26.com" ascii
+    $c2_505  = "interpreter.shenajou.com" ascii
+    $c2_506  = "invoices.sexxxy.biz" ascii
+    $c2_508  = "iphone.vizvaz.com" ascii
+    $c2_509  = "ipv4.applemusic.itemdb.com" ascii
+    $c2_510  = "ipv4.itunesmusic.jkub.com" ascii
+    $c2_511  = "ipv4.japanenvnews.qpoe.com" ascii
+    $c2_512  = "ipv4.microsoftmusic.onedumb.com" ascii
+    $c2_513  = "ipv4.microsoftupdate.mrbasic.com" ascii
+    $c2_514  = "ipv4.microsoftupdate.qhigh.com" ascii
+    $c2_515  = "ipv4.windowsupdate.3-a.net" ascii
+    $c2_516  = "ipv4.windowsupdate.authorizeddns.org" ascii
+    $c2_517  = "ipv4.windowsupdate.authorizeddns.us" ascii
+    $c2_518  = "ipv4.windowsupdate.dnset.com" ascii
+    $c2_519  = "ipv4.windowsupdate.esmtp.biz" ascii
+    $c2_520  = "ipv4.windowsupdate.ezua.com" ascii
+    $c2_521  = "ipv4.windowsupdate.fartit.com" ascii
+    $c2_522  = "ipv4.windowsupdate.gettrials.com" ascii
+    $c2_523  = "ipv4.windowsupdate.itsaol.com" ascii
+    $c2_524  = "ipv4.windowsupdate.lflink.com" ascii
+    $c2_525  = "ipv4.windowsupdate.lflinkup.com" ascii
+    $c2_526  = "ipv4.windowsupdate.mrface.com" ascii
+    $c2_527  = "ipv4.windowsupdate.mylftv.com" ascii
+    $c2_528  = "ipv4.windowsupdate.nsatcdns.com" ascii
+    $c2_529  = "ipv4.windowsupdate.x24hr.com" ascii
+    $c2_530  = "ipv6microsoft.dlmix.ourdvs.com" ascii
+    $c2_531  = "itlans.isasecret.com" ascii
+    $c2_532  = "itunesdownload.jkub.com" ascii
+    $c2_533  = "itunesdownload.vizvaz.com" ascii
+    $c2_534  = "itunesdownload.wikaba.com" ascii
+    $c2_535  = "itunesimages.itemdb.com" ascii
+    $c2_536  = "itunesimages.itsaol.com" ascii
+    $c2_537  = "itunesimages.qpoe.com" ascii
+    $c2_538  = "itunesmirror.fartit.com" ascii
+    $c2_539  = "itunesmirror.itsaol.com" ascii
+    $c2_540  = "itunesmusic.ikwb.com" ascii
+    $c2_541  = "itunesmusic.jetos.com" ascii
+    $c2_542  = "itunesmusic.jkub.com" ascii
+    $c2_543  = "itunesmusic.zzux.com" ascii
+    $c2_544  = "itunesupdate.itsaol.com" ascii
+    $c2_545  = "itunesupdates.organiccrap.com" ascii
+    $c2_546  = "iw.mrslove.com" ascii
+    $c2_547  = "ixrayeye.com" ascii
+    $c2_548  = "james.tffghelth.com" ascii
+    $c2_549  = "janpan.bigmoney.biz" ascii
+    $c2_550  = "janpun.americanunfinished.com" ascii
+    $c2_551  = "jap.japanmusicinfo.com" ascii
+    $c2_552  = "japan.fuckanti.com" ascii
+    $c2_553  = "japan.linuxforover.com" ascii
+    $c2_554  = "japan.loveddos.com" ascii
+    $c2_555  = "japanenvnews.qpoe.com" ascii
+    $c2_556  = "japanfilmsite.ikwb.com" ascii
+    $c2_557  = "japanfst.japanteam.org" ascii
+    $c2_558  = "japanmusicinfo.com" ascii
+    $c2_559  = "japanteam.org" ascii
+    $c2_560  = "jcie.mofa.ns01.info" ascii
+    $c2_561  = "jepsen.r3u8.com" ascii
+    $c2_562  = "jica-go-jp.bike" ascii
+    $c2_563  = "jica-go-jp.biz" ascii
+    $c2_564  = "jimin-jp.biz" ascii
+    $c2_565  = "jimin.jimindaddy.com" ascii
+    $c2_566  = "jimin.mymom.info" ascii
+    $c2_567  = "jimindaddy.com" ascii
+    $c2_568  = "jimingroup.com" ascii
+    $c2_569  = "jimintokoy.com" ascii
+    $c2_570  = "jj.mysecondarydns.com" ascii
+    $c2_571  = "jmuroran.com" ascii
+    $c2_572  = "jp.rakutenmusic.com" ascii
+    $c2_573  = "jp.serveuser.com" ascii
+    $c2_574  = "jpcert.org" ascii
+    $c2_575  = "jpn.longmusic.com" ascii
+    $c2_576  = "jpnxzshopdata.authorizeddns.org" ascii
+    $c2_577  = "jpstarmarket.serveusers.com" ascii
+    $c2_578  = "kaka.lehigtapp.com" ascii
+    $c2_579  = "kawasaki.cloud-maste.com" ascii
+    $c2_580  = "kawasaki.unhamj.com" ascii
+    $c2_581  = "kennedy.tffghelth.com" ascii
+    $c2_582  = "key.zzux.com" ascii
+    $c2_583  = "kikimusic.sellclassics.com" ascii
+    $c2_584  = "kmd.crabdance.com" ascii
+    $c2_585  = "knowledge.sellclassics.com" ascii
+    $c2_586  = "ktgmktanxgvn.r3u8.com" ascii
+    $c2_587  = "kxsbwappupdate.dhcp.biz" ascii
+    $c2_588  = "kztmusiclnk.dnsrd.com" ascii
+    $c2_589  = "lan.dynssl.com" ascii
+    $c2_590  = "last.p6p6.net" ascii
+    $c2_591  = "latestnews.epac.to" ascii
+    $c2_592  = "latestnews.organiccrap.com" ascii
+    $c2_593  = "leedong.longmusic.com" ascii
+    $c2_594  = "lehigtapp.com" ascii
+    $c2_595  = "lennon.fftpoor.com" ascii
+    $c2_596  = "license.shenajou.com" ascii
+    $c2_597  = "lie.jetos.com" ascii
+    $c2_598  = "linuxforover.com" ascii
+    $c2_599  = "linuxsofta.com" ascii
+    $c2_600  = "lion.wchildress.com" ascii
+    $c2_601  = "lizard.poulsenv.com" ascii
+    $c2_602  = "logon-live.com" ascii
+    $c2_603  = "lottedfstravel.webbooting.com" ascii
+    $c2_604  = "loveddos.com" ascii
+    $c2_605  = "lzf550.r3u8.com" ascii
+    $c2_606  = "ma.vizvaz.com" ascii
+    $c2_607  = "mac.goldtoyota.com" ascii
+    $c2_608  = "mac.methoder.com" ascii
+    $c2_609  = "macfee.mrface.com" ascii
+    $c2_610  = "macforlinux.net" ascii
+    $c2_611  = "maffc.mrface.com" ascii
+    $c2_612  = "mail.architectisusa.com" ascii
+    $c2_613  = "mail.macforlinux.net" ascii
+    $c2_614  = "mailcarriage.co.uk" ascii
+    $c2_615  = "mailj.hostport9.net" ascii
+    $c2_616  = "mailserever.com" ascii
+    $c2_617  = "mailsserver.com" ascii
+    $c2_618  = "mailvserver.com" ascii
+    $c2_619  = "malcolm.fftpoor.com" ascii
+    $c2_620  = "malware.dsmtp.com" ascii
+    $c2_621  = "manager.architectisusa.com" ascii
+    $c2_622  = "manager.jetos.com" ascii
+    $c2_623  = "markabcinfo.dynamicdns.me.uk" ascii
+    $c2_624  = "martin.sellclassics.com" ascii
+    $c2_625  = "mason.vizvaz.com" ascii
+    $c2_626  = "mbaby.macforlinux.net" ascii
+    $c2_627  = "medexplor.thedomais.info" ascii
+    $c2_628  = "mediapath.organiccrap.com" ascii
+    $c2_629  = "meiji-ac-jp.com" ascii
+    $c2_630  = "mesjm.emailfound.info" ascii
+    $c2_631  = "message.emailfound.info" ascii
+    $c2_632  = "message.p6p6.net" ascii
+    $c2_633  = "messagea.emailfound.info" ascii
+    $c2_634  = "methoder.com" ascii
+    $c2_635  = "mf.ddns.info" ascii
+    $c2_636  = "microcnmlgb.3322.org" ascii
+    $c2_637  = "microdef.2288.org" ascii
+    $c2_638  = "microhome.wikaba.com" ascii
+    $c2_639  = "microsoft.got-game.org" ascii
+    $c2_640  = "microsoft.mrface.com" ascii
+    $c2_641  = "microsoftdownload.zzux.com" ascii
+    $c2_642  = "microsoftempowering.sendsmtp.com" ascii
+    $c2_643  = "microsoften.com" ascii
+    $c2_644  = "microsoftgame.mrface.com" ascii
+    $c2_645  = "microsoftgetstarted.sexidude.com" ascii
+    $c2_646  = "microsoftimages.organiccrap.com" ascii
+    $c2_647  = "microsoftmirror.mrbasic.com" ascii
+    $c2_648  = "microsoftmusic.itemdb.com" ascii
+    $c2_649  = "microsoftmusic.mrbasic.com" ascii
+    $c2_650  = "microsoftmusic.onedumb.com" ascii
+    $c2_651  = "microsoftqckmanager.pcanywhere.net" ascii
+    $c2_652  = "microsoftstore.jetos.com" ascii
+    $c2_653  = "microsoftstores.itemdb.com" ascii
+    $c2_654  = "microsoftupdate.mrbasic.com" ascii
+    $c2_655  = "microsoftupdate.qhigh.com" ascii
+    $c2_656  = "microsoftupdates.vizvaz.com" ascii
+    $c2_657  = "micrsoftware.dsmtp.com" ascii
+    $c2_658  = "mircsoft.compress.to" ascii
+    $c2_659  = "mivsee.website0012.net" ascii
+    $c2_660  = "mmofoojap.2288.org" ascii
+    $c2_661  = "mmy.ddns.us" ascii
+    $c2_662  = "mobile.2waky.com" ascii
+    $c2_663  = "mocha.100fanwen.com" ascii
+    $c2_664  = "mod.jetos.com" ascii
+    $c2_665  = "mofa-go-jp.com" ascii
+    $c2_666  = "mofa.dynamic-dns.net" ascii
+    $c2_667  = "mofa.ns01.info" ascii
+    $c2_668  = "mofa.strangled.net" ascii
+    $c2_669  = "mofaess.com" ascii
+    $c2_670  = "mongoles.3322.org" ascii
+    $c2_671  = "monkey.2012yearleft.com" ascii
+    $c2_672  = "moscowstdsupdate.toythieves.com" ascii
+    $c2_673  = "mrsloveaqx.mrslove.com" ascii
+    $c2_674  = "ms.ecc.u-tokyo-ac-jp.com" ascii
+    $c2_675  = "mseupdate.ourhobby.com" ascii
+    $c2_676  = "msg.ezua.com" ascii
+    $c2_677  = "msn.incloud-go.com" ascii
+    $c2_678  = "muller.exprenum.com" ascii
+    $c2_679  = "music.applemusic.itemdb.com" ascii
+    $c2_680  = "music.cleansite.us" ascii
+    $c2_681  = "music.websegoo.net" ascii
+    $c2_682  = "musicfile.ikwb.com" ascii
+    $c2_683  = "musicinfo.everydayfilmlink.com" ascii
+    $c2_684  = "musiclinker.jkub.com" ascii
+    $c2_685  = "musicsecph.squirly.info" ascii
+    $c2_686  = "mx.yetrula.eu" ascii
+    $c2_687  = "myie12.com" ascii
+    $c2_688  = "mymusicbox.lflinkup.org" ascii
+    $c2_689  = "mymusicbox.vizvaz.com" ascii
+    $c2_690  = "myphpwebsite.itsaol.com" ascii
+    $c2_691  = "myrestroomimage.isasecret.com" ascii
+    $c2_692  = "mytwhomeinst.sendsmtp.com" ascii
+    $c2_693  = "myurinikoreaaps.ninth.biz" ascii
+    $c2_694  = "na.americanunfinished.com" ascii
+    $c2_695  = "na.onmypc.org" ascii
+    $c2_696  = "nasa.xxuz.com" ascii
+    $c2_697  = "nec.website0012.net" ascii
+    $c2_698  = "news.100fanwen.com" ascii
+    $c2_699  = "newsdata.jkub.com" ascii
+    $c2_700  = "newsfile.toythieves.com" ascii
+    $c2_701  = "newsreport.justdied.com" ascii
+    $c2_702  = "newsroom.cleansite.info" ascii
+    $c2_703  = "nezwq.ezua.com" ascii
+    $c2_704  = "ngcc.8800.org" ascii
+    $c2_705  = "niushenghuo.info" ascii
+    $c2_706  = "nk10.belowto.com" ascii
+    $c2_707  = "nk20.belowto.com" ascii
+    $c2_708  = "nlddnsinfo.https443.org" ascii
+    $c2_709  = "nmrx.mrbonus.com" ascii
+    $c2_710  = "nn.dynssl.com" ascii
+    $c2_711  = "no.authorizeddns.org" ascii
+    $c2_712  = "node.mofaess.com" ascii
+    $c2_713  = "nodns2.qipian.org" ascii
+    $c2_714  = "nposnewsinfo.qhigh.com" ascii
+    $c2_715  = "ns1.belowto.com" ascii
+    $c2_716  = "ns1.tlchs2.ml" ascii
+    $c2_717  = "ns2.belowto.com" ascii
+    $c2_718  = "ns21.belowto.com" ascii
+    $c2_719  = "ns22.belowto.com" ascii
+    $c2_720  = "ns4.belowto.com" ascii
+    $c2_721  = "ns5.belowto.com" ascii
+    $c2_722  = "nsa.mefound.com" ascii
+    $c2_723  = "nsatcdns.com" ascii
+    $c2_724  = "nt.mynumber.org" ascii
+    $c2_725  = "nttdata.otzo.com" ascii
+    $c2_726  = "nunluck.re26.com" ascii
+    $c2_727  = "nz.compress.to" ascii
+    $c2_728  = "oipbl.com" ascii
+    $c2_729  = "ol.almostmy.com" ascii
+    $c2_730  = "oldbmwy.com" ascii
+    $c2_731  = "oms.sindeali.com" ascii
+    $c2_732  = "openmofa.8866.org" ascii
+    $c2_733  = "oracleupdate.dns04.com" ascii
+    $c2_734  = "osaka-jpgo.com" ascii
+    $c2_735  = "outlook.otzo.com" ascii
+    $c2_736  = "owlmedia.mefound.com" ascii
+    $c2_737  = "p6p6.net" ascii
+    $c2_738  = "peopleinfodata.3-a.net" ascii
+    $c2_739  = "phptecinfohelp.itemdb.com" ascii
+    $c2_740  = "pictures.everydayfilmlink.com" ascii
+    $c2_741  = "pj.qpoe.com" ascii
+    $c2_742  = "points.mofaess.com" ascii
+    $c2_743  = "polopurple.com" ascii
+    $c2_744  = "pop.architectisusa.com" ascii
+    $c2_745  = "pop.loveddos.com" ascii
+    $c2_746  = "portal.mrface.com" ascii
+    $c2_747  = "portal.sendsmtp.com" ascii
+    $c2_748  = "portalser.dynamic-dns.net" ascii
+    $c2_749  = "poulsenv.com" ascii
+    $c2_750  = "praskovya-matveyeva.mefound.com" ascii
+    $c2_751  = "praskovya-ulyanova.dumb1.com" ascii
+    $c2_752  = "premium.redforlinux.com" ascii
+    $c2_753  = "products.almostmy.com" ascii
+    $c2_754  = "products.cleansite.us" ascii
+    $c2_755  = "products.serveuser.com" ascii
+    $c2_756  = "program.acmetoy.com" ascii
+    $c2_757  = "prrmes4019.r3u8.com" ascii
+    $c2_758  = "purchase.lflinkup.org" ascii
+    $c2_759  = "q6.niushenghuo.info" ascii
+    $c2_760  = "qtsofta.com" ascii
+    $c2_761  = "quick.oldbmwy.com" ascii
+    $c2_762  = "r3u8.com" ascii
+    $c2_763  = "radiorig.com" ascii
+    $c2_764  = "rain.orctldl.windowsupdate.authorizeddns.us" ascii
+    $c2_765  = "rakutenmusic.com" ascii
+    $c2_766  = "rdns-4.infoproduto1.tk" ascii
+    $c2_767  = "re26.com" ascii
+    $c2_768  = "read.xxuz.com" ascii
+    $c2_769  = "recent.dns-stuff.com" ascii
+    $c2_770  = "recent.fartit.com" ascii
+    $c2_771  = "record.hostport9.net" ascii
+    $c2_772  = "record.webssl9.info" ascii
+    $c2_773  = "record.wschandler.com" ascii
+    $c2_774  = "redforlinux.com" ascii
+    $c2_775  = "referred.gr8domain.biz" ascii
+    $c2_776  = "referred.yourtrap.com" ascii
+    $c2_777  = "register.ourhobby.com" ascii
+    $c2_778  = "registration2.instanthq.com" ascii
+    $c2_779  = "registrations.4pu.com" ascii
+    $c2_780  = "registrations.organiccrap.com" ascii
+    $c2_781  = "reports.tomorrowforgood.com" ascii
+    $c2_782  = "reserveds.onedumb.com" ascii
+    $c2_783  = "resources.applemusic.itemdb.com" ascii
+    $c2_784  = "rethem.almostmy.com" ascii
+    $c2_785  = "rg197.win" ascii
+    $c2_786  = "rlbeiydn.hi.r3u8.com" ascii
+    $c2_787  = "saiyo.exprenum.com" ascii
+    $c2_788  = "sakai.unhamj.com" ascii
+    $c2_789  = "salvaiona.com" ascii
+    $c2_790  = "sappore.cloud-maste.com" ascii
+    $c2_791  = "sapporo.cloud-maste.com" ascii
+    $c2_792  = "sapporot.com" ascii
+    $c2_793  = "sat.suayay.com" ascii
+    $c2_794  = "saverd.re26.com" ascii
+    $c2_795  = "sbuudd.webssl9.info" ascii
+    $c2_796  = "sc.weboot.info" ascii
+    $c2_797  = "scholz-versand.com" ascii
+    $c2_798  = "scorpion.poulsenv.com" ascii
+    $c2_799  = "scrlk.exprenum.com" ascii
+    $c2_800  = "sdmsg.onmypc.org" ascii
+    $c2_801  = "se.toythieves.com" ascii
+    $c2_802  = "sea.websegoo.net" ascii
+    $c2_803  = "secertnews.mrbasic.com" ascii
+    $c2_804  = "secmicrosooo.6600.org" ascii
+    $c2_805  = "secnetshit.com" ascii
+    $c2_806  = "secserverupdate.toh.info" ascii
+    $c2_807  = "sell.mofaess.com" ascii
+    $c2_808  = "sema.linuxsofta.com" ascii
+    $c2_809  = "send.have8000.com" ascii
+    $c2_810  = "send.mofa.ns01.info" ascii
+    $c2_811  = "sendmsg.jumpingcrab.com" ascii
+    $c2_812  = "senseye.ikwb.com" ascii
+    $c2_813  = "senseye.mrbonus.com" ascii
+    $c2_814  = "septdlluckysystem.jungleheart.com" ascii
+    $c2_815  = "seraphim-yurieva.justdied.com" ascii
+    $c2_816  = "serv.justdied.com" ascii
+    $c2_817  = "server1.proxydns.com" ascii
+    $c2_818  = "seyesb.acmetoy.com" ascii
+    $c2_819  = "sha.25u.com" ascii
+    $c2_820  = "sha.ikwb.com" ascii
+    $c2_821  = "shenajou.com" ascii
+    $c2_822  = "shoppingcentre.station155.com" ascii
+    $c2_823  = "shrimp.UsFfUnicef.com" ascii
+    $c2_824  = "shrimp.bdoncloud.com" ascii
+    $c2_825  = "shugiin.jkub.com" ascii
+    $c2_826  = "sindeali.com" ascii
+    $c2_827  = "singed.otzo.com" ascii
+    $c2_828  = "siteinit.info" ascii
+    $c2_829  = "sky.oldbmwy.com" ascii
+    $c2_830  = "sma.jimindaddy.com" ascii
+    $c2_831  = "smo.gadskysun.com" ascii
+    $c2_832  = "smtp.architectisusa.com" ascii
+    $c2_833  = "smtp.macforlinux.net" ascii
+    $c2_834  = "smtp230.toldweb.com" ascii
+    $c2_835  = "somthing.re26.com" ascii
+    $c2_836  = "sstday.jkub.com" ascii
+    $c2_837  = "start.usrobothome.com" ascii
+    $c2_838  = "station155.com" ascii
+    $c2_839  = "stevenlf.com" ascii
+    $c2_840  = "stone.jumpingcrab.com" ascii
+    $c2_841  = "style.u-tokyo-ac-jp.com" ascii
+    $c2_842  = "suayay.com" ascii
+    $c2_843  = "suibian2010.info" ascii
+    $c2_844  = "support1.mrface.com" ascii
+    $c2_845  = "supportus.mefound.com" ascii
+    $c2_846  = "suzukigooogle.8866.org" ascii
+    $c2_847  = "svc.dynssl.com" ascii
+    $c2_848  = "synssl.dnset.com" ascii
+    $c2_849  = "sz.thedomais.info" ascii
+    $c2_850  = "taipei.yourtrap.com" ascii
+    $c2_851  = "taipeifoodsite.ocry.com" ascii
+    $c2_852  = "tamraj.fartit.com" ascii
+    $c2_853  = "telegraph.mefound.com" ascii
+    $c2_854  = "test.usyahooapis.com" ascii
+    $c2_855  = "tfa.longmusic.com" ascii
+    $c2_856  = "tffghelth.com" ascii
+    $c2_857  = "thedomais.info" ascii
+    $c2_858  = "ticket.instanthq.com" ascii
+    $c2_859  = "ticket.jetos.com" ascii
+    $c2_860  = "ticket.serveuser.com" ascii
+    $c2_861  = "tidatacenter.shenajou.com" ascii
+    $c2_862  = "tisdatacenter.shenajou.com" ascii
+    $c2_863  = "tisupdateinfo.faqserv.com" ascii
+    $c2_864  = "tokyo-gojp.com" ascii
+    $c2_865  = "tokyofile.2waky.com" ascii
+    $c2_866  = "tomorrowforgood.com" ascii
+    $c2_867  = "tophost.dynamicdns.co.uk" ascii
+    $c2_868  = "toshste.com" ascii
+    $c2_869  = "toya.7766.org" ascii
+    $c2_870  = "transfer.lflinkup.org" ascii
+    $c2_871  = "transfer.mrbasic.com" ascii
+    $c2_872  = "transfer.vizvaz.com" ascii
+    $c2_873  = "trasul.mypicture.info" ascii
+    $c2_874  = "travelyokogawafz.fartit.com" ascii
+    $c2_875  = "trendmicroupdate.shenajou.com" ascii
+    $c2_876  = "trendsecurity.shenajou.com" ascii
+    $c2_877  = "trout.belowto.com" ascii
+    $c2_878  = "tv.goldtoyota.com" ascii
+    $c2_879  = "tw.2012yearleft.com" ascii
+    $c2_880  = "twmusic.proxydns.com" ascii
+    $c2_881  = "twpeoplemusicsite.my03.com" ascii
+    $c2_882  = "twtravelinfomation.toythieves.com" ascii
+    $c2_883  = "twx.mynumber.org" ascii
+    $c2_884  = "tyoto-go-jp.com" ascii
+    $c2_885  = "u-tokyo-ac-jp.com" ascii
+    $c2_886  = "u1.FartIT.com" ascii
+    $c2_887  = "u1.haoyujd.info" ascii
+    $c2_888  = "ubuntusofta.com" ascii
+    $c2_889  = "ugreen.itemdb.com" ascii
+    $c2_890  = "ui.hdcdui.com" ascii
+    $c2_891  = "uk.dynamicdns.org.uk" ascii
+    $c2_892  = "ukuoka.cloud-maste.com" ascii
+    $c2_893  = "ultimedia.vmmini.com" ascii
+    $c2_894  = "un.ddns.info" ascii
+    $c2_895  = "un.dnsrd.com" ascii
+    $c2_896  = "unhamj.com" ascii
+    $c2_897  = "update.yourtrap.com" ascii
+    $c2_898  = "updatemirrors.fartit.com" ascii
+    $c2_899  = "updates.itsaol.com" ascii
+    $c2_900  = "ups.improvejpese.com" ascii
+    $c2_901  = "urearapetsu.com" ascii
+    $c2_902  = "usa.got-game.org" ascii
+    $c2_903  = "usa.itsaol.com" ascii
+    $c2_904  = "usa.japanteam.org" ascii
+    $c2_905  = "usffunicef.com" ascii
+    $c2_906  = "usmirocomney.net" ascii
+    $c2_907  = "usrobothome.com" ascii
+    $c2_908  = "usyahooapis.com" ascii
+    $c2_909  = "uu.logon-live.com" ascii
+    $c2_910  = "uu.niushenghuo.info" ascii
+    $c2_911  = "ux.niushenghuo.info" ascii
+    $c2_912  = "v4.appledownload.ourhobby.com" ascii
+    $c2_913  = "v4.itunesmusic.jkub.com" ascii
+    $c2_914  = "v4.microsoftmusic.onedumb.com" ascii
+    $c2_915  = "v4.microsoftupdate.mrbasic.com" ascii
+    $c2_916  = "v4.windowsupdate.DEDGESUITE.NET" ascii
+    $c2_917  = "v4.windowsupdate.authorizeddns.org" ascii
+    $c2_918  = "v4.windowsupdate.dnset.com" ascii
+    $c2_919  = "v4.windowsupdate.itsaol.com" ascii
+    $c2_920  = "v4.windowsupdate.lflinkup.com" ascii
+    $c2_921  = "v4.windowsupdate.mrface.com" ascii
+    $c2_922  = "v4.windowsupdate.nsatcdns.com" ascii
+    $c2_923  = "v4.windowsupdate.x24hr.com" ascii
+    $c2_924  = "v4.windowsupdates.dnsrd.com" ascii
+    $c2_925  = "veryhuai.info" ascii
+    $c2_926  = "video.vmdnsup.org" ascii
+    $c2_927  = "vmdnsup.org" ascii
+    $c2_929  = "vmyiersend.WEBSAGO.INFO" ascii
+    $c2_930  = "vmyisan.website0012.net" ascii
+    $c2_932  = "wchildress.com" ascii
+    $c2_934  = "wcxh.mynetav.net" ascii
+    $c2_935  = "wdsupdates.com" ascii
+    $c2_936  = "webbooting.com" ascii
+    $c2_937  = "webdirectnews.dynamicdns.biz" ascii
+    $c2_938  = "webinfoseco.ygto.com" ascii
+    $c2_939  = "webmailentry.jetos.com" ascii
+    $c2_940  = "weboot.info" ascii
+    $c2_941  = "websago.info" ascii
+    $c2_942  = "websegoo.net" ascii
+    $c2_943  = "website0012.net" ascii
+    $c2_944  = "websiteboo.website0012.net" ascii
+    $c2_945  = "websqlnewsmanager.ninth.biz" ascii
+    $c2_946  = "webssl9.info" ascii
+    $c2_947  = "well.itsaol.com" ascii
+    $c2_948  = "well.mrbasic.com" ascii
+    $c2_949  = "whale.toshste.com" ascii
+    $c2_950  = "whellbuy.wschandler.com" ascii
+    $c2_951  = "whyis.haoyujd.info" ascii
+    $c2_952  = "wike.wikaba.com" ascii
+    $c2_953  = "windowfile.itemdb.com" ascii
+    $c2_954  = "windowsimages.itemdb.com" ascii
+    $c2_955  = "windowsimages.qhigh.com" ascii
+    $c2_956  = "windowsmirrors.vizvaz.com" ascii
+    $c2_957  = "windowsstores.gettrials.com" ascii
+    $c2_958  = "windowsstores.organiccrap.com" ascii
+    $c2_959  = "windowsupdate.2waky.com" ascii
+    $c2_960  = "windowsupdate.3-a.net" ascii
+    $c2_961  = "windowsupdate.acmetoy.com" ascii
+    $c2_962  = "windowsupdate.authorizeddns.net" ascii
+    $c2_963  = "windowsupdate.authorizeddns.org" ascii
+    $c2_964  = "windowsupdate.authorizeddns.us" ascii
+    $c2_965  = "windowsupdate.com.mwcname.com" ascii
+    $c2_966  = "windowsupdate.dedgesuite.net" ascii
+    $c2_967  = "windowsupdate.dns05.com" ascii
+    $c2_968  = "windowsupdate.dnset.com" ascii
+    $c2_969  = "windowsupdate.esmtp.biz" ascii
+    $c2_970  = "windowsupdate.ezua.com" ascii
+    $c2_971  = "windowsupdate.fartit.com" ascii
+    $c2_972  = "windowsupdate.gettrials.com" ascii
+    $c2_973  = "windowsupdate.instanthq.com" ascii
+    $c2_974  = "windowsupdate.itsaol.com" ascii
+    $c2_975  = "windowsupdate.jungleheart.com" ascii
+    $c2_976  = "windowsupdate.lflink.com" ascii
+    $c2_977  = "windowsupdate.mrface.com" ascii
+    $c2_978  = "windowsupdate.mylftv.com" ascii
+    $c2_979  = "windowsupdate.nsatcdns.com" ascii
+    $c2_980  = "windowsupdate.organiccrap.com" ascii
+    $c2_981  = "windowsupdate.rebatesrule.net" ascii
+    $c2_982  = "windowsupdate.sellclassics.com" ascii
+    $c2_983  = "windowsupdate.serveusers.com" ascii
+    $c2_984  = "windowsupdate.vizvaz.com" ascii
+    $c2_985  = "windowsupdate.wcwname.com" ascii
+    $c2_986  = "windowsupdate.x24hr.com" ascii
+    $c2_987  = "windowsupdate.ygto.com" ascii
+    $c2_988  = "windowsupdates.dnset.com" ascii
+    $c2_989  = "windowsupdates.ezua.com" ascii
+    $c2_990  = "windowsupdates.ikwb.com" ascii
+    $c2_991  = "windowsupdates.itemdb.com" ascii
+    $c2_992  = "windowsupdates.proxydns.com" ascii
+    $c2_993  = "workerisgood.com" ascii
+    $c2_994  = "woyaofanwen.com" ascii
+    $c2_995  = "wschandler.com" ascii
+    $c2_996  = "wthelpdesk.com" ascii
+    $c2_997  = "wubangtu.info" ascii
+    $c2_998  = "www-meti-go-jp.tyoto-go-jp.com" ascii
+    $c2_999  = "www.2014.zzux.com" ascii
+    $c2_1000 = "www.97sm.com" ascii
+    $c2_1001 = "www.9gowg.tech" ascii
+    $c2_1002 = "www.abdominal.faqserv.com" ascii
+    $c2_1003 = "www.additional.sexidude.com" ascii
+    $c2_1004 = "www.afc.https443.org" ascii
+    $c2_1005 = "www.androidmusicapp.onmypc.us" ascii
+    $c2_1006 = "www.announcements.toythieves.com" ascii
+    $c2_1007 = "www.anx-own-334.mrbasic.com" ascii
+    $c2_1008 = "www.apple.ikwb.com" ascii
+    $c2_1009 = "www.appledownload.ourhobby.com" ascii
+    $c2_1010 = "www.appleimages.itemdb.com" ascii
+    $c2_1011 = "www.appleimages.longmusic.com" ascii
+    $c2_1012 = "www.appleimages.organiccrap.com" ascii
+    $c2_1013 = "www.applejuice.itemdb.com" ascii
+    $c2_1014 = "www.applemirror.organiccrap.com" ascii
+    $c2_1015 = "www.applemirror.squirly.info" ascii
+    $c2_1016 = "www.applemusic.isasecret.com" ascii
+    $c2_1017 = "www.applemusic.itemdb.com" ascii
+    $c2_1018 = "www.applemusic.wikaba.com" ascii
+    $c2_1019 = "www.applemusic.xxuz.com" ascii
+    $c2_1020 = "www.applemusic.zzux.com" ascii
+    $c2_1021 = "www.appleupdate.itemdb.com" ascii
+    $c2_1022 = "www.appleupdateurl.2waky.com" ascii
+    $c2_1023 = "www.architectisusa.com" ascii
+    $c2_1024 = "www.army.xxuz.com" ascii
+    $c2_1025 = "www.art.p6p6.net" ascii
+    $c2_1026 = "www.asfzx.x24hr.com" ascii
+    $c2_1027 = "www.availab.wikaba.com" ascii
+    $c2_1028 = "www.availability.justdied.com" ascii
+    $c2_1029 = "www.babymusicsitetr.mymom.info" ascii
+    $c2_1030 = "www.back.jungleheart.com" ascii
+    $c2_1031 = "www.balance1.wikaba.com" ascii
+    $c2_1032 = "www.be.mrslove.com" ascii
+    $c2_1033 = "www.belowto.com" ascii
+    $c2_1034 = "www.billing.organiccrap.com" ascii
+    $c2_1035 = "www.blaaaaaaaaaaaa.windowsupdate.3-a.net" ascii
+    $c2_1036 = "www.brand.fartit.com" ascii
+    $c2_1037 = "www.bulletproof.squirly.info" ascii
+    $c2_1038 = "www.cabbage.iownyour.biz" ascii
+    $c2_1039 = "www.ccupdatedata.authorizeddns.net" ascii
+    $c2_1040 = "www.cdn.incloud-go.com" ascii
+    $c2_1041 = "www.center.shenajou.com" ascii
+    $c2_1042 = "www.chaindungeons.com" ascii
+    $c2_1043 = "www.cia.ezua.com" ascii
+    $c2_1044 = "www.cia.toh.info" ascii
+    $c2_1045 = "www.civilwar123.authorizeddns.org" ascii
+    $c2_1046 = "www.civilwar520.onmypc.org" ascii
+    $c2_1047 = "www.cloud-maste.com" ascii
+    $c2_1048 = "www.cnnews.mylftv.com" ascii
+    $c2_1049 = "www.commissioner.shenajou.com" ascii
+    $c2_1050 = "www.commons.onedumb.com" ascii
+    $c2_1051 = "www.contractus.qpoe.com" ascii
+    $c2_1052 = "www.corp-dnsonline.itsaol.com" ascii
+    $c2_1053 = "www.courier.jetos.com" ascii
+    $c2_1054 = "www.cress.mynetav.net" ascii
+    $c2_1055 = "www.ctdl.windowsupdate.nsatcdns.com" ascii
+    $c2_1056 = "www.ctldl.microsoftupdate.qhigh.com" ascii
+    $c2_1057 = "www.ctldl.windowsupdate.authorizeddns.us" ascii
+    $c2_1058 = "www.ctldl.windowsupdate.esmtp.biz" ascii
+    $c2_1059 = "www.ctldl.windowsupdate.mrface.com" ascii
+    $c2_1060 = "www.cwiinatonal.com" ascii
+    $c2_1061 = "www.dasoftactivemodule.toythieves.com" ascii
+    $c2_1062 = "www.dasonews.youdontcare.com" ascii
+    $c2_1063 = "www.daughter.vizvaz.com" ascii
+    $c2_1064 = "www.de.onmypc.info" ascii
+    $c2_1065 = "www.details.squirly.info" ascii
+    $c2_1066 = "www.development.shenajou.com" ascii
+    $c2_1067 = "www.devilcase.acmetoy.com" ascii
+    $c2_1068 = "www.disruptive.https443.net" ascii
+    $c2_1069 = "www.dns-hinettw.25u.com" ascii
+    $c2_1070 = "www.document.shenajou.com" ascii
+    $c2_1071 = "www.domainnow.yourtrap.com" ascii
+    $c2_1072 = "www.download.windowsupdate.nsatcdns.com" ascii
+    $c2_1073 = "www.ea.onmypc.info" ascii
+    $c2_1074 = "www.eddo.qpoe.com" ascii
+    $c2_1075 = "www.ehshiroshima.mylftv.com" ascii
+    $c2_1076 = "www.eric-averyanov.wha.la" ascii
+    $c2_1077 = "www.eu.acmetoy.com" ascii
+    $c2_1078 = "www.eu.wha.la" ascii
+    $c2_1079 = "www.express.lflinkup.com" ascii
+    $c2_1080 = "www.extraordinary.dynamic-dns.net" ascii
+    $c2_1081 = "www.f068v.site" ascii
+    $c2_1082 = "www.facefile.fartit.com" ascii
+    $c2_1083 = "www.fertile.authorizeddns.net" ascii
+    $c2_1084 = "www.file.zzux.com" ascii
+    $c2_1085 = "www.findme.epac.to" ascii
+    $c2_1086 = "www.fire.mrface.com" ascii
+    $c2_1087 = "www.firstnews.jkub.com" ascii
+    $c2_1088 = "www.fjs.wikaba.com" ascii
+    $c2_1089 = "www.foal.wchildress.com" ascii
+    $c2_1090 = "www.fr.wikaba.com" ascii
+    $c2_1091 = "www.freegamecenter.onedumb.com" ascii
+    $c2_1092 = "www.fruit.qhigh.com" ascii
+    $c2_1093 = "www.fuck.ikwb.com" ascii
+    $c2_1094 = "www.fuckmm.dns-dns.com" ascii
+    $c2_1095 = "www.fukuoka.cloud-maste.com" ascii
+    $c2_1096 = "www.g3ypf.online" ascii
+    $c2_1097 = "www.garlic.dyndns.pro" ascii
+    $c2_1098 = "www.generat.almostmy.com" ascii
+    $c2_1099 = "www.glicense.shenajou.com" ascii
+    $c2_1100 = "www.goldtoyota.com" ascii
+    $c2_1101 = "www.goodmusic.justdied.com" ascii
+    $c2_1102 = "www.gooesdataios.instanthq.com" ascii
+    $c2_1103 = "www.grammar.jkub.com" ascii
+    $c2_1104 = "www.helpus.ddns.info" ascii
+    $c2_1105 = "www.hii.qhigh.com" ascii
+    $c2_1106 = "www.hinetonlinedns.dns05.com" ascii
+    $c2_1107 = "www.incloud-go.com" ascii
+    $c2_1108 = "www.innocent-isayev.sexidude.com" ascii
+    $c2_1109 = "www.interpreter.shenajou.com" ascii
+    $c2_1110 = "www.invoices.sexxxy.biz" ascii
+    $c2_1111 = "www.iphone.vizvaz.com" ascii
+    $c2_1112 = "www.ipv4.microsoftupdate.mrbasic.com" ascii
+    $c2_1113 = "www.ipv4.windowsupdate.3-a.net" ascii
+    $c2_1114 = "www.ipv4.windowsupdate.esmtp.biz" ascii
+    $c2_1115 = "www.ipv4.windowsupdate.fartit.com" ascii
+    $c2_1116 = "www.ipv4.windowsupdate.lflink.com" ascii
+    $c2_1117 = "www.ipv4.windowsupdate.mrface.com" ascii
+    $c2_1118 = "www.ipv4.windowsupdate.mylftv.com" ascii
+    $c2_1119 = "www.ipv4.windowsupdate.nsatcdns.com" ascii
+    $c2_1120 = "www.itlans.isasecret.com" ascii
+    $c2_1121 = "www.itunesdownload.jkub.com" ascii
+    $c2_1122 = "www.itunesdownload.vizvaz.com" ascii
+    $c2_1123 = "www.itunesdownload.wikaba.com" ascii
+    $c2_1124 = "www.itunesimages.itemdb.com" ascii
+    $c2_1125 = "www.itunesimages.itsaol.com" ascii
+    $c2_1126 = "www.itunesimages.qpoe.com" ascii
+    $c2_1127 = "www.itunesmirror.fartit.com" ascii
+    $c2_1128 = "www.itunesmirror.itsaol.com" ascii
+    $c2_1129 = "www.itunesmusic.ikwb.com" ascii
+    $c2_1130 = "www.itunesmusic.jetos.com" ascii
+    $c2_1131 = "www.itunesmusic.jkub.com" ascii
+    $c2_1132 = "www.itunesmusic.zzux.com" ascii
+    $c2_1133 = "www.itunesupdate.itsaol.com" ascii
+    $c2_1134 = "www.itunesupdates.organiccrap.com" ascii
+    $c2_1135 = "www.japanenvnews.qpoe.com" ascii
+    $c2_1136 = "www.jd978.com" ascii
+    $c2_1137 = "www.jimin.jimindaddy.com" ascii
+    $c2_1138 = "www.jimin.mymom.info" ascii
+    $c2_1139 = "www.jp.serveuser.com" ascii
+    $c2_1140 = "www.jpnappstore.ourhobby.com" ascii
+    $c2_1141 = "www.jpnewslogs.sendsmtp.com" ascii
+    $c2_1142 = "www.jpnxzshopdata.authorizeddns.org" ascii
+    $c2_1143 = "www.kawasaki.cloud-maste.com" ascii
+    $c2_1144 = "www.kawasaki.unhamj.com" ascii
+    $c2_1145 = "www.key.zzux.com" ascii
+    $c2_1146 = "www.knowledge.sellclassics.com" ascii
+    $c2_1147 = "www.lan.dynssl.com" ascii
+    $c2_1148 = "www.last.p6p6.net" ascii
+    $c2_1149 = "www.latestnews.epac.to" ascii
+    $c2_1150 = "www.latestnews.organiccrap.com" ascii
+    $c2_1151 = "www.leedong.longmusic.com" ascii
+    $c2_1152 = "www.leeks.mrbonus.com" ascii
+    $c2_1153 = "www.liberty.acmetoy.com" ascii
+    $c2_1154 = "www.license.shenajou.com" ascii
+    $c2_1155 = "www.lion.wchildress.com" ascii
+    $c2_1156 = "www.loveddos.com" ascii
+    $c2_1157 = "www.macfee.mrface.com" ascii
+    $c2_1158 = "www.macforlinux.net" ascii
+    $c2_1159 = "www.maffc.mrface.com" ascii
+    $c2_1160 = "www.malware.dsmtp.com" ascii
+    $c2_1161 = "www.manager.jetos.com" ascii
+    $c2_1162 = "www.markabcinfo.dynamicdns.me.uk" ascii
+    $c2_1163 = "www.mason.vizvaz.com" ascii
+    $c2_1164 = "www.mediapath.organiccrap.com" ascii
+    $c2_1165 = "www.meiji-ac-jp.com" ascii
+    $c2_1166 = "www.messagea.emailfound.info" ascii
+    $c2_1167 = "www.microsoft.got-game.org" ascii
+    $c2_1168 = "www.microsoft.mrface.com" ascii
+    $c2_1169 = "www.microsoftempowering.sendsmtp.com" ascii
+    $c2_1170 = "www.microsoftgame.mrface.com" ascii
+    $c2_1171 = "www.microsoftgetstarted.sexidude.com" ascii
+    $c2_1172 = "www.microsoftimages.organiccrap.com" ascii
+    $c2_1173 = "www.microsoftmirror.mrbasic.com" ascii
+    $c2_1174 = "www.microsoftmusic.itemdb.com" ascii
+    $c2_1175 = "www.microsoftmusic.mrbasic.com" ascii
+    $c2_1176 = "www.microsoftqckmanager.pcanywhere.net" ascii
+    $c2_1177 = "www.microsoftupdate.mrbasic.com" ascii
+    $c2_1178 = "www.microsoftupdate.qhigh.com" ascii
+    $c2_1179 = "www.micrsoftware.dsmtp.com" ascii
+    $c2_1180 = "www.mircsoft.compress.to" ascii
+    $c2_1181 = "www.mmy.ddns.us" ascii
+    $c2_1182 = "www.mod.jetos.com" ascii
+    $c2_1183 = "www.mofa.dynamic-dns.net" ascii
+    $c2_1184 = "www.mofa.ns01.info" ascii
+    $c2_1185 = "www.moonnightthse.zyns.com" ascii
+    $c2_1186 = "www.moscowdic.trickip.org" ascii
+    $c2_1187 = "www.moscowstdsupdate.toythieves.com" ascii
+    $c2_1188 = "www.mseupdate.ourhobby.com" ascii
+    $c2_1189 = "www.msg.ezua.com" ascii
+    $c2_1190 = "www.msn.incloud-go.com" ascii
+    $c2_1191 = "www.musicfile.ikwb.com" ascii
+    $c2_1192 = "www.musicjj.zzux.com" ascii
+    $c2_1193 = "www.musicsecph.squirly.info" ascii
+    $c2_1194 = "www.mymusicbox.lflinkup.org" ascii
+    $c2_1195 = "www.mymusicbox.vizvaz.com" ascii
+    $c2_1196 = "www.myrestroomimage.isasecret.com" ascii
+    $c2_1197 = "www.mytwhomeinst.sendsmtp.com" ascii
+    $c2_1198 = "www.myurinikoreaaps.ninth.biz" ascii
+    $c2_1199 = "www.na.americanunfinished.com" ascii
+    $c2_1200 = "www.na.onmypc.org" ascii
+    $c2_1201 = "www.networkjpnzee.mynetav.org" ascii
+    $c2_1202 = "www.newcityoforward.rebatesrule.net" ascii
+    $c2_1203 = "www.newdnssec-info.4mydomain.com" ascii
+    $c2_1204 = "www.newsdata.jkub.com" ascii
+    $c2_1205 = "www.newsfile.toythieves.com" ascii
+    $c2_1206 = "www.newsroom.cleansite.info" ascii
+    $c2_1207 = "www.nlddnsinfo.https443.org" ascii
+    $c2_1208 = "www.no.authorizeddns.org" ascii
+    $c2_1209 = "www.nposnewsinfo.qhigh.com" ascii
+    $c2_1210 = "www.nsa.mefound.com" ascii
+    $c2_1211 = "www.nt.mynumber.org" ascii
+    $c2_1212 = "www.nttdata.otzo.com" ascii
+    $c2_1213 = "www.nuisance.serveusers.com" ascii
+    $c2_1214 = "www.nz.compress.to" ascii
+    $c2_1215 = "www.ol.almostmy.com" ascii
+    $c2_1216 = "www.oldbmwy.com" ascii
+    $c2_1217 = "www.onion.jkub.com" ascii
+    $c2_1218 = "www.onlinednsserver.sendsmtp.com" ascii
+    $c2_1219 = "www.oracleupdate.dns04.com" ascii
+    $c2_1220 = "www.oyster.jkub.com" ascii
+    $c2_1221 = "www.p6p6.net" ascii
+    $c2_1222 = "www.packetsdsquery.dns05.com" ascii
+    $c2_1223 = "www.pepper.sexxxy.biz" ascii
+    $c2_1224 = "www.phptecinfohelp.itemdb.com" ascii
+    $c2_1225 = "www.pickled.myddns.com" ascii
+    $c2_1226 = "www.polopurple.com" ascii
+    $c2_1227 = "www.portal.mrface.com" ascii
+    $c2_1228 = "www.portal.sendsmtp.com" ascii
+    $c2_1229 = "www.portalser.dynamic-dns.net" ascii
+    $c2_1230 = "www.praskovya-matveyeva.mefound.com" ascii
+    $c2_1231 = "www.praskovya-ulyanova.dumb1.com" ascii
+    $c2_1232 = "www.products.almostmy.com" ascii
+    $c2_1233 = "www.products.cleansite.us" ascii
+    $c2_1234 = "www.products.serveuser.com" ascii
+    $c2_1235 = "www.purchase.lflinkup.org" ascii
+    $c2_1236 = "www.rainbow.mypop3.org" ascii
+    $c2_1237 = "www.re26.com" ascii
+    $c2_1238 = "www.read.xxuz.com" ascii
+    $c2_1239 = "www.recent.dns-stuff.com" ascii
+    $c2_1240 = "www.recent.fartit.com" ascii
+    $c2_1241 = "www.redflower.isasecret.com" ascii
+    $c2_1242 = "www.referred.gr8domain.biz" ascii
+    $c2_1243 = "www.referred.yourtrap.com" ascii
+    $c2_1244 = "www.register.ourhobby.com" ascii
+    $c2_1245 = "www.registration2.instanthq.com" ascii
+    $c2_1246 = "www.registrations.4pu.com" ascii
+    $c2_1247 = "www.registrations.organiccrap.com" ascii
+    $c2_1248 = "www.remeberdata.iownyour.org" ascii
+    $c2_1249 = "www.reserveds.onedumb.com" ascii
+    $c2_1250 = "www.rethem.almostmy.com" ascii
+    $c2_1251 = "www.rg197.win" ascii
+    $c2_1252 = "www.sakai.unhamj.com" ascii
+    $c2_1253 = "www.sapporo.cloud-maste.com" ascii
+    $c2_1254 = "www.sauerkraut.sellclassics.com" ascii
+    $c2_1255 = "www.saverd.re26.com" ascii
+    $c2_1256 = "www.sbuudd.webssl9.info" ascii
+    $c2_1257 = "www.sdmsg.onmypc.org" ascii
+    $c2_1258 = "www.se.toythieves.com" ascii
+    $c2_1259 = "www.secertnews.mrbasic.com" ascii
+    $c2_1260 = "www.secnetshit.com" ascii
+    $c2_1261 = "www.secserverupdate.toh.info" ascii
+    $c2_1262 = "www.senseye.ikwb.com" ascii
+    $c2_1263 = "www.senseye.mrbonus.com" ascii
+    $c2_1264 = "www.septdlluckysystem.jungleheart.com" ascii
+    $c2_1265 = "www.seraphim-yurieva.justdied.com" ascii
+    $c2_1266 = "www.serv.justdied.com" ascii
+    $c2_1267 = "www.server1.proxydns.com" ascii
+    $c2_1268 = "www.seyesb.acmetoy.com" ascii
+    $c2_1269 = "www.showy.almostmy.com" ascii
+    $c2_1270 = "www.shugiin.jkub.com" ascii
+    $c2_1271 = "www.sindeali.com" ascii
+    $c2_1272 = "www.singed.otzo.com" ascii
+    $c2_1273 = "www.sojourner.mypicture.info" ascii
+    $c2_1274 = "www.sstday.jkub.com" ascii
+    $c2_1275 = "www.support1.mrface.com" ascii
+    $c2_1276 = "www.supportus.mefound.com" ascii
+    $c2_1277 = "www.svc.dynssl.com" ascii
+    $c2_1278 = "www.sweetheart.sexxxy.biz" ascii
+    $c2_1279 = "www.synssl.dnset.com" ascii
+    $c2_1280 = "www.tamraj.fartit.com" ascii
+    $c2_1281 = "www.telegraph.mefound.com" ascii
+    $c2_1282 = "www.tfa.longmusic.com" ascii
+    $c2_1283 = "www.thunder.wikaba.com" ascii
+    $c2_1284 = "www.ticket.instanthq.com" ascii
+    $c2_1285 = "www.ticket.serveuser.com" ascii
+    $c2_1286 = "www.tisupdateinfo.faqserv.com" ascii
+    $c2_1287 = "www.tokyofile.2waky.com" ascii
+    $c2_1288 = "www.tophost.dynamicdns.co.uk" ascii
+    $c2_1289 = "www.transfer.lflinkup.org" ascii
+    $c2_1290 = "www.transfer.mrbasic.com" ascii
+    $c2_1291 = "www.transfer.vizvaz.com" ascii
+    $c2_1292 = "www.twgovernmentinfo.acmetoy.com" ascii
+    $c2_1293 = "www.twsslpopservupro.dynssl.com" ascii
+    $c2_1294 = "www.ugreen.itemdb.com" ascii
+    $c2_1295 = "www.uk.dynamicdns.org.uk" ascii
+    $c2_1296 = "www.un.ddns.info" ascii
+    $c2_1297 = "www.un.dnsrd.com" ascii
+    $c2_1298 = "www.unhamj.com" ascii
+    $c2_1299 = "www.usa.itsaol.com" ascii
+    $c2_1300 = "www.usffunicef.com" ascii
+    $c2_1301 = "www.usliveupdateonline.ygto.com" ascii
+    $c2_1302 = "www.ut-portal-u-tokyo-ac-jp.tyoto-go-jp.com" ascii
+    $c2_1303 = "www.v4.windowsupdate.mrface.com" ascii
+    $c2_1304 = "www.v4.windowsupdate.nsatcdns.com" ascii
+    $c2_1305 = "www.vmmini.com" ascii
+    $c2_1306 = "www.wchildress.com" ascii
+    $c2_1307 = "www.webdirectnews.dynamicdns.biz" ascii
+    $c2_1308 = "www.webmailentry.jetos.com" ascii
+    $c2_1309 = "www.websqlnewsmanager.ninth.biz" ascii
+    $c2_1310 = "www.well.itsaol.com" ascii
+    $c2_1311 = "www.well.mrbasic.com" ascii
+    $c2_1312 = "www.windowfile.itemdb.com" ascii
+    $c2_1313 = "www.windowsimages.itemdb.com" ascii
+    $c2_1314 = "www.windowsimages.qhigh.com" ascii
+    $c2_1315 = "www.windowsmirrors.vizvaz.com" ascii
+    $c2_1316 = "www.windowsupdate.2waky.com" ascii
+    $c2_1317 = "www.windowsupdate.3-a.net" ascii
+    $c2_1318 = "www.windowsupdate.acmetoy.com" ascii
+    $c2_1319 = "www.windowsupdate.authorizeddns.net" ascii
+    $c2_1320 = "www.windowsupdate.authorizeddns.org" ascii
+    $c2_1321 = "www.windowsupdate.authorizeddns.us" ascii
+    $c2_1322 = "www.windowsupdate.dns05.com" ascii
+    $c2_1323 = "www.windowsupdate.dnset.com" ascii
+    $c2_1324 = "www.windowsupdate.esmtp.biz" ascii
+    $c2_1325 = "www.windowsupdate.ezua.com" ascii
+    $c2_1326 = "www.windowsupdate.fartit.com" ascii
+    $c2_1327 = "www.windowsupdate.gettrials.com" ascii
+    $c2_1328 = "www.windowsupdate.instanthq.com" ascii
+    $c2_1329 = "www.windowsupdate.itsaol.com" ascii
+    $c2_1330 = "www.windowsupdate.jungleheart.com" ascii
+    $c2_1331 = "www.windowsupdate.lflink.com" ascii
+    $c2_1332 = "www.windowsupdate.mrface.com" ascii
+    $c2_1333 = "www.windowsupdate.mylftv.com" ascii
+    $c2_1334 = "www.windowsupdate.nsatcdns.com" ascii
+    $c2_1335 = "www.windowsupdate.organiccrap.com" ascii
+    $c2_1336 = "www.windowsupdate.rebatesrule.net" ascii
+    $c2_1337 = "www.windowsupdate.sellclassics.com" ascii
+    $c2_1338 = "www.windowsupdate.serveusers.com" ascii
+    $c2_1339 = "www.windowsupdate.x24hr.com" ascii
+    $c2_1340 = "www.yahoo.incloud-go.com" ascii
+    $c2_1341 = "www.yandexr.sellclassics.com" ascii
+    $c2_1342 = "www.yeahyeahyeahs.3322.org" ascii
+    $c2_1343 = "www.yokohamajpinstaz.mrbonus.com" ascii
+    $c2_1344 = "www.zaigawebinfo.rebatesrule.net" ascii
+    $c2_1345 = "www.zebra.incloud-go.com" ascii
+    $c2_1346 = "www2.qpoe.com" ascii
+    $c2_1347 = "www2.zyns.com" ascii
+    $c2_1348 = "www2.zzux.com" ascii
+    $c2_1349 = "x7.usyahooapis.com" ascii
+    $c2_1350 = "xi.dyndns.pro" ascii
+    $c2_1351 = "xi.sexxxy.biz" ascii
+    $c2_1352 = "xread10821.9966.org" ascii
+    $c2_1353 = "xsince.tk" ascii
+    $c2_1354 = "xt.dnset.com" ascii
+    $c2_1355 = "xyrn998754.2288.org" ascii
+    $c2_1356 = "yahoo.incloud-go.com" ascii
+    $c2_1357 = "yallago.cu.cc" ascii
+    $c2_1358 = "yandexr.sellclassics.com" ascii
+    $c2_1359 = "yeahyeahyeahs.3322.org" ascii
+    $c2_1360 = "yeap1.jumpingcrab.com" ascii
+    $c2_1361 = "yfrfyhf.youdontcare.com" ascii
+    $c2_1362 = "yo.acmetoy.com" ascii
+    $c2_1363 = "za.myftp.info" ascii
+    $c2_1364 = "zabbix.servercontrols.pw" ascii
+    $c2_1365 = "zaigawebinfo.rebatesrule.net" ascii
+    $c2_1367 = "zebra.UsFfUnicef.com" ascii
+    $c2_1368 = "zebra.bdoncloud.com" ascii
+    $c2_1369 = "zebra.incloud-go.com" ascii
+    $c2_1370 = "zebra.unhamj.com" ascii
+    $c2_1371 = "zebra.wthelpdesk.com" ascii
+    $c2_1372 = "zero.pcanywhere.net" ascii
+    $c2_1373 = "zg.ns02.biz" ascii
+    $c2_1374 = "zone.demoones.com" ascii
+
+  condition:
+    1 of ($c2_*)
+}
+
+
+rule subTee_nativecmd {
+  meta:
+    description = "NativeCmd - used by various threat groups"
+    license     = "https://creativecommons.org/licenses/by-nc/4.0/"
+    author      = "Florian Roth"
+    reference   = "https://securelist.com/blog/research/71275/wild-neutron-economic-espionage-threat-actor-returns-with-new-tricks/"
+    date        = "2015-07-10"
+    score       = 40
+    hash        = "758e6b519f6c0931ff93542b767524fc1eab589feb5cfc3854c77842f9785c92"
+
+  strings:
+    $x1 = "RunFile: couldn't load SHELL32.DLL!" ascii wide  /* PEStudio Blacklist: strings */ /* score: '27.00' */
+    $x2 = "RunFile: couldn't find ShellExecuteExA/W in SHELL32.DLL!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '35.00' */
+    $x3 = "Error executing CreateProcess()!!" fullword wide  /* PEStudio Blacklist: strings */ /* score: '31.00' */
+    $x4 = "cmdcmdline" fullword wide  /* score: '11.00' */
+    $x5 = "Invalid input handle!!!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '10.00' */
+
+    $s1  = "Process %d terminated" fullword wide  /* PEStudio Blacklist: strings */ /* score: '24.00' */
+    $s2  = "Process is not running any more" fullword wide  /* PEStudio Blacklist: strings */ /* score: '22.00' */
+    $s3  = "javacpl.exe" fullword wide  /* score: '3.00' */ /* Goodware String - occured 2 times */
+    $s4  = "Windows NT Version %lu.%lu" fullword wide  /* PEStudio Blacklist: os */ /* score: '19.00' */
+    $s5  = "Usage: destination [reference]" fullword wide  /* PEStudio Blacklist: strings */ /* score: '16.00' */
+    $s6  = ".com;.exe;.bat;.cmd" fullword wide  /* score: '15.00' */
+    $s7  = ") -%s-> %s (" fullword ascii  /* score: '14.00' */
+    $s8  = "cmdextversion" fullword wide  /* score: '14.00' */
+    $s10 = "\"%s\" /K %s" fullword wide  /* score: '11.02' */
+    $s12 = "DEBUG: Cannot allocate memory for ptrNextNode->ptrNext!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '10.00' */
+    $s13 = "Failed to build full directory path" fullword wide  /* score: '10.00' */
+    $s14 = "DEBUG: Cannot allocate memory for ptrFileArray!" fullword ascii  /* PEStudio Blacklist: strings */ /* score: '9.00' */
+    $s15 = "%-8s %-3s  %*s %s  %s" fullword wide  /* score: '8.00' */
+    $s16 = " %%%c in (%s) do " fullword wide  /* score: '8.00' */
+
+  condition:
+    uint16(0) == 0x5a4d and (2 of ($x*) or 6 of ($s*))
+}
+
+
+rule SUSP_XORed_URL_in_EXE {
+  meta:
+    description = "Detects an XORed URL in an executable"
+    author      = "Florian Roth"
+    reference   = "https://twitter.com/stvemillertime/status/1237035794973560834"
+    date        = "2020-03-09"
+    modified    = "2021-05-27"
+    score       = 50
+
+  strings:
+    $s1 = "http://" xor
+    $s2 = "https://" xor
+    $f1 = "http://" ascii
+    $f2 = "https://" ascii
+
+    $fp1  = "3Com Corporation" ascii  /* old driver */
+    $fp2  = "bootloader.jar" ascii  /* DeepGit */
+    $fp3  = "AVAST Software" ascii wide
+    $fp4  = "smartsvn" wide ascii fullword
+    $fp5  = "Avira Operations GmbH" wide fullword
+    $fp6  = "Perl Dev Kit" wide fullword
+    $fp7  = "Digiread" wide fullword
+    $fp8  = "Avid Editor" wide fullword
+    $fp9  = "Digisign" wide fullword
+    $fp10 = "Microsoft Corporation" wide fullword
+    $fp11 = "Microsoft Code Signing" ascii wide
+
+  condition:
+    uint16(0) == 0x5a4d and
+    filesize < 2000KB and (
+      ($s1 and #s1 > #f1) or
+      ($s2 and #s2 > #f2)
+    )
+    and not 1 of ($fp*)
+}
+
+
+rule Cygwin: Red Hat {
+  meta:
+    author = "_pusher_"
+    date   = "2016-07"
+
+  strings:
+    $a0  = "cygwin1.dll" ascii nocase
+    $aa1 = "cygwin_internal"
+    $aa2 = "cygwin_detach_dll"
+
+  condition:
+    (
+      (pe.linker_version.major == 2) and (pe.linker_version.minor == 56) or
+      (pe.linker_version.major == 2) and (pe.linker_version.minor == 24) or
+      (pe.linker_version.major == 2) and (pe.linker_version.minor == 25)
+    )
+    and
+    ($a0 and (any of ($aa*)))
+}
+
+
+rule FASM: flat assembler {
+  //abit weak, needs more targets & testing
+
+  meta:
+    author      = "_pusher_"
+    date        = "2016-01"
+    description = "http://flatassembler.net"
+  //strings:
+  //$c0 = { 55 89 E5 83 EC 1C 8D 45 E4 6A 1C 50 FF 75 08 FF 15 ?? ?? ?? ?? 8B 45 E8 C9 C2 04 00 }
+
+  condition:
+    (
+      //linker 1.60..1.79
+      (pe.linker_version.major == 1) and ((pe.linker_version.minor >= 60) and (pe.linker_version.minor < 80))
+    )
+  //and $c0
+}
+
+
+rule Detect_Monitoring {
+  meta:
+    author      = "Thomas Roccia - @fr0gger_ - Unprotect Project"
+    description = "Check for monitoring tools"
+
+  strings:
+    $var1 = "procexp.exe" nocase
+    $var2 = "fiddler.exe" nocase
+    $var3 = "winhex.exe" nocase
+    $var4 = "procmon.exe" nocase
+    $var5 = "processmonitor.exe" nocase
+    $var6 = "wireshark.exe" nocase
+    $var7 = "processhacker.exe" nocase
+    $var8 = "hiew32.exe" nocase
+
+    $reg = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" nocase
+    $val = "DisableTaskMgr"
+
+  condition:
+    any of ($var*) or $reg and $val
+}
+
+
+rule aspack_211d {
+  meta:
+    author      = "PEiD"
+    description = "ASPack 2.11d -> Alexey Solodovnikov"
+    group       = "100"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 E8 02 ?? ?? ?? EB 09 5D 55 }
+
+  condition:
+    $a0
+}
+
+
+rule aspack_212 {
+  meta:
+    author      = "PEiD"
+    description = "ASPack 2.12 -> Alexey Solodovnikov"
+    group       = "100"
+    function    = "6"
+
+  strings:
+    $a0 = { 60 E8 03 ?? ?? ?? E9 EB 04 5D 45 55 C3 E8 01 ?? ?? ?? EB 5D BB ED FF FF FF 03 DD 81 EB }
+
+  condition:
+    $a0
+}
+
+
+rule aspr12x {
+  meta:
+    author      = "PEiD"
+    description = "ASProtect 1.2x -> Alexey Solodovnikov"
+    group       = "106"
+    function    = "3"
+
+  strings:
+    $a0 = { ?? ?? 68 01 ?? ?? ?? C3 AA }
+
+  condition:
+    $a0
+}
+
+
+rule gm11 {
+  meta:
+    author      = "PEiD"
+    description = "Goat's PE Mutilator 1.1"
+    group       = "124"
+    function    = "0"
+
+  strings:
+    $a0 = { E8 EB 0B 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule gm12 {
+  meta:
+    author      = "PEiD"
+    description = "Goat's PE Mutilator 1.2"
+    group       = "124"
+    function    = "0"
+
+  strings:
+    $a0 = { E8 E9 0B 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule ntkrnl {
+  meta:
+    author      = "PEiD"
+    description = "NTKrnl Security Suite -> NTKrnl Team"
+    group       = "133"
+    function    = "18"
+
+  strings:
+    $a0 = { 68 ?? ?? ?? ?? E8 01 00 00 00 C3 C3 }
+
+  condition:
+    $a0
+}
+
+
+rule pec2_BoB {
+  meta:
+    author      = "PEiD"
+    description = "PECompact 2.xx -> Jeremy Collake"
+    group       = "BoB"
+    function    = "0"
+
+  strings:
+    $a0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 }
+
+  condition:
+    $a0
+}
+
+
+rule ssentry3 {
+  meta:
+    author      = "PEiD"
+    description = "SoftSentry 3.0 -> 20/20 Software"
+    group       = "171"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 EC ?? 53 56 57 E9 B0 06 }
+
+  condition:
+    $a0
+}
+
+
+rule telock_hsm7x {
+  meta:
+    author      = "PEiD"
+    description = "tElock 0.7x - 0.84 -> tE!"
+    group       = "179"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 E8 ?? ?? ?? ?? C3 83 }
+
+  condition:
+    $a0
+}
+
+
+rule msvc3 {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 3.0"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 64 A1 00 00 00 00 55 ?? ?? 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 50 ?? ?? ?? ?? ?? 00 00 83 EC 10 }
+
+  condition:
+    $a0
+}
+
+
+rule wzip_sfx_6 {
+  meta:
+    author      = "PEiD"
+    description = "WinZip 32-bit SFX 6.x module"
+    group       = "190"
+    function    = "0"
+
+  strings:
+    $a0 = { FF 15 ?? ?? ?? ?? B1 22 38 08 74 02 B1 20 40 80 38 ?? 74 10 38 08 74 06 40 80 38 ?? 75 F6 80 38 ?? 74 01 40 33 C9 ?? ?? ?? ?? FF 15 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule mscab_sfx {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft CAB SFX module"
+    group       = "29"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 8B EC 83 EC 44 56 FF 15 ?? 10 ?? 01 8B F0 8A 06 3C 22 75 }
+
+  condition:
+    $a0
+}
+
+
+rule winupack_038 {
+  meta:
+    author      = "PEiD"
+    description = "Upack 0.38 -> Dwing"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 0B 01 4C 6F 61 64 4C 69 62 72 61 72 79 41 00 00 18 10 00 00 10 00 00 00 00 ?? ?? ?? 00 00 ?? ?? 00 10 00 00 00 02 00 00 04 00 00 00 00 00 38 00 04 00 00 00 00 00 00 00 00 ?? ?? ?? 00 02 00 00 00 00 00 00 ?? 00 00 ?? 00 00 ?? 00 00 ?? ?? 00 00 00 10 00 00 10 00 00 00 00 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 EE ?? ?? ?? 14 00 00 00 00 ?? ?? ?? ?? ?? ?? 00 FF 76 38 AD 50 8B 3E BE F0 ?? ?? ?? 6A 27 59 F3 A5 FF 76 04 83 C8 FF 8B DF AB EB 1C 00 00 00 00 47 65 74 50 72 6F 63 41 64 64 72 65 73 73 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule msvc71_dll {
+  meta:
+    author      = "PEiD"
+    description = "Microsoft Visual C++ 7.1 DLL"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 6A 0C 68 ?? ?? ?? ?? E8 ?? ?? ?? ?? 33 C0 40 89 45 E4 }
+
+  condition:
+    $a0
+}
+
+
+rule nspack_37 {
+  meta:
+    author      = "PEiD"
+    description = "nSPack 3.7 -> North Star/ Liu Xing Ping"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 9C 60 E8 00 00 00 00 5D 83 ED 07 8D 8D ?? ?? FF FF 80 39 01 0F 84 42 02 00 00 C6 01 01 8B C5 2B 85 ?? ?? FF FF 89 85 ?? ?? FF FF 01 85 ?? ?? FF FF 8D B5 ?? ?? FF FF 01 06 55 56 6A 40 68 00 10 00 00 68 00 10 00 00 6A 00 FF 95 ?? ?? FF FF 85 C0 0F 84 69 03 00 00 89 85 ?? ?? FF FF E8 00 00 00 00 5B B9 67 03 00 00 03 D9 50 53 E8 B0 02 00 00 5E 5D 8B 36 8B FD 03 BD ?? ?? FF FF 8B DF 83 3F 00 75 0A 83 C7 04 B9 00 00 00 00 EB 16 B9 01 00 00 00 03 3B 83 C3 04 83 3B 00 74 34 01 13 8B 33 03 7B 04 57 51 53 FF B5 }
+
+  condition:
+    $a0
+}
+
+
+rule upack_038 {
+  meta:
+    author      = "PEiD"
+    description = "UPack 0.38 -> Dwing"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { BE B0 11 40 00 AD 50 FF 76 34 EB 7C 48 01 ?? ?? 0B 01 4C 6F 61 64 4C 69 62 72 61 72 79 41 00 00 18 10 00 00 10 00 00 00 00 ?? ?? 00 00 00 40 00 00 10 00 00 00 02 00 00 04 00 00 00 00 00 38 00 04 00 00 00 00 00 00 00 00 ?? ?? 00 00 02 00 00 00 00 00 00 ?? 00 00 00 00 00 ?? 00 00 ?? 00 00 00 00 10 00 00 10 00 00 00 00 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 EE ?? ?? 00 14 00 00 00 00 ?? ?? 00 ?? ?? 00 00 FF 76 38 AD 50 8B 3E BE F0 ?? ?? 00 6A 27 59 F3 A5 FF 76 04 83 C8 FF 8B DF AB EB 1C 00 00 00 00 47 65 74 50 72 6F 63 41 64 64 72 65 73 73 }
+
+  condition:
+    $a0
+}
+
+
+rule nullsoft_install_system_21x {
+  meta:
+    author      = "PEiD"
+    description = "Nullsoft Install System 2.1x"
+    group       = "444"
+    function    = "0"
+
+  strings:
+    $a0 = { 81 EC ?? ?? ?? ?? 53 55 56 33 F6 57 89 74 24 18 BD ?? ?? ?? ?? C6 44 24 10 20 FF 15 ?? ?? ?? ?? 56 FF 15 ?? ?? ?? ?? A3 ?? ?? ?? ?? 56 8D 44 24 30 68 ?? ?? ?? ?? 50 56 68 ?? ?? ?? ?? FF 15 ?? ?? ?? ?? 68 }
+
+  condition:
+    $a0
+}
+
+
+rule Upx_12x {
+  meta:
+    author      = "PEiD"
+    description = "Upx 1.24 - 1.25 -> Markus & Laszlo"
+    group       = "BoB"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 BE ?? ?? ?? ?? 8D BE ?? ?? ?? ?? 57 83 CD FF EB 10 90 90 90 90 90 90 8A 06 46 88 07 47 01 DB 75 07 8B 1E 83 EE FC 11 DB 72 ED B8 01 00 00 00 01 DB 75 07 8B 1E 83 EE FC 11 DB 11 C0 01 DB 73 0B 75 19 8B 1E 83 EE FC 11 DB 72 10 48 01 DB 75 07 8B 1E 83 EE FC 11 DB 11 C0 EB D4 31 C9 83 E8 03 72 11 C1 E0 08 8A 06 46 83 F0 FF 74 78 D1 F8 89 C5 EB 0B 01 DB 75 07 }
+
+  condition:
+    $a0
+}
+
+
+rule DevC5 {
+  meta:
+    author      = "PEiD"
+    description = "Dev-C++ 5"
+    group       = "BoB"
+    function    = "0"
+
+  strings:
+    $a0 = { 55 89 E5 83 EC 14 6A ?? FF 15 ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule ASPack212 {
+  meta:
+    author      = "PEiD"
+    description = "ASPack 2.12 -> Alexey Solodovnikov"
+    group       = "BoB"
+    function    = "0"
+
+  strings:
+    $a0 = { 60 E8 03 00 00 00 E9 EB 04 5D 45 55 C3 E8 01 00 00 00 EB 5D BB ED FF FF FF 03 DD 81 EB }
+
+  condition:
+    $a0
+}
+
+
+rule obsidium10069 {
+  meta:
+    author      = "PEiD"
+    description = "Obsidium 1.0.0.69 -> Obsidium Software"
+    group       = "133"
+    function    = "0"
+
+  strings:
+    $a0 = { EB 02 ?? ?? E8 A3 1C }
+
+  condition:
+    $a0
+}
+
+
+rule aPLib: Jorgen Ibsen {
+  meta:
+    author      = "_pusher_"
+    date        = "2016-09"
+    description = "www.ibsensoftware.com/products_aPLib.html"
+
+  strings:
+    $a0  = { 60 8B 74 24 24 8B 7C 24 28 8B 44 24 2C FC 33 DB B2 80 39 18 74 42 A4 B3 02 E8 6D 00 00 00 73 F6 33 C9 E8 64 00 00 00 73 }
+    $a1  = { 60 8B 74 24 24 8B 7C 24 28 FC 33 DB 33 D2 A4 B3 02 E8 6D 00 00 00 73 F6 33 C9 E8 64 00 00 00 73 1C 33 C0 E8 5B 00 00 00 }
+    $a3  = { B2 80 33 DB A4 B3 02 E8 6D 00 00 00 73 F6 33 C9 E8 64 00 00 00 73 1C 33 C0 E8 5B 00 00 00 73 23 B3 02 41 B0 10 E8 4F 00 00 00 12 C0 73 F7 75 3F AA EB D4 E8 4D 00 00 00 2B CB 75 10 E8 42 00 00 00 EB 28 AC D1 E8 74 4D 13 C9 EB 1C 91 48 C1 E0 08 AC E8 2C 00 00 00 3D 00 7D 00 00 }
+    $a4  = { 61 94 55 B6 80 A4 FF 13 73 F9 33 C9 FF 13 73 16 33 C0 FF 13 73 1F B6 80 41 B0 10 FF 13 12 C0 73 FA 75 3A AA EB E0 FF 53 08 02 F6 83 D9 01 75 0E FF 53 04 EB 24 AC D1 E8 74 2D 13 C9 EB 18 91 48 C1 E0 08 AC FF 53 04 3B 43 F8 73 0A 80 FC 05 73 06 83 F8 7F 77 02 41 41 95 8B C5 }
+    $a5  = { B2 80 A4 B6 80 FF 13 73 F9 33 C9 FF 13 73 16 33 C0 FF 13 73 1F B6 80 41 B0 10 FF 13 12 C0 73 FA 75 3C AA EB E0 FF 53 08 02 F6 83 D9 01 75 0E FF 53 04 EB 26 AC D1 E8 74 2F 13 C9 EB 1A 91 48 C1 E0 08 AC FF 53 04 3D 00 7D 00 00 73 0A 80 FC 05 73 06 83 F8 7F 77 02 }
+    $a6  = { B2 80 31 DB A4 B3 02 E8 6D 00 00 00 73 F6 31 C9 E8 64 00 00 00 73 1C 31 C0 E8 5B 00 00 00 73 23 B3 02 41 B0 10 E8 4F 00 00 00 10 C0 73 F7 75 3F AA EB D4 E8 4D 00 00 00 29 D9 75 10 E8 42 00 00 00 EB 28 AC D1 E8 74 ?? 11 C9 EB 1C 91 48 C1 E0 08 AC E8 2C 00 00 00 3D 00 7D 00 00 73 0A 80 FC 05 73 06 83 F8 7F 77 02 }
+    $a7  = { 33 C9 FF D3 73 16 33 C0 FF D3 73 23 B6 80 41 B0 10 FF D3 12 C0 73 FA 75 42 AA EB E0 E8 46 00 00 00 02 F6 83 D9 01 75 10 E8 38 00 00 00 EB 28 AC D1 E8 74 48 13 C9 EB 1C 91 48 C1 E0 08 AC E8 22 00 00 00 3D 00 7D 00 00 73 0A 80 FC 05 73 06 83 F8 7F 77 02 41 41 95 }
+    $a8  = { 33 C9 FF 14 24 73 18 33 C0 FF 14 24 73 21 B3 02 41 B0 10 FF 14 24 12 C0 73 F9 75 3F AA EB DC E8 43 00 00 00 2B CB 75 10 E8 38 00 00 00 EB 28 AC D1 E8 74 41 13 C9 EB 1C 91 48 C1 E0 08 AC E8 22 00 00 00 3D 00 7D 00 00 73 0A 80 FC 05 73 06 83 F8 7F 77 02 41 41 95 }
+    $a9  = { 33 C0 FF 13 73 1F B6 80 41 B0 10 FF 13 12 C0 73 FA 75 3A AA EB E0 FF 53 08 02 F6 83 D9 01 75 0E FF 53 04 EB 24 AC D1 E8 74 2D 13 C9 EB 18 91 48 C1 E0 08 AC FF 53 04 3B 43 F8 73 0A 80 FC 05 73 06 83 F8 7F 77 02 41 41 95 }
+    $a10 = { 60 8B 74 24 24 8B 7C 24 28 FC B2 80 33 DB A4 B3 02 E8 6D 00 00 00 73 F6 33 C9 E8 64 00 00 00 73 1C 33 C0 E8 5B 00 00 00 73 23 B3 02 41 B0 10 E8 4F 00 00 00 12 C0 73 F7 75 3F AA EB D4 E8 4D 00 00 00 2B CB 75 10 E8 42 00 00 00 EB 28 AC D1 E8 74 4D 13 C9 EB 1C 91 48 C1 E0 08 AC E8 2C 00 00 00 3D 00 7D 00 00 73 0A 80 FC 05 73 06 83 F8 7F 77 02 41 41 95 }
+    //taken from r!sc aspr unpacker,
+    $a11 = { B2 80 8A 06 46 88 07 47 02 D2 75 05 8A 16 46 12 D2 73 EF 02 D2 75 05 8A 16 46 12 D2 73 4A 33 C0 02 D2 75 05 8A 16 46 12 D2 0F 83 D6 00 00 00 02 D2 75 05 8A 16 46 12 D2 13 C0 02 D2 75 05 8A 16 46 12 D2 13 C0 02 D2 75 05 8A 16 46 12 D2 13 C0 02 D2 75 05 8A 16 46 12 D2 13 C0 74 06 57 2B F8 8A 07 5F 88 07 47 EB A0 B8 01 00 00 00 02 D2 75 05 8A 16 46 12 D2 13 C0 02 D2 75 05 8A 16 46 12 D2 72 EA 83 E8 02 75 28 B9 01 00 00 00 02 D2 75 05 8A 16 46 12 D2 13 C9 02 D2 75 05 8A 16 46 12 D2 72 EA 56 8B F7 2B F5 F3 A4 5E E9 58 FF FF FF 48 C1 E0 08 8A 06 46 8B E8 B9 01 00 00 00 02 D2 75 05 8A 16 46 12 D2 13 C9 02 D2 75 05 8A 16 46 12 D2 72 EA 3D 00 7D 00 00 73 1A 3D 00 05 00 00 72 0E 41 56 8B F7 2B F0 F3 A4 5E E9 18 FF FF FF 83 F8 7F 77 03 83 C1 02 56 8B F7 2B F0 F3 A4 5E E9 03 FF FF FF 8A 06 46 33 C9 D0 E8 74 12 83 D1 02 8B E8 56 8B F7 2B F0 F3 A4 5E E9 E8 FE FF FF 5D 2B 7D 0C 89 7D FC 61 }
+
+  condition:
+    any of them
+}
+
+
+rule ASPackv2xxx: Alexey Solodovnikov {
+  meta:
+    author = "_pusher_"
+    date   = "2015-11"
+
+  strings:
+    $c0 = { 60 E8 03 00 00 00 E9 EB 04 5D 45 55 C3 }
+
+  condition:
+    pe.imports("kernel32.dll", "GetProcAddress") and
+    pe.imports("kernel32.dll", "GetModuleHandleA") and
+    pe.imports("kernel32.dll", "LoadLibraryA") and
+    $c0 at pe.entry_point
+}
+
+
+rule ASProtect1xx: Alexey Solodovnikov {
+  meta:
+    author = "_pusher_"
+    date   = "2015-11"
+
+  strings:
+    $c0 = { 68 ?? ?? ?? ?? E8 01 00 00 00 C3 C3 }
+
+  condition:
+    pe.imports("kernel32.dll", "GetProcAddress") and
+    pe.imports("kernel32.dll", "GetModuleHandleA") and
+    pe.imports("kernel32.dll", "LoadLibraryA") and
+    $c0 at pe.entry_point
+}
+
+
+rule ASProtect133xAndUp: Alexey Solodovnikov {
+  meta:
+    author = "_pusher_"
+    date   = "2015-11"
+
+  strings:
+    $c0 = { 68 ?? ?? ?? ?? E8 01 00 00 00 C3 C3 }
+
+  condition:
+    pe.imports("kernel32.dll", "GetProcAddress") and
+    pe.imports("kernel32.dll", "GetModuleHandleA") and
+    pe.imports("kernel32.dll", "LoadLibraryA") and
+    pe.imports("kernel32.dll", "RaiseException") and
+    $c0 at pe.entry_point
+}
+
+
+rule dUP2: diablo2oo2 {
+  meta:
+    author = "_pusher_"
+    date   = "2015-12"
+
+  strings:
+    $a0 = { 89 7D F8 68 EF BE AD DE FF 75 F4 FF 75 F8 E8 3F FF FF FF }
+    $a1 = { 55 8B EC 56 57 53 8B 75 08 8B FE 8B 5D 10 8B 4D 0C EB 0D AC 8A D0 32 C3 AA D1 CB 32 DA 03 D9 49 0B C9 75 EF 5B 5F 5E C9 C2 0C 00 E8 07 00 00 00 6A 00 E8 05 01 00 00 }
+
+  condition:
+    $a0 and $a1
+}
+
+
+rule EnigmaProtector: Vladmir Sukhov {
+  meta:
+    author = "_pusher_"
+    date   = "2016-08"
+
+  strings:
+    $a0  = "ENIGMA" ascii
+    $aa1 = { 60 E8 00 00 00 00 5D 81 ED ?? 00 00 00 81 ED ?? ?? ?? 00 E9 ?? 00 00 00 }
+    $aa2 = { C8 63 78 4F 45 53 50 16 24 F6 78 F2 F7 0A 6E 85 51 5A 0F 26 52 55 24 93 29 18 90 3A F4 FB E6 43 53 1B 52 01 98 00 60 E8 00 00 00 00 5D 83 C5 FA 81 ED }
+    $aa3 = { DE 4C A4 EE 26 40 68 60 3E B4 B8 E9 07 A8 F8 FD C7 9C 38 C1 8E A9 9E 48 AA 4A 9F E7 00 00 00 EB 08 00 0C 03 00 00 00 00 00 60 E8 00 00 00 00 5D 81 ED }
+
+    $bb0 = "virtualboxemulunit" wide ascii nocase
+    $bb1 = "virtualboximportunit" wide ascii nocase
+    $bb2 = "virtualboxunit" wide ascii nocase
+    $bb3 = "enigma_keygen_routines" wide ascii nocase
+    $bb4 = "virtualboxdatabase" wide ascii nocase
+    $bb5 = "virtualboxdisasm" wide ascii nocase
+    $bb6 = "StringHashUnit" wide ascii nocase
+    $bb7 = "virtualboxglobalsunit" wide ascii nocase
+    $bb8 = "VirtualBoxGlobals" wide ascii nocase
+
+  condition:
+    //needs more samples
+    ($a0 at (pe.entry_point + 0x18)) or (any of ($aa*)) or 5 of ($bb*)
+
+}
+
+
+rule InstallShieldInstaller {
+  meta:
+    author = "_pusher_"
+    date   = "2016-07"
+
+  strings:
+    $a0 = "InstallShield" wide ascii nocase
+    $a1 = "InstallShield.Setup" wide ascii nocase
+
+  condition:
+    //pe.overlay would be nice ;)
+    ($a0 at (pe.sections[pe.sections.len() - 1].raw_data_offset + pe.sections[pe.sections.len() - 1].raw_data_size))
+    or
+    //look in overlay
+    //($c1 in (pe.sections[pe.number_of_sections-1].raw_data_offset..pe.sections[pe.number_of_sections-1].raw_data_offset+pe.sections[pe.number_of_sections-1].raw_data_size))
+    $a1
+}
+
+
+rule DotNET_ConfuserEx: Ki {
+  meta:
+    author = "_pusher_"
+    date   = "2016-07"
+
+  strings:
+    $a0 = "ConfuserEx v"
+    $a1 = { 43 6F 6E 66 75 73 65 64 42 79 41 74 74 72 69 62 75 74 65 00 41 74 74 72 69 62 75 74 65 }
+
+  condition:
+    (pe.imports("mscoree.dll", "_CorExeMain") or pe.imports("mscoree.dll", "_CorDllMain")) and 1 of ($a*)
+}
+
+
+rule DotNET_DotFuscator: PreEmptive Solutions {
+  meta:
+    author = "_pusher_"
+    date   = "2016-07"
+
+  strings:
+    $a0 = { 00 44 6F 74 66 75 73 63 61 74 6F 72 41 74 74 72 69 62 75 74 65 00 }
+
+  condition:
+    (pe.imports("mscoree.dll", "_CorExeMain") or pe.imports("mscoree.dll", "_CorDllMain")) and 1 of ($a*)
+}
+
+
+rule DotNET_SmartAssembly: RedGate {
+  meta:
+    author = "_pusher_"
+    date   = "2016-07"
+
+  strings:
+    $a0 = "Powered by SmartAssembly "
+    $a1 = "Powered by {smartassembly}"
+
+  condition:
+    (pe.imports("mscoree.dll", "_CorExeMain") or pe.imports("mscoree.dll", "_CorDllMain")) and 1 of ($a*)
+}
+
+
+rule PECompact_2xx: Jeremy Collake {
+  meta:
+    author  = "_pusher_"
+    date    = "2016-01"
+    version = "0.2"
+
+  strings:
+    //$c0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 }
+    //needs to be checked more
+    //$c1 = { 89 4A FC 33 C0 C3 B8 78 56 34 12 64 8F 05 00 00 00 00 83 C4 04 55 53 51 57 }
+    $c2 = { 56 FF D1 5A 58 03 43 08 8B F8 52 8B F0 8B 46 FC 83 C0 04 2B F0 89 56 08 8B 4B 0C 89 4E 14 FF D7 89 85 ?? ?? ?? ?? 8B F0 8B 4B 14 5A EB 0C 03 CA 68 00 80 00 00 6A 00 57 FF 11 8B C6 5A 5E 5F 59 5B 5D FF E0 }
+    $c3 = { 56 FF D1 5A 58 03 43 08 8B F8 52 8B F0 8B 46 FC 83 C0 04 2B F0 89 56 08 8B 4B 0C 89 4E 14 FF D7 5A 33 C9 66 3B 4E 2A 75 12 8B F0 68 00 80 00 00 51 8B 4B 14 03 CA 57 FF 11 8B C6 5A 5E 5F 59 5B 5D FF E0 }
+  //older versions 1.56
+  //this is not found
+  //$c4 = { 73 6B E8 26 02 00 00 8D 9D ?? ?? ?? ?? 53 50 FF 95 ?? ?? ?? ?? 8D 9D ?? ?? ?? ?? 53 83 BD ?? ?? ?? ?? 01 74 08 8D 8D ?? ?? ?? ?? EB 06 8D 8D ?? ?? ?? ?? 8B 95 ?? ?? ?? ?? 8B BD ?? ?? ?? ?? 57 52 51 53 FF D0 8D 9D ?? ?? ?? ?? 53 FF B5 ?? ?? ?? ?? FF 95 ?? ?? ?? ?? 5B 8D 8D ?? ?? ?? ?? 6A 10 51 53 6A 00 FF D0 FF A5 ?? ?? ?? ?? 8B B5 ?? ?? ?? ?? 8B BD ?? ?? ?? ?? E8 56 0C 00 00 61 9D 50 68 ?? ?? ?? ?? C2 04 00 }
+
+  condition:
+    //$c0 at pe.entry_point or
+    (
+      (pe.sections.len() == 2) and
+      ($c2 in (pe.sections[0].raw_data_offset..pe.sections[1].raw_data_offset + pe.sections[1].raw_data_size)) or
+      ($c3 in (pe.sections[0].raw_data_offset..pe.sections[1].raw_data_offset + pe.sections[1].raw_data_size))
+    )
+}
+
+
+rule tElockv092b1: tE {
+  meta:
+    author = "_pusher_"
+    date   = "2015-11"
+
+  strings:
+    $a0 = { E9 87 E9 FF FF ?? ?? ?? B8 }
+
+  condition:
+    $a0
+}
+
+
+rule Upack_entrypoint_issue {
+  meta:
+    author = "_pusher_"
+
+  strings:
+    $right = { BE B0 11 40 00 }
+    $wrong = { 0B 01 4C 6F 61 64 4C }
+
+  condition:
+    $right at pe.entry_point or
+    $wrong at pe.entry_point
+}
+
+
+rule Upack_all_versions: Dwing {
+  meta:
+    author = "_pusher_"
+    date   = "2015-11"
+
+  strings:
+    $a0 = { 74 1F 51 56 97 FF D1 93 AC 84 C0 75 FB 38 06 74 EA 8B C6 79 05 46 33 C0 66 AD 50 53 FF D5 AB EB E7 C3 }
+    $a1 = { 74 30 51 56 97 FF D1 93 AC 84 C0 75 FB 38 06 74 EA 8B C6 79 05 46 33 C0 66 AD 50 53 FF D5 AB EB E7 33 C0 40 8D 54 85 00 FF 16 13 C0 3B C1 72 F4 2B C1 C3 }
+    $a2 = { E2 FA 5B 03 DA 43 59 89 5D 0C 56 8B F7 2B F3 F3 A4 AC 5E B1 80 AA 3B 7E 2C 73 03 FF 66 28 58 8B 4E 30 5F E3 1B 8A 07 47 04 18 3C 02 73 F7 8B 07 3C ?? 75 F1 B0 00 0F C8 03 46 1C 2B C7 AB E2 E5 8B 5E 34 8B 76 38 46 AD ?? C0 0F 84 }
+    //check more
+    $a3 = { 8B 5E 28 56 52 8B 76 2C 46 AD 85 C0 5A 74 22 03 C2 52 56 97 FF 53 FC 95 AC 84 C0 75 FB 38 06 74 E7 8B C6 79 05 46 33 C0 66 AD 50 55 FF 13 AB EB E7 59 5F 8B 49 44 E3 0D 33 C0 AC 3C 04 72 0C 03 F8 01 17 E2 F3 61 E9 }
+
+  condition:
+    (
+      ((pe.linker_version.major == 0) and (pe.linker_version.minor == 01)) or  //0.1
+
+      ((pe.linker_version.major == 0) and (pe.linker_version.minor == 41)) or  //0.29
+      ((pe.linker_version.major == 0) and (pe.linker_version.minor == 48)) or  //0.30
+      ((pe.linker_version.major == 0) and (pe.linker_version.minor == 50)) or  //0.32
+      ((pe.linker_version.major == 0) and (pe.linker_version.minor == 51)) or  //0.33
+      ((pe.linker_version.major == 75) and (pe.linker_version.minor == 69)) or  //0.34 and 0.36
+      ((pe.linker_version.major == 0) and (pe.linker_version.minor == 53)) or  //0.35
+      ((pe.linker_version.major == 0) and (pe.linker_version.minor == 57)) or  //0.39
+      ((pe.linker_version.major == 76) and (pe.linker_version.minor == 111)) or  //0.37,0.38,0.39,0.39f and 0.399
+      ((pe.linker_version.major == 80) and (pe.linker_version.minor == 255))  //Upack mutanter
+
+    ) and
+    //($a0 or $a1 or $a2 or $a3)
+    any of them
+
+}
+
+
+rule ZProtect {
+  meta:
+    author = "_pusher_"
+    date   = "2015-12"
+
+  strings:
+    //1.6
+    $aa0 = { 00 04 00 00 00 66 00 00 00 0B 00 76 00 00 00 E4 CB 01 00 BC 88 02 00 5C 33 03 00 80 2F 06 00 00 00 8A 16 01 00 00 00 47 12 02 00 00 00 61 BB 02 00 00 00 EF BD 04 00 01 00 A0 79 02 00 01 00 CF 20 03 00 01 00 6B 83 04 00 03 00 E9 83 04 00 04 00 14 84 04 00 05 00 8B 84 04 00 06 00 44 85 04 00 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 38 DB A8 5F A6 22 79 C0 }
+    $aa1 = { 00 04 00 00 00 66 00 00 00 0B 00 76 00 00 00 E4 CB 01 00 80 DF 04 00 BC 98 05 00 5C 43 06 00 00 00 8A 16 01 00 00 00 EF 6D 03 00 00 00 47 22 05 00 00 00 61 CB 05 00 01 00 6B 33 03 00 03 00 E9 33 03 00 04 00 14 34 03 00 05 00 8B 34 03 00 06 00 44 35 03 00 01 00 A0 89 05 00 01 00 CF 30 06 00 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 38 DB A8 5F A6 22 79 C0 }
+    //1.4.9
+    $aa2 = { F0 D6 02 00 04 00 70 D7 02 00 02 00 70 D8 02 00 01 00 40 DB 02 00 06 00 20 DD 02 }
+    //1.4.4
+    $aa3 = { 48 00 00 00 A8 00 00 00 ?? 00 00 00 ?? 00 00 00 09 00 00 00 80 41 02 00 40 12 00 00 05 00 00 00 00 00 00 60 ?? ?? 04 00 00 00 00 00 ?? ?? 05 00 00 00 00 00 90 62 02 00 ?? ?? 04 00 00 00 00 00 D4 ?? ?? ?? ?? ?? 01 00 DB 39 E5 95 0B 3B 44 C2 20 8B 2E E4 E4 15 FE 84 ?? C6 }
+    //unknown ver
+    $aa4 = { 00 03 00 00 00 66 00 00 00 05 00 72 00 00 00 E4 CB 01 00 BC 88 02 00 5C 33 03 00 00 00 8A 16 01 00 00 00 47 12 02 00 00 00 61 BB 02 00 01 00 A0 79 02 00 01 00 CF 20 03 00 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 }
+    //wild sig.. unknown ver
+    $aa5 = { 00 0? 00 00 00 66 00 00 00 0? 00 7? 00 00 00 E4 CB 01 00 BC 88 02 00 5C 33 03 00 }
+
+    $bb0 = { 40 C3 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 66 81 38 4D 5A C3 }
+    $bb1 = { 40 C3 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 66 81 38 4D 5A C3 }
+
+  condition:
+    for any of ($a*): ($ in (pe.sections[2].raw_data_offset..pe.sections[2].raw_data_offset + 0xFF))
+    or
+    for any of ($bb*): ($ at pe.sections[1].raw_data_offset)
+}
+
+
+rule MSVC7 {
+  meta:
+    author = "_pusher_"
+    date   = "2016-08"
+    linker = "7.00"
+
+  condition:
+    pe.rich_signature.version(9210) and (pe.rich_signature.version(9178) or pe.rich_signature.version(9466)) and pe.rich_signature.toolid(29) or  //29 because of collisions with msvc6
+    pe.rich_signature.version(8078) and pe.rich_signature.version(9210) and pe.rich_signature.toolid(19)
+}
+
+
+rule MSVC2003 {
+  meta:
+    author = "_pusher_"
+    date   = "2016-08"
+    linker = "7.10"
+
+  condition:
+    //change 100 to something
+    pe.rich_signature.version(4035) and pe.rich_signature.version(50727) and pe.rich_signature.toolid(100) or
+    pe.rich_signature.version(3052) and pe.rich_signature.version(9210) and pe.rich_signature.toolid(95) or
+    pe.rich_signature.version(6030) and pe.rich_signature.version(2179) and pe.rich_signature.toolid(100) or
+    pe.rich_signature.version(3077) and pe.rich_signature.version(2179) and (pe.rich_signature.toolid(95) or pe.rich_signature.toolid(96)) or
+    pe.rich_signature.version(4035) and pe.rich_signature.version(4031) and pe.rich_signature.toolid(95)
+}
+
+
+rule MSVC2010sp1 {
+  meta:
+    author = "_pusher_"
+    date   = "2016-08"
+    linker = "10.10"
+
+  condition:
+    pe.rich_signature.version(30716) and (pe.linker_version.major == 10) and (pe.linker_version.minor == 10)
+}
+
+
+rule MSVC2012 {
+  meta:
+    author = "_pusher_"
+    date   = "2016-08"
+    linker = "11.00"
+
+  condition:
+    pe.rich_signature.version(65501) and pe.rich_signature.version(65500) and pe.rich_signature.toolid(211) or
+    pe.rich_signature.version(50929) and pe.rich_signature.version(61030) and pe.rich_signature.toolid(206) or
+    (pe.rich_signature.version(50929) or pe.rich_signature.version(65501)) and (pe.linker_version.major == 11) and (pe.linker_version.minor == 0)
+}
+
+
+rule MSVC2013sp1 {
+  meta:
+    author = "_pusher_"
+    date   = "2016-08"
+    linker = "12.10"
+
+  condition:
+    pe.rich_signature.version(30102) and pe.rich_signature.version(30102) and pe.rich_signature.toolid(242) or
+    pe.rich_signature.version(40116) and pe.rich_signature.toolid(240) and pe.rich_signature.toolid(237)
+
+}
+
+
+rule MSVB6 {
+  meta:
+    author = "_pusher_"
+    date   = "2016-08"
+    linker = "6.00"
+
+  condition:
+    pe.rich_signature.version(8041) and pe.rich_signature.version(8169) and pe.rich_signature.toolid(9) or
+    pe.rich_signature.version(8169) and pe.rich_signature.toolid(13)
+}
+
+
+rule emotet {
+  meta:
+    author      = "umair"
+    date        = "09/09/2020"
+    description = "A basic YARA rule to detect an Emotet trojan sample"
+
+  strings:
+    $AVCArray        = ".?AV?$CArray@W4LoadArrayObjType@CArchive@@ABW412@@@"
+    $randomstring1   = "DDltyusifghffDDCseRFFF"
+    $randomstring2   = "O8#9u0VJIUe?X04(VY3i9$&tGBuVwuIzN!HM40Thii$305<CfBjZQrfhKayoSrgScUWL$d3p0hPUM$#YHstO1nzJN0zL2pDEYcz0W8G"
+    $AVCCMDCMXCfgApp = ".?AVCCMDCMXCfgApp@@"
+    $AccessibleProxy = ".?AV?$IAccessibleProxyImpl@VCAccessibleProxy@ATL@@@ATL@@"
+
+  condition:
+    $AVCArray or $randomstring1 or $randomstring2 or $AVCCMDCMXCfgApp or $AccessibleProxy
+}
+
+
+rule INDICATOR_SUSPICIOUS_Disable_Win_Features {
+  meta:
+    author      = "Emirhan Ucan"
+    description = "Detects disable win features"
+    reference   = "625f4bae4d6188fe231c28914281c5000f39117feb70f3847fd1b94951cd15e3 3bdab09c77fda2c0afe9cafd76202cd33f9a1d7adee9e437a931d2ba366ebf87 5dd4ea169cabf9226f54bb53e63ea6a1b5880a0d1222242aee378efb6255b57d 9188c9e15123585764eeaf2664acab784a64c629ad7bde14696788bd4fe9e805 b6ef7d7410a44494a09973b7b0ca173ca4f67f52ea542c7393e3d1874257dfb5"
+
+  strings:
+    $k46 = "DisableAutomaticRebootOnCrash" ascii wide
+    $k70 = "DisableAutomaticRestartSignOn" ascii wide nocase
+    $k47 = "DisableAutomaticRestartScheduledMaintenance" ascii wide
+    $k48 = "DisableAutomaticRestartWithLoggedOnUsers" ascii wide
+    $k49 = "DisableAutoRebootOnCrash" ascii wide nocase
+    $k52 = "DisablePerformanceMonitor" ascii wide nocase
+    $k54 = "DisableMMC" ascii wide nocase
+    $k55 = "DisableEventViewer" ascii wide nocase
+    $k74 = "NoWinKeys" ascii wide nocase
+    $k56 = "DisableSnippingTool" ascii wide nocase
+    $k57 = "DisableMagnifier" ascii wide nocase
+    $k58 = "DisableEaseOfAccess" ascii wide nocase
+    $k60 = "DisallowWinPELicensing" ascii wide nocase
+    $k61 = "DisableChangeTime" ascii wide nocase
+    $r25 = "SOFTWARE\\McAfee" ascii wide
+    $k62 = "bDisableSelfProtection" ascii wide nocase
+    $r26 = "SOFTWARE\\AVG" ascii wide
+    $k63 = "DisableAv" ascii wide nocase
+    $r27 = "SOFTWARE\\Bitdefender" ascii wide
+    $k64 = "BlockUserModeAccess" ascii wide nocase
+    $k66 = "AntiVirusOverride" ascii wide nocase
+    $k67 = "disablelogonbar" ascii wide nocase
+    $r30 = "SOFTWARE\\Policies\\Microsoft\\Windows Defender" ascii wide
+    $k68 = "DisableScanOnRealTimeEnable" ascii wide nocase
+    $k69 = "DisableAntiSpyware" ascii wide nocase
+    $k72 = "DisableWinDefender" ascii wide nocase
+    $r31 = "SOFTWARE\\Microsoft\\Windows Defender" ascii wide
+    $k71 = "DisableAntiSpyware" ascii wide nocase
+    $k75 = "DisableAntivirus" ascii wide nocase
+    $k73 = "NoAutoUpdate" ascii wide nocase
+    $k76 = "aswidsagenta" ascii wide nocase
+    $k77 = "DisableAv" ascii wide nocase
+    $k78 = "BlockUserModeAccess" ascii wide nocase
+    $k79 = "bDisableSelfProtection" ascii wide nocase
+    $k80 = "ProtectEnabled" ascii wide nocase
+    $k81 = "MalwareProtectionEnabled" ascii wide nocase
+    $k82 = "ProductEnabled" ascii wide nocase
+    $k83 = "DisablePowerShell" ascii wide nocase
+    $k84 = "NoViewContextMenu" ascii wide nocase
+    $k85 = "NoRunAs" ascii wide nocase
+    $k91 = "NoFileOpen" ascii wide nocase
+    $r20 = "SOFTWARE\\Policies\\Microsoft\\Windows\\System" ascii wide
+    $r22 = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" ascii wide
+    $r23 = "SYSTEM\\CurrentControlSet\\Control\\MiniNT" ascii wide
+    $r50 = "SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" ascii wide
+    $r37 = "SYSTEM\\ControlSet001\\Control\\Keyboard Layouts\\Scancode Map" ascii wide
+    $r33 = "SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell" ascii wide
+    $h16 = "gdi32dll" ascii wide nocase
+    $h19 = "efi.h" ascii wide nocase
+    $h20 = "protonme" ascii wide nocase
+    $h21 = "discordnitro" ascii wide nocase
+    $h26 = "appxalluserstore" ascii wide nocase
+    $h27 = "wextracmui" ascii wide nocase
+    $h28 = "Yourfileshasbeenencrypted" ascii wide nocase
+    $h29 = "bootmgfw.efi" ascii wide nocase
+    $h30 = "memztrojan" ascii wide nocase
+    $h32 = "FINAL WARNING" ascii wide nocase
+    $h33 = "executed a Trojan" ascii wide nocase
+
+  condition:
+    uint16(0) == 0x5a4d and
+    (2 of ($r*) or 3 of ($k*)) or  //maybe three of $r*
+    (2 of ($h*))
+}
+
+
+rule XOR_hunt {
+  meta:
+    author      = "Thomas Roccia | @fr0gger_"
+    description = "100DaysOfYara - An attempt to catch malicious/suspicious pe file using xor for some data"
+    status      = "experimental"
+
+  strings:
+    $s1 = "http://" xor(0x01-0xff) ascii wide
+    $s2 = "https://" xor(0x01-0xff) ascii wide
+    $s3 = "ftp://" xor(0x01-0xff) ascii wide
+    $s4 = "This program cannot be run in DOS mode" xor(0x01-0xff) ascii wide
+    $s5 = "Mozilla/5.0" xor(0x01-0xff) ascii wide
+    $s6 = "cmd /c" xor(0x01-0xff) ascii wide
+    $s7 = "-ep bypass" xor(0x01-0xff) ascii wide
+
+  condition:
+    uint16(0) == 0x5A4D and any of them
+}
+
+
+rule ttp_cmdline_ipconfig_flushdns_reg {
+  meta:
+    author = "stvemillertime"
+    desc   = "Looks for suspicious cmdline string in a PE"
+    ref    = "884c15502dbd6fe6dd4fca322904a38bce117ab6ed102ab2da84dfb4064c3e44"  // just an example, i didn't look much
+
+  strings:
+    $a  = "flushdns" nocase ascii wide
+    $z2 = { 69 00 70 00 63 00 6F 00 6E 00 66 00 69 00 67 00 2E 00 65 00 78 00 65 00 00 00 00 }  //ipconfig.exe vs version info
+    $z3 = { 4E 00 65 00 74 00 45 00 76 00 65 00 6E 00 74 00 2E 00 44 00 6C 00 6C 00 00 00 00 00 }  //netevent.dll vs version info
+    $z4 = "FlushDnsPolicyUnreachableStatus"
+    $z5 = "flushdns</userInput>"
+
+  condition:
+    uint16be(0) == 0x4d5a
+    and pe.signatures.len() == 0
+    and $a
+    and not any of ($z*)
+}
+
+
+rule ttp_toolmark_fileextensions_array_2 {
+  meta:
+    author = "stvemillertime"
+    desc   = "this looks for pes with lots of file extensions in a special format"
+
+  strings:
+    $a00 = /(\*|\;|\%)\.doc/ ascii
+    $a01 = /(\*|\;|\%)\.docx/ ascii
+    $a02 = /(\*|\;|\%)\.pdf/ ascii
+    $a03 = /(\*|\;|\%)\.txt/ ascii
+    $a04 = /(\*|\;|\%)\.zip/ ascii
+    $a05 = /(\*|\;|\%)\.eml/ ascii
+    $a06 = /(\*|\;|\%)\.rtf/ ascii
+    $a07 = /(\*|\;|\%)\.xls/ ascii
+    $a08 = /(\*|\;|\%)\.xlsx/ ascii
+    $a09 = /(\*|\;|\%)\.ppt/ ascii
+    $a10 = /(\*|\;|\%)\.pptx/ ascii
+    $a12 = /(\*|\;|\%)\.cbz/ ascii
+    $a13 = /(\*|\;|\%)\.rar/ ascii
+    $a14 = /(\*|\;|\%)\.hwp/ ascii
+    $a17 = /(\*|\;|\%)\.csproj/ ascii
+    $a18 = /(\*|\;|\%)\.suo/ ascii
+    $a19 = /(\*|\;|\%)\.pdb/ ascii
+    $a20 = /(\*|\;|\%)\.resx/ ascii
+    $a21 = /(\*|\;|\%)\.cpp/ ascii
+    $a22 = /(\*|\;|\%)\.cls/ ascii
+    $a23 = /(\*|\;|\%)\.vcxproj/ ascii
+    $a24 = /(\*|\;|\%)\.idb/ ascii
+    $a25 = /(\*|\;|\%)\.iso/ ascii
+    $a26 = /(\*|\;|\%)\.sln/ ascii
+
+  condition:
+    filesize < 15MB
+    and uint16be(0) == 0x4d5a
+    and 4 of them
+}
+
+
+rule ttp_toolmark_physicaldrive_signed {
+  meta:
+    author = "stvemillertime"
+    desc   = "this looks for pes with the toolmark PhysicalDrive which is often a handle to the ... physical drive (raw disk)"
+
+  strings:
+    $a   = /\x00[\x01-\x7f]{0,50}\\\\\.\\PhysicalDrive(%|[0-9])[\x01-\x7f]{0,50}\x00/ nocase ascii  //play with the regex if u wanna get fancy
+    // some common exclusions
+    $z00 = "RMActivate_isv.pdb\x00" nocase
+    $z01 = "RMActivate.pdb\x00" nocase
+    $z02 = "iscsidsc.pdb\x00"
+    $z03 = "iscsiexe.pdb\x00"
+    $z04 = "hostmib.pdb\x00"
+    $z05 = "vmtools.pdb\x00"
+    $z06 = "scmbridge.pdb\x00"
+
+  condition:
+    uint16be(0) == 0x4d5a
+    and pe.signatures.len() != 0
+    and $a
+    and not any of ($z*)
+}
+
+
+rule ttp_toolmark_physicaldrive_unsigned {
+  meta:
+    author = "stvemillertime"
+    desc   = "this looks for pes with the toolmark PhysicalDrive which is often a handle to the ... physical drive (raw disk)"
+
+  strings:
+    $a   = /\x00[\x01-\x7f]{0,50}\\\\\.\\PhysicalDrive(%|[0-9])[\x01-\x7f]{0,50}\x00/ nocase ascii
+    // some common exclusions
+    $z00 = "RMActivate_isv.pdb\x00" nocase
+    $z01 = "RMActivate.pdb\x00" nocase
+    $z02 = "iscsidsc.pdb\x00"
+    $z03 = "iscsiexe.pdb\x00"
+    $z04 = "hostmib.pdb\x00"
+    $z05 = "vmtools.pdb\x00"
+    $z06 = "scmbridge.pdb\x00"
+
+  condition:
+    uint16be(0) == 0x4d5a
+    and pe.signatures.len() == 0
+    and $a
+    and not any of ($z*)
+}
+
+
+rule IDDQD_God_Mode_Rule {
+  meta:
+    description = "Detects a wide array of cyber threats, from malware and ransomware to advanced persistent threats (APTs)"
+    author      = "Florian Roth"
+    reference   = "Internal Research - get a god mode rule set with THOR by Nextron Systems"
+    date        = "2019-05-15"
+    modified    = "2024-01-12"
+    score       = 60
+
+  strings:
+    $ = "sekurlsa::logonpasswords" ascii wide nocase  /* Mimikatz Command */
+    $ = "ERROR kuhl" wide xor  /* Mimikatz Error */
+    $ = " -w hidden " ascii wide nocase  /* Power Shell Params */
+    $ = "Koadic." ascii  /* Koadic Framework */
+    $ = "ReflectiveLoader" fullword ascii wide xor  /* Generic - Common Export Name */
+    $ = "%s as %s\\%s: %d" ascii xor  /* CobaltStrike indicator */
+    $ = "[System.Convert]::FromBase64String(" ascii  /* PowerShell - Base64 encoded payload */
+    $ = "/meterpreter/" ascii xor  /* Metasploit Framework - Meterpreter */
+    $ = / -[eE][decoman]{0,41} ['"]?(JAB|SUVYI|aWV4I|SQBFAFgA|aQBlAHgA|cgBlAG)/ ascii wide  /* PowerShell encoded code */
+    $ = /  (sEt|SEt|SeT|sET|seT)  / ascii wide  /* Casing Obfuscation */
+    $ = ");iex " nocase ascii wide  /* PowerShell - compact code */
+    $ = "Nir Sofer" fullword wide  /* Hack Tool Producer */
+    $ = "impacket." ascii  /* Impacket Library */
+    $ = /\[[\+\-!E]\] (exploit|target|vulnerab|shell|inject)/ nocase  /* Hack Tool Output Pattern */
+    $ = "0000FEEDACDC}" ascii wide  /* Squiblydoo - Class ID */
+    $ = "vssadmin delete shadows" ascii nocase  /* Shadow Copy Deletion via vssadmin - often used in ransomware */
+    $ = ".exe delete shadows" ascii nocase  /* Shadow Copy Deletion via vssadmin - often used in ransomware */
+    $ = " shadowcopy delete" ascii wide nocase  /* Shadow Copy Deletion via WMIC - often used in ransomware */
+    $ = " delete catalog -quiet" ascii wide nocase  /* Shadow Copy Deletion via wbadmin - often used in ransomware */
+    $ = "stratum+tcp://" ascii wide  /* Stratum Address - used in Crypto Miners */
+    $ = /\\(Debug|Release)\\(Key[lL]og|[Ii]nject|Steal|By[Pp]ass|Amsi|Dropper|Loader|CVE\-)/  /* Typical PDB strings found in malware or hack tools */
+    $ = /(Dropper|Bypass|Injection|Potato)\.pdb/ nocase  /* Typical PDP strings found in hack tools */
+    $ = "Mozilla/5.0" xor(0x01-0xff) ascii wide  /* XORed Mozilla user agent - often found in implants */
+    $ = "amsi.dllATVSH" ascii xor  /* Havoc C2 */
+    $ = "BeaconJitter" xor  /* Sliver */
+    $ = "main.Merlin" ascii fullword  /* Merlin C2 */
+    $ = "\x48\x83\xec\x50\x4d\x63\x68\x3c\x48\x89\x4d\x10" xor  /* Brute Ratel C4 */
+    $ = "}{0}\"-f " ascii wide  /* PowerShell obfuscation - format string */
+    $ = "HISTORY=/dev/null" ascii  /* Linux HISTORY tampering - found in many samples */
+    $ = " /tmp/x;" ascii  /* Often used in malicious linux scripts */
+    $ = /comsvcs(\.dll)?[, ]{1,2}(MiniDump|#24)/  /* Process dumping method using comsvcs.dll's MiniDump */
+    $ = "AmsiScanBuffer" ascii wide base64  /* AMSI Bypass */
+    $ = "AmsiScanBuffer" xor(0x01-0xff)  /* AMSI Bypass */
+    $ = "%%%%%%%%%%%######%%%#%%####%  &%%**#" ascii wide xor  /* SeatBelt */
+
+  condition:
+    1 of them
+}
+
+
+rule Contains_VBE_File {
+  meta:
+    author      = "Didier Stevens (https://DidierStevens.com)"
+    description = "Detect a VBE file inside a byte sequence"
+    method      = "Find string starting with #@~^ and ending with ^#~@"
+
+  strings:
+    $vbe = /#@~\^.+\^#~@/
+
+  condition:
+    $vbe
+}
+
+
+rule IOS_canary {
+  meta:
+    author      = "Didier Stevens (https://DidierStevens.com)"
+    description = "Search for a Cisco IOS canary value"
+    method      = "Find canary sequence FD0110DF"
+
+  strings:
+    $canary = { FD 01 10 DF }
+
+  condition:
+    $canary
+}
+
+
+rule ListView2_CLSID {
+  meta:
+    author = "Didier Stevens (https://DidierStevens.com)"
+
+  strings:
+    $a1 = { 4B F0 D1 BD 8B 85 D1 11 B1 6A 00 C0 F0 28 36 28 }
+
+  condition:
+    any of them
+}
+
+
+rule adfind {
+  meta:
+    description   = "Detection patterns for the tool 'adfind' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "adfind"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://thedfirreport.com/2022/08/08/bumblebee-roasts-its-way-to-domain-admin/
+    $string1  = /\sdclist\s/ nocase ascii wide
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://thedfirreport.com/2022/08/08/bumblebee-roasts-its-way-to-domain-admin/
+    $string2  = /\s\-sc\strustdump/ nocase ascii wide
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://thedfirreport.com/2022/08/08/bumblebee-roasts-its-way-to-domain-admin/
+    $string3  = /adfind\s\-f\s/ nocase ascii wide
+    // Description: query domain trusts with adfind
+    // Reference: N/A
+    $string4  = /adfind\s\-f\sobjectclass\=trusteddomain/ nocase ascii wide
+    // Description: query domain trusts with adfind
+    // Reference: N/A
+    $string5  = /adfind\s\-sc\strustdmp/ nocase ascii wide
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://thedfirreport.com/2022/08/08/bumblebee-roasts-its-way-to-domain-admin/
+    $string6  = /adfind\.bat/ nocase ascii wide
+    // Description: query domain trusts with adfind
+    // Reference: N/A
+    $string7  = /adfind\.exe\s\-f\sobjectclass\=trusteddomain/ nocase ascii wide
+    // Description: query domain trusts with adfind
+    // Reference: N/A
+    $string8  = /adfind\.exe\s\-sc\strustdmp/ nocase ascii wide
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://thedfirreport.com/2022/08/08/bumblebee-roasts-its-way-to-domain-admin/
+    $string9  = /adfind\.exe/ nocase ascii wide
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://www.joeware.net/freetools/tools/adfind/usage.htm
+    $string10 = /AdFind\.zip/ nocase ascii wide
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://thedfirreport.com/2022/08/08/bumblebee-roasts-its-way-to-domain-admin/
+    $string11 = /computers_pwdnotreqd/ nocase ascii wide
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://thedfirreport.com/2022/08/08/bumblebee-roasts-its-way-to-domain-admin/
+    $string12 = /name\=.*Domain\sAdmins/ nocase ascii wide
+    // Description: Adfind is a command-line tool often used by administrators for Active Directory queries. However. attackers can misuse it to gather valuable information about the network environment. including user accounts. group memberships. domain controllers. and domain trusts. This gathered intelligence can aid in lateral movement. privilege escalation. or even data exfiltration. Such reconnaissance activities often precede more damaging attacks.
+    // Reference: https://thedfirreport.com/2022/08/08/bumblebee-roasts-its-way-to-domain-admin/
+    $string13 = /tools\/adfind/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule AlanFramework {
+  meta:
+    description   = "Detection patterns for the tool 'AlanFramework' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "AlanFramework"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: Alan Framework is a post-exploitation framework useful during red-team activities.
+    // Reference: https://github.com/enkomio/AlanFramework
+    $string1 = /http.*:\/\/127\.0\.0\.1:8081/ nocase ascii wide
+    // Description: Alan Framework is a post-exploitation framework useful during red-team activities.
+    // Reference: https://github.com/enkomio/AlanFramework
+    $string2 = /http.*:\/\/localhost:8081/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule Browser_C2 {
+  meta:
+    description   = "Detection patterns for the tool 'Browser-C2' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "Browser-C2"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: Post Exploitation agent which uses a browser to do C2 operations.
+    // Reference: https://github.com/0x09AL/Browser-C2
+    $string1 = /http:\/\/127\.0\.0\.1:8081/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule DBC2 {
+  meta:
+    description   = "Detection patterns for the tool 'DBC2' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "DBC2"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: DBC2 (DropboxC2) is a modular post-exploitation tool composed of an agent running on the victim's machine - a controler running on any machine - powershell modules and Dropbox servers as a means of communication.
+    // Reference: https://github.com/Arno0x/DBC2
+    $string1 = /https:\/\/api\.dropboxapi\.com\// nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule netscan {
+  meta:
+    description   = "Detection patterns for the tool 'netscan' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "netscan"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: SoftPerfect Network Scanner abused by threat actor
+    // Reference: https://www.softperfect.com/products/networkscanner/
+    $string1 = /\/netscan\.exe/ nocase ascii wide
+    // Description: SoftPerfect Network Scanner abused by threat actor
+    // Reference: https://www.softperfect.com/products/networkscanner/
+    $string2 = /\\netscan\.exe/ nocase ascii wide
+    // Description: SoftPerfect Network Scanner abused by threat actor
+    // Reference: https://www.softperfect.com/products/networkscanner/
+    $string3 = /\\netscan\.lic/ nocase ascii wide
+    // Description: SoftPerfect Network Scanner abused by threat actor
+    // Reference: https://www.softperfect.com/products/networkscanner/
+    $string4 = /\\netscan\.xml/ nocase ascii wide
+    // Description: SoftPerfect Network Scanner abused by threat actor
+    // Reference: https://www.softperfect.com/products/networkscanner/
+    $string5 = /\\SoftPerfect\sNetwork\sScanner/ nocase ascii wide
+    // Description: SoftPerfect Network Scanner abused by threat actor
+    // Reference: https://www.softperfect.com/products/networkscanner/
+    $string6 = /netscan_setup\.exe/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule netsh {
+  meta:
+    description   = "Detection patterns for the tool 'netsh' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "netsh"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: Disable Windows Firewall
+    // Reference: N/A
+    $string1 = /NetSh\sAdvfirewall\sset\sallprofiles\sstate\soff/ nocase ascii wide
+    // Description: adding a executable in user appdata folder to the allowed programs
+    // Reference: https://tria.ge/231006-ydmxjsfe5s/behavioral1/analog?proc=66
+    $string2 = /netsh\sfirewall\sadd\sallowedprogram\s\"C:\\Users\\.*\\AppData\\.*\.exe\"\s\".*\.exe\"\sENABLE/ nocase ascii wide
+    // Description: Disable Windows Firewall
+    // Reference: N/A
+    $string3 = /netsh\sfirewall\sset\sopmode\sdisable/ nocase ascii wide
+    // Description: commands from wmiexec2.0 -  is the same wmiexec that everyone knows and loves (debatable). This 2.0 version is obfuscated to avoid well known signatures from various AV engines.
+    // Reference: https://github.com/ice-wzl/wmiexec2
+    $string4 = /netsh\sinterface\sportproxy\sadd\sv4tov4\slistenport\=.*\sconnectport\=.*\sconnectaddress\=/ nocase ascii wide
+    // Description: The actor has used the following commands to enable port forwarding [T1090] on the host
+    // Reference: https://media.defense.gov/2023/May/24/2003229517/-1/-1/0/CSA_Living_off_the_Land.PDF
+    $string5 = /netsh\sinterface\sportproxy\sadd\sv4tov4.*listenaddress\=.*\slistenport\=.*connectaddress\=.*connectport/ nocase ascii wide
+    // Description: commands from wmiexec2.0 -  is the same wmiexec that everyone knows and loves (debatable). This 2.0 version is obfuscated to avoid well known signatures from various AV engines.
+    // Reference: https://github.com/ice-wzl/wmiexec2
+    $string6 = /netsh\sinterface\sportproxy\sdelete\sv4tov4\slistenport\=/ nocase ascii wide
+    // Description: commands from wmiexec2.0 -  is the same wmiexec that everyone knows and loves (debatable). This 2.0 version is obfuscated to avoid well known signatures from various AV engines.
+    // Reference: https://github.com/ice-wzl/wmiexec2
+    $string7 = /netsh\sinterface\sportproxy\sshow\sv4tov4/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule py2exe0 {
+  meta:
+    description   = "Detection patterns for the tool 'py2exe' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "py2exe"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string1  = /\spy2exe/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string2  = /\/py2exe\// nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string3  = /\\py2exe/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string4  = /py2exe\s/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string5  = /py2exe.*\.exe\s/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string6  = /py2exe.*\.msi\s/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string7  = /py2exe.*\.py/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string8  = /py2exe\-.*\.tar\.gz/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string9  = /py2exe\-.*\.whl/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string10 = /py2exe\.build_exe/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string11 = /py2exe\.freeze/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string12 = /py2exe\.git/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string13 = /py2exe_setuptools\.py/ nocase ascii wide
+    // Description: py2exe allows you to convert Python scripts into standalone executable files for Windows othen used by attacker
+    // Reference: https://github.com/py2exe/py2exe
+    $string14 = /py2exe\-master\.zip/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule pyinstaller {
+  meta:
+    description   = "Detection patterns for the tool 'pyinstaller' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "pyinstaller"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: PyInstaller bundles a Python application and all its dependencies into a single package executable.
+    // Reference: https://www.pyinstaller.org/
+    $string1 = /\/pyinstaller\// nocase ascii wide
+    // Description: PyInstaller bundles a Python application and all its dependencies into a single package executable.
+    // Reference: https://www.pyinstaller.org/
+    $string2 = /import\sPyInstaller/ nocase ascii wide
+    // Description: PyInstaller bundles a Python application and all its dependencies into a single package executable.
+    // Reference: https://www.pyinstaller.org/
+    $string3 = /install\spyinstaller/ nocase ascii wide
+    // Description: PyInstaller bundles a Python application and all its dependencies into a single package executable.
+    // Reference: https://www.pyinstaller.org/
+    $string4 = /pyinstaller\s.*\.py/ nocase ascii wide
+    // Description: PyInstaller bundles a Python application and all its dependencies into a single package executable.
+    // Reference: https://www.pyinstaller.org/
+    $string5 = /pyinstaller\.exe/ nocase ascii wide
+    // Description: PyInstaller bundles a Python application and all its dependencies into a single package executable.
+    // Reference: https://www.pyinstaller.org/
+    $string6 = /pyinstaller\/tarball/ nocase ascii wide
+    // Description: PyInstaller bundles a Python application and all its dependencies into a single package executable.
+    // Reference: https://www.pyinstaller.org/
+    $string7 = /pyinstaller\-script\.py/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule m3ed_52ba5b2a27045646 {
+  meta:
+    copyright    = "Copyright (c) 2014-2017 Support Intelligence Inc, All Rights Reserved."
+    engine       = "saphire/1.2.2 divinorum/0.99 icewater/0.3.01"
+    viz_url      = "http://icewater.io/en/cluster/query?h64=m3ed.52ba5b2a27045646"
+    cluster      = "m3ed.52ba5b2a27045646"
+    cluster_size = "3 samples"
+    filetype     = "pe"
+    tlp          = "amber"
+    version      = "icewater foxtail"
+    author       = "Rick Wesson (@wessorh) rick@support-intelligence.com"
+    date         = "20171009"
+    license      = "RIL v1.0 see https://raw.githubusercontent.com/SupportIntelligence/Icewater/master/LICENSE"
+    family       = "ramnit nimnul malicious"
+    md5_hashes   = "['8163dfdfb3d6cf9e0f57c0abeff99b83', '804d37b83b242d04d8b19bb655f2b52f', '8163dfdfb3d6cf9e0f57c0abeff99b83']"
+
+  condition:
+    filesize > 65536 and filesize < 262144
+    and hash.md5(57344, 1127) == "974fce2e259d417be646081135899951"
+}
+
+
+rule win_biodata_auto {
+  meta:
+    author             = "Felix Bilstein - yara-signator at cocacoding dot com"
+    date               = "2020-10-14"
+    version            = "1"
+    description        = "autogenerated rule brought to you by yara-signator"
+    tool               = "yara-signator v0.5.0"
+    signator_config    = "callsandjumps;datarefs;binvalue"
+    malpedia_reference = "https://malpedia.caad.fkie.fraunhofer.de/details/win.biodata"
+    malpedia_rule_date = "20201014"
+    malpedia_hash      = "a7e3bd57eaf12bf3ea29a863c041091ba3af9ac9"
+    malpedia_version   = "20201014"
+    malpedia_license   = "CC BY-SA 4.0"
+    malpedia_sharing   = "TLP:WHITE"
+  /* DISCLAIMER
+   * The strings used in this rule have been automatically selected from the
+   * disassembly of memory dumps and unpacked files, using YARA-Signator.
+   * The code and documentation is published here:
+   * https://github.com/fxb-cocacoding/yara-signator
+   * As Malpedia is used as data source, please note that for a given
+   * number of families, only single samples are documented.
+   * This likely impacts the degree of generalization these rules will offer.
+   * Take the described generation method also into consideration when you
+   * apply the rules in your use cases and assign them confidence levels.
+   */
+
+  strings:
+    $sequence_0 = { 8d 45 f0 50 83 c9 ff ba ?? ?? ?? ?? }
+    // n = 4, score = 200
+    //   8d45f0               | lea                 eax, [ebp - 0x10]
+    //   50                   | push                eax
+    //   83c9ff               | or                  ecx, 0xffffffff
+    //   ba????????           |                     
+    $sequence_1 = { a1 ?? ?? ?? ?? e8 ?? ?? ?? ?? 8b 14 24 89 82 88 00 00 00 8b 04 24 8b 53 68 89 90 80 00 00 00 }
+    // n = 7, score = 200
+    //   a1????????           |                     
+    //   e8????????           |                     
+    //   8b1424               | mov                 edx, dword ptr [esp]
+    //   898288000000         | mov                 dword ptr [edx + 0x88], eax
+    //   8b0424               | mov                 eax, dword ptr [esp]
+    //   8b5368               | mov                 edx, dword ptr [ebx + 0x68]
+    //   899080000000         | mov                 dword ptr [eax + 0x80], edx
+    $sequence_2 = { 8d 45 00 fe 8d 45 00 fa 8d 45 00 d7 8d 45 00 }
+    // n = 5, score = 200
+    //   8d4500               | lea                 eax, [ebp]
+    //   fe8d4500fa8d         | dec                 byte ptr [ebp - 0x7205ffbb]
+    //   45                   | inc                 ebp
+    //   00d7                 | add                 bh, dl
+    //   8d4500               | lea                 eax, [ebp]
+    $sequence_3 = { 8b d8 8b c3 e8 ?? ?? ?? ?? 8b c3 e8 ?? ?? ?? ?? 83 b8 84 00 00 00 00 74 6b }
+    // n = 7, score = 200
+    //   8bd8                 | mov                 ebx, eax
+    //   8bc3                 | mov                 eax, ebx
+    //   e8????????           |                     
+    //   8bc3                 | mov                 eax, ebx
+    //   e8????????           |                     
+    //   83b88400000000       | cmp                 dword ptr [eax + 0x84], 0
+    //   746b                 | je                  0x6d
+    $sequence_4 = { 8b d0 8b c3 8b 08 ff 51 18 8b f8 8b 56 18 8b c7 }
+    // n = 7, score = 200
+    //   8bd0                 | mov                 edx, eax
+    //   8bc3                 | mov                 eax, ebx
+    //   8b08                 | mov                 ecx, dword ptr [eax]
+    //   ff5118               | call                dword ptr [ecx + 0x18]
+    //   8bf8                 | mov                 edi, eax
+    //   8b5618               | mov                 edx, dword ptr [esi + 0x18]
+    //   8bc7                 | mov                 eax, edi
+    $sequence_5 = { 8b 43 20 e8 ?? ?? ?? ?? 85 c0 7e 42 f6 45 ff 01 74 3c }
+    // n = 6, score = 200
+    //   8b4320               | mov                 eax, dword ptr [ebx + 0x20]
+    //   e8????????           |                     
+    //   85c0                 | test                eax, eax
+    //   7e42                 | jle                 0x44
+    //   f645ff01             | test                byte ptr [ebp - 1], 1
+    //   743c                 | je                  0x3e
+    $sequence_6 = { 33 d2 8b 45 fc 8b 08 ff 51 38 8b 06 50 }
+    // n = 6, score = 200
+    //   33d2                 | xor                 edx, edx
+    //   8b45fc               | mov                 eax, dword ptr [ebp - 4]
+    //   8b08                 | mov                 ecx, dword ptr [eax]
+    //   ff5138               | call                dword ptr [ecx + 0x38]
+    //   8b06                 | mov                 eax, dword ptr [esi]
+    //   50                   | push                eax
+    $sequence_7 = { 8b 30 ff 56 48 8b c3 8b 10 ff 52 54 84 c0 0f 84 e2 01 00 00 }
+    // n = 7, score = 200
+    //   8b30                 | mov                 esi, dword ptr [eax]
+    //   ff5648               | call                dword ptr [esi + 0x48]
+    //   8bc3                 | mov                 eax, ebx
+    //   8b10                 | mov                 edx, dword ptr [eax]
+    //   ff5254               | call                dword ptr [edx + 0x54]
+    //   84c0                 | test                al, al
+    //   0f84e2010000         | je                  0x1e8
+    $sequence_8 = { a1 ?? ?? ?? ?? 8b 00 e8 ?? ?? ?? ?? 33 c9 33 d2 a1 ?? ?? ?? ?? e8 ?? ?? ?? ?? }
+    // n = 7, score = 200
+    //   a1????????           |                     
+    //   8b00                 | mov                 eax, dword ptr [eax]
+    //   e8????????           |                     
+    //   33c9                 | xor                 ecx, ecx
+    //   33d2                 | xor                 edx, edx
+    //   a1????????           |                     
+    //   e8????????           |                     
+    $sequence_9 = { a1 ?? ?? ?? ?? e8 ?? ?? ?? ?? 89 87 0c 01 00 00 8b ce 33 d2 8b c7 e8 ?? ?? ?? ?? }
+  // n = 7, score = 200
+  //   a1????????           |                     
+  //   e8????????           |                     
+  //   89870c010000         | mov                 dword ptr [edi + 0x10c], eax
+  //   8bce                 | mov                 ecx, esi
+  //   33d2                 | xor                 edx, edx
+  //   8bc7                 | mov                 eax, edi
+  //   e8????????           |                     
+
+  condition:
+    7 of them and filesize < 1589248
+}
+
+
+rule win_blacksoul_auto {
+  meta:
+    author             = "Felix Bilstein - yara-signator at cocacoding dot com"
+    date               = "2023-07-11"
+    version            = "1"
+    description        = "Detects win.blacksoul."
+    info               = "autogenerated rule brought to you by yara-signator"
+    tool               = "yara-signator v0.6.0"
+    signator_config    = "callsandjumps;datarefs;binvalue"
+    malpedia_reference = "https://malpedia.caad.fkie.fraunhofer.de/details/win.blacksoul"
+    malpedia_rule_date = "20230705"
+    malpedia_hash      = "42d0574f4405bd7d2b154d321d345acb18834a41"
+    malpedia_version   = "20230715"
+    malpedia_license   = "CC BY-SA 4.0"
+    malpedia_sharing   = "TLP:WHITE"
+  /* DISCLAIMER
+   * The strings used in this rule have been automatically selected from the
+   * disassembly of memory dumps and unpacked files, using YARA-Signator.
+   * The code and documentation is published here:
+   * https://github.com/fxb-cocacoding/yara-signator
+   * As Malpedia is used as data source, please note that for a given
+   * number of families, only single samples are documented.
+   * This likely impacts the degree of generalization these rules will offer.
+   * Take the described generation method also into consideration when you
+   * apply the rules in your use cases and assign them confidence levels.
+   */
+
+  strings:
+    $sequence_0 = { c7 45 fc 03 00 00 00 89 4d a0 89 4d 90 8d 4d d8 e8 ?? ?? ?? ?? 84 db 74 58 }
+    // n = 7, score = 200
+    //   c745fc03000000       | mov                 dword ptr [ebp - 4], 3
+    //   894da0               | mov                 dword ptr [ebp - 0x60], ecx
+    //   894d90               | mov                 dword ptr [ebp - 0x70], ecx
+    //   8d4dd8               | lea                 ecx, [ebp - 0x28]
+    //   e8????????           |                     
+    //   84db                 | test                bl, bl
+    //   7458                 | je                  0x5a
+    $sequence_1 = { f7 de c7 45 fc 00 00 00 00 8d 7b 30 1b f6 }
+    // n = 4, score = 200
+    //   f7de                 | neg                 esi
+    //   c745fc00000000       | mov                 dword ptr [ebp - 4], 0
+    //   8d7b30               | lea                 edi, [ebx + 0x30]
+    //   1bf6                 | sbb                 esi, esi
+    $sequence_2 = { 51 8d 4d fc 51 57 56 }
+    // n = 5, score = 200
+    //   51                   | push                ecx
+    //   8d4dfc               | lea                 ecx, [ebp - 4]
+    //   51                   | push                ecx
+    //   57                   | push                edi
+    //   56                   | push                esi
+    $sequence_3 = { 8b 75 8c 56 57 e8 ?? ?? ?? ?? 59 }
+    // n = 5, score = 200
+    //   8b758c               | mov                 esi, dword ptr [ebp - 0x74]
+    //   56                   | push                esi
+    //   57                   | push                edi
+    //   e8????????           |                     
+    //   59                   | pop                 ecx
+    $sequence_4 = { 89 45 90 8b 5d 90 3a 13 8b 5d 88 }
+    // n = 4, score = 200
+    //   894590               | mov                 dword ptr [ebp - 0x70], eax
+    //   8b5d90               | mov                 ebx, dword ptr [ebp - 0x70]
+    //   3a13                 | cmp                 dl, byte ptr [ebx]
+    //   8b5d88               | mov                 ebx, dword ptr [ebp - 0x78]
+    $sequence_5 = { 75 15 68 c8 04 00 00 57 68 ?? ?? ?? ?? }
+    // n = 4, score = 200
+    //   7515                 | jne                 0x17
+    //   68c8040000           | push                0x4c8
+    //   57                   | push                edi
+    //   68????????           |                     
+    $sequence_6 = { e8 ?? ?? ?? ?? eb 67 8b 75 90 56 }
+    // n = 4, score = 200
+    //   e8????????           |                     
+    //   eb67                 | jmp                 0x69
+    //   8b7590               | mov                 esi, dword ptr [ebp - 0x70]
+    //   56                   | push                esi
+    $sequence_7 = { 53 e8 ?? ?? ?? ?? 59 59 84 c0 74 3d 80 7b 04 00 }
+    // n = 7, score = 200
+    //   53                   | push                ebx
+    //   e8????????           |                     
+    //   59                   | pop                 ecx
+    //   59                   | pop                 ecx
+    //   84c0                 | test                al, al
+    //   743d                 | je                  0x3f
+    //   807b0400             | cmp                 byte ptr [ebx + 4], 0
+    $sequence_8 = { 89 4d 94 83 7d cc 10 8d 45 b8 72 03 }
+    // n = 4, score = 200
+    //   894d94               | mov                 dword ptr [ebp - 0x6c], ecx
+    //   837dcc10             | cmp                 dword ptr [ebp - 0x34], 0x10
+    //   8d45b8               | lea                 eax, [ebp - 0x48]
+    //   7203                 | jb                  5
+    $sequence_9 = { 40 89 45 94 8a 45 a7 84 c0 74 b3 }
+  // n = 5, score = 200
+  //   40                   | inc                 eax
+  //   894594               | mov                 dword ptr [ebp - 0x6c], eax
+  //   8a45a7               | mov                 al, byte ptr [ebp - 0x59]
+  //   84c0                 | test                al, al
+  //   74b3                 | je                  0xffffffb5
+
+  condition:
+    7 of them and filesize < 1823640
+}
+
+
+rule win_nullmixer_auto {
+  meta:
+    author             = "Felix Bilstein - yara-signator at cocacoding dot com"
+    date               = "2023-07-11"
+    version            = "1"
+    description        = "Detects win.nullmixer."
+    info               = "autogenerated rule brought to you by yara-signator"
+    tool               = "yara-signator v0.6.0"
+    signator_config    = "callsandjumps;datarefs;binvalue"
+    malpedia_reference = "https://malpedia.caad.fkie.fraunhofer.de/details/win.nullmixer"
+    malpedia_rule_date = "20230705"
+    malpedia_hash      = "42d0574f4405bd7d2b154d321d345acb18834a41"
+    malpedia_version   = "20230715"
+    malpedia_license   = "CC BY-SA 4.0"
+    malpedia_sharing   = "TLP:WHITE"
+  /* DISCLAIMER
+   * The strings used in this rule have been automatically selected from the
+   * disassembly of memory dumps and unpacked files, using YARA-Signator.
+   * The code and documentation is published here:
+   * https://github.com/fxb-cocacoding/yara-signator
+   * As Malpedia is used as data source, please note that for a given
+   * number of families, only single samples are documented.
+   * This likely impacts the degree of generalization these rules will offer.
+   * Take the described generation method also into consideration when you
+   * apply the rules in your use cases and assign them confidence levels.
+   */
+
+  strings:
+    $sequence_0 = { 83 ec 30 8b 74 24 40 f6 41 2c 08 0f 84 fc 00 00 00 80 79 46 00 89 cb 75 69 }
+    // n = 7, score = 100
+    //   83ec30               | sub                 esp, 0x30
+    //   8b742440             | mov                 esi, dword ptr [esp + 0x40]
+    //   f6412c08             | test                byte ptr [ecx + 0x2c], 8
+    //   0f84fc000000         | je                  0x102
+    //   80794600             | cmp                 byte ptr [ecx + 0x46], 0
+    //   89cb                 | mov                 ebx, ecx
+    //   7569                 | jne                 0x6b
+    $sequence_1 = { 38 5a 25 0f 84 61 01 00 00 8b 45 c0 3a 58 24 0f 84 07 fe ff ff 8b 45 ac 0f be db }
+    // n = 7, score = 100
+    //   385a25               | cmp                 byte ptr [edx + 0x25], bl
+    //   0f8461010000         | je                  0x167
+    //   8b45c0               | mov                 eax, dword ptr [ebp - 0x40]
+    //   3a5824               | cmp                 bl, byte ptr [eax + 0x24]
+    //   0f8407feffff         | je                  0xfffffe0d
+    //   8b45ac               | mov                 eax, dword ptr [ebp - 0x54]
+    //   0fbedb               | movsx               ebx, bl
+    $sequence_2 = { e8 ?? ?? ?? ?? 84 c0 0f 84 1b 04 00 00 80 7d bf 00 75 0c 8b 45 b8 0b 45 d4 }
+    // n = 7, score = 100
+    //   e8????????           |                     
+    //   84c0                 | test                al, al
+    //   0f841b040000         | je                  0x421
+    //   807dbf00             | cmp                 byte ptr [ebp - 0x41], 0
+    //   750c                 | jne                 0xe
+    //   8b45b8               | mov                 eax, dword ptr [ebp - 0x48]
+    //   0b45d4               | or                  eax, dword ptr [ebp - 0x2c]
+    $sequence_3 = { 8b 8b 34 01 00 00 89 4c 24 20 85 c9 7e 34 8b 4c 24 1c 3b 31 0f 84 0c 09 00 00 }
+    // n = 7, score = 100
+    //   8b8b34010000         | mov                 ecx, dword ptr [ebx + 0x134]
+    //   894c2420             | mov                 dword ptr [esp + 0x20], ecx
+    //   85c9                 | test                ecx, ecx
+    //   7e34                 | jle                 0x36
+    //   8b4c241c             | mov                 ecx, dword ptr [esp + 0x1c]
+    //   3b31                 | cmp                 esi, dword ptr [ecx]
+    //   0f840c090000         | je                  0x912
+    $sequence_4 = { 8b 40 0c 80 38 00 0f 84 b0 00 00 00 8d 50 01 89 57 0c 80 78 01 00 0f b6 30 }
+    // n = 7, score = 100
+    //   8b400c               | mov                 eax, dword ptr [eax + 0xc]
+    //   803800               | cmp                 byte ptr [eax], 0
+    //   0f84b0000000         | je                  0xb6
+    //   8d5001               | lea                 edx, [eax + 1]
+    //   89570c               | mov                 dword ptr [edi + 0xc], edx
+    //   80780100             | cmp                 byte ptr [eax + 1], 0
+    //   0fb630               | movzx               esi, byte ptr [eax]
+    $sequence_5 = { 90 8d 74 26 00 8b 5f 18 8b 47 14 39 c3 74 47 29 c3 }
+    // n = 7, score = 100
+    //   90                   | nop                 
+    //   8d742600             | lea                 esi, [esi]
+    //   8b5f18               | mov                 ebx, dword ptr [edi + 0x18]
+    //   8b4714               | mov                 eax, dword ptr [edi + 0x14]
+    //   39c3                 | cmp                 ebx, eax
+    //   7447                 | je                  0x49
+    //   29c3                 | sub                 ebx, eax
+    $sequence_6 = { 89 c1 e8 ?? ?? ?? ?? 8d 85 9c fd ff ff 89 c1 e8 ?? ?? ?? ?? 8d 85 b4 fd ff ff 89 c1 }
+    // n = 7, score = 100
+    //   89c1                 | mov                 ecx, eax
+    //   e8????????           |                     
+    //   8d859cfdffff         | lea                 eax, [ebp - 0x264]
+    //   89c1                 | mov                 ecx, eax
+    //   e8????????           |                     
+    //   8d85b4fdffff         | lea                 eax, [ebp - 0x24c]
+    //   89c1                 | mov                 ecx, eax
+    $sequence_7 = { 85 c9 0f 85 65 ff ff ff 8b 4a 78 8b 7d 10 8b 01 89 7c 24 04 8b 7d 0c }
+    // n = 7, score = 100
+    //   85c9                 | test                ecx, ecx
+    //   0f8565ffffff         | jne                 0xffffff6b
+    //   8b4a78               | mov                 ecx, dword ptr [edx + 0x78]
+    //   8b7d10               | mov                 edi, dword ptr [ebp + 0x10]
+    //   8b01                 | mov                 eax, dword ptr [ecx]
+    //   897c2404             | mov                 dword ptr [esp + 4], edi
+    //   8b7d0c               | mov                 edi, dword ptr [ebp + 0xc]
+    $sequence_8 = { 0f 84 1b 04 00 00 80 7d bf 00 75 0c 8b 45 b8 0b 45 d4 0f 84 b6 fd ff ff }
+    // n = 6, score = 100
+    //   0f841b040000         | je                  0x421
+    //   807dbf00             | cmp                 byte ptr [ebp - 0x41], 0
+    //   750c                 | jne                 0xe
+    //   8b45b8               | mov                 eax, dword ptr [ebp - 0x48]
+    //   0b45d4               | or                  eax, dword ptr [ebp - 0x2c]
+    //   0f84b6fdffff         | je                  0xfffffdbc
+    $sequence_9 = { 57 56 89 ce 53 83 ec 3c 8b 09 8b 45 10 }
+  // n = 7, score = 100
+  //   57                   | push                edi
+  //   56                   | push                esi
+  //   89ce                 | mov                 esi, ecx
+  //   53                   | push                ebx
+  //   83ec3c               | sub                 esp, 0x3c
+  //   8b09                 | mov                 ecx, dword ptr [ecx]
+  //   8b4510               | mov                 eax, dword ptr [ebp + 0x10]
+
+  condition:
+    7 of them and filesize < 2351104
+}
+
+
+rule win_whispergate_auto {
+  meta:
+    author             = "Felix Bilstein - yara-signator at cocacoding dot com"
+    date               = "2023-07-11"
+    version            = "1"
+    description        = "Detects win.whispergate."
+    info               = "autogenerated rule brought to you by yara-signator"
+    tool               = "yara-signator v0.6.0"
+    signator_config    = "callsandjumps;datarefs;binvalue"
+    malpedia_reference = "https://malpedia.caad.fkie.fraunhofer.de/details/win.whispergate"
+    malpedia_rule_date = "20230705"
+    malpedia_hash      = "42d0574f4405bd7d2b154d321d345acb18834a41"
+    malpedia_version   = "20230715"
+    malpedia_license   = "CC BY-SA 4.0"
+    malpedia_sharing   = "TLP:WHITE"
+  /* DISCLAIMER
+   * The strings used in this rule have been automatically selected from the
+   * disassembly of memory dumps and unpacked files, using YARA-Signator.
+   * The code and documentation is published here:
+   * https://github.com/fxb-cocacoding/yara-signator
+   * As Malpedia is used as data source, please note that for a given
+   * number of families, only single samples are documented.
+   * This likely impacts the degree of generalization these rules will offer.
+   * Take the described generation method also into consideration when you
+   * apply the rules in your use cases and assign them confidence levels.
+   */
+
+  strings:
+    $sequence_0 = { 89 4d c4 0f 85 56 03 00 00 89 65 a8 89 1c 24 e8 ?? ?? ?? ?? }
+    // n = 5, score = 300
+    //   894dc4               | mov                 dword ptr [ebp - 0x3c], ecx
+    //   0f8556030000         | jne                 0x35c
+    //   8965a8               | mov                 dword ptr [ebp - 0x58], esp
+    //   891c24               | mov                 dword ptr [esp], ebx
+    //   e8????????           |                     
+    $sequence_1 = { 31 db e9 ?? ?? ?? ?? b8 3f 00 00 00 e9 ?? ?? ?? ?? b8 5b 00 00 00 e9 ?? ?? ?? ?? 8d 5d 03 }
+    // n = 7, score = 300
+    //   31db                 | xor                 ebx, ebx
+    //   e9????????           |                     
+    //   b83f000000           | mov                 eax, 0x3f
+    //   e9????????           |                     
+    //   b85b000000           | mov                 eax, 0x5b
+    //   e9????????           |                     
+    //   8d5d03               | lea                 ebx, [ebp + 3]
+    $sequence_2 = { 74 0a 66 83 f9 5c 0f 85 97 fe ff ff 0f b7 4d e2 }
+    // n = 4, score = 300
+    //   740a                 | je                  0xc
+    //   6683f95c             | cmp                 cx, 0x5c
+    //   0f8597feffff         | jne                 0xfffffe9d
+    //   0fb74de2             | movzx               ecx, word ptr [ebp - 0x1e]
+    $sequence_3 = { 83 ea 01 85 d2 c7 04 91 00 00 00 00 75 f2 31 c0 }
+    // n = 5, score = 300
+    //   83ea01               | sub                 edx, 1
+    //   85d2                 | test                edx, edx
+    //   c7049100000000       | mov                 dword ptr [ecx + edx*4], 0
+    //   75f2                 | jne                 0xfffffff4
+    //   31c0                 | xor                 eax, eax
+    $sequence_4 = { 8b 35 ?? ?? ?? ?? 85 f6 0f 85 8f 00 00 00 8b 1d ?? ?? ?? ?? 85 db 0f 85 81 00 00 00 8b 0d ?? ?? ?? ?? }
+    // n = 7, score = 300
+    //   8b35????????         |                     
+    //   85f6                 | test                esi, esi
+    //   0f858f000000         | jne                 0x95
+    //   8b1d????????         |                     
+    //   85db                 | test                ebx, ebx
+    //   0f8581000000         | jne                 0x87
+    //   8b0d????????         |                     
+    $sequence_5 = { e8 ?? ?? ?? ?? 85 c0 75 cd 0f b7 56 06 }
+    // n = 4, score = 300
+    //   e8????????           |                     
+    //   85c0                 | test                eax, eax
+    //   75cd                 | jne                 0xffffffcf
+    //   0fb75606             | movzx               edx, word ptr [esi + 6]
+    $sequence_6 = { 89 c3 83 ec 6c 89 55 d0 80 e6 04 89 4d c4 }
+    // n = 5, score = 300
+    //   89c3                 | mov                 ebx, eax
+    //   83ec6c               | sub                 esp, 0x6c
+    //   8955d0               | mov                 dword ptr [ebp - 0x30], edx
+    //   80e604               | and                 dh, 4
+    //   894dc4               | mov                 dword ptr [ebp - 0x3c], ecx
+    $sequence_7 = { a1 ?? ?? ?? ?? 89 55 e4 89 04 24 e8 ?? ?? ?? ?? 8b 55 e4 a3 ?? ?? ?? ?? 89 c6 }
+    // n = 7, score = 300
+    //   a1????????           |                     
+    //   8955e4               | mov                 dword ptr [ebp - 0x1c], edx
+    //   890424               | mov                 dword ptr [esp], eax
+    //   e8????????           |                     
+    //   8b55e4               | mov                 edx, dword ptr [ebp - 0x1c]
+    //   a3????????           |                     
+    //   89c6                 | mov                 esi, eax
+    $sequence_8 = { 8b 7d bc 8d 5f 04 89 f8 8b 00 }
+    // n = 4, score = 300
+    //   8b7dbc               | mov                 edi, dword ptr [ebp - 0x44]
+    //   8d5f04               | lea                 ebx, [edi + 4]
+    //   89f8                 | mov                 eax, edi
+    //   8b00                 | mov                 eax, dword ptr [eax]
+    $sequence_9 = { 72 75 8b 45 d0 85 c0 75 6e 89 fa 31 c0 }
+  // n = 6, score = 300
+  //   7275                 | jb                  0x77
+  //   8b45d0               | mov                 eax, dword ptr [ebp - 0x30]
+  //   85c0                 | test                eax, eax
+  //   756e                 | jne                 0x70
+  //   89fa                 | mov                 edx, edi
+  //   31c0                 | xor                 eax, eax
+
+  condition:
+    7 of them and filesize < 114688
+}
+
+
+rule INDICATOR_EXE_Packed_ConfuserEx {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects executables packed with ConfuserEx Mod"
+    snort2_sid  = "930016-930018"
+    snort3_sid  = "930005-930006"
+
+  strings:
+    $s1 = "ConfuserEx " ascii
+    $s2 = "ConfusedByAttribute" fullword ascii
+    $c1 = "Confuser.Core " ascii wide
+    $u1 = "Confu v" fullword ascii
+    $u2 = "ConfuByAttribute" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and (all of ($s*) or all of ($c*) or all of ($u*))
+}
+
+
+rule INDICATOR_EXE_Packed_ConfuserEx_Custom {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects executables packed with ConfuserEx Custom; outside of GIT"
+
+  strings:
+    $s1 = { 43 6f 6e 66 75 73 65 72 45 78 20 76 [1-2] 2e [1-2] 2e [1-2] 2d 63 75 73 74 6f 6d }
+
+  condition:
+    uint16(0) == 0x5a4d and all of them
+}
+
+
+rule INDICATOR_EXE_Packed_ASPack {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects executables packed with ASPack"
+    snort2_sid  = "930007-930009"
+    snort3_sid  = "930002"
+  //strings:
+  //    $s1 = { 00 00 ?? 2E 61 73 70 61 63 6B 00 00 }
+
+  condition:
+    uint16(0) == 0x5a4d and  //all of them or
+    for any i in (0..pe.sections.len()): (
+      (
+        pe.sections[i].name == ".aspack"
+      )
+    )
+}
+
+
+rule INDICATOR_EXE_Packed_Enigma {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects executables packed with Enigma"
+    snort2_sid  = "930052-930054"
+    snort3_sid  = "930018"
+
+  strings:
+    $s1 = ".enigma0" fullword ascii
+    $s2 = ".enigma1" fullword ascii
+    $s3 = ".enigma2" fullword ascii
+    $s4 = ".enigma3" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and 2 of them or
+    for any i in (0..pe.sections.len()): (
+      (
+        pe.sections[i].name == ".enigma0" or
+        pe.sections[i].name == ".enigma1" or
+        pe.sections[i].name == ".enigma2" or
+        pe.sections[i].name == ".enigma3"
+      )
+    )
+}
+
+
+rule INDICATOR_EXE_Packed_MPress {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects executables built or packed with MPress PE compressor"
+    snort2_sid  = "930031-930033"
+    snort3_sid  = "930011"
+
+  strings:
+    $s1 = ".MPRESS1" fullword ascii
+    $s2 = ".MPRESS2" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and 1 of them or
+    for any i in (0..pe.sections.len()): (
+      (
+        pe.sections[i].name == ".MPRESS1" or
+        pe.sections[i].name == ".MPRESS2"
+      )
+    )
+}
+
+
+rule INDICATOR_EXE_DotNET_Encrypted {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects encrypted or obfuscated .NET executables"
+
+  strings:
+    $s1     = "FromBase64String" fullword ascii
+    $s2     = "ToCharArray" fullword ascii
+    $s3     = "ReadBytes" fullword ascii
+    $s4     = "add_AssemblyResolve" fullword ascii
+    $s5     = "MemoryStream" fullword ascii
+    $s6     = "CreateDecryptor" fullword ascii
+    // 08 00 00 00 00 00 1e 01 00 01 00 54 02 16 WrapNonExceptionThrows 01
+    $bytes1 = {
+      08 01 00 08 00 00 00 00 00 1e 01 00 01 00 54 02
+      16 57 72 61 70 4e 6f 6e 45 78 63 65 70 74 69 6f
+      6e 54 68 72 6f 77 73 01
+    }
+    // 00 00 BSJB...v2.0.50727 00 00 00 00 05 00
+    // 00 00 BSJB...v4.0.30319 00 00 00 00 05 00
+    $bytes2 = {
+      00 00 42 53 4a 42 01 00 01 00 00 00 00 00 0c 00
+      00 00 76 3? 2e 3? 2e ?? ?? ?? ?? ?? 00 00 00 00
+      05 00
+    }
+    // #Strings...#US...#GUID...#Blob
+    $bytes3 = {
+      00 00 23 53 74 72 69 6e 67 73 00 00 00 00 [5] 00
+      00 00 23 55 53 00 [5] 00 00 00 23 47 55 49 44 00
+      00 00 [6] 00 00 23 42 6c 6f 62 00 00 00
+    }
+    // .GetString.set_WorkingDirectory.WaitForExit.Close.Thread.System.Threading.Sleep.ToInt32.get_MainModule.ProcessModule.get_FileName.Split.
+    $bytes4 = {
+      00 47 65 74 53 74 72 69 6e 67 00 73 65 74 5f 57
+      6f 72 6b 69 6e 67 44 69 72 65 63 74 6f 72 79 00
+      57 61 69 74 46 6f 72 45 78 69 74 00 43 6c 6f 73
+      65 00 54 68 72 65 61 64 00 53 79 73 74 65 6d 2e
+      54 68 72 65 61 64 69 6e 67 00 53 6c 65 65 70 00
+      54 6f 49 6e 74 33 32 00 67 65 74 5f 4d 61 69 6e
+      4d 6f 64 75 6c 65 00 50 72 6f 63 65 73 73 4d 6f
+      64 75 6c 65 00 67 65 74 5f 46 69 6c 65 4e 61 6d
+      65 00 53 70 6c 69 74 00
+    }
+
+  condition:
+    uint16(0) == 0x5a4d and 3 of ($bytes*) and all of ($s*)
+}
+
+
+rule INDICATOR_EXE_Packed_SmartAssembly {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects executables packed with SmartAssembly"
+
+  strings:
+    $s1 = "PoweredByAttribute" fullword ascii
+    $s2 = "SmartAssembly.Attributes" fullword ascii
+    $s3 = "Powered by SmartAssembly" ascii
+
+  condition:
+    uint16(0) == 0x5a4d and 2 of them
+}
+
+
+rule INDICATOR_EXE_Packed_Dotfuscator {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects executables packed with Dotfuscator"
+
+  strings:
+    $s1 = "DotfuscatorAttribute" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and 1 of them
+}
+
+
+rule INDICATOR_SUSPICIOUS_GENRansomware {
+  meta:
+    description = "detects command variations typically used by ransomware"
+    author      = "ditekSHen"
+
+  strings:
+    $cmd1  = "cmd /c \"WMIC.exe shadowcopy delet\"" ascii wide nocase
+    $cmd2  = "vssadmin.exe Delete Shadows /all" ascii wide nocase
+    $cmd3  = "Delete Shadows /all" ascii wide nocase
+    $cmd4  = "} recoveryenabled no" ascii wide nocase
+    $cmd5  = "} bootstatuspolicy ignoreallfailures" ascii wide nocase
+    $cmd6  = "wmic SHADOWCOPY DELETE" ascii wide nocase
+    $cmd7  = "\\Microsoft\\Windows\\SystemRestore\\SR\" /disable" ascii wide nocase
+    $cmd8  = "resize shadowstorage /for=c: /on=c: /maxsize=" ascii wide nocase
+    $cmd9  = "shadowcopy where \"ID='%s'\" delete" ascii wide nocase
+    $cmd10 = "wmic.exe SHADOWCOPY /nointeractive" ascii wide nocase
+    $cmd11 = "WMIC.exe shadowcopy delete" ascii wide nocase
+    $cmd12 = "Win32_Shadowcopy | ForEach-Object {$_.Delete();}" ascii wide nocase
+    $delr  = /del \/s \/f \/q(( [A-Za-z]:\\(\*\.|[Bb]ackup))(VHD|bac|bak|wbcat|bkf)?)+/ ascii wide
+    $wp1   = "delete catalog -quiet" ascii wide nocase
+    $wp2   = "wbadmin delete backup" ascii wide nocase
+    $wp3   = "delete systemstatebackup" ascii wide nocase
+
+  condition:
+    (uint16(0) == 0x5a4d and 2 of ($cmd*) or (1 of ($cmd*) and 1 of ($wp*)) or #delr > 4) or (4 of them)
+}
+
+
+rule INDICATOR_SUSPICIOUS_EXE_References_CryptoWallets {
+    meta:
+        author = "ditekSHen"
+        description = "Detects executables referencing many cryptocurrency mining wallets or apps. Observed in information stealers"
+    strings:
+        $app1 = "Ethereum" nocase ascii wide
+        $app2 = "Bitcoin" nocase ascii wide
+        $app3 = "Litecoin" nocase ascii wide
+        $app4 = "NavCoin4" nocase ascii wide
+        $app5 = "ByteCoin" nocase ascii wide
+        $app6 = "PotCoin" nocase ascii wide
+        $app7 = "Gridcoin" nocase ascii wide
+        $app8 = "VERGE" nocase ascii wide
+        $app9 = "DogeCoin" nocase ascii wide
+        $app10 = "FlashCoin" nocase ascii wide
+        $app11 = "Sia" nocase ascii wide
+        $app12 = "Reddcoin" nocase ascii wide
+        $app13 = "Electrum" nocase ascii wide
+        $app14 = "Emercoin" nocase ascii wide
+        $app15 = "Exodus" nocase ascii wide
+        $app16 = "BBQCoin" nocase ascii wide
+        $app17 = "Franko" nocase ascii wide
+        $app18 = "IOCoin" nocase ascii wide
+        $app19 = "Ixcoin" nocase ascii wide
+        $app20 = "Mincoin" nocase ascii wide
+        $app21 = "YACoin" nocase ascii wide
+        $app22 = "Zcash" nocase ascii wide
+        $app23 = "devcoin" nocase ascii wide
+        $app24 = "Dash" nocase ascii wide
+        $app25 = "Monero" nocase ascii wide
+        $app26 = "Riot Games\\" nocase ascii wide
+        $app27 = "qBittorrent\\" nocase ascii wide
+        $app28 = "Battle.net\\" nocase ascii wide
+        $app29 = "Steam\\" nocase ascii wide
+        $app30 = "Valve\\Steam\\" nocase ascii wide
+        $app31 = "Anoncoin" nocase ascii wide
+        $app32 = "DashCore" nocase ascii wide
+        $app33 = "DevCoin" nocase ascii wide
+        $app34 = "DigitalCoin" nocase ascii wide
+        $app35 = "Electron" nocase ascii wide
+        $app36 = "ElectrumLTC" nocase ascii wide
+        $app37 = "FlorinCoin" nocase ascii wide
+        $app38 = "FrancoCoin" nocase ascii wide
+        $app39 = "JAXX" nocase ascii wide
+        $app40 = "MultiDoge" ascii wide
+        $app41 = "TerraCoin" ascii wide
+        $app42 = "Electrum-LTC" ascii wide
+        $app43 = "ElectrumG" ascii wide
+        $app44 = "Electrum-btcp" ascii wide
+        $app45 = "MultiBitHD" ascii wide
+        $app46 = "monero-project" ascii wide
+        $app47 = "Bitcoin-Qt" ascii wide
+        $app48 = "BitcoinGold-Qt" ascii wide
+        $app49 = "Litecoin-Qt" ascii wide
+        $app50 = "BitcoinABC-Qt" ascii wide
+        $app51 = "Exodus Eden" ascii wide
+        $app52 = "myether" ascii wide
+        $app53 = "factores-Binance" ascii wide
+        $app54 = "metamask" ascii wide
+        $app55 = "kucoin" ascii wide
+        $app56 = "cryptopia" ascii wide
+        $app57 = "binance" ascii wide
+        $app58 = "hitbtc" ascii wide
+        $app59 = "litebit" ascii wide
+        $app60 = "coinEx" ascii wide
+        $app61 = "blockchain" ascii wide
+        $app62 = "\\Armory" ascii wide
+        $app63 = "\\Atomic" ascii wide
+        $app64 = "\\Bytecoin" ascii wide
+        $app65 = "simpleos" ascii wide
+        $app66 = "WalletWasabi" ascii wide
+        $app67 = "atomic\\" ascii wide
+        $app68 = "Guarda\\" ascii wide
+        $app69 = "Neon\\" ascii wide
+        $app70 = "Blockstream\\" ascii wide
+        $app71 = "GreenAddress Wallet\\" ascii wide
+        $app72 = "bitpay\\" ascii wide
+        $ne1 = "C:\\src\\pgriffais_incubator-w7\\Steam\\main\\src\\external\\libjingle-0.4.0\\talk/base/scoped_ptr.h" fullword wide
+        $ne2 = "\"%s\\bin\\%slauncher.exe\" -hproc %x -hthread %x -baseoverlayname %s\\%s" fullword ascii
+    condition:
+        uint16(0) == 0x5a4d and (not any of ($ne*) and 6 of them)
+}
+
+
+rule INDICATOR_SUSPICIOUS_EXE_SQLQuery_ConfidentialDataStore {
+  meta:
+    author      = "ditekSHen"
+    description = "Detects executables containing SQL queries to confidential data stores. Observed in infostealers"
+
+  strings:
+    $select  = "select " ascii wide nocase
+    $table1  = " from credit_cards" ascii wide nocase
+    $table2  = " from logins" ascii wide nocase
+    $table3  = " from cookies" ascii wide nocase
+    $table4  = " from moz_cookies" ascii wide nocase
+    $table5  = " from moz_formhistory" ascii wide nocase
+    $table6  = " from moz_logins" ascii wide nocase
+    $column1 = "name" ascii wide nocase
+    $column2 = "password_value" ascii wide nocase
+    $column3 = "encrypted_value" ascii wide nocase
+    $column4 = "card_number_encrypted" ascii wide nocase
+    $column5 = "isHttpOnly" ascii wide nocase
+
+  condition:
+    uint16(0) == 0x5a4d and 2 of ($table*) and 2 of ($column*) and $select
+}
+
+
+rule INDICATOR_SUSPICIOUS_EXE_Contains_MD5_Named_DLL {
+    meta:
+        author = "ditekSHen"
+        description = "detects Windows exceutables potentially bypassing UAC using fodhelper.exe"
+    strings:
+        $s1 = /[a-f0-9]{32}\.dll/ ascii wide nocase
+    condition:
+       uint16(0) == 0x5a4d and all of them
+}
+
+
+rule INDICATOR_SUSPICIOUS_EXE_RegKeyComb_DisableTaskManager {
+    meta:
+        author = "ditekSHen"
+        description = "Detects executables embedding registry key / value combination indicative of disabling task manager"
+    strings:
+        $r1 = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" ascii wide nocase
+        $r2 = "SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" ascii wide nocase
+        $k1 = "DisableTaskMgr" ascii wide nocase
+    condition:
+        uint16(0) == 0x5a4d and (1 of ($r*) and 1 of ($k*))
+}
+
+
+rule INDICATOR_SUSPICIOUS_EXE_RegKeyComb_EnableLinkedConnections {
+    meta:
+        author = "ditekSHen"
+        description = "Detects executables embedding registry key / value combination ensuring mapped drives are available from an elevated prompt or process with UAC enabled. Observed in ransomware"
+    strings:
+        $r1 = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" ascii wide nocase
+        $k1 = "EnableLinkedConnections" ascii wide nocase
+    condition:
+        uint16(0) == 0x5a4d and (1 of ($r*) and 1 of ($k*))
+}
+
+
+rule Ins_NSIS_Buer_Nov_2020_1 {
+  meta:
+    description = "Detect NSIS installer used for Buer loader"
+    author      = "Arkbird_SOLG"
+    reference1  = "https://twitter.com/ffforward/status/1333703755439742977"
+    reference2  = "https://twitter.com/VK_Intel/status/1333647007920033793"
+    reference3  = "https://twitter.com/James_inthe_box/status/1333551419735953409"
+    date        = "2020-12-01"
+    level       = "Experimental"
+    hash1       = "b298ead0400aaf886dbe0a0720337e6f2efd5e2a3ac1a7e7da54fc7b6e4f4277"
+    hash2       = "66f5a68f6b5067feb07bb88a3bfaa6671a5e8fcf525e9cd2355de631c4ca2088"
+    hash3       = "1c8260f2d597cfc1922ca72162e1eb3f8272c2d18fa41d77b145d32256c0063d"
+
+  strings:
+    $s1   = "\\Microsoft\\Internet Explorer\\Quick Launch" fullword ascii
+    $s2   = "Software\\Microsoft\\Windows\\CurrentVersion" fullword ascii
+    $s3   = "Control Panel\\Desktop\\ResourceLocale" fullword ascii
+    $s4   = "%s%s.dll"
+    $s5   = "CRYPTBASE" fullword ascii
+    $s6   = "%u.%u%s%s"
+    $s7   = "PROPSYS" fullword ascii
+    $s8   = { 5b 52 65 6e 61 6d 65 5d 0d 0a 00 00 25 73 3d 25 73 }
+    $s9   = "APPHELP" fullword ascii
+    $s10  = "NSIS Error" fullword ascii
+    $s11  = "K=t%)xMx" fullword ascii
+    $s12  = "4/##=?1" fullword ascii
+    $dbg1 = "Error launching installer" fullword ascii
+    $dbg2 = "verifying installer: %d%%"
+    $dbg3 = { 54 4d 50 00 54 45 4d 50 00 00 00 00 4c 6f 77 00 5c 54 65 6d 70 00 00 00 20 2f 44 3d 00 00 00 00 4e 43 52 43 }
+    $dbg4 = { e8 73 2a 00 00 3b fb 74 0b 68 4c a1 40 00 56 e8 64 2a 00 00 68 44 a1 40 00 56 e8 59 2a 00 00 bd 00 5c 43 00 55 56 ff 15 18 81 40 00 85 c0 74 97 3b fb 56 74 07 e8 0f 20 00 00 eb 05 e8 85 20 00 00 56 ff 15 f8 80 40 00 38 1d 00 54 43 00 75 0b 55 68 00 54 43 00 e8 01 2a 00 00 ff 74 24 1c 68 00 00 43 00 e8 f3 29 00 00 66 0f be 0d 40 a1 40 00 33 c0 6a 1a 8a 25 41 }
+
+  condition:
+    uint16(0) == 0x5a4d and filesize > 40KB and (10 of ($s*) and 3 of ($dbg*))
+}
+
+
+rule Cerberus0: rat {
+  meta:
+    description = "Cerberus"
+    author      = "Jean-Philippe Teissier / @Jipe_"
+    date        = "2013-01-12"
+    filetype    = "memory"
+    version     = "1.0"
+
+  strings:
+    $checkin    = "Ypmw1Syv023QZD"
+    $clientpong = "wZ2pla"
+    $serverping = "wBmpf3Pb7RJe"
+    $generic    = "cerberus" nocase
+
+  condition:
+    any of them
+}
+
+
+rule TTP_lang_nim {
+  meta:
+    author      = "@captainGeech42"
+    description = "Look for binaries written in Nim."
+    date        = "2024-01-01"
+    version     = "1"
+    DaysofYARA  = "1/100"
+
+  strings:
+    $s1 = "NimMainModule"
+    $s2 = "cmdLine"
+    $s3 = "cmdCount"
+    $s4 = "gEnv"
+    $s5 = "nim_program_result"
+    $s6 = ".nim"
+    $s7 = "dotdotat"
+
+  condition:
+    ($s1 or $s5) and (5 of them)
+}
+
+
+rule TTP_VirtualAlloc_RWX_tight_1 {
+  meta:
+    author      = "@captainGeech42,@stvemillertime"
+    description = "Look for PE files that make RWX calls to VirtualAlloc (xref'd against IAT entry)"
+    date        = "2024-01-24"
+    version     = "1"
+    DaysofYARA  = "23/100"
+
+  strings:
+    // .text:00412846 8B F4                             mov     esi, esp
+    // .text:00412848 6A 40                             push    40h ; '@'       ; flProtect
+    // .text:0041284A 68 00 30 00 00                    push    3000h           ; flAllocationType
+    // .text:0041284F 68 00 10 00 00                    push    1000h           ; dwSize
+    // .text:00412854 6A 00                             push    0               ; lpAddress
+    // .text:00412856 FF 15 00 E0 41 00                 call    ds:VirtualAlloc
+    $c_32_1 = { 6a 40 68 00 ?? 00 00 [4-20] ff 15 }
+
+  condition:
+    // PE file hdr, Magic value determines 32-bit or 64-bit PE file
+    // https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-image_optional_header32?redirectedfrom=MSDN#members
+    uint16be(0) == 0x4d5a and (
+      uint16(uint32(0x3c) + 0x18) == 0x10b and  // IMAGE_NT_OPTIONAL_HDR32_MAGIC
+      $c_32_1 and
+      for any imp in pe.import_details: (
+        imp.library_name == "KERNEL32.dll" and
+        for any func in imp.functions: (
+          func.name == "VirtualAlloc" and
+          uint32(@c_32_1 + !c_32_1) & 0xfffff == func.rva  // only match last 5 nibbles
+        )
+      )
+    )
+}
+
+
+rule Heuristic_Stack_String_SeLoadDriverPrivilege_A {
+  meta:
+    description = "Detects the stack string SeLoadDriverPrivilege being loaded in a combination of 1, 2, and 4 byte chunks, not necessarily in order"
+    author      = "BitsOfBinary"
+    reference   = "https://bitsofbinary.github.io/yara/2023/04/06/100daysofyara-day-96.html"
+    version     = "1.0"
+    date        = "2023-04-06"
+    DaysofYARA  = "96/100"
+
+  strings:
+    $one_byte_mov_S_stack     = { C6 44 24 ?? 53 }
+    $one_byte_mov_e_stack     = { C6 44 24 ?? 65 }
+    $one_byte_mov_L_stack     = { C6 44 24 ?? 4c }
+    $one_byte_mov_o_stack     = { C6 44 24 ?? 6f }
+    $one_byte_mov_a_stack     = { C6 44 24 ?? 61 }
+    $one_byte_mov_d_stack     = { C6 44 24 ?? 64 }
+    $one_byte_mov_D_stack     = { C6 44 24 ?? 44 }
+    $one_byte_mov_r_stack     = { C6 44 24 ?? 72 }
+    $one_byte_mov_i_stack     = { C6 44 24 ?? 69 }
+    $one_byte_mov_v_stack     = { C6 44 24 ?? 76 }
+    $one_byte_mov_P_stack     = { C6 44 24 ?? 50 }
+    $one_byte_mov_l_stack     = { C6 44 24 ?? 6c }
+    $one_byte_mov_g_stack     = { C6 44 24 ?? 67 }
+    $two_byte_mov_Se_stack    = { 66 C7 44 24 ?? 53 65 }
+    $two_byte_mov_eL_stack    = { 66 C7 44 24 ?? 65 4c }
+    $two_byte_mov_Lo_stack    = { 66 C7 44 24 ?? 4c 6f }
+    $two_byte_mov_oa_stack    = { 66 C7 44 24 ?? 6f 61 }
+    $two_byte_mov_ad_stack    = { 66 C7 44 24 ?? 61 64 }
+    $two_byte_mov_dD_stack    = { 66 C7 44 24 ?? 64 44 }
+    $two_byte_mov_Dr_stack    = { 66 C7 44 24 ?? 44 72 }
+    $two_byte_mov_ri_stack    = { 66 C7 44 24 ?? 72 69 }
+    $two_byte_mov_iv_stack    = { 66 C7 44 24 ?? 69 76 }
+    $two_byte_mov_ve_stack    = { 66 C7 44 24 ?? 76 65 }
+    $two_byte_mov_er_stack    = { 66 C7 44 24 ?? 65 72 }
+    $two_byte_mov_rP_stack    = { 66 C7 44 24 ?? 72 50 }
+    $two_byte_mov_Pr_stack    = { 66 C7 44 24 ?? 50 72 }
+    $two_byte_mov_vi_stack    = { 66 C7 44 24 ?? 76 69 }
+    $two_byte_mov_il_stack    = { 66 C7 44 24 ?? 69 6c }
+    $two_byte_mov_le_stack    = { 66 C7 44 24 ?? 6c 65 }
+    $two_byte_mov_eg_stack    = { 66 C7 44 24 ?? 65 67 }
+    $two_byte_mov_ge_stack    = { 66 C7 44 24 ?? 67 65 }
+    $four_byte_mov_SeLo_stack = { C7 44 24 ?? 53 65 4c 6f }
+    $four_byte_mov_eLoa_stack = { C7 44 24 ?? 65 4c 6f 61 }
+    $four_byte_mov_Load_stack = { C7 44 24 ?? 4c 6f 61 64 }
+    $four_byte_mov_oadD_stack = { C7 44 24 ?? 6f 61 64 44 }
+    $four_byte_mov_adDr_stack = { C7 44 24 ?? 61 64 44 72 }
+    $four_byte_mov_dDri_stack = { C7 44 24 ?? 64 44 72 69 }
+    $four_byte_mov_Driv_stack = { C7 44 24 ?? 44 72 69 76 }
+    $four_byte_mov_rive_stack = { C7 44 24 ?? 72 69 76 65 }
+    $four_byte_mov_iver_stack = { C7 44 24 ?? 69 76 65 72 }
+    $four_byte_mov_verP_stack = { C7 44 24 ?? 76 65 72 50 }
+    $four_byte_mov_erPr_stack = { C7 44 24 ?? 65 72 50 72 }
+    $four_byte_mov_rPri_stack = { C7 44 24 ?? 72 50 72 69 }
+    $four_byte_mov_Priv_stack = { C7 44 24 ?? 50 72 69 76 }
+    $four_byte_mov_rivi_stack = { C7 44 24 ?? 72 69 76 69 }
+    $four_byte_mov_ivil_stack = { C7 44 24 ?? 69 76 69 6c }
+    $four_byte_mov_vile_stack = { C7 44 24 ?? 76 69 6c 65 }
+    $four_byte_mov_ileg_stack = { C7 44 24 ?? 69 6c 65 67 }
+    $four_byte_mov_lege_stack = { C7 44 24 ?? 6c 65 67 65 }
+
+  condition:
+    any of ($one_byte_*) and
+    any of ($two_byte_*) and
+    any of ($four_byte_*)
+}
+
+
+rule Heuristic_PE_PDB_Self_Identifying_as_Malware {
+  meta:
+    author      = "BitsOfBinary"
+    description = "Detects files that identify themselves as malware"
+    reference   = "https://bitsofbinary.github.io/yara/2023/01/04/100daysofyara-day-4.html"
+    version     = "1.0"
+    date        = "2023-01-04"
+    DaysofYARA  = "4/100"
+
+  condition:
+    pe.pdb_path icontains "malware"
+}
+
+
+rule Sosemanuk {
+  /* Notes:
+   *
+   * - mul_a and mul_ia are commonly stored in a 4-byte value array, so
+   *   look for a 4-byte little endian equivalant also
+   *
+   * - mul_a and mul_ia start with four zero bytes, which is a fairly common
+   *   pattern in EXEs.  Including these bytes in the strings below is likely
+   *   worse for scan performance than omitting them, but I'm leaving them in
+   *   because findcrypt-yara leverages the yara API to map substring matches
+   *   to binary offsets (and then into virtual addresses), and the virtual
+   *   address for the start of these is likely to have more xrefs than the
+   *   the virtual address of (matching_offset + 4).  If, instead, better
+   *   performance is desired for your use case, just remove the zero bytes
+   *   from the strings below.
+   *
+   * Reference:
+   * - https://labs.sentinelone.com/enter-the-maze-demystifying-an-affiliate-involved-in-maze-snow/
+   */
+
+  strings:
+    $mul_a_be  = { 00 00 00 00 E1 9F CF 13 6B 97 37 26 8A 08 F8 35 [992] B5 5B 4D DE 54 C4 82 CD DE CC 7A F8 3F 53 B5 EB }
+    $mul_a_le  = { 00 00 00 00 13 CF 9F E1 26 37 97 6B 35 F8 08 8A [992] DE 4D 5B B5 CD 82 C4 54 F8 7A CC DE EB B5 53 3F }
+    $mul_ia_be = { 00 00 00 00 18 0F 40 CD 30 1E 80 33 28 11 C0 FE [992] 9E E2 65 1C 86 ED 25 D1 AE FC E5 2F B6 F3 A5 E2 }
+    $mul_ia_le = { 00 00 00 00 CD 40 0F 18 33 80 1E 30 FE C0 11 28 [992] 1C 65 E2 9E D1 25 ED 86 2F E5 FC AE E2 A5 F3 B6 }
+
+  condition:
+    any of them
+}
+
+
+rule crypto_jacking_signatures {
+  meta:
+    description = "case139 - file main.js"
+    author      = "Brian Laskowski"
+    reference   = "https://github.com/Hestat/lw-yara"
+    date        = "2018-06-26"
+
+  strings:
+    $s1  = "coinhive.min.js"
+    $s2  = "wpupdates.github.io/ping"
+    $s3  = "cryptonight.asm.js"
+    $s4  = "coin-hive.com"
+    $s5  = "jsecoin.com"
+    $s6  = "cryptoloot.pro"
+    $s7  = "webassembly.stream"
+    $s8  = "ppoi.org"
+    $s9  = "xmrstudio"
+    $s10 = "webmine.pro"
+    $s11 = "miner.start"
+    $s12 = "allfontshere.press"
+    $s13 = "freecontent.bid"
+    $s14 = "freecontent.date"
+    $s15 = "freecontent.faith"
+    $s16 = "freecontent.party"
+    $s17 = "freecontent.science"
+    $s18 = "freecontent.stream"
+    $s19 = "freecontent.trade"
+    $s20 = "hostingcloud.accountant"
+    $s21 = "hostingcloud.bid"
+    $s22 = "hostingcloud.date"
+    $s23 = "hostingcloud.download"
+    $s24 = "hostingcloud.faith"
+    $s25 = "hostingcloud.loan"
+    $s26 = "jshosting.bid"
+    $s27 = "jshosting.date"
+    $s28 = "jshosting.download"
+    $s29 = "jshosting.loan"
+    $s30 = "jshosting.party"
+    $s31 = "jshosting.racing"
+    $s32 = "jshosting.review"
+    $s33 = "jshosting.stream"
+    $s34 = "jshosting.trade"
+    $s35 = "jshosting.win"
+
+  condition:
+    any of them
+}
+
+
+rule magecart_3 {
+  meta:
+    description = "data - file magecart.txt"
+    author      = "Brian Laskowski"
+    reference   = "https://github.com/Hestat/lw-yara/"
+    date        = "2028-10-16"
+    hash3       = "5dc6e5d9c6e1c25c2470fd343e7d061bf9b4a2c73fffd7c56eb205efd05dd6fa"
+
+  strings:
+    $s129 = "jquery-validation.org"
+    $s130 = "js-abuse.link"
+    $s131 = "js-abuse.su"
+    $s132 = "js-cdn.link"
+    $s133 = "js-cloud.com"
+    $s134 = "js-link.su"
+    $s135 = "js-magic.link"
+    $s136 = "js-mod.su"
+    $s137 = "js-save.link"
+    $s138 = "js-save.su"
+    $s139 = "js-start.su"
+    $s140 = "js-stat.su"
+    $s141 = "js-sucuri.link"
+    $s142 = "js-syst.su"
+    $s143 = "js-top.link"
+    $s144 = "js-top.su"
+    $s145 = "jscript-cdn.com"
+    $s146 = "jscripts-cloud.com"
+    $s147 = "jscriptscloud.com"
+    $s148 = "jsdellvr.com"
+    $s149 = "jsecurely.com"
+    $s150 = "jsecuri.com"
+    $s151 = "jsmagento.com"
+    $s152 = "jspoi.com"
+    $s153 = "kennedyform.com"
+    $s154 = "kissmetrik.com"
+    $s155 = "listrakb.com"
+    $s156 = "locateooo.com"
+    $s157 = "logisticusa.biz"
+    $s158 = "lolfree.pw"
+    $s159 = "m24js.com"
+    $s160 = "mage-cdn.link"
+    $s161 = "mage-js.link"
+    $s162 = "mage-js.su"
+    $s163 = "magecompas.com"
+    $s164 = "mageconfig.com"
+    $s165 = "magejavascripts.com"
+    $s166 = "magely.info"
+    $s167 = "magento-cdn.top"
+    $s168 = "magentocore.net"
+    $s169 = "mageonline.net"
+    $s170 = "magescripts.info"
+    $s171 = "magescripts.pw"
+    $s172 = "magesecurely.com"
+    $s173 = "magesecuritys.com"
+    $s174 = "magesources.com"
+    $s175 = "magestops.com"
+    $s176 = "maskforms.com"
+    $s177 = "maxijs.com"
+    $s178 = "minifyscripts.com"
+    $s179 = "minpays.com"
+    $s180 = "mipss.su"
+    $s181 = "mjs24.com"
+    $s182 = "mod-js.su"
+    $s183 = "mod-sj.link"
+    $s184 = "monenate.net"
+    $s185 = "monerate.net"
+    $s186 = "monestate.net"
+    $s187 = "msecurely.com"
+    $s188 = "my-braintree.com"
+    $s189 = "myageverify.com"
+    $s190 = "netmg-cdn.com"
+    $s191 = "neweggstats.com"
+    $s192 = "ohpoliy.com"
+
+  condition:
+    any of them
+}
+
+
+rule magecart_5 {
+  meta:
+    description = "data - file magecart.txt"
+    author      = "Brian Laskowski"
+    reference   = "https://github.com/Hestat/lw-yara/"
+    date        = "2028-10-16"
+    hash3       = "5dc6e5d9c6e1c25c2470fd343e7d061bf9b4a2c73fffd7c56eb205efd05dd6fa"
+
+  strings:
+    $s257 = "verifiedjs.com"
+    $s258 = "verpayment.com"
+    $s259 = "verpayments.com"
+    $s260 = "vuserjs.com"
+    $s261 = "web-info.me"
+    $s262 = "web-rank.cc"
+    $s263 = "web-stat.biz"
+    $s264 = "web-stat.me"
+    $s265 = "web-stats.cc"
+    $s266 = "web-stats.pw"
+    $s267 = "webfotce.me"
+    $s268 = "webstatistic.pw"
+    $s269 = "webstatistic.ws"
+    $s270 = "whitelistjs.com"
+    $s271 = "x-magesecurity.com"
+    $s272 = "xmageform.com"
+    $s273 = "xmageinfo.com"
+    $s274 = "xmagejs.com"
+    $s275 = "xmagesecurity.com"
+    $s276 = "youpayme.info"
+    $s277 = "zonejs.com"
+    $s278 = "friend4cdn.com"
+    $s279 = "g-statistic.com"
+    $s280 = "bootstrap-js.com"
+    $s281 = "marketplace-magento.com"
+
+  condition:
+    any of them
+}
+
+
+rule CAPE_Qakbot4: FILE {
+  meta:
+    description = "QakBot v4 Payload"
+    author      = "kevoreilly"
+    id          = "d2c5316c-22cc-5b6d-b6a2-b1d23a06d16b"
+    date        = "2024-04-28"
+    modified    = "2024-04-28"
+    reference   = "https://github.com/kevoreilly/CAPEv2"
+    source_url  = "https://github.com/kevoreilly/CAPEv2/blob/28da61aec456106a39ce5a81c1257f7cce7fb270/data/yara/CAPE/QakBot.yar#L17-L35"
+    license_url = "https://github.com/kevoreilly/CAPEv2/blob/28da61aec456106a39ce5a81c1257f7cce7fb270/LICENSE"
+    logic_hash  = "b2870e33abffbb3ff49b7891b0f5c538ab48ee63da5553929d4e37dec921344f"
+    score       = 75
+    quality     = 70
+    tags        = "FILE"
+    cape_type   = "QakBot Payload"
+
+  strings:
+    $crypto1         = { 8B 5D 08 0F B6 C2 8A 16 0F B6 1C 18 88 55 13 0F B6 D2 03 CB 03 CA 81 E1 FF 00 00 80 79 08 49 81 C9 00 FF FF FF 41 }
+    $sha1_1          = { 5? 33 F? [0-9] 89 7? 24 ?? 89 7? 24 ?? 8? [1-3] 24 [1-4] C7 44 24 ?0 01 23 45 67 C7 44 24 ?4 89 AB CD EF C7 44 24 ?8 FE DC BA 98 C7 44 24 ?C 76 54 32 10 C7 44 24 ?0 F0 E1 D2 C3 }
+    $sha1_2          = { 33 C0 C7 01 01 23 45 67 89 41 14 89 41 18 89 41 5C C7 41 04 89 AB CD EF C7 41 08 FE DC BA 98 C7 41 0C 76 54 32 10 C7 41 10 F0 E1 D2 C3 89 41 60 89 41 64 C3 }
+    $anti_sandbox1   = { 8D 4? FC [0-1] E8 [4-7] E8 [4] 85 C0 7E (04 | 07) [4-7] 33 (C0 | D2) 74 02 EB FA }
+    $anti_sandbox2   = { 8D 45 ?? 50 E8 [2] 00 00 59 68 [4] FF 15 [4] 89 45 ?? 83 7D ?? 0F 76 0C }
+    $decrypt_config1 = { FF 37 83 C3 EC 53 8B 5D 0C 8D 43 14 50 6A 14 53 E8 ?? ?? ?? ?? 83 C4 14 85 C0 ?? 26 ?? ?? 86 20 02 00 00 66 85 C0 ?? ?? FF 37 FF 75 10 53 }
+    $decrypt_config2 = { 8B 45 08 8B 88 24 04 00 00 51 8B 55 10 83 EA 14 52 8B 45 0C 83 C0 14 50 6A 14 8B 4D 0C 51 E8 6C 08 00 00 }
+    $decrypt_config3 = { 6A 13 8B CE 8B C3 5A 8A 18 3A 19 75 05 40 41 4A 75 F5 0F B6 00 0F B6 09 2B C1 74 05 83 C8 FF EB 0E }
+    $call_decrypt    = { 83 7D ?? 00 56 74 0B FF 75 10 8B F3 E8 [4] 59 8B 45 0C 83 F8 28 72 19 8B 55 08 8B 37 8D 48 EC 6A 14 8D 42 14 52 E8 }
+
+  condition:
+    uint16(0) == 0x5A4D and any of ($*)
+}
+
+
+rule MALPEDIA_Win_Whispergate_Auto: FILE {
+  meta:
+    description        = "autogenerated rule brought to you by yara-signator"
+    author             = "Felix Bilstein - yara-signator at cocacoding dot com"
+    id                 = "6714083d-3e17-55d3-a1f8-8bf9ddb1ef17"
+    date               = "2023-12-06"
+    modified           = "2023-12-08"
+    reference          = "https://malpedia.caad.fkie.fraunhofer.de/details/win.whispergate"
+    source_url         = "https://github.com/malpedia/signator-rules//blob/fbacfc09b84d53d410385e66a8e56f25016c588a/rules/win.whispergate_auto.yar#L1-L119"
+    license_url        = "N/A"
+    logic_hash         = "32397ef108fba7d133f035121fc33f6fa3fbeba74a5870442ebf4d00a19bf608"
+    score              = 75
+    quality            = 75
+    tags               = "FILE"
+    version            = "1"
+    tool               = "yara-signator v0.6.0"
+    signator_config    = "callsandjumps;datarefs;binvalue"
+    malpedia_rule_date = "20231130"
+    malpedia_hash      = "fc8a0e9f343f6d6ded9e7df1a64dac0cc68d7351"
+    malpedia_version   = "20230808"
+    malpedia_license   = "CC BY-SA 4.0"
+    malpedia_sharing   = "TLP:WHITE"
+
+  strings:
+    $sequence_0 = { 89 d0 80 f9 2f 0f 84 6b 06 00 00 80 f9 5c 0f 84 62 06 00 00 8d 50 ff }
+    $sequence_1 = { 0f 84 09 01 00 00 83 fb 2f 0f 84 00 01 00 00 83 fb 5c }
+    $sequence_2 = { f6 04 48 40 0f 84 48 ff ff ff 39 7d cc 72 75 8b 45 d0 85 c0 75 6e }
+    $sequence_3 = { 53 31 c0 0f a2 85 c0 0f 84 db 00 00 00 }
+    $sequence_4 = { 85 ed 75 d3 8b 54 24 20 8b 74 24 24 }
+    $sequence_5 = { 55 57 56 53 81 ec 2c 01 00 00 8b 84 24 40 01 00 00 85 c0 }
+    $sequence_6 = { 75 e8 89 04 24 e8 ?? ?? ?? ?? 89 c7 8b 44 24 1c }
+    $sequence_7 = { 56 53 83 ec 10 8b 74 24 20 81 3e ?? ?? ?? ?? 74 0e }
+    $sequence_8 = { e9 ?? ?? ?? ?? 83 7d d4 27 0f 84 e4 00 00 00 83 c0 01 }
+    $sequence_9 = { 83 c0 01 85 c9 75 1e 83 fa 2a 74 44 83 fa 3f 74 3f }
+
+  condition:
+    7 of them and filesize < 114688
+}
+
+
+rule MALPEDIA_Win_Nullmixer_Auto: FILE {
+  meta:
+    description        = "autogenerated rule brought to you by yara-signator"
+    author             = "Felix Bilstein - yara-signator at cocacoding dot com"
+    id                 = "e761e8a0-6032-5175-8c62-373d3cfdbd32"
+    date               = "2023-12-06"
+    modified           = "2023-12-08"
+    reference          = "https://malpedia.caad.fkie.fraunhofer.de/details/win.nullmixer"
+    source_url         = "https://github.com/malpedia/signator-rules//blob/fbacfc09b84d53d410385e66a8e56f25016c588a/rules/win.nullmixer_auto.yar#L1-L133"
+    license_url        = "N/A"
+    logic_hash         = "ff19905731e10511745fb317854603fdd089737424883a407ad871400c764a1f"
+    score              = 75
+    quality            = 75
+    tags               = "FILE"
+    version            = "1"
+    tool               = "yara-signator v0.6.0"
+    signator_config    = "callsandjumps;datarefs;binvalue"
+    malpedia_rule_date = "20231130"
+    malpedia_hash      = "fc8a0e9f343f6d6ded9e7df1a64dac0cc68d7351"
+    malpedia_version   = "20230808"
+    malpedia_license   = "CC BY-SA 4.0"
+    malpedia_sharing   = "TLP:WHITE"
+
+  strings:
+    $sequence_0 = { 66 83 fa 05 0f 87 26 01 00 00 83 e8 57 83 f8 ff 0f 85 d0 fc ff ff 8d 76 00 }
+    $sequence_1 = { c7 44 24 04 ?? ?? ?? ?? c7 04 24 ?? ?? ?? ?? c7 05 ?? ?? ?? ?? d0 9d 4a 00 e8 ?? ?? ?? ?? c7 05 ?? ?? ?? ?? 01 00 00 00 83 ec 08 89 d9 }
+    $sequence_2 = { a3 ?? ?? ?? ?? 8d 85 68 fe ff ff c7 44 24 08 ?? ?? ?? ?? c7 44 24 04 ?? ?? ?? ?? 89 04 24 e8 ?? ?? ?? ?? 8d 85 68 fe ff ff }
+    $sequence_3 = { 89 01 8d 44 24 1f 89 44 24 08 e8 ?? ?? ?? ?? 31 d2 c7 40 08 00 00 00 00 83 c0 0c }
+    $sequence_4 = { c7 84 24 50 01 00 00 00 00 00 00 31 c9 e9 ?? ?? ?? ?? 8b 8c 24 50 01 00 00 e8 ?? ?? ?? ?? b8 ff ff ff ff 8b 94 24 5c 01 00 00 }
+    $sequence_5 = { 01 c9 89 6c 24 04 89 4c 24 08 89 04 24 e8 ?? ?? ?? ?? e9 ?? ?? ?? ?? 8b 44 24 48 }
+    $sequence_6 = { 39 84 24 d0 00 00 00 0f 84 30 05 00 00 8b 06 c7 44 24 04 00 00 00 00 89 f1 0f b7 55 02 89 14 24 }
+    $sequence_7 = { 83 f9 0f 0f 4f c8 8b 45 a8 39 75 ac 19 f8 0f 82 d0 00 00 00 8b 55 bc }
+    $sequence_8 = { 83 ec 04 83 7d 80 10 8d 75 b4 0f 94 c2 8b 48 08 39 f9 89 4d 8c }
+    $sequence_9 = { 89 f1 e8 ?? ?? ?? ?? 8b 06 89 f1 c7 04 24 2b 00 00 00 ff 50 18 52 }
+
+  condition:
+    7 of them and filesize < 2351104
+}
+
+
+rule JPCERTCC_Emotet_1 {
+  meta:
+    description = "detect Emotet in memory"
+    author      = "JPCERT/CC Incident Response Group"
+    id          = "f1cb5e3e-069d-54bb-829d-2ff4aa80e2bb"
+    date        = "2021-08-16"
+    modified    = "2021-08-16"
+    reference   = "internal research"
+    source_url  = "https://github.com/JPCERTCC/MalConfScan//blob/19ec0d145535a6a4cfd37c0960114f455a8c343e/yara/rule.yara#L160-L176"
+    license_url = "https://github.com/JPCERTCC/MalConfScan//blob/19ec0d145535a6a4cfd37c0960114f455a8c343e/LICENSE.txt"
+    logic_hash  = "32f6c25f324eb9f79b8f0b4bc37d648ed95d6347712208f13f74584ee164dc4f"
+    score       = 75
+    quality     = 80
+    tags        = ""
+    rule_usage  = "memory scan"
+
+  strings:
+    $v4a = { BB 00 C3 4C 84 }
+    $v4b = { B8 00 C3 CC 84 }
+    $v5a = { 6D 4E C6 41 33 D2 81 C1 39 30 00 00 }
+    $v6a = { C7 40 20 ?? ?? ?? 00 C7 40 10 ?? ?? ?? 00 C7 40 0C 00 00 00 00 83 3C CD ?? ?? ?? ?? 00 74 0E 41 89 48 ?? 83 3C CD ?? ?? ?? ?? 00 75 F2 }
+    $v7a = { 6A 06 33 D2 ?? F7 ?? 8B DA 43 74 }
+    $v7b = { 83 E6 0F 8B CF 83 C6 04 50 8B D6 E8 ?? ?? ?? ?? 59 6A 2F 8D 3C 77 58 66 89 07 83 C7 02 4B 75 }
+
+  condition:
+    all of ($v4*) or $v5a or $v6a or all of ($v7*)
+}
+
+
+rule EMBEERESEARCH_Win_Bruteratel_Syscall_Hashes_Oct_2022: FILE {
+  meta:
+    description = "Detection of Brute Ratel Badger via api hashes of Nt* functions. "
+    author      = "Embee_Research @ Huntress"
+    id          = "b82612b4-272e-5ae2-bd87-3593e55918f8"
+    date        = "2022-10-12"
+    modified    = "2023-10-18"
+    reference   = "https://github.com/embee-research/Yara-detection-rules/"
+    source_url  = "https://github.com/embee-research/Yara-detection-rules//blob/ac56d6f6fd2a30c8cb6e5c0455d6519210a8b0f4/Rules/2022/win_bruteratel_syscall_hashes_oct_2022.yar#L1-L23"
+    license_url = "N/A"
+    logic_hash  = "e284d5568e0b5ffa0f231f98ecce13b5f5518a4e005ea001a5c89087c91eb8a1"
+    score       = 60
+    quality     = 25
+    tags        = "FILE"
+    vendor      = "Huntress"
+
+  strings:
+    $hash1 = { 89 4d 39 8c }
+    $hash2 = { bd ca 3b d3 }
+    $hash3 = { b2 c1 06 ae }
+    $hash4 = { 74 eb 1d 4d }
+
+  condition:
+    (uint16(0) == 0x5a4d or uint16(0) == 0x00e8) and (2 of ($hash*))
+}
+
+
+rule GODMODERULES_IDDQD_God_Mode_Rule {
+  meta:
+    description = "Detects a wide array of cyber threats, from malware and ransomware to advanced persistent threats (APTs)"
+    author      = "Florian Roth"
+    id          = "be4a8ce8-5824-580b-b443-32a16ee533d5"
+    date        = "2019-05-15"
+    modified    = "2024-01-12"
+    reference   = "Internal Research - get a god mode rule set with THOR by Nextron Systems"
+    source_url  = "https://github.com/Neo23x0/god-mode-rules//blob/c6de81ded89d2727bec9e0f6ed490f6c8ab380f2/godmode.yar#L24-L69"
+    license_url = "https://github.com/Neo23x0/god-mode-rules//blob/c6de81ded89d2727bec9e0f6ed490f6c8ab380f2/LICENSE"
+    logic_hash  = "aae326d337c6f3430c3721fb13f4965b4c5bcd654f618c55842347134fc06b3b"
+    score       = 60
+    quality     = -4
+    tags        = ""
+    importance  = 60
+
+  strings:
+    $ = "sekurlsa::logonpasswords" ascii wide nocase
+    $ = "ERROR kuhl" wide xor
+    $ = " -w hidden " ascii wide nocase
+    $ = "Koadic." ascii
+    $ = "ReflectiveLoader" fullword ascii wide xor
+    $ = "%s as %s\\%s: %d" ascii xor
+    $ = "[System.Convert]::FromBase64String(" ascii
+    $ = "/meterpreter/" ascii xor
+    $ = / -[eE][decoman]{0,41} ['"]?(JAB|SUVYI|aWV4I|SQBFAFgA|aQBlAHgA|cgBlAG)/ ascii wide
+    $ = /  (sEt|SEt|SeT|sET|seT)  / ascii wide
+    $ = ");iex " nocase ascii wide
+    $ = "Nir Sofer" fullword wide
+    $ = "impacket." ascii
+    $ = /\[[\+\-!E]\] (exploit|target|vulnerab|shell|inject)/ nocase
+    $ = "0000FEEDACDC}" ascii wide
+    $ = "vssadmin delete shadows" ascii nocase
+    $ = ".exe delete shadows" ascii nocase
+    $ = " shadowcopy delete" ascii wide nocase
+    $ = " delete catalog -quiet" ascii wide nocase
+    $ = "stratum+tcp://" ascii wide
+    $ = /\\(Debug|Release)\\(Key[lL]og|[Ii]nject|Steal|By[Pp]ass|Amsi|Dropper|Loader|CVE\-)/
+    $ = /(Dropper|Bypass|Injection|Potato)\.pdb/ nocase
+    $ = "Mozilla/5.0" xor(0x01-0xff) ascii wide
+    $ = "amsi.dllATVSH" ascii xor
+    $ = "BeaconJitter" xor
+    $ = "main.Merlin" ascii fullword
+    $ = "\x48\x83\xec\x50\x4d\x63\x68\x3c\x48\x89\x4d\x10" xor
+    $ = "}{0}\"-f " ascii wide
+    $ = "HISTORY=/dev/null" ascii
+    $ = " /tmp/x;" ascii
+    $ = /comsvcs(\.dll)?[, ]{1,2}(MiniDump|#24)/
+    $ = "AmsiScanBuffer" ascii wide base64
+    $ = "AmsiScanBuffer" xor(0x01-0xff)
+    $ = "%%%%%%%%%%%######%%%#%%####%  &%%**#" ascii wide xor
+
+  condition:
+    1 of them
+}
+
+
+rule COD3NYM_SUSP_OBF_NET_Eazfuscator_String_Encryption_Jan24: FILE {
+  meta:
+    description = "Detects .NET images obfuscated with Eazfuscator string encryption. Eazfuscator is a widely used commercial obfuscation solution used by both legitimate software and malware."
+    author      = "Jonathan Peters"
+    id          = "09a400f5-e837-58c2-9b51-9213c8ab0883"
+    date        = "2024-01-01"
+    modified    = "2024-01-03"
+    reference   = "https://www.gapotchenko.com/eazfuscator.net"
+    source_url  = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/yara/dotnet/obf_eazfuscator.yar#L1-L28"
+    license_url = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/LICENSE.md"
+    hash        = "3a9ee09ed965e3aee677043ba42c7fdbece0150ef9d1382c518b4b96bbd0e442"
+    logic_hash  = "5f3f3358e3cfb274aa2e8465dde58a080f9fb282aa519885b9d39429521db6d9"
+    score       = 50
+    quality     = 80
+    tags        = "FILE"
+
+  strings:
+    $sa1 = "StackFrame" ascii
+    $sa2 = "StackTrace" ascii
+    $sa3 = "Enter" ascii
+    $sa4 = "Exit" ascii
+    $op1 = { 11 ?? 18 91 11 ?? 1? 91 1F 10 62 60 11 ?? 1? 91 1E 62 60 11 ?? 17 91 1F 18 62 60 }
+    $op2 = { D1 28 ?? 00 00 0A 0? 1F 10 63 D1 }
+    $op3 = { 1F 10 63 D1 28 [3] 0A }
+    $op4 = { 7B ?? 00 00 04 16 91 02 7B ?? 00 00 04 17 91 1E 62 60 02 7B ?? 00 00 04 18 91 1F 10 62 60 02 7B ?? 00 00 04 19 91 1F 18 62 60 }
+
+  condition:
+    uint16(0) == 0x5a4d and all of ($sa*) and (2 of ($op*) or #op1 == 2)
+}
+
+
+rule COD3NYM_SUSP_OBF_NET_Confuserex_Name_Pattern_Jan24: FILE {
+  meta:
+    description = "Detects Naming Pattern used by ConfuserEx. ConfuserEx is a widely used open source obfuscator often found in malware"
+    author      = "Jonathan Peters"
+    id          = "2b57f135-9d9d-5401-be29-a1053f4249ec"
+    date        = "2024-01-03"
+    modified    = "2024-01-09"
+    reference   = "https://github.com/yck1509/ConfuserEx/tree/master"
+    source_url  = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/yara/dotnet/obf_confuserex.yar#L1-L21"
+    license_url = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/LICENSE.md"
+    hash        = "2f67f590cabb9c79257d27b578d8bf9d1a278afa96b205ad2b4704e7b9a87ca7"
+    logic_hash  = "f28f3bd61c6f257cc622f6f323a5b5113d7d7b79ce8b852df02c42af22ecf033"
+    score       = 50
+    quality     = 80
+    tags        = "FILE"
+
+  strings:
+    $s1           = "mscoree.dll" ascii
+    $s2           = "mscorlib" ascii
+    $s3           = "System.Private.Corlib" ascii
+    $s4           = "#Strings" ascii
+    $s5           = { 5F 43 6F 72 [3] 4D 61 69 6E }
+    $name_pattern = { E2 (80 8? | 81 AA) E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 80 AE }
+
+  condition:
+    uint16(0) == 0x5a4d and 2 of ($s*) and #name_pattern > 5
+}
+
+
+rule COD3NYM_SUSP_OBF_NET_Confuserex_Packer_Jan24: FILE {
+  meta:
+    description = "Detects binaries packed with ConfuserEx compression packer. This feature compresses and encrypts the actual image into a stub that unpacks and loads the original image on runtime."
+    author      = "Jonathan Peters"
+    id          = "cd53a62f-62e3-58a1-8bc3-7f40949e3f00"
+    date        = "2024-01-09"
+    modified    = "2024-01-09"
+    reference   = "https://github.com/yck1509/ConfuserEx/tree/master"
+    source_url  = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/yara/dotnet/obf_confuserex.yar#L23-L42"
+    license_url = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/LICENSE.md"
+    hash        = "2570bd4c3f564a61d6b3d589126e0940af27715e1e8d95de7863579fbe25f86f"
+    logic_hash  = "43aee4c01b47ca04ee516d418939ec3e90fd08566f2a4b501c4698b7f9e0225d"
+    score       = 70
+    quality     = 80
+    tags        = "FILE"
+
+  strings:
+    $s1  = "GCHandle" ascii
+    $s2  = "GCHandleType" ascii
+    $op1 = { 5A 20 89 C0 3F 14 6A 5E [8-20] 5A 20 FB 56 4D 44 6A 5E 6D 9E }
+    $op2 = { 20 61 FF 6F 00 13 ?? 06 13 ?? 16 13 [10-20] 20 1F 3F 5E 00 5A }
+    $op3 = { 16 91 7E [3] 04 17 91 1E 62 60 7E [3] 04 18 91 1F 10 62 60 7E [3] 04 19 91 1F 18 62 }
+
+  condition:
+    uint16(0) == 0x5a4d and all of ($s*) and 2 of ($op*)
+}
+
+
+rule COD3NYM_SUSP_OBF_NET_Reactor_Indicators_Jan24: FILE {
+  meta:
+    description = "Detects indicators of .NET Reactors managed obfuscation. Reactor is a commercial obfuscation solution, pirated versions are often abused by threat actors."
+    author      = "Jonathan Peters"
+    id          = "8dc07bbd-cbeb-5214-a27a-555a0d396197"
+    date        = "2024-01-09"
+    modified    = "2024-01-12"
+    reference   = "https://www.eziriz.com/dotnet_reactor.htm"
+    source_url  = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/yara/dotnet/obf_net_reactor.yar#L18-L34"
+    license_url = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/LICENSE.md"
+    hash        = "be842a9de19cfbf42ea5a94e3143d58390a1abd1e72ebfec5deeb8107dddf038"
+    logic_hash  = "40a03eb487e2c02a032c4bfb51580dbb764e0a49ceee5ae92c54a5ee3ede9696"
+    score       = 65
+    quality     = 80
+    tags        = "FILE"
+
+  strings:
+    $ = { 33 7B 00 [9] 00 2D 00 [9] 00 2D 00 [9] 00 2D 00 [9] 00 7D 00 }
+    $ = { 3C 50 72 69 76 61 74 65 49 6D 70 6C 65 6D 65 6E 74 61 74 69 6F 6E 44 65 74 61 69 6C 73 3E 7B [8] 2D [4] 2D [4] 2D [4] 2D [12] 7D }
+    $ = { 3C 4D 6F 64 75 6C 65 3E 7B [8] 2D [4] 2D [4] 2D [4] 2D [12] 7D }
+
+  condition:
+    uint16(0) == 0x5a4d and 2 of them
+}
+
+
+rule COD3NYM_SUSP_NET_Shellcode_Loader_Indicators_Jan24: FILE {
+  meta:
+    description = "Detects indicators of shellcode loaders in .NET binaries"
+    author      = "Jonathan Peters"
+    id          = "606a444a-b894-5076-8d5e-1716bbfa588e"
+    date        = "2024-01-11"
+    modified    = "2024-01-12"
+    reference   = "https://github.com/Workingdaturah/Payload-Generator/tree/main"
+    source_url  = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/yara/dotnet/suspicious_indicators.yar#L1-L22"
+    license_url = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/LICENSE.md"
+    hash        = "c48752a5b07b58596564f13301276dd5b700bd648a04af2e27d3f78512a06408"
+    logic_hash  = "28267eb54a4108924df57512bbae9f47f51fd4860b3cf93c014d73b0d4b2dec2"
+    score       = 65
+    quality     = 80
+    tags        = "FILE"
+
+  strings:
+    $sa1 = "VirtualProtect" ascii
+    $sa2 = "VirtualAlloc" ascii
+    $sa3 = "WriteProcessMemory" ascii
+    $sa4 = "CreateRemoteThread" ascii
+    $sa5 = "CreateThread" ascii
+    $sa6 = "WaitForSingleObject" ascii
+    $x   = "__StaticArrayInitTypeSize=" ascii
+
+  condition:
+    uint16(0) == 0x5a4d and 3 of ($sa*) and #x == 1
+}
+
+
+rule COD3NYM_SUSP_OBF_Pyarmor_Jan24 {
+  meta:
+    description = "Detects PyArmor python code obfuscation. PyArmor is used by various threat actors like BatLoader"
+    author      = "Jonathan Peters"
+    id          = "2627c764-57ed-5781-8c77-ad2d9f4bd0ee"
+    date        = "2024-01-16"
+    modified    = "2024-01-16"
+    reference   = "https://www.trendmicro.com/en_us/research/23/h/batloader-campaigns-use-pyarmor-pro-for-evasion.html"
+    source_url  = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/yara/other/susp_obf_pyarmor.yar#L1-L18"
+    license_url = "https://github.com/cod3nym/detection-rules//blob/ad485bff0ce30afb56e367b7f2b76fea81e78fc9/LICENSE.md"
+    hash        = "2727a418f31e8c0841f8c3e79455067798a1c11c2b83b5c74d2de4fb3476b654"
+    logic_hash  = "6bbbe4c9ad54a1d1042b53803ca6011f3eaaeebbe864703e741c25a0d788342f"
+    score       = 65
+    quality     = 80
+    tags        = ""
+
+  strings:
+    $ = "__pyarmor__" ascii
+    $ = "pyarmor_runtime" ascii
+    $ = "pyarmor(__" ascii
+    $ = { 50 79 61 72 6D 6F 72 20 [5] 20 28 70 72 6F 29 }
+    $ = { 5F 5F 61 72 6D 6F 72 5F (65 78 69 74 | 77 72 61 70 | 65 6E 74 65 72) 5F 5F }
+
+  condition:
+    2 of them
+}
+
+
+rule DITEKSHEN_INDICATOR_KB_CERT_118D813D830F218C0F46D4Fc: FILE {
+  meta:
+    description = "Detects BestEncrypt commercial disk encryption and wiping software signing certificate"
+    author      = "ditekSHen"
+    id          = "b14b14c8-202d-533d-97dc-c6336ddf75c4"
+    date        = "2023-12-08"
+    modified    = "2023-12-08"
+    reference   = "https://github.com/ditekshen/detection"
+    source_url  = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/yara/indicator_knownbad_certs.yar#L2744-L2755"
+    license_url = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/LICENSE.txt"
+    logic_hash  = "3240504794394c06f050ef3eb5ef82e0b476e2bbeabfb394fc4646e98bc6e976"
+    score       = 75
+    quality     = 75
+    tags        = "FILE"
+    thumbprint  = "bd16f70bf6c2ef330c5a4f3a27856a0d030d77fa"
+    importance  = 20
+
+  condition:
+    uint16(0) == 0x5a4d and for any i in (0..pe.signatures.len()): (pe.signatures[i].subject contains "Shang Hai Shen Wei Wang Luo Ke Ji You Xian Gong Si" and pe.signatures[i].serial == "11:8d:81:3d:83:0f:21:8c:0f:46:d4:fc")
+}
+
+
+rule DITEKSHEN_INDICATOR_KB_CERT_65628C146Ace93037Fc58659F14Bd35F: FILE {
+  meta:
+    description = "Detects executables signed with stolen, revoked or invalid certificates"
+    author      = "ditekSHen"
+    id          = "9104836a-3385-5b78-9e1d-705b7ed4b721"
+    date        = "2023-12-08"
+    modified    = "2023-12-08"
+    reference   = "https://github.com/ditekshen/detection"
+    source_url  = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/yara/indicator_knownbad_certs.yar#L3958-L3969"
+    license_url = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/LICENSE.txt"
+    logic_hash  = "a6b4cc307d6e6f4d5d275ef0765a7082216b1d277c9b1328abe7cb2c2497e411"
+    score       = 75
+    quality     = 75
+    tags        = "FILE"
+    thumbprint  = "b59165451be46b8d72d09191d0961c755d0107c8"
+    importance  = 20
+
+  condition:
+    uint16(0) == 0x5a4d and for any i in (0..pe.signatures.len()): (pe.signatures[i].subject contains "ESET, spol. s r.o." and pe.signatures[i].serial == "65:62:8c:14:6a:ce:93:03:7f:c5:86:59:f1:4b:d3:5f")
+}
+
+
+rule DITEKSHEN_INDICATOR_KB_CERT_C2Cbbd946Bc3Fdb944D522931D61D51A: FILE {
+  meta:
+    description = "Detects executables signed with Sordum Software certificate, particularly Defender Control"
+    author      = "ditekSHen"
+    id          = "b8ccfb1a-4e3f-5823-af38-e1607458023e"
+    date        = "2023-12-08"
+    modified    = "2023-12-08"
+    reference   = "https://github.com/ditekshen/detection"
+    source_url  = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/yara/indicator_knownbad_certs.yar#L4231-L4242"
+    license_url = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/LICENSE.txt"
+    logic_hash  = "6e67835cf85c713ef5a21b866a277e90236c607fb67d3fd9b2bba627c31d9e97"
+    score       = 75
+    quality     = 75
+    tags        = "FILE"
+    thumbprint  = "f5e71628a478a248353bf0177395223d2c5a0e43"
+    importance  = 20
+
+  condition:
+    uint16(0) == 0x5a4d and for any i in (0..pe.signatures.len()): (pe.signatures[i].subject contains "Sordum Software" and pe.signatures[i].serial == "c2:cb:bd:94:6b:c3:fd:b9:44:d5:22:93:1d:61:d5:1a")
+}
+
+
+rule DITEKSHEN_INDICATOR_KB_CERT_03E9Eb4Dff67D4F9A554A422D5Ed86F3: FILE {
+  meta:
+    description = "Detects executables signed with stolen, revoked or invalid certificates"
+    author      = "ditekSHen"
+    id          = "b76ab1af-01f9-5d03-8d5e-7314a7a2de43"
+    date        = "2023-12-08"
+    modified    = "2023-12-08"
+    reference   = "https://github.com/ditekshen/detection"
+    source_url  = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/yara/indicator_knownbad_certs.yar#L4270-L4281"
+    license_url = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/LICENSE.txt"
+    logic_hash  = "a56f53cb94f78496b4935fc2a613d030bd550b749427501dd9dda18cb9e05ab3"
+    score       = 75
+    quality     = 75
+    tags        = "FILE"
+    thumbprint  = "8f2de7e770a8b1e412c2de131064d7a52da62287"
+    importance  = 20
+
+  condition:
+    uint16(0) == 0x5a4d and for any i in (0..pe.signatures.len()): (pe.signatures[i].subject contains "philandro Software GmbH" and pe.signatures[i].serial == "03:e9:eb:4d:ff:67:d4:f9:a5:54:a4:22:d5:ed:86:f3")
+}
+
+
+rule DITEKSHEN_INDICATOR_SUSPICIOUS_EXE_Clearmytracksbyprocess: FILE {
+  meta:
+    description = "Detects executables calling ClearMyTracksByProcess"
+    author      = "ditekSHen"
+    id          = "d548cf61-ffb7-5a21-9b76-246f8ffb6ad4"
+    date        = "2024-06-08"
+    modified    = "2024-06-08"
+    reference   = "https://github.com/ditekshen/detection"
+    source_url  = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/yara/indicator_suspicious.yar#L1270-L1278"
+    license_url = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/LICENSE.txt"
+    logic_hash  = "970bdf2cfebc5196204087de134b9d2f032d8074cacbb3b9cc2c859aab3a95fc"
+    score       = 40
+    quality     = 43
+    tags        = "FILE"
+    importance  = 20
+
+  strings:
+    $s1 = "InetCpl.cpl,ClearMyTracksByProcess" ascii wide nocase
+
+  condition:
+    uint16(0) == 0x5a4d and any of them
+}
+
+
+rule DITEKSHEN_INDICATOR_SUSPICIOUS_EXE_Regkeycomb_Disablewindefender: FILE {
+  meta:
+    description = "Detects executables embedding registry key / value combination indicative of disabling Windows Defender features"
+    author      = "ditekSHen"
+    id          = "74c82d78-bdb3-54af-b04a-20d66ff123d7"
+    date        = "2024-06-08"
+    modified    = "2024-06-08"
+    reference   = "https://github.com/ditekshen/detection"
+    source_url  = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/yara/indicator_suspicious.yar#L1448-L1470"
+    license_url = "https://github.com/ditekshen/detection/blob/2ddbbe14eea1f342bca2cfd09a643a40ae2fcaf6/LICENSE.txt"
+    logic_hash  = "5a33052ded0823a8528590bd0da0023024db174f6f6a0766284c3195f5d3d41f"
+    score       = 40
+    quality     = 33
+    tags        = "FILE"
+    importance  = 20
+
+  strings:
+    $r1 = "SOFTWARE\\Policies\\Microsoft\\Windows Defender" ascii wide nocase
+    $k1 = "DisableAntiSpyware" ascii wide
+    $r2 = "SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection" ascii wide nocase
+    $k2 = "DisableBehaviorMonitoring" ascii wide
+    $k3 = "DisableOnAccessProtection" ascii wide
+    $k4 = "DisableScanOnRealtimeEnable" ascii wide
+    $r3 = "SOFTWARE\\Microsoft\\Windows Defender\\Real-Time Protection" ascii wide nocase
+    $k5 = "vDisableRealtimeMonitoring" ascii wide
+    $r4 = "SOFTWARE\\Microsoft\\Windows Defender\\Spynet" ascii wide nocase
+    $k6 = "SpyNetReporting" ascii wide
+    $k7 = "SubmitSamplesConsent" ascii wide
+    $r5 = "SOFTWARE\\Microsoft\\Windows Defender\\Features" ascii wide nocase
+    $k8 = "TamperProtection" ascii wide
+    $r6 = "SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths" ascii wide nocase
+    $k9 = "Add-MpPreference -ExclusionPath \"{0}\"" ascii wide
+
+  condition:
+    uint16(0) == 0x5a4d and (1 of ($r*) and 1 of ($k*))
+}
+
+
+rule SIGNATURE_BASE_SUSP_Xored_URL_In_EXE: FILE {
+  meta:
+    description = "Detects an XORed URL in an executable"
+    author      = "Florian Roth (Nextron Systems)"
+    id          = "f83991c8-f2d9-5583-845a-d105034783ab"
+    date        = "2020-03-09"
+    modified    = "2022-09-16"
+    reference   = "https://twitter.com/stvemillertime/status/1237035794973560834"
+    source_url  = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/yara/gen_susp_xor.yar#L4-L43"
+    license_url = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/LICENSE"
+    logic_hash  = "2113324ae04a9022be4cf5c615ad231206eeefb5aa87a2236ec3c9deee9e7ec2"
+    score       = 50
+    quality     = 85
+    tags        = "FILE"
+
+  strings:
+    $s1   = "http://" xor
+    $s2   = "https://" xor
+    $f1   = "http://" ascii
+    $f2   = "https://" ascii
+    $fp01 = "3Com Corporation" ascii
+    $fp02 = "bootloader.jar" ascii
+    $fp03 = "AVAST Software" ascii wide
+    $fp04 = "smartsvn" wide ascii fullword
+    $fp05 = "Avira Operations GmbH" wide fullword
+    $fp06 = "Perl Dev Kit" wide fullword
+    $fp07 = "Digiread" wide fullword
+    $fp08 = "Avid Editor" wide fullword
+    $fp09 = "Digisign" wide fullword
+    $fp10 = "Microsoft Corporation" wide fullword
+    $fp11 = "Microsoft Code Signing" ascii wide
+    $fp12 = "XtraProxy" wide fullword
+    $fp13 = "A Sophos Company" wide
+    $fp14 = "http://crl3.digicert.com/" ascii
+    $fp15 = "http://crl.sectigo.com/SectigoRSACodeSigningCA.crl" ascii
+    $fp16 = "HitmanPro.Alert" wide fullword
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 2000KB and (($s1 and #s1 > #f1) or ($s2 and #s2 > #f2)) and not 1 of ($fp*) and not pe.signatures.len() > 0
+}
+
+
+rule SIGNATURE_BASE_SUSP_Powershell_IEX_Download_Combo {
+  meta:
+    description = "Detects strings found in sample from CN group repo leak in October 2018"
+    author      = "Florian Roth (Nextron Systems)"
+    id          = "1dfedcb0-345c-548c-85ac-3c1e78bfd9e2"
+    date        = "2018-10-04"
+    modified    = "2023-12-05"
+    reference   = "https://twitter.com/JaromirHorejsi/status/1047084277920411648"
+    source_url  = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/yara/gen_suspicious_strings.yar#L202-L218"
+    license_url = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/LICENSE"
+    logic_hash  = "0a1507859354e0e0d9284befcf777c4d3883496eb96524a246a1df4f3a247aa9"
+    score       = 65
+    quality     = 85
+    tags        = ""
+    hash1       = "13297f64a5f4dd9b08922c18ab100d3a3e6fdeab82f60a4653ab975b8ce393d5"
+
+  strings:
+    $x1  = "IEX ((new-object net.webclient).download" ascii nocase
+    $fp1 = "chocolatey.org"
+    $fp2 = "Remote Desktop in the Appveyor"
+    $fp3 = "/appveyor/" ascii
+
+  condition:
+    $x1 and not 1 of ($fp*)
+}
+
+
+rule SIGNATURE_BASE_PUA_Anydesk_Compromised_Certificate_Revoked_Jan24: FILE {
+  meta:
+    description = "Detects binaries signed with a compromised signing certificate of AnyDesk (philandro Software GmbH, 0DBF152DEAF0B981A8A938D53F769DB8) after it was revoked. This is not a threat detection. It detects an outdated version of AnyDesk that was signed with a certificate that has been revoked."
+    author      = "Florian Roth"
+    id          = "eeefc9a5-1416-544b-b95e-c063000a4028"
+    date        = "2024-02-05"
+    modified    = "2024-04-24"
+    reference   = "https://anydesk.com/en/public-statement"
+    source_url  = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/yara/gen_anydesk_compromised_cert_feb23.yar#L3-L17"
+    license_url = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/LICENSE"
+    logic_hash  = "a1f148dbf15579bd6a65e7c93fa64f00ea481d6b314a444fa924a4604adb9a6d"
+    score       = 50
+    quality     = 85
+    tags        = "FILE"
+
+  condition:
+    uint16(0) == 0x5a4d and for any i in (0..pe.signatures.len()): (pe.signatures[i].issuer contains "DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA1" and pe.signatures[i].serial == "0d:bf:15:2d:ea:f0:b9:81:a8:a9:38:d5:3f:76:9d:b8")
+}
+
+
+rule SIGNATURE_BASE_SUSP_Imphash_Mar23_3: FILE {
+  meta:
+    description = "Detects imphash often found in malware samples (Maximum 0,25% hits with search for 'imphash:x p:0' on Virustotal) = 99,75% hits"
+    author      = "Arnim Rupp (https://github.com/ruppde)"
+    id          = "eb91e700-6478-5085-a393-a7b342c0eb4f"
+    date        = "2023-03-23"
+    modified    = "2023-07-24"
+    reference   = "Internal Research"
+    source_url  = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/yara/gen_imphash_detection.yar#L297-L329"
+    license_url = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/LICENSE"
+    hash        = "b5296cf0eb22fba6e2f68d0c9de9ef7845f330f7c611a0d60007aa87e270c62a"
+    hash        = "5a5a5f71c2270cea036cd408cde99f4ebf5e04a751c558650f5cb23279babe6d"
+    hash        = "481b0d9759bfd209251eccb1848048ebbe7bd2c87c5914a894a5bffc0d1d67ff"
+    hash        = "716ba6ea691d6a391daedf09ae1262f1dc1591df85292bff52ad76611666092d"
+    hash        = "800d160736335aafab10503f7263f9af37a15db3e88e41082d50f68d0ad2dabd"
+    hash        = "416155124784b3c374137befec9330cd56908e0e32c70312afa16f8220627a52"
+    hash        = "21899e226502fe63b066c51d76869c4ec5dbd03570551cea657d1dd5c97e7070"
+    hash        = "0461830e811d3831818dac5a67d4df736b4dc2e8fb185da439f9338bdb9f69c3"
+    hash        = "773edc71d52361454156dfd802ebaba2bb97421ce9024a7798dcdee3da747112"
+    hash        = "fe53b9d820adf3bcddf42976b8af1411e87d9dfd9aa479f12b2db50a5600f348"
+    logic_hash  = "f11de8b7f78cdfc79116670409c31745e2803ef8b8e97d08be012f1146b3d816"
+    score       = 45
+    quality     = 85
+    tags        = "FILE"
+    license     = "Detection Rule License 1.1 https://github.com/SigmaHQ/Detection-Rule-License"
+
+  condition:
+    uint16(0) == 0x5A4D and (pe.imphash() == "afcdf79be1557326c854b6e20cb900a7" or pe.imphash() == "6ed4f5f04d62b18d96b26d6db7c18840" or pe.imphash() == "fc6683d30d9f25244a50fd5357825e79" or pe.imphash() == "2c5f2513605e48f2d8ea5440a870cb9e" or pe.imphash() == "0b5552dccd9d0a834cea55c0c8fc05be") and pe.signatures.len() == 0
+}
+
+
+rule SIGNATURE_BASE_SUSP_NET_NAME_Confuserex: FILE {
+  meta:
+    description = "Detects ConfuserEx packed file"
+    author      = "Arnim Rupp"
+    id          = "f1bda14e-c9fe-5341-8962-691a66233eb0"
+    date        = "2021-01-22"
+    modified    = "2021-01-25"
+    reference   = "https://github.com/yck1509/ConfuserEx"
+    source_url  = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/yara/gen_github_net_redteam_tools_names.yar#L219-L234"
+    license_url = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/LICENSE"
+    logic_hash  = "beecb7b66830a033e2048da246d320c1ffc5015b280b34fb61aee87c8a42fff3"
+    score       = 40
+    quality     = 85
+    tags        = "FILE"
+    license     = "Detection Rule License 1.1 https://github.com/Neo23x0/signature-base/blob/master/LICENSE"
+
+  strings:
+    $name    = "ConfuserEx" ascii wide
+    $compile = "AssemblyTitle" ascii wide
+
+  condition:
+    (uint16(0) == 0x5A4D and uint32(uint32(0x3C)) == 0x00004550) and all of them
+}
+
+
+rule SIGNATURE_BASE_SUSP_XMRIG_String: FILE {
+  meta:
+    description = "Detects a suspicious XMRIG crypto miner executable string in filr"
+    author      = "Florian Roth (Nextron Systems)"
+    id          = "8c6f3e6e-df2a-51b7-81b8-21cd33b3c603"
+    date        = "2018-12-28"
+    modified    = "2023-12-05"
+    reference   = "Internal Research"
+    source_url  = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/yara/pua_xmrig_monero_miner.yar#L72-L84"
+    license_url = "https://github.com/Neo23x0/signature-base/blob/6b8e2a00e5aafcfcfc767f3f53ae986cf81f968a/LICENSE"
+    logic_hash  = "d2c3145c50939e7f407125f7b9312161724b7b1a6fcbf7e27d049e49e982c7e9"
+    score       = 65
+    quality     = 85
+    tags        = "FILE"
+    hash1       = "eb18ae69f1511eeb4ed9d4d7bcdf3391a06768f384e94427f4fc3bd21b383127"
+
+  strings:
+    $x1 = "xmrig.exe" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 2000KB and 1 of them
+}
+
+
+rule Ammyy_Admin {
+  meta:
+    description   = "Detection patterns for the tool 'Ammyy Admin' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "Ammyy Admin"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string1  = /\\aa_nts\.dll/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string2  = /\\AA_v3\.exe/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string3  = /\\AA_v3\.log/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string4  = /\\AMMYY\\access\.log/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string5  = /\\ControlSet001\\Control\\SafeBoot\\Network\\AmmyyAdmin_/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string6  = /\\ProgramData\\AMMYY\\/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string7  = /\\SOFTWARE\\Ammyy\\Admin/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string8  = /AA_v3\.exe.{0,1000}\s\-elevated/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string9  = /AA_v3\.exe.{0,1000}\s\-service\s\-lunch/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string10 = /Ammyy\sAdmin/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string11 = /Ammyy\sLLC/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string12 = /rl\.ammyy\.com\// nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string13 = /SPR\/Ammyy\.R/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string14 = /Win32\.PUA\.AmmyyAdmin/ nocase ascii wide
+    // Description: Ammyy Admin is a remote desktop software application abudsed by attackers
+    // Reference: https://www.ammyy.com
+    $string15 = /www\.ammyy\.com\/files\/v/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule IObitUnlocker {
+  meta:
+    description   = "Detection patterns for the tool 'IObitUnlocker' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "IObitUnlocker"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string1  = /\sIObitUnlocker\.exe/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string2  = /\/IObitUnlocker\.exe/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string3  = /\/unlocker\-setup\.exe/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string4  = /\\AppData\\Local\\Temp\\.{0,1000}\\IObitUnlockerSetup/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string5  = /\\Application\sData\\IObit\\IObit\sUnlocker/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string6  = /\\Downloads\\IObitUnlockerSetup/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string7  = /\\IObit\sUnlocker\.lnk/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string8  = /\\IObitUnlocker\.dll/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string9  = /\\IObitUnlocker\.exe/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string10 = /\\IObitUnlocker\.ini/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string11 = /\\IObitUnlocker\.log/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string12 = /\\IObitUnlockerExtension\.dll/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string13 = /\\Program\sFiles\s\(x86\)\\IObit\\IObit\sUnlocker/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string14 = /\\Program\sFiles\\IObit\\IObit\sUnlocker/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string15 = /\\Uninstall\sIObit\sUnlocker\.lnk/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string16 = /\\Uninstall\sIObit\sUnlocker\.url/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string17 = /\\Unlocker\.exe/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string18 = /\\unlocker\-setup\s\(1\)\.exe/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string19 = /\\unlocker\-setup\.exe/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string20 = /\\unlocker\-setup\.tmp/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string21 = /2efdffd1cf3adab21ff760f009d8893d8c4cbcf63b2c3bfcc1139457c9cd430b/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string22 = /http\:\/\/update\.iobit\.com\/infofiles\/iobitunlocker\.upt/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string23 = /https\:\/\/silentbreaksecurity\.com\/adaptive\-dll\-hijacking/ nocase ascii wide
+    // Description: unlocking locked files on Windows systems
+    // Reference: https://www.iobit.com/en/iobit-unlocker.php#
+    $string24 = /IObitUnlocker\.sys/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule ldap_queries {
+  meta:
+    description   = "Detection patterns for the tool 'ldap queries' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "ldap queries"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: metasploit enum_ad_user_comments
+    // Reference: https://techcommunity.microsoft.com/t5/microsoft-defender-for-endpoint/hunting-for-reconnaissance-activities-using-ldap-search-filters/ba-p/824726
+    $string1  = /\(\&\(\&\(objectCategory\=person\)\(objectClass\=user\)\)\(\|\(description\=.{0,1000}pass.{0,1000}\)\(comment\=.{0,1000}pass.{0,1000}\)\)\)/ nocase ascii wide
+    // Description: Enumerate Read-Only Domain Controllers (RODC)
+    // Reference: https://github.com/mthcht/ThreatHunting-Keywords
+    $string2  = /\(\&\(objectCategory\=computer\)\(msDS\-isRODC\=TRUE\)\)/ nocase ascii wide
+    // Description: LAPS passwords (from SharpLAPS)
+    // Reference: https://gist.github.com/jsecurity101/9c7e94f95b8d90f9252d64949562ba5d
+    $string3  = /\(\&\(objectCategory\=computer\)\(ms\-MCS\-AdmPwd\=.{0,1000}\)\(sAMAccountName\=\"\s\+\starget\s\+\s\"\)\)/ nocase ascii wide
+    // Description: Enumerate Accounts with Non-Expiring Passwords and Administrative Privileges
+    // Reference: https://github.com/mthcht/ThreatHunting-Keywords
+    $string4  = /\(\&\(objectCategory\=person\)\(objectClass\=user\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=65536\)\(memberOf\=CN\=Administrators/ nocase ascii wide
+    // Description: Enumerate all users with the account configuration 'Password never expires'
+    // Reference: https://gist.github.com/jsecurity101/9c7e94f95b8d90f9252d64949562ba5d
+    $string5  = /\(\&\(objectCategory\=person\)\(objectClass\=user\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=65536\)/ nocase ascii wide
+    // Description: metasploit  enum_ad_managedby_groups.rb
+    // Reference: https://github.com/rapid7/metasploit-framework/blob/d37a82500d1d08f9d8ab3da9b194653835748fae/modules/post/windows/gather/enum_ad_managedby_groups.rb#L59
+    $string6  = /\(\&\(objectClass\=group\)\(managedBy\=.{0,1000}\)\(groupType\:1\.2\.840\.113556\.1\.4\.803\:\=2147483648\)\)/ nocase ascii wide
+    // Description: Enumerate Domain Administrators Group
+    // Reference: https://jsecurity101.medium.com/uncovering-adversarial-ldap-tradecraft-658b2deca384
+    $string7  = /\(\&\(objectclass\=group\)\(samaccountname\=.{0,1000}domain\sadmins.{0,1000}\)\)/ nocase ascii wide
+    // Description: Kerberoasting
+    // Reference: https://gist.github.com/jsecurity101/9c7e94f95b8d90f9252d64949562ba5d
+    $string8  = /\(\&\(samAccountType\=805306368\)\(servicePrincipalName\=.{0,1000}\)\(\!samAccountName\=krbtgt\)\(\!\(UserAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2\)\)\(\!msds\-supportedencryptiontypes\:1\.2\.840\.113556\.1\.4\.804\:\=24\)\)/ nocase ascii wide
+    // Description: Kerberoasting
+    // Reference: https://gist.github.com/jsecurity101/9c7e94f95b8d90f9252d64949562ba5d
+    $string9  = /\(\&\(samAccountType\=805306368\)\(servicePrincipalName\=.{0,1000}\)\(\!samAccountName\=krbtgt\)\(\!\(UserAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2\)\)\(msds\-supportedencryptiontypes\:1\.2\.840\.113556\.1\.4\.804\:\=24\)\)/ nocase ascii wide
+    // Description: Kerberoasting
+    // Reference: https://gist.github.com/jsecurity101/9c7e94f95b8d90f9252d64949562ba5d
+    $string10 = /\(\&\(samAccountType\=805306368\)\(servicePrincipalName\=.{0,1000}\)\(\!samAccountName\=krbtgt\)\(\!\(UserAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2\)\)\)/ nocase ascii wide
+    // Description: Enumerate all servers configured for Unconstrained Delegation
+    // Reference: N/A
+    $string11 = /\(\[adsisearcher\]\'\(\&\(objectCategory\=computer\)\(\!\(primaryGroupID\=516\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=524288\)\)\)\'\)\.FindAll\(\)/ nocase ascii wide
+    // Description: Enumerate all Domain Controllers
+    // Reference: https://web.archive.org/web/20240109000256/https://cyberdom.blog/2024/01/07/defender-for-identity-hunting-for-ldap/
+    $string12 = /\(\[adsisearcher\]\'\(\&\(objectCategory\=computer\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=8192\)\)\'\)\.FindAll\(\)/ nocase ascii wide
+    // Description: Search for user accounts with SPN but not TGT accounts
+    // Reference: https://jsecurity101.medium.com/uncovering-adversarial-ldap-tradecraft-658b2deca384
+    $string13 = /\(\[adsisearcher\]\'\(\&\(objectCategory\=user\)\(\!\(samAccountName\=krbtgt\)\(servicePrincipalName\=.{0,1000}\)\)\)\'\)\.FindAll\(\)/ nocase ascii wide
+    // Description: Search for all objects with AdminSHHolder
+    // Reference: https://jsecurity101.medium.com/uncovering-adversarial-ldap-tradecraft-658b2deca384
+    $string14 = /\(\[adsisearcher\]\'\(adminCount\=1\)\'\)\.FindAll\(\)/ nocase ascii wide
+    // Description: Queries for domain level and mode information
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string15 = /\(\[DirectoryServices\.ActiveDirectory\.Forest\]\:\:GetCurrentForest\(\)\)\.Domains/ nocase ascii wide
+    // Description: enumeration of AD Forest Sites
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string16 = /\(\[DirectoryServices\.ActiveDirectory\.Forest\]\:\:GetCurrentForest\(\)\)\.Sites\s\|\s/ nocase ascii wide
+    // Description: querying all domain controllers with detailed properties
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string17 = /\(\[System\.DirectoryServices\.ActiveDirectory\.Domain\]\:\:GetCurrentDomain\(\)\)\.FindAllDomainControllers\(\)\s\|\sSelect\-Object\s\-Property\s/ nocase ascii wide
+    // Description: get all trust relationships in the current domain
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string18 = /\(\[System\.DirectoryServices\.ActiveDirectory\.Domain\]\:\:GetCurrentDomain\(\)\)\.GetAllTrustRelationships\(\)/ nocase ascii wide
+    // Description: Enumerate all of the domain controllers for all domains in a forest
+    // Reference: N/A
+    $string19 = /\(Get\-ADForest\)\.Domains\s\|\s\%\\\{\sGet\-ADDomainController\s\-Filter\s.{0,1000}\s\-Server\s\$_\s\\\}/ nocase ascii wide
+    // Description: used by Rubeus and S4UTomato tools
+    // Reference: N/A
+    $string20 = /\(msds\-supportedencryptiontypes\=0\)\(msds\-supportedencryptiontypes\:1\.2\.840\.113556\.1\.4\.803\:\=4\)\)\)/ nocase ascii wide
+    // Description: Query to find service accounts which are typically high-privileged and targeted for privilege escalation
+    // Reference: https://github.com/mthcht/ThreatHunting-Keywords
+    $string21 = /\(objectCategory\=person\)\(objectClass\=user\)\(serviceAccount\=TRUE\)/ nocase ascii wide
+    // Description: Enumerate Domain Admins
+    // Reference: https://gist.github.com/jsecurity101/9c7e94f95b8d90f9252d64949562ba5d
+    $string22 = /\(objectclass\=group\)\(samaccountname\=domain\sadmins\)/ nocase ascii wide
+    // Description: Accounts Trusted for Delegation
+    // Reference: https://gist.github.com/jsecurity101/9c7e94f95b8d90f9252d64949562ba5d
+    $string23 = /\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=524288\)/ nocase ascii wide
+    // Description: enumeration of Domain Password Policies
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string24 = /\[ADSI\].{0,1000}\s\|\sSelect\-Object\s\-Property\s.{0,1000}lockoutDuration/ nocase ascii wide
+    // Description: enumeration of Domain Password Policies
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string25 = /\[ADSI\].{0,1000}\s\|\sSelect\-Object\s\-Property\s.{0,1000}lockoutThreshold/ nocase ascii wide
+    // Description: enumeration of Domain Password Policies
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string26 = /\[ADSI\].{0,1000}\s\|\sSelect\-Object\s\-Property\s.{0,1000}minPwdLength/ nocase ascii wide
+    // Description: enumeration of Domain Admins group members
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string27 = /\[ADSI\].{0,1000}LDAP\:\/\/CN\=Domain\sAdmins.{0,1000}\|\sForEach\-Object\s\\\{\[adsi\]\"LDAP\:\/\/\$_\"\\\}\;\s.{0,1000}\.distinguishedname/ nocase ascii wide
+    // Description: get LDAP properties for password settings directly
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string28 = /\[ADSI\].{0,1000}LDAP\:\/\/dc\=.{0,1000}\s\|\sSelect\s\-Property\spwdProperties/ nocase ascii wide
+    // Description: find user descriptions in Active Directory:
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string29 = /\[adsisearcher\]\"\(\&\(objectCategory\=person\)\(objectClass\=user\)\(\!\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2\)\)\)\"\;\s\$users\s\=\s\$searchUsers\.FindAll\(\)\;\s\$userProps\s\=\s\$users\.Properties\;\s\$userProps\s\|\sWhere\-Object\s\\\{\$_\.description\\\}/ nocase ascii wide
+    // Description: find all disabled user accounts
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string30 = /\[adsisearcher\]\"\(\&\(objectCategory\=person\)\(objectClass\=user\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2\)\)\"/ nocase ascii wide
+    // Description: get a count of all inter domain trust accounts
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string31 = /\[adsisearcher\]\"\(\&\(objectCategory\=person\)\(objectClass\=user\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2560\)\(\!\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2\)\)\)\"/ nocase ascii wide
+    // Description: Detection of all accounts with 'Password Not Required'
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string32 = /\[adsisearcher\]\"\(\&\(objectCategory\=person\)\(objectClass\=user\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=32\)\(\!\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2\)\)\)/ nocase ascii wide
+    // Description: Enumerate all Domain Controllers
+    // Reference: https://web.archive.org/web/20240109000256/https://cyberdom.blog/2024/01/07/defender-for-identity-hunting-for-ldap/
+    $string33 = /\[adsisearcher\]\'\(\&\(objectCategory\=computer\)\(primaryGroupID\=516\)\)\'\)\.FindAll\(\)/ nocase ascii wide
+    // Description: Enumerate all accounts that do not require a password
+    // Reference: https://jsecurity101.medium.com/uncovering-adversarial-ldap-tradecraft-658b2deca384
+    $string34 = /\[adsisearcher\]\'\(\&\(objectCategory\=person\)\(objectClass\=user\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=32\)\)\'\)\.FindAll\(\)/ nocase ascii wide
+    // Description: ADSI query to retrieve all active user accounts with non-expiring passwords
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string35 = /\[adsisearcher\].{0,1000}\(\&\(objectCategory\=person\)\(objectClass\=user\)\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=66048\)\(\!\(userAccountControl\:1\.2\.840\.113556\.1\.4\.803\:\=2\)\)/ nocase ascii wide
+    // Description: Discover all Domain Controller in the domain using ADSI
+    // Reference: https://adsecurity.org/?p=299
+    $string36 = /\[System\.DirectoryServices\.ActiveDirectory\.Domain\]\:\:GetCurrentDomain\(\)\.DomainControllers/ nocase ascii wide
+    // Description: Discover all Global Catalogs in the forest using ADSI
+    // Reference: https://adsecurity.org/?p=299
+    $string37 = /\[System\.DirectoryServices\.ActiveDirectory\.Forest\]\:\:GetCurrentForest\(\)\.GlobalCatalogs/ nocase ascii wide
+    // Description: query for the primary domain controller within the forest
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string38 = /\[System\.DirectoryServices\.ActiveDirectory\.Forest\]\:\:GetCurrentForest\(\)\.RootDomain\.PDCRoleOwner\.Name/ nocase ascii wide
+    // Description: cmdlets to get computer information about Domain Controllers
+    // Reference: https://adsecurity.org/?p=299
+    $string39 = /get\-ADComputer\s\-filter\s\\\{\sPrimaryGroupID\s\-eq\s\"516\"\s\\\}\s\-properties\sPrimaryGroupID/ nocase ascii wide
+    // Description: identifying accounts with 'Password Not Required
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string40 = /Get\-ADUser\s\-filter\s.{0,1000}\s\-Properties\sSamAccountName\,\sPasswordNotRequired\s\|\swhere\s\\\{\s\$_\.passwordnotrequired\s\-eq\s\"true\"\s\\\}\s\|\swhere\s\\\{\$_\.enabled\s\-eq\s\"true\"\\\}/ nocase ascii wide
+    // Description: querying accounts that have not been logged into for over 90 days
+    // Reference: https://github.com/swarleysez/AD-common-queries
+    $string41 = /Get\-ADUser\s\-properties\s.{0,1000}\s\-filter\s\\\{\(lastlogondate\s\-notlike\s\".{0,1000}\"\s\-OR\slastlogondate\s\-le\s\$90days\)\s\-AND\s\(passwordlastset\s\-le\s\$90days\)\s\-AND\s\(enabled\s\-eq\s\$True\)\s\-and\s\(PasswordNeverExpires\s\-eq\s\$false\)\s\-and\s\(whencreated\s\-le\s\$90days\)\\\}/ nocase ascii wide
+    // Description: Red Teams and adversaries may leverage [Adsisearcher] to enumerate domain groups for situational awareness and Active Directory Discovery
+    // Reference: https://research.splunk.com/endpoint/089c862f-5f83-49b5-b1c8-7e4ff66560c7/
+    $string42 = /powershell.{0,1000}\[adsisearcher\].{0,1000}\(objectcategory\=group\).{0,1000}findAll\(\)/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule RemotePC {
+  meta:
+    description   = "Detection patterns for the tool 'RemotePC' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "RemotePC"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string1   = /\s\/f\s\/im\sRemotePCS/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string2   = /\screate\sRPCService\sstart\=/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string3   = /\screate\sViewerService\sstart\=auto/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string4   = /\s\-i\sremotepc\.deb/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string5   = /\sRemotePC\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string6   = /\sRemotePCAttendedService\s/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string7   = /\sremotepclauncher\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string8   = /\sremotepcuiu\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string9   = /\sRemotePCViewer\.msi/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string10  = /\srpcdownloader\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string11  = /\srpcperfviewer\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string12  = /\sRPCWinXP\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string13  = /\"RemotePCAttendedService\"/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string14  = /\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string15  = /\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string16  = /\/AttendedUDP\.zip/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string17  = /\/remotepc\.deb/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string18  = /\/remotepc\.deb/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string19  = /\/RemotePC\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string20  = /\/RemotePC\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string21  = /\/RemotePC\.lnk/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string22  = /\/RemotePC\.tmp/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string23  = /\/remotepc\-attended\.deb/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string24  = /\/RemotePCAttended\.dmg/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string25  = /\/remotepclauncher\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string26  = /\/RemotePCSuite\.dmg/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string27  = /\/remotepcuiu\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string28  = /\/RemotePCViewer\.msi/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string29  = /\/RpcDND_Console\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string30  = /\/rpcdownloader\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string31  = /\/RPCFireWallRule\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string32  = /\/rpcperfviewer\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string33  = /\/RPCProxyLatency\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string34  = /\/viewerhostkeypopup\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string35  = /\\AttendedServiceRemove\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string36  = /\\AttendedUDP\.zip/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string37  = /\\BSUtility\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string38  = /\\Control\\Print\\Monitors\\REMOTEPCPRINTER/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string39  = /\\CurrentVersion\\App\sPaths\\RemotePCPerformance/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string40  = /\\CurrentVersion\\Devices\\RemotePC\sPrinter/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string41  = /\\InventoryApplicationFile\\rpcattendedadmin/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string42  = /\\Print\\Printers\\RemotePC\sPrinter\\/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string43  = /\\Program\sFiles\s\(x86\)\\RemotePC\\/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string44  = /\\program\sfiles\s\(x86\)\\remotepc\\remotepcperformance\\/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string45  = /\\ProgramData\\RemotePC/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string46  = /\\RemotePC\s\(1\)\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string47  = /\\RemotePC\sAttended\.lnk/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string48  = /\\RemotePC\sAttended\\/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string49  = /\\RemotePC\sPerformance\sHost\\/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string50  = /\\RemotePC\.Common\.dll/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string51  = /\\RemotePC\.Common\.dll/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string52  = /\\RemotePC\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string53  = /\\RemotePC\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string54  = /\\RemotePC\.lnk/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string55  = /\\RemotePC\.tmp/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string56  = /\\RemotePC\.tmp/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string57  = /\\RemotePC\\.{0,1000}\.dll/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string58  = /\\RemotePCAttended\.dmg/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string59  = /\\RemotePCCopyPaste\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string60  = /\\RemotePCDDriver\.cat/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string61  = /\\RemotePCDDriver\.inf/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string62  = /\\RemotePCDDriver\.inf/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string63  = /\\RemotePCDDriverumode1_0\.dll/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string64  = /\\RemotePCDDriverumode1_2\.dll/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string65  = /\\RemotePCDesktop\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string66  = /\\RemotePCDnD\.dll/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string67  = /\\RemotePCDnDLauncher\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string68  = /\\RemotePCHDDesktop\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string69  = /\\RemotePCHDService\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string70  = /\\remotepclauncher\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string71  = /\\RemotePCModules\.log/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string72  = /\\RemotePCPDF\.conf/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string73  = /\\RemotePCPDF\.conf/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string74  = /\\RemotePCPerformancePlugins\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string75  = /\\RemotePCPrinter\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string76  = /\\RemotePCPrinter\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string77  = /\\RemotePCPrinter\.exe\.config/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string78  = /\\RemotePCPrinter\.pdb/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string79  = /\\RemotePCPrinterCore\.dll/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string80  = /\\RemotePCPrinterCore\.pdb/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string81  = /\\RemotePCProxys\.dat/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string82  = /\\RemotePCPS5UI\.DLL/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string83  = /\\RemotePCPS5UI\.DLL/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string84  = /\\RemotePCPSCRIPT\./ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string85  = /\\RemotePCPSCRIPT\.HLP/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string86  = /\\RemotePCPSCRIPT\.NTF/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string87  = /\\RemotePCPSCRIPT5\.DLL/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string88  = /\\RemotePCService\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string89  = /\\RemotePCService\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string90  = /\\RemotePCService_2\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string91  = /\\RemotePCSuite\.dmg/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string92  = /\\RemotePCUDE\.cat/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string93  = /\\RemotePCUDE\.inf/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string94  = /\\RemotePCUDE\.sys/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string95  = /\\RemotePCUDE\.sys/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string96  = /\\RemotePCUDEHost\.cat/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string97  = /\\RemotePCUDEHost\.inf/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string98  = /\\RemotePCUDEHost\.sys/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string99  = /\\RemotePCUIA\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string100 = /\\RemotePCUIU\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string101 = /\\remotepcuiu\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string102 = /\\RemotePCViewer\.msi/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string103 = /\\RpcAccessPermissionNotifier\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string104 = /\\RpcAccessPermissionNotifier\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string105 = /\\RpcApp\\RPCCodecEngine\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string106 = /\\RpcApp\\Tools\\Chat\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string107 = /\\RpcApp\\Tools\\Chat\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string108 = /\\RpcApp\\Tools\\TransferServer\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string109 = /\\RPCAppLauncherLogFile\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string110 = /\\RPCAttended\.log/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string111 = /\\RPCAttendedAdmin\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string112 = /\\RPCCertificate\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string113 = /\\RPCCertificate\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string114 = /\\RPCClipboard\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string115 = /\\RPCClipboardAttended\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string116 = /\\RPCConfig\.ini/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string117 = /\\RPCCoreViewer\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string118 = /\\RPCCoreViewerL\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string119 = /\\RpcDND_Console\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string120 = /\\RpcDND_Console\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string121 = /\\RPCDownloader\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string122 = /\\rpcdownloader\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string123 = /\\RPCDownloaderLogFile\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string124 = /\\RPCDownloaderLogFile\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string125 = /\\RPCDragDrop\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string126 = /\\RPCFirewallAttended\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string127 = /\\RPCFireWallRule\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string128 = /\\RPCFireWallRule\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string129 = /\\RPCFireWallRulelogfile\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string130 = /\\RPCKeyMouseHandler\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string131 = /\\RPCOTABootstrapper\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string132 = /\\RPCOTADesktop\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string133 = /\\RPCOTADesktopUAC\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string134 = /\\RpcOTADND_Console\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string135 = /\\RPCOTAElevator\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string136 = /\\RPCOTAFTHost\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string137 = /\\RPCOTAKillService\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string138 = /\\RPCOTARelauncher\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string139 = /\\RPCOTAService\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string140 = /\\RPCOTAServiceUAC\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string141 = /\\RPCOTAUtilityHost\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string142 = /\\RPCOTAViewerHostKeyPopup\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string143 = /\\RPCPerformanceService\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string144 = /\\RPCPerformanceService\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string145 = /\\RPCPerformanceService\.log/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string146 = /\\RPCPerfViewer\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string147 = /\\rpcperfviewer\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string148 = /\\RPCPerfViewer\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string149 = /\\RPCPing\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string150 = /\\RPCPreUninstall\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string151 = /\\RPCPreUninstall\.log/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string152 = /\\RPCPrinterDownloader\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string153 = /\\RPCPrinterDownloader\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string154 = /\\RPCPrinterDownloader\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string155 = /\\RPCProxyLatency\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string156 = /\\RPCProxyLatency\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string157 = /\\RPCProxyLatencyAttended\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string158 = /\\RPCSettings\.ini/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string159 = /\\RPCSettings\.ini/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string160 = /\\RpcStickyNotes\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string161 = /\\RPCSuite_.{0,1000}_Inc\.log/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string162 = /\\RPCsuiteLaunch\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string163 = /\\Schedule\\TaskCache\\Tree\\RemotePC/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string164 = /\\Services\\RemotePCAttendedService/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string165 = /\\Tools\\Ninja\.WebSockets\.dll/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string166 = /\\Tracing\\RemotePCLauncher_/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string167 = /\\Tracing\\RemotePCUIU/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string168 = /\\TransferClient\.exe\.config/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string169 = /\\TransferServer\.exe\.config/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string170 = /\\ViewerHostKeyPopup\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string171 = /\\viewerhostkeypopup\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string172 = /\\ViewerHostKeyPopup\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string173 = /\\WOW6432Node\\RemotePC/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string174 = /AppData\\Local\\Temp\\RemotePC\sAttended/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string175 = /download\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string176 = /download\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string177 = /HKCR\\REMOTEPC/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string178 = /https\:\/\/login\.remotepc\.com\/rpcnew/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string179 = /ip\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string180 = /login\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string181 = /net\sstart\sRPCPerformanceService/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string182 = /program\sfiles\s\(x86\)\\remotepc\\/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string183 = /ProgramData\\RemotePC\sPerformance/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string184 = /ProgramData\\RemotePC/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string185 = /RemotePC\s\(1\)\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string186 = /RemotePC\sPerformance\sPrinter\.url/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string187 = /RemotePC.{0,1000}\s\-\sA\snew\scomputer\shas\sbeen\sadded\sto\syour\saccount/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string188 = /RemotePC\.exe\s/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string189 = /RemotePC\.WebSockets\.dll/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string190 = /RemotePC\\REMOTE\~2\.DLL/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string191 = /RemotePCAttended\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string192 = /RemotePCAttendedService/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string193 = /RemotePCBlackScreenApp\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string194 = /RemotePCCopyPaste\.txt/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string195 = /RemotePCDesktop\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string196 = /RemotePCDesktop\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string197 = /RemotePCDesktop\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string198 = /RemotePCHDDesktop\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string199 = /RemotePCHDService\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string200 = /remotepclauncher\.exe\s/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string201 = /RemotePCModules\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string202 = /RemotePCPerformanceWebLauncher\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string203 = /RemotePCPerformanceWebLauncher\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string204 = /RemotePCPrinter\.exe\.config/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string205 = /RemotePCPrinting\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string206 = /RemotePCPrintView\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string207 = /RemotePCProxys\.dat/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string208 = /RemotePCService\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string209 = /RemotePCService\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string210 = /RemotePCService_2\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string211 = /RemotePCShortcut\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string212 = /RemotePCSuite\.Model\.dll/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string213 = /RemotePCSuite\.Service\.dll/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string214 = /RemotePCSuite\.Service\.dll/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string215 = /remotepcuiu\.exe\s/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string216 = /RpcApp.{0,1000}TransferClient\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string217 = /RpcApp.{0,1000}TransferServer\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string218 = /RpcApp\\Tools\\TransferClient\.exe/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string219 = /RPCAttendedInstaller\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string220 = /rpcdownloader\.exe\s/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string221 = /RPCDownloaderLogFile\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string222 = /RPCFireWallRule\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string223 = /RPCFireWallRulelogfile\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string224 = /RPCKeyMouseHandler\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string225 = /RPCPerformanceHealthCheck/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string226 = /rpcperformanceservice\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string227 = /RPCPerformanceService\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string228 = /rpcperfviewer\.exe\s/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string229 = /RPCPerfViewer\.log/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string230 = /rpcprinterdownloader\.exe/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string231 = /RPCProxyLatency\.exe\s/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string232 = /RPCsuiteLaunch\.txt/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string233 = /rule\sname\=\"TransferServer\"/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string234 = /sc\s\sdelete\s\"RPCService\"/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string235 = /sc\s\sstart\s\"RPCService\"/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string236 = /sc\s\sstop\s\"RPCService\"/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string237 = /sc\screate\sRPCService\sstart\=auto/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string238 = /sc\screate\sRPCService/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string239 = /sc\sdelete\s\"RPCService\"/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string240 = /sc\sdelete\sViewerService/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string241 = /sc\sstart\sViewerService/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string242 = /sc\sstop\s\"RPCService\"/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string243 = /sc\sstop\sViewerService/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string244 = /StartRPCPerformanceService/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string245 = /StartRPCPerformanceServiceOnStart/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string246 = /static\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string247 = /static\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string248 = /Uninstall\sRemotePC\.lnk/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string249 = /viewerhostkeypopup\.exe\s/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string250 = /web1\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC RMM tool - abused by attackers
+    // Reference: https://www.remotedesktop.com/
+    $string251 = /web1\.remotepc\.com/ nocase ascii wide
+    // Description: RemotePC Remote administration tool
+    // Reference: https://remotepc.com/
+    $string252 = /www1\.remotepc\.com/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule tightvnc {
+  meta:
+    description   = "Detection patterns for the tool 'tightvnc' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "tightvnc"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string1  = /\s\-service\sTightVNC\sServer/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string2  = /\.\\TightVNC1/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string3  = /\.\\TightVNC2/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string4  = /\.\\TightVNC3/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string5  = /\/tightvnc\-.{0,1000}\.msi/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string6  = /\\mlnhcpkomdeavomsjalt/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string7  = /\\Programs\\TightVNC/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string8  = /\\SOFTWARE\\WOW6432Node\\TightVNC\\/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string9  = /\\TightVNC\sServer/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string10 = /\\tightvnc\-/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string11 = /\\TightVNC_Service_Control/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string12 = /\\TVN_log_pipe_public_name/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string13 = /\>TightVNC\sViewer\</ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string14 = /00\:\\\.vnc\\/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string15 = /GlavSoft\sLLC\./ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string16 = /HKCR\\\.vnc/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string17 = /program\sfiles\s\(x86\)\\tightvnc\\/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string18 = /ProgramData\\TightVNC/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string19 = /TightVNC\sService/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string20 = /TightVNC\sWeb\sSite\.url/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string21 = /tvnserver/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string22 = /tvnserver\.exe/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string23 = /tvnviewer\.exe/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string24 = /VncViewer\.Config/ nocase ascii wide
+    // Description: TightVNC is a free and Open Source remote desktop software that lets you access and control a computer over the network - often abused by attackers
+    // Reference: https://www.tightvnc.com
+    $string25 = /www\.tightvnc\.com\/download\/.{0,1000}\=/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule Zoho_Assist {
+  meta:
+    description   = "Detection patterns for the tool 'Zoho Assist' taken from the ThreatHunting-Keywords github project"
+    author        = "@mthcht"
+    reference     = "https://github.com/mthcht/ThreatHunting-Keywords"
+    tool          = "Zoho Assist"
+    rule_category = "greyware_tool_keyword"
+
+  strings:
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string1  = /\s\-altgw\s.{0,1000}\.zohoassist\.com\s/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string2  = /\s\-ms\sassist\.zoho\.com\s\-p\s443/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string3  = /\s\-rr_flag\s.{0,1000}\s\-group\s.{0,1000}\s\-fileTransferGateways\s.{0,1000}\.zohoassist\.com\s\-ADMINAGENT/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string4  = /\sSELECT\sProcessId\sFROM\sWin32_Process\s.{0,1000}\sName\=\'ZAAudioClient\.exe\'/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string5  = /\sZA_Connect\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string6  = /\sZAAudioClient\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string7  = /\sZAFileTransfer\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string8  = /\sZAService\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string9  = /\.zohoassist\.com\.cn/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string10 = /\.zohoassist\.jp/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string11 = /\/ZA_Connect\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string12 = /\/ZAAudioClient\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string13 = /\/ZAFileTransfer\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string14 = /\/ZAService\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string15 = /\\AppData\\Local\\ZohoMeeting\\/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string16 = /\\CurrentControlSet\\Services\\Zoho\sAssist\-Remote\sSupport/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string17 = /\\dctoolshardware\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string18 = /\\InventoryApplicationFile\\zaservice\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string19 = /\\log\\FileTransferWindowAppLog\.log/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string20 = /\\Root\\InventoryApplicationFile\\za_connect\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string21 = /\\RSTemp\\ZohoMeeting\\/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string22 = /\\SafeBoot\\Network\\Zoho\sAssist\-Remote\sSupport/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string23 = /\\SOFTWARE\\Zoho\sAssist/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string24 = /\\ZA_Connect\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string25 = /\\ZA_Upgrader/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string26 = /\\ZAAudioClient\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string27 = /\\ZAFileTransfer\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string28 = /\\ZAService\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string29 = /\\ZAudioClientPipe_.{0,1000}ServerReadPipe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string30 = /\\ZAudioClientPipe_.{0,1000}ServerWritePipe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string31 = /\\ZMAgent\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string32 = /\\Zoho\sAssist\\Zoho\sAssist\sRemote\ssupport/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string33 = /\\ZohoMeeting\.7z/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string34 = /\\ZohoMeeting\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string35 = /\\ZohoMeeting\\agent\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string36 = /\\zohomeeting\\agent\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string37 = /\\ZohoMeeting\\agent_ui\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string38 = /\\ZohoMeeting\\Connect\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string39 = /\\ZohoMeeting\\Connection\.conf/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string40 = /\\ZohoMeeting\\log\\.{0,1000}\.log/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string41 = /\\ZohoMeeting\\ViewerUI\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string42 = /\\ZohoTray\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string43 = /\\ZohoURS\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string44 = /\\ZohoURSService\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string45 = /_Classes\\zohoassistlaunchv2/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string46 = /assist\.zoho\.com/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string47 = /downloads\.zohocdn\.com/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string48 = /downloads\.zohodl\.com\.cn/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string49 = /gateway\.zohoassist\.com/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string50 = /https\:\/\/.{0,1000}\.zoho\.com\/pconnect/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string51 = /https\:\/\/.{0,1000}\.zohoassist\.com\/w_socket/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string52 = /https\:\/\/assist\.zoho\.com\/assist\-join\?key\=/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string53 = /https\:\/\/assist\.zoho\.com\/customer\-session\-details\?client_token\=/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string54 = /https\:\/\/assist\.zoho\.com\/join\?join_source\=EMAIL_INVITE/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string55 = /https\:\/\/assist\.zoho\.com\/join\-session\?key\=/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string56 = /https\:\/\/assist\.zoho\.com\/org\// nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string57 = /https\:\/\/assist\.zoho\.com\/viewer\-assist/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string58 = /https\:\/\/pubsub\.zoho\.com\/.{0,1000}_deskUserPresence\/pubsub/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string59 = /https\:\/\/us4\-wms6\.zoho\.com/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string60 = /ProductName\:Zoho\%\%20Assist.{0,1000}\sapptype\:ATTENDEE/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string61 = /program\sfiles\s\(x86\)\\zohomeeting/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string62 = /\'ServiceName\'\>Zoho\sAssist\-Remote\sSupport/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string63 = /turn\-.{0,1000}\.zohomeeting\.com/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string64 = /ZA_Connect\.exe\s/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string65 = /ZA_Connect\.exe\.ApplicationCompany/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string66 = /ZAFileTransfer\.exe\s/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string67 = /ZAService\.exe\s/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string68 = /ZOHO\sCORPORATION\sPRIVATE\sLIMITED/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string69 = /ZohoMeeting\.exe/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string70 = /ZohoMeeting\\FileTransferSettings\.conf/ nocase ascii wide
+    // Description: Zoho Assist Remote access software - abused by attackers
+    // Reference: https://www.zoho.com/assist/
+    $string71 = /ZohoMeeting\\Service\.Conf/ nocase ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule PUA_VULN_Driver_Isinc_Avenger_Stopzilla_6BC0 {
+  meta:
+    description = "Detects vulnerable driver mentioned in LOLDrivers project using VersionInfo values from the PE header - szkg64.sys"
+    author      = "Florian Roth"
+    reference   = "https://github.com/magicsword-io/LOLDrivers"
+    hash        = "6bc0e1c104fac4a8caa4237c7ae181ca11a043a3ee26426aeb7a90dc40281fad"
+    date        = "2025-03-07"
+    score       = 40
+
+  strings:
+    $ = { 00 46 00 69 00 6c 00 65 00 44 00 65 00 73 00 63 00 72 00 69 00 70 00 74 00 69 00 6f 00 6e [1-8] 00 73 00 7a 00 6b 00 67 00 20 00 44 00 65 00 76 00 69 00 63 00 65 00 20 00 44 00 72 00 69 00 76 00 65 00 72 }  /* FileDescription szkgDeviceDriver */
+    $ = { 00 43 00 6f 00 6d 00 70 00 61 00 6e 00 79 00 4e 00 61 00 6d 00 65 [1-8] 00 69 00 53 00 33 00 20 00 49 00 6e 00 63 00 2e }  /* CompanyName iSInc */
+    $ = { 00 46 00 69 00 6c 00 65 00 56 00 65 00 72 00 73 00 69 00 6f 00 6e [1-8] 00 33 00 2e 00 30 00 2e 00 32 00 34 }  /* FileVersion  */
+    $ = { 00 50 00 72 00 6f 00 64 00 75 00 63 00 74 00 56 00 65 00 72 00 73 00 69 00 6f 00 6e [1-8] 00 35 00 2e 00 30 00 2e 00 39 00 35 00 2e 00 30 }  /* ProductVersion  */
+    $ = { 00 49 00 6e 00 74 00 65 00 72 00 6e 00 61 00 6c 00 4e 00 61 00 6d 00 65 [1-8] 00 41 00 76 00 65 00 6e 00 67 00 65 00 72 00 20 00 36 00 34 }  /* InternalName Avenger */
+    $ = { 00 50 00 72 00 6f 00 64 00 75 00 63 00 74 00 4e 00 61 00 6d 00 65 [1-8] 00 53 00 74 00 6f 00 70 00 7a 00 69 00 6c 00 6c 00 61 }  /* ProductName Stopzilla */
+    $ = { 00 4f 00 72 00 69 00 67 00 69 00 6e 00 61 00 6c 00 46 00 69 00 6c 00 65 00 6e 00 61 00 6d 00 65 [1-8] 00 73 00 7a 00 6b 00 67 00 36 00 34 00 2e 00 73 00 79 00 73 }  /* OriginalFilename szkgsys */
+    $ = { 00 4c 00 65 00 67 00 61 00 6c 00 43 00 6f 00 70 00 79 00 72 00 69 00 67 00 68 00 74 [1-8] 00 43 00 6f 00 70 00 79 00 72 00 69 00 67 00 68 00 74 00 20 00 28 00 63 00 29 00 32 00 30 00 30 00 35 00 2d 00 32 00 30 00 31 00 31 00 20 00 20 00 69 00 53 00 33 00 20 00 49 00 6e 00 63 00 20 00 2e 00 20 00 41 00 6c 00 6c 00 20 00 72 00 69 00 67 00 68 00 74 00 73 00 20 00 72 00 65 00 73 00 65 00 72 00 76 00 65 00 64 00 2e }  /* LegalCopyright CopyrightciSIncAllrightsreserved */
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 100KB and all of them
+}
+
+
+rule Havex {
+  meta:
+    Author    = "Intezer Analyze"
+    Reference = "https://apt-ecosystem.com"
+
+  strings:
+    $block_0  = { 8B ?? ?? 03 ?? 0F AF ?? 5? 5? 8D ?? ?? E8 ?? ?? ?? ?? 83 ?? ?? ?? 8B ?? ?? 89 ?? ?? 8B ?? ?? 72 }
+    $block_1  = { 5? 8D ?? ?? 5? E8 ?? ?? ?? ?? 8A ?? 5? F6 ?? 5? 1A ?? 8D ?? ?? FE ?? E8 ?? ?? ?? ?? 84 ?? 0F 84 }
+    $block_2  = { 8D ?? ?? C6 ?? ?? ?? E8 ?? ?? ?? ?? 8B ?? ?? 2B ?? ?? 6A ?? 99 5? F7 ?? 4? 83 ?? ?? 3B ?? 0F 82 }
+    $block_3  = { 8D ?? ?? 5? 8B ?? E8 ?? ?? ?? ?? 8B ?? E8 ?? ?? ?? ?? 0F B7 ?? 5? E8 ?? ?? ?? ?? 5? 84 ?? 75 }
+    $block_4  = { 6A ?? 8D ?? ?? 5? 5? E8 ?? ?? ?? ?? 83 ?? ?? 6A ?? 8D ?? ?? 5? FF 1? ?? ?? ?? ?? 85 ?? 0F 85 }
+    $block_5  = { 07 E8 ?? ?? ?? ?? 5? 89 ?? ?? E8 ?? ?? ?? ?? 89 ?? ?? 8D ?? ?? 5? E8 ?? ?? ?? ?? 5? 3B ?? 74 }
+    $block_6  = { 8D ?? ?? E8 ?? ?? ?? ?? 0F B6 ?? 8B ?? ?? 5? 6A ?? E8 ?? ?? ?? ?? 8D ?? ?? E8 ?? ?? ?? ?? EB }
+    $block_7  = { 8B ?? ?? 03 ?? 0F AF ?? 8D ?? ?? E8 ?? ?? ?? ?? 83 ?? ?? ?? 8B ?? ?? 89 ?? ?? 8B ?? ?? 72 }
+    $block_8  = { 8B ?? ?? 33 ?? 66 ?? ?? ?? 8B ?? ?? 0F B6 ?? ?? C1 ?? ?? C1 ?? ?? 0B ?? FF 0? ?? 4? 79 }
+    $block_9  = { 66 ?? ?? 66 ?? ?? ?? 66 ?? 33 ?? 4? 5? 0F B7 ?? 8B ?? 66 ?? ?? 0F B7 ?? 4? 83 ?? ?? 7D }
+    $block_10 = { 5? 8D ?? ?? ?? 5? E8 ?? ?? ?? ?? 33 ?? 89 ?? ?? ?? ?? ?? ?? 39 ?? ?? ?? ?? ?? ?? 0F 84 }
+    $block_11 = { 8B ?? ?? 8D ?? ?? 8B ?? 2B ?? D1 ?? 5? 5? 5? E8 ?? ?? ?? ?? 83 ?? ?? 5? 8B ?? 5? C9 C3 }
+    $block_12 = { 80 B? ?? ?? ?? ?? ?? 8D ?? ?? 0F 94 ?? 0F B6 ?? 5? 5? E8 ?? ?? ?? ?? 33 ?? 8B ?? 4? EB }
+    $block_13 = { 8B ?? ?? 2B ?? ?? 89 ?? ?? 8B ?? ?? 8B ?? ?? 8B ?? 2B ?? 89 ?? ?? 89 ?? ?? 3B ?? 0F 83 }
+    $block_14 = { 5? 8B ?? 0F B7 ?? ?? 83 ?? ?? 33 ?? 4? 5? 8B ?? 66 ?? ?? 0F B7 ?? 4? 83 ?? ?? 7D }
+    $block_15 = { E8 ?? ?? ?? ?? 2B ?? ?? 8B ?? C1 ?? ?? 89 ?? ?? 8B ?? ?? 89 ?? ?? 83 ?? ?? 0F 83 }
+    $block_16 = { 33 ?? 6A ?? 5? 8B ?? F7 ?? 0F 90 ?? F7 ?? 0B ?? 5? E8 ?? ?? ?? ?? 5? 89 ?? 8B }
+    $block_17 = { 8D ?? ?? 83 ?? ?? ?? 5? 33 ?? 8B ?? AB AB AB AB 33 ?? 8D ?? ?? AB AB AB AB 5? }
+    $block_18 = { 6A ?? B8 ?? ?? ?? ?? E8 ?? ?? ?? ?? 8B ?? ?? 89 ?? ?? 83 ?? ?? ?? 0F B7 ?? 72 }
+    $block_19 = { 8B ?? ?? BB ?? ?? ?? ?? BE ?? ?? ?? ?? 5? 8D ?? ?? E8 ?? ?? ?? ?? 85 ?? 0F 84 }
+    $block_20 = { 8B ?? ?? 33 ?? 89 ?? ?? 89 ?? ?? 89 ?? ?? 89 ?? ?? ?? ?? ?? 38 ?? ?? 0F 84 }
+    $block_21 = { 8B ?? ?? 8D ?? ?? A5 A5 A5 A5 FF 1? ?? ?? ?? ?? 8B ?? ?? E8 ?? ?? ?? ?? C3 }
+    $block_22 = { 5? FF 7? ?? 5? E8 ?? ?? ?? ?? 5? E8 ?? ?? ?? ?? BB ?? ?? ?? ?? 3B ?? 0F 84 }
+    $block_23 = { 33 ?? 66 ?? ?? 0F B7 ?? ?? ?? 4? 5? 8B ?? 66 ?? ?? 0F B7 ?? 4? 83 ?? ?? 7D }
+    $block_24 = { 6A ?? E8 ?? ?? ?? ?? CC 8B ?? ?? ?? 0F AF ?? ?? ?? 5? E8 ?? ?? ?? ?? 5? C3 }
+    $block_25 = { 8A ?? ?? 88 ?? ?? 8A ?? ?? 88 ?? ?? 8A ?? ?? 88 ?? ?? 8B ?? ?? 5? 5? C9 C3 }
+    $block_26 = { E8 ?? ?? ?? ?? 8B ?? ?? 2B ?? ?? 6A ?? 99 5? F7 ?? FF 7? ?? 3B ?? 0F 83 }
+    $block_27 = { 8D ?? ?? 5? 8B ?? E8 ?? ?? ?? ?? 0F B7 ?? 5? E8 ?? ?? ?? ?? 5? 84 ?? 74 }
+    $block_28 = { 80 B? ?? ?? ?? ?? ?? 8D ?? ?? 0F 94 ?? 0F B6 ?? 5? 5? E8 ?? ?? ?? ?? EB }
+    $block_29 = { 8D ?? ?? ?? ?? ?? 5? 5? FF 1? ?? ?? ?? ?? 89 ?? ?? ?? ?? ?? 3B ?? 0F 84 }
+    $block_30 = { E8 ?? ?? ?? ?? 8B ?? 2B ?? ?? 6A ?? 99 5? F7 ?? FF 7? ?? 83 ?? ?? 0F 83 }
+    $block_31 = { 66 ?? ?? ?? 8B ?? ?? ?? ?? ?? 66 ?? ?? ?? 4? 83 ?? ?? 0F B7 ?? 0F 8C }
+    $block_32 = { 8B ?? ?? ?? ?? ?? 5? 33 ?? 5? E8 ?? ?? ?? ?? 81 C? ?? ?? ?? ?? C9 C3 }
+    $block_33 = { 5? FF 7? ?? 5? E8 ?? ?? ?? ?? 5? E8 ?? ?? ?? ?? 3D ?? ?? ?? ?? 0F 84 }
+    $block_34 = { FF 8? ?? ?? ?? ?? 8B ?? ?? ?? ?? ?? 8B ?? ?? C1 ?? ?? 39 ?? ?? 0F 85 }
+    $block_35 = { 5? FF B? ?? ?? ?? ?? 8D ?? ?? ?? ?? ?? 5? E8 ?? ?? ?? ?? 3B ?? 0F 85 }
+    $block_36 = { 8B ?? ?? 8B ?? ?? 8D ?? ?? A5 A5 A5 6A ?? A5 0F B6 ?? ?? 5? 2B ?? 5? }
+    $block_37 = { 5? 8B ?? 83 ?? ?? 83 ?? ?? 8A ?? ?? 5? 5? 5? 89 ?? ?? ?? 84 ?? 0F 85 }
+    $block_38 = { 8A ?? 88 ?? 8A ?? ?? 88 ?? ?? 8A ?? ?? 88 ?? ?? 8B ?? ?? 5? 5? C9 C3 }
+    $block_39 = { 6A ?? 8B ?? E8 ?? ?? ?? ?? 0F B7 ?? 5? E8 ?? ?? ?? ?? 5? 84 ?? 74 }
+    $block_40 = { 2B ?? ?? 8B ?? C1 ?? ?? 89 ?? ?? 8B ?? ?? 89 ?? ?? 83 ?? ?? 0F 83 }
+    $block_41 = { 0F BE ?? ?? ?? FF 7? ?? 5? 5? E8 ?? ?? ?? ?? 83 ?? ?? 85 ?? 0F 84 }
+    $block_42 = { 8B ?? ?? BE ?? ?? ?? ?? 5? 8D ?? ?? E8 ?? ?? ?? ?? 85 ?? 0F 84 }
+    $block_43 = { 68 ?? ?? ?? ?? FF 1? ?? ?? ?? ?? 8A ?? ?? ?? ?? ?? 3C ?? 0F 84 }
+    $block_44 = { 68 ?? ?? ?? ?? 8D ?? ?? ?? ?? ?? ?? E8 ?? ?? ?? ?? 85 ?? 0F 85 }
+    $block_45 = { 8B ?? ?? 4? 4? 83 ?? ?? 89 ?? ?? 8A ?? ?? 8A ?? ?? 3A ?? 0F 85 }
+    $block_46 = { 8A ?? ?? ?? ?? ?? 8D ?? ?? ?? 30 ?? 0F B6 ?? 4? 83 ?? ?? 72 }
+    $block_47 = { 0F B6 ?? ?? 33 ?? 8A ?? ?? ?? ?? ?? 30 ?? 0F B6 ?? 4? 4? 75 }
+    $block_48 = { 33 ?? 83 ?? ?? ?? 0F 95 ?? 4? 83 ?? ?? 83 ?? ?? 89 ?? ?? EB }
+    $block_49 = { 8B ?? ?? 0F B6 ?? ?? 8D ?? ?? ?? ?? ?? ?? FF 0? 4? 3B ?? 7C }
+    $block_50 = { 8B ?? ?? C1 ?? ?? ?? 83 ?? ?? 83 ?? ?? 89 ?? ?? 3B ?? 0F 84 }
+    $block_51 = { 8B ?? ?? 2B ?? ?? 6A ?? 99 5? F7 ?? FF 7? ?? 3B ?? 0F 83 }
+    $block_52 = { 6A ?? FF 1? ?? ?? ?? ?? 8B ?? ?? ?? 8A ?? ?? 84 ?? 0F 84 }
+    $block_53 = { 8B ?? E8 ?? ?? ?? ?? 0F B7 ?? 0F B7 ?? 83 ?? ?? 3B ?? 7F }
+    $block_54 = { 8A ?? ?? 88 ?? ?? 8A ?? ?? 88 ?? ?? 8B ?? ?? 5? 5? C9 C3 }
+    $block_55 = { 8B ?? 2B ?? ?? 6A ?? 99 5? F7 ?? FF 7? ?? 83 ?? ?? 0F 83 }
+    $block_56 = { BE ?? ?? ?? ?? 5? 8D ?? ?? E8 ?? ?? ?? ?? 85 ?? 0F 84 }
+    $block_57 = { 5? 5? E8 ?? ?? ?? ?? 83 ?? ?? 0F 94 ?? 5? 5? 3C ?? 74 }
+    $block_58 = { 8B ?? ?? ?? ?? ?? 68 ?? ?? ?? ?? 5? FF D? 85 ?? 0F 84 }
+    $block_59 = { FF 7? ?? 6A ?? 5? E8 ?? ?? ?? ?? 83 ?? ?? 85 ?? 0F 84 }
+    $block_60 = { 8B ?? ?? 2B ?? ?? 6A ?? 99 5? F7 ?? 39 ?? ?? 0F 83 }
+    $block_61 = { 0F B6 ?? 8B ?? ?? ?? ?? ?? C1 ?? ?? 4? 83 ?? ?? 7C }
+    $block_62 = { 8B ?? ?? 5? 33 ?? 5? E8 ?? ?? ?? ?? 83 ?? ?? C9 C3 }
+    $block_63 = { 8A ?? 88 ?? 8A ?? ?? 88 ?? ?? 8B ?? ?? 5? 5? C9 C3 }
+    $block_64 = { 5? 8B ?? 83 ?? ?? 5? 5? 8B ?? 8B ?? 3B ?? 0F 84 }
+    $block_65 = { 8D ?? ?? 5? FF 1? ?? ?? ?? ?? 8B ?? 3B ?? 0F 84 }
+    $block_66 = { 6A ?? 5? 5? E8 ?? ?? ?? ?? 83 ?? ?? 5? 5? C9 C3 }
+
+  condition:
+    hash.sha256(0, filesize) == "2221c2323fb6e30b9c10ee68d60b7d7be823911540bb115f75b2747d015e35f9" or
+    hash.sha256(0, filesize) == "358da2c5bb5fbd9c9cf791536054bbb387ce37253c31555f5afa544f38de2a3f" or
+    hash.sha256(0, filesize) == "61969cd978cd2de3a13a10510d0dea5d0d3b212209804563ed3d42033a9d0f54" or
+    hash.sha256(0, filesize) == "224e8349ba128f0ab57bdebef5287f4b84b9dccbc2d8503f53f6333efd5f9265" or
+    hash.sha256(0, filesize) == "778568b44e13751800bf66c17606dfdfe35bebbb94c8e6e2a2549c7482c33f7a" or
+    hash.sha256(0, filesize) == "ce99e5f64f2d1e58454f23b4c1de33d71ee0b9fcd52c9eb69569f1c420332235" or
+    hash.sha256(0, filesize) == "4f3ceab96fb55d0b05380a1d95bb494ca44d7a9d7f10ded02d5b6fc27c92cb05" or
+    hash.sha256(0, filesize) == "85d3f636b515f0729c47f66e3fc0c9a0aacf3ec09c4acf8bf20a1411edcdc40a" or
+    hash.sha256(0, filesize) == "cb58396d40e69d5c831f46aed93231ed0b7d41fee95f8da7c594c9dbd06ee111" or
+    hash.sha256(0, filesize) == "2f24c7ccbd7a9e830ed3f9b3b7be7856e0cc8c1580082433cbe9bf33c86193c6" or
+    hash.sha256(0, filesize) == "d5687b5c5cec11c851e84a1d40af3ef52607575487a70224f63458c24481076c" or
+    hash.sha256(0, filesize) == "ec48b131612ef5637b387d9c2b0907d68a080fb77c6168e779fb7f3a0efa04dc" or
+    hash.sha256(0, filesize) == "4cf75059f2655ca95b4eba11f1ce952d8e08bb4dbcb12905f6f37cf8145a538d" or
+    hash.sha256(0, filesize) == "e3a7fa8636d040c9c3a8c928137d24daa15fc6982c002c5dd8f1c552f11cbcad" or
+    hash.sha256(0, filesize) == "7c1136d6f5b10c22698f7e049dbc493be6e0ce03316a86c422ca9b670cb133aa" or
+    hash.sha256(0, filesize) == "b139829440aabe33071aa34604f739d70f9a0a3b06051f3190aabf839df2d408" or
+    hash.sha256(0, filesize) == "c43ce82560cea125f65c7701c733c61ae3faa782c8b00efcb44fd7dbd32a5c4b" or
+    hash.sha256(0, filesize) == "43608e60883304c1ea389c7bad244b86ff5ecf169c3b5bca517a6e7125325c7b" or
+    hash.sha256(0, filesize) == "6b2a438e0233fe8e7ba8774e2e5c59bf0b7c12679d52d6783a0010ecad11978c" or
+    hash.sha256(0, filesize) == "6e92c2d298e25bcff17326f69882b636150d2a1af494ef8186565544f0d04d3d" or
+    hash.sha256(0, filesize) == "0c20ffcdf2492ccad2e53777a0885c579811f91c05d076ff160684082681fe68" or
+    hash.sha256(0, filesize) == "269ea4b883de65f235a04441144519cf6cac80ef666eccf073eedd5f9319be0f" or
+    hash.sha256(0, filesize) == "0e34262813677090938983039ba9ff3ade0748a3aba25e28d19e2831c036b095" or
+    hash.sha256(0, filesize) == "ee53e509d0f2a3c888232f2232b603463b421b9c08fe7f44ed4eead0643135d3" or
+    hash.sha256(0, filesize) == "a3a6f0dc5558eb93afa98434020a8642f7b29c41d35fa34809d6801d99d8c4f3" or
+    hash.sha256(0, filesize) == "2efd5355651db8e07613e74b1bf85b50273c1f3bce5e4edbedea0ccdff023754" or
+    hash.sha256(0, filesize) == "9517a412633b8ebeac875a2da7fe119b72efad62859dc1719b84d561792a9033" or
+    hash.sha256(0, filesize) == "94d4e4a8f2d53426154c41120b4f3cf8105328c0cc5d4bd9126a54c14b296093" or
+    hash.sha256(0, filesize) == "0c9b20f4cb0b3206f81c2afbb2ee4d995c28f74f38216f7d35454af624af8876" or
+    hash.sha256(0, filesize) == "abdb2da30435430f808b229f8b6856fafc154a386ef4f7c5e8de4a746e350e0c" or
+    hash.sha256(0, filesize) == "8d343be0ea83597f041f9cbc6ea5b63773affc267c6ad99d31badee16d2c86e5" or
+    hash.sha256(0, filesize) == "f1d6e8b07ac486469e09c876c3e267db2b2d651299c87557cbf4eafb861cf79c" or
+    hash.sha256(0, filesize) == "101e70a5455212b40406fe70361995a3a346264eabd4029200356565d2bacd6a" or
+    hash.sha256(0, filesize) == "c25c1455dcab2f17fd6a25f8af2f09ca31c8d3773de1cb2a55acd7aeaa6963c8" or
+    hash.sha256(0, filesize) == "0ea750a8545252b73f08fe87db08376f789fe7e58a69f5017afa2806046380a5" or
+    hash.sha256(0, filesize) == "b3b01b36b6437c624da4b28c4c8f773ae8133fca9dd10dc17742e956117f5759" or
+    hash.sha256(0, filesize) == "698ec413986dc7fc761b1a17624ffffb1590902020b9d0cd5d9a6013c67d9100" or
+    hash.sha256(0, filesize) == "02e5191078497be1e6ea8bac93b6cfb9b3ee36a58e4f7dd343ac1762e7f9301e" or
+    hash.sha256(0, filesize) == "f6aab09e1c52925fe599246dfdb4c1d06bea5c380c4c3e9c33661c869d41a23a" or
+    hash.sha256(0, filesize) == "439e5617d57360f76f24daed3fe0b59f20fc9dade3008fd482260ba58b739a23" or
+    hash.sha256(0, filesize) == "4ff5f102f0f1284a189485fc4c387c977dd92f0bc6a30c4d837e864aed257129" or
+    hash.sha256(0, filesize) == "e38aa99eff1f9fedd99cf541c3255e99f3276839a883cadb6e916649522729e3" or
+    hash.sha256(0, filesize) == "c987f8433c663c9e8600a7016cdf63cd14590a019118c52238c24c39c9ec02ad" or
+    hash.sha256(0, filesize) == "066346170856972f6769705bc6ff4ad21e88d2658b4cacea6f94564f1856ed18" or
+    hash.sha256(0, filesize) == "b647f883911ff20f776e0a42564b13ef961fa584ebd5cfce9dd2990bca5df24e" or
+    hash.sha256(0, filesize) == "5a13d0c954280b4c65af409376de86ac43eb966f25b85973a20d330a34cdd9a6" or
+    hash.sha256(0, filesize) == "4b547b3992838cfb3b61cb25f059c0b56c2f7caaa3b894dbc20bf7b33dadc5a1" or
+    hash.sha256(0, filesize) == "2dc296eb532097ac1808df7a16f7740ef8771afda3ac339d144d710f9cefceb4" or
+    hash.sha256(0, filesize) == "bb3529aa5312abbee0cfbd00f10c3f2786f452a2ca807f0acbd336602a13ac79" or
+    hash.sha256(0, filesize) == "dc612882987fab581155466810f87fd8f0f2da5c61ad8fc618cef903c9650fcd" or
+    hash.sha256(0, filesize) == "b0faba6156c7b0cd59b94eeded37d8c1041d4b8dfa6aacd6520a6d28c3f02a5e" or
+    hash.sha256(0, filesize) == "a2fe7a346b39a062c60c50167be7dd4f6a8175df054faa67bff33ec42b1072d9" or
+    hash.sha256(0, filesize) == "bcdcb4b5e9aaaee2c46d5b0ed16aca629de9faa5e787c672191e0bdf64619a95" or
+    hash.sha256(0, filesize) == "9d530e2254580842574a740698d2348b68b46fd88312c9325321ad0d986f523d" or
+    hash.sha256(0, filesize) == "aef82593822a934b77b81ebc461c496c4610474727539b0b6e1499ca836f0dee" or
+    hash.sha256(0, filesize) == "e42badd8fb20f1bc72b1cec65c42a96ee60a4b52d19e8f5a7248afee03646ace" or
+    hash.sha256(0, filesize) == "edb7caa3dce3543d65f29e047ea789a9e429e46bed5c29c4748e656285a08050" or
+    hash.sha256(0, filesize) == "6296d95b49d795fa10ae6e9c4e4272ea4e1444105bddbf45b34ee067b2603b38" or
+    hash.sha256(0, filesize) == "13da3fe28302a8543dd527d9e09723caeed98006c3064c5ed7b059d6d7f36554" or
+    hash.sha256(0, filesize) == "d3ee530abe41705a819ee9220aebb3ba01531e16df7cded050ba2cf051940e46" or
+    hash.sha256(0, filesize) == "2f593c22a8fd0de3bbb57d26320446a9c7eed755ae354957c260908c93d8cf79" or
+    hash.sha256(0, filesize) == "da3c1a7b63a6a7cce0c9ef01cf95fd4a53ba913bab88a085c6b4b8e4ed40d916" or
+    hash.sha256(0, filesize) == "170596e88b26f04d349f6014d17a88026ec55eab44888e2a9bb4dd90a79f6878" or
+    hash.sha256(0, filesize) == "d71da8a59f3e474c3bcd3f2f00fae0b235c4e01cd9f465180dd0ab19d6af5526" or
+    hash.sha256(0, filesize) == "ecb097f3367f0155887dde9f891ff823ff54ddfe5217cdbb391ea5b10c5a08dc" or
+    hash.sha256(0, filesize) == "59af70f71cdf933f117ab97d6f1c1bab82fd15dbe654ba1b27212d7bc20cec8c" or
+    hash.sha256(0, filesize) == "f65d767afd198039d044b17b96ebad54390549c6e18ead7e19e342d60b70a2c3" or
+    hash.sha256(0, filesize) == "d588e789f0b5914bd6f127950c5daf6519c78b527b0ed7b323e42b0613f6566f" or
+    hash.sha256(0, filesize) == "69b555a37e919c3e6c24cfe183952cdb695255f9458b25d00d15e204d96c737b" or
+    hash.sha256(0, filesize) == "022da314d1439f779364aba958d51b119ac5fda07aac8f5ced77146dbf40c8ac" or
+    hash.sha256(0, filesize) == "8e222cb1a831c407a3f6c7863f3faa6358b424e70a041c196e91fb7989735b68" or
+    hash.sha256(0, filesize) == "31db22caf480c471205a7608545370c1b3c0c9be5285a9ef2264e856052b66b4" or
+    hash.sha256(0, filesize) == "0850c39a7fcaa7091aaea333d33c71902b263935df5321edcd5089d10e4bbebb" or
+    hash.sha256(0, filesize) == "b8514bff04e8f4e77430202db61ec5c206d3ec0f087a65ee72c9bb94a058b685" or
+    hash.sha256(0, filesize) == "2c37e0504b98413e0308e44fd84f98e968f6f62399ea06bc38d3f314ee94b368" or
+    hash.sha256(0, filesize) == "56a1513bcf959d5df3ff01476ddb4b158ce533658ab7d8dd439324b16f193ac2" or
+    hash.sha256(0, filesize) == "aafbf4bba99c47e7d05c951ad964ce09493db091ba5945e89df916c6fa95d101" or
+    hash.sha256(0, filesize) == "8da93bc4d20e5f38d599ac89db26fc2f1eecbf36c14209302978d46fc4ce5412" or
+    hash.sha256(0, filesize) == "c66525285707daff30fce5d79eb1bdf30519586dfec4edf73e4a0845fd3d0e1c" or
+    hash.sha256(0, filesize) == "49c1c5e8a71f488a7b560c6751752363389f6272d8c310fee78307dc9dcd3ee2" or
+    hash.sha256(0, filesize) == "6122db2cdac0373cc8513c57786088a5548721d01e7674e78082774044e92980" or
+    hash.sha256(0, filesize) == "bee9f2a01e0049d4cf94016284b16849136233366d1509489797084672e5448f" or
+    hash.sha256(0, filesize) == "684ea2083f2f7099f0a611c81f26f30127ad297fcac8988cabb60fcf56979dfc" or
+    hash.sha256(0, filesize) == "92c959c36617445a35e6f4f2ee2733861aa1b3baf8728d19a4fd5176f3c80401" or
+    hash.sha256(0, filesize) == "593849098bd288b7bed9646e877fa0448dcb25ef5b4482291fdf7123de867911" or
+    hash.sha256(0, filesize) == "66ec58b4bdcb30d1889972c1ee30af7ff213deece335f798e57ff51fe28752e3" or
+    hash.sha256(0, filesize) == "b8f2fdddf7a9d0b813931e0efe4e6473199688320d5e8289928fe87ce4b1d068" or
+    hash.sha256(0, filesize) == "d755904743d48c31bdff791bfa440e79cfe1c3fc9458eb708cf8bb78f117dd07" or
+    hash.sha256(0, filesize) == "98bd5e8353bc9b70f8a52786365bcdb28bd3aef164d62c38dae8df33e04ac11a" or
+    hash.sha256(0, filesize) == "6606dd9a5d5182280c12d009a03b8ed6179872fcb08be9aa16f098250cc5b7a7" or
+    hash.sha256(0, filesize) == "bacac71fcc61db9b55234d1ccf45d5fffd9392c430cdd25ee7a5cea4b24c7128" or
+    hash.sha256(0, filesize) == "e73f8b394e51348ef3b6cea7c5e5ecc2ee06bb395c5ac30f6babb091080c1e74" or
+    hash.sha256(0, filesize) == "83e57d8f3810a72a772742d4b786204471a7607e02fa445c3cd083f164cc4af3" or
+    hash.sha256(0, filesize) == "60f86898506f0fdf6d997f31deff5b6200a6969b457511cc00446bd22dd1f0a4" or
+    hash.sha256(0, filesize) == "1d768ebfbdf97ad5282e7f85da089e174b1db760f1cbdca1a815e8e6245f155a" or
+    hash.sha256(0, filesize) == "fd689fcdcef0f1198b9c778b4d93adfbf6e80118733c94e61a450aeb701750b4" or
+    hash.sha256(0, filesize) == "7081455301e756d6459ea7f03cd55f7e490622d36a5a019861e6b17141f69bd0" or
+    hash.sha256(0, filesize) == "e029db63346c513be42242e268559174f6b00d818e00d93c14bd443314f65fe5" or
+    hash.sha256(0, filesize) == "6e5f4296bffa7128b6e8fa72ad1924d2ff19b9d64775bd1e0a9ce9c5944bd419" or
+    hash.sha256(0, filesize) == "d89a80a3fbb0a4a40157c6752bd978bc113b0c413e3f73eb922d4e424edeb8a7" or
+    hash.sha256(0, filesize) == "487eaf5cc52528b5f3bb27ba53afffb6d534068b364a41fc887b8c1e1485795a" or
+    hash.sha256(0, filesize) == "24be375f0e11d88210e53f15cc08d72ab6c6287676c3fe3c6f70b513e5f442ed" or
+    hash.sha256(0, filesize) == "fb30c3bb1b25b3d4cca975f2e0c45b95f3eb57a765267271a9689dd526658b43" or
+    hash.sha256(0, filesize) == "65a4332dfe474a8bb9b5fa35495aade453da7a03eb0049211e57b5660d08d75c" or
+    hash.sha256(0, filesize) == "59c4cba96dbab5d8aa7779eac18b67b2e6f8b03066eb092415d50dff55e43b72" or
+    hash.sha256(0, filesize) == "6367cb0663c2898aff64440176b409c1389ca7834e752b350a87748bef3a878b" or
+    hash.sha256(0, filesize) == "0a0a5b68a8a7e4ed4b6d6881f57c6a9ac55b1a50097588e462fe8d3c486158bf" or
+    hash.sha256(0, filesize) == "ebb16c9536e6387e7f6988448a3142d17ab695b2894624f33bd591ceb3e46633" or
+    hash.sha256(0, filesize) == "3a88ff66f4eb675f0c3e6c5f947c012945c4e15b77a2cd195de8a8aba23ccb29" or
+    hash.sha256(0, filesize) == "0f4046be5de15727e8ac786e54ad7230807d26ef86c3e8c0e997ea76ab3de255" or
+    hash.sha256(0, filesize) == "646c94a0194ca70fbe68c444a0c9b444e195280f9a0d19f12393421311653552" or
+    hash.sha256(0, filesize) == "a05b53260c2855829226dffd814022b7ff4750d278d6c46f2e8e0dc58a36a1f9" or
+    hash.sha256(0, filesize) == "837e68be35c2f0ab9e2b3137d6f9f7d16cc387f3062a21dd98f436a4bcceb327" or
+    hash.sha256(0, filesize) == "7e0dafedd01d09e66524f2345d652b29d3f634361c0a69e8d466dcbdfd0e3001" or
+    hash.sha256(0, filesize) == "45abd87da6a584ab2a66a06b40d3c84650f2a33f5f55c5c2630263bc17ec4139" or
+    hash.sha256(0, filesize) == "cd019e717779e2d2b1f4c27f75e940b5f98d4ebb48de604a6cf2ab911220ae50" or
+    hash.sha256(0, filesize) == "2c109406998723885cf04c3ced7af8010665236459d6fe610e678065994154d4" or
+    hash.sha256(0, filesize) == "170e5eb004357dfce6b41de8637e1dbeb87fa58e8b54a2031aac33afb930f3c8" or
+    hash.sha256(0, filesize) == "72ff91b3f36ccf07e3daf6709db441d2328cecab366fd5ff81fc70dd9eb45db8" or
+    hash.sha256(0, filesize) == "c4e2e341689799281eaef47de75f59edceaba281398b41fe7616436f247ab93d" or
+    hash.sha256(0, filesize) == "1ef47da67f783f8cc8cda7481769647b754874c91e0c666f741611decd878c19" or
+    12 of them
+}
+
+
+rule tool_cheat_engine {
+  meta:
+    id             = "51d4246c-f7a1-4589-8f97-bd85d1fe4a0e"
+    version        = "1.0"
+    description    = "Detects Cheat Engine driver"
+    author         = "Sekoia.io"
+    creation_date  = "2024-07-22"
+    classification = "TLP:CLEAR"
+
+  strings:
+    $s1         = "ObOpenObjectByName" wide
+    $s2         = "PsGetProcessImageFileName" wide
+    $s3         = "PsRemoveCreateThreadNotifyRoutine" wide
+    $s4         = "PsSuspendProcess" wide
+    $s5         = "PsResumeProcess" wide
+    $s6         = "\\device\\physicalmemory" wide
+    $log        = "%sCPU%d.trace" wide
+    $ioctl_code = { 04 E1 22 00 }  //base for IOCTL code
+
+  condition:
+    uint16be(0) == 0x4d5a and filesize < 200KB and all of them
+}
+
+
+rule DevCv5 {
+  meta:
+    author = "malware-lu"
+
+  strings:
+    $a0 = { 55 89 E5 83 EC 14 6A ?? FF 15 ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule borland_cpp {
+  meta:
+    author      = "_pusher_"
+    description = "Borland C++"
+    date        = "2015-08"
+    version     = "0.1"
+
+  strings:
+    $c0 = { 59 5F 6A 00 E8 ?? ?? ?? ?? 59 68 ?? ?? ?? ?? 6A 00 E8 ?? ?? ?? ?? A3 ?? ?? ?? ?? 6A 00 E9 ?? ?? ?? ?? E9 ?? ?? ?? ?? 33 C0 A0 ?? ?? ?? ?? C3 A1 ?? ?? ?? ?? C3 }
+    $c1 = { A1 ?? ?? ?? ?? C1 E0 02 A3 ?? ?? ?? ?? 52 6A 00 E8 ?? ?? ?? ?? 8B D0 E8 ?? ?? ?? ?? 5A E8 ?? ?? ?? ?? E8 ?? ?? ?? ?? 6A 00 E8 ?? ?? ?? ?? 59 68 ?? ?? ?? ?? 6A 00 E8 ?? ?? ?? ?? A3 ?? ?? ?? ?? 6A 00 E9 ?? ?? ?? ?? E9 ?? ?? ?? ?? 33 C0 A0 ?? ?? ?? ?? C3 A1 ?? ?? ?? ?? C3 }
+    $c2 = { 6A 00 E8 ?? ?? ?? ?? A3 ?? ?? ?? ?? 6A 00 E9 ?? ?? ?? ?? E9 ?? ?? ?? ?? 33 C0 A0 ?? ?? ?? ?? C3 A1 ?? ?? ?? ?? C3 }
+
+  condition:
+    (
+      //linker 2.25 and 5.00
+      ((pe.linker_version.major == 2) and (pe.linker_version.minor == 25)) or
+      ((pe.linker_version.major == 5) and (pe.linker_version.minor == 0))
+    ) and
+    any of them
+}
+
+
+rule free_pascal {
+  meta:
+    author      = "_pusher_"
+    description = "Free Pascal"
+    date        = "2015-08"
+    version     = "0.1"
+
+  strings:
+    $c0 = { 55 89 E5 83 ?? ?? 89 5D FC B8 ?? ?? ?? ?? 50 E8 ?? ?? ?? ?? A0 ?? ?? ?? ?? 84 C0 75 0C 6A 00 E8 ?? ?? ?? ?? A3 ?? ?? ?? ?? A1 ?? ?? ?? ?? A3 }
+    $c1 = { 55 89 E5 53 B8 ?? ?? ?? ?? 50 E8 ?? ?? ?? ?? 80 3D ?? ?? ?? ?? 00 75 0C 6A 00 E8 ?? ?? ?? ?? A3 ?? ?? ?? ?? A1 ?? ?? ?? ?? A3 ?? ?? ?? ?? B8 }
+    $c2 = { 55 89 E5 83 EC 04 89 5D FC B8 ?? ?? ?? ?? 50 E8 ?? ?? ?? ?? E8 ?? ?? ?? ?? A0 ?? ?? ?? ?? 84 C0 75 05 E8 ?? ?? ?? ?? C7 05 }
+
+  condition:
+    any of them
+}
+
+
+rule without_urls: mail {
+  meta:
+    author      = "Antonio Sanchez <asanchez@hispasec.com>"
+    reference   = "http://laboratorio.blogs.hispasec.com/"
+    description = "Rule to detect the no presence of any url"
+
+  strings:
+    $eml_01 = "From:"
+    $eml_02 = "To:"
+    $eml_03 = "Subject:"
+
+    $url_regex = /https?:\/\/([\w\.-]+)([\/\w \.-]*)/
+
+  condition:
+    all of ($eml_*) and
+    not $url_regex
+}
+
+
+rule HKTL_NativeCmd_subTee_Jul15 {
+  meta:
+    description   = "NativeCmd - used by various threat groups"
+    author        = "Florian Roth (Nextron Systems)"
+    reference     = "https://securelist.com/blog/research/71275/wild-neutron-economic-espionage-threat-actor-returns-with-new-tricks/"
+    date          = "2015-07-10"
+    modified      = "2023-01-06"
+    old_rule_name = "subTee_nativecmd"
+    score         = 40
+    hash          = "758e6b519f6c0931ff93542b767524fc1eab589feb5cfc3854c77842f9785c92"
+
+  strings:
+    $x2  = "RunFile: couldn't find ShellExecuteExA/W in SHELL32.DLL!" fullword ascii
+    $x3  = "Error executing CreateProcess()!!" fullword wide
+    $x4  = "cmdcmdline" fullword wide
+    $x5  = "Invalid input handle!!!" fullword ascii
+    $s5  = "Usage: destination [reference]" fullword wide
+    $s6  = ".com;.exe;.bat;.cmd" wide
+    $s15 = "%-8s %-3s  %*s %s  %s" fullword wide
+    $s16 = " %%%c in (%s) do " fullword wide
+
+  condition:
+    uint16(0) == 0x5a4d and (2 of ($x*) or 6 of ($s*))
+}
+
+
+rule detect_Redline_Stealer {
+  meta:
+    date                      = "2023-06-06"
+    author                    = "Varp0s"
+    yarahub_reference_md5     = "554d25724c8f6f53af8721d0ef6b6f42"
+    yarahub_uuid              = "671d6f32-8236-46b5-80e3-057192936607"
+    yarahub_license           = "CC0 1.0"
+    yarahub_rule_matching_tlp = "TLP:WHITE"
+    yarahub_rule_sharing_tlp  = "TLP:WHITE"
+    tlp                       = "WHITE"
+
+  strings:
+    $req0 = "rundll32.exe %sa"
+    $req1 = "Control Panel\\De"
+    $req2 = { 77 65 78 74 72 61 63 74 2E 70 64 62 00 }
+    $req3 = { 49 58 50 25 30 33 64 2E 54 4D 50 00 }
+    $req4 = { 54 4D 50 34 33 35 31 24 2E 54 4D 50 00 }
+    $req5 = "Command.com /c %"
+    $req6 = { 55 50 44 46 49 4C 45 25 6C 75 00 }
+
+  condition:
+    all of them
+}
+
+
+rule Websites {
+  strings:
+    $ = "1337day.com" nocase
+    $ = "antichat.ru" nocase
+    $ = "b374k" nocase
+    $ = "ccteam.ru" nocase
+    $ = "crackfor" nocase
+    $ = "darkc0de" nocase
+    $ = "egyspider.eu" nocase
+    $ = "exploit-db.com" nocase
+    $ = "fopo.com.ar" nocase  /* Free Online Php Obfuscator */
+    $ = "hashchecker.com" nocase
+    $ = "hashkiller.com" nocase
+    $ = "md5crack.com" nocase
+    $ = "md5decrypter.com" nocase
+    $ = "milw0rm.com" nocase
+    $ = "milw00rm.com" nocase
+    $ = "packetstormsecurity" nocase
+    $ = "pentestmonkey.net" nocase
+    $ = "phpjiami.com" nocase
+    $ = "rapid7.com" nocase
+    $ = "securityfocus" nocase
+    $ = "shodan.io" nocase
+    $ = "github.com/b374k/b374k" nocase
+    $ = "mumaasp.com" nocase
+
+  condition:
+    (any of them) and not IsWhitelisted
+}
+
+
+rule allow_rdp_session_without_password: capability hacktool {
+  meta:
+    author      = "Thomas Barabosch, Deutsche Telekom Security"
+    description = "Remote Desktop Connection without password, e.g. seen in SDBBot / TA505"
+    date        = "2022-01-14"
+    reference   = "https://www.speedguide.net/faq/how-to-connect-using-remote-desktop-without-a-password-435"
+
+  strings:
+    $a = "LimitBlankPasswordUse" ascii wide
+
+  condition:
+    $a
+}
+
+
+rule potential_termserv_dll_replacement: capability hacktool {
+  meta:
+    author      = "Thomas Barabosch, Deutsche Telekom Security"
+    description = "May replace termserv.dll to allow for multiple RDP sessions"
+    date        = "2022-01-14"
+    reference   = "https://www.mysysadmintips.com/windows/clients/545-multiple-rdp-remote-desktop-sessions-in-windows-10"
+
+  strings:
+    $a = "termsrv.dll" ascii wide
+
+  condition:
+    $a
+}
+
+
+rule executable_vb {
+  meta:
+    is_exe    = true
+    revision  = "100"
+    rank      = 10
+    type      = "vb"
+    date      = "July 29 2015"
+    author    = "@tylabs"
+    copyright = "QuickSand.io 2015"
+    tlp       = "green"
+
+  strings:
+    $s1 = "impersonationLevel=impersonate"
+    $s2 = "On Error Resume Next"
+    $s3 = "WScript.CreateObject(\"WScript.Shell\")"
+    $s4 = "CreateObject(\"Scripting.FileSystemObject\")"
+
+  condition:
+    1 of them
+}
+
+
+rule winrar_sfx {
+  meta:
+    author = "@tylabs"
+
+  strings:
+    $u1 = "d:\\Projects\\WinRAR\\SFX\\build\\sfxrar32\\Release\\sfxrar.pdb"
+
+  condition:
+    any of them
+}
+
+
+rule gen_ie_secrets {
+  meta:
+    author = "@tylabs"
+
+  strings:
+    $a = "abe2869f-9b47-4cd9-a358-c22904dba7f7"
+
+  condition:
+    all of them
+}
+
+
+rule coms_openssl {
+  meta:
+    author = "@tylabs"
+
+  strings:
+    $s1 = ".\\ssl\\ssl_lib.c"
+    $s2 = ".\\ssl\\ssl_sess.c"
+    $s3 = "part of OpenSSL"
+
+  condition:
+    all of them
+}
+
+
+rule EnigmaStub {
+  meta:
+    id             = "nqfVjSZe90wUTGsVBo1SU"
+    fingerprint    = "7cc425b53393fbe7b1f4ad16d1fcb37f941199ff12341c74103c4cda14dd5e2c"
+    version        = "1.0"
+    creation_date  = "2020-03-01"
+    first_imported = "2021-12-30"
+    last_modified  = "2021-12-30"
+    status         = "RELEASED"
+    sharing        = "TLP:WHITE"
+    source         = "BARTBLAZE"
+    author         = "@bartblaze"
+    description    = "Identifies Enigma packer stub."
+    category       = "MALWARE"
+
+  strings:
+    $ = "Enigma anti-emulators plugin - GetProcAddress" ascii wide
+    $ = "Enigma anti-debugger plugin - CheckRemoteDebuggerPresent" ascii wide
+    $ = "Enigma anti-debugger plugin - IsDebuggerPresent" ascii wide
+    $ = "Enigma Sandboxie Detect plugin" ascii wide
+    $ = "Enigma_Plugin_Description" ascii wide
+    $ = "Enigma_Plugin_About" ascii wide
+    $ = "Enigma_Plugin_OnFinal" ascii wide
+    $ = "EnigmaProtector" ascii wide
+    $ = "Enigma_Plugin_OnInit" ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule HeavensGate {
+  meta:
+    author      = "kevoreilly"
+    description = "Heaven's Gate: Switch from 32-bit to 64-mode"
+    cape_type   = "Heaven's Gate"
+
+  strings:
+    $gate_v1 = { 6A 33 E8 00 00 00 00 83 04 24 05 CB }
+    $gate_v2 = { 9A 00 00 00 00 33 00 89 EC 5D C3 48 83 EC 20 E8 00 00 00 00 48 83 C4 20 CB }
+    $gate_v3 = { 5A 66 BB 33 00 66 53 50 89 E0 83 C4 06 FF 28 }
+
+  condition:
+    ($gate_v1 or $gate_v2 or $gate_v3)
+}
+
+
+rule Microsoft_Visual_C___v4_2_DLL {
+  strings:
+    $a0 = { 53 B8 ?? ?? ?? ?? 8B ?? ?? ?? 56 57 85 DB 55 75 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule ASProtect_V2_X_DLL____Alexey_Solodovnikov {
+  strings:
+    $a0 = { 60 E8 03 00 00 00 E9 ?? ?? 5D 45 55 C3 E8 01 00 00 00 EB 5D BB ?? ?? ?? ?? 03 DD }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule ASProtect_v1_23_RC1 {
+  strings:
+    $a0 = { 68 01 ?? ?? 00 E8 01 00 00 00 C3 C3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule MPRESS_V2_00_V2_0X____MATCODE_Software_____Sign_By_fly___20090423 {
+  strings:
+    $a0 = { 60 E8 00 00 00 00 58 05 ?? ?? ?? ?? 8B 30 03 F0 2B C0 8B FE 66 AD C1 E0 0C 8B C8 50 AD 2B C8 03 F1 8B C8 57 51 49 8A 44 39 06 88 04 31 75 F6 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C___DLL {
+  strings:
+    $a0 = { 53 55 56 8B 74 24 14 85 F6 57 B8 01 00 00 00 }
+    $a1 = { 53 56 57 BB 01 ?? ?? ?? 8B ?? 24 14 }
+    $a2 = { 53 B8 01 00 00 00 8B 5C 24 0C 56 57 85 DB 55 75 12 83 3D ?? ?? ?? ?? ?? 75 09 33 C0 }
+
+  condition:
+    $a0 at pe.entry_point or $a1 at pe.entry_point or $a2 at pe.entry_point
+}
+
+
+rule NeoLite_v2_0 {
+  strings:
+    $a0 = { 9E 37 00 00 ?? ?? 48 ?? ?? ?? 6F 4C ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 61 }
+    $a1 = { E9 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 4E 65 6F 4C 69 74 65 }
+
+  condition:
+    $a0 at pe.entry_point or $a1 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C___v6_0_SPx {
+  strings:
+    $a0 = { 55 8B EC 83 EC 44 56 FF 15 ?? ?? ?? ?? 8B F0 8A ?? 3C 22 }
+    $a1 = { 55 8B EC 83 EC 44 56 FF 15 ?? ?? ?? ?? 6A 01 8B F0 FF 15 }
+
+  condition:
+    $a0 at pe.entry_point or $a1 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C___vx_x {
+  strings:
+    $a0 = { 55 8B EC 56 57 BF ?? ?? ?? ?? 8B ?? ?? 3B F7 0F }
+    $a1 = { 53 55 56 8B ?? ?? ?? 85 F6 57 B8 ?? ?? ?? ?? 75 ?? 8B ?? ?? ?? ?? ?? 85 C9 75 ?? 33 C0 5F 5E 5D 5B C2 }
+    $a2 = { 55 8B EC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 04 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? 83 ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 }
+
+  condition:
+    $a0 at pe.entry_point or $a1 at pe.entry_point or $a2 at pe.entry_point
+}
+
+
+rule WinZip_32_bit_SFX_v6_x_module {
+  strings:
+    $a0 = { FF 15 ?? ?? ?? 00 B1 22 38 08 74 02 B1 20 40 80 38 00 74 10 38 08 74 06 40 80 38 00 75 F6 80 38 00 74 01 40 33 C9 ?? ?? ?? ?? FF 15 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule PowerBASIC_CC_3_0x {
+  strings:
+    $a0 = { 55 8B EC 53 56 57 BB 00 ?? ?? 00 66 2E F7 05 ?? ?? ?? 00 04 00 0F 85 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C___v5_0 {
+  strings:
+    $a0 = { 55 8B EC 6A FF 68 68 64 A1 00 00 00 00 50 64 89 25 00 00 00 00 83 EC 53 56 57 }
+    $a1 = { 55 8B EC 6A FF 68 ?? ?? ?? 00 68 ?? ?? ?? 00 64 A1 00 00 00 00 50 64 89 25 00 00 00 00 83 C4 ?? 53 56 57 89 65 E8 FF 15 ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? FF 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? 10 ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 }
+
+  condition:
+    $a0 at pe.entry_point or $a1 at pe.entry_point
+}
+
+
+rule PowerBASIC_Win_7_0x {
+  strings:
+    $a0 = { 55 8B EC 53 56 57 BB 00 ?? 40 00 66 2E F7 05 ?? ?? 40 00 04 00 0F 85 DB 00 00 00 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule ASProtect_V2_X_Registered____Alexey_Solodovnikov_____Sign_By_fly {
+  strings:
+    $a0 = { 68 01 ?? ?? ?? E8 01 00 00 00 C3 C3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule WinZip__32_bit__6_x {
+  strings:
+    $a0 = { FF 15 FC 81 40 00 B1 22 38 08 74 02 B1 20 40 80 38 00 74 10 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule Dev_C___v4_9_9 {
+  strings:
+    $a0 = { 55 89 E5 83 EC 08 C7 04 24 01 00 00 00 FF 15 ?? ?? ?? 00 E8 C8 FE FF FF 90 8D B4 26 00 00 00 00 55 89 E5 83 EC 08 C7 04 24 02 00 00 00 FF 15 ?? ?? ?? 00 E8 A8 FE FF FF 90 8D B4 26 00 00 00 00 55 8B 0D ?? ?? ?? 00 89 E5 5D FF E1 8D 74 26 00 55 8B 0D ?? ?? ?? 00 89 E5 5D FF E1 90 90 90 90 55 89 E5 5D E9 ?? ?? 00 00 90 90 90 90 90 90 90 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C_v2_0 {
+  strings:
+    $a0 = { 53 56 57 BB ?? ?? ?? ?? 8B ?? ?? ?? 55 3B FB 75 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule Upack_V0_37____Dwing {
+  strings:
+    $a0 = { 0B 01 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 18 10 00 00 10 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? 00 10 00 00 00 02 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 ?? ?? ?? ?? 14 00 00 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 47 65 74 50 72 6F 63 41 64 64 72 65 73 73 00 00 }
+    $a1 = { BE ?? ?? ?? ?? AD 50 FF ?? ?? EB }
+
+  condition:
+    $a0 at pe.entry_point or $a1 at pe.entry_point
+}
+
+
+rule ASProtect_v1_2x__New_Strain_ {
+  strings:
+    $a0 = { 68 01 ?? ?? ?? E8 01 ?? ?? ?? C3 C3 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C__ {
+  strings:
+    $a0 = { 8B 44 24 08 56 83 E8 ?? 74 ?? 48 75 }
+    $a1 = { 8B 44 24 08 83 ?? ?? 74 }
+
+  condition:
+    $a0 at pe.entry_point or $a1 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C___v4_x {
+  strings:
+    $a0 = { 64 A1 00 00 00 00 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 50 64 89 25 00 00 00 00 83 EC ?? 53 56 57 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C___v4_2 {
+  strings:
+    $a0 = { 64 A1 00 00 00 00 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 50 64 ?? ?? ?? ?? ?? ?? 83 ?? ?? 53 56 57 89 ?? ?? FF }
+    $a1 = { 64 A1 00 00 00 00 55 8B EC 6A FF 68 ?? ?? ?? ?? 68 ?? ?? ?? ?? 50 64 ?? ?? ?? ?? ?? ?? 83 ?? ?? 53 56 57 89 ?? ?? C7 }
+
+  condition:
+    $a0 at pe.entry_point or $a1 at pe.entry_point
+}
+
+
+rule Upack_v0_38_beta____Dwing {
+  strings:
+    $a0 = { BE B0 11 ?? ?? AD 50 FF 76 34 EB 7C 48 01 ?? ?? 0B 01 4C 6F 61 64 4C 69 62 72 61 72 79 41 00 00 18 10 00 00 10 00 00 00 00 ?? ?? ?? 00 00 ?? ?? 00 10 00 00 00 02 00 00 04 00 00 00 00 00 38 00 04 00 00 00 00 00 00 00 00 ?? ?? ?? 00 02 00 00 00 00 00 00 ?? 00 00 ?? 00 00 ?? 00 00 ?? ?? 00 00 00 10 00 00 10 00 00 00 00 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 EE ?? ?? ?? 14 00 00 00 00 ?? ?? ?? ?? ?? ?? 00 FF 76 38 AD 50 8B 3E BE F0 ?? ?? ?? 6A 27 59 F3 A5 FF 76 04 83 C8 FF 8B DF AB EB 1C 00 00 00 00 47 65 74 50 72 6F 63 41 64 64 72 65 73 73 00 00 ?? ?? ?? ?? ?? 00 00 00 40 AB 40 B1 04 F3 AB C1 E0 0A B5 ?? F3 AB 8B 7E 0C 57 51 E9 ?? ?? ?? ?? E3 B1 04 D3 E0 03 E8 8D 53 18 33 C0 55 40 51 D3 E0 8B EA 91 FF 56 4C 33 D2 59 D1 E8 13 D2 E2 FA 5D 03 EA 45 59 89 6B 08 56 8B F7 2B F5 F3 A4 AC 5E B1 80 AA 3B 7E 34 0F 82 97 FE FF FF 58 5F 59 E3 1B 8A 07 47 04 18 3C 02 73 F7 8B 07 3C ?? 75 F1 B0 00 0F C8 03 46 38 2B C7 AB E2 E5 5E 5D 59 51 59 46 AD 85 C0 74 1F }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule Microsoft_Visual_C___v6_0__Debug_Version_ {
+  strings:
+    $a0 = { 55 8B EC 51 ?? ?? ?? 01 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 10 ?? ?? ?? ?? ?? ?? ?? ?? ?? E8 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 }
+
+  condition:
+    $a0 at pe.entry_point
+}
+
+
+rule case_15184_FilesToHash_17jun {
+  meta:
+    description = "15184_ - file 17jun.exe"
+    author      = "The DFIR Report"
+    reference   = "https://thedfirreport.com/2022/11/28/emotet-strikes-again-lnk-file-leads-to-domain-wide-ransomware/"
+    date        = "2022-11-28"
+    hash1       = "41e230134deca492704401ddf556ee2198ef6f32b868ec626d9aefbf268ab6b1"
+
+  strings:
+    $x1  = " to unallocated span37252902984619140625Arabic Standard TimeAzores Standard TimeCertOpenSystemStoreWCreateProcessAsUserWCryptAcq" ascii
+    $x2  = "0123456789abcdefghijklmnopqrstuvwxyz444089209850062616169452667236328125ERROR: unable to download agent fromGo pointer stored in" ascii
+    $x3  = ".lib section in a.out corrupted11368683772161602973937988281255684341886080801486968994140625CLIENT_HANDSHAKE_TRAFFIC_SECRETCent" ascii
+    $x4  = "slice bounds out of range [:%x] with length %ystopTheWorld: not stopped (status != _Pgcstop)sysGrow bounds not aligned to palloc" ascii
+    $x5  = "VirtualQuery for stack base failedadding nil Certificate to CertPoolbad scalar length: %d, expected %dchacha20: wrong HChaCha20 " ascii
+    $x6  = "file descriptor in bad statefindrunnable: netpoll with pforgetting unknown stream idfound pointer to free objectgcBgMarkWorker: " ascii
+    $x7  = "tls: certificate used with invalid signature algorithmtls: server resumed a session with a different versionx509: cannot verify " ascii
+    $x8  = "non-IPv4 addressnon-IPv6 addressobject is remotepacer: H_m_prev=proxy-connectionreflect mismatchremote I/O errorruntime:  g:  g=" ascii
+    $x9  = "lock: lock countslice bounds out of rangesocket type not supportedstartm: p has runnable gsstoplockedm: not runnablestrict-trans" ascii
+    $x10 = "unixpacketunknown pcuser-agentws2_32.dll  of size   (targetpc= ErrCode=%v KiB work,  freeindex= gcwaiting= idleprocs= in status " ascii
+    $x11 = "100-continue152587890625762939453125Bidi_ControlCIDR addressCONTINUATIONContent TypeContent-TypeCookie.ValueECDSA-SHA256ECDSA-SH" ascii
+    $x12 = "entersyscallexit status gcBitsArenasgcpacertracegetaddrinfowhost is downhttp2debug=1http2debug=2illegal seekinvalid baseinvalid " ascii
+    $x13 = "streamSafe was not resetstructure needs cleaningtext/html; charset=utf-8unexpected buffer len=%vx509: malformed validityzlib: in" ascii
+    $x14 = "IP addressInstaller:Keep-AliveKharoshthiLockFileExManichaeanMessage-IdNo ContentOld_ItalicOld_PermicOld_TurkicOther_MathPOSTALCO" ascii
+    $x15 = " to non-Go memory , locked to thread298023223876953125: day out of rangeArab Standard TimeCaucasian_AlbanianCommandLineToArgvWCr" ascii
+    $x16 = "= flushGen  for type  gfreecnt= pages at  runqsize= runqueue= s.base()= spinning= stopwait= stream=%d sweepgen  sweepgen= target" ascii
+    $x17 = "(unknown), newval=, oldval=, plugin:, size = , tail = --site-id244140625: status=AuthorityBassa_VahBhaiksukiClassINETCuneiformDi" ascii
+    $x18 = " is unavailable()<>@,;:\\\"/[]?=,M3.2.0,M11.1.00601021504Z0700476837158203125: cannot parse <invalid Value>ASCII_Hex_DigitAccept" ascii
+    $x19 = "span set block with unpopped elements found in resettls: received a session ticket with invalid lifetimetls: server selected uns" ascii
+    $x20 = "bad defer entry in panicbad defer size class: i=bypassed recovery failedcan't scan our own stackcertificate unobtainablechacha20" ascii
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 14000KB and
+    1 of ($x*)
+}
+
+
+rule case_18190_nokoyawa_k {
+  meta:
+    description = "18190 - file k.exe"
+    author      = "The DFIR Report"
+    reference   = "https://thedfirreport.com/2023/05/22/icedid-macro-ends-in-nokoyawa-ransomware/"
+    date        = "2023-05-21"
+    hash1       = "7095beafff5837070a89407c1bf3c6acf8221ed786e0697f6c578d4c3de0efd6"
+
+  strings:
+    $x1  = "UncategorizedOtherOutOfMemoryUnexpectedEofInterruptedArgumentListTooLongInvalidFilenameTooManyLinksCrossesDevicesDeadlockExecuta" ascii
+    $x2  = "C:\\Users\\runneradmin\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\rustc-demangle-0.1.21\\src\\legacy.rs" fullword ascii
+    $x3  = "C:\\Users\\runneradmin\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\rustc-demangle-0.1.21\\src\\v0.rs" fullword ascii
+    $s4  = ".llvm.C:\\Users\\runneradmin\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\rustc-demangle-0.1.21\\src\\lib.rs" fullword ascii
+    $s5  = "C:\\Users\\user\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\cipher-0.4.3\\src\\stream.rs" fullword ascii
+    $s6  = "called `Option::unwrap()` on a `None` valueC:\\Users\\user\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\serde_json-1.0.8" ascii
+    $s7  = "C:\\Users\\user\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\rand_core-0.5.1\\src\\os.rs" fullword ascii
+    $s8  = "C:\\Users\\user\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\generic-array-0.14.6\\src\\lib.rs" fullword ascii
+    $s9  = "C:\\Users\\user\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\base64-0.3.1\\src\\lib.rs" fullword ascii
+    $s10 = "Y:\\noko\\target\\release\\deps\\noko.pdb" fullword ascii
+    $s11 = " --config <base64 encoded config> --file <filePath> (encrypt selected file)" fullword ascii
+    $s12 = " --config <base64 encoded config> --dir <dirPath> (encrypt selected directory)" fullword ascii
+    $s13 = "uncategorized errorother errorout of memoryunexpected end of fileunsupportedoperation interruptedargument list too longinvalid f" ascii
+    $s14 = "called `Option::unwrap()` on a `None` valueC:\\Users\\user\\.cargo\\registry\\src\\github.com-1ecc6299db9ec823\\serde_json-1.0.8" ascii
+    $s15 = "    --config <base64 encoded config> (to start full encryption)" fullword ascii
+    $s16 = "assertion failed: state_and_queue.addr() & STATE_MASK == RUNNINGOnce instance has previously been poisoned" fullword ascii
+    $s17 = "AppPolicyGetProcessTerminationMethod" fullword ascii
+    $s18 = "toryoperation would blockentity already existsbroken pipenetwork downaddress not availableaddress in usenot connectedconnection " ascii
+    $s19 = "randSecure: random number generator module is not initializedstdweb: failed to get randomnessstdweb: no randomness source availa" ascii
+    $s20 = "lock count overflow in reentrant mutexlibrary\\std\\src\\sys_common\\remutex.rs" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 1000KB and
+    1 of ($x*) and 4 of them
+}
+
+
+rule sig_4641_fQumH {
+  meta:
+    description = "4641 - file fQumH.exe"
+    author      = "The DFIR Report"
+    reference   = "https://thedfirreport.com"
+    date        = "2021-08-02"
+    hash1       = "3420a0f6f0f0cc06b537dc1395638be0bffa89d55d47ef716408309e65027f31"
+
+  strings:
+    $s1  = "Usage: .system COMMAND" fullword ascii
+    $s2  = "Usage: .log FILENAME" fullword ascii
+    $s3  = "* If FILE begins with \"|\" then it is a command that generates the" fullword ascii
+    $s4  = "AppPolicyGetProcessTerminationMethod" fullword ascii
+    $s5  = "Usage %s sub-command ?switches...?" fullword ascii
+    $s6  = "attach debugger to process %d and press any key to continue." fullword ascii
+    $s7  = "%s:%d: expected %d columns but found %d - extras ignored" fullword ascii
+    $s8  = "%s:%d: expected %d columns but found %d - filling the rest with NULL" fullword ascii
+    $s9  = "Unknown option \"%s\" on \".dump\"" fullword ascii
+    $s10 = "REPLACE INTO temp.sqlite_parameters(key,value)VALUES(%Q,%s);" fullword ascii
+    $s11 = "error in %s %s%s%s: %s" fullword ascii
+    $s12 = "UPDATE temp.sqlite_master SET sql = sqlite_rename_column(sql, type, name, %Q, %Q, %d, %Q, %d, 1) WHERE type IN ('trigger', 'view" ascii
+    $s13 = "BBBBBBBBBBBBBBBBBBBB" wide  /* reversed goodware string 'BBBBBBBBBBBBBBBBBBBB' */
+    $s14 = "UPDATE temp.sqlite_master SET sql = sqlite_rename_column(sql, type, name, %Q, %Q, %d, %Q, %d, 1) WHERE type IN ('trigger', 'view" ascii
+    $s15 = ");CREATE TEMP TABLE [_shell$self](op,cmd,ans);" fullword ascii
+    $s16 = "SqlExec" fullword ascii
+    $s17 = "* If neither --csv or --ascii are used, the input mode is derived" fullword ascii
+    $s18 = "Where sub-commands are:" fullword ascii
+    $s19 = "max rootpage (%d) disagrees with header (%d)" fullword ascii
+    $s20 = "-- Query %d --------------------------------" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 4000KB and
+    (pe.imphash() == "67f1f64a3db0d22bf48121a6cea1da22" or 8 of them)
+}
+
+
+rule sig_4641_tdr615 {
+  meta:
+    description = "4641 - file tdr615.exe"
+    author      = "The DFIR Report"
+    reference   = "https://thedfirreport.com"
+    date        = "2021-08-02"
+    hash1       = "12761d7a186ff14dc55dd4f59c4e3582423928f74d8741e7ec9f761f44f369e5"
+
+  strings:
+    $s1  = "AppPolicyGetProcessTerminationMethod" fullword ascii
+    $s2  = "I:\\RoDcnyLYN\\k1GP\\ap0pivKfOF\\odudwtm30XMz\\UnWdqN\\01\\7aXg1kTkp.pdb" fullword ascii
+    $s3  = "https://sectigo.com/CPS0" fullword ascii
+    $s4  = "2http://crl.comodoca.com/AAACertificateServices.crl04" fullword ascii
+    $s5  = "?http://crl.usertrust.com/USERTrustRSACertificationAuthority.crl0v" fullword ascii
+    $s6  = "3http://crt.usertrust.com/USERTrustRSAAddTrustCA.crt0%" fullword ascii
+    $s7  = "http://ocsp.sectigo.com0" fullword ascii
+    $s8  = "2http://crl.sectigo.com/SectigoRSACodeSigningCA.crl0s" fullword ascii
+    $s9  = "2http://crt.sectigo.com/SectigoRSACodeSigningCA.crt0#" fullword ascii
+    $s10 = "ealagi@aol.com0" fullword ascii
+    $s11 = "operator co_await" fullword ascii
+    $s12 = "GetModuleHandleRNtUnmapViewOfSe" fullword ascii
+    $s13 = "+GetProcAddress" fullword ascii
+    $s14 = "api-ms-win-appmodel-runtime-l1-1-2" fullword wide
+    $s15 = "RtlExitUserThrebNtFlushInstruct" fullword ascii
+    $s16 = "Sectigo Limited1$0\"" fullword ascii
+    $s17 = "b<log10" fullword ascii
+    $s18 = "D*<W -" fullword ascii
+    $s19 = "WINDOWSPROJECT1" fullword wide
+    $s20 = "WindowsProject1" fullword wide
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 10000KB and
+    (pe.imphash() == "555560b7871e0ba802f2f6fbf05d9bfa" or 8 of them)
+}
+
+
+rule mal_host2_AnyDesk {
+  meta:
+    description = "mal - file AnyDesk.exe"
+    author      = "TheDFIRReport"
+    date        = "2021-11-29"
+    hash1       = "8f09c538fc587b882eecd9cfb869c363581c2c646d8c32a2f7c1ff3763dcb4e7"
+
+  strings:
+    $x1  = "<assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.0.0\" processorArchitecture=\"x86\" pu" ascii
+    $x2  = "C:\\Buildbot\\ad-windows-32\\build\\release\\app-32\\win_loader\\AnyDesk.pdb" fullword ascii
+    $s3  = "<assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.0.0\" processorArchitecture=\"x86\" pu" ascii
+    $s4  = "<assemblyIdentity version=\"6.3.2.0\" processorArchitecture=\"x86\" name=\"AnyDesk.AnyDesk.AnyDesk\" type=\"win32\" />" fullword ascii
+    $s5  = "4http://crl3.digicert.com/DigiCertAssuredIDRootCA.crl0O" fullword ascii
+    $s6  = "(Symantec SHA256 TimeStamping Signer - G3" fullword ascii
+    $s7  = "(Symantec SHA256 TimeStamping Signer - G30" fullword ascii
+    $s8  = "http://ocsp.digicert.com0N" fullword ascii
+    $s9  = "http://www.digicert.com/CPS0" fullword ascii
+    $s10 = "Bhttp://cacerts.digicert.com/DigiCertSHA2AssuredIDCodeSigningCA.crt0" fullword ascii
+    $s11 = "<description>AnyDesk screen sharing and remote control software.</description>" fullword ascii
+    $s12 = "/http://crl3.digicert.com/sha2-assured-cs-g1.crl05" fullword ascii
+    $s13 = "/http://crl4.digicert.com/sha2-assured-cs-g1.crl0L" fullword ascii
+    $s14 = "%jgmRhZl%" fullword ascii
+    $s15 = "5ZW:\"Wfh" fullword ascii
+    $s16 = "5HRe:\\" fullword ascii
+    $s17 = "ysN.JTf" fullword ascii
+    $s18 = "Z72.irZ" fullword ascii
+    $s19 = "Ve:\\-Sj7" fullword ascii
+    $s20 = "ekX.cFm" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 11000KB and
+    1 of ($x*) and 4 of them
+}
+
+
+rule files_user {
+  meta:
+    description = "9893_files - file user.exe"
+    author      = "TheDFIRReport"
+    reference   = "https://thedfirreport.com/2022/03/21/apt35-automates-initial-access-using-proxyshell/"
+    date        = "2022-03-21"
+    hash1       = "7b5fbbd90eab5bee6f3c25aa3c2762104e219f96501ad6a4463e25e6001eb00b"
+
+  strings:
+    $x1  = "PA<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?> <assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVer" ascii
+    $s2  = "\", or \"requireAdministrator\" --> <v3:requestedExecutionLevel level=\"requireAdministrator\" /> </v3:requestedPrivileges> </v3" ascii
+    $s3  = "-InitOnceExecuteOnce" fullword ascii
+    $s4  = "0\"> <dependency> <dependentAssembly> <assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0." ascii
+    $s5  = "s:v3=\"urn:schemas-microsoft-com:asm.v3\"> <v3:security> <v3:requestedPrivileges> <!-- level can be \"asInvoker\", \"highestAvai" ascii
+    $s6  = "PB_GadgetStack_%I64i" fullword ascii
+    $s7  = "PB_DropAccept" fullword ascii
+    $s8  = "rocessorArchitecture=\"*\" publicKeyToken=\"6595b64144ccf1df\" language=\"*\" /> </dependentAssembly> </dependency> <v3:trustInf" ascii
+    $s9  = "PB_PostEventMessage" fullword ascii
+    $s10 = "PB_WindowID" fullword ascii
+    $s11 = "?GetLongPathNameA" fullword ascii
+    $s12 = "Memory page error" fullword ascii
+    $s13 = "PPPPPPH" fullword ascii
+    $s14 = "YZAXAYH" fullword ascii
+    $s15 = "%d:%I64d:%I64d:%I64d" fullword ascii
+    $s16 = "NGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDI" ascii
+    $s17 = "PYZAXAYH" fullword ascii
+    $s18 = "PB_MDI_Gadget" fullword ascii
+    $s19 = "PA<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?> <assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVer" ascii
+    $s20 = " 46B722FD25E69870FA7711924BC5304D 787242D55F2C49A23F5D97710D972108 A2DB26CE3BBE7B2CB12F9BEFB37891A3" fullword wide
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 300KB and
+    1 of ($x*) and 4 of them
+}
+
+
+rule task_update {
+  meta:
+    description = "9893_files - file task_update.exe"
+    author      = "TheDFIRReport"
+    reference   = "https://thedfirreport.com/2022/03/21/apt35-automates-initial-access-using-proxyshell/"
+    date        = "2022-03-21"
+    hash1       = "12c6da07da24edba13650cd324b2ad04d0a0526bb4e853dee03c094075ff6d1a"
+
+  strings:
+    $x1  = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?> <assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersi" ascii
+    $s2  = " or \"requireAdministrator\" --> <v3:requestedExecutionLevel level=\"requireAdministrator\" /> </v3:requestedPrivileges> </v3:se" ascii
+    $s3  = "-InitOnceExecuteOnce" fullword ascii
+    $s4  = "> <dependency> <dependentAssembly> <assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.0.0" ascii
+    $s5  = "v3=\"urn:schemas-microsoft-com:asm.v3\"> <v3:security> <v3:requestedPrivileges> <!-- level can be \"asInvoker\", \"highestAvaila" ascii
+    $s6  = "PB_GadgetStack_%I64i" fullword ascii
+    $s7  = "PB_DropAccept" fullword ascii
+    $s8  = "PB_PostEventMessage" fullword ascii
+    $s9  = "PB_WindowID" fullword ascii
+    $s10 = "?GetLongPathNameA" fullword ascii
+    $s11 = "cessorArchitecture=\"*\" publicKeyToken=\"6595b64144ccf1df\" language=\"*\" /> </dependentAssembly> </dependency> <v3:trustInfo " ascii
+    $s12 = "Memory page error" fullword ascii
+    $s13 = "PPPPPPH" fullword ascii
+    $s14 = "YZAXAYH" fullword ascii
+    $s15 = "%d:%I64d:%I64d:%I64d" fullword ascii
+    $s16 = "PYZAXAYH" fullword ascii
+    $s17 = "PB_MDI_Gadget" fullword ascii
+    $s18 = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?> <assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersi" ascii
+    $s19 = " 11FCC18FB2B55FC3C988F6A76FCF8A2D 56D49E57AD1A051BF62C458CD6F3DEA9 6104990DFEA3DFAB044FAF960458DB09" fullword wide
+    $s20 = "PostEventClass" fullword ascii
+
+  condition:
+    uint16(0) == 0x5a4d and filesize < 300KB and
+    1 of ($x*) and 4 of them
+}
+
+
+rule Costura_packer_dotnet_resources {
+  meta:
+    author      = "Paul Melson @pmelson"
+    description = "Detect .NET resoure names commonly used by Costura packer"
+    hash01      = "0d8b85f3de3b266b4dfcd2892f4b0252b808f36cb8cdf594e225d45d0ca84f48"
+    hash02      = "a717b5d3af3173ce9958a23f95269e2d8ccd8979445626342c32b398d4f08f8a"
+    hash03      = "fc2f5146edf6f28c6cb06e280674dc43b5c1e85f61b7138b766b4607e907ee5b"
+
+  condition:
+    for any item in dotnet.resources:
+    (item.name == "costura.costura.dll.compressed" or
+      item.name == "costura.iconlib.dll.compressed" or
+      item.name == "costura.packetlib.dll.compressed" or
+      item.name == "costura.packetlib.pdb.compressed")
+}
+
+
+rule njimg {
+  meta:
+    author      = "Paul Melson @pmelson"
+    date        = "Mar 5, 2023"
+    description = "Embedded PNG files from malware resources, useful for finding other forks/builders"
+
+  strings:
+    // 37af1cc5a7606c4cce476c2324b066c3a7f625eee010baf8347937ad13fd4081
+    $njrat_pw_dll_ico       = { 89 50 4e 47 0d 0a 1a 0a 00 00 00 0d 49 48 44 52 00 00 01 00 00 00 01 00 08 06 00 00 00 5c 72 a8 66 00 00 00 09 70 48 59 73 00 00 0e c3 00 00 0e c3 01 c7 6f a8 64 00 00 03 05 49 44 41 54 78 9c ed d6 3b 8e c2 40 14 05 51 40 5e 9e 13 60 9d 33 93 78 6d 9d c2 1e f8 e8 8d 54 e7 e4 76 df a8 f4 4e 27 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 e0 bf 39 af b5 1e d3 23 80 19 97 e9 01 c0 1c 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 30 01 80 b0 ed dd 1f ec fb fe 89 1d c0 0b 8e e3 78 eb 7b 17 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 09 00 84 6d d3 03 7e 7f fe a6 27 c0 98 db fd 3a fa be 0b 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 04 00 c2 b6 e9 01 b7 fb 75 7a 02 64 b9 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 ec bc d6 7a 4c 8f 00 66 b8 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 20 4c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 e0 0b 9e 20 22 10 6d c7 22 e5 51 00 00 00 00 49 45 4e 44 ae 42 60 82 }
+    // e6a5f63d1a1507c0fb29f8f4e8cac3b4a0697ec8a3340b67d6c10f4fcd9f5603
+    $njrat_copy             = { 89 50 4e 47 0d 0a 1a 0a 00 00 00 0d 49 48 44 52 00 00 00 10 00 00 00 10 08 06 00 00 00 1f f3 ff 61 00 00 00 01 73 52 47 42 00 ae ce 1c e9 00 00 00 04 67 41 4d 41 00 00 b1 8f 0b fc 61 05 00 00 00 20 63 48 52 4d 00 00 7a 26 00 00 80 84 00 00 fa 00 00 00 80 e8 00 00 75 30 00 00 ea 60 00 00 3a 98 00 00 17 70 9c ba 51 3c 00 00 01 dd 49 44 41 54 38 4f a5 93 df 4b 53 61 18 80 fd 53 4a 19 52 5d db 7d 44 6a 52 60 50 78 51 50 90 45 57 bb d0 ab ae 22 c3 20 ab 19 0b 9c 6d 13 73 96 b2 cd ce f4 44 a4 8b 94 99 6b 69 32 73 ae 5f 93 96 41 6d 30 95 73 74 39 a7 67 f6 b8 f3 49 b3 2d d8 04 5f 78 ee be f7 79 7f 7c df 57 56 b6 df 90 c7 bf a0 23 8d 85 05 ce e1 20 bd f2 3b ee da 64 f6 e4 d6 93 0b c3 31 14 e0 6a cb 53 8e d6 35 96 96 78 46 c3 79 f9 99 ad 3f 74 f4 bd c2 eb 0f 73 be a9 bd b4 c4 39 32 23 04 de 08 48 1f 20 14 55 79 e8 78 89 34 a1 e2 1e 57 70 f9 14 1e 8f 28 98 07 97 05 17 ef c7 f2 bb ea 95 03 b9 0e 36 36 33 a8 ab 69 62 89 a4 10 14 46 6b ff 22 55 57 fc 82 dc 7e ec 6e 9f 38 d7 ed df c4 34 ac 72 53 fa 45 73 4f 94 be d7 4b ff 09 9a ac 09 e4 49 95 23 0d 43 02 21 b1 64 e7 d5 e7 5e 4b 69 2c 2a 29 16 62 2b 7c 8a 2e 61 7f 11 17 82 36 29 23 08 cd af 70 c9 14 e7 70 c3 73 0e 9d 1d a0 b2 fe c9 8e 40 9f 77 3d ad e5 2a 1b ed 11 ae 59 3e f2 c0 b5 90 d7 81 fa 5b 63 fe e7 3a fe b9 55 ac d2 34 86 d3 5d bb 02 35 99 e6 f3 f7 04 33 5f 63 04 42 3f 18 7b ff 8d 96 ee 9d eb bd d1 9f c4 68 89 73 e1 5e 84 33 b7 66 05 56 69 0a 43 5d e7 ae a0 ea e4 65 0a 69 36 cf 0a 81 96 1d 2f a1 68 cc 45 d7 18 0d aa 78 de 2c f3 68 20 40 45 8d b9 f8 1b 69 6c 9d 14 82 7f 2b ff ed a0 d3 fd 96 f2 13 a6 e2 82 73 d7 7d a4 36 b6 b0 0f 06 b1 79 a6 b1 3e 9b 12 95 f5 64 8b 73 82 83 c7 ef 14 17 d4 18 bd d9 6d bb 04 95 f5 0e 0c a7 6c 54 d4 76 50 5e dd 9e 4d 6e e3 c0 b1 db a5 9f f9 9e 3e d3 7e 0f 6d 03 ef c2 df 55 1c 97 5e b9 00 00 00 00 49 45 4e 44 ae 42 60 82 }
+    // 83f8cc55816e76ef1f0cc2d3fb8a216520496664d40ae1dad03622f9f4d35aad
+    $njrat_leftarrow        = { 89 50 4e 47 0d 0a 1a 0a 00 00 00 0d 49 48 44 52 00 00 00 18 00 00 00 18 08 06 00 00 00 e0 77 3d f8 00 00 00 01 73 52 47 42 00 ae ce 1c e9 00 00 00 04 67 41 4d 41 00 00 b1 8f 0b fc 61 05 00 00 00 09 70 48 59 73 00 00 0e c2 00 00 0e c2 01 15 28 4a 80 00 00 04 26 49 44 41 54 48 4b cd 55 6b 4c 9b 65 18 dd d7 56 0a 85 76 e5 ab 6d 99 83 75 5c dd c5 b5 10 99 3a 75 6c 4e 71 17 4b 51 64 d3 41 e7 58 a8 d3 41 dd 12 c5 ad 29 b2 4b 59 76 d1 dd 64 68 1b c8 08 d0 0c 84 38 68 57 0a a5 dc 64 88 c3 6e e0 88 ce b1 09 32 5d 8c 26 fe d1 39 fd e1 7e 1c df af b1 f4 ca 40 fd e3 93 bc e9 97 34 df 39 e7 7b ce 79 de 67 ce 9c 19 4a 7f 4d 8f 8c c1 0c 08 ed 42 50 56 0a ac 73 14 14 0e 05 54 7d 59 30 7d 6d c2 4c ef 4f fb bf 7a 44 0d 41 97 00 ca cf 37 a0 64 b4 18 e5 57 77 c3 38 b6 17 86 2b 85 d0 7c fa 14 d6 74 24 40 f2 11 0f d1 66 21 4a 87 f4 ff 8c 48 d8 2d 44 de 17 9b e1 f8 d1 86 f6 5b 8d 68 fa f6 7d 54 8f bd 83 63 a3 1a ec bf 94 8d 37 07 57 40 7b 41 e1 3e 39 9d 49 90 d4 f0 90 da a8 98 1d 89 c0 29 80 71 b2 12 5d 3f b4 a0 f5 66 35 6a 6f 18 50 f1 d5 4e 94 0f 6f 82 6e e8 e9 29 60 0f 81 e7 77 49 3d 8d b4 fa 19 48 a8 36 0a 55 13 15 b0 7d 5f 8f 86 f1 63 30 5d db 83 a3 57 0a b0 d7 a5 c4 81 4b 2a 0c fd 64 85 fd 3b e3 f4 24 35 34 32 cc 2b 43 7f 89 bc 57 8e ed c3 6a 7c 3c f9 21 6a ae 1f c0 c9 2f 77 c0 70 39 17 25 83 4f e0 30 51 ff c7 dd db f0 d4 a9 d1 c2 69 49 a4 c7 79 a1 09 24 76 11 cc df 1c c6 07 57 df c2 a1 91 7c e8 87 32 b1 73 20 2d 08 9c 21 d9 e7 5a 1f 92 e0 b5 fe 87 b0 c1 22 03 6d 10 fa 93 28 3a e5 d8 f6 99 32 c8 c4 40 e5 0c b8 f9 7a 59 10 78 d1 05 39 0a fb 97 62 eb 27 8b b1 b9 37 05 f4 41 2e 4c 03 46 2f 09 ab 89 82 de a5 f2 33 71 36 e0 c5 24 45 db 89 ea 02 02 ac ee 7b 10 9b 7a 92 90 d3 93 80 65 d5 34 b2 ab b2 bc 04 d2 e6 28 ec 1a 48 9f 52 16 0a fc d6 9d 31 b7 c1 be c7 7a b3 92 24 ad 12 e7 26 2b b0 6f 24 0f aa ee 85 58 e7 8c c3 23 0d 12 a4 1e 92 7b 09 e2 9a f8 f7 04 9f 72 f7 1e 0f e6 89 13 78 96 80 af ee 7c 00 e9 2d 62 70 b4 94 0f 41 c3 7f 27 a8 25 b1 5e e9 98 87 c7 1d 52 28 2c 34 38 1a 5f 82 3a 2f 01 33 38 a1 5a 34 fc 73 37 5a 26 4f a3 99 4c 35 33 d9 67 27 4e 82 51 5d 37 7e 1c 67 c6 df 83 d6 95 83 e5 1d 62 a4 da 69 24 d6 f2 21 7a dd 27 49 ac d3 54 50 32 02 49 7e 27 73 b0 db 95 e5 36 f1 b9 2e 19 d6 92 76 ac e9 9c 8f 27 1d 31 78 ac 43 8a b4 76 11 e4 04 7c 51 db 5c 48 4f 85 63 55 99 cf c0 c5 57 cb f0 b2 23 c5 8f 64 07 89 de fe cb 39 60 80 3d 75 e7 ee af 28 be b8 0e 99 ce d8 bf db 11 83 f4 76 31 14 04 78 69 9b 10 89 b6 28 c4 db 22 c1 d7 71 50 5a af f3 7a a0 75 14 61 c9 19 da 4d c0 44 4f 43 32 cd 44 2f bf 2f 05 6f 13 d5 0c b0 a7 7e 23 cf b9 fd cb f1 68 87 04 69 64 38 97 d9 a3 91 dc 26 40 02 01 8f 3d cf 83 a4 99 0b ce 0b 3e fd f7 dc d7 f4 bb 42 6c b4 27 63 1b 01 7e a5 6f 11 5e ea 4d c6 8b 3d 89 c8 ea 5a 88 22 a2 9a 01 f6 94 f1 c6 11 b7 ea c5 a4 1d 8c 6a d9 f9 48 c4 58 c3 21 b6 70 11 b9 87 8d 2d 47 f3 83 af 0b bd 53 87 fb 8f 44 60 a3 33 09 b9 04 f8 f9 ee 78 ac 77 2e 20 d1 8b c5 2a 12 bd 82 c1 67 70 fb cf 5f dc a7 e0 a2 12 49 36 3e 69 47 14 e6 5b 23 20 21 c0 74 eb 7d 88 20 5e d2 aa 80 6b c2 77 e3 6c 69 cc 87 c8 c0 c5 da f6 38 3f 13 57 04 98 c8 b4 63 01 69 87 94 00 8b 2d 61 e0 b7 b0 11 61 a2 c0 ce 0c d1 9a c0 95 96 5d a5 44 74 59 18 1e 6e 16 93 4c 87 36 71 1e 69 07 a3 5a d8 ca 41 24 59 a1 dc b2 59 82 7b c8 4a 2d 3a 88 4a 84 90 94 87 23 e5 ac c0 cf 44 46 b5 a8 35 0c 51 8d 2c 70 cb 29 70 94 14 e2 73 65 b3 db 66 81 5f f3 46 5d 11 12 76 c9 10 a6 66 81 a7 65 23 fc 55 72 34 6c 70 f2 88 e2 d5 14 52 b7 fa dc 37 ff 7a fb ff df 5f fc 0b 10 8a ed 91 62 c9 20 7a 00 00 00 00 49 45 4e 44 ae 42 60 82 }
+    // 9267e8d2ca30a246a433511885046118a4a420c7c8905fd20dd4d10686ff2b7b (concatenated to 4096 bytes due to Yara string length limits)
+    $njrat_cdburn_ico       = { 89 50 4e 47 0d 0a 1a 0a 00 00 00 0d 49 48 44 52 00 00 01 00 00 00 01 00 08 06 00 00 00 5c 72 a8 66 00 00 00 09 70 48 59 73 00 00 0e c3 00 00 0e c3 01 c7 6f a8 64 00 00 20 00 49 44 41 54 78 9c ec bd 79 9c 66 57 5d e7 ff fe 9e 73 ef b3 d6 be f7 56 5d dd e9 ec 49 67 a5 13 09 24 20 20 8b 40 22 02 41 94 45 05 47 66 9c 1f a8 e3 c0 e0 40 03 8e e3 b0 89 8c 0e 5b 64 5f 14 c3 08 a3 18 51 5e 42 50 50 50 30 40 48 20 8b d9 80 90 a4 d3 e9 ae ae aa 67 bb f7 9e f3 fb e3 9c 73 ef 7d aa ab 93 c6 74 77 55 2a f5 7d bd 9e ee 7a f6 fb dc 7b 3e df e5 f3 5d 0e 6c c8 a3 46 de ac f5 cc 6a 1f c3 86 ac 2d 51 ab 7d 00 1b 72 02 45 e4 45 ab 7d 08 1b b2 b6 64 43 01 3c 8a 44 45 d1 45 ef ab 54 b6 ad f6 71 6c c8 da 91 0d 05 f0 28 92 ae 31 0a f8 95 d5 3e 8e 0d 59 3b b2 a1 00 1e 45 92 89 34 b4 c8 2f 7f a0 5a 8d 56 fb 58 36 64 6d c8 86 02 78 14 89 11 19 d5 22 9b b0 f6 8a d5 3e 96 0d 59 1b b2 a1 00 1e 3d 22 49 96 d5 2d 10 47 d1 af ae f6 c1 6c c8 da 90 0d 05 f0 28 10 0b 72 3e 44 d6 da 28 15 99 57 f0 93 1f ab d5 4e 5e ed e3 da 90 d5 97 0d 05 b0 fe 45 2e 80 68 14 1a a2 d4 70 62 ed 21 ac 15 e0 65 ab 7d 60 1b b2 fa b2 a1 00 1e 05 b2 19 e2 08 c6 4d 96 4d 1a a5 25 52 8a 48 e4 f2 d5 3e ae 0d 59 7d d9 50 00 eb 5c f6 82 b4 21 1e 13 39 09 88 53 6b 22 8c 41 89 9c fa 89 7a 7d d7 6a 1f df 86 ac ae 6c 28 80 75 2e 37 80 68 d0 35 91 39 a5 14 a9 b5 71 24 82 42 a8 28 b5 e1 05 3c ca 65 43 01 3c 0a 44 81 8e 45 36 03 a4 10 45 4a a1 95 a0 e0 99 80 ac f2 e1 6d c8 2a ca 86 02 78 14 48 06 a2 ad 9d 06 30 10 6b 11 14 a0 95 7a ec 55 f5 fa d0 2a 1f de 86 ac a2 6c 28 80 47 81 44 a0 22 98 d0 4a 61 40 0b a0 44 88 44 2a 63 22 4f 5f ed e3 db 90 d5 93 0d 05 b0 ce 65 1f 48 04 2a 52 6a d2 58 4b 06 ca 83 1f 01 2a 5a 6f 84 01 8f 62 d9 50 00 eb 5c 4e 01 11 d0 91 c8 56 6b 2d a2 94 8a 44 d0 22 88 b5 44 4a 3d 75 ef 86 02 78 d4 ca 86 02 58 df 22 07 40 12 50 ca 98 2d d6 5a c4 5f 73 01 22 11 22 98 38 b3 d9 3c 69 95 8f 73 43 56 49 36 14 c0 3a 97 45 90 4d 4a ed d0 4a d5 ad b5 00 54 a3 c8 79 00 38 2e a0 a1 d4 05 6c 78 01 8f 4a d9 50 00 eb 5c 0e 82 1a 10 39 d3 59 7f 21 c2 21 5d 80 48 29 14 10 c1 79 1b 61 c0 a3 53 36 14 c0 3a 97 41 50 55 a5 ce 14 11 10 d0 4a 89 40 e1 01 58 8b 56 ea dc 6b 37 d6 c2 a3 52 36 2e fa 3a 96 bd 20 35 77 8d 4f 07 b0 c6 e4 ec 7f ac 14 1a d0 4a 11 8b 9c 59 07 cd 86 17 f0 a8 93 0d 05 b0 ce 25 83 48 59 7b 0a 80 28 15 98 7f b4 08 91 d6 44 22 c4 22 5b ae a8 37 26 56 fb 58 37 e4 c4 cb 86 02 58 c7 72 03 c8 0e a5 b6 2b d8 ec 53 80 ce ea fb 14 a0 b6 16 8c 41 03 5b 2b f1 05 eb 95 07 f8 87 81 81 b3 57 fb 18 d6 aa 6c 28 80 75 2c b7 81 6a 68 fd 24 a5 14 22 42 c8 02 28 5f 07 a0 bc 17 10 2b 45 d5 da f3 ae 5d a7 eb a1 9d 65 bf b0 da c7 b0 56 65 5d 5e f0 0d 01 40 a6 40 29 78 82 b5 16 11 41 44 88 b5 26 8e 22 14 e4 37 80 6a 1c ef 58 af 3c 40 2b cb ce be 65 6c ec f4 d5 3e 8e b5 28 1b 0a 60 1d 4b 04 5a c1 63 01 f2 10 40 04 8c 41 f9 70 20 10 82 ca da e9 c8 29 80 75 27 87 b2 6c 48 c1 2b 56 fb 38 d6 a2 6c 28 80 75 2a 7b 41 4e 89 e2 73 14 32 06 e4 ee 7f 2d 8a 88 00 6d ad 0b 01 70 d9 81 8a c8 c4 10 44 eb 91 07 e8 1a 33 0d bc e4 f6 f1 f1 c6 6a 1f cb 5a 93 0d 05 b0 4e e5 06 90 08 fb 24 8b c5 5a 4b a4 35 c6 5a 06 c4 17 02 59 8b f6 5c 40 ac 14 11 4c f4 20 ba 61 fd 29 00 31 d6 36 bb c6 34 15 fc dc 6a 1f cc 5a 93 0d 05 b0 4e e5 4c 10 b1 f6 a7 c3 fd 34 cb 88 e3 98 91 4a d5 d5 00 f8 94 a0 f2 d3 81 22 18 05 2a fb d6 91 02 b0 20 2f 87 48 60 70 31 cb ee d3 1b 61 c0 61 b2 a1 00 d6 a7 48 47 47 db 23 a5 2e ca 09 40 c0 64 19 c3 5a 3b 0e c0 98 bc 1e 40 09 54 44 06 9b 22 8d 49 b7 26 d6 85 12 78 83 9b 7d 30 00 0c 1c 4c d3 43 4a e4 82 bb c6 c7 f7 ac f6 71 ad 25 d9 50 00 eb 56 ec 0b 8d 31 62 ad f5 f1 bf 60 95 30 a2 35 b1 d6 ae 02 50 6b 97 09 70 c5 41 ea b4 4a 65 13 eb 87 08 94 1b 20 6e c2 16 80 83 69 2a 1a 88 45 36 bc 80 92 6c 28 80 75 28 cf 05 25 f0 02 f1 ae be 12 05 02 15 51 d4 94 02 5f 0d 88 31 8e 07 f0 9e c0 64 14 6d a9 ad 93 35 b1 17 64 10 a2 2a 6c 15 a0 95 65 83 9e f3 b8 f2 df 26 26 46 57 fb f8 d6 8a ac 8b 8b bd 21 fd 72 72 1c 9f ad 94 3a 03 00 11 2c 16 a5 14 63 d5 2a 41 29 b8 52 60 77 f9 15 6e 46 60 5d a9 81 18 d4 7a c9 04 74 20 52 30 03 90 5a 3b a0 44 d0 50 1f 14 79 e9 2a 1f da 9a 91 0d 05 b0 fe 44 2c bc 28 77 fd fd ff a9 31 0c e2 d3 7f fe 71 8c 1f 0a a2 04 b1 d0 b3 56 2f ac 93 35 71 83 3b 0f 5a c3 84 00 d6 da 46 28 83 8e 44 fe 03 eb 44 c9 3d 5c 59 17 17 7b 43 0a 79 ad d6 15 8c 79 21 80 88 60 42 f9 af 52 0c 2b 95 e7 ff ab 51 44 a4 5c 1a 10 6b 11 81 c4 5a 15 af af 35 a1 63 97 dd 00 d0 86 bc 0c fa d4 fd 93 93 4f 5c cd 03 5b 2b b2 9e 2e f6 86 00 28 f5 42 a5 d4 4c 5f ed bf 52 68 ad d9 da 68 40 96 a1 b2 0c 8c 41 ac 45 ac 5b 04 b1 08 89 b5 3a 5a 27 6b e2 4c 90 18 a2 0a 6c 06 67 ee 7b be f1 49 01 b1 52 ff 71 55 0f 70 8d c8 ba b8 d8 1b 92 8b 58 63 7e 03 eb ef 40 de 04 94 01 9b a3 08 e5 41 a0 45 d0 5a 13 09 c4 ca 65 05 32 6b b5 06 b5 0e 8a 81 e4 06 50 b1 23 01 b7 84 1f b3 60 4c 1a 1a a1 b4 c8 b3 f7 4d 4d 6d 5a d5 a3 5c 03 b2 a1 00 d6 91 bc 26 8a 9e 66 e1 2c 5c d0 8b 28 c1 18 03 40 5d 84 41 df f9 a7 7d 77 a0 f2 35 02 da 87 02 29 68 0b 7a 3d 14 03 cd 80 74 21 ae 78 12 10 e0 40 96 59 ed 88 40 34 c4 75 a5 1e f5 3b 24 47 ab 7d 00 1b 72 ec 44 e0 bf 88 52 0e ff 22 18 63 f3 e7 36 57 ab 68 a5 dc 90 70 1f 1a 58 3f 17 c0 7a 62 f0 a2 17 bf e4 e7 1e 3b b7 e3 8c 4a b5 7a 8f c0 03 26 49 0e 9a 6e 6f bf 69 77 e6 0d a6 45 66 3a 19 b2 10 d5 e3 7b 2e 7e e3 1b bb ab f4 33 8f 4a ee 01 55 73 bb 22 4f 81 d3 68 f3 69 2a 0a f7 bb 2d 10 59 fb f2 8f 8f 8e fe cf 9f 3f 70 20 5b d5 83 5d 45 d9 50 00 8f 70 99 ff 8d df 18 4b 6a b5 5d df bc e1 c6 27 7f e1 9a bf fa 49 11 c1 64 19 88 20 b8 c2 7f 51 8a d9 6a d5 11 7e 38 4e c0 02 99 0f 07 2c 20 5a d3 dc b1 63 4f 7b 60 60 cf 52 af 47 da eb 62 93 14 9b 26 58 6d ad a4 26 13 4c aa 90 24 4b cd e2 df bf f1 77 f6 49 b5 76 7b d6 a8 dd d0 eb 74 af cb 0e 2e dc 92 1a f3 a3 d6 79 67 ed bb f2 ca 2b ed 83 1d f3 89 90 51 37 0e bd 1a 85 2c 00 b0 90 65 4a 7b f0 5b 47 86 6e bb a2 5a 7d 0a f0 b9 d5 3d da d5 93 0d 05 f0 08 92 bb fe fc cf c7 e4 fe fb f7 68 78 6a 6c b2 0b 6c a5 b6 a9 55 89 87 ad 52 8d 5b ff e6 6f 9a 58 eb 16 37 e4 21 80 33 75 11 db ea 75 24 4d b1 6e 6b 70 47 10 8a a0 a2 88 24 4d dd 74 e0 93 b6 13 57 22 f4 52 87 a8 dd 22 5d 6a 61 5a 2d 6c bb 23 36 4b 22 95 f5 22 d5 4b 6a ea 50 3a a8 d2 6c 93 b2 76 b7 56 ea 72 a9 d7 31 8d 46 2f ad d7 0f f5 6e bb e3 c0 df fd fe 3b ee 4a e2 ea 8d 4b 4b ad bf e9 ce 1f ba ee 85 bf f7 a6 bb 4f e4 79 b2 c0 f3 40 9d 0a 5b 95 0b 6b 00 68 19 23 06 f2 71 e8 16 88 e1 39 6c 28 80 0d 59 8b 72 fb 37 be 51 b5 fb f6 9d 21 d6 3e 3d ca b2 9f 8a 92 e4 14 3d 3c 32 01 36 ce 04 ac 52 18 ad f8 b7 6f 7e 93 ef 5f 7f 3d a2 14 c6 f7 fa 17 25 c0 a0 a3 88 e9 7a 1d db ed ba e7 71 00 08 3d 02 91 08 68 4d 32 3a 0c dd 1e d4 0c 98 0c 31 06 11 8b 68 85 f4 22 54 af 42 94 26 68 63 d0 d6 ba 58 da 58 47 18 98 b4 62 da 4b 13 59 b7 3b 91 b4 d4 c9 59 a5 f2 a4 66 a3 f9 9f 3a 9b 67 ee ff ec bb de 77 6b 22 f2 0f 0b 07 e7 ff ba d5 e9 7d e7 57 df f8 da fd c7 f3 bc bd c1 55 01 ca 20 cc 85 c7 04 48 8c c1 78 de 23 3c 16 89 3c eb 93 f5 ba be b2 dd 7e 54 86 01 1b 0a 60 0d 89 b5 56 da ed f6 96 43 77 ff e8 89 69 6b f1 a7 6d a7 73 81 34 ea 5b 54 bb 5d 8f 3a 3d 48 12 92 46 8d 74 74 98 64 6c 0c 94 22 eb 76 f9 c7 5f ff cd 1c f0 e5 d4 9f f5 1e c1 88 d6 54 44 91 65 99 2b 0c 52 8a 0c d7 1c a4 7c 29 70 32 32 8c 35 16 4c 86 49 53 8c c9 b0 59 86 cd 9c 32 20 33 58 93 61 8d c5 7a d0 8b 08 a2 15 3a d2 a8 38 46 2a 15 a4 52 81 6a 95 34 8e e9 89 52 1d cb 54 0b a6 7a 22 8f ad 6d 9a fa 2f 5d cb dd 57 bf ff c3 37 a5 c6 7c e9 c0 bd 07 3e 67 0f cc 7f f7 3f bd fd 8d 4b c7 fa 5c 46 8e 03 98 03 07 74 0b 98 e0 01 f8 73 e4 7f c3 cc b3 46 46 2e a6 dd fe ca b1 3e 86 47 82 6c 28 80 35 20 d6 da ad 4b 8b 0b cf 38 70 ff be 17 74 0f 1d 3a cf 74 da 23 d2 6e 43 ab 05 69 8f ac 5e a1 b3 75 13 46 eb e5 6f e4 fa 0f 7c 88 f9 1f fc 80 e0 fe 2b e5 12 3b c6 18 c7 f4 6b cd a6 6a 15 a5 84 cc 17 06 99 2c 23 d2 1a a5 35 d6 5a 0c 90 0c 8f 60 b3 0c 93 1a 6c 5a 52 02 1e fc 62 5c ed 80 b5 06 b0 9e 47 b4 20 0a 5b 3a 1e eb ef 69 ad a9 d6 6b 54 6a 35 06 ab 55 12 51 b4 8d d5 4b 49 b6 ad 95 24 db d2 d4 3e b9 76 52 f3 f5 9d de f4 ad 1f fd c0 47 fe 7a df 7d 0f 7c 44 ff 40 be f3 ca 3f 7a e5 31 b1 c4 3d 57 07 30 1b c0 2f e0 7e 3b 45 8a 23 cc 45 10 6b 7f 06 f8 47 ff d2 47 95 6c 28 80 55 92 a5 a5 a5 41 6b b2 c7 67 69 fa e2 f9 03 fb 2f e9 b5 db 5b d3 85 05 92 d6 92 5b a8 83 0d 18 19 74 2f b6 f6 f0 95 69 2d 8b 77 df cd f5 1f f8 10 40 11 ef e7 4f 3b 57 d7 2a c5 e6 66 93 5e a7 83 ca 32 c4 37 03 a5 5e 41 88 b5 a4 d6 d2 1b 1a f4 16 3f 25 cb 52 f7 77 ea 6e 92 65 58 63 f2 d2 62 8c 63 1a 2c 1e fc d6 7f 9f b5 81 80 70 8a 20 bc 1e 4b 14 47 34 2b 31 8d 48 83 d6 f4 52 c3 62 bb 17 2f 2d b5 4e 6f 75 7a a7 6f 9b 9d 79 45 77 2a f9 f6 fb df fd fe 4f dd f5 fd fb fe ec 8d ff f3 bf dd f5 70 ce af 76 75 00 5b 97 9f b3 c3 14 00 80 c8 b3 9f 0b af fe 14 3c ea c2 80 0d 05 70 02 e5 96 5b 6e d1 a3 43 23 67 1b 93 be 64 69 e1 d0 53 05 4e 41 d0 bd c5 05 7a ad 36 36 d6 d8 e6 b2 a9 55 47 00 3f c0 3f bf f5 ed 24 9d 8e 7f d0 d9 3a 11 c9 79 00 80 28 8a 98 8d 63 4c b7 4b 96 65 6e 24 b8 4f 15 86 78 d8 5a 4b 32 3c ec ac 7e 9a 7a e0 a7 ee e6 ab 06 5d 08 60 72 2b ef 13 89 e1 80 f2 70 23 58 dc a0 0b 72 05 41 df 1f 54 2a 31 a3 b5 98 d1 f1 21 7a bd 8c 43 87 16 eb f3 87 96 2e aa f6 2a 17 9d d6 ac bd e6 43 ef fb d0 3f 2f 2c 2c 7d e4 9e 1f ed ff db df 7d db eb 1f f8 71 ce f3 0d 20 03 ae 0f 60 5b 71 66 0a 2f 20 57 00 9e 03 11 38 f9 5d d3 d3 67 7c ea de 7b af ff 71 be 67 3d c8 86 02 38 01 72 eb ad b7 8e 55 74 f4 b3 4a c9 2f 76 bb ad 73 44 a4 01 96 b4 d7 25 4d 13 5c af 6e b4 22 d0 8f 04 fe 1f fe d3 57 b9 f3 ef be 88 35 16 ad 15 c6 9a 1c cc 8e e4 b2 88 d2 6c a9 d5 18 89 22 4c bb 8d 00 a9 31 ae 1e a0 f4 79 22 42 32 34 88 49 53 32 af 04 4c e2 bc 01 b2 cc 71 05 d6 80 b1 18 63 d1 1e 4e 56 8a 63 cc 81 9f 1f 63 71 e4 cb c1 9f 3f 2a 1a 2c 54 aa 31 93 93 a3 4c 4d 8d b2 b4 d4 e1 e0 fc e2 f8 fc fc e2 d3 6b f5 ca d3 86 86 07 ee 7a df bb ae fa 9b ef df 71 cf db 7f e7 2d af bb f9 68 ce f7 28 a8 31 18 8f fc 2c 80 70 7c e0 4c 7c b0 fc 62 0b 2e a3 22 f2 33 c0 77 e0 f0 53 be 9e e5 11 53 09 f8 56 78 c4 ed 5c f3 bd 6f 7d 6f fc 96 9b 6e fa 75 65 ed 97 ac cd de 9b 99 f4 27 d2 24 69 74 3b 2d 3a ed 25 d2 2c 25 40 e7 c7 01 bf c9 32 be fe e6 b7 b9 71 5e 4a c8 8c c1 18 8b 35 26 af fc 03 41 47 31 a7 0f 0c 90 f4 7a 64 99 c1 00 28 45 1a 3e 27 bc de 5a ba 83 83 39 f8 f3 fc 7f ea c0 8f 31 ee 96 c7 ff 1e e0 85 03 b0 0c fc 7d 4f 61 29 c8 c9 f0 a8 2d bd 48 fc 3f 16 68 34 ea 6c de 3c c9 e9 a7 6d 67 fb b6 19 99 98 18 de 3e 38 d0 fc 95 93 4f dd fe d5 f7 fe e1 fb 3e f6 fa 57 bf e9 a1 36 f9 90 1e e8 4d 70 89 ac 50 d1 98 01 66 f9 cd 29 82 2b 9e fb 08 c2 c3 b1 92 47 8c 07 50 81 17 00 7f b4 da c7 71 34 f2 af 5f fd d7 c9 6a 23 fe 65 89 cc 4b 05 75 0a d6 8a c9 92 02 38 41 f2 78 79 99 3c 08 f8 2d 70 e3 47 3f c6 fc ed b7 a3 94 22 4b 33 57 f0 83 cd e3 7b 00 44 88 ab 15 4e 6a 34 b0 ad 16 58 83 f1 45 42 ca 2b 01 97 29 80 cc 1a 3a a3 23 ce e5 0f e0 cf 52 07 fe cc 91 80 18 e3 b2 04 be 73 d0 d5 11 94 ea 0e 70 16 b5 c4 af 3b 85 93 3f 22 b9 27 60 00 ac 84 f8 db 9f 03 41 ac 2f 5c f2 e4 e2 d0 c8 20 83 23 83 74 3b 5d ee bd ef 81 d1 83 07 0e fd fc ae 93 67 9f f5 ee 77 be f7 f3 f7 dc 73 ff 9b 6f b8 e5 ba af 7f ea 53 9f 5a ee 57 f0 22 d0 0d b8 24 3c 56 0e 01 52 3f 0a 2d f7 02 8a d7 9c fb b6 89 89 6d 9f ba ff fe 3b 1e fc ea ae 2f 79 44 28 80 97 81 8e e0 d2 ab e1 83 cf 83 63 9e 32 3a 56 f2 95 6b bf 32 d5 1c a8 fd c7 28 d6 2f d2 4a 76 2a 01 25 16 21 2b 58 f3 20 ff 4e f0 77 ee bf 9f eb df fb c7 ae cc d7 66 0e 8c 80 88 1f ee 11 76 01 12 61 57 b5 8a 88 90 65 21 a7 2f 0e fc 59 86 56 0a 63 2d 0a 30 22 b4 67 a6 31 49 8a 49 12 4c 96 62 52 97 06 0c 19 80 be f8 df 7d e1 61 bf bf 70 b5 03 c8 43 b6 40 0a 4f c0 bf 50 54 f1 2e 8b 42 ec 4a 9f e2 a4 5a ab 30 3b 3b c3 cc cc 18 f7 fe e8 81 21 a5 e7 7f b6 de d8 f2 f4 e9 e9 b1 2f 9e 79 ca 79 6f be 7b df 1d 5f b9 ea aa ab 0c b8 1a 80 3a 44 31 5c 08 fd e0 b7 e0 14 5f 70 fd a1 5c 13 20 35 a5 9e 63 e1 1d fd 74 ea fa 96 47 8a cb f3 d8 2a d4 05 4e 59 ed 03 59 49 fe ee af ff 6e fa 5f fe e9 ab ff b3 d9 ac 7e 5d 6b bd 57 2b d9 19 c7 8a 28 92 7c e1 1d 0b f0 03 fc cb 5b de 46 77 61 31 c7 9f 35 26 b7 ad ee e5 be 0e 20 ae 70 d6 f0 b0 03 b4 67 bf 0d 3e 06 f6 3d 01 59 96 92 02 bd 89 71 52 a5 31 49 0f 9b 26 2e 0c c8 32 48 33 57 03 60 4c 7e cc b2 cc 89 f1 41 81 7b c8 2b 1e 83 50 42 b4 93 70 df 16 a0 03 53 7e 01 48 41 d0 d9 3e 85 e0 3c 88 4a 5c 65 db ec 0c 67 9c b9 93 e9 e9 b1 c6 c0 50 e3 a7 e7 e6 36 fd ed 39 67 9c fb 37 6f f8 ed ff 71 29 38 02 70 0c 06 22 38 bd cc f6 07 39 2c 04 b0 36 3f 3f 4a e4 f2 37 ac 9f 99 88 47 25 8f 08 05 20 70 }
+    // 317f271d04a68aa8d5ea21b571525dd653591f85aa69cdcd9737e2a21bea20c5 (concatenated to 4096 bytes due to Yara string length limits)
+    $njrat_chrome_ico       = { 89 50 4e 47 0d 0a 1a 0a 00 00 00 0d 49 48 44 52 00 00 01 00 00 00 01 00 08 06 00 00 00 5c 72 a8 66 00 00 00 09 70 48 59 73 00 00 0e c3 00 00 0e c3 01 c7 6f a8 64 00 00 20 00 49 44 41 54 78 9c ec bd 77 bc 1e 47 7d 2e fe cc ee db 4e 3f ea dd 92 65 35 cb 36 58 b2 0d 6e 60 53 8d 71 c1 90 80 29 21 fc 6e 02 7c 08 c9 4d 72 c9 25 10 3e 40 2e 01 52 08 70 13 2e 04 b8 b4 50 02 b9 84 6e 53 8c 01 83 c1 96 8d 65 63 70 93 5c 64 59 bd 1d 1d 9d fa d6 dd f9 fd b1 3b 33 df 29 bb 6f 3d 4d 3e 5f 7d 56 67 77 76 66 76 76 77 9e e7 fb cc 77 76 f7 05 e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d de e6 6d 0e 1a 9b e9 06 cc 5b 47 6d ba ee 27 9f a6 e3 cc db 14 db 3c 01 cc 2d 73 dd 2f 33 ad de 76 b3 66 82 bd de 76 52 da bc cd 42 9b 27 80 d9 6b 49 40 66 29 69 ae 7d 49 db f5 2c 0d e8 3c e1 6f 52 9a 6b 7b de 66 81 cd 13 c0 ec b1 46 80 cd 1a 5c 4f aa af 59 ab 07 fa 46 d6 5d 7f cd f5 79 9b 21 9b 27 80 99 b3 24 c0 9b eb ac c9 74 73 dd 3c 56 52 5a 3d 29 5f 0f f0 bc c9 74 57 fd f3 36 cd 36 4f 00 d3 67 ad 00 9e 01 f0 52 f6 b1 37 9f bd 6e f0 ba b5 2b cf eb ce f8 03 8b 0a b9 73 39 07 eb ca f8 e7 f8 8c f5 73 70 96 f3 bc 73 3c c6 fa 5b 69 70 c8 f9 68 25 0c 1f 62 60 3c e0 7c b4 58 0b 1e 62 e0 fc 44 a9 f2 e0 64 b5 36 72 d3 53 87 1f f8 cc ee a7 4e c1 0d 76 b1 84 29 fb e0 58 87 63 7d de a6 c8 e6 09 60 6a 2d 0d f4 69 60 37 41 ef 09 a0 af e9 ed ba 2c e7 79 6b 32 1e 3b a3 e0 fb 97 b8 0e 9a cd 66 c1 18 93 eb be ef b7 d4 f8 20 08 50 ad 56 01 00 9c 73 54 2b 15 00 1c 9c 03 9c 03 e0 1c 8c 03 a5 a0 b6 a3 1a 84 fb 2a 41 b8 7f ff 44 f1 8e 9b f7 1f 79 e0 33 8f ed 3f 05 1b fc 21 ea 93 c2 3c 19 4c a3 cd 13 c0 d4 58 d2 d8 3d 0d ec f4 af f7 bd ab 2e be fc 8c de ae cb 0a 7e f6 dc 7c c6 3b c7 67 6c 8d a8 dc f7 7d f8 be 8f 42 a1 30 3d 67 03 c4 10 0c 25 f0 39 07 18 8f 76 14 8b 45 04 b5 00 41 ad 16 e7 e3 a8 85 e1 fe 72 10 3e 54 ae 05 0f ee 9b 28 dd 71 c3 ed f7 fe 0a 11 f0 4d 12 a8 47 0a 70 fc 9d b7 0e d9 3c 01 74 ce 4c 6f df 08 e0 e5 f2 bd 17 3e fb f2 d5 dd 85 cb 7b b2 99 4b f3 19 ff 12 c6 00 30 86 5c 2e 8b 4c 26 87 6c 2e 3b 9d e7 a2 5b 0c 6a 1e bb 7e 0a 7e 00 32 1d 82 1c 00 54 2b 15 d4 aa 55 54 2b 55 80 03 1c 1c a5 5a b0 63 a2 5a bb f3 60 b1 f4 ab 1b 7e 75 3f 25 84 34 62 70 11 02 30 4f 06 1d b1 79 02 68 df 5c e3 79 2a e1 3d 38 40 ff a6 8d 6b 16 bc 7e fd ea 6b 16 17 f2 57 17 32 de a5 9e e7 f5 33 c6 90 cb e5 50 28 74 81 33 06 c6 38 c0 18 22 35 ef cd cc dd 4a f1 fc 80 1b fc 70 a5 01 28 17 27 51 2e 55 00 ce 11 70 8c 96 c2 da 9d 43 e5 ea 0f bf b2 f7 f0 f7 3f bb f7 d0 30 dc 64 40 89 20 24 ad 9a 57 05 1d b0 79 02 68 cd d2 bc bd d3 c3 03 f0 3e b2 7d cb ba 4b 17 2f b8 66 b0 90 bb ba 90 f1 2e 61 60 c8 66 73 c8 e5 73 f0 33 19 80 41 8e dd 01 e6 20 01 06 b0 69 bc 65 11 ea 1b 06 bf 4c 03 80 30 56 0b 60 00 38 18 d7 15 44 10 04 a8 96 cb a8 56 aa e0 9c a3 14 84 3b 86 2b 95 1f ee 18 1a f9 fe db 1f 7a 62 2f 6c 75 90 a6 0c 64 8b a7 f4 7a 9c 86 36 4f 00 cd 59 12 f0 93 40 ef bf 71 fd aa 05 7f 70 e6 ea 6b 16 17 b2 57 f7 f8 99 97 80 01 b9 7c 0e 85 ae ae 08 cf a2 8a 58 f2 db 24 10 63 9e 92 00 30 b5 44 40 81 0f 0e ce 99 0c f8 35 0c 7e 51 0e 3c 2e 4b 88 04 00 13 65 c2 e8 6f a9 58 44 a5 52 06 38 30 59 0b 7e 74 bc 5c fd e1 7f ec 3f f2 fd cf ed 3f 32 0c 20 40 63 64 20 cf 60 4a ae cb 69 68 f3 04 d0 98 b9 82 7a 89 a0 07 e0 7d fb b2 f3 9f 73 56 6f d7 ab bb 33 99 ab 7d 8f f5 67 72 39 74 75 75 45 15 30 03 f0 0d 90 00 40 d4 80 a8 83 fe 6d d7 24 b8 05 f0 f5 48 bf 06 7c b1 33 11 fc 90 e3 7e 17 f8 81 98 00 38 21 12 70 09 e3 c9 c9 49 54 ab 55 84 21 1f 9d 0c 82 1f ee 99 2c fe e7 2b 76 3e fc 4b 44 80 af 47 06 70 fc 9d b7 04 9b 27 80 74 6b 14 f8 3e 00 ff 8d eb 56 2e 78 ed da 15 d7 ae e9 ca ff 95 e7 79 6b 7c df 47 57 57 17 fc 8c 1f 03 3b 02 3a 03 af 43 02 90 c0 4e 23 02 c8 6c 46 33 1b b9 ab 04 d4 00 05 b6 d8 15 89 77 c9 06 22 0f 01 bd 36 e6 07 a4 e7 07 67 4d 80 1f 00 42 d9 14 1e aa ba 83 20 40 a9 58 44 ad 16 20 08 c3 fd 07 8a 95 8f 7c f5 d0 d1 9b 3f 7f f0 98 50 05 26 19 cc 13 41 93 36 4f 00 6e 73 49 7d 13 f8 be f8 fb cf e7 9e b5 ee f9 4b 16 be a5 3f 9b bd d1 f7 58 7f be 90 47 ae 90 87 80 b5 0e f6 7a 24 00 dd bb 6b 6a 20 6a 0e 97 78 17 f5 3b 1a 9e a8 0c b8 02 b9 96 a4 12 59 9c a6 cb 7d 55 56 ce 0a c8 6d 1a f0 4b 96 fd 80 01 7e 00 e0 a1 6a 83 41 2e 22 5e 00 70 94 8b 65 94 cb 25 84 1c a3 a3 b5 ea ff fb d9 d0 c8 a7 de f1 e8 53 7b a1 48 80 92 81 39 3c 20 67 3a 6f d4 e6 09 c0 36 33 aa 9f 04 fc cc 3f 6e 5d bf ee 25 cb 16 fd 75 5f d6 7f 15 63 0c dd dd bd f0 33 7e 04 58 06 e5 b1 01 0d cc 5c 78 6f 87 c7 97 a0 16 fb 48 d9 68 d5 e0 26 46 7a 35 8b 03 6e 2e 46 30 10 cf c1 34 ef 6e 82 1e 48 03 3e 0c a0 aa 2c cd 81 5f 15 74 81 5f 6b 43 bc 5d ab d5 30 39 31 09 1e 86 18 ab 05 5f ff f1 d0 f0 87 fe e6 f1 fd 7b 01 d4 d0 18 11 cc 93 00 b1 79 02 50 66 02 df 25 f3 23 e0 9f 7d e6 ba ab 96 2e fa eb be 8c ff 2a e6 79 e8 ef ef 23 a5 bd e8 4f 3d 12 00 f1 fa da 91 4d 22 a0 69 64 1d 0e 32 a0 67 51 cf 38 8f 33 73 23 d9 00 36 a0 03 df f4 fa 54 f2 03 24 da 0f 02 fe 38 8e d0 28 f8 e3 bf dc 3a 8e 28 1f ad 8f 8d 8e 82 73 8e b1 5a f0 f5 5b 4e 9c fa d0 bb f6 24 12 81 2b 58 38 4f 04 98 27 00 20 19 f8 0c 44 e6 03 f0 ff 61 f3 99 67 be 64 e9 82 bf ee cb 66 5e c5 18 43 5f 7f fc 88 bd 88 d0 0b 3d 4e c7 ef 84 04 e2 ac 88 c6 f1 88 94 80 1c 12 d0 96 e8 de 9f 40 de 18 ee 33 ed 0e 32 16 cb 81 7a 77 35 ce 23 c1 28 d2 cc b1 81 f0 c2 64 5d 8f 01 24 78 7d 12 48 ec 28 f8 45 01 a3 0d a3 a3 a3 40 c8 31 16 d4 be 7e cb d0 c8 87 de f5 e4 81 27 a1 c7 08 02 d8 6a 60 9e 08 30 4f 00 2e b9 af 05 f6 00 f8 ff b0 69 ed 99 57 2d 5e 18 49 7d e9 f1 ed f1 7a 1a 09 00 20 d2 9f e6 57 6a 20 9d 08 c8 7e 7a 5c f3 4c ea 29 01 6e ac 18 43 03 3d 99 aa 00 5d 11 d0 fd 4c 3e 28 04 5b f2 8b 6c 34 e0 27 d3 d0 24 f8 8d fc 62 7f 18 fd 1d 1d 1d 03 e7 f1 d0 e0 e4 c8 87 de b5 f7 20 25 82 24 45 60 5d 85 a7 93 3d 5d 09 20 4d ee 4b e0 bf 61 c5 92 45 6f 59 bb e2 2d 0b b3 d9 37 f9 1e eb ef eb eb 97 32 5c 80 37 aa c5 45 02 00 7d 7a 4f a9 01 2a e1 a3 26 48 22 20 11 7f 9d 08 e2 ff 92 c8 40 ab b0 29 09 60 a5 ea a0 b7 b7 75 e0 73 05 d8 26 bc be da ec 1c f8 39 c9 3f 36 36 8a 5a c0 47 87 aa b5 cf 7c e6 f0 f1 4f 7d e9 f8 d0 10 dc 44 f0 b4 57 03 4f 47 02 a0 10 a5 01 3e 9f 2c 99 9b b7 9d 7d ed 59 5d f9 f7 fb 9e b7 ba a7 b7 07 99 4c 46 15 6f 84 04 c4 91 1a 54 03 4a 04 50 45 60 c4 08 b4 3a 1d 67 05 52 67 82 71 73 8d 9b 3b cd 61 00 01 3d 00 31 3d 48 03 84 16 f0 45 39 17 f8 b5 74 99 91 64 6b 1c fc 9c 43 1b 76 d0 f4 a0 16 60 62 7c 02 01 0f 0f 3c 51 2a bf e7 fa 47 9e b8 19 51 7c c0 24 02 31 34 10 2d 7a 5a 91 c0 d3 89 00 92 bc 3e 05 be ff 81 f5 6b d6 5f bf 74 c1 c7 0a 9e 77 49 2e 9f 47 a1 ab 00 01 38 3a 27 9f 4a 02 20 60 37 48 c0 dc c7 29 68 4d 45 60 d4 29 f7 39 cf 8c 19 db 29 96 20 fb ed 24 1d a8 4c ce fb 47 ff 51 01 61 c9 7d a0 39 af 4f 08 22 15 fc a4 0c 93 c7 a2 c7 d0 eb 29 15 8b 28 57 2a 28 05 c1 8e 9b 4e 8e fc f9 7b 0f 1c d9 03 9d 04 28 11 3c ed d4 c0 d3 85 00 28 f8 5d 5e 3f 03 20 b3 63 fb 39 ef 18 cc 65 de 94 f1 bc fe 3e 19 d9 67 da df 44 12 00 c8 98 dd f6 f8 4e 35 20 d2 09 11 88 6a e4 f1 e2 04 4e 8f 49 4e cb c4 7e d3 26 03 7d 62 f8 a0 d2 59 fc 97 82 5e e7 8b 34 8f af f2 6b fb e8 7e 0b fc 84 44 84 32 e0 a4 8c e6 f9 09 f8 e9 f1 29 89 40 0d 29 c6 46 c7 10 70 3e 3a 54 ad 7e e6 b9 0f 3f fe 4f 88 d4 00 55 04 69 0f 12 9d b6 76 ba 13 40 23 5e 3f f3 7f 37 ad 3b ff d2 81 be 7f cd 79 ec 9c 9e 9e 5e 78 64 2e 3f 2a 4d 3c bc 93 04 a2 f5 c6 d4 80 28 e7 20 02 40 8f 11 e8 ff 39 08 41 3f 4e f2 e9 03 a9 7d 99 4b 7a 01 e7 84 0a 9c a0 47 3c f6 57 55 5a 92 be 01 af af ed 53 07 43 d2 b3 07 89 b2 5f ec 36 c9 42 b4 9b a4 07 b5 1a 26 26 26 50 09 c3 87 76 8c 4d fc c5 5b 9e 3a 78 3f 92 87 05 4f 0b 35 70 3a 13 80 09 7e 33 c8 97 01 90 f9 e5 f9 5b de b9 34 9b 7d 9b 9f f1 d1 d3 d3 2b bd 2f 67 48 27 01 43 19 38 49 c0 28 a7 c7 06 44 59 0a 6e dd c3 73 03 dc 2e 42 10 7f 38 39 94 f1 28 90 aa 4f 16 89 81 04 d2 b3 e9 0a 77 f5 f8 04 6f 0f d8 1e 5f 24 35 e4 f5 d5 c1 5d 8f 1a ab b6 71 67 c0 4f 2b a7 0e 6c 93 02 49 9b 1c 9f 40 ad 16 e0 58 ad fa d1 2b 77 ef f9 47 b8 d5 c0 d3 62 a6 e0 74 25 00 53 f2 5b e0 7f ff 19 2b d7 5f b7 68 f0 63 05 df bb a4 b7 b7 07 be 9f d1 41 dc 14 09 c4 87 22 e0 4f 52 03 75 89 40 56 65 92 81 56 c0 3a 51 c7 4a 8a 71 6d d5 dd b3 09 e0 65 3e 23 b3 21 c1 55 92 1b f8 da 7e d3 83 27 8e f7 63 55 42 14 80 a9 08 9a 01 7f 34 74 00 82 20 52 03 e5 20 dc 71 d3 a9 d1 3f 7f ef 91 63 7b e0 26 81 d3 7a 48 70 3a 12 00 33 16 cb eb 7f e7 ec f5 d7 6d ea ea fa 17 9f a9 b1 3e 1d 77 37 46 02 2a bf 35 24 88 f3 31 ab 8c 41 04 b2 1e 52 9f 95 0f ca 9f 9b 77 8b 41 8b 1d b4 66 62 ac 6f 25 c7 7f 5c a0 8f 33 68 ab 36 e0 68 7e e7 50 00 29 92 5f 24 25 82 9f 2a 06 51 a6 31 f0 8b 9d 8c 47 cf 0e 04 9c 8f 3e 5a 2a fd e5 2b 9e dc 7f 13 92 63 03 74 39 6d ac b5 af 45 ce 4e 4b 02 7e 26 5e b2 af 5b b4 68 c9 e7 36 ac f9 c8 aa 5c ee 5d f9 7c 2e df d3 d3 03 8a 2a 17 09 c4 af ed c4 b9 28 d8 74 37 6e a9 01 92 2f c5 6f c7 dd c9 cc 63 7b 56 33 99 45 e8 07 e3 f6 89 37 bc c4 e5 2d b0 27 01 de 02 3d dd ef 5e d7 81 af 4e c8 96 ed 8e 7c a2 7d e0 5a 9c 41 2f ab da a6 ab 0b 55 47 12 f8 39 07 f2 f9 3c 10 86 f9 05 60 2f fb c3 85 03 eb 26 39 ee 7e a0 54 2a 43 5c 66 b7 9d 36 8e f3 74 21 00 8a 46 27 f8 ff 6e f5 f2 b3 de b8 6c d1 7f 76 79 de f3 fa fb fb 91 cd 64 6d c0 52 70 e9 4e 18 e4 15 3c 5b 0d 68 0d 21 fb 39 33 f7 e8 ad a5 75 48 e0 31 5d 7a 33 6d a7 d6 4e 6d bb 11 1f 55 2f 0f 05 b0 09 78 90 4d 6e 14 36 80 af 38 c3 06 be 5b ee 1b fb 5d 5e 9f d6 ed 20 0e d9 2e 4b 79 24 83 5f e4 cb 64 32 c8 e7 73 40 b9 72 ce c5 dd 5d cf 5f 91 f1 6f ff f9 c4 e4 68 9c e3 b4 26 81 d3 e1 24 92 c6 fb 19 44 24 90 fd ca fa 33 ae d8 d6 db fd 79 f9 34 9f c8 2d 65 b8 21 bd 4d d9 6f 0d 09 44 26 58 e5 e4 b0 c0 15 1f 20 79 ad e1 81 b9 2e 8b 31 fb 2e 59 77 ad 9d db 98 4e 2c 4e c0 9b 69 d4 db bb a4 bc 4c e6 2a dd 45 12 06 21 d4 1f ef 23 26 05 93 a8 1a 07 bf fc 1b 57 31 36 3a 8a 20 e4 a3 f7 17 8b 7f f4 fa 83 87 7f 01 a0 8a 68 28 20 5e 32 3a ad e2 02 73 5d 01 b8 c0 4f 3d 7f ee d6 4d eb ff 74 4b 21 ff 6f d9 4c 36 df db db ab 8f b5 81 64 12 90 b9 cc 21 01 10 bd fd 66 80 d3 ac 57 26 1b 44 c0 f5 bd e0 09 f0 a5 64 a0 79 6d 16 bf 56 db 41 ee 96 ce 9e 1b c7 a2 79 dc 5e df 1c 97 9b c0 b7 9f fa 33 ea 23 e0 76 7b 7d 24 4a 7e 6b 9f a8 37 3e 17 f5 ac 40 64 f5 c0 0f ce 91 cf e5 11 06 b5 fc 32 cf 7b d5 0d fd bd 93 5f 1e 19 bd 2f e1 aa c9 6a eb ec 9f d5 36 97 1b 2f da 6e 3e d8 23 65 ff dd 5b ce fa 78 9f ef bf b2 ab ab 1b b9 5c 56 05 f4 00 58 81 36 ed 21 1e 1d d8 49 6a 40 0e 38 92 88 20 51 11 18 79 48 19 a7 32 40 4a 9a cb ac e3 50 b0 35 60 75 3c be 05 7a b3 8c e6 ed cd 7d 8d 03 3f d5 eb 8b 6d 59 b5 22 af 54 f0 3b 08 49 af 2b fa 5b ad 56 30 39 59 c2 58 10 fc d7 25 4f ed fb 33 44 4a 80 06 08 5d 8f 11 cf 39 9b ab 0a 80 8e f5 19 14 f0 b3 00 b2 af 5e 38 b8 e4 4b 6b 57 ff 67 af e7 5d d5 3f 30 00 df 8f b2 09 28 38 49 00 0e 90 26 aa 01 92 c6 93 82 84 8e 6d 9e 70 1c ea cd a9 a7 4b 52 07 49 d6 28 41 b8 00 9e b2 9f 9b 20 8b 57 9d 12 9f ee 73 e5 35 80 cf c0 9d f5 37 ed f5 c5 df b8 5e fa 7d 02 59 47 83 e0 07 38 3c 2f 83 7c 2e 07 54 2a e7 fc f1 40 ff e5 23 9c df fa 50 b9 5c 86 71 e7 d0 e4 2d 9a 6d 36 17 09 80 41 27 00 6d 8a ef d5 0b 07 17 bf 73 c9 a2 6f e7 3d 6f 7b 7f 7f bf 2e ef 11 81 8f 43 d0 01 1c d2 dd 18 12 88 7d 9c 6e 31 ad 9c 93 08 5c de de 79 32 8e 31 be 8b 10 c4 f0 21 8d 14 ea 01 bb 4e 1e cd db d2 e1 40 52 d9 34 d0 9b f9 e9 fe 46 81 4f eb 68 d8 eb cb 83 e9 ef 2e 38 88 20 09 fc e2 2b c8 00 90 cf e5 10 94 2b 6b 2e 29 14 5e 70 8a 87 37 3d 54 ae 94 ec 2b 37 77 6d ae 11 80 09 7e 2a fb b3 9f 5a b5 62 db ab 07 07 be 98 f3 d8 d6 fe fe 7e 09 62 27 09 30 42 02 74 3f 05 ba 4b 0d 50 2f 6e 64 14 44 00 44 fd c7 fd 3c 9e 5e 8f b9 5e 97 10 44 7e 13 9c b4 de b4 c5 3c a8 73 1f 14 28 8c 34 1d f0 32 91 e4 31 41 4f d2 88 f7 37 cb 26 02 bf ae d7 8f fe 6b 6c bc 0f 9d 48 e8 79 3a c0 2f c8 21 9f cf a3 5a 29 2f b9 38 5f 78 c1 33 73 b9 fb 7f 30 39 79 1c a7 89 cd 25 02 70 81 5f 8e f7 3f be 72 d9 b6 e7 f4 f6 7c ab e0 fb ab fb fa e8 27 ba 0c 19 2f 81 ec 1a 12 c8 ff 64 89 44 22 d0 73 58 43 03 31 4f af a9 02 e7 29 c5 d6 0c 21 50 e3 d1 b9 34 e4 fd 65 19 de 40 19 0e fa a9 af 44 c0 8b fa 68 7b e2 15 3a be 57 d9 1c 64 50 0f f8 ae e3 a7 78 7d 99 df 8c 3d 48 9c bb f2 b8 c1 1f ef 41 3e 97 07 af d5 96 ac f6 fd 1b ce c9 e6 6e ff 61 71 f2 58 5c 90 04 59 e6 9e cd 15 02 48 03 7f ee e3 cb 97 6d bb a2 a7 e7 9b 59 df ef ef e9 ed 85 01 79 b5 ce 0c 12 00 f5 d2 e6 e0 9e 91 db 6a 12 81 0d 5c b7 f4 27 aa c0 e5 ad b5 24 77 bc 40 ae 3b ba 98 a4 b0 56 47 a1 3c a2 27 6e 56 ae 1d af 0e e0 e1 c8 cb 45 b3 0c 6f 2f ff }
+    // 415127e005ee02c90ef130406a5a3780f7a4a142352a574dfbb5de3e0ce6552b (concatenated to 4096 bytes due to Yara string length limits)
+    $njrat_blue_stitch_face = { 89 50 4e 47 0d 0a 1a 0a 00 00 00 0d 49 48 44 52 00 00 01 00 00 00 01 00 08 06 00 00 00 5c 72 a8 66 00 00 00 09 70 48 59 73 00 00 0e c4 00 00 0e c4 01 95 2b 0e 1b 00 00 20 00 49 44 41 54 78 da ec bd 79 b0 65 d7 75 de f7 db fb cc e7 8e ef de 37 0f dd af e7 09 40 4f 18 9a 00 38 01 1c 24 91 12 49 31 92 25 0f 12 29 2b 92 33 94 53 49 95 63 ff 91 d8 91 9d 94 5c a9 4a a5 2a 71 b9 62 cb 4e 39 51 39 65 c9 62 14 59 22 25 9a 83 44 82 20 41 00 24 40 8c 8d 6e 00 3d 0f 6f 7e 77 3c e3 de 3b 7f 9c f3 ba 1b 8d ee 46 03 20 09 80 7c 5f d5 ad f7 de bd f7 dd 7b ce 3e 6b 7f 7b ed b5 be b5 0e 6c 62 13 9b d8 c4 26 36 b1 89 4d 6c 62 13 9b d8 c4 26 36 b1 89 4d 6c 62 13 9b d8 c4 26 36 b1 89 4d 6c 62 13 9b d8 c4 26 36 b1 89 4d 6c 62 13 9b d8 c4 26 36 b1 89 4d 6c 62 13 9b d8 c4 26 36 b1 89 4d 6c 62 13 9b d8 c4 26 36 b1 89 4d 6c 62 13 9b d8 c4 26 36 b1 89 4d 6c 62 13 9b d8 c4 6d c2 03 1e 04 fe 60 73 28 36 f1 1e c3 1f 94 b6 eb 6d 0e c5 9b 87 00 66 80 7f 04 74 81 3f de 1c 92 4d bc c7 f0 c7 a5 ed fe a3 d2 96 c5 e6 90 dc 1e 1c e0 5e e0 df 01 7d 20 03 7e 77 73 58 36 f1 1e c3 3f 2d 6d b7 5f da f2 bd a5 6d 6f e2 0d 5c fe cf 00 8f 02 39 a0 81 04 f8 ed cd a1 d9 c4 7b 0c bf 5d da ae 29 6d f9 5b a5 6d bf ab b6 04 f6 bb cc ed ff 6f 80 cf 03 bb ca e7 cc a6 1d dd b6 d7 34 05 8c 02 f3 a5 91 4d 01 b5 f2 f7 2d 6f 61 f5 c9 80 b3 a5 11 f7 80 4b e5 ef a7 81 e5 f2 ef 6c 73 e8 6f 0b 16 f0 00 30 0e ec 2d bd 03 b3 49 00 57 e1 03 bf 53 b2 66 e3 ba d7 34 f0 fc a6 0d 5d c1 3c b0 07 d8 56 ba 95 93 c0 74 39 86 0e 10 00 b2 9c f8 56 f9 f0 cb e7 ae 87 b9 c5 de 54 03 d1 35 2b 58 72 cd 73 19 10 03 17 81 cb c0 e3 c0 29 e0 a5 92 20 36 01 2f 94 e3 75 2d 76 01 7f 1f 68 96 b1 81 f8 a7 7d 90 64 69 c0 ff 1a 18 96 c6 76 ed 63 c3 e0 8e fe 94 ad 16 15 a0 5d ae e2 3f 0f fc af c0 97 cb 49 36 2c 0d 27 2d 27 a6 ba c1 b8 5d 3b 7e e6 47 f8 ba 2a 8f 21 2d 8f 69 58 1e e3 97 cb 63 fe f9 f2 1c da e5 39 59 3f 45 d7 f1 e8 35 04 7a fd 63 58 da fc e4 4d 88 f9 c7 ea 76 bf 93 86 7e 07 f0 3f 01 1f bf 85 71 24 14 e9 94 ef fd 04 1b 4b bd 74 df c7 81 ed c0 7d e5 ea 7e 57 b9 a2 bf 97 11 01 cf 94 5e c2 77 81 57 81 c5 72 1b d1 fd 09 27 80 6f dd 62 cf af 80 bf 00 fe 3b e0 b9 f2 ef 9f 92 2d 80 10 12 63 ee 2c dd a0 8f df e2 38 7e 52 63 00 a2 9c f0 db 4b 57 fe 10 70 b0 7c 4c dd a6 8b fe 5e 79 3d 04 8e 95 0f ca d8 c1 0f ca c7 d3 a5 c7 f0 6a 49 08 e6 27 f4 5a df 6c ee 7d bc f4 a0 7e 07 21 9e c1 18 fd 53 e2 1d 89 fd c0 7f 28 5d c7 37 72 41 63 e0 53 3f 21 27 5e 01 ee 01 fe 1e f0 fb e5 8a b8 f6 0e ba f0 ef f4 eb 6b a5 67 f0 fb e5 98 dc 53 8e d1 4f 02 3e 55 da ee 1b 8d 4f 5a ce 85 fd 3f 2d 7b a3 19 e0 2b 65 20 e9 76 0c 28 01 f1 5e 4e 03 3a c0 01 e0 bf 06 be 00 7c 1f e8 fc 94 4c f0 37 f3 7a a7 1c 9b 2f 94 63 75 80 f7 76 de fc da 34 e0 1b 9d 7f 06 7c 05 21 66 7e 1a 26 ff 17 4b b7 c7 dc 36 01 88 f7 2c 01 7c 16 f8 b7 14 91 f1 f5 6b ce db 6c 12 c0 4d 5f cf cb b1 3a 5d 8e dd 67 7f 0a 08 60 e3 bc bf 58 ce 91 9f c8 20 e0 38 f0 7b c0 27 ae 09 f8 dd ce 1e 52 23 c4 bf c1 98 df 7c 97 5f 70 49 91 c2 9c a6 10 7c fc 06 45 fe 5d de e2 1c 7f b8 7b 70 21 91 b6 5d 3c 29 25 d2 b6 8d ce 95 40 08 a4 6d 23 a4 85 ce b2 e2 3d 5a 61 0c c6 72 6c a1 d2 0c 69 5b 18 6d 30 c6 60 39 0e 2a 4d 31 2a 37 42 4a 81 31 18 ad 8b ff d1 1a cc 86 cd fe 58 62 08 9a 42 8f f0 7f 52 c8 6b 2f 96 de c2 bb 7d bf fc af 80 cf 71 eb cc c7 f5 e7 af 4a 12 f8 4f cb 40 e9 4f 0c 01 4c 95 d1 ce 5f bf 6e 8f f7 9a 01 b0 1c 17 95 a5 d7 0f 90 41 c8 2f 61 f4 cf bf 4b 2f b4 05 cc 02 87 81 5f 02 1e 06 26 7e 94 41 36 61 3b 08 cb c6 0e 42 83 94 c2 72 3c 84 e3 61 90 8c ec d8 41 dc 19 e2 36 9b 84 e3 e3 66 b8 ba 2e 94 b6 08 46 db d4 27 46 59 7e e5 0c 8d 99 49 e2 f5 2e e9 30 32 13 fb 77 89 85 17 4e 52 9d 18 43 e7 19 c3 d5 75 46 77 6e a3 7b fe 12 fd 8b e7 8c 74 5d 41 16 93 0f 06 64 83 2e b6 04 9d 27 c4 eb 6b 14 cc a0 44 3e 1c a2 b3 14 a3 f2 1f 75 90 71 01 f8 1a f0 87 65 00 f1 3c ef 50 f4 fc 36 f0 a7 c0 cf 71 5d 9a ef 3a 1b bf d1 f9 0f 80 ff 0b f8 1f cb 80 e9 8f 14 3f 8e 2c 40 03 f8 db c0 af de 3a c0 23 98 3b 7a 8c d3 8f 7d f3 06 2b ab 99 97 8e 53 d3 59 d6 7b 17 5d 60 97 22 82 ff 40 e9 d5 3c cc eb 45 4c 3f 1c d7 c2 0b 70 aa 35 fc 56 1b 3b ac a2 b4 44 ba 01 8d ad 5b 19 76 86 54 a7 a6 30 08 a2 b5 0e 93 fb 77 73 e9 85 97 a8 8d 8f a2 33 c5 c8 f6 51 d2 61 4c d4 e9 22 85 c4 f1 3d 24 e0 04 3e 71 b7 8f eb b9 8c cc 4d 21 84 c4 6b 37 c9 a3 84 de a5 45 1a d3 13 f8 8d 3a 49 af 8f ce 73 a4 65 e1 04 1e 6e b5 4a dc 1f 10 ad ae 11 d6 43 d2 5e 87 c1 e5 8b e8 38 22 eb ad 63 f2 84 b8 b3 0e 2a 45 0d 07 3f ec a1 98 00 fe 7a 39 de 5f 2b 57 cb 47 29 32 09 e9 bb c8 36 6a 14 82 ad d7 91 db 4d 6c fc fa 40 f1 af 96 9e ce 3f 2b bd 9d f7 2a 01 08 07 cc 2f 00 bf 45 a1 7e 32 37 61 79 84 14 dc f5 e9 5f b9 d1 e0 18 8c 09 75 96 ed 04 9e 7a 97 ac f8 7b 4b 37 ff fd c0 dd c0 c8 b5 e7 72 a3 f3 7b 83 55 ee b5 5f e0 07 b8 8d 16 56 50 23 9c 9e 33 96 1f 90 26 8a ca f8 24 56 18 62 72 4d a5 3d 42 3a 8c 70 d4 ba 09 1b 0d 7a 4b 2b 84 cd 06 96 65 21 2d 1b cb b2 30 b9 26 8f 53 53 1b 1d a1 3a d2 40 17 6e 3f b6 e3 92 0c 22 fc 5a 15 c7 71 4c ad dd a2 b7 bc 46 d2 1b d2 9a 99 64 fd f2 32 eb 17 16 08 ea 35 2a 23 0d a3 8d 41 08 81 4a 73 06 cb ab 08 21 68 6d 99 c5 72 6c d2 58 99 f6 1d 47 91 b6 85 ca 32 92 f5 75 7a 17 ce 53 1d 6f b2 f6 d2 09 c8 63 a3 a2 1e f1 f2 22 46 65 fc 30 c6 87 42 37 f1 19 e0 43 c0 93 c0 23 e5 f6 e0 f8 bb c4 23 d8 49 91 fe 7c dd f1 df f5 e9 5f e1 cc e3 df 2a b6 52 37 3f bf 66 19 43 38 43 51 56 9c bd 47 09 c0 dc 49 21 7d 9c 7b 23 17 6f 6c f7 7e 1a 5b b6 dd ec f5 10 21 76 61 cc 3b 4d 00 53 c0 7f 56 ba 76 bb 4a a6 ff a1 b8 b8 56 10 12 4e 6d c1 1b 9f a1 3e bf 0d af 5a 47 29 63 dc 5a 43 b8 81 47 d2 ed 93 c7 09 96 e7 e2 f8 1e 71 b7 cf 70 75 dd d4 c7 db c2 68 4d 9e e5 b4 66 a7 b0 a4 a0 da 6a a2 b2 9c da 78 cb 74 17 57 44 67 61 19 21 24 5a 29 6a ad 11 1c cf 45 67 8a fa f8 a8 31 99 12 6b e7 2f 63 94 a6 3a 3a 42 a5 59 c7 ab 84 0c d7 bb 0c d6 bb 66 b8 de 15 08 90 d2 c2 76 6d ea e3 a3 d8 ae 83 74 6c 86 6b 5d 93 c6 89 08 ea 35 aa ad 26 69 14 13 77 fa 34 b6 ef a2 36 39 46 92 58 a6 32 da 14 3a 4b c8 87 03 74 d2 27 ba 74 8e ce c9 e3 98 3c fd 61 6c 11 46 80 8f 51 68 0c 3e 5d 7a 04 ff c7 8f c3 75 7e 03 ec ba 86 00 5e 73 fc 8d 2d db 18 dd bd 9f a5 e3 cf bd d1 f9 cd 01 ff 80 42 52 fc fd f7 1c 01 48 db 11 3a cf 7e 17 d8 77 3b ef 9f bd e7 7e b4 b0 6e e1 52 89 bb c0 fc e1 3b 74 41 c3 d2 2d fb 7b e5 7e bf 72 9b ab d7 2d 9c 23 81 f4 7c 9c c6 38 6e 6b 92 c9 7b ef 23 68 b5 c8 b3 9c e1 ca 3a eb 0b 6b a0 34 2c ac 63 39 76 31 39 5b 4d 1c df 63 f9 f4 05 92 61 c4 e8 d6 59 1c df 65 e5 dc 65 1a e3 a3 b8 81 4f 67 61 85 e6 d4 04 4b 67 2e 90 c5 29 13 db b7 12 f7 87 a4 51 4c 58 af 20 2d 8b d5 8b 4b 78 d5 90 e6 44 9b cb a7 ce e3 b8 2e 23 53 63 c4 fd 21 0b a7 ce 83 31 34 27 47 a9 8f b5 c0 80 31 06 84 40 65 39 c6 68 fa ab 1d 54 96 11 d4 ab 38 be 4f 77 79 8d c1 5a 07 ad 34 6e e8 d3 9c 9e a0 b3 b0 84 ed 05 8c cc cd 81 25 89 3a 3d 7a 97 2e 63 69 9f 66 6d 86 ac b3 42 ba 72 91 6c 7d 71 83 0c de 0e ea 14 ca bb bd c0 5f 03 fe 67 8a 12 dc e1 3b 64 2f 77 95 8b c3 eb a0 a5 c5 dc dd f7 6f 10 c0 1b 61 1f f0 bb d2 b6 7f 46 e7 b9 79 cf 10 80 b0 2c 57 e7 f9 3f 04 1e e2 76 b4 ce 42 30 7d f7 03 68 29 71 ab 35 d2 7e ef f5 fb 22 a3 0f 96 17 fa c7 25 1f dd a8 53 f8 28 f0 77 cb 8b fa b6 c6 4b d8 0e 76 10 12 4e cd d1 d8 77 10 19 36 88 d6 7b 54 c7 c7 a8 8c b7 e9 5e 5a 24 e9 f6 71 c3 90 e6 e4 04 8e ef 23 2d 49 32 18 12 77 07 0c d7 7b d4 c6 46 18 db 36 8b e3 3a 0c 3a 3d 96 cf 5d 26 6c 54 69 4e 8d 61 db 36 5a 1b f2 24 63 62 7e 96 b5 cb cb 2c 9f bd 8c 17 7a 08 29 19 ac 0f 88 06 43 6c db 66 6c 6e 8a c1 7a 1f 81 64 74 76 92 b5 85 15 f2 34 a3 3a d2 40 4a 51 6c 09 7c 9f 5a bb 41 67 69 8d c6 78 8b ce e2 2a 42 0a 6a ed 26 ab 17 16 00 c1 f8 fc 0c 83 f5 0e b6 eb e1 56 02 6c d7 a1 73 79 99 6c 98 32 b6 73 0b 18 c3 fa 99 8b 64 51 8c 1b 56 a9 8e 8d 61 79 0e 2a 57 c4 dd 1e d1 ca 0a d1 a5 73 a4 8b e7 c8 fb 6b e8 34 46 67 69 99 69 78 d3 a8 50 14 4a fd 0b e0 bf 00 fe 37 0a cd c9 e5 1f 63 d6 a0 4e a1 e8 ac 5c bf 40 b8 d5 1a 5a 48 a6 ef 79 80 ef ff db df bb 9d 73 14 c0 43 5a a9 7f 62 b9 ee 3f 56 69 9a be 27 08 c0 28 f5 11 de 38 05 72 05 7e 63 84 ca ec 3c da 40 65 74 f2 46 04 00 b0 05 c4 21 30 df fc 31 5c c4 56 19 dc fb 8d d2 dd 77 df 3a 19 da b8 8d 26 76 a5 81 dd 18 a5 be eb 00 76 58 25 4f 33 54 aa 19 99 9b c1 f1 3d ba 17 16 10 42 30 ba 6d 0e 21 04 c9 20 22 ea f6 11 80 57 0d 19 db 3e 42 16 a7 f4 57 d7 e9 2e ae d2 9e 99 20 1d 44 34 c6 db 84 f5 2a 83 b5 1e 8e eb 32 31 3f cd ea a5 65 a4 25 19 9b 9b 24 1e c4 c4 c3 98 3c cf 91 52 d2 18 6b 51 6f d5 b1 5d 87 e5 0b 8b 34 46 47 c8 d3 1c 0c 8c ce 4e 90 a7 39 4a 29 26 e6 e7 58 bd bc 8c d6 1a 61 59 24 c3 98 91 c9 51 96 ce 5e 46 65 8a d6 f4 04 83 4e 97 95 53 a7 e9 9c 3d 43 6b eb 1c 76 50 01 cb c1 0d 43 26 76 6e 45 6b 45 f7 f2 0a 5e 25 a0 31 35 46 9e e6 c4 bd 1e 49 7f 08 02 bc 6a 85 ea 58 9b 68 72 82 c1 f2 76 a4 30 a8 ee 02 d1 c5 b3 c4 2b 8b 64 dd 75 8c 52 6f d5 ae 8f 94 44 f0 17 14 85 37 8f 02 ab 3f 06 db 39 04 6c bd 21 3b 8d 4d a2 2d 87 ca ec 3c 7e 63 84 78 7d f5 f6 ce c5 98 cf e9 5c 7d 1b f8 d2 7b 81 00 e6 ca 00 c6 c4 6d a7 09 b6 ed 46 db 1e 46 65 38 cd 91 9b bd 6d 2b 98 8d 02 8b 1f 15 9b 5b a5 2b f9 2b c0 df 00 c6 78 8b a9 52 e9 b8 58 d5 06 4e 73 9c fa ce bd 54 a7 e7 10 96 8d 10 12 04 b8 95 0a 41 2d c4 72 1c 3a 97 96 08 9a 75 5c cf a3 bf b2 4e 16 27 d8 be 87 e3 79 18 a3 8b a8 7b 6f 48 63 7c 84 d6 cc 24 6b 97 96 e8 ae 74 18 9f 9f 21 4b 52 d6 2e af a2 b5 c6 0f 03 a4 b4 68 4d 8d d1 5d ed 90 ae f5 f0 2b 01 f5 d1 26 46 17 6e 3c 18 f2 4c a1 94 01 21 f1 ab 21 49 94 12 36 eb a4 49 86 d1 86 a8 1f 51 a9 57 70 03 0f 29 25 8e eb 82 90 54 9a 35 92 28 a1 b7 d6 a5 d2 a8 52 6b 37 f1 c3 bd 2c 9f 38 c1 f9 a7 9e 41 3a 0e d5 89 09 c6 76 6e 47 a5 15 a2 7e 44 63 b2 8d 52 8a de e2 2a 59 92 e1 78 0e b6 ef 92 27 29 c3 a5 35 84 2d a9 4d 8c e2 86 01 2b a7 2f d0 d8 75 90 d1 83 f7 b0 7a fc 45 3a 27 8f a3 a3 75 d2 d5 a5 c2 2b 78 6b 99 9a 4f 01 ef a3 10 15 fd 3b 8a a2 b2 1f 55 a0 50 96 f6 b3 e5 46 2f 3a 8d 11 94 94 08 cb a1 b1 6d 37 f1 53 8f dd 76 f6 c3 18 fd db 42 5a cf 1a ad ce bd 9b 09 c0 05 7e b9 8c 8e db d7 bb 40 ad 2d db e8 2e 5c 22 4f 5e 5b 06 5d 9d db 86 b2 1d 8c 10 84 e3 53 37 e5 09 8a 5c fb 18 45 3e f8 47 41 5c bf 4c a1 3c bb 9b 42 86 fa a6 fd 50 2b 08 71 ea 6d ea 7b ee 20 9c 9a 25 8d 35 3a 57 44 bd 21 b6 eb 22 ed 62 c8 85 36 78 81 87 4a 73 c2 46 0d cb b1 e9 5c 5a c6 f1 3d da 5b db 00 a8 5c 21 84 c0 f5 3d d2 61 44 7f ad 47 63 ac 45 6b 7a 9c d5 8b cb a4 51 5a ac d0 52 d2 9e 1c a5 e2 5a 98 38 61 cb ec 38 d5 9d d3 c8 24 c5 e4 19 15 df a1 51 71 31 25 97 79 7e 80 b4 24 fd 7d 93 d4 46 ea e4 69 8e 10 82 3c cf f1 03 1f 95 6b 62 ad 59 5e 59 47 3a 2e 0b 4b eb 08 cf a3 1b a7 54 b6 4c b0 10 f8 f4 d7 ba c4 c3 18 cb b2 09 46 da 64 83 01 3a 49 e8 9e 3d cb 70 75 0d bf 1a d2 9c df 8a ed da 24 51 8a 57 ab d0 98 0a 0b cf 27 cf f1 c3 10 39 26 e9 af ae d3 bb bc 4c 73 66 92 fa c4 28 83 e5 55 dc ad 33 78 ed 29 5a b5 36 8e 2b 58 79 ee 19 92 85 b3 e4 bd 55 54 1c bd 95 6b 3b 0e fc 97 65 b0 f0 0b 14 3a 82 73 3f 02 1b 1a 2b 6d f4 86 e9 e0 70 7c 1a 65 bb 08 cb a6 3a b7 8d 85 eb 08 c0 f6 7c ea 13 53 ac 9e 3d 75 23 2f e0 fd c6 a8 5f a2 48 0d a6 ef 56 02 d8 07 fc c2 35 69 b1 d7 60 e6 d0 3d a8 c7 1f a5 73 f9 c2 6b 59 a3 3d 86 12 16 46 0a bc b1 a9 5b 7d fe 11 84 d8 83 31 3f 4c 02 70 4a c2 fa bb e5 cf 91 b7 b4 ea 4b 8b 60 6a 0b ed a3 c7 c8 13 43 73 fb 76 9c 4a 05 94 c2 28 45 d2 8f 0a 15 9e 25 f1 2a 01 8e 1f e0 55 7c d2 28 c1 b2 24 ab 17 16 f1 6b 15 9a 93 a3 f4 d7 ba 44 dd 7e 41 00 96 c4 af 84 b4 26 47 91 b6 c3 60 bd cf e4 fc 34 e1 b4 61 ba e1 b3 63 7e 8a 76 e0 d0 ac 7a d8 5a e1 fb 3e 81 ef 61 5b 60 0b 81 65 d9 b8 8e 85 6b 5f 23 48 2c 69 2d 89 07 d8 b6 83 b4 1d b4 ca 91 d2 22 cf 52 10 90 e6 1a b3 63 0a ad 15 c3 38 c6 72 7d ba 9d 0e 76 50 25 ca 52 56 3b 11 e7 97 3a 5c 58 5c a7 ce 11 1e fd c2 79 b0 04 08 8b 3c cb e8 2f ae 10 f7 07 ac 9e 38 49 7b f7 1e 9a 13 3b 19 76 86 44 bd 01 2a cb 10 52 10 36 6a 34 a7 27 58 bb b0 40 77 61 99 f6 fc 0c d1 5a 8f b4 37 a0 3a de 46 58 16 dd cb 4b 54 77 ec 67 e2 9e fb e8 5d 38 cb da 0f 9e 24 59 ba 00 5a bd 95 eb 7c ac 8c 11 bc bf 8c 0f 3c f2 43 4e b1 ed 29 b7 1e 37 84 37 3e 89 92 0e 42 48 dc f6 d8 eb b7 08 23 6d 66 0e dd 73 23 02 d8 c8 78 7c 8a 42 ff f0 83 77 1f 01 08 11 62 cc cf 96 83 6c ae 4b e5 14 d1 91 a9 59 46 77 1f b8 9e 00 8c d3 9e 20 15 16 d2 75 a9 ec d8 7b a3 54 d0 d5 01 36 e6 28 45 15 5d f2 76 8f b8 f4 58 fe 07 0a 9d 42 9d d7 4a 94 b9 ad 48 bf 90 26 98 de 86 3f bb 8b e6 ae dd d8 41 40 da ed e1 86 01 cb 27 4f 03 98 ea e8 08 cd a9 31 d2 61 4c 16 27 d4 c6 46 e9 2c 14 d5 af 8d b1 b6 59 bb b8 88 10 92 f6 cc 24 eb 0b c5 ca de 9a 9e }
+    // 6df989f23e4cd22258408cf9f60f3068deb99fc8a7bafa5b0b0f3efc6fe7de1f
+    $voidrat_info           = { 89 50 4e 47 0d 0a 1a 0a 00 00 00 0d 49 48 44 52 00 00 00 10 00 00 00 10 08 06 00 00 00 1f f3 ff 61 00 00 00 01 73 52 47 42 00 ae ce 1c e9 00 00 00 04 67 41 4d 41 00 00 b1 8f 0b fc 61 05 00 00 00 19 74 45 58 74 53 6f 66 74 77 61 72 65 00 41 64 6f 62 65 20 49 6d 61 67 65 52 65 61 64 79 71 c9 65 3c 00 00 02 e1 49 44 41 54 38 4f 5d 8e 5f 48 53 61 18 c6 3f 0a 19 e6 5d 12 23 28 42 b2 59 92 b9 54 10 56 ae 18 4d 27 cb b9 b9 a9 f9 3f 4d 2b 61 18 f9 07 9c 2c d3 02 d1 88 08 52 c3 0b 19 2e f0 42 66 9a 42 20 68 5b 4a b9 a5 f3 a8 e9 71 a8 31 9d e6 85 e2 ae bc 7f 3a ef a7 82 f4 c2 0f 9e f3 be cf ef e3 b0 ec ec 6c 66 34 1a 59 4e 4e 0e 33 9b cd cc 62 b1 9c cb cd cd 55 4b d0 3c 3a 82 46 4d 37 ea 50 97 1c 72 4f 3e 20 93 8e 69 75 75 75 8d 5e af 77 71 77 77 17 3b 3b 3b 1c ca d3 d3 d3 8b b5 b5 b5 8d d4 a1 ee ff 0f c8 4c 26 53 96 c3 e1 e8 23 e1 d3 f0 0a 1a de ce 43 6f f5 73 28 3b 87 44 6c 6f 6f a1 b7 b7 b7 8f ba e4 f0 07 0c 06 03 71 47 3a 38 83 c1 20 4a 6d 33 78 d0 b4 86 9a f7 61 d4 77 1f a0 ae eb 00 d6 77 fb c8 6b 5c e5 b7 f5 f5 35 f4 f4 f4 38 c9 21 97 e9 f5 7a b9 d5 6a b5 6f 6c 04 51 d8 e0 45 f9 eb 10 9e be d9 43 d6 b3 65 1c 0f e5 c7 ed bb 28 6e 3e ec 04 02 01 54 57 57 db c9 65 3a 9d 4e e3 76 7f 5b ea 72 fa 90 53 bf 8c b2 d6 10 8c b5 01 68 9f f8 8f 74 f0 4c bb 42 7b 10 f7 6b 16 d0 d9 37 8d d1 d1 91 25 72 99 56 ab 2d a6 df aa b2 7b 50 da 12 44 46 b5 c0 d1 54 fe 82 42 f7 19 97 b5 2e c4 65 0e 23 36 7d 90 a3 7e 38 c5 bb b3 b3 33 20 97 69 34 1a ab 20 08 b8 55 34 8e a2 17 7f 70 b7 c2 07 a5 79 02 57 32 47 a4 d2 2c fc 7e 3f 62 75 5f a4 ef 51 4e 52 ee 04 ef 4e 4d 4d 81 5c a6 56 ab 6b a8 98 9a 3f 86 ac e7 cb 88 37 ba 11 67 98 80 42 3f c6 65 51 14 79 a6 1d 71 c3 f2 9d 77 3d 1e 0f c8 65 2a 95 aa 5c 10 e6 51 52 3f 06 75 a5 80 78 8b 8f 73 d5 38 c9 e5 50 28 c4 f3 f1 fe ba e5 07 ef 7a 3c 93 20 97 a5 a6 a6 66 0c 0c b8 56 3a 3e 7a 70 33 cf 8d e4 b2 00 12 0a a5 3f b1 cc 70 79 7f 7f 9f 67 da 11 d7 b2 c7 d1 de e5 86 c3 e1 5c 21 97 a5 a4 a4 9c 37 99 cc 6d 73 73 4b b8 57 36 8a c4 7c 1f 92 ca 37 91 50 f0 9b cb e1 70 98 67 65 d9 26 e2 cd 5e de f1 f9 e6 61 34 9a da c8 65 4a a5 92 25 26 26 ea 9a 9b 5f b9 16 16 d6 70 3b df 85 4b e9 5f 11 5f 20 42 59 f1 97 43 99 76 74 13 84 55 d8 ed ad 2e 72 c8 65 72 b9 9c c5 c4 c4 44 2a 14 8a 62 9b ad 65 48 14 b7 d1 d1 fd 13 86 ca 41 9c 4d ee e4 50 a6 9d 28 6e c1 66 7b 39 44 5d 72 c8 a5 39 25 71 46 26 93 5d 88 8e 8e 2e 51 a9 d2 3e f4 f7 8f ac af ae ee e1 24 b4 a3 1b 75 a4 ee 45 72 8e 5c 76 5a 22 5a 42 21 91 14 11 11 a1 89 8c 8c ac 8a 8a 8a 6a 92 68 3f a2 89 76 74 a3 8e 44 dc a1 c3 4e ff 03 be a3 12 4e 4d 13 da c9 00 00 00 00 49 45 4e 44 ae 42 60 82 }
+
+  condition:
+    uint16(0) == 0x5a4d and any of them
+}
+
+
+rule RE_Tools {
+  meta:
+    description = "Contains references to debugging or reversing tools"
+    author      = "Ivan Kwiatkowski (@JusticeRage)"
+
+  strings:
+    $a0 = /ida(q)?(64)?.exe/ nocase wide ascii
+    $a1 = "ImmunityDebugger.exe" nocase wide ascii
+    $a2 = "ollydbg.exe" nocase wide ascii
+    $a3 = "lordpe.exe" nocase wide ascii
+    $a4 = "peid.exe" nocase wide ascii
+    $a5 = "windbg.exe" nocase wide ascii
+
+  condition:
+    any of them
+}
+
+
+rule AutoIT_compiled_script {
+  meta:
+    description = "Is an AutoIT compiled script"
+    author      = "Ivan Kwiatkowski (@JusticeRage)"
+
+  strings:
+    $a0 = "AutoIt Error" ascii wide
+    $a1 = "reserved for AutoIt internal use" ascii wide
+
+  condition:
+    any of them
+}
+
+
+rule suspicious_RTF_usingURLMoniker: exploit CVE {
+  meta:
+    author      = "Loginsoft Research Unit"
+    description = "Detecting malicious files which leverage URLMoniker with HTTP request"
+    reference   = "https://www.fireeye.com/blog/threat-research/2017/04/cve-2017-0199-hta-handler.html"
+    reference   = "https://blog.nviso.eu/2017/04/12/analysis-of-a-cve-2017-0199-malicious-rtf-document/"
+    sample      = "https://github.com/SyFi/cve-2017-0199"
+    date        = "2020-06-01"
+    tested      = "https://www.hybrid-analysis.com/yara-search/results/c55846e3f40e6ee6e87cfdb942653c738d299298e305b21ed4050d8d189faa81"
+
+  strings:
+    $objdata    = "objdata 0105000002000000" nocase
+    $urlmoniker = "E0C9EA79F9BACE118C8200AA004BA90B" nocase
+    $http       = "68007400740070003a002f002f00" nocase
+    $http1      = "http" nocase wide
+
+  condition:
+    _isRTF and
+    ($objdata and $urlmoniker) or
+    ($urlmoniker and (1 of ($http*))) or
+    ($objdata and (1 of ($http*)))
+}
+
+
+rule Contains_UserForm_Object_1 {
+  meta:
+    author      = "Martin Willing (https://evild3ad.com)"
+    description = "Detect UserForm object in MS Office document. Attackers use UserForm objects to obfuscate their scripts and malicious code."
+    alert       = "May used to store a URL as a property of a userform"
+    reference   = "https://isc.sans.edu/forums/diary/Tip+Quick+Analysis+of+Office+Maldoc/20751/"
+    reference   = "http://blog.didierstevens.com/2016/03/11/update-oledump-py-version-0-0-23/"
+    hash        = "4e0c55054c4f7c32aece5cfbbea02846"
+    date        = "2016-03-11"
+    filetype    = "Office documents"
+
+  strings:
+    $a = "Microsoft Forms 2.0"  // Forms
+    $b = "http"
+
+  condition:
+    all of them
+}
+
+
+rule lang_go_garble {
+  meta:
+    description   = "Identify a Go binary obfuscated with Garble"
+    author        = "@shellcromancer"
+    version       = "1.0"
+    last_modified = "2023.01.11"
+    reference     = "https://github.com/burrowers/garble"
+    DaysofYARA    = "11/100"
+
+  strings:
+    $GoBuildID = /Go build ID: \"[a-zA-Z0-9\/_-]{40,120}\"/ ascii wide
+    $runtime   = "runtime."
+    $reflect   = "reflect."
+    // https://github.com/burrowers/garble/blob/master/hash.go#L172-L178
+    $func      = /\*func\(\) \*?[a-zA-Z0-9_]{5,20}\.[a-zA-Z0-9_]{4,19}/
+
+  condition:
+    (
+      int16(0) == 0x5a4d or  // PE
+      uint32(0) == 0x464c457f or  // ELF
+      uint32(0) == 0xfeedface or  // Mach-O MH_MAGIC
+      uint32(0) == 0xcefaedfe or  // Mach-O MH_CIGAM
+      uint32(0) == 0xfeedfacf or  // Mach-O MH_MAGIC_64
+      uint32(0) == 0xcffaedfe or  // Mach-O MH_CIGAM_64
+      uint32(0) == 0xcafebabe or  // Mach-O FAT_MAGIC
+      uint32(0) == 0xbebafeca  // Mach-O FAT_CIGAM
+    ) and
+    not $GoBuildID and
+    #runtime > 4 and
+    #reflect > 4 and
+    $func
+}
+
+
+rule tool_network_free_code {
+  meta:
+    description = "Identify executables with domains with free hosting of code."
+    author      = "@shellcromancer"
+    version     = "1.0"
+    date        = "2023.01.05"
+    DaysofYARA  = "5/100"
+
+  strings:
+    $cf_workers = ".workers.dev" xor
+    $cf_pages   = ".pages.dev" xor
+    $vercel_app = ".vercel.app" xor
+    $vercel_dev = ".vercel.dev" xor
+    $vercel_now = ".now.sh" xor
+    $deno       = ".deno.dev" xor
+    $fly        = ".fly.dev" xor
+    $deta       = ".deta.dev" xor
+
+  condition:
+    (
+      int16(0) == 0x5a4d or  // PE
+      uint32(0) == 0x464c457f or  // ELF
+      uint32(0) == 0xfeedface or  // Mach-O MH_MAGIC
+      uint32(0) == 0xcefaedfe or  // Mach-O MH_CIGAM
+      uint32(0) == 0xfeedfacf or  // Mach-O MH_MAGIC_64
+      uint32(0) == 0xcffaedfe or  // Mach-O MH_CIGAM_64
+      uint32(0) == 0xcafebabe or  // Mach-O FAT_MAGIC
+      uint32(0) == 0xbebafeca  // Mach-O FAT_CIGAM
+    ) and
+    any of them
+}
+
+
+rule TTP_clear_event_logs {
+  meta:
+    description   = "Matches references to 'wevtutil' or 'Clear-Eventlog' - used to clear Windows Event Logs."
+    last_modified = "2024-03-14"
+    author        = "@petermstewart"
+    DaysofYara    = "74/100"
+
+  strings:
+    $a = "wevtutil cl" ascii wide nocase
+    $b = "wevtutil.exe cl" ascii wide nocase
+    $c = "wevtutil clear log" ascii wide nocase
+    $d = "wevtutil.exe clear log" ascii wide nocase
+    $e = "Clear-EventLog" ascii wide nocase  //PowerShell
+
+  condition:
+    uint16(0) == 0x5a4d and
+    any of them
+}
+
+
+rule TTP_PowerShell_Download_command {
+  meta:
+    description   = "Matches strings commonly found in PowerShell download cradles."
+    last_modified = "2024-02-20"
+    author        = "@petermstewart"
+    DaysofYara    = "51/100"
+    ref           = "https://book.hacktricks.xyz/windows-hardening/basic-powershell-for-pentesters"
+
+  strings:
+    $a = "powershell" nocase ascii wide
+    $b = "IEX" nocase ascii wide
+    $c = "New-Object" nocase ascii wide
+    $d = "Net.Webclient" nocase ascii wide
+    $e = ".downloadstring(" nocase ascii wide
+
+  condition:
+    4 of them
+}
+
+
+rule APT_RU_TurlaDaddy_Tunnus_Dotnet_RC4_Meta {
+  meta:
+    author     = "Greg Lesnewich"
+    date       = "2023-01-06"
+    reference  = "https://www.mandiant.com/resources/blog/turla-galaxy-opportunity"
+    version    = "1.0"
+    hash       = "0fc624aa9656a8bc21731bfc47fd7780da38a7e8ad7baf1529ccd70a5bb07852"
+    DaysofYARA = "6/100"
+
+  condition:
+    for any classy in dotnet.classes: (classy.name == "RC4Encryption") or
+
+    for any item in dotnet.classes: (for any meths in item.methods: (
+        meths.name == "EncryptDecrypt"
+      ))
+
+}
+
+
+rule SUSP_DLL_Duplicated_First_ExportNames {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "track a weird TTP abused by DPRK operators, where a trojanized binary will use a duplicated or incremented export name"
+    date        = "2024-01-04"
+    version     = "1.0"
+    DaysOfYara  = "6/100"
+    hash        = "c8707d9d7f3ade7f8aa25034e6a73060e5998db980e90452eb0190994036d781"  // DRATzarus
+    hash        = "26a2fa7b45a455c311fd57875d8231c853ea4399be7b9344f2136030b2edc4aa"  // DTrack
+    hash        = "ec254c40abff00b104a949f07b7b64235fc395ecb9311eb4020c1c4da0e6b5c4"  // Deathnote
+    hash        = "722fa0c893b39fef787b7bc277c979d29adc1525d77dd952f0cc61cd4d0597cc"  // FP, Turla RPCBackdoor
+    hash        = "84b5a89917792291e2425b64e093580ca8d2e106532e433e949cdde3c2db4053"  // Klackring
+    hash        = "39ad9ae3780c2f6d41b1897e78f2b2b6d549365f5f024bc68d1fe794b940f9f1"  // ThreatNeedle
+
+  condition:
+    pe.number_of_exports < 5 and
+    (
+      ((pe.export_details[1].name startswith pe.export_details[0].name) and
+        pe.export_details[1].name endswith "W") or
+
+      ((pe.export_details[2].name startswith pe.export_details[0].name) and
+        pe.export_details[2].name endswith "W") or
+
+      ((pe.export_details[2].name startswith pe.export_details[1].name) and
+        pe.export_details[2].name endswith "W")
+    )
+
+}
+
+
+rule SUSP_Export_Offset_Undefined {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "check for files that have at least 1 export that has an no defined offset or other fields"
+    date        = "2023-01-14"
+    version     = "1.0"
+    DaysofYARA  = "14/100"
+
+  condition:
+    for any exp in pe.export_details: (
+      not defined exp.offset and
+      not defined exp.name and
+      not defined exp.forward_name
+    )
+}
+
+
+rule SUSP_kernel32_mutation_xor {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "track string mutations of kernel32 which can be used for lots of evil things"
+    date        = "2024-01-24"
+    version     = "1.0"
+    DaysofYARA  = "24/100"
+
+  strings:
+    $kernel32_xor = "kernel32" xor(0x01-0xff) ascii wide
+
+  condition:
+    all of them
+}
+
+
+rule SUSP_kernel32_mutation_reverse {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "track string mutations of kernel32 which can be used for lots of evil things"
+    date        = "2024-01-24"
+    version     = "1.0"
+    DaysofYARA  = "24/100"
+
+  strings:
+    $kernel32_reverse = "23lenrek" nocase ascii wide
+
+  condition:
+    all of them
+}
+
+
+rule SUSP_ntdlldll_mutation_reverse {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "track string mutations of ntdll.dll which can be used for syscalls"
+    date        = "2024-01-23"
+    version     = "1.0"
+    DaysofYARA  = "24/100"
+
+  strings:
+    $ntdlldll_reverse = "lld.lldtn" ascii wide nocase
+
+  condition:
+    all of them
+}
+
+
+rule ntdll_reverse {
+  strings:
+    $ntdll_reverse = "lldtn" nocase ascii wide
+
+  condition:
+    all of them
+}
+
+
+rule SUSP_Obfuscated_Mozilla_xor {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "track obfuscated Mozilla strings"
+    date        = "2024-02-13"
+    version     = "1.0"
+    DaysOfYara  = "44/100"
+
+  strings:
+    $Mozilla_xor = "Mozilla" xor(0x01-0xff) ascii wide
+
+  condition:
+    all of them
+}
+
+
+rule SUSP_PE_HashLike_DLL_Name_MD5 {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "looking for hashes in weird places"
+    date        = "2024-02-05"
+    version     = "1.0"
+    DaysOfYara  = "36/100"
+
+  condition:
+    pe.dll_name matches /[a-z0-9A-Z]{32}.dll/
+}
+
+
+rule SUSP_PE_HashLike_DLL_Name_SHA1 {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "looking for hashes in weird places"
+    date        = "2024-02-05"
+    version     = "1.0"
+    DaysOfYara  = "36/100"
+
+  condition:
+    pe.dll_name matches /[a-z0-9A-Z]{40}.dll/
+}
+
+
+rule SUSP_PE_HashLike_Resource_Name_MD5 {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "looking for hashes in weird places"
+    date        = "2024-02-05"
+    version     = "1.0"
+    DaysOfYara  = "36/100"
+
+  condition:
+    for any rsrc in pe.resources:
+    (
+      rsrc.name_string matches /([a-z0-9A-Z]{1}\x00){32}/ or
+      rsrc.type_string matches /([a-z0-9A-Z]{1}\x00){32}/
+    )
+}
+
+
+rule SUSP_PE_HashLike_Resource_Name_SHA1 {
+  meta:
+    author      = "Greg Lesnewich"
+    description = "looking for hashes in weird places"
+    date        = "2024-02-05"
+    version     = "1.0"
+    DaysOfYara  = "36/100"
+
+  condition:
+    for any rsrc in pe.resources:
+    (
+      rsrc.name_string matches /([a-z0-9A-Z]{1}\x00){40}/ or
+      rsrc.type_string matches /([a-z0-9A-Z]{1}\x00){40}/
+    )
+}
+
+
+rule libavcodec_h263_intra_vlc_aic__16_big_412_ {
+  strings:
+    $a0 = { 00 02 00 02 00 06 00 03 00 0e 00 04 00 0c 00 05 00 0d 00 05 00 10 00 06 00 11 00 06 00 12 00 06 00 16 00 07 00 1b 00 08 00 20 00 09 00 21 00 09 00 1a 00 09 00 1b 00 09 00 1c 00 09 00 1d 00 09 00 1e 00 09 00 1f 00 09 00 23 00 0b 00 22 00 0b 00 57 00 0c 00 56 00 0c 00 55 00 0c 00 54 00 0c 00 53 00 0c 00 0f 00 04 00 14 00 06 00 14 00 07 00 1e 00 08 00 0f 00 0a 00 21 00 0b 00 50 00 0c 00 0b 00 05 00 15 00 07 00 0e 00 0a 00 09 00 0a 00 15 00 06 00 1d 00 08 00 0d 00 0a 00 51 00 0c 00 13 00 06 00 23 00 09 00 07 00 0b 00 17 00 07 00 22 00 09 00 52 00 0c 00 1c 00 08 00 0c 00 0a 00 1f 00 08 00 0b 00 0a 00 25 00 09 00 0a 00 0a 00 24 00 09 00 06 00 0b 00 21 00 0a 00 20 00 0a 00 08 00 0a 00 20 00 0b 00 07 00 04 00 0c 00 06 00 10 00 07 00 13 00 08 00 11 00 09 00 12 00 09 00 04 00 0a 00 27 00 0b 00 26 00 0b 00 5f 00 0c 00 0f 00 06 00 13 00 09 00 05 00 0a 00 25 00 0b 00 0e 00 06 00 14 00 09 00 24 00 0b 00 0d 00 06 00 06 00 0a 00 5e 00 0c 00 11 00 07 00 07 00 0a 00 13 00 07 00 5d 00 0c 00 12 00 07 00 5c 00 0c 00 14 00 08 00 5b 00 0c 00 15 00 08 00 1a 00 08 00 19 00 08 00 18 00 08 00 17 00 08 00 16 00 08 00 19 00 09 00 15 00 09 00 16 00 09 00 18 00 09 00 17 00 09 00 04 00 0b 00 05 00 0b 00 58 00 0c 00 59 00 0c 00 5a 00 0c 00 03 00 07 }
+
+  condition:
+    $a0
+}
+
+
+rule Sharkbox_crypto_algorithm_iG__8_byt_64_ {
+  strings:
+    $a0 = { e7 30 90 85 d0 4b 91 41 53 95 9b a5 96 bc a1 68 02 45 f7 65 5c 1f b6 52 a2 ca 22 94 44 63 2a a2 fc 67 8e 10 29 75 85 71 24 45 a2 cf 2f 22 c1 0e a1 f1 71 40 91 27 18 a5 56 f4 af 32 d2 a4 dc 71 }
+
+  condition:
+    $a0
+}
+
+
+rule HAVAL_wi2__32_lil_128_ {
+  strings:
+    $a0 = { 05 00 00 00 0e 00 00 00 1a 00 00 00 12 00 00 00 0b 00 00 00 1c 00 00 00 07 00 00 00 10 00 00 00 00 00 00 00 17 00 00 00 14 00 00 00 16 00 00 00 01 00 00 00 0a 00 00 00 04 00 00 00 08 00 00 00 1e 00 00 00 03 00 00 00 15 00 00 00 09 00 00 00 11 00 00 00 18 00 00 00 1d 00 00 00 06 00 00 00 13 00 00 00 0c 00 00 00 0f 00 00 00 0d 00 00 00 02 00 00 00 19 00 00 00 1f 00 00 00 1b 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab6__16_lil_62_ {
+  strings:
+    $a0 = { E7 FF ED FF F3 FF F7 FF FB FF FD FF FF FF 33 00 03 00 23 00 FF FF 32 00 30 00 FF FF 13 00 31 00 FD FF FF FF 22 00 02 00 12 00 FD FF FF FF 21 00 20 00 01 00 FF FF 11 00 FF FF 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_AC3_vq_hebap3__16_lil_192_ {
+  strings:
+    $a0 = { D4 D8 2B 51 E6 2A 30 EE 1E 03 BC FF 2A 2B 0A 50 27 E6 22 EB FB F8 A1 F9 89 0F E2 FD CE 1B 72 FB 9C 49 56 39 20 EF A0 FF 81 E3 14 FE DE A9 4B EF 84 0A E0 16 9A 15 66 55 D4 E3 33 EB 79 FF A1 A4 C2 03 B3 1F 7C FD 7E 01 E5 F9 48 0D 1D F3 55 12 14 E5 7E 57 CF 0D D6 0B 80 1C 46 18 FC 4F BD D0 39 00 59 E5 38 07 B3 A8 E1 E8 A7 1A CB FC B9 F1 7D FE 93 E7 39 F9 9B A8 62 E8 32 06 36 B6 C8 C7 FE 23 C1 02 AC E9 08 01 D4 B9 1A 39 F1 1E AF FE 92 FF 6C 00 08 00 4A 00 A7 FF CE FF D4 19 13 FA B7 54 86 F9 F3 E0 0A FF A3 54 41 E7 9E DF 9B FF BB FA EA FF 0D AA B4 E6 26 1F 88 02 06 08 B5 FE }
+
+  condition:
+    $a0
+}
+
+
+rule YUV_to_RGB_dither_2x2_4__8_byt_16_ {
+  strings:
+    $a0 = { 01 03 01 03 01 03 01 03 02 00 02 00 02 00 02 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_ff_acelp_interp_filter__16_lil_122_ {
+  strings:
+    $a0 = { 03 73 BA 6E 77 62 E1 4F 6D 39 F5 21 47 0C B8 FA CE EE 17 E9 26 E9 BF ED 21 F5 60 FD BB 04 E8 09 3A 0C AF 0B D3 08 92 04 00 00 17 FC 8C F9 B4 F8 7E F9 85 FB 30 FE DA 00 F4 02 24 04 4B 04 88 03 26 02 87 00 0B FF FE FD 86 FD A6 FD 3D FE 19 FF 00 00 BF 00 34 01 54 01 28 01 C6 00 4E 00 DC FF 88 FF 5D FF 5B FF 7C FF B1 FF ED FF 22 00 49 00 5B 00 59 00 46 00 26 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_aac_codes11__16_lil_578_ {
+  strings:
+    $a0 = { 00 00 06 00 19 00 3d 00 9c 00 c6 00 a7 01 90 03 c2 03 df 03 e6 07 f3 07 fb 0f ec 07 fa 0f fe 0f 8e 03 05 00 01 00 08 00 14 00 37 00 42 00 92 00 af 00 91 01 a5 01 b5 01 9e 03 c0 03 a2 03 cd 03 d6 07 ae 00 17 00 07 00 09 00 18 00 39 00 40 00 8e 00 a3 00 b8 00 99 01 ac 01 c1 01 b1 03 96 03 be 03 ca 03 9d 00 3c 00 15 00 16 00 1a 00 3b 00 44 00 91 00 a5 00 be 00 96 01 ae 01 b9 01 a1 03 91 03 a5 03 d5 03 94 00 9a 00 36 00 38 00 3a 00 41 00 8c 00 9b 00 b0 00 c3 00 9e 01 ab 01 bc 01 9f 03 8f 03 a9 03 cf 03 93 00 bf 00 3e 00 3f 00 43 00 45 00 9e 00 a7 00 b9 00 94 01 a2 01 ba 01 c3 01 a6 03 a7 03 bb 03 d4 03 9f 00 a0 01 8f 00 8d 00 90 00 98 00 a6 00 b6 00 c4 00 9f 01 af 01 bf 01 99 03 bf 03 b4 03 c9 03 e7 03 a8 00 b6 01 ab 00 a4 00 aa 00 b2 00 c2 00 c5 00 98 01 a4 01 b8 01 8c 03 a4 03 c4 03 c6 03 dd 03 e8 03 ad 00 af 03 92 01 bd 00 bc 00 8e 01 97 01 9a 01 a3 01 b1 01 8d 03 98 03 b7 03 d3 03 d1 03 db 03 dd 07 b4 00 de 03 a9 01 9b 01 9c 01 a1 01 aa 01 ad 01 b3 01 8b 03 b2 03 b8 03 ce 03 e1 03 e0 03 d2 07 e5 07 b7 00 e3 07 bb 01 a8 01 a6 01 b0 01 b2 01 b7 01 9b 03 9a 03 ba 03 b5 03 d6 03 d7 07 e4 03 d8 07 ea 07 ba 00 e8 07 a0 03 bd 01 b4 01 8a 03 c4 01 92 03 aa 03 b0 03 bc 03 d7 03 d4 07 dc 07 db 07 d5 07 f0 07 c1 00 fb 07 c8 03 a3 03 95 03 9d 03 ac 03 ae 03 c5 03 d8 03 e2 03 e6 03 e4 07 e7 07 e0 07 e9 07 f7 07 90 01 f2 07 93 03 be 01 c0 01 94 03 97 03 ad 03 c3 03 c1 03 d2 03 da 07 d9 07 df 07 eb 07 f4 07 fa 07 95 01 f8 07 bd 03 9c 03 ab 03 a8 03 b3 03 b9 03 d0 03 e3 03 e5 03 e2 07 de 07 ed 07 f1 07 f9 07 fc 07 93 01 fd 0f dc 03 b6 03 c7 03 cc 03 cb 03 d9 03 da 03 d3 07 e1 07 ee 07 ef 07 f5 07 f6 07 fc 0f ff 0f 9d 01 c2 01 b5 00 a1 00 96 00 97 00 95 00 99 00 a0 00 a2 00 ac 00 a9 00 b1 00 b3 00 bb 00 c0 00 8f 01 04 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_celp_math_tab_exp2_G729_BITEXACT__16_lil_66_ {
+  strings:
+    $a0 = { 00 40 67 41 d5 42 4c 44 cb 45 52 47 e2 48 7a 4a 1c 4c c7 4d 7b 4f 38 51 ff 52 d1 54 ac 56 92 58 82 5a 7e 5c 84 5e 96 60 b4 62 dd 64 12 67 54 69 a2 6b fe 6d 66 70 dd 72 60 75 f2 77 93 7a 42 7d ff 7f }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab7__16_lil_142_ {
+  strings:
+    $a0 = { BB FF BF FF C7 FF D9 FF E3 FF EF FF F5 FF F9 FF FD FF FF FF 55 00 45 00 FF FF 54 00 53 00 FF FF 35 00 44 00 FD FF FF FF 25 00 52 00 15 00 FB FF FF FF 51 00 FF FF 05 00 34 00 FF FF 50 00 FF FF 43 00 33 00 FB FF FD FF FF FF 24 00 42 00 14 00 FF FF 41 00 40 00 F5 FF F9 FF FD FF FF FF 04 00 23 00 FF FF 32 00 03 00 FF FF 13 00 31 00 FD FF FF FF 30 00 22 00 12 00 FB FF FF FF 21 00 FF FF 02 00 20 00 11 00 FF FF 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_h264_tc0_table__8_byt_624_ {
+  strings:
+    $a0 = { FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 00 FF 00 00 01 FF 00 00 01 FF 00 00 01 FF 00 00 01 FF 00 01 01 FF 00 01 01 FF 01 01 01 FF 01 01 01 FF 01 01 01 FF 01 01 01 FF 01 01 02 FF 01 01 02 FF 01 01 02 FF 01 01 02 FF 01 02 03 FF 01 02 03 FF 02 02 03 FF 02 02 04 FF 02 03 04 FF 02 03 04 FF 03 03 05 FF 03 04 06 FF 03 04 06 FF 04 05 07 FF 04 05 08 FF 04 06 09 FF 05 07 0A FF 06 08 0B FF 06 08 0D FF 07 0A 0E FF 08 0B 10 FF 09 0C 12 FF 0A 0D 14 FF 0B 0F 17 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 FF 0D 11 19 }
+
+  condition:
+    $a0
+}
+
+
+rule Square_crypto_algorithm_T_decoding__32_big_4096_ {
+  strings:
+    $a0 = { e3 68 bc 02 55 85 62 0c 2a 3f 23 31 61 ab 13 f7 98 d4 6d 72 21 cb 9a 19 3c 22 a4 61 45 9d 3d cd 05 fd b4 23 2b c4 07 5f 9b 2c 01 c0 3d d9 80 0f 48 6c 5c 74 f9 7f 7e 85 f1 73 ab 1f b6 ed de 0e 28 3c 6b ed 49 97 78 1a 9f 2a 91 8d c9 57 9f 33 a9 07 a8 aa a5 0d ed 7d 7c 42 2d 8f 76 4d b0 c9 4d 91 e8 57 ce a9 63 cc b4 ee 96 d2 30 28 e1 b6 0d f1 61 b9 bd 19 67 26 41 9b ad 80 c0 a0 6e c7 51 83 f2 41 92 db f0 34 6f a2 1e fc 8f 32 ce 4c 13 e0 33 73 69 a7 c6 6d e5 6d 64 93 bf 1a 2f fa bb 1c bf b7 58 74 03 b5 e7 6e 2c 4f 5d 89 b7 96 e8 9c 05 2a 44 66 19 a3 34 2e 71 fb 0f f2 29 65 fe 81 82 7a b1 13 22 f1 a3 08 35 ec cd 51 0f 7e ff 7a a6 14 5c 72 93 f8 2f c2 97 12 f3 70 e3 c3 99 2f 49 1c d1 43 15 68 c2 a3 26 1b 88 cc 32 b3 8a cf 7a 6f b0 e8 06 9f 7a 47 f5 1e d2 bb 79 da e6 95 08 21 43 98 e5 5c d0 b8 31 06 11 e3 7b af 7e 41 65 53 cc aa 2b 10 d8 b4 e4 9c 64 56 a7 d4 fb 7c 36 59 72 4b 20 84 ea 9f 4d f6 6a 5f aa df 2d c1 df ce 70 48 68 58 ca af f3 81 06 05 d8 91 5a 77 4b 69 94 de 28 a5 39 df 10 42 81 3b c3 47 fc 82 ca a6 23 c8 d2 c5 03 f8 6c b2 08 0c d5 9a da b7 ac 40 7d b9 09 e1 38 24 34 2c cf 52 47 a2 dc b2 74 d1 63 a8 5b 2b 35 d5 55 95 47 9e 75 11 15 e5 eb e2 4b 94 30 c6 4a 6f 14 a8 91 23 9c 86 4c 6a cc 39 5f 8a ff 4a 04 06 90 4d ee 99 dd bb 1e 11 52 ca aa ff c4 18 eb 64 69 98 07 fe fc ff 8b 34 5e 01 56 7d 0e be ba e7 9b d9 42 63 c1 32 75 b5 dc 7b 97 26 44 17 67 ae cb 66 95 25 0c cb ec 9a 95 67 57 86 2a d0 60 50 37 99 b8 e4 d3 05 65 ad 83 ba 19 ef ae 35 a4 f6 c9 13 c1 5b 4a a9 87 3e 1b d6 a0 f0 59 5e 18 14 8a 5b af 02 70 3b ab 04 e0 76 dd 49 50 bf df 4a 18 63 c6 a5 b6 56 85 3d 53 0a fa 87 12 37 77 b6 94 a7 46 65 51 7f ed 61 b1 09 1b ec e6 e9 d5 45 85 25 f5 75 3b 52 7f ba 41 3d 27 ce 42 88 b2 eb 4e 43 d6 bd e9 97 52 7b 9e f3 62 53 7f 45 2c 3a fb a0 7b bc d1 70 b9 1f f7 6b 12 1b 17 1d fd 79 ee c8 3a 27 7c f0 0c 0a 45 d7 96 dd 60 79 22 33 f6 ab ac fa 1c 89 c8 ac bb 5d a1 0b 7d 30 d4 be a1 4b be e1 0b 94 25 cd 0a 54 54 7e 46 62 a2 f3 11 82 17 e6 a3 3e 26 35 66 e6 c3 58 02 75 83 38 8b 9b 78 44 bd c2 02 03 48 dc 4f 92 a0 8b 2e 39 b3 7c 4e 69 84 e5 f0 88 8f 71 36 2d 39 27 9c d2 fd 3f 01 fb 24 6e 89 37 16 dd 00 00 00 00 f6 8d 57 e0 e2 93 98 6c 74 4e f8 15 93 20 d4 5a ad 01 38 e7 d3 40 5d b4 1a 17 c2 87 b3 10 6a 2d 50 78 d6 2f f4 8e 1f 3c a7 0e a5 a1 71 b3 4c 36 9a d7 25 ae 5e 71 db 24 16 1d 87 50 ef 62 f9 d5 8d 31 86 90 1c 12 1a 16 a6 f5 81 cf 5b 8c 6f 07 37 d6 1d 49 6e 59 3a 92 84 c6 77 64 86 c5 3f b8 d7 46 cd f9 e0 90 d0 b0 29 c7 4f 83 e4 96 40 fd 0e 09 0d 0b 6d a1 56 20 8e c9 ea 22 db 4c 88 2e f7 76 73 8e b5 15 b2 bc 10 18 5f c1 32 2b a9 6a 6b a4 8e b1 ae f9 54 55 40 60 89 ee 66 55 ef 08 e9 67 21 44 3e 21 ec bd 20 30 be 77 f2 8b c7 ad 80 c0 e7 29 14 1e cf 8c bc e2 43 48 c4 a6 fe 8a 31 d3 c5 d8 b7 16 fa 60 53 80 ba 9d d9 4f c0 f2 1d e9 3e 78 24 36 2e 3a e1 6b f4 de cb 54 d7 ef 09 f7 f1 f4 82 c3 af f5 0b f4 b9 28 9d 29 d9 51 c7 5e 92 38 f8 84 5a eb 90 d8 b8 e8 de b1 3c 0d 33 d0 8d 04 68 5c e2 03 c5 5d da e4 3b dc 58 9e 0a 0f 9d 46 3f da c8 d3 59 8f 27 db a8 fc 8c c4 79 bf 99 ac 6c 5a 72 4e 8c ca a2 fe 9e d1 b5 e3 1f ea 76 a4 73 b0 04 ea 02 e3 68 bc 0c 55 85 62 31 2a 3f 23 f7 61 ab 13 72 98 d4 6d 19 21 cb 9a 61 3c 22 a4 cd 45 9d 3d 23 05 fd b4 5f 2b c4 07 c0 9b 2c 01 0f 3d d9 80 74 48 6c 5c 85 f9 7f 7e 1f f1 73 ab 0e b6 ed de ed 28 3c 6b 1a 49 97 78 8d 9f 2a 91 33 c9 57 9f aa a9 07 a8 7d a5 0d ed 8f 7c 42 2d c9 76 4d b0 57 4d 91 e8 cc ce a9 63 d2 b4 ee 96 b6 30 28 e1 b9 0d f1 61 26 bd 19 67 80 41 9b ad c7 c0 a0 6e 41 51 83 f2 34 92 db f0 fc 6f a2 1e 4c 8f 32 ce 73 13 e0 33 6d 69 a7 c6 93 e5 6d 64 fa bf 1a 2f b7 bb 1c bf b5 58 74 03 4f e7 6e 2c 96 5d 89 b7 2a e8 9c 05 a3 44 66 19 fb 34 2e 71 65 0f f2 29 7a fe 81 82 f1 b1 13 22 ec a3 08 35 7e cd 51 0f 14 ff 7a a6 f8 5c 72 93 12 2f c2 97 c3 f3 70 e3 1c 99 2f 49 68 d1 43 15 1b c2 a3 26 b3 88 cc 32 6f 8a cf 7a 9f b0 e8 06 1e 7a 47 f5 da d2 bb 79 21 e6 95 08 5c 43 98 e5 06 d0 b8 31 af 11 e3 7b 53 7e 41 65 10 cc aa 2b 9c d8 b4 e4 d4 64 56 a7 59 fb 7c 36 84 72 4b 20 f6 ea 9f 4d df 6a 5f aa ce 2d c1 df 58 70 48 68 81 ca af f3 91 06 05 d8 69 5a 77 4b a5 94 de 28 42 39 df 10 47 81 3b c3 a6 fc 82 ca c5 23 c8 d2 b2 03 f8 6c 9a 08 0c d5 40 da b7 ac e1 7d b9 09 2c 38 24 34 a2 cf 52 47 d1 dc b2 74 2b 63 a8 5b 95 35 d5 55 11 47 9e 75 e2 15 e5 eb c6 4b 94 30 a8 4a 6f 14 86 91 23 9c 39 4c 6a cc 4a 5f 8a ff 4d 04 06 90 bb ee 99 dd ca 1e 11 52 18 aa ff c4 98 eb 64 69 ff 07 fe fc 01 8b 34 5e be 56 7d 0e d9 ba e7 9b 32 42 63 c1 7b 75 b5 dc 17 97 26 44 66 67 ae cb cb 95 25 0c 67 ec 9a 95 d0 57 86 2a 99 60 50 37 05 b8 e4 d3 ba 65 ad 83 35 19 ef ae 13 a4 f6 c9 a9 c1 5b 4a d6 87 3e 1b 5e a0 f0 59 5b 18 14 8a 3b af 02 70 76 ab 04 e0 bf dd 49 50 63 df 4a 18 56 c6 a5 b6 0a 85 3d 53 37 fa 87 12 a7 77 b6 94 7f 46 65 51 09 ed 61 b1 e9 1b ec e6 25 d5 45 85 52 f5 75 3b 3d 7f ba 41 88 27 ce 42 43 b2 eb 4e 97 d6 bd e9 f3 52 7b 9e 45 62 53 7f a0 2c 3a fb 70 7b bc d1 6b b9 1f f7 1d 12 1b 17 c8 fd 79 ee f0 3a 27 7c d7 0c 0a 45 79 96 dd 60 ab 22 33 f6 89 ac fa 1c 5d c8 ac bb 30 a1 0b 7d 4b d4 be a1 94 be e1 0b 54 25 cd 0a 62 54 7e 46 82 a2 f3 11 3e 17 e6 a3 e6 26 35 66 75 c3 58 02 9b 83 38 8b c2 78 44 bd dc 02 03 48 8b 4f 92 a0 7c 2e 39 b3 e5 4e 69 84 71 f0 88 8f 27 36 2d 39 3f 9c d2 fd 6e 01 fb 24 dd 89 37 16 00 00 00 00 e0 f6 8d 57 6c e2 93 98 15 74 4e f8 5a 93 20 d4 e7 ad 01 38 b4 d3 40 5d 87 1a 17 c2 2d b3 10 6a 2f 50 78 d6 3c f4 8e 1f a1 a7 0e a5 36 71 b3 4c ae 9a d7 25 24 5e 71 db 50 16 1d 87 d5 ef 62 f9 90 8d 31 86 16 1c 12 1a cf a6 f5 81 07 5b 8c 6f 49 37 d6 1d 92 6e 59 3a 64 84 c6 77 b8 86 c5 3f f9 d7 46 cd b0 e0 90 d0 83 29 c7 4f fd e4 96 40 0b 0e 09 0d 20 6d a1 56 22 8e c9 ea 2e db 4c 88 8e f7 76 73 bc b5 15 b2 c1 10 18 5f 6a 32 2b a9 b1 6b a4 8e 55 ae f9 54 ee 40 60 89 08 66 55 ef 44 e9 67 21 bd 3e 21 ec 77 20 30 be ad f2 8b c7 29 80 c0 e7 8c 14 1e cf 48 bc e2 43 8a c4 a6 fe d8 31 d3 c5 60 b7 16 fa 9d 53 80 ba f2 d9 4f c0 78 1d e9 3e 3a 24 36 2e de e1 6b f4 ef cb 54 d7 f4 09 f7 f1 f5 82 c3 af 28 0b f4 b9 51 9d 29 d9 38 c7 5e 92 eb f8 84 5a e8 90 d8 b8 0d de b1 3c 04 33 d0 8d 03 68 5c e2 e4 c5 5d da 9e 3b dc 58 46 0a 0f 9d d3 3f da c8 db 59 8f 27 c4 a8 fc 8c ac 79 bf 99 4e 6c 5a 72 fe 8c ca a2 e3 9e d1 b5 a4 1f ea 76 ea 73 b0 04 bc 02 e3 68 62 0c 55 85 23 31 2a 3f 13 f7 61 ab 6d 72 98 d4 9a 19 21 cb a4 61 3c 22 3d cd 45 9d b4 23 05 fd 07 5f 2b c4 01 c0 9b 2c 80 0f 3d d9 5c 74 48 6c 7e 85 f9 7f ab 1f f1 73 de 0e b6 ed 6b ed 28 3c 78 1a 49 97 91 8d 9f 2a 9f 33 c9 57 a8 aa a9 07 ed 7d a5 0d 2d 8f 7c 42 b0 c9 76 4d e8 57 4d 91 63 cc ce a9 96 d2 b4 ee e1 b6 30 28 61 b9 0d f1 67 26 bd 19 ad 80 41 9b 6e c7 c0 a0 f2 41 51 83 f0 34 92 db 1e fc 6f a2 ce 4c 8f 32 33 73 13 e0 c6 6d 69 a7 64 93 e5 6d 2f fa bf 1a bf b7 bb 1c 03 b5 58 74 2c 4f e7 6e b7 96 5d 89 05 2a e8 9c 19 a3 44 66 71 fb 34 2e 29 65 0f f2 82 7a fe 81 22 f1 b1 13 35 ec a3 08 0f 7e cd 51 a6 14 ff 7a 93 f8 5c 72 97 12 2f c2 e3 c3 f3 70 49 1c 99 2f 15 68 d1 43 26 1b c2 a3 32 b3 88 cc 7a 6f 8a cf 06 9f b0 e8 f5 1e 7a 47 79 da d2 bb 08 21 e6 95 e5 5c 43 98 31 06 d0 b8 7b af 11 e3 65 53 7e 41 2b 10 cc aa e4 9c d8 b4 a7 d4 64 56 36 59 fb 7c 20 84 72 4b 4d f6 ea 9f aa df 6a 5f df ce 2d c1 68 58 70 48 f3 81 ca af d8 91 06 05 4b 69 5a 77 28 a5 94 de 10 42 39 df c3 47 81 3b ca a6 fc 82 d2 c5 23 c8 6c b2 03 f8 d5 9a 08 0c ac 40 da b7 09 e1 7d b9 34 2c 38 24 47 a2 cf 52 74 d1 dc b2 5b 2b 63 a8 55 95 35 d5 75 11 47 9e eb e2 15 e5 30 c6 4b 94 14 a8 4a 6f 9c 86 91 23 cc 39 4c 6a ff 4a 5f 8a 90 4d 04 06 dd bb ee 99 52 ca 1e 11 c4 18 aa ff 69 98 eb 64 fc ff 07 fe 5e 01 8b 34 0e be 56 7d 9b d9 ba e7 c1 32 42 63 dc 7b 75 b5 44 17 97 26 cb 66 67 ae 0c cb 95 25 95 67 ec 9a 2a d0 57 86 37 99 60 50 d3 05 b8 e4 83 ba 65 ad ae 35 19 ef c9 13 a4 f6 4a a9 c1 5b 1b d6 87 3e 59 5e a0 f0 8a 5b 18 14 70 3b af 02 e0 76 ab 04 50 bf dd 49 18 63 df 4a b6 56 c6 a5 53 0a 85 3d 12 37 fa 87 94 a7 77 b6 51 7f 46 65 b1 09 ed 61 e6 e9 1b ec 85 25 d5 45 3b 52 f5 75 41 3d 7f ba 42 88 27 ce 4e 43 b2 eb e9 97 d6 bd 9e f3 52 7b 7f 45 62 53 fb a0 2c 3a d1 70 7b bc f7 6b b9 1f 17 1d 12 1b ee c8 fd 79 7c f0 3a 27 45 d7 0c 0a 60 79 96 dd f6 ab 22 33 1c 89 ac fa bb 5d c8 ac 7d 30 a1 0b a1 4b d4 be 0b 94 be e1 0a 54 25 cd 46 62 54 7e 11 82 a2 f3 a3 3e 17 e6 66 e6 26 35 02 75 c3 58 8b 9b 83 38 bd c2 78 44 48 dc 02 03 a0 8b 4f 92 b3 7c 2e 39 84 e5 4e 69 8f 71 f0 88 39 27 36 2d fd 3f 9c d2 24 6e 01 fb 16 dd 89 37 00 00 00 00 57 e0 f6 8d 98 6c e2 93 f8 15 74 4e d4 5a 93 20 38 e7 ad 01 5d b4 d3 40 c2 87 1a 17 6a 2d b3 10 d6 2f 50 78 1f 3c f4 8e a5 a1 a7 0e 4c 36 71 b3 25 ae 9a d7 db 24 5e 71 87 50 16 1d f9 d5 ef 62 86 90 8d 31 1a 16 1c 12 81 cf a6 f5 6f 07 5b 8c 1d 49 37 d6 3a 92 6e 59 77 64 84 c6 3f b8 86 c5 cd f9 d7 46 d0 b0 e0 90 4f 83 29 c7 40 fd e4 96 0d 0b 0e 09 56 20 6d a1 ea 22 8e c9 88 2e db 4c 73 8e f7 76 b2 bc b5 15 5f c1 10 18 a9 6a 32 2b 8e b1 6b a4 54 55 ae f9 89 ee 40 60 ef 08 66 55 21 44 e9 67 ec bd 3e 21 be 77 20 30 c7 ad f2 8b e7 29 80 c0 cf 8c 14 1e 43 48 bc e2 fe 8a c4 a6 c5 d8 31 d3 fa 60 b7 16 ba 9d 53 80 c0 f2 d9 4f 3e 78 1d e9 2e 3a 24 36 f4 de e1 6b d7 ef cb 54 f1 f4 09 f7 af f5 82 c3 b9 28 0b f4 d9 51 9d 29 92 38 c7 5e 5a eb f8 84 b8 e8 90 d8 3c 0d de b1 8d 04 33 d0 e2 03 68 5c da e4 c5 5d 58 9e 3b dc 9d 46 0a 0f c8 d3 3f da 27 db 59 8f 8c c4 a8 fc 99 ac 79 bf 72 4e 6c 5a a2 fe 8c ca b5 e3 9e d1 76 a4 1f ea 04 ea 73 b0 68 bc 02 e3 85 62 0c 55 3f 23 31 2a ab 13 f7 61 d4 6d 72 98 cb 9a 19 21 22 a4 61 3c 9d 3d cd 45 fd b4 23 05 c4 07 5f 2b 2c 01 c0 9b d9 80 0f 3d 6c 5c 74 48 7f 7e 85 f9 73 ab 1f f1 ed de 0e b6 3c 6b ed 28 97 78 1a 49 2a 91 8d 9f 57 9f 33 c9 07 a8 aa a9 0d ed 7d a5 42 2d 8f 7c 4d b0 c9 76 91 e8 57 4d a9 63 cc ce ee 96 d2 b4 28 e1 b6 30 f1 61 b9 0d 19 67 26 bd 9b ad 80 41 a0 6e c7 c0 83 f2 41 51 db f0 34 92 a2 1e fc 6f 32 ce 4c 8f e0 33 73 13 a7 c6 6d 69 6d 64 93 e5 1a 2f fa bf 1c bf b7 bb 74 03 b5 58 6e 2c 4f e7 89 b7 96 5d 9c 05 2a e8 66 19 a3 44 2e 71 fb 34 f2 29 65 0f 81 82 7a fe 13 22 f1 b1 08 35 ec a3 51 0f 7e cd 7a a6 14 ff 72 93 f8 5c c2 97 12 2f 70 e3 c3 f3 2f 49 1c 99 43 15 68 d1 a3 26 1b c2 cc 32 b3 88 cf 7a 6f 8a e8 06 9f b0 47 f5 1e 7a bb 79 da d2 95 08 21 e6 98 e5 5c 43 b8 31 06 d0 e3 7b af 11 41 65 53 7e aa 2b 10 cc b4 e4 9c d8 56 a7 d4 64 7c 36 59 fb 4b 20 84 72 9f 4d f6 ea 5f aa df 6a c1 df ce 2d 48 68 58 70 af f3 81 ca 05 d8 91 06 77 4b 69 5a de 28 a5 94 df 10 42 39 3b c3 47 81 82 ca a6 fc c8 d2 c5 23 f8 6c b2 03 0c d5 9a 08 b7 ac 40 da b9 09 e1 7d 24 34 2c 38 52 47 a2 cf b2 74 d1 dc a8 5b 2b 63 d5 55 95 35 9e 75 11 47 e5 eb e2 15 94 30 c6 4b 6f 14 a8 4a 23 9c 86 91 6a cc 39 4c 8a ff 4a 5f 06 90 4d 04 99 dd bb ee 11 52 ca 1e ff c4 18 aa 64 69 98 eb fe fc ff 07 34 5e 01 8b 7d 0e be 56 e7 9b d9 ba 63 c1 32 42 b5 dc 7b 75 26 44 17 97 ae cb 66 67 25 0c cb 95 9a 95 67 ec 86 2a d0 57 50 37 99 60 e4 d3 05 b8 ad 83 ba 65 ef ae 35 19 f6 c9 13 a4 5b 4a a9 c1 3e 1b d6 87 f0 59 5e a0 14 8a 5b 18 02 70 3b af 04 e0 76 ab 49 50 bf dd 4a 18 63 df a5 b6 56 c6 3d 53 0a 85 87 12 37 fa b6 94 a7 77 65 51 7f 46 61 b1 09 ed ec e6 e9 1b 45 85 25 d5 75 3b 52 f5 ba 41 3d 7f ce 42 88 27 eb 4e 43 b2 bd e9 97 d6 7b 9e f3 52 53 7f 45 62 3a fb a0 2c bc d1 70 7b 1f f7 6b b9 1b 17 1d 12 79 ee c8 fd 27 7c f0 3a 0a 45 d7 0c dd 60 79 96 33 f6 ab 22 fa 1c 89 ac ac bb 5d c8 0b 7d 30 a1 be a1 4b d4 e1 0b 94 be cd 0a 54 25 7e 46 62 54 f3 11 82 a2 e6 a3 3e 17 35 66 e6 26 58 02 75 c3 38 8b 9b 83 44 bd c2 78 03 48 dc 02 92 a0 8b 4f 39 b3 7c 2e 69 84 e5 4e 88 8f 71 f0 2d 39 27 36 d2 fd 3f 9c fb 24 6e 01 37 16 dd 89 00 00 00 00 8d 57 e0 f6 93 98 6c e2 4e f8 15 74 20 d4 5a 93 01 38 e7 ad 40 5d b4 d3 17 c2 87 1a 10 6a 2d b3 78 d6 2f 50 8e 1f 3c f4 0e a5 a1 a7 b3 4c 36 71 d7 25 ae 9a 71 db 24 5e 1d 87 50 16 62 f9 d5 ef 31 86 90 8d 12 1a 16 1c f5 81 cf a6 8c 6f 07 5b d6 1d 49 37 59 3a 92 6e c6 77 64 84 c5 3f b8 86 46 cd f9 d7 90 d0 b0 e0 c7 4f 83 29 96 40 fd e4 09 0d 0b 0e a1 56 20 6d c9 ea 22 8e 4c 88 2e db 76 73 8e f7 15 b2 bc b5 18 5f c1 10 2b a9 6a 32 a4 8e b1 6b f9 54 55 ae 60 89 ee 40 55 ef 08 66 67 21 44 e9 21 ec bd 3e 30 be 77 20 8b c7 ad f2 c0 e7 29 80 1e cf 8c 14 e2 43 48 bc a6 fe 8a c4 d3 c5 d8 31 16 fa 60 b7 80 ba 9d 53 4f c0 f2 d9 e9 3e 78 1d 36 2e 3a 24 6b f4 de e1 54 d7 ef cb f7 f1 f4 09 c3 af f5 82 f4 b9 28 0b 29 d9 51 9d 5e 92 38 c7 84 5a eb f8 d8 b8 e8 90 b1 3c 0d de d0 8d 04 33 5c e2 03 68 5d da e4 c5 dc 58 9e 3b 0f 9d 46 0a da c8 d3 3f 8f 27 db 59 fc 8c c4 a8 bf 99 ac 79 5a 72 4e 6c ca a2 fe 8c d1 b5 e3 9e ea 76 a4 1f b0 04 ea 73 }
+
+  condition:
+    $a0
+}
+
+
+rule libdjvu_IW44_norm_of_all_wavelets__flt32___32_lil_64_ {
+  strings:
+    $a0 = { d3 3f 24 45 10 4a 37 43 c0 4b 37 43 6d 96 4c 42 71 55 37 42 a7 56 37 42 0e ad 4c 41 86 f2 37 41 34 f4 37 41 43 02 4e 40 38 f4 3f 40 6a f7 3f 40 a5 91 5f 3f 9c 87 89 3f 94 89 89 3f f3 9c db 3e }
+
+  condition:
+    $a0
+}
+
+
+rule MPEG_2_AAC_Fraunhofer_sfb_8_120__16_big_30_ {
+  strings:
+    $a0 = { 00 04 00 08 00 0c 00 10 00 14 00 18 00 1c 00 24 00 2c 00 34 00 3c 00 48 00 58 00 6c 00 78 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_AC3_vq_hebap2__16_lil_96_ {
+  strings:
+    $a0 = { D7 D0 60 02 95 E4 4E 02 A0 0F 65 03 24 1A 49 3D DE E7 E9 DB B6 FF 85 00 3F 07 23 FC 74 50 98 F4 85 EE E1 00 56 FB C3 F0 CB FC 5A E6 95 FC B6 B0 36 F5 93 F3 02 F0 09 EA CF BD 25 26 0B 06 B7 1A BC 07 09 4F D1 FB 86 EC 4D 18 05 BA 74 EA 7A 18 66 01 8A 04 A9 0E D6 FB BB 10 65 F3 38 3E CA 27 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab13__16_lil_1022_ {
+  strings:
+    $a0 = { 03 FE 09 FE 25 FE 6B FE B3 FE F7 FE 33 FF 67 FF 8D FF AD FF CB FF DD FF EB FF F3 FF F7 FF F9 FF FB FF FD FF FF FF FE 00 FC 00 FD 00 ED 00 FF 00 FF FF EF 00 DF 00 FD FF FF FF EE 00 CF 00 FF FF DE 00 BF 00 F7 FF FD FF FF FF FB 00 CE 00 FF FF DC 00 FF FF AF 00 E9 00 FF FF EC 00 DD 00 F7 FF FB FF FD FF FF FF FA 00 CD 00 BE 00 FF FF EB 00 9F 00 FD FF FF FF F9 00 EA 00 FF FF BD 00 DB 00 EF FF F7 FF FD FF FF FF 8F 00 F8 00 FF FF CC 00 FF FF AE 00 9E 00 FB FF FF FF 8E 00 FF FF 7F 00 7E 00 F7 00 FB FF FF FF DA 00 FF FF AD 00 BC 00 FD FF FF FF CB 00 F6 00 6F 00 F1 FF F9 FF FD FF FF FF E8 00 5F 00 FF FF 9D 00 D9 00 FD FF FF FF F5 00 E7 00 FF FF AC 00 BB 00 F7 FF FD FF FF FF 4F 00 F4 00 FD FF FF FF CA 00 E6 00 F3 00 FF FF 3F 00 FF FF 8D 00 D8 00 EB FF F7 FF FD FF FF FF 2F 00 F2 00 FD FF FF FF 6E 00 9C 00 0F 00 FB FF FD FF FF FF C9 00 5E 00 AB 00 FD FF FF FF 7D 00 D7 00 4E 00 F5 FF FB FF FD FF FF FF C8 00 D6 00 3E 00 FF FF B9 00 FF FF 9B 00 AA 00 FF FF 1F 00 F1 00 E9 FF F3 FF FB FF FF FF F0 00 FF FF BA 00 E5 00 FD FF FF FF E4 00 8C 00 FF FF 6D 00 E3 00 FB FF FF FF E2 00 FF FF 2E 00 0E 00 FF FF 1E 00 E1 00 F1 FF F9 FF FD FF FF FF E0 00 5D 00 FF FF D5 00 7C 00 FD FF FF FF C7 00 4D 00 FF FF 8B 00 B8 00 F9 FF FD FF FF FF D4 00 9A 00 FF FF A9 00 6C 00 FF FF C6 00 3D 00 DB FF EB FF F7 FF FB FF FD FF FF FF D3 00 7B 00 2D 00 FF FF D2 00 1D 00 FB FF FF FF B7 00 FF FF 5C 00 C5 00 FD FF FF FF 99 00 7A 00 C3 00 F9 FF FB FF FD FF FF FF A7 00 97 00 4B 00 D1 00 FD FF FF FF 0D 00 D0 00 FF FF 8A 00 A8 00 F5 FF F9 FF FD FF FF FF 4C 00 C4 00 FF FF 6B 00 B6 00 FF FF 3C 00 2C 00 FD FF FF FF C2 00 5B 00 FD FF FF FF B5 00 89 00 1C 00 D5 FF E9 FF F5 FF FB FF FF FF C1 00 FF FF 98 00 0C 00 FF FF C0 00 FF FF B4 00 6A 00 FB FF FD FF FF FF A6 00 79 00 3B 00 FF FF B3 00 FF FF 88 00 5A 00 F5 FF FB FF FF FF 2B 00 FF FF A5 00 69 00 FF FF A4 00 FF FF 78 00 87 00 FB FF FF FF 94 00 FF FF 77 00 76 00 B2 00 F5 FF FD FF FF FF 1B 00 B1 00 FD FF FF FF 0B 00 B0 00 FF FF 96 00 4A 00 F9 FF FD FF FF FF 3A 00 A3 00 FF FF 59 00 95 00 FF FF 2A 00 A2 00 D1 FF E9 FF F7 FF FD FF FF FF 1A 00 A1 00 FD FF FF FF 0A 00 68 00 A0 00 FB FF FD FF FF FF 86 00 49 00 93 00 FD FF FF FF 39 00 58 00 FF FF 85 00 67 00 F7 FF FD FF FF FF 29 00 92 00 FD FF FF FF 57 00 75 00 38 00 FB FF FF FF 83 00 FF FF 66 00 47 00 FD FF FF FF 74 00 56 00 FF FF 65 00 73 00 F5 FF FD FF FF FF 19 00 91 00 FD FF FF FF 09 00 90 00 FF FF 48 00 84 00 F9 FF FB FF FF FF 72 00 FF FF 46 00 64 00 28 00 FF FF 82 00 18 00 D7 FF E5 FF F5 FF FB FF FD FF FF FF 37 00 27 00 17 00 FF FF 71 00 FF FF 55 00 07 00 F9 FF FD FF FF FF 70 00 36 00 FF FF 63 00 45 00 FD FF FF FF 54 00 26 00 FF FF 62 00 35 00 FB FF FF FF 81 00 FF FF 08 00 80 00 FD FF FF FF 16 00 61 00 FF FF 06 00 60 00 F3 FF F7 FF FB FF FD FF FF FF 53 00 44 00 25 00 FF FF 52 00 05 00 FF FF 15 00 51 00 F9 FF FD FF FF FF 34 00 43 00 FF FF 50 00 24 00 FD FF FF FF 42 00 33 00 14 00 ED FF F5 FF FB FF FF FF 41 00 FF FF 04 00 40 00 FD FF FF FF 23 00 32 00 13 00 FD FF FF FF 31 00 03 00 FF FF 30 00 22 00 FD FF FF FF 12 00 21 00 FF FF 02 00 20 00 FD FF FF FF 11 00 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab15__16_lil_1022_ {
+  strings:
+    $a0 = { 11 FE 43 FE 9D FE F9 FE 49 FF 8D FF B3 FF D5 FF E5 FF F3 FF F9 FF FD FF FF FF FF 00 EF 00 FF FF FE 00 DF 00 FF FF EE 00 FF FF FD 00 CF 00 F9 FF FD FF FF FF FC 00 DE 00 FF FF ED 00 BF 00 FF FF FB 00 FF FF CE 00 EC 00 F9 FF FD FF FF FF DD 00 AF 00 FF FF FA 00 BE 00 FD FF FF FF EB 00 CD 00 FF FF DC 00 9F 00 F1 FF F9 FF FD FF FF FF F9 00 EA 00 FF FF BD 00 DB 00 FD FF FF FF 8F 00 F8 00 FF FF CC 00 9E 00 F9 FF FD FF FF FF E9 00 7F 00 FF FF F7 00 AD 00 FD FF FF FF DA 00 BC 00 FF FF 6F 00 FF FF AE 00 0F 00 ED FF F5 FF FD FF FF FF CB 00 F6 00 FD FF FF FF 8E 00 E8 00 FF FF 5F 00 9D 00 FD FF FF FF F5 00 7E 00 FF FF E7 00 AC 00 F7 FF FD FF FF FF CA 00 BB 00 FD FF FF FF D9 00 8D 00 4F 00 FD FF FF FF F4 00 3F 00 FF FF F3 00 D8 00 DF FF EF FF F7 FF FD FF FF FF E6 00 2F 00 FF FF F2 00 FF FF 6E 00 F0 00 FD FF FF FF 1F 00 F1 00 FF FF 9C 00 C9 00 F9 FF FD FF FF FF 5E 00 AB 00 FF FF BA 00 E5 00 FD FF FF FF 7D 00 D7 00 FF FF 4E 00 E4 00 F1 FF F9 FF FD FF FF FF 8C 00 C8 00 FF FF 3E 00 6D 00 FD FF FF FF D6 00 E3 00 FF FF 9B 00 B9 00 F9 FF FD FF FF FF 2E 00 AA 00 FF FF E2 00 1E 00 FB FF FF FF E1 00 FF FF 0E 00 E0 00 FF FF 5D 00 D5 00 D3 FF E7 FF F3 FF F9 FF FD FF FF FF 7C 00 C7 00 FF FF 4D 00 8B 00 FF FF D4 00 FF FF B8 00 9A 00 F9 FF FD FF FF FF A9 00 6C 00 FF FF C6 00 3D 00 FF FF D3 00 D2 00 F7 FF FB FF FD FF FF FF 2D 00 0D 00 1D 00 FF FF 7B 00 B7 00 FB FF FF FF D1 00 FF FF 5C 00 D0 00 FF FF C5 00 8A 00 EF FF F9 FF FD FF FF FF A8 00 4C 00 FF FF C4 00 6B 00 FB FF FF FF B6 00 FF FF 99 00 0C 00 FF FF 3C 00 C3 00 F7 FF FD FF FF FF 7A 00 A7 00 FF FF A6 00 FF FF C0 00 0B 00 FF FF C2 00 FF FF 2C 00 5B 00 C9 FF E3 FF F1 FF F9 FF FD FF FF FF B5 00 1C 00 FF FF 89 00 98 00 FD FF FF FF C1 00 4B 00 FF FF B4 00 6A 00 FB FF FD FF FF FF 3B 00 79 00 B3 00 FD FF FF FF 97 00 88 00 FF FF 2B 00 5A 00 F5 FF FB FF FF FF B2 00 FF FF A5 00 1B 00 FF FF B1 00 FF FF B0 00 69 00 F9 FF FD FF FF FF 96 00 4A 00 FF FF A4 00 78 00 FD FF FF FF 87 00 3A 00 A3 00 EF FF F9 FF FD FF FF FF 59 00 95 00 FF FF 2A 00 A2 00 FD FF FF FF 1A 00 A1 00 FD FF FF FF 0A 00 A0 00 68 00 F9 FF FD FF FF FF 86 00 49 00 FF FF 94 00 39 00 FB FF FF FF 93 00 FF FF 77 00 09 00 FF FF 58 00 85 00 CB FF E3 FF F3 FF F9 FF FD FF FF FF 29 00 67 00 FF FF 76 00 92 00 FF FF 91 00 FF FF 19 00 90 00 F9 FF FD FF FF FF 48 00 84 00 FF FF 57 00 75 00 FD FF FF FF 38 00 83 00 FF FF 66 00 47 00 F9 FF FD FF FF FF 28 00 82 00 FF FF 18 00 81 00 F9 FF FD FF FF FF 74 00 08 00 FF FF 80 00 56 00 FD FF FF FF 65 00 37 00 FF FF 73 00 46 00 EF FF F9 FF FD FF FF FF 27 00 72 00 FF FF 64 00 17 00 FD FF FF FF 55 00 71 00 FD FF FF FF 07 00 70 00 36 00 F9 FF FD FF FF FF 63 00 45 00 FF FF 54 00 26 00 FD FF FF FF 62 00 16 00 FD FF FF FF 06 00 60 00 35 00 DF FF ED FF F7 FF FB FF FF FF 61 00 FF FF 53 00 44 00 FF FF 25 00 52 00 FD FF FF FF 15 00 51 00 FD FF FF FF 05 00 50 00 34 00 F9 FF FD FF FF FF 43 00 24 00 FF FF 42 00 33 00 FF FF 41 00 FF FF 14 00 04 00 F7 FF FD FF FF FF 23 00 32 00 FD FF FF FF 40 00 03 00 13 00 FD FF FF FF 31 00 30 00 22 00 F7 FF F9 FF FD FF FF FF 12 00 21 00 FF FF 02 00 20 00 11 00 FD FF FF FF 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule SSL3__define__32_big_AND_ {
+  strings:
+    $a0 = { 03 00 00 01 [0-20] 03 00 00 02 [0-20] 03 00 00 03 [0-20] 03 00 00 04 [0-20] 03 00 00 05 [0-20] 03 00 00 06 [0-20] 03 00 00 07 [0-20] 03 00 00 08 [0-20] 03 00 00 09 [0-20] 03 00 00 0a [0-20] 03 00 00 0b [0-20] 03 00 00 0c [0-20] 03 00 00 0d [0-20] 03 00 00 0e [0-20] 03 00 00 0f [0-20] 03 00 00 10 [0-20] 03 00 00 11 [0-20] 03 00 00 12 [0-20] 03 00 00 13 [0-20] 03 00 00 14 [0-20] 03 00 00 15 [0-20] 03 00 00 16 [0-20] 03 00 00 17 [0-20] 03 00 00 18 [0-20] 03 00 00 19 [0-20] 03 00 00 1a [0-20] 03 00 00 1b [0-20] 03 00 00 1c [0-20] 03 00 00 1d [0-20] 03 00 00 1e [0-20] 03 00 00 1e [0-20] 03 00 00 1f [0-20] 03 00 00 20 [0-20] 03 00 00 21 [0-20] 03 00 00 22 [0-20] 03 00 00 23 [0-20] 03 00 00 24 [0-20] 03 00 00 25 [0-20] 03 00 00 26 [0-20] 03 00 00 27 [0-20] 03 00 00 28 [0-20] 03 00 00 29 [0-20] 03 00 00 2a [0-20] 03 00 00 2b }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_AC3_vq_hebap1__16_lil_48_ {
+  strings:
+    $a0 = { FF 1B 83 12 52 04 AD 10 AC 28 D4 12 BA E9 8D F3 6D C7 90 FA 15 F8 51 03 79 02 37 18 61 1B 15 CE FE F6 B4 F5 44 FA 89 E4 A8 1D 79 29 C6 E8 0A F4 }
+
+  condition:
+    $a0
+}
+
+
+rule DES_ei__8_byt_48_ {
+  strings:
+    $a0 = { 20 01 02 03 04 05 04 05 06 07 08 09 08 09 0a 0b 0c 0d 0c 0d 0e 0f 10 11 10 11 12 13 14 15 14 15 16 17 18 19 18 19 1a 1b 1c 1d 1c 1d 1e 1f 20 01 }
+
+  condition:
+    $a0
+}
+
+
+rule HAVAL_wi3__32_big_128_ {
+  strings:
+    $a0 = { 00 00 00 13 00 00 00 09 00 00 00 04 00 00 00 14 00 00 00 1c 00 00 00 11 00 00 00 08 00 00 00 16 00 00 00 1d 00 00 00 0e 00 00 00 19 00 00 00 0c 00 00 00 18 00 00 00 1e 00 00 00 10 00 00 00 1a 00 00 00 1f 00 00 00 0f 00 00 00 07 00 00 00 03 00 00 00 01 00 00 00 00 00 00 00 12 00 00 00 1b 00 00 00 0d 00 00 00 06 00 00 00 15 00 00 00 0a 00 00 00 17 00 00 00 0b 00 00 00 05 00 00 00 02 }
+
+  condition:
+    $a0
+}
+
+
+rule Camellia_s3__8_byt_256_ {
+  strings:
+    $a0 = { 38 41 16 76 d9 93 60 f2 72 c2 ab 9a 75 06 57 a0 91 f7 b5 c9 a2 8c d2 90 f6 07 a7 27 8e b2 49 de 43 5c d7 c7 3e f5 8f 67 1f 18 6e af 2f e2 85 0d 53 f0 9c 65 ea a3 ae 9e ec 80 2d 6b a8 2b 36 a6 c5 86 4d 33 fd 66 58 96 3a 09 95 10 78 d8 42 cc ef 26 e5 61 1a 3f 3b 82 b6 db d4 98 e8 8b 02 eb 0a 2c 1d b0 6f 8d 88 0e 19 87 4e 0b a9 0c 79 11 7f 22 e7 59 e1 da 3d c8 12 04 74 54 30 7e b4 28 55 68 50 be d0 c4 31 cb 2a ad 0f ca 70 ff 32 69 08 62 00 24 d1 fb ba ed 45 81 73 6d 84 9f ee 4a c3 2e c1 01 e6 25 48 99 b9 b3 7b f9 ce bf df 71 29 cd 6c 13 64 9b 63 9d c0 4b b7 a5 89 5f b1 17 f4 bc d3 46 cf 37 5e 47 94 fa fc 5b 97 fe 5a ac 3c 4c 03 35 f3 23 b8 5d 6a 92 d5 21 44 51 c6 7d 39 83 dc aa 7c 77 56 05 1b a4 15 34 1e 1c f8 52 20 14 e9 bd dd e4 a1 e0 8a f1 d6 7a bb e3 40 4f }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_ff_interleaved_ue_golomb_vlc_code__8_byt_256_ {
+  strings:
+    $a0 = { 0f 10 07 07 11 12 08 08 03 03 03 03 03 03 03 03 13 14 09 09 15 16 0a 0a 04 04 04 04 04 04 04 04 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 17 18 0b 0b 19 1a 0c 0c 05 05 05 05 05 05 05 05 1b 1c 0d 0d 1d 1e 0e 0e 06 06 06 06 06 06 06 06 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_AC3_vq_hebap6__16_lil_3072_ {
+  strings:
+    $a0 = { AA 27 C5 1C DD 41 F9 48 93 A6 CC F1 C5 F5 34 F1 67 EA B8 EB CF DC B6 B0 31 EA F0 A6 31 53 64 1B E9 02 D0 02 AC 01 4D FA 6D 00 F6 F3 69 01 2D DF E1 1F 81 57 F1 00 DB 06 96 FC F8 F4 74 04 63 31 02 09 F7 56 C6 9D 6B BB CF F5 33 0D 61 28 EE B2 94 C3 78 A2 38 F0 04 CE 54 9B 28 33 41 0F 23 05 10 12 09 A3 28 35 E5 62 69 FB 7D 08 9F FF B3 35 FE EB D7 5A 76 10 7F A9 DE 1A BE FE 58 47 AA FC 74 D1 23 FD 80 43 83 CE 23 DA 0B 5C 90 C0 E3 FA AA 16 98 EC 46 4C 36 AD D2 9F 49 FF DB 16 F7 C0 7D 3B E8 DA FE F9 79 01 10 37 E1 61 6B 34 62 20 18 5B B2 41 A3 E3 76 00 05 C2 99 4A 35 26 EB FE 40 EF 55 54 18 CC 7D C0 F9 40 02 ED 2D 13 EF B4 73 5B 71 39 2E FD 7D 00 06 4C 84 ED 78 F8 F9 D2 22 51 31 15 56 94 BF F4 15 EF 80 01 C9 F7 57 05 F6 FE 29 DC 41 15 DD 66 7C F8 7D 10 66 F4 36 B1 C8 AA 4A 15 FE E2 E0 14 23 FF D8 E5 5B 02 4C DC 1C 05 8E 94 95 25 44 DF 51 F8 BB 24 8D F9 21 59 8E 1D 7E EB BB EF 69 05 22 FC 30 02 12 FB A2 60 8F B5 F5 29 A1 1D 46 E4 C3 01 A2 4E 23 D9 81 E8 74 F7 4E FA E9 56 A4 24 88 23 CF 2A C3 F6 74 F1 EC 48 76 FD 2E FB 54 2B FE 1D 51 17 07 4B 33 FA CC FB 25 FD 54 FD 2B 00 93 EC 76 34 AB 4E 3C 00 DC 01 59 FC C3 B1 06 22 C3 09 F8 03 7A FB 4F 01 D3 98 A6 48 67 F7 63 FD 51 0D 19 03 8A ED AB 22 E1 9F 52 DA 3B 0E E5 FE F7 33 64 AC 95 F1 60 FB 4E F8 4C 06 AD 00 3C 00 97 03 CD 04 1E 1B 67 FD F9 3F 5F 42 DD 14 41 C9 00 F7 5A B0 F6 62 8F D6 AB 2E 1B E2 25 E7 EA 36 79 5D 35 CC C6 E3 57 FC EA 00 45 FF A7 18 AB F8 DA 30 A9 F8 3F 49 D3 A4 6D 02 2D 19 1A 0D 2E A1 D6 20 C3 14 1F F3 56 EC A0 ED 28 EC 7E 9B E3 14 05 FB 11 CC 3B FC EA A4 BE 04 93 66 94 E7 33 27 77 B1 C5 3B 37 C1 10 14 5A 25 B9 F0 CA B3 89 12 FE 56 B5 EF 2A 1F 70 B3 C8 36 8F E9 89 AE EB 22 07 00 39 F0 DF 03 4F E8 34 00 21 B4 9D 0D 99 0B 34 1E 6A 1E E0 62 3E 18 41 FC F4 CD D0 F8 29 A7 9C 1C 4E 2A B2 ED 8E 06 44 D8 AB EB C6 10 09 FB 31 0F 16 05 1A 1D 7E 02 96 4F C3 F3 30 CF 5D DC 1F 48 C9 CF BA E3 78 48 D7 E7 C9 21 09 E5 81 FC D5 42 DC 40 58 D9 A3 6F 1D 0B 68 06 6D 0B D6 FE 78 3A 7C 9A 1E 3A 34 A2 17 07 B6 E6 FB 65 2E 14 E9 52 01 3E 71 54 E9 39 4C AB 36 40 18 50 F6 C7 36 E4 BE EF E7 6F 5A 00 DC F9 15 03 7A FC B5 FF 39 FA A7 09 23 F0 1C 0E 40 F7 A2 2A A8 21 53 44 67 43 D0 BB 7E 42 1B C0 0E AF 5B B7 BA 62 38 45 0B F2 9F 06 1B FC F1 17 61 E7 F2 2B A1 D3 E5 B2 B6 FF 5F F0 D0 F9 48 34 A2 00 70 FF EF FD 4C 52 F3 1E 7C D3 A6 01 E6 FF BE 1B 25 CB A9 B1 45 0A 4E FF 53 FE F1 23 58 05 22 A9 3F 0A ED AF 39 61 50 FE 13 1A F6 FE 13 22 50 00 78 6D 25 4C DC F3 D3 DB 76 07 EF AA E1 14 FF 36 1F D3 3C 31 BF 17 A5 4D 23 05 C3 2A 6D 26 4C B7 7E 3D B8 12 5D 02 0F F9 AE 0E 09 F0 C0 54 88 17 C0 FD EF 0D 06 F2 FB 3F 78 0A 28 F9 CC 02 47 EC 89 FA 3A EE 74 FD C7 BA DA F2 CD F1 EC EE 86 E6 78 A9 D6 1C B2 05 D2 2F F6 4A 0E 16 79 E1 BF B0 60 53 AC E2 F0 4D F6 5B E7 D9 25 16 3A F8 1D F7 4E 3C 9B 2A 29 BA 61 19 0E 35 EA C1 E2 C2 94 ED 83 17 BA 5E DD E7 FF F7 38 E5 48 FB 96 03 47 45 BB FF 77 F1 8B 23 3F C1 BB A3 5D 17 D8 F6 B6 1E 2A DD E1 5D A4 63 E7 D4 1B FD D4 CE 0C 4C 39 39 5B 3C 16 AD 93 04 36 08 7B 04 E5 0A 00 10 83 08 2E 22 DA B8 A2 BA 82 D7 AD EB D6 FB 2B F2 FD F4 0A B2 6F D1 90 17 7B 20 86 28 8A DC CC F7 E7 4B EF FF DC 02 4F FD 50 C7 E8 B4 49 E4 27 49 4E 07 7A 59 48 0F 93 02 FD 63 5A F0 93 25 6D 03 38 0A A7 58 76 E9 00 46 E4 0E FC 4E 01 0A DF 68 83 EB 64 D5 D0 08 FB FD 92 EC C6 00 21 AA E8 F1 9E 56 14 B6 3C 53 45 FB C8 4A 33 41 CC F9 7E 2C 02 F9 77 0F 60 F2 5B 1B 3D E4 8D 51 24 E8 DD B9 DE B6 BB 60 7C 40 8B 0C EE 4F 65 9E 77 B0 84 11 09 EC 22 FE 16 E7 32 F8 0B D8 CF FD E9 A9 BD A8 E7 0B 5E B6 A2 1D 97 39 6A B2 CF 18 49 EC 7D 05 38 DA 1F 04 87 AA A2 2B 99 0D 1D DA 7E 19 F1 BE 1D 59 93 55 76 B7 5D 44 48 39 0B 05 A2 13 DC 4C 06 3F 9E B2 C4 BD ED B9 DB BD A8 16 E0 DF 2C 13 E7 22 E0 08 8C FB 4F A5 24 06 C1 0A C2 F9 5F 08 EE F2 5A AA 98 D9 DC FB 56 93 BE 04 79 1C 96 00 62 00 02 06 17 02 15 44 62 A5 7B FC 5C 53 4E B1 E1 0C 30 F9 F1 DF 2A AC BA EF E7 ED 12 BA 66 15 05 05 88 00 19 49 0B 52 F2 60 9D 2C 02 05 F6 ED 31 F2 D4 1D F7 FE 5D 08 C3 FC 0D F8 90 F3 01 4D D7 0A FE FF 42 04 68 00 8D E5 27 B1 7A 0B B3 F7 DC FF F4 04 58 25 D6 24 72 25 54 56 03 36 98 18 E9 FD CE B1 B4 10 B4 F8 40 FE E1 BC E0 A0 A4 37 B1 CA D0 AD DF 08 23 2D AA F5 4D 3C 13 EE CE 48 35 EF 92 FD A0 B1 49 10 C3 46 84 FA 9A 35 DF F8 19 C0 78 23 E8 02 05 56 7D 00 2A 2A AC 25 F1 C6 D1 B7 86 C6 A6 2B EE AE BA FE 2E A3 00 18 E5 1E 5A 02 04 06 06 E6 EA 19 75 CE 94 53 31 51 49 E5 9C 10 CD AD FC 15 FF 48 34 5D 88 20 42 46 48 16 83 EB 53 B9 D5 FD 93 0C CB 17 98 37 03 EC D0 BB 04 B4 7F D2 AE AB 26 2C 4A 3C F6 63 79 1A C5 97 6B 53 CC DF F5 16 2C F2 BF 17 F9 F5 2B 0A 69 F6 2D 15 02 D0 64 B5 C6 15 47 F9 E7 98 90 A3 78 59 A3 FE CB 0E 8D 08 4D FB DC 14 B1 0C A7 A7 68 00 80 F9 F4 D4 D7 F4 0D AF 0F A2 BC 4D 59 59 4F E3 CF B7 E8 C6 30 DF 5B CD C1 0E 76 0F 2F 20 0E 50 B1 E4 4F FB 60 FF B3 F9 E7 FC 17 DE 3D 02 08 03 C9 10 36 F1 95 4F C2 17 37 EB 20 B8 39 49 9F 09 02 31 BB E1 CA E1 79 F7 42 2B 90 ED 67 56 21 07 E1 A0 F0 0F DF 05 16 B5 DF F9 0D 00 C7 FE 77 01 3E 01 C1 FD F0 09 B2 00 66 00 28 00 84 C1 EF 96 90 13 F8 0C AE 02 87 04 9B 64 06 69 3E 02 D6 E8 B4 F0 7F 05 44 DC 0F E2 C5 F4 40 DF 19 B7 20 67 EB E2 88 B9 24 B8 62 22 34 F7 82 AA AB 1E FD 2D 5D 6B D1 CD 7E FA 86 4C C0 08 3B 17 EF 2B 6C 3E 9D E6 D8 5E A9 54 AD B7 2B 26 96 19 56 F5 4E 01 CB EF 28 06 FE D4 59 00 93 A0 B2 E9 28 1E C6 05 A4 53 3F 9E 3F DF 09 00 70 F6 EA 27 2C CE 31 C1 89 04 DC AC CB DD A3 C7 7A A6 24 C6 45 0A 14 36 AC E3 1B 0B 59 DA 42 0B DF C6 B1 5F 5E FD 7E E6 9E 01 DB A4 A1 AC C6 01 38 08 58 E7 87 2A A7 46 51 FB AF 00 13 FE CE FD 4D F5 76 00 CE FB 5D 00 E5 D8 15 F0 59 92 A4 56 E5 3A 84 FD E3 ED E8 BF D5 DC 3E B0 A8 D2 3C AE CF 12 14 3E AE 5E BE CA FE F3 DD FB BC E5 02 12 AC B6 4D C4 D3 BE B4 5D F5 3B 5E FD 9E F1 AF 54 7B 11 C8 D0 94 12 21 0A EA 14 71 17 D7 3A 7A 67 F9 A2 9D BC 20 1B 7A 01 B6 02 9E 02 60 5B 79 DD 87 C6 78 1D 94 FC 50 2B 38 0E 08 0D 41 58 59 F2 E8 F6 8F FF 1C 01 02 1B 19 0C BB 27 EE 19 43 B7 A8 09 58 17 2E 2B 60 D1 A5 FD 69 FD 2F 3F 39 40 6C 33 35 F0 3B 12 07 1D 8A 4B AE 3C 7B E6 91 06 07 ED 98 42 83 42 14 02 88 B5 5F FA F6 EB 3D 04 B7 CE 37 BB 0E 08 0C 9D 41 4A 07 C1 48 27 F8 AD BE CA 7B F4 07 3C DE 4D 78 FD BB F9 3E 27 C8 F9 F0 33 60 4D E2 FB F8 29 1A 02 6A 61 9E 25 A4 DC 8D D8 E2 0B 0C 9E 0C A2 93 36 64 00 93 19 FB 1A 77 1B 6C 28 DF 5C 22 BA F7 A6 40 F8 8F FA FE F2 33 24 ED 37 F6 C7 81 F0 E2 0B 7E 3F 69 BC AE 25 6F AC 4C 5C 85 41 CC 02 67 0A 72 00 B8 B5 22 F4 26 06 0B FF B7 05 E7 FC 8A 57 91 5B D3 C6 EE FD 9E 43 31 35 C2 D2 FF 1E 7E C9 A9 5B CC 9F B6 67 EB FB 5F 0E 56 F7 4C 29 07 52 8A F1 67 C3 C5 00 4E 41 E5 9F 51 13 05 00 1D 2A EF 10 A6 68 9D DC E8 C0 E8 F4 CB 3E DC A1 A3 F0 4F E5 65 31 8B E4 30 08 1C 9C 4E DF 9E 1A 0B 00 9A 04 B8 D1 B9 FD 47 DD C1 AF 19 D7 84 FE 49 F6 C9 60 79 AB 73 B4 7C 06 24 FD 09 09 6F 35 F5 0F E5 5F 73 60 45 AD C2 F6 08 FE DE EF B6 D6 74 5C A9 07 9B 4F 91 45 DE DA 95 0E F6 B5 6C E7 F0 F0 A2 41 5F FC AA B0 B5 BA 8D 1A 8F 30 BE 17 F8 D3 8E C7 01 1B B4 5B D4 1D 89 F9 E9 59 DF 29 9C DF 46 03 91 DE 2D FB 50 B9 39 0F DD 3E D2 05 FE F1 54 20 3D 3B 31 F1 63 AD CD 06 6F EE EB 54 3E 09 EA FE 48 ED BD 3C AE A5 74 CA F4 1D 68 3F 38 5E B1 3A B5 B1 15 32 40 B1 33 41 79 D2 2F C1 C7 CE 0F 4F A8 0D 0B F6 A7 E5 B6 D1 59 11 84 1E 2F 51 B8 42 03 2D 55 DA BE 60 2E 21 FE A4 42 F3 5D 2B 30 E4 85 D8 39 E2 78 A9 81 B8 15 68 4E 25 33 9C DD 01 C2 1E FE F9 63 04 58 FF D6 01 6A 26 A5 FE 89 5D 73 D7 05 DB 00 F0 1A DA 38 E5 D8 AB 6D 51 06 1C FA 14 14 26 2B A3 5A FB 00 02 FE F9 12 FC C2 D8 97 CE 22 4B 02 F9 86 FC 04 3B 44 5C E2 C2 26 F6 4D FB D3 FA 12 E3 D3 F5 47 04 09 FF 27 FE B1 00 99 1F 04 00 88 30 F4 A8 A5 28 D0 E1 B4 56 17 2A 4D EC B2 02 16 02 2C FF AF F3 76 FA 3D BE FA 47 CD 3D AC 59 31 16 4B F7 7C 0C AA F2 C7 AA 29 C6 13 00 13 03 08 04 AA 00 99 DF 7B FD 8E FC F1 F6 1F 96 B0 01 D8 EE DB 05 B6 FA D5 D1 B4 FF 64 B0 CB D7 40 2C D3 00 6F ED BD ED EB E4 1E CB 8F 38 9B 17 8C 14 35 FE 32 FE 8F 00 BF FF F4 F5 58 1C 0B F3 FC 23 70 A5 FA D8 CE 9E C4 DA BA 49 D5 17 7D 09 6E C7 7A 20 E5 08 70 37 B8 0D 19 65 F0 55 D0 00 FA 4E E7 FE 36 9F C1 FF 61 FB 47 04 6E E8 92 0A 51 AA A1 F5 33 02 17 00 D6 E8 F3 00 E3 DC E1 14 4E 50 96 C3 9B 31 40 10 4F 2B 8D 50 50 D7 03 52 AB FF EC DE C2 00 EB 03 D5 DA 4B B3 F9 F2 FF C8 F6 0D AB A4 65 FD E4 F7 A1 0D 88 F3 59 B4 1B 02 06 FA B8 1C 93 C4 44 58 A9 4B 13 04 F3 40 B0 F8 63 FE D3 04 64 EB 22 F2 8F 55 FB 1E 28 F8 48 42 71 E5 D1 72 55 F6 EB CA C5 20 AC A3 B5 A9 9E C8 27 C8 C9 D2 86 B1 B8 3E C8 F8 69 3D 94 11 09 0F 3B BF C1 4E 5D AD 62 1E 58 2E 6D E6 07 FB 6B B6 2E D4 74 2D 14 04 E0 09 DD E5 03 BA 9E D3 E2 EC 10 FC D9 04 A4 10 0F 09 DF 17 9D 0D F1 4E C6 0B 18 F4 C4 14 45 EE 5F 51 FE 21 02 F9 A5 C6 16 01 84 36 AF D8 CD D6 34 A7 EB E0 7E FB FD 35 34 FA 21 FB 6B E3 99 FD 26 33 EF 49 A9 26 AC 05 F8 09 DE F6 60 0D EA ED 74 2B 80 B3 8B D4 B7 AF 99 D5 E1 D5 E1 AE B1 1A D8 03 09 C5 8F 16 25 62 01 15 A9 B2 05 02 D8 33 DE E2 51 F9 84 50 83 E8 57 AC C3 33 C5 AE 89 34 81 43 30 33 3D C2 88 C0 35 5A 3B F0 FD DF 67 03 46 02 1B 31 77 AD 52 C6 1D DC 35 16 DE 10 10 F9 A1 2C 9D BA 3F D9 41 02 7D 17 BE 41 F7 44 5A 9B D0 EE 22 F2 50 CA 63 BF 34 0E FE F2 9D AD F2 C1 A5 19 75 D4 C9 21 C6 CC 31 5B 03 CB 12 F6 AA DC 7A E2 38 72 75 0E 81 FE 8C D6 A3 61 65 07 EE DF B8 51 AE C0 9C 14 56 41 A3 29 E4 4D 41 ED 84 B4 EC FD AC DB D0 6C 65 13 0F FF 18 02 03 FD 1E AF AC F2 B6 49 CD 0A 8C 05 0D F4 94 0A B2 B5 B5 FE D1 0D 74 00 }
+
+  condition:
+    $a0
+}
+
+
+rule ff_sqrt_tab__8_byt_256_ {
+  strings:
+    $a0 = { 00 10 17 1c 20 24 28 2b 2e 30 33 36 38 3a 3c 3e 40 42 44 46 48 4a 4c 4d 4f 50 52 54 55 57 58 5a 5b 5c 5e 5f 60 62 63 64 66 67 68 69 6b 6c 6d 6e 6f 70 72 73 74 75 76 77 78 79 7a 7b 7c 7d 7e 7f 80 81 82 83 84 85 86 87 88 89 8a 8b 8c 8d 8e 8f 90 90 91 92 93 94 95 96 97 97 98 99 9a 9b 9c 9c 9d 9e 9f a0 a0 a1 a2 a3 a4 a4 a5 a6 a7 a8 a8 a9 aa ab ab ac ad ae ae af b0 b0 b1 b2 b3 b3 b4 b5 b6 b6 b7 b8 b8 b9 ba ba bb bc bc bd be be bf c0 c0 c1 c2 c2 c3 c4 c4 c5 c6 c6 c7 c8 c8 c9 ca ca cb cc cc cd cd ce cf cf d0 d0 d1 d2 d2 d3 d4 d4 d5 d5 d6 d7 d7 d8 d8 d9 da da db db dc dc dd de de df df e0 e0 e1 e2 e2 e3 e3 e4 e4 e5 e6 e6 e7 e7 e8 e8 e9 e9 ea eb eb ec ec ed ed ee ee ef ef f0 f0 f1 f2 f2 f3 f3 f4 f4 f5 f5 f6 f6 f7 f7 f8 f8 f9 f9 fa fa fb fb fc fc fd fd fe fe ff ff ff }
+
+  condition:
+    $a0
+}
+
+
+rule RC2_tab_num_to_ebits__8_byt_256_ {
+  strings:
+    $a0 = { 5d be 9b 8b 11 99 6e 4d 59 f3 85 a6 3f b7 83 c5 e4 73 6b 3a 68 5a c0 47 a0 64 34 0c f1 d0 52 a5 b9 1e 96 43 41 d8 d4 2c db f8 07 77 2a ca eb ef 10 1c 16 0d 38 72 2f 89 c1 f9 80 c4 6d ae 30 3d ce 20 63 fe e6 1a c7 b8 50 e8 24 17 fc 25 6f bb 6a a3 44 53 d9 a2 01 ab bc b6 1f 98 ee 9a a7 2d 4f 9e 8e ac e0 c6 49 46 29 f4 94 8a af e1 5b c3 b3 7b 57 d1 7c 9c ed 87 40 8c e2 cb 93 14 c9 61 2e e5 cc f6 5e a8 5c d6 75 8d 62 95 58 69 76 a1 4a b5 55 09 78 33 82 d7 dd 79 f5 1b 0b de 26 21 28 74 04 97 56 df 3c f0 37 39 dc ff 06 a4 ea 42 08 da b4 71 b0 cf 12 7a 4e fa 6c 1d 84 00 c8 7f 91 45 aa 2b c2 b1 8f d5 ba f2 ad 19 b2 67 36 f7 0f 0a 92 7d e3 9d e9 90 3e 23 27 66 13 ec 81 15 bd 22 bf 9f 7e a9 51 4b 4c fb 02 d3 70 86 31 e7 3b 05 03 54 60 48 65 18 d2 cd 5f 32 88 0e 35 fd }
+
+  condition:
+    $a0
+}
+
+
+rule Snefru_S_box_3__32_lil_1024_ {
+  strings:
+    $a0 = { 2b 39 79 5a c2 32 af b8 0a 72 f7 41 ec 61 3a 83 ac ed df 13 c4 0b 99 c4 bc 54 0f dc 88 5e dd fe 81 18 da 80 fd 1a ea 4d c6 2c 40 fd 7a cc 67 ae 25 85 23 c5 54 12 a0 8e d5 9b 6b b5 6d bd 2f 86 d3 75 85 ac 14 37 ba 6f 46 bf 7e da 38 52 cd 59 fe db c9 8a fc 29 37 35 f2 d7 97 e4 e0 84 ab c3 4b 11 5a f0 75 7a 88 7b dd 03 c6 ed 80 e6 6f 5e 99 b3 84 2c da b1 4e 88 bf c8 b8 1c 8a 09 51 aa 1c 23 62 c8 21 22 ac 8b e5 87 b3 21 0d 43 8a 20 8b 0f 3f 2a d2 9c ff a5 ea a2 12 60 e7 9e 7a 14 1d 50 2a f6 1a e5 b2 b4 4c 48 f3 3e 59 3c 25 c0 36 b5 82 2b 6b 69 a9 0a 9b 10 0c be 29 79 0b c7 19 8a 3e ce 0e 95 66 2f 2c 1c 9f 45 3d b9 8f e6 3e ff c3 a3 62 5c b4 62 cb 91 09 30 57 4c 91 01 6a c0 7b 7f f5 31 28 18 ca 4b b7 e7 d0 f6 50 fa 61 aa 3c 52 05 cf a7 e3 11 13 e4 e9 d1 21 0a 28 e1 97 42 6a 7e c6 4d f2 e6 89 31 fc 4f f3 2b b7 af 67 1e 4b ce 02 34 54 67 98 a5 79 2a e0 48 06 17 ac a3 00 35 8d 20 c6 76 5f 7f 6e be b4 5b a4 63 fa 68 f1 f3 25 41 3f 6f 40 11 f3 65 65 70 02 22 80 e5 bf d9 fd fc 0c f7 a7 35 07 92 90 04 8f 27 dc 8e d9 5c d5 c5 f5 db 01 f2 e0 9a fc ca 0d 79 fb 27 77 f4 ab 43 af c1 38 e9 26 a6 26 1b 40 fa 20 07 90 7b d9 52 27 b3 d1 f1 cf 24 e4 d9 a9 ab 99 db 42 5f be f8 6c e3 eb 2c e8 3b 73 fb 3a b6 4e 73 6b 4a 41 36 10 7c 66 5f 97 77 63 9d 04 60 7c 58 ba 83 04 d1 b1 cc ef 1a de 55 d0 29 11 91 1e 05 72 23 d6 46 69 a7 6e e8 f9 00 8c 76 48 93 6c 16 b0 f0 bb 56 99 84 6d 1f 1f 8e e1 15 fb 5d 49 3b 03 2e 36 e3 56 3c c5 44 4f 51 ba 7c 74 72 78 d3 89 1b 33 9c 5d a8 9f ef d2 f8 17 49 25 47 6f 10 1b 53 55 d7 37 b0 53 f0 b3 ef d8 cc 7d 02 b8 0e d3 2d f4 89 58 d7 06 02 61 a1 34 7d 1a d8 7d d8 92 15 a3 f4 e5 71 0e cf d1 45 fe 2d b2 eb e8 01 b9 5e ce c0 0f c9 60 fa 2e 90 42 e7 2d 06 c9 d0 36 e4 70 1c 38 b5 a5 6d 4c 82 a6 81 3d 34 1f 38 7e 52 4f 6c 39 01 59 ad 95 5a 0c b5 1d 9e 2e 98 29 9f 68 57 15 42 ee 71 34 c0 f7 e2 d7 e2 a1 95 87 8d 4d 32 bc c8 c3 24 e2 39 7e 83 12 74 3d ee cd 3f 14 d2 7a 0c d4 13 0e 68 4a bd 78 4d 19 eb a2 f9 51 94 db dc 71 9b 85 89 5b 4f 5c a4 a8 14 ca 03 f0 92 ef 98 1d 74 16 44 44 aa 33 bb 7f 96 9e 20 30 2e 09 b8 35 6a d8 10 7b c1 8c ae 08 bf e1 c5 3f 69 55 13 ad 80 76 e8 46 65 1e b9 e7 b6 23 b2 a4 77 ee 33 05 ed 08 95 28 fd 44 69 3b 39 b6 cf ca d6 05 09 b2 19 98 2f b7 bb ec 9c 77 75 9a 49 07 ec ea ee 5a a6 94 c3 2d f5 bd 04 5d a2 d6 4e 8e 00 82 0f 16 de a6 fb 6a 03 9b 66 3a 8b 22 70 0a b1 5f 58 8b 33 cc df a9 78 53 a9 bc 08 c9 5b e2 59 49 97 9a 90 46 6e 8f ae 66 e9 83 06 dd b4 94 f9 65 a5 cd 26 64 40 88 4b c2 a0 9d 53 32 50 56 17 63 ff 15 c8 d0 1e c4 cb 50 a3 74 c7 f7 31 c2 b0 31 16 81 0d 8d 6c f1 be 24 56 d2 55 d5 8c ea 47 df cd ec 21 6d 12 a0 87 a8 ed 2a 54 84 bd c1 b9 a7 b1 1b 4c 91 7d b6 d5 a0 37 e9 8c 43 73 f8 30 70 c7 b0 f6 71 ba 76 45 57 41 45 bc f8 48 d3 61 9c 9d 57 60 19 ad da c4 17 0b cb a4 96 f6 f2 93 c1 a2 af 6e 75 94 2f 1d 7c 43 2b fe f4 3a e3 86 cb 28 c7 d4 eb 64 ae 18 9d 30 3e e1 9f de f5 e0 3c 85 f9 a1 ab 18 27 dc ad 78 62 ce 68 1f 24 5e d4 b7 82 5c a1 d4 93 22 3b 32 dd 9e 73 f1 6b 4a 67 7f 58 5d 5b aa de 72 47 8f 96 63 4a 86 86 e6 0b 26 64 3d 51 87 47 9a 93 96 92 a8 bb 07 00 c2 4e 08 0d 8d 81 d6 df 64 ff }
+
+  condition:
+    $a0
+}
+
+
+rule MD5_digest__32_lil_AND_ {
+  strings:
+    $a0 = { 01 23 45 67 [0-20] 89 ab cd ef [0-20] fe dc ba 98 [0-20] 76 54 32 10 [0-20] 78 a4 6a d7 [0-20] 56 b7 c7 e8 [0-20] db 70 20 24 [0-20] ee ce bd c1 [0-20] af 0f 7c f5 [0-20] 2a c6 87 47 [0-20] 13 46 30 a8 [0-20] 01 95 46 fd [0-20] d8 98 80 69 [0-20] af f7 44 8b [0-20] b1 5b ff ff [0-20] be d7 5c 89 [0-20] 22 11 90 6b [0-20] 93 71 98 fd [0-20] 8e 43 79 a6 [0-20] 21 08 b4 49 [0-20] 62 25 1e f6 [0-20] 40 b3 40 c0 [0-20] 51 5a 5e 26 [0-20] aa c7 b6 e9 [0-20] 5d 10 2f d6 [0-20] 53 14 44 02 [0-20] 81 e6 a1 d8 [0-20] c8 fb d3 e7 [0-20] e6 cd e1 21 [0-20] d6 07 37 c3 [0-20] 87 0d d5 f4 [0-20] ed 14 5a 45 [0-20] 05 e9 e3 a9 [0-20] f8 a3 ef fc [0-20] d9 02 6f 67 [0-20] 8a 4c 2a 8d [0-20] 42 39 fa ff [0-20] 81 f6 71 87 [0-20] 22 61 9d 6d [0-20] 0c 38 e5 fd [0-20] 44 ea be a4 [0-20] a9 cf de 4b [0-20] 60 4b bb f6 [0-20] 70 bc bf be [0-20] c6 7e 9b 28 [0-20] fa 27 a1 ea [0-20] 85 30 ef d4 [0-20] 05 1d 88 04 [0-20] 39 d0 d4 d9 [0-20] e5 99 db e6 [0-20] f8 7c a2 1f [0-20] 65 56 ac c4 [0-20] 44 22 29 f4 [0-20] 97 ff 2a 43 [0-20] a7 23 94 ab [0-20] 39 a0 93 fc [0-20] c3 59 5b 65 [0-20] 92 cc 0c 8f [0-20] 7d f4 ef ff [0-20] d1 5d 84 85 [0-20] 4f 7e a8 6f [0-20] e0 e6 2c fe [0-20] 14 43 01 a3 [0-20] a1 11 08 4e [0-20] 82 7e 53 f7 [0-20] 35 f2 3a bd [0-20] bb d2 d7 2a [0-20] 91 d3 86 eb }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_mpeg4_inter_rvlc__16_lil_680_ {
+  strings:
+    $a0 = { 06 00 03 00 01 00 04 00 04 00 05 00 1c 00 07 00 3c 00 08 00 3d 00 08 00 7c 00 09 00 fc 00 0a 00 fd 00 0a 00 fc 01 0b 00 fd 01 0b 00 fc 03 0c 00 fc 07 0d 00 fd 07 0d 00 fc 0b 0d 00 fd 0b 0d 00 fc 0f 0e 00 fd 0f 0e 00 fc 1f 0f 00 07 00 03 00 0c 00 06 00 5c 00 08 00 7d 00 09 00 7c 01 0a 00 fc 02 0b 00 fd 03 0c 00 fc 0d 0d 00 fc 17 0e 00 fd 17 0e 00 0a 00 04 00 1d 00 07 00 bc 00 09 00 fd 02 0b 00 fc 05 0c 00 fc 1b 0e 00 fd 1b 0e 00 05 00 05 00 5d 00 08 00 7d 01 0a 00 fd 05 0c 00 fd 0d 0d 00 fc 1d 0e 00 fd 1f 0f 00 08 00 05 00 6c 00 08 00 7c 03 0b 00 fc 0e 0d 00 fc 2f 0f 00 09 00 05 00 bd 00 09 00 7d 03 0b 00 fd 0e 0d 00 0d 00 06 00 bc 01 0a 00 fc 06 0c 00 fd 1d 0e 00 14 00 06 00 bd 01 0a 00 fd 06 0c 00 fd 2f 0f 00 15 00 06 00 dc 01 0a 00 7c 0f 0d 00 2c 00 07 00 dd 01 0a 00 fc 1e 0e 00 2d 00 07 00 bc 03 0b 00 34 00 07 00 7c 07 0c 00 6d 00 08 00 7d 0f 0d 00 74 00 08 00 fd 1e 0e 00 75 00 08 00 7c 1f 0e 00 dc 00 09 00 7d 1f 0e 00 dd 00 09 00 bc 1f 0e 00 ec 00 09 00 fc 37 0f 00 ec 01 0a 00 ed 01 0a 00 f4 01 0a 00 bd 03 0b 00 dc 03 0b 00 dd 03 0b 00 ec 03 0b 00 ed 03 0b 00 f4 03 0b 00 7d 07 0c 00 bc 07 0c 00 bd 07 0c 00 bc 0f 0d 00 bd 0f 0d 00 dc 0f 0d 00 dd 0f 0d 00 bd 1f 0e 00 dc 1f 0e 00 dd 1f 0e 00 fd 37 0f 00 fc 3b 0f 00 0b 00 04 00 78 00 08 00 f5 03 0b 00 ec 0f 0d 00 ec 1f 0e 00 12 00 05 00 ed 00 09 00 dc 07 0c 00 ed 1f 0e 00 fd 3b 0f 00 13 00 05 00 f8 03 0b 00 fc 3d 0f 00 18 00 06 00 dd 07 0c 00 19 00 06 00 ec 07 0c 00 22 00 06 00 ed 0f 0d 00 23 00 06 00 f4 0f 0d 00 35 00 07 00 f5 0f 0d 00 38 00 07 00 f8 0f 0d 00 39 00 07 00 f9 0f 0d 00 42 00 07 00 f4 1f 0e 00 43 00 07 00 f5 1f 0e 00 79 00 08 00 f8 1f 0e 00 82 00 08 00 fd 3d 0f 00 83 00 08 00 f4 00 09 00 f5 00 09 00 f8 00 09 00 f9 00 09 00 02 01 09 00 03 01 09 00 f5 01 0a 00 f8 01 0a 00 f9 01 0a 00 02 02 0a 00 03 02 0a 00 f9 03 0b 00 02 04 0b 00 03 04 0b 00 ed 07 0c 00 f4 07 0c 00 f5 07 0c 00 f8 07 0c 00 f9 07 0c 00 02 08 0c 00 03 08 0c 00 02 10 0d 00 03 10 0d 00 f9 1f 0e 00 02 20 0e 00 03 20 0e 00 fc 3e 0f 00 fd 3e 0f 00 7c 3f 0f 00 7d 3f 0f 00 00 00 04 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavformat_fps_umf2avr_AVRational_map__32_lil_40_ {
+  strings:
+    $a0 = { 32 00 00 00 01 00 00 00 60 ea 00 00 e9 03 00 00 18 00 00 00 01 00 00 00 19 00 00 00 01 00 00 00 30 75 00 00 e9 03 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_ff_aac_scalefactor_code__32_lil_484_ {
+  strings:
+    $a0 = { e8 ff 03 00 e6 ff 03 00 e7 ff 03 00 e5 ff 03 00 f5 ff 07 00 f1 ff 07 00 ed ff 07 00 f6 ff 07 00 ee ff 07 00 ef ff 07 00 f0 ff 07 00 fc ff 07 00 fd ff 07 00 ff ff 07 00 fe ff 07 00 f7 ff 07 00 f8 ff 07 00 fb ff 07 00 f9 ff 07 00 e4 ff 03 00 fa ff 07 00 e3 ff 03 00 ef ff 01 00 f0 ff 01 00 f5 ff 00 00 ee ff 01 00 f2 ff 00 00 f3 ff 00 00 f4 ff 00 00 f1 ff 00 00 f6 7f 00 00 f7 7f 00 00 f9 3f 00 00 f5 3f 00 00 f7 3f 00 00 f3 3f 00 00 f6 3f 00 00 f2 3f 00 00 f7 1f 00 00 f5 1f 00 00 f9 0f 00 00 f7 0f 00 00 f6 0f 00 00 f9 07 00 00 f4 0f 00 00 f8 07 00 00 f9 03 00 00 f7 03 00 00 f5 03 00 00 f8 01 00 00 f7 01 00 00 fa 00 00 00 f8 00 00 00 f6 00 00 00 79 00 00 00 3a 00 00 00 38 00 00 00 1a 00 00 00 0b 00 00 00 04 00 00 00 00 00 00 00 0a 00 00 00 0c 00 00 00 1b 00 00 00 39 00 00 00 3b 00 00 00 78 00 00 00 7a 00 00 00 f7 00 00 00 f9 00 00 00 f6 01 00 00 f9 01 00 00 f4 03 00 00 f6 03 00 00 f8 03 00 00 f5 07 00 00 f4 07 00 00 f6 07 00 00 f7 07 00 00 f5 0f 00 00 f8 0f 00 00 f4 1f 00 00 f6 1f 00 00 f8 1f 00 00 f8 3f 00 00 f4 3f 00 00 f0 ff 00 00 f4 7f 00 00 f6 ff 00 00 f5 7f 00 00 e2 ff 03 00 d9 ff 07 00 da ff 07 00 db ff 07 00 dc ff 07 00 dd ff 07 00 de ff 07 00 d8 ff 07 00 d2 ff 07 00 d3 ff 07 00 d4 ff 07 00 d5 ff 07 00 d6 ff 07 00 f2 ff 07 00 df ff 07 00 e7 ff 07 00 e8 ff 07 00 e9 ff 07 00 ea ff 07 00 eb ff 07 00 e6 ff 07 00 e0 ff 07 00 e1 ff 07 00 e2 ff 07 00 e3 ff 07 00 e4 ff 07 00 e5 ff 07 00 d7 ff 07 00 ec ff 07 00 f4 ff 07 00 f3 ff 07 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_truespeech_ts_5F2__16_lil_16_ {
+  strings:
+    $a0 = { 00 60 00 48 00 36 80 28 60 1e c8 16 16 11 d1 0c }
+
+  condition:
+    $a0
+}
+
+
+rule base64_decoding_table__8_byt_128_ {
+  strings:
+    $a0 = { 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 3e 00 00 00 3f 34 35 36 37 38 39 3a 3b 3c 3d 00 00 00 00 00 00 00 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 00 00 00 00 00 00 1a 1b 1c 1d 1e 1f 20 21 22 23 24 25 26 27 28 29 2a 2b 2c 2d 2e 2f 30 31 32 33 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule BHEncodeTable__8_byt_ASC_64_ {
+  strings:
+    $a0 = "!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr"
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_AC3_ff_ac3_frame_size_tab__16_lil_228_ {
+  strings:
+    $a0 = { 40 00 45 00 60 00 40 00 46 00 60 00 50 00 57 00 78 00 50 00 58 00 78 00 60 00 68 00 90 00 60 00 69 00 90 00 70 00 79 00 a8 00 70 00 7a 00 a8 00 80 00 8b 00 c0 00 80 00 8c 00 c0 00 a0 00 ae 00 f0 00 a0 00 af 00 f0 00 c0 00 d0 00 20 01 c0 00 d1 00 20 01 e0 00 f3 00 50 01 e0 00 f4 00 50 01 00 01 16 01 80 01 00 01 17 01 80 01 40 01 5c 01 e0 01 40 01 5d 01 e0 01 80 01 a1 01 40 02 80 01 a2 01 40 02 c0 01 e7 01 a0 02 c0 01 e8 01 a0 02 00 02 2d 02 00 03 00 02 2e 02 00 03 80 02 b8 02 c0 03 80 02 b9 02 c0 03 00 03 43 03 80 04 00 03 44 03 80 04 80 03 cf 03 40 05 80 03 d0 03 40 05 00 04 5a 04 00 06 00 04 5b 04 00 06 80 04 e5 04 c0 06 80 04 e6 04 c0 06 00 05 71 05 80 07 00 05 72 05 80 07 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_DV_muxer_demuxer_dv_aaux_packs_dist__32_lil_432_ {
+  strings:
+    $a0 = { ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libmpeg2_default_intra_quantizer_matrix__8_byt_64_ {
+  strings:
+    $a0 = { 08 10 10 13 10 13 16 16 16 16 16 16 1a 18 1a 1b 1b 1b 1a 1a 1a 1a 1b 1b 1b 1d 1d 1d 22 22 22 1d 1d 1d 1b 1b 1d 1d 20 20 22 22 25 26 25 23 23 22 23 26 26 28 28 28 30 30 2e 2e 38 38 3a 45 45 53 }
+
+  condition:
+    $a0
+}
+
+
+rule Haval_mc5__32_big_128_ {
+  strings:
+    $a0 = { ba 3b f0 50 7e fb 2a 98 a1 f1 65 1d 39 af 01 76 66 ca 59 3e 82 43 0e 88 8c ee 86 19 45 6f 9f b4 7d 84 a5 c3 3b 8b 5e be e0 6f 75 d8 85 c1 20 73 40 1a 44 9f 56 c1 6a a6 4e d3 aa 62 36 3f 77 06 1b fe df 72 42 9b 02 3d 37 d0 d7 24 d0 0a 12 48 db 0f ea d3 49 f1 c0 9b 07 53 72 c9 80 99 1b 7b 25 d4 79 d8 f6 e8 de f7 e3 fe 50 1a b6 79 4c 3b 97 6c e0 bd 04 c0 06 ba c1 a9 4f b6 40 9f 60 c4 }
+
+  condition:
+    $a0
+}
+
+
+rule FFT_and_FHT_routines_rv_tbl__16_lil_256_ {
+  strings:
+    $a0 = { 00 00 80 00 40 00 c0 00 20 00 a0 00 60 00 e0 00 10 00 90 00 50 00 d0 00 30 00 b0 00 70 00 f0 00 08 00 88 00 48 00 c8 00 28 00 a8 00 68 00 e8 00 18 00 98 00 58 00 d8 00 38 00 b8 00 78 00 f8 00 04 00 84 00 44 00 c4 00 24 00 a4 00 64 00 e4 00 14 00 94 00 54 00 d4 00 34 00 b4 00 74 00 f4 00 0c 00 8c 00 4c 00 cc 00 2c 00 ac 00 6c 00 ec 00 1c 00 9c 00 5c 00 dc 00 3c 00 bc 00 7c 00 fc 00 02 00 82 00 42 00 c2 00 22 00 a2 00 62 00 e2 00 12 00 92 00 52 00 d2 00 32 00 b2 00 72 00 f2 00 0a 00 8a 00 4a 00 ca 00 2a 00 aa 00 6a 00 ea 00 1a 00 9a 00 5a 00 da 00 3a 00 ba 00 7a 00 fa 00 06 00 86 00 46 00 c6 00 26 00 a6 00 66 00 e6 00 16 00 96 00 56 00 d6 00 36 00 b6 00 76 00 f6 00 0e 00 8e 00 4e 00 ce 00 2e 00 ae 00 6e 00 ee 00 1e 00 9e 00 5e 00 de 00 3e 00 be 00 7e 00 fe 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Borland_Jfif_CrR_Table__32_lil_1024_ {
+  strings:
+    $a0 = { 4D FF FF FF 4E FF FF FF 4F FF FF FF 51 FF FF FF 52 FF FF FF 54 FF FF FF 55 FF FF FF 56 FF FF FF 58 FF FF FF 59 FF FF FF 5B FF FF FF 5C FF FF FF 5D FF FF FF 5F FF FF FF 60 FF FF FF 62 FF FF FF 63 FF FF FF 64 FF FF FF 66 FF FF FF 67 FF FF FF 69 FF FF FF 6A FF FF FF 6B FF FF FF 6D FF FF FF 6E FF FF FF 70 FF FF FF 71 FF FF FF 72 FF FF FF 74 FF FF FF 75 FF FF FF 77 FF FF FF 78 FF FF FF 79 FF FF FF 7B FF FF FF 7C FF FF FF 7E FF FF FF 7F FF FF FF 80 FF FF FF 82 FF FF FF 83 FF FF FF 85 FF FF FF 86 FF FF FF 87 FF FF FF 89 FF FF FF 8A FF FF FF 8C FF FF FF 8D FF FF FF 8E FF FF FF 90 FF FF FF 91 FF FF FF 93 FF FF FF 94 FF FF FF 95 FF FF FF 97 FF FF FF 98 FF FF FF 9A FF FF FF 9B FF FF FF 9C FF FF FF 9E FF FF FF 9F FF FF FF A1 FF FF FF A2 FF FF FF A3 FF FF FF A5 FF FF FF A6 FF FF FF A8 FF FF FF A9 FF FF FF AA FF FF FF AC FF FF FF AD FF FF FF AF FF FF FF B0 FF FF FF B1 FF FF FF B3 FF FF FF B4 FF FF FF B6 FF FF FF B7 FF FF FF B8 FF FF FF BA FF FF FF BB FF FF FF BD FF FF FF BE FF FF FF C0 FF FF FF C1 FF FF FF C2 FF FF FF C4 FF FF FF C5 FF FF FF C7 FF FF FF C8 FF FF FF C9 FF FF FF CB FF FF FF CC FF FF FF CE FF FF FF CF FF FF FF D0 FF FF FF D2 FF FF FF D3 FF FF FF D5 FF FF FF D6 FF FF FF D7 FF FF FF D9 FF FF FF DA FF FF FF DC FF FF FF DD FF FF FF DE FF FF FF E0 FF FF FF E1 FF FF FF E3 FF FF FF E4 FF FF FF E5 FF FF FF E7 FF FF FF E8 FF FF FF EA FF FF FF EB FF FF FF EC FF FF FF EE FF FF FF EF FF FF FF F1 FF FF FF F2 FF FF FF F3 FF FF FF F5 FF FF FF F6 FF FF FF F8 FF FF FF F9 FF FF FF FA FF FF FF FC FF FF FF FD FF FF FF FF FF FF FF 00 00 00 00 01 00 00 00 03 00 00 00 04 00 00 00 06 00 00 00 07 00 00 00 08 00 00 00 0A 00 00 00 0B 00 00 00 0D 00 00 00 0E 00 00 00 0F 00 00 00 11 00 00 00 12 00 00 00 14 00 00 00 15 00 00 00 16 00 00 00 18 00 00 00 19 00 00 00 1B 00 00 00 1C 00 00 00 1D 00 00 00 1F 00 00 00 20 00 00 00 22 00 00 00 23 00 00 00 24 00 00 00 26 00 00 00 27 00 00 00 29 00 00 00 2A 00 00 00 2B 00 00 00 2D 00 00 00 2E 00 00 00 30 00 00 00 31 00 00 00 32 00 00 00 34 00 00 00 35 00 00 00 37 00 00 00 38 00 00 00 39 00 00 00 3B 00 00 00 3C 00 00 00 3E 00 00 00 3F 00 00 00 40 00 00 00 42 00 00 00 43 00 00 00 45 00 00 00 46 00 00 00 48 00 00 00 49 00 00 00 4A 00 00 00 4C 00 00 00 4D 00 00 00 4F 00 00 00 50 00 00 00 51 00 00 00 53 00 00 00 54 00 00 00 56 00 00 00 57 00 00 00 58 00 00 00 5A 00 00 00 5B 00 00 00 5D 00 00 00 5E 00 00 00 5F 00 00 00 61 00 00 00 62 00 00 00 64 00 00 00 65 00 00 00 66 00 00 00 68 00 00 00 69 00 00 00 6B 00 00 00 6C 00 00 00 6D 00 00 00 6F 00 00 00 70 00 00 00 72 00 00 00 73 00 00 00 74 00 00 00 76 00 00 00 77 00 00 00 79 00 00 00 7A 00 00 00 7B 00 00 00 7D 00 00 00 7E 00 00 00 80 00 00 00 81 00 00 00 82 00 00 00 84 00 00 00 85 00 00 00 87 00 00 00 88 00 00 00 89 00 00 00 8B 00 00 00 8C 00 00 00 8E 00 00 00 8F 00 00 00 90 00 00 00 92 00 00 00 93 00 00 00 95 00 00 00 96 00 00 00 97 00 00 00 99 00 00 00 9A 00 00 00 9C 00 00 00 9D 00 00 00 9E 00 00 00 A0 00 00 00 A1 00 00 00 A3 00 00 00 A4 00 00 00 A5 00 00 00 A7 00 00 00 A8 00 00 00 AA 00 00 00 AB 00 00 00 AC 00 00 00 AE 00 00 00 AF 00 00 00 B1 00 00 00 B2 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule DES_p32i__8_byt_32_ {
+  strings:
+    $a0 = { 10 07 14 15 1d 0c 1c 11 01 0f 17 1a 05 12 1f 0a 02 08 18 0e 20 1b 03 09 13 0d 1e 06 16 0b 04 19 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_h263_intra_vlc_aic__16_lil_412_ {
+  strings:
+    $a0 = { 02 00 02 00 06 00 03 00 0e 00 04 00 0c 00 05 00 0d 00 05 00 10 00 06 00 11 00 06 00 12 00 06 00 16 00 07 00 1b 00 08 00 20 00 09 00 21 00 09 00 1a 00 09 00 1b 00 09 00 1c 00 09 00 1d 00 09 00 1e 00 09 00 1f 00 09 00 23 00 0b 00 22 00 0b 00 57 00 0c 00 56 00 0c 00 55 00 0c 00 54 00 0c 00 53 00 0c 00 0f 00 04 00 14 00 06 00 14 00 07 00 1e 00 08 00 0f 00 0a 00 21 00 0b 00 50 00 0c 00 0b 00 05 00 15 00 07 00 0e 00 0a 00 09 00 0a 00 15 00 06 00 1d 00 08 00 0d 00 0a 00 51 00 0c 00 13 00 06 00 23 00 09 00 07 00 0b 00 17 00 07 00 22 00 09 00 52 00 0c 00 1c 00 08 00 0c 00 0a 00 1f 00 08 00 0b 00 0a 00 25 00 09 00 0a 00 0a 00 24 00 09 00 06 00 0b 00 21 00 0a 00 20 00 0a 00 08 00 0a 00 20 00 0b 00 07 00 04 00 0c 00 06 00 10 00 07 00 13 00 08 00 11 00 09 00 12 00 09 00 04 00 0a 00 27 00 0b 00 26 00 0b 00 5f 00 0c 00 0f 00 06 00 13 00 09 00 05 00 0a 00 25 00 0b 00 0e 00 06 00 14 00 09 00 24 00 0b 00 0d 00 06 00 06 00 0a 00 5e 00 0c 00 11 00 07 00 07 00 0a 00 13 00 07 00 5d 00 0c 00 12 00 07 00 5c 00 0c 00 14 00 08 00 5b 00 0c 00 15 00 08 00 1a 00 08 00 19 00 08 00 18 00 08 00 17 00 08 00 16 00 08 00 19 00 09 00 15 00 09 00 16 00 09 00 18 00 09 00 17 00 09 00 04 00 0b 00 05 00 0b 00 58 00 0c 00 59 00 0c 00 5a 00 0c 00 03 00 07 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_ff_alternate_horizontal_scan__8_byt_64_ {
+  strings:
+    $a0 = { 00 01 02 03 08 09 10 11 0a 0b 04 05 06 07 0f 0e 0d 0c 13 12 18 19 20 21 1a 1b 14 15 16 17 1c 1d 1e 1f 22 23 28 29 30 31 2a 2b 24 25 26 27 2c 2d 2e 2f 32 33 38 39 3a 3b 34 35 36 37 3c 3d 3e 3f }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_H_26L_H_264_AVC_JVT_14496_10_ff_h264_norm_shift__8_byt_512_ {
+  strings:
+    $a0 = { 09 08 07 07 06 06 06 06 05 05 05 05 05 05 05 05 04 04 04 04 04 04 04 04 04 04 04 04 04 04 04 04 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 03 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Square_crypto_algorithm_T_encoding__32_big_4096_ {
+  strings:
+    $a0 = { 97 b1 b1 26 69 ce ce a7 73 c3 c3 b0 df 95 95 4a b4 5a 5a ee af ad ad 02 3b e7 e7 dc 04 02 02 06 9a 4d 4d d7 88 44 44 cc 03 fb fb f8 d7 91 91 46 18 0c 0c 14 fb 87 87 7c b7 a1 a1 16 a0 50 50 f0 63 cb cb a8 ce 67 67 a9 a8 54 54 fc 4f dd dd 92 8c 46 46 ca eb 8f 8f 64 37 e1 e1 d6 9c 4e 4e d2 15 f0 f0 e5 0f fd fd f2 0d fc fc f1 23 eb eb c8 07 f9 f9 fe 7d c4 c4 b9 34 1a 1a 2e dc 6e 6e b2 bc 5e 5e e2 1f f5 f5 ea 6d cc cc a1 ef 8d 8d 62 38 1c 1c 24 ac 56 56 fa 86 43 43 c5 09 fe fe f7 0e 07 07 09 c2 61 61 a3 05 f8 f8 fd ea 75 75 9f b2 59 59 eb 0b ff ff f4 06 03 03 05 44 22 22 66 e1 8a 8a 6b 57 d1 d1 86 26 13 13 35 29 ee ee c7 e5 88 88 6d 00 00 00 00 1c 0e 0e 12 68 34 34 5c 2a 15 15 3f f5 80 80 75 dd 94 94 49 33 e3 e3 d0 2f ed ed c2 9f b5 b5 2a a6 53 53 f5 46 23 23 65 96 4b 4b dd 8e 47 47 c9 2e 17 17 39 bb a7 a7 1c d5 90 90 45 6a 35 35 5f a3 ab ab 08 45 d8 d8 9d 85 b8 b8 3d 4b df df 94 9e 4f 4f d1 ae 57 57 f9 c1 9a 9a 5b d1 92 92 43 43 db db 98 36 1b 1b 2d 78 3c 3c 44 65 c8 c8 ad c7 99 99 5e 08 04 04 0c e9 8e 8e 67 35 e0 e0 d5 5b d7 d7 8c fa 7d 7d 87 ff 85 85 7a 83 bb bb 38 80 40 40 c0 58 2c 2c 74 74 3a 3a 4e 8a 45 45 cf 17 f1 f1 e6 84 42 42 c6 ca 65 65 af 40 20 20 60 82 41 41 c3 30 18 18 28 e4 72 72 96 4a 25 25 6f d3 93 93 40 e0 70 70 90 6c 36 36 5a 0a 05 05 0f 11 f2 f2 e3 16 0b 0b 1d b3 a3 a3 10 f2 79 79 8b 2d ec ec c1 10 08 08 18 4e 27 27 69 62 31 31 53 64 32 32 56 99 b6 b6 2f f8 7c 7c 84 95 b0 b0 25 14 0a 0a 1e e6 73 73 95 b6 5b 5b ed f6 7b 7b 8d 9b b7 b7 2c f7 81 81 76 51 d2 d2 83 1a 0d 0d 17 d4 6a 6a be 4c 26 26 6a c9 9e 9e 57 b0 58 58 e8 cd 9c 9c 51 f3 83 83 70 e8 74 74 9c 93 b3 b3 20 ad ac ac 01 60 30 30 50 f4 7a 7a 8e d2 69 69 bb ee 77 77 99 1e 0f 0f 11 a9 ae ae 07 42 21 21 63 49 de de 97 55 d0 d0 85 5c 2e 2e 72 db 97 97 4c 20 10 10 30 bd a4 a4 19 c5 98 98 5d a5 a8 a8 0d 5d d4 d4 89 d0 68 68 b8 5a 2d 2d 77 c4 62 62 a6 52 29 29 7b da 6d 6d b7 2c 16 16 3a 92 49 49 db ec 76 76 9a 7b c7 c7 bc 25 e8 e8 cd 77 c1 c1 b6 d9 96 96 4f 6e 37 37 59 3f e5 e5 da 61 ca ca ab 1d f4 f4 e9 27 e9 e9 ce c6 63 63 a5 24 12 12 36 71 c2 c2 b3 b9 a6 a6 1f 28 14 14 3c 8d bc bc 31 53 d3 d3 80 50 28 28 78 ab af af 04 5e 2f 2f 71 39 e6 e6 df 48 24 24 6c a4 52 52 f6 79 c6 c6 bf b5 a0 a0 15 12 09 09 1b 8f bd bd 32 ed 8c 8c 61 6b cf cf a4 ba 5d 5d e7 22 11 11 33 be 5f 5f e1 02 01 01 03 7f c5 c5 ba cb 9f 9f 54 7a 3d 3d 47 b1 a2 a2 13 c3 9b 9b 58 67 c9 c9 ae 76 3b 3b 4d 89 be be 37 a2 51 51 f3 32 19 19 2b 3e 1f 1f 21 7e 3f 3f 41 b8 5c 5c e4 91 b2 b2 23 2b ef ef c4 94 4a 4a de 6f cd cd a2 8b bf bf 34 81 ba ba 3b de 6f 6f b1 c8 64 64 ac 47 d9 d9 9e 13 f3 f3 e0 7c 3e 3e 42 9d b4 b4 29 a1 aa aa 0b 4d dc dc 91 5f d5 d5 8a 0c 06 06 0a 75 c0 c0 b5 fc 7e 7e 82 19 f6 f6 ef cc 66 66 aa d8 6c 6c b4 fd 84 84 79 e2 71 71 93 70 38 38 48 87 b9 b9 3e 3a 1d 1d 27 fe 7f 7f 81 cf 9d 9d 52 90 48 48 d8 e3 8b 8b 68 54 2a 2a 7e 41 da da 9b bf a5 a5 1a 66 33 33 55 f1 82 82 73 72 39 39 4b 59 d6 d6 8f f0 78 78 88 f9 86 86 7f 01 fa fa fb 3d e4 e4 d9 56 2b 2b 7d a7 a9 a9 0e 3c 1e 1e 22 e7 89 89 6e c0 60 60 a0 d6 6b 6b bd 21 ea ea cb aa 55 55 ff 98 4c 4c d4 1b f7 f7 ec 31 e2 e2 d3 26 97 b1 b1 a7 69 ce ce b0 73 c3 c3 4a df 95 95 ee b4 5a 5a 02 af ad ad dc 3b e7 e7 06 04 02 02 d7 9a 4d 4d cc 88 44 44 f8 03 fb fb 46 d7 91 91 14 18 0c 0c 7c fb 87 87 16 b7 a1 a1 f0 a0 50 50 a8 63 cb cb a9 ce 67 67 fc a8 54 54 92 4f dd dd ca 8c 46 46 64 eb 8f 8f d6 37 e1 e1 d2 9c 4e 4e e5 15 f0 f0 f2 0f fd fd f1 0d fc fc c8 23 eb eb fe 07 f9 f9 b9 7d c4 c4 2e 34 1a 1a b2 dc 6e 6e e2 bc 5e 5e ea 1f f5 f5 a1 6d cc cc 62 ef 8d 8d 24 38 1c 1c fa ac 56 56 c5 86 43 43 f7 09 fe fe 09 0e 07 07 a3 c2 61 61 fd 05 f8 f8 9f ea 75 75 eb b2 59 59 f4 0b ff ff 05 06 03 03 66 44 22 22 6b e1 8a 8a 86 57 d1 d1 35 26 13 13 c7 29 ee ee 6d e5 88 88 00 00 00 00 12 1c 0e 0e 5c 68 34 34 3f 2a 15 15 75 f5 80 80 49 dd 94 94 d0 33 e3 e3 c2 2f ed ed 2a 9f b5 b5 f5 a6 53 53 65 46 23 23 dd 96 4b 4b c9 8e 47 47 39 2e 17 17 1c bb a7 a7 45 d5 90 90 5f 6a 35 35 08 a3 ab ab 9d 45 d8 d8 3d 85 b8 b8 94 4b df df d1 9e 4f 4f f9 ae 57 57 5b c1 9a 9a 43 d1 92 92 98 43 db db 2d 36 1b 1b 44 78 3c 3c ad 65 c8 c8 5e c7 99 99 0c 08 04 04 67 e9 8e 8e d5 35 e0 e0 8c 5b d7 d7 87 fa 7d 7d 7a ff 85 85 38 83 bb bb c0 80 40 40 74 58 2c 2c 4e 74 3a 3a cf 8a 45 45 e6 17 f1 f1 c6 84 42 42 af ca 65 65 60 40 20 20 c3 82 41 41 28 30 18 18 96 e4 72 72 6f 4a 25 25 40 d3 93 93 90 e0 70 70 5a 6c 36 36 0f 0a 05 05 e3 11 f2 f2 1d 16 0b 0b 10 b3 a3 a3 8b f2 79 79 c1 2d ec ec 18 10 08 08 69 4e 27 27 53 62 31 31 56 64 32 32 2f 99 b6 b6 84 f8 7c 7c 25 95 b0 b0 1e 14 0a 0a 95 e6 73 73 ed b6 5b 5b 8d f6 7b 7b 2c 9b b7 b7 76 f7 81 81 83 51 d2 d2 17 1a 0d 0d be d4 6a 6a 6a 4c 26 26 57 c9 9e 9e e8 b0 58 58 51 cd 9c 9c 70 f3 83 83 9c e8 74 74 20 93 b3 b3 01 ad ac ac 50 60 30 30 8e f4 7a 7a bb d2 69 69 99 ee 77 77 11 1e 0f 0f 07 a9 ae ae 63 42 21 21 97 49 de de 85 55 d0 d0 72 5c 2e 2e 4c db 97 97 30 20 10 10 19 bd a4 a4 5d c5 98 98 0d a5 a8 a8 89 5d d4 d4 b8 d0 68 68 77 5a 2d 2d a6 c4 62 62 7b 52 29 29 b7 da 6d 6d 3a 2c 16 16 db 92 49 49 9a ec 76 76 bc 7b c7 c7 cd 25 e8 e8 b6 77 c1 c1 4f d9 96 96 59 6e 37 37 da 3f e5 e5 ab 61 ca ca e9 1d f4 f4 ce 27 e9 e9 a5 c6 63 63 36 24 12 12 b3 71 c2 c2 1f b9 a6 a6 3c 28 14 14 31 8d bc bc 80 53 d3 d3 78 50 28 28 04 ab af af 71 5e 2f 2f df 39 e6 e6 6c 48 24 24 f6 a4 52 52 bf 79 c6 c6 15 b5 a0 a0 1b 12 09 09 32 8f bd bd 61 ed 8c 8c a4 6b cf cf e7 ba 5d 5d 33 22 11 11 e1 be 5f 5f 03 02 01 01 ba 7f c5 c5 54 cb 9f 9f 47 7a 3d 3d 13 b1 a2 a2 58 c3 9b 9b ae 67 c9 c9 4d 76 3b 3b 37 89 be be f3 a2 51 51 2b 32 19 19 21 3e 1f 1f 41 7e 3f 3f e4 b8 5c 5c 23 91 b2 b2 c4 2b ef ef de 94 4a 4a a2 6f cd cd 34 8b bf bf 3b 81 ba ba b1 de 6f 6f ac c8 64 64 9e 47 d9 d9 e0 13 f3 f3 42 7c 3e 3e 29 9d b4 b4 0b a1 aa aa 91 4d dc dc 8a 5f d5 d5 0a 0c 06 06 b5 75 c0 c0 82 fc 7e 7e ef 19 f6 f6 aa cc 66 66 b4 d8 6c 6c 79 fd 84 84 93 e2 71 71 48 70 38 38 3e 87 b9 b9 27 3a 1d 1d 81 fe 7f 7f 52 cf 9d 9d d8 90 48 48 68 e3 8b 8b 7e 54 2a 2a 9b 41 da da 1a bf a5 a5 55 66 33 33 73 f1 82 82 4b 72 39 39 8f 59 d6 d6 88 f0 78 78 7f f9 86 86 fb 01 fa fa d9 3d e4 e4 7d 56 2b 2b 0e a7 a9 a9 22 3c 1e 1e 6e e7 89 89 a0 c0 60 60 bd d6 6b 6b cb 21 ea ea ff aa 55 55 d4 98 4c 4c ec 1b f7 f7 d3 31 e2 e2 b1 26 97 b1 ce a7 69 ce c3 b0 73 c3 95 4a df 95 5a ee b4 5a ad 02 af ad e7 dc 3b e7 02 06 04 02 4d d7 9a 4d 44 cc 88 44 fb f8 03 fb 91 46 d7 91 0c 14 18 0c 87 7c fb 87 a1 16 b7 a1 50 f0 a0 50 cb a8 63 cb 67 a9 ce 67 54 fc a8 54 dd 92 4f dd 46 ca 8c 46 8f 64 eb 8f e1 d6 37 e1 4e d2 9c 4e f0 e5 15 f0 fd f2 0f fd fc f1 0d fc eb c8 23 eb f9 fe 07 f9 c4 b9 7d c4 1a 2e 34 1a 6e b2 dc 6e 5e e2 bc 5e f5 ea 1f f5 cc a1 6d cc 8d 62 ef 8d 1c 24 38 1c 56 fa ac 56 43 c5 86 43 fe f7 09 fe 07 09 0e 07 61 a3 c2 61 f8 fd 05 f8 75 9f ea 75 59 eb b2 59 ff f4 0b ff 03 05 06 03 22 66 44 22 8a 6b e1 8a d1 86 57 d1 13 35 26 13 ee c7 29 ee 88 6d e5 88 00 00 00 00 0e 12 1c 0e 34 5c 68 34 15 3f 2a 15 80 75 f5 80 94 49 dd 94 e3 d0 33 e3 ed c2 2f ed b5 2a 9f b5 53 f5 a6 53 23 65 46 23 4b dd 96 4b 47 c9 8e 47 17 39 2e 17 a7 1c bb a7 90 45 d5 90 35 5f 6a 35 ab 08 a3 ab d8 9d 45 d8 b8 3d 85 b8 df 94 4b df 4f d1 9e 4f 57 f9 ae 57 9a 5b c1 9a 92 43 d1 92 db 98 43 db 1b 2d 36 1b 3c 44 78 3c c8 ad 65 c8 99 5e c7 99 04 0c 08 04 8e 67 e9 8e e0 d5 35 e0 d7 8c 5b d7 7d 87 fa 7d 85 7a ff 85 bb 38 83 bb 40 c0 80 40 2c 74 58 2c 3a 4e 74 3a 45 cf 8a 45 f1 e6 17 f1 42 c6 84 42 65 af ca 65 20 60 40 20 41 c3 82 41 18 28 30 18 72 96 e4 72 25 6f 4a 25 93 40 d3 93 70 90 e0 70 36 5a 6c 36 05 0f 0a 05 f2 e3 11 f2 0b 1d 16 0b a3 10 b3 a3 79 8b f2 79 ec c1 2d ec 08 18 10 08 27 69 4e 27 31 53 62 31 32 56 64 32 b6 2f 99 b6 7c 84 f8 7c b0 25 95 b0 0a 1e 14 0a 73 95 e6 73 5b ed b6 5b 7b 8d f6 7b b7 2c 9b b7 81 76 f7 81 d2 83 51 d2 0d 17 1a 0d 6a be d4 6a 26 6a 4c 26 9e 57 c9 9e 58 e8 b0 58 9c 51 cd 9c 83 70 f3 83 74 9c e8 74 b3 20 93 b3 ac 01 ad ac 30 50 60 30 7a 8e f4 7a 69 bb d2 69 77 99 ee 77 0f 11 1e 0f ae 07 a9 ae 21 63 42 21 de 97 49 de d0 85 55 d0 2e 72 5c 2e 97 4c db 97 10 30 20 10 a4 19 bd a4 98 5d c5 98 a8 0d a5 a8 d4 89 5d d4 68 b8 d0 68 2d 77 5a 2d 62 a6 c4 62 29 7b 52 29 6d b7 da 6d 16 3a 2c 16 49 db 92 49 76 9a ec 76 c7 bc 7b c7 e8 cd 25 e8 c1 b6 77 c1 96 4f d9 96 37 59 6e 37 e5 da 3f e5 ca ab 61 ca f4 e9 1d f4 e9 ce 27 e9 63 a5 c6 63 12 36 24 12 c2 b3 71 c2 a6 1f b9 a6 14 3c 28 14 bc 31 8d bc d3 80 53 d3 28 78 50 28 af 04 ab af 2f 71 5e 2f e6 df 39 e6 24 6c 48 24 52 f6 a4 52 c6 bf 79 c6 a0 15 b5 a0 09 1b 12 09 bd 32 8f bd 8c 61 ed 8c cf a4 6b cf 5d e7 ba 5d 11 33 22 11 5f e1 be 5f 01 03 02 01 c5 ba 7f c5 9f 54 cb 9f 3d 47 7a 3d a2 13 b1 a2 9b 58 c3 9b c9 ae 67 c9 3b 4d 76 3b be 37 89 be 51 f3 a2 51 19 2b 32 19 1f 21 3e 1f 3f 41 7e 3f 5c e4 b8 5c b2 23 91 b2 ef c4 2b ef 4a de 94 4a cd a2 6f cd bf 34 8b bf ba 3b 81 ba 6f b1 de 6f 64 ac c8 64 d9 9e 47 d9 f3 e0 13 f3 3e 42 7c 3e b4 29 9d b4 aa 0b a1 aa dc 91 4d dc d5 8a 5f d5 06 0a 0c 06 c0 b5 75 c0 7e 82 fc 7e f6 ef 19 f6 66 aa cc 66 6c b4 d8 6c 84 79 fd 84 71 93 e2 71 38 48 70 38 b9 3e 87 b9 1d 27 3a 1d 7f 81 fe 7f 9d 52 cf 9d 48 d8 90 48 8b 68 e3 8b 2a 7e 54 2a da 9b 41 da a5 1a bf a5 33 55 66 33 82 73 f1 82 39 4b 72 39 d6 8f 59 d6 78 88 f0 78 86 7f f9 86 fa fb 01 fa e4 d9 3d e4 2b 7d 56 2b a9 0e a7 a9 1e 22 3c 1e 89 6e e7 89 60 a0 c0 60 6b bd d6 6b ea cb 21 ea 55 ff aa 55 4c d4 98 4c f7 ec 1b f7 e2 d3 31 e2 b1 b1 26 97 ce ce a7 69 c3 c3 b0 73 95 95 4a df 5a 5a ee b4 ad ad 02 af e7 e7 dc 3b 02 02 06 04 4d 4d d7 9a 44 44 cc 88 fb fb f8 03 91 91 46 d7 0c 0c 14 18 87 87 7c fb a1 a1 16 b7 50 50 f0 a0 cb cb a8 63 67 67 a9 ce 54 54 fc a8 dd dd 92 4f 46 46 ca 8c 8f 8f 64 eb e1 e1 d6 37 4e 4e d2 9c f0 f0 e5 15 fd fd f2 0f fc fc f1 0d eb eb c8 23 f9 f9 fe 07 c4 c4 b9 7d 1a 1a 2e 34 6e 6e b2 dc 5e 5e e2 bc f5 f5 ea 1f cc cc a1 6d 8d 8d 62 ef 1c 1c 24 38 56 56 fa ac 43 43 c5 86 fe fe f7 09 07 07 09 0e 61 61 a3 c2 f8 f8 fd 05 75 75 9f ea 59 59 eb b2 ff ff f4 0b 03 03 05 06 22 22 66 44 8a 8a 6b e1 d1 d1 86 57 13 13 35 26 ee ee c7 29 88 88 6d e5 00 00 00 00 0e 0e 12 1c 34 34 5c 68 15 15 3f 2a 80 80 75 f5 94 94 49 dd e3 e3 d0 33 ed ed c2 2f b5 b5 2a 9f 53 53 f5 a6 23 23 65 46 4b 4b dd 96 47 47 c9 8e 17 17 39 2e a7 a7 1c bb 90 90 45 d5 35 35 5f 6a ab ab 08 a3 d8 d8 9d 45 b8 b8 3d 85 df df 94 4b 4f 4f d1 9e 57 57 f9 ae 9a 9a 5b c1 92 92 43 d1 db db 98 43 1b 1b 2d 36 3c 3c 44 78 c8 c8 ad 65 99 99 5e c7 04 04 0c 08 8e 8e 67 e9 e0 e0 d5 35 d7 d7 8c 5b 7d 7d 87 fa 85 85 7a ff bb bb 38 83 40 40 c0 80 2c 2c 74 58 3a 3a 4e 74 45 45 cf 8a f1 f1 e6 17 42 42 c6 84 65 65 af ca 20 20 60 40 41 41 c3 82 18 18 28 30 72 72 96 e4 25 25 6f 4a 93 93 40 d3 70 70 90 e0 36 36 5a 6c 05 05 0f 0a f2 f2 e3 11 0b 0b 1d 16 a3 a3 10 b3 79 79 8b f2 ec ec c1 2d 08 08 18 10 27 27 69 4e 31 31 53 62 32 32 56 64 b6 b6 2f 99 7c 7c 84 f8 b0 b0 25 95 0a 0a 1e 14 73 73 95 e6 5b 5b ed b6 7b 7b 8d f6 b7 b7 2c 9b 81 81 76 f7 d2 d2 83 51 0d 0d 17 1a 6a 6a be d4 26 26 6a 4c 9e 9e 57 c9 58 58 e8 b0 9c 9c 51 cd 83 83 70 f3 74 74 9c e8 b3 b3 20 93 ac ac 01 ad 30 30 50 60 7a 7a 8e f4 69 69 bb d2 77 77 99 ee 0f 0f 11 1e ae ae 07 a9 21 21 63 42 de de 97 49 d0 d0 85 55 2e 2e 72 5c 97 97 4c db 10 10 30 20 a4 a4 19 bd 98 98 5d c5 a8 a8 0d a5 d4 d4 89 5d 68 68 b8 d0 2d 2d 77 5a 62 62 a6 c4 29 29 7b 52 6d 6d b7 da 16 16 3a 2c 49 49 db 92 76 76 9a ec c7 c7 bc 7b e8 e8 cd 25 c1 c1 b6 77 96 96 4f d9 37 37 59 6e e5 e5 da 3f ca ca ab 61 f4 f4 e9 1d e9 e9 ce 27 63 63 a5 c6 12 12 36 24 c2 c2 b3 71 a6 a6 1f b9 14 14 3c 28 bc bc 31 8d d3 d3 80 53 28 28 78 50 af af 04 ab 2f 2f 71 5e e6 e6 df 39 24 24 6c 48 52 52 f6 a4 c6 c6 bf 79 a0 a0 15 b5 09 09 1b 12 bd bd 32 8f 8c 8c 61 ed cf cf a4 6b 5d 5d e7 ba 11 11 33 22 5f 5f e1 be 01 01 03 02 c5 c5 ba 7f 9f 9f 54 cb 3d 3d 47 7a a2 a2 13 b1 9b 9b 58 c3 c9 c9 ae 67 3b 3b 4d 76 be be 37 89 51 51 f3 a2 19 19 2b 32 1f 1f 21 3e 3f 3f 41 7e 5c 5c e4 b8 b2 b2 23 91 ef ef c4 2b 4a 4a de 94 cd cd a2 6f bf bf 34 8b ba ba 3b 81 6f 6f b1 de 64 64 ac c8 d9 d9 9e 47 f3 f3 e0 13 3e 3e 42 7c b4 b4 29 9d aa aa 0b a1 dc dc 91 4d d5 d5 8a 5f 06 06 0a 0c c0 c0 b5 75 7e 7e 82 fc f6 f6 ef 19 66 66 aa cc 6c 6c b4 d8 84 84 79 fd 71 71 93 e2 38 38 48 70 b9 b9 3e 87 1d 1d 27 3a 7f 7f 81 fe 9d 9d 52 cf 48 48 d8 90 8b 8b 68 e3 2a 2a 7e 54 da da 9b 41 a5 a5 1a bf 33 33 55 66 82 82 73 f1 39 39 4b 72 d6 d6 8f 59 78 78 88 f0 86 86 7f f9 fa fa fb 01 e4 e4 d9 3d 2b 2b 7d 56 a9 a9 0e a7 1e 1e 22 3c 89 89 6e e7 60 60 a0 c0 6b 6b bd d6 ea ea cb 21 55 55 ff aa 4c 4c d4 98 f7 f7 ec 1b e2 e2 d3 31 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab9__16_lil_142_ {
+  strings:
+    $a0 = { C1 FF CB FF D7 FF E3 FF ED FF F5 FF FB FF FD FF FF FF 55 00 45 00 35 00 FF FF 53 00 FF FF 54 00 05 00 FD FF FF FF 44 00 25 00 FF FF 52 00 15 00 FD FF FF FF 51 00 34 00 FF FF 43 00 FF FF 50 00 04 00 F9 FF FD FF FF FF 24 00 42 00 FF FF 33 00 40 00 FF FF 14 00 41 00 FB FF FD FF FF FF 23 00 32 00 13 00 FF FF 31 00 FF FF 03 00 30 00 FB FF FD FF FF FF 22 00 02 00 12 00 FF FF 21 00 20 00 FD FF FF FF 11 00 01 00 FF FF 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule YUV_to_RGB_dither_8x8_220__8_byt_64_ {
+  strings:
+    $a0 = { 75 3e 9e 67 71 3a 9b 64 22 c7 15 ba 1f c4 11 b6 90 59 83 4c 8d 56 7f 48 00 a5 29 ce 0a af 34 d9 6e 37 97 60 78 41 a2 6b 1c c1 0e b3 26 cb 18 bd 8a 53 7c 45 94 5d 86 4f 07 ac 30 d5 03 a8 2d d2 }
+
+  condition:
+    $a0
+}
+
+
+rule CRC_64_ECMA_182_poly_0x42F0E1EBA9EA3693__64_lil_refl_False_ {
+  strings:
+    $a0 = { 00 00 00 00 00 00 00 00 93 36 ea a9 eb e1 f0 42 26 6d d4 53 d7 c3 e1 85 b5 5b 3e fa 3c 22 11 c7 df ec 42 0e 45 66 33 49 4c da a8 a7 ae 87 c3 0b f9 81 96 5d 92 a5 d2 cc 6a b7 7c f4 79 44 22 8e be d9 85 1c 8a cc 66 92 2d ef 6f b5 61 2d 96 d0 98 b4 51 4f 5d 0f 87 17 0b 82 bb e6 b6 ee 77 55 61 35 c7 12 cf aa 55 db f2 03 2d bb 24 4b a5 99 47 58 13 41 18 69 b4 5e d4 6e f9 e8 f3 88 44 1c ef 85 e1 90 ff 78 3d 66 7c b3 0b 39 14 99 cd 24 c9 e8 35 c3 28 bb dc e3 5a de df 6a c3 5a 2c a1 30 69 a3 9e ba 1e 0e 2f a3 5f 49 37 51 ff fe 6d 16 04 77 cd 6d dd ef aa 85 32 9d 64 86 3c 1f e8 51 5c 64 8c 75 b4 5b f4 c2 6a 8e 25 9e 55 ab b6 77 31 b0 df a2 77 ba 71 e4 07 5a 76 49 96 4a 33 8e b0 26 82 30 d2 68 bd 1d 86 cc 2b db 33 98 ff a8 dd f2 d1 e7 11 89 38 3b eb 18 78 0c f0 79 7a de 0b c3 21 ff f1 7a cc 4d 3d 29 88 14 10 8a 8e f8 66 17 72 28 32 9b 49 6b 50 fd db c3 d3 6b 0b 01 e7 81 2f ba 97 49 85 92 d1 6b 86 51 76 b9 c7 27 8a 55 7c 6d 54 a8 00 b4 bc bf d5 86 b5 58 42 60 d2 46 3d 75 3d 1c 5e f3 e4 ac 94 9e dc ec 1c 46 bf 92 6e a2 fe fd db d5 89 78 c7 49 1f 0d 99 bf 3e 04 33 30 5b 2f 17 2c 08 ee 9a db ba df 55 99 53 d0 60 e7 98 ce 92 0a 65 3a c9 0c 79 3e d0 31 8e 22 b1 00 89 47 aa a2 b8 c8 18 eb 68 b7 e8 17 e3 f6 e2 d7 4a a6 2f 84 d5 1c 4b 3c ab 56 6d ee 62 60 bf 45 ef 74 e3 7d 54 8a 16 ae 0e 84 a1 c8 0f b4 ec 92 2c 95 66 5b 39 5e 45 79 cd 65 24 8f 57 a7 ad 8a 45 21 38 1c 61 4d 04 61 a4 d1 7a a9 3a 73 fe 5d 86 c0 bd 3a 0c 99 57 b6 67 30 ff 50 bb e5 a3 cf 23 12 71 c3 8d 0f 0a 24 c2 e2 33 76 d6 31 f0 18 e0 f3 f4 e5 e0 db 59 f3 01 03 b6 2f 21 6c ea 15 02 05 da bc 17 86 43 fe e3 f5 98 09 4c b8 b9 c2 c1 e4 5f 9a 7a 52 10 29 20 14 1d f0 cd 2e e4 50 64 36 93 63 fb c4 4d bb 85 c6 d1 d6 a0 fa b7 87 a7 d7 16 45 96 10 1e 6c 46 27 54 91 f8 e9 f6 9f ce 63 48 02 ce 03 5f 74 2f 93 0a b7 95 3d a5 48 0d 82 cd 24 a3 d7 0c a3 ec 72 8f 4e 14 ab f8 da a8 50 01 dd 22 41 51 31 49 a0 43 68 79 7f ab 0d 6b b1 84 fb 4f 95 02 e6 8a 41 c6 c0 a4 8d 7a ea 7a 38 bc 53 92 67 d3 01 9b c8 fe e6 c9 59 29 3d b9 d9 39 75 ff b3 80 d6 58 29 7b 1f 48 cf 74 af 1c 0b f5 8c 7e 25 dd 44 fd fb b7 39 25 1b 27 78 df ea 70 aa 13 f1 8e 93 3e 1a 32 7e 7d 08 66 60 b6 5e 2e ed 4b e2 cf 8b 57 ae 6c 58 10 dc 35 b7 75 bf ab cb 26 36 9c 5c 94 4f e9 a1 91 4a 68 25 d0 6d 67 32 a7 a0 c1 ce 31 9d 25 87 fc 9e 3b f2 13 8c e2 14 ca 74 92 19 f2 7c a0 f1 2a af cb ea f3 7f 16 62 1c 45 62 01 12 8f 54 d7 47 7b 98 3d 30 9e 93 44 71 91 31 d6 d1 6e d1 2e c6 ed c5 af 95 4c 5f bd f0 07 6c 44 74 bc 1d 08 ab 39 96 78 56 ad da 9b 9d d3 3f 93 b7 5d 98 4f f3 2a d7 60 3f 19 84 dc c5 c0 7e 8b de e9 c6 69 9e fe 84 b7 fc f8 01 fa a8 14 2d 5c 1d 08 43 90 1f 68 d9 25 59 2a cd 03 29 82 70 ce b8 da 8f b6 72 bc 8a f2 9a cb 48 25 44 56 23 19 7b 3b 0a 1e af 4e 5b 15 8b 42 70 8d 99 a4 f2 fe 6a b2 32 38 c2 9a 08 c2 48 a3 f5 ab f4 70 a1 29 a9 53 b7 c1 43 0c 55 50 ed 71 39 52 75 e6 fc bb 0c 81 7b e7 2e d8 06 87 2e 90 bc 74 18 32 af 6c cf 60 fe a0 76 cb 47 9f 47 24 e2 33 40 21 ee 74 a6 d4 a0 86 1b 1f 14 48 84 c5 67 15 2d f5 bd a3 65 35 25 7f 9a 89 49 da 21 17 ab ec ac 63 e0 31 c0 e7 e9 59 f7 5d 1a 0d e2 f6 2e ca c1 b7 b3 e6 03 06 6c cd 74 32 7d c0 e5 fa f6 5e 42 d8 d4 2b 04 0a b4 eb 19 e6 2e 17 26 1b 73 78 2f 0c 87 fc c7 eb 31 12 98 70 73 85 83 c9 bf 81 ae 9a da 6e 62 39 fd 34 f5 a4 20 52 40 28 3a a7 c3 4e 89 b9 a1 d8 78 73 ad b7 61 4a 29 9c 64 e0 9b 5d c8 a1 c8 6c 26 55 c0 63 32 9d ea 7d e1 c6 f6 89 9b 76 0b 8d a3 ac 41 f5 6f 0f 4f af 2d 3f 77 1f c6 e4 ae 5f 6f 8a 2c 21 3c d8 8c 4e a8 19 1a cb 95 33 6d be ea 22 f1 d3 ed 3f 9d c7 90 b1 c7 39 44 d4 7c 37 d2 04 9c 07 be e8 5e 26 15 97 aa ed 17 03 bf d6 57 fd 1d 91 e3 7a fb f4 d9 6e 2b 7b 4a 91 1a 04 9b db 70 45 b0 ad 38 15 5c 48 46 af 19 46 d9 e5 1e 9c 28 56 f1 b5 51 a1 02 0f 1e bc 58 5e b0 51 40 ba 45 82 a2 62 92 40 87 29 73 68 0b 89 73 b0 c5 43 c4 14 ff f0 37 92 4b d0 f2 fe 56 1b d6 62 09 65 a9 c0 ac 27 f4 73 ce f6 9f 2a 05 cc 15 83 8c 13 7f f1 5c 3f 14 80 3a 80 49 1b f5 d4 f5 70 78 35 12 25 0f e8 d7 61 bf a6 24 cf a6 03 36 91 fd cc 93 b3 52 7a 72 b3 73 5f a5 59 fb 91 93 43 31 ea fe 67 01 ad b1 52 f6 79 c8 8d a8 46 50 a2 b4 ad a6 74 40 b5 d8 e6 a8 3e 90 9e e9 5e 39 16 ea 8b cb a0 13 62 1b 07 2d 18 fd 4a ba 89 fa f7 6f 72 4a 36 4e f0 be d5 e1 e1 7c dc e7 1b 5f 25 a3 54 27 e2 1d 27 7d 34 64 c7 11 08 b4 cc 9c c4 26 fc fa 10 cc c0 6c bd 5c 6f cc fa 65 2b 8d 4d 1e da 97 c4 9f 17 af 5c d9 49 a1 2e 36 fc 4e ac 9b 23 16 52 c2 85 0a 8e 15 b0 20 b8 6b 6e eb 7e 57 05 7b 86 91 52 c9 6f 90 96 4d 6c 38 b9 28 9f d2 42 23 95 d0 4a a0 db ce d1 15 7f 79 a1 41 2b 8c 64 4e 41 83 9d 63 3a 4b f7 78 ab 2a 76 82 ca 09 9d cf d7 de 0f c6 e8 87 0e f9 3d 77 e4 27 18 c5 bb a2 03 8d d8 05 09 02 28 94 e9 24 33 e4 f9 40 e2 55 5e 97 d5 e7 ff 2c 71 63 b4 3e 3e 06 0f 6e c4 38 8a c4 02 24 1e a9 57 0e 60 6d e9 c5 ee eb 3d b9 1c 99 90 81 cc 65 ae 8f f6 30 7b 60 3c 27 1b d4 c8 ca 47 42 2d e0 88 e2 22 63 ac a3 dd a2 5c 8c db 8b 5f 2b 99 be cf ba 31 22 b4 ca 69 fc 7a e1 0f d8 88 e8 78 3b e9 d7 e5 71 63 09 88 79 83 60 99 85 1a 4d aa f7 10 56 73 2c f1 ac 5a b5 a5 0d 4d d6 cd 8e 4b 72 36 3b a7 7f 26 6f bb 30 0d d0 bf 07 2a 9f c2 4a 9e e6 55 ae c1 7e 32 08 2b bd 6b 54 fd 5c 23 cf b8 8b 81 fd 16 bd d3 8d d2 3c fd 09 6f f9 f1 03 41 0a 17 a0 84 18 01 41 f4 51 29 5a b8 3a 10 86 67 67 c3 f3 53 db e0 c4 b3 09 3a 1b a0 53 a4 d8 20 3f d0 b2 4b b2 54 9a 95 64 ee 48 77 90 45 5d 06 52 04 e1 9c 71 b5 1f 6c e5 78 15 e5 35 97 91 ff d3 92 bc 0e d4 67 d3 4a 88 ac 46 32 f6 76 14 d9 be 46 ef d9 17 86 56 3c 5e 9d b6 2a 16 85 e0 af 68 77 1f c1 f7 75 a2 1a 33 49 e5 fd d5 64 65 89 05 a3 4c 16 34 94 27 e3 b2 df b8 6f 70 b6 a9 70 84 35 11 84 91 46 eb c5 df 0b eb b8 b3 57 2c 56 e9 e1 42 53 52 a7 6e 82 87 18 aa a0 da e3 72 11 b1 f2 03 4b 3b 13 30 a4 ea cc f9 77 19 02 f7 37 dc 26 50 9c f8 f2 b5 5d 6b 5a a4 e5 bc d0 3b ce 5d b0 0d 0e 5d 20 79 7b 06 8e f7 32 7f 31 be e8 30 64 5e d9 9e c1 fc d3 db 7c 26 d5 6e b8 86 40 ed 96 8f 3e 8f 48 c4 f5 b6 a8 75 02 ad 59 03 66 80 42 dc e9 4c a9 41 0c 37 3e 28 90 08 8b cf 9f 01 d4 81 7b e9 7b 8d 2a 5a ea 7b 47 cb 6a 4a b9 6c 00 d2 ac 2a 9a 08 6d 02 f9 3a 5f a2 de 14 fe 34 13 93 b4 43 2e 56 4b 6f 2d 69 88 61 3f 91 d8 59 c7 c0 63 80 cf d3 b2 ee bb 34 1a c4 ed 5d 21 d8 51 9d f1 25 1d 1f 94 83 6f 67 cd 07 0c d8 07 b5 85 ce 26 e6 fc 9a }
+
+  condition:
+    $a0
+}
+
+
+rule Whirlpool_C0__64_big_2048_ {
+  strings:
+    $a0 = { 18 18 28 18 78 c0 d8 78 23 23 65 23 af 05 26 af c6 c6 57 c6 f9 7e b8 f9 e8 e8 25 e8 6f 13 fb 6f 87 87 94 87 a1 4c cb a1 b8 b8 d5 b8 62 a9 11 62 01 01 03 01 05 08 09 05 4f 4f d1 4f 6e 42 0d 6e 36 36 5a 36 ee ad 9b ee a6 a6 f7 a6 04 59 ff 04 d2 d2 6b d2 bd de 0c bd f5 f5 02 f5 06 fb 0e 06 79 79 8b 79 80 ef 96 80 6f 6f b1 6f ce 5f 30 ce 91 91 ae 91 ef fc 6d ef 52 52 f6 52 07 aa f8 07 60 60 a0 60 fd 27 47 fd bc bc d9 bc 76 89 35 76 9b 9b b0 9b cd ac 37 cd 8e 8e 8f 8e 8c 04 8a 8c a3 a3 f8 a3 15 71 d2 15 0c 0c 14 0c 3c 60 6c 3c 7b 7b 8d 7b 8a ff 84 8a 35 35 5f 35 e1 b5 80 e1 1d 1d 27 1d 69 e8 f5 69 e0 e0 3d e0 47 53 b3 47 d7 d7 64 d7 ac f6 21 ac c2 c2 5b c2 ed 5e 9c ed 2e 2e 72 2e 96 6d 43 96 4b 4b dd 4b 7a 62 29 7a fe fe 1f fe 21 a3 5d 21 57 57 f9 57 16 82 d5 16 15 15 3f 15 41 a8 bd 41 77 77 99 77 b6 9f e8 b6 37 37 59 37 eb a5 92 eb e5 e5 32 e5 56 7b 9e 56 9f 9f bc 9f d9 8c 13 d9 f0 f0 0d f0 17 d3 23 17 4a 4a de 4a 7f 6a 20 7f da da 73 da 95 9e 44 95 58 58 e8 58 25 fa a2 25 c9 c9 46 c9 ca 06 cf ca 29 29 7b 29 8d 55 7c 8d 0a 0a 1e 0a 22 50 5a 22 b1 b1 ce b1 4f e1 50 4f a0 a0 fd a0 1a 69 c9 1a 6b 6b bd 6b da 7f 14 da 85 85 92 85 ab 5c d9 ab bd bd da bd 73 81 3c 73 5d 5d e7 5d 34 d2 8f 34 10 10 30 10 50 80 90 50 f4 f4 01 f4 03 f3 07 03 cb cb 40 cb c0 16 dd c0 3e 3e 42 3e c6 ed d3 c6 05 05 0f 05 11 28 2d 11 67 67 a9 67 e6 1f 78 e6 e4 e4 31 e4 53 73 97 53 27 27 69 27 bb 25 02 bb 41 41 c3 41 58 32 73 58 8b 8b 80 8b 9d 2c a7 9d a7 a7 f4 a7 01 51 f6 01 7d 7d 87 7d 94 cf b2 94 95 95 a2 95 fb dc 49 fb d8 d8 75 d8 9f 8e 56 9f fb fb 10 fb 30 8b 70 30 ee ee 2f ee 71 23 cd 71 7c 7c 84 7c 91 c7 bb 91 66 66 aa 66 e3 17 71 e3 dd dd 7a dd 8e a6 7b 8e 17 17 39 17 4b b8 af 4b 47 47 c9 47 46 02 45 46 9e 9e bf 9e dc 84 1a dc ca ca 43 ca c5 1e d4 c5 2d 2d 77 2d 99 75 58 99 bf bf dc bf 79 91 2e 79 07 07 09 07 1b 38 3f 1b ad ad ea ad 23 01 ac 23 5a 5a ee 5a 2f ea b0 2f 83 83 98 83 b5 6c ef b5 33 33 55 33 ff 85 b6 ff 63 63 a5 63 f2 3f 5c f2 02 02 06 02 0a 10 12 0a aa aa e3 aa 38 39 93 38 71 71 93 71 a8 af de a8 c8 c8 45 c8 cf 0e c6 cf 19 19 2b 19 7d c8 d1 7d 49 49 db 49 70 72 3b 70 d9 d9 76 d9 9a 86 5f 9a f2 f2 0b f2 1d c3 31 1d e3 e3 38 e3 48 4b a8 48 5b 5b ed 5b 2a e2 b9 2a 88 88 85 88 92 34 bc 92 9a 9a b3 9a c8 a4 3e c8 26 26 6a 26 be 2d 0b be 32 32 56 32 fa 8d bf fa b0 b0 cd b0 4a e9 59 4a e9 e9 26 e9 6a 1b f2 6a 0f 0f 11 0f 33 78 77 33 d5 d5 62 d5 a6 e6 33 a6 80 80 9d 80 ba 74 f4 ba be be df be 7c 99 27 7c cd cd 4a cd de 26 eb de 34 34 5c 34 e4 bd 89 e4 48 48 d8 48 75 7a 32 75 ff ff 1c ff 24 ab 54 24 7a 7a 8e 7a 8f f7 8d 8f 90 90 ad 90 ea f4 64 ea 5f 5f e1 5f 3e c2 9d 3e 20 20 60 20 a0 1d 3d a0 68 68 b8 68 d5 67 0f d5 1a 1a 2e 1a 72 d0 ca 72 ae ae ef ae 2c 19 b7 2c b4 b4 c1 b4 5e c9 7d 5e 54 54 fc 54 19 9a ce 19 93 93 a8 93 e5 ec 7f e5 22 22 66 22 aa 0d 2f aa 64 64 ac 64 e9 07 63 e9 f1 f1 0e f1 12 db 2a 12 73 73 95 73 a2 bf cc a2 12 12 36 12 5a 90 82 5a 40 40 c0 40 5d 3a 7a 5d 08 08 18 08 28 40 48 28 c3 c3 58 c3 e8 56 95 e8 ec ec 29 ec 7b 33 df 7b db db 70 db 90 96 4d 90 a1 a1 fe a1 1f 61 c0 1f 8d 8d 8a 8d 83 1c 91 83 3d 3d 47 3d c9 f5 c8 c9 97 97 a4 97 f1 cc 5b f1 00 00 00 00 00 00 00 00 cf cf 4c cf d4 36 f9 d4 2b 2b 7d 2b 87 45 6e 87 76 76 9a 76 b3 97 e1 b3 82 82 9b 82 b0 64 e6 b0 d6 d6 67 d6 a9 fe 28 a9 1b 1b 2d 1b 77 d8 c3 77 b5 b5 c2 b5 5b c1 74 5b af af ec af 29 11 be 29 6a 6a be 6a df 77 1d df 50 50 f0 50 0d ba ea 0d 45 45 cf 45 4c 12 57 4c f3 f3 08 f3 18 cb 38 18 30 30 50 30 f0 9d ad f0 ef ef 2c ef 74 2b c4 74 3f 3f 41 3f c3 e5 da c3 55 55 ff 55 1c 92 c7 1c a2 a2 fb a2 10 79 db 10 ea ea 23 ea 65 03 e9 65 65 65 af 65 ec 0f 6a ec ba ba d3 ba 68 b9 03 68 2f 2f 71 2f 93 65 4a 93 c0 c0 5d c0 e7 4e 8e e7 de de 7f de 81 be 60 81 1c 1c 24 1c 6c e0 fc 6c fd fd 1a fd 2e bb 46 2e 4d 4d d7 4d 64 52 1f 64 92 92 ab 92 e0 e4 76 e0 75 75 9f 75 bc 8f fa bc 06 06 0a 06 1e 30 36 1e 8a 8a 83 8a 98 24 ae 98 b2 b2 cb b2 40 f9 4b 40 e6 e6 37 e6 59 63 85 59 0e 0e 12 0e 36 70 7e 36 1f 1f 21 1f 63 f8 e7 63 62 62 a6 62 f7 37 55 f7 d4 d4 61 d4 a3 ee 3a a3 a8 a8 e5 a8 32 29 81 32 96 96 a7 96 f4 c4 52 f4 f9 f9 16 f9 3a 9b 62 3a c5 c5 52 c5 f6 66 a3 f6 25 25 6f 25 b1 35 10 b1 59 59 eb 59 20 f2 ab 20 84 84 91 84 ae 54 d0 ae 72 72 96 72 a7 b7 c5 a7 39 39 4b 39 dd d5 ec dd 4c 4c d4 4c 61 5a 16 61 5e 5e e2 5e 3b ca 94 3b 78 78 88 78 85 e7 9f 85 38 38 48 38 d8 dd e5 d8 8c 8c 89 8c 86 14 98 86 d1 d1 6e d1 b2 c6 17 b2 a5 a5 f2 a5 0b 41 e4 0b e2 e2 3b e2 4d 43 a1 4d 61 61 a3 61 f8 2f 4e f8 b3 b3 c8 b3 45 f1 42 45 21 21 63 21 a5 15 34 a5 9c 9c b9 9c d6 94 08 d6 1e 1e 22 1e 66 f0 ee 66 43 43 c5 43 52 22 61 52 c7 c7 54 c7 fc 76 b1 fc fc fc 19 fc 2b b3 4f 2b 04 04 0c 04 14 20 24 14 51 51 f3 51 08 b2 e3 08 99 99 b6 99 c7 bc 25 c7 6d 6d b7 6d c4 4f 22 c4 0d 0d 17 0d 39 68 65 39 fa fa 13 fa 35 83 79 35 df df 7c df 84 b6 69 84 7e 7e 82 7e 9b d7 a9 9b 24 24 6c 24 b4 3d 19 b4 3b 3b 4d 3b d7 c5 fe d7 ab ab e0 ab 3d 31 9a 3d ce ce 4f ce d1 3e f0 d1 11 11 33 11 55 88 99 55 8f 8f 8c 8f 89 0c 83 89 4e 4e d2 4e 6b 4a 04 6b b7 b7 c4 b7 51 d1 66 51 eb eb 20 eb 60 0b e0 60 3c 3c 44 3c cc fd c1 cc 81 81 9e 81 bf 7c fd bf 94 94 a1 94 fe d4 40 fe f7 f7 04 f7 0c eb 1c 0c b9 b9 d6 b9 67 a1 18 67 13 13 35 13 5f 98 8b 5f 2c 2c 74 2c 9c 7d 51 9c d3 d3 68 d3 b8 d6 05 b8 e7 e7 34 e7 5c 6b 8c 5c 6e 6e b2 6e cb 57 39 cb c4 c4 51 c4 f3 6e aa f3 03 03 05 03 0f 18 1b 0f 56 56 fa 56 13 8a dc 13 44 44 cc 44 49 1a 5e 49 7f 7f 81 7f 9e df a0 9e a9 a9 e6 a9 37 21 88 37 2a 2a 7e 2a 82 4d 67 82 bb bb d0 bb 6d b1 0a 6d c1 c1 5e c1 e2 46 87 e2 53 53 f5 53 02 a2 f1 02 dc dc 79 dc 8b ae 72 8b 0b 0b 1d 0b 27 58 53 27 9d 9d ba 9d d3 9c 01 d3 6c 6c b4 6c c1 47 2b c1 31 31 53 31 f5 95 a4 f5 74 74 9c 74 b9 87 f3 b9 f6 f6 07 f6 09 e3 15 09 46 46 ca 46 43 0a 4c 43 ac ac e9 ac 26 09 a5 26 89 89 86 89 97 3c b5 97 14 14 3c 14 44 a0 b4 44 e1 e1 3e e1 42 5b ba 42 16 16 3a 16 4e b0 a6 4e 3a 3a 4e 3a d2 cd f7 d2 69 69 bb 69 d0 6f 06 d0 09 09 1b 09 2d 48 41 2d 70 70 90 70 ad a7 d7 ad b6 b6 c7 b6 54 d9 6f 54 d0 d0 6d d0 b7 ce 1e b7 ed ed 2a ed 7e 3b d6 7e cc cc 49 cc db 2e e2 db 42 42 c6 42 57 2a 68 57 98 98 b5 98 c2 b4 2c c2 a4 a4 f1 a4 0e 49 ed 0e 28 28 78 28 88 5d 75 88 5c 5c e4 5c 31 da 86 31 f8 f8 15 f8 3f 93 6b 3f 86 86 97 86 a4 44 c2 a4 }
+
+  condition:
+    $a0
+}
+
+
+rule YUV_to_RGB_Inverse_Table_6_9__32_lil_128_ {
+  strings:
+    $a0 = { 00 cb 01 00 d5 1c 02 00 82 36 00 00 57 88 00 00 00 cb 01 00 d5 1c 02 00 82 36 00 00 57 88 00 00 95 98 01 00 69 04 02 00 4b 64 00 00 1f d0 00 00 95 98 01 00 69 04 02 00 4b 64 00 00 1f d0 00 00 00 98 01 00 be 06 02 00 b7 60 00 00 75 cf 00 00 95 98 01 00 69 04 02 00 4b 64 00 00 1f d0 00 00 95 98 01 00 69 04 02 00 4b 64 00 00 1f d0 00 00 4b cb 01 00 26 14 02 00 0b 42 00 00 e7 8a 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_G729_cb_ma_predictor__16_lil_160_ {
+  strings:
+    $a0 = { e5 20 95 23 d7 23 05 23 4a 23 61 23 3d 22 47 22 92 23 e1 21 6a 1b 15 1c d6 1d 8b 1c 14 1d d3 1c 7e 1b 2c 1b 12 1b d4 1a 60 15 7e 13 0e 14 39 14 7e 14 15 14 56 14 e7 13 de 12 1b 14 d8 0f d7 0b 36 0a d0 0b 64 0b 99 0a ed 0c a5 0c 29 0b 91 0d 35 1e c8 1e fc 1f ef 1f 37 20 2a 21 bd 21 99 21 a7 20 91 1d 72 10 d7 0b f8 09 91 0d 24 0f 0d 0f 58 10 3a 10 45 0f 80 0f 8e 0c 8a 07 21 05 5f 08 bd 09 51 09 c3 0a 92 0a ee 09 67 0b d0 0b 38 06 ac 03 5f 06 bb 06 2b 06 f2 07 24 08 79 07 29 0a }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab10__16_lil_254_ {
+  strings:
+    $a0 = { 83 FF 87 FF 91 FF AD FF C9 FF DD FF EB FF F3 FF F9 FF FD FF FF FF 77 00 67 00 FF FF 76 00 57 00 FD FF FF FF 75 00 66 00 47 00 FD FF FF FF 74 00 56 00 FF FF 65 00 37 00 F7 FF FD FF FF FF 73 00 46 00 FD FF FF FF 55 00 54 00 63 00 FF FF 27 00 72 00 F5 FF FB FF FD FF FF FF 64 00 07 00 70 00 FF FF 62 00 FF FF 45 00 35 00 FB FF FF FF 06 00 FF FF 53 00 44 00 17 00 EF FF FB FF FF FF 71 00 FF FF 36 00 26 00 FB FF FD FF FF FF 25 00 52 00 15 00 FF FF 51 00 FF FF 34 00 43 00 FD FF FF FF 16 00 61 00 FF FF 60 00 FF FF 05 00 50 00 ED FF F5 FF F9 FF FD FF FF FF 24 00 42 00 FF FF 33 00 04 00 FF FF 14 00 41 00 FD FF FF FF 40 00 23 00 FF FF 32 00 03 00 FD FF FF FF 13 00 31 00 FF FF 30 00 22 00 F9 FF FD FF FF FF 12 00 21 00 FF FF 02 00 20 00 11 00 FF FF 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule MPEG_2_NBC_Fraunhofer_sfb_16_120__16_big_30_ {
+  strings:
+    $a0 = { 00 04 00 08 00 0c 00 10 00 14 00 18 00 1c 00 20 00 28 00 30 00 3c 00 48 00 58 00 6c 00 78 }
+
+  condition:
+    $a0
+}
+
+
+rule HAVAL_wi4__32_big_128_ {
+  strings:
+    $a0 = { 00 00 00 18 00 00 00 04 00 00 00 00 00 00 00 0e 00 00 00 02 00 00 00 07 00 00 00 1c 00 00 00 17 00 00 00 1a 00 00 00 06 00 00 00 1e 00 00 00 14 00 00 00 12 00 00 00 19 00 00 00 13 00 00 00 03 00 00 00 16 00 00 00 0b 00 00 00 1f 00 00 00 15 00 00 00 08 00 00 00 1b 00 00 00 0c 00 00 00 09 00 00 00 01 00 00 00 1d 00 00 00 05 00 00 00 0f 00 00 00 11 00 00 00 0a 00 00 00 10 00 00 00 0d }
+
+  condition:
+    $a0
+}
+
+
+rule HAVAL_wi4__32_lil_128_ {
+  strings:
+    $a0 = { 18 00 00 00 04 00 00 00 00 00 00 00 0e 00 00 00 02 00 00 00 07 00 00 00 1c 00 00 00 17 00 00 00 1a 00 00 00 06 00 00 00 1e 00 00 00 14 00 00 00 12 00 00 00 19 00 00 00 13 00 00 00 03 00 00 00 16 00 00 00 0b 00 00 00 1f 00 00 00 15 00 00 00 08 00 00 00 1b 00 00 00 0c 00 00 00 09 00 00 00 01 00 00 00 1d 00 00 00 05 00 00 00 0f 00 00 00 11 00 00 00 0a 00 00 00 10 00 00 00 0d 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule CRC_32_IEEE_802_3_poly_0x04C11DB7__32_big_refl_False_ {
+  strings:
+    $a0 = { 00 00 00 00 04 c1 1d b7 09 82 3b 6e 0d 43 26 d9 13 04 76 dc 17 c5 6b 6b 1a 86 4d b2 1e 47 50 05 26 08 ed b8 22 c9 f0 0f 2f 8a d6 d6 2b 4b cb 61 35 0c 9b 64 31 cd 86 d3 3c 8e a0 0a 38 4f bd bd 4c 11 db 70 48 d0 c6 c7 45 93 e0 1e 41 52 fd a9 5f 15 ad ac 5b d4 b0 1b 56 97 96 c2 52 56 8b 75 6a 19 36 c8 6e d8 2b 7f 63 9b 0d a6 67 5a 10 11 79 1d 40 14 7d dc 5d a3 70 9f 7b 7a 74 5e 66 cd 98 23 b6 e0 9c e2 ab 57 91 a1 8d 8e 95 60 90 39 8b 27 c0 3c 8f e6 dd 8b 82 a5 fb 52 86 64 e6 e5 be 2b 5b 58 ba ea 46 ef b7 a9 60 36 b3 68 7d 81 ad 2f 2d 84 a9 ee 30 33 a4 ad 16 ea a0 6c 0b 5d d4 32 6d 90 d0 f3 70 27 dd b0 56 fe d9 71 4b 49 c7 36 1b 4c c3 f7 06 fb ce b4 20 22 ca 75 3d 95 f2 3a 80 28 f6 fb 9d 9f fb b8 bb 46 ff 79 a6 f1 e1 3e f6 f4 e5 ff eb 43 e8 bc cd 9a ec 7d d0 2d 34 86 70 77 30 47 6d c0 3d 04 4b 19 39 c5 56 ae 27 82 06 ab 23 43 1b 1c 2e 00 3d c5 2a c1 20 72 12 8e 9d cf 16 4f 80 78 1b 0c a6 a1 1f cd bb 16 01 8a eb 13 05 4b f6 a4 08 08 d0 7d 0c c9 cd ca 78 97 ab 07 7c 56 b6 b0 71 15 90 69 75 d4 8d de 6b 93 dd db 6f 52 c0 6c 62 11 e6 b5 66 d0 fb 02 5e 9f 46 bf 5a 5e 5b 08 57 1d 7d d1 53 dc 60 66 4d 9b 30 63 49 5a 2d d4 44 19 0b 0d 40 d8 16 ba ac a5 c6 97 a8 64 db 20 a5 27 fd f9 a1 e6 e0 4e bf a1 b0 4b bb 60 ad fc b6 23 8b 25 b2 e2 96 92 8a ad 2b 2f 8e 6c 36 98 83 2f 10 41 87 ee 0d f6 99 a9 5d f3 9d 68 40 44 90 2b 66 9d 94 ea 7b 2a e0 b4 1d e7 e4 75 00 50 e9 36 26 89 ed f7 3b 3e f3 b0 6b 3b f7 71 76 8c fa 32 50 55 fe f3 4d e2 c6 bc f0 5f c2 7d ed e8 cf 3e cb 31 cb ff d6 86 d5 b8 86 83 d1 79 9b 34 dc 3a bd ed d8 fb a0 5a 69 0c e0 ee 6d cd fd 59 60 8e db 80 64 4f c6 37 7a 08 96 32 7e c9 8b 85 73 8a ad 5c 77 4b b0 eb 4f 04 0d 56 4b c5 10 e1 46 86 36 38 42 47 2b 8f 5c 00 7b 8a 58 c1 66 3d 55 82 40 e4 51 43 5d 53 25 1d 3b 9e 21 dc 26 29 2c 9f 00 f0 28 5e 1d 47 36 19 4d 42 32 d8 50 f5 3f 9b 76 2c 3b 5a 6b 9b 03 15 d6 26 07 d4 cb 91 0a 97 ed 48 0e 56 f0 ff 10 11 a0 fa 14 d0 bd 4d 19 93 9b 94 1d 52 86 23 f1 2f 56 0e f5 ee 4b b9 f8 ad 6d 60 fc 6c 70 d7 e2 2b 20 d2 e6 ea 3d 65 eb a9 1b bc ef 68 06 0b d7 27 bb b6 d3 e6 a6 01 de a5 80 d8 da 64 9d 6f c4 23 cd 6a c0 e2 d0 dd cd a1 f6 04 c9 60 eb b3 bd 3e 8d 7e b9 ff 90 c9 b4 bc b6 10 b0 7d ab a7 ae 3a fb a2 aa fb e6 15 a7 b8 c0 cc a3 79 dd 7b 9b 36 60 c6 9f f7 7d 71 92 b4 5b a8 96 75 46 1f 88 32 16 1a 8c f3 0b ad 81 b0 2d 74 85 71 30 c3 5d 8a 90 99 59 4b 8d 2e 54 08 ab f7 50 c9 b6 40 4e 8e e6 45 4a 4f fb f2 47 0c dd 2b 43 cd c0 9c 7b 82 7d 21 7f 43 60 96 72 00 46 4f 76 c1 5b f8 68 86 0b fd 6c 47 16 4a 61 04 30 93 65 c5 2d 24 11 9b 4b e9 15 5a 56 5e 18 19 70 87 1c d8 6d 30 02 9f 3d 35 06 5e 20 82 0b 1d 06 5b 0f dc 1b ec 37 93 a6 51 33 52 bb e6 3e 11 9d 3f 3a d0 80 88 24 97 d0 8d 20 56 cd 3a 2d 15 eb e3 29 d4 f6 54 c5 a9 26 79 c1 68 3b ce cc 2b 1d 17 c8 ea 00 a0 d6 ad 50 a5 d2 6c 4d 12 df 2f 6b cb db ee 76 7c e3 a1 cb c1 e7 60 d6 76 ea 23 f0 af ee e2 ed 18 f0 a5 bd 1d f4 64 a0 aa f9 27 86 73 fd e6 9b c4 89 b8 fd 09 8d 79 e0 be 80 3a c6 67 84 fb db d0 9a bc 8b d5 9e 7d 96 62 93 3e b0 bb 97 ff ad 0c af b0 10 b1 ab 71 0d 06 a6 32 2b df a2 f3 36 68 bc b4 66 6d b8 75 7b da b5 36 5d 03 b1 f7 40 b4 }
+
+  condition:
+    $a0
+}
+
+
+rule CRC_16_CCITT_poly_0x1021__16_lil_refl_True_ {
+  strings:
+    $a0 = { 00 00 89 11 12 23 9b 32 24 46 ad 57 36 65 bf 74 48 8c c1 9d 5a af d3 be 6c ca e5 db 7e e9 f7 f8 81 10 08 01 93 33 1a 22 a5 56 2c 47 b7 75 3e 64 c9 9c 40 8d db bf 52 ae ed da 64 cb ff f9 76 e8 02 21 8b 30 10 02 99 13 26 67 af 76 34 44 bd 55 4a ad c3 bc 58 8e d1 9f 6e eb e7 fa 7c c8 f5 d9 83 31 0a 20 91 12 18 03 a7 77 2e 66 b5 54 3c 45 cb bd 42 ac d9 9e 50 8f ef fb 66 ea fd d8 74 c9 04 42 8d 53 16 61 9f 70 20 04 a9 15 32 27 bb 36 4c ce c5 df 5e ed d7 fc 68 88 e1 99 7a ab f3 ba 85 52 0c 43 97 71 1e 60 a1 14 28 05 b3 37 3a 26 cd de 44 cf df fd 56 ec e9 98 60 89 fb bb 72 aa 06 63 8f 72 14 40 9d 51 22 25 ab 34 30 06 b9 17 4e ef c7 fe 5c cc d5 dd 6a a9 e3 b8 78 8a f1 9b 87 73 0e 62 95 50 1c 41 a3 35 2a 24 b1 16 38 07 cf ff 46 ee dd dc 54 cd eb b9 62 a8 f9 9a 70 8b 08 84 81 95 1a a7 93 b6 2c c2 a5 d3 3e e1 b7 f0 40 08 c9 19 52 2b db 3a 64 4e ed 5f 76 6d ff 7c 89 94 00 85 9b b7 12 a6 ad d2 24 c3 bf f1 36 e0 c1 18 48 09 d3 3b 5a 2a e5 5e 6c 4f f7 7d 7e 6c 0a a5 83 b4 18 86 91 97 2e e3 a7 f2 3c c0 b5 d1 42 29 cb 38 50 0a d9 1b 66 6f ef 7e 74 4c fd 5d 8b b5 02 a4 99 96 10 87 af f3 26 e2 bd d0 34 c1 c3 39 4a 28 d1 1a 58 0b e7 7f 6e 6e f5 5c 7c 4d 0c c6 85 d7 1e e5 97 f4 28 80 a1 91 3a a3 b3 b2 44 4a cd 5b 56 69 df 78 60 0c e9 1d 72 2f fb 3e 8d d6 04 c7 9f f5 16 e4 a9 90 20 81 bb b3 32 a2 c5 5a 4c 4b d7 79 5e 68 e1 1c 68 0d f3 3f 7a 2e 0e e7 87 f6 1c c4 95 d5 2a a1 a3 b0 38 82 b1 93 46 6b cf 7a 54 48 dd 59 62 2d eb 3c 70 0e f9 1f 8f f7 06 e6 9d d4 14 c5 ab b1 22 a0 b9 92 30 83 c7 7b 4e 6a d5 58 5c 49 e3 3d 6a 2c f1 1e 78 0f }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_mpeg2_vlc__16_lil_452_ {
+  strings:
+    $a0 = { 02 00 02 00 06 00 03 00 07 00 04 00 1c 00 05 00 1d 00 05 00 05 00 06 00 04 00 06 00 7b 00 07 00 7c 00 07 00 23 00 08 00 22 00 08 00 fa 00 08 00 fb 00 08 00 fe 00 08 00 ff 00 08 00 1f 00 0e 00 1e 00 0e 00 1d 00 0e 00 1c 00 0e 00 1b 00 0e 00 1a 00 0e 00 19 00 0e 00 18 00 0e 00 17 00 0e 00 16 00 0e 00 15 00 0e 00 14 00 0e 00 13 00 0e 00 12 00 0e 00 11 00 0e 00 10 00 0e 00 18 00 0f 00 17 00 0f 00 16 00 0f 00 15 00 0f 00 14 00 0f 00 13 00 0f 00 12 00 0f 00 11 00 0f 00 10 00 0f 00 02 00 03 00 06 00 05 00 79 00 07 00 27 00 08 00 20 00 08 00 16 00 0d 00 15 00 0d 00 1f 00 0f 00 1e 00 0f 00 1d 00 0f 00 1c 00 0f 00 1b 00 0f 00 1a 00 0f 00 19 00 0f 00 13 00 10 00 12 00 10 00 11 00 10 00 10 00 10 00 05 00 05 00 07 00 07 00 fc 00 08 00 0c 00 0a 00 14 00 0d 00 07 00 05 00 26 00 08 00 1c 00 0c 00 13 00 0d 00 06 00 06 00 fd 00 08 00 12 00 0c 00 07 00 06 00 04 00 09 00 12 00 0d 00 06 00 07 00 1e 00 0c 00 14 00 10 00 04 00 07 00 15 00 0c 00 05 00 07 00 11 00 0c 00 78 00 07 00 11 00 0d 00 7a 00 07 00 10 00 0d 00 21 00 08 00 1a 00 10 00 25 00 08 00 19 00 10 00 24 00 08 00 18 00 10 00 05 00 09 00 17 00 10 00 07 00 09 00 16 00 10 00 0d 00 0a 00 15 00 10 00 1f 00 0c 00 1a 00 0c 00 19 00 0c 00 17 00 0c 00 16 00 0c 00 1f 00 0d 00 1e 00 0d 00 1d 00 0d 00 1c 00 0d 00 1b 00 0d 00 1f 00 10 00 1e 00 10 00 1d 00 10 00 1c 00 10 00 1b 00 10 00 01 00 06 00 06 00 04 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_DV_muxer_demuxer_dv_aaux_packs_dist__32_big_432_ {
+  strings:
+    $a0 = { 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 50 00 00 00 51 00 00 00 52 00 00 00 53 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff 00 00 00 ff }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_truespeech_ts_230__16_lil_16_ {
+  strings:
+    $a0 = { 3b 7f 78 7e b6 7d f5 7c 35 7c 76 7b b8 7a fc 79 }
+
+  condition:
+    $a0
+}
+
+
+rule libmpdemux_sipr_swaps__8_byt_76_ {
+  strings:
+    $a0 = { 00 3f 01 16 02 2c 03 5a 05 51 07 1f 08 56 09 3a 0a 24 0c 44 0d 27 0e 49 0f 35 10 45 11 39 13 58 14 22 15 47 18 2e 19 5e 1a 36 1c 4b 1d 32 20 46 21 5c 23 4a 26 55 28 38 2a 57 2b 41 2d 3b 30 4f 31 5d 33 59 37 5f 3d 4c 43 53 4d 50 }
+
+  condition:
+    $a0
+}
+
+
+rule Haval_mc4__32_big_128_ {
+  strings:
+    $a0 = { 7a 32 53 81 28 95 86 77 3b 8f 48 98 6b 4b b9 af c4 bf e8 1b 66 28 21 93 61 d8 09 cc fb 21 a9 91 48 7c ac 60 5d ec 80 32 ef 84 5d 5d e9 85 75 b1 dc 26 23 02 eb 65 1b 88 23 89 3e 81 d3 96 ac c5 0f 6d 6f f3 83 f4 42 39 2e 0b 44 82 a4 84 20 04 69 c8 f0 4a 9e 1f 9b 5e 21 c6 68 42 f6 e9 6c 9a 67 0c 9c 61 ab d3 88 f0 6a 51 a0 d2 d8 54 2f 68 96 0f a7 28 ab 51 33 a3 6e ef 0b 6c 13 7a 3b e4 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab2__16_lil_34_ {
+  strings:
+    $a0 = { F1 FF F5 FF F7 FF FB FF FD FF FF FF 22 00 02 00 12 00 FF FF 21 00 20 00 11 00 FF FF 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule MPEG_2_NBC_Fraunhofer_sfb_32_120__16_big_28_ {
+  strings:
+    $a0 = { 00 04 00 08 00 0c 00 10 00 14 00 1c 00 24 00 2c 00 38 00 44 00 50 00 60 00 70 00 78 }
+
+  condition:
+    $a0
+}
+
+
+rule YUV_to_RGB_dither_8x8_32__8_byt_64_ {
+  strings:
+    $a0 = { 11 09 17 0f 10 08 16 0e 05 1d 03 1b 04 1c 02 1a 15 0d 13 0b 14 0c 12 0a 00 18 06 1e 01 19 07 1f 10 08 16 0e 11 09 17 0f 04 1c 02 1a 05 1d 03 1b 14 0c 12 0a 15 0d 13 0b 01 19 07 1f 00 18 06 1e }
+
+  condition:
+    $a0
+}
+
+
+rule libaf_ulaw_decode__16_lil_256_ {
+  strings:
+    $a0 = { 84 82 84 86 84 8A 84 8E 84 92 84 96 84 9A 84 9E 84 A2 84 A6 84 AA 84 AE 84 B2 84 B6 84 BA 84 BE 84 C1 84 C3 84 C5 84 C7 84 C9 84 CB 84 CD 84 CF 84 D1 84 D3 84 D5 84 D7 84 D9 84 DB 84 DD 84 DF 04 E1 04 E2 04 E3 04 E4 04 E5 04 E6 04 E7 04 E8 04 E9 04 EA 04 EB 04 EC 04 ED 04 EE 04 EF 04 F0 C4 F0 44 F1 C4 F1 44 F2 C4 F2 44 F3 C4 F3 44 F4 C4 F4 44 F5 C4 F5 44 F6 C4 F6 44 F7 C4 F7 44 F8 A4 F8 E4 F8 24 F9 64 F9 A4 F9 E4 F9 24 FA 64 FA A4 FA E4 FA 24 FB 64 FB A4 FB E4 FB 24 FC 64 FC 94 FC B4 FC D4 FC F4 FC 14 FD 34 FD 54 FD 74 FD 94 FD B4 FD D4 FD F4 FD 14 FE 34 FE 54 FE 74 FE 8C FE 9C FE AC FE BC FE CC FE DC FE EC FE FC FE 0C FF 1C FF 2C FF 3C FF 4C FF 5C FF 6C FF 7C FF 88 FF 90 FF 98 FF A0 FF A8 FF B0 FF B8 FF C0 FF C8 FF D0 FF D8 FF E0 FF E8 FF F0 FF F8 FF 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Blowfish_ks1_table__32_big_1024_ {
+  strings:
+    $a0 = { 4b 7a 70 e9 b5 b3 29 44 db 75 09 2e c4 19 26 23 ad 6e a6 b0 49 a7 df 7d 9c ee 60 b8 8f ed b2 66 ec aa 8c 71 69 9a 17 ff 56 64 52 6c c2 b1 9e e1 19 36 02 a5 75 09 4c 29 a0 59 13 40 e4 18 3a 3e 3f 54 98 9a 5b 42 9d 65 6b 8f e4 d6 99 f7 3f d6 a1 d2 9c 07 ef e8 30 f5 4d 2d 38 e6 f0 25 5d c1 4c dd 20 86 84 70 eb 26 63 82 e9 c6 02 1e cc 5e 09 68 6b 3f 3e ba ef c9 3c 97 18 14 6b 6a 70 a1 68 7f 35 84 52 a0 e2 86 b7 9c 53 05 aa 50 07 37 3e 07 84 1c 7f de ae 5c 8e 7d 44 ec 57 16 f2 b8 b0 3a da 37 f0 50 0c 0d f0 1c 1f 04 02 00 b3 ff ae 0c f5 1a 3c b5 74 b2 25 83 7a 58 dc 09 21 bd d1 91 13 f9 7c a9 2f f6 94 32 47 73 22 f5 47 01 3a e5 e5 81 37 c2 da dc c8 b5 76 34 9a f3 dd a7 a9 44 61 46 0f d0 03 0e ec c8 c7 3e a4 75 1e 41 e2 38 cd 99 3b ea 0e 2f 32 80 bb a1 18 3e b3 31 4e 54 8b 38 4f 6d b9 08 6f 42 0d 03 f6 0a 04 bf 2c b8 12 90 24 97 7c 79 56 79 b0 72 bc af 89 af de 9a 77 1f d9 93 08 10 b3 8b ae 12 dc cf 3f 2e 55 12 72 1f 2e 6b 71 24 50 1a dd e6 9f 84 cd 87 7a 58 47 18 74 08 da 17 bc 9f 9a bc e9 4b 7d 8c ec 7a ec 3a db 85 1d fa 63 09 43 66 c4 64 c3 d2 ef 1c 18 47 32 15 d9 08 dd 43 3b 37 24 c2 ba 16 12 a1 4d 43 2a 65 c4 51 50 94 00 02 13 3a e4 dd 71 df f8 9e 10 31 4e 55 81 ac 77 d6 5f 11 19 9b 04 35 56 f1 d7 a3 c7 6b 3c 11 18 3b 59 24 a5 09 f2 8f e6 ed 97 f1 fb fa 9e ba bf 2c 1e 15 3c 6e 86 e3 45 70 ea e9 6f b1 86 0e 5e 0a 5a 3e 2a b3 77 1f e7 1c 4e 3d 06 fa 29 65 dc b9 99 e7 1d 0f 80 3e 89 d6 52 66 c8 25 2e 4c c9 78 9c 10 b3 6a c6 15 0e ba 94 e2 ea 78 a5 fc 3c 53 1e 0a 2d f4 f2 f7 4e a7 36 1d 2b 3d 19 39 26 0f 19 c2 79 60 52 23 a7 08 f7 13 12 b6 eb ad fe 6e ea c3 1f 66 e3 bc 45 95 a6 7b c8 83 b1 7f 37 d1 01 8c ff 28 c3 32 dd ef be 6c 5a a5 65 58 21 85 68 ab 98 02 ee ce a5 0f db 2f 95 3b 2a ef 7d ad 5b 6e 2f 84 15 21 b6 28 29 07 61 70 ec dd 47 75 61 9f 15 10 13 cc a8 30 eb 61 bd 96 03 34 fe 1e aa 03 63 cf b5 73 5c 90 4c 70 a2 39 d5 9e 9e 0b cb aa de 14 ee cc 86 bc 60 62 2c a7 9c ab 5c ab b2 f3 84 6e 64 8b 1e af 19 bd f0 ca a0 23 69 b9 65 5a bb 50 40 68 5a 32 3c 2a b4 b3 31 9e e9 d5 c0 21 b8 f7 9b 54 0b 19 87 5f a0 99 95 f7 99 7e 62 3d 7d a8 f8 37 88 9a 97 e3 2d 77 11 ed 93 5f 16 68 12 81 0e 35 88 29 c7 e6 1f d6 96 de df a1 78 58 ba 99 57 f5 84 a5 1b 22 72 63 9b 83 c3 ff 1a c2 46 96 cd b3 0a eb 53 2e 30 54 8f d9 48 e4 6d bc 31 28 58 eb f2 ef 34 c6 ff ea fe 28 ed 61 ee 7c 3c 73 5d 4a 14 d9 e8 64 b7 e3 42 10 5d 14 20 3e 13 e0 45 ee e2 b6 a3 aa ab ea db 6c 4f 15 fa cb 4f d0 c7 42 f4 42 ef 6a bb b5 65 4f 3b 1d 41 cd 21 05 d8 1e 79 9e 86 85 4d c7 e4 4b 47 6a 3d 81 62 50 cf 62 a1 f2 5b 8d 26 46 fc 88 83 a0 c1 c7 b6 a3 7f 15 24 c3 69 cb 74 92 47 84 8a 0b 56 92 b2 85 09 5b bf 00 ad 19 48 9d 14 62 b1 74 23 82 0e 00 58 42 8d 2a 0c 55 f5 ea 1d ad f4 3e 23 3f 70 61 33 72 f0 92 8d 93 7e 41 d6 5f ec f1 6c 22 3b db 7c de 37 59 cb ee 74 60 40 85 f2 a7 ce 77 32 6e a6 07 80 84 19 f8 50 9e e8 ef d8 55 61 d9 97 35 a9 69 a7 aa c5 0c 06 c2 5a 04 ab fc 80 0b ca dc 9e 44 7a 2e c3 45 34 84 fd d5 67 05 0e 1e 9e c9 db 73 db d3 10 55 88 cd 67 5f da 79 e3 67 43 40 c5 c4 34 65 71 3e 38 d8 3d 28 f8 9e f1 6d ff 20 15 3e 21 e7 8f b0 3d 4a e6 e3 9f 2b db 83 ad f7 }
+
+  condition:
+    $a0
+}
+
+
+rule DES_initial_permutation_IP__8_byt_64_ {
+  strings:
+    $a0 = { 3a 32 2a 22 1a 12 0a 02 3c 34 2c 24 1c 14 0c 04 3e 36 2e 26 1e 16 0e 06 40 38 30 28 20 18 10 08 39 31 29 21 19 11 09 01 3b 33 2b 23 1b 13 0b 03 3d 35 2d 25 1d 15 0d 05 3f 37 2f 27 1f 17 0f 07 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_Chinese_AVS_video__AVS1_P2__JiZhun__chroma_2dvlc__8_byt_1080_ {
+  strings:
+    $a0 = { 01 01 01 ff 01 01 01 02 01 ff 02 01 01 03 01 ff 03 01 01 04 01 ff 04 01 01 05 01 ff 05 01 01 06 01 ff 06 01 01 07 01 ff 07 01 02 01 02 fe 01 02 01 08 01 ff 08 01 01 09 01 ff 09 01 01 0a 01 ff 0a 01 01 0b 01 ff 0b 01 01 0c 01 ff 0c 01 01 0d 01 ff 0d 01 01 0e 01 ff 0e 01 01 0f 01 ff 0f 01 03 01 03 fd 01 03 01 10 01 ff 10 01 01 11 01 ff 11 01 01 12 01 ff 12 01 01 13 01 ff 13 01 01 14 01 ff 14 01 01 15 01 ff 15 01 01 16 01 ff 16 01 02 02 02 fe 02 02 01 17 01 ff 17 01 01 18 01 ff 18 01 01 19 01 ff 19 01 04 01 03 fc 01 03 00 00 00 00 05 03 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 ff 02 00 00 00 00 00 00 00 19 00 00 00 00 00 00 01 01 00 ff 01 00 01 02 00 ff 02 00 02 01 01 fe 01 01 01 03 00 ff 03 00 01 04 00 ff 04 00 01 05 00 ff 05 00 01 06 00 ff 06 00 03 01 02 fd 01 02 01 07 00 ff 07 00 01 08 00 ff 08 00 02 02 01 fe 02 01 01 09 00 ff 09 00 01 0a 00 ff 0a 00 01 0b 00 ff 0b 00 04 01 02 fc 01 02 01 0c 00 ff 0c 00 01 0d 00 ff 0d 00 01 0e 00 ff 0e 00 02 03 01 fe 03 01 01 0f 00 ff 0f 00 02 04 01 fe 04 01 05 01 03 fb 01 03 03 02 02 fd 02 02 01 10 00 ff 10 00 01 11 00 ff 11 00 01 12 00 ff 12 00 02 05 01 fe 05 01 01 13 00 ff 13 00 01 14 00 ff 14 00 00 06 04 03 03 03 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 ff ff ff ff ff ff 00 00 00 00 01 00 00 00 14 00 00 00 01 01 00 ff 01 00 00 00 00 02 01 00 fe 01 00 01 02 00 ff 02 00 03 01 01 fd 01 01 01 03 00 ff 03 00 04 01 01 fc 01 01 02 02 00 fe 02 00 01 04 00 ff 04 00 05 01 02 fb 01 02 01 05 00 ff 05 00 03 02 01 fd 02 01 02 03 00 fe 03 00 01 06 00 ff 06 00 06 01 02 fa 01 02 01 07 00 ff 07 00 02 04 00 fe 04 00 07 01 02 f9 01 02 01 08 00 ff 08 00 04 02 01 fc 02 01 01 09 00 ff 09 00 03 03 01 fd 03 01 02 05 00 fe 05 00 02 06 00 fe 06 00 08 01 02 f8 01 02 01 0a 00 ff 0a 00 01 0b 00 ff 0b 00 09 01 02 f7 01 02 05 02 02 fb 02 02 03 04 01 fd 04 01 00 0a 06 04 04 03 03 02 02 02 02 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 01 00 00 00 02 00 00 00 0b 00 00 00 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 03 01 00 fd 01 00 04 01 00 fc 01 00 01 02 00 ff 02 00 05 01 01 fb 01 01 02 02 00 fe 02 00 06 01 01 fa 01 01 01 03 00 ff 03 00 07 01 01 f9 01 01 03 02 00 fd 02 00 08 01 01 f8 01 01 01 04 00 ff 04 00 02 03 00 fe 03 00 09 01 01 f7 01 01 04 02 00 fc 02 00 01 05 00 ff 05 00 0a 01 01 f6 01 01 03 03 00 fd 03 00 05 02 01 fb 02 01 02 04 00 fe 04 00 0b 01 01 f5 01 01 01 06 00 ff 06 00 0c 01 01 f4 01 01 01 07 00 ff 07 00 06 02 01 fa 02 01 0d 01 01 f3 01 01 02 05 00 fe 05 00 01 08 00 ff 08 00 00 0e 07 04 03 03 02 02 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 01 00 00 00 04 00 00 00 08 00 00 00 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 03 01 00 fd 01 00 04 01 00 fc 01 00 05 01 00 fb 01 00 06 01 00 fa 01 00 07 01 00 f9 01 00 08 01 00 f8 01 00 01 02 00 ff 02 00 09 01 00 f7 01 00 0a 01 00 f6 01 00 0b 01 00 f5 01 00 02 02 00 fe 02 00 0c 01 00 f4 01 00 0d 01 00 f3 01 00 03 02 00 fd 02 00 0e 01 00 f2 01 00 01 03 00 ff 03 00 0f 01 00 f1 01 00 04 02 00 fc 02 00 10 01 00 f0 01 00 11 01 00 ef 01 00 05 02 00 fb 02 00 01 04 00 ff 04 00 02 03 00 fe 03 00 12 01 00 ee 01 00 06 02 00 fa 02 00 13 01 00 ed 01 00 01 05 00 ff 05 00 00 14 07 03 02 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 00 00 00 00 ff ff ff 7f 05 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_AC3_vq_hebap5__16_lil_1536_ {
+  strings:
+    $a0 = { BE F2 EE B2 93 0B 76 25 34 12 D9 4C CF C2 FB E6 07 45 14 0F D8 DF 1B B4 73 11 9C 01 2F BA 9B E0 B3 02 65 BC FC 0D 3B 09 E6 1A B3 0E EB 18 D6 AF B2 BC CB C8 8C FA 7D A2 B5 20 07 CF 77 E0 23 AC EA C2 8E 0C A9 1F B3 E8 F7 10 31 14 7B 0A 4A BE E6 EB 52 BF CC 18 54 D6 C3 32 64 9C B6 A9 FB 0F C0 F4 52 DF B0 E8 FA BC B2 F5 5C 5A 19 EC 37 C8 9D A8 ED 54 69 0E 91 0B 75 F6 B5 BA 43 62 93 0A 3A 06 07 00 35 B8 32 23 AE 10 DB 02 56 FE 80 FD 71 A3 9C 60 0A 16 64 02 CC FE 3C FC 01 FD F4 04 E1 00 63 06 AD 00 94 03 4F 15 5D 19 26 13 40 29 01 5A 0C BD 43 43 C2 AD E4 B6 48 13 A4 F2 1D 0D 92 FA 80 3C 46 AA ED C6 3B 05 1E 02 2E E5 32 F7 DA D0 FD F3 F3 B1 72 AF F5 F8 FF 2D 3F 05 D5 22 B5 02 B1 5F 96 AB F6 24 49 12 26 24 79 E1 20 3E 49 EA 36 F4 2F DC BD FA ED A7 44 32 92 FE D4 13 41 F9 CB 4F E5 FE 95 F4 A2 F8 57 E7 55 FC DF F7 89 FA B9 0D A7 F3 E7 FD 2D EC 04 2C C4 4B DD 03 29 09 39 10 89 16 4F EF E9 00 71 FE 7A AA 8E FB A6 BF 0E 17 70 15 75 F3 17 27 0E CF 8D 49 C4 51 7A FB FE 06 73 FB 96 13 51 FB 0F 19 1E DF D2 AD 64 07 32 F2 E7 0E 2A E9 2B 40 40 4F 98 F5 95 D2 CD EF 79 B8 4A A7 00 3A 68 43 B3 28 54 1E 08 2F 0C 4A DD 09 55 AC 03 B7 6F D5 10 11 75 E4 BB 11 DA F9 02 08 80 16 B4 60 6F 3E 0E 45 E6 FD AD A6 3B 2B 3D 28 81 01 10 02 EF DE 2F F4 1B C0 3B A5 6B 40 46 0E D0 16 3F 02 72 2E 9B 07 45 62 FD 19 E1 19 44 F2 54 F8 0A 0F 7A FE 8C FF 55 46 A4 51 F3 37 3B E2 56 D5 1A 2E 07 ED 8C F4 EA CB 79 E1 76 54 DB 08 BD FD 29 DB 14 FD B7 AC 4F 30 49 20 83 DF 5F 05 49 BA 69 0B 66 23 1E 56 DE 47 BB 21 21 FA 8E F6 89 B8 72 C6 55 F4 19 3B FD F2 1C 57 36 36 B9 CA F2 16 AE B5 E3 3C 56 2C FE AE B3 07 2D 06 D5 E4 40 AC 97 09 41 00 9E 01 03 02 8C EE 67 FD C0 ED 7D 00 EA B4 F7 53 B3 B0 B0 F8 7A F8 2D FF 02 FC 45 14 26 D0 11 F9 02 A4 3E EE B5 16 41 01 45 E7 36 39 3F 1B 13 F9 63 03 0A CA 6C 0C F7 1E BC 01 60 4C 4A 0C FC E5 DC 2F 4C F8 00 44 28 A1 64 CD 17 FD 14 38 AD FB BE 5C 61 DA 58 B8 6C 47 1B E1 95 E2 AE 4A 29 1E 8D CE 86 07 FD 3A D0 CD 69 08 7F 54 48 07 AE F7 78 5B A0 42 13 C3 F8 F9 57 00 7A 20 D0 D1 F5 38 91 AF D3 1E CD F7 90 4C 1E 59 68 BC 08 F8 1D 01 E9 F0 EA DF 6E B8 E4 29 50 CA 63 CB 7E F9 0F 38 10 13 BE B1 C4 03 83 EF 4C FF EA 9F 05 BF 0C 4D 25 17 A9 12 3E 11 41 F6 C5 5B F3 C0 66 0B F2 FB 26 F8 1E 4A 14 F6 1F 34 7D 05 CE E7 90 FB B9 09 66 35 6E 58 71 E3 7F FF 18 F5 76 C9 87 41 E4 59 D8 02 45 0D A2 00 DE 0B E1 03 46 22 2F AA 2F E6 8E 03 64 CF 8E A8 BE F5 51 EB 40 4C 90 26 89 F8 9E B8 B6 B7 8E C5 98 12 CF 1B 6A 20 5E F4 1E 65 EC 1D 27 E1 FC 03 F4 17 17 3B 45 49 CE A0 7F E6 1D E6 F4 1E 5D 2F 0D DB 66 A2 7E 15 A9 03 60 BD 03 EB DA 09 47 01 69 04 7A FE 9E 3D F3 4D 74 D7 A4 2B DD F3 05 3A 80 D1 65 E0 F8 B9 F1 A8 AB BC 6D E5 C2 CD 84 F7 93 E6 27 17 AA 30 AD A8 0F FE 42 01 0E 04 0D E6 E4 EA 57 4F 3B 04 38 A6 D2 DE 62 2F 06 FD 3F 0A CB 13 00 4D 93 F8 E2 FF BB FE 55 00 DB 03 3A E9 74 10 BA DC A1 23 32 9E 44 E1 74 1C FC CF 72 32 A8 AB CD 51 A2 F9 F2 E1 75 F7 B3 DE 1C EA 94 9D F4 E5 84 01 F9 A7 F6 05 7A 23 C1 00 45 E1 DC A8 2B 14 6A 01 B0 03 FD FE F0 0E B6 D1 A7 1D 78 A5 FE 62 DB 5C F8 D6 1B 10 89 AD B5 52 A7 57 BA FC 8D ED 23 55 28 18 86 FF 6A 06 33 FD B8 5F AF 4D 05 F8 DA 03 07 00 C9 FF 4F 95 79 FF 85 09 03 01 59 00 33 01 7E 5F DF F0 F1 EA CC FC AD F6 69 01 99 15 98 16 FA 48 F2 00 78 AA 5D F0 20 57 83 11 D2 02 2E D0 92 1D 58 3C E1 21 C1 0B D5 4F 74 52 94 AD F8 F3 94 FB 91 0A DF F8 2C 15 EF FC 64 48 24 42 33 CB 83 BF F6 C5 99 B0 73 C8 AB 08 64 05 E2 53 98 FB 47 01 53 00 7F F7 0D 54 F0 F0 9C C8 34 FF 71 F7 B9 03 2E DB 02 3E 2A D6 61 F3 26 52 5B FE 9F FA 80 02 D1 DF 10 AE 7E 08 D5 10 52 48 74 DC 71 B8 62 C3 78 0E C9 E8 C1 01 3D DF 33 04 3E A9 80 EC 89 0B F4 31 6D 47 96 05 59 3A E3 54 9F F4 91 01 7D ED 77 B1 A3 06 85 FB 79 0D 79 14 95 22 76 56 85 E2 AB 05 96 F7 88 21 C8 46 02 C3 77 4B 99 E8 AD 0D 19 0B 09 17 FD 18 B6 21 EA 59 A3 09 8C 0B 7B 01 47 16 E1 A9 73 F7 BD BD AE FD 86 49 51 EB 68 06 06 03 50 0B 70 FA 02 0E 0C F7 C6 4D E2 F8 71 B7 E3 52 4F C9 E3 CE 52 40 7B 02 32 F8 8E B4 71 BF B0 2F 40 BF 52 E1 36 DA F4 03 73 AB 43 0B 58 CE 11 09 13 FC D7 01 D3 F1 6D 1F B1 D4 BD 63 2D 10 20 AC 8F F5 F4 02 69 FD F5 FD 5A 19 53 21 59 4B 05 4A CC 17 7D DB 45 42 17 60 C8 36 58 27 E8 FD 3A D7 2D E0 61 08 0C A6 4F BD 4B 15 CF EE E7 C5 28 50 81 B8 0B DA 93 D1 59 BA 0E F7 D8 C8 16 08 C3 57 87 06 D5 02 A6 DE 25 39 C1 0D 9F AF 11 1A 08 20 18 4F 3A 11 AA FA B7 FD CD 04 6F F6 2B 1D 14 E4 63 35 CA DF 78 57 58 BC 74 F8 23 0F 98 DC 1C F1 BE 03 09 01 D1 EE 8F 0B D9 C1 8E 4C 5A 13 AF FB 59 46 3D D9 27 B9 EA F0 AA 2B BD 16 FC C6 35 FB BC 25 73 54 DC 2B 37 D2 2F FD 5C F9 6D 00 A2 F7 3D 00 8C E5 D5 9F 08 A8 E8 15 5B F8 1F F9 0C FC 50 A3 9D EE 80 F5 A9 C6 56 EF BF 26 2F 21 82 FC D6 4F 04 CA 8D BC 8B 00 }
+
+  condition:
+    $a0
+}
+
+
+rule YUV_to_RGB_dither_8x8_64__8_byt_64_ {
+  strings:
+    $a0 = { 00 30 0c 3c 03 33 0f 3f 20 10 2c 1c 23 13 2f 1f 08 38 04 34 0b 3b 07 37 28 18 24 14 2b 1b 27 17 02 32 0e 3e 01 31 0d 3d 22 12 2e 1e 21 11 2d 1d 0a 3a 06 36 09 39 05 35 2a 1a 26 16 29 19 25 15 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_G729_cb_lsp_2nd__16_lil_640_ {
+  strings:
+    $a0 = { 4D FE D1 FC 1A FD 09 04 FA FD 46 02 4F FB 3D 03 56 00 81 01 BF FC 85 FC CF 01 F8 FF 1D FB AA 05 48 00 19 FF 60 03 95 02 03 FC E7 00 CE FE 41 01 24 FF 5D FF F2 FD 0E FD 9F F9 0B 01 39 00 3A FF AD FE DF FF 44 FA 3D 02 1C 03 57 FF 89 FD 30 03 AB 00 A2 FE 26 01 7C 06 C5 01 07 02 23 01 9F 00 80 FD F0 FA 43 FD B6 FC C6 FF B6 03 7C 03 0D 06 CB 02 0F 02 36 FD 3F FF 48 02 1F 00 DF FE 64 01 B3 FE 37 FE 64 02 E5 FE 9B FA 1B FD 93 FF D8 FC E7 00 4D 00 A9 FF A8 FE 3D 05 3F 04 72 FD C7 FD A5 FC D4 04 26 02 56 03 CA 02 E1 FD 28 F9 3D FF 9E FF EC FE 93 FC 46 FC 20 FB D5 FE D4 00 15 FF 28 FD B5 03 ED 05 7F 03 B3 FF 58 01 94 FD FB 02 9D 01 F6 01 96 FE 40 FC 1D FE 6A 05 C6 FE CD FE 00 FF 14 FB 53 FE C2 01 2E FE 94 FF F2 03 AF 08 C7 02 B5 02 09 02 8A 02 19 05 E4 FF 86 FE E8 02 13 FC F0 00 90 FF F1 FE 0C FE B2 03 C5 06 0F 01 F1 FF 8D 03 FD FE 98 06 3F 02 F6 FF 2C FE 39 FF 4D 04 0D FC 45 02 CB FF 15 FD 6E 03 91 00 E3 FE 00 FB 72 FE 24 00 0E FE 9F FA 12 00 44 FE CB 05 93 FB BD FC 46 05 04 05 A1 FF F7 03 22 FF BB 01 74 01 9E FE 4D FA 2B FB A0 01 2B FF D2 01 9D 02 93 02 68 06 A4 03 16 02 F1 FF 42 00 D4 01 FB 03 14 FD 69 05 4A FF 75 FC 2F FD FA FE AE FE 94 00 A5 05 4B 00 08 FD 39 02 DF 04 51 01 A0 01 87 FF 85 01 EF 00 20 06 D5 03 71 00 71 01 15 FC 05 FE B5 FD 78 FC C8 FE 9E FF B5 03 1F 00 50 04 48 00 73 FF B9 05 3F 00 EF FC 67 04 48 02 43 03 15 01 79 FB D0 00 2D 01 8E FC 75 00 6C FE 1B 02 8E FF 58 03 13 FE DF 00 70 FC 6F 02 B4 FF 14 01 48 FE 95 08 21 09 F4 04 9E 02 30 01 F5 FE F3 FD 8C 00 72 03 75 FF C4 F9 26 02 21 03 38 FE C8 FF 47 FD 61 03 24 04 9D 01 BE 01 82 04 51 02 B3 FF D5 04 E1 FF 45 02 F3 FB 81 FC 9D 02 29 01 8D 01 2E 02 CB 00 E3 FC 69 FC 03 00 B4 02 DC FE 1A 04 0E 03 4E 01 C3 05 78 02 B0 FF 30 00 DB FB 1C FE 6A 01 AB FD AC FC DF FD B6 FE 53 FE 58 FD 6D 04 62 FB 18 FD 3C 05 06 01 3F 00 28 05 3B 03 72 FE C0 FD 55 01 FA FC 1D FE 21 FB BA FF 62 00 5D FF A2 02 F5 FF 8A FC 13 02 9B FB F7 FE 0E FF D4 02 A6 03 }
+
+  condition:
+    $a0
+}
+
+
+rule Yamaha_ADPCM_diff_lookup_table__8_byt_16_ {
+  strings:
+    $a0 = { 01 03 05 07 09 0B 0D 0F FF FD FB F9 F7 F5 F3 F1 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_celp_math_base_cos_G729_BITEXACT__16_lil_128_ {
+  strings:
+    $a0 = { FF 7F D9 7F 62 7F 9D 7E 8A 7D 2A 7C 7D 7A 85 78 42 76 B6 73 E3 70 CA 6D 6E 6A D0 66 F2 62 D7 5E 82 5A F6 55 34 51 40 4C 1D 47 CE 41 57 3C BA 36 FC 30 1F 2B 28 25 1A 1F F9 18 C8 12 8C 0C 48 06 00 00 B8 F9 74 F3 38 ED 07 E7 E6 E0 D8 DA E1 D4 04 CF 46 C9 A9 C3 32 BE E3 B8 C0 B3 CC AE 0A AA 7E A5 29 A1 0E 9D 30 99 92 95 36 92 1D 8F 4A 8C BE 89 7B 87 83 85 D6 83 76 82 63 81 9E 80 27 80 }
+
+  condition:
+    $a0
+}
+
+
+rule HAVAL_wi3__32_lil_128_ {
+  strings:
+    $a0 = { 13 00 00 00 09 00 00 00 04 00 00 00 14 00 00 00 1c 00 00 00 11 00 00 00 08 00 00 00 16 00 00 00 1d 00 00 00 0e 00 00 00 19 00 00 00 0c 00 00 00 18 00 00 00 1e 00 00 00 10 00 00 00 1a 00 00 00 1f 00 00 00 0f 00 00 00 07 00 00 00 03 00 00 00 01 00 00 00 00 00 00 00 12 00 00 00 1b 00 00 00 0d 00 00 00 06 00 00 00 15 00 00 00 0a 00 00 00 17 00 00 00 0b 00 00 00 05 00 00 00 02 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab16__16_lil_1022_ {
+  strings:
+    $a0 = { 03 FE 09 FE 33 FE BD FE 99 FF DB FF E5 FF F1 FF F9 FF FD FF FF FF EF 00 FE 00 FF FF DF 00 FD 00 FD FF FF FF CF 00 FC 00 FF FF BF 00 FB 00 FB FF FF FF AF 00 FF FF FA 00 9F 00 FD FF FF FF F9 00 F8 00 8F 00 F9 FF FD FF FF FF 7F 00 F7 00 FF FF 6F 00 F6 00 FF 00 F7 FF FB FF FD FF FF FF 5F 00 F5 00 4F 00 FF FF F4 00 F3 00 CB FF FF FF F0 00 FF FF 3F 00 E3 FF ED FF F3 FF F9 FF FB FF FF FF CE 00 FF FF EC 00 DD 00 DE 00 FF FF E9 00 FF FF EA 00 D9 00 FF FF EE 00 FF FF ED 00 EB 00 FD FF FF FF BE 00 CD 00 FD FF FF FF DC 00 DB 00 AE 00 F5 FF FB FF FF FF CC 00 FF FF AD 00 DA 00 FD FF FF FF 7E 00 AC 00 CA 00 FB FF FD FF FF FF C9 00 7D 00 5E 00 BD 00 F2 00 A3 FF FB FF FD FF FF FF 2F 00 0F 00 1F 00 FF FF F1 00 CF FF E7 FF F3 FF FB FF FF FF 9E 00 FF FF BC 00 CB 00 FD FF FF FF 8E 00 E8 00 FF FF 9D 00 E7 00 F9 FF FD FF FF FF BB 00 8D 00 FF FF D8 00 6E 00 FF FF E6 00 9C 00 F3 FF F9 FF FD FF FF FF AB 00 BA 00 FF FF E5 00 D7 00 FF FF 4E 00 FF FF E4 00 8C 00 FD FF FF FF C8 00 3E 00 FF FF 6D 00 FF FF D6 00 9B 00 ED FF F5 FF FB FF FD FF FF FF B9 00 AA 00 E1 00 FF FF D4 00 FF FF B8 00 A9 00 FB FF FF FF 7B 00 FF FF B7 00 D0 00 E3 00 F9 FF FD FF FF FF 0E 00 E0 00 FF FF 5D 00 D5 00 FD FF FF FF 7C 00 C7 00 FF FF 4D 00 8B 00 B5 FF D3 FF E5 FF F3 FF F9 FF FD FF FF FF 9A 00 6C 00 FF FF C6 00 3D 00 FD FF FF FF 5C 00 C5 00 0D 00 F9 FF FD FF FF FF 8A 00 A8 00 FF FF 99 00 4C 00 FD FF FF FF B6 00 7A 00 3C 00 F5 FF FB FF FD FF FF FF 5B 00 89 00 1C 00 FF FF C0 00 FF FF 98 00 79 00 FF FF E2 00 FF FF 2E 00 1E 00 F1 FF F9 FF FD FF FF FF D3 00 2D 00 FF FF D2 00 D1 00 FB FF FF FF 3B 00 FF FF 97 00 88 00 1D 00 F9 FF FD FF FF FF C4 00 6B 00 FF FF C3 00 A7 00 FF FF 2C 00 FF FF C2 00 B5 00 E9 FF F3 FF F9 FF FD FF FF FF C1 00 0C 00 FF FF 4B 00 B4 00 FD FF FF FF 6A 00 A6 00 B3 00 FB FF FD FF FF FF 5A 00 A5 00 2B 00 FF FF B2 00 1B 00 F3 FF FB FF FF FF B1 00 FF FF 0B 00 B0 00 FD FF FF FF 69 00 96 00 FF FF 4A 00 A4 00 FB FF FD FF FF FF 78 00 87 00 A3 00 FD FF FF FF 3A 00 59 00 2A 00 9F FF C7 FF DF FF ED FF F5 FF FB FF FD FF FF FF 95 00 68 00 A1 00 FD FF FF FF 86 00 77 00 94 00 FB FF FD FF FF FF 49 00 57 00 67 00 A2 00 FB FF FF FF 1A 00 FF FF 0A 00 A0 00 FD FF FF FF 39 00 93 00 FF FF 58 00 85 00 F7 FF FD FF FF FF 29 00 92 00 FD FF FF FF 76 00 09 00 19 00 FB FF FF FF 91 00 FF FF 90 00 48 00 FD FF FF FF 84 00 75 00 FF FF 38 00 83 00 EB FF F5 FF FB FF FD FF FF FF 66 00 28 00 82 00 FD FF FF FF 47 00 74 00 18 00 FD FF FF FF 81 00 80 00 FD FF FF FF 08 00 56 00 37 00 F7 FF FB FF FF FF 73 00 FF FF 65 00 46 00 FF FF 27 00 72 00 FB FF FD FF FF FF 64 00 55 00 07 00 17 00 E9 FF F3 FF FB FF FF FF 71 00 FF FF 70 00 36 00 FD FF FF FF 63 00 45 00 FF FF 54 00 26 00 FD FF FF FF 62 00 16 00 FF FF 61 00 FF FF 06 00 60 00 F7 FF FB FF FF FF 53 00 FF FF 35 00 44 00 FF FF 25 00 52 00 FF FF 51 00 FF FF 15 00 05 00 DF FF E9 FF F3 FF F9 FF FD FF FF FF 34 00 43 00 FF FF 50 00 24 00 FD FF FF FF 42 00 33 00 14 00 FB FF FF FF 41 00 FF FF 04 00 40 00 FF FF 23 00 32 00 FD FF FF FF 13 00 31 00 FD FF FF FF 03 00 30 00 22 00 FD FF FF FF 12 00 21 00 FF FF 02 00 20 00 FD FF FF FF 11 00 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_Chinese_AVS_video__AVS1_P2__JiZhun__cbp_tab__8_byt_128_ {
+  strings:
+    $a0 = { 3f 00 0f 0f 1f 3f 2f 1f 00 10 0e 20 0d 2f 0b 0d 07 0e 05 0b 0a 0c 08 05 0c 0a 3d 07 04 30 37 03 01 02 02 08 3b 04 03 01 3e 3d 09 37 06 3b 1d 3e 2d 1d 33 1b 17 17 27 13 1b 1e 2e 1c 35 09 1e 06 2b 3c 25 15 3c 2c 10 1a 15 33 1c 23 13 12 23 14 2a 18 1a 35 2c 11 20 25 3a 27 18 2d 14 3a 11 2b 12 2a 30 2e 16 24 21 21 19 22 31 28 28 34 24 31 22 32 32 38 34 19 36 16 29 36 38 39 26 29 39 26 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_h263_inter_vlc__16_lil_412_ {
+  strings:
+    $a0 = { 02 00 02 00 0f 00 04 00 15 00 06 00 17 00 07 00 1f 00 08 00 25 00 09 00 24 00 09 00 21 00 0a 00 20 00 0a 00 07 00 0b 00 06 00 0b 00 20 00 0b 00 06 00 03 00 14 00 06 00 1e 00 08 00 0f 00 0a 00 21 00 0b 00 50 00 0c 00 0e 00 04 00 1d 00 08 00 0e 00 0a 00 51 00 0c 00 0d 00 05 00 23 00 09 00 0d 00 0a 00 0c 00 05 00 22 00 09 00 52 00 0c 00 0b 00 05 00 0c 00 0a 00 53 00 0c 00 13 00 06 00 0b 00 0a 00 54 00 0c 00 12 00 06 00 0a 00 0a 00 11 00 06 00 09 00 0a 00 10 00 06 00 08 00 0a 00 16 00 07 00 55 00 0c 00 15 00 07 00 14 00 07 00 1c 00 08 00 1b 00 08 00 21 00 09 00 20 00 09 00 1f 00 09 00 1e 00 09 00 1d 00 09 00 1c 00 09 00 1b 00 09 00 1a 00 09 00 22 00 0b 00 23 00 0b 00 56 00 0c 00 57 00 0c 00 07 00 04 00 19 00 09 00 05 00 0b 00 0f 00 06 00 04 00 0b 00 0e 00 06 00 0d 00 06 00 0c 00 06 00 13 00 07 00 12 00 07 00 11 00 07 00 10 00 07 00 1a 00 08 00 19 00 08 00 18 00 08 00 17 00 08 00 16 00 08 00 15 00 08 00 14 00 08 00 13 00 08 00 18 00 09 00 17 00 09 00 16 00 09 00 15 00 09 00 14 00 09 00 13 00 09 00 12 00 09 00 11 00 09 00 07 00 0a 00 06 00 0a 00 05 00 0a 00 04 00 0a 00 24 00 0b 00 25 00 0b 00 26 00 0b 00 27 00 0b 00 58 00 0c 00 59 00 0c 00 5a 00 0c 00 5b 00 0c 00 5c 00 0c 00 5d 00 0c 00 5e 00 0c 00 5f 00 0c 00 03 00 07 00 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab5__16_lil_62_ {
+  strings:
+    $a0 = { E3 FF E7 FF E9 FF F1 FF F9 FF FB FF FD FF FF FF 33 00 23 00 32 00 31 00 FD FF FF FF 13 00 03 00 FF FF 30 00 22 00 FD FF FF FF 12 00 21 00 FF FF 02 00 20 00 11 00 FF FF 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule MPEG_2_NBC_Fraunhofer_sfb_24_120__16_big_30_ {
+  strings:
+    $a0 = { 00 04 00 08 00 0c 00 10 00 14 00 18 00 1c 00 24 00 2c 00 34 00 40 00 4c 00 5c 00 6c 00 78 }
+
+  condition:
+    $a0
+}
+
+
+rule DES__32_lil_AND_ {
+  strings:
+    $a0 = { 0f 0f 0f 0f [0-20] ff ff 00 00 [0-20] 33 33 33 33 [0-20] ff 00 ff 00 [0-20] 55 55 55 55 }
+
+  condition:
+    $a0
+}
+
+
+rule CAST_256_t_m__32_lil_768_ {
+  strings:
+    $a0 = { 99 79 82 5a a1 d6 51 d1 a9 33 21 48 b1 90 f0 be b9 ed bf 35 c1 4a 8f ac c9 a7 5e 23 d1 04 2e 9a d9 61 fd 10 e1 be cc 87 e9 1b 9c fe f1 78 6b 75 f9 d5 3a ec 01 33 0a 63 09 90 d9 d9 11 ed a8 50 19 4a 78 c7 21 a7 47 3e 29 04 17 b5 31 61 e6 2b 39 be b5 a2 41 1b 85 19 49 78 54 90 51 d5 23 07 3a 65 5c c9 42 c2 2b 40 4a 1f fb b6 52 7c ca 2d 5a d9 99 a4 62 36 69 1b 6a 93 38 92 72 f0 07 09 7a 4d d7 7f 82 aa a6 f6 8a 07 76 6d 92 64 45 e4 9a c1 14 5b a2 1e e4 d1 aa 7b b3 48 b2 d8 82 bf ba 35 52 36 c2 92 21 ad ca ef f0 23 d2 4c c0 9a da a9 8f 11 e2 06 5f 88 ea 63 2e ff f2 c0 fd 75 db 50 36 38 e3 ad 05 af eb 0a d5 25 f3 67 a4 9c fb c4 73 13 03 22 43 8a 0b 7f 12 01 13 dc e1 77 1b 39 b1 ee 23 96 80 65 2b f3 4f dc 33 50 1f 53 3b ad ee c9 43 0a be 40 4b 67 8d b7 53 c4 5c 2e 5b 21 2c a5 63 7e fb 1b 6b db ca 92 73 38 9a 09 7b 95 69 80 83 f2 38 f7 8b 4f 08 6e 93 ac d7 e4 7c 3c 10 a7 84 99 df 1d 8c f6 ae 94 94 53 7e 0b 9c b0 4d 82 a4 0d 1d f9 ac 6a ec 6f b4 c7 bb e6 bc 24 8b 5d c4 81 5a d4 cc de 29 4b d4 3b f9 c1 dc 98 c8 38 e4 f5 97 af ec 52 67 26 f4 af 36 9d fc 0c 06 14 04 6a d5 8a 0c c7 a4 01 14 24 74 78 1c 81 43 ef 24 de 12 66 2c 3b e2 dc 34 98 b1 53 1d 28 ea 15 25 85 b9 8c 2d e2 88 03 35 3f 58 7a 3d 9c 27 f1 45 f9 f6 67 4d 56 c6 de 55 b3 95 55 5d 10 65 cc 65 6d 34 43 6d ca 03 ba 75 27 d3 30 7d 84 a2 a7 85 e1 71 1e 8d 3e 41 95 95 9b 10 0c 9d f8 df 82 a5 55 af f9 ad b2 7e 70 b5 0f 4e e7 bd 6c 1d 5e c5 c9 ec d4 cd 26 bc 4b d5 83 8b c2 be 13 c4 84 c6 70 93 fb ce cd 62 72 d6 2a 32 e9 de 87 01 60 e6 e4 d0 d6 ee 41 a0 4d f6 9e 6f c4 fe fb 3e 3b 06 59 0e b2 0e b6 dd 28 16 13 ad 9f 1e 70 7c 16 26 cd 4b 8d 2e 2a 1b 04 36 87 ea 7a 3e e4 b9 f1 46 41 89 68 4e 9e 58 df 56 fb 27 56 5e 58 f7 cc 66 b5 c6 43 6e 12 96 ba 76 6f 65 31 5f ff 9d f3 67 5c 6d 6a 6f b9 3c e1 77 16 0c 58 7f 73 db ce 87 d0 aa 45 8f 2d 7a bc 97 8a 49 33 9f e7 18 aa a7 44 e8 20 af a1 b7 97 b7 fe 86 0e bf 5b 56 85 c7 b8 25 fc cf 15 f5 72 d7 72 c4 e9 df cf 93 60 e7 2c 63 d7 ef 89 32 4e f7 e6 01 c5 ff 43 d1 3b 07 a1 a0 b2 0f fe 6f 29 17 5b 3f a0 00 eb 77 62 08 48 47 d9 10 a5 16 50 18 02 e6 c6 20 5f b5 3d 28 bc 84 b4 30 19 54 2b 38 76 23 a2 40 d3 f2 18 48 30 c2 8f 50 8d 91 06 58 ea 60 7d 60 47 30 f4 68 a4 ff 6a 70 01 cf e1 78 5e 9e 58 80 bb 6d cf 88 18 3d 46 90 75 0c bd 98 d2 db 33 a0 2f ab aa a8 8c 7a 21 b0 e9 49 98 b8 46 19 0f }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab24__16_lil_1022_ {
+  strings:
+    $a0 = { 3D FE 8B FF D5 FF E7 FF F1 FF F9 FF FD FF FF FF EF 00 FE 00 FF FF DF 00 FD 00 FD FF FF FF CF 00 FC 00 FF FF BF 00 FB 00 FB FF FF FF FA 00 FF FF AF 00 9F 00 FF FF F9 00 F8 00 F7 FF FB FF FD FF FF FF 8F 00 7F 00 F7 00 FF FF 6F 00 F6 00 FD FF FF FF 5F 00 F5 00 FF FF 4F 00 F4 00 B9 FF F9 FF FD FF FF FF 3F 00 F3 00 FF FF 2F 00 F2 00 FB FF FF FF F1 00 FF FF 1F 00 F0 00 E7 FF F7 FF FF FF 0F 00 FD FF FF FF EE 00 DE 00 FF FF ED 00 CE 00 F9 FF FD FF FF FF EC 00 DD 00 FF FF BE 00 EB 00 FD FF FF FF CD 00 DC 00 FF FF AE 00 EA 00 F1 FF F9 FF FD FF FF FF BD 00 DB 00 FF FF CC 00 9E 00 FD FF FF FF E9 00 AD 00 FF FF DA 00 BC 00 F9 FF FD FF FF FF CB 00 8E 00 FF FF E8 00 9D 00 FD FF FF FF D9 00 7E 00 FF FF E7 00 AC 00 FF 00 15 FF 71 FF B3 FF D3 FF E7 FF F1 FF F9 FF FD FF FF FF CA 00 BB 00 FF FF 8D 00 D8 00 FB FF FD FF FF FF 0E 00 E0 00 0D 00 E6 00 FB FF FD FF FF FF 6E 00 9C 00 C9 00 FF FF 5E 00 BA 00 F7 FF FB FF FF FF E5 00 FF FF AB 00 7D 00 FF FF D7 00 E4 00 FD FF FF FF 8C 00 C8 00 FD FF FF FF 4E 00 2E 00 3E 00 F1 FF F9 FF FD FF FF FF 6D 00 D6 00 FF FF E3 00 9B 00 FD FF FF FF B9 00 AA 00 FF FF E2 00 1E 00 F9 FF FD FF FF FF E1 00 5D 00 FF FF D5 00 7C 00 FD FF FF FF C7 00 4D 00 FF FF 8B 00 B8 00 E1 FF F1 FF F9 FF FD FF FF FF D4 00 9A 00 FF FF A9 00 6C 00 FD FF FF FF C6 00 3D 00 FF FF D3 00 2D 00 F9 FF FD FF FF FF D2 00 1D 00 FF FF 7B 00 B7 00 FD FF FF FF D1 00 5C 00 FF FF C5 00 8A 00 EF FF F9 FF FD FF FF FF A8 00 99 00 FF FF 4C 00 C4 00 FD FF FF FF 6B 00 B6 00 FD FF FF FF D0 00 0C 00 3C 00 F9 FF FD FF FF FF C3 00 7A 00 FF FF A7 00 2C 00 FD FF FF FF C2 00 5B 00 FF FF B5 00 1C 00 C7 FF DD FF ED FF F9 FF FD FF FF FF 89 00 98 00 FF FF C1 00 4B 00 FB FF FD FF FF FF C0 00 0B 00 3B 00 FD FF FF FF B0 00 0A 00 1A 00 FB FF FF FF B4 00 FF FF 6A 00 A6 00 FD FF FF FF 79 00 97 00 FD FF FF FF A0 00 09 00 90 00 F7 FF FD FF FF FF B3 00 88 00 FD FF FF FF 2B 00 5A 00 B2 00 F9 FF FD FF FF FF A5 00 1B 00 FF FF B1 00 69 00 FF FF 96 00 A4 00 EF FF F7 FF FB FF FD FF FF FF 4A 00 78 00 87 00 FF FF 3A 00 A3 00 FD FF FF FF 59 00 95 00 FF FF 2A 00 A2 00 F9 FF FD FF FF FF A1 00 68 00 FF FF 86 00 77 00 FD FF FF FF 49 00 94 00 FF FF 39 00 93 00 C1 FF E1 FF F1 FF F9 FF FD FF FF FF 58 00 85 00 FF FF 29 00 67 00 FD FF FF FF 76 00 92 00 FF FF 19 00 91 00 F9 FF FD FF FF FF 48 00 84 00 FF FF 57 00 75 00 FD FF FF FF 38 00 83 00 FF FF 66 00 28 00 EF FF F9 FF FD FF FF FF 82 00 18 00 FF FF 47 00 74 00 FB FF FF FF 81 00 FF FF 08 00 80 00 FF FF 56 00 65 00 F9 FF FB FF FF FF 17 00 FF FF 07 00 70 00 73 00 FD FF FF FF 37 00 27 00 72 00 F1 FF F9 FF FD FF FF FF 46 00 64 00 FF FF 55 00 71 00 FD FF FF FF 36 00 63 00 FF FF 45 00 54 00 F9 FF FD FF FF FF 26 00 62 00 FF FF 16 00 61 00 FB FF FD FF FF FF 06 00 60 00 35 00 FF FF 53 00 44 00 CD FF DB FF E9 FF F1 FF F7 FF FD FF FF FF 25 00 52 00 FF FF 15 00 FF FF 05 00 50 00 FF FF 51 00 FF FF 34 00 43 00 FD FF FF FF 24 00 42 00 FF FF 33 00 14 00 F7 FF FB FF FF FF 41 00 FF FF 04 00 40 00 FF FF 23 00 32 00 FF FF 13 00 31 00 F9 FF FB FF FD FF FF FF 03 00 30 00 22 00 12 00 FF FF 21 00 FF FF 02 00 20 00 FD FF FF FF 11 00 01 00 FF FF 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule HAVAL_wi5__32_lil_128_ {
+  strings:
+    $a0 = { 1b 00 00 00 03 00 00 00 15 00 00 00 1a 00 00 00 11 00 00 00 0b 00 00 00 14 00 00 00 1d 00 00 00 13 00 00 00 00 00 00 00 0c 00 00 00 07 00 00 00 0d 00 00 00 08 00 00 00 1f 00 00 00 0a 00 00 00 05 00 00 00 09 00 00 00 0e 00 00 00 1e 00 00 00 12 00 00 00 06 00 00 00 1c 00 00 00 18 00 00 00 02 00 00 00 17 00 00 00 10 00 00 00 16 00 00 00 04 00 00 00 01 00 00 00 19 00 00 00 0f 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_mpeg1_vlc__16_big_452_ {
+  strings:
+    $a0 = { 00 03 00 02 00 04 00 04 00 05 00 05 00 06 00 07 00 26 00 08 00 21 00 08 00 0a 00 0a 00 1d 00 0c 00 18 00 0c 00 13 00 0c 00 10 00 0c 00 1a 00 0d 00 19 00 0d 00 18 00 0d 00 17 00 0d 00 1f 00 0e 00 1e 00 0e 00 1d 00 0e 00 1c 00 0e 00 1b 00 0e 00 1a 00 0e 00 19 00 0e 00 18 00 0e 00 17 00 0e 00 16 00 0e 00 15 00 0e 00 14 00 0e 00 13 00 0e 00 12 00 0e 00 11 00 0e 00 10 00 0e 00 18 00 0f 00 17 00 0f 00 16 00 0f 00 15 00 0f 00 14 00 0f 00 13 00 0f 00 12 00 0f 00 11 00 0f 00 10 00 0f 00 03 00 03 00 06 00 06 00 25 00 08 00 0c 00 0a 00 1b 00 0c 00 16 00 0d 00 15 00 0d 00 1f 00 0f 00 1e 00 0f 00 1d 00 0f 00 1c 00 0f 00 1b 00 0f 00 1a 00 0f 00 19 00 0f 00 13 00 10 00 12 00 10 00 11 00 10 00 10 00 10 00 05 00 04 00 04 00 07 00 0b 00 0a 00 14 00 0c 00 14 00 0d 00 07 00 05 00 24 00 08 00 1c 00 0c 00 13 00 0d 00 06 00 05 00 0f 00 0a 00 12 00 0c 00 07 00 06 00 09 00 0a 00 12 00 0d 00 05 00 06 00 1e 00 0c 00 14 00 10 00 04 00 06 00 15 00 0c 00 07 00 07 00 11 00 0c 00 05 00 07 00 11 00 0d 00 27 00 08 00 10 00 0d 00 23 00 08 00 1a 00 10 00 22 00 08 00 19 00 10 00 20 00 08 00 18 00 10 00 0e 00 0a 00 17 00 10 00 0d 00 0a 00 16 00 10 00 08 00 0a 00 15 00 10 00 1f 00 0c 00 1a 00 0c 00 19 00 0c 00 17 00 0c 00 16 00 0c 00 1f 00 0d 00 1e 00 0d 00 1d 00 0d 00 1c 00 0d 00 1b 00 0d 00 1f 00 10 00 1e 00 10 00 1d 00 10 00 1c 00 10 00 1b 00 10 00 01 00 06 00 02 00 02 }
+
+  condition:
+    $a0
+}
+
+
+rule Sharkbox_crypto_algorithm_Enc_cbox__64_lil_8192_ {
+  strings:
+    $a0 = { 65 a3 f3 16 8f 83 0d 06 f6 56 ae 5c ee 57 88 a6 89 4d 2c 3c 35 16 f5 eb dc 5b e8 88 be 74 21 65 21 79 c1 86 80 9a 4e 0d a1 58 fa cf 33 7d ba 27 30 b5 37 a2 04 e1 d9 88 16 e8 fb a4 55 87 3b 69 a0 54 b2 26 18 59 c9 da f3 6a 33 fb 69 e3 c2 45 f4 4e 3e 7b b8 1f 6e a9 f0 7e eb 35 14 8f 57 b7 74 6f 05 32 0b f8 9a 83 7a 27 1f c7 5c f5 37 ae d5 37 ff fd 38 85 20 a4 6f db 3c ad 74 1e 99 35 d1 07 2a b3 94 15 19 ba 7b 2b 57 2e 77 d1 44 53 43 fe 3f 10 de e5 ef e7 5b 5e de 41 dc 6f 79 a3 e5 82 c8 5f 3c 64 f9 2c 22 6d 19 48 fd f6 db ff 0a 78 cf bb fb 9d 94 33 bd c8 ce d0 9d 67 15 7d b1 98 44 02 9c 22 5e 5f ce 83 c6 62 47 63 23 12 c5 f7 41 30 97 da c4 dc 44 da 32 90 0f 19 43 0b e2 a6 c5 df ed 98 55 c0 b8 f4 53 77 1a d3 5f 9e fe 36 f1 c0 43 82 fa 9a 28 15 d6 f3 06 6b 4f cc 0d 5c c2 3b 2a 61 38 df 96 c9 c0 ed e6 60 cf 43 e0 be 55 f8 bb d0 b3 cf 34 85 e2 ec a8 71 e0 96 c4 fb 09 d9 bc fe b7 21 55 16 c4 b4 8b 62 d4 8e c2 d3 4c b0 46 26 68 30 d3 1f ba 94 c2 5d ff b5 31 b9 7f 4b 2f c5 aa 75 41 e6 af 37 88 ad 09 e8 e9 d2 42 8d 3d 21 b2 0e dd 57 a0 61 95 50 52 98 3c e5 bd 70 05 a4 92 aa d8 6b 3d c6 12 e4 18 7b 1d 9c 7c f6 85 3e dc a7 83 35 e3 87 ce 8b 61 d8 05 3c 9d a7 87 b4 4a e3 2f 31 db 73 d7 97 e3 20 ad 08 70 1d 32 38 f1 05 63 8b b6 7f 75 5b d2 17 13 d4 66 03 d2 33 71 8a 00 00 00 00 00 00 00 00 62 87 fe 96 5e 7f a1 ea 09 6c 17 75 86 f1 01 c1 97 c5 88 04 cd 44 bc be 4b 9e 60 8c 73 30 9d db d7 2f 6f da 6e cd c6 ab 1c 90 34 1f ae 1a af 5a 7e 17 ca 89 f0 65 0e b0 49 86 f0 ab 25 78 7b d4 72 47 40 5b f1 20 45 92 88 41 64 d5 1e 32 86 16 9a 99 4a 3f e7 25 84 61 ee f6 4f 0d ec dd 1e e2 81 2d 73 a0 98 c3 87 d7 ef fa 07 e4 c7 f9 6d 1f fb 0a 6c 67 c4 36 b0 79 02 18 90 27 56 48 e6 0f 9b 95 02 d6 cc 01 f7 9c 7c 0f 5a ae a6 2d e8 bf 36 9d 72 cb fe 39 06 99 4d b6 25 e5 89 e8 42 ca b6 bc 49 82 4d de f2 b3 5e 62 43 e6 5b db 33 40 b5 a8 91 4c 30 b2 67 41 ed e2 97 c3 91 b1 8b 10 61 93 26 58 23 13 34 18 f5 42 76 92 93 3b 1d 54 51 26 11 fa 27 f2 ed 90 cc 9b 56 45 11 2b c5 1d a8 34 ed ba b5 8c bb e6 2c 25 03 bd aa fb 76 d2 29 19 9e 1a 2d 4f 3c 31 01 0c 48 e9 2b 24 73 fd 15 fc 23 6a 28 eb ae 9b 85 1d a6 ee 34 53 be c9 6c cf e4 63 09 72 0c c7 2b 01 0e 3d 7b 07 da 3e df 4f 30 46 c3 18 b4 97 e1 b2 1d 11 90 f4 c0 32 6b eb e9 e3 d8 8e a0 2b f8 1e b4 a9 b9 5a 25 8b ba ec c3 50 4c 9b b9 91 c9 a7 cb e2 96 9f 8f fe 6d c3 ac 8a 22 56 7f 3a 95 dd 18 23 9b 0c 5a b1 d4 3b b7 14 13 a1 53 59 e8 de 0a 64 16 05 c1 f3 ec ee df 2a ba 95 f8 ed b2 8c 9c cc e1 4e cb ad e6 96 10 91 41 08 6c de fa 06 24 8e ef 12 c3 84 1f 84 ec d1 d3 76 3a a8 27 51 84 ef 7a 42 91 1c a7 70 bf a6 c9 a5 65 36 45 d6 7a 79 24 3d 30 f6 c3 df 04 59 6d 02 1b cd a9 38 a5 53 9e a8 c8 1b 75 63 4d db 20 dc e9 7e 58 4a 06 8f a1 03 ec 51 a4 64 67 68 b4 c9 f0 c4 2e 3d 93 9a fc b3 90 dd 33 a1 ef 6c 79 8d 4c 7a 54 1a 8c 5d a0 46 a7 73 8e 69 21 bc e4 ea 59 07 6e d7 74 44 5f 3a ea c8 4e a2 fd 2b f4 84 d7 38 e7 9a 58 78 6a 2c 1f 23 2a 0d 46 d4 50 23 a9 c3 bf d0 5e f7 cb 2f f3 72 5f 6e 0b 0f 70 ff 40 bd 40 ea e7 de a3 89 7a 15 32 ad a7 85 52 a9 3f 87 7f 1b 82 60 db 41 7d 4d 04 30 d5 4e ac 90 39 1e af 10 e0 3a 64 70 17 0a 99 8d 92 f1 9a 49 11 93 37 91 3a 22 d5 1d 75 64 8f 65 69 55 cf ce 2a fa 56 02 1c 7a f6 0e 41 7c d6 23 27 33 45 e9 b5 56 73 4b 08 b2 da 04 36 6f aa 2c 7d 9d e3 c4 5d e9 25 49 14 c8 2c 0a 77 13 b4 a4 d9 a5 1b 96 14 bc 19 ac a9 b8 29 ae e5 b9 cb bf 5b c5 c0 d7 69 f1 69 f3 79 c4 8e c6 46 24 bc c4 86 39 b6 43 66 80 9e a9 9f 71 4b b5 bd 7f 46 c2 a2 b7 59 51 a5 04 24 45 5c 21 07 2e 04 ee f7 5a e6 b5 c5 73 fb 5b ca b3 13 2c eb f3 1a 0c b0 94 0c eb b7 06 2d a2 f2 66 7b 12 42 c7 b1 b8 a3 40 6a e8 65 35 5c 28 86 09 7e 20 49 3f 2b 3b 08 60 5f 9c ad d5 72 3c 12 d8 2e ea f9 17 02 77 ea c6 9a 43 40 4d 27 fc 5c 7a d3 c1 0d 93 d5 4f c6 e3 99 fe ea b6 51 2e 35 89 aa 05 83 55 93 6b 8a 59 f4 f2 48 7a 60 19 8c 71 b1 9b b2 a2 bf 08 c0 cb dc 97 10 6e 8e 3f a5 68 2f 81 9f ed 83 39 59 46 4e 66 8a 27 9f ac 9f a5 d7 98 60 91 ce 82 c1 c7 94 7e 3b 4a fd c2 14 f0 6b 83 03 cf dd 66 26 5d cc 06 51 66 e2 e1 da 73 ad e1 44 ac fe 74 9d bd 47 bf 36 d9 28 8d 52 32 c9 34 5a 9e 78 62 57 0e 54 93 dd 2a 32 81 a6 7c f7 4f e2 81 16 cb 82 39 ab 6e e5 af 12 25 e4 8e 80 b6 17 40 8a d1 9c b1 0f 56 1d fd 5b 70 1a b8 71 76 54 c2 70 4b 39 d9 20 d7 82 10 d8 49 cd 97 1e ac 3a 0f b6 e0 b7 b0 01 6b 66 fa 81 4e fc 2e 61 e7 15 ca 1c 95 3b c1 b0 f0 d4 58 3e 46 b9 f8 1b 9e 31 f7 2c 63 79 33 c7 09 21 99 a2 5c ae 1c a8 d3 4f 54 64 f7 de 43 78 af e8 3c c7 6a 53 3e 81 dd 71 ba 0b 9f 11 cc f6 24 84 7b 97 85 3f f1 65 be 78 c8 07 58 fd 22 29 0e 3e ee 6f 68 10 c0 be cd af 5f e4 78 bb e0 8b b9 67 bf ca 6c 06 28 45 69 fa d8 df 11 0b 74 87 52 d0 b9 e7 ce b3 80 d4 25 ca 6a b8 50 92 f9 15 a3 4a f0 f6 5d 5a 52 96 a8 f7 4b 0a 5e c8 ab 83 0b bd bb fc 03 be dc 16 1e e0 0b 80 8f c7 ef d1 17 c1 92 22 d3 60 9f 6e b1 08 37 47 e5 0c 50 8a d2 01 45 4b 22 64 af bb ff a4 a7 7e fb e3 aa 8d 36 c6 bc 26 3d d9 67 75 2f 39 c0 6b 86 4c ba 6d 0c a2 cc 31 37 1b b4 39 9f 7f e6 03 b6 78 3f 8f e0 0a bd d1 a1 68 ff 31 2d a5 e2 35 d9 91 ed cd 6d 37 9c 63 af eb ca d2 aa 6b 69 54 01 07 24 0d 80 d1 fc ac ec 20 75 89 6f ab be 3d f0 23 61 51 a1 d6 d2 a8 02 66 b7 2b d8 f2 ef 98 f4 77 7b dd fc 76 94 0f 71 ac 04 38 f4 19 1c 82 f8 47 ce ea 5e 72 75 d6 f9 42 f2 77 f9 f5 c1 9c 1a 90 e1 85 84 1c b8 10 52 50 2a 59 13 0c d6 9e 6d 03 14 d8 ce 7d 6c 95 f2 3a cd f8 19 ff 7c 4d bb 94 d1 50 ca b0 28 29 4c 98 81 da 18 b1 6d 62 6e 8b 55 bc 1b 63 5e 13 e4 70 5f d0 7c a7 68 a3 9d 3e fd 2d 57 53 ec 74 a5 67 bb 63 31 d9 cb eb 09 f1 72 a3 dc 3f ab 24 4a 7d 03 12 47 8d 09 9b 42 3d e9 f5 99 2e 80 e1 57 cf 8f 8e 8b 6c 47 50 ef 93 f5 5d 4a 61 d4 85 a0 84 11 ee 07 1f 77 cd 34 87 05 36 c9 62 1b 58 c6 0e 48 1a f5 57 0d ad 2d db 7f e5 08 6f 88 8d 89 6a e7 a1 0a f3 aa d3 d6 f9 12 fc 40 92 7e 56 76 38 d5 68 3e a9 34 ab b4 5d 76 9b 28 26 b7 a6 b2 76 77 95 15 5d b0 7c 8c 1e 88 a4 38 f8 52 49 55 a2 4c 22 01 4e 11 2f d5 71 53 98 95 8c 4c d0 60 ff 3a b9 29 68 a6 89 67 2d 29 4b 54 81 df 05 2f d0 0b 62 5a bf 31 6a 47 8d 7d f9 72 99 86 cc f5 d2 13 f2 7d e9 79 8c 48 18 a0 e1 51 02 8a 96 44 4a 92 28 65 58 14 ee 26 0f 44 52 1c 7c 29 de d0 4f ae b5 c2 df a0 a4 c5 48 8a b8 42 0e 5c 08 29 ab 20 35 74 c8 e0 2e 14 80 21 3b 49 b3 e7 f4 2a 17 e4 b3 4d 7e a3 48 94 ce 30 ba 05 a1 5b 79 e2 dd fb e0 f5 34 d6 b5 65 55 8c dd 64 14 7f 7d 2d 0b c2 d1 ad 78 f7 fb ee e7 68 19 f1 d1 fb b0 1e 8d cd 30 ce 45 3f 07 e6 90 7e b6 cc cd d3 ff 21 62 a2 50 a7 cf 41 09 df 8a f1 5e b7 b1 f5 1d c6 c6 37 c3 9d fa de c7 c5 d3 83 3c 07 29 b7 81 25 cf 73 71 16 13 75 e9 a5 b9 26 15 38 bd 73 36 dd 93 bb 1e f9 ee a1 ba e8 34 eb 25 f6 f8 4c 31 3b f8 5d fc d5 c8 4b 9d 57 28 1b 68 e7 c2 8e 59 bb 94 87 70 80 1a 6b a0 c8 3c ec 5c 6e a3 c9 8f 1c 74 d3 07 08 3f 5a 0a f6 a4 95 93 3a 35 9f ce 1a ee 2c ab 7a 38 50 9e 7e 36 6d 46 d0 69 10 e4 b5 d9 02 26 b9 e3 6e ea 8c fd e7 f1 8a ad dd 52 f9 75 90 cc 1b 8d 74 9a b1 44 c1 e4 b2 10 ae 64 24 29 58 a3 f4 70 a0 c9 fc b1 21 6c a0 e6 f6 88 fa c2 ce 05 d1 2d 66 98 2c e5 ee 7a d7 40 a7 65 90 d8 41 ed aa 51 40 7a cb 23 d9 b9 4a ba 79 a2 55 08 07 79 98 5b 85 be 27 bf 59 b0 52 fb 97 bc ba 8c 8e fb dd f7 11 97 a1 43 fd 8a cb e4 64 7e 04 5e 4e 0c c9 6c 88 86 c3 51 75 1b 28 c3 c7 22 c4 26 63 b4 15 df ef 6d fb 97 42 d8 b5 39 19 e5 01 32 94 80 9c be a8 bb 5c 80 70 44 09 7b 2c 76 6f 0c fe bf d4 8c 3d e1 ce b4 9b 61 ff 83 60 47 54 17 32 9c bc 42 35 93 6e 53 f3 78 0e 52 9b f7 4a 63 e1 9b b4 7d 6f 99 98 1b cc 23 68 ce 08 72 a0 cd f5 12 30 82 29 3c 2b a9 28 e7 fd 0b 8c bf 93 dc b8 2b e6 86 f8 25 22 79 6e 73 cf 01 49 7b 7f 00 00 00 00 00 00 00 00 db 84 45 9f 72 32 3f 02 3f 29 f4 5b 80 bb ca d5 0f 3b 17 e1 af 4f a4 07 04 f9 c6 4c d7 b8 5f e9 3a 93 f9 04 e5 2d 05 7b 54 cf 16 77 a6 51 ed 6a 8f 4b 53 e8 d4 63 d2 68 0a 81 1a be ca d9 6b a9 ab ae 84 db 9a d0 6a 1d 52 b0 b3 1d e0 b5 67 0d 2c e2 ae ab 15 36 06 52 95 c4 bb 93 a8 45 30 8f 6d 99 47 46 60 0e ad d8 92 f8 d5 ea 5c 8f 2a af fe 22 59 bf 8e af 17 30 0e 78 dc f2 1d 61 34 40 2b de c0 d2 e1 fc 1c 72 81 33 8f 1a c9 02 e6 28 82 f6 27 2f ea 70 a3 e1 16 71 57 af f0 1b 03 29 e8 53 0e 10 7e b4 14 19 6f 1f 24 60 f1 52 78 56 e1 17 bc 9b 97 1f 3a 79 9c 80 09 18 41 ee 1e ef d2 c0 f7 14 9b 99 11 62 d4 bf 52 7e dd 7d 9b 05 42 be 41 d8 56 4a ee 43 7b e8 10 e9 90 15 ae f1 b2 e4 c4 95 c5 84 cd 33 c4 b1 a0 bb 6b 82 12 4b df 7d 83 d3 a5 8a 60 eb 07 3c 6e 79 f4 ca 1a 20 6b e6 e2 2c 26 ea 27 bf 71 69 0a 57 5a cc c5 58 f1 19 4e 5e 21 e0 b3 37 d1 05 5f 21 b8 eb 54 ab 02 86 63 26 91 5c d5 8e b8 65 de 2b 0f 5d a6 9a e4 ad b1 c4 f2 89 f5 d7 f7 66 eb 34 67 04 39 50 cc b6 d9 23 30 07 ac 6c 60 24 33 81 5e 1d dc 51 f6 25 20 27 d5 2a a9 17 01 43 cb 13 b2 2e 90 47 33 d7 4b 8f 0c 86 2b 1b 87 4c 2a 70 8f e6 6c 4f 9b bc 67 61 b5 24 04 cf f4 a3 43 01 44 76 7c 99 ad d1 21 b1 dc 34 e0 7a f9 1e 37 c6 7a 65 0d 10 5d 8b a4 fc 4f fa c3 0a f5 e0 88 12 f6 58 ec de 9f 45 a1 2d 62 9c 5b 26 2e 64 cd 8d 84 6a d3 dc 56 49 75 51 37 0d 38 e4 b5 d8 aa ec 31 4e d7 13 be 1a 7b 41 49 b9 2c fd 7d 97 b5 83 d6 f1 24 96 96 01 13 a6 8b 37 75 46 ca c9 7c 49 76 e3 26 0b 99 3a 04 47 24 78 d1 41 59 72 62 b0 98 42 9c e3 40 38 22 fe c7 16 3b cd ff 61 92 ac 3c 81 87 77 1f 35 e5 24 19 b0 2d 49 aa ed 4f c8 28 fe fa 5a d6 39 31 58 4c 21 4e 8b d7 7a fa 4b fe 0f de cc 68 23 4a 19 05 98 62 76 35 a8 ee e5 4a 62 a1 7c 9e 06 6a 3e d0 b2 cb 61 88 77 3d 91 20 a9 c8 48 1c f0 4d 11 3a c2 68 80 a7 50 3b 0f 16 ed 8b d3 25 a6 1c 20 fc 9d 28 32 85 ca 49 56 1e ba b9 c1 47 04 4c 87 33 dc 21 ed 57 0a be 42 85 23 a8 a3 3d af 97 7d 11 e7 1f 5b ac 92 ea a2 6e 1a 70 3d bc 9c 18 67 d8 e5 f9 73 fb 98 54 e0 eb 39 d8 9e e6 2b d2 e2 63 d5 20 59 4f 03 35 1f 68 59 9f ca 6e 5c ef 73 43 7c e8 11 ea d5 6d 36 ef e8 c1 97 de 3e 48 c0 17 a4 f0 ac 30 12 e3 ba 2f f4 6e d2 27 20 7f 06 6d c1 fd bc fc a4 3a 99 1f f3 c2 be da c7 8e 8c c0 1c af 45 69 60 81 0a b7 b6 f2 31 fa db 9f f3 59 17 48 d9 c1 0b ad e4 0e 14 dd e5 83 b5 ec 3c 58 5e 33 a6 78 2d b8 dc b3 67 eb 38 38 15 9a 22 74 71 d0 f5 7e 52 1d b6 f5 83 61 5f 89 34 f6 82 92 87 58 0f 61 67 f8 92 ec 33 4c 16 4d 85 56 39 f9 05 4a 44 8b b2 95 a4 03 db 8d 81 5c c8 6f ef fd d4 53 4d 4e 40 fe 0c da 77 0f 8d 5f 0d c7 da de a6 16 84 91 3d 7d df 7f fd 6f 66 7a ab db fa 22 3b 3e b6 37 2e 8d c3 db 3e 74 f2 58 31 a9 a3 2a 6c 0c a4 6c da 8c 55 d2 20 3d 9f f2 dc e6 6b 02 92 f6 fe 19 4a 40 4e 5f 54 a7 2e 39 56 51 31 c6 5f 40 b2 4b fa f3 53 bf e1 c0 23 50 36 d0 3b 71 e9 b2 83 98 79 cf 54 96 56 41 06 64 dd f5 cd 89 a5 83 b8 a3 a9 fd 43 c1 55 d4 3a 3e 6a 3f 48 32 95 5a 92 46 47 87 94 81 f2 b1 aa af 57 42 97 4d 68 35 f4 7c d4 7e 90 64 df b4 d1 ef 6f 60 69 8a 7e 0e 39 eb 96 a6 25 5d c6 51 d0 a1 2f 9e 65 50 09 01 b4 c5 f2 6b a8 d9 ac 82 0c 9a ff ac 72 07 0a 94 88 a0 6c 55 76 e2 27 91 f3 05 ba 0d 5f 65 96 cf ae 4c c6 9d 2a 4b 2b da 03 77 16 af 3d 1c 28 4f 3f bd df d3 74 6a cb 69 34 ec aa c8 5c a9 0c 4b f0 70 2a c1 44 e8 e2 55 1f cb 8a b7 5a c4 cd b6 4c 12 88 91 e3 27 a3 5c c0 31 51 28 a9 9d da fe 95 f3 9f 2d 78 b0 bc 66 b9 14 f7 34 89 61 47 d6 a7 73 ef 69 71 cb 90 10 d6 67 18 5d f8 aa d7 c6 71 d0 46 94 32 0a c5 c4 ec 4a b9 38 40 0d cf 50 64 d5 fc 99 6d 6f 53 0b 42 24 e5 d7 33 4e b3 b8 75 c9 0c d4 7c 55 91 63 c2 b6 1d 02 d9 12 3c 92 da 10 0e f2 c5 b6 ff 89 4e 11 4d 39 d6 04 d1 19 09 41 7b e9 ed 75 38 ab 8a 9d c3 c2 0b f3 c0 8e a8 ed e9 03 4f 1b 22 db b7 1d b3 86 02 88 ec f8 c7 8e 08 98 fb 66 4d 42 2f 15 b4 ff 9a d3 69 46 e0 e0 54 77 88 25 31 aa 3e e9 10 c5 03 cc 9a 84 5e c7 74 08 8e 48 f0 57 82 b0 62 a7 b3 54 d8 18 bd ae 14 89 84 ff 46 a5 b3 20 1c 11 7f 99 0b e7 9c 3b d0 32 17 57 03 95 3c 1a 8f e8 7b 7c 26 e2 e7 45 82 2f a1 a2 80 f4 63 09 44 b2 8b e9 ab 2e 60 a6 13 f0 1c a4 c3 1b 94 06 7f a5 6a 46 e4 8a 67 22 9a 72 59 08 57 32 12 5b f4 01 96 09 1e 49 6d a5 d6 58 29 87 b1 5e 5d ba e3 bd 0d 9e 01 73 14 c0 48 66 f7 bc 3a 4d a2 c8 4f 1f 6f e7 bf f3 85 86 0f e1 63 3d c8 fc 08 b3 a7 0f 86 77 aa 5d 74 72 ac a2 62 79 be 80 91 13 cb 5a f0 95 8d cc 87 76 55 64 2e ae 06 df 78 7f 11 d6 a5 47 ad f1 18 2a 9d 0b c1 53 d2 8c 35 1e 76 2e 37 ab 9e bd 0e e3 91 df bd 06 43 ef f7 f0 5a 85 4d 93 ce 23 70 a8 6b 2c ee b9 a2 2f d4 66 5b 96 eb 18 f9 56 36 b7 5e c9 ca a0 12 02 9d 5a b7 ca 85 bb 30 d9 2a 84 89 82 45 ac 94 29 86 a2 ea 36 50 73 7b 44 7d e2 d2 14 ae b4 6d 7f b0 c3 8d ce c2 9f 48 08 6b 2f 27 06 9e 36 44 43 9b 49 7c 90 75 2e bd 15 ad 21 5f da 6c 2b 25 77 db 48 3f 5b 66 9c 93 85 ea 03 c5 a8 35 23 72 45 c9 2d a1 65 b8 a7 18 96 15 18 09 8b 5d ed 7a 37 69 0d bd 74 c7 3e 13 71 89 bb a0 76 1e 2c 2f e3 53 6a a5 29 3f 94 c4 b7 f8 65 9e 3e de 3b 8b 13 ff c6 ec ab fd b5 2e 6a 7c a0 be 2b 75 0a da 1c 40 c4 57 dc 56 71 21 25 19 87 07 d7 01 d3 c6 de 56 58 ac c6 73 ff 51 c7 41 f9 b5 2c a9 97 76 06 c9 85 bc a0 aa 17 c9 91 33 fe 2a 74 0e 4c 9a 0a ae f4 62 2a 16 72 a9 8c aa 99 df 35 29 91 93 a1 5a ba e5 27 fe 35 91 fd 86 8e 53 3f 1d 4b 07 ca ff 1b fc cd 24 5d b6 3c 0e 5d 88 e9 7f e0 b2 84 43 e2 49 e1 8d ca c0 3a c7 b4 2e 97 45 76 bc e5 48 d6 ff f9 6e b4 56 0d be 50 5f ef c0 05 6d 0e 20 bd 7a 7f 59 ee 7d f1 e1 05 24 2f 0c 1f e3 43 02 67 f5 41 27 dd 09 ab f4 4f 20 cc 47 25 c5 ac e4 72 c2 3c b8 c3 92 8f 34 75 5d 64 1f 18 7e 83 53 29 72 4c cf 9a 31 da d8 4d 9b bb ec e1 ca e3 81 32 8e 81 eb c7 87 e6 d6 9e 40 6d 8e 4a 7f ad 3d 44 cf 53 f0 79 0b f7 28 4c 3c 7a 43 83 37 3e 49 c8 27 1b 46 f6 03 72 b2 3d e2 f0 ff e6 57 23 d0 51 f8 2e 6f 67 90 d3 e8 5f 33 9e d4 24 bd cb 26 5e 94 5f 7b 46 40 16 ee b1 0a b8 49 69 5f a6 4a 3f 59 87 54 22 58 6c b5 43 50 0b 57 a2 e7 fb 4f 11 b4 93 3c 63 85 ba 0a cc a4 f5 e5 8b 1d ec 78 88 6b a6 15 f2 16 1b 50 a7 21 73 d2 d1 36 10 27 3b da 69 f7 5f 46 f2 7f 8a d0 d1 be 36 19 54 35 d9 93 88 7a 95 86 c8 b8 b3 b1 cf e2 ad 50 e9 2f 81 3f 4e 09 6a d7 0f f9 b6 95 e0 ee b2 b3 aa 2d 39 61 1e 5c 9b 49 bd 1a 1e d8 e2 28 42 55 7f 0c a5 9a 04 79 15 39 5f 42 e8 01 bf 95 f4 f3 bc c3 c7 4b 6a 52 d7 d3 b7 b4 00 00 00 00 00 00 00 00 e5 d6 b9 2a 11 2c 36 a0 65 4e 36 8c 19 06 e4 91 52 e4 98 6b c1 62 41 45 d5 e3 4f 6a 12 a4 9f 13 f8 12 ed 06 f5 8b db 01 8c e8 48 b6 8f 08 85 9a 69 3e f1 9c 9e 24 b3 3a cf b8 43 e1 2d ef 7e d5 35 11 d9 4c 1c 6b ea b1 c9 80 da e9 94 fe af 7a 03 1c b6 04 a6 f2 92 ad 18 e0 7b 20 fb 44 ae a3 ac ce ec 65 8d f8 4b eb 15 37 7d 9f 1e 9b 24 c0 f1 46 05 1a 6d 4a cf a8 1a 5b 0c 8b 3f 4b e1 c6 0e cb b0 bb 43 2d 18 ce 73 65 fd 17 a1 6f 52 fc ab 51 b4 c2 56 14 47 8c fb 0e 5b 02 53 79 49 ac 0a 48 5e 18 3e 33 86 04 3c 45 31 50 84 aa fe 18 1d c4 54 2c e4 a7 ed a1 0f 6c 71 14 21 d0 c5 06 f2 5a b3 1e cb b8 5d 05 b7 32 21 41 d0 4e 77 e5 77 e6 13 b4 dc 71 cc 36 57 c0 b7 67 de 81 02 47 9c fb 1a 25 8e 70 e2 58 09 54 e8 1c 98 c1 14 a9 30 35 f6 40 03 88 a9 b3 0d d7 06 bf e5 df 8a 63 e9 a6 7e 3a 96 0e 61 0b 98 78 f4 86 f3 6e 7c 92 a3 a2 9d 71 ac 28 8e ed 2a 6e fa cb 3c c3 48 75 90 8b dd 35 09 52 b5 f3 53 43 59 c4 a3 9f 9c 8d 80 98 8f a6 08 2a d2 31 e6 ca 0f 2e b7 de a4 0d 56 67 76 c8 bc 7c df 8f 6e a1 a9 3b 45 c8 bf 5d ae 75 9b ce 49 f7 04 8e 48 bf 94 e0 fe 29 a0 83 ef 9e e7 32 2f 1f b0 a4 36 0d 6f 48 ba 99 78 1c 02 bb 77 ab c4 0f 4f 65 3e fe 46 fb 40 a5 b1 7d 70 79 4b 13 07 9d c0 51 fc 91 03 a5 88 95 45 cb 9b 64 42 82 55 9c ee 3f 76 41 d2 1b be 8c 11 fe d7 58 38 c1 d6 ab d0 76 93 97 6b 31 af a0 27 5e 1c 63 95 83 86 5a 30 69 91 2c 1c 9a 6b af 68 3b 16 2b cb 9b b8 69 b6 6d 12 a8 25 38 c5 77 28 a7 c0 d4 32 f5 0c 3f bb d3 13 0f e4 97 a7 8a f5 6f 92 30 aa 9e cd 5d fa 96 4e 87 0d e8 47 38 71 2c e7 6d ce 81 d5 23 79 c5 b9 f9 91 fa 93 63 6f 2b ec 82 51 36 89 ed 22 09 7d ae 4d ac e2 42 4a 32 27 b9 fc 74 d9 1c c2 16 6f 06 68 94 27 35 62 95 31 92 37 ef 61 75 74 7b aa f6 75 6d 34 e9 9a 44 9f e7 ac 21 28 82 70 f5 64 e9 f7 23 7b fb 39 59 34 b6 18 e3 7e 96 37 79 bf c1 08 f2 2a 72 be 84 14 90 bc 30 7c 66 f9 08 a6 86 b2 7d b3 cb cd ef ea ba c8 3e 30 fc f3 a6 54 dc 01 63 78 73 90 ea f5 c5 eb b9 10 54 51 62 38 c6 df f3 f9 b4 60 d2 86 a0 16 ae b1 3b 03 9e 6c 1a de 90 81 c7 f0 38 10 13 52 93 01 78 67 c2 b5 89 56 ea 14 41 38 80 74 fa a5 b0 7a 83 5e 9b 9a c3 83 2d 37 61 33 f7 78 8a 62 a0 fd a1 09 30 37 aa ae e7 d8 64 a5 d4 84 1b 61 05 75 34 4c fb 61 cd d8 2f 64 18 7a 5b ad 69 2d ca ef 05 96 23 79 2d a3 0f 9f 5c d4 f8 24 a5 4a 70 7f ee 50 bb 94 08 33 96 74 4c 2b 39 e3 ee 20 22 a8 3d e7 0f 8f f4 fe b2 29 fa 17 37 68 99 30 33 fc d9 6e f2 ca 9c 6c ed 32 0c 3d d7 2c 56 63 c3 85 d2 99 da 26 1e 3d db bb e1 1f de 25 02 8b df 1d 13 8d 73 bc dd be f6 8c 80 2c 29 d3 db d6 62 ab b5 4e bc fd 36 c2 0a ea 68 98 03 0b ef 9f b7 5c ce 5b cc cd 03 34 4a e9 e0 31 b0 1f 7f 23 87 20 a8 a2 c4 3a 7d a8 58 3d bb 2f b7 06 38 99 08 b9 11 d1 af e4 71 78 85 73 d1 eb 68 7b 96 d4 a4 5b 53 9b 9d a9 ea c3 69 92 1b 08 e9 20 26 a4 d3 02 f0 ce 71 60 6a 19 80 06 e5 a7 93 59 0b 07 dc 9d ac 1a 89 da 8f 3e 7e 33 74 5a 15 bb 42 e6 51 57 6c 20 4e 6a 22 47 98 38 d6 21 97 2d f1 a2 6c e7 2f 44 12 a2 05 5c de ce d5 53 25 e0 f2 96 26 0e cf 75 a2 5a 17 b1 d8 3b 5e 88 24 07 9f 58 a7 db ec 0c 67 d2 7c 17 cd c9 48 93 74 fa a9 9a ad 31 84 94 64 41 eb 7c fc 66 e8 b4 2a 4a 04 e3 4b 3a 26 ef e6 b2 16 0e 4d cf ad 34 e7 9d 5c db 8a ec 8d 3f 90 6d bd 1f 3f e3 3a 2d f0 dd 10 66 d9 e8 98 56 72 ce 1f 82 4e 4f 12 a3 1d df ab 11 72 2c 97 19 17 d0 c7 60 66 0d 47 dc 11 5b b0 70 77 59 a3 55 ec 2e ed 14 68 41 dd d6 bf 7f 15 3a 07 26 4d 05 57 33 29 40 44 a5 7a 3b 1e 6b 85 86 37 5a 2b fc 5f 08 f3 29 b3 fa 3c c9 61 63 76 af 84 a0 17 35 3e 62 d1 6e 2b c2 ea e8 f6 28 d5 8d 60 f8 cc 07 10 ff 8d b5 a1 2e 67 d7 66 5c 2f 28 d0 82 4f 59 8b cb 3b ad 42 50 f1 e0 1f 49 18 55 4f 9c d4 7d 4b be 66 c9 5d 48 8f 63 4c f6 d9 5d bd b6 a6 c3 cf af d2 5a 61 2b 0a d9 46 47 d3 e5 f4 df f9 65 85 97 14 85 92 d2 be b9 94 7c 09 8c 03 80 bf 97 fa 21 81 65 7c 60 0d 13 b9 23 3a 12 d7 a4 02 5c dc 55 7b c0 cc 1a 8e 4d 22 42 f7 ca f8 c0 1a 26 87 d1 60 a1 c9 6f ba 01 d9 0c 70 c7 10 87 22 57 ab a8 4d 02 c6 f0 e6 d5 21 89 cc 67 ba 90 eb c6 98 b0 ad 79 e6 0b a2 7b 82 71 de 8a bc 65 60 1d 99 7a 31 15 0b 39 ae 46 55 17 8c 0a 34 da 94 6b a5 f7 7e 9c 12 d4 5b 1e 07 45 68 92 5f 1b f6 2a e0 19 47 ba 8f 99 b9 73 6b de 0c d0 dd 4e 6a c4 df 2f 4a d5 c7 23 20 0b 77 c3 c8 84 f1 aa cd 29 7e dc b7 a7 76 8a 65 8b ba 83 84 39 a2 ae d8 40 9c 7e b2 fb a8 44 b0 d8 9f d4 44 8e c5 70 59 42 db 40 4c bd 53 04 15 69 e2 66 52 80 88 bf f4 76 3c 95 af f2 39 16 b1 f6 f1 82 23 f8 0d cc 25 9d 54 46 74 24 5b bd 04 b8 4d a4 3d c5 d6 77 c4 82 8a 8d 4f 89 19 ed f5 58 52 eb 1d 09 91 52 01 2e 6e ed 25 90 99 eb 10 ff c1 2b c9 3b 64 5e 3e 95 bd 01 a7 c1 af 62 fd dd c8 96 b3 44 3d b0 43 64 5c ee 39 26 9d 4d e2 6d 6c 22 9d d3 78 c6 ff 81 14 c5 f0 1d f9 13 dc f8 d1 04 83 ee a3 7d 1e 9e ca db 28 ff d1 51 89 87 dd f0 e1 c4 b5 0f b7 12 60 c1 73 f3 5a 6e c2 66 1b b8 5e 50 55 f1 9e b2 e3 d8 34 49 d5 f7 7b 15 70 4b a3 22 e4 58 db 32 2e e1 55 57 89 6c 32 a8 6a c2 6f 45 5e c8 30 f4 b6 8b 77 10 11 54 e4 89 fd a1 19 ea da 68 27 c1 88 f3 fd 72 b1 a9 45 80 cd 42 b7 55 66 61 3e 18 99 60 68 0d a5 32 20 87 b2 ef 28 05 06 3b f6 46 09 7d f0 1e 14 9a 2b 61 36 9b 57 49 dd 84 da 34 06 57 8a 6c 48 9b 9e 9c fc d0 6f 4e 74 c0 e3 3f a6 f9 6b b4 d8 58 57 51 f1 ff 97 51 cd 9f 55 82 3e 77 01 c4 2b 26 2d e1 92 c5 52 77 5a 3a 43 bb c3 7a 26 83 51 2a 85 c3 21 09 8f 52 cf 25 07 13 39 98 29 c1 2d 1d db a7 9b 5e 05 3e 87 be 99 8f c5 6c 65 32 8f 49 24 d4 d9 e1 71 ca 8c ae 5f f7 27 30 34 fc a8 19 10 b9 59 6b b3 af ca f9 8a 76 ce 03 7e 88 f0 99 01 93 9d 8e 6a 70 f3 7e 7a b0 63 96 70 0e a7 88 72 16 b5 2e d2 67 e9 28 1a cc 40 80 33 bf 79 eb d3 01 4d b4 af 56 64 db 6c 89 9e 3b ef 5e c7 d2 ba 48 25 bd 20 04 ab fe 6b 9a a7 d9 e0 1c bb e5 e4 2c 9f 3c 39 c3 82 62 14 ea 32 97 5a 76 f7 ff de 67 6d eb 80 10 b3 12 59 77 83 b8 a2 69 4e a0 68 da f5 9c 81 d4 98 34 74 96 11 35 b6 91 4d 47 13 f9 0b 99 03 b9 7d 6a 77 d6 43 6f 1b ba 7f d0 25 47 44 15 3d 39 2e fa a0 84 65 92 d8 1b 12 a1 dd 27 3f 0f 73 b7 da e2 05 c0 f6 44 4b b0 73 a6 3c cb 56 78 72 73 f1 c4 28 21 64 ce 89 d5 35 f1 e9 4a bf ba f6 99 ee 4e c5 38 b0 d5 ed 23 91 9e e0 7f f4 e4 f3 a7 69 f0 5c b7 75 c2 84 ea 1f 8a ed 19 d4 7f a4 ee b4 74 86 83 73 c1 fa 62 ef 13 ec 8a 49 17 69 c9 8e 14 0d 66 20 0a f1 da 3f bc 06 80 a4 63 16 85 55 ab 21 14 2f 58 f9 db 92 79 9b 5c 0a ee 02 7d 56 4c 5a 37 d1 00 00 00 00 00 00 00 00 f0 e4 e6 17 7d 50 42 c8 23 f5 20 93 24 b2 ee f3 9d ab ac c8 43 d8 e7 c9 e0 5b b2 dc d9 f3 86 ff fb 3f 44 78 b6 fa b3 b4 d7 b9 d3 31 70 4d 9d b1 27 5d 35 26 0d 1d df 79 45 61 c8 23 d1 90 ba 8e 13 c1 dc 3b 3d a2 57 aa 47 35 38 83 3f 3d 58 cb 01 2a 78 50 77 ac 71 d8 08 a5 2a 9f 52 ab 62 e1 64 c0 18 10 1b 8f b6 38 a0 b8 17 1a 56 60 7c 23 fc e9 d9 3d 06 54 11 a3 a5 3a 7a ff 08 63 3c 71 a9 37 45 d5 73 67 6f 1a 82 67 4f d9 05 7e e3 08 ca 21 c0 80 d8 46 7b 35 fa 15 3c 28 c1 56 c2 6c 06 fc e5 15 c7 02 d3 cf 14 17 41 7e 8d 0c f5 bd 0b db a2 6f cb aa f1 7c 05 82 6d e5 5e 03 40 52 fd c3 a1 6d 71 f8 60 7b 6d 4f 4a df 3e 88 a5 01 2d ac ef 19 b1 1b 5f dd 9e d5 24 38 da d9 74 54 74 7f 4c db bf 2c 72 0f 07 d6 9d 45 b0 ae a2 17 10 bf 54 cb a4 a3 c4 37 a8 1d 3d 85 04 cb 1e c2 f4 4c f3 a2 54 ff 73 42 db b4 ec 1b 0b 49 ce da 61 42 75 f5 45 8c f6 6a b5 85 2e 34 ac c0 f8 46 70 d7 59 6e 96 83 43 85 31 1e 84 f8 6e bc c8 81 d3 11 c6 84 59 e2 ac 3b f1 ce 9e 47 0a fc 33 10 32 60 0c 08 f7 bd 5b 1c 89 bc ed b6 ce d4 12 74 c9 5f 48 70 41 47 e8 a8 38 91 d6 37 4b bb db b8 f6 18 03 02 ba 52 91 07 12 eb a4 6b 4a 0e 26 72 ad 9f 50 60 5a c8 5e 90 b9 88 11 1e d7 c4 ab 2d 83 4d 37 89 72 d2 92 d0 54 f4 e4 b8 02 9f 0f 61 da 9e 94 4b 7c e5 bf 02 81 19 c7 29 9c 7f 70 95 4d c4 e2 bc 83 3b d8 6f 71 fd 21 3e e1 2f 32 5d a7 6e 8a 5f e6 ce de 34 dc 62 71 5e bb e7 6c cd a1 92 6f 4a 21 cc 0d fb 0e 59 cf 8a 95 a9 b1 2e 40 e3 a5 c6 8f 93 fa dc a2 ec e7 ba b8 cd 9e 66 dd 48 09 0e cc 4b 1d 15 3a c5 26 97 a5 16 39 fd 5d 7b b6 77 27 98 1c 58 c4 78 0f 0a 4d ef ca 1b f7 32 7b 52 cd fe e0 df 2b 50 0a 0c 76 19 8c 12 1d 98 13 b1 a8 0b e6 84 25 09 c5 86 e3 b0 3d 3c bc 0a 7c fb 89 c7 eb 7f 66 94 e8 b0 f5 22 54 7d 75 55 34 8b c8 80 03 d7 8f 40 08 a3 09 d6 c1 bb bf 74 f4 0b 10 c6 78 e2 c6 2c ff aa a3 42 28 5e 0c 0d 3f 2a 7b 04 53 6b 62 3c fd 05 dc 8d 65 f7 f5 66 8b f2 23 53 02 9a 9f ff 5c 68 ad 75 05 8c 53 22 79 fd b2 31 ad 76 bb dc e1 be 39 69 49 68 d1 45 36 24 b7 4f 4e 7e 24 23 bd d6 94 1c 4c e4 a3 c6 9f ea cf 61 ef be c0 d0 1a bf 64 40 fb 91 2c 86 97 49 c6 b7 2e 05 76 2b bc 7b 51 81 90 4a 28 2e 82 fc ef 18 1f 8f be 5e 8c 5b 67 6a 09 3a 7c da 66 44 ed 87 10 ee 8c 3e 80 53 90 d7 52 26 c8 75 30 20 36 eb 99 70 84 9b aa cc c2 7c 30 c7 1c b2 6b e1 df a7 97 5c df 1c f9 ae 22 e6 ff 50 f2 b0 16 b7 93 fd a0 8d d6 93 ab 61 07 e1 ec 69 8b e8 1d 16 20 79 f0 31 46 1f 40 d3 48 91 29 13 b7 d1 de 94 42 6d 1a 03 b1 2d 3b 81 85 6f c9 cc b0 07 43 d1 f2 c3 b8 14 c7 06 87 fa d4 ee 59 86 e2 0f 42 7c 37 5e 64 ba f8 41 cc 88 2f fb 20 29 aa 49 cd 25 ea 66 fc 87 e8 fe 98 43 8b 58 e4 1e a6 44 f2 0f 91 62 af ec 16 43 b1 de 63 a1 17 f8 02 54 f0 a0 ee ad e2 45 5c 51 ce 27 50 34 6d 80 29 04 fa ac 98 b4 6e 57 67 be 90 e0 82 8e 25 a5 b3 79 cb 21 6b c2 2b 89 20 8b a8 63 bd b3 7d 6e 37 e2 61 ed a9 be 1b 4e e5 d9 df 39 87 f0 c6 ad 69 e7 5f 6a 17 27 94 8b 26 77 4d 76 7a b1 ae a1 1b 64 f6 a4 6f 09 35 4b cd f7 5d c5 68 e8 d9 22 f3 9a 6e e7 e4 51 d1 55 36 c8 19 bd de 12 6a 96 ae e1 d8 90 c3 c9 cd 0d 4e ba 6a 4c 1a 3a 4b f2 56 a0 14 18 ec 32 ed 24 3f 47 4b 72 fb 15 79 af 95 0e 86 57 11 73 85 28 6e 31 c2 2f a7 89 36 9c d8 ca 64 eb 92 48 5d 47 88 96 95 e6 b9 78 63 ac 4b 38 07 a9 44 39 0b a0 e9 d4 e0 13 fc f4 95 c6 e6 a7 57 c9 1e f1 55 30 e3 25 3a 2c 40 f2 15 62 9a 7d 31 8d f3 76 45 de 1a 4e 8e f4 18 a5 44 93 86 cf 5a 6c 2c d1 d2 82 11 95 2c 9b d3 0f b5 ef 8a c2 65 46 57 d5 81 e9 ab 63 b5 75 9d ca 8d 5f 21 a1 d0 33 ca 1f 0c b6 8d 14 f8 03 e7 7b 23 fe 18 1a 7e 54 f6 08 a6 d6 55 de 9c e8 75 33 7e b9 34 9c e9 1d 30 bf 88 d3 ea aa 68 e3 65 f5 06 5b 94 24 fe 07 66 df f4 f0 6a 99 d7 9a 8e 26 07 16 52 08 01 ad c5 9d dc ae 65 ea 60 40 6c 23 c7 e0 3d 13 bb d2 15 b8 9b ea de 36 81 fe 55 4a 8e 88 87 e5 22 3c 5b 7d a3 5a 1f cc e3 11 46 a6 04 c1 b2 53 b3 71 1c 6e 5a 51 33 4a 74 58 80 11 2a c4 3e 6d 33 22 8c b9 08 77 4f 90 12 1c 6d 96 3a 2a 04 a8 15 b5 29 af 31 8a cb 0b b8 d0 af ea 0a ed d4 c7 5b c1 e9 4c 0e 2c c3 ae 92 4f fd 41 68 0c 2f f8 1f b9 5f b6 bd 98 85 b1 d2 9c b5 d0 41 1f 0d 27 47 7a 0c a8 22 b3 fe bd 29 9d e8 f9 f3 e6 90 8c eb b2 4f 70 c5 7a a4 10 02 af 7f cf 4d a9 4a 12 7f f9 33 95 7a 78 b6 fb a6 c4 35 c1 6b db 41 c9 dd 96 f8 3f 8b 04 e7 8d 2f 99 69 5d 24 e8 d2 3b be d4 2e 4e dd e3 2a 7a 72 5c 01 b5 fd ca 4c ee 9a ec f4 97 a9 b7 93 f2 63 42 d6 71 56 e7 22 df 58 c3 53 1e 9f 2b 73 a9 d1 9e 0f 82 d0 18 7e 8e 96 e4 03 2a f2 ab 91 a6 93 e2 38 dc b4 a2 cf a3 ad 65 86 45 3b 67 7b 0c fb 01 5d 29 b2 f9 59 d3 a3 c2 0e 37 2d d2 5b 87 53 62 e0 9a cf 97 19 30 06 04 81 a4 d7 0e ac b5 28 30 2d 64 2f 48 72 83 a9 ce 78 2e a1 c0 5a ad 2b 32 97 36 be 4f 1e e6 9b 41 31 0a 75 19 43 9d 2d 36 16 92 69 41 af cb a0 c0 b4 65 bc d5 49 6c f7 09 aa 94 e9 e5 50 5c f1 0d 2b 30 3e eb ec 56 8d f6 a2 f7 d5 94 68 cd 27 3a 60 8b e5 53 48 46 8f 59 dd 38 98 3d 39 bb ae 67 3c 17 aa 60 5f 2f 46 d7 c9 35 fe 1d ed 7c f5 a6 d5 5b a4 4c 79 58 0b a1 b3 84 50 bc cc dd 25 95 1f 44 a8 fa 51 76 89 5d 5c 9c 4f 33 }
+
+  condition:
+    $a0
+}
+
+
+rule MPEG_2_NBC_Fraunhofer_sfb_32_120__16_lil_28_ {
+  strings:
+    $a0 = { 04 00 08 00 0c 00 10 00 14 00 1c 00 24 00 2c 00 38 00 44 00 50 00 60 00 70 00 78 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavformat_mxf_mpeg2_codec_uls__8_byt_128_ {
+  strings:
+    $a0 = { 06 0e 2b 34 04 01 01 03 04 01 02 02 01 01 10 00 06 0e 2b 34 04 01 01 03 04 01 02 02 01 01 11 00 06 0e 2b 34 04 01 01 03 04 01 02 02 01 02 02 00 06 0e 2b 34 04 01 01 03 04 01 02 02 01 02 03 00 06 0e 2b 34 04 01 01 03 04 01 02 02 01 03 02 00 06 0e 2b 34 04 01 01 03 04 01 02 02 01 03 03 00 06 0e 2b 34 04 01 01 03 04 01 02 02 01 04 02 00 06 0e 2b 34 04 01 01 03 04 01 02 02 01 04 03 00 }
+
+  condition:
+    $a0
+}
+
+
+rule FFT_and_FHT_routines_rv_tbl__16_big_256_ {
+  strings:
+    $a0 = { 00 00 00 80 00 40 00 c0 00 20 00 a0 00 60 00 e0 00 10 00 90 00 50 00 d0 00 30 00 b0 00 70 00 f0 00 08 00 88 00 48 00 c8 00 28 00 a8 00 68 00 e8 00 18 00 98 00 58 00 d8 00 38 00 b8 00 78 00 f8 00 04 00 84 00 44 00 c4 00 24 00 a4 00 64 00 e4 00 14 00 94 00 54 00 d4 00 34 00 b4 00 74 00 f4 00 0c 00 8c 00 4c 00 cc 00 2c 00 ac 00 6c 00 ec 00 1c 00 9c 00 5c 00 dc 00 3c 00 bc 00 7c 00 fc 00 02 00 82 00 42 00 c2 00 22 00 a2 00 62 00 e2 00 12 00 92 00 52 00 d2 00 32 00 b2 00 72 00 f2 00 0a 00 8a 00 4a 00 ca 00 2a 00 aa 00 6a 00 ea 00 1a 00 9a 00 5a 00 da 00 3a 00 ba 00 7a 00 fa 00 06 00 86 00 46 00 c6 00 26 00 a6 00 66 00 e6 00 16 00 96 00 56 00 d6 00 36 00 b6 00 76 00 f6 00 0e 00 8e 00 4e 00 ce 00 2e 00 ae 00 6e 00 ee 00 1e 00 9e 00 5e 00 de 00 3e 00 be 00 7e 00 fe }
+
+  condition:
+    $a0
+}
+
+
+rule AAC_pred_max_bands_tbl__avcodec___32_big_64_ {
+  strings:
+    $a0 = { 00 00 00 21 00 00 00 21 00 00 00 26 00 00 00 28 00 00 00 28 00 00 00 28 00 00 00 29 00 00 00 29 00 00 00 25 00 00 00 25 00 00 00 25 00 00 00 22 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavformat_CODEC_ID_AMR_WB_packet_size__8_byt_16_ {
+  strings:
+    $a0 = { 12 18 21 25 29 2f 33 3b 3d 06 06 00 00 00 01 01 }
+
+  condition:
+    $a0
+}
+
+
+rule AAC_pred_max_bands_tbl__avcodec___8_byt_16_ {
+  strings:
+    $a0 = { 21 21 26 28 28 28 29 29 25 25 25 22 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule CRC_16_IBM_poly_0x4003__16_lil_refl_True_ {
+  strings:
+    $a0 = { 00 00 81 7f 02 ff 83 80 01 7e 80 01 03 81 82 fe 02 fc 83 83 00 03 81 7c 03 82 82 fd 01 7d 80 02 01 78 80 07 03 87 82 f8 00 06 81 79 02 f9 83 86 03 84 82 fb 01 7b 80 04 02 fa 83 85 00 05 81 7a 02 f0 83 8f 00 0f 81 70 03 8e 82 f1 01 71 80 0e 00 0c 81 73 02 f3 83 8c 01 72 80 0d 03 8d 82 f2 03 88 82 f7 01 77 80 08 02 f6 83 89 00 09 81 76 01 74 80 0b 03 8b 82 f4 00 0a 81 75 02 f5 83 8a 01 60 80 1f 03 9f 82 e0 00 1e 81 61 02 e1 83 9e 03 9c 82 e3 01 63 80 1c 02 e2 83 9d 00 1d 81 62 00 18 81 67 02 e7 83 98 01 66 80 19 03 99 82 e6 02 e4 83 9b 00 1b 81 64 03 9a 82 e5 01 65 80 1a 03 90 82 ef 01 6f 80 10 02 ee 83 91 00 11 81 6e 01 6c 80 13 03 93 82 ec 00 12 81 6d 02 ed 83 92 02 e8 83 97 00 17 81 68 03 96 82 e9 01 69 80 16 00 14 81 6b 02 eb 83 94 01 6a 80 15 03 95 82 ea 02 c0 83 bf 00 3f 81 40 03 be 82 c1 01 41 80 3e 00 3c 81 43 02 c3 83 bc 01 42 80 3d 03 bd 82 c2 03 b8 82 c7 01 47 80 38 02 c6 83 b9 00 39 81 46 01 44 80 3b 03 bb 82 c4 00 3a 81 45 02 c5 83 ba 00 30 81 4f 02 cf 83 b0 01 4e 80 31 03 b1 82 ce 02 cc 83 b3 00 33 81 4c 03 b2 82 cd 01 4d 80 32 01 48 80 37 03 b7 82 c8 00 36 81 49 02 c9 83 b6 03 b4 82 cb 01 4b 80 34 02 ca 83 b5 00 35 81 4a 03 a0 82 df 01 5f 80 20 02 de 83 a1 00 21 81 5e 01 5c 80 23 03 a3 82 dc 00 22 81 5d 02 dd 83 a2 02 d8 83 a7 00 27 81 58 03 a6 82 d9 01 59 80 26 00 24 81 5b 02 db 83 a4 01 5a 80 25 03 a5 82 da 01 50 80 2f 03 af 82 d0 00 2e 81 51 02 d1 83 ae 03 ac 82 d3 01 53 80 2c 02 d2 83 ad 00 2d 81 52 00 28 81 57 02 d7 83 a8 01 56 80 29 03 a9 82 d6 02 d4 83 ab 00 2b 81 54 03 aa 82 d5 01 55 80 2a }
+
+  condition:
+    $a0
+}
+
+
+rule zdeflate_lengthCodes__32_lil_1024_ {
+  strings:
+    $a0 = { 01 01 00 00 02 01 00 00 03 01 00 00 04 01 00 00 05 01 00 00 06 01 00 00 07 01 00 00 08 01 00 00 09 01 00 00 09 01 00 00 0a 01 00 00 0a 01 00 00 0b 01 00 00 0b 01 00 00 0c 01 00 00 0c 01 00 00 0d 01 00 00 0d 01 00 00 0d 01 00 00 0d 01 00 00 0e 01 00 00 0e 01 00 00 0e 01 00 00 0e 01 00 00 0f 01 00 00 0f 01 00 00 0f 01 00 00 0f 01 00 00 10 01 00 00 10 01 00 00 10 01 00 00 10 01 00 00 11 01 00 00 11 01 00 00 11 01 00 00 11 01 00 00 11 01 00 00 11 01 00 00 11 01 00 00 11 01 00 00 12 01 00 00 12 01 00 00 12 01 00 00 12 01 00 00 12 01 00 00 12 01 00 00 12 01 00 00 12 01 00 00 13 01 00 00 13 01 00 00 13 01 00 00 13 01 00 00 13 01 00 00 13 01 00 00 13 01 00 00 13 01 00 00 14 01 00 00 14 01 00 00 14 01 00 00 14 01 00 00 14 01 00 00 14 01 00 00 14 01 00 00 14 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 15 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 16 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 17 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 18 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 19 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1a 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1b 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1c 01 00 00 1d 01 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_h264_cabac_context_init_I__8_byt_920_ {
+  strings:
+    $a0 = { 14 F1 02 36 03 4A 14 F1 02 36 03 4A E4 7F E9 68 FA 35 FF 36 07 33 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 29 00 3F 00 3F 00 3F F7 53 04 56 00 61 F9 48 0D 29 03 3E 00 0B 01 37 00 45 EF 7F F3 66 00 52 F9 4A EB 6B E5 7F E1 7F E8 7F EE 5F E5 7F EB 72 E2 7F EF 7B F4 73 F0 7A F5 73 F4 3F FE 44 F1 54 F3 68 FD 46 F8 5D F6 5A E2 7F FF 4A FA 61 F9 5B EC 7F FC 38 FB 52 F9 4C EA 7D F9 5D F5 57 FD 4D FB 47 FC 3F FC 44 F4 54 F9 3E F9 41 08 3D 05 38 FE 42 01 40 00 3D FE 4E 01 32 07 34 0A 23 00 2C 0B 26 01 2D 00 2E 05 2C 1F 11 01 33 07 32 1C 13 10 21 0E 3E F3 6C F1 64 F3 65 F3 5B F4 5E F6 58 F0 54 F6 56 F9 53 F3 57 ED 5E 01 46 00 48 FB 4A 12 3B F8 66 F1 64 00 5F FC 4B 02 48 F5 4B FD 47 0F 2E F3 45 00 3E 00 41 15 25 F1 48 09 39 10 36 00 3E 0C 48 18 00 0F 09 08 19 0D 12 0F 09 0D 13 0A 25 0C 12 06 1D 14 21 0F 1E 04 2D 01 3A 00 3E 07 3D 0C 26 0B 2D 0F 27 0B 2A 0D 2C 10 2D 0C 29 0A 31 1E 22 12 2A 0A 37 11 33 11 2E 00 59 1A ED 16 EF 1A EF 1E E7 1C EC 21 E9 25 E5 21 E9 28 E4 26 EF 21 F5 28 F1 29 FA 26 01 29 11 1E FA 1B 03 1A 16 25 F0 23 FC 26 F8 26 FD 25 03 26 05 2A 00 23 10 27 16 0E 30 1B 25 15 3C 0C 44 02 61 FD 47 FA 2A FB 32 FD 36 FE 3E 00 3A 01 3F FE 48 FF 4A F7 5B FB 43 FB 1B FD 27 FE 2C 00 2E F0 40 F8 44 F6 4E FA 4D F6 56 F4 5C F1 37 F6 3C FA 3E FC 41 F4 49 F8 4C F9 50 F7 58 EF 6E F5 61 EC 54 F5 4F FA 49 FC 4A F3 56 F3 60 F5 61 ED 75 F8 4E FB 21 FC 30 FE 35 FD 3E F3 47 F6 4F F4 56 F3 5A F2 61 00 00 FA 5D FA 54 F8 4F 00 42 FF 47 00 3E FE 3C FE 3B FB 4B FD 3E FC 3A F7 42 FF 4F 00 47 03 44 0A 2C F9 3E 0F 24 0E 28 10 1B 0C 1D 01 2C 14 24 12 20 05 2A 01 30 0A 3E 11 2E 09 40 F4 68 F5 61 F0 60 F9 58 F8 55 F9 55 F7 55 F3 58 04 42 FD 4D FD 4C FA 4C 0A 3A FF 4C FF 53 F9 63 F2 5F 02 5F 00 4C FB 4A 00 46 F5 4B 01 44 00 41 F2 49 03 3E 04 3E FF 44 F3 4B 0B 37 05 40 0C 46 0F 06 06 13 07 10 0C 0E 12 0D 0D 0B 0D 0F 0F 10 0C 17 0D 17 0F 14 0E 1A 0E 2C 11 28 11 2F 18 11 15 15 19 16 1F 1B 16 1D 13 23 0E 32 0A 39 07 3F FE 4D FC 52 FD 5E 09 45 F4 6D 24 DD 24 DE 20 E6 25 E2 2C E0 22 EE 22 F1 28 F1 21 F9 23 FB 21 00 26 02 21 0D 17 23 0D 3A 1D FD 1A 00 16 1E 1F F9 23 F1 22 FD 22 03 24 FF 22 05 20 0B 23 05 22 0C 27 0B 1E 1D 22 1A 1D 27 13 42 1F 15 1F 1F 19 32 EF 78 EC 70 EE 72 F5 55 F1 5C F2 59 E6 47 F1 51 F2 50 00 44 F2 46 E8 38 E9 44 E8 32 F5 4A 17 F3 1A F3 28 F1 31 F2 2C 03 2D 06 2C 22 21 36 13 52 FD 4B FF 17 01 22 01 2B 00 36 FE 37 00 3D 01 40 00 44 F7 5C F2 6A F3 61 F1 5A F4 5A EE 58 F6 49 F7 4F F2 56 F6 49 F6 46 F6 45 FB 42 F7 40 FB 3A 02 3B 15 F6 18 F5 1C F8 1C FF 1D 03 1D 09 23 14 1D 24 0E 43 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_aac_codebook_vector10__flt32___32_lil_2312_ {
+  strings:
+    $a0 = { 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3f 00 00 00 00 18 45 21 40 00 00 00 00 ba 74 8a 40 00 00 00 00 f5 2f cb 40 00 00 00 00 4f cc 08 41 00 00 00 00 8e 71 2e 41 00 00 00 00 90 3f 56 41 00 00 00 00 00 00 80 41 00 00 00 00 1b c4 95 41 00 00 00 00 d3 5a ac 41 00 00 00 00 d3 b5 c3 41 00 00 00 00 ff c8 db 41 00 00 00 00 ef 89 f4 41 00 00 00 00 cd f7 06 42 00 00 00 00 04 f9 13 42 00 00 00 00 00 00 80 42 00 00 80 3f 00 00 00 00 00 00 80 3f 00 00 80 3f 00 00 80 3f 18 45 21 40 00 00 80 3f ba 74 8a 40 00 00 80 3f f5 2f cb 40 00 00 80 3f 4f cc 08 41 00 00 80 3f 8e 71 2e 41 00 00 80 3f 90 3f 56 41 00 00 80 3f 00 00 80 41 00 00 80 3f 1b c4 95 41 00 00 80 3f d3 5a ac 41 00 00 80 3f d3 b5 c3 41 00 00 80 3f ff c8 db 41 00 00 80 3f ef 89 f4 41 00 00 80 3f cd f7 06 42 00 00 80 3f 04 f9 13 42 00 00 80 3f 00 00 80 42 18 45 21 40 00 00 00 00 18 45 21 40 00 00 80 3f 18 45 21 40 18 45 21 40 18 45 21 40 ba 74 8a 40 18 45 21 40 f5 2f cb 40 18 45 21 40 4f cc 08 41 18 45 21 40 8e 71 2e 41 18 45 21 40 90 3f 56 41 18 45 21 40 00 00 80 41 18 45 21 40 1b c4 95 41 18 45 21 40 d3 5a ac 41 18 45 21 40 d3 b5 c3 41 18 45 21 40 ff c8 db 41 18 45 21 40 ef 89 f4 41 18 45 21 40 cd f7 06 42 18 45 21 40 04 f9 13 42 18 45 21 40 00 00 80 42 ba 74 8a 40 00 00 00 00 ba 74 8a 40 00 00 80 3f ba 74 8a 40 18 45 21 40 ba 74 8a 40 ba 74 8a 40 ba 74 8a 40 f5 2f cb 40 ba 74 8a 40 4f cc 08 41 ba 74 8a 40 8e 71 2e 41 ba 74 8a 40 90 3f 56 41 ba 74 8a 40 00 00 80 41 ba 74 8a 40 1b c4 95 41 ba 74 8a 40 d3 5a ac 41 ba 74 8a 40 d3 b5 c3 41 ba 74 8a 40 ff c8 db 41 ba 74 8a 40 ef 89 f4 41 ba 74 8a 40 cd f7 06 42 ba 74 8a 40 04 f9 13 42 ba 74 8a 40 00 00 80 42 f5 2f cb 40 00 00 00 00 f5 2f cb 40 00 00 80 3f f5 2f cb 40 18 45 21 40 f5 2f cb 40 ba 74 8a 40 f5 2f cb 40 f5 2f cb 40 f5 2f cb 40 4f cc 08 41 f5 2f cb 40 8e 71 2e 41 f5 2f cb 40 90 3f 56 41 f5 2f cb 40 00 00 80 41 f5 2f cb 40 1b c4 95 41 f5 2f cb 40 d3 5a ac 41 f5 2f cb 40 d3 b5 c3 41 f5 2f cb 40 ff c8 db 41 f5 2f cb 40 ef 89 f4 41 f5 2f cb 40 cd f7 06 42 f5 2f cb 40 04 f9 13 42 f5 2f cb 40 00 00 80 42 4f cc 08 41 00 00 00 00 4f cc 08 41 00 00 80 3f 4f cc 08 41 18 45 21 40 4f cc 08 41 ba 74 8a 40 4f cc 08 41 f5 2f cb 40 4f cc 08 41 4f cc 08 41 4f cc 08 41 8e 71 2e 41 4f cc 08 41 90 3f 56 41 4f cc 08 41 00 00 80 41 4f cc 08 41 1b c4 95 41 4f cc 08 41 d3 5a ac 41 4f cc 08 41 d3 b5 c3 41 4f cc 08 41 ff c8 db 41 4f cc 08 41 ef 89 f4 41 4f cc 08 41 cd f7 06 42 4f cc 08 41 04 f9 13 42 4f cc 08 41 00 00 80 42 8e 71 2e 41 00 00 00 00 8e 71 2e 41 00 00 80 3f 8e 71 2e 41 18 45 21 40 8e 71 2e 41 ba 74 8a 40 8e 71 2e 41 f5 2f cb 40 8e 71 2e 41 4f cc 08 41 8e 71 2e 41 8e 71 2e 41 8e 71 2e 41 90 3f 56 41 8e 71 2e 41 00 00 80 41 8e 71 2e 41 1b c4 95 41 8e 71 2e 41 d3 5a ac 41 8e 71 2e 41 d3 b5 c3 41 8e 71 2e 41 ff c8 db 41 8e 71 2e 41 ef 89 f4 41 8e 71 2e 41 cd f7 06 42 8e 71 2e 41 04 f9 13 42 8e 71 2e 41 00 00 80 42 90 3f 56 41 00 00 00 00 90 3f 56 41 00 00 80 3f 90 3f 56 41 18 45 21 40 90 3f 56 41 ba 74 8a 40 90 3f 56 41 f5 2f cb 40 90 3f 56 41 4f cc 08 41 90 3f 56 41 8e 71 2e 41 90 3f 56 41 90 3f 56 41 90 3f 56 41 00 00 80 41 90 3f 56 41 1b c4 95 41 90 3f 56 41 d3 5a ac 41 90 3f 56 41 d3 b5 c3 41 90 3f 56 41 ff c8 db 41 90 3f 56 41 ef 89 f4 41 90 3f 56 41 cd f7 06 42 90 3f 56 41 04 f9 13 42 90 3f 56 41 00 00 80 42 00 00 80 41 00 00 00 00 00 00 80 41 00 00 80 3f 00 00 80 41 18 45 21 40 00 00 80 41 ba 74 8a 40 00 00 80 41 f5 2f cb 40 00 00 80 41 4f cc 08 41 00 00 80 41 8e 71 2e 41 00 00 80 41 90 3f 56 41 00 00 80 41 00 00 80 41 00 00 80 41 1b c4 95 41 00 00 80 41 d3 5a ac 41 00 00 80 41 d3 b5 c3 41 00 00 80 41 ff c8 db 41 00 00 80 41 ef 89 f4 41 00 00 80 41 cd f7 06 42 00 00 80 41 04 f9 13 42 00 00 80 41 00 00 80 42 1b c4 95 41 00 00 00 00 1b c4 95 41 00 00 80 3f 1b c4 95 41 18 45 21 40 1b c4 95 41 ba 74 8a 40 1b c4 95 41 f5 2f cb 40 1b c4 95 41 4f cc 08 41 1b c4 95 41 8e 71 2e 41 1b c4 95 41 90 3f 56 41 1b c4 95 41 00 00 80 41 1b c4 95 41 1b c4 95 41 1b c4 95 41 d3 5a ac 41 1b c4 95 41 d3 b5 c3 41 1b c4 95 41 ff c8 db 41 1b c4 95 41 ef 89 f4 41 1b c4 95 41 cd f7 06 42 1b c4 95 41 04 f9 13 42 1b c4 95 41 00 00 80 42 d3 5a ac 41 00 00 00 00 d3 5a ac 41 00 00 80 3f d3 5a ac 41 18 45 21 40 d3 5a ac 41 ba 74 8a 40 d3 5a ac 41 f5 2f cb 40 d3 5a ac 41 4f cc 08 41 d3 5a ac 41 8e 71 2e 41 d3 5a ac 41 90 3f 56 41 d3 5a ac 41 00 00 80 41 d3 5a ac 41 1b c4 95 41 d3 5a ac 41 d3 5a ac 41 d3 5a ac 41 d3 b5 c3 41 d3 5a ac 41 ff c8 db 41 d3 5a ac 41 ef 89 f4 41 d3 5a ac 41 cd f7 06 42 d3 5a ac 41 04 f9 13 42 d3 5a ac 41 00 00 80 42 d3 b5 c3 41 00 00 00 00 d3 b5 c3 41 00 00 80 3f d3 b5 c3 41 18 45 21 40 d3 b5 c3 41 ba 74 8a 40 d3 b5 c3 41 f5 2f cb 40 d3 b5 c3 41 4f cc 08 41 d3 b5 c3 41 8e 71 2e 41 d3 b5 c3 41 90 3f 56 41 d3 b5 c3 41 00 00 80 41 d3 b5 c3 41 1b c4 95 41 d3 b5 c3 41 d3 5a ac 41 d3 b5 c3 41 d3 b5 c3 41 d3 b5 c3 41 ff c8 db 41 d3 b5 c3 41 ef 89 f4 41 d3 b5 c3 41 cd f7 06 42 d3 b5 c3 41 04 f9 13 42 d3 b5 c3 41 00 00 80 42 ff c8 db 41 00 00 00 00 ff c8 db 41 00 00 80 3f ff c8 db 41 18 45 21 40 ff c8 db 41 ba 74 8a 40 ff c8 db 41 f5 2f cb 40 ff c8 db 41 4f cc 08 41 ff c8 db 41 8e 71 2e 41 ff c8 db 41 90 3f 56 41 ff c8 db 41 00 00 80 41 ff c8 db 41 1b c4 95 41 ff c8 db 41 d3 5a ac 41 ff c8 db 41 d3 b5 c3 41 ff c8 db 41 ff c8 db 41 ff c8 db 41 ef 89 f4 41 ff c8 db 41 cd f7 06 42 ff c8 db 41 04 f9 13 42 ff c8 db 41 00 00 80 42 ef 89 f4 41 00 00 00 00 ef 89 f4 41 00 00 80 3f ef 89 f4 41 18 45 21 40 ef 89 f4 41 ba 74 8a 40 ef 89 f4 41 f5 2f cb 40 ef 89 f4 41 4f cc 08 41 ef 89 f4 41 8e 71 2e 41 ef 89 f4 41 90 3f 56 41 ef 89 f4 41 00 00 80 41 ef 89 f4 41 1b c4 95 41 ef 89 f4 41 d3 5a ac 41 ef 89 f4 41 d3 b5 c3 41 ef 89 f4 41 ff c8 db 41 ef 89 f4 41 ef 89 f4 41 ef 89 f4 41 cd f7 06 42 ef 89 f4 41 04 f9 13 42 ef 89 f4 41 00 00 80 42 cd f7 06 42 00 00 00 00 cd f7 06 42 00 00 80 3f cd f7 06 42 18 45 21 40 cd f7 06 42 ba 74 8a 40 cd f7 06 42 f5 2f cb 40 cd f7 06 42 4f cc 08 41 cd f7 06 42 8e 71 2e 41 cd f7 06 42 90 3f 56 41 cd f7 06 42 00 00 80 41 cd f7 06 42 1b c4 95 41 cd f7 06 42 d3 5a ac 41 cd f7 06 42 d3 b5 c3 41 cd f7 06 42 ff c8 db 41 cd f7 06 42 ef 89 f4 41 cd f7 06 42 cd f7 06 42 cd f7 06 42 04 f9 13 42 cd f7 06 42 00 00 80 42 04 f9 13 42 00 00 00 00 04 f9 13 42 00 00 80 3f 04 f9 13 42 18 45 21 40 04 f9 13 42 ba 74 8a 40 04 f9 13 42 f5 2f cb 40 04 f9 13 42 4f cc 08 41 04 f9 13 42 8e 71 2e 41 04 f9 13 42 90 3f 56 41 04 f9 13 42 00 00 80 41 04 f9 13 42 1b c4 95 41 04 f9 13 42 d3 5a ac 41 04 f9 13 42 d3 b5 c3 41 04 f9 13 42 ff c8 db 41 04 f9 13 42 ef 89 f4 41 04 f9 13 42 cd f7 06 42 04 f9 13 42 04 f9 13 42 04 f9 13 42 00 00 80 42 00 00 80 42 00 00 00 00 00 00 80 42 00 00 80 3f 00 00 80 42 18 45 21 40 00 00 80 42 ba 74 8a 40 00 00 80 42 f5 2f cb 40 00 00 80 42 4f cc 08 41 00 00 80 42 8e 71 2e 41 00 00 80 42 90 3f 56 41 00 00 80 42 00 00 80 41 00 00 80 42 1b c4 95 41 00 00 80 42 d3 5a ac 41 00 00 80 42 d3 b5 c3 41 00 00 80 42 ff c8 db 41 00 00 80 42 ef 89 f4 41 00 00 80 42 cd f7 06 42 00 00 80 42 04 f9 13 42 00 00 80 42 00 00 80 42 }
+
+  condition:
+    $a0
+}
+
+
+rule MD2_MD2_INT_S__32_big_1024_ {
+  strings:
+    $a0 = { 00 00 00 29 00 00 00 2e 00 00 00 43 00 00 00 c9 00 00 00 a2 00 00 00 d8 00 00 00 7c 00 00 00 01 00 00 00 3d 00 00 00 36 00 00 00 54 00 00 00 a1 00 00 00 ec 00 00 00 f0 00 00 00 06 00 00 00 13 00 00 00 62 00 00 00 a7 00 00 00 05 00 00 00 f3 00 00 00 c0 00 00 00 c7 00 00 00 73 00 00 00 8c 00 00 00 98 00 00 00 93 00 00 00 2b 00 00 00 d9 00 00 00 bc 00 00 00 4c 00 00 00 82 00 00 00 ca 00 00 00 1e 00 00 00 9b 00 00 00 57 00 00 00 3c 00 00 00 fd 00 00 00 d4 00 00 00 e0 00 00 00 16 00 00 00 67 00 00 00 42 00 00 00 6f 00 00 00 18 00 00 00 8a 00 00 00 17 00 00 00 e5 00 00 00 12 00 00 00 be 00 00 00 4e 00 00 00 c4 00 00 00 d6 00 00 00 da 00 00 00 9e 00 00 00 de 00 00 00 49 00 00 00 a0 00 00 00 fb 00 00 00 f5 00 00 00 8e 00 00 00 bb 00 00 00 2f 00 00 00 ee 00 00 00 7a 00 00 00 a9 00 00 00 68 00 00 00 79 00 00 00 91 00 00 00 15 00 00 00 b2 00 00 00 07 00 00 00 3f 00 00 00 94 00 00 00 c2 00 00 00 10 00 00 00 89 00 00 00 0b 00 00 00 22 00 00 00 5f 00 00 00 21 00 00 00 80 00 00 00 7f 00 00 00 5d 00 00 00 9a 00 00 00 5a 00 00 00 90 00 00 00 32 00 00 00 27 00 00 00 35 00 00 00 3e 00 00 00 cc 00 00 00 e7 00 00 00 bf 00 00 00 f7 00 00 00 97 00 00 00 03 00 00 00 ff 00 00 00 19 00 00 00 30 00 00 00 b3 00 00 00 48 00 00 00 a5 00 00 00 b5 00 00 00 d1 00 00 00 d7 00 00 00 5e 00 00 00 92 00 00 00 2a 00 00 00 ac 00 00 00 56 00 00 00 aa 00 00 00 c6 00 00 00 4f 00 00 00 b8 00 00 00 38 00 00 00 d2 00 00 00 96 00 00 00 a4 00 00 00 7d 00 00 00 b6 00 00 00 76 00 00 00 fc 00 00 00 6b 00 00 00 e2 00 00 00 9c 00 00 00 74 00 00 00 04 00 00 00 f1 00 00 00 45 00 00 00 9d 00 00 00 70 00 00 00 59 00 00 00 64 00 00 00 71 00 00 00 87 00 00 00 20 00 00 00 86 00 00 00 5b 00 00 00 cf 00 00 00 65 00 00 00 e6 00 00 00 2d 00 00 00 a8 00 00 00 02 00 00 00 1b 00 00 00 60 00 00 00 25 00 00 00 ad 00 00 00 ae 00 00 00 b0 00 00 00 b9 00 00 00 f6 00 00 00 1c 00 00 00 46 00 00 00 61 00 00 00 69 00 00 00 34 00 00 00 40 00 00 00 7e 00 00 00 0f 00 00 00 55 00 00 00 47 00 00 00 a3 00 00 00 23 00 00 00 dd 00 00 00 51 00 00 00 af 00 00 00 3a 00 00 00 c3 00 00 00 5c 00 00 00 f9 00 00 00 ce 00 00 00 ba 00 00 00 c5 00 00 00 ea 00 00 00 26 00 00 00 2c 00 00 00 53 00 00 00 0d 00 00 00 6e 00 00 00 85 00 00 00 28 00 00 00 84 00 00 00 09 00 00 00 d3 00 00 00 df 00 00 00 cd 00 00 00 f4 00 00 00 41 00 00 00 81 00 00 00 4d 00 00 00 52 00 00 00 6a 00 00 00 dc 00 00 00 37 00 00 00 c8 00 00 00 6c 00 00 00 c1 00 00 00 ab 00 00 00 fa 00 00 00 24 00 00 00 e1 00 00 00 7b 00 00 00 08 00 00 00 0c 00 00 00 bd 00 00 00 b1 00 00 00 4a 00 00 00 78 00 00 00 88 00 00 00 95 00 00 00 8b 00 00 00 e3 00 00 00 63 00 00 00 e8 00 00 00 6d 00 00 00 e9 00 00 00 cb 00 00 00 d5 00 00 00 fe 00 00 00 3b 00 00 00 00 00 00 00 1d 00 00 00 39 00 00 00 f2 00 00 00 ef 00 00 00 b7 00 00 00 0e 00 00 00 66 00 00 00 58 00 00 00 d0 00 00 00 e4 00 00 00 a6 00 00 00 77 00 00 00 72 00 00 00 f8 00 00 00 eb 00 00 00 75 00 00 00 4b 00 00 00 0a 00 00 00 31 00 00 00 44 00 00 00 50 00 00 00 b4 00 00 00 8f 00 00 00 ed 00 00 00 1f 00 00 00 1a 00 00 00 db 00 00 00 99 00 00 00 8d 00 00 00 33 00 00 00 9f 00 00 00 11 00 00 00 83 00 00 00 14 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_celp_math_tab_log2_G729_BITEXACT__16_lil_66_ {
+  strings:
+    $a0 = { 00 00 af 05 32 0b 8c 10 c0 15 cf 1a bc 1f 88 24 35 29 c4 2d 37 32 8f 36 ce 3a f5 3e 04 43 fc 46 df 4a ae 4e 69 52 11 56 a7 59 2c 5d 9f 60 03 64 57 67 9b 6a d1 6d fa 70 14 74 21 77 22 7a 17 7d ff 7f }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_svq3_dequant_coeff__32_lil_128_ {
+  strings:
+    $a0 = { 29 0f 00 00 ff 10 00 00 1a 13 00 00 69 15 00 00 0a 18 00 00 02 1b 00 00 51 1e 00 00 0e 22 00 00 35 26 00 00 eb 2a 00 00 33 30 00 00 04 36 00 00 a3 3c 00 00 1b 44 00 00 69 4c 00 00 71 55 00 00 e8 5f 00 00 08 6c 00 00 7f 78 00 00 36 88 00 00 97 97 00 00 e3 aa 00 00 cf bf 00 00 9b d5 00 00 fe f0 00 00 89 0c 01 00 2f 2f 01 00 19 5c 01 00 9d 87 01 00 36 ab 01 00 ab ee 01 00 dd 28 02 00 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab12__16_lil_254_ {
+  strings:
+    $a0 = { 8D FF 9D FF B7 FF D3 FF E5 FF EF FF F7 FF FB FF FD FF FF FF 77 00 67 00 76 00 FF FF 57 00 75 00 FD FF FF FF 66 00 47 00 FF FF 74 00 65 00 FD FF FF FF 56 00 37 00 FD FF FF FF 73 00 55 00 27 00 F9 FF FD FF FF FF 72 00 46 00 FF FF 64 00 17 00 FB FF FF FF 71 00 FF FF 07 00 70 00 FF FF 36 00 63 00 F3 FF F7 FF FD FF FF FF 45 00 54 00 FF FF 44 00 FF FF 06 00 05 00 FF FF 26 00 62 00 FB FF FF FF 61 00 FF FF 16 00 60 00 FD FF FF FF 35 00 53 00 FF FF 25 00 52 00 EF FF F9 FF FD FF FF FF 15 00 51 00 FF FF 34 00 43 00 FB FF FD FF FF FF 50 00 04 00 24 00 FF FF 42 00 14 00 FD FF FF FF 33 00 41 00 FF FF 23 00 32 00 F5 FF F9 FF FB FF FD FF FF FF 40 00 03 00 30 00 13 00 FF FF 31 00 22 00 FF FF 12 00 21 00 F9 FF FB FF FD FF FF FF 02 00 20 00 00 00 11 00 FF FF 01 00 10 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Sharkbox_crypto_algorithm_Dec_cbox__64_lil_8192_ {
+  strings:
+    $a0 = { f3 af 55 5e f0 6a 12 e6 35 08 0b 31 3f 89 6c 4b 57 8d fc eb 84 0e 4c aa 0d 09 b3 f3 7b 5c 9b fb e2 5c ba cc a9 a6 08 45 e9 bd c6 4d 06 d2 d1 e5 de ed 88 52 75 43 83 34 0c 25 6b e4 5d 50 84 b6 e8 91 1e 5a 20 de ce a8 cc 6a fa f9 46 9b b8 40 ba 80 b0 fa 1a ec e1 8e 45 0a 8e 40 b7 d6 77 de 02 58 45 2e 4c 18 3e 9a ef 55 09 3f d2 fa 93 be 09 b9 39 af e3 6c e7 3a c6 a7 5e 6f cf e3 7e ad 94 b6 f0 cf f5 d1 51 8b 99 bf 43 3c 8e 8d ca 70 c9 f6 a8 b2 f8 a7 db cc a4 22 a9 b5 74 64 5e 4c 32 cc 1c 54 cd ad 31 5d a7 56 34 8c 1e 70 7f 9b 3a 59 fd ec 08 cd c9 2a 1f 8e c1 58 48 84 a0 8f ea c9 5b 74 6c c6 f0 32 8f 88 bb cb 25 65 8d c5 05 9c 52 4b be 3c 63 8c 4b 77 a0 8a a6 9e cd f2 0e 7d 2e ca 11 48 ba 2c 78 97 64 c9 4d 3f e3 e2 7f 53 73 ac bf 1b be f4 d9 29 9f 37 87 67 de 22 46 7e 13 79 dd c2 56 09 c7 8b 86 78 e9 ef 61 e0 5b a8 97 0f d9 5e c8 1c f0 db c8 67 9a 7e 33 31 61 f1 6a e3 d1 93 01 36 eb e5 83 63 4a ca ef 7f 43 e2 41 32 63 fe 35 85 bb ac 68 ed 3c e0 fe c3 c8 da 70 a5 de ab c4 81 3b 75 25 fb 2e c1 d6 67 80 d9 4d 16 12 21 28 a4 d3 e4 3b a1 0e 1f 18 cf 4d 9f 6f f8 72 b6 8f a9 97 c2 6d f6 9f c5 70 5c 38 01 b8 c2 44 d5 f7 b0 cd 46 22 ee 60 97 a7 0d c4 ff 1b 41 83 fb 40 37 ed 0d 4c 11 9e e2 ad 24 17 1b 20 e0 8d e4 58 f8 d7 54 b1 fd 96 2f 64 0e 5f 18 1d 53 41 6e b4 dd 48 03 3d b3 cc 8a ec 25 bf 1c e2 b1 a4 d0 82 02 ca 82 35 8b 92 b3 fa 1b 79 bb bc de 6b 33 fc af 7b e3 f9 f0 27 2b c2 35 1a 12 93 13 f6 b8 c3 03 db 71 da 19 cb 7f e0 b8 18 4a d6 3d ba a0 fd 99 76 ea 4a 03 5c 77 59 ce 8a 14 e9 80 9b 59 ee 49 23 3f f3 c6 94 61 2b fe 1b 3e 4b 04 d0 b4 dc 4e bc 68 7f 88 ce c4 a3 d5 e0 04 ff e2 e5 be 36 df a2 ca 66 c7 a0 4c 1c 17 f9 62 f1 c8 79 12 d4 0b 4c b3 b7 ef 54 ba 90 e4 06 e8 cf 72 d4 28 42 5b e5 98 ad a9 5b 82 55 53 2c 6e 05 1b a3 25 8e 9f 6c f8 d9 10 aa cf 9a cd 8e a4 63 dc 03 69 92 88 b3 39 89 55 f9 80 06 b4 7c 27 ee 95 d5 0f 9f 23 af c3 d5 34 db 10 87 ec fc fe a3 83 c7 2e b7 87 b0 4d 14 6c 93 94 27 63 f8 4e 29 df 5f 1e cb 46 77 c6 92 14 7a 7b 46 83 36 7c 96 08 55 9d 4d 9c a6 7a ec 9b 38 7c 60 d6 07 c4 17 65 f2 24 5d 16 2a 86 ca 69 77 0d cc c4 58 dc 0a 36 b3 4a e9 cb e6 ec 30 90 31 96 74 84 c5 d3 c3 56 a5 f7 5f 7a a1 be fb fe ca 58 3d c0 ad 9b 90 1a 97 08 b9 76 14 6f bd d9 e7 f0 79 2f 75 9e d7 3a 36 63 78 19 ce 32 bf d7 0a 83 86 da a3 e6 be d0 86 40 03 5a cf 1e 67 c0 2c 8f 99 97 d1 bc 7e 8f 42 07 26 55 5a 84 4f 18 ff 52 d7 51 c1 63 49 0a 3d c7 23 bb 9f 57 8c 4e 5a a5 88 2b 71 2e 5d 66 ae 53 04 d8 10 df 37 85 7f c0 05 ee 73 76 18 48 e2 4b 3a 42 fd d2 7b 94 e1 22 a8 ca 6f 8c 44 29 c0 db bb 1a 6a 10 16 62 7e e7 d8 96 15 43 65 ce c1 fc 66 62 2b aa 12 7e 51 01 d3 89 83 ad d0 2f 78 35 09 73 6d d4 01 07 8c c3 85 80 53 3d 76 b7 1c 3e 30 6b 27 8f 79 9a 0c 51 57 3f 47 52 cb 6e fb ce 49 44 2f 1a 98 22 c9 31 af 48 bd 44 a7 9f e8 c8 bc 98 ec 21 94 06 b8 ee b2 69 3e e9 77 b0 90 fd b5 eb f6 33 07 15 4e 56 71 6a 96 ee b5 e1 b9 c9 6f 11 90 06 7a 93 6d e1 2d 4a 7e 7f ab bb 99 17 a1 b9 44 26 56 57 91 da 68 93 3c b1 32 9e dc e5 8b 71 42 ce 99 25 45 f2 2a c8 16 37 f8 f7 ab e8 47 b5 4f c7 2a d6 3e ae b1 33 df c1 50 45 53 4f 9c 79 82 81 08 38 5e 39 16 3e f1 f7 10 70 bc 72 2c 7c ee 79 d1 28 f4 f6 8c f3 2d 42 dd 0c 85 29 91 d2 69 64 8b 5b 14 f3 f9 41 d5 0c f4 d3 da 37 5a 94 b7 89 03 09 61 b0 7a 75 84 69 c7 4a 8a 11 54 65 54 f9 61 d2 ee 1a 6d 7d a5 0e 71 a2 52 68 41 01 87 1d 5a 73 e0 05 75 b2 08 95 e1 b8 c5 60 f8 77 7a cf 21 e7 01 27 dd 78 62 85 f7 da bb 87 20 e1 59 f0 d2 21 95 46 f6 86 b5 d1 46 27 2d a8 44 ef 50 49 eb 8e 76 2a 11 bc 1e a2 19 4f 6e 88 bf c2 55 d5 b9 c5 c8 16 72 30 e7 c0 e8 87 17 9a 6b c9 11 f3 ef 92 59 cc 1a a3 0b e1 7c 81 af 74 d9 a0 fa 16 6c f1 13 06 f5 dc 9c 23 11 77 30 b1 a9 fc 6e a0 9c 3e e6 d7 a4 57 95 9a 28 d8 d3 dd 4e c6 b4 fd 9e 30 0b a4 5b a2 b1 61 cc 7b b5 98 38 2e da 5d 02 0e ed 73 ff f5 3f c5 af a7 b6 f1 aa a6 d4 20 2c c4 fc 3b 45 d9 93 72 e7 aa 07 f5 0c 9d 20 4b 6e ff fe 75 0a 29 9a cb de 05 e4 99 eb a7 ae ef 0d 23 fd 1c 98 a1 8c fc 26 f2 4f 71 ac 12 12 87 72 ab 33 d8 3b 74 c2 17 d4 33 57 d3 02 6c 81 f5 95 01 34 2d 37 e9 65 41 e0 bf 49 a3 7d f7 49 2f e5 a4 ea 86 f3 68 c3 3b 0c 24 71 df 1d 21 29 f2 57 50 1d 19 ed 13 24 fb e4 a3 66 45 76 e8 b2 15 51 42 df 8c 19 f9 92 5e 3f bd 21 f9 13 d0 fb 3a b4 e6 35 0a ea 91 91 2a a2 84 4b ed 32 07 9b e7 06 12 c2 95 f4 ea 40 96 dc 0b 09 ea 14 52 00 00 00 00 00 00 00 00 22 13 2b d1 b2 6d 34 b3 68 48 53 4c 32 ff e6 0c dc b5 cd 7c 39 5b bd ae 5c 6c 80 6a 2b 7a 95 0a 41 ba 04 1c 2f e6 0b 1f b8 d8 f5 d4 56 f4 df 14 1c fa 5c 61 22 90 81 58 2e 36 40 35 ef 3d b0 05 dd 99 15 6b 1f 57 a2 e3 e1 28 27 f5 c3 b2 29 92 64 6d 38 a8 6f af 62 ba 34 24 d3 26 19 85 73 06 21 67 b6 e8 d8 79 15 64 8b 38 31 97 bd 55 f1 04 89 60 74 b9 f1 4d cf 9e 66 35 7d 86 23 b7 5c 20 33 e0 c4 43 eb a1 2e 10 ac b7 48 0d b1 04 a6 3b ff 8a 3e ba ad 3a 96 50 63 a9 2f cd 9d 8b 3f ac 60 dd b2 f4 f7 9f 1e 7b c0 4f 91 1d 1b cb 3c f6 4e eb f2 c1 18 a2 ae 7e 8d d0 fe e5 69 7d b3 5f cb ae ed 9c b4 bf e5 56 ab 73 5f 68 43 20 fb 2d 0f 51 f6 dd 37 44 a5 61 d8 05 47 20 a1 6b c1 6f 56 a1 24 fc a2 02 53 e7 98 93 9b 2b a8 81 d5 3d 6b 3c ce 75 58 eb c7 db 5e 34 c5 44 67 62 ab 90 b9 f4 2d c3 70 f8 c0 59 9e 7b 54 59 7c a9 97 66 39 2d 60 d5 62 d9 e8 fd 88 4c ac ae d7 41 d0 d3 28 de 8f 47 3b 15 f2 5e 19 66 0e 2a 9c ac e2 d4 e4 b4 75 be 7d 8e 4a 1e 26 a3 a1 8d 2a 5d 48 72 d6 78 69 ea b0 23 7b 43 1d d6 84 76 04 9c 9e 15 72 5a c0 5f c4 47 25 0f 51 65 33 99 50 26 0e f1 3d 9d ea 89 fa e9 94 3c 4a 5b 78 9d 80 92 d2 bf e3 70 62 db 8f aa 17 08 aa 5f 87 7f 65 2c e4 60 d0 90 a6 98 64 0b 39 18 5d 40 58 7d 0d 76 8a 47 85 45 1f 5d ac 1d 4b 28 9d 0f c9 60 16 bd b6 b1 37 50 4e 1f 73 91 52 d1 01 2c d8 17 26 0c 1f 4d 30 94 59 7a 81 b5 0f c7 67 19 a5 91 05 bb 43 6d 7d 0b 36 82 f3 03 80 6e fe a6 e6 ad 8b 36 89 1d be 30 3a a6 82 dc 9d 4f 0a cd a4 96 89 78 c6 ed f2 83 8d 49 d6 66 0d ab 74 b2 0f 2d 10 6f 67 54 04 b0 8a 5c 98 30 7c c1 b6 a5 db 1e 47 bc 65 38 13 ab aa bc 15 d4 24 39 70 02 85 71 88 5f 1b 95 31 b8 81 6d a7 b9 10 8a f5 47 9a 2c 24 42 50 bd 25 d7 3c b4 40 49 69 a5 86 31 82 64 c6 09 6a ff a0 92 23 e9 ec 54 22 8d a9 2b 1a 46 0f 38 c5 b7 d2 c8 e3 b6 28 13 07 82 03 74 9d 39 6a 14 21 d7 a8 07 c2 51 29 34 da fa 52 11 ae a0 3a 32 2f 26 f4 6b 42 3b 02 4e 4f f0 f7 1f df 02 68 5a 6e 27 03 e2 16 fd db 16 40 3b 0a 53 74 11 c5 74 75 9a d3 c8 2e c0 69 2e 01 90 76 e0 80 d7 e3 80 45 f4 4b a1 ec 49 2b ec 1d f8 ef d7 e3 a6 e8 e3 ca 26 ab f6 41 0c 9e 41 62 09 51 d9 eb 70 40 eb d1 54 c8 ee 88 01 4b 88 5e 86 8a fe 06 a4 7e 06 76 df a0 fb 94 e5 12 94 84 29 f2 c0 69 68 89 69 15 46 4e 72 d6 bb b3 d6 dd b5 3d 41 6c 9e c8 6c 58 0c ea 04 d9 54 70 d9 0a 6b 09 b1 62 ec 1e 62 35 a1 61 a4 7e 08 47 7e ef 0e 17 44 fe df a4 fe aa fa 31 23 34 80 4e 34 ad e0 d0 2a 38 3d b2 38 41 ab ff fc 90 8e 46 90 73 10 b9 61 85 21 a2 85 08 be 32 c1 22 7d 95 22 ed db 57 e8 c7 7f 03 c7 51 22 86 9c 5e ba f8 5e 83 33 aa a8 e0 f4 d7 e0 f1 b3 bb dd 32 24 30 32 db 3f ed 6b 54 a3 7a 54 19 a7 1f ab 3d cb f3 3d 0c e1 35 ae af 8a 9f af fe 17 c0 01 4b 15 1c 4b f8 9d 5e 59 a5 93 1d a5 64 83 9b 8b d4 74 99 d4 5c 53 2e 88 09 4b bd 09 a1 01 82 11 c5 b0 29 c5 d0 c4 6a a9 ab e1 cb ab 09 2e b0 d0 e7 cd bc e7 3d 1f a1 a5 35 1d 5b 35 17 93 20 56 e6 50 a9 e6 87 6c 87 c2 ff 42 b1 ff 10 89 16 1a 5f 27 ed 5f 39 40 15 f8 49 da 36 49 79 7b 92 3a b6 98 87 b6 69 f2 dd 16 c1 db 7d c1 27 fd 3f fd db 9b 5a db 8b 8d 08 ef c3 14 57 c3 a6 1b 7c b3 f4 c6 26 f4 30 6e ad c7 6d 03 dd 6d e2 7f 47 c3 b4 57 ad b4 e8 14 73 33 ba 25 7b ba 85 b9 9a d5 75 8c d0 75 cf e9 41 f2 98 58 ee 98 68 62 1e f5 9c 33 ba 9c 9f 5b 84 20 e9 bf 6a e9 50 b2 1b 26 a6 c1 22 a6 5f 16 58 68 89 9c 5e 89 e4 f5 12 97 c4 2d 3c c4 6a b7 5c e5 12 96 8f 12 b7 02 ec 35 f5 5b 33 f5 8a 1d 10 2b 73 28 ae 73 b9 36 a2 47 23 e0 80 23 57 a8 2a 05 92 41 6c 92 f2 f6 11 75 d2 d0 e7 d2 2a 8c b7 bf 6a 3a b6 6a 2e d3 cb 0c 9e fc 90 9e 1e bd 72 6d 1b dd 32 1b 16 03 05 d3 3a f2 98 3a c0 4d 02 bc b7 05 92 b7 d3 81 80 ad 72 b5 bb 72 03 45 18 c4 b0 3c f9 b0 1f 2d d2 96 8f 38 20 8f 92 2a be 0e 08 d6 a8 08 1b 72 8f 2d 3c 56 e6 3c b6 92 c6 30 67 1a 5f 67 78 eb 8d 91 8b 53 74 8b 65 13 4a ff 4d b1 62 4d 8e 42 a9 4a f6 09 0c f6 b1 88 74 5c 37 d2 71 37 96 75 3b 70 40 91 8b 40 d8 7a 23 b4 f0 ad 72 f0 c7 57 a7 94 19 12 18 19 97 e5 0d 3c f9 e6 cf f9 66 56 63 18 c9 0d d5 c9 3c 8f 9e 58 ee 86 01 ee 9c 1e f5 af e4 9f 83 e4 06 8a 5d bb b3 6e c6 b3 24 b8 eb 5a 78 ac 39 78 99 d1 d7 45 b5 ca b8 b5 52 67 60 fa df f0 0e df 7c b4 6b f7 0a 19 82 0a 9a 94 3a 2e e1 69 c2 e1 4b c0 f3 9e c8 90 c0 c8 86 fc 43 4e 2f 5d 7c 2f bb e3 c4 8c d0 1f cd d0 ab 6a 25 85 dc a2 31 dc 47 21 e3 b5 bb b8 6e bb 3f ca 93 64 17 60 ce 17 fa 48 a5 28 ae 17 8a ae 44 64 fc 1e 86 73 9d 86 33 2b c5 d2 71 e7 84 71 38 d0 df aa 76 de ef 76 f4 7c 6f 7a 91 13 53 91 c9 63 91 d8 a0 65 5c a0 29 c9 1c 49 2b 36 28 2b 4c da af 7b da 06 4f da 31 fe 14 a6 e8 22 7f e8 ea c1 d4 a7 a3 37 63 a3 12 5c 7a 82 d8 c9 65 d8 b0 18 fb 71 0b 84 97 0b 20 e7 e1 09 0c bd fc 0c ec 4b 4f 2c 77 43 fa 77 4e 0f 2b 5b 33 b9 25 33 61 4c bc b2 bf d3 3a bf c8 f3 e6 66 81 4a f6 81 ff 87 55 54 70 7a 91 70 82 a3 54 0a d1 82 d8 d1 11 19 ae 25 7b fe 06 7b a2 44 b8 3f 24 d9 eb 24 9b 04 2f d6 a8 b3 f4 a8 32 bb fd 40 27 8b d4 27 a0 91 e7 38 20 b2 bf 20 6c 3d d5 f9 02 cf 2a 02 81 e6 e0 57 ad 45 b5 ad 7f f1 07 6f 8d f7 0a 8d 13 cc bd ec 1e 2b 73 1e 5b 49 71 8f 0d 20 e9 0d 56 38 8c cf 2a ab 3d 2a f6 a9 dc 48 60 23 34 60 b4 47 4d 90 c0 46 68 c0 9d 8e 1a 78 07 39 6b 07 cc ac a8 14 57 f1 45 57 22 32 7d ed 55 3e 6f 55 a3 d4 0f 80 4e e3 5d 4e b5 d7 d6 1b 14 32 f1 14 c1 dd 0e de ef 1b 14 ef 26 6d ba 83 93 dc 79 93 48 85 f7 13 53 9a 11 53 d5 0b 67 95 52 07 04 52 6f 78 cd 3d b2 f3 d3 b2 9e cb 7b dc 79 31 2c 79 23 a2 d9 9b 5a d1 ac 5a 74 0a cc 63 13 0b 9a 13 0d 71 98 69 c2 89 42 c2 1c 68 26 67 ca 5f ea ca 07 1a 70 d1 ac d8 a0 ac c5 82 9d ba f8 7b da f8 dc 25 f0 7c de 6d 1b de c6 c7 48 43 fa b4 f0 fa 5d c3 a4 76 0f ef c3 0f d7 de e9 e6 cf a9 ab cf 4a 50 ac 99 cc fb 94 cc 71 c5 88 42 b1 a1 ec b1 a5 5e 46 9d 15 af e4 15 7b ae bf 50 a9 2e e1 a9 88 c8 04 8d 9b 0a d1 9b 53 f7 37 12 18 8f 0d 18 2d 96 89 1c 10 59 a5 10 36 e4 28 b9 25 44 fe 25 21 77 94 0b 9a 97 c4 9a e9 84 de f4 d7 26 a6 d7 67 c6 7e 0f 43 c3 b4 43 e3 ef 53 65 5c 75 d2 5c 02 d5 c3 e3 5d e8 c7 5d b8 a6 21 08 47 a8 e0 47 14 d6 95 55 3b 6f 8d 3b 7a 3e b5 03 dd 3f 24 dd fd 52 2c 34 be 4e 2f be 72 80 a3 19 82 18 c9 82 c4 12 b2 6c 50 c8 2e 50 ee 9e 34 f0 0e 72 d6 0e 6d ad 42 10 8e a5 35 8e 28 59 6d c6 26 16 c1 26 1a e2 b3 32 f1 30 67 f1 7d 24 ce df a4 0e 08 a4 de f0 da 79 4c 2c 77 4c 34 31 59 36 28 64 17 28 77 4f 49 1d 5b 4c b9 5b ce 79 00 00 00 00 00 00 00 00 90 86 01 9d 15 01 ba 73 5a d4 3e 99 cc 3e 37 74 e5 84 97 b7 2d 97 bf bc 77 be 21 2f aa 21 d6 4e 6e 24 30 eb 1a 30 5a d9 ee 89 42 5e a1 42 59 9c 3e a3 7a 63 13 7a 18 37 c1 5f ea ed 55 ea 6b 27 c2 bd fc 10 8e fc 2b 1c 22 ea 51 55 3b 51 54 ed 0b 0d d5 e9 8c d5 e6 20 2d 6a 1f b6 66 1f e1 3a f9 cd bc 81 05 bc f3 66 36 4c b9 77 44 b9 be 2c 78 3e 6f cc f7 6f 63 99 45 7f 03 52 3f 03 3b 95 d8 c5 fb 29 e5 fb e7 b0 1d 17 8a ce 61 8a df 60 52 3b fd 8d 9b fd 91 6f fe a2 31 76 0f 31 e0 aa 97 e9 8c 6a 1f 8c a9 bf db 27 ed d4 3e ed a7 8b 56 b6 66 87 4a 66 c2 98 e4 da 36 4f 64 36 2c 06 7f 51 e2 3b fd e2 70 55 e8 b8 6e 51 e2 6e d9 ea 38 92 56 6c 50 56 98 41 79 60 ce 34 be ce f0 23 f4 f1 45 67 ca 45 95 30 30 7d 95 78 07 95 3e 5a 33 9f 83 85 dc 83 7e 61 39 cc f7 94 19 f7 0b fb c9 b0 29 f9 02 29 cd 3c e2 eb 1a 40 27 1a ac 70 5b 8a 9f 61 85 9f a4 ce 5f 07 04 6b 54 04 f7 39 13 c9 65 d5 75 65 f9 0d 85 7e 48 47 23 48 c3 08 99 37 63 71 0b 63 8f d2 0c 62 58 1e 86 58 f5 ec 66 cb f3 ff 4d f3 fc c2 19 9a 11 c4 b0 11 8c 97 b6 e1 cb c2 ff cb bd 69 01 5e a1 f8 49 a1 93 ba c7 6e c6 e2 16 c6 eb 51 ca 52 3f 04 d9 3f 8d 07 6c 98 87 ee 88 87 89 58 cf 81 05 f6 41 05 4d 4a b4 5d 7c c7 6d 7c 6e e8 50 87 4a 88 09 4a 42 ee 29 e7 84 bc b7 84 b2 cd 8b a0 a7 5c 37 a7 e5 65 44 21 a2 aa 76 a2 a8 2f 27 39 6b a7 a3 6b 94 a0 b1 8e 46 35 f5 46 ae a5 62 46 68 f5 9c 68 af 35 8e 73 9d ae af 9d 25 28 75 02 96 2a 38 96 05 cf 3c 1f cd 66 81 cd cb b6 83 4f 64 48 60 64 43 7e 24 db 7d 5a 78 7d d4 9b 64 77 44 fa df 44 2f 43 9c e4 59 83 93 59 4f 9f f1 22 7f 95 52 7f 55 7d 06 31 2c 0f 43 2c 80 76 f8 93 1d 79 4c 1d 60 dc 96 b7 2d 92 56 2d 3a 05 d1 74 99 c5 fb 99 d2 11 65 29 e5 02 96 e5 bc f9 40 ac 39 a0 a7 39 fb d8 4c ce 61 be 21 61 0e 34 a6 ca b8 ea 51 b8 04 5f fa 2f aa 7c de aa b3 5d 69 4b bd 1c 10 bd 49 15 81 f3 d3 4d f2 d3 90 ff 68 15 1c e4 59 1c da af f6 4d f2 62 58 f2 46 b1 9f 06 4f 7e 48 4f 0f a4 4c f9 f0 f8 eb 5c a3 a1 5d 09 3f 0f 65 3d 20 2c a7 a2 84 40 ee da 2b 1a 68 cc 7b 4d 57 04 24 d3 c4 ad a9 94 a5 be 85 f7 9c 94 06 62 45 54 eb f2 d1 ce 75 04 4d 33 5e 3f 60 1f 5d 83 9b 29 94 59 94 47 20 ac 89 79 5b 78 41 1a 46 cf a2 a6 5d 02 1b 90 1a f0 71 3a 1f df 37 76 b7 8b 01 4f 28 27 10 53 4c 69 6d 5a 95 e1 ac 61 d2 d9 f2 ba a1 24 48 6a e3 9f 8d b0 fb e4 11 f0 cf f7 8e 61 83 8d 9e 27 f5 ab 76 22 c7 2a f6 eb 8e e6 21 26 e3 f9 69 6f f8 d3 b4 3f 32 bf eb 5b 74 b8 05 86 88 bb 65 2f cd 7a 1e fe da 70 f3 db 1e 1f a4 f1 ad d0 25 96 08 2b 5f 63 91 1e f8 18 48 86 b8 91 27 ee 84 14 6c c5 e4 23 ce 99 46 99 25 ff 14 07 3f f3 28 75 be 1c 16 99 6f bd 47 3a a6 61 f7 3c 29 9f 70 4c 11 ea f6 73 01 b8 2a c6 4d d5 25 ef 43 65 12 e0 bf a0 5e 2c b9 39 e9 e8 87 71 36 f0 a4 63 2f f6 dd 2c a0 38 0d 4c 19 23 e9 39 42 4c 33 07 c7 bd d9 c3 75 f3 bf 43 54 79 9a 5f 4a 2b 86 ca e2 2b d1 e8 2a 90 2e 5d 8c c7 4a 0b 28 0e 7e 13 07 83 63 30 b6 a1 62 f1 13 43 3c 3e bd 17 af 55 61 bc de 1d 78 12 82 35 2d 45 2e e5 93 4e 21 94 3e 06 12 db 2e 59 8e c1 b9 02 0e 49 1a 37 7a ec 77 cf 72 da 40 d2 63 49 86 a7 9f 0c d7 55 e2 41 35 c5 44 42 32 39 04 ff 49 c9 60 01 6e 8b ed 88 01 a3 83 9e e3 3b 16 6c bc 32 9e b0 9f e0 34 c5 b8 a1 8d d7 f9 0c 6c 80 99 a4 96 9b c0 83 a5 db e7 1b 41 11 af 47 60 74 5f ba cc c6 56 4b 0c f4 33 e5 a4 ec 67 a3 70 62 71 ef 92 74 15 48 17 d4 22 15 6b 1b e9 c2 f3 ef 32 46 27 72 84 98 66 0e d0 6d f6 9a ae 08 48 53 f9 bb cb 18 5b aa 31 82 c0 3e ba f3 c3 52 dd b2 5a 8a 5c 3f d3 9c 42 dd 6e ec 9b e3 02 9e 50 4e ed 7b 94 16 50 1c fc 26 d8 be d0 54 62 25 f8 d9 2b 65 ce 4b c6 d4 55 09 d4 fe e5 fd c8 e4 10 16 db ae a0 03 b2 68 c2 6d 1c 13 79 c0 c7 9b 7d 2e 7f 1c 54 14 8c ff d3 c3 30 f5 d4 bb b7 ee 4a d6 fc 8b 5b e1 de 7d 7f ab 95 e4 a3 32 6a 42 4d 14 8a e7 aa a5 7d 94 0a 8e 4e 4a 03 31 d8 2a 8f 79 53 fa f9 6f fc 8a e4 3b 0a 60 d5 07 ff 5b 9c 52 b3 62 db 4e e5 6c e6 be 34 66 c7 dc d1 02 12 93 4b 7a 93 c8 5d fd c1 50 14 c0 5f 0e 0b b6 cd a4 52 59 7a f1 1f b1 f2 57 45 89 55 a8 c4 4a 05 47 fb 08 38 d1 68 dc 1d 5a 38 26 f2 75 7b c3 fa 5c a5 11 77 89 dd ac 07 c2 df 3d b3 64 d4 84 9a 28 e4 0b 31 46 7f 0a 5a c0 09 70 a5 50 2f 16 a6 e6 c3 2e ca a4 13 1f e7 06 a3 31 97 27 88 36 73 5f a0 21 e7 70 58 7b 49 eb 42 0a 36 98 72 eb 67 b6 51 49 0a a6 cf fc c8 e3 d3 7d 86 cd 7e 45 72 e7 59 9a 2c 68 03 d1 78 69 a9 51 42 20 77 6d ef 0d cf 6e ff 0d b9 de 0f c9 29 d6 3d 82 f5 a2 79 d1 c6 1e 5a 5d 96 c8 a9 2f 62 ac ae 4a a8 5f b8 81 80 87 7f a2 82 cf 96 dc 72 ff e2 23 c5 05 2d 60 3c b5 e1 12 1d 2f a2 19 92 67 c0 02 dc e3 2f e5 ba 12 7e 1e ca 7a 40 58 a8 f2 c1 be 94 56 f9 61 ad c2 51 47 11 81 b7 48 26 86 78 7c 8f 2e ab aa 82 34 8c 6b b1 b9 ba 04 87 04 1c 92 34 6e f4 2d cd dd 0c c4 8a a8 23 11 27 25 fb e2 6c 15 bd c6 8d 64 c9 95 cb 35 68 7f 23 b6 e8 85 0a f9 e5 83 b4 e1 b8 7e 53 cd 84 4f 05 30 90 f9 85 d7 4e 29 64 8c 4e e4 fd c5 cc 1c 8e 74 b9 c2 1b 78 52 cb be 81 6d 79 ac 96 18 1d 1a 33 99 6e 92 01 09 b3 3f a5 91 45 cd 62 98 ad 15 63 dc 90 e8 8d db c8 0f 50 45 fe 7a 8c d2 7b b0 72 ab 19 35 21 dc 0a 67 9c 3e b3 2d 88 f6 a8 d9 1d 53 ca 81 1e ee b5 2e 55 5e b2 43 03 1b 20 5c aa bc 91 86 06 36 40 a4 b2 f4 17 3e 97 11 ae 9d 37 85 fc a6 6f fd 9e a2 92 14 b9 6b 0d 65 33 89 f7 da f2 ad d9 30 3a 73 5c 61 bd 26 3e 3b 0c 1e a0 8a 09 f4 ed 51 f6 bf 22 ee e7 4f ad 0e 71 e3 88 52 76 c9 ab 38 31 06 20 e0 ae 55 9a 74 9d 40 b9 c5 51 41 9d 4b 6e 3a 95 01 bc 48 b5 d6 84 fa ab bb 4f 8b e7 0b 36 d7 ee 95 aa 18 a9 2a a2 63 0f 2d d4 4b 64 ae ed 9f 84 76 35 95 19 d1 46 f0 cb 6e 48 74 bc 97 64 b7 f1 c8 29 83 80 be fb ec d8 17 88 b3 27 ea 4a 88 54 59 6c 4e e2 26 56 58 39 af f6 e0 ea 6e 05 04 93 13 67 66 ec 58 45 de 9e 30 fa 37 bf 8c 44 9a b4 e6 cc 10 ce 9f 6f 96 f4 d3 65 ba 0f 77 a0 6b dc 0b 1a 87 49 1e 67 43 a9 b5 06 91 d0 71 da f1 68 ed d6 97 87 81 08 0d e3 b6 37 49 fa fe a3 81 24 fc 3c 61 f4 80 b0 a6 01 07 de 0d e1 3d 76 f5 fb fe b1 f1 6b d9 4d ee 6b e4 41 80 51 c6 92 bb b1 fd 80 29 41 56 34 5e 19 4f 58 b5 70 1a 98 90 d4 33 cb ef 95 03 3d 31 56 57 25 54 d5 5c ba 36 d5 34 15 e2 74 3e 4b c2 8d 49 3a f0 24 f1 6a 57 69 ea 08 9a 66 bc 7e 39 85 71 eb 98 f8 ec 30 bd 91 1d 2e 7c db 22 a9 d5 5d 66 63 2b df 06 7a 5b 29 df a1 30 a7 54 b1 ae d2 21 10 c1 cc 8d fc 0c 40 35 a9 aa c1 e8 cf b6 52 4b b7 60 bb a8 97 e6 b8 c2 8f 4c 7c 76 18 1f 03 09 97 17 d6 47 9a 00 00 00 00 00 00 00 00 e5 a8 b2 d8 9c 31 4c ac aa 41 32 77 a7 20 d5 b9 c1 9d 39 6d 20 69 cb de ff 9b 2b b6 0e 30 45 1f 17 d0 2f 59 db fb f7 10 0b c3 56 99 1c 60 8a 3e e0 98 22 21 19 e6 02 85 85 b7 ef 5b 07 18 d8 f5 c9 4e 1f a3 ec 44 7b 54 dc 2d c3 33 04 c9 a0 9c ca 5e 6f f4 3c 09 41 e0 55 da 19 c1 a9 10 90 a6 fd 28 d8 7f 3d 46 69 c7 66 3f bd 2d ce b3 e0 c4 76 6c f1 44 a3 e9 75 25 da 0d 23 9d 51 53 d4 01 6d fc eb b4 d2 d3 6a fa ab e2 b1 e9 44 1b c3 d5 2c e6 ad 7b 70 75 37 f8 f2 78 9d 81 47 ca bb bc ea f8 f7 26 e6 bd 9e d7 21 05 1b 4c 39 8f c9 5b 6f 4f 18 7d e1 a5 46 22 56 ca 69 96 79 5d aa 12 79 3c b4 ba d9 65 a7 5e 93 c4 43 9c 3f d8 39 89 78 9f 37 24 3a 5e b1 32 e1 3b a1 bf fa dd 14 e9 af 71 a2 8e 22 f7 9b 90 fe 38 a8 28 ed 0b 53 73 b2 c1 58 d0 06 57 f0 d2 ef c8 67 df 63 6a d0 fe 03 10 70 57 d0 4d 3a b4 ce cd 7c 93 5a e5 19 a5 3d 16 62 8c fe 14 b4 75 7e bf d7 8a 6f c4 c5 af b5 42 3b e0 b0 f6 92 23 c8 ed 9c 3d 0f 7f 6d 38 f4 58 7d 2f 12 50 cf 21 c5 0e 2a 0a 46 85 93 9b 91 77 b0 55 0c ae 15 51 e8 4b 04 ef d5 cb b2 0f 7a 2c c4 ed 09 28 9d ea 97 57 50 fb 59 34 61 cc 1d b0 fa 5e 24 a0 6b 42 4f e9 80 af 3b 11 99 15 cc 7e 8f 5a 69 93 35 7d 9b 17 65 52 f3 f5 89 03 a1 82 64 ee bb 40 5f 87 f7 48 0d 78 c2 1d f5 95 16 73 ac c7 38 c0 e1 7c d6 4d 16 34 fb 92 3c ce 4d 5a 73 66 08 67 b5 cd 08 d3 26 ce cc 2d b0 8a 75 7c 81 13 73 a4 4f 91 d2 de 05 53 9d 7e 64 8b 02 b3 f3 c9 33 76 2c d8 24 35 8b b5 bc 58 87 72 3b 36 82 22 ab 8e c0 e8 50 ea 89 38 2c c7 de 8f 44 2a d6 36 27 71 13 2b 4a d9 10 56 be c6 d7 3c 20 a6 98 d2 da b4 df 37 7b 8f 47 73 ea 13 8b 86 98 07 15 05 23 b8 b3 b7 6a 7f 88 84 64 72 08 0b 7d af a7 dd bf 89 ff 1b 7c 0c 24 43 5c b2 e9 77 dd 8e 40 ad e7 f2 b6 f0 0e f3 c6 60 99 b7 c4 17 cb fd ec 6a df 32 57 8c 83 97 0f f5 52 82 ac 68 b1 d1 28 87 d6 1a ca 66 18 80 6a a7 a1 77 25 6b 8b 44 29 3b 9e af 1c e2 8f d7 3a 5c f8 43 44 a7 74 df 02 8d 90 9f 59 fd 6c 5f 68 2a 31 e8 7c 96 51 f7 3a ba 75 97 7b fa 13 2d 9c 76 cb 98 ef 03 9e 35 72 70 06 ce 91 71 a8 16 75 ff 6b 8b b1 ba 5e 06 c1 fb 4e ef e5 e6 f4 db d0 b1 a3 74 ec 7b 4a 1c c3 07 b9 4f 6b 65 04 63 c8 9f f9 20 85 4e 58 ae 6d d1 31 df d8 8f 44 72 0a e6 c1 3f a9 90 c5 cf 49 b4 f2 09 ad 30 90 5b bb 91 7e be 53 84 ad ea 8f c0 d1 a3 68 1d f6 10 b4 04 25 64 54 5c 07 37 9e 8a 3c 38 61 80 42 da a6 cc be 0f 94 f9 df bb 82 a9 7d d9 e1 46 77 ad f7 56 16 52 50 fc 47 26 5c f3 04 27 4d 5e cf c2 48 ca 73 59 ea 8b bd 93 45 a3 df 23 63 d0 ce 5d 7a 6a 30 51 b6 62 16 d1 66 49 71 b0 36 a4 a6 78 bc 1e 13 fb 73 4f f5 44 e2 11 e0 7c b0 92 d6 e2 d5 c2 39 91 42 33 03 54 56 15 c5 18 e4 ce 39 d2 fc ce 56 3d be d7 a9 89 47 5f 28 83 ed 53 28 34 04 0d 1b b5 e9 f3 86 8a dd d8 0f 0e 65 20 e4 a2 1a d2 ad f4 e7 b6 91 c4 89 31 3d b6 0f 6d ee af 1b ac 2c a4 a0 0d 9a 56 ba ef ff ee 14 3f 50 68 08 1a 36 9f 27 13 8c 87 dc a6 8e 5e 22 9b 59 31 5f 71 72 d7 84 66 92 90 df 24 f8 ae eb a3 69 ba f4 d4 60 a2 99 c4 eb 53 e1 93 96 8c 79 aa ba a4 db 29 e3 1b 02 50 d3 1e 2f fd 83 b9 9b 94 e2 0a b6 f8 d2 c4 da df 3b 19 98 7b d0 2d 06 f0 de 24 b0 09 3e d1 bd af bb 3b e9 89 a0 13 5e b9 e8 07 b7 86 53 94 9d 64 ef 30 29 0c 6f ac fc e4 5b fa 3b c4 f4 c7 3c 41 0d 3a 9f f4 bd 68 26 3b 4d 2b 5d 8d 85 77 0a e5 35 77 51 9a a8 5d c4 05 38 4d ce 6e 15 35 e2 3e c6 9b 1f a1 37 11 49 fe 46 b9 6e 53 47 2f 11 b7 84 41 b9 6d 89 1e dd 07 29 ab 36 ad 58 bd b5 1a a5 2c ea 0b d6 e3 97 81 49 48 95 12 7c 57 8f ab 08 c6 65 cb 07 40 ff 9c 81 bd 43 52 33 36 04 a0 d5 b6 83 d7 fc 89 a6 fd b2 62 be e2 e4 5b fd cc 09 59 57 6b 44 48 a3 75 c7 04 2d 01 74 19 15 17 f3 ec 4e 3b 9f 4c 8d fb cd 09 2c 7f f5 49 52 ac 57 5f 96 90 0a a7 46 93 97 6c 25 1b 42 86 32 04 02 cb 64 b5 86 10 b8 27 f0 b8 18 2e 5a 54 69 35 b7 9e 44 dd 5e 73 24 6b 24 91 a9 59 e5 d5 93 21 7a 97 68 a2 ab 3a 76 c7 c2 f8 d7 3e ce 31 cc b0 87 15 ef 78 4c 06 39 c9 65 1f 59 80 9e c2 e3 16 54 0b c0 85 cf bf a2 5d c3 67 e5 9e 8d 39 90 59 fb 2a 2b f0 98 0c 72 67 2d c8 fe 32 a1 9d 30 54 12 b2 ae d6 88 90 b3 ea 62 28 c7 0a a2 fa 82 96 ae be d9 d5 14 bb 8c d3 b5 55 20 68 d8 63 9c 4c 9b c9 88 4f bc e6 48 d6 f1 27 2a 8e 19 5c 35 dc 43 45 94 6c fd 07 c8 10 cc 96 1e df b6 41 0e 45 c8 f5 d6 40 4f 61 8b 0b 0c a5 ad 54 fe 60 7a d2 80 22 71 f2 70 3e 58 49 e9 98 85 26 10 9c c1 8d 61 7c 91 1f 67 e2 66 58 45 ed 38 46 82 37 f5 79 4f e0 39 38 03 67 b2 c2 36 23 07 8f 6d 45 20 cb ec 64 7f 19 aa b4 18 2a 75 66 93 e3 90 42 e8 db 2f 03 9a 87 27 8d 88 73 a3 84 46 21 a9 d3 aa e8 82 e9 15 47 f6 2e e0 6e f8 7e 7d e5 5d 14 96 a9 25 0e 9b f9 a6 dd cf c8 26 5a cd ec 63 c5 2b 06 a0 d0 10 34 6c cb 4e 26 19 20 9d 08 4a c8 a8 b8 d2 81 1d 5d c0 b1 c7 7d 88 e4 14 39 77 7e a7 d5 31 14 99 05 51 7d 41 4b 1d 43 55 97 b3 e8 2d f6 3d b1 34 51 af 1d 3b 99 b6 01 76 7d 1d 7b 78 82 6b 71 90 61 e6 b2 21 e3 f7 8f 86 a4 66 6c 08 b5 b9 f0 8d 3c 26 03 e6 9e 52 a3 6c af b0 8f 9f 34 72 51 0d 69 ac 7a 89 5b 70 9a 69 dc 2a 6a 31 7c 2a ff 60 b8 9d a5 51 d4 3c 2e 06 f1 ec 15 67 70 14 1a 02 fc f7 a0 8e 83 3e e5 62 44 6a 05 df 57 a1 4f 22 94 2f c3 12 cf 96 f3 17 bb 01 8e 6e ed e6 69 7e 67 2b e4 5f 91 7e f4 a0 3d 52 1a f3 89 fc 1d b5 7a a4 34 13 e7 5a 65 09 64 b7 cf 60 a8 1b eb f9 bd cc d8 10 9f 27 c5 ff 4c 20 cd 77 ef e0 c1 d2 4d 54 d4 62 f8 6d d9 3c 4b 99 82 1c 8a 7c 3f c4 88 d4 0a 4b ae 9f aa 40 d0 45 c6 cd 98 63 b7 f5 aa e1 f2 de 7f 7d a0 f6 28 97 02 17 47 ab 42 23 ea ae 93 55 74 85 de 8b cd ca 16 81 ee 8d 18 ee 06 cd 56 7e 72 37 bc 35 2f 2e 4d 7c 22 c0 33 b3 8b 48 21 74 97 30 8b ab a5 12 75 1d a2 0a 0d 01 7e 81 50 47 bb 33 df fd b0 d7 6d f9 6c 5d 52 97 ee 8b f7 01 28 0f f1 fb 41 3b 78 9e 1c aa dd 11 4a ed 9b 09 9d 56 c0 a4 30 49 af 1a 7a 74 f9 a1 43 d3 4a b4 32 89 7b 26 99 34 76 fb 3c 73 ce 3f c9 ef 72 d5 b2 6c 46 0e eb da 8a 40 63 6f 12 58 fe 1f 92 a4 ad e5 3d 28 72 ee fc bb 5f 15 85 30 5c b4 a8 d2 6a 4c b4 6f 2d c6 7f 56 0c 71 05 5b 7c 69 62 6d 95 b3 fd 8c 42 a7 53 a1 25 76 32 c5 f6 55 5a 0c 15 c9 6a e4 e0 0c 69 d7 e2 d7 7d e7 62 7a 99 1e da 0e 6e c9 e1 78 70 c2 f5 ed fb 4d b9 e9 bc 44 c3 7f 6b 92 9d 11 12 af 60 23 a6 37 d3 d9 ed f2 a1 94 38 73 0e 87 9e d6 ca 41 8e f0 d9 7b 17 70 37 b4 ca 12 c8 9b 6b c0 a5 1c dc 67 37 f0 e0 71 1f 6e 8d 6a 5e 5c 9a f8 44 dd 70 e6 1c fb c9 59 61 fa b5 19 50 db 04 2e 8e dc ef d4 bc b8 c1 05 88 da 47 78 96 c7 f1 38 e1 93 0f ed 84 bb a6 b7 4a 00 00 00 00 00 00 00 00 1e 17 03 82 76 f0 c9 38 8b b0 42 2c b2 66 43 1b e7 f6 4c c7 68 ec 03 78 34 e8 63 3a eb 55 98 ec 3f 7a 50 e4 29 0d 83 be 68 25 c6 74 23 aa c5 2d a7 e7 8e be 50 f3 2f a6 1a 74 cb 1d 8f d0 4c 76 4b 83 f1 a7 fa 47 37 8c 5f 99 f3 5b 0d e7 b9 0f 8f d3 8a b3 4b 46 c6 55 bf 58 21 16 59 33 db f7 1f 88 31 22 35 f8 95 d1 79 c3 3e b7 6e 22 92 09 d4 29 b1 77 bf 81 fa 14 22 39 05 73 9a e5 ae 48 11 e6 f8 c3 4d 88 57 24 64 80 6b 20 dd ca bf ff 55 94 f2 25 8c b7 fe b4 21 6d 53 66 5f fd 4a 86 20 f2 61 c6 1c f5 16 6f 40 11 c2 79 38 1f 2c de 3a 86 aa db 93 25 5a 19 7b 08 5a 02 e8 32 2a 2e ea cc d3 33 d5 84 25 43 ca 3e b2 f5 c9 71 33 2c 05 fc fa 3f ba 28 d9 a7 48 d7 a7 b2 3f 5f d3 42 32 40 cf 10 94 65 a5 85 db d8 4a 36 84 f9 64 08 8a 2f 70 8c f1 6e 1f f2 99 02 ec fa 3a f6 f0 f1 c4 50 7b 14 b1 01 f1 d9 d9 13 2e 83 02 e9 dc 2f 17 4e 54 e9 32 b8 6a 4d 78 5c 0c 17 2d 2a ce e0 18 bf af a8 09 c0 f4 51 a4 b3 d8 ab 95 eb cb 68 5c cd a5 4e c8 ff 5d c1 b1 36 e8 f7 21 43 19 02 e1 5e e0 ed 17 dc 3e 11 0b 92 33 de c2 58 1b 52 2e 9c a8 27 64 85 d4 9a 9c fe 16 c5 80 de 29 56 b8 6f bf 9c 65 0b ba 77 95 a7 41 ae c4 96 8a 23 f2 73 7c 9b dc 44 d1 12 66 4b 0f 95 5b da 07 d8 e3 95 84 58 91 cc 86 36 98 9d de 5a 79 fe ac 18 d0 4a 79 e8 46 a1 7f 5a d8 8c 1c 23 41 e1 80 c6 be c7 13 b6 1a 3b 87 1e ac 75 bd 60 92 ab 34 f4 10 79 ca 63 0e 80 0b cd 8e 4c b8 13 08 4e 9a bc 2b 60 52 18 de ad 0d 3d f9 e1 4f 45 1e 1c ca 40 6a ee a2 c1 a5 ba 7d 0a 06 a8 ac 2a 7f 30 3d 69 fd 82 87 da e7 3c 4f 0e 2c 57 cc 92 e2 95 6c bd af 21 eb 75 57 b3 d0 3a c1 ac 81 2b 0b 29 28 7e a2 1b 74 81 ea db f6 01 83 76 27 e7 b5 26 bc 87 bc 0c 77 03 9c 2b 3f 39 53 3c 5e 0f f3 87 c3 dd b0 a9 da 57 62 4b 45 eb d1 d5 4b 48 05 a9 23 b3 60 e3 a3 bf 24 ea 3a b1 67 d4 3d 35 18 d2 5b 31 4e 7f 0b 98 40 6f ee 2b 01 9f 32 a0 43 08 5c e9 cb a1 80 55 8a 79 6f c5 9d 61 24 65 c3 d6 75 bf ff 49 e3 6f 61 2c f7 29 fe d6 d1 cf 22 24 ab c0 }
+
+  condition:
+    $a0
+}
+
+
+rule libaf_alaw_decode__16_lil_256_ {
+  strings:
+    $a0 = { 80 EA 80 EB 80 E8 80 E9 80 EE 80 EF 80 EC 80 ED 80 E2 80 E3 80 E0 80 E1 80 E6 80 E7 80 E4 80 E5 40 F5 C0 F5 40 F4 C0 F4 40 F7 C0 F7 40 F6 C0 F6 40 F1 C0 F1 40 F0 C0 F0 40 F3 C0 F3 40 F2 C0 F2 00 AA 00 AE 00 A2 00 A6 00 BA 00 BE 00 B2 00 B6 00 8A 00 8E 00 82 00 86 00 9A 00 9E 00 92 00 96 00 D5 00 D7 00 D1 00 D3 00 DD 00 DF 00 D9 00 DB 00 C5 00 C7 00 C1 00 C3 00 CD 00 CF 00 C9 00 CB A8 FE B8 FE 88 FE 98 FE E8 FE F8 FE C8 FE D8 FE 28 FE 38 FE 08 FE 18 FE 68 FE 78 FE 48 FE 58 FE A8 FF B8 FF 88 FF 98 FF E8 FF F8 FF C8 FF D8 FF 28 FF 38 FF 08 FF 18 FF 68 FF 78 FF 48 FF 58 FF A0 FA E0 FA 20 FA 60 FA A0 FB E0 FB 20 FB 60 FB A0 F8 E0 F8 20 F8 60 F8 A0 F9 E0 F9 20 F9 60 F9 50 FD 70 FD 10 FD 30 FD D0 FD F0 FD 90 FD B0 FD 50 FC 70 FC 10 FC 30 FC D0 FC F0 FC 90 FC B0 FC }
+
+  condition:
+    $a0
+}
+
+
+rule libfaad2_codebook__flt64___64_lil_64_ {
+  strings:
+    $a0 = { e2 77 d3 2d 3b 44 e2 3f cb d9 3b a3 ad 4a e6 3f c5 8c f0 f6 20 04 ea 3f f5 d8 96 01 67 29 ed 3f a3 92 3a 01 4d 84 ef 3f 94 83 d9 04 18 16 f1 3f 66 4d 2c f0 15 1d f3 3f 2d af 5c 6f 9b e9 f5 3f }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_On2_Vp3_predictor_transform__32_lil_256_ {
+  strings:
+    $a0 = { 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 35 00 00 00 4B 00 00 00 00 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 00 00 00 00 00 00 00 40 00 00 00 00 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 35 00 00 00 4B 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 00 00 00 40 00 00 00 00 00 00 00 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 35 00 00 00 4B 00 00 00 00 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 98 FF FF FF 74 00 00 00 00 00 00 00 74 00 00 00 18 00 00 00 50 00 00 00 18 00 00 00 00 00 00 00 98 FF FF FF 74 00 00 00 00 00 00 00 74 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule YUV_to_RGB_dither_2x2_8__8_byt_16_ {
+  strings:
+    $a0 = { 06 02 06 02 06 02 06 02 00 04 00 04 00 04 00 04 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_AC3_vq_hebap7__16_lil_6144_ {
+  strings:
+    $a0 = { 4B AD 85 55 96 28 4E 35 DE 29 27 DC 09 A8 FF DF 98 47 1B E6 AE 63 A0 D5 90 1A 42 CA 22 CC 92 57 4B 39 36 AE 2B 09 14 29 65 04 81 F2 C1 15 00 6A 27 E6 4B 2E 34 A0 99 59 8A 4F 7D E8 F8 AA B9 29 61 B3 53 C5 E2 DE DF F7 47 F5 EC 21 E1 EC 5B 6C 82 1D 47 D1 04 FC 9C 09 46 FC 92 12 8D FD 10 C0 0A B3 39 5A 4B 00 8C CA AC F5 3C 08 D1 0F C8 F4 DB 16 95 EE 86 56 10 31 C8 AC 17 BD 26 FD FB 1C 76 D2 E5 D6 44 2C 00 07 2A 68 DE 5B 97 B3 15 FE 5D BA 77 BE DA CA CB C7 F3 A9 60 F6 43 04 B1 E8 D9 E0 AF BD 30 B0 55 AA D4 47 B1 FB 8D 07 1E 34 C9 BB C2 46 76 58 C1 43 12 D9 FF 45 62 47 BA 02 CC 05 49 4F 86 E9 6D 98 4D 13 09 A9 D5 F5 EB 11 2E E9 20 48 3F 22 F8 F5 13 F5 BE F9 D1 54 1B 0C AD 9B 98 0C AD B5 55 12 71 EC AC 17 B4 07 09 C5 73 F7 2C 25 EE FD BD 50 CA ED 93 DF CB A8 49 DD E1 09 A8 D3 64 15 E6 03 54 56 44 EC 73 06 9F F5 07 12 0F 09 77 51 FA F3 FE F2 09 10 9E 34 FD 0B 55 00 89 43 18 28 60 C6 D6 00 5A 00 03 99 5F B6 68 B4 2C 4B 16 D8 B5 26 F5 D9 11 50 4D E6 B9 E4 4B 0B 1E FD 5F 50 0C C2 7F A6 D6 1A 4C 00 47 01 28 22 B3 CD 5F A6 BC F6 20 B4 D5 D9 AA CD 37 3F 5C 52 ED 0E ED 02 20 CA 85 C1 DF 47 57 09 03 BB 1C 4C 7E E8 8F 05 D6 2D D3 0F 5A 4B C9 1A 1F B3 B0 EB 26 26 46 47 9F 09 4C 49 0C ED AB FD 2A 4C 2B 05 78 DC CC FE B0 FB E5 F3 7D 9B CF C2 F4 62 1A 12 4B 0A A7 4C B0 F6 17 E1 14 2E 8B DB FC C8 52 0A 55 67 9D AD 8E D7 63 F9 51 F9 0F 56 79 54 3C 2D 7D A6 D3 EF 81 00 16 E8 D6 0D 93 03 FB FE EF FF 81 FE A0 06 30 1A 6F FA 66 51 59 03 C0 EE 8F 05 50 C4 9A DE 3D DA 5A 14 37 16 58 EE 9B FD 5D D2 F2 15 86 10 6B 02 A9 03 9D EC EA C8 30 BD 06 E5 C0 E8 24 C5 1F FE BB E3 D2 C5 BC 49 A9 54 C6 9B 5E 0B 77 04 B9 FE 36 FE 1D FC 48 DA CD FC BC 9E F4 0A 01 4F 3B 04 A9 FB 9E F1 04 F9 DC B3 C6 03 35 03 7D 1C 01 AB 26 2A 6D E4 03 A5 45 F9 E6 FE AB D4 AA 00 2A AE 02 8F 47 31 12 46 81 0E E5 F9 75 03 05 00 34 02 E4 17 A8 58 C2 08 D9 E4 F7 26 0C E8 F2 10 B8 68 87 F1 B8 07 C9 FB F6 F5 6B FD 23 E1 94 F5 A6 C4 3A 45 17 11 B2 EF D3 D4 CD 02 16 A8 1A 06 DC 2F FB E6 9E 47 D7 17 47 1B 44 17 13 47 7B 26 FA 14 34 5C 33 E5 57 E6 C2 FF CC 55 2F 34 55 FD C9 0E 78 08 D1 00 0F F2 99 FB F4 B2 F8 F9 1C 05 DD FC F5 F3 B1 3E 21 CA FB F3 C6 10 A1 5C F1 D8 D7 26 00 C2 86 32 B1 A3 C3 54 FA 25 35 59 A0 2F F3 3A 9D 15 E5 12 C3 08 33 08 DB 04 F9 0F 8C 12 9C 32 A7 0F 5C F6 19 0D EC F3 8B 22 80 42 EA 10 EF 17 AD 15 21 24 DA 2B B0 6F 8E DA 87 DD EC 00 F1 03 C7 01 3C FC AD 1A 5A 4B 06 FC C8 00 1D 07 42 02 4C 14 BD 03 84 28 02 0D 00 CE 81 FF 32 F4 FF DF 23 C7 2D 56 20 17 1D 04 E6 2A 56 65 1E A0 12 A5 7F D1 7B E5 8B 58 FE D4 68 16 07 0A 99 5C F3 D7 F1 F2 77 EF AE EA BB 50 A5 D5 EB F1 DD EF E4 F1 DF 11 C3 FC A2 FE B1 FC 19 F3 7B 0D 1A E3 AC D2 CF 0B C7 01 80 0C B5 DA 82 0C 93 A6 B0 2B 9E 98 F3 C8 EB EF 16 3C D7 37 5D D5 67 B0 DF 0E F8 D4 24 56 22 38 20 C4 CB E1 6D E7 C9 BA E8 F9 10 2F A3 B2 45 FE FD E7 76 EF 60 FF AB 20 6E 58 87 2E FD 4A 97 04 FE 1C 6D D9 D8 EF 60 12 B8 FF 1C E2 90 FF 4D D1 62 F3 27 6A CA 0C 4B 17 4D 1D 85 BD 62 03 94 9C E1 02 45 07 29 07 E6 07 50 09 93 12 9F EB 58 1D FB 0C 9B 0A F9 0B BA F9 97 10 35 02 FD 15 C1 09 63 46 C8 EC EF F4 00 BA 82 E0 7A 3D 06 FC 58 08 EA 0B E5 B3 22 42 8B 74 12 D8 31 3B AE D3 76 00 3C 9B 3F CA D8 3B 2C FE 28 ED 60 13 59 EF 27 06 9F D6 69 4C F5 DF 7F FA 05 FD 8D FB A1 FD 80 05 65 F7 69 D3 E5 07 0C E7 D8 F5 C7 02 63 FE 31 F6 28 FF 41 F2 95 91 B7 06 92 C7 9A 42 5D 36 BB 34 5E 9B 07 C1 1C 4B AD 1C F3 CF AA 02 31 F1 39 FF 9F EF 0A 51 DD C2 55 2C E4 16 C8 FC 0E AC 26 F2 FD FF 57 F9 89 F0 FD 23 55 3C AC F8 DC 07 55 B3 64 3F 13 ED CD F4 6B F1 46 E3 51 FF 69 B1 A6 2B 0D F2 F5 9F F4 4C FE 19 D3 03 72 FD 3C 55 FA E2 11 E6 F1 D5 56 DF B7 3C EB 39 39 46 DC E3 AF F2 72 07 78 BC C5 0D 95 F0 79 FA 12 F5 F0 44 22 08 4C E6 69 C4 07 BA 39 05 EA 3B A6 52 42 18 E2 25 33 3B A6 9F 15 A8 61 F0 34 F9 AF FD 47 04 9D E1 E2 61 E1 15 A7 53 50 FE 86 F9 0E E5 62 FA 8A C7 E1 E4 BC 02 95 D0 17 FD 85 A1 C2 57 8F 18 D3 0C FE 2A 04 0F F0 4A BD 39 1A A8 AA 3B 43 15 08 F5 36 FC F1 F2 B9 0C 84 F1 88 12 93 DF 1E 59 20 D8 1A 5F 16 AE 86 4D DB 03 4A D1 7B E7 42 0F 0B B3 04 33 B7 F9 D1 48 2A 1D D7 98 EB A7 B1 3F DE 07 DF 2A 70 46 81 E4 2F 12 1E C6 33 49 AD 3D 10 05 5E 24 6F F9 4B 39 02 F3 A7 67 B3 D1 60 16 1D 17 58 34 24 27 44 F7 80 9F CD 06 B9 E5 97 31 07 AA F0 0F 4A 15 C3 F5 B1 24 97 52 AE 9A A6 F3 1F F6 C0 50 CE 49 8D C9 4E 1B BC DF C3 3D F6 A2 AF 2B B9 CA 5C 2E AD 3E 46 0A B9 47 14 D8 3D 03 58 03 0E FC 9D 00 40 38 BA ED 21 14 16 CC D6 94 EC D4 6D 54 F8 2B 2D 44 B4 1D 4A 33 1C FE 07 00 D4 04 3D 02 76 10 C8 15 F7 F3 94 03 7C DC 05 05 02 DD A1 04 E5 8F 53 54 8F 5C AC 4A BB F4 36 C8 0A DF 76 5B EF E7 B2 32 F5 0B 79 DB BC 08 02 F4 50 E3 54 B1 9C 16 46 02 D9 FD 67 F0 3B 01 A3 E1 20 20 4E 92 4F CF C6 35 03 C4 05 4B 70 AF F3 32 D1 B4 C1 0E 4F FF 5D 1F 17 FC 94 45 2A 14 74 E3 19 EF 50 B9 94 FD BA FA 54 3A A4 39 3B FB ED CD B6 C5 DD FD F5 69 BA 08 AC 06 CC 0A 28 15 32 1F B5 9D 39 0B 34 0E 98 0F E0 14 9E 27 0B 53 86 04 03 15 FC 01 EE D6 22 01 B1 F9 5A 04 D5 60 BF 40 B0 9D D6 FE F0 F4 AD FB 00 E8 82 F8 91 E1 65 F4 14 A5 B0 0F 29 2A A5 43 0A EF 0A AE C9 F2 72 EE 31 FF 21 D9 09 F2 0B 1F 82 04 68 E2 B5 1F 21 C9 56 42 A7 98 6C 94 C4 C4 E0 3E 34 BE 4A DD 58 A3 22 3E 5A 61 30 16 AE F8 A4 01 84 00 75 00 06 FE 92 B4 3A FF 9C 01 C9 FE F0 02 8E F8 8D 0F F8 E1 B6 40 A5 B4 7E C6 71 FE 27 FD 21 F1 9C EF 95 CF D7 1D 28 0D 1A 09 84 23 86 5C CE D7 57 F9 B4 F3 24 0A CE E0 0A 39 39 ED F3 40 79 1F C9 05 31 00 35 43 25 61 32 1D 98 B4 FF FD 81 2E 2A 09 D4 15 25 0D 39 EC CC AA 6A 2C 90 2A 11 13 05 01 BA 12 61 50 F5 13 77 E8 8F E0 0F FA BD 1F 5C C6 9F 50 BA C5 85 5D BE F1 A3 30 65 05 1D 0E EF 21 3E A2 F0 12 46 1A 93 29 66 27 81 62 B9 9D D7 FB A1 19 99 36 5F 0B E9 54 51 40 3E 9A 10 F9 0F 0A 6A B3 60 BE D8 0B 17 1A A4 3A 0A BA 0A DF CE AB 19 96 20 2E 78 0D 64 FC D7 C1 91 FB 06 14 7B AF 28 1E B2 08 37 44 3A 15 0E 71 90 44 DE 04 FE 3C 21 D2 2A 60 7D BB C8 0C 8F 0C 1E 46 DF 0A 2E FD 70 A7 5B 17 D2 E9 90 F3 19 9A B2 65 B7 19 E6 0C 56 4F 1D F2 65 F5 44 FE 31 FA F6 05 60 AF 2E AA 51 D0 3F 9B 9F 22 F4 FB E0 45 3A 02 1A C1 89 20 07 F6 AB 3B 8B F5 DE 26 A9 F8 5D 40 26 CE B1 8E 88 FF 53 F7 DB 00 61 00 6D 01 23 00 F6 04 32 FD C8 05 7F F5 8A 07 99 E2 68 07 2E 22 72 07 3B 47 6C CE E2 E7 6B F1 91 35 66 D9 A8 C1 A0 FA 16 E4 98 D6 30 21 5F 3E A8 DD 6C 1D D7 4F E1 0B 6F CB 08 04 B8 96 9B 16 98 61 12 EE E4 DF 96 DB 20 E8 A5 BC 91 64 70 BA 3A 1B A8 0E 72 02 8E FF 82 08 61 11 02 ED 8E 1B E4 EA 82 12 F5 F4 3A 13 75 FD FB 49 76 D9 50 03 5E 07 B0 FE DE EA 42 1C DC 4F 91 DA A8 FD 0D 03 EE B3 98 CE EA 19 86 05 C2 01 B9 F2 7E BE 63 2B 90 33 86 EA 9F 54 3F F3 FB 12 B7 E8 6A 1D AB D5 B6 6D 6E 28 9B CD 63 64 28 64 81 FD 5F 01 8B 04 4B 49 A6 EA 11 C5 6F FF 9F FA 73 C7 5D 6A 69 85 73 80 BF 53 B2 F4 3C 3C 87 49 70 56 C6 4B 37 58 13 35 4E D6 D6 29 E1 13 6C ED 8D 03 E8 AE 6C CD 4C AF F2 1C A2 0A 63 0D 41 2D AF FB C6 47 13 4D 4E DA AA 57 B2 4C D8 FE 72 E5 AB C6 63 54 54 4D 97 53 6A B4 B3 E2 66 63 58 33 8C 21 2E 9D 14 0C 86 D6 A0 51 21 24 02 F3 04 07 D5 FC A9 05 22 0C 8C 12 29 2F 4A C8 10 AF C3 37 14 EF 12 9B 6B E9 63 AD F4 EB 3A 29 3C C9 7A A9 18 0B D6 FD BD 63 F0 44 26 3A AE AD 9B 09 36 62 66 DB 04 F9 C2 CD 12 E9 2D 9B F1 D4 2A 1A 33 03 49 28 A6 00 BD 6B 0B 02 65 00 44 B4 55 0D A6 25 40 00 26 03 4A F5 F5 B9 F0 F5 22 59 69 21 66 04 9C 0B 63 3B 00 07 5A 63 A0 E9 8F BC 75 FA 44 06 2E 11 BC 2C C3 06 EB 5C F0 EB 11 12 63 D6 4D 6D A9 26 32 F6 E0 D6 7F 92 B7 0B 06 FA C0 FC C2 FC 83 D4 21 CF BE 56 B5 E3 E6 A3 3E AB 27 42 7C AA 45 07 7A DA D8 24 52 4A 25 28 2C 25 BF 68 DA 07 B1 EC 88 DC AB 15 5E F7 BE 37 3C C4 8C B4 1E 07 0E ED F1 FC 01 DD FC F3 A8 B1 83 F3 28 20 16 F5 A8 BA FC 33 9D 0C 21 FC 33 D0 4B E6 4B 28 B0 DA D4 08 58 AF A8 E4 99 15 7F E2 BE E2 9A D7 E6 D7 39 0E 17 4C AC E8 67 B5 76 B7 05 32 03 05 BC EF 66 10 C7 90 3E F6 4A 07 AF 3E CA 68 03 CD 54 E7 D9 03 C3 F9 6D FE 70 35 39 19 EE 61 F4 69 1A AF 6A B9 02 F9 66 9E 41 17 46 FC E8 67 60 A1 E9 C3 D4 60 A1 07 90 FB BB 00 0F F7 D9 30 FE AE 78 FC 94 47 0A 53 62 0A 04 E8 33 3F 04 57 D4 FD 6A 08 39 E8 7E 36 AE 9B BF 93 D1 0F 45 ED 34 AC 69 67 EB 4B 5C DC 7F 03 2F 01 48 A9 BF 99 76 E8 99 60 72 A6 BA DC 3C C8 92 C1 B4 5C BD A6 34 24 FF F0 2A 73 A3 55 BB E7 8F 06 F5 F7 A0 FB 4D FE 4A 26 CD F0 47 30 40 EF E5 B5 38 4D AA FF A3 09 C6 07 03 FC 16 EB FA 51 B1 DD 2F EB F6 A3 86 ED 71 0A 19 EC E5 15 EB ED CE 4A B5 65 1D D0 CC 03 CA 1A C7 11 2D 6D 47 F0 20 F7 BB 17 44 F3 83 EC 8B FE DD F9 6E F1 A8 E3 40 CD 8C DD 0B EC 0E 5A BE 13 98 03 37 0A E8 1E 47 E3 D7 EC DA 4E 06 FF 4E 15 44 0C 10 1B DD B6 FD F7 C5 D7 EC EE 98 4C 0F 13 6B FD A3 F8 E0 39 65 DE 99 B2 F7 17 26 AD 1C 37 57 D1 51 F7 9A 13 74 2E D5 58 96 01 80 CC CB F5 38 CC 5F A8 3E CF 44 DF AA 42 B3 62 1F F7 C0 13 AA FE 91 00 D1 20 ED BA A8 4A 77 29 03 B4 BB 42 55 51 BC E9 0A 30 02 9C 97 28 0C 1E C6 11 A3 3D BA 43 4D B4 60 ED B6 04 D5 E1 54 2A E4 95 51 D3 B3 1A 10 F9 EE 09 7F 0C 5A 11 69 44 81 F1 6E FC E0 51 7A BE 4A E9 4F 2B BA FF B1 59 E9 0C 67 0B 70 18 40 ED 1A AE 62 F3 24 17 5D BF 87 08 AD 0A 76 0D F6 A4 53 E8 3E FF E4 C9 25 D5 20 4C 05 04 73 11 B4 E8 C4 B5 EF 05 99 FE 57 03 D3 F9 49 E2 36 56 C4 D2 D0 D8 CE 42 84 CF F9 09 E4 10 E4 57 77 16 8A 2F D9 9D 4C 46 10 E7 9C 04 9E 04 96 25 A6 5B E9 DE D8 EE 93 F5 D6 1D 3D BE 79 EA B9 F4 FB D5 6D AE 4E 1C 1D 04 8F 0A 86 AF 7E E2 5C 1D C4 E1 EC 16 BE 50 8D 55 C9 01 79 3A 07 BB 6F D1 13 0E C5 F9 7F F7 63 FF D5 FF 5D 02 D1 09 FA 22 1F 29 1F 58 1C C1 57 C1 72 17 57 13 8B 1A 02 ED 80 A8 A1 49 A6 1D 63 F9 90 9F B4 F2 59 37 BE 04 D2 EE F9 E5 2A E5 9D D8 EC 9F 25 24 E4 28 57 45 BC E1 93 00 56 E7 43 11 3B 3F 53 BF E9 EF CE 10 C9 1D 21 15 E7 0C AF 0A 22 1D 42 B2 32 F7 8A F1 E3 F7 69 54 16 3A 01 31 3F E8 1C F9 46 12 DC 2D 2B 0B 29 1B 7F 07 E1 F0 C2 0D A3 AA 5B F6 2B D7 CD 49 0A D6 AF 0E 31 D8 FE EC 9D F5 59 BA 26 FB 8F 3A 87 24 5E 2E DB F9 10 ED 15 58 25 25 F0 95 EE 29 73 51 B7 99 2A BA FE E3 90 FA D9 B3 CA 31 06 20 3C F8 5B 07 FE 6D B2 FC BD E3 F9 00 E9 00 E0 E3 9D 02 8D FE 7C F4 C2 5A FD E9 45 0C 20 01 97 0C 16 FB 9E FF 29 94 DD 43 3D A5 F6 13 41 D4 F2 F5 21 D3 C0 EC EE 05 B0 EA 9E 02 9A B8 9F 07 5E 28 67 B2 D7 ED 69 01 60 FF 65 FC 2C 49 B8 37 AD F3 C3 E2 00 F3 47 17 E2 F1 55 52 6C 1C D0 0D B9 1F 08 FA 1A DF F4 01 12 B5 F1 49 18 67 F1 FB 17 3D 44 64 B7 20 6F 07 99 07 35 D1 64 F5 3D 0D E2 68 15 EE 0B 07 16 00 99 04 71 FD D1 04 B0 F7 A4 1E E7 06 07 FD 11 20 A6 B4 0F EE 83 07 A9 FE 4F FD 36 F2 3D F3 24 F1 3F F5 86 48 C2 F7 AA 07 B7 FA 03 41 CD 0A C2 A5 4F FE 29 13 2E 01 D8 32 3D 3E EF E8 83 0C 1E 10 AD 2B 88 EA 1F F6 78 FB BD FB BB E6 79 FA 32 16 F4 FE 47 02 43 DB 8C B3 48 18 7A 06 E1 03 B5 FF 61 F9 68 EE 0F F7 08 F0 64 E6 3F BF 98 12 84 FC 6A D5 74 19 87 5E 85 E8 03 FF E8 03 3F 00 AF FF 8D FF 82 FE CB FA A0 5E 46 FD C5 ED 0F F5 38 B5 94 FC 3E 8F 8F AA 85 31 38 E7 A3 0C CF 41 99 52 C4 99 91 F3 74 FE E6 00 78 47 92 E1 C7 CD 59 FD 3F FA 05 00 08 D7 A5 2C CD 64 9E FB 79 05 4A FE C6 0E FB E2 60 68 9F 44 39 4B FE 30 BC 18 16 FD F5 31 64 24 F2 A7 16 EB 5A 0D 38 A7 62 69 7F 47 34 04 BC 03 4D 95 54 F4 98 03 EB 00 B9 08 51 00 37 18 B0 14 DD 3E B0 39 13 DF A8 FB E0 E6 2C 4B C1 26 4B F3 FE 04 46 FC 95 5E 01 08 6D A6 19 0A 96 F6 88 EF 46 24 CA 37 E9 B2 6F F0 D8 F6 04 04 60 B1 49 46 0E DB E4 59 A9 BD B1 21 10 E5 06 AF B2 0E 07 44 45 57 50 4A 4A 03 75 5E E6 61 31 E9 B2 FF A9 03 93 FD 0A 4D 74 A1 56 F8 FA C5 C8 FF EE 58 01 EC D5 43 3C 5D E8 B3 62 E6 92 F7 52 44 45 AC 0C 0D ED CD B9 B0 6B DA AD 43 CB 02 D9 08 E5 EF 14 FE C4 23 93 32 A7 6A 49 AD 48 E8 0F DB 94 CC 1B A5 4A C9 A8 EF 42 1B 02 00 AA 03 BB CB C0 0D 17 A1 76 59 85 4C D1 EC C2 B2 34 4D A2 DB 96 CE EB 0E AA EA 67 EF B5 E4 8C E7 89 C9 C2 9D 7D 24 81 28 DA C9 D0 E5 1C 58 F9 FD FB 19 50 49 09 ED 1A 31 8A 39 1F D8 C9 FC C7 46 8E 01 D2 F9 8C FF 95 FE E9 E4 6A CE 18 91 68 21 31 1B 11 FF D6 F5 A0 ED 03 FC DF 07 09 14 76 5C F1 CE 02 E0 3C 9E 70 48 63 37 7F 06 E5 0E 2C 52 6C DA 45 EC F8 F8 C1 FB D7 A9 23 41 70 3A F3 24 E2 0A 5F 42 48 9A 8A B4 F2 E6 50 04 A6 16 89 B9 37 F9 F9 60 B1 28 B1 D4 80 03 67 EB C1 F8 8D 2D 0D F5 E9 60 45 AC B0 B2 4F A4 A7 BE 6A E9 0B 16 4C 0A 4C 13 44 F9 24 11 CF 97 81 CA 4A 29 D9 9A FE 3B D8 B3 82 66 C3 B7 C8 06 76 1F 34 16 9A 51 FB 0F 64 B5 04 C7 1C D7 6C 43 5D C0 0B 3A D1 BA 1A B5 93 30 CF 95 E3 CE 57 1A CE FD D0 03 FF FE 6B 30 56 DE 18 A9 7D B2 05 2B 52 1E D7 0E 4D 2E 1A 94 E7 DE 41 04 29 FA 2D 10 7A F7 A0 97 21 FD FA FC BD 05 35 0C C2 35 FE 11 49 72 53 49 1A D9 C7 BB 1B DB 66 BB 1E F6 DD E6 72 F1 32 F9 FF 10 47 E5 C3 B2 9B 25 62 D6 53 1C C5 0D 53 2A E1 15 6E 62 CC A4 C4 D7 5A BA 77 02 78 2D FC 07 72 AE 97 FC CA DE D9 FB C6 C2 3B D6 56 3A AB C1 E9 6D 94 14 DD 01 E3 FB 86 04 29 FA 92 DD 7C E9 7B 9E 84 65 E3 1E F2 FB 8E FF FC F6 D9 FA B0 E6 C0 05 1F 13 17 BA 06 9B B5 14 44 FF 2D 06 80 0C 49 43 FA 10 55 56 91 B7 0C 56 F6 D7 21 02 4C D5 E4 08 5A 92 B6 1F EF 3B 19 09 64 24 39 50 3C 3A 1D 52 B9 18 F2 17 44 A0 45 03 43 DE 2C E9 DA 1C 0B FE 07 29 A3 4E AB 2C 6D ED 47 F5 6E 5E C6 DB A9 3B 3B DF 35 E9 B0 0B D0 F4 A0 17 CF E2 A7 2D E4 B1 8D FC 4E D1 08 D9 BB AA AC EE D6 95 82 0D AA 4C 00 05 25 0A 89 4D 87 14 3D EB BD 4A 4A C7 0E DD B5 35 B8 FA D2 48 F7 44 F9 2A A1 1A 0E B8 C0 18 5F F9 C4 08 E0 ED 6C 0F A6 CD 67 EB CC 4F 2E 29 4A 10 0C FC EF 4B BB 54 81 F4 E9 B2 90 EF 28 05 8D 03 3F DD 87 24 7E E0 C6 F5 7B CD D6 67 B3 0D E9 25 9C A7 77 20 E7 1F 13 CC E8 15 96 0C A5 0E 1C FA A5 00 CC FF 3C FF 66 00 28 A7 80 DD 87 03 63 D3 BA C6 88 FF 6E 17 35 4D 59 34 2C 0E 4D 14 50 21 C3 16 D6 FB 06 03 D9 FF 5A FF C3 24 FC DA 6D 25 34 CD 88 5F 44 61 D6 45 BB 08 79 AB FE 4F 6C 12 EA E3 4E F6 27 25 4B 06 49 AA 96 37 F7 FA 48 24 0D F7 AF 5A 84 F2 A6 D5 0B 00 18 25 E1 0B 0A 14 CE F0 1D AD C3 A7 B6 37 92 D9 E3 4E C3 36 5B 00 D0 BC 61 B7 D4 03 11 00 35 03 78 00 C2 FD FD 2F BB B4 AE 35 F5 3F 5F FF 89 17 DC F2 FA 05 5B F0 96 09 88 D5 E1 A2 69 00 DD 13 FC FE 9E 16 B4 FD E2 4A 19 10 49 10 7F 34 34 39 A3 51 0A 1D 51 FF 2D 33 88 F1 C1 5A 43 0F 7A 27 2B E8 AB 5B 54 14 C3 FA 3F 06 76 33 6F F3 5A F2 0D 3B 3D DF 0E D2 72 ED 7A 04 43 12 4E B4 45 3A 1D EC F9 00 FE AB 98 27 A7 BF 07 CC CE 47 67 DE 74 02 8F 09 10 0D 3A 0C 05 EC 77 00 EC 45 6A A8 1F BB CF 55 5B C0 04 E2 DF 41 96 5E EC 15 EE F0 D7 FC EE 0E 0D F7 6B 27 C8 F6 EB 9D 36 FB 38 01 8D 0B F8 2B 79 68 2E CC 81 F2 98 FB CE B2 6C F5 FC 11 D3 18 66 06 9D 63 77 B3 B7 E1 57 0C AB FF 17 FE C1 F8 2E 03 DE 30 85 4A B7 ED CE F5 3E FA 90 A4 AD B5 C9 1F A6 4D E8 1E E6 FE 47 03 3C B3 97 2E 8E 6A 75 F3 DA 08 B4 0F AA FB 22 20 06 FB BA 51 E4 61 D0 67 45 01 0B DE 18 FF 56 F7 45 FD E3 D3 98 EF 0D 07 EF E5 64 A6 C5 FA 2B F8 F2 C1 E9 FB D9 93 4D CC 22 38 C7 A9 9D 07 77 33 D8 C2 CA F8 77 1F DF 0B F9 2E DC 1B C8 9F 9D 01 D5 F6 10 A2 32 FF AB 30 02 E6 5F FE 95 D8 03 47 78 A3 DD AF F4 BF 3E 1C FB 02 1B 16 23 EC 36 36 4F A3 BB D4 7D B3 4C 2C F5 01 D0 61 C0 1D 36 B3 45 06 E6 97 AE 22 30 29 A1 01 13 05 05 01 7C 38 69 2C 41 F3 06 27 02 20 BF 46 4B 05 9A AE 14 DC 44 C1 91 DE 26 FD 82 F8 37 AE 8B B8 63 F6 A5 F5 DC 10 06 F5 C9 5F 0C D5 87 9B 34 01 2E FB 8D DC 80 BC D7 F8 62 8D 6B A1 09 BF E5 F4 B5 27 25 EB B8 F4 62 55 A4 AC 28 C2 01 3A 1C A3 40 14 81 27 61 AF B1 B3 9F D3 DD 20 CE 05 96 A3 81 E9 A8 E2 03 04 C6 AE A4 35 B4 4D 52 AA 9C D0 92 E4 19 B5 78 DD 6D 56 96 BF 91 07 5A 14 52 E7 14 A3 55 33 4A 2B 33 FF 94 17 84 FE D2 21 17 FF 74 6D 6D EA 35 1D D3 1D 2B 5C 23 26 E2 F5 9A 54 67 91 F2 F3 D4 FE F8 FB D0 06 B0 A8 06 41 D0 00 09 1A 08 BC 2C F4 32 48 78 24 4F F5 54 B4 97 01 DB EE CF EC 26 BC 83 49 0A BB 68 34 80 3B 45 1E E0 18 5F 5A 02 B9 A0 1D 68 EF 2F FA 85 E6 4A 02 53 D8 74 3A E0 63 04 0F F4 E7 21 13 0B CD 02 A8 0F 16 D5 DE C7 F7 3A 9F 89 03 92 DB B0 05 20 F4 3C FA 8E 04 B4 EE E4 2B F4 23 45 0D 55 FA 1E 35 1F C2 DC 5F BB 16 23 21 4F F4 2B 54 EC BD 3D 1E D2 5D AC C5 32 A3 2C EB F8 E5 6F EE D3 33 B3 4B 74 32 A2 F7 1F FD 6C 52 AB A9 41 0D EB ED 67 16 1F B6 C7 E4 7F 0A 7C 04 ED C0 47 AC 41 92 8A FD 8F C7 84 1C A0 02 62 48 D4 BB 5B D8 5F 01 5C 2C 22 D5 3C 43 10 12 91 00 7F 45 39 FD 69 F2 42 F7 0F 3E EB 07 00 00 70 92 02 07 AF FD 3A F5 A4 AA 0F 2D 1D B3 49 13 F4 55 13 54 B4 F3 FE 06 2D 03 27 20 49 0A CD 2E 1D F4 B9 56 F8 22 48 9F 4E FD 19 3A C2 F6 04 EB D6 20 C1 EA EE FE 7E FD 6F FF 0A 03 33 E6 5A 1C 2C 51 2D A4 3F B7 FE 58 90 A6 70 9C 24 27 B2 F9 E4 05 8F FA B7 1D 97 01 9A 9F FF BF F4 F8 A5 ED A0 D6 3D B5 DE 28 5D F1 11 22 F9 E4 D2 32 AC 14 AA E7 EC EC 58 AE FB F8 FB 41 36 CA 2F FE 8F 4B 0B D6 61 CD 69 62 31 C6 CF E9 F7 FD BF FE 45 FB 05 1B EB F3 D7 4E E9 96 06 D1 0F 05 31 01 C8 07 01 4C 27 FC 19 00 F7 FD 33 1A 8E F1 AD 20 11 DE A1 55 E2 95 3C 12 6D 17 CD 1B B0 2D 51 5F D6 D5 E8 02 38 DB B5 4D AB 07 F2 1E A0 D9 66 0D 22 53 38 F9 5C 2A 75 22 87 69 93 DD F1 05 1A A2 73 06 9E 1E 48 FB 47 0F 2B D4 C9 0C 03 CF 00 1C E2 47 8A 54 9D 23 F0 D2 78 EB A5 1B 4E 09 64 00 E9 0E C7 E5 DC 04 EE 05 BF FE 0A 1F 12 B7 AB 29 FE EC D7 02 08 03 F5 C1 2A E0 D9 F7 D3 58 1F 06 66 F2 1C 11 51 F5 15 21 8F E4 60 D3 25 05 5A 69 29 11 F1 1D 99 44 36 FD 8A 02 C1 C0 BD FC AD 20 03 07 16 C8 A9 3F 98 11 C0 D8 EE 1D BE 97 EC BB 14 0A 30 00 70 F0 34 02 11 E9 62 0A 1E B7 23 31 60 9A E6 C2 70 0A BD FA 89 FC AA EC 70 10 65 E5 09 0A 73 AF 2E DE D4 F8 1E C6 3D EA E6 A4 30 C6 0B 65 3A 15 15 92 CB F6 BD F4 C6 FD 7F 09 28 33 2D F5 A2 61 30 CF 6D 9F FF FB D4 E9 0D EF 74 07 C4 48 B5 AC D6 43 0C 6C 07 93 CF C3 9C 05 38 E4 3F F7 53 1F 07 0F F8 5F 2B FE CA 25 BB 29 79 FC 5B D8 09 07 F4 AC BB 12 D1 DD 62 04 92 DA 41 0A 07 59 BC 03 72 03 C4 1E 83 4A 54 D9 36 A1 48 1D 3D 24 D4 03 74 97 F6 EA 14 15 3E 04 70 06 A6 70 0A FB 41 FE 05 00 53 FE EC FF 4D C4 F4 17 1C 59 E4 04 15 D9 FF 01 53 03 F5 1E 37 FE 4E D0 A5 10 9B 1D 4E EE 04 21 22 FB A5 38 89 9E 80 E9 6A BA 19 D6 9F 26 87 A2 88 CB 56 07 37 C5 B5 27 6B 40 F5 C6 40 D2 5C AD 0B F3 48 03 CD E9 8D 57 CA 07 4A 02 76 5A 64 E9 3D C5 7C D7 C9 DB 2D CB FB FC DB DA 67 F0 38 A1 0F 21 AC 16 9F DE 41 FD 68 CF 6F F0 DE 9D 0D 92 ED BE 81 3E BA 0A 4B 06 E9 13 ED FB 29 00 F3 E3 BF 4D 43 7B 13 82 67 36 E6 E9 4D 03 1A CE 49 16 37 41 AA FF A2 14 1B 3A 92 69 84 52 A0 3D 13 D7 78 39 C0 4C 21 D3 CF CB 1C B1 83 C4 95 21 4E DC 8E FD 8B 2A 81 E8 CA 18 30 FA 08 FB 39 FA E9 FA 88 F1 93 EA D6 F2 CF 45 34 E6 62 61 1E 65 C9 F3 E0 20 87 6C 97 FA E6 14 5C EF 19 4E 38 16 6A 01 5E 43 E1 0E 52 F3 40 04 97 FF 59 8C BB 0A 77 3B 59 FF 8A 0E AE 0D 85 F3 9A 21 5C 1E E2 F9 6D FC 15 FE B9 0C 89 F6 92 15 7E 50 9C FF 84 C9 98 D3 F1 C3 96 AA B8 DE BD 2F 98 FD 78 09 19 F8 2E 11 23 F1 AC 1F DC E3 33 52 DB 52 4D DB 41 B4 80 03 97 E9 C8 C4 CE AC AA 42 12 FC 92 FE 75 18 A8 0C 5F D1 AB C0 34 C2 B5 19 AD F3 DC 60 AD 0A 17 FB 95 FC C3 F9 0B B0 56 2B 07 5E E5 DC 38 37 AC 08 E6 C8 B7 2E 21 A8 27 10 E1 FB D4 EA 21 03 A1 F5 3C 00 34 EB EA FC 31 17 34 E3 1C F9 5F A8 34 9A CB 54 52 10 AD E9 08 E6 C4 C5 2D 05 14 A2 D5 05 78 E8 38 CF 7A 5D 86 0B 41 06 95 04 7B 4A DE 44 09 46 62 D6 B0 2A A2 EC 9F 0C 2C F3 C8 6A 4E 10 6D F9 F1 01 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab3__16_lil_34_ {
+  strings:
+    $a0 = { F3 FF F5 FF F7 FF FB FF FD FF FF FF 22 00 02 00 12 00 FF FF 21 00 20 00 10 00 11 00 FF FF 01 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab11__16_lil_254_ {
+  strings:
+    $a0 = { 87 FF 8F FF A7 FF C5 FF D5 FF E5 FF EF FF F9 FF FD FF FF FF 77 00 67 00 FF FF 76 00 75 00 FD FF FF FF 66 00 47 00 FF FF 74 00 FF FF 57 00 55 00 FB FF FD FF FF FF 56 00 65 00 37 00 FF FF 73 00 46 00 F7 FF F9 FF FD FF FF FF 45 00 54 00 FF FF 35 00 53 00 27 00 FF FF 72 00 FF FF 64 00 07 00 FB FF FF FF 71 00 FF FF 17 00 70 00 FD FF FF FF 36 00 63 00 FF FF 60 00 FF FF 44 00 25 00 F3 FF F9 FF FB FF FD FF FF FF 52 00 05 00 15 00 62 00 FD FF FF FF 26 00 06 00 16 00 FB FF FF FF 61 00 FF FF 51 00 34 00 FB FF FF FF 50 00 FF FF 43 00 33 00 FF FF 24 00 42 00 F1 FF F5 FF F9 FF FD FF FF FF 14 00 41 00 FF FF 04 00 40 00 FF FF 23 00 32 00 FF FF 13 00 31 00 FB FF FD FF FF FF 03 00 30 00 22 00 21 00 FB FF FF FF 12 00 FF FF 02 00 20 00 11 00 FD FF FF FF 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_ff_interleaved_se_golomb_vlc_code__8_byt_256_ {
+  strings:
+    $a0 = { 08 F8 04 04 09 F7 FC FC 02 02 02 02 02 02 02 02 0A F6 05 05 0B F5 FB FB FE FE FE FE FE FE FE FE 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 0C F4 06 06 0D F3 FA FA 03 03 03 03 03 03 03 03 0E F2 07 07 0F F1 F9 F9 FD FD FD FD FD FD FD FD FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule TNS_filter_long_tns_max_bands_1024__avcodec___8_byt_13_ {
+  strings:
+    $a0 = { 1f 1f 22 28 2a 33 2e 2e 2a 2a 2a 27 27 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab8__16_lil_142_ {
+  strings:
+    $a0 = { BF FF C1 FF C5 FF D3 FF E1 FF ED FF F3 FF F9 FF FB FF FD FF FF FF 55 00 54 00 45 00 53 00 FD FF FF FF 35 00 44 00 25 00 FD FF FF FF 52 00 05 00 15 00 FB FF FF FF 51 00 FF FF 34 00 43 00 FD FF FF FF 50 00 33 00 24 00 FB FF FD FF FF FF 42 00 14 00 41 00 FD FF FF FF 04 00 40 00 FF FF 23 00 32 00 F7 FF F9 FF FD FF FF FF 13 00 31 00 FF FF 03 00 30 00 22 00 FF FF 02 00 20 00 FF FF 12 00 21 00 11 00 FD FF FF FF 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Blowfish_ks0_table__32_big_1024_ {
+  strings:
+    $a0 = { d1 31 0b a6 98 df b5 ac 2f fd 72 db d0 1a df b7 b8 e1 af ed 6a 26 7e 96 ba 7c 90 45 f1 2c 7f 99 24 a1 99 47 b3 91 6c f7 08 01 f2 e2 85 8e fc 16 63 69 20 d8 71 57 4e 69 a4 58 fe a3 f4 93 3d 7e 0d 95 74 8f 72 8e b6 58 71 8b cd 58 82 15 4a ee 7b 54 a4 1d c2 5a 59 b5 9c 30 d5 39 2a f2 60 13 c5 d1 b0 23 28 60 85 f0 ca 41 79 18 b8 db 38 ef 8e 79 dc b0 60 3a 18 0e 6c 9e 0e 8b b0 1e 8a 3e d7 15 77 c1 bd 31 4b 27 78 af 2f da 55 60 5c 60 e6 55 25 f3 aa 55 ab 94 57 48 98 62 63 e8 14 40 55 ca 39 6a 2a ab 10 b6 b4 cc 5c 34 11 41 e8 ce a1 54 86 af 7c 72 e9 93 b3 ee 14 11 63 6f bc 2a 2b a9 c5 5d 74 18 31 f6 ce 5c 3e 16 9b 87 93 1e af d6 ba 33 6c 24 cf 5c 7a 32 53 81 28 95 86 77 3b 8f 48 98 6b 4b b9 af c4 bf e8 1b 66 28 21 93 61 d8 09 cc fb 21 a9 91 48 7c ac 60 5d ec 80 32 ef 84 5d 5d e9 85 75 b1 dc 26 23 02 eb 65 1b 88 23 89 3e 81 d3 96 ac c5 0f 6d 6f f3 83 f4 42 39 2e 0b 44 82 a4 84 20 04 69 c8 f0 4a 9e 1f 9b 5e 21 c6 68 42 f6 e9 6c 9a 67 0c 9c 61 ab d3 88 f0 6a 51 a0 d2 d8 54 2f 68 96 0f a7 28 ab 51 33 a3 6e ef 0b 6c 13 7a 3b e4 ba 3b f0 50 7e fb 2a 98 a1 f1 65 1d 39 af 01 76 66 ca 59 3e 82 43 0e 88 8c ee 86 19 45 6f 9f b4 7d 84 a5 c3 3b 8b 5e be e0 6f 75 d8 85 c1 20 73 40 1a 44 9f 56 c1 6a a6 4e d3 aa 62 36 3f 77 06 1b fe df 72 42 9b 02 3d 37 d0 d7 24 d0 0a 12 48 db 0f ea d3 49 f1 c0 9b 07 53 72 c9 80 99 1b 7b 25 d4 79 d8 f6 e8 de f7 e3 fe 50 1a b6 79 4c 3b 97 6c e0 bd 04 c0 06 ba c1 a9 4f b6 40 9f 60 c4 5e 5c 9e c2 19 6a 24 63 68 fb 6f af 3e 6c 53 b5 13 39 b2 eb 3b 52 ec 6f 6d fc 51 1f 9b 30 95 2c cc 81 45 44 af 5e bd 09 be e3 d0 04 de 33 4a fd 66 0f 28 07 19 2e 4b b3 c0 cb a8 57 45 c8 74 0f d2 0b 5f 39 b9 d3 fb db 55 79 c0 bd 1a 60 32 0a d6 a1 00 c6 40 2c 72 79 67 9f 25 fe fb 1f a3 cc 8e a5 e9 f8 db 32 22 f8 3c 75 16 df fd 61 6b 15 2f 50 1e c8 ad 05 52 ab 32 3d b5 fa fd 23 87 60 53 31 7b 48 3e 00 df 82 9e 5c 57 bb ca 6f 8c a0 1a 87 56 2e df 17 69 db d5 42 a8 f6 28 7e ff c3 ac 67 32 c6 8c 4f 55 73 69 5b 27 b0 bb ca 58 c8 e1 ff a3 5d b8 f0 11 a0 10 fa 3d 98 fd 21 83 b8 4a fc b5 6c 2d d1 d3 5b 9a 53 e4 79 b6 f8 45 65 d2 8e 49 bc 4b fb 97 90 e1 dd f2 da a4 cb 7e 33 62 fb 13 41 ce e4 c6 e8 ef 20 ca da 36 77 4c 01 d0 7e 9e fe 2b f1 1f b4 95 db da 4d ae 90 91 98 ea ad 8e 71 6b 93 d5 a0 d0 8e d1 d0 af c7 25 e0 8e 3c 5b 2f 8e 75 94 b7 8f f6 e2 fb f2 12 2b 64 88 88 b8 12 90 0d f0 1c 4f ad 5e a0 68 8f c3 1c d1 cf f1 91 b3 a8 c1 ad 2f 2f 22 18 be 0e 17 77 ea 75 2d fe 8b 02 1f a1 e5 a0 cc 0f b5 6f 74 e8 18 ac f3 d6 ce 89 e2 99 b4 a8 4f e0 fd 13 e0 b7 7c c4 3b 81 d2 ad a8 d9 16 5f a2 66 80 95 77 05 93 cc 73 14 21 1a 14 77 e6 ad 20 65 77 b5 fa 86 c7 54 42 f5 fb 9d 35 cf eb cd af 0c 7b 3e 89 a0 d6 41 1b d3 ae 1e 7e 49 00 25 0e 2d 20 71 b3 5e 22 68 00 bb 57 b8 e0 af 24 64 36 9b f0 09 b9 1e 55 63 91 1d 59 df a6 aa 78 c1 43 89 d9 5a 53 7f 20 7d 5b a2 02 e5 b9 c5 83 26 03 76 62 95 cf a9 11 c8 19 68 4e 73 4a 41 b3 47 2d ca 7b 14 a9 4a 1b 51 00 52 9a 53 29 15 d6 0f 57 3f bc 9b c6 e4 2b 60 a4 76 81 e6 74 00 08 ba 6f b5 57 1b e9 1f f2 96 ec 6b 2a 0d d9 15 b6 63 65 21 e7 b9 f9 b6 ff 34 05 2e c5 85 56 64 53 b0 2d 5d a9 9f 8f a1 08 ba 47 99 6e 85 07 6a }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_h261_cbp_tab__8_byt_126_ {
+  strings:
+    $a0 = { 0b 05 09 05 0d 06 0d 04 17 07 13 07 1f 08 0c 04 16 07 12 07 1e 08 13 05 1b 08 17 08 13 08 0b 04 15 07 11 07 1d 08 11 05 19 08 15 08 11 08 0f 06 0f 08 0d 08 03 09 0f 05 0b 08 07 08 07 09 0a 04 14 07 10 07 1c 08 0e 06 0e 08 0c 08 02 09 10 05 18 08 14 08 10 08 0e 05 0a 08 06 08 06 09 12 05 1a 08 16 08 12 08 0d 05 09 08 05 08 05 09 0c 05 08 08 04 08 04 09 07 03 0a 05 08 05 0c 06 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_celp_math_slope_cos_G729_BITEXACT__16_lil_128_ {
+  strings:
+    $a0 = { 88 FD 9B F8 B2 F3 D1 EE FA E9 31 E5 78 E0 D3 DB 44 D7 CE D2 74 CE 39 CA 1F C6 28 C2 58 BE B0 BA 33 B7 E2 B3 C1 B0 D1 AD 13 AB 8A A8 36 A6 1A A4 37 A2 8D A0 1F 9F EC 9D F6 9C 3C 9C C0 9B 82 9B 82 9B C0 9B 3C 9C F6 9C EC 9D 1F 9F 8D A0 37 A2 1A A4 36 A6 8A A8 13 AB D1 AD C1 B0 E2 B3 33 B7 B0 BA 58 BE 28 C2 1F C6 39 CA 74 CE CE D2 44 D7 D3 DB 78 E0 31 E5 FA E9 D1 EE B2 F3 9B F8 88 FD }
+
+  condition:
+    $a0
+}
+
+
+rule MPEG_2_AAC_Fraunhofer_sfb_8_120__16_lil_30_ {
+  strings:
+    $a0 = { 04 00 08 00 0c 00 10 00 14 00 18 00 1c 00 24 00 2c 00 34 00 3c 00 48 00 58 00 6c 00 78 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_G729_cb_lsp_1st__16_lil_2560_ {
+  strings:
+    $a0 = { ce 05 78 08 a7 0e 72 23 66 2f 78 36 3f 46 e5 4a c6 52 3c 55 c2 06 50 0a 7a 0d 06 13 ee 17 c4 1e 1c 3d 99 45 46 4f 8e 55 20 06 d0 08 10 0c 0a 13 37 2b 51 34 83 47 5d 4b 75 52 ed 54 c5 06 d0 09 1d 0d 64 12 41 1b 38 28 80 42 24 46 c9 4a 7e 4f d0 06 84 09 ec 0c 1b 22 c0 28 e7 2e fe 3c ff 40 6f 53 99 55 fa 06 41 09 2c 0d a9 11 8b 1a a3 32 0a 45 2c 4a 77 51 88 54 5f 06 81 09 21 0d b8 18 d5 29 ed 2e dd 33 50 36 f1 4b 60 52 d1 05 3c 09 db 0c 6a 18 0b 24 a3 28 13 36 ae 3b 39 45 cb 53 4d 07 e5 09 93 0d 0d 11 c0 23 b1 38 24 3e 7e 42 83 50 a3 53 16 08 d1 0b ed 10 de 16 7d 1e 0f 24 65 29 af 3e 8d 4e 4a 55 76 07 71 0a 5b 0d a5 10 a0 2b 07 3b c1 40 b7 44 6e 4b 29 4f 75 04 17 07 40 0a 0f 12 5f 19 74 25 90 36 2c 40 97 4b 26 53 90 08 63 0c 63 12 b0 16 98 2a d4 30 52 37 30 3d 84 52 1d 55 06 05 73 07 f4 09 7d 0d 66 25 bc 2e 6a 3e c0 43 eb 4c df 57 81 07 a0 0a fc 11 1c 1a ef 2c c0 32 0e 38 9e 3b 65 42 37 51 04 08 c7 0a 39 0f 7e 14 ee 19 1b 28 da 3d ae 41 e5 46 ab 54 06 07 c1 09 f1 15 b9 2c 85 33 77 39 9a 42 13 47 53 4f be 52 f1 03 6f 06 49 0b 4d 16 45 25 42 30 7f 3b 3e 48 e6 51 11 56 c8 0b d2 0e 1e 15 2d 1d c8 30 a0 36 e0 3b ce 3f f0 4d 37 51 9b 08 e0 0b d4 0e 42 15 d3 2e c8 34 53 3a f2 3f c0 45 73 49 60 0b c4 10 34 1f 64 25 2a 2d bc 33 dc 38 91 40 24 4e 51 52 2d 0b 17 0e 23 17 7a 1b 12 24 16 2f a1 35 88 46 26 4f ee 51 fd 0b d7 10 4f 17 c7 1c da 2c 9b 31 e5 37 69 3f 9d 47 e4 4a 82 09 4d 0e 02 13 a6 16 8f 28 ca 2d f9 32 34 3d ae 49 77 4d e4 07 2d 0a 14 0f 19 24 db 33 34 39 8a 3e cb 42 44 4b 1b 4f 55 07 f9 0a 06 0e 63 12 30 2b 99 30 06 3d 10 43 49 49 c3 4d 3b 08 39 0b 59 0e a7 16 0b 35 5f 39 42 3e b5 42 ca 49 77 4d 4c 06 ec 08 80 0b f4 0d 1b 20 87 36 34 3e 57 43 a0 48 95 4e 74 09 54 0c 8e 19 e7 27 1d 2f de 34 c9 3b 44 40 1d 49 a8 4d 83 06 34 0a ce 0d 75 14 11 29 b0 2d 8c 32 9e 41 8a 46 b2 4b 54 09 c9 0b e7 12 75 24 95 2c ba 31 b0 3a 78 3f 29 44 f5 48 53 07 e2 0a 87 10 b0 18 f6 21 a5 27 09 2e 75 42 b0 48 f8 4d a7 02 83 05 2e 12 46 1f b6 2c c1 33 93 3d cf 46 89 4f 3f 54 2e 07 24 0a fa 0d 00 12 12 16 0a 2c 13 38 0e 3e 63 50 fa 54 17 05 a3 07 5b 09 fa 0c f7 2e c4 35 0b 3e 9d 46 d4 4e f0 52 9e 05 36 08 67 0a 86 0d 88 20 7a 28 c3 35 60 43 14 4d 48 57 5c 03 70 07 d2 17 5f 1e 57 26 e7 2e e5 39 45 41 4b 4d 8c 52 89 06 a3 0a 78 0e ed 17 f4 1d e7 24 73 35 6b 38 3a 50 e3 54 de 04 39 07 56 0b 9c 11 35 1c a6 31 f3 39 ba 3f 87 4b c0 58 f5 05 d4 08 16 0f 1b 16 ae 1c e4 2d 3a 34 6a 38 7c 46 56 53 ac 04 36 07 20 0c 97 1b dc 2a 69 32 de 39 8d 42 d2 4d 6c 58 63 08 22 0c 7b 11 6f 19 23 20 25 26 e8 2a 81 2f 1b 4a 34 53 31 06 65 09 b2 0b c4 0f d9 2c 79 33 b7 38 47 3c ff 4d 1b 53 f2 06 80 0a 1e 0e 48 12 f9 24 38 2b b9 30 c0 3f 1e 4d 40 51 46 07 1a 0a a4 0d 3f 1a bc 2d d4 32 1c 38 00 3f 9a 4c c9 4f 73 05 6c 08 6d 0a 3a 0d 6f 29 5d 2f 2e 35 41 41 20 4a 77 53 a4 05 45 08 d6 0c 59 18 cf 24 b5 32 96 3a ed 3d 24 43 61 55 d4 07 4f 0b c7 0e 21 13 18 18 81 1c 41 31 3d 40 61 4b d9 53 d7 05 2f 0b d8 18 a4 1f 87 2c bf 37 1e 3e 2f 45 ff 4f 2d 56 b4 09 2a 0c 56 16 b9 1b d0 20 48 31 f9 36 ff 39 37 50 94 53 78 09 cd 0c b0 14 8c 18 1a 2c 67 32 96 3e 64 44 85 4b 3b 4f 05 0a c2 0e f0 14 4d 1b 4e 22 bc 28 36 38 7e 3d 6a 45 e6 54 a7 0a 38 0d d5 19 26 24 2e 29 cc 2f 3b 39 47 3d 6a 4e 6e 52 7c 07 89 0b 82 18 98 1f ee 25 ad 2a 68 30 32 40 2a 4e bf 52 38 0d 0e 11 e5 14 f3 1d ac 2b 3d 31 61 36 dc 3b bd 4d 12 51 03 0c bb 10 3f 17 c3 1d 84 25 02 2b 60 30 b6 36 b2 50 f9 53 d7 06 97 09 1b 14 ee 26 65 2d 78 33 93 39 56 40 34 51 fc 54 a2 05 8c 08 02 0d 9d 1a e1 22 67 2f 8c 38 ca 3b b3 4c 40 50 f6 08 4f 0b e6 0f 63 1f c9 2f 68 34 aa 39 d7 43 08 4a e8 4c 91 07 63 0a fa 11 29 1a 6f 23 3f 32 75 37 7e 3b af 3e bd 49 17 08 67 0a 78 10 e5 24 87 2a 04 30 7d 36 3d 3a 24 4b 75 4f cc 06 bb 09 a0 0d ca 1f b8 25 91 2b 96 33 60 39 a0 51 93 55 97 08 41 0b 43 12 4f 21 43 27 90 2c 63 38 67 3c 26 43 75 50 97 07 ac 0b 51 10 97 17 36 1d 58 21 65 37 bf 3c d6 44 4b 54 21 07 67 0c 96 1b 5a 26 18 32 5a 3c 9a 47 90 4d 46 55 8c 57 a0 09 e6 0b d6 12 59 17 10 1e 26 3c 5a 41 ee 44 6c 50 48 53 f6 09 41 0d b9 14 08 1b fb 27 03 37 df 46 fb 4a c9 50 58 53 bb 0b d7 0e c9 14 25 19 ef 1e 7b 2d c2 3d ce 41 c7 46 24 4a 7f 0d 3d 10 b6 1a 07 20 95 26 1a 30 21 3e ba 41 ed 4d 9c 51 ec 0b b9 0e 1b 13 b2 16 41 1b 8e 27 c4 39 76 3e 3d 4d a8 51 57 0e 04 11 c3 16 55 1b 0c 21 34 2f 4a 37 5b 3a 2f 4b c7 4f 9c 0a 64 0e 7e 14 1e 1a 0f 21 11 27 6a 30 33 37 16 3f 40 4d 99 07 4e 0a 22 10 3b 1f 02 38 d8 3c a1 42 1e 47 01 4f 05 52 00 09 70 0b 1a 10 d8 12 08 16 53 33 d1 3d 2a 42 8c 4e 3e 52 08 07 d4 09 16 0d 63 14 5e 34 4c 3e d2 44 6c 48 33 50 04 53 9c 05 b0 08 c1 0a c2 11 b9 25 ed 2b 49 3b bd 3f 51 44 bf 4a 0f 09 53 0b 74 13 18 1b d4 20 b1 34 c2 3c 99 3f 2e 4f af 51 8b 08 67 0b 02 12 f3 16 de 1c 0c 31 d1 36 9a 41 06 52 09 55 bb 08 6b 0b 01 14 73 18 a3 1f 15 35 ec 3b d4 3f 07 46 bf 4e e5 06 4e 0a a7 0e 62 16 cb 1e 7c 27 41 35 3b 3c a8 41 8e 48 84 0d 6d 16 7c 25 de 2d 4d 38 d0 3e fd 46 92 4a 6d 51 61 54 97 0e 4a 11 37 18 c3 1c 22 24 99 38 a3 3e 82 42 a1 4d 8c 51 c1 0d aa 12 e7 1a e8 21 ad 31 f2 37 4e 3e 82 46 c6 4e 99 52 5d 08 98 0b d1 1a 73 1f 1a 27 67 33 dd 39 f5 3d 78 44 df 48 34 10 f0 17 44 23 77 2a 8e 31 b5 36 68 3e 38 43 83 4c 73 50 33 11 f7 14 ea 19 b3 20 b3 27 4f 2d 73 3a cb 3f 3e 46 50 49 fb 0f 0a 15 c4 1a 42 22 2b 2d ea 33 70 3d 22 42 70 4a 86 4e ba 0a 29 0e b3 14 50 1d 16 28 a8 2c 74 33 82 3c eb 41 6a 44 c8 08 e4 0d 5b 21 5e 29 79 31 68 39 83 40 a0 45 2c 4f ff 52 ff 04 a8 07 50 0f 71 1e a9 27 a1 39 06 41 db 46 c7 50 da 53 88 09 93 0d 51 1a ce 21 9e 2f fc 38 df 42 05 46 a6 4a 0b 4e 57 07 d2 09 91 11 94 1d 21 27 64 3a 0d 3f 01 42 dd 47 b0 4b f4 0a 68 0e 42 1d 66 27 d2 2b a7 31 b3 3f 3e 44 6d 4e 86 52 e7 07 7a 0a 21 0f 4c 20 0f 28 7d 2d 53 3b ce 42 15 4a 4c 4d 07 0b 15 0e b7 16 93 21 65 27 cd 2c b8 40 36 44 42 49 a4 4d 23 0b 61 0e a0 14 e0 1d d5 23 62 28 71 3a 14 3f 97 44 2a 48 44 05 55 0a c2 16 51 22 7c 29 1f 32 7f 3f 8f 47 8d 52 3a 58 5d 08 dc 0b c5 10 c2 17 a9 1d 85 29 06 43 71 46 da 53 44 56 48 06 47 09 38 0d de 1a f2 26 db 2b 20 42 f2 44 d9 4e 80 52 d6 0a 20 0e 96 13 9d 19 6c 1e ff 22 ac 42 7e 47 51 4c 3e 50 8e 07 cd 12 3c 18 2c 1c 13 23 91 2d 75 3e 93 45 ca 4f c7 54 f0 08 b3 0d ad 13 b9 1a 56 20 a6 25 da 3a 61 40 95 54 c6 56 87 0b bb 0e 0e 13 9a 1d 38 23 3a 28 9a 38 8a 3b ff 4e fe 51 b8 0c b7 12 c9 19 61 1d c4 21 eb 25 56 34 ce 3e 9e 4a 19 4f 23 07 36 0a 9e 0d 97 17 75 2f ff 35 3f 3f 82 43 af 53 19 56 e8 03 a8 06 ba 0b bf 18 17 21 04 29 1e 3a 53 42 3a 4e 9b 57 6e 06 ee 08 25 0c 4d 1c e5 2c f7 31 b8 41 03 45 25 4a fe 4e ac 06 c5 09 f3 0c 51 1a 19 22 c4 26 d9 3e c9 42 c6 47 cd 4d 3f 0a b6 0d 7e 11 0d 16 86 26 6b 2b 73 3b 93 46 7f 4c 9e 4f d6 09 6a 0d 78 12 f4 18 92 1f 45 24 6a 33 cf 47 6b 4d 48 50 be 06 4f 09 fa 0f 9f 18 7d 1e 2d 32 14 39 c8 44 45 4b d5 4e 2c 0b 97 0e e6 12 9c 17 56 1c d2 20 cf 36 fd 3f 75 46 d2 4b 97 10 69 17 10 1f 40 26 36 30 3d 39 77 44 56 49 5f 51 c3 54 ae 0d d3 0f 30 16 95 1a d2 1f a9 2e 09 41 24 44 a6 4f 3c 54 4f 0c 1d 13 0b 17 1e 1c 9a 2c 11 33 14 3b 09 45 28 50 65 55 78 0f f0 12 26 17 5b 1c 6b 22 21 29 2d 3d b0 40 14 47 d7 4e 93 11 cc 19 64 1f 23 24 34 2a 53 31 08 3e 68 44 34 4e 36 52 9b 10 a5 15 fe 19 7e 20 ac 26 a6 2d fc 3a c5 42 5c 50 b7 54 b9 0e cf 14 b9 1e 90 24 bc 29 2a 2e 5c 35 06 3c 2d 49 aa 4d 0b 0c 81 0f 68 18 b9 1f 46 26 f2 2a 69 30 76 35 e0 45 a1 4a ab 0a 3e 12 97 1b f1 23 52 2c a7 35 eb 41 6d 49 33 51 58 57 a3 04 b3 08 81 12 2e 1c 96 25 59 31 2c 3c 30 46 26 4f ed 5b 77 07 ad 09 4b 0f 72 27 60 2d 9b 32 5f 3f f2 42 46 4b f9 50 e4 06 d7 09 2f 0f 20 1b be 23 2e 31 82 3f 58 42 04 46 03 48 78 05 5a 0e db 1b 0e 22 c0 29 dc 30 5c 3d 2f 45 08 4d 4c 52 12 09 01 0c bf 10 ac 1f bf 24 84 29 f6 3d 35 41 02 4d e2 53 46 0a 0b 0d 96 12 a8 20 22 28 45 2c 50 32 de 43 15 4b e0 4d b9 06 11 0a b1 15 1b 1c cb 21 be 29 dd 3a 39 42 0f 49 d9 4d }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_Chinese_AVS_video__AVS1_P2__JiZhun__inter_2dvlc__8_byt_1512_ {
+  strings:
+    $a0 = { 01 01 01 ff 01 01 01 02 01 ff 02 01 01 03 01 ff 03 01 01 04 01 ff 04 01 01 05 01 ff 05 01 01 06 01 ff 06 01 01 07 01 ff 07 01 01 08 01 ff 08 01 01 09 01 ff 09 01 01 0a 01 ff 0a 01 01 0b 01 ff 0b 01 01 0c 01 ff 0c 01 01 0d 01 ff 0d 01 02 01 02 fe 01 02 01 0e 01 ff 0e 01 01 0f 01 ff 0f 01 01 10 01 ff 10 01 01 11 01 ff 11 01 01 12 01 ff 12 01 01 13 01 ff 13 01 03 01 03 fd 01 03 01 14 01 ff 14 01 01 15 01 ff 15 01 02 02 02 fe 02 02 01 16 01 ff 16 01 01 17 01 ff 17 01 01 18 01 ff 18 01 01 19 01 ff 19 01 01 1a 01 ff 1a 01 00 00 00 00 04 03 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 03 00 00 00 00 00 00 00 1a 00 00 00 01 01 00 ff 01 00 00 00 00 01 02 00 ff 02 00 01 03 00 ff 03 00 01 04 00 ff 04 00 01 05 00 ff 05 00 01 06 00 ff 06 00 02 01 01 fe 01 01 01 07 00 ff 07 00 01 08 00 ff 08 00 01 09 00 ff 09 00 01 0a 00 ff 0a 00 02 02 01 fe 02 01 01 0b 00 ff 0b 00 01 0c 00 ff 0c 00 03 01 02 fd 01 02 01 0d 00 ff 0d 00 01 0e 00 ff 0e 00 02 03 01 fe 03 01 01 0f 00 ff 0f 00 02 04 01 fe 04 01 01 10 00 ff 10 00 02 05 01 fe 05 01 01 11 00 ff 11 00 04 01 03 fc 01 03 02 06 01 fe 06 01 01 12 00 ff 12 00 01 13 00 ff 13 00 02 07 01 fe 07 01 03 02 02 fd 02 02 00 05 04 03 03 03 03 03 02 02 02 02 02 02 02 02 02 02 02 02 ff ff ff ff ff ff ff 02 00 00 00 01 00 00 00 13 00 00 00 01 01 00 ff 01 00 00 00 00 01 02 00 ff 02 00 02 01 00 fe 01 00 01 03 00 ff 03 00 01 04 00 ff 04 00 03 01 01 fd 01 01 02 02 00 fe 02 00 01 05 00 ff 05 00 01 06 00 ff 06 00 01 07 00 ff 07 00 02 03 00 fe 03 00 04 01 02 fc 01 02 01 08 00 ff 08 00 03 02 01 fd 02 01 02 04 00 fe 04 00 01 09 00 ff 09 00 01 0a 00 ff 0a 00 05 01 02 fb 01 02 02 05 00 fe 05 00 01 0b 00 ff 0b 00 02 06 00 fe 06 00 01 0c 00 ff 0c 00 03 03 01 fd 03 01 06 01 02 fa 01 02 04 02 02 fc 02 02 01 0d 00 ff 0d 00 02 07 00 fe 07 00 03 04 01 fd 04 01 01 0e 00 ff 0e 00 00 07 05 04 04 03 03 03 02 02 02 02 02 02 02 ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 02 00 00 00 0e 00 00 00 01 01 00 ff 01 00 00 00 00 02 01 00 fe 01 00 01 02 00 ff 02 00 03 01 00 fd 01 00 01 03 00 ff 03 00 02 02 00 fe 02 00 04 01 01 fc 01 01 01 04 00 ff 04 00 05 01 01 fb 01 01 01 05 00 ff 05 00 03 02 00 fd 02 00 02 03 00 fe 03 00 01 06 00 ff 06 00 06 01 01 fa 01 01 02 04 00 fe 04 00 01 07 00 ff 07 00 04 02 01 fc 02 01 07 01 02 f9 01 02 03 03 00 fd 03 00 01 08 00 ff 08 00 02 05 00 fe 05 00 08 01 02 f8 01 02 01 09 00 ff 09 00 03 04 00 fd 04 00 02 06 00 fe 06 00 05 02 01 fb 02 01 01 0a 00 ff 0a 00 09 01 02 f7 01 02 04 03 01 fc 03 01 00 0a 06 05 04 03 03 02 02 02 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 03 00 00 00 0a 00 00 00 01 01 00 ff 01 00 00 00 00 02 01 00 fe 01 00 03 01 00 fd 01 00 01 02 00 ff 02 00 04 01 00 fc 01 00 05 01 00 fb 01 00 02 02 00 fe 02 00 01 03 00 ff 03 00 06 01 00 fa 01 00 03 02 00 fd 02 00 07 01 01 f9 01 01 01 04 00 ff 04 00 08 01 01 f8 01 01 02 03 00 fe 03 00 04 02 00 fc 02 00 01 05 00 ff 05 00 09 01 01 f7 01 01 05 02 00 fb 02 00 02 04 00 fe 04 00 01 06 00 ff 06 00 0a 01 02 f6 01 02 03 03 00 fd 03 00 0b 01 02 f5 01 02 01 07 00 ff 07 00 06 02 00 fa 02 00 03 04 00 fd 04 00 02 05 00 fe 05 00 0c 01 02 f4 01 02 04 03 00 fc 03 00 00 0d 07 05 04 03 02 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 06 00 00 00 07 00 00 00 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 03 01 00 fd 01 00 04 01 00 fc 01 00 05 01 00 fb 01 00 01 02 00 ff 02 00 06 01 00 fa 01 00 07 01 00 f9 01 00 08 01 00 f8 01 00 02 02 00 fe 02 00 09 01 00 f7 01 00 01 03 00 ff 03 00 0a 01 01 f6 01 01 03 02 00 fd 02 00 0b 01 01 f5 01 01 04 02 00 fc 02 00 0c 01 01 f4 01 01 01 04 00 ff 04 00 02 03 00 fe 03 00 0d 01 01 f3 01 01 05 02 00 fb 02 00 0e 01 01 f2 01 01 06 02 00 fa 02 00 01 05 00 ff 05 00 0f 01 01 f1 01 01 03 03 00 fd 03 00 10 01 01 f0 01 01 02 04 00 fe 04 00 07 02 00 f9 02 00 00 11 08 04 03 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 09 00 00 00 05 00 00 00 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 03 01 00 fd 01 00 04 01 00 fc 01 00 05 01 00 fb 01 00 06 01 00 fa 01 00 07 01 00 f9 01 00 01 02 00 ff 02 00 08 01 00 f8 01 00 09 01 00 f7 01 00 0a 01 00 f6 01 00 0b 01 00 f5 01 00 0c 01 00 f4 01 00 02 02 00 fe 02 00 0d 01 00 f3 01 00 01 03 00 ff 03 00 0e 01 00 f2 01 00 0f 01 00 f1 01 00 03 02 00 fd 02 00 10 01 00 f0 01 00 11 01 00 ef 01 00 12 01 00 ee 01 00 04 02 00 fc 02 00 13 01 00 ed 01 00 14 01 00 ec 01 00 02 03 00 fe 03 00 01 04 00 ff 04 00 05 02 00 fb 02 00 15 01 00 eb 01 00 00 16 06 03 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 ff ff ff 7f 04 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_h264_cabac_context_init_PB__8_byt_2760_ {
+  strings:
+    $a0 = { 14 F1 02 36 03 4A 14 F1 02 36 03 4A E4 7F E9 68 FA 35 FF 36 07 33 17 21 17 02 15 00 01 09 00 31 DB 76 05 39 F3 4E F5 41 01 3E 0C 31 FC 49 11 32 12 40 09 2B 1D 00 1A 43 10 5A 09 68 D2 7F EC 68 01 43 F3 4E F5 41 01 3E FA 56 EF 5F FA 3D 09 2D FD 45 FA 51 F5 60 06 37 07 43 FB 56 02 58 00 3A FD 4C F6 5E 05 36 04 45 FD 51 00 58 F9 43 FB 4A FC 4A FB 50 F9 48 01 3A 00 29 00 3F 00 3F 00 3F F7 53 04 56 00 61 F9 48 0D 29 03 3E 00 2D FC 4E FD 60 E5 7E E4 62 E7 65 E9 43 E4 52 EC 5E F0 53 EA 6E EB 5B EE 66 F3 5D E3 7F F9 5C FB 59 F9 60 F3 6C FD 2E FF 41 FF 39 F7 5D FD 4A F7 5C F8 57 E9 7E 05 36 06 3C 06 3B 06 45 FF 30 00 44 FC 45 F8 58 FE 55 FA 4E FF 4B F9 4D 02 36 05 32 FD 44 01 32 06 2A FC 51 01 3F FC 46 00 43 02 39 FE 4C 0B 23 04 40 01 3D 0B 23 12 19 0C 18 0D 1D 0D 24 F6 5D F9 49 FE 49 0D 2E 09 31 F9 64 09 35 02 35 05 35 FE 3D 00 38 00 38 F3 3F FB 3C FF 3E 04 39 FA 45 04 39 0E 27 04 33 0D 44 03 40 01 3D 09 3F 07 32 10 27 05 2C 04 34 0B 30 FB 3C FF 3B 00 3B 16 21 05 2C 0E 2B FF 4E 00 3C 09 45 0B 1C 02 28 03 2C 00 31 00 2E 02 2C 02 33 00 2F 04 27 02 3E 06 2E 00 36 03 36 02 3A 04 3F 06 33 06 39 07 35 06 34 06 37 0B 2D 0E 24 08 35 FF 52 07 37 FD 4E 0F 2E 16 1F FF 54 19 07 1E F9 1C 03 1C 04 20 00 22 FF 1E 06 1E 06 20 09 1F 13 1A 1B 1A 1E 25 14 1C 22 11 46 01 43 05 3B 09 43 10 1E 12 20 12 23 16 1D 18 1F 17 26 12 2B 14 29 0B 3F 09 3B 09 40 FF 5E FE 59 F7 6C FA 4C FE 2C 00 2D 00 34 FD 40 FE 3B FC 46 FC 4B F8 52 EF 66 F7 4D 03 18 00 2A 00 30 00 37 FA 3B F9 47 F4 53 F5 57 E2 77 01 3A FD 1D FF 24 01 26 02 2B FA 37 00 3A 00 40 FD 4A F6 5A 00 46 FC 1D 05 1F 07 2A 01 3B FE 3A FD 48 FD 51 F5 61 00 3A 08 05 0A 0E 0E 12 0D 1B 02 28 00 3A FD 46 FA 4F F8 55 00 00 F3 6A F0 6A F6 57 EB 72 EE 6E F2 62 EA 6E EB 6A EE 67 EB 6B E9 6C E6 70 F6 60 F4 5F FB 5B F7 5D EA 5E FB 56 09 43 FC 50 F6 55 FF 46 07 3C 09 3A 05 3D 0C 32 0F 32 12 31 11 36 0A 29 07 2E FF 33 07 31 08 34 09 29 06 2F 02 37 0D 29 0A 2C 06 32 05 35 0D 31 04 3F 06 40 FE 45 FE 3B 06 46 0A 2C 09 1F 0C 2B 03 35 0E 22 0A 26 FD 34 0D 28 11 20 07 2C 07 26 0D 32 0A 39 1A 2B 0E 0B 0B 0E 09 0B 12 0B 15 09 17 FE 20 F1 20 F1 22 EB 27 E9 2A DF 29 E1 2E E4 26 F4 15 1D 2D E8 35 D3 30 E6 41 D5 2B ED 27 F6 1E 09 12 1A 14 1B 00 39 F2 52 FB 4B ED 61 DD 7D 1B 00 1C 00 1F FC 1B 06 22 08 1E 0A 18 16 21 13 16 20 1A 1F 15 29 1A 2C 17 2F 10 41 0E 47 08 3C 06 3F 11 41 15 18 17 14 1A 17 1B 20 1C 17 1C 18 17 28 18 20 1C 1D 17 2A 13 39 16 35 16 3D 0B 56 0C 28 0B 33 0E 3B FC 4F F9 47 FB 45 F7 46 F8 42 F6 44 ED 49 F4 45 F0 46 F1 43 EC 3E ED 46 F0 42 EA 41 EC 3F 09 FE 1A F7 21 F7 27 F9 29 FE 2D 03 31 09 2D 1B 24 3B FA 42 F9 23 F9 2A F8 2D FB 30 F4 38 FA 3C FB 3E F8 42 F8 4C FB 55 FA 51 F6 4D F9 51 EF 50 EE 49 FC 4A F6 53 F7 47 F7 43 FF 3D F8 42 F2 42 00 3B 02 3B 15 F3 21 F2 27 F9 2E FE 33 02 3C 06 3D 11 37 22 2A 3E 14 F1 02 36 03 4A 14 F1 02 36 03 4A E4 7F E9 68 FA 35 FF 36 07 33 16 19 22 00 10 00 FE 09 04 29 E3 76 02 41 FA 47 F3 4F 05 34 09 32 FD 46 0A 36 1A 22 13 16 28 00 39 02 29 24 1A 45 D3 7F F1 65 FC 4C FA 47 F3 4F 05 34 06 45 F3 5A 00 34 08 2B FE 45 FB 52 F6 60 02 3B 02 4B FD 57 FD 64 01 38 FD 4A FA 55 00 3B FD 51 F9 56 FB 5F FF 42 FF 4D 01 46 FE 56 FB 48 00 3D 00 29 00 3F 00 3F 00 3F F7 53 04 56 00 61 F9 48 0D 29 03 3E 0D 0F 07 33 02 50 D9 7F EE 5B EF 60 E6 51 DD 62 E8 66 E9 61 E5 77 E8 63 EB 6E EE 66 DC 7F 00 50 FB 59 F9 5E FC 5C 00 27 00 41 F1 54 DD 7F FE 49 F4 68 F7 5B E1 7F 03 37 07 38 07 37 08 3D FD 35 00 44 F9 4A F7 58 F3 67 F3 5B F7 59 F2 5C F8 4C F4 57 E9 6E E8 69 F6 4E EC 70 EF 63 B2 7F BA 7F CE 7F D2 7F FC 42 FB 4E FC 47 F8 48 02 3B FF 37 F9 46 FA 4B F8 59 DE 77 FD 4B 20 14 1E 16 D4 7F 00 36 FB 3D 00 3A FF 3C FD 3D F8 43 E7 54 F2 4A FB 41 05 34 02 39 00 3D F7 45 F5 46 12 37 FC 47 00 3A 07 3D 09 29 12 19 09 20 05 2B 09 2F 00 2C 00 33 02 2E 13 26 FC 42 0F 26 0C 2A 09 22 00 59 04 2D 0A 1C 0A 1F 21 F5 34 D5 12 0F 1C 00 23 EA 26 E7 22 00 27 EE 20 F4 66 A2 00 00 38 F1 21 FC 1D 0A 25 FB 33 E3 27 F7 34 DE 45 C6 43 C1 2C FB 20 07 37 E3 20 01 00 00 1B 24 21 E7 22 E2 24 E4 26 E4 26 E5 22 EE 23 F0 22 F2 20 F8 25 FA 23 00 1E 0A 1C 12 1A 19 1D 29 00 4B 02 48 08 4D 0E 23 12 1F 11 23 15 1E 11 2D 14 2A 12 2D 1B 1A 10 36 07 42 10 38 0B 49 0A 43 F6 74 E9 70 F1 47 F9 3D 00 35 FB 42 F5 4D F7 50 F7 54 F6 57 DE 7F EB 65 FD 27 FB 35 F9 3D F5 4B F1 4D EF 5B E7 6B E7 6F E4 7A F5 4C F6 2C F6 34 F6 39 F7 3A F0 48 F9 45 FC 45 FB 4A F7 56 02 42 F7 22 01 20 0B 1F 05 34 FE 37 FE 43 00 49 F8 59 03 34 07 04 0A 08 11 08 10 13 03 25 FF 3D FB 49 FF 46 FC 4E 00 00 EB 7E E9 7C EC 6E E6 7E E7 7C EF 69 E5 79 E5 75 EF 66 E6 75 E5 74 DF 7A F6 5F F2 64 F8 5F EF 6F E4 72 FA 59 FE 50 FC 52 F7 55 F8 51 FF 48 05 40 01 43 09 38 00 45 01 45 07 45 F9 45 FA 43 F0 4D FE 40 02 3D FA 43 FD 40 02 39 FD 41 FD 42 00 3E 09 33 FF 42 FE 47 FE 4B FF 46 F7 48 0E 3C 10 25 00 2F 12 23 0B 25 0C 29 0A 29 02 30 0C 29 0D 29 00 3B 03 32 13 28 03 42 12 32 13 FA 12 FA 0E 00 1A F4 1F F0 21 E7 21 EA 25 E4 27 E2 2A E2 2F D6 2D DC 31 DE 29 EF 20 09 45 B9 3F C1 42 C0 4D B6 36 D9 34 DD 29 F6 24 00 28 FF 1E 0E 1C 1A 17 25 0C 37 0B 41 25 DF 27 DC 28 DB 26 E2 2E DF 2A E2 28 E8 31 E3 26 F4 28 F6 26 FD 2E FB 1F 14 1D 1E 19 2C 0C 30 0B 31 1A 2D 16 16 17 16 1B 15 21 14 1A 1C 1E 18 1B 22 12 2A 19 27 12 32 0C 46 15 36 0E 47 0B 53 19 20 15 31 15 36 FB 55 FA 51 F6 4D F9 51 EF 50 EE 49 FC 4A F6 53 F7 47 F7 43 FF 3D F8 42 F2 42 00 3B 02 3B 11 F6 20 F3 2A F7 31 FB 35 00 40 03 44 0A 42 1B 2F 39 FB 47 00 18 FF 24 FE 2A FE 34 F7 39 FA 3F FC 41 FC 43 F9 52 FD 51 FD 4C F9 48 FA 4E F4 48 F2 44 FD 46 FA 4C FB 42 FB 3E 00 39 FC 3D F7 3C 01 36 02 3A 11 F6 20 F3 2A F7 31 FB 35 00 40 03 44 0A 42 1B 2F 39 14 F1 02 36 03 4A 14 F1 02 36 03 4A E4 7F E9 68 FA 35 FF 36 07 33 1D 10 19 00 0E 00 F6 33 FD 3E E5 63 1A 10 FC 55 E8 66 05 39 06 39 EF 49 0E 39 14 28 14 0A 1D 00 36 00 25 2A 0C 61 E0 7F EA 75 FE 4A FC 55 E8 66 05 39 FA 5D F2 58 FA 2C 04 37 F5 59 F1 67 EB 74 13 39 14 3A 04 54 06 60 01 3F FB 55 F3 6A 05 3F 06 4B FD 5A FF 65 03 37 FC 4F FE 4B F4 61 F9 32 01 3C 00 29 00 3F 00 3F 00 3F F7 53 04 56 00 61 F9 48 0D 29 03 3E 07 22 F7 58 EC 7F DC 7F EF 5B F2 5F E7 54 E7 56 F4 59 EF 5B E1 7F F2 4C EE 67 F3 5A DB 7F 0B 50 05 4C 02 54 05 4E FA 37 04 3D F2 53 DB 7F FB 4F F5 68 F5 5B E2 7F 00 41 FE 4F 00 48 FC 5C FA 38 03 44 F8 47 F3 62 FC 56 F4 58 FB 52 FD 48 FC 43 F8 48 F0 59 F7 45 FF 3B 05 42 04 39 FC 47 FE 47 02 3A FF 4A FC 2C FF 45 00 3E F9 33 FC 2F FA 2A FD 29 FA 35 08 4C F7 4E F5 53 09 34 00 43 FB 5A 01 43 F1 48 FB 4B F8 50 EB 53 EB 40 F3 1F E7 40 E3 5E 09 4B 11 3F F8 4A FB 23 FE 1B 0D 5B 03 41 F9 45 08 4D F6 42 03 3E FD 44 EC 51 00 1E 01 07 FD 17 EB 4A 10 42 E9 7C 11 25 2C EE 32 DE EA 7F 04 27 00 2A 07 22 0B 1D 08 1F 06 25 07 2A 03 28 08 21 0D 2B 0D 24 04 2F 03 37 02 3A 06 3C 08 2C 0B 2C 0E 2A 07 30 04 38 04 34 0D 25 09 31 13 3A 0A 30 0C 2D 00 45 14 21 08 3F 23 EE 21 E7 1C FD 18 0A 1B 00 22 F2 34 D4 27 E8 13 11 1F 19 24 1D 18 21 22 0F 1E 14 16 49 14 22 13 1F 1B 2C 13 10 0F 24 0F 24 15 1C 19 15 1E 14 1F 0C 1B 10 18 2A 00 5D 0E 38 0F 39 1A 26 E8 7F E8 73 EA 52 F7 3E 00 35 00 3B F2 55 F3 59 F3 5E F5 5C E3 7F EB 64 F2 39 F4 43 F5 47 F6 4D EB 55 F0 58 E9 68 F1 62 DB 7F F6 52 F8 30 F8 3D F8 42 F9 46 F2 4B F6 4F F7 53 F4 5C EE 6C FC 4F EA 45 F0 4B FE 3A 01 3A F3 4E F7 53 FC 51 F3 63 F3 51 FA 26 F3 3E FA 3A FE 3B F0 49 F6 4C F3 56 F7 53 F6 57 00 00 EA 7F E7 7F E7 78 E5 7F ED 72 E9 75 E7 76 E6 75 E8 71 E4 76 E1 78 DB 7C F6 5E F1 66 F6 63 F3 6A CE 7F FB 5C 11 39 FB 56 F3 5E F4 5B FE 4D 00 47 FF 49 04 40 F9 51 05 40 0F 39 01 43 00 44 F6 43 01 44 00 4D 02 40 00 44 FB 4E 07 37 05 3B 02 41 0E 36 0F 2C 05 3C 02 46 FE 4C EE 56 0C 46 05 40 F4 46 0B 37 05 38 00 45 02 41 FA 4A 05 36 07 36 FA 4C F5 52 FE 4D FE 4D 19 2A 11 F3 10 F7 11 F4 1B EB 25 E2 29 D8 2A D7 30 D1 27 E0 2E D8 34 CD 2E D7 34 D9 2B ED 20 0B 3D C9 38 D2 3E CE 51 BD 2D EC 23 FE 1C 0F 22 01 27 01 1E 11 14 26 12 2D 0F 36 00 4F 24 F0 25 F2 25 EF 20 01 22 0F 1D 0F 18 19 22 16 1F 10 23 12 1F 1C 21 29 24 1C 1B 2F 15 3E 12 1F 13 1A 24 18 18 17 1B 10 18 1E 1F 1D 16 29 16 2A 10 3C 0F 34 0E 3C 03 4E F0 7B 15 35 16 38 19 3D 15 21 13 32 11 3D FD 4E F8 4A F7 48 F6 48 EE 4B F4 47 F5 3F FB 46 EF 4B F2 48 F0 43 F8 35 F2 3B F7 34 F5 44 09 FE 1E F6 1F FC 21 FF 21 07 1F 0C 25 17 1F 26 14 40 F7 47 F9 25 F8 2C F5 31 F6 38 F4 3B F8 3F F7 43 FA 44 F6 4F FD 4E F8 4A F7 48 F6 48 EE 4B F4 47 F5 3F FB 46 EF 4B F2 48 F0 43 F8 35 F2 3B F7 34 F5 44 09 FE 1E F6 1F FC 21 FF 21 07 1F 0C 25 17 1F 26 14 40 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_ff_alternate_vertical_scan__8_byt_64_ {
+  strings:
+    $a0 = { 00 08 10 18 01 09 02 0a 11 19 20 28 30 38 39 31 29 21 1a 12 03 0b 04 0c 13 1b 22 2a 32 3a 23 2b 33 3b 14 1c 05 0d 06 0e 15 1d 24 2c 34 3c 25 2d 35 3d 16 1e 07 0f 17 1f 26 2e 36 3e 27 2f 37 3f }
+
+  condition:
+    $a0
+}
+
+
+rule YUV_to_RGB_dither_8x8_73__8_byt_64_ {
+  strings:
+    $a0 = { 00 37 0e 44 03 3a 11 48 25 12 32 20 28 16 36 23 09 40 05 3b 0d 43 08 3f 2e 1b 29 17 31 1f 2c 1a 02 39 10 47 01 38 0f 46 27 15 34 22 26 13 33 21 0b 42 07 3e 0a 41 06 3c 30 1e 2b 19 2f 1d 2a 18 }
+
+  condition:
+    $a0
+}
+
+
+rule MPEG_2_NBC_Fraunhofer_sfb_16_120__16_lil_30_ {
+  strings:
+    $a0 = { 04 00 08 00 0c 00 10 00 14 00 18 00 1c 00 20 00 28 00 30 00 3c 00 48 00 58 00 6c 00 78 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Jpeg_dct_AA_N_scale_factor__flt32___32_lil_32_ {
+  strings:
+    $a0 = { 00 00 80 3f 86 8a b1 3f 75 3d a7 3f 17 83 96 3f 00 00 80 3f 4e 23 49 3f d4 8b 0a 3f af 42 8d 3e }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_mpeg1_vlc__16_lil_452_ {
+  strings:
+    $a0 = { 03 00 02 00 04 00 04 00 05 00 05 00 06 00 07 00 26 00 08 00 21 00 08 00 0a 00 0a 00 1d 00 0c 00 18 00 0c 00 13 00 0c 00 10 00 0c 00 1a 00 0d 00 19 00 0d 00 18 00 0d 00 17 00 0d 00 1f 00 0e 00 1e 00 0e 00 1d 00 0e 00 1c 00 0e 00 1b 00 0e 00 1a 00 0e 00 19 00 0e 00 18 00 0e 00 17 00 0e 00 16 00 0e 00 15 00 0e 00 14 00 0e 00 13 00 0e 00 12 00 0e 00 11 00 0e 00 10 00 0e 00 18 00 0f 00 17 00 0f 00 16 00 0f 00 15 00 0f 00 14 00 0f 00 13 00 0f 00 12 00 0f 00 11 00 0f 00 10 00 0f 00 03 00 03 00 06 00 06 00 25 00 08 00 0c 00 0a 00 1b 00 0c 00 16 00 0d 00 15 00 0d 00 1f 00 0f 00 1e 00 0f 00 1d 00 0f 00 1c 00 0f 00 1b 00 0f 00 1a 00 0f 00 19 00 0f 00 13 00 10 00 12 00 10 00 11 00 10 00 10 00 10 00 05 00 04 00 04 00 07 00 0b 00 0a 00 14 00 0c 00 14 00 0d 00 07 00 05 00 24 00 08 00 1c 00 0c 00 13 00 0d 00 06 00 05 00 0f 00 0a 00 12 00 0c 00 07 00 06 00 09 00 0a 00 12 00 0d 00 05 00 06 00 1e 00 0c 00 14 00 10 00 04 00 06 00 15 00 0c 00 07 00 07 00 11 00 0c 00 05 00 07 00 11 00 0d 00 27 00 08 00 10 00 0d 00 23 00 08 00 1a 00 10 00 22 00 08 00 19 00 10 00 20 00 08 00 18 00 10 00 0e 00 0a 00 17 00 10 00 0d 00 0a 00 16 00 10 00 08 00 0a 00 15 00 10 00 1f 00 0c 00 1a 00 0c 00 19 00 0c 00 17 00 0c 00 16 00 0c 00 1f 00 0d 00 1e 00 0d 00 1d 00 0d 00 1c 00 0d 00 1b 00 0d 00 1f 00 10 00 1e 00 10 00 1d 00 10 00 1c 00 10 00 1b 00 10 00 01 00 06 00 02 00 02 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Yamaha_ADPCM_diff_lookup_table__32_lil_64_ {
+  strings:
+    $a0 = { 01 00 00 00 03 00 00 00 05 00 00 00 07 00 00 00 09 00 00 00 0B 00 00 00 0D 00 00 00 0F 00 00 00 FF FF FF FF FD FF FF FF FB FF FF FF F9 FF FF FF F7 FF FF FF F5 FF FF FF F3 FF FF FF F1 FF FF FF }
+
+  condition:
+    $a0
+}
+
+
+rule HAVAL_wi5__32_big_128_ {
+  strings:
+    $a0 = { 00 00 00 1b 00 00 00 03 00 00 00 15 00 00 00 1a 00 00 00 11 00 00 00 0b 00 00 00 14 00 00 00 1d 00 00 00 13 00 00 00 00 00 00 00 0c 00 00 00 07 00 00 00 0d 00 00 00 08 00 00 00 1f 00 00 00 0a 00 00 00 05 00 00 00 09 00 00 00 0e 00 00 00 1e 00 00 00 12 00 00 00 06 00 00 00 1c 00 00 00 18 00 00 00 02 00 00 00 17 00 00 00 10 00 00 00 16 00 00 00 04 00 00 00 01 00 00 00 19 00 00 00 0f }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_h263_inter_vlc__16_big_412_ {
+  strings:
+    $a0 = { 00 02 00 02 00 0f 00 04 00 15 00 06 00 17 00 07 00 1f 00 08 00 25 00 09 00 24 00 09 00 21 00 0a 00 20 00 0a 00 07 00 0b 00 06 00 0b 00 20 00 0b 00 06 00 03 00 14 00 06 00 1e 00 08 00 0f 00 0a 00 21 00 0b 00 50 00 0c 00 0e 00 04 00 1d 00 08 00 0e 00 0a 00 51 00 0c 00 0d 00 05 00 23 00 09 00 0d 00 0a 00 0c 00 05 00 22 00 09 00 52 00 0c 00 0b 00 05 00 0c 00 0a 00 53 00 0c 00 13 00 06 00 0b 00 0a 00 54 00 0c 00 12 00 06 00 0a 00 0a 00 11 00 06 00 09 00 0a 00 10 00 06 00 08 00 0a 00 16 00 07 00 55 00 0c 00 15 00 07 00 14 00 07 00 1c 00 08 00 1b 00 08 00 21 00 09 00 20 00 09 00 1f 00 09 00 1e 00 09 00 1d 00 09 00 1c 00 09 00 1b 00 09 00 1a 00 09 00 22 00 0b 00 23 00 0b 00 56 00 0c 00 57 00 0c 00 07 00 04 00 19 00 09 00 05 00 0b 00 0f 00 06 00 04 00 0b 00 0e 00 06 00 0d 00 06 00 0c 00 06 00 13 00 07 00 12 00 07 00 11 00 07 00 10 00 07 00 1a 00 08 00 19 00 08 00 18 00 08 00 17 00 08 00 16 00 08 00 15 00 08 00 14 00 08 00 13 00 08 00 18 00 09 00 17 00 09 00 16 00 09 00 15 00 09 00 14 00 09 00 13 00 09 00 12 00 09 00 11 00 09 00 07 00 0a 00 06 00 0a 00 05 00 0a 00 04 00 0a 00 24 00 0b 00 25 00 0b 00 26 00 0b 00 27 00 0b 00 58 00 0c 00 59 00 0c 00 5a 00 0c 00 5b 00 0c 00 5c 00 0c 00 5d 00 0c 00 5e 00 0c 00 5f 00 0c 00 03 00 07 }
+
+  condition:
+    $a0
+}
+
+
+rule Whirlpool_C1__64_lil_2048_ {
+  strings:
+    $a0 = { d8 c0 78 18 28 18 18 78 26 05 af 23 65 23 23 af b8 7e f9 c6 57 c6 c6 f9 fb 13 6f e8 25 e8 e8 6f cb 4c a1 87 94 87 87 a1 11 a9 62 b8 d5 b8 b8 62 09 08 05 01 03 01 01 05 0d 42 6e 4f d1 4f 4f 6e 9b ad ee 36 5a 36 36 ee ff 59 04 a6 f7 a6 a6 04 0c de bd d2 6b d2 d2 bd 0e fb 06 f5 02 f5 f5 06 96 ef 80 79 8b 79 79 80 30 5f ce 6f b1 6f 6f ce 6d fc ef 91 ae 91 91 ef f8 aa 07 52 f6 52 52 07 47 27 fd 60 a0 60 60 fd 35 89 76 bc d9 bc bc 76 37 ac cd 9b b0 9b 9b cd 8a 04 8c 8e 8f 8e 8e 8c d2 71 15 a3 f8 a3 a3 15 6c 60 3c 0c 14 0c 0c 3c 84 ff 8a 7b 8d 7b 7b 8a 80 b5 e1 35 5f 35 35 e1 f5 e8 69 1d 27 1d 1d 69 b3 53 47 e0 3d e0 e0 47 21 f6 ac d7 64 d7 d7 ac 9c 5e ed c2 5b c2 c2 ed 43 6d 96 2e 72 2e 2e 96 29 62 7a 4b dd 4b 4b 7a 5d a3 21 fe 1f fe fe 21 d5 82 16 57 f9 57 57 16 bd a8 41 15 3f 15 15 41 e8 9f b6 77 99 77 77 b6 92 a5 eb 37 59 37 37 eb 9e 7b 56 e5 32 e5 e5 56 13 8c d9 9f bc 9f 9f d9 23 d3 17 f0 0d f0 f0 17 20 6a 7f 4a de 4a 4a 7f 44 9e 95 da 73 da da 95 a2 fa 25 58 e8 58 58 25 cf 06 ca c9 46 c9 c9 ca 7c 55 8d 29 7b 29 29 8d 5a 50 22 0a 1e 0a 0a 22 50 e1 4f b1 ce b1 b1 4f c9 69 1a a0 fd a0 a0 1a 14 7f da 6b bd 6b 6b da d9 5c ab 85 92 85 85 ab 3c 81 73 bd da bd bd 73 8f d2 34 5d e7 5d 5d 34 90 80 50 10 30 10 10 50 07 f3 03 f4 01 f4 f4 03 dd 16 c0 cb 40 cb cb c0 d3 ed c6 3e 42 3e 3e c6 2d 28 11 05 0f 05 05 11 78 1f e6 67 a9 67 67 e6 97 73 53 e4 31 e4 e4 53 02 25 bb 27 69 27 27 bb 73 32 58 41 c3 41 41 58 a7 2c 9d 8b 80 8b 8b 9d f6 51 01 a7 f4 a7 a7 01 b2 cf 94 7d 87 7d 7d 94 49 dc fb 95 a2 95 95 fb 56 8e 9f d8 75 d8 d8 9f 70 8b 30 fb 10 fb fb 30 cd 23 71 ee 2f ee ee 71 bb c7 91 7c 84 7c 7c 91 71 17 e3 66 aa 66 66 e3 7b a6 8e dd 7a dd dd 8e af b8 4b 17 39 17 17 4b 45 02 46 47 c9 47 47 46 1a 84 dc 9e bf 9e 9e dc d4 1e c5 ca 43 ca ca c5 58 75 99 2d 77 2d 2d 99 2e 91 79 bf dc bf bf 79 3f 38 1b 07 09 07 07 1b ac 01 23 ad ea ad ad 23 b0 ea 2f 5a ee 5a 5a 2f ef 6c b5 83 98 83 83 b5 b6 85 ff 33 55 33 33 ff 5c 3f f2 63 a5 63 63 f2 12 10 0a 02 06 02 02 0a 93 39 38 aa e3 aa aa 38 de af a8 71 93 71 71 a8 c6 0e cf c8 45 c8 c8 cf d1 c8 7d 19 2b 19 19 7d 3b 72 70 49 db 49 49 70 5f 86 9a d9 76 d9 d9 9a 31 c3 1d f2 0b f2 f2 1d a8 4b 48 e3 38 e3 e3 48 b9 e2 2a 5b ed 5b 5b 2a bc 34 92 88 85 88 88 92 3e a4 c8 9a b3 9a 9a c8 0b 2d be 26 6a 26 26 be bf 8d fa 32 56 32 32 fa 59 e9 4a b0 cd b0 b0 4a f2 1b 6a e9 26 e9 e9 6a 77 78 33 0f 11 0f 0f 33 33 e6 a6 d5 62 d5 d5 a6 f4 74 ba 80 9d 80 80 ba 27 99 7c be df be be 7c eb 26 de cd 4a cd cd de 89 bd e4 34 5c 34 34 e4 32 7a 75 48 d8 48 48 75 54 ab 24 ff 1c ff ff 24 8d f7 8f 7a 8e 7a 7a 8f 64 f4 ea 90 ad 90 90 ea 9d c2 3e 5f e1 5f 5f 3e 3d 1d a0 20 60 20 20 a0 0f 67 d5 68 b8 68 68 d5 ca d0 72 1a 2e 1a 1a 72 b7 19 2c ae ef ae ae 2c 7d c9 5e b4 c1 b4 b4 5e ce 9a 19 54 fc 54 54 19 7f ec e5 93 a8 93 93 e5 2f 0d aa 22 66 22 22 aa 63 07 e9 64 ac 64 64 e9 2a db 12 f1 0e f1 f1 12 cc bf a2 73 95 73 73 a2 82 90 5a 12 36 12 12 5a 7a 3a 5d 40 c0 40 40 5d 48 40 28 08 18 08 08 28 95 56 e8 c3 58 c3 c3 e8 df 33 7b ec 29 ec ec 7b 4d 96 90 db 70 db db 90 c0 61 1f a1 fe a1 a1 1f 91 1c 83 8d 8a 8d 8d 83 c8 f5 c9 3d 47 3d 3d c9 5b cc f1 97 a4 97 97 f1 00 00 00 00 00 00 00 00 f9 36 d4 cf 4c cf cf d4 6e 45 87 2b 7d 2b 2b 87 e1 97 b3 76 9a 76 76 b3 e6 64 b0 82 9b 82 82 b0 28 fe a9 d6 67 d6 d6 a9 c3 d8 77 1b 2d 1b 1b 77 74 c1 5b b5 c2 b5 b5 5b be 11 29 af ec af af 29 1d 77 df 6a be 6a 6a df ea ba 0d 50 f0 50 50 0d 57 12 4c 45 cf 45 45 4c 38 cb 18 f3 08 f3 f3 18 ad 9d f0 30 50 30 30 f0 c4 2b 74 ef 2c ef ef 74 da e5 c3 3f 41 3f 3f c3 c7 92 1c 55 ff 55 55 1c db 79 10 a2 fb a2 a2 10 e9 03 65 ea 23 ea ea 65 6a 0f ec 65 af 65 65 ec 03 b9 68 ba d3 ba ba 68 4a 65 93 2f 71 2f 2f 93 8e 4e e7 c0 5d c0 c0 e7 60 be 81 de 7f de de 81 fc e0 6c 1c 24 1c 1c 6c 46 bb 2e fd 1a fd fd 2e 1f 52 64 4d d7 4d 4d 64 76 e4 e0 92 ab 92 92 e0 fa 8f bc 75 9f 75 75 bc 36 30 1e 06 0a 06 06 1e ae 24 98 8a 83 8a 8a 98 4b f9 40 b2 cb b2 b2 40 85 63 59 e6 37 e6 e6 59 7e 70 36 0e 12 0e 0e 36 e7 f8 63 1f 21 1f 1f 63 55 37 f7 62 a6 62 62 f7 3a ee a3 d4 61 d4 d4 a3 81 29 32 a8 e5 a8 a8 32 52 c4 f4 96 a7 96 96 f4 62 9b 3a f9 16 f9 f9 3a a3 66 f6 c5 52 c5 c5 f6 10 35 b1 25 6f 25 25 b1 ab f2 20 59 eb 59 59 20 d0 54 ae 84 91 84 84 ae c5 b7 a7 72 96 72 72 a7 ec d5 dd 39 4b 39 39 dd 16 5a 61 4c d4 4c 4c 61 94 ca 3b 5e e2 5e 5e 3b 9f e7 85 78 88 78 78 85 e5 dd d8 38 48 38 38 d8 98 14 86 8c 89 8c 8c 86 17 c6 b2 d1 6e d1 d1 b2 e4 41 0b a5 f2 a5 a5 0b a1 43 4d e2 3b e2 e2 4d 4e 2f f8 61 a3 61 61 f8 42 f1 45 b3 c8 b3 b3 45 34 15 a5 21 63 21 21 a5 08 94 d6 9c b9 9c 9c d6 ee f0 66 1e 22 1e 1e 66 61 22 52 43 c5 43 43 52 b1 76 fc c7 54 c7 c7 fc 4f b3 2b fc 19 fc fc 2b 24 20 14 04 0c 04 04 14 e3 b2 08 51 f3 51 51 08 25 bc c7 99 b6 99 99 c7 22 4f c4 6d b7 6d 6d c4 65 68 39 0d 17 0d 0d 39 79 83 35 fa 13 fa fa 35 69 b6 84 df 7c df df 84 a9 d7 9b 7e 82 7e 7e 9b 19 3d b4 24 6c 24 24 b4 fe c5 d7 3b 4d 3b 3b d7 9a 31 3d ab e0 ab ab 3d f0 3e d1 ce 4f ce ce d1 99 88 55 11 33 11 11 55 83 0c 89 8f 8c 8f 8f 89 04 4a 6b 4e d2 4e 4e 6b 66 d1 51 b7 c4 b7 b7 51 e0 0b 60 eb 20 eb eb 60 c1 fd cc 3c 44 3c 3c cc fd 7c bf 81 9e 81 81 bf 40 d4 fe 94 a1 94 94 fe 1c eb 0c f7 04 f7 f7 0c 18 a1 67 b9 d6 b9 b9 67 8b 98 5f 13 35 13 13 5f 51 7d 9c 2c 74 2c 2c 9c 05 d6 b8 d3 68 d3 d3 b8 8c 6b 5c e7 34 e7 e7 5c 39 57 cb 6e b2 6e 6e cb aa 6e f3 c4 51 c4 c4 f3 1b 18 0f 03 05 03 03 0f dc 8a 13 56 fa 56 56 13 5e 1a 49 44 cc 44 44 49 a0 df 9e 7f 81 7f 7f 9e 88 21 37 a9 e6 a9 a9 37 67 4d 82 2a 7e 2a 2a 82 0a b1 6d bb d0 bb bb 6d 87 46 e2 c1 5e c1 c1 e2 f1 a2 02 53 f5 53 53 02 72 ae 8b dc 79 dc dc 8b 53 58 27 0b 1d 0b 0b 27 01 9c d3 9d ba 9d 9d d3 2b 47 c1 6c b4 6c 6c c1 a4 95 f5 31 53 31 31 f5 f3 87 b9 74 9c 74 74 b9 15 e3 09 f6 07 f6 f6 09 4c 0a 43 46 ca 46 46 43 a5 09 26 ac e9 ac ac 26 b5 3c 97 89 86 89 89 97 b4 a0 44 14 3c 14 14 44 ba 5b 42 e1 3e e1 e1 42 a6 b0 4e 16 3a 16 16 4e f7 cd d2 3a 4e 3a 3a d2 06 6f d0 69 bb 69 69 d0 41 48 2d 09 1b 09 09 2d d7 a7 ad 70 90 70 70 ad 6f d9 54 b6 c7 b6 b6 54 1e ce b7 d0 6d d0 d0 b7 d6 3b 7e ed 2a ed ed 7e e2 2e db cc 49 cc cc db 68 2a 57 42 c6 42 42 57 2c b4 c2 98 b5 98 98 c2 ed 49 0e a4 f1 a4 a4 0e 75 5d 88 28 78 28 28 88 86 da 31 5c e4 5c 5c 31 6b 93 3f f8 15 f8 f8 3f c2 44 a4 86 97 86 86 a4 }
+
+  condition:
+    $a0
+}
+
+
+rule MPEG_2_NBC_Fraunhofer_sfb_24_120__16_lil_30_ {
+  strings:
+    $a0 = { 04 00 08 00 0c 00 10 00 14 00 18 00 1c 00 24 00 2c 00 34 00 40 00 4c 00 5c 00 6c 00 78 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_mpeg2_vlc__16_big_452_ {
+  strings:
+    $a0 = { 00 02 00 02 00 06 00 03 00 07 00 04 00 1c 00 05 00 1d 00 05 00 05 00 06 00 04 00 06 00 7b 00 07 00 7c 00 07 00 23 00 08 00 22 00 08 00 fa 00 08 00 fb 00 08 00 fe 00 08 00 ff 00 08 00 1f 00 0e 00 1e 00 0e 00 1d 00 0e 00 1c 00 0e 00 1b 00 0e 00 1a 00 0e 00 19 00 0e 00 18 00 0e 00 17 00 0e 00 16 00 0e 00 15 00 0e 00 14 00 0e 00 13 00 0e 00 12 00 0e 00 11 00 0e 00 10 00 0e 00 18 00 0f 00 17 00 0f 00 16 00 0f 00 15 00 0f 00 14 00 0f 00 13 00 0f 00 12 00 0f 00 11 00 0f 00 10 00 0f 00 02 00 03 00 06 00 05 00 79 00 07 00 27 00 08 00 20 00 08 00 16 00 0d 00 15 00 0d 00 1f 00 0f 00 1e 00 0f 00 1d 00 0f 00 1c 00 0f 00 1b 00 0f 00 1a 00 0f 00 19 00 0f 00 13 00 10 00 12 00 10 00 11 00 10 00 10 00 10 00 05 00 05 00 07 00 07 00 fc 00 08 00 0c 00 0a 00 14 00 0d 00 07 00 05 00 26 00 08 00 1c 00 0c 00 13 00 0d 00 06 00 06 00 fd 00 08 00 12 00 0c 00 07 00 06 00 04 00 09 00 12 00 0d 00 06 00 07 00 1e 00 0c 00 14 00 10 00 04 00 07 00 15 00 0c 00 05 00 07 00 11 00 0c 00 78 00 07 00 11 00 0d 00 7a 00 07 00 10 00 0d 00 21 00 08 00 1a 00 10 00 25 00 08 00 19 00 10 00 24 00 08 00 18 00 10 00 05 00 09 00 17 00 10 00 07 00 09 00 16 00 10 00 0d 00 0a 00 15 00 10 00 1f 00 0c 00 1a 00 0c 00 19 00 0c 00 17 00 0c 00 16 00 0c 00 1f 00 0d 00 1e 00 0d 00 1d 00 0d 00 1c 00 0d 00 1b 00 0d 00 1f 00 10 00 1e 00 10 00 1d 00 10 00 1c 00 10 00 1b 00 10 00 01 00 06 00 06 00 04 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_atrac_ff_cavs_intra_dec__8_byt_162_ {
+  strings:
+    $a0 = { 01 01 01 FF 01 01 01 02 01 FF 02 01 01 03 01 FF 03 01 01 04 01 FF 04 01 01 05 01 FF 05 01 01 06 01 FF 06 01 01 07 01 FF 07 01 01 08 01 FF 08 01 01 09 01 FF 09 01 01 0A 01 FF 0A 01 01 0B 01 FF 0B 01 02 01 02 FE 01 02 01 0C 01 FF 0C 01 01 0D 01 FF 0D 01 01 0E 01 FF 0E 01 01 0F 01 FF 0F 01 02 02 02 FE 02 02 01 10 01 FF 10 01 01 11 01 FF 11 01 03 01 03 FD 01 03 01 12 01 FF 12 01 01 13 01 FF 13 01 02 03 02 FE 03 02 01 14 01 FF 14 01 01 15 01 FF 15 01 02 04 02 FE 04 02 01 16 01 FF 16 01 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_sp5x_data_dht__8_byt_420_ {
+  strings:
+    $a0 = { ff c4 01 a2 00 00 01 05 01 01 01 01 01 01 00 00 00 00 00 00 00 00 01 02 03 04 05 06 07 08 09 0a 0b 01 00 03 01 01 01 01 01 01 01 01 01 00 00 00 00 00 00 01 02 03 04 05 06 07 08 09 0a 0b 10 00 02 01 03 03 02 04 03 05 05 04 04 00 00 01 7d 01 02 03 00 04 11 05 12 21 31 41 06 13 51 61 07 22 71 14 32 81 91 a1 08 23 42 b1 c1 15 52 d1 f0 24 33 62 72 82 09 0a 16 17 18 19 1a 25 26 27 28 29 2a 34 35 36 37 38 39 3a 43 44 45 46 47 48 49 4a 53 54 55 56 57 58 59 5a 63 64 65 66 67 68 69 6a 73 74 75 76 77 78 79 7a 83 84 85 86 87 88 89 8a 92 93 94 95 96 97 98 99 9a a2 a3 a4 a5 a6 a7 a8 a9 aa b2 b3 b4 b5 b6 b7 b8 b9 ba c2 c3 c4 c5 c6 c7 c8 c9 ca d2 d3 d4 d5 d6 d7 d8 d9 da e1 e2 e3 e4 e5 e6 e7 e8 e9 ea f1 f2 f3 f4 f5 f6 f7 f8 f9 fa 11 00 02 01 02 04 04 03 04 07 05 04 04 00 01 02 77 00 01 02 03 11 04 05 21 31 06 12 41 51 07 61 71 13 22 32 81 08 14 42 91 a1 b1 c1 09 23 33 52 f0 15 62 72 d1 0a 16 24 34 e1 25 f1 17 18 19 1a 26 27 28 29 2a 35 36 37 38 39 3a 43 44 45 46 47 48 49 4a 53 54 55 56 57 58 59 5a 63 64 65 66 67 68 69 6a 73 74 75 76 77 78 79 7a 82 83 84 85 86 87 88 89 8a 92 93 94 95 96 97 98 99 9a a2 a3 a4 a5 a6 a7 a8 a9 aa b2 b3 b4 b5 b6 b7 b8 b9 ba c2 c3 c4 c5 c6 c7 c8 c9 ca d2 d3 d4 d5 d6 d7 d8 d9 da e2 e3 e4 e5 e6 e7 e8 e9 ea f2 f3 f4 f5 f6 f7 f8 f9 fa }
+
+  condition:
+    $a0
+}
+
+
+rule Q128_ftab__32_lil_4096_ {
+  strings:
+    $a0 = { 32 26 d9 d6 4d 40 84 5e 82 12 34 4f 06 4b 65 71 0b 6a 8d d4 c4 ec 5b 24 80 4d f8 c8 c9 20 c6 22 02 8b aa 66 ff 97 c6 0a 36 5a 75 8b 1c 93 77 25 b6 17 8d 43 d1 1b 7b bb 1e f5 a8 e0 3d 58 fd f4 95 eb ce be ae c1 45 79 28 96 ce 29 cd 65 79 3d b9 bd cf 80 25 5a 53 2f bd a9 66 76 4b 32 f2 6d 06 1a 73 98 44 24 d3 e4 55 af 5f 26 27 54 89 41 5e c5 d2 f2 0f 93 51 81 a3 88 a8 77 32 9a ba 9c 9c 62 ec a7 04 f9 dc 55 79 91 5b b3 2e e4 b8 1a 27 80 ef a0 de 5c 4c db d3 a9 c2 9f 39 24 51 a9 5c cb 08 9c b6 92 fd 4b 7f da 3e c2 e1 33 78 03 91 7a 17 40 67 35 e5 ba 65 d6 4a 77 d3 44 b7 3c aa 01 8a 6e e3 b8 d2 65 2a a1 07 05 cb c3 69 ef d7 01 08 23 8f e7 ba 0b 36 0b 63 62 5a 80 6d ed bf 9e af 5a e7 78 1d 72 de d9 3c d3 6c da 18 66 42 ea c6 9d 82 2b 27 0d 65 ef 59 35 0b ef fd dc b4 71 52 86 84 dc 21 36 7f 66 5d 88 51 82 e5 92 3b 7b 9d 2e 00 51 16 e9 18 3b bd 99 86 83 ed b1 25 32 56 84 cb ab 6c 44 15 23 46 7e 1e cc bb a2 c0 a9 e4 3b 76 02 0a 32 e1 0a 6b 41 e3 55 a7 c6 dc 03 80 5c 42 82 c3 36 7b 23 e2 97 61 aa e6 2a ee 25 59 8a ae f8 56 3b 93 f1 bd 26 a3 5c ce 96 5a 05 1d e5 63 f5 2a ad 11 da 9a 2b bd f8 70 9f 9a 78 9f 3f 61 47 93 89 8f 0a cf a8 3b 2a 8b c7 c4 84 5e 8f 5e 79 b1 b8 34 e8 cc af 89 41 aa d9 11 8b 8c c2 15 a6 36 76 30 94 60 f2 44 a1 a3 ec 76 be 69 78 2e 61 c8 12 21 cb 8a d1 1c c2 61 cc 34 d1 df ed cb fa 7a ad cd 5c 6a 7f 5a 54 0b 0c e8 83 49 58 9c 8f 99 04 0b 53 9e 96 e1 e7 1e e2 dc ee f5 ff c2 cf 3b fe bd 7d 00 97 aa 84 fa 66 00 ed 75 a3 cd e0 09 35 30 c5 76 1b 76 3b 19 70 da 20 e0 86 9e 6c 36 c9 27 d1 f9 49 82 c6 52 ae fd a0 0f 26 57 c9 80 e3 25 8e 35 ce 91 43 04 02 44 98 b0 ae 40 e4 1c f3 cf 86 d6 f0 e3 e9 c4 8c 53 b5 2c be dc 3a 93 1e a7 a5 12 c3 fb 57 09 1d ff ff c3 a1 b2 86 54 bd 1e 70 d8 e8 6c 5f 68 6e 5e 94 c4 1b 63 9d 2f 06 8d 3d 06 84 f0 b8 f4 c1 34 6d bc a7 da 19 f3 c4 a1 52 14 f8 a5 7f ae 4c 95 06 bb 1d b6 46 9b aa 28 af dd 6b 11 66 f9 61 3f 56 27 9a b9 84 dc c2 25 e6 30 65 63 49 49 e7 da 71 f6 6f 98 27 53 b8 46 96 6a c0 da 9c 83 cc 0b d6 ee 9e 5a 3c 0e a7 67 89 86 f0 39 4c 54 02 02 5f cc 87 bf cf b9 b3 ac 1b f9 f6 a3 e0 ad dc f0 04 97 8b 93 4d de 6c 93 c8 ae 64 84 59 51 3e 51 d3 f3 7b 42 07 b3 3e 3d e4 9e be e8 d2 5f b1 6c 66 7b 2c 1e 21 ce 01 06 f7 06 3b ec ff e5 05 aa bd e9 24 e5 a2 a1 fd d8 ab 4a e0 6e 00 a4 e9 b6 2e 9e 01 fd c8 0a 8d f9 59 d3 73 9e 81 43 6a a8 0f 50 00 ae 2c 30 da 28 c7 d8 c0 58 5a d1 62 b9 69 a9 61 b2 6b 21 1e c6 db 92 08 76 87 7a 3a 15 9f 25 34 68 9f a7 79 d1 22 68 f9 0b 02 88 7f 9c e7 9c af 70 70 7c 01 09 5d 44 f8 bb b3 15 ee 91 97 62 e3 9e 3d 20 20 09 35 41 53 b4 9c 27 25 84 8d 37 df 0f 16 21 89 27 05 9f a8 49 05 3b 41 0d a4 98 ad 86 3f 8e fb 00 00 00 00 2c 07 17 d7 13 39 35 e6 d5 db b4 ac 6a 14 0d 1f 1c 47 11 c4 2e 09 cd b9 8f 5b d9 41 42 bb d0 74 1c 7e 02 86 c0 7d 82 da 95 ba d8 57 86 6e 98 12 89 78 b9 9b f0 3d 84 c9 e8 3f 2a 12 6a a8 6e 55 3f 6f 34 d8 7f b2 3b 69 a1 3a 11 53 9e b8 50 28 9c 0a e9 0c e8 6e 3c fb e7 fd 6d 7a 76 ef 7f 91 0f fb 54 2a 8f b6 ac e2 ec 2b 83 e4 fd 25 7f 2e a1 03 02 11 1e 49 cb aa 17 a8 ec 18 65 87 5c 9e e5 f3 b7 14 9e e9 46 c1 55 2a 2f 2e 44 c9 a6 47 b9 50 ba 23 c0 f8 f2 d2 2e 30 de fb 7d 51 94 a4 1a 0c 74 b5 89 29 af 72 13 bc 45 ee 49 3c 28 03 72 7e a6 6f 1a 35 67 f7 e8 ba 5a 1a a1 86 72 19 cb 46 19 e7 bb 67 73 0f 15 ce 33 dd f9 60 c0 31 72 fb d6 67 ec 97 e0 ae f0 e9 e2 28 a5 17 ab e7 a1 6b 07 ba da cd 95 25 65 3b 3f d4 72 c2 c5 25 46 13 1a c8 6a 91 7d 17 4f 26 5b 9b 00 d4 66 e1 a3 d9 be 9e 7b 72 f4 7e d7 38 1b 61 ac 73 fc 5d f2 5b 5b 0c 3b 96 e8 8d 93 25 db c7 3f 3e 22 31 84 08 47 d7 a7 48 67 60 74 e1 a5 ff 86 ba fe f3 57 24 f5 40 6e bc c7 a3 65 be 4f dc 9e 04 33 62 d7 d5 6e c2 ec 43 86 4f 9c b6 8a 46 cf 6b a3 53 ac f6 8c 55 2c 3e 04 95 98 ca 26 1b 91 ff 67 48 93 1c c8 85 fb 3f 0c b6 a7 19 71 89 6e ed d1 4a ea b4 80 74 27 e8 ea 0b 51 bb f6 d0 40 8c 19 58 11 e3 89 69 fb 6e 1a 5f d7 bd 6b 69 0f c2 47 68 fd 1c 6c 6c 74 35 c3 1e c2 4a 4b f6 fb 06 1f f4 6e 51 b2 00 55 96 4c 64 4b e6 94 8c c4 d5 48 66 b6 c3 eb a2 cb 2e 1c 4c dc 6b 85 f7 89 ac df 7a 39 f0 37 48 2a c9 02 ae a3 b1 bb 35 2a 75 61 e4 74 64 d5 f7 06 a6 10 d2 c0 15 87 71 d5 5e c4 a4 cf 3a b5 ba 23 28 25 1c 61 7e 80 cb 02 e3 af cd 70 18 79 aa 49 b9 58 0b e1 de 0d a0 c9 19 d5 60 c6 8a 84 e1 4f 1f 48 d9 79 a8 48 f1 3b c7 fe 64 15 1a 55 3c 34 54 af e5 bb 5e 60 4d 63 70 5a a5 bd 15 05 3c 3d 09 eb 1d ec 7a 95 0d ea 08 e3 3e 72 93 d3 cc b0 88 8e d3 98 1e 40 fa 6c 8b 0e 8f 98 a2 23 b0 97 dc 07 92 2c 6f 12 7c 51 3e 86 d8 c4 bd 4d cd 4f cb 2e 38 36 8e 13 6a 46 7b 1f 63 09 89 22 19 8b 27 75 1c 2e 58 db 50 06 9f 03 90 ff 7a b3 a9 a5 c3 cd 06 46 42 0c 21 aa d5 ec 8f 09 e1 27 b2 0b 3b 9b 3d e8 57 2f b9 11 5f ea 23 de b1 39 78 b9 01 ac ca 40 30 7a 12 f6 ca 82 f2 51 07 95 9a b4 f4 22 8e fb 83 6f fc 4d c5 f4 56 04 a8 ca bc 7d 39 91 0f 61 16 85 60 d7 ec 7d 80 8f 33 dc ea 98 76 45 51 15 f7 20 9f 82 7a 31 e4 42 56 a5 d7 98 9b 30 f2 f4 29 2d 3f 91 12 12 eb 18 02 ae db b0 34 ed 99 8b f3 13 fd 18 be cd 91 36 63 66 c9 97 8d 11 7b f2 de 2b 04 f2 8f 3d ed ac cf 9f 17 28 2a ad 63 18 53 b8 32 aa ec ff cd 4f 77 4d 72 80 1c ee 21 6e 68 a1 42 a7 f4 04 2a 42 6f b6 95 f4 fd 4b de ae a9 40 d2 c6 e2 81 4a 49 54 2d a8 f4 10 3e 7d 7f 37 4b 61 5e 40 a2 fa 32 77 cf 3f 68 ce b1 90 3d dd 8d fc 93 99 b8 8d dc bf e3 16 d1 9e 0b b3 ee a0 29 82 34 3c aa 4e 40 dd 0f b1 e5 ca a4 56 4b 63 e4 84 e7 95 68 d1 c4 50 38 6e 84 31 54 95 2e dd ab 58 fb ba 7c be 28 42 a8 c8 68 72 d2 da 76 53 1c db 68 1a d7 71 74 d8 b6 bd 57 4c f0 eb 42 d3 d5 df 55 42 2a 85 5c 77 6b d6 6a 7c 08 b4 c9 71 d0 cb 39 1d 42 eb 7b 9f 81 dd 44 4c d6 4f 4f 4e 5e 30 9a 41 8c 7d 97 e5 14 d0 32 a3 a9 de 4d 79 97 1c d5 8a a2 45 f0 55 81 62 de e0 2f 91 1e 18 dd 43 f6 4f f2 fa 9c 33 fa 4e 21 f2 99 93 0d 49 ed 0e 04 2d ba b4 57 f0 93 a1 f4 41 28 94 a8 db 36 e1 0d 18 fb e7 23 79 33 f5 89 10 bc 30 ac a7 9a bc 3b af fb cf 8d e9 60 65 c0 2c 94 33 57 98 96 0a 3d b5 88 57 36 32 70 20 51 6f 90 31 f2 33 5e a7 f6 a2 87 59 ee f1 3f 6b 02 66 df c5 d8 92 59 a2 f0 d0 f1 6a b2 ee 51 16 95 3f a8 5f f9 31 d6 d8 b0 e0 8b 78 95 6e be b6 39 a1 21 a1 cf d7 c0 19 d8 fa 5c 09 1e a4 be 09 c4 01 2e 87 55 7b 39 c7 76 6a 0f 99 1a e1 01 16 04 c0 cf 17 68 a6 b4 3b 28 7b bb 8a 11 b2 9f 80 32 1f ca 94 a1 ee 77 b2 93 a0 ab cf 30 fc 65 59 f9 08 c5 9a 65 53 3a 7f 0d 9d 8b ef 9a fd ef 37 9a 10 9a 94 7b a6 92 9f c0 c1 e1 90 67 0c f6 f8 46 2a 09 8a cf 03 a6 f8 79 2d 38 f9 1c 2f 14 6f 17 91 ff 5a 7d d4 e4 ac ac 9e 89 fe 98 4f 56 13 68 f7 a2 d2 d3 f8 d4 76 70 9d 09 a2 6e d4 c2 08 00 39 13 42 7d bc e1 07 95 57 ad f4 7d ed f7 ee 4f a3 2b 93 ae 7d 26 33 11 0e fc ca e3 04 b1 2f e8 06 39 50 c2 9e 2d 17 6a 45 1b f6 02 0e da 6e f2 62 48 4e 6c 37 6d c5 d1 4a 6d 52 a8 5e 46 e9 0d f5 8e 44 49 6d 3e ea 3f bb 52 39 93 74 cd 2e bb 8a 06 ac 5e ad d7 59 6c 0e 7e 87 c6 b3 97 a3 0d cc 9d 06 f4 78 3b d6 ea 31 f0 7c d1 f6 0e 18 d7 50 1e ca ea dc 85 df 8d b8 76 8c e1 62 6e ea 70 f5 0c 09 f2 0a 4d e5 cf bf c5 b2 4d fc e7 14 23 40 20 b7 d3 7d a4 7e bf 1b df 52 4b b7 82 65 ec ae f3 ec ee 99 3a c0 bd 2c 16 7e b0 d9 98 3a 44 75 c5 0d a8 e2 25 a3 15 4b 43 d5 7d 68 87 e6 a7 cd 17 68 25 63 40 6d 2a 98 14 47 79 7c 2e 10 c2 f6 28 bc 18 ef db 78 c9 a5 b6 2a c9 f4 a0 c3 5c 1f 6e 7d f4 c4 58 9c 28 fe cb 82 28 13 be 21 fb eb 6a 57 1c fb 72 8e 2a 4c 72 a6 f2 e7 38 46 d7 84 78 2b 39 75 47 40 b2 d7 42 54 27 3c 8c ea 23 ad 55 14 8d d0 73 27 e7 c4 7e 38 18 d6 c8 3a d8 c3 4f 4b bf a7 bc 18 58 8e b7 83 67 64 f3 53 25 df 23 27 63 21 4c 4c 3b 13 98 85 04 45 bf 1f 4b 0b e1 2f 46 c7 7c 29 34 b9 da 46 23 94 46 56 fd 99 1c 64 0d 70 fe 4c 9e 55 25 8b 6a 2d 1e 5d 6a f9 78 bc 02 b2 b9 24 63 cc 39 ef 36 e6 16 c1 c0 44 91 98 a5 92 db ef c2 22 4e 5d c9 9c a5 68 0b 87 f8 77 4f f2 3d 7a 42 3e a0 7c 23 fc 43 fd b0 65 fb 70 ae 90 53 90 63 a4 3c 44 8d 6c 10 6d 53 dd 29 15 89 95 cc 38 98 f3 35 59 8d 55 03 2f f6 76 e1 b8 30 ad 73 b0 8b 1e 66 5e 09 0c 52 11 53 e4 3a 57 25 b7 26 8c d3 90 d1 dd 15 72 50 97 e3 81 c1 27 82 ae 57 05 2e b5 ae f3 bd 44 13 d5 ea e5 96 9d c6 67 f1 42 44 1d c0 a6 ae 15 23 98 7f 8b 28 2b 91 ae 71 a1 d3 2c b2 97 b0 b1 9d 91 5e 11 b4 13 7b f7 84 76 0f aa 42 c3 a8 8a 20 08 00 85 70 08 9c 5b ff e5 5a 6d 18 4e 36 b7 00 28 d3 15 a1 d5 72 16 a3 c4 3d 8c 9b 15 6a c0 6b fe cd 0d 7c 96 d5 b3 b1 07 d8 46 3f 43 b6 7f 88 e8 5a e8 68 46 7d 85 f2 45 b9 d5 ca 2b a3 65 dd d4 21 26 ff 72 86 06 9d b9 72 aa c0 8e da 48 e5 2d 70 a4 1a e0 9e d0 55 83 23 11 36 5e bb 36 65 e6 53 61 4a 5f 04 7c ac 5d 7f 0e 58 23 b2 03 24 b5 89 fd c9 93 3d 61 ee b6 4b 5a f7 c6 de 88 2a 3a 18 6a ab 70 13 51 30 4d 61 fb f0 c3 0f 7e 24 22 8f de a9 49 55 c7 5a 8d ea 60 e6 95 80 c8 88 c0 25 0b 45 c6 b2 3a 37 f7 bf f6 aa f1 7b 4b e7 3c 4d ad f1 fd ee 74 4f 63 c6 36 e7 ab 70 49 6f 43 00 bc 63 4a 5c 4e 78 94 4b 8e 91 27 e7 41 0e 30 21 77 e9 9b b0 0d fe db 9c de 8f ed 61 c2 e3 81 04 91 d9 fe 68 23 c4 33 e5 4f d4 5e 13 ed 53 07 ec c6 f6 47 de 34 49 70 02 37 c9 2c ff 12 b6 02 5c 26 7d 3f bb 0f 76 a4 40 b5 0a 1a b6 ab ee 09 a5 ab c8 ad f6 1e e4 13 b9 38 bf 88 e7 10 18 d9 79 45 3d 52 b4 a5 34 67 5c a3 0d 37 cd b1 1f dc 34 80 c9 04 72 47 b5 2d d5 0f d2 4d 72 2f b0 86 17 45 99 bb 3f ea 44 d0 89 c4 da d1 57 a1 85 48 97 b4 02 39 58 b7 a4 c1 d5 36 c1 0f 1a b0 17 ff 67 e1 83 5b 21 a3 8f 7a fb d2 79 15 ff 43 a0 eb 40 09 69 50 7f e3 2d 80 82 43 22 a6 80 a0 8d 6b 91 c6 74 0a 84 e5 32 74 17 14 8f 52 0d 21 e8 a5 11 37 ef 88 97 59 77 9a 34 05 b9 0c ee c8 2c 29 82 97 44 47 58 63 c2 20 8d 04 15 c6 d8 17 29 aa 49 80 4b 49 e3 6c b4 84 97 08 61 73 f9 dc a3 7b bb db 10 45 61 93 f5 68 46 af 79 82 1a 89 04 bd 4b df 87 ce c2 a7 3e 55 0f 2f 32 cb 1a 5d 62 5c 2a 1d 64 4f de 0d 5a 32 cb 7f 0a a5 cf 52 b0 11 53 58 59 1d 8b 76 63 f5 68 4b c1 98 65 6a 29 3d 5c f2 1b de 2c d3 71 36 39 98 32 e3 4d 28 81 f5 32 f2 bf 37 9a ac f9 de da a5 90 8e f4 95 4e 75 09 b0 31 5b ac 22 ea b4 ae 44 35 71 8d 81 65 ce cb 92 7f 06 51 ea e0 39 5e fc c1 b0 ee 1c 4a c8 58 df a1 6a c6 0f f4 e9 17 f9 fa f1 30 40 06 13 44 f0 b5 05 a8 36 43 42 39 c9 24 0a b4 48 41 c4 b4 20 44 6f 5a d1 7b 04 f9 e5 b0 39 58 0b c7 8b 63 18 5f 0e 4f 9a 38 d1 f2 b6 2e af 58 32 d4 c9 d1 73 7e 10 c9 48 c3 89 9a 95 ea 9c 67 5d e0 11 79 14 2b bb 51 56 83 73 e8 eb 4c f3 76 d6 6c d3 13 d4 40 45 74 0c d0 5c 97 31 72 31 d5 e2 a7 ee 13 68 23 0f c9 cd b3 81 a3 0d d8 7f ea 59 f5 d7 8f 62 ca 03 a3 34 cb 3d 06 72 76 33 c4 69 2b 2c f6 27 f7 51 80 f1 9b 82 27 6d 9a 03 8b 9b 16 56 7d 00 82 4d 84 b4 24 9d dc d7 e6 bd 21 9a 9c 38 b9 ec d9 69 4d 11 92 b7 a5 fa de 44 02 da bc 8f f9 8d b5 92 65 02 2c 96 fd f1 19 cf 2c ea 62 74 a7 71 74 22 c4 38 3d c5 3f d3 57 92 b0 5c e8 32 6e 39 b7 ab 21 1f ec 30 86 d2 fb 58 a1 bf 61 5b 6c e3 0b 24 8b 4f 70 b7 ec 12 90 a6 c2 1b 5d 1f 36 df 05 83 80 99 9e 29 3d 30 f8 5f aa 69 8f c5 32 4e dc 7d d5 67 d7 e6 d7 69 0d 88 cd 34 6f d4 b2 bf 47 ff 61 2f 96 22 57 75 e3 a9 30 11 10 fa f0 81 e7 83 55 fe 49 cf 95 d2 dd fc 1c 16 07 2d d8 2e 3a e8 7f 5f 4e ca 9a c4 fc 75 06 ce 15 79 dc 86 f0 54 91 2b 01 a9 a5 46 bd 0e 2c 82 67 df 21 4e fa d9 5a b9 7e af a7 9c 01 81 d1 a7 18 f1 c6 5e e2 00 e7 29 0b 9b 27 b9 fc e2 2a f0 11 ec fd 4d 7a 85 7b ce 97 34 f6 9b 94 1b 2c bb 74 9d b4 cd 31 cc ff c6 d0 e3 8b ca 00 bf ea 8d 93 36 74 b0 b3 16 e3 d0 d7 ce 0f 47 37 60 6c b2 1d cd e3 3d a2 6d bf 4a c9 bb d1 cf 1d 5a fd 74 69 c7 49 d1 5d a0 09 d8 34 f0 13 00 26 a4 f6 f3 91 b0 a5 2e b8 a5 da f4 86 67 1e 9d ad 4b 1a 64 71 1e dc 52 96 b5 09 64 57 ba 2e 8c bd b1 b4 19 57 2d 3f 07 31 73 13 85 56 ac 40 58 7f b9 23 c5 50 bf bb e2 03 07 1c aa 64 67 f0 6c 92 20 d8 7f 2c 01 e5 76 c7 1c cd 88 0c 9e de 65 5f 99 53 09 4f f4 70 21 6a e8 ac 4a ef 1f 84 60 42 7c cd d9 1a 77 aa 38 99 2c 30 28 03 b8 a8 b3 33 4a 5c 9a 1e 75 bd c1 63 dd c0 90 f7 79 30 79 15 51 7b 1a f1 d5 97 60 64 d8 a7 20 62 cb 9a 29 89 d6 aa 50 9c 87 e5 1e c2 b7 70 cc 1f 4b e1 b6 08 0b 58 e6 b2 28 67 b0 95 b2 00 68 05 ab 32 cb ac 75 e5 9b b2 bf e5 27 d1 f5 3b 42 8e 6c 46 fe 6f 6b ee 4d 5c 21 bf 73 da f9 3f 82 41 7b ff ae d5 48 8b a2 05 14 4d 94 e2 bf bd 90 75 34 c2 73 58 b4 53 30 5c b6 8f 8f bf a0 e7 ac 7b 93 86 eb e8 1a ff 2b a5 40 49 e8 4e e2 18 87 de d3 55 13 3c 6c 67 d8 90 19 74 89 a0 54 f4 ac 5d 37 86 57 8b 50 80 25 fd 63 17 7c 8a f9 d3 c1 c7 34 f9 b4 a6 d0 2c 56 01 3e 79 f9 5e 18 1a d8 12 54 74 5d c6 b5 3b fe ed 26 0b be eb 35 57 1d e6 02 95 83 cb 15 cb 17 0f 0e 53 8c 3f fc 79 c0 4d 5a b6 fa f8 e0 cf ee d3 5b 6e 85 d4 e1 80 74 eb 8a b2 52 32 5c a8 67 55 ab 40 61 6c fb 17 c0 e9 b3 82 ff 41 ec a1 d7 64 f0 e1 8f 1b 49 e1 5b 7d a8 bf 22 cc 10 04 14 a9 f6 2a 24 77 0d 06 23 60 da 5e 28 a7 51 17 2d 9c 10 }
+
+  condition:
+    $a0
+}
+
+
+rule Blowfish_bfp_table__32_big_72_ {
+  strings:
+    $a0 = { 24 3f 6a 88 85 a3 08 d3 13 19 8a 2e 03 70 73 44 a4 09 38 22 29 9f 31 d0 08 2e fa 98 ec 4e 6c 89 45 28 21 e6 38 d0 13 77 be 54 66 cf 34 e9 0c 6c c0 ac 29 b7 c9 7c 50 dd 3f 84 d5 b5 b5 47 09 17 92 16 d5 d9 89 79 fb 1b }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_AC3_vq_hebap4__16_lil_372_ {
+  strings:
+    $a0 = { EC 19 0F EE 5D 37 6F BC 75 BF 60 03 4A 0E 0C 58 68 00 1D F9 AC FF 06 00 4C 54 69 BA 8E E3 D9 F9 E2 F7 C0 FE 47 F7 21 27 58 F5 5A 3A B8 CA 05 BB E4 F9 B6 BA 27 B5 A7 35 C5 0A 87 0B A8 11 86 15 E1 1C 2F 2A 1F 4B 36 CA 8F 01 A0 0B B5 FB 95 13 79 FB 4F 56 28 0E C9 F6 48 12 42 F7 AE 58 B5 0E 97 EF A3 DF 66 E5 9A CF 12 B8 16 3C B2 EB 2B E5 C1 D8 54 DF 6A C1 AE AF 72 FF 71 A7 90 FE 27 11 30 FE F3 FF 2E 03 A2 FB BF FB FD A9 4A 00 11 06 AE F9 16 4B 16 BB 4E CB 4A 03 FB F6 51 12 6A 40 4D 51 E5 C3 BC EF 80 F0 14 F3 CE 2B 1A CB 1F 35 EF B3 CA 35 19 07 56 03 E9 52 3A FC 95 F9 F4 FE E5 F5 95 FF 46 B1 78 01 96 04 D0 FE 99 F4 C5 01 F2 EA EE 02 EE A9 2E FC BC B5 C7 41 10 27 04 F2 A3 08 B3 05 53 05 9E F5 DF FF 1D F0 8D 04 1F AA 70 DE 38 F5 90 BB 8F C1 31 3A 2B 05 8C 02 8D DB B5 0C E2 C6 95 2F EC 4C 27 E7 8D 16 DD C3 8B 43 CE 40 96 F4 6B FD A7 FD 49 06 52 58 E0 03 EB FB 61 13 93 23 D9 2B 95 1E C0 3F C3 48 90 AA 67 FA 8A 00 BE 05 9D F8 3C FF D5 B3 E5 B8 30 2B FC FD EF 09 37 F7 54 FB 5A BB B6 4E C6 2C 6F FE 3B 0A 1E 12 26 E0 73 2E 71 C2 CF 44 95 C5 AD FF 16 01 43 01 37 00 66 FF E8 00 6C 1E B6 05 DB 47 C0 3B 6D C2 95 FB }
+
+  condition:
+    $a0
+}
+
+
+rule libmng_interlace_const__32_lil_AND_ {
+  strings:
+    $a0 = { 00 00 00 00 [0-20] 00 00 00 00 [0-20] 04 00 00 00 [0-20] 00 00 00 00 [0-20] 02 00 00 00 [0-20] 00 00 00 00 [0-20] 01 00 00 00 [0-20] 08 00 00 00 [0-20] 08 00 00 00 [0-20] 08 00 00 00 [0-20] 04 00 00 00 [0-20] 04 00 00 00 [0-20] 02 00 00 00 [0-20] 02 00 00 00 [0-20] 00 00 00 00 [0-20] 04 00 00 00 [0-20] 00 00 00 00 [0-20] 02 00 00 00 [0-20] 00 00 00 00 [0-20] 01 00 00 00 [0-20] 00 00 00 00 [0-20] 08 00 00 00 [0-20] 08 00 00 00 [0-20] 04 00 00 00 [0-20] 04 00 00 00 [0-20] 02 00 00 00 [0-20] 02 00 00 00 [0-20] 01 00 00 00 [0-20] 07 00 00 00 [0-20] 07 00 00 00 [0-20] 03 00 00 00 [0-20] 03 00 00 00 [0-20] 01 00 00 00 [0-20] 01 00 00 00 [0-20] 00 00 00 00 [0-20] 03 00 00 00 [0-20] 03 00 00 00 [0-20] 02 00 00 00 [0-20] 02 00 00 00 [0-20] 01 00 00 00 [0-20] 01 00 00 00 [0-20] 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Haval_mc3__32_big_128_ {
+  strings:
+    $a0 = { 9c 30 d5 39 2a f2 60 13 c5 d1 b0 23 28 60 85 f0 ca 41 79 18 b8 db 38 ef 8e 79 dc b0 60 3a 18 0e 6c 9e 0e 8b b0 1e 8a 3e d7 15 77 c1 bd 31 4b 27 78 af 2f da 55 60 5c 60 e6 55 25 f3 aa 55 ab 94 57 48 98 62 63 e8 14 40 55 ca 39 6a 2a ab 10 b6 b4 cc 5c 34 11 41 e8 ce a1 54 86 af 7c 72 e9 93 b3 ee 14 11 63 6f bc 2a 2b a9 c5 5d 74 18 31 f6 ce 5c 3e 16 9b 87 93 1e af d6 ba 33 6c 24 cf 5c }
+
+  condition:
+    $a0
+}
+
+
+rule DES_fp__8_byt_64_ {
+  strings:
+    $a0 = { 28 08 30 10 38 18 40 20 27 07 2f 0f 37 17 3f 1f 26 06 2e 0e 36 16 3e 1e 25 05 2d 0d 35 15 3d 1d 24 04 2c 0c 34 14 3c 1c 23 03 2b 0b 33 13 3b 1b 22 02 2a 0a 32 12 3a 1a 21 01 29 09 31 11 39 19 }
+
+  condition:
+    $a0
+}
+
+
+rule DES_permuted_choice_table__key___8_byt_56_ {
+  strings:
+    $a0 = { 39 31 29 21 19 11 09 01 3a 32 2a 22 1a 12 0a 02 3b 33 2b 23 1b 13 0b 03 3c 34 2c 24 3f 37 2f 27 1f 17 0f 07 3e 36 2e 26 1e 16 0e 06 3d 35 2d 25 1d 15 0d 05 1c 14 0c 04 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_h264_quant_coeff__32_lil_3328_ {
+  strings:
+    $a0 = { 66 66 06 00 3f f0 03 00 66 66 06 00 3f f0 03 00 3f f0 03 00 5c 8f 02 00 3f f0 03 00 5c 8f 02 00 66 66 06 00 3f f0 03 00 66 66 06 00 3f f0 03 00 3f f0 03 00 5c 8f 02 00 3f f0 03 00 5c 8f 02 00 74 d1 05 00 3b a8 03 00 74 d1 05 00 3b a8 03 00 3b a8 03 00 8b 46 02 00 3b a8 03 00 8b 46 02 00 74 d1 05 00 3b a8 03 00 74 d1 05 00 3b a8 03 00 3b a8 03 00 8b 46 02 00 3b a8 03 00 8b 46 02 00 4f ec 04 00 33 33 03 00 4f ec 04 00 33 33 03 00 33 33 03 00 4a 0c 02 00 33 33 03 00 4a 0c 02 00 4f ec 04 00 33 33 03 00 4f ec 04 00 33 33 03 00 33 33 03 00 4a 0c 02 00 33 33 03 00 4a 0c 02 00 49 92 04 00 2e d8 02 00 49 92 04 00 2e d8 02 00 2e d8 02 00 e7 c7 01 00 2e d8 02 00 e7 c7 01 00 49 92 04 00 2e d8 02 00 49 92 04 00 2e d8 02 00 2e d8 02 00 e7 c7 01 00 2e d8 02 00 e7 c7 01 00 00 00 04 00 5c 8f 02 00 00 00 04 00 5c 8f 02 00 5c 8f 02 00 6e a3 01 00 5c 8f 02 00 6e a3 01 00 00 00 04 00 5c 8f 02 00 00 00 04 00 5c 8f 02 00 5c 8f 02 00 6e a3 01 00 5c 8f 02 00 6e a3 01 00 39 8e 03 00 e1 39 02 00 39 8e 03 00 e1 39 02 00 e1 39 02 00 94 69 01 00 e1 39 02 00 94 69 01 00 39 8e 03 00 e1 39 02 00 39 8e 03 00 e1 39 02 00 e1 39 02 00 94 69 01 00 e1 39 02 00 94 69 01 00 33 33 03 00 20 f8 01 00 33 33 03 00 20 f8 01 00 20 f8 01 00 ae 47 01 00 20 f8 01 00 ae 47 01 00 33 33 03 00 20 f8 01 00 33 33 03 00 20 f8 01 00 20 f8 01 00 ae 47 01 00 20 f8 01 00 ae 47 01 00 ba e8 02 00 1d d4 01 00 ba e8 02 00 1d d4 01 00 1d d4 01 00 45 23 01 00 1d d4 01 00 45 23 01 00 ba e8 02 00 1d d4 01 00 ba e8 02 00 1d d4 01 00 1d d4 01 00 45 23 01 00 1d d4 01 00 45 23 01 00 27 76 02 00 9a 99 01 00 27 76 02 00 9a 99 01 00 9a 99 01 00 25 06 01 00 9a 99 01 00 25 06 01 00 27 76 02 00 9a 99 01 00 27 76 02 00 9a 99 01 00 9a 99 01 00 25 06 01 00 9a 99 01 00 25 06 01 00 25 49 02 00 17 6c 01 00 25 49 02 00 17 6c 01 00 17 6c 01 00 f4 e3 00 00 17 6c 01 00 f4 e3 00 00 25 49 02 00 17 6c 01 00 25 49 02 00 17 6c 01 00 17 6c 01 00 f4 e3 00 00 17 6c 01 00 f4 e3 00 00 00 00 02 00 ae 47 01 00 00 00 02 00 ae 47 01 00 ae 47 01 00 b7 d1 00 00 ae 47 01 00 b7 d1 00 00 00 00 02 00 ae 47 01 00 00 00 02 00 ae 47 01 00 ae 47 01 00 b7 d1 00 00 ae 47 01 00 b7 d1 00 00 1c c7 01 00 f0 1c 01 00 1c c7 01 00 f0 1c 01 00 f0 1c 01 00 ca b4 00 00 f0 1c 01 00 ca b4 00 00 1c c7 01 00 f0 1c 01 00 1c c7 01 00 f0 1c 01 00 f0 1c 01 00 ca b4 00 00 f0 1c 01 00 ca b4 00 00 9a 99 01 00 10 fc 00 00 9a 99 01 00 10 fc 00 00 10 fc 00 00 d7 a3 00 00 10 fc 00 00 d7 a3 00 00 9a 99 01 00 10 fc 00 00 9a 99 01 00 10 fc 00 00 10 fc 00 00 d7 a3 00 00 10 fc 00 00 d7 a3 00 00 5d 74 01 00 0f ea 00 00 5d 74 01 00 0f ea 00 00 0f ea 00 00 a3 91 00 00 0f ea 00 00 a3 91 00 00 5d 74 01 00 0f ea 00 00 5d 74 01 00 0f ea 00 00 0f ea 00 00 a3 91 00 00 0f ea 00 00 a3 91 00 00 14 3b 01 00 cd cc 00 00 14 3b 01 00 cd cc 00 00 cd cc 00 00 12 83 00 00 cd cc 00 00 12 83 00 00 14 3b 01 00 cd cc 00 00 14 3b 01 00 cd cc 00 00 cd cc 00 00 12 83 00 00 cd cc 00 00 12 83 00 00 92 24 01 00 0b b6 00 00 92 24 01 00 0b b6 00 00 0b b6 00 00 fa 71 00 00 0b b6 00 00 fa 71 00 00 92 24 01 00 0b b6 00 00 92 24 01 00 0b b6 00 00 0b b6 00 00 fa 71 00 00 0b b6 00 00 fa 71 00 00 00 00 01 00 d7 a3 00 00 00 00 01 00 d7 a3 00 00 d7 a3 00 00 dc 68 00 00 d7 a3 00 00 dc 68 00 00 00 00 01 00 d7 a3 00 00 00 00 01 00 d7 a3 00 00 d7 a3 00 00 dc 68 00 00 d7 a3 00 00 dc 68 00 00 8e e3 00 00 78 8e 00 00 8e e3 00 00 78 8e 00 00 78 8e 00 00 65 5a 00 00 78 8e 00 00 65 5a 00 00 8e e3 00 00 78 8e 00 00 8e e3 00 00 78 8e 00 00 78 8e 00 00 65 5a 00 00 78 8e 00 00 65 5a 00 00 cd cc 00 00 08 7e 00 00 cd cc 00 00 08 7e 00 00 08 7e 00 00 ec 51 00 00 08 7e 00 00 ec 51 00 00 cd cc 00 00 08 7e 00 00 cd cc 00 00 08 7e 00 00 08 7e 00 00 ec 51 00 00 08 7e 00 00 ec 51 00 00 2f ba 00 00 07 75 00 00 2f ba 00 00 07 75 00 00 07 75 00 00 d1 48 00 00 07 75 00 00 d1 48 00 00 2f ba 00 00 07 75 00 00 2f ba 00 00 07 75 00 00 07 75 00 00 d1 48 00 00 07 75 00 00 d1 48 00 00 8a 9d 00 00 66 66 00 00 8a 9d 00 00 66 66 00 00 66 66 00 00 89 41 00 00 66 66 00 00 89 41 00 00 8a 9d 00 00 66 66 00 00 8a 9d 00 00 66 66 00 00 66 66 00 00 89 41 00 00 66 66 00 00 89 41 00 00 49 92 00 00 06 5b 00 00 49 92 00 00 06 5b 00 00 06 5b 00 00 fd 38 00 00 06 5b 00 00 fd 38 00 00 49 92 00 00 06 5b 00 00 49 92 00 00 06 5b 00 00 06 5b 00 00 fd 38 00 00 06 5b 00 00 fd 38 00 00 00 80 00 00 ec 51 00 00 00 80 00 00 ec 51 00 00 ec 51 00 00 6e 34 00 00 ec 51 00 00 6e 34 00 00 00 80 00 00 ec 51 00 00 00 80 00 00 ec 51 00 00 ec 51 00 00 6e 34 00 00 ec 51 00 00 6e 34 00 00 c7 71 00 00 3c 47 00 00 c7 71 00 00 3c 47 00 00 3c 47 00 00 32 2d 00 00 3c 47 00 00 32 2d 00 00 c7 71 00 00 3c 47 00 00 c7 71 00 00 3c 47 00 00 3c 47 00 00 32 2d 00 00 3c 47 00 00 32 2d 00 00 66 66 00 00 04 3f 00 00 66 66 00 00 04 3f 00 00 04 3f 00 00 f6 28 00 00 04 3f 00 00 f6 28 00 00 66 66 00 00 04 3f 00 00 66 66 00 00 04 3f 00 00 04 3f 00 00 f6 28 00 00 04 3f 00 00 f6 28 00 00 17 5d 00 00 84 3a 00 00 17 5d 00 00 84 3a 00 00 84 3a 00 00 69 24 00 00 84 3a 00 00 69 24 00 00 17 5d 00 00 84 3a 00 00 17 5d 00 00 84 3a 00 00 84 3a 00 00 69 24 00 00 84 3a 00 00 69 24 00 00 c5 4e 00 00 33 33 00 00 c5 4e 00 00 33 33 00 00 33 33 00 00 c5 20 00 00 33 33 00 00 c5 20 00 00 c5 4e 00 00 33 33 00 00 c5 4e 00 00 33 33 00 00 33 33 00 00 c5 20 00 00 33 33 00 00 c5 20 00 00 25 49 00 00 83 2d 00 00 25 49 00 00 83 2d 00 00 83 2d 00 00 7e 1c 00 00 83 2d 00 00 7e 1c 00 00 25 49 00 00 83 2d 00 00 25 49 00 00 83 2d 00 00 83 2d 00 00 7e 1c 00 00 83 2d 00 00 7e 1c 00 00 00 40 00 00 f6 28 00 00 00 40 00 00 f6 28 00 00 f6 28 00 00 37 1a 00 00 f6 28 00 00 37 1a 00 00 00 40 00 00 f6 28 00 00 00 40 00 00 f6 28 00 00 f6 28 00 00 37 1a 00 00 f6 28 00 00 37 1a 00 00 e4 38 00 00 9e 23 00 00 e4 38 00 00 9e 23 00 00 9e 23 00 00 99 16 00 00 9e 23 00 00 99 16 00 00 e4 38 00 00 9e 23 00 00 e4 38 00 00 9e 23 00 00 9e 23 00 00 99 16 00 00 9e 23 00 00 99 16 00 00 33 33 00 00 82 1f 00 00 33 33 00 00 82 1f 00 00 82 1f 00 00 7b 14 00 00 82 1f 00 00 7b 14 00 00 33 33 00 00 82 1f 00 00 33 33 00 00 82 1f 00 00 82 1f 00 00 7b 14 00 00 82 1f 00 00 7b 14 00 00 8c 2e 00 00 42 1d 00 00 8c 2e 00 00 42 1d 00 00 42 1d 00 00 34 12 00 00 42 1d 00 00 34 12 00 00 8c 2e 00 00 42 1d 00 00 8c 2e 00 00 42 1d 00 00 42 1d 00 00 34 12 00 00 42 1d 00 00 34 12 00 00 62 27 00 00 9a 19 00 00 62 27 00 00 9a 19 00 00 9a 19 00 00 62 10 00 00 9a 19 00 00 62 10 00 00 62 27 00 00 9a 19 00 00 62 27 00 00 9a 19 00 00 9a 19 00 00 62 10 00 00 9a 19 00 00 62 10 00 00 92 24 00 00 c1 16 00 00 92 24 00 00 c1 16 00 00 c1 16 00 00 3f 0e 00 00 c1 16 00 00 3f 0e 00 00 92 24 00 00 c1 16 00 00 92 24 00 00 c1 16 00 00 c1 16 00 00 3f 0e 00 00 c1 16 00 00 3f 0e 00 00 00 20 00 00 7b 14 00 00 00 20 00 00 7b 14 00 00 7b 14 00 00 1b 0d 00 00 7b 14 00 00 1b 0d 00 00 00 20 00 00 7b 14 00 00 00 20 00 00 7b 14 00 00 7b 14 00 00 1b 0d 00 00 7b 14 00 00 1b 0d 00 00 72 1c 00 00 cf 11 00 00 72 1c 00 00 cf 11 00 00 cf 11 00 00 4d 0b 00 00 cf 11 00 00 4d 0b 00 00 72 1c 00 00 cf 11 00 00 72 1c 00 00 cf 11 00 00 cf 11 00 00 4d 0b 00 00 cf 11 00 00 4d 0b 00 00 9a 19 00 00 c1 0f 00 00 9a 19 00 00 c1 0f 00 00 c1 0f 00 00 3d 0a 00 00 c1 0f 00 00 3d 0a 00 00 9a 19 00 00 c1 0f 00 00 9a 19 00 00 c1 0f 00 00 c1 0f 00 00 3d 0a 00 00 c1 0f 00 00 3d 0a 00 00 46 17 00 00 a1 0e 00 00 46 17 00 00 a1 0e 00 00 a1 0e 00 00 1a 09 00 00 a1 0e 00 00 1a 09 00 00 46 17 00 00 a1 0e 00 00 46 17 00 00 a1 0e 00 00 a1 0e 00 00 1a 09 00 00 a1 0e 00 00 1a 09 00 00 b1 13 00 00 cd 0c 00 00 b1 13 00 00 cd 0c 00 00 cd 0c 00 00 31 08 00 00 cd 0c 00 00 31 08 00 00 b1 13 00 00 cd 0c 00 00 b1 13 00 00 cd 0c 00 00 cd 0c 00 00 31 08 00 00 cd 0c 00 00 31 08 00 00 49 12 00 00 61 0b 00 00 49 12 00 00 61 0b 00 00 61 0b 00 00 20 07 00 00 61 0b 00 00 20 07 00 00 49 12 00 00 61 0b 00 00 49 12 00 00 61 0b 00 00 61 0b 00 00 20 07 00 00 61 0b 00 00 20 07 00 00 00 10 00 00 3d 0a 00 00 00 10 00 00 3d 0a 00 00 3d 0a 00 00 8e 06 00 00 3d 0a 00 00 8e 06 00 00 00 10 00 00 3d 0a 00 00 00 10 00 00 3d 0a 00 00 3d 0a 00 00 8e 06 00 00 3d 0a 00 00 8e 06 00 00 39 0e 00 00 e8 08 00 00 39 0e 00 00 e8 08 00 00 e8 08 00 00 a6 05 00 00 e8 08 00 00 a6 05 00 00 39 0e 00 00 e8 08 00 00 39 0e 00 00 e8 08 00 00 e8 08 00 00 a6 05 00 00 e8 08 00 00 a6 05 00 00 cd 0c 00 00 e0 07 00 00 cd 0c 00 00 e0 07 00 00 e0 07 00 00 1f 05 00 00 e0 07 00 00 1f 05 00 00 cd 0c 00 00 e0 07 00 00 cd 0c 00 00 e0 07 00 00 e0 07 00 00 1f 05 00 00 e0 07 00 00 1f 05 00 00 a3 0b 00 00 50 07 00 00 a3 0b 00 00 50 07 00 00 50 07 00 00 8d 04 00 00 50 07 00 00 8d 04 00 00 a3 0b 00 00 50 07 00 00 a3 0b 00 00 50 07 00 00 50 07 00 00 8d 04 00 00 50 07 00 00 8d 04 00 00 d9 09 00 00 66 06 00 00 d9 09 00 00 66 06 00 00 66 06 00 00 19 04 00 00 66 06 00 00 19 04 00 00 d9 09 00 00 66 06 00 00 d9 09 00 00 66 06 00 00 66 06 00 00 19 04 00 00 66 06 00 00 19 04 00 00 25 09 00 00 b0 05 00 00 25 09 00 00 b0 05 00 00 b0 05 00 00 90 03 00 00 b0 05 00 00 90 03 00 00 25 09 00 00 b0 05 00 00 25 09 00 00 b0 05 00 00 b0 05 00 00 90 03 00 00 b0 05 00 00 90 03 00 00 00 08 00 00 1f 05 00 00 00 08 00 00 1f 05 00 00 1f 05 00 00 47 03 00 00 1f 05 00 00 47 03 00 00 00 08 00 00 1f 05 00 00 00 08 00 00 1f 05 00 00 1f 05 00 00 47 03 00 00 1f 05 00 00 47 03 00 00 1c 07 00 00 74 04 00 00 1c 07 00 00 74 04 00 00 74 04 00 00 d3 02 00 00 74 04 00 00 d3 02 00 00 1c 07 00 00 74 04 00 00 1c 07 00 00 74 04 00 00 74 04 00 00 d3 02 00 00 74 04 00 00 d3 02 00 00 66 06 00 00 f0 03 00 00 66 06 00 00 f0 03 00 00 f0 03 00 00 8f 02 00 00 f0 03 00 00 8f 02 00 00 66 06 00 00 f0 03 00 00 66 06 00 00 f0 03 00 00 f0 03 00 00 8f 02 00 00 f0 03 00 00 8f 02 00 00 d1 05 00 00 a8 03 00 00 d1 05 00 00 a8 03 00 00 a8 03 00 00 47 02 00 00 a8 03 00 00 47 02 00 00 d1 05 00 00 a8 03 00 00 d1 05 00 00 a8 03 00 00 a8 03 00 00 47 02 00 00 a8 03 00 00 47 02 00 00 ec 04 00 00 33 03 00 00 ec 04 00 00 33 03 00 00 33 03 00 00 0c 02 00 00 33 03 00 00 0c 02 00 00 ec 04 00 00 33 03 00 00 ec 04 00 00 33 03 00 00 33 03 00 00 0c 02 00 00 33 03 00 00 0c 02 00 00 92 04 00 00 d8 02 00 00 92 04 00 00 d8 02 00 00 d8 02 00 00 c8 01 00 00 d8 02 00 00 c8 01 00 00 92 04 00 00 d8 02 00 00 92 04 00 00 d8 02 00 00 d8 02 00 00 c8 01 00 00 d8 02 00 00 c8 01 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Whirlpool_C1__64_big_2048_ {
+  strings:
+    $a0 = { 78 18 18 28 18 78 c0 d8 af 23 23 65 23 af 05 26 f9 c6 c6 57 c6 f9 7e b8 6f e8 e8 25 e8 6f 13 fb a1 87 87 94 87 a1 4c cb 62 b8 b8 d5 b8 62 a9 11 05 01 01 03 01 05 08 09 6e 4f 4f d1 4f 6e 42 0d ee 36 36 5a 36 ee ad 9b 04 a6 a6 f7 a6 04 59 ff bd d2 d2 6b d2 bd de 0c 06 f5 f5 02 f5 06 fb 0e 80 79 79 8b 79 80 ef 96 ce 6f 6f b1 6f ce 5f 30 ef 91 91 ae 91 ef fc 6d 07 52 52 f6 52 07 aa f8 fd 60 60 a0 60 fd 27 47 76 bc bc d9 bc 76 89 35 cd 9b 9b b0 9b cd ac 37 8c 8e 8e 8f 8e 8c 04 8a 15 a3 a3 f8 a3 15 71 d2 3c 0c 0c 14 0c 3c 60 6c 8a 7b 7b 8d 7b 8a ff 84 e1 35 35 5f 35 e1 b5 80 69 1d 1d 27 1d 69 e8 f5 47 e0 e0 3d e0 47 53 b3 ac d7 d7 64 d7 ac f6 21 ed c2 c2 5b c2 ed 5e 9c 96 2e 2e 72 2e 96 6d 43 7a 4b 4b dd 4b 7a 62 29 21 fe fe 1f fe 21 a3 5d 16 57 57 f9 57 16 82 d5 41 15 15 3f 15 41 a8 bd b6 77 77 99 77 b6 9f e8 eb 37 37 59 37 eb a5 92 56 e5 e5 32 e5 56 7b 9e d9 9f 9f bc 9f d9 8c 13 17 f0 f0 0d f0 17 d3 23 7f 4a 4a de 4a 7f 6a 20 95 da da 73 da 95 9e 44 25 58 58 e8 58 25 fa a2 ca c9 c9 46 c9 ca 06 cf 8d 29 29 7b 29 8d 55 7c 22 0a 0a 1e 0a 22 50 5a 4f b1 b1 ce b1 4f e1 50 1a a0 a0 fd a0 1a 69 c9 da 6b 6b bd 6b da 7f 14 ab 85 85 92 85 ab 5c d9 73 bd bd da bd 73 81 3c 34 5d 5d e7 5d 34 d2 8f 50 10 10 30 10 50 80 90 03 f4 f4 01 f4 03 f3 07 c0 cb cb 40 cb c0 16 dd c6 3e 3e 42 3e c6 ed d3 11 05 05 0f 05 11 28 2d e6 67 67 a9 67 e6 1f 78 53 e4 e4 31 e4 53 73 97 bb 27 27 69 27 bb 25 02 58 41 41 c3 41 58 32 73 9d 8b 8b 80 8b 9d 2c a7 01 a7 a7 f4 a7 01 51 f6 94 7d 7d 87 7d 94 cf b2 fb 95 95 a2 95 fb dc 49 9f d8 d8 75 d8 9f 8e 56 30 fb fb 10 fb 30 8b 70 71 ee ee 2f ee 71 23 cd 91 7c 7c 84 7c 91 c7 bb e3 66 66 aa 66 e3 17 71 8e dd dd 7a dd 8e a6 7b 4b 17 17 39 17 4b b8 af 46 47 47 c9 47 46 02 45 dc 9e 9e bf 9e dc 84 1a c5 ca ca 43 ca c5 1e d4 99 2d 2d 77 2d 99 75 58 79 bf bf dc bf 79 91 2e 1b 07 07 09 07 1b 38 3f 23 ad ad ea ad 23 01 ac 2f 5a 5a ee 5a 2f ea b0 b5 83 83 98 83 b5 6c ef ff 33 33 55 33 ff 85 b6 f2 63 63 a5 63 f2 3f 5c 0a 02 02 06 02 0a 10 12 38 aa aa e3 aa 38 39 93 a8 71 71 93 71 a8 af de cf c8 c8 45 c8 cf 0e c6 7d 19 19 2b 19 7d c8 d1 70 49 49 db 49 70 72 3b 9a d9 d9 76 d9 9a 86 5f 1d f2 f2 0b f2 1d c3 31 48 e3 e3 38 e3 48 4b a8 2a 5b 5b ed 5b 2a e2 b9 92 88 88 85 88 92 34 bc c8 9a 9a b3 9a c8 a4 3e be 26 26 6a 26 be 2d 0b fa 32 32 56 32 fa 8d bf 4a b0 b0 cd b0 4a e9 59 6a e9 e9 26 e9 6a 1b f2 33 0f 0f 11 0f 33 78 77 a6 d5 d5 62 d5 a6 e6 33 ba 80 80 9d 80 ba 74 f4 7c be be df be 7c 99 27 de cd cd 4a cd de 26 eb e4 34 34 5c 34 e4 bd 89 75 48 48 d8 48 75 7a 32 24 ff ff 1c ff 24 ab 54 8f 7a 7a 8e 7a 8f f7 8d ea 90 90 ad 90 ea f4 64 3e 5f 5f e1 5f 3e c2 9d a0 20 20 60 20 a0 1d 3d d5 68 68 b8 68 d5 67 0f 72 1a 1a 2e 1a 72 d0 ca 2c ae ae ef ae 2c 19 b7 5e b4 b4 c1 b4 5e c9 7d 19 54 54 fc 54 19 9a ce e5 93 93 a8 93 e5 ec 7f aa 22 22 66 22 aa 0d 2f e9 64 64 ac 64 e9 07 63 12 f1 f1 0e f1 12 db 2a a2 73 73 95 73 a2 bf cc 5a 12 12 36 12 5a 90 82 5d 40 40 c0 40 5d 3a 7a 28 08 08 18 08 28 40 48 e8 c3 c3 58 c3 e8 56 95 7b ec ec 29 ec 7b 33 df 90 db db 70 db 90 96 4d 1f a1 a1 fe a1 1f 61 c0 83 8d 8d 8a 8d 83 1c 91 c9 3d 3d 47 3d c9 f5 c8 f1 97 97 a4 97 f1 cc 5b 00 00 00 00 00 00 00 00 d4 cf cf 4c cf d4 36 f9 87 2b 2b 7d 2b 87 45 6e b3 76 76 9a 76 b3 97 e1 b0 82 82 9b 82 b0 64 e6 a9 d6 d6 67 d6 a9 fe 28 77 1b 1b 2d 1b 77 d8 c3 5b b5 b5 c2 b5 5b c1 74 29 af af ec af 29 11 be df 6a 6a be 6a df 77 1d 0d 50 50 f0 50 0d ba ea 4c 45 45 cf 45 4c 12 57 18 f3 f3 08 f3 18 cb 38 f0 30 30 50 30 f0 9d ad 74 ef ef 2c ef 74 2b c4 c3 3f 3f 41 3f c3 e5 da 1c 55 55 ff 55 1c 92 c7 10 a2 a2 fb a2 10 79 db 65 ea ea 23 ea 65 03 e9 ec 65 65 af 65 ec 0f 6a 68 ba ba d3 ba 68 b9 03 93 2f 2f 71 2f 93 65 4a e7 c0 c0 5d c0 e7 4e 8e 81 de de 7f de 81 be 60 6c 1c 1c 24 1c 6c e0 fc 2e fd fd 1a fd 2e bb 46 64 4d 4d d7 4d 64 52 1f e0 92 92 ab 92 e0 e4 76 bc 75 75 9f 75 bc 8f fa 1e 06 06 0a 06 1e 30 36 98 8a 8a 83 8a 98 24 ae 40 b2 b2 cb b2 40 f9 4b 59 e6 e6 37 e6 59 63 85 36 0e 0e 12 0e 36 70 7e 63 1f 1f 21 1f 63 f8 e7 f7 62 62 a6 62 f7 37 55 a3 d4 d4 61 d4 a3 ee 3a 32 a8 a8 e5 a8 32 29 81 f4 96 96 a7 96 f4 c4 52 3a f9 f9 16 f9 3a 9b 62 f6 c5 c5 52 c5 f6 66 a3 b1 25 25 6f 25 b1 35 10 20 59 59 eb 59 20 f2 ab ae 84 84 91 84 ae 54 d0 a7 72 72 96 72 a7 b7 c5 dd 39 39 4b 39 dd d5 ec 61 4c 4c d4 4c 61 5a 16 3b 5e 5e e2 5e 3b ca 94 85 78 78 88 78 85 e7 9f d8 38 38 48 38 d8 dd e5 86 8c 8c 89 8c 86 14 98 b2 d1 d1 6e d1 b2 c6 17 0b a5 a5 f2 a5 0b 41 e4 4d e2 e2 3b e2 4d 43 a1 f8 61 61 a3 61 f8 2f 4e 45 b3 b3 c8 b3 45 f1 42 a5 21 21 63 21 a5 15 34 d6 9c 9c b9 9c d6 94 08 66 1e 1e 22 1e 66 f0 ee 52 43 43 c5 43 52 22 61 fc c7 c7 54 c7 fc 76 b1 2b fc fc 19 fc 2b b3 4f 14 04 04 0c 04 14 20 24 08 51 51 f3 51 08 b2 e3 c7 99 99 b6 99 c7 bc 25 c4 6d 6d b7 6d c4 4f 22 39 0d 0d 17 0d 39 68 65 35 fa fa 13 fa 35 83 79 84 df df 7c df 84 b6 69 9b 7e 7e 82 7e 9b d7 a9 b4 24 24 6c 24 b4 3d 19 d7 3b 3b 4d 3b d7 c5 fe 3d ab ab e0 ab 3d 31 9a d1 ce ce 4f ce d1 3e f0 55 11 11 33 11 55 88 99 89 8f 8f 8c 8f 89 0c 83 6b 4e 4e d2 4e 6b 4a 04 51 b7 b7 c4 b7 51 d1 66 60 eb eb 20 eb 60 0b e0 cc 3c 3c 44 3c cc fd c1 bf 81 81 9e 81 bf 7c fd fe 94 94 a1 94 fe d4 40 0c f7 f7 04 f7 0c eb 1c 67 b9 b9 d6 b9 67 a1 18 5f 13 13 35 13 5f 98 8b 9c 2c 2c 74 2c 9c 7d 51 b8 d3 d3 68 d3 b8 d6 05 5c e7 e7 34 e7 5c 6b 8c cb 6e 6e b2 6e cb 57 39 f3 c4 c4 51 c4 f3 6e aa 0f 03 03 05 03 0f 18 1b 13 56 56 fa 56 13 8a dc 49 44 44 cc 44 49 1a 5e 9e 7f 7f 81 7f 9e df a0 37 a9 a9 e6 a9 37 21 88 82 2a 2a 7e 2a 82 4d 67 6d bb bb d0 bb 6d b1 0a e2 c1 c1 5e c1 e2 46 87 02 53 53 f5 53 02 a2 f1 8b dc dc 79 dc 8b ae 72 27 0b 0b 1d 0b 27 58 53 d3 9d 9d ba 9d d3 9c 01 c1 6c 6c b4 6c c1 47 2b f5 31 31 53 31 f5 95 a4 b9 74 74 9c 74 b9 87 f3 09 f6 f6 07 f6 09 e3 15 43 46 46 ca 46 43 0a 4c 26 ac ac e9 ac 26 09 a5 97 89 89 86 89 97 3c b5 44 14 14 3c 14 44 a0 b4 42 e1 e1 3e e1 42 5b ba 4e 16 16 3a 16 4e b0 a6 d2 3a 3a 4e 3a d2 cd f7 d0 69 69 bb 69 d0 6f 06 2d 09 09 1b 09 2d 48 41 ad 70 70 90 70 ad a7 d7 54 b6 b6 c7 b6 54 d9 6f b7 d0 d0 6d d0 b7 ce 1e 7e ed ed 2a ed 7e 3b d6 db cc cc 49 cc db 2e e2 57 42 42 c6 42 57 2a 68 c2 98 98 b5 98 c2 b4 2c 0e a4 a4 f1 a4 0e 49 ed 88 28 28 78 28 88 5d 75 31 5c 5c e4 5c 31 da 86 3f f8 f8 15 f8 3f 93 6b a4 86 86 97 86 a4 44 c2 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_Chinese_AVS_video__AVS1_P2__JiZhun__intra_2dvlc__8_byt_1512_ {
+  strings:
+    $a0 = { 01 01 01 ff 01 01 01 02 01 ff 02 01 01 03 01 ff 03 01 01 04 01 ff 04 01 01 05 01 ff 05 01 01 06 01 ff 06 01 01 07 01 ff 07 01 01 08 01 ff 08 01 01 09 01 ff 09 01 01 0a 01 ff 0a 01 01 0b 01 ff 0b 01 02 01 02 fe 01 02 01 0c 01 ff 0c 01 01 0d 01 ff 0d 01 01 0e 01 ff 0e 01 01 0f 01 ff 0f 01 02 02 02 fe 02 02 01 10 01 ff 10 01 01 11 01 ff 11 01 03 01 03 fd 01 03 01 12 01 ff 12 01 01 13 01 ff 13 01 02 03 02 fe 03 02 01 14 01 ff 14 01 01 15 01 ff 15 01 02 04 02 fe 04 02 01 16 01 ff 16 01 02 05 02 fe 05 02 01 17 01 ff 17 01 00 00 00 00 04 03 03 03 03 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 ff ff ff 02 00 00 00 00 00 00 00 17 00 00 00 01 01 00 ff 01 00 01 02 00 ff 02 00 02 01 01 fe 01 01 01 03 00 ff 03 00 00 00 00 01 04 00 ff 04 00 01 05 00 ff 05 00 01 06 00 ff 06 00 03 01 02 fd 01 02 02 02 01 fe 02 01 01 07 00 ff 07 00 01 08 00 ff 08 00 01 09 00 ff 09 00 02 03 01 fe 03 01 04 01 02 fc 01 02 01 0a 00 ff 0a 00 01 0b 00 ff 0b 00 02 04 01 fe 04 01 03 02 02 fd 02 02 01 0c 00 ff 0c 00 02 05 01 fe 05 01 05 01 03 fb 01 03 01 0d 00 ff 0d 00 02 06 01 fe 06 01 01 0e 00 ff 0e 00 02 07 01 fe 07 01 02 08 01 fe 08 01 03 03 02 fd 03 02 06 01 03 fa 01 03 01 0f 00 ff 0f 00 00 07 04 04 03 03 03 03 03 02 02 02 02 02 02 02 ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 01 00 00 00 0f 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 01 02 00 ff 02 00 03 01 01 fd 01 01 00 00 00 01 03 00 ff 03 00 02 02 00 fe 02 00 04 01 01 fc 01 01 01 04 00 ff 04 00 05 01 02 fb 01 02 01 05 00 ff 05 00 03 02 01 fd 02 01 02 03 00 fe 03 00 01 06 00 ff 06 00 06 01 02 fa 01 02 02 04 00 fe 04 00 01 07 00 ff 07 00 04 02 01 fc 02 01 07 01 02 f9 01 02 03 03 01 fd 03 01 02 05 00 fe 05 00 01 08 00 ff 08 00 02 06 00 fe 06 00 08 01 03 f8 01 03 01 09 00 ff 09 00 05 02 02 fb 02 02 03 04 01 fd 04 01 02 07 00 fe 07 00 09 01 03 f7 01 03 01 0a 00 ff 0a 00 00 0a 06 04 04 03 03 03 02 02 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 02 00 00 00 0a 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 03 01 00 fd 01 00 01 02 00 ff 02 00 00 00 00 04 01 00 fc 01 00 05 01 01 fb 01 01 02 02 00 fe 02 00 01 03 00 ff 03 00 06 01 01 fa 01 01 03 02 00 fd 02 00 07 01 01 f9 01 01 01 04 00 ff 04 00 08 01 02 f8 01 02 02 03 00 fe 03 00 04 02 00 fc 02 00 01 05 00 ff 05 00 09 01 02 f7 01 02 05 02 01 fb 02 01 02 04 00 fe 04 00 0a 01 02 f6 01 02 03 03 00 fd 03 00 01 06 00 ff 06 00 0b 01 03 f5 01 03 06 02 01 fa 02 01 01 07 00 ff 07 00 02 05 00 fe 05 00 03 04 00 fd 04 00 0c 01 03 f4 01 03 04 03 00 fc 03 00 00 0d 07 05 04 03 02 02 ff ff fe ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 00 02 00 00 00 04 00 00 00 07 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 03 01 00 fd 01 00 00 00 00 04 01 00 fc 01 00 05 01 00 fb 01 00 06 01 00 fa 01 00 01 02 00 ff 02 00 07 01 00 f9 01 00 08 01 01 f8 01 01 02 02 00 fe 02 00 09 01 01 f7 01 01 0a 01 01 f6 01 01 01 03 00 ff 03 00 03 02 00 fd 02 00 0b 01 02 f5 01 02 04 02 00 fc 02 00 0c 01 02 f4 01 02 0d 01 02 f3 01 02 05 02 00 fb 02 00 01 04 00 ff 04 00 02 03 00 fe 03 00 0e 01 02 f2 01 02 06 02 00 fa 02 00 0f 01 02 f1 01 02 10 01 02 f0 01 02 03 03 00 fd 03 00 01 05 00 ff 05 00 07 02 00 f9 02 00 11 01 02 ef 01 02 00 12 08 04 02 02 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 07 00 00 00 05 00 00 00 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 03 01 00 fd 01 00 04 01 00 fc 01 00 05 01 00 fb 01 00 06 01 00 fa 01 00 07 01 00 f9 01 00 08 01 00 f8 01 00 09 01 00 f7 01 00 0a 01 00 f6 01 00 01 02 00 ff 02 00 0b 01 01 f5 01 01 0c 01 01 f4 01 01 0d 01 01 f3 01 01 02 02 00 fe 02 00 0e 01 01 f2 01 01 0f 01 01 f1 01 01 03 02 00 fd 02 00 10 01 01 f0 01 01 01 03 00 ff 03 00 11 01 01 ef 01 01 04 02 00 fc 02 00 12 01 01 ee 01 01 05 02 00 fb 02 00 13 01 01 ed 01 01 14 01 01 ec 01 01 06 02 00 fa 02 00 15 01 01 eb 01 01 02 03 00 fe 03 00 00 16 07 03 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 0a 00 00 00 03 00 00 00 00 00 00 01 01 00 ff 01 00 02 01 00 fe 01 00 03 01 00 fd 01 00 04 01 00 fc 01 00 05 01 00 fb 01 00 06 01 00 fa 01 00 07 01 00 f9 01 00 08 01 00 f8 01 00 09 01 00 f7 01 00 0a 01 00 f6 01 00 0b 01 00 f5 01 00 0c 01 00 f4 01 00 0d 01 00 f3 01 00 0e 01 00 f2 01 00 0f 01 00 f1 01 00 10 01 00 f0 01 00 01 02 00 ff 02 00 11 01 00 ef 01 00 12 01 00 ee 01 00 13 01 00 ed 01 00 14 01 00 ec 01 00 15 01 00 eb 01 00 02 02 00 fe 02 00 16 01 00 ea 01 00 17 01 00 e9 01 00 18 01 00 e8 01 00 19 01 00 e7 01 00 03 02 00 fd 02 00 1a 01 00 e6 01 00 00 1b 04 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 02 00 00 00 ff ff ff 7f 02 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Yamaha_ADPCM_index_table__16_lil_32_ {
+  strings:
+    $a0 = { e6 00 e6 00 e6 00 e6 00 33 01 99 01 00 02 66 02 e6 00 e6 00 e6 00 e6 00 33 01 99 01 00 02 66 02 }
+
+  condition:
+    $a0
+}
+
+
+rule DES_S_boxes__8_byt_512_ {
+  strings:
+    $a0 = { 0e 04 0d 01 02 0f 0b 08 03 0a 06 0c 05 09 00 07 00 0f 07 04 0e 02 0d 01 0a 06 0c 0b 09 05 03 08 04 01 0e 08 0d 06 02 0b 0f 0c 09 07 03 0a 05 00 0f 0c 08 02 04 09 01 07 05 0b 03 0e 0a 00 06 0d 0f 01 08 0e 06 0b 03 04 09 07 02 0d 0c 00 05 0a 03 0d 04 07 0f 02 08 0e 0c 00 01 0a 06 09 0b 05 00 0e 07 0b 0a 04 0d 01 05 08 0c 06 09 03 02 0f 0d 08 0a 01 03 0f 04 02 0b 06 07 0c 00 05 0e 09 0a 00 09 0e 06 03 0f 05 01 0d 0c 07 0b 04 02 08 0d 07 00 09 03 04 06 0a 02 08 05 0e 0c 0b 0f 01 0d 06 04 09 08 0f 03 00 0b 01 02 0c 05 0a 0e 07 01 0a 0d 00 06 09 08 07 04 0f 0e 03 0b 05 02 0c 07 0d 0e 03 00 06 09 0a 01 02 08 05 0b 0c 04 0f 0d 08 0b 05 06 0f 00 03 04 07 02 0c 01 0a 0e 09 0a 06 09 00 0c 0b 07 0d 0f 01 03 0e 05 02 08 04 03 0f 00 06 0a 01 0d 08 09 04 05 0b 0c 07 02 0e 02 0c 04 01 07 0a 0b 06 08 05 03 0f 0d 00 0e 09 0e 0b 02 0c 04 07 0d 01 05 00 0f 0a 03 09 08 06 04 02 01 0b 0a 0d 07 08 0f 09 0c 05 06 03 00 0e 0b 08 0c 07 01 0e 02 0d 06 0f 00 09 0a 04 05 03 0c 01 0a 0f 09 02 06 08 00 0d 03 04 0e 07 05 0b 0a 0f 04 02 07 0c 09 05 06 01 0d 0e 00 0b 03 08 09 0e 0f 05 02 08 0c 03 07 00 04 0a 01 0d 0b 06 04 03 02 0c 09 05 0f 0a 0b 0e 01 07 06 00 08 0d 04 0b 02 0e 0f 00 08 0d 03 0c 09 07 05 0a 06 01 0d 00 0b 07 04 09 01 0a 0e 03 05 0c 02 0f 08 06 01 04 0b 0d 0c 03 07 0e 0a 0f 06 08 00 05 09 02 06 0b 0d 08 01 04 0a 07 09 05 00 0f 0e 02 03 0c 0d 02 08 04 06 0f 0b 01 0a 09 03 0e 05 00 0c 07 01 0f 0d 08 0a 03 07 04 0c 05 06 0b 00 0e 09 02 07 0b 04 01 09 0c 0e 02 00 06 0a 0d 0f 03 05 08 02 01 0e 07 04 0a 08 0d 0f 0c 09 00 03 05 06 0b }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_mpeg4_intRA_rvlc__16_lil_680_ {
+  strings:
+    $a0 = { 06 00 03 00 07 00 03 00 0a 00 04 00 09 00 05 00 14 00 06 00 15 00 06 00 34 00 07 00 74 00 08 00 75 00 08 00 dd 00 09 00 ec 00 09 00 ec 01 0a 00 ed 01 0a 00 f4 01 0a 00 ec 03 0b 00 ed 03 0b 00 f4 03 0b 00 7d 07 0c 00 bc 07 0c 00 bd 0f 0d 00 dc 0f 0d 00 bd 07 0c 00 dd 0f 0d 00 bd 1f 0e 00 dc 1f 0e 00 dd 1f 0e 00 fc 1f 0f 00 01 00 04 00 08 00 05 00 2d 00 07 00 6c 00 08 00 6d 00 08 00 dc 00 09 00 dd 01 0a 00 dc 03 0b 00 dd 03 0b 00 7c 07 0c 00 bc 0f 0d 00 7d 1f 0e 00 bc 1f 0e 00 04 00 05 00 2c 00 07 00 bc 00 09 00 dc 01 0a 00 bc 03 0b 00 bd 03 0b 00 fd 0e 0d 00 7c 0f 0d 00 7d 0f 0d 00 fd 1e 0e 00 7c 1f 0e 00 05 00 05 00 5c 00 08 00 bd 00 09 00 7d 03 0b 00 fc 06 0c 00 fc 0e 0d 00 fd 1d 0e 00 fc 1e 0e 00 fd 1f 0f 00 0c 00 06 00 5d 00 08 00 bd 01 0a 00 fd 03 0c 00 fd 06 0c 00 fd 1b 0e 00 0d 00 06 00 7d 00 09 00 fc 02 0b 00 fc 05 0c 00 fc 1b 0e 00 fc 1d 0e 00 1c 00 07 00 7c 01 0a 00 fd 02 0b 00 fd 05 0c 00 fc 2f 0f 00 1d 00 07 00 7d 01 0a 00 7c 03 0b 00 fd 0d 0d 00 fd 2f 0f 00 3c 00 08 00 bc 01 0a 00 fd 0b 0d 00 fd 17 0e 00 3d 00 08 00 fd 01 0b 00 fc 0d 0d 00 fc 37 0f 00 7c 00 09 00 fc 03 0c 00 fc 00 0a 00 fc 0b 0d 00 fd 00 0a 00 fd 37 0f 00 fc 01 0b 00 fc 07 0d 00 fd 07 0d 00 fc 0f 0e 00 fd 0f 0e 00 fc 17 0e 00 fc 3b 0f 00 0b 00 04 00 78 00 08 00 f5 03 0b 00 ec 0f 0d 00 ec 1f 0e 00 12 00 05 00 ed 00 09 00 dc 07 0c 00 ed 1f 0e 00 fd 3b 0f 00 13 00 05 00 f8 03 0b 00 fc 3d 0f 00 18 00 06 00 dd 07 0c 00 19 00 06 00 ec 07 0c 00 22 00 06 00 ed 0f 0d 00 23 00 06 00 f4 0f 0d 00 35 00 07 00 f5 0f 0d 00 38 00 07 00 f8 0f 0d 00 39 00 07 00 f9 0f 0d 00 42 00 07 00 f4 1f 0e 00 43 00 07 00 f5 1f 0e 00 79 00 08 00 f8 1f 0e 00 82 00 08 00 fd 3d 0f 00 83 00 08 00 f4 00 09 00 f5 00 09 00 f8 00 09 00 f9 00 09 00 02 01 09 00 03 01 09 00 f5 01 0a 00 f8 01 0a 00 f9 01 0a 00 02 02 0a 00 03 02 0a 00 f9 03 0b 00 02 04 0b 00 03 04 0b 00 ed 07 0c 00 f4 07 0c 00 f5 07 0c 00 f8 07 0c 00 f9 07 0c 00 02 08 0c 00 03 08 0c 00 02 10 0d 00 03 10 0d 00 f9 1f 0e 00 02 20 0e 00 03 20 0e 00 fc 3e 0f 00 fd 3e 0f 00 7c 3f 0f 00 7d 3f 0f 00 00 00 04 00 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_ff_interleaved_dirac_golomb_vlc_code__8_byt_256_ {
+  strings:
+    $a0 = { 00 01 00 00 02 03 01 01 00 00 00 00 00 00 00 00 04 05 02 02 06 07 03 03 01 01 01 01 01 01 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 08 09 04 04 0a 0b 05 05 02 02 02 02 02 02 02 02 0c 0d 06 06 0e 0f 07 07 03 03 03 03 03 03 03 03 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Whirlpool_C0__64_lil_2048_ {
+  strings:
+    $a0 = { 78 d8 c0 78 18 28 18 18 af 26 05 af 23 65 23 23 f9 b8 7e f9 c6 57 c6 c6 6f fb 13 6f e8 25 e8 e8 a1 cb 4c a1 87 94 87 87 62 11 a9 62 b8 d5 b8 b8 05 09 08 05 01 03 01 01 6e 0d 42 6e 4f d1 4f 4f ee 9b ad ee 36 5a 36 36 04 ff 59 04 a6 f7 a6 a6 bd 0c de bd d2 6b d2 d2 06 0e fb 06 f5 02 f5 f5 80 96 ef 80 79 8b 79 79 ce 30 5f ce 6f b1 6f 6f ef 6d fc ef 91 ae 91 91 07 f8 aa 07 52 f6 52 52 fd 47 27 fd 60 a0 60 60 76 35 89 76 bc d9 bc bc cd 37 ac cd 9b b0 9b 9b 8c 8a 04 8c 8e 8f 8e 8e 15 d2 71 15 a3 f8 a3 a3 3c 6c 60 3c 0c 14 0c 0c 8a 84 ff 8a 7b 8d 7b 7b e1 80 b5 e1 35 5f 35 35 69 f5 e8 69 1d 27 1d 1d 47 b3 53 47 e0 3d e0 e0 ac 21 f6 ac d7 64 d7 d7 ed 9c 5e ed c2 5b c2 c2 96 43 6d 96 2e 72 2e 2e 7a 29 62 7a 4b dd 4b 4b 21 5d a3 21 fe 1f fe fe 16 d5 82 16 57 f9 57 57 41 bd a8 41 15 3f 15 15 b6 e8 9f b6 77 99 77 77 eb 92 a5 eb 37 59 37 37 56 9e 7b 56 e5 32 e5 e5 d9 13 8c d9 9f bc 9f 9f 17 23 d3 17 f0 0d f0 f0 7f 20 6a 7f 4a de 4a 4a 95 44 9e 95 da 73 da da 25 a2 fa 25 58 e8 58 58 ca cf 06 ca c9 46 c9 c9 8d 7c 55 8d 29 7b 29 29 22 5a 50 22 0a 1e 0a 0a 4f 50 e1 4f b1 ce b1 b1 1a c9 69 1a a0 fd a0 a0 da 14 7f da 6b bd 6b 6b ab d9 5c ab 85 92 85 85 73 3c 81 73 bd da bd bd 34 8f d2 34 5d e7 5d 5d 50 90 80 50 10 30 10 10 03 07 f3 03 f4 01 f4 f4 c0 dd 16 c0 cb 40 cb cb c6 d3 ed c6 3e 42 3e 3e 11 2d 28 11 05 0f 05 05 e6 78 1f e6 67 a9 67 67 53 97 73 53 e4 31 e4 e4 bb 02 25 bb 27 69 27 27 58 73 32 58 41 c3 41 41 9d a7 2c 9d 8b 80 8b 8b 01 f6 51 01 a7 f4 a7 a7 94 b2 cf 94 7d 87 7d 7d fb 49 dc fb 95 a2 95 95 9f 56 8e 9f d8 75 d8 d8 30 70 8b 30 fb 10 fb fb 71 cd 23 71 ee 2f ee ee 91 bb c7 91 7c 84 7c 7c e3 71 17 e3 66 aa 66 66 8e 7b a6 8e dd 7a dd dd 4b af b8 4b 17 39 17 17 46 45 02 46 47 c9 47 47 dc 1a 84 dc 9e bf 9e 9e c5 d4 1e c5 ca 43 ca ca 99 58 75 99 2d 77 2d 2d 79 2e 91 79 bf dc bf bf 1b 3f 38 1b 07 09 07 07 23 ac 01 23 ad ea ad ad 2f b0 ea 2f 5a ee 5a 5a b5 ef 6c b5 83 98 83 83 ff b6 85 ff 33 55 33 33 f2 5c 3f f2 63 a5 63 63 0a 12 10 0a 02 06 02 02 38 93 39 38 aa e3 aa aa a8 de af a8 71 93 71 71 cf c6 0e cf c8 45 c8 c8 7d d1 c8 7d 19 2b 19 19 70 3b 72 70 49 db 49 49 9a 5f 86 9a d9 76 d9 d9 1d 31 c3 1d f2 0b f2 f2 48 a8 4b 48 e3 38 e3 e3 2a b9 e2 2a 5b ed 5b 5b 92 bc 34 92 88 85 88 88 c8 3e a4 c8 9a b3 9a 9a be 0b 2d be 26 6a 26 26 fa bf 8d fa 32 56 32 32 4a 59 e9 4a b0 cd b0 b0 6a f2 1b 6a e9 26 e9 e9 33 77 78 33 0f 11 0f 0f a6 33 e6 a6 d5 62 d5 d5 ba f4 74 ba 80 9d 80 80 7c 27 99 7c be df be be de eb 26 de cd 4a cd cd e4 89 bd e4 34 5c 34 34 75 32 7a 75 48 d8 48 48 24 54 ab 24 ff 1c ff ff 8f 8d f7 8f 7a 8e 7a 7a ea 64 f4 ea 90 ad 90 90 3e 9d c2 3e 5f e1 5f 5f a0 3d 1d a0 20 60 20 20 d5 0f 67 d5 68 b8 68 68 72 ca d0 72 1a 2e 1a 1a 2c b7 19 2c ae ef ae ae 5e 7d c9 5e b4 c1 b4 b4 19 ce 9a 19 54 fc 54 54 e5 7f ec e5 93 a8 93 93 aa 2f 0d aa 22 66 22 22 e9 63 07 e9 64 ac 64 64 12 2a db 12 f1 0e f1 f1 a2 cc bf a2 73 95 73 73 5a 82 90 5a 12 36 12 12 5d 7a 3a 5d 40 c0 40 40 28 48 40 28 08 18 08 08 e8 95 56 e8 c3 58 c3 c3 7b df 33 7b ec 29 ec ec 90 4d 96 90 db 70 db db 1f c0 61 1f a1 fe a1 a1 83 91 1c 83 8d 8a 8d 8d c9 c8 f5 c9 3d 47 3d 3d f1 5b cc f1 97 a4 97 97 00 00 00 00 00 00 00 00 d4 f9 36 d4 cf 4c cf cf 87 6e 45 87 2b 7d 2b 2b b3 e1 97 b3 76 9a 76 76 b0 e6 64 b0 82 9b 82 82 a9 28 fe a9 d6 67 d6 d6 77 c3 d8 77 1b 2d 1b 1b 5b 74 c1 5b b5 c2 b5 b5 29 be 11 29 af ec af af df 1d 77 df 6a be 6a 6a 0d ea ba 0d 50 f0 50 50 4c 57 12 4c 45 cf 45 45 18 38 cb 18 f3 08 f3 f3 f0 ad 9d f0 30 50 30 30 74 c4 2b 74 ef 2c ef ef c3 da e5 c3 3f 41 3f 3f 1c c7 92 1c 55 ff 55 55 10 db 79 10 a2 fb a2 a2 65 e9 03 65 ea 23 ea ea ec 6a 0f ec 65 af 65 65 68 03 b9 68 ba d3 ba ba 93 4a 65 93 2f 71 2f 2f e7 8e 4e e7 c0 5d c0 c0 81 60 be 81 de 7f de de 6c fc e0 6c 1c 24 1c 1c 2e 46 bb 2e fd 1a fd fd 64 1f 52 64 4d d7 4d 4d e0 76 e4 e0 92 ab 92 92 bc fa 8f bc 75 9f 75 75 1e 36 30 1e 06 0a 06 06 98 ae 24 98 8a 83 8a 8a 40 4b f9 40 b2 cb b2 b2 59 85 63 59 e6 37 e6 e6 36 7e 70 36 0e 12 0e 0e 63 e7 f8 63 1f 21 1f 1f f7 55 37 f7 62 a6 62 62 a3 3a ee a3 d4 61 d4 d4 32 81 29 32 a8 e5 a8 a8 f4 52 c4 f4 96 a7 96 96 3a 62 9b 3a f9 16 f9 f9 f6 a3 66 f6 c5 52 c5 c5 b1 10 35 b1 25 6f 25 25 20 ab f2 20 59 eb 59 59 ae d0 54 ae 84 91 84 84 a7 c5 b7 a7 72 96 72 72 dd ec d5 dd 39 4b 39 39 61 16 5a 61 4c d4 4c 4c 3b 94 ca 3b 5e e2 5e 5e 85 9f e7 85 78 88 78 78 d8 e5 dd d8 38 48 38 38 86 98 14 86 8c 89 8c 8c b2 17 c6 b2 d1 6e d1 d1 0b e4 41 0b a5 f2 a5 a5 4d a1 43 4d e2 3b e2 e2 f8 4e 2f f8 61 a3 61 61 45 42 f1 45 b3 c8 b3 b3 a5 34 15 a5 21 63 21 21 d6 08 94 d6 9c b9 9c 9c 66 ee f0 66 1e 22 1e 1e 52 61 22 52 43 c5 43 43 fc b1 76 fc c7 54 c7 c7 2b 4f b3 2b fc 19 fc fc 14 24 20 14 04 0c 04 04 08 e3 b2 08 51 f3 51 51 c7 25 bc c7 99 b6 99 99 c4 22 4f c4 6d b7 6d 6d 39 65 68 39 0d 17 0d 0d 35 79 83 35 fa 13 fa fa 84 69 b6 84 df 7c df df 9b a9 d7 9b 7e 82 7e 7e b4 19 3d b4 24 6c 24 24 d7 fe c5 d7 3b 4d 3b 3b 3d 9a 31 3d ab e0 ab ab d1 f0 3e d1 ce 4f ce ce 55 99 88 55 11 33 11 11 89 83 0c 89 8f 8c 8f 8f 6b 04 4a 6b 4e d2 4e 4e 51 66 d1 51 b7 c4 b7 b7 60 e0 0b 60 eb 20 eb eb cc c1 fd cc 3c 44 3c 3c bf fd 7c bf 81 9e 81 81 fe 40 d4 fe 94 a1 94 94 0c 1c eb 0c f7 04 f7 f7 67 18 a1 67 b9 d6 b9 b9 5f 8b 98 5f 13 35 13 13 9c 51 7d 9c 2c 74 2c 2c b8 05 d6 b8 d3 68 d3 d3 5c 8c 6b 5c e7 34 e7 e7 cb 39 57 cb 6e b2 6e 6e f3 aa 6e f3 c4 51 c4 c4 0f 1b 18 0f 03 05 03 03 13 dc 8a 13 56 fa 56 56 49 5e 1a 49 44 cc 44 44 9e a0 df 9e 7f 81 7f 7f 37 88 21 37 a9 e6 a9 a9 82 67 4d 82 2a 7e 2a 2a 6d 0a b1 6d bb d0 bb bb e2 87 46 e2 c1 5e c1 c1 02 f1 a2 02 53 f5 53 53 8b 72 ae 8b dc 79 dc dc 27 53 58 27 0b 1d 0b 0b d3 01 9c d3 9d ba 9d 9d c1 2b 47 c1 6c b4 6c 6c f5 a4 95 f5 31 53 31 31 b9 f3 87 b9 74 9c 74 74 09 15 e3 09 f6 07 f6 f6 43 4c 0a 43 46 ca 46 46 26 a5 09 26 ac e9 ac ac 97 b5 3c 97 89 86 89 89 44 b4 a0 44 14 3c 14 14 42 ba 5b 42 e1 3e e1 e1 4e a6 b0 4e 16 3a 16 16 d2 f7 cd d2 3a 4e 3a 3a d0 06 6f d0 69 bb 69 69 2d 41 48 2d 09 1b 09 09 ad d7 a7 ad 70 90 70 70 54 6f d9 54 b6 c7 b6 b6 b7 1e ce b7 d0 6d d0 d0 7e d6 3b 7e ed 2a ed ed db e2 2e db cc 49 cc cc 57 68 2a 57 42 c6 42 42 c2 2c b4 c2 98 b5 98 98 0e ed 49 0e a4 f1 a4 a4 88 75 5d 88 28 78 28 28 31 86 da 31 5c e4 5c 5c 3f 6b 93 3f f8 15 f8 f8 a4 c2 44 a4 86 97 86 86 }
+
+  condition:
+    $a0
+}
+
+
+rule mp3lib_huffman_tab1__16_lil_14_ {
+  strings:
+    $a0 = { FB FF FD FF FF FF 11 00 01 00 10 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule CAST_256_t_r__32_lil_768_ {
+  strings:
+    $a0 = { 13 00 00 00 1b 00 00 00 03 00 00 00 0b 00 00 00 13 00 00 00 1b 00 00 00 03 00 00 00 0b 00 00 00 13 00 00 00 1b 00 00 00 03 00 00 00 0b 00 00 00 13 00 00 00 1b 00 00 00 03 00 00 00 0b 00 00 00 13 00 00 00 1b 00 00 00 03 00 00 00 0b 00 00 00 13 00 00 00 1b 00 00 00 03 00 00 00 0b 00 00 00 04 00 00 00 0c 00 00 00 14 00 00 00 1c 00 00 00 04 00 00 00 0c 00 00 00 14 00 00 00 1c 00 00 00 04 00 00 00 0c 00 00 00 14 00 00 00 1c 00 00 00 04 00 00 00 0c 00 00 00 14 00 00 00 1c 00 00 00 04 00 00 00 0c 00 00 00 14 00 00 00 1c 00 00 00 04 00 00 00 0c 00 00 00 14 00 00 00 1c 00 00 00 15 00 00 00 1d 00 00 00 05 00 00 00 0d 00 00 00 15 00 00 00 1d 00 00 00 05 00 00 00 0d 00 00 00 15 00 00 00 1d 00 00 00 05 00 00 00 0d 00 00 00 15 00 00 00 1d 00 00 00 05 00 00 00 0d 00 00 00 15 00 00 00 1d 00 00 00 05 00 00 00 0d 00 00 00 15 00 00 00 1d 00 00 00 05 00 00 00 0d 00 00 00 06 00 00 00 0e 00 00 00 16 00 00 00 1e 00 00 00 06 00 00 00 0e 00 00 00 16 00 00 00 1e 00 00 00 06 00 00 00 0e 00 00 00 16 00 00 00 1e 00 00 00 06 00 00 00 0e 00 00 00 16 00 00 00 1e 00 00 00 06 00 00 00 0e 00 00 00 16 00 00 00 1e 00 00 00 06 00 00 00 0e 00 00 00 16 00 00 00 1e 00 00 00 17 00 00 00 1f 00 00 00 07 00 00 00 0f 00 00 00 17 00 00 00 1f 00 00 00 07 00 00 00 0f 00 00 00 17 00 00 00 1f 00 00 00 07 00 00 00 0f 00 00 00 17 00 00 00 1f 00 00 00 07 00 00 00 0f 00 00 00 17 00 00 00 1f 00 00 00 07 00 00 00 0f 00 00 00 17 00 00 00 1f 00 00 00 07 00 00 00 0f 00 00 00 08 00 00 00 10 00 00 00 18 00 00 00 00 00 00 00 08 00 00 00 10 00 00 00 18 00 00 00 00 00 00 00 08 00 00 00 10 00 00 00 18 00 00 00 00 00 00 00 08 00 00 00 10 00 00 00 18 00 00 00 00 00 00 00 08 00 00 00 10 00 00 00 18 00 00 00 00 00 00 00 08 00 00 00 10 00 00 00 18 00 00 00 00 00 00 00 19 00 00 00 01 00 00 00 09 00 00 00 11 00 00 00 19 00 00 00 01 00 00 00 09 00 00 00 11 00 00 00 19 00 00 00 01 00 00 00 09 00 00 00 11 00 00 00 19 00 00 00 01 00 00 00 09 00 00 00 11 00 00 00 19 00 00 00 01 00 00 00 09 00 00 00 11 00 00 00 19 00 00 00 01 00 00 00 09 00 00 00 11 00 00 00 0a 00 00 00 12 00 00 00 1a 00 00 00 02 00 00 00 0a 00 00 00 12 00 00 00 1a 00 00 00 02 00 00 00 0a 00 00 00 12 00 00 00 1a 00 00 00 02 00 00 00 0a 00 00 00 12 00 00 00 1a 00 00 00 02 00 00 00 0a 00 00 00 12 00 00 00 1a 00 00 00 02 00 00 00 0a 00 00 00 12 00 00 00 1a 00 00 00 02 00 00 00 }
+
+  condition:
+    $a0
+}
+
+
+rule Blowfish_ks2_table__32_big_1024_ {
+  strings:
+    $a0 = { e9 3d 5a 68 94 81 40 f7 f6 4c 26 1c 94 69 29 34 41 15 20 f7 76 02 d4 f7 bc f4 6b 2e d4 a2 00 68 d4 08 24 71 33 20 f4 6a 43 b7 d4 b7 50 00 61 af 1e 39 f6 2e 97 24 45 46 14 21 4f 74 bf 8b 88 40 4d 95 fc 1d 96 b5 91 af 70 f4 dd d3 66 a0 2f 45 bf bc 09 ec 03 bd 97 85 7f ac 6d d0 31 cb 85 04 96 eb 27 b3 55 fd 39 41 da 25 47 e6 ab ca 0a 9a 28 50 78 25 53 04 29 f4 0a 2c 86 da e9 b6 6d fb 68 dc 14 62 d7 48 69 00 68 0e c0 a4 27 a1 8d ee 4f 3f fe a2 e8 87 ad 8c b5 8c e0 06 7a f4 d6 b6 aa ce 1e 7c d3 37 5f ec ce 78 a3 99 40 6b 2a 42 20 fe 9e 35 d9 f3 85 b9 ee 39 d7 ab 3b 12 4e 8b 1d c9 fa f7 4b 6d 18 56 26 a3 66 31 ea e3 97 b2 3a 6e fa 74 dd 5b 43 32 68 41 e7 f7 ca 78 20 fb fb 0a f5 4e d8 fe b3 97 45 40 56 ac ba 48 95 27 55 53 3a 3a 20 83 8d 87 fe 6b a9 b7 d0 96 95 4b 55 a8 67 bc a1 15 9a 58 cc a9 29 63 99 e1 db 33 a6 2a 4a 56 3f 31 25 f9 5e f4 7e 1c 90 29 31 7c fd f8 e8 02 04 27 2f 70 80 bb 15 5c 05 28 2c e3 95 c1 15 48 e4 c6 6d 22 48 c1 13 3f c7 0f 86 dc 07 f9 c9 ee 41 04 1f 0f 40 47 79 a4 5d 88 6e 17 32 5f 51 eb d5 9b c0 d1 f2 bc c1 8f 41 11 35 64 25 7b 78 34 60 2a 9c 60 df f8 e8 a3 1f 63 6c 1b 0e 12 b4 c2 02 e1 32 9e af 66 4f d1 ca d1 81 15 6b 23 95 e0 33 3e 92 e1 3b 24 0b 62 ee be b9 22 85 b2 a2 0e e6 ba 0d 99 de 72 0c 8c 2d a2 f7 28 d0 12 78 45 95 b7 94 fd 64 7d 08 62 e7 cc f5 f0 54 49 a3 6f 87 7d 48 fa c3 9d fd 27 f3 3e 8d 1e 0a 47 63 41 99 2e ff 74 3a 6f 6e ab f4 f8 fd 37 a8 12 dc 60 a1 eb dd f8 99 1b e1 4c db 6e 6b 0d c6 7b 55 10 6d 67 2c 37 27 65 d4 3b dc d0 e8 04 f1 29 0d c7 cc 00 ff a3 b5 39 0f 92 69 0f ed 0b 66 7b 9f fb ce db 7d 9c a0 91 cf 0b d9 15 5e a3 bb 13 2f 88 51 5b ad 24 7b 94 79 bf 76 3b d6 eb 37 39 2e b3 cc 11 59 79 80 26 e2 97 f4 2e 31 2d 68 42 ad a7 c6 6a 2b 3b 12 75 4c cc 78 2e f1 1c 6a 12 42 37 b7 92 51 e7 06 a1 bb e6 4b fb 63 50 1a 6b 10 18 11 ca ed fa 3d 25 bd d8 e2 e1 c3 c9 44 42 16 59 0a 12 13 86 d9 0c ec 6e d5 ab ea 2a 64 af 67 4e da 86 a8 5f be bf e9 88 64 e4 c3 fe 9d bc 80 57 f0 f7 c0 86 60 78 7b f8 60 03 60 4d d1 fd 83 46 f6 38 1f b0 77 45 ae 04 d7 36 fc cc 83 42 6b 33 f0 1e ab 71 b0 80 41 87 3c 00 5e 5f 77 a0 57 be bd e8 ae 24 55 46 42 99 bf 58 2e 61 4e 58 f4 8f f2 dd fd a2 f4 74 ef 38 87 89 bd c2 53 66 f9 c3 c8 b3 8e 74 b4 75 f2 55 46 fc d9 b9 7a eb 26 61 8b 1d df 84 84 6a 0e 79 91 5f 95 e2 46 6e 59 8e 20 b4 57 70 8c d5 55 91 c9 02 de 4c b9 0b ac e1 bb 82 05 d0 11 a8 62 48 75 74 a9 9e b7 7f 19 b6 e0 a9 dc 09 66 2d 09 a1 c4 32 46 33 e8 5a 1f 02 09 f0 be 8c 4a 99 a0 25 1d 6e fe 10 1a b9 3d 1d 0b a5 a4 df a1 86 f2 0f 28 68 f1 69 dc b7 da 83 57 39 06 fe a1 e2 ce 9b 4f cd 7f 52 50 11 5e 01 a7 06 83 fa a0 02 b5 c4 0d e6 d0 27 9a f8 8c 27 77 3f 86 41 c3 60 4c 06 61 a8 06 b5 f0 17 7a 28 c0 f5 86 e0 00 60 58 aa 30 dc 7d 62 11 e6 9e d7 23 38 ea 63 53 c2 dd 94 c2 c2 16 34 bb cb ee 56 90 bc b6 de eb fc 7d a1 ce 59 1d 76 6f 05 e4 09 4b 7c 01 88 39 72 0a 3d 7c 92 7c 24 86 e3 72 5f 72 4d 9d b9 1a c1 5b b4 d3 9e b8 fc ed 54 55 78 08 fc a5 b5 d8 3d 7c d3 4d ad 0f c4 1e 50 ef 5e b1 61 e6 f8 a2 85 14 d9 6c 51 13 3c 6f d5 c7 e7 56 e1 4e c4 36 2a bf ce dd c6 c8 37 d7 9a 32 34 92 63 82 12 67 0e fa 8e 40 60 00 e0 }
+
+  condition:
+    $a0
+}
+
+
+rule libavcodec_ff_zigzag248_direct__8_byt_64_ {
+  strings:
+    $a0 = { 00 08 01 09 10 18 02 0a 11 19 20 28 30 38 21 29 12 1a 03 0b 04 0c 13 1b 22 2a 31 39 32 3a 23 2b 14 1c 05 0d 06 0e 15 1d 24 2c 33 3b 34 3c 25 2d 16 1e 07 0f 17 1f 26 2e 35 3d 36 3e 27 2f 37 3f }
+
+  condition:
+    $a0
+}
+
+
+rule DES_permuted_choice_key__table___8_byt_48_ {
+  strings:
+    $a0 = { 0e 11 0b 18 01 05 03 1c 0f 06 15 0a 17 13 0c 04 1a 08 10 07 1b 14 0d 02 29 34 1f 25 2f 37 1e 28 33 2d 21 30 2c 31 27 38 22 35 2e 2a 32 24 1d 20 }
+
+  condition:
+    $a0
+}
+
+
+rule _DevCpp_v5_ {
+  meta:
+    description = "Dev-C++ v5"
+
+  strings:
+    $0 = { 55 89 E5 83 EC 14 6A ?? FF 15 ?? ?? ?? 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 }
+
+  condition:
+    $0
+}
+
+
+rule _PeCompact_2xx_Slim_Loader__BitSum_Technologies_ {
+  meta:
+    description = "PeCompact 2.xx (Slim Loader) --> BitSum Technologies"
+
+  strings:
+    $0 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 32 00 }
+    $1 = { B8 ?? ?? ?? ?? 50 64 FF 35 00 00 00 00 64 89 25 00 00 00 00 33 C0 89 08 50 45 43 32 00 }
+
+  condition:
+    $0 at pe.entry_point or $1 at pe.entry_point
+}
+
+
+rule _EXE____ {
+  meta:
+    description = "ؾEXEļ Աר -> ¾"
+
+  strings:
+    $0 = { 55 8B EC 83 C4 E4 53 56 57 33 C0 89 45 E4 89 45 }
+
+  condition:
+    $0 at pe.entry_point
+}
+
+
+rule aspack_108c {
+  meta:
+    author      = "PEiD"
+    description = "ASPack 1.08.00 - 1.08.04 -> Alexey Solodovnikov"
+    group       = "105"
+    function    = "1"
+
+  strings:
+    $a0 = { ?? ?? 90 75 01 ?? E9 }
+
+  condition:
+    $a0
+}
+
+
+rule aspr12_h {
+  meta:
+    author      = "PEiD"
+    description = "ASProtect 1.2x [New Strain] -> Alexey Solodovnikov"
+    group       = "106"
+    function    = "3"
+
+  strings:
+    $a0 = { 68 01 ?? ?? ?? E8 01 ?? ?? ?? C3 C3 }
+
+  condition:
+    $a0
+}
+
+
+rule mpress_2_xx_x86_ren: Matcode {
+  meta:
+    author      = "Kevin Falcoz"
+    date_create = "19/03/2013"
+    last_edit   = "24/03/2013"
+    description = "MPRESS v2.XX x86  - no .NET"
+
+  strings:
+    $signature1 = { 60 E8 00 00 00 00 58 05 [2] 00 00 8B 30 03 F0 2B C0 8B FE 66 AD C1 E0 0C 8B C8 50 AD 2B C8 03 F1 8B C8 57 51 49 8A 44 39 06 88 04 31 75 F6 }
+
+  condition:
+    $signature1 at pe.entry_point
+}
+
+
+// Substring EICAR rule removed because it triggers on any binary embedding the string
+rule BINARYALERT_Eicar_Substring_Test {
+  meta:
+    description = "Standard AV test, checking for an EICAR substring"
+    author      = "Austin Byers | Airbnb CSIRT"
+    id          = "43af8d40-16be-5948-839e-b58cb36c4155"
+    date        = "2018-04-17"
+    modified    = "2018-04-17"
+    reference   = "https://github.com/airbnb/binaryalert/"
+    source_url  = "https://github.com/airbnb/binaryalert//blob/a9c0f06affc35e1f8e45bb77f835b92350c68a0b/rules/public/eicar.yara#L20-L34"
+    license_url = "https://github.com/airbnb/binaryalert//blob/a9c0f06affc35e1f8e45bb77f835b92350c68a0b/LICENSE"
+    logic_hash  = "9dc46b273d12d4431b833d4380235b387de4b3aab1f6211b868ada1d1339383a"
+    score       = 50
+    quality     = 40
+    tags        = ""
+
+  strings:
+    $eicar_substring = "$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!"
+
+  condition:
+    all of them
+}
