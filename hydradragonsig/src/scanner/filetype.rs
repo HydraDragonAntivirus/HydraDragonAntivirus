@@ -1,6 +1,9 @@
 use crate::models::FileTypeInfo;
 use crate::utils::entropy::byte_entropy;
 use anyhow::{Context, Result};
+use oxc_allocator::Allocator;
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 use std::io::Cursor;
 use std::path::Path;
 use zip::ZipArchive;
@@ -413,6 +416,10 @@ fn apply_language_and_text_markers(info: &mut FileTypeInfo, path: &Path, data: &
         }
     }
 
+    if !info.is_script && is_javascript(data) {
+        mark_script(info, "javascript");
+    }
+
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -710,6 +717,33 @@ pub fn classify_bytes_only(data: &[u8]) -> FileTypeInfo {
     classify_bytes(Path::new("memory"), data)
 }
 
+/// Single-pass AST JavaScript detection using our workspace's native OXC parser.
+pub fn is_javascript(data: &[u8]) -> bool {
+    if data.is_empty() {
+        return false;
+    }
+    let sample_len = data.len().min(65536);
+    let sample = &data[..sample_len];
+    if !is_plain_text_bytes(sample) {
+        return false;
+    }
+    let Ok(source) = std::str::from_utf8(sample) else {
+        return false;
+    };
+    if !source.contains(';')
+        && !source.contains('{')
+        && !source.contains("function")
+        && !source.contains("var ")
+        && !source.contains("const ")
+        && !source.contains("let ")
+    {
+        return false;
+    }
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, source, SourceType::mjs()).parse();
+    !ret.program.body.is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -729,5 +763,14 @@ mod tests {
         let info = classify_bytes(Path::new("x"), data);
         assert!(info.is_elf);
         assert!(info.matches_type("elf64"));
+    }
+
+    #[test]
+    fn detects_javascript_by_oxc_ast_without_js_extension() {
+        let js_code = b"var x = 10; function runMe() { eval('test'); console.log(x); }";
+        let info = classify_bytes(Path::new("malware.vir"), js_code);
+        assert!(info.is_javascript);
+        assert!(info.matches_type("javascript"));
+        assert!(info.matches_type("js"));
     }
 }
