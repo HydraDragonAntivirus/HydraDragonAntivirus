@@ -1286,7 +1286,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
                     if prob >= APK_TREE_THRESHOLD {
                         detections.push(DetectionItem {
                             layer: "APK_ML".to_string(),
-                            name: "HydraDragon.APK.TreeScore".to_string(),
+                            name: "MalwareNet.APK.HighConfidence".to_string(),
                             score: Some(prob),
                             details: Some(format!(
                                 "APK tree-model malware probability: {:.2}%",
