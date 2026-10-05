@@ -22,6 +22,7 @@ if hasattr(sys.stderr, "buffer"):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
 
 import argparse
+import math
 import re
 import traceback
 import operator
@@ -253,13 +254,15 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                 file_info[filePath] = {}
                 file_info[filePath]["hash"] = sha256sum
                 file_info[filePath]["imphash"], file_info[filePath]["exports"] = get_pe_info(fileData)
+                file_info[filePath]["entropy"] = calculate_shannon_entropy(fileData)
                 if fileData[:2] == b"MZ":
-                    pe_imps, susp_imps, max_ent, is_pkd, pkd_secs, dist_secs, exps = extract_pe_advanced(filePath)
+                    pe_imps, susp_imps, max_ent, is_pkd, pkd_secs, dist_secs, cap_dlls, exps = extract_pe_advanced(filePath)
                     file_info[filePath]["suspicious_imports"] = susp_imps
                     file_info[filePath]["max_section_entropy"] = max_ent
                     file_info[filePath]["is_packed"] = is_pkd
                     file_info[filePath]["packed_sections"] = pkd_secs
                     file_info[filePath]["distinctive_sections"] = dist_secs
+                    file_info[filePath]["capability_dlls"] = cap_dlls
                     file_info[filePath]["exports"] = exps
                     file_info[filePath]["icons"] = extract_pe_icons(filePath)
                 else:
@@ -268,6 +271,7 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                     file_info[filePath]["is_packed"] = False
                     file_info[filePath]["packed_sections"] = []
                     file_info[filePath]["distinctive_sections"] = []
+                    file_info[filePath]["capability_dlls"] = []
                     file_info[filePath]["exports"] = []
                     file_info[filePath]["icons"] = []
                 file_info[filePath]["apk"] = extract_apk_metadata(filePath)
@@ -721,6 +725,25 @@ MITRE_API_MAP = {
     "CryptDecrypt": ("T1486", "Data Encrypted for Impact", "Impact"),
 }
 
+def calculate_shannon_entropy(data: bytes) -> float:
+    """Calculate Shannon entropy of byte data."""
+    if not data:
+        return 0.0
+    counts = Counter(data)
+    total = len(data)
+    ent = 0.0
+    for count in counts.values():
+        p_x = count / total
+        ent -= p_x * math.log2(p_x)
+    return round(ent, 3)
+
+
+SUSPICIOUS_CAPABILITY_DLLS = {
+    "ws2_32.dll", "wsock32.dll", "wininet.dll", "urlmon.dll", "winhttp.dll",
+    "netapi32.dll", "psapi.dll", "vaultcli.dll", "wtsapi32.dll", "crypt32.dll",
+    "iphlpapi.dll", "sensapi.dll", "rasapi32.dll", "dnsapi.dll", "samlib.dll"
+}
+
 STANDARD_PE_SECTIONS = {
     ".text", ".data", ".rdata", ".idata", ".edata", ".rsrc", ".reloc",
     ".pdata", ".tls", ".bss", ".didata", ".cormeta", ".sbss", ".sdata",
@@ -732,9 +755,10 @@ KNOWN_PACKER_SECTIONS = re.compile(r"^(upx[0-9]?|\.upx|\.aspack|\.vmp[0-9]?|\.th
 
 
 def extract_pe_advanced(file_path: str):
-    """Extract imports, suspicious APIs, max section entropy, packed status, distinctive sections, and exports."""
+    """Extract imports, suspicious APIs, max section entropy, packed status, distinctive sections, capability DLLs, and exports."""
     imports = []
     suspicious_found = []
+    imported_dlls = []
     max_entropy = 0.0
     is_packed = False
     packed_section_names = []
@@ -744,6 +768,10 @@ def extract_pe_advanced(file_path: str):
         pe = pefile.PE(file_path, fast_load=False)
         if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
             for entry in pe.DIRECTORY_ENTRY_IMPORT:
+                if entry.dll:
+                    dll_name = entry.dll.decode("ascii", errors="ignore").strip().lower()
+                    if dll_name and dll_name not in imported_dlls:
+                        imported_dlls.append(dll_name)
                 for imp in entry.imports:
                     if imp.name:
                         name = imp.name.decode("ascii", errors="ignore")
@@ -776,6 +804,8 @@ def extract_pe_advanced(file_path: str):
                 is_packed = True
     except Exception:
         pass
+
+    cap_dlls = [d for d in imported_dlls if d in SUSPICIOUS_CAPABILITY_DLLS]
     return (
         imports,
         sorted(list(set(suspicious_found))),
@@ -783,6 +813,7 @@ def extract_pe_advanced(file_path: str):
         is_packed,
         packed_section_names,
         sorted(list(set(distinctive_section_names))),
+        sorted(list(set(cap_dlls))),
         sorted(list(set(pe_exports))),
     )
 
@@ -1609,7 +1640,16 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
         ]
         condition_blocks.append(c_ft)
 
-        # Condition 2: string_set (with wide and ascii support)
+        # Condition 1b: file_size_lte (Generous performance guardrail based on sample size)
+        max_sz = max([file_info.get(fp, {}).get("size", 1000000) for fp in member_files] or [1000000])
+        size_limit = min(max(int(max_sz * 2.5), 5 * 1024 * 1024), 35 * 1024 * 1024)
+        c_sz = [
+            "      - type: file_size_lte",
+            f"        bytes: {size_limit}"
+        ]
+        condition_blocks.append(c_sz)
+
+        # Condition 2: string_set (with decoded, wide, and ascii support)
         if ranked_strings:
             min_str = 2 if len(ranked_strings) >= 3 else 1
             has_wide = any(s.startswith("UTF16LE:") for s in ranked_strings)
@@ -1617,7 +1657,8 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
                 "      - type: string_set",
                 f"        min: {min_str}",
                 "        nocase: true",
-                "        ascii: true"
+                "        ascii: true",
+                "        decoded: true"
             ]
             if has_wide:
                 c_str.append("        wide: true")
@@ -1682,6 +1723,22 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
             for imp in merged_susp_imports[:5]:
                 c_imp.append(f'          - "{imp}"')
             condition_blocks.append(c_imp)
+
+        # Condition 5b: Capability DLL Imports
+        merged_cap_dlls = []
+        for fp in member_files:
+            for d in file_info.get(fp, {}).get("capability_dlls", []):
+                if d not in merged_cap_dlls:
+                    merged_cap_dlls.append(d)
+
+        if merged_cap_dlls:
+            c_dll = [
+                "      - type: dll_any",
+                "        names:"
+            ]
+            for d in merged_cap_dlls[:3]:
+                c_dll.append(f'          - "{d}"')
+            condition_blocks.append(c_dll)
 
         # Condition 6: Suspicious Import Count Threshold
         max_susp_cnt = max([len(file_info.get(fp, {}).get("suspicious_imports", [])) for fp in member_files] or [0])
@@ -1757,6 +1814,15 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
                     f"        value: {float(max_dex_files):.1f}"
                 ]
                 condition_blocks.append(c_apk)
+
+        # Condition 12: High File Entropy (for obfuscated scripts and packed non-PE payloads)
+        max_file_entropy = max([file_info.get(fp, {}).get("entropy", 0.0) for fp in member_files] or [0.0])
+        if fmt != "pe" and max_file_entropy >= 6.0:
+            c_f_ent = [
+                "      - type: file_entropy",
+                f"        min: {round(min(max_file_entropy, 6.0), 1)}"
+            ]
+            condition_blocks.append(c_f_ent)
 
         # Build rule header and metadata
         lines.append(f"  - id: {rule_id}")

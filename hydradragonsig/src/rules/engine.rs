@@ -1239,6 +1239,11 @@ fn match_string_set_literals(
         let already_found: Vec<bool> = seen.clone();
         for (i, value) in values.iter().enumerate() {
             if already_found[i] { continue; }
+            // If report.strings is populated, any UTF-16LE string >= 5 was already extracted and checked.
+            // Only fall back to raw scanning for short strings (< 5) or non-standard encodings.
+            if !report.strings.is_empty() && value.len() >= 5 && !utf8 && !utf16 {
+                continue;
+            }
             for (variant_bytes, label) in encoding_variants(value, wide, utf8, utf16) {
                 if let Some(offset) = find_text_bytes(bytes, &variant_bytes, nocase, false) {
                     seen[i] = true;
@@ -1903,19 +1908,26 @@ fn find_bytes_nocase_ascii(hay: &[u8], needle: &[u8], fullword: bool) -> Option<
     if needle.is_empty() || needle.len() > hay.len() {
         return None;
     }
-    let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
-    let first = needle_lower[0];
-    for i in 0..=hay.len() - needle_lower.len() {
-        if hay[i].to_ascii_lowercase() != first {
-            continue;
+    let first = needle[0];
+    let first_lower = first.to_ascii_lowercase();
+    let first_upper = first.to_ascii_uppercase();
+
+    let mut search_from = 0usize;
+    let max_start = hay.len() - needle.len();
+
+    while search_from <= max_start {
+        let rel = if first_lower == first_upper {
+            memchr::memchr(first_lower, &hay[search_from..=max_start])?
+        } else {
+            memchr::memchr2(first_lower, first_upper, &hay[search_from..=max_start])?
+        };
+        let pos = search_from + rel;
+        if hay[pos..pos + needle.len()].eq_ignore_ascii_case(needle) {
+            if !fullword || byte_word_boundary_at(hay, pos, needle.len()) {
+                return Some(pos);
+            }
         }
-        let matched = hay[i..i + needle_lower.len()]
-            .iter()
-            .zip(needle_lower.iter())
-            .all(|(byte, needle)| byte.to_ascii_lowercase() == *needle);
-        if matched && (!fullword || byte_word_boundary_at(hay, i, needle_lower.len())) {
-            return Some(i);
-        }
+        search_from = pos + 1;
     }
     None
 }
