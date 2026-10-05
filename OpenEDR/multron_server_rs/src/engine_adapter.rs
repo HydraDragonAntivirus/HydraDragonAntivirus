@@ -65,9 +65,9 @@ pub struct EngineAdapter {
     malicious: RwLock<HashMap<Sha, String>>,
     whitelist_enabled: bool,
     keep_unknown: bool,
-    keep_threats: bool,
-    compress_low_disk: bool,
-    low_disk_threshold_bytes: u64,
+    pub keep_threats: bool,
+    pub compress_low_disk: bool,
+    pub low_disk_threshold_bytes: u64,
     keep_limit_bytes: u64,
     kept_bytes: AtomicU64,
     pub kept_files: AtomicI64,
@@ -572,7 +572,7 @@ fn get_available_disk_space_bytes(dir: &Path) -> Option<u64> {
     let mut wide: Vec<u16> = dir.as_os_str().encode_wide().collect();
     wide.push(0);
 
-    extern "system" {
+    unsafe extern "system" {
         fn GetDiskFreeSpaceExW(
             lpDirectoryName: *const u16,
             lpFreeBytesAvailableToCaller: *mut u64,

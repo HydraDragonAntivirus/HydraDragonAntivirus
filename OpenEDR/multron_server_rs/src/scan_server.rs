@@ -263,9 +263,42 @@ impl ScanServer {
         if self.cfg.cache() {
             if let Some(v) = self.cache.get(sha) {
                 self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
+                let is_threat = v.verdict == "malicious" || v.verdict == "suspicious";
+                let ecs = serde_json::json!({
+                    "@timestamp": chrono::Utc::now().to_rfc3339(),
+                    "ecs": { "version": "8.11.0" },
+                    "event": {
+                        "kind": if is_threat { "alert" } else { "event" },
+                        "category": ["malware", "file"],
+                        "type": if is_threat { vec!["info", "indicator"] } else { vec!["info"] },
+                        "action": "cache_lookup",
+                        "outcome": "success",
+                        "duration": 0,
+                    },
+                    "file": {
+                        "hash": {
+                            "sha256": sha_hex,
+                        }
+                    },
+                    "antivirus": {
+                        "engine": ENGINE_NAME,
+                        "verdict": v.verdict,
+                        "score": v.score,
+                        "source": "cache",
+                        "detail": v.detail,
+                    },
+                    "rule": {
+                        "name": v.threat.as_deref().unwrap_or(v.detail.as_deref().unwrap_or("")),
+                        "verdict": v.verdict,
+                    }
+                });
                 return Some(ResultMessage {
                     r#type: "result".into(),
                     id: 0,
+                    timestamp: ecs.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string()),
+                    event: ecs.get("event").cloned(),
+                    file: ecs.get("file").cloned(),
+                    antivirus: ecs.get("antivirus").cloned(),
                     verdict: v.verdict,
                     threat: v.threat,
                     detail: v.detail,
@@ -274,6 +307,7 @@ impl ScanServer {
                     scan_ms: 0,
                     source: "cache".into(),
                     extracted_objects: Vec::new(),
+                    ecs: Some(ecs),
                 });
             }
         }
