@@ -845,6 +845,10 @@ async fn handle_scan(
                 Ok(ResultMessage {
                     r#type: "result".into(),
                     id: 0,
+                    timestamp: Some(chrono::Utc::now().to_rfc3339()),
+                    event: Some(serde_json::json!({ "action": "static_analysis", "kind": "alert", "category": ["malware", "file"], "outcome": "failure" })),
+                    file: Some(serde_json::json!({ "name": name, "size": size, "hash": { "sha256": sha_hex } })),
+                    antivirus: Some(serde_json::json!({ "engine": ENGINE_NAME, "verdict": "suspicious" })),
                     verdict: "suspicious".into(),
                     threat: Some("Unscannable.EngineCrash".into()),
                     detail: Some("The scan engine crashed on this file".into()),
@@ -853,6 +857,7 @@ async fn handle_scan(
                     scan_ms: 0,
                     source: "scan".into(),
                     extracted_objects: Vec::new(),
+                    ecs: None,
                 })
             }
             Ok(Err(e)) => Err(e),

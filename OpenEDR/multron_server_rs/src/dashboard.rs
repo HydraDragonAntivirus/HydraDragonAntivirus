@@ -235,6 +235,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(handle_index))
         .route("/api/state", get(handle_state))
+        .route("/api/events/ecs", get(handle_events_ecs))
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
         .route("/api/limits", post(handle_limits))
@@ -324,6 +325,9 @@ async fn handle_state(
             "cache": app.cfg.cache(),
             "signatureCheck": !app.cfg.memory_only,
             "maxFileMBCeiling": crate::config::MAX_FILE_MB,
+            "keepThreats": app.engine.keep_threats,
+            "compressLowDisk": app.engine.compress_low_disk,
+            "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },
         "editableLimits": srv.limits.get(),
         "bannedIps": srv.limiter.banned_now(),
@@ -363,6 +367,25 @@ async fn handle_state(
     let mut headers = HeaderMap::new();
     headers.insert("Cache-Control", "no-store".parse().unwrap());
     (headers, Json(state))
+}
+
+#[derive(Deserialize)]
+struct EcsQuery {
+    #[serde(default)]
+    since: i64,
+}
+
+async fn handle_events_ecs(
+    State(app): State<Arc<AppState>>,
+    Query(query): Query<EcsQuery>,
+) -> impl IntoResponse {
+    let (ecs_events, seq) = app.events.since_ecs(query.since);
+    let mut headers = HeaderMap::new();
+    headers.insert("Cache-Control", "no-store".parse().unwrap());
+    (headers, Json(serde_json::json!({
+        "events": ecs_events,
+        "seq": seq,
+    })))
 }
 
 async fn handle_start(

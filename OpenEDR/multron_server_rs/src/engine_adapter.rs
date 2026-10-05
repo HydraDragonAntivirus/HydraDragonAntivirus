@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::{parse_sha, Sha};
 
-pub const ENGINE_NAME: &str = "OpenEDR static";
+pub const ENGINE_NAME: &str = "VirusKov Engine";
 
 const EICAR_SHA256: &str = "275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F";
 
@@ -22,6 +22,14 @@ const MALICIOUS_HASH_FILES: &[&str] = &["malicious_sha256.txt", "hash_rules/mali
 pub struct ResultMessage {
     pub r#type: String, // "result"
     pub id: i64,
+    #[serde(rename = "@timestamp", skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub antivirus: Option<serde_json::Value>,
     pub verdict: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threat: Option<String>,
@@ -35,6 +43,9 @@ pub struct ResultMessage {
     pub source: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extracted_objects: Vec<ExtractedObject>,
+    /// Elasticsearch Elastic Common Schema (ECS 8.x) document
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ecs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +65,9 @@ pub struct EngineAdapter {
     malicious: RwLock<HashMap<Sha, String>>,
     whitelist_enabled: bool,
     keep_unknown: bool,
+    keep_threats: bool,
+    compress_low_disk: bool,
+    low_disk_threshold_bytes: u64,
     keep_limit_bytes: u64,
     kept_bytes: AtomicU64,
     pub kept_files: AtomicI64,
@@ -65,6 +79,9 @@ impl EngineAdapter {
         whitelist_enabled: bool,
         keep_unknown: bool,
         keep_unknown_gb: u64,
+        keep_threats: bool,
+        compress_low_disk: bool,
+        low_disk_gb: u64,
     ) -> Arc<Self> {
         let mut kept = (0u64, 0i64);
         if let Some(ref dir) = work_dir {
@@ -81,6 +98,9 @@ impl EngineAdapter {
             malicious: RwLock::new(HashMap::new()),
             whitelist_enabled,
             keep_unknown,
+            keep_threats,
+            compress_low_disk,
+            low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
             kept_bytes: AtomicU64::new(kept.0),
             kept_files: AtomicI64::new(kept.1),
@@ -186,6 +206,10 @@ impl EngineAdapter {
             let res = ResultMessage {
                 r#type: "result".to_string(),
                 id: 0,
+                timestamp: Some(chrono::Utc::now().to_rfc3339()),
+                event: Some(serde_json::json!({ "action": "scan_skipped", "kind": "event", "category": ["malware", "file"] })),
+                file: Some(serde_json::json!({ "name": name, "size": 0, "hash": { "sha256": sha } })),
+                antivirus: Some(serde_json::json!({ "engine": ENGINE_NAME, "verdict": "skipped" })),
                 verdict: "skipped".to_string(),
                 threat: None,
                 detail: Some("0 KB / empty file skipped".to_string()),
@@ -194,6 +218,7 @@ impl EngineAdapter {
                 scan_ms: started.elapsed().as_millis() as i64,
                 source: "scan".to_string(),
                 extracted_objects: Vec::new(),
+                ecs: None,
             };
             return Ok(res);
         }
@@ -237,31 +262,62 @@ impl EngineAdapter {
         Ok(res)
     }
 
-    /// Unknown files are kept in the work folder (multron_incoming) as `<SHA256>_<name>`
-    /// for later analysis; everything else (clean, and malicious samples, which are never
-    /// stored) is deleted. When the scan ran from memory the bytes are written directly.
+    /// Unknown and detected threat files (kept by default for false positive inspection) are kept
+    /// in the work folder (multron_incoming) as `<SHA256>_<name>` (or `threat_<SHA256>_<name>`).
+    /// When disk space is low, incoming files are automatically compressed using LZMA2 maximum preset (.xz).
     fn keep_or_remove(&self, temp: Option<&Path>, data: &[u8], res: &ResultMessage, sha: &str, name: &str) {
         let size = data.len() as u64;
-        let keep = self.keep_unknown
-            && res.verdict == "unknown"
-            && !data.is_empty()
+        let is_threat = res.verdict == "malicious" || res.verdict == "suspicious";
+        let is_unknown = res.verdict == "unknown";
+
+        let should_keep = !data.is_empty()
+            && ((self.keep_threats && is_threat) || (self.keep_unknown && is_unknown))
             && self.kept_bytes.load(Ordering::Relaxed) + size <= self.keep_limit_bytes;
 
-        if keep {
+        if should_keep {
             if let Some(dir) = &self.work_dir {
                 let name = if name.is_empty() { "file" } else { name };
-                let target = dir.join(format!("{}_{}", sha, name));
-                let stored = if target.exists() {
-                    false
-                } else if let Some(p) = temp {
-                    std::fs::rename(p, &target).is_ok()
+                let prefix = if is_threat { "threat_" } else { "" };
+                let low_disk = self.compress_low_disk
+                    && is_disk_space_low(
+                        dir,
+                        self.kept_bytes.load(Ordering::Relaxed),
+                        self.keep_limit_bytes,
+                        self.low_disk_threshold_bytes,
+                    );
+
+                if low_disk {
+                    // PC has low disk space: compress with LZMA2 Max (Preset 9) into .xz
+                    let target_xz = dir.join(format!("{}{}_{}.xz", prefix, sha, name));
+                    if !target_xz.exists() {
+                        let comp_res = if let Some(p) = temp {
+                            compress_file_lzma2_max(p, &target_xz)
+                        } else {
+                            compress_bytes_lzma2_max(data, &target_xz)
+                        };
+                        if let Ok(compressed_len) = comp_res {
+                            self.kept_bytes.fetch_add(compressed_len, Ordering::Relaxed);
+                            self.kept_files.fetch_add(1, Ordering::Relaxed);
+                            if let Some(p) = temp {
+                                let _ = std::fs::remove_file(p);
+                            }
+                            return;
+                        }
+                    }
                 } else {
-                    std::fs::write(&target, data).is_ok()
-                };
-                if stored {
-                    self.kept_bytes.fetch_add(size, Ordering::Relaxed);
-                    self.kept_files.fetch_add(1, Ordering::Relaxed);
-                    return;
+                    let target = dir.join(format!("{}{}_{}", prefix, sha, name));
+                    let stored = if target.exists() {
+                        false
+                    } else if let Some(p) = temp {
+                        std::fs::rename(p, &target).is_ok()
+                    } else {
+                        std::fs::write(&target, data).is_ok()
+                    };
+                    if stored {
+                        self.kept_bytes.fetch_add(size, Ordering::Relaxed);
+                        self.kept_files.fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
                 }
             }
         }
@@ -272,9 +328,43 @@ impl EngineAdapter {
 }
 
 fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sha: &str, source: &str) -> ResultMessage {
+    let is_threat = verdict == "malicious" || verdict == "suspicious";
+    let ecs = serde_json::json!({
+        "@timestamp": chrono::Utc::now().to_rfc3339(),
+        "ecs": { "version": "8.11.0" },
+        "event": {
+            "kind": if is_threat { "alert" } else { "event" },
+            "category": ["malware", "file"],
+            "type": if is_threat { vec!["info", "indicator"] } else { vec!["info"] },
+            "action": format!("hash_lookup_{}", source),
+            "outcome": "success",
+            "duration": 0,
+        },
+        "file": {
+            "hash": {
+                "sha256": sha,
+            }
+        },
+        "antivirus": {
+            "engine": ENGINE_NAME,
+            "verdict": verdict,
+            "score": score,
+            "source": source,
+            "detail": detail,
+        },
+        "rule": {
+            "name": threat.unwrap_or(detail),
+            "verdict": verdict,
+        }
+    });
+
     ResultMessage {
         r#type: "result".to_string(),
         id: 0,
+        timestamp: ecs.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string()),
+        event: ecs.get("event").cloned(),
+        file: ecs.get("file").cloned(),
+        antivirus: ecs.get("antivirus").cloned(),
         verdict: verdict.to_string(),
         threat: threat.map(|t| t.to_string()),
         detail: Some(detail.to_string()),
@@ -283,6 +373,7 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
         scan_ms: 0,
         source: source.to_string(),
         extracted_objects: Vec::new(),
+        ecs: Some(ecs),
     }
 }
 
@@ -296,6 +387,10 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     let mut res = ResultMessage {
         r#type: "result".to_string(),
         id: 0,
+        timestamp: None,
+        event: None,
+        file: None,
+        antivirus: None,
         verdict,
         threat: None,
         detail: None,
@@ -304,6 +399,7 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         scan_ms: report.scan_time_ms as i64,
         source: "scan".to_string(),
         extracted_objects: report.extracted_objects.clone(),
+        ecs: None,
     };
 
     let mut detail_parts = Vec::new();
@@ -351,6 +447,16 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     if !detail_parts.is_empty() {
         res.detail = Some(detail_parts.join(" — "));
     }
+
+    let mut ecs_val = report.to_ecs_value();
+    if let Some(file_obj) = ecs_val.get_mut("file").and_then(|f| f.as_object_mut()) {
+        file_obj.insert("hash".to_string(), serde_json::json!({ "sha256": sha }));
+    }
+    res.timestamp = ecs_val.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string());
+    res.event = ecs_val.get("event").cloned();
+    res.file = ecs_val.get("file").cloned();
+    res.antivirus = ecs_val.get("antivirus").cloned();
+    res.ecs = Some(ecs_val);
 
     res
 }
@@ -417,13 +523,99 @@ fn remove_leftover_uploads(dir: &Path) -> (u64, i64) {
             let b = name.as_bytes();
             if b.len() >= 9 && b[..8].iter().all(|c| c.is_ascii_digit()) && b[8] == b'_' {
                 let _ = std::fs::remove_file(&path);
-            } else if b.len() > 65 && b[64] == b'_' && b[..64].iter().all(|c| c.is_ascii_hexdigit()) {
-                kept.0 += entry.metadata().map(|m| m.len()).unwrap_or(0);
-                kept.1 += 1;
+            } else {
+                let check_name = name.strip_prefix("threat_").unwrap_or(name);
+                let cb = check_name.as_bytes();
+                if cb.len() > 65 && cb[64] == b'_' && cb[..64].iter().all(|c| c.is_ascii_hexdigit()) {
+                    kept.0 += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    kept.1 += 1;
+                }
             }
         }
     }
     kept
+}
+
+fn compress_bytes_lzma2_max(data: &[u8], target_path: &Path) -> std::io::Result<u64> {
+    use std::io::Write;
+    let file = std::fs::File::create(target_path)?;
+    let mut enc = lzma_rust2::XzWriter::new(file, lzma_rust2::XzOptions::with_preset(9))
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    enc.write_all(data)?;
+    let finished_file = enc.finish()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    finished_file.metadata().map(|m| m.len())
+}
+
+fn compress_file_lzma2_max(src_path: &Path, target_path: &Path) -> std::io::Result<u64> {
+    use std::io::{Read, Write};
+    let mut src = std::fs::File::open(src_path)?;
+    let file = std::fs::File::create(target_path)?;
+    let mut enc = lzma_rust2::XzWriter::new(file, lzma_rust2::XzOptions::with_preset(9))
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let n = src.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        enc.write_all(&buffer[..n])?;
+    }
+    let finished_file = enc.finish()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    finished_file.metadata().map(|m| m.len())
+}
+
+#[cfg(windows)]
+fn get_available_disk_space_bytes(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    let mut wide: Vec<u16> = dir.as_os_str().encode_wide().collect();
+    wide.push(0);
+
+    extern "system" {
+        fn GetDiskFreeSpaceExW(
+            lpDirectoryName: *const u16,
+            lpFreeBytesAvailableToCaller: *mut u64,
+            lpTotalNumberOfBytes: *mut u64,
+            lpTotalNumberOfFreeBytes: *mut u64,
+        ) -> i32;
+    }
+
+    let mut free_bytes_available: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    let mut total_free_bytes: u64 = 0;
+
+    let ret = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free_bytes_available,
+            &mut total_bytes,
+            &mut total_free_bytes,
+        )
+    };
+
+    if ret != 0 {
+        Some(free_bytes_available)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(windows))]
+fn get_available_disk_space_bytes(_dir: &Path) -> Option<u64> {
+    None
+}
+
+fn is_disk_space_low(dir: &Path, kept_bytes: u64, keep_limit_bytes: u64, low_disk_threshold_bytes: u64) -> bool {
+    if keep_limit_bytes > 0 && kept_bytes >= (keep_limit_bytes * 8) / 10 {
+        return true;
+    }
+    if let Some(free_bytes) = get_available_disk_space_bytes(dir) {
+        if free_bytes <= low_disk_threshold_bytes {
+            return true;
+        }
+    }
+    false
 }
 
 /// Name used for the temp file. Executables uploaded with a sample extension such as

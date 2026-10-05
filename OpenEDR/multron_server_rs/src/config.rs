@@ -121,9 +121,21 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_keep_unknown: bool,
 
-    /// Disk space for kept unknown files in GB; no more are kept above it
+    /// Disk space for kept files in GB; no more are kept above it
     #[arg(long, default_value_t = 20)]
     pub keep_unknown_gb: u64,
+
+    /// Do not keep detected malicious/suspicious files in work folder (kept by default for FP inspection)
+    #[arg(long)]
+    pub no_keep_threats: bool,
+
+    /// Disable automatic LZMA2 max compression when PC has low disk space
+    #[arg(long)]
+    pub no_compress_low_disk: bool,
+
+    /// Free disk threshold in GB below which incoming files are compressed with LZMA2 max (default: 15)
+    #[arg(long, default_value_t = 15)]
+    pub low_disk_gb: u64,
 }
 
 /// Hard ceiling for one uploaded file. --max-mb can lower it, never raise it.
@@ -132,6 +144,16 @@ pub const MAX_FILE_MB: i64 = 100;
 impl CliArgs {
     pub fn cache(&self) -> bool {
         !self.no_cache
+    }
+
+    /// Keep detected malicious/suspicious files for FP analysis (default: true)
+    pub fn keep_threats(&self) -> bool {
+        !self.no_keep_threats
+    }
+
+    /// Compress kept files with LZMA2 max on low disk space (default: true)
+    pub fn compress_low_disk(&self) -> bool {
+        !self.no_compress_low_disk
     }
 
     /// Clamps values that would let one client use too much memory or disk.
@@ -156,6 +178,14 @@ fn default_workers() -> usize {
     cpus.saturating_sub(1).max(2)
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_low_disk_gb() -> u64 {
+    15
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedSettings {
     pub host: String,
@@ -163,6 +193,12 @@ pub struct SavedSettings {
     pub path: String,
     #[serde(default)]
     pub autostart: bool,
+    #[serde(default = "default_true")]
+    pub keep_threats: bool,
+    #[serde(default = "default_true")]
+    pub compress_low_disk: bool,
+    #[serde(default = "default_low_disk_gb")]
+    pub low_disk_gb: u64,
     /// Limits edited in the dashboard; None until they are changed there once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits: Option<crate::limits::LimitSettings>,
@@ -175,6 +211,9 @@ impl Default for SavedSettings {
             port: 9443,
             path: "/scan".to_string(),
             autostart: false,
+            keep_threats: true,
+            compress_low_disk: true,
+            low_disk_gb: 15,
             limits: None,
         }
     }

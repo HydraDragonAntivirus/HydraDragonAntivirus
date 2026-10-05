@@ -41,6 +41,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         !args.no_hash_whitelist,
         !args.no_keep_unknown,
         args.keep_unknown_gb,
+        args.keep_threats(),
+        args.compress_low_disk(),
+        args.low_disk_gb,
     );
     let custom_rules = if args.rules.is_empty() {
         None

@@ -173,7 +173,7 @@ impl StaticScanReport {
                 "code_signature": code_sig_json,
             },
             "antivirus": {
-                "engine": "HydraDragon_OpenEDR_Static",
+                "engine": "VirusKov Engine",
                 "verdict": raw_verdict,
                 "score": self.max_threat_score,
                 "scan_time_ms": self.scan_time_ms,

@@ -24,3 +24,4 @@ chrono = { version = "0.4", features = ["serde"] }
 tower-http = { version = "0.5", features = ["cors"] }
 
 openedr_static = { path = "../openedr_static" }
+lzma-rust2 = "0.21"

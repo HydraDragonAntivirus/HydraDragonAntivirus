@@ -2052,6 +2052,9 @@ dependencies = [
  "md-5 0.11.0",
  "memchr",
  "once_cell",
+ "oxc_allocator",
+ "oxc_parser",
+ "oxc_span",
  "pefile-rs",
  "regex",
  "rustdct",
@@ -2763,6 +2766,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c1bf3331fb5cf60f2ef15b63361f6cc39492a5d94c096053c395515e17d147f"
 
 [[package]]
+name = "lzma-rust2"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fde178a3caf126c440fa15628147772d8ee590a39477d711353fbe2e58a73a5b"
+dependencies = [
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2956,6 +2968,7 @@ dependencies = [
  "clap",
  "futures-util",
  "hex",
+ "lzma-rust2 0.21.0",
  "openedr_static",
  "serde",
  "serde_json",
