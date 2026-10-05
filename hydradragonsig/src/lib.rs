@@ -133,6 +133,7 @@ fn scanner_config(options: &ScanOptions) -> ScannerConfig {
         decode_config: scanner::strings::DecodeConfig::default(),
         core_options: options.core_options.clone(),
         unpack_config: options.unpack_config.clone(),
+        lazy_extraction: true,
     }
 }
 
@@ -147,7 +148,7 @@ fn finalize_scan_context(
     let bytes = std::mem::take(&mut ctx.bytes);
     let mut report = report::build_report(ctx);
     evaluate_rules(&mut report, &bytes, rules, options);
-    finalize_report_metadata(&mut report, rules, options);
+    finalize_report_metadata(&mut report, &bytes, rules, options);
 
     if should_scan_archive(&report, &bytes, options, archive_depth) {
         let archive_scan = scan_archive_members_from_bytes(
@@ -162,7 +163,7 @@ fn finalize_scan_context(
         report.findings.extend(archive_scan.findings);
         report.statistics.archive_members = report.archive_members.len() as u32;
         report.statistics.files_scanned = 1u32.saturating_add(report.statistics.archive_members);
-        finalize_report_metadata(&mut report, rules, options);
+        finalize_report_metadata(&mut report, &bytes, rules, options);
     }
 
     report.statistics.scan_duration_ms = report
@@ -184,7 +185,13 @@ fn evaluate_rules(report: &mut ScanReport, bytes: &[u8], rules: &RuleSet, option
     );
 }
 
-fn finalize_report_metadata(report: &mut ScanReport, rules: &RuleSet, _options: &ScanOptions) {
+fn finalize_report_metadata(report: &mut ScanReport, bytes: &[u8], rules: &RuleSet, _options: &ScanOptions) {
+    if report.hashes.sha256.is_empty() && !bytes.is_empty() {
+        report.hashes = crate::utils::hash::hashes(bytes);
+    }
+    if report.entropy == 0.0 && !bytes.is_empty() {
+        report.entropy = crate::utils::entropy::byte_entropy(bytes);
+    }
     report.findings.sort_by(|a, b| {
         b.score
             .cmp(&a.score)

@@ -39,6 +39,7 @@ pub struct ScannerConfig {
     pub decode_config: DecodeConfig,
     pub core_options: CoreInitOptions,
     pub unpack_config: UnpackConfig,
+    pub lazy_extraction: bool,
 }
 
 impl Default for ScannerConfig {
@@ -49,6 +50,7 @@ impl Default for ScannerConfig {
             decode_config: DecodeConfig::default(),
             core_options: CoreInitOptions::default(),
             unpack_config: UnpackConfig::default(),
+            lazy_extraction: true,
         }
     }
 }
@@ -159,30 +161,40 @@ impl HydraScanner {
         start_time: Instant,
     ) -> Result<ScanContext> {
         let file_size = bytes.len() as u64;
-        let entropy = byte_entropy(&bytes);
-        let hashes = hashes(&bytes);
-
-        let extract_cfg = ExtractConfig {
-            min_len: config.min_string_len.max(1),
-        };
-        let strings = strings::extract_strings(&bytes, &extract_cfg);
-
-        let decoded_strings = if config.decode_obfuscated_strings {
-            strings::decode_obfuscated_strings(&strings, &config.decode_config)
-        } else {
-            Vec::new()
-        };
-
-        let pe = pe::scan_pe(&bytes);
         let file_type = if is_virtual_scan_path(&path) {
             filetype::classify_bytes_only(&bytes)
         } else {
             filetype::classify_bytes(&path, &bytes)
         };
-        let env_hits = env::scan_environment(&strings, &decoded_strings);
+        let is_container = file_type.is_archive || file_type.is_zip || file_type.is_7z;
+
+        let (entropy, hashes, strings, decoded_strings, pe, env_hits) = if config.lazy_extraction {
+            (
+                0.0,
+                crate::models::Hashes::default(),
+                Vec::new(),
+                Vec::new(),
+                None,
+                Vec::new(),
+            )
+        } else {
+            let entropy = byte_entropy(&bytes);
+            let hashes = hashes(&bytes);
+            let extract_cfg = ExtractConfig {
+                min_len: config.min_string_len.max(1),
+            };
+            let strings = strings::extract_strings(&bytes, &extract_cfg);
+            let decoded_strings = if config.decode_obfuscated_strings {
+                strings::decode_obfuscated_strings(&strings, &config.decode_config)
+            } else {
+                Vec::new()
+            };
+            let pe = pe::scan_pe(&bytes);
+            let env_hits = env::scan_environment(&strings, &decoded_strings);
+            (entropy, hashes, strings, decoded_strings, pe, env_hits)
+        };
 
         let scan_duration_ms = start_time.elapsed().as_millis() as u64;
-        let is_container = file_type.is_archive || file_type.is_zip || file_type.is_7z;
 
         let statistics = ScanStatistics {
             files_scanned: 1,

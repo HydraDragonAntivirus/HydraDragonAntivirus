@@ -47,6 +47,9 @@ oxc_parser = "0.152.0"
 oxc_allocator = "0.152.0"
 oxc_span = "0.152.0"
 
+[profile.dev]
+opt-level = 1
+
 [profile.release]
 opt-level = 3
 lto = true

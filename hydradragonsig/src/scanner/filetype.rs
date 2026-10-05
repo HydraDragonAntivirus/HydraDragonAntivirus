@@ -346,6 +346,9 @@ fn apply_archive_markers(info: &mut FileTypeInfo, data: &[u8]) {
 }
 
 fn apply_language_and_text_markers(info: &mut FileTypeInfo, path: &Path, data: &[u8]) {
+    if info.is_pe || info.is_elf || info.is_macho || info.is_apk {
+        return;
+    }
     let ext = info.extension.clone().unwrap_or_default();
     let plain_text = is_plain_text_bytes(data);
     if plain_text {
@@ -494,17 +497,25 @@ fn inspect_binary_formats(data: &[u8]) -> BinaryFormatValidation {
         validation.broken_type = Some("Mach-O".to_string());
     }
 
-    validation.apk = inspect_apk_bytes(data);
+    if validation.pe == FormatValidation::NotDetected
+        && validation.elf == FormatValidation::NotDetected
+        && validation.macho == FormatValidation::NotDetected
+    {
+        validation.apk = inspect_apk_bytes(data);
+    }
     validation
 }
 
 fn inspect_apk_bytes(data: &[u8]) -> FormatValidation {
-    let has_zip_magic = looks_like_zip(data);
+    if !looks_like_zip(data) {
+        return FormatValidation::NotDetected;
+    }
+
     let has_apk_marker = contains_bytes(data, b"AndroidManifest.xml")
         || contains_bytes(data, b"classes.dex")
         || contains_bytes(data, b"classes2.dex");
 
-    if !has_zip_magic && !has_apk_marker {
+    if !has_apk_marker {
         return FormatValidation::NotDetected;
     }
 
@@ -706,10 +717,10 @@ fn read_u32_be(data: &[u8], offset: usize) -> Option<u32> {
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    !needle.is_empty()
-        && haystack
-            .windows(needle.len())
-            .any(|window| window == needle)
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return false;
+    }
+    memchr::memmem::find(haystack, needle).is_some()
 }
 
 /// SDK-inspired helper: classify bytes without path context (for memory scanning)

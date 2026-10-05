@@ -79,6 +79,12 @@ impl ScanView {
             exports_lower,
         }
     }
+
+    fn update_pe(&mut self, pe: &crate::models::PeInfo) {
+        self.imports_lower = pe.imports.iter().map(|imp| imp.to_ascii_lowercase()).collect();
+        self.dlls_lower = pe.dlls.iter().map(|dll| dll.to_ascii_lowercase()).collect();
+        self.exports_lower = pe.exports.iter().map(|exp| exp.to_ascii_lowercase()).collect();
+    }
 }
 
 static REGEX_CACHE: Lazy<Mutex<HashMap<String, Arc<Regex>>>> =
@@ -221,14 +227,274 @@ fn literal_set_cache_key(values: &[String], nocase: bool) -> String {
     key
 }
 
+#[derive(Debug, Clone)]
+pub struct PatternTarget {
+    pub rule_idx: usize,
+    pub cond_idx: usize,
+    pub item_idx: usize,
+    pub value: String,
+    pub is_wide: bool,
+    #[allow(dead_code)]
+    pub is_hex: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchedItem {
+    pub item_idx: usize,
+    pub offset: usize,
+    pub value: String,
+    pub is_wide: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct RuleScanMatches {
+    pub rules: Vec<HashMap<usize, Vec<MatchedItem>>>,
+}
+
+pub struct GlobalRuleIndex {
+    ac_exact: Option<DoubleArrayAhoCorasick<u32>>,
+    exact_meta: Vec<PatternTarget>,
+    ac_nocase: Option<DoubleArrayAhoCorasick<u32>>,
+    nocase_meta: Vec<PatternTarget>,
+}
+
+impl std::fmt::Debug for GlobalRuleIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GlobalRuleIndex")
+            .field("exact_patterns", &self.exact_meta.len())
+            .field("nocase_patterns", &self.nocase_meta.len())
+            .finish()
+    }
+}
+
+fn to_wide_bytes(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len() * 2);
+    for u in s.encode_utf16() {
+        out.extend_from_slice(&u.to_le_bytes());
+    }
+    out
+}
+
+fn to_wide_ascii_lowercase(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len() * 2);
+    for u in s.encode_utf16() {
+        let b = if u < 128 { (u as u8).to_ascii_lowercase() as u16 } else { u };
+        out.extend_from_slice(&b.to_le_bytes());
+    }
+    out
+}
+
+impl GlobalRuleIndex {
+    pub fn build(rules: &[Rule]) -> Self {
+        let mut exact_pats: Vec<Vec<u8>> = Vec::new();
+        let mut exact_meta: Vec<PatternTarget> = Vec::new();
+        let mut nocase_pats: Vec<Vec<u8>> = Vec::new();
+        let mut nocase_meta: Vec<PatternTarget> = Vec::new();
+
+        for (rule_idx, rule) in rules.iter().enumerate() {
+            for (cond_idx, cond) in rule.conditions.iter().enumerate() {
+                match cond {
+                    RuleCondition::StringSet {
+                        values,
+                        nocase,
+                        wide,
+                        ascii,
+                        regex,
+                        ..
+                    } if !*regex => {
+                        for (item_idx, val) in values.iter().enumerate() {
+                            if val.is_empty() {
+                                continue;
+                            }
+                            if *nocase {
+                                if *ascii {
+                                    nocase_pats.push(val.to_ascii_lowercase().into_bytes());
+                                    nocase_meta.push(PatternTarget {
+                                        rule_idx,
+                                        cond_idx,
+                                        item_idx,
+                                        value: val.clone(),
+                                        is_wide: false,
+                                        is_hex: false,
+                                    });
+                                }
+                                if *wide {
+                                    nocase_pats.push(to_wide_ascii_lowercase(val));
+                                    nocase_meta.push(PatternTarget {
+                                        rule_idx,
+                                        cond_idx,
+                                        item_idx,
+                                        value: val.clone(),
+                                        is_wide: true,
+                                        is_hex: false,
+                                    });
+                                }
+                            } else {
+                                if *ascii {
+                                    exact_pats.push(val.as_bytes().to_vec());
+                                    exact_meta.push(PatternTarget {
+                                        rule_idx,
+                                        cond_idx,
+                                        item_idx,
+                                        value: val.clone(),
+                                        is_wide: false,
+                                        is_hex: false,
+                                    });
+                                }
+                                if *wide {
+                                    exact_pats.push(to_wide_bytes(val));
+                                    exact_meta.push(PatternTarget {
+                                        rule_idx,
+                                        cond_idx,
+                                        item_idx,
+                                        value: val.clone(),
+                                        is_wide: true,
+                                        is_hex: false,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    RuleCondition::ByteSet { patterns, .. } => {
+                        for (item_idx, pat_str) in patterns.iter().enumerate() {
+                            if let Some(compiled) = compile_byte_pattern(pat_str) {
+                                if let Some(exact) = compiled.exact {
+                                    if !exact.is_empty() {
+                                        exact_pats.push(exact);
+                                        exact_meta.push(PatternTarget {
+                                            rule_idx,
+                                            cond_idx,
+                                            item_idx,
+                                            value: pat_str.clone(),
+                                            is_wide: false,
+                                            is_hex: true,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    RuleCondition::BytePattern { pattern, .. } => {
+                        if let Some(compiled) = compile_byte_pattern(pattern) {
+                            if let Some(exact) = compiled.exact {
+                                if !exact.is_empty() {
+                                    exact_pats.push(exact);
+                                    exact_meta.push(PatternTarget {
+                                        rule_idx,
+                                        cond_idx,
+                                        item_idx: 0,
+                                        value: pattern.clone(),
+                                        is_wide: false,
+                                        is_hex: true,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let ac_exact = if !exact_pats.is_empty() {
+            let patvals: Vec<(Vec<u8>, u32)> = exact_pats
+                .into_iter()
+                .enumerate()
+                .map(|(i, p)| (p, i as u32))
+                .collect();
+            DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()
+        } else {
+            None
+        };
+
+        let ac_nocase = if !nocase_pats.is_empty() {
+            let patvals: Vec<(Vec<u8>, u32)> = nocase_pats
+                .into_iter()
+                .enumerate()
+                .map(|(i, p)| (p, i as u32))
+                .collect();
+            DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()
+        } else {
+            None
+        };
+
+        Self {
+            ac_exact,
+            exact_meta,
+            ac_nocase,
+            nocase_meta,
+        }
+    }
+
+    pub fn scan(&self, bytes: &[u8], num_rules: usize) -> RuleScanMatches {
+        let mut matches = RuleScanMatches {
+            rules: (0..num_rules).map(|_| HashMap::new()).collect(),
+        };
+
+        if let Some(ac) = &self.ac_exact {
+            for mat in ac.find_overlapping_iter(bytes) {
+                let pat_id = mat.value() as usize;
+                if let Some(target) = self.exact_meta.get(pat_id) {
+                    if target.rule_idx < matches.rules.len() {
+                        let cond_entry = matches.rules[target.rule_idx]
+                            .entry(target.cond_idx)
+                            .or_default();
+                        if !cond_entry.iter().any(|m| m.item_idx == target.item_idx) {
+                            cond_entry.push(MatchedItem {
+                                item_idx: target.item_idx,
+                                offset: mat.start(),
+                                value: target.value.clone(),
+                                is_wide: target.is_wide,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(ac) = &self.ac_nocase {
+            let mut bytes_lower = bytes.to_vec();
+            bytes_lower.make_ascii_lowercase();
+            for mat in ac.find_overlapping_iter(&bytes_lower) {
+                let pat_id = mat.value() as usize;
+                if let Some(target) = self.nocase_meta.get(pat_id) {
+                    if target.rule_idx < matches.rules.len() {
+                        let cond_entry = matches.rules[target.rule_idx]
+                            .entry(target.cond_idx)
+                            .or_default();
+                        if !cond_entry.iter().any(|m| m.item_idx == target.item_idx) {
+                            cond_entry.push(MatchedItem {
+                                item_idx: target.item_idx,
+                                offset: mat.start(),
+                                value: target.value.clone(),
+                                is_wide: target.is_wide,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        matches
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RuleSet {
     rules: Vec<Rule>,
+    index: Option<Arc<GlobalRuleIndex>>,
 }
 
 impl RuleSet {
     pub fn empty() -> Self {
-        Self { rules: Vec::new() }
+        Self {
+            rules: Vec::new(),
+            index: None,
+        }
+    }
+
+    pub fn compile(&mut self) {
+        self.index = Some(Arc::new(GlobalRuleIndex::build(&self.rules)));
     }
 
     pub fn from_yaml_str(yaml: &str) -> Result<Self> {
@@ -240,11 +506,18 @@ impl RuleSet {
         for rule in &mut rules {
             rule.compute_required_types();
         }
-        Ok(Self { rules })
+        let mut ruleset = Self {
+            rules,
+            index: None,
+        };
+        ruleset.compile();
+        Ok(ruleset)
     }
 
     pub fn from_yaml_file(path: &Path) -> Result<Self> {
-        Self::from_yaml_file_recursive(path, 0)
+        let mut ruleset = Self::from_yaml_file_recursive(path, 0)?;
+        ruleset.compile();
+        Ok(ruleset)
     }
 
     fn from_yaml_file_recursive(path: &Path, depth: u32) -> Result<Self> {
@@ -316,6 +589,7 @@ impl RuleSet {
 
     pub fn extend(&mut self, other: RuleSet) {
         self.rules.extend(other.rules);
+        self.index = None;
     }
 
     pub fn rules(&self) -> &[Rule] {
@@ -323,25 +597,94 @@ impl RuleSet {
     }
 
     pub fn evaluate_into(&self, report: &mut ScanReport, bytes: &[u8], options: RuleEvalOptions) {
-        let view = ScanView::new(report);
+        let index = self
+            .index
+            .clone()
+            .unwrap_or_else(|| Arc::new(GlobalRuleIndex::build(&self.rules)));
+        let matches = index.scan(bytes, self.rules.len());
+        let mut view = ScanView::new(report);
         if options.parallel_rules {
-            self.evaluate_parallel_into(report, &view, bytes, options);
+            self.evaluate_parallel_into(report, &mut view, bytes, options, &matches);
         } else {
-            self.evaluate_sequential_into(report, &view, bytes, options);
+            self.evaluate_sequential_into(report, &mut view, bytes, options, &matches);
         }
     }
 
     fn evaluate_sequential_into(
         &self,
         report: &mut ScanReport,
-        view: &ScanView,
+        view: &mut ScanView,
         bytes: &[u8],
         options: RuleEvalOptions,
+        matches: &RuleScanMatches,
     ) {
-        for rule in self.rules.iter() {
-            let result = evaluate_one_rule(rule, report, view, bytes, options.profile_rules);
-            let matched = result.finding.is_some();
-            push_rule_eval_result(report, result);
+        for (rule_idx, rule) in self.rules.iter().enumerate() {
+            let start = options.profile_rules.then(Instant::now);
+            let result = evaluate_rule_with_matches(rule, rule_idx, report, view, bytes, matches);
+            let elapsed_micros = start
+                .map(|instant| instant.elapsed().as_micros().min(u64::MAX as u128) as u64)
+                .unwrap_or(0);
+            let matched = result.is_some();
+
+            if options.profile_rules && elapsed_micros >= 20_000 {
+                eprintln!(
+                    "[SLOW-RULE] {}ms {} ({} conditions, {} atoms) matched={}",
+                    elapsed_micros / 1000,
+                    rule.id,
+                    rule.conditions.len(),
+                    rule_signature_atom_count(rule),
+                    matched,
+                );
+            }
+
+            let performance = options.profile_rules.then(|| RulePerformance {
+                rule_id: rule.id.clone(),
+                title: rule.title.clone(),
+                severity: rule.severity,
+                verdict: rule.verdict,
+                matched,
+                condition_count: rule.conditions.len(),
+                signature_atom_count: rule_signature_atom_count(rule),
+                elapsed_micros,
+            });
+
+            let finding = if rule.private {
+                None
+            } else {
+                result.map(|evidence| {
+                    let evidence_summary = evidence.first().cloned().unwrap_or_default();
+                    let mitre = rule
+                        .mitre
+                        .iter()
+                        .map(|m| MitreTechnique {
+                            id: m.id.clone(),
+                            name: m.name.clone(),
+                            tactic: m.tactic.clone(),
+                            evidence: evidence_summary.clone(),
+                            confidence: rule.confidence.min(100),
+                        })
+                        .collect::<Vec<_>>();
+                    Finding {
+                        rule_id: rule.id.clone(),
+                        title: rule.title.clone(),
+                        description: rule.description.clone(),
+                        severity: rule.severity,
+                        verdict: rule.verdict,
+                        confidence: rule.confidence.min(100),
+                        score: rule.score,
+                        tags: rule.tags.clone(),
+                        family: rule.family.clone(),
+                        evidence,
+                        mitre,
+                    }
+                })
+            };
+
+            let eval_res = RuleEvalResult {
+                finding,
+                performance,
+            };
+            push_rule_eval_result(report, eval_res);
             if options.stop_on_detection && matched {
                 break;
             }
@@ -351,37 +694,70 @@ impl RuleSet {
     fn evaluate_parallel_into(
         &self,
         report: &mut ScanReport,
-        view: &ScanView,
+        view: &mut ScanView,
         bytes: &[u8],
         options: RuleEvalOptions,
+        matches: &RuleScanMatches,
     ) {
-        if options.stop_on_detection {
-            // Deterministic first-match mode: returns the earliest matching rule in rule-file order.
-            for rule in self.rules.iter() {
-                let result = evaluate_one_rule(
-                    rule,
-                    report,
-                    view,
-                    bytes,
-                    options.profile_rules,
-                );
-                if result.finding.is_some() {
-                    push_rule_eval_result(report, result);
-                    return;
-                }
-            }
-            return;
-        }
+        for (rule_idx, rule) in self.rules.iter().enumerate() {
+            let start = options.profile_rules.then(Instant::now);
+            let result = evaluate_rule_with_matches(rule, rule_idx, report, view, bytes, matches);
+            let elapsed_micros = start
+                .map(|instant| instant.elapsed().as_micros().min(u64::MAX as u128) as u64)
+                .unwrap_or(0);
+            let matched = result.is_some();
 
-        for rule in self.rules.iter() {
-            let result = evaluate_one_rule(
-                rule,
-                report,
-                view,
-                bytes,
-                options.profile_rules,
-            );
-            push_rule_eval_result(report, result);
+            let performance = options.profile_rules.then(|| RulePerformance {
+                rule_id: rule.id.clone(),
+                title: rule.title.clone(),
+                severity: rule.severity,
+                verdict: rule.verdict,
+                matched,
+                condition_count: rule.conditions.len(),
+                signature_atom_count: rule_signature_atom_count(rule),
+                elapsed_micros,
+            });
+
+            let finding = if rule.private {
+                None
+            } else {
+                result.map(|evidence| {
+                    let evidence_summary = evidence.first().cloned().unwrap_or_default();
+                    let mitre = rule
+                        .mitre
+                        .iter()
+                        .map(|m| MitreTechnique {
+                            id: m.id.clone(),
+                            name: m.name.clone(),
+                            tactic: m.tactic.clone(),
+                            evidence: evidence_summary.clone(),
+                            confidence: rule.confidence.min(100),
+                        })
+                        .collect::<Vec<_>>();
+                    Finding {
+                        rule_id: rule.id.clone(),
+                        title: rule.title.clone(),
+                        description: rule.description.clone(),
+                        severity: rule.severity,
+                        verdict: rule.verdict,
+                        confidence: rule.confidence.min(100),
+                        score: rule.score,
+                        tags: rule.tags.clone(),
+                        family: rule.family.clone(),
+                        evidence,
+                        mitre,
+                    }
+                })
+            };
+
+            let eval_res = RuleEvalResult {
+                finding,
+                performance,
+            };
+            push_rule_eval_result(report, eval_res);
+            if options.stop_on_detection && matched {
+                break;
+            }
         }
     }
 }
@@ -472,6 +848,7 @@ struct RuleEvalResult {
     performance: Option<RulePerformance>,
 }
 
+#[allow(dead_code)]
 fn evaluate_one_rule(
     rule: &Rule,
     report: &ScanReport,
@@ -587,6 +964,187 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
         .sum()
 }
 
+fn evaluate_rule_with_matches(
+    rule: &Rule,
+    rule_idx: usize,
+    report: &mut ScanReport,
+    view: &mut ScanView,
+    bytes: &[u8],
+    matches: &RuleScanMatches,
+) -> Option<Vec<String>> {
+    if rule.conditions.is_empty() {
+        return None;
+    }
+
+    // File-type pre-filter
+    if let Some(ref types) = rule.required_types {
+        if !types.iter().any(|t| report.file_type.matches_type(t)) {
+            return None;
+        }
+    }
+
+    // Path filter
+    if let Some(ref required) = rule.required_path {
+        if !path_matches_required(&report.path, required) {
+            return None;
+        }
+    }
+
+    // Quick precondition check for RuleLogic::All:
+    if rule.logic == RuleLogic::All {
+        for (cond_idx, cond) in rule.conditions.iter().enumerate() {
+            match cond {
+                RuleCondition::StringSet { values, min, regex, .. } if !*regex => {
+                    let needed = min.unwrap_or(values.len()).max(1);
+                    let hit_count = matches.rules.get(rule_idx)
+                        .and_then(|r| r.get(&cond_idx))
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    if hit_count < needed {
+                        return None;
+                    }
+                }
+                RuleCondition::ByteSet { patterns, min, .. } => {
+                    let needed = min.unwrap_or(patterns.len()).max(1);
+                    let hit_count = matches.rules.get(rule_idx)
+                        .and_then(|r| r.get(&cond_idx))
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    if hit_count < needed {
+                        return None;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let eval_cond = |cond_idx: usize, cond: &RuleCondition, report: &mut ScanReport, view: &mut ScanView| -> Option<String> {
+        // Fast path for indexed StringSet
+        match cond {
+            RuleCondition::StringSet { values, min, regex, .. } if !*regex => {
+                let needed = min.unwrap_or(values.len()).max(1);
+                if let Some(cond_hits) = matches.rules.get(rule_idx).and_then(|r| r.get(&cond_idx)) {
+                    if cond_hits.len() >= needed {
+                        let ev_items: Vec<String> = cond_hits
+                            .iter()
+                            .take(8)
+                            .map(|h| {
+                                let label = if h.is_wide { " wide" } else { "" };
+                                format!("literal{label} `{}` at 0x{:x}", h.value, h.offset)
+                            })
+                            .collect();
+                        return Some(format!(
+                            "string_set matched {}/{}: {}",
+                            cond_hits.len(),
+                            needed,
+                            ev_items.join("; ")
+                        ));
+                    }
+                }
+                return None;
+            }
+            RuleCondition::ByteSet { patterns, min, scope, excludes } if scope.is_none() && excludes.is_empty() => {
+                let needed = min.unwrap_or(patterns.len()).max(1);
+                if let Some(cond_hits) = matches.rules.get(rule_idx).and_then(|r| r.get(&cond_idx)) {
+                    if cond_hits.len() >= needed {
+                        let ev_items: Vec<String> = cond_hits
+                            .iter()
+                            .take(8)
+                            .map(|h| format!("`{}` at 0x{:x}", h.value, h.offset))
+                            .collect();
+                        return Some(format!(
+                            "byte_set matched {}/{}: {}",
+                            cond_hits.len(),
+                            needed,
+                            ev_items.join("; ")
+                        ));
+                    }
+                }
+                return None;
+            }
+            RuleCondition::BytePattern { pattern: _, .. } => {
+                if let Some(cond_hits) = matches.rules.get(rule_idx).and_then(|r| r.get(&cond_idx)) {
+                    if !cond_hits.is_empty() {
+                        let h = &cond_hits[0];
+                        return Some(format!("byte_pattern matched `{}` at 0x{:x}", h.value, h.offset));
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Lazy components loading if required
+        match cond {
+            RuleCondition::ImportAny { .. }
+            | RuleCondition::ImportAll { .. }
+            | RuleCondition::ImportSet { .. }
+            | RuleCondition::ImportRegex { .. }
+            | RuleCondition::ExportAny { .. }
+            | RuleCondition::ExportAll { .. }
+            | RuleCondition::ExportSet { .. }
+            | RuleCondition::DllAny { .. }
+            | RuleCondition::DllRegex { .. }
+            | RuleCondition::SuspiciousImportCount { .. }
+            | RuleCondition::SectionEntropy { .. }
+            | RuleCondition::SectionNameRegex { .. }
+            | RuleCondition::PackedPe => {
+                if report.pe.is_none() && is_pe_magic(bytes) {
+                    if let Some(pe) = crate::scanner::pe::scan_pe(bytes) {
+                        view.update_pe(&pe);
+                        report.pe = Some(pe);
+                    }
+                }
+            }
+            RuleCondition::FileEntropy { .. } => {
+                if report.entropy == 0.0 && !bytes.is_empty() {
+                    report.entropy = crate::utils::entropy::byte_entropy(bytes);
+                }
+            }
+            _ => {}
+        }
+
+        evaluate_condition(cond, report, view, bytes)
+    };
+
+    match rule.logic {
+        RuleLogic::Any => {
+            for (cond_idx, cond) in rule.conditions.iter().enumerate() {
+                if let Some(ev) = eval_cond(cond_idx, cond, report, view) {
+                    return Some(vec![ev]);
+                }
+            }
+            None
+        }
+        RuleLogic::All => {
+            let mut evidence = Vec::with_capacity(rule.conditions.len());
+            for (cond_idx, cond) in rule.conditions.iter().enumerate() {
+                let ev = eval_cond(cond_idx, cond, report, view)?;
+                evidence.push(ev);
+            }
+            Some(evidence)
+        }
+        RuleLogic::Threshold => {
+            let needed = rule.threshold.unwrap_or(1).max(1);
+            let mut evidence = Vec::with_capacity(needed);
+            for (cond_idx, cond) in rule.conditions.iter().enumerate() {
+                if let Some(ev) = eval_cond(cond_idx, cond, report, view) {
+                    evidence.push(ev);
+                    if evidence.len() >= needed {
+                        return Some(evidence);
+                    }
+                }
+                let remaining = rule.conditions.len().saturating_sub(cond_idx + 1);
+                if evidence.len() + remaining < needed {
+                    return None;
+                }
+            }
+            None
+        }
+    }
+}
+
+#[allow(dead_code)]
 fn evaluate_rule(
     rule: &Rule,
     report: &ScanReport,
