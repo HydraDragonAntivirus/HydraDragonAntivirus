@@ -1096,6 +1096,11 @@ fn evaluate_rule_with_matches(
                     }
                 }
             }
+            RuleCondition::HashSha256 { .. } | RuleCondition::HashMd5 { .. } => {
+                if report.hashes.sha256.is_empty() && !bytes.is_empty() {
+                    report.hashes = crate::utils::hash::hashes(bytes);
+                }
+            }
             RuleCondition::FileEntropy { .. } => {
                 if report.entropy == 0.0 && !bytes.is_empty() {
                     report.entropy = crate::utils::entropy::byte_entropy(bytes);

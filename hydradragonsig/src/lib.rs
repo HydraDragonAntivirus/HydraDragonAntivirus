@@ -25,6 +25,8 @@ pub struct ScanOptions {
     pub stop_on_detection: bool,
     pub min_string_len: usize,
     pub decode_obfuscated_strings: bool,
+    pub compute_hashes: bool,
+    pub compute_entropy: bool,
     /// SDK-inspired core initialization options
     pub core_options: CoreInitOptions,
     /// SDK-inspired unpacking configuration
@@ -40,6 +42,8 @@ impl Default for ScanOptions {
             stop_on_detection: true,
             min_string_len: 5,
             decode_obfuscated_strings: true,
+            compute_hashes: false,
+            compute_entropy: false,
             core_options: CoreInitOptions::default(),
             unpack_config: UnpackConfig::default(),
         }
@@ -185,11 +189,11 @@ fn evaluate_rules(report: &mut ScanReport, bytes: &[u8], rules: &RuleSet, option
     );
 }
 
-fn finalize_report_metadata(report: &mut ScanReport, bytes: &[u8], rules: &RuleSet, _options: &ScanOptions) {
-    if report.hashes.sha256.is_empty() && !bytes.is_empty() {
+fn finalize_report_metadata(report: &mut ScanReport, bytes: &[u8], rules: &RuleSet, options: &ScanOptions) {
+    if options.compute_hashes && report.hashes.sha256.is_empty() && !bytes.is_empty() {
         report.hashes = crate::utils::hash::hashes(bytes);
     }
-    if report.entropy == 0.0 && !bytes.is_empty() {
+    if options.compute_entropy && report.entropy == 0.0 && !bytes.is_empty() {
         report.entropy = crate::utils::entropy::byte_entropy(bytes);
     }
     report.findings.sort_by(|a, b| {

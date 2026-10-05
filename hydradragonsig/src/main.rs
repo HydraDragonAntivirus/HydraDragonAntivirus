@@ -257,6 +257,14 @@ struct Cli {
     #[arg(long)]
     stop_scan_on_detection: bool,
 
+    /// Calculate cryptographic hashes (SHA-256 and MD5) for scanned files.
+    #[arg(long)]
+    hash: bool,
+
+    /// Calculate Shannon byte entropy for scanned files.
+    #[arg(long)]
+    entropy: bool,
+
     /// Profile every rule and report slow rule evaluations. Alias: --slow-rules.
     #[arg(long, alias = "slow-rules")]
     profile_rules: bool,
@@ -396,6 +404,8 @@ fn main() -> Result<()> {
         stop_on_detection: cli.stop_on_detection,
         min_string_len: cli.min_string_len,
         decode_obfuscated_strings: !cli.no_decode,
+        compute_hashes: cli.hash,
+        compute_entropy: cli.entropy,
         core_options,
         unpack_config,
     };
@@ -1181,15 +1191,20 @@ fn print_pretty(reports: &[hydradragonsig::models::ScanReport]) {
             Verdict::Clean => "[CLEAN]".green().bold(),
         };
         println!("{} {}", badge, report.path.display());
-        println!(
-            "  verdict={} result_code={} confidence={} score={} entropy={:.3} sha256={}",
+        let mut meta = format!(
+            "  verdict={} result_code={} confidence={} score={}",
             report.verdict.label(),
             report.result_code.as_i32(),
             report.confidence,
             report.score,
-            report.entropy,
-            report.hashes.sha256
         );
+        if report.entropy > 0.0 {
+            meta.push_str(&format!(" entropy={:.3}", report.entropy));
+        }
+        if !report.hashes.sha256.is_empty() {
+            meta.push_str(&format!(" sha256={}", report.hashes.sha256));
+        }
+        println!("{}", meta);
         println!(
             "  stats: files={} archive_members={} duration_ms={} signatures={}",
             report.statistics.files_scanned,
