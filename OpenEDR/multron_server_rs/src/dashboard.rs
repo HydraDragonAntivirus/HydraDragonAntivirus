@@ -326,6 +326,7 @@ async fn handle_state(
             "signatureCheck": !app.cfg.memory_only,
             "maxFileMBCeiling": crate::config::MAX_FILE_MB,
             "keepThreats": app.engine.keep_threats,
+            "keepClean": app.engine.keep_clean,
             "compressLowDisk": app.engine.compress_low_disk,
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },

@@ -42,6 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         !args.no_keep_unknown,
         args.keep_unknown_gb,
         args.keep_threats(),
+        args.keep_clean,
         args.compress_low_disk(),
         args.low_disk_gb,
     );

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
@@ -6,17 +5,14 @@ use std::time::Instant;
 
 use openedr_static::engine::StaticEngine;
 use openedr_static::report::{ExtractedObject, StaticScanReport};
+use openedr_static::signers::BinaryFuse16Filter;
 use serde::{Deserialize, Serialize};
 
-use crate::cache::{parse_sha, Sha};
+use crate::cache::Sha;
 
 pub const ENGINE_NAME: &str = "VirusKov Engine";
 
 const EICAR_SHA256: &str = "275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F";
-
-/// Optional hash signatures: one SHA-256 per line, optionally `SHA256:ThreatName`.
-/// Looked up next to the exe and in the rules folder.
-const MALICIOUS_HASH_FILES: &[&str] = &["malicious_sha256.txt", "hash_rules/malicious_sha256.txt"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResultMessage {
@@ -62,10 +58,11 @@ pub struct EngineAdapter {
     load_ms: AtomicI64,
     work_dir: Option<PathBuf>,
     file_seq: AtomicI64,
-    malicious: RwLock<HashMap<Sha, String>>,
+    malicious_xf: RwLock<Option<BinaryFuse16Filter>>,
     whitelist_enabled: bool,
     keep_unknown: bool,
     pub keep_threats: bool,
+    pub keep_clean: bool,
     pub compress_low_disk: bool,
     pub low_disk_threshold_bytes: u64,
     keep_limit_bytes: u64,
@@ -80,6 +77,7 @@ impl EngineAdapter {
         keep_unknown: bool,
         keep_unknown_gb: u64,
         keep_threats: bool,
+        keep_clean: bool,
         compress_low_disk: bool,
         low_disk_gb: u64,
     ) -> Arc<Self> {
@@ -95,10 +93,11 @@ impl EngineAdapter {
             load_ms: AtomicI64::new(0),
             work_dir,
             file_seq: AtomicI64::new(0),
-            malicious: RwLock::new(HashMap::new()),
+            malicious_xf: RwLock::new(None),
             whitelist_enabled,
             keep_unknown,
             keep_threats,
+            keep_clean,
             compress_low_disk,
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
@@ -117,20 +116,29 @@ impl EngineAdapter {
                 let rules_dir = resolve_rules_dir(custom_rules_dir);
                 eprintln!("[engine] loading from: {}", rules_dir.display());
 
-                let mut dirs = vec![rules_dir.clone()];
-                dirs.push(crate::config::app_dir());
-                let hashes = load_malicious_hashes(&dirs);
-                if !hashes.is_empty() {
-                    eprintln!("[engine] {} malicious SHA-256 signatures loaded", hashes.len());
+                // Only check xorfilter_rules for XOR filters (.xf) - no .txt hash files
+                let xf_dir = rules_dir.join("xorfilter_rules");
+                let mut mal_filter = None;
+                for cand in &["malicious_sha256.xf", "malware.xf"] {
+                    let p = xf_dir.join(cand);
+                    if p.is_file() {
+                        if let Ok(bytes) = std::fs::read(&p) {
+                            if let Some(f) = BinaryFuse16Filter::from_bytes(&bytes) {
+                                eprintln!("[engine] {} malicious SHA-256 signatures loaded from XOR filter {}", f.count(), p.display());
+                                mal_filter = Some(f);
+                                break;
+                            }
+                        }
+                    }
                 }
-                *adapter.malicious.write().unwrap() = hashes;
+                *adapter.malicious_xf.write().unwrap() = mal_filter;
 
                 match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
                     Ok(engine) => {
                         let elapsed = started.elapsed().as_millis() as i64;
                         adapter.load_ms.store(elapsed, Ordering::Relaxed);
                         if adapter.whitelist_enabled && !engine.benign_whitelist_loaded() {
-                            eprintln!("[engine] benign_sha256.xf not found, hash whitelist is off");
+                            eprintln!("[engine] benign_sha256.xf not found in xorfilter_rules, hash whitelist is off");
                         }
                         let _ = adapter.engine.set(Arc::new(engine));
                         eprintln!("[engine] ready in {} ms", elapsed);
@@ -170,7 +178,12 @@ impl EngineAdapter {
     }
 
     pub fn malicious_hash_count(&self) -> usize {
-        self.malicious.read().unwrap().len()
+        self.malicious_xf
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|f| f.count())
+            .unwrap_or(0)
     }
 
     pub fn whitelist_active(&self) -> bool {
@@ -179,12 +192,14 @@ impl EngineAdapter {
 
     /// Verdict from the SHA-256 alone, without the file: hash signatures first (a
     /// malicious hit must win), then the engine's benign whitelist. None = upload needed.
-    pub fn hash_lookup(&self, sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {
+    pub fn hash_lookup(&self, _sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {
         if sha_hex == EICAR_SHA256 {
             return Some(hash_result("malicious", Some("EICAR-Test-File"), "EICAR standard antivirus test file (hash)", 1.0, sha_hex, "hash"));
         }
-        if let Some(name) = self.malicious.read().unwrap().get(sha) {
-            return Some(hash_result("malicious", Some(name.as_str()), "Matched SHA-256 signature", 1.0, sha_hex, "hash"));
+        if let Some(ref filter) = *self.malicious_xf.read().unwrap() {
+            if filter.contains(sha_hex) {
+                return Some(hash_result("malicious", Some("Malware.Hash.XorFilter"), "Matched malicious SHA-256 (XOR Filter)", 1.0, sha_hex, "hash"));
+            }
         }
         if self.whitelist_enabled {
             if let Some(engine) = self.engine.get() {
@@ -262,22 +277,29 @@ impl EngineAdapter {
         Ok(res)
     }
 
-    /// Unknown and detected threat files (kept by default for false positive inspection) are kept
-    /// in the work folder (multron_incoming) as `<SHA256>_<name>` (or `threat_<SHA256>_<name>`).
+    /// Unknown, clean (if keep_clean enabled), and detected threat files (kept by default for false positive inspection)
+    /// are kept in the work folder (multron_incoming) as `<SHA256>_<name>`, `clean_<SHA256>_<name>`, or `threat_<SHA256>_<name>`.
     /// When disk space is low, incoming files are automatically compressed using LZMA2 maximum preset (.xz).
     fn keep_or_remove(&self, temp: Option<&Path>, data: &[u8], res: &ResultMessage, sha: &str, name: &str) {
         let size = data.len() as u64;
         let is_threat = res.verdict == "malicious" || res.verdict == "suspicious";
         let is_unknown = res.verdict == "unknown";
+        let is_clean = res.verdict == "clean";
 
         let should_keep = !data.is_empty()
-            && ((self.keep_threats && is_threat) || (self.keep_unknown && is_unknown))
+            && ((self.keep_threats && is_threat) || (self.keep_unknown && is_unknown) || (self.keep_clean && is_clean))
             && self.kept_bytes.load(Ordering::Relaxed) + size <= self.keep_limit_bytes;
 
         if should_keep {
             if let Some(dir) = &self.work_dir {
                 let name = if name.is_empty() { "file" } else { name };
-                let prefix = if is_threat { "threat_" } else { "" };
+                let prefix = if is_threat {
+                    "threat_"
+                } else if is_clean {
+                    "clean_"
+                } else {
+                    ""
+                };
                 let low_disk = self.compress_low_disk
                     && is_disk_space_low(
                         dir,
@@ -461,30 +483,6 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     res
 }
 
-fn load_malicious_hashes(dirs: &[PathBuf]) -> HashMap<Sha, String> {
-    let mut out = HashMap::new();
-    for dir in dirs {
-        for rel in MALICIOUS_HASH_FILES {
-            let Ok(text) = std::fs::read_to_string(dir.join(rel)) else { continue };
-            for line in text.lines() {
-                let line = line.trim();
-                if line.is_empty() || line.starts_with('#') {
-                    continue;
-                }
-                let (hash, name) = match line.split_once([':', ',', ' ', '\t']) {
-                    Some((h, n)) if !n.trim().is_empty() => (h, n.trim()),
-                    Some((h, _)) => (h, "HashSignature.Malicious"),
-                    None => (line, "HashSignature.Malicious"),
-                };
-                if let Some(sha) = parse_sha(hash) {
-                    out.insert(sha, name.to_string());
-                }
-            }
-        }
-    }
-    out
-}
-
 fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {
     if let Some(dir) = custom {
         if dir.is_dir() {
@@ -497,15 +495,27 @@ fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {
         if let Some(parent) = exe.parent() {
             candidates.push(parent.to_path_buf());
             candidates.push(parent.join("rules"));
+            candidates.push(parent.join("OpenMalwareScannerPortable"));
+            if let Some(grandparent) = parent.parent() {
+                candidates.push(grandparent.join("OpenMalwareScannerPortable"));
+                if let Some(ggparent) = grandparent.parent() {
+                    candidates.push(ggparent.join("OpenMalwareScannerPortable"));
+                }
+            }
         }
     }
     if let Ok(cwd) = std::env::current_dir() {
         candidates.push(cwd.clone());
+        candidates.push(cwd.join("OpenMalwareScannerPortable"));
         candidates.push(cwd.join("OpenEDR"));
     }
 
     for c in &candidates {
-        if c.join("database").is_dir() || c.join("yara_rules").is_dir() || c.join("models").is_dir() {
+        if c.join("database").is_dir()
+            || c.join("yara_rules").is_dir()
+            || c.join("models").is_dir()
+            || c.join("xorfilter_rules").is_dir()
+        {
             return c.clone();
         }
     }
@@ -524,7 +534,10 @@ fn remove_leftover_uploads(dir: &Path) -> (u64, i64) {
             if b.len() >= 9 && b[..8].iter().all(|c| c.is_ascii_digit()) && b[8] == b'_' {
                 let _ = std::fs::remove_file(&path);
             } else {
-                let check_name = name.strip_prefix("threat_").unwrap_or(name);
+                let check_name = name
+                    .strip_prefix("threat_")
+                    .or_else(|| name.strip_prefix("clean_"))
+                    .unwrap_or(name);
                 let cb = check_name.as_bytes();
                 if cb.len() > 65 && cb[64] == b'_' && cb[..64].iter().all(|c| c.is_ascii_hexdigit()) {
                     kept.0 += entry.metadata().map(|m| m.len()).unwrap_or(0);

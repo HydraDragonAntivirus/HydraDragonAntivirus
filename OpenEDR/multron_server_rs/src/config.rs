@@ -129,6 +129,10 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_keep_threats: bool,
 
+    /// Keep scanned clean files in work folder (disabled by default)
+    #[arg(long)]
+    pub keep_clean: bool,
+
     /// Disable automatic LZMA2 max compression when PC has low disk space
     #[arg(long)]
     pub no_compress_low_disk: bool,
@@ -195,6 +199,8 @@ pub struct SavedSettings {
     pub autostart: bool,
     #[serde(default = "default_true")]
     pub keep_threats: bool,
+    #[serde(default)]
+    pub keep_clean: bool,
     #[serde(default = "default_true")]
     pub compress_low_disk: bool,
     #[serde(default = "default_low_disk_gb")]
@@ -212,6 +218,7 @@ impl Default for SavedSettings {
             path: "/scan".to_string(),
             autostart: false,
             keep_threats: true,
+            keep_clean: false,
             compress_low_disk: true,
             low_disk_gb: 15,
             limits: None,

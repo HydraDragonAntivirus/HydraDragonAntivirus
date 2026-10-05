@@ -157,8 +157,24 @@ impl StaticEngine {
             .find(|p| p.is_file())
             .cloned()
             .unwrap_or_else(|| url_rules_candidates[0].clone());
-        let signers_dir = base.join("signer_rules");
-        let xf_dir = base.join("xorfilter_rules");
+        let signers_dir = if base.join("signer_rules").is_dir() {
+            base.join("signer_rules")
+        } else if base.join("OpenMalwareScannerPortable").join("signer_rules").is_dir() {
+            base.join("OpenMalwareScannerPortable").join("signer_rules")
+        } else if base.join("..").join("OpenMalwareScannerPortable").join("signer_rules").is_dir() {
+            base.join("..").join("OpenMalwareScannerPortable").join("signer_rules")
+        } else {
+            base.join("signer_rules")
+        };
+        let xf_dir = if base.join("xorfilter_rules").is_dir() {
+            base.join("xorfilter_rules")
+        } else if base.join("OpenMalwareScannerPortable").join("xorfilter_rules").is_dir() {
+            base.join("OpenMalwareScannerPortable").join("xorfilter_rules")
+        } else if base.join("..").join("OpenMalwareScannerPortable").join("xorfilter_rules").is_dir() {
+            base.join("..").join("OpenMalwareScannerPortable").join("xorfilter_rules")
+        } else {
+            base.join("xorfilter_rules")
+        };
 
         // These loads are independent of each other and each of them is
         // slow enough to dominate: measured at ~72s in total on a 2-core VM,
