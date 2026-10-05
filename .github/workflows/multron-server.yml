@@ -7,12 +7,26 @@ on:
     paths:
       - 'OpenEDR/multron_server_rs/**'
       - 'OpenEDR/openedr_static/**'
+      - 'OpenEDR/owlyshield_predict/hydradragonclamav/**'
+      - 'OpenEDR/owlyshield_predict/hydradragonextractor/**'
+      - 'hydradragonsig/**'
+      - 'hydradragonunicorn/**'
+      - 'hydradragondecompiler/**'
+      - 'pefile-rs/**'
+      - 'hayabusa/**'
       - '.github/workflows/multron-server.yml'
   pull_request:
     branches: ["**"]
     paths:
       - 'OpenEDR/multron_server_rs/**'
       - 'OpenEDR/openedr_static/**'
+      - 'OpenEDR/owlyshield_predict/hydradragonclamav/**'
+      - 'OpenEDR/owlyshield_predict/hydradragonextractor/**'
+      - 'hydradragonsig/**'
+      - 'hydradragonunicorn/**'
+      - 'hydradragondecompiler/**'
+      - 'pefile-rs/**'
+      - 'hayabusa/**'
       - '.github/workflows/multron-server.yml'
   workflow_dispatch:
 
@@ -63,6 +77,7 @@ jobs:
           retention-days: 30
 
       - name: Create Pull Request with multron_server.exe
+        if: github.event_name != 'pull_request' && !startsWith(github.ref_name, 'auto-update-')
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

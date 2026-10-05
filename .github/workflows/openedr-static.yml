@@ -6,8 +6,11 @@ on:
     tags: ["v*"]
     paths:
       - 'OpenEDR/openedr_static/**'
+      - 'OpenEDR/owlyshield_predict/hydradragonclamav/**'
+      - 'OpenEDR/owlyshield_predict/hydradragonextractor/**'
       - 'hydradragonsig/**'
       - 'hydradragonunicorn/**'
+      - 'hydradragondecompiler/**'
       - 'pefile-rs/**'
       - 'hayabusa/**'
       - '.github/workflows/openedr-static.yml'
@@ -15,6 +18,13 @@ on:
     branches: ["**"]
     paths:
       - 'OpenEDR/openedr_static/**'
+      - 'OpenEDR/owlyshield_predict/hydradragonclamav/**'
+      - 'OpenEDR/owlyshield_predict/hydradragonextractor/**'
+      - 'hydradragonsig/**'
+      - 'hydradragonunicorn/**'
+      - 'hydradragondecompiler/**'
+      - 'pefile-rs/**'
+      - 'hayabusa/**'
       - '.github/workflows/openedr-static.yml'
   workflow_dispatch:
 
