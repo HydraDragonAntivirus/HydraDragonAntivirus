@@ -8,7 +8,7 @@ This guide details how to train **HydraDragonSig** threat signatures against all
 
 | Platform / Format | Benign Dataset | Benign DB Files (`yarGen/dbs/`) | Target Malware Dataset |
 | :--- | :--- | :--- | :--- |
-| **PE (Windows)** | `...\usbdosyalar\data2` (200,000+ files) | `good-strings-part*.db`<br>`good-opcodes-part*.db`<br>`good-strings-benign_data2.db` | `...\usbdosyalar\datamalicious`<br>`...\datamalicioussmall` |
+| **PE (Windows)** | `...\usbdosyalar\data2` (200,000+ files) | `good-strings-part*.db`<br>`good-opcodes-part*.db`<br>`good-strings-benign_data2.db` | `...\usbdosyalar\datamaliciousorder`<br>`...\datamalicioussmall` |
 | **JavaScript** | `...\usbdosyalar\javascript\data2` (53,000+ files) | `good-strings-benign_javascript_data2.db`<br>`good-opcodes-benign_javascript_data2.db` | `...\usbdosyalar\javascript\malicious` |
 | **APK (Android)** | `...\HydraDragonAV-Mobile\dataset\benign` | `good-strings-benign_apk.db`<br>`good-opcodes-benign_apk.db` | `...\HydraDragonAV-Mobile\dataset\malicious` |
 
@@ -47,11 +47,11 @@ python yarGen/yargen_sig.py `
 ```
 
 ### 3.2. Full PE Malware Training (Production / Large Corpus)
-For training on large enterprise PE malware collections (`datamalicious`):
+For training on large enterprise PE malware collections (`datamaliciousorder`):
 
 ```powershell
 python yarGen/yargen_sig.py `
-  -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamalicious" `
+  -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" `
   --sig-yaml "OpenMalwareScannerPortable\hydradragonsig_rules\pe_threat_signatures.yaml" `
   --excludegood `
   --meaningful-words-only `
