@@ -266,6 +266,9 @@ fn apply_binary_validation(info: &mut FileTypeInfo, validation: BinaryFormatVali
 }
 
 fn apply_archive_markers(info: &mut FileTypeInfo, data: &[u8]) {
+    if info.is_pe || info.is_elf || info.is_macho {
+        return;
+    }
     if looks_like_zip(data) {
         info.is_zip = true;
         info.is_archive = true;
@@ -478,17 +481,12 @@ fn mark_script(info: &mut FileTypeInfo, script_type: &str) {
 
 fn inspect_binary_formats(data: &[u8]) -> BinaryFormatValidation {
     let mut validation = BinaryFormatValidation::default();
-    // PE is validated with the project's own pefile-rs parser (no goblin).
-    // ELF/Mach-O have no parser on board: keep the previous lenient policy —
-    // ELF magic alone counts as Valid, Mach-O magic alone counts as Broken
-    // (same as unparseable images before).
-    if pefile_rs::PE::parse(data).is_ok() {
+    if let Some(pe_type) = pe_file_type(data) {
         validation.pe = FormatValidation::Valid;
-        validation.pe_type = pe_file_type(data).or_else(|| Some("PE".to_string()));
+        validation.pe_type = Some(pe_type);
     } else if has_pe_magic(data) {
         validation.pe = FormatValidation::Broken;
         validation.broken_type = Some("PE".to_string());
-        validation.pe_type = pe_file_type(data);
     } else if has_elf_magic(data) {
         validation.elf = FormatValidation::Valid;
         validation.elf_type = elf_file_type(data).or_else(|| Some("ELF".to_string()));
@@ -635,6 +633,9 @@ fn pe_file_type(data: &[u8]) -> Option<String> {
         return None;
     }
     let pe_offset = read_u32_le(data, 0x3c)? as usize;
+    if pe_offset.checked_add(4)? > data.len() || &data[pe_offset..pe_offset + 4] != b"PE\0\0" {
+        return None;
+    }
     let optional_header_offset = pe_offset.checked_add(24)?;
     let optional_magic = read_u16_le(data, optional_header_offset)?;
     match optional_magic {
