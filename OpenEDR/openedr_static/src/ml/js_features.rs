@@ -14,16 +14,10 @@ static RE_UNICODE_ENCODED: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\\u[0-9a-fA-F]{4}").unwrap());
 static RE_CHAR_CODE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"String\.fromCharCode").unwrap());
-static RE_BASE64: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"\batob\b|\bbtoa\b").unwrap());
 static RE_ESCAPE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\bunescape\b|\bescape\b").unwrap());
 static RE_BRACKET_NOTATION: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"\[['"].*?['"]\]\s*\("#).unwrap());
-static RE_CRYPTO: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"crypto|CryptoJS|aes|des|rsa|md5|sha1|sha256|sha512|encrypt|decrypt|cipher")
-        .unwrap()
-});
 static RE_NETWORK: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r"http[s]?://|ws[s]?://|fetch\s*\(|XMLHttpRequest|\.send\s*\(|\.open\s*\(|WebSocket",
@@ -44,8 +38,6 @@ static RE_SUSPICIOUS_APIS: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 static RE_STRINGS: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"["']([^"']*)["']"#).unwrap());
-static RE_BASE64_STR: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"^[A-Za-z0-9+/]{20,}={0,2}$").unwrap());
 static RE_URL_STR: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"https?://|ftp://|ws[s]?://").unwrap());
 static RE_HEX_STR: LazyLock<regex::Regex> =
