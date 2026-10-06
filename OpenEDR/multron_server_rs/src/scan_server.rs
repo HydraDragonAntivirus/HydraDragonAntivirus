@@ -266,7 +266,7 @@ impl ScanServer {
                 let is_threat = v.verdict == "malicious" || v.verdict == "suspicious";
                 let ecs = serde_json::json!({
                     "@timestamp": chrono::Utc::now().to_rfc3339(),
-                    "ecs": { "version": "8.11.0" },
+                    "ecs": { "version": "9.5.4" },
                     "event": {
                         "kind": if is_threat { "alert" } else { "event" },
                         "category": ["malware", "file"],
@@ -292,13 +292,32 @@ impl ScanServer {
                         "verdict": v.verdict,
                     }
                 });
+                let threat_indicator = if is_threat {
+                    Some(serde_json::json!({
+                        "indicator": {
+                            "type": "file",
+                            "name": v.threat.as_deref().unwrap_or(""),
+                            "confidence": v.score,
+                            "file": {
+                                "hash": {
+                                    "sha256": sha_hex,
+                                }
+                            }
+                        }
+                    }))
+                } else {
+                    None
+                };
                 return Some(ResultMessage {
                     r#type: "result".into(),
                     id: 0,
                     timestamp: ecs.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string()),
+                    ecs: Some(serde_json::json!({ "version": "9.5.4" })),
                     event: ecs.get("event").cloned(),
                     file: ecs.get("file").cloned(),
                     antivirus: ecs.get("antivirus").cloned(),
+                    threat_indicator,
+                    rule: ecs.get("rule").cloned(),
                     verdict: v.verdict,
                     threat: v.threat,
                     detail: v.detail,
@@ -307,7 +326,6 @@ impl ScanServer {
                     scan_ms: 0,
                     source: "cache".into(),
                     extracted_objects: Vec::new(),
-                    ecs: Some(ecs),
                 });
             }
         }
@@ -880,18 +898,20 @@ async fn handle_scan(
                     r#type: "result".into(),
                     id: 0,
                     timestamp: Some(chrono::Utc::now().to_rfc3339()),
-                    event: Some(serde_json::json!({ "action": "static_analysis", "kind": "alert", "category": ["malware", "file"], "outcome": "failure" })),
+                    ecs: Some(serde_json::json!({ "version": "9.5.4" })),
+                    event: Some(serde_json::json!({ "action": "static_analysis", "kind": "event", "category": ["malware", "file"], "outcome": "failure" })),
                     file: Some(serde_json::json!({ "name": name, "size": size, "hash": { "sha256": sha_hex } })),
-                    antivirus: Some(serde_json::json!({ "engine": ENGINE_NAME, "verdict": "suspicious" })),
-                    verdict: "suspicious".into(),
-                    threat: Some("Unscannable.EngineCrash".into()),
+                    antivirus: Some(serde_json::json!({ "engine": ENGINE_NAME, "verdict": "error", "detail": "The scan engine crashed on this file" })),
+                    threat_indicator: None,
+                    rule: None,
+                    verdict: "error".into(),
+                    threat: None,
                     detail: Some("The scan engine crashed on this file".into()),
-                    score: 0.5,
+                    score: 0.0,
                     sha256: sha_hex.clone(),
                     scan_ms: 0,
                     source: "scan".into(),
                     extracted_objects: Vec::new(),
-                    ecs: None,
                 })
             }
             Ok(Err(e)) => Err(e),

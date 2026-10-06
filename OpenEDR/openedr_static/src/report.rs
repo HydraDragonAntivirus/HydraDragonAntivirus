@@ -153,7 +153,7 @@ impl StaticScanReport {
 
         let mut doc = serde_json::json!({
             "@timestamp": format_iso8601_now(),
-            "ecs": { "version": "8.11.0" },
+            "ecs": { "version": "9.5.4" },
             "event": {
                 "kind": event_kind,
                 "category": ["malware", "file"],
@@ -173,7 +173,7 @@ impl StaticScanReport {
                 "code_signature": code_sig_json,
             },
             "antivirus": {
-                "engine": "VirusKov Engine",
+                "engine": "VirusKov",
                 "verdict": raw_verdict,
                 "score": self.max_threat_score,
                 "scan_time_ms": self.scan_time_ms,

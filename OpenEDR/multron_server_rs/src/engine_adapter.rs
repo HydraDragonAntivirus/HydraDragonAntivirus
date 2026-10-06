@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::Sha;
 
-pub const ENGINE_NAME: &str = "VirusKov Engine";
+pub const ENGINE_NAME: &str = "VirusKov";
 
 const EICAR_SHA256: &str = "275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F";
 
+/// Pure Elasticsearch ECS (8.11+) result message for VirusKov.
+/// Serializes only standard Elastic Common Schema fields over the wire.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResultMessage {
     pub r#type: String, // "result"
@@ -21,27 +23,35 @@ pub struct ResultMessage {
     #[serde(rename = "@timestamp", skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ecs: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub event: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub antivirus: Option<serde_json::Value>,
+    #[serde(rename = "threat", skip_serializing_if = "Option::is_none")]
+    pub threat_indicator: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<serde_json::Value>,
+
+    // Internal engine state fields (not serialized - no legacy wire fields)
+    #[serde(skip_serializing)]
     pub verdict: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub threat: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub detail: Option<String>,
+    #[serde(skip_serializing)]
     pub score: f64,
+    #[serde(skip_serializing)]
     pub sha256: String,
+    #[serde(skip_serializing)]
     pub scan_ms: i64,
-    /// How the verdict was found: "scan", "cache", "whitelist", "hash", "shared".
-    #[serde(skip_serializing_if = "String::is_empty", default)]
+    #[serde(skip_serializing)]
     pub source: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing)]
     pub extracted_objects: Vec<ExtractedObject>,
-    /// Elasticsearch Elastic Common Schema (ECS 8.x) document
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ecs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,9 +232,12 @@ impl EngineAdapter {
                 r#type: "result".to_string(),
                 id: 0,
                 timestamp: Some(chrono::Utc::now().to_rfc3339()),
+                ecs: Some(serde_json::json!({ "version": "9.5.4" })),
                 event: Some(serde_json::json!({ "action": "scan_skipped", "kind": "event", "category": ["malware", "file"] })),
                 file: Some(serde_json::json!({ "name": name, "size": 0, "hash": { "sha256": sha } })),
                 antivirus: Some(serde_json::json!({ "engine": ENGINE_NAME, "verdict": "skipped" })),
+                threat_indicator: None,
+                rule: None,
                 verdict: "skipped".to_string(),
                 threat: None,
                 detail: Some("0 KB / empty file skipped".to_string()),
@@ -233,7 +246,6 @@ impl EngineAdapter {
                 scan_ms: started.elapsed().as_millis() as i64,
                 source: "scan".to_string(),
                 extracted_objects: Vec::new(),
-                ecs: None,
             };
             return Ok(res);
         }
@@ -353,7 +365,7 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
     let is_threat = verdict == "malicious" || verdict == "suspicious";
     let ecs = serde_json::json!({
         "@timestamp": chrono::Utc::now().to_rfc3339(),
-        "ecs": { "version": "8.11.0" },
+        "ecs": { "version": "9.5.4" },
         "event": {
             "kind": if is_threat { "alert" } else { "event" },
             "category": ["malware", "file"],
@@ -380,13 +392,33 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
         }
     });
 
+    let threat_indicator = if is_threat {
+        Some(serde_json::json!({
+            "indicator": {
+                "type": "file",
+                "name": threat.unwrap_or(detail),
+                "confidence": score,
+                "file": {
+                    "hash": {
+                        "sha256": sha,
+                    }
+                }
+            }
+        }))
+    } else {
+        None
+    };
+
     ResultMessage {
         r#type: "result".to_string(),
         id: 0,
         timestamp: ecs.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string()),
+        ecs: Some(serde_json::json!({ "version": "9.5.4" })),
         event: ecs.get("event").cloned(),
         file: ecs.get("file").cloned(),
         antivirus: ecs.get("antivirus").cloned(),
+        threat_indicator,
+        rule: ecs.get("rule").cloned(),
         verdict: verdict.to_string(),
         threat: threat.map(|t| t.to_string()),
         detail: Some(detail.to_string()),
@@ -395,7 +427,6 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
         scan_ms: 0,
         source: source.to_string(),
         extracted_objects: Vec::new(),
-        ecs: Some(ecs),
     }
 }
 
@@ -410,9 +441,12 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         r#type: "result".to_string(),
         id: 0,
         timestamp: None,
+        ecs: Some(serde_json::json!({ "version": "9.5.4" })),
         event: None,
         file: None,
         antivirus: None,
+        threat_indicator: None,
+        rule: None,
         verdict,
         threat: None,
         detail: None,
@@ -421,7 +455,6 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         scan_ms: report.scan_time_ms as i64,
         source: "scan".to_string(),
         extracted_objects: report.extracted_objects.clone(),
-        ecs: None,
     };
 
     let mut detail_parts = Vec::new();
@@ -475,10 +508,12 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         file_obj.insert("hash".to_string(), serde_json::json!({ "sha256": sha }));
     }
     res.timestamp = ecs_val.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string());
+    res.ecs = ecs_val.get("ecs").cloned().or_else(|| Some(serde_json::json!({ "version": "9.5.4" })));
     res.event = ecs_val.get("event").cloned();
     res.file = ecs_val.get("file").cloned();
     res.antivirus = ecs_val.get("antivirus").cloned();
-    res.ecs = Some(ecs_val);
+    res.threat_indicator = ecs_val.get("threat").cloned();
+    res.rule = ecs_val.get("rule").cloned();
 
     res
 }

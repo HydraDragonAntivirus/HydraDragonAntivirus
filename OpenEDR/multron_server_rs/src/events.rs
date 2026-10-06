@@ -95,7 +95,7 @@ impl Event {
         let raw_verdict = self.verdict.as_deref().unwrap_or("unknown");
         let mut obj = serde_json::json!({
             "@timestamp": self.time.to_rfc3339(),
-            "ecs": { "version": "8.11.0" },
+            "ecs": { "version": "9.5.4" },
             "event": {
                 "sequence": self.seq,
                 "kind": if is_threat { "alert" } else { "event" },
@@ -108,7 +108,7 @@ impl Event {
                 "name": "multron-server"
             },
             "antivirus": {
-                "engine": "VirusKov Engine",
+                "engine": "VirusKov",
                 "verdict": raw_verdict,
             }
         });
