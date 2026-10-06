@@ -8,6 +8,7 @@ mod limits;
 mod ratelimit;
 mod scan_server;
 mod scheduler;
+mod threat_intel;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -26,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = CliArgs::parse();
     args.enforce_limits();
 
-    let events = Arc::new(EventLog::new());
+    let events = Arc::new(EventLog::new(args.verbose));
 
     let work_dir = if args.memory_only {
         None
@@ -53,12 +54,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     engine.start_loading(custom_rules);
 
-    let scan_server = ScanServer::new(args.clone(), Arc::clone(&engine), Arc::clone(&events));
+    let threat_intel = threat_intel::ThreatIntelStore::new(None);
+    let scan_server = ScanServer::new(
+        args.clone(),
+        Arc::clone(&engine),
+        Arc::clone(&events),
+        Arc::clone(&threat_intel),
+    );
     let app_state = AppState::new(
         args.clone(),
         Arc::clone(&engine),
         Arc::clone(&events),
         Arc::clone(&scan_server),
+        Arc::clone(&threat_intel),
     )
     .await;
 

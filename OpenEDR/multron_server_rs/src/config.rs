@@ -21,6 +21,10 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_browser: bool,
 
+    /// Verbose console logging (default: only warnings, errors, and threats are printed)
+    #[arg(short, long)]
+    pub verbose: bool,
+
     /// Rules/database folder for the engine (default: next to exe, then current folder)
     #[arg(long, default_value = "")]
     pub rules: String,
@@ -30,7 +34,7 @@ pub struct CliArgs {
     pub workers: usize,
 
     /// Stack size of one engine thread in MB (deep archives / emulation need a big stack)
-    #[arg(long, default_value_t = 64)]
+    #[arg(long, default_value_t = 32)]
     pub worker_stack_mb: usize,
 
     /// Files one client may have uploading or in analysis at the same time

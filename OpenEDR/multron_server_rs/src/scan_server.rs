@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{ConnectInfo, State};
+use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -26,6 +26,7 @@ use crate::events::{Event, EventLog};
 use crate::limits::{LimitSettings, LiveLimits};
 use crate::ratelimit::{Bucket, RateLimiter};
 use crate::scheduler::FairScheduler;
+use crate::threat_intel::{RestRateLimiter, ThreatIntelStore};
 
 /// Largest single WebSocket message. Files arrive in 256 KiB chunks and JSON stays small,
 /// so nobody can make the server buffer a 100 MB frame.
@@ -139,6 +140,8 @@ pub struct ScanServer {
     pub stats: Stats,
     pub limiter: RateLimiter,
     pub limits: Arc<LiveLimits>,
+    pub threat_intel: Arc<ThreatIntelStore>,
+    pub rest_limiter: RestRateLimiter,
 
     inflight: StdMutex<HashMap<Sha, InflightEntry>>,
     next_token: AtomicU64,
@@ -166,7 +169,12 @@ pub struct SessionHandle {
 }
 
 impl ScanServer {
-    pub fn new(cfg: CliArgs, engine: Arc<EngineAdapter>, events: Arc<EventLog>) -> Arc<Self> {
+    pub fn new(
+        cfg: CliArgs,
+        engine: Arc<EngineAdapter>,
+        events: Arc<EventLog>,
+        threat_intel: Arc<ThreatIntelStore>,
+    ) -> Arc<Self> {
         let scheduler = FairScheduler::new(cfg.workers, cfg.worker_stack_mb);
         let budget = ByteBudget::new(cfg.max_inflight_mb * 1024 * 1024);
         let cache_file: Option<PathBuf> = if cfg.cache() && !cfg.no_cache_file {
@@ -181,10 +189,13 @@ impl ScanServer {
 
         let limits = Arc::new(LiveLimits::new(LimitSettings::from_args(&cfg)));
         let limiter = RateLimiter::new(Arc::clone(&limits));
+        let rest_limiter = RestRateLimiter::new();
 
         Arc::new(Self {
             limiter,
             limits,
+            threat_intel,
+            rest_limiter,
             cfg,
             engine,
             scheduler,
@@ -224,6 +235,8 @@ impl ScanServer {
                     }))
                 }),
             )
+            .route("/api/v1/insights/:sha256", get(handle_hash_insights))
+            .route("/api/v1/insights/stats", get(handle_insights_stats))
             .with_state(Arc::clone(self))
     }
 
@@ -455,14 +468,7 @@ impl Drop for InflightGuard {
     }
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    State(server): State<Arc<ScanServer>>,
-) -> Response {
-    // Behind a Cloudflare Tunnel every connection comes from cloudflared on this machine;
-    // the real client address is in CF-Connecting-IP. Trusted only from a local peer.
+fn extract_client_ip(addr: SocketAddr, headers: &HeaderMap) -> String {
     let mut client_ip = addr.ip().to_string();
     if addr.ip().is_loopback() {
         if let Some(cf) = headers.get("cf-connecting-ip").and_then(|v| v.to_str().ok()) {
@@ -472,6 +478,181 @@ async fn ws_handler(
             }
         }
     }
+    client_ip
+}
+
+async fn handle_hash_insights(
+    Path(sha256): Path<String>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    let api_key = headers
+        .get("x-api-key")
+        .or_else(|| headers.get("authorization"))
+        .and_then(|v| v.to_str().ok());
+
+    match server.rest_limiter.check(&client_ip, api_key) {
+        Ok(header) => {
+            let sha_clean = sha256.trim().to_lowercase();
+            if sha_clean.len() != 64 || !sha_clean.chars().all(|c| c.is_ascii_hexdigit()) {
+                let err = serde_json::json!({
+                    "status": "error",
+                    "error": "Invalid SHA-256 hash format. Expected 64 hexadecimal characters."
+                });
+                return (
+                    StatusCode::BAD_REQUEST,
+                    [("Content-Type", "application/json")],
+                    serde_json::to_string(&err).unwrap(),
+                ).into_response();
+            }
+
+            if let Some(insight) = server.threat_intel.get(&sha_clean) {
+                let response = serde_json::json!({
+                    "status": "success",
+                    "sha256": insight.sha256,
+                    "verdict": insight.verdict,
+                    "threat_name": insight.threat_name,
+                    "first_seen": insight.first_seen,
+                    "last_seen": insight.last_seen,
+                    "seen_count": insight.seen_count,
+                    "prevalence": insight.prevalence(),
+                    "file_names": insight.file_names,
+                    "file_size": insight.file_size,
+                    "score": insight.score,
+                    "threat_intelligence": {
+                        "engine": ENGINE_NAME,
+                        "feed": "VirusKov Community Telemetry",
+                        "prevalence_level": insight.prevalence()
+                    }
+                });
+
+                (
+                    StatusCode::OK,
+                    [
+                        ("Content-Type", "application/json"),
+                        ("X-RateLimit-Limit", &header.limit.to_string()),
+                        ("X-RateLimit-Remaining", &header.remaining.to_string()),
+                    ],
+                    serde_json::to_string_pretty(&response).unwrap(),
+                ).into_response()
+            } else {
+                let response = serde_json::json!({
+                    "status": "not_found",
+                    "sha256": sha_clean,
+                    "verdict": "unknown",
+                    "seen_count": 0,
+                    "prevalence": "not_seen",
+                    "message": "Hash has not been observed in VirusKov telemetry",
+                    "threat_intelligence": {
+                        "engine": ENGINE_NAME,
+                        "feed": "VirusKov Community Telemetry"
+                    }
+                });
+
+                (
+                    StatusCode::NOT_FOUND,
+                    [
+                        ("Content-Type", "application/json"),
+                        ("X-RateLimit-Limit", &header.limit.to_string()),
+                        ("X-RateLimit-Remaining", &header.remaining.to_string()),
+                    ],
+                    serde_json::to_string_pretty(&response).unwrap(),
+                ).into_response()
+            }
+        }
+        Err(retry_after) => {
+            let error_json = serde_json::json!({
+                "status": "error",
+                "error": "Too Many Requests",
+                "message": "VirusKov Threat Insights rate limit exceeded (10 requests/min). Please slow down.",
+                "retry_after_seconds": retry_after
+            });
+
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                [
+                    ("Content-Type", "application/json"),
+                    ("Retry-After", &retry_after.to_string()),
+                    ("X-RateLimit-Limit", "10"),
+                    ("X-RateLimit-Remaining", "0"),
+                ],
+                serde_json::to_string(&error_json).unwrap(),
+            ).into_response()
+        }
+    }
+}
+
+async fn handle_insights_stats(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
+    let api_key = headers
+        .get("x-api-key")
+        .or_else(|| headers.get("authorization"))
+        .and_then(|v| v.to_str().ok());
+
+    match server.rest_limiter.check(&client_ip, api_key) {
+        Ok(header) => {
+            let stats = server.threat_intel.stats();
+            let response = serde_json::json!({
+                "status": "success",
+                "engine": ENGINE_NAME,
+                "feed": "VirusKov Community Telemetry",
+                "telemetry": {
+                    "total_unique_hashes": stats.total_unique_hashes,
+                    "total_sightings": stats.total_sightings,
+                    "verdicts": {
+                        "malicious": stats.malicious_count,
+                        "suspicious": stats.suspicious_count,
+                        "clean": stats.clean_count,
+                        "unknown": stats.unknown_count,
+                    }
+                }
+            });
+
+            (
+                StatusCode::OK,
+                [
+                    ("Content-Type", "application/json"),
+                    ("X-RateLimit-Limit", &header.limit.to_string()),
+                    ("X-RateLimit-Remaining", &header.remaining.to_string()),
+                ],
+                serde_json::to_string_pretty(&response).unwrap(),
+            ).into_response()
+        }
+        Err(retry_after) => {
+            let error_json = serde_json::json!({
+                "status": "error",
+                "error": "Too Many Requests",
+                "message": "VirusKov Threat Insights rate limit exceeded. Please slow down.",
+                "retry_after_seconds": retry_after
+            });
+
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                [
+                    ("Content-Type", "application/json"),
+                    ("Retry-After", &retry_after.to_string()),
+                    ("X-RateLimit-Limit", "10"),
+                    ("X-RateLimit-Remaining", "0"),
+                ],
+                serde_json::to_string(&error_json).unwrap(),
+            ).into_response()
+        }
+    }
+}
+
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+) -> Response {
+    let client_ip = extract_client_ip(addr, &headers);
 
     // Banned addresses and connection floods are refused before the upgrade (cheap 429).
     if let Err(msg) = server.limiter.on_connect(&client_ip) {
@@ -774,6 +955,14 @@ fn handle_check(
             }
         }
 
+        server.threat_intel.record(
+            &sha_hex,
+            "unknown",
+            None,
+            if name.is_empty() { None } else { Some(&name) },
+            if it.size > 0 { Some(it.size as u64) } else { None },
+            0.0,
+        );
         send_json(out, &serde_json::json!({"type": "need_upload", "id": it.id}));
     }
     Ok(())
@@ -966,6 +1155,15 @@ fn reject_file(
 fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessage, file_name: &str, size: i64) {
     session.scanned.fetch_add(1, Ordering::Relaxed);
     server.total_scanned.fetch_add(1, Ordering::Relaxed);
+
+    server.threat_intel.record(
+        &res.sha256,
+        &res.verdict,
+        res.threat.as_deref(),
+        if file_name.is_empty() { None } else { Some(file_name) },
+        if size > 0 { Some(size as u64) } else { None },
+        res.score,
+    );
 
     let threat = res.verdict == "malicious" || res.verdict == "suspicious";
     if threat {

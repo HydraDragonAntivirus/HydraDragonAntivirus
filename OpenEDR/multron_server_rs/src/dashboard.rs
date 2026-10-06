@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::header::HeaderMap;
 use axum::http::{Method, Request, StatusCode};
 use axum::middleware::{self, Next};
@@ -18,6 +18,7 @@ use crate::engine_adapter::EngineAdapter;
 use crate::events::EventLog;
 use crate::limits::LimitSettings;
 use crate::scan_server::ScanServer;
+use crate::threat_intel::ThreatIntelStore;
 
 static DASHBOARD_HTML: &str = include_str!("dashboard.html");
 
@@ -32,6 +33,7 @@ pub struct AppState {
     pub engine: Arc<EngineAdapter>,
     pub events: Arc<EventLog>,
     pub scan_server: Arc<ScanServer>,
+    pub threat_intel: Arc<ThreatIntelStore>,
     pub settings: RwLock<SavedSettings>,
     pub settings_path: PathBuf,
     pub listener_handle: Mutex<Option<ListenerControl>>,
@@ -49,6 +51,7 @@ impl AppState {
         engine: Arc<EngineAdapter>,
         events: Arc<EventLog>,
         scan_server: Arc<ScanServer>,
+        threat_intel: Arc<ThreatIntelStore>,
     ) -> Arc<Self> {
         let mut settings = SavedSettings::default();
         let settings_path = app_dir().join("multron_server.json");
@@ -82,6 +85,7 @@ impl AppState {
             engine,
             events,
             scan_server,
+            threat_intel,
             settings: RwLock::new(settings),
             settings_path,
             listener_handle: Mutex::new(None),
@@ -241,6 +245,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/limits", post(handle_limits))
         .route("/api/limits/reset", post(handle_limits_reset))
         .route("/api/unban", post(handle_unban))
+        .route("/api/insights/stats", get(handle_dashboard_insights_stats))
+        .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
 }
@@ -477,4 +483,43 @@ fn lan_addresses() -> Vec<String> {
         addrs.push("127.0.0.1".to_string());
     }
     addrs
+}
+
+async fn handle_dashboard_insights_stats(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let stats = app.threat_intel.stats();
+    Json(serde_json::json!({
+        "ok": true,
+        "telemetry": {
+            "total_unique_hashes": stats.total_unique_hashes,
+            "total_sightings": stats.total_sightings,
+            "verdicts": {
+                "malicious": stats.malicious_count,
+                "suspicious": stats.suspicious_count,
+                "clean": stats.clean_count,
+                "unknown": stats.unknown_count,
+            }
+        }
+    }))
+}
+
+async fn handle_dashboard_insights_hash(
+    State(app): State<Arc<AppState>>,
+    Path(sha256): Path<String>,
+) -> impl IntoResponse {
+    let clean = sha256.trim().to_lowercase();
+    if let Some(insight) = app.threat_intel.get(&clean) {
+        Json(serde_json::json!({
+            "ok": true,
+            "found": true,
+            "prevalence": insight.prevalence(),
+            "insight": insight,
+        }))
+    } else {
+        Json(serde_json::json!({
+            "ok": true,
+            "found": false,
+            "sha256": clean,
+            "message": "Hash has not been observed in VirusKov telemetry",
+        }))
+    }
 }

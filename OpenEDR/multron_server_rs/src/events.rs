@@ -179,6 +179,7 @@ impl Event {
 
 pub struct EventLog {
     inner: Mutex<EventLogInner>,
+    pub verbose: bool,
 }
 
 struct EventLogInner {
@@ -187,16 +188,19 @@ struct EventLogInner {
 }
 
 impl EventLog {
-    pub fn new() -> Self {
+    pub fn new(verbose: bool) -> Self {
         Self {
             inner: Mutex::new(EventLogInner {
                 seq: 0,
                 events: Vec::with_capacity(EVENT_HISTORY),
             }),
+            verbose,
         }
     }
 
     pub fn add(&self, mut event: Event) {
+        let is_error_or_warning = event.kind == "error" || event.kind == "rejected";
+
         let (line, ecs_json) = {
             let mut guard = self.inner.lock().unwrap();
             guard.seq += 1;
@@ -211,10 +215,15 @@ impl EventLog {
             }
             (line, ecs_json)
         };
-        if let Ok(json_str) = serde_json::to_string(&ecs_json) {
-            eprintln!("{}", json_str);
-        } else {
-            eprintln!("{}", line);
+
+        if self.verbose {
+            if let Ok(json_str) = serde_json::to_string(&ecs_json) {
+                eprintln!("{}", json_str);
+            } else {
+                eprintln!("{}", line);
+            }
+        } else if is_error_or_warning {
+            eprintln!("[{}] {}", event.kind.to_uppercase(), line);
         }
 
         // Append to multron_events.ecs.jsonl (Elasticsearch ECS Lite format)

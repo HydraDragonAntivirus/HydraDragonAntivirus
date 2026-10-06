@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Multron Antivirus Cloud</title>
+<title>VirusKov Antivirus Cloud &amp; Threat Intelligence</title>
 <style>
   :root {
     --bg: #f4f6f9; --panel: #ffffff; --panel2: #f7f8fa; --border: #e2e6ec;
@@ -97,7 +97,7 @@
 </head>
 <body>
 <header>
-  <h1>Multron Antivirus Cloud</h1>
+  <h1>VirusKov Antivirus Cloud</h1>
   <span id="enginePill" class="pill wait"><span class="dot"></span><span>Engine loading…</span></span>
   <span id="serverPill" class="pill"><span class="dot"></span><span>Stopped</span></span>
   <span class="spacer"></span>
@@ -137,6 +137,23 @@
       <label>cloudflared service</label>
       <div class="addr"><span id="tunnelUrl">—</span><button class="ghost" data-copy="tunnelUrl">Copy</button></div>
       <div class="hint">Through the tunnel the client uses <b>wss://your-domain<span id="pathHint">/scan</span></b>.</div>
+    </section>
+
+    <section class="card">
+      <h2>Threat Insights (OpenTIP)</h2>
+      <div style="display:flex; gap:6px; margin-bottom:10px;">
+        <input id="hashSearchInput" type="text" placeholder="Lookup SHA-256..." style="font-family:Consolas, monospace; font-size:11px;">
+        <button id="hashSearchBtn" class="ghost" style="padding:4px 10px; white-space:nowrap;">Search</button>
+      </div>
+      <div id="hashSearchResult" style="font-size:11.5px; display:none; background:var(--panel2); border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:10px; word-break:break-all;"></div>
+      <div class="limits">
+        <span>Unique Hashes:</span><b id="tiUnique">—</b>
+        <span>Total Sightings:</span><b id="tiSightings">—</b>
+        <span>Malicious:</span><b id="tiMalicious" style="color:var(--red);">—</b>
+        <span>Suspicious:</span><b id="tiSuspicious" style="color:var(--orange);">—</b>
+        <span>Clean:</span><b id="tiClean" style="color:var(--green);">—</b>
+        <span>Unknown:</span><b id="tiUnknown">—</b>
+      </div>
     </section>
 
     <section class="card">
@@ -520,6 +537,58 @@
     document.documentElement.setAttribute("data-theme", newTheme);
     localStorage.setItem("theme", newTheme);
     updateThemeBtn();
+  };
+
+  const updateInsightsStats = async () => {
+    try {
+      const res = await fetch("/api/insights/stats");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.telemetry) {
+          const t = data.telemetry;
+          $("tiUnique").textContent = t.total_unique_hashes.toLocaleString();
+          $("tiSightings").textContent = t.total_sightings.toLocaleString();
+          $("tiMalicious").textContent = t.verdicts.malicious.toLocaleString();
+          $("tiSuspicious").textContent = t.verdicts.suspicious.toLocaleString();
+          $("tiClean").textContent = t.verdicts.clean.toLocaleString();
+          $("tiUnknown").textContent = t.verdicts.unknown.toLocaleString();
+        }
+      }
+    } catch (_) {}
+  };
+  setInterval(updateInsightsStats, 3000);
+  updateInsightsStats();
+
+  $("hashSearchBtn").onclick = async () => {
+    const hash = $("hashSearchInput").value.trim().toLowerCase();
+    if (!hash || hash.length !== 64) {
+      alert("Please enter a valid 64-character SHA-256 hash.");
+      return;
+    }
+    const box = $("hashSearchResult");
+    box.style.display = "block";
+    box.innerHTML = "Searching...";
+    try {
+      const res = await fetch(`/api/insights/${hash}`);
+      const data = await res.json();
+      if (data.ok && data.found) {
+        const ins = data.insight;
+        const tagCls = ins.verdict === "malicious" ? "t-malicious" : ins.verdict === "suspicious" ? "t-suspicious" : ins.verdict === "clean" ? "t-clean" : "t-unknown";
+        box.innerHTML = `
+          <div><b>Verdict:</b> <span class="tag ${tagCls}">${ins.verdict.toUpperCase()}</span> (${ins.score}/100)</div>
+          ${ins.threat_name ? `<div><b>Threat:</b> <span style="color:var(--red); font-weight:600;">${ins.threat_name}</span></div>` : ""}
+          <div><b>Prevalence:</b> <span style="font-weight:600;">${data.prevalence}</span> (${ins.seen_count} sightings)</div>
+          <div><b>First seen:</b> ${ins.first_seen}</div>
+          <div><b>Last seen:</b> ${ins.last_seen}</div>
+          ${ins.file_names && ins.file_names.length ? `<div><b>Names:</b> ${ins.file_names.join(", ")}</div>` : ""}
+          ${ins.file_size ? `<div><b>Size:</b> ${(ins.file_size / 1024).toFixed(1)} KB</div>` : ""}
+        `;
+      } else {
+        box.innerHTML = `<span style="color:var(--muted);">Hash not found in VirusKov telemetry (0 sightings).</span>`;
+      }
+    } catch (e) {
+      box.innerHTML = `<span style="color:var(--red);">Error searching: ${e.message}</span>`;
+    }
   };
 
   poll();
