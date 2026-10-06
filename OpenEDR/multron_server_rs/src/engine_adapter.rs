@@ -124,7 +124,7 @@ impl EngineAdapter {
                     if p.is_file() {
                         if let Ok(bytes) = std::fs::read(&p) {
                             if let Some(f) = BinaryFuse16Filter::from_bytes(&bytes) {
-                                eprintln!("[engine] {} malicious SHA-256 signatures loaded from XOR filter {}", f.count(), p.display());
+                                eprintln!("[engine] {} malicious SHA-256 signatures loaded from XOR filter {}", f.len(), p.display());
                                 mal_filter = Some(f);
                                 break;
                             }
@@ -182,7 +182,7 @@ impl EngineAdapter {
             .read()
             .unwrap()
             .as_ref()
-            .map(|f| f.count())
+            .map(|f| f.len())
             .unwrap_or(0)
     }
 
