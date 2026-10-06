@@ -200,6 +200,7 @@ impl EventLog {
 
     pub fn add(&self, mut event: Event) {
         let is_error_or_warning = event.kind == "error" || event.kind == "rejected";
+        let event_kind = event.kind.to_uppercase();
 
         let (line, ecs_json) = {
             let mut guard = self.inner.lock().unwrap();
@@ -223,7 +224,7 @@ impl EventLog {
                 eprintln!("{}", line);
             }
         } else if is_error_or_warning {
-            eprintln!("[{}] {}", event.kind.to_uppercase(), line);
+            eprintln!("[{}] {}", event_kind, line);
         }
 
         // Append to multron_events.ecs.jsonl (Elasticsearch ECS Lite format)

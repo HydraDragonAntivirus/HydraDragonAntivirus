@@ -1575,23 +1575,60 @@
         </div>
       </div>
 
-      <!-- OPENTIP SEARCH BOX -->
+      <!-- SCANNER & OPENTIP TABS -->
       <div style="background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 8px; padding: 24px; margin-top: 16px;">
-        <div style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-          <span>// VIRUSKOV OPENTIP LOOKUP ENGINE</span>
-          <span style="color: var(--accent-green); display: flex; align-items: center; gap: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 14px; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+          <div style="display: flex; gap: 10px;">
+            <button id="tabScannerBtn" class="btn btn-sm btn-red" style="cursor: pointer;">
+              ⚡ CANLI DOSYA ANALİZİ
+            </button>
+            <button id="tabLookupBtn" class="btn btn-sm btn-outline-red" style="cursor: pointer;">
+              🔍 HASH SORGULA (OPENTIP)
+            </button>
+          </div>
+          <span style="color: var(--accent-green); display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 0.8rem;">
             <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green);"></span>
-            API v1 CONNECTED (api.viruskov.com)
+            CLOUD ENGINE ONLINE (api.viruskov.com)
           </span>
         </div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <input id="tiHashInput" type="text" placeholder="SHA-256 hash girin (örn: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)..."
-            style="flex: 1; min-width: 280px; padding: 12px 16px; background: var(--bg-terminal); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: var(--font-mono); font-size: 0.85rem; border-radius: 4px; outline: none;">
-          <button id="tiSearchBtn" class="btn btn-red" style="padding: 12px 24px; cursor: pointer;">
-            SORGULA &nearr;
-          </button>
+
+        <!-- 1. LIVE FILE DROP & SCAN PANE -->
+        <div id="paneScanner">
+          <div id="dropZone" style="border: 2px dashed var(--border-strong); border-radius: 8px; padding: 36px 20px; text-align: center; background: var(--bg-surface); cursor: pointer; transition: all 0.2s ease;">
+            <input type="file" id="fileScanInput" style="display: none;">
+            <div style="font-size: 32px; margin-bottom: 10px;">🛡️</div>
+            <div style="font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
+              Analiz edilecek dosyayı buraya sürükleyin veya seçmek için tıklayın
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);">
+              PE, EXE, DLL, ZIP, APK, ELF veya şüpheli belgeler (Maksimum 50 MB)
+            </div>
+          </div>
+
+          <!-- Scan Progress / Status Box -->
+          <div id="scanStatusBox" style="display: none; margin-top: 16px; padding: 16px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem;">
+            <div id="scanStatusTitle" style="color: var(--text-main); font-weight: 700; margin-bottom: 8px;">Dosya hazırlanıyor...</div>
+            <div style="height: 6px; background: var(--bg-terminal); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
+              <div id="scanProgressBar" style="width: 0%; height: 100%; background: var(--accent-red); transition: width 0.3s ease;"></div>
+            </div>
+            <div id="scanStatusDetail" style="font-size: 0.8rem; color: var(--text-muted);"></div>
+          </div>
+
+          <!-- Scan Live Result Box -->
+          <div id="scanResultBox" style="display: none; margin-top: 16px; padding: 20px; background: var(--bg-surface-elevated); border: 1px solid var(--border-strong); border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem;"></div>
         </div>
-        <div id="tiResultBox" style="display: none; margin-top: 18px; padding: 18px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem;"></div>
+
+        <!-- 2. HASH LOOKUP PANE -->
+        <div id="paneLookup" style="display: none;">
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <input id="tiHashInput" type="text" placeholder="SHA-256 hash girin (örn: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)..."
+              style="flex: 1; min-width: 280px; padding: 12px 16px; background: var(--bg-terminal); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: var(--font-mono); font-size: 0.85rem; border-radius: 4px; outline: none;">
+            <button id="tiSearchBtn" class="btn btn-red" style="padding: 12px 24px; cursor: pointer;">
+              SORGULA &nearr;
+            </button>
+          </div>
+          <div id="tiResultBox" style="display: none; margin-top: 18px; padding: 18px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem;"></div>
+        </div>
       </div>
     </section>
 
@@ -2784,6 +2821,29 @@
       updateViruskovTelemetry();
       setInterval(updateViruskovTelemetry, 8000);
 
+      // Tab switching between Live Scanner and OpenTIP Lookup
+      const tabScannerBtn = document.getElementById('tabScannerBtn');
+      const tabLookupBtn = document.getElementById('tabLookupBtn');
+      const paneScanner = document.getElementById('paneScanner');
+      const paneLookup = document.getElementById('paneLookup');
+
+      if (tabScannerBtn && tabLookupBtn && paneScanner && paneLookup) {
+        tabScannerBtn.addEventListener('click', () => {
+          tabScannerBtn.className = 'btn btn-sm btn-red';
+          tabLookupBtn.className = 'btn btn-sm btn-outline-red';
+          paneScanner.style.display = 'block';
+          paneLookup.style.display = 'none';
+        });
+
+        tabLookupBtn.addEventListener('click', () => {
+          tabLookupBtn.className = 'btn btn-sm btn-red';
+          tabScannerBtn.className = 'btn btn-sm btn-outline-red';
+          paneLookup.style.display = 'block';
+          paneScanner.style.display = 'none';
+        });
+      }
+
+      // Hash Lookup (OpenTIP API)
       const tiBtn = document.getElementById('tiSearchBtn');
       const tiInput = document.getElementById('tiHashInput');
       const tiBox = document.getElementById('tiResultBox');
@@ -2821,12 +2881,223 @@
             } else if (res.status === 429) {
               tiBox.innerHTML = `<span style="color:var(--accent-amber);">⚠️ Rate limit aşıldı (10 sorgu/dk). Lütfen ${data.retry_after_seconds || 60} saniye sonra tekrar deneyin.</span>`;
             } else {
-              tiBox.innerHTML = `<span style="color:var(--text-muted);">ℹ️ Bu hash henüz VirusKov küresel telemetri ağında raporlanmamış (0 Sighting / Bilinmeyen dosya).</span>`;
+              tiBox.innerHTML = `<span style="color:var(--text-muted);">ℹ️ Bu hash henüz VirusKov küresel telemetri ağında raporlanmamış (0 Sighting / Bilinmeyen dosya). Canlı dosya taraması sekmesinden yükleyip taratabilirsiniz.</span>`;
             }
           } catch (e) {
             tiBox.innerHTML = `<span style="color:var(--accent-red);">Bağlantı hatası: ${e.message}</span>`;
           }
         });
+      }
+
+      // ==========================================
+      // LIVE FILE SCANNER (WEBSOCKET CLIENT)
+      // ==========================================
+      const dropZone = document.getElementById('dropZone');
+      const fileInput = document.getElementById('fileScanInput');
+      const scanStatusBox = document.getElementById('scanStatusBox');
+      const scanStatusTitle = document.getElementById('scanStatusTitle');
+      const scanProgressBar = document.getElementById('scanProgressBar');
+      const scanStatusDetail = document.getElementById('scanStatusDetail');
+      const scanResultBox = document.getElementById('scanResultBox');
+
+      if (dropZone && fileInput) {
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          dropZone.style.borderColor = 'var(--accent-red)';
+          dropZone.style.background = 'rgba(255, 0, 51, 0.05)';
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+          e.preventDefault();
+          dropZone.style.borderColor = 'var(--border-strong)';
+          dropZone.style.background = 'var(--bg-surface)';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+          e.preventDefault();
+          dropZone.style.borderColor = 'var(--border-strong)';
+          dropZone.style.background = 'var(--bg-surface)';
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleFileSelection(e.dataTransfer.files[0]);
+          }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleFileSelection(e.target.files[0]);
+          }
+        });
+      }
+
+      function updateScanStatus(title, detail, pct) {
+        if (scanStatusBox) scanStatusBox.style.display = 'block';
+        if (scanStatusTitle) scanStatusTitle.textContent = title;
+        if (scanStatusDetail) scanStatusDetail.textContent = detail;
+        if (scanProgressBar) scanProgressBar.style.width = pct + '%';
+      }
+
+      async function handleFileSelection(file) {
+        const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
+        if (file.size > MAX_SIZE) {
+          alert(`Dosya boyutu çok büyük (${(file.size / (1024*1024)).toFixed(1)} MB). Maksimum izin verilen boyut: 50 MB`);
+          return;
+        }
+
+        if (scanResultBox) scanResultBox.style.display = 'none';
+        updateScanStatus(`${file.name} hazırlanıyor...`, 'İstemci tarafında SHA-256 kriptografik özeti çıkarılıyor...', 15);
+
+        let arrayBuffer;
+        let sha256Hex;
+
+        try {
+          arrayBuffer = await file.arrayBuffer();
+          const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          sha256Hex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (err) {
+          updateScanStatus('Dosya okuma hatası', err.message, 0);
+          return;
+        }
+
+        updateScanStatus('VirusKov Cloud Engine ile el sıkışılıyor...', `Hedef: wss://api.viruskov.com/ws | SHA-256: ${sha256Hex.slice(0, 16)}...`, 30);
+
+        const ws = new WebSocket('wss://api.viruskov.com/ws');
+        let uploadStarted = false;
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            type: 'hello',
+            version: 3,
+            client: 'VirusKov Web Portal',
+            token: ''
+          }));
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+
+            if (msg.type === 'hello_ok') {
+              updateScanStatus('Bulut önbelleği sorgulanıyor...', 'Veritabanında anlık hash eşleşmesi aranıyor...', 45);
+              // Send fast check
+              ws.send(JSON.stringify({
+                type: 'check',
+                items: [{
+                  id: 1,
+                  name: file.name,
+                  size: file.size,
+                  sha256: sha256Hex
+                }]
+              }));
+            } else if (msg.type === 'need_upload') {
+              updateScanStatus('Statik analiz için sıra alınıyor...', 'Derin PE başlık ayrıştırma ve YARA kuralları için yükleme izni istendi...', 55);
+              ws.send(JSON.stringify({
+                type: 'scan',
+                id: 1,
+                name: file.name,
+                size: file.size,
+                sha256: sha256Hex
+              }));
+            } else if (msg.type === 'send_file') {
+              if (uploadStarted) return;
+              uploadStarted = true;
+              uploadFileChunks(ws, arrayBuffer);
+            } else if (msg.type === 'result') {
+              renderScanResult(msg, file.name, file.size, sha256Hex);
+              ws.close();
+            } else if (msg.type === 'error' || msg.type === 'reject') {
+              updateScanStatus('Tarama durduruldu', msg.message || 'Sunucu işlemi reddetti.', 100);
+              ws.close();
+            }
+          } catch (e) {
+            console.error('Mesaj işleme hatası:', e);
+          }
+        };
+
+        ws.onerror = (e) => {
+          updateScanStatus('Bağlantı hatası', 'api.viruskov.com Cloudflare Tunnel uç noktasına ulaşılamadı. Lütfen sunucunun açık olduğundan emin olun.', 100);
+        };
+
+        ws.onclose = () => {
+          if (!uploadStarted && scanStatusBox.style.display !== 'none' && (!scanResultBox || scanResultBox.style.display === 'none')) {
+            updateScanStatus('Bağlantı kapandı', 'Oturum sonlandırıldı.', 100);
+          }
+        };
+      }
+
+      function uploadFileChunks(ws, arrayBuffer) {
+        const CHUNK_SIZE = 128 * 1024; // 128 KB
+        const total = arrayBuffer.byteLength;
+        let offset = 0;
+
+        function sendNext() {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          if (offset >= total) {
+            updateScanStatus('Derin analiz yapılıyor...', 'VirusKov EDR motoru PE bölümlerini, entropiyi ve davranışsal imzaları analiz ediyor...', 95);
+            return;
+          }
+          const end = Math.min(offset + CHUNK_SIZE, total);
+          const chunk = arrayBuffer.slice(offset, end);
+          ws.send(chunk);
+          offset = end;
+          const pct = 55 + Math.floor((offset / total) * 35);
+          updateScanStatus('Dosya aktarılıyor...', `%${Math.floor((offset / total) * 100)} (${(offset / 1024).toFixed(0)} / ${(total / 1024).toFixed(0)} KB)`, pct);
+          setTimeout(sendNext, 4);
+        }
+
+        sendNext();
+      }
+
+      function renderScanResult(res, fileName, fileSize, sha256Hex) {
+        if (scanStatusBox) scanStatusBox.style.display = 'none';
+        if (!scanResultBox) return;
+
+        scanResultBox.style.display = 'block';
+
+        const isMal = res.verdict === 'malicious';
+        const isSusp = res.verdict === 'suspicious';
+        const isClean = res.verdict === 'clean';
+        const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : 'var(--accent-green)';
+        const badge = isMal ? '🚨 MALICIOUS (ZARARLI YAZILIM)' : isSusp ? '⚠️ SUSPICIOUS (ŞÜPHELİ / SEZGİSEL)' : '✅ CLEAN (TEMİZ / GÜVENLİ)';
+
+        const threatName = res.threat || (res.threat_indicator && res.threat_indicator.name) || (res.antivirus && res.antivirus.threat_indicator && res.antivirus.threat_indicator.name) || '';
+        const score = res.score !== undefined ? res.score : (isMal ? 100 : isSusp ? 50 : 0);
+        const engineVerdict = res.antivirus && res.antivirus.verdict ? res.antivirus.verdict : res.verdict;
+
+        let html = `
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; margin-bottom: 14px; flex-wrap:wrap; gap:8px;">
+            <div style="font-size: 1.15rem; font-weight: 800; color: ${color};">
+              ${badge}
+            </div>
+            <div style="font-size: 0.9rem; font-family: var(--font-mono); color: #fff; background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 4px;">
+              Skor: <span style="font-weight:700; color:${color};">${score}/100</span>
+            </div>
+          </div>
+
+          ${threatName ? `<div style="background: rgba(255, 0, 51, 0.1); border-left: 3px solid var(--accent-red); padding: 8px 12px; margin-bottom: 12px; font-weight: 700; color: var(--accent-red);">Tespit İmzası: ${threatName}</div>` : ''}
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 14px; font-size: 0.85rem; color: var(--text-muted);">
+            <div><b>Dosya Adı:</b> <span style="color:#fff;">${fileName}</span></div>
+            <div><b>Boyut:</b> <span style="color:#fff;">${(fileSize / 1024).toFixed(1)} KB (${fileSize} bytes)</span></div>
+            <div><b>Motor:</b> <span style="color:var(--accent-green); font-weight:700;">VirusKov Core Engine</span></div>
+            <div><b>Karar:</b> <span style="color:${color}; font-weight:700;">${engineVerdict.toUpperCase()}</span></div>
+          </div>
+
+          <div style="background: var(--bg-terminal); padding: 10px 12px; border-radius: 4px; font-size: 0.78rem; word-break: break-all; color: var(--text-muted); margin-bottom: 12px;">
+            <b>SHA-256:</b> <span style="color: var(--accent-cyan); font-family: var(--font-mono);">${sha256Hex}</span>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; color:var(--text-muted);">
+            <span>Standart: <b>Elasticsearch ECS 9.5.4</b></span>
+            <button onclick="document.getElementById('tiHashInput').value='${sha256Hex}'; document.getElementById('tabLookupBtn').click(); document.getElementById('tiSearchBtn').click();" class="btn btn-sm btn-ghost" style="font-size:0.72rem; padding: 3px 8px; cursor:pointer;">
+              TELEMETRİDE SORGULA &rarr;
+            </button>
+          </div>
+        `;
+
+        scanResultBox.innerHTML = html;
       }
     });
   </script>

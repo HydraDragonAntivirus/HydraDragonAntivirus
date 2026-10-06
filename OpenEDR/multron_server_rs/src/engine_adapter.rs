@@ -35,22 +35,22 @@ pub struct ResultMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule: Option<serde_json::Value>,
 
-    // Internal engine state fields (not serialized - no legacy wire fields)
-    #[serde(skip_serializing)]
+    // Internal engine state fields (not serialized or deserialized - no legacy wire fields)
+    #[serde(default, skip)]
     pub verdict: String,
-    #[serde(skip_serializing)]
+    #[serde(default, skip)]
     pub threat: Option<String>,
-    #[serde(skip_serializing)]
+    #[serde(default, skip)]
     pub detail: Option<String>,
-    #[serde(skip_serializing)]
+    #[serde(default, skip)]
     pub score: f64,
-    #[serde(skip_serializing)]
+    #[serde(default, skip)]
     pub sha256: String,
-    #[serde(skip_serializing)]
+    #[serde(default, skip)]
     pub scan_ms: i64,
-    #[serde(skip_serializing)]
+    #[serde(default, skip)]
     pub source: String,
-    #[serde(skip_serializing)]
+    #[serde(default, skip)]
     pub extracted_objects: Vec<ExtractedObject>,
 }
 

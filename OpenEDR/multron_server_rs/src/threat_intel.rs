@@ -179,9 +179,8 @@ impl ThreatIntelStore {
         };
 
         let now_str = Utc::now().to_rfc3339();
-        let mut updated_insight: Option<ThreatInsight> = None;
 
-        {
+        let updated_insight = {
             let mut guard = self.map.write().unwrap();
             let entry = guard.entry(sha_bytes).or_insert_with(|| ThreatInsight {
                 sha256: sha256_hex.to_lowercase(),
@@ -220,11 +219,11 @@ impl ThreatIntelStore {
                 entry.file_size = file_size;
             }
 
-            updated_insight = Some(entry.clone());
-        }
+            entry.clone()
+        };
 
-        if let (Some(writer), Some(insight)) = (&self.writer, updated_insight) {
-            let _ = writer.send(insight);
+        if let Some(writer) = &self.writer {
+            let _ = writer.send(updated_insight);
         }
     }
 
