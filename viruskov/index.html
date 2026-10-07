@@ -1573,6 +1573,10 @@
           <div class="stat-val green" id="tiClean">—</div>
           <div class="stat-lbl">Doğrulanmış Temiz Dosya</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-val text-muted" id="tiUnknown">—</div>
+          <div class="stat-lbl">İmzasız / Bilinmeyen Dosya</div>
+        </div>
       </div>
 
       <!-- SCANNER & OPENTIP TABS -->
@@ -2810,10 +2814,14 @@
               const elMal = document.getElementById('tiMalicious');
               const elSusp = document.getElementById('tiSuspicious');
               const elClean = document.getElementById('tiClean');
+              const elUnknown = document.getElementById('tiUnknown');
               if (elHashes) elHashes.textContent = Number(t.total_unique_hashes).toLocaleString();
               if (elMal) elMal.textContent = Number(t.verdicts.malicious).toLocaleString();
               if (elSusp) elSusp.textContent = Number(t.verdicts.suspicious).toLocaleString();
               if (elClean) elClean.textContent = Number(t.verdicts.clean).toLocaleString();
+              if (elUnknown && t.verdicts && t.verdicts.unknown !== undefined) {
+                elUnknown.textContent = Number(t.verdicts.unknown).toLocaleString();
+              }
             }
           }
         } catch (_) {}
@@ -2864,15 +2872,16 @@
             if (res.ok && data.status === 'success') {
               const isMal = data.verdict === 'malicious';
               const isSusp = data.verdict === 'suspicious';
-              const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : 'var(--accent-green)';
-              const badge = isMal ? '🚨 MALICIOUS (TEHDİT)' : isSusp ? '⚠️ SUSPICIOUS (ŞÜPHELİ)' : '✅ CLEAN (TEMİZ)';
+              const isClean = data.verdict === 'clean';
+              const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : isClean ? 'var(--accent-green)' : 'var(--accent-cyan)';
+              const badge = isMal ? '🚨 MALICIOUS (TEHDİT)' : isSusp ? '⚠️ SUSPICIOUS (ŞÜPHELİ)' : isClean ? '✅ CLEAN (TEMİZ)' : 'ℹ️ UNKNOWN (BİLİNMEYEN DOSYA)';
 
               let html = `
                 <div style="font-size: 1.05rem; font-weight: 800; color: ${color}; margin-bottom: 8px;">
                   ${badge} &bull; Skor: ${data.score}/100
                 </div>
                 ${data.threat_name ? `<div style="color: var(--accent-red); margin-bottom: 6px;"><b>Tespit İmzası:</b> ${data.threat_name}</div>` : ''}
-                <div style="color: var(--text-muted); margin-bottom: 4px;"><b>Yayılım (Prevalence):</b> <span style="color:#fff; font-weight:700;">${data.prevalence.toUpperCase()}</span> (${data.seen_count} gözlem)</div>
+                <div style="color: var(--text-muted); margin-bottom: 4px;"><b>Yayılım (Prevalence):</b> <span style="color:#fff; font-weight:700;">${(data.prevalence || 'UNKNOWN').toUpperCase()}</span> (${data.seen_count} gözlem)</div>
                 <div style="color: var(--text-muted); margin-bottom: 4px;"><b>İlk Görülme:</b> ${new Date(data.first_seen).toLocaleString()} | <b>Son Görülme:</b> ${new Date(data.last_seen).toLocaleString()}</div>
                 ${data.file_names && data.file_names.length ? `<div style="color: var(--text-muted); margin-bottom: 4px;"><b>Gözlemlenen Dosya Adları:</b> ${data.file_names.join(', ')}</div>` : ''}
                 ${data.file_size ? `<div style="color: var(--text-muted);"><b>Boyut:</b> ${(data.file_size / 1024).toFixed(1)} KB (${data.file_size} bytes)</div>` : ''}
@@ -2881,7 +2890,16 @@
             } else if (res.status === 429) {
               tiBox.innerHTML = `<span style="color:var(--accent-amber);">⚠️ Rate limit aşıldı (10 sorgu/dk). Lütfen ${data.retry_after_seconds || 60} saniye sonra tekrar deneyin.</span>`;
             } else {
-              tiBox.innerHTML = `<span style="color:var(--text-muted);">ℹ️ Bu hash henüz VirusKov küresel telemetri ağında raporlanmamış (0 Sighting / Bilinmeyen dosya). Canlı dosya taraması sekmesinden yükleyip taratabilirsiniz.</span>`;
+              tiBox.innerHTML = `
+                <div style="font-size: 1.05rem; font-weight: 800; color: var(--accent-cyan); margin-bottom: 8px;">
+                  ℹ️ UNKNOWN (0 GÖZLEM / BİLİNMEYEN HASH) &bull; Skor: 0/100
+                </div>
+                <div style="color: var(--text-muted); margin-bottom: 4px;"><b>Yayılım (Prevalence):</b> <span style="color:#fff; font-weight:700;">NOT_SEEN</span> (0 sighting)</div>
+                <div style="color: var(--text-muted); margin-bottom: 8px;">Bu hash henüz VirusKov küresel telemetri ağında daha önce görülmemiş.</div>
+                <div style="background: rgba(0,229,255,0.08); border-left: 3px solid var(--accent-cyan); padding: 8px 12px; font-size: 0.8rem; color: #fff;">
+                  ⚡ <b>Canlı Dosya Analizi</b> sekmesinden bu dosyayı yükleyerek PE ayrıştırma, entropi ve davranışsal motoru tetikleyip ilk analizi başlatabilirsiniz.
+                </div>
+              `;
             }
           } catch (e) {
             tiBox.innerHTML = `<span style="color:var(--accent-red);">Bağlantı hatası: ${e.message}</span>`;
@@ -3062,12 +3080,15 @@
         const isMal = res.verdict === 'malicious';
         const isSusp = res.verdict === 'suspicious';
         const isClean = res.verdict === 'clean';
-        const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : 'var(--accent-green)';
-        const badge = isMal ? '🚨 MALICIOUS (ZARARLI YAZILIM)' : isSusp ? '⚠️ SUSPICIOUS (ŞÜPHELİ / SEZGİSEL)' : '✅ CLEAN (TEMİZ / GÜVENLİ)';
+        const isUnknown = !isMal && !isSusp && !isClean;
+
+        const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : isClean ? 'var(--accent-green)' : 'var(--accent-cyan)';
+        const badge = isMal ? '🚨 MALICIOUS (ZARARLI YAZILIM)' : isSusp ? '⚠️ SUSPICIOUS (ŞÜPHELİ / SEZGİSEL)' : isClean ? '✅ CLEAN (DOĞRULANMIŞ TEMİZ)' : 'ℹ️ UNKNOWN (BİLİNMEYEN DOSYA - İMZA EŞLEŞMESİ YOK)';
 
         const threatName = res.threat || (res.threat_indicator && res.threat_indicator.name) || (res.antivirus && res.antivirus.threat_indicator && res.antivirus.threat_indicator.name) || '';
         const score = res.score !== undefined ? res.score : (isMal ? 100 : isSusp ? 50 : 0);
-        const engineVerdict = res.antivirus && res.antivirus.verdict ? res.antivirus.verdict : res.verdict;
+        const engineVerdict = res.antivirus && res.antivirus.verdict ? res.antivirus.verdict : (res.verdict || 'unknown');
+        const scanMs = res.scan_ms || (res.event && res.event.duration ? Math.round(res.event.duration / 1000000) : '< 10');
 
         let html = `
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; margin-bottom: 14px; flex-wrap:wrap; gap:8px;">
@@ -3080,6 +3101,18 @@
           </div>
 
           ${threatName ? `<div style="background: rgba(255, 0, 51, 0.1); border-left: 3px solid var(--accent-red); padding: 8px 12px; margin-bottom: 12px; font-weight: 700; color: var(--accent-red);">Tespit İmzası: ${threatName}</div>` : ''}
+
+          <!-- STATISTICAL ANALYSIS BREAKDOWN -->
+          <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+            <div style="color: var(--accent-cyan); font-weight: 700; margin-bottom: 8px; font-size: 0.85rem;">📊 Statik Analiz &amp; Telemetri Dağılımı</div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; font-size: 0.82rem; color: var(--text-muted);">
+              <div><b>Statik Ayrıştırma:</b> <span style="color:#fff;">PE Başlıkları + Raw Bytestream</span></div>
+              <div><b>İmza Durumu:</b> <span style="color:${isUnknown ? 'var(--accent-cyan)' : color}; font-weight:700;">${isUnknown ? 'Eşleşen Zararlı İmzası Yok' : isClean ? 'Beyaz Liste İmzası Doğrulandı' : 'Zararlı İmza Eşleşti'}</span></div>
+              <div><b>Telemetri Durumu:</b> <span style="color:#fff;">${isUnknown ? 'Telemetri Havuzuna Kaydedildi (Sighting: 1)' : 'Veritabanında Kayıtlı'}</span></div>
+              <div><b>Tarama Süresi:</b> <span style="color:#fff;">${scanMs} ms</span></div>
+            </div>
+            ${res.detail ? `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.8rem; color: var(--text-muted);"><b>Statik Detay / Çıkarım:</b> <span style="color:#fff;">${res.detail}</span></div>` : ''}
+          </div>
 
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 14px; font-size: 0.85rem; color: var(--text-muted);">
             <div><b>Dosya Adı:</b> <span style="color:#fff;">${fileName}</span></div>
