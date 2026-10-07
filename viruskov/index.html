@@ -2965,6 +2965,7 @@
 
         const ws = new WebSocket('wss://api.viruskov.com/ws');
         let uploadStarted = false;
+        let errorMessageReceived = false;
 
         ws.onopen = () => {
           ws.send(JSON.stringify({
@@ -3008,6 +3009,7 @@
               renderScanResult(msg, file.name, file.size, sha256Hex);
               ws.close();
             } else if (msg.type === 'error' || msg.type === 'reject') {
+              errorMessageReceived = true;
               updateScanStatus('Tarama durduruldu', msg.message || 'Sunucu işlemi reddetti.', 100);
               ws.close();
             }
@@ -3017,12 +3019,13 @@
         };
 
         ws.onerror = (e) => {
+          errorMessageReceived = true;
           updateScanStatus('Bağlantı hatası', 'api.viruskov.com Cloudflare Tunnel uç noktasına ulaşılamadı. Lütfen sunucunun açık olduğundan emin olun.', 100);
         };
 
         ws.onclose = () => {
-          if (!uploadStarted && scanStatusBox.style.display !== 'none' && (!scanResultBox || scanResultBox.style.display === 'none')) {
-            updateScanStatus('Bağlantı kapandı', 'Oturum sonlandırıldı.', 100);
+          if (!errorMessageReceived && !uploadStarted && scanStatusBox.style.display !== 'none' && (!scanResultBox || scanResultBox.style.display === 'none')) {
+            updateScanStatus('Bağlantı kapandı', 'Sunucu oturumu sonlandırdı.', 100);
           }
         };
       }
