@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VIRUSKOV | Canlı Tehdit Tarayıcısı & URL Analiz Masası</title>
+  <title data-i18n="scan_page.title">VIRUSKOV | Canlı Tehdit Tarayıcısı & URL Analiz Masası</title>
   <meta name="description" content="VirusKov EDR canlı dosya analizi, OpenTIP hash sorgulama ve saf Makine Öğrenimi (ML) + Dinamik Whitelist destekli yeni nesil URL tarayıcısı.">
   <link rel="icon" type="image/svg+xml" href="../viruskov-fav.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -256,10 +256,10 @@
     <div class="container telemetry-inner">
       <div style="display:flex; align-items:center; gap:8px;">
         <span style="width:7px; height:7px; background:var(--accent-green); border-radius:50%; box-shadow:0 0 8px var(--accent-green);"></span>
-        <span>VIRUSKOV SOC INTELLIGENCE • MULT-MOTOR &amp; ML KERNEL • WSS:5306 • ECS 9.5.4</span>
+        <span data-i18n="top.soc_status">VIRUSKOV SOC INTELLIGENCE • MULT-MOTOR &amp; ML KERNEL • WSS:5306 • ECS 9.5.4</span>
       </div>
       <div>
-        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color:var(--text-muted); text-decoration:none;">GITHUB REPO &rarr;</a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color:var(--text-muted); text-decoration:none;" data-i18n="top.repo">GITHUB REPO &rarr;</a>
       </div>
     </div>
   </div>
@@ -294,7 +294,7 @@
           <span data-i18n="nav.wiki_btn">WİKİ &rarr;</span>
         </a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-red btn-sm">
-          <span>REPO &nearr;</span>
+          <span data-i18n="nav.repo_btn">REPO &nearr;</span>
         </a>
       </div>
     </div>
@@ -385,11 +385,11 @@
 
         <!-- URL Scan Progress Box -->
         <div id="urlStatusBox" style="display: none; margin-top: 16px; padding: 18px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem;">
-          <div id="urlStatusTitle" style="color: var(--text-main); font-weight: 700; margin-bottom: 8px;">URL Analiz Ediliyor...</div>
+          <div id="urlStatusTitle" data-i18n="scan.url_analyzing" style="color: var(--text-main); font-weight: 700; margin-bottom: 8px;">URL Analiz Ediliyor...</div>
           <div style="height: 6px; background: var(--bg-terminal); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
             <div id="urlProgressBar" style="width: 0%; height: 100%; background: var(--accent-red); transition: width 0.3s ease;"></div>
           </div>
-          <div id="urlStatusDetail" style="font-size: 0.8rem; color: var(--text-muted);">Cloudflare DoH ile DNS A kaydı ve HTTP liveness sorgulanıyor...</div>
+          <div id="urlStatusDetail" data-i18n="scan.url_doh_detail" style="font-size: 0.8rem; color: var(--text-muted);">Cloudflare DoH ile DNS A kaydı ve HTTP liveness sorgulanıyor...</div>
         </div>
 
         <!-- URL Result Box -->
@@ -416,7 +416,7 @@
         </div>
 
         <div id="fileStatusBox" style="display: none; margin-top: 16px; padding: 18px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem;">
-          <div id="fileStatusTitle" style="color: var(--text-main); font-weight: 700; margin-bottom: 8px;">Dosya hazırlanıyor...</div>
+          <div id="fileStatusTitle" data-i18n="scan.preparing" style="color: var(--text-main); font-weight: 700; margin-bottom: 8px;">Dosya hazırlanıyor...</div>
           <div style="height: 6px; background: var(--bg-terminal); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
             <div id="fileProgressBar" style="width: 0%; height: 100%; background: var(--accent-red); transition: width 0.3s ease;"></div>
           </div>
@@ -492,6 +492,18 @@
   <!-- SCRIPT -->
   <script>
     (function () {
+      function t(key, fallback) {
+        if (window.ViruskovI18n && typeof window.ViruskovI18n.t === 'function') {
+          const val = window.ViruskovI18n.t(key);
+          if (val !== null && val !== undefined) return val;
+        }
+        return fallback || key;
+      }
+
+      let lastUrlResultData = null;
+      let lastUrlSha256 = null;
+      let lastFileResultData = null;
+
       // 1. Telemetry stats updater
       async function updateViruskovTelemetry() {
         try {
@@ -499,8 +511,8 @@
           if (res.ok) {
             const data = await res.json();
             if (data.status === 'success' && data.telemetry) {
-              const t = data.telemetry;
-              const v = t.verdicts || {};
+              const tData = data.telemetry;
+              const v = tData.verdicts || {};
               const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = Number(val || 0).toLocaleString(); };
               setTxt('tiMalicious', v.malicious);
               setTxt('tiSuspicious', v.suspicious);
@@ -627,7 +639,7 @@
         async function runUrlScan() {
           const raw = urlInput.value.trim();
           if (!raw) {
-            alert('Lütfen geçerli bir URL veya alan adı girin.');
+            alert(t('scan.invalid_url'));
             return;
           }
 
@@ -638,24 +650,21 @@
           try {
             parsed = new URL(normalized);
           } catch (_) {
-            alert('Geçersiz URL formatı.');
+            alert(t('scan.invalid_format'));
             return;
           }
 
-          const lang = (window.ViruskovI18n && window.ViruskovI18n.getLang()) || 'tr';
-          const isEn = lang === 'en';
-
           const host = parsed.hostname.toLowerCase();
           urlStatusBox.style.display = 'block';
-          urlStatusTitle.textContent = isEn ? 'Inspecting URL with Machine Learning Model...' : 'URL Makine Öğrenimi Modeli ile Analiz Ediliyor...';
-          urlStatusDetail.textContent = isEn ? 'Querying DNS A record via Cloudflare DoH & probing HTTP liveness...' : 'Cloudflare DoH ile DNS A kaydı ve HTTP liveness sorgulanıyor...';
+          urlStatusTitle.textContent = t('scan.url_analyzing');
+          urlStatusDetail.textContent = t('scan.url_doh_detail');
           urlProgressBar.style.width = '30%';
           urlResultBox.style.display = 'none';
 
           // A. Liveness check
           const liveness = await checkDomainLiveness(host, normalized);
           urlProgressBar.style.width = '70%';
-          urlStatusDetail.textContent = isEn ? 'Evaluating Tranco Whitelist & Machine Learning features...' : 'Tranco Whitelist ve Makine Öğrenimi öznitelikleri değerlendiriliyor...';
+          urlStatusDetail.textContent = t('scan.url_ml_eval');
 
           // B. Whitelist check (Zero-FP Guarantee)
           let isWhitelisted = false;
@@ -725,11 +734,11 @@
       }
 
       function renderUrlResult(res, urlSha256) {
+        lastUrlResultData = res;
+        lastUrlSha256 = urlSha256;
+
         urlStatusBox.style.display = 'none';
         urlResultBox.style.display = 'block';
-
-        const lang = (window.ViruskovI18n && window.ViruskovI18n.getLang()) || 'tr';
-        const isEn = lang === 'en';
 
         const isMal = res.verdict === 'malicious';
         const isSusp = res.verdict === 'suspicious';
@@ -745,28 +754,26 @@
           : 'var(--accent-cyan)';
 
         const badgeText = isMal 
-          ? (isEn ? '🚨 MALICIOUS (THREAT URL)' : '🚨 MALICIOUS (ZARARLI URL)')
+          ? t('scan.badge_malicious_url')
           : isSusp 
-          ? (isEn ? '⚠️ SUSPICIOUS (ANOMALY)' : '⚠️ SUSPICIOUS (ŞÜPHELİ ANOMALİ)')
+          ? t('scan.badge_suspicious_url')
           : isClean 
-          ? (res.isWhitelisted 
-              ? (isEn ? '✅ CLEAN (WHITELIST VERIFIED)' : '✅ CLEAN (DOĞRULANMIŞ WHITELIST)') 
-              : (isEn ? '✅ CLEAN (VERIFIED BENIGN)' : '✅ CLEAN (DOĞRULANMIŞ TEMİZ)'))
-          : (isEn ? 'ℹ️ UNKNOWN (UNLISTED / NO SIGNATURE)' : 'ℹ️ UNKNOWN (LİSTEDE YOK / İMZASIZ)');
+          ? (res.isWhitelisted ? t('scan.badge_clean_wl') : t('scan.badge_clean_benign'))
+          : t('scan.badge_unknown');
 
         const detectionCount = isMal ? '1 / 6' : isSusp ? '1 / 6' : '0 / 6';
 
         const livenessBadge = res.liveness.status === 'ACTIVE'
-          ? (isEn ? '<span style="color:var(--accent-green);">🌐 SITE ACTIVE (DNS: OK / HTTP: ONLINE)</span>' : '<span style="color:var(--accent-green);">🌐 SİTE AKTİF (DNS: OK / HTTP: ONLINE)</span>')
-          : (isEn ? '<span style="color:var(--text-muted);">💤 SITE INACTIVE / UNREACHABLE</span>' : '<span style="color:var(--text-muted);">💤 SİTE PASİF VEYA ERİŞİLEMEZ</span>');
+          ? ('<span style="color:var(--accent-green);">' + t('scan.liveness_active') + '</span>')
+          : ('<span style="color:var(--text-muted);">' + t('scan.liveness_inactive') + '</span>');
 
         const engines = [
-          { name: 'VirusKov ML Core Engine', category: 'Deep Learning', status: isMal ? (isEn ? 'Malicious' : 'Zararlı') : isSusp ? (isEn ? 'Suspicious' : 'Şüpheli') : (isEn ? 'Clean' : 'Temiz'), color: badgeColor },
-          { name: 'Dynamic Whitelist Verifier', category: 'Zero-FP Reputation', status: res.isWhitelisted ? `Verified (*.${res.matchedDomain})` : (isEn ? 'Unlisted (ML Checked)' : 'Listede Yok (ML İncelendi)'), color: res.isWhitelisted ? 'var(--accent-green)' : 'var(--text-muted)' },
-          { name: 'Domain Liveness Inspector', category: 'DNS DoH & HTTP Probe', status: res.liveness.status === 'ACTIVE' ? (isEn ? 'Site Active & Online' : 'Site Aktif & Çevrimiçi') : (isEn ? 'Inactive / Unreachable' : 'Pasif / Erişilemez'), color: res.liveness.status === 'ACTIVE' ? 'var(--accent-green)' : 'var(--text-muted)' },
-          { name: 'Homograph & Punycode Shield', category: 'IDN Attack Defense', status: res.threatName.includes('HOMOGRAPH') ? (isEn ? 'Homograph Detected' : 'Homograf Tespit Edildi') : (isEn ? 'Clean Script' : 'Temiz Karakter'), color: res.threatName.includes('HOMOGRAPH') ? 'var(--accent-red)' : 'var(--accent-green)' },
-          { name: 'Statistical Shannon Classifier', category: 'Entropy Modeling', status: `${res.entropy} bits (${isEn ? 'Normal' : 'Olağan'})`, color: 'var(--accent-green)' },
-          { name: 'Anti-FP Guard (Zero Reused Lists)', category: 'Zero Rule Filter', status: isEn ? 'Passed (No Reused Signatures)' : 'Geçti (Eski İmza Yok)', color: 'var(--accent-green)' }
+          { name: t('scan.eng_ml'), category: t('scan.eng_ml_cat'), status: isMal ? t('scan.st_malicious') : isSusp ? t('scan.st_suspicious') : isClean ? t('scan.st_clean') : t('scan.st_unknown'), color: badgeColor },
+          { name: t('scan.eng_wl'), category: t('scan.eng_wl_cat'), status: res.isWhitelisted ? (t('scan.st_verified') + ` (*.${res.matchedDomain})`) : t('scan.st_unlisted'), color: res.isWhitelisted ? 'var(--accent-green)' : 'var(--text-muted)' },
+          { name: t('scan.eng_live'), category: t('scan.eng_live_cat'), status: res.liveness.status === 'ACTIVE' ? t('scan.st_active') : t('scan.st_inactive'), color: res.liveness.status === 'ACTIVE' ? 'var(--accent-green)' : 'var(--text-muted)' },
+          { name: t('scan.eng_homo'), category: t('scan.eng_homo_cat'), status: res.threatName.includes('HOMOGRAPH') ? t('scan.st_homo_detected') : t('scan.st_clean_script'), color: res.threatName.includes('HOMOGRAPH') ? 'var(--accent-red)' : 'var(--accent-green)' },
+          { name: t('scan.eng_shannon'), category: t('scan.eng_shannon_cat'), status: `${res.entropy} bits (${t('scan.st_normal')})`, color: 'var(--accent-green)' },
+          { name: t('scan.eng_antifp'), category: t('scan.eng_antifp_cat'), status: t('scan.st_antifp_passed'), color: 'var(--accent-green)' }
         ];
 
         let html = `
@@ -778,25 +785,25 @@
               <div>
                 <div style="font-family:var(--font-display); font-size:1.25rem; font-weight:800; color:${badgeColor};">${badgeText}</div>
                 <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
-                  ${isEn ? 'Target:' : 'Hedef:'} <span style="color:#fff;">${res.url}</span> &bull; ${livenessBadge}
+                  ${t('scan.lbl_target')} <span style="color:#fff;">${res.url}</span> &bull; ${livenessBadge}
                 </div>
               </div>
             </div>
             <a href="mailto:viruskov@viruskov.com?subject=URL%20FP/FN%20Report%20-%20${encodeURIComponent(res.url)}" style="background:rgba(255,51,68,0.1); border:1px solid var(--accent-red); color:#fff; padding:8px 14px; border-radius:4px; text-decoration:none; font-family:var(--font-mono); font-size:0.75rem; font-weight:700;">
-              ${isEn ? '📩 Report False Positive (FP/FN)' : '📩 Hatalı Tespit (FP/FN) Bildir'}
+              ${t('scan.report_fp')}
             </a>
           </div>
 
           <div style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:6px; padding:12px 16px; margin-bottom:18px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-family:var(--font-mono); font-size:0.78rem;">
-            <div>${isEn ? 'Domain:' : 'Alan Adı:'} <span style="color:#fff; font-weight:700;">${res.host}</span></div>
-            <div>${isEn ? 'Protocol:' : 'Protokol:'} <span style="color:var(--accent-cyan);">${res.protocol.toUpperCase()}</span></div>
-            <div>${isEn ? 'Shannon Entropy:' : 'Shannon Entropisi:'} <span style="color:#fff;">${res.entropy} bits</span></div>
+            <div>${t('scan.lbl_domain')} <span style="color:#fff; font-weight:700;">${res.host}</span></div>
+            <div>${t('scan.lbl_protocol')} <span style="color:var(--accent-cyan);">${res.protocol.toUpperCase()}</span></div>
+            <div>${t('scan.lbl_entropy')} <span style="color:#fff;">${res.entropy} bits</span></div>
             <div>SHA-256: <span style="color:var(--accent-cyan);">${urlSha256.slice(0, 16)}...</span></div>
           </div>
 
           <div style="margin-bottom:18px;">
             <div style="font-family:var(--font-display); font-size:0.95rem; font-weight:700; color:#fff; margin-bottom:10px;">
-              🛡️ ${isEn ? 'Security Engines & ML Analysis Breakdown' : 'Güvenlik Motorları ve ML Analiz Sonuçları'}
+              ${t('scan.breakdown_title')}
             </div>
             <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(310px, 1fr)); gap:10px;">
               ${engines.map(eng => `
@@ -836,19 +843,21 @@
         let history = [];
         try { history = JSON.parse(localStorage.getItem('viruskov_scan_history') || '[]'); } catch (_) {}
         if (history.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">Henüz taranmış kayıt yok.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">' + t('scan_page.history_empty') + '</td></tr>';
           return;
         }
         tbody.innerHTML = history.slice(0, 30).map(item => {
           const isMal = item.verdict === 'malicious';
           const isSusp = item.verdict === 'suspicious';
-          const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : 'var(--accent-green)';
-          const badge = isMal ? 'MALICIOUS' : isSusp ? 'SUSPICIOUS' : 'CLEAN';
+          const isClean = item.verdict === 'clean';
+          const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : isClean ? 'var(--accent-green)' : 'var(--accent-cyan)';
+          const badge = isMal ? t('history.filter_mal') : isSusp ? t('history.filter_susp') : isClean ? t('history.filter_clean') : t('history.filter_unk');
+          const typeLabel = item.scanType === 'url' ? t('scan.lbl_type_url') : t('scan.lbl_type_file');
           return `
             <tr style="border-bottom:1px solid var(--border-subtle);">
               <td style="padding:8px 12px; color:var(--text-muted);">${item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '—'}</td>
-              <td style="padding:8px 12px; font-weight:700; color:#fff;">${item.fileName || 'Dosya'}</td>
-              <td style="padding:8px 12px; color:var(--accent-cyan);">${item.scanType ? item.scanType.toUpperCase() : 'DOSYA'}</td>
+              <td style="padding:8px 12px; font-weight:700; color:#fff;">${item.fileName || t('scan.lbl_file')}</td>
+              <td style="padding:8px 12px; color:var(--accent-cyan);">${typeLabel}</td>
               <td style="padding:8px 12px; color:${color}; font-weight:700;">${badge}</td>
               <td style="padding:8px 12px; font-weight:700; color:${color};">${item.score !== undefined ? item.score : 0}/100</td>
               <td style="padding:8px 12px; color:var(--text-muted);">${item.threatName || '—'}</td>
@@ -865,20 +874,20 @@
       if (tiBtn && tiInput && tiBox) {
         tiBtn.addEventListener('click', async () => {
           const hash = tiInput.value.trim().toLowerCase();
-          if (hash.length !== 64) { alert('Lütfen geçerli bir 64 karakterli SHA-256 girin.'); return; }
+          if (hash.length !== 64) { alert(t('lookup.alert_sha')); return; }
           tiBox.style.display = 'block';
-          tiBox.innerHTML = '<span style="color:var(--text-muted);">Sorgulanıyor...</span>';
+          tiBox.innerHTML = '<span style="color:var(--text-muted);">' + t('lookup.querying') + '</span>';
           try {
             const res = await fetch(`https://api.viruskov.com/api/v1/insights/${hash}`);
             const data = await res.json();
             if (res.ok && data.status === 'success') {
               const color = data.verdict === 'malicious' ? 'var(--accent-red)' : data.verdict === 'clean' ? 'var(--accent-green)' : 'var(--accent-amber)';
-              tiBox.innerHTML = `<div style="font-weight:800; color:${color}; font-size:1.05rem;">${data.verdict.toUpperCase()} &bull; Skor: ${data.score}/100</div>${data.threat_name ? `<div style="color:var(--accent-red); margin-top:4px;"><b>İmza:</b> ${data.threat_name}</div>` : ''}<div style="color:var(--text-muted); margin-top:4px;">Yayılım: ${(data.prevalence || 'UNKNOWN').toUpperCase()} (${data.seen_count} gözlem)</div>`;
+              tiBox.innerHTML = `<div style="font-weight:800; color:${color}; font-size:1.05rem;">${data.verdict.toUpperCase()} &bull; ${t('lookup.score')} ${data.score}/100</div>${data.threat_name ? `<div style="color:var(--accent-red); margin-top:4px;"><b>${t('lookup.sig')}</b> ${data.threat_name}</div>` : ''}<div style="color:var(--text-muted); margin-top:4px;">${t('lookup.prevalence')} ${(data.prevalence || 'UNKNOWN').toUpperCase()} (${data.seen_count} ${t('lookup.sightings')})</div>`;
             } else {
-              tiBox.innerHTML = '<div style="color:var(--accent-cyan);">ℹ️ UNKNOWN &bull; Bu hash henüz telemetri havuzunda görülmemiş.</div>';
+              tiBox.innerHTML = '<div style="color:var(--accent-cyan);">' + t('lookup.unknown_note') + '</div>';
             }
           } catch (e) {
-            tiBox.innerHTML = `<span style="color:var(--accent-red);">Bağlantı hatası: ${e.message}</span>`;
+            tiBox.innerHTML = `<span style="color:var(--accent-red);">${t('lookup.conn_err')}${e.message || ''}</span>`;
           }
         });
       }
@@ -907,16 +916,16 @@
       }
 
       function handleFile(file) {
-        if (!file || file.size > 50 * 1024 * 1024) { alert('Maksimum 50 MB.'); return; }
+        if (!file || file.size > 50 * 1024 * 1024) { alert(t('scan.max_size_alert')); return; }
         fileStatusBox.style.display = 'block';
         fileResultBox.style.display = 'none';
-        fileStatusTitle.textContent = 'Dosya hazırlanıyor...';
+        fileStatusTitle.textContent = t('scan.preparing');
         fileStatusDetail.textContent = file.name;
         fileProgressBar.style.width = '20%';
 
         const reader = new FileReader();
         reader.onload = async (e) => {
-          fileStatusTitle.textContent = 'SHA-256 çıkarılıyor...';
+          fileStatusTitle.textContent = t('scan.hashing');
           fileProgressBar.style.width = '40%';
           const buf = e.target.result;
           const hashBuf = await crypto.subtle.digest('SHA-256', buf);
@@ -927,7 +936,7 @@
       }
 
       function startWsScan(file, buf, sha) {
-        fileStatusTitle.textContent = 'WSS bağlantısı kuruluyor...';
+        fileStatusTitle.textContent = t('scan.wss_connecting');
         fileProgressBar.style.width = '55%';
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.hostname}:5306/ws`;
@@ -942,10 +951,10 @@
           try {
             const msg = JSON.parse(event.data);
             if (msg.type === 'hello_ok') {
-              fileStatusTitle.textContent = 'Bulut önbelleği sorgulanıyor...';
+              fileStatusTitle.textContent = t('scan.checking');
               ws.send(JSON.stringify({ type: 'check', items: [{ id: 1, name: file.name, size: file.size, sha256: sha }] }));
             } else if (msg.type === 'need_upload') {
-              fileStatusTitle.textContent = 'Statik analiz için sıra alınıyor...';
+              fileStatusTitle.textContent = t('scan.queuing');
               ws.send(JSON.stringify({ type: 'scan', id: 1, name: file.name, size: file.size, sha256: sha }));
             } else if (msg.type === 'send_file') {
               uploadChunks(ws, buf);
@@ -957,8 +966,8 @@
         };
 
         ws.onerror = () => {
-          fileStatusTitle.textContent = 'Bağlantı Hatası';
-          fileStatusDetail.textContent = 'api.viruskov.com WebSocket sunucusuna ulaşılamadı. Eklenti (AdBlock) varsa lütfen gizli sekmeden deneyin.';
+          fileStatusTitle.textContent = t('scan.conn_error');
+          fileStatusDetail.textContent = t('scan.conn_error_desc');
         };
       }
 
@@ -968,7 +977,7 @@
         function send() {
           if (ws.readyState !== WebSocket.OPEN) return;
           if (offset >= buf.byteLength) {
-            fileStatusTitle.textContent = 'Derin analiz yapılıyor...';
+            fileStatusTitle.textContent = t('scan.deep_scanning');
             fileProgressBar.style.width = '95%';
             return;
           }
@@ -982,26 +991,43 @@
       }
 
       function renderFileResult(res, name, size, sha) {
+        lastFileResultData = { res, name, size, sha };
+
         fileStatusBox.style.display = 'none';
         fileResultBox.style.display = 'block';
         const verdict = ((res.antivirus && res.antivirus.verdict) || (res.rule && res.rule.verdict) || (typeof res.verdict === 'string' && res.verdict) || 'unknown').toLowerCase();
         const color = verdict === 'malicious' ? 'var(--accent-red)' : verdict === 'clean' ? 'var(--accent-green)' : 'var(--accent-amber)';
-        const badge = verdict === 'malicious' ? '🚨 MALICIOUS (ZARARLI)' : verdict === 'clean' ? '✅ CLEAN (TEMİZ)' : '⚠️ SUSPICIOUS (ŞÜPHELİ)';
+        const badge = verdict === 'malicious' ? t('res.malicious_badge') : verdict === 'clean' ? t('res.clean_badge') : verdict === 'suspicious' ? t('res.suspicious_badge') : t('res.unknown_badge');
         const threat = (res.rule && res.rule.name) || (res.threat && res.threat.indicator && res.threat.indicator.name) || res.detail || '';
 
         fileResultBox.innerHTML = `
           <div style="font-size:1.15rem; font-weight:800; color:${color}; margin-bottom:10px;">${badge}</div>
-          ${threat ? `<div style="color:var(--accent-red); margin-bottom:8px;"><b>Tespit İmzası:</b> ${threat}</div>` : ''}
+          ${threat ? `<div style="color:var(--accent-red); margin-bottom:8px;"><b>${t('res.threat_sig')}</b> ${threat}</div>` : ''}
           <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
-            Dosya: <span style="color:#fff;">${name}</span> &bull; Boyut: ${(size/1024).toFixed(1)} KB &bull; SHA: ${sha.slice(0, 16)}...
+            ${t('res.filename')} <span style="color:#fff;">${name}</span> &bull; ${t('res.filesize')} ${(size/1024).toFixed(1)} KB &bull; SHA: ${sha.slice(0, 16)}...
           </div>
           <div style="background:rgba(255,51,68,0.06); border:1px solid rgba(255,51,68,0.2); padding:10px 14px; border-radius:4px; font-size:0.75rem; font-family:var(--font-mono);">
-            Hatalı tespit (FP/FN) durumunda raporlayın: <a href="mailto:viruskov@viruskov.com?subject=Dosya%20FP/FN%20-${sha}" style="color:var(--accent-cyan); font-weight:700;">viruskov@viruskov.com &nearr;</a>
+            ${t('scan.file_fp_note')} <a href="mailto:viruskov@viruskov.com?subject=Dosya%20FP/FN%20-${sha}" style="color:var(--accent-cyan); font-weight:700;">viruskov@viruskov.com &nearr;</a>
           </div>
         `;
 
-        saveRecordToHistory(name, size, sha, verdict, res.antivirus ? res.antivirus.score : 0, threat, 'dosya');
+        saveRecordToHistory(name, size, sha, verdict, res.antivirus ? res.antivirus.score : 0, threat, 'file');
       }
+
+      // Initialize i18n language on load
+      if (window.ViruskovI18n) {
+        window.ViruskovI18n.setLang(window.ViruskovI18n.getLang());
+      }
+      window.addEventListener('viruskov_lang_changed', () => {
+        document.title = t('scan_page.title');
+        renderHistoryTable();
+        if (lastUrlResultData && urlResultBox && urlResultBox.style.display !== 'none') {
+          renderUrlResult(lastUrlResultData, lastUrlSha256);
+        }
+        if (lastFileResultData && fileResultBox && fileResultBox.style.display !== 'none') {
+          renderFileResult(lastFileResultData.res, lastFileResultData.name, lastFileResultData.size, lastFileResultData.sha);
+        }
+      });
     })();
   </script>
 </body>
