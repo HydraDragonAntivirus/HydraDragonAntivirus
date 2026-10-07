@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VIRUSKOV &mdash; Canlı Tehdit Telemetrisi &amp; Tarama İstatistikleri</title>
+  <meta name="description" content="VirusKov EDR & Antivirus küresel tehdit telemetrisi, canlı hash gözlemleri, algılama oranları ve Elasticsearch ECS 9.5.4 oturum tarama geçmişi.">
+  <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #06090a;
+      --bg-surface: #0b1114;
+      --bg-surface-elevated: #10191d;
+      --bg-card: #0d1519;
+      --bg-terminal: #050708;
+      --border-subtle: #18262b;
+      --border-strong: #273e46;
+      --border-focus: #ff3344;
+      --text-main: #e8eff2;
+      --text-muted: #799099;
+      --text-dim: #4d5f66;
+      --accent-red: #ff3344;
+      --accent-red-hover: #e02435;
+      --accent-red-dim: rgba(255, 51, 68, 0.12);
+      --accent-green: #00ff66;
+      --accent-green-dim: rgba(0, 255, 102, 0.1);
+      --accent-amber: #ffb703;
+      --accent-amber-dim: rgba(255, 183, 3, 0.12);
+      --accent-cyan: #00e5ff;
+      --accent-cyan-dim: rgba(0, 229, 255, 0.1);
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-display: 'Space Grotesk', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      min-height: 100vh;
+      line-height: 1.6;
+      background-image:
+        linear-gradient(rgba(255, 51, 68, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    ::selection { background: var(--accent-red); color: #fff; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-terminal); }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-red); }
+
+    .container { max-width: 1320px; margin: 0 auto; padding: 0 24px; }
+    .mono { font-family: var(--font-mono); }
+
+    /* Top Strip */
+    .top-telemetry {
+      background: #040607;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding: 6px 0;
+    }
+    .telemetry-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .status-dot {
+      width: 7px; height: 7px; background: var(--accent-green); border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulseGreen 2s infinite ease-in-out;
+      display: inline-block;
+    }
+    @keyframes pulseGreen {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Header */
+    header {
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(6, 9, 10, 0.94);
+      backdrop-filter: blur(14px);
+      position: sticky; top: 0; z-index: 1000;
+    }
+    .header-inner { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; gap: 20px; }
+    .brand-link { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .brand-logo-img { height: 32px; width: auto; }
+
+    nav { display: flex; align-items: center; gap: 18px; }
+    nav a {
+      color: var(--text-muted); text-decoration: none; font-size: 0.88rem; font-weight: 500;
+      transition: color 0.2s ease;
+    }
+    nav a:hover, nav a.active { color: #fff; }
+
+    .btn {
+      font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700;
+      padding: 7px 14px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+      cursor: pointer; border: 1px solid transparent; transition: all 0.2s ease;
+    }
+    .btn-red { background: var(--accent-red); color: #fff; }
+    .btn-red:hover { background: var(--accent-red-hover); box-shadow: 0 0 14px var(--accent-red-dim); }
+    .btn-ghost { background: var(--bg-surface-elevated); border-color: var(--border-subtle); color: var(--text-main); }
+    .btn-ghost:hover { border-color: var(--accent-cyan); color: #fff; }
+    .btn-sm { font-size: 0.72rem; padding: 4px 10px; }
+
+    /* Hero / Stat Cards */
+    .hero-strip {
+      padding: 34px 0 20px;
+    }
+    .hero-title {
+      font-size: 2rem; font-weight: 900; color: #fff; line-height: 1.2; margin-bottom: 6px;
+      letter-spacing: -0.5px;
+    }
+    .hero-desc {
+      color: var(--text-muted); font-size: 0.95rem; max-width: 800px; margin-bottom: 24px;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 16px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--border-subtle);
+    }
+    .stat-card.c-cyan::before { background: var(--accent-cyan); }
+    .stat-card.c-red::before { background: var(--accent-red); }
+    .stat-card.c-amber::before { background: var(--accent-amber); }
+    .stat-card.c-green::before { background: var(--accent-green); }
+    .stat-card.c-gray::before { background: #546e7a; }
+
+    .stat-card-val {
+      font-family: var(--font-mono); font-size: 1.7rem; font-weight: 800; color: #fff; margin-bottom: 4px;
+    }
+    .stat-card-lbl {
+      font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    /* Section Panels */
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 22px;
+      margin-bottom: 24px;
+    }
+    .panel-header {
+      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+      margin-bottom: 16px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;
+    }
+    .panel-title {
+      font-size: 1.15rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 8px;
+    }
+
+    /* Ratio Bar */
+    .ratio-bar {
+      height: 16px; background: var(--bg-terminal); border-radius: 8px; overflow: hidden;
+      display: flex; border: 1px solid var(--border-subtle); margin-bottom: 14px;
+    }
+    .ratio-seg { height: 100%; transition: width 0.5s ease; }
+    .ratio-seg.mal { background: var(--accent-red); }
+    .ratio-seg.susp { background: var(--accent-amber); }
+    .ratio-seg.clean { background: var(--accent-green); }
+    .ratio-seg.unk { background: var(--accent-cyan); }
+
+    .ratio-legend {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;
+      font-family: var(--font-mono); font-size: 0.8rem;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; background: var(--bg-surface); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+    /* Specs Grid */
+    .specs-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px;
+    }
+    .spec-item {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 12px 14px; border-radius: 6px;
+      font-family: var(--font-mono);
+    }
+    .spec-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+    .spec-val { font-size: 0.88rem; font-weight: 700; color: #fff; margin-top: 4px; }
+
+    /* Table */
+    .table-container {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; overflow-x: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.8rem; text-align: left; }
+    th {
+      background: var(--bg-surface-elevated); border-bottom: 1px solid var(--border-strong);
+      padding: 12px 14px; color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase;
+    }
+    td { padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); color: var(--text-main); }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+    .badge {
+      display: inline-block; padding: 3px 8px; border-radius: 3px; font-weight: 700; font-size: 0.72rem;
+    }
+    .badge-mal { background: rgba(255, 51, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(255, 51, 68, 0.4); }
+    .badge-susp { background: rgba(255, 183, 3, 0.15); color: var(--accent-amber); border: 1px solid rgba(255, 183, 3, 0.4); }
+    .badge-clean { background: rgba(0, 255, 102, 0.15); color: var(--accent-green); border: 1px solid rgba(0, 255, 102, 0.4); }
+    .badge-unk { background: rgba(0, 229, 255, 0.15); color: var(--accent-cyan); border: 1px solid rgba(0, 229, 255, 0.4); }
+
+    .hash-cell {
+      font-size: 0.75rem; color: var(--accent-cyan); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+    }
+    .hash-cell:hover { text-decoration: underline; }
+
+    /* Detail Modal */
+    .modal-box {
+      background: var(--bg-surface-elevated); border: 1px solid var(--border-strong); border-radius: 6px;
+      padding: 18px; margin-top: 16px; font-family: var(--font-mono); font-size: 0.8rem;
+    }
+    pre {
+      background: var(--bg-terminal); border: 1px solid var(--border-subtle); padding: 12px;
+      border-radius: 4px; overflow-x: auto; color: #b0bec5; font-size: 0.75rem; max-height: 280px;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border-subtle); background: #040607; padding: 32px 0; margin-top: 40px;
+      font-size: 0.85rem; color: var(--text-muted);
+    }
+    .footer-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+    .footer-links { display: flex; gap: 16px; flex-wrap: wrap; }
+    .footer-links a { color: var(--text-muted); text-decoration: none; }
+    .footer-links a:hover { color: var(--accent-red); }
+  </style>
+</head>
+<body>
+
+  <!-- TOP TELEMETRY -->
+  <div class="top-telemetry">
+    <div class="container telemetry-inner">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="status-dot"></span>
+        <span>VIRUSKOV SOC INTELLIGENCE &bull; WSS:5306 &bull; ECS 9.5.4</span>
+      </div>
+      <div>
+        <span>GÖZLEM: HER 8 SANİYEDE BİR OTOMATİK SENKRONİZE</span>
+      </div>
+      <div>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color:var(--text-main); text-decoration:none;">
+          GITHUB REPO &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER -->
+  <header>
+    <div class="container header-inner">
+      <a href="index.html" class="brand-link">
+        <img src="viruskov-wordmark.svg" alt="VIRUSKOV Logo" class="brand-logo-img">
+      </a>
+
+      <nav>
+        <a href="index.html">Ana Sayfa</a>
+        <a href="index.html#threat-intel">Canlı Tarayıcı</a>
+        <a href="stats.html" class="active" style="color: var(--accent-cyan); font-weight:700;">📊 İstatistikler &amp; SOC</a>
+        <a href="wiki/index.html">Wiki &amp; Dokümantasyon</a>
+      </nav>
+
+      <div style="display: flex; gap: 10px;">
+        <a href="index.html#threat-intel" class="btn btn-red btn-sm">
+          <span>⚡ DOSYA TARA</span>
+        </a>
+        <a href="wiki/index.html" class="btn btn-ghost btn-sm">
+          <span>WİKİ &nearr;</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- HERO -->
+    <div class="hero-strip">
+      <h1 class="hero-title">Tehdit Telemetrisi &amp; Canlı İstatistikler</h1>
+      <p class="hero-desc">
+        VirusKov küresel telemetri ağı, tersine mühendislik motoru, entropi analizi ve davranışsal kurallarla elde edilen canlı tehdit metrikleri.
+      </p>
+
+      <!-- STAT CARDS -->
+      <div class="stat-grid">
+        <div class="stat-card c-cyan">
+          <div class="stat-card-val text-cyan" id="tiTotalHashes">—</div>
+          <div class="stat-card-lbl">Benzersiz SHA-256 Hash</div>
+        </div>
+        <div class="stat-card c-red">
+          <div class="stat-card-val text-red" id="tiMalicious" style="color:var(--accent-red);">—</div>
+          <div class="stat-card-lbl">Engellenen Zararlı (Malicious)</div>
+        </div>
+        <div class="stat-card c-amber">
+          <div class="stat-card-val" id="tiSuspicious" style="color:var(--accent-amber);">—</div>
+          <div class="stat-card-lbl">Şüpheli / Sezgisel (Suspicious)</div>
+        </div>
+        <div class="stat-card c-green">
+          <div class="stat-card-val" id="tiClean" style="color:var(--accent-green);">—</div>
+          <div class="stat-card-lbl">Doğrulanmış Temiz (Clean)</div>
+        </div>
+        <div class="stat-card c-gray">
+          <div class="stat-card-val" id="tiUnknown" style="color:#b0bec5;">—</div>
+          <div class="stat-card-lbl">İmzasız / Bilinmeyen (Unknown)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GLOBAL DISTRIBUTION PANEL -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>🌐</span> Global Tehdit Dağılım Oranları
+        </div>
+        <div class="mono" style="font-size:0.8rem; color:var(--text-muted);" id="statTotalSightings">
+          Toplam Gözlem: 0
+        </div>
+      </div>
+
+      <!-- Ratio Bar -->
+      <div class="ratio-bar">
+        <div id="barMalicious" class="ratio-seg mal" style="width: 0%;" title="Zararlı"></div>
+        <div id="barSuspicious" class="ratio-seg susp" style="width: 0%;" title="Şüpheli"></div>
+        <div id="barClean" class="ratio-seg clean" style="width: 0%;" title="Temiz"></div>
+        <div id="barUnknown" class="ratio-seg unk" style="width: 0%;" title="Bilinmeyen"></div>
+      </div>
+
+      <!-- Ratio Legend -->
+      <div class="ratio-legend">
+        <div class="legend-item">
+          <span class="legend-dot" style="background:var(--accent-red);"></span>
+          <span style="color:var(--text-muted);">Zararlı (Malicious):</span>
+          <b style="color:var(--accent-red); margin-left:auto;" id="pctMalicious">%0</b>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot" style="background:var(--accent-amber);"></span>
+          <span style="color:var(--text-muted);">Şüpheli (Suspicious):</span>
+          <b style="color:var(--accent-amber); margin-left:auto;" id="pctSuspicious">%0</b>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot" style="background:var(--accent-green);"></span>
+          <span style="color:var(--text-muted);">Temiz (Clean):</span>
+          <b style="color:var(--accent-green); margin-left:auto;" id="pctClean">%0</b>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot" style="background:var(--accent-cyan);"></span>
+          <span style="color:var(--text-muted);">Bilinmeyen (Unknown):</span>
+          <b style="color:var(--accent-cyan); margin-left:auto;" id="pctUnknown">%0</b>
+        </div>
+      </div>
+
+      <!-- Specification Strip -->
+      <div class="specs-grid">
+        <div class="spec-item">
+          <div class="spec-lbl">VERİ STANDARDİZASYONU</div>
+          <div class="spec-val">Elasticsearch ECS 9.5.4</div>
+        </div>
+        <div class="spec-item">
+          <div class="spec-lbl">MOTOR MİMARİSİ</div>
+          <div class="spec-val" style="color:var(--accent-green);">Rust Tokio Multi-Worker</div>
+        </div>
+        <div class="spec-item">
+          <div class="spec-lbl">BULUT PROTOKOLÜ</div>
+          <div class="spec-val" style="color:var(--accent-cyan);">WSS:5306 / REST API v1</div>
+        </div>
+        <div class="spec-item">
+          <div class="spec-lbl">ORİJİN &amp; GÜVENLİK</div>
+          <div class="spec-val" style="color:var(--accent-amber);">Cloudflare Edge DYNAMIC</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOCAL SCAN HISTORY PANEL -->
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">
+            <span>📋</span> Yerel Oturum Tarama Geçmişi &amp; Raporları
+          </div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
+            Bu tarayıcı üzerinden taranan dosyaların kaydedilen sonuçları, skorları ve ECS logları.
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="btnExportJson" class="btn btn-ghost btn-sm">
+            📥 JSON İndir
+          </button>
+          <button id="btnClearHistory" class="btn btn-ghost btn-sm" style="color:var(--accent-red);">
+            🗑️ Geçmişi Temizle
+          </button>
+        </div>
+      </div>
+
+      <!-- Filters & Search -->
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:14px;">
+        <div style="display:flex; gap:6px; flex-wrap:wrap;" id="filterPills">
+          <button class="btn btn-sm btn-red" data-filter="all">Tümü (<span id="cntAll">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="malicious">🚨 Zararlı (<span id="cntMal">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="suspicious">⚠️ Şüpheli (<span id="cntSusp">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="clean">✅ Temiz (<span id="cntClean">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="unknown">ℹ️ Bilinmeyen (<span id="cntUnk">0</span>)</button>
+        </div>
+
+        <input type="text" id="historySearch" placeholder="Dosya adı veya hash ara..."
+          style="background:var(--bg-terminal); border:1px solid var(--border-subtle); color:#fff; font-family:var(--font-mono); font-size:0.78rem; padding:6px 12px; border-radius:4px; outline:none; min-width:240px;">
+      </div>
+
+      <!-- Table Container -->
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Zaman</th>
+              <th>Dosya Adı</th>
+              <th>Boyut</th>
+              <th>Karar</th>
+              <th>Skor</th>
+              <th>Tespit İmzası / Detay</th>
+              <th>SHA-256</th>
+              <th style="text-align:right;">İşlem</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Detail Box for inspecting past scan in full ECS format -->
+      <div id="historyDetailModal" style="display: none;" class="modal-box">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: 700; color: var(--accent-cyan);" id="historyDetailTitle">📄 Tarama Rapor Detayı (ECS 9.5.4)</span>
+          <button id="btnCloseDetail" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">&times;</button>
+        </div>
+        <pre id="historyDetailJson"></pre>
+      </div>
+    </div>
+
+    <!-- QUICK HASH LOOKUP PANEL -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>🔍</span> Anlık Telemetri Hash Sorgulayıcı (OpenTIP)
+        </div>
+        <div style="font-size:0.8rem; color:var(--text-muted);">
+          SHA-256 sorgulayarak VirusKov telemetri havuzundaki anlık kaydı kontrol edin.
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <input id="quickHashInput" type="text" placeholder="64 karakterli SHA-256 hash girin (örn: cf89be2f5702f70de92fbc861579d945c632a1c05d0ef60a9dfb24f2a818912c)..."
+          style="flex: 1; min-width: 280px; padding: 10px 14px; background: var(--bg-terminal); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; border-radius: 4px; outline: none;">
+        <button id="quickSearchBtn" class="btn btn-red" style="padding: 10px 20px;">
+          SORGULA &nearr;
+        </button>
+      </div>
+
+      <div id="quickResultBox" style="display: none; margin-top: 14px; padding: 14px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; font-family: var(--font-mono); font-size: 0.82rem;"></div>
+    </div>
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="container footer-inner">
+      <div>
+        &copy; 2026 <strong>VIRUSKOV</strong> &bull; Açık Kaynak Kurumsal EDR & Antivirüs Sistemi.<br>
+        Proje Lideri: <strong>Emirhan Uçan</strong> (<span style="color:var(--accent-red);">hydra_dragon_antivirus</span>)
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Ana Sayfa</a>
+        <a href="index.html#threat-intel">Canlı Tarayıcı</a>
+        <a href="stats.html" style="color:var(--accent-cyan); font-weight:700;">İstatistikler</a>
+        <a href="wiki/index.html">Wiki Dokümantasyonu</a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank">GitHub Repo</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const HISTORY_KEY = 'viruskov_scan_history';
+
+    // 1. Live Telemetry Fetcher
+    async function fetchTelemetry() {
+      try {
+        const res = await fetch('https://api.viruskov.com/api/v1/insights/stats');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'success' && data.telemetry) {
+            const t = data.telemetry;
+            const elHashes = document.getElementById('tiTotalHashes');
+            const elMal = document.getElementById('tiMalicious');
+            const elSusp = document.getElementById('tiSuspicious');
+            const elClean = document.getElementById('tiClean');
+            const elUnknown = document.getElementById('tiUnknown');
+            const elTotalSightings = document.getElementById('statTotalSightings');
+
+            if (elHashes) elHashes.textContent = Number(t.total_unique_hashes).toLocaleString();
+            if (elMal) elMal.textContent = Number(t.verdicts.malicious).toLocaleString();
+            if (elSusp) elSusp.textContent = Number(t.verdicts.suspicious).toLocaleString();
+            if (elClean) elClean.textContent = Number(t.verdicts.clean).toLocaleString();
+            if (elUnknown && t.verdicts.unknown !== undefined) {
+              elUnknown.textContent = Number(t.verdicts.unknown).toLocaleString();
+            }
+            if (elTotalSightings) {
+              elTotalSightings.textContent = `Toplam Gözlem: ${Number(t.total_sightings || 0).toLocaleString()}`;
+            }
+
+            // Calculate ratios
+            const m = t.verdicts.malicious || 0;
+            const s = t.verdicts.suspicious || 0;
+            const c = t.verdicts.clean || 0;
+            const u = t.verdicts.unknown || 0;
+            const total = m + s + c + u;
+
+            if (total > 0) {
+              const pM = ((m / total) * 100).toFixed(1);
+              const pS = ((s / total) * 100).toFixed(1);
+              const pC = ((c / total) * 100).toFixed(1);
+              const pU = (100 - pM - pS - pC).toFixed(1);
+
+              document.getElementById('barMalicious').style.width = pM + '%';
+              document.getElementById('barSuspicious').style.width = pS + '%';
+              document.getElementById('barClean').style.width = pC + '%';
+              document.getElementById('barUnknown').style.width = pU + '%';
+
+              document.getElementById('pctMalicious').textContent = `%${pM}`;
+              document.getElementById('pctSuspicious').textContent = `%${pS}`;
+              document.getElementById('pctClean').textContent = `%${pC}`;
+              document.getElementById('pctUnknown').textContent = `%${pU}`;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    fetchTelemetry();
+    setInterval(fetchTelemetry, 8000);
+
+    // 2. Scan History Manager
+    function getScanHistory() {
+      try {
+        return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      } catch (_) {
+        return [];
+      }
+    }
+
+    let activeFilter = 'all';
+    let searchQuery = '';
+
+    function renderHistoryTable() {
+      const history = getScanHistory();
+      const tbody = document.getElementById('historyTableBody');
+      if (!tbody) return;
+
+      // Update counts
+      const cntAll = history.length;
+      const cntMal = history.filter(h => h.verdict === 'malicious').length;
+      const cntSusp = history.filter(h => h.verdict === 'suspicious').length;
+      const cntClean = history.filter(h => h.verdict === 'clean').length;
+      const cntUnk = history.filter(h => h.verdict !== 'malicious' && h.verdict !== 'suspicious' && h.verdict !== 'clean').length;
+
+      document.getElementById('cntAll').textContent = cntAll;
+      document.getElementById('cntMal').textContent = cntMal;
+      document.getElementById('cntSusp').textContent = cntSusp;
+      document.getElementById('cntClean').textContent = cntClean;
+      document.getElementById('cntUnk').textContent = cntUnk;
+
+      // Filter & Search
+      const filtered = history.filter(item => {
+        const matchesFilter = (
+          activeFilter === 'all' ||
+          (activeFilter === 'unknown' && (item.verdict !== 'malicious' && item.verdict !== 'suspicious' && item.verdict !== 'clean')) ||
+          item.verdict === activeFilter
+        );
+        const q = searchQuery.toLowerCase();
+        const matchesSearch = !q || (item.fileName && item.fileName.toLowerCase().includes(q)) || (item.sha256Hex && item.sha256Hex.toLowerCase().includes(q));
+        return matchesFilter && matchesSearch;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" style="text-align: center; padding: 32px 14px; color: var(--text-muted);">
+              ${history.length === 0 
+                ? 'Henüz bu tarayıcıda taranmış dosya kaydı yok. <a href="index.html#threat-intel" style="color:var(--accent-red); font-weight:700;">Canlı Tarayıcı</a> üzerinden bir dosya analiz ederek ilk kaydı oluşturabilirsiniz.'
+                : 'Filtreye uygun dosya kaydı bulunamadı.'}
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map((item, idx) => {
+        const isMal = item.verdict === 'malicious';
+        const isSusp = item.verdict === 'suspicious';
+        const isClean = item.verdict === 'clean';
+        const badgeClass = isMal ? 'badge-mal' : isSusp ? 'badge-susp' : isClean ? 'badge-clean' : 'badge-unk';
+        const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '—';
+        const sizeStr = item.fileSize ? `${(item.fileSize / 1024).toFixed(1)} KB` : '—';
+        const threatStr = item.threatName || item.detail || '—';
+        const shortHash = item.sha256Hex ? `${item.sha256Hex.slice(0, 10)}...${item.sha256Hex.slice(-6)}` : '—';
+
+        return `
+          <tr>
+            <td style="color:var(--text-muted);">${dateStr}</td>
+            <td style="font-weight:700; color:#fff;">${item.fileName || 'Dosya'}</td>
+            <td style="color:var(--text-muted);">${sizeStr}</td>
+            <td><span class="badge ${badgeClass}">${(item.verdict || 'unknown').toUpperCase()}</span></td>
+            <td style="font-weight:700; color:${isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : 'var(--accent-green)'};">${item.score !== undefined ? item.score : 0}/100</td>
+            <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${threatStr}">${threatStr}</td>
+            <td>
+              <span class="hash-cell" onclick="copyHash('${item.sha256Hex}')" title="Kopyalamak için tıkla">
+                ${shortHash} 📋
+              </span>
+            </td>
+            <td style="text-align:right;">
+              <button onclick="inspectScanRecord(${idx})" class="btn btn-ghost btn-sm" style="font-size:0.7rem; padding:3px 8px;">
+                ECS JSON &nearr;
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    window.copyHash = function(hash) {
+      if (!hash) return;
+      navigator.clipboard.writeText(hash).then(() => {
+        alert('SHA-256 hash panoya kopyalandı:\n' + hash);
+      });
+    };
+
+    window.inspectScanRecord = function(index) {
+      const history = getScanHistory();
+      const rec = history[index];
+      if (!rec) return;
+
+      const modal = document.getElementById('historyDetailModal');
+      const jsonPre = document.getElementById('historyDetailJson');
+      const title = document.getElementById('historyDetailTitle');
+
+      title.textContent = `📄 ${rec.fileName || 'Dosya'} &mdash; ECS 9.5.4 Karar Raporu`;
+      jsonPre.textContent = JSON.stringify(rec.rawEcs || rec, null, 2);
+      modal.style.display = 'block';
+      modal.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    document.getElementById('btnCloseDetail').addEventListener('click', () => {
+      document.getElementById('historyDetailModal').style.display = 'none';
+    });
+
+    // Filter Buttons
+    document.getElementById('filterPills').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#filterPills button').forEach(b => {
+        b.className = 'btn btn-sm btn-ghost';
+      });
+      btn.className = 'btn btn-sm btn-red';
+      activeFilter = btn.getAttribute('data-filter') || 'all';
+      renderHistoryTable();
+    });
+
+    // Search input
+    document.getElementById('historySearch').addEventListener('input', (e) => {
+      searchQuery = e.target.value.trim();
+      renderHistoryTable();
+    });
+
+    // Export history to JSON
+    document.getElementById('btnExportJson').addEventListener('click', () => {
+      const history = getScanHistory();
+      if (history.length === 0) {
+        alert('Dışa aktarılacak tarama geçmişi bulunamadı.');
+        return;
+      }
+      const blob = new Blob([JSON.stringify(history, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `viruskov_scan_telemetry_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Clear history
+    document.getElementById('btnClearHistory').addEventListener('click', () => {
+      if (confirm('Tüm yerel oturum tarama geçmişini temizlemek istediğinizden emin misiniz?')) {
+        localStorage.removeItem(HISTORY_KEY);
+        renderHistoryTable();
+        document.getElementById('historyDetailModal').style.display = 'none';
+      }
+    });
+
+    renderHistoryTable();
+
+    // 3. Quick Hash Lookup
+    const qBtn = document.getElementById('quickSearchBtn');
+    const qInput = document.getElementById('quickHashInput');
+    const qBox = document.getElementById('quickResultBox');
+
+    qBtn.addEventListener('click', async () => {
+      const hash = qInput.value.trim().toLowerCase();
+      if (hash.length !== 64 || !/^[0-9a-f]{64}$/.test(hash)) {
+        alert('Lütfen geçerli bir 64 karakterli SHA-256 hexadecimal hash girin.');
+        return;
+      }
+      qBox.style.display = 'block';
+      qBox.innerHTML = '<span style="color:var(--text-muted);">VirusKov telemetri ağında sorgulanıyor...</span>';
+
+      try {
+        const res = await fetch(`https://api.viruskov.com/api/v1/insights/${hash}`);
+        const data = await res.json();
+        if (res.ok && data.status === 'success') {
+          const isMal = data.verdict === 'malicious';
+          const isSusp = data.verdict === 'suspicious';
+          const isClean = data.verdict === 'clean';
+          const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : isClean ? 'var(--accent-green)' : 'var(--accent-cyan)';
+          const badge = isMal ? '🚨 MALICIOUS (TEHDİT)' : isSusp ? '⚠️ SUSPICIOUS (ŞÜPHELİ)' : isClean ? '✅ CLEAN (TEMİZ)' : 'ℹ️ UNKNOWN';
+
+          qBox.innerHTML = `
+            <div style="font-size:1.05rem; font-weight:800; color:${color}; margin-bottom:6px;">
+              ${badge} &bull; Skor: ${data.score}/100
+            </div>
+            ${data.threat_name ? `<div style="color:var(--accent-red); margin-bottom:4px;"><b>Tespit İmzası:</b> ${data.threat_name}</div>` : ''}
+            <div style="color:var(--text-muted); margin-bottom:4px;"><b>Yayılım:</b> <span style="color:#fff;">${(data.prevalence || 'UNKNOWN').toUpperCase()}</span> (${data.seen_count} gözlem)</div>
+            <div style="color:var(--text-muted); margin-bottom:4px;"><b>İlk/Son Görülme:</b> ${new Date(data.first_seen).toLocaleString()} &bull; ${new Date(data.last_seen).toLocaleString()}</div>
+            ${data.file_names && data.file_names.length ? `<div style="color:var(--text-muted);"><b>Dosya Adları:</b> ${data.file_names.join(', ')}</div>` : ''}
+          `;
+        } else if (res.status === 429) {
+          qBox.innerHTML = `<span style="color:var(--accent-amber);">⚠️ Rate limit (10 sorgu/dk). Lütfen bekleyin.</span>`;
+        } else {
+          qBox.innerHTML = `
+            <div style="font-size:1.05rem; font-weight:800; color:var(--accent-cyan); margin-bottom:6px;">
+              ℹ️ UNKNOWN (0 GÖZLEM / BİLİNMEYEN HASH) &bull; Skor: 0/100
+            </div>
+            <div style="color:var(--text-muted);">Bu hash henüz VirusKov küresel telemetri havuzunda görülmemiş. <a href="index.html#threat-intel" style="color:var(--accent-red); font-weight:700;">Canlı Tarayıcı</a> üzerinden yükleyip motor analizini başlatabilirsiniz.</div>
+          `;
+        }
+      } catch (e) {
+        qBox.innerHTML = `<span style="color:var(--accent-red);">Bağlantı hatası: ${e.message}</span>`;
+      }
+    });
+  </script>
+</body>
+</html>

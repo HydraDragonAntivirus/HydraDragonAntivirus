@@ -1455,6 +1455,7 @@
 
       <nav>
         <a href="#threat-intel" class="nav-link highlight" style="color:var(--accent-red); font-weight:700;">Threat Intelligence</a>
+        <a href="stats.html" class="nav-link" style="color:var(--accent-cyan); font-weight:700;">📊 İstatistikler &amp; SOC</a>
         <a href="#tarihce" class="nav-link">Tarihçe & Dürüst Kronoloji</a>
         <a href="#teknik-evrim" class="nav-link">Teknik Evrim</a>
         <a href="#ransom-kurali" class="nav-link">Fidye Yazılımı Kuralı</a>
@@ -1469,6 +1470,9 @@
           <span>Proje Lideri:</span>
           <strong>Emirhan Uçan</strong>
         </div>
+        <a href="stats.html" class="btn btn-ghost btn-sm" style="color:var(--accent-cyan); border-color: rgba(0,229,255,0.3);">
+          <span>📊 İSTATİSTİKLER</span>
+        </a>
         <a href="wiki/index.html" class="btn btn-ghost btn-sm">
           <span>WİKİ</span>
           <span>&rarr;</span>
@@ -1582,12 +1586,15 @@
       <!-- SCANNER & OPENTIP TABS -->
       <div style="background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 8px; padding: 24px; margin-top: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 14px; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
-          <div style="display: flex; gap: 10px;">
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button id="tabScannerBtn" class="btn btn-sm btn-red" style="cursor: pointer;">
               ⚡ CANLI DOSYA ANALİZİ
             </button>
             <button id="tabLookupBtn" class="btn btn-sm btn-outline-red" style="cursor: pointer;">
               🔍 HASH SORGULA (OPENTIP)
+            </button>
+            <button id="tabStatsBtn" class="btn btn-sm btn-outline-red" style="cursor: pointer;">
+              📊 İSTATİSTİKLER &amp; GEÇMİŞ
             </button>
           </div>
           <span style="color: var(--accent-green); display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 0.8rem;">
@@ -1635,6 +1642,123 @@
             </button>
           </div>
           <div id="tiResultBox" style="display: none; margin-top: 18px; padding: 18px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem;"></div>
+        </div>
+
+        <!-- 3. STATISTICS & LIVE SCAN HISTORY PANE -->
+        <div id="paneStats" style="display: none;">
+          <!-- Telemetry Distribution Visualizer -->
+          <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 18px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+              <div style="font-family: var(--font-display); font-size: 1rem; font-weight: 700; color: #fff;">
+                🌐 Global Tehdit Dağılım Oranları
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);" id="statTotalSightings">
+                Toplam Gözlem: 0
+              </div>
+            </div>
+
+            <!-- Segmented Ratio Bar -->
+            <div style="height: 12px; background: var(--bg-terminal); border-radius: 6px; overflow: hidden; display: flex; margin-bottom: 14px; border: 1px solid var(--border-subtle);">
+              <div id="barMalicious" style="width: 0%; background: var(--accent-red); transition: width 0.4s ease;" title="Zararlı"></div>
+              <div id="barSuspicious" style="width: 0%; background: var(--accent-amber); transition: width 0.4s ease;" title="Şüpheli"></div>
+              <div id="barClean" style="width: 0%; background: var(--accent-green); transition: width 0.4s ease;" title="Temiz"></div>
+              <div id="barUnknown" style="width: 0%; background: var(--accent-cyan); transition: width 0.4s ease;" title="Bilinmeyen"></div>
+            </div>
+
+            <!-- Distribution Legend & Percentages -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; font-family: var(--font-mono); font-size: 0.78rem;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 10px; height: 10px; background: var(--accent-red); border-radius: 2px;"></span>
+                <span style="color: var(--text-muted);">Zararlı:</span>
+                <b style="color: var(--accent-red);" id="pctMalicious">%0</b>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 10px; height: 10px; background: var(--accent-amber); border-radius: 2px;"></span>
+                <span style="color: var(--text-muted);">Şüpheli:</span>
+                <b style="color: var(--accent-amber);" id="pctSuspicious">%0</b>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 10px; height: 10px; background: var(--accent-green); border-radius: 2px;"></span>
+                <span style="color: var(--text-muted);">Temiz:</span>
+                <b style="color: var(--accent-green);" id="pctClean">%0</b>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 10px; height: 10px; background: var(--accent-cyan); border-radius: 2px;"></span>
+                <span style="color: var(--text-muted);">Bilinmeyen:</span>
+                <b style="color: var(--accent-cyan);" id="pctUnknown">%0</b>
+              </div>
+            </div>
+          </div>
+
+          <!-- Engine Runtime & Specification Strip -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px;">
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 12px 14px; border-radius: 6px; font-family: var(--font-mono);">
+              <div style="font-size: 0.7rem; color: var(--text-muted);">PROTOKOL &amp; VERİ ŞEMASI</div>
+              <div style="font-size: 0.85rem; font-weight: 700; color: #fff; margin-top: 4px;">ECS 9.5.4 (WSS / RFC 6455)</div>
+            </div>
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 12px 14px; border-radius: 6px; font-family: var(--font-mono);">
+              <div style="font-size: 0.7rem; color: var(--text-muted);">TARAMA MOTORU MİMARİSİ</div>
+              <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-green); margin-top: 4px;">Rust Multi-Worker Core</div>
+            </div>
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 12px 14px; border-radius: 6px; font-family: var(--font-mono);">
+              <div style="font-size: 0.7rem; color: var(--text-muted);">UÇ NOKTA &amp; PORT</div>
+              <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan); margin-top: 4px;">api.viruskov.com:5306 /ws</div>
+            </div>
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 12px 14px; border-radius: 6px; font-family: var(--font-mono);">
+              <div style="font-size: 0.7rem; color: var(--text-muted);">CANLI YENİLEME</div>
+              <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-amber); margin-top: 4px;">Her 8 Saniyede Otomatik</div>
+            </div>
+          </div>
+
+          <!-- User Scan History Header & Filters -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-bottom: 4px;">
+                📋 Yerel Oturum Tarama Geçmişi &amp; Raporlar
+              </h3>
+              <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0;">
+                Bu tarayıcıda taranan son dosyaların detaylı kararları ve telemetri özetleri.
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="btnExportHistory" class="btn btn-sm btn-ghost" style="font-size: 0.75rem; padding: 5px 10px; cursor: pointer;">
+                📥 JSON Dışa Aktar
+              </button>
+              <button id="btnClearHistory" class="btn btn-sm btn-ghost" style="font-size: 0.75rem; padding: 5px 10px; cursor: pointer; color: var(--accent-red);">
+                🗑️ Temizle
+              </button>
+            </div>
+          </div>
+
+          <!-- History Table Container -->
+          <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.78rem; text-align: left;">
+              <thead>
+                <tr style="background: var(--bg-surface-elevated); border-bottom: 1px solid var(--border-strong); color: var(--text-muted);">
+                  <th style="padding: 10px 12px;">TARİH</th>
+                  <th style="padding: 10px 12px;">DOSYA ADI</th>
+                  <th style="padding: 10px 12px;">BOYUT</th>
+                  <th style="padding: 10px 12px;">KARAR</th>
+                  <th style="padding: 10px 12px;">SKOR</th>
+                  <th style="padding: 10px 12px;">İMZA / DETAY</th>
+                  <th style="padding: 10px 12px;">SHA-256</th>
+                  <th style="padding: 10px 12px; text-align: right;">İŞLEM</th>
+                </tr>
+              </thead>
+              <tbody id="scanHistoryTableBody">
+                <!-- Dynamically populated or empty state -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Modal/Detail Box for inspecting past scan in full ECS format -->
+          <div id="historyDetailModal" style="display: none; margin-top: 16px; padding: 18px; background: var(--bg-surface-elevated); border: 1px solid var(--border-strong); border-radius: 6px; font-family: var(--font-mono); font-size: 0.8rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span style="font-weight: 700; color: var(--accent-cyan);" id="historyDetailTitle">📄 Tarama Rapor Detayı (ECS 9.5.4)</span>
+              <button id="btnCloseHistoryDetail" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">&times;</button>
+            </div>
+            <pre id="historyDetailJson" style="max-height: 260px; overflow-y: auto; background: var(--bg-terminal); padding: 12px; border: 1px solid var(--border-subtle); border-radius: 4px; color: #b0bec5; font-size: 0.74rem;"></pre>
+          </div>
         </div>
       </div>
     </section>
@@ -2755,6 +2879,7 @@
         <a href="#manifesto">Manifesto</a>
         <a href="#mimari">Mimari</a>
         <a href="#ittifak">Topluluk</a>
+        <a href="stats.html" style="color: var(--accent-cyan); font-weight: 700;">İstatistikler &amp; SOC</a>
         <a href="wiki/index.html" style="color: var(--accent-cyan);">Wiki</a>
         <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber); font-weight: 700;">Destek</a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--accent-red); font-weight: 700;">GitHub Repo</a>
@@ -2825,6 +2950,40 @@
               if (elUnknown && t.verdicts && t.verdicts.unknown !== undefined) {
                 elUnknown.textContent = Number(t.verdicts.unknown).toLocaleString();
               }
+
+              // Update ratio bar if present
+              const m = t.verdicts.malicious || 0;
+              const s = t.verdicts.suspicious || 0;
+              const c = t.verdicts.clean || 0;
+              const u = t.verdicts.unknown || 0;
+              const total = m + s + c + u;
+              if (total > 0) {
+                const pM = ((m / total) * 100).toFixed(1);
+                const pS = ((s / total) * 100).toFixed(1);
+                const pC = ((c / total) * 100).toFixed(1);
+                const pU = (100 - pM - pS - pC).toFixed(1);
+
+                const bM = document.getElementById('barMalicious');
+                const bS = document.getElementById('barSuspicious');
+                const bC = document.getElementById('barClean');
+                const bU = document.getElementById('barUnknown');
+                if (bM) bM.style.width = pM + '%';
+                if (bS) bS.style.width = pS + '%';
+                if (bC) bC.style.width = pC + '%';
+                if (bU) bU.style.width = pU + '%';
+
+                const pctM = document.getElementById('pctMalicious');
+                const pctS = document.getElementById('pctSuspicious');
+                const pctC = document.getElementById('pctClean');
+                const pctU = document.getElementById('pctUnknown');
+                if (pctM) pctM.textContent = `%${pM}`;
+                if (pctS) pctS.textContent = `%${pS}`;
+                if (pctC) pctC.textContent = `%${pC}`;
+                if (pctU) pctU.textContent = `%${pU}`;
+
+                const elTot = document.getElementById('statTotalSightings');
+                if (elTot) elTot.textContent = `Toplam Gözlem: ${Number(t.total_sightings || 0).toLocaleString()}`;
+              }
             }
           }
         } catch (_) {}
@@ -2832,27 +2991,117 @@
       updateViruskovTelemetry();
       setInterval(updateViruskovTelemetry, 8000);
 
-      // Tab switching between Live Scanner and OpenTIP Lookup
+      // Tab switching between Live Scanner, OpenTIP Lookup, and Stats
       const tabScannerBtn = document.getElementById('tabScannerBtn');
       const tabLookupBtn = document.getElementById('tabLookupBtn');
+      const tabStatsBtn = document.getElementById('tabStatsBtn');
       const paneScanner = document.getElementById('paneScanner');
       const paneLookup = document.getElementById('paneLookup');
+      const paneStats = document.getElementById('paneStats');
 
-      if (tabScannerBtn && tabLookupBtn && paneScanner && paneLookup) {
-        tabScannerBtn.addEventListener('click', () => {
-          tabScannerBtn.className = 'btn btn-sm btn-red';
-          tabLookupBtn.className = 'btn btn-sm btn-outline-red';
-          paneScanner.style.display = 'block';
-          paneLookup.style.display = 'none';
+      function switchTab(activeBtn, activePane) {
+        [tabScannerBtn, tabLookupBtn, tabStatsBtn].forEach(b => {
+          if (b) b.className = (b === activeBtn) ? 'btn btn-sm btn-red' : 'btn btn-sm btn-outline-red';
         });
-
-        tabLookupBtn.addEventListener('click', () => {
-          tabLookupBtn.className = 'btn btn-sm btn-red';
-          tabScannerBtn.className = 'btn btn-sm btn-outline-red';
-          paneLookup.style.display = 'block';
-          paneScanner.style.display = 'none';
+        [paneScanner, paneLookup, paneStats].forEach(p => {
+          if (p) p.style.display = (p === activePane) ? 'block' : 'none';
         });
       }
+
+      if (tabScannerBtn) tabScannerBtn.addEventListener('click', () => switchTab(tabScannerBtn, paneScanner));
+      if (tabLookupBtn) tabLookupBtn.addEventListener('click', () => switchTab(tabLookupBtn, paneLookup));
+      if (tabStatsBtn) tabStatsBtn.addEventListener('click', () => {
+        switchTab(tabStatsBtn, paneStats);
+        renderHistoryTable();
+      });
+
+      // History Table Handler
+      const HISTORY_KEY = 'viruskov_scan_history';
+      function renderHistoryTable() {
+        const tbody = document.getElementById('scanHistoryTableBody');
+        if (!tbody) return;
+        let history = [];
+        try { history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (_) {}
+
+        if (history.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="8" style="text-align:center; padding:24px 12px; color:var(--text-muted);">
+                Henüz taranmış dosya kaydı yok. 'Canlı Dosya Analizi' sekmesinden bir dosya yükleyerek analiz başlatabilirsiniz.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        tbody.innerHTML = history.slice(0, 30).map((item, idx) => {
+          const isMal = item.verdict === 'malicious';
+          const isSusp = item.verdict === 'suspicious';
+          const isClean = item.verdict === 'clean';
+          const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : isClean ? 'var(--accent-green)' : 'var(--accent-cyan)';
+          const badge = isMal ? 'MALICIOUS' : isSusp ? 'SUSPICIOUS' : isClean ? 'CLEAN' : 'UNKNOWN';
+          const shortHash = item.sha256Hex ? `${item.sha256Hex.slice(0, 8)}...${item.sha256Hex.slice(-6)}` : '—';
+          const threatStr = item.threatName || item.detail || '—';
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-subtle);">
+              <td style="padding:10px 12px; color:var(--text-muted);">${item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '—'}</td>
+              <td style="padding:10px 12px; font-weight:700; color:#fff;">${item.fileName || 'Dosya'}</td>
+              <td style="padding:10px 12px; color:var(--text-muted);">${item.fileSize ? (item.fileSize/1024).toFixed(1) + ' KB' : '—'}</td>
+              <td style="padding:10px 12px;"><span style="color:${color}; font-weight:700;">${badge}</span></td>
+              <td style="padding:10px 12px; font-weight:700; color:${color};">${item.score !== undefined ? item.score : 0}/100</td>
+              <td style="padding:10px 12px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${threatStr}">${threatStr}</td>
+              <td style="padding:10px 12px; color:var(--accent-cyan); font-family:var(--font-mono); font-size:0.75rem;">${shortHash}</td>
+              <td style="padding:10px 12px; text-align:right;">
+                <button onclick="inspectRecord(${idx})" class="btn btn-sm btn-ghost" style="font-size:0.7rem; padding:2px 8px;">ECS JSON &nearr;</button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      window.inspectRecord = function(idx) {
+        let history = [];
+        try { history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (_) {}
+        const rec = history[idx];
+        if (!rec) return;
+        const modal = document.getElementById('historyDetailModal');
+        const jsonPre = document.getElementById('historyDetailJson');
+        const title = document.getElementById('historyDetailTitle');
+        if (title) title.textContent = `📄 ${rec.fileName || 'Dosya'} — ECS 9.5.4 Karar Raporu`;
+        if (jsonPre) jsonPre.textContent = JSON.stringify(rec.rawEcs || rec, null, 2);
+        if (modal) modal.style.display = 'block';
+      };
+
+      const btnCloseH = document.getElementById('btnCloseHistoryDetail');
+      if (btnCloseH) btnCloseH.addEventListener('click', () => {
+        const m = document.getElementById('historyDetailModal');
+        if (m) m.style.display = 'none';
+      });
+
+      const btnClearH = document.getElementById('btnClearHistory');
+      if (btnClearH) btnClearH.addEventListener('click', () => {
+        if (confirm('Tarama geçmişini temizlemek istediğinize emin misiniz?')) {
+          localStorage.removeItem(HISTORY_KEY);
+          renderHistoryTable();
+          const m = document.getElementById('historyDetailModal');
+          if (m) m.style.display = 'none';
+        }
+      });
+
+      const btnExpH = document.getElementById('btnExportHistory');
+      if (btnExpH) btnExpH.addEventListener('click', () => {
+        let history = [];
+        try { history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (_) {}
+        if (!history.length) { alert('Dışa aktarılacak geçmiş yok.'); return; }
+        const blob = new Blob([JSON.stringify(history, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `viruskov_scan_history_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
 
       // Hash Lookup (OpenTIP API)
       const tiBtn = document.getElementById('tiSearchBtn');
@@ -3172,6 +3421,29 @@
         `;
 
         scanResultBox.innerHTML = html;
+
+        // Save scan result to history (localStorage)
+        try {
+          const HISTORY_KEY = 'viruskov_scan_history';
+          let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+          history.unshift({
+            fileName: fileName,
+            fileSize: fileSize,
+            sha256Hex: sha256Hex,
+            verdict: verdict,
+            score: score,
+            threatName: threatName,
+            detail: detailText,
+            scanMs: scanMs,
+            timestamp: new Date().toISOString(),
+            rawEcs: res
+          });
+          if (history.length > 100) history = history.slice(0, 100);
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+          if (typeof renderHistoryTable === 'function') {
+            renderHistoryTable();
+          }
+        } catch (_) {}
       }
     });
   </script>
