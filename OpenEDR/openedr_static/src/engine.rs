@@ -1902,11 +1902,32 @@ fn entry_is_compressed_document(name: &str) -> bool {
         liveness_code: i32,
         page_content: Option<&str>,
     ) -> crate::url_rules::UrlThreatReport {
-        let prob = self.ml.predict_url(raw_url).unwrap_or(0.0);
+        let host = url::Url::parse(raw_url)
+            .or_else(|_| url::Url::parse(&format!("https://{}", raw_url)))
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_lowercase()))
+            .unwrap_or_default();
+
+        let (is_whitelisted, is_cidr_blacklisted) = self.check_whitelist_blacklist(&host);
+
+        // ML model is only evaluated if:
+        // 1. Domain is alive / active (liveness != 2: dead/NXDOMAIN)
+        // 2. Domain is NOT unconditionally whitelisted (or is explicitly unwhitelisted for ML)
+        // 3. Domain is NOT already blacklisted by CIDR
+        let should_run_ml = liveness_code != 2
+            && (!is_whitelisted || self.url_engine.is_unwhitelisted(&host))
+            && !is_cidr_blacklisted;
+
+        let prob = if should_run_ml {
+            self.ml.predict_url(raw_url).unwrap_or(0.0)
+        } else {
+            0.0
+        };
+
         let mut report = self.url_engine.inspect(
             raw_url,
-            false,
-            false,
+            is_whitelisted,
+            is_cidr_blacklisted,
             prob,
             liveness_code,
             page_content,

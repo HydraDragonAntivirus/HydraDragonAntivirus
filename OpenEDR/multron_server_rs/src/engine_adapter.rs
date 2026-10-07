@@ -200,6 +200,20 @@ impl EngineAdapter {
         self.whitelist_enabled && self.engine.get().is_some_and(|e| e.benign_whitelist_loaded())
     }
 
+    /// Full URL Threat Inspection through OpenEDR Static Engine.
+    pub fn inspect_url(
+        &self,
+        raw_url: &str,
+        liveness_code: i32,
+        page_content: Option<&str>,
+    ) -> Result<openedr_static::url_rules::UrlThreatReport, String> {
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "Engine not ready".to_string())?;
+        Ok(engine.inspect_url_with_content(raw_url, liveness_code, page_content))
+    }
+
     /// Verdict from the SHA-256 alone, without the file: hash signatures first (a
     /// malicious hit must win), then the engine's benign whitelist. None = upload needed.
     pub fn hash_lookup(&self, _sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {

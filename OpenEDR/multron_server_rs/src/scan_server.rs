@@ -9,7 +9,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
@@ -58,6 +58,8 @@ struct ClientMessage {
     #[serde(default)]
     pub sha256: String,
     #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
     pub items: Vec<CheckItem>,
 }
 
@@ -70,6 +72,18 @@ struct CheckItem {
     pub size: i64,
     #[serde(default)]
     pub sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UrlScanRequest {
+    pub url: String,
+    #[serde(default)]
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UrlScanQuery {
+    pub url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -243,6 +257,7 @@ impl ScanServer {
             )
             .route("/api/v1/insights/:sha256", get(handle_hash_insights))
             .route("/api/v1/insights/stats", get(handle_insights_stats))
+            .route("/api/v1/scan/url", post(handle_scan_url).get(handle_scan_url_get))
             .layer(cors)
             .with_state(Arc::clone(self))
     }
@@ -906,6 +921,20 @@ async fn session_loop(
             "scan" => {
                 handle_scan(ws_rx, out, server, session, &slots, msg, server.limits.max_bytes()).await?;
             }
+            "scan_url" => {
+                let target_url = msg.url.unwrap_or(msg.name);
+                match execute_url_scan(server, &target_url, None).await {
+                    Ok(ecs_val) => {
+                        let res_msg = serde_json::json!({
+                            "type": "url_result",
+                            "id": msg.id,
+                            "result": ecs_val,
+                        });
+                        send_json(out, &res_msg);
+                    }
+                    Err(err) => send_error(out, Some(msg.id), &err),
+                }
+            }
             other => {
                 server.limiter.strike(&session.address);
                 send_error(out, None, "unknown message type");
@@ -1261,4 +1290,134 @@ fn send_json<T: Serialize>(tx: &Out, v: &T) {
 
 fn send_error(tx: &Out, id: Option<i64>, msg: &str) {
     send_json(tx, &ErrorMessage { r#type: "error", id, message: msg });
+}
+
+pub async fn execute_url_scan(
+    server: &Arc<ScanServer>,
+    raw_url: &str,
+    page_content: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let started = std::time::Instant::now();
+    let url_trimmed = raw_url.trim();
+    if url_trimmed.is_empty() {
+        return Err("URL cannot be empty".to_string());
+    }
+
+    // Step 1: PyFunceble-style asynchronous liveness check (DNS / Host resolution)
+    let (liveness_code, liveness_str) = crate::liveness::check_liveness(url_trimmed).await;
+
+    // Step 2: Optional Safe HTML / Page Content fetch for active sites
+    let fetched_body;
+    let effective_content = match page_content {
+        Some(c) => Some(c),
+        None => {
+            if liveness_code == crate::liveness::LIVENESS_ACTIVE {
+                fetched_body = crate::liveness::fetch_page_content_safe(url_trimmed).await;
+                fetched_body.as_deref()
+            } else {
+                None
+            }
+        }
+    };
+
+    // Step 3: OpenEDR Static Engine inspection
+    // (Evaluates Whitelist -> Deterministic Rules -> CIDR -> Liveness Protection -> ML Gating -> HTML / JS YARA)
+    let report = server.engine.inspect_url(url_trimmed, liveness_code, effective_content)?;
+    let scan_ms = started.elapsed().as_millis() as i64;
+
+    // Record event in live event feed
+    server.events.add(Event {
+        seq: 0,
+        time: Utc::now(),
+        kind: "url_scan".to_string(),
+        session: None,
+        client: Some("api".to_string()),
+        verdict: Some(report.verdict.to_lowercase()),
+        file: Some(report.target_url.clone()),
+        size: None,
+        ms: Some(scan_ms),
+        threat: if report.verdict != "Clean" {
+            report.detections.first().map(|d| d.title.clone())
+        } else {
+            None
+        },
+        detail: Some(report.verdict_reason.clone()),
+        sha256: None,
+        message: Some(format!("Liveness: {}", liveness_str)),
+        origin_type: Some("url".to_string()),
+    });
+
+    let detections_json: Vec<serde_json::Value> = report.detections.iter().map(|d| {
+        serde_json::json!({
+            "rule_id": d.rule_id,
+            "title": d.title,
+            "severity": d.severity,
+            "score": d.score,
+            "details": d.details,
+        })
+    }).collect();
+
+    let ecs = serde_json::json!({
+        "@timestamp": Utc::now().to_rfc3339(),
+        "ecs": { "version": "8.11.0" },
+        "event": {
+            "action": "url_scan",
+            "category": ["network", "threat"],
+            "kind": "alert",
+            "outcome": if report.verdict == "Malicious" { "failure" } else { "success" },
+            "duration": scan_ms * 1_000_000
+        },
+        "url": {
+            "original": report.target_url,
+            "scheme": report.scheme,
+            "domain": report.host,
+            "port": report.port,
+        },
+        "antivirus": {
+            "engine": ENGINE_NAME,
+            "verdict": report.verdict.to_lowercase(),
+            "reason": report.verdict_reason,
+            "risk_score": report.risk_score,
+            "fp_mitigated": report.fp_mitigated,
+        },
+        "threat": {
+            "indicator": {
+                "type": "url",
+                "url": { "original": report.target_url },
+                "liveness": report.liveness,
+                "whitelisted": report.whitelisted,
+                "whitelist_bypassed": report.whitelist_bypassed,
+                "ml_probability": report.ml_probability,
+                "detections": detections_json,
+            }
+        }
+    });
+
+    Ok(ecs)
+}
+
+async fn handle_scan_url(
+    State(server): State<Arc<ScanServer>>,
+    axum::Json(req): axum::Json<UrlScanRequest>,
+) -> Response {
+    match execute_url_scan(&server, &req.url, req.content.as_deref()).await {
+        Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({ "error": err })),
+        ).into_response(),
+    }
+}
+
+async fn handle_scan_url_get(
+    State(server): State<Arc<ScanServer>>,
+    axum::extract::Query(query): axum::extract::Query<UrlScanQuery>,
+) -> Response {
+    match execute_url_scan(&server, &query.url, None).await {
+        Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({ "error": err })),
+        ).into_response(),
+    }
 }

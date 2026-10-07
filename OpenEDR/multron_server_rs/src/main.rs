@@ -5,6 +5,7 @@ mod dashboard;
 mod engine_adapter;
 mod events;
 mod limits;
+mod liveness;
 mod ratelimit;
 mod scan_server;
 mod scheduler;

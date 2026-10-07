@@ -1906,14 +1906,14 @@ dependencies = [
  "bzip2",
  "flate2",
  "isomage",
- "lzma-rust2 0.17.0",
+ "lzma-rust2 0.21.0",
  "ripzip",
- "sevenz-rust2 0.21.6",
+ "sevenz-rust2 0.23.0",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
  "unrar-ng",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -1931,6 +1931,9 @@ dependencies = [
  "md-5 0.11.0",
  "memchr",
  "once_cell",
+ "oxc_allocator",
+ "oxc_parser",
+ "oxc_span",
  "pefile-rs",
  "regex",
  "rustdct",
@@ -2593,18 +2596,12 @@ dependencies = [
 
 [[package]]
 name = "lzma-rust2"
-version = "0.17.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7fea0cc19b4c4aff9c58fe110173878402bdf4227ba308d54ac0f948188ad2e"
+checksum = "fde178a3caf126c440fa15628147772d8ee590a39477d711353fbe2e58a73a5b"
 dependencies = [
  "sha2 0.11.0",
 ]
-
-[[package]]
-name = "lzma-rust2"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c1bf3331fb5cf60f2ef15b63361f6cc39492a5d94c096053c395515e17d147f"
 
 [[package]]
 name = "mach2"
@@ -3851,7 +3848,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "walkdir",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -4214,14 +4211,14 @@ dependencies = [
  "ppmd-rust",
  "sha2 0.10.9",
  "wasm-bindgen",
- "zstd",
+ "zstd 0.13.3",
 ]
 
 [[package]]
 name = "sevenz-rust2"
-version = "0.21.6"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7e6633e9d494e3b8e69b6e806cd76fb19e5d60b7aedcf35ac051e78c4f0c27c"
+checksum = "0a4f883677093690e91fef8ae81fad8bce9e2c3a079b61054f05ce0d3ecf681e"
 dependencies = [
  "aes 0.9.3",
  "brotli",
@@ -4232,11 +4229,11 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "lz4_flex 0.14.0",
- "lzma-rust2 0.19.0",
+ "lzma-rust2 0.21.0",
  "ppmd-rust",
  "sha2 0.11.0",
  "wasm-bindgen",
- "zstd",
+ "zstd 0.14.0",
 ]
 
 [[package]]
@@ -5958,7 +5955,16 @@ version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
 dependencies = [
- "zstd-safe",
+ "zstd-safe 7.3.0",
+]
+
+[[package]]
+name = "zstd"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf06bd8162af0734b344780deb55b42a2429ae430870d13fcc12f238e880fe6e"
+dependencies = [
+ "zstd-safe 8.0.0",
 ]
 
 [[package]]
@@ -5966,6 +5972,15 @@ name = "zstd-safe"
 version = "7.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64d80649ab6db9d9f6f9c80a40becd948eda4714a0a5ac8c4d157a32231c7882"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae42c0555055784c70058d19ba8e275528e8a99a706684868ace5da4e716a4ab"
 dependencies = [
  "zstd-sys",
 ]

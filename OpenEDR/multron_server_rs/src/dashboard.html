@@ -101,6 +101,7 @@
   <span id="enginePill" class="pill wait"><span class="dot"></span><span>Engine loading…</span></span>
   <span id="serverPill" class="pill"><span class="dot"></span><span>Stopped</span></span>
   <span class="spacer"></span>
+  <button id="langBtn" class="ghost" style="padding: 4px 10px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px;" title="TR / EN">TR</button>
   <button id="themeBtn" class="ghost" style="padding: 4px 8px; font-size: 14px;" title="Toggle dark mode"></button>
   <span id="uptime" class="hint" style="margin:0"></span>
 </header>
@@ -197,6 +198,45 @@
       <div class="stat threat"><div class="v" id="sBanned">0</div><div class="l">IPs blocked now</div></div>
     </div>
 
+    <!-- Unified Threat Intelligence & URL Scanner Hub -->
+    <section class="card" id="urlScannerCard" style="border: 1px solid var(--accent); position: relative;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+        <h2 style="margin: 0; display: flex; align-items: center; gap: 8px; color: var(--text);">
+          <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent);"></span>
+          <span data-i18n="scannerTitle">Unified Threat Intelligence &amp; URL Scanner</span>
+        </h2>
+        <span class="pill ok"><span class="dot"></span><span data-i18n="scannerBadge">5-Tier Gated Engine Ready</span></span>
+      </div>
+      
+      <p data-i18n="scannerDesc" style="margin: 0 0 12px; font-size: 12.5px; color: var(--muted);">
+        Comprehensive multi-layer threat analysis: Tranco 1M Whitelist, Heuristic Rules (Webhooks/Droppers), Network CIDR, PyFunceble Liveness, and LightGBM Decision Tree.
+      </p>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+        <input id="urlScanInput" type="text" data-i18n-ph="scanPlaceholder" placeholder="Enter target URL, domain, or IP (e.g. https://target-domain.com/login)..." style="flex: 1; min-width: 280px; font-family: Consolas, monospace; font-size: 13px; padding: 10px 14px;">
+        <button id="urlScanBtn" class="primary" data-i18n="scanBtn" style="margin-top: 0; width: auto; padding: 10px 24px; font-weight: 700; letter-spacing: .3px;">
+          Inspect Threat
+        </button>
+      </div>
+
+      <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 12px; font-size: 12px; color: var(--muted); flex-wrap: wrap;">
+        <label style="display: inline-flex; align-items: center; gap: 6px; margin: 0; cursor: pointer;">
+          <input type="checkbox" id="deepContentChk" checked style="width: auto;">
+          <span data-i18n="deepScanLabel">Deep Content Scan (Live HTML, Script ML &amp; YARA-X)</span>
+        </label>
+        <button id="togglePayloadBtn" class="ghost" data-i18n="pastePayloadBtn" style="padding: 2px 10px; font-size: 11px;">+ Paste Custom HTML / Script</button>
+      </div>
+
+      <div id="customPayloadWrap" style="display: none; margin-bottom: 12px;">
+        <label for="customHtmlInput" data-i18n="payloadLabel" style="margin-top: 0;">Target Page HTML / JavaScript payload (for zero-day script analysis):</label>
+        <textarea id="customHtmlInput" rows="4" data-i18n-ph="payloadPlaceholder" placeholder="<html><body><script>/* payload */</script>...</body></html>" style="width: 100%; padding: 8px; font-family: Consolas, monospace; font-size: 12px; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; resize: vertical;"></textarea>
+      </div>
+
+      <!-- Scan Result Display Container -->
+      <div id="urlResultBox" style="display: none; border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--panel2); margin-top: 14px;">
+      </div>
+    </section>
+
     <section class="card">
       <h2>Connected clients</h2>
       <div class="tablewrap" id="clientsWrap">
@@ -212,6 +252,7 @@
         <h2>Live feed</h2>
         <button class="ghost active" data-filter="all">All</button>
         <button class="ghost" data-filter="files">Files</button>
+        <button class="ghost" data-filter="urls">URLs</button>
         <button class="ghost" data-filter="threats">Threats</button>
         <button class="ghost" data-filter="problems">Errors</button>
         <button class="ghost" data-filter="connections">Connections</button>
@@ -361,7 +402,8 @@
   function matches(e) {
     switch (filter) {
       case "files": return e.kind === "result" || e.kind === "extracted" || e.kind === "error" || e.kind === "rejected";
-      case "threats": return (e.kind === "result" || e.kind === "extracted") && (e.verdict === "malicious" || e.verdict === "suspicious");
+      case "urls": return e.kind === "url_scan" || e.origin_type === "url";
+      case "threats": return (e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan") && (e.verdict === "malicious" || e.verdict === "suspicious");
       case "problems": return e.kind === "error" || e.kind === "rejected";
       case "connections": return e.kind === "connect" || e.kind === "disconnect";
       default: return true;
@@ -370,11 +412,11 @@
 
   function eventRow(e) {
     const tr = el("tr");
-    const label = (e.kind === "result" || e.kind === "extracted") ? e.verdict : e.kind;
+    const label = (e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan") ? (e.verdict || e.kind) : e.kind;
     const tag = el("span", "tag t-" + label, label);
-    const who = e.client ? `${e.client} #${e.session}` : "server";
+    const who = e.client ? `${e.client} #${e.session || 0}` : "server";
     let detail = e.threat || e.message || e.detail || "";
-    if ((e.kind === "result" || e.kind === "extracted") && e.threat && e.detail) detail = e.threat + " — " + e.detail;
+    if ((e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan") && e.threat && e.detail) detail = e.threat + " — " + e.detail;
     const tdTag = el("td"); 
     tdTag.append(tag);
     if (e.origin_type) {
@@ -391,7 +433,7 @@
     const tdDetail = el("td", "detail", detail); tdDetail.title = detail;
     tr.append(el("td", "mono", fmtTime(e.time)), el("td", "mono", who), tdTag, tdFile,
               el("td", "num", e.size ? fmtSize(e.size) : ""), tdDetail, el("td", "num", e.ms ? e.ms + " ms" : ""));
-    if ((e.kind === "result" || e.kind === "extracted") && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
+    if ((e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan") && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
     return tr;
   }
 
@@ -591,6 +633,312 @@
     }
   };
 
+  // Internationalization (TR / EN)
+  const I18N = {
+    en: {
+      scannerTitle: "Unified Threat Intelligence & URL Scanner",
+      scannerBadge: "5-Tier Gated Engine Ready",
+      scannerDesc: "Comprehensive multi-layer threat analysis: Tranco 1M Whitelist, Heuristic Rules (Webhooks/Droppers), Network CIDR, PyFunceble Liveness, and LightGBM Decision Tree.",
+      scanPlaceholder: "Enter target URL, domain, or IP (e.g. https://target-domain.com/login)...",
+      scanBtn: "Inspect Threat",
+      scanBtnScanning: "Inspecting...",
+      deepScanLabel: "Deep Content Scan (Live HTML, Script ML & YARA-X)",
+      pastePayloadBtn: "+ Paste Custom HTML / Script",
+      hidePayloadBtn: "- Hide Custom HTML",
+      payloadLabel: "Target Page HTML / JavaScript payload (for zero-day script analysis):",
+      payloadPlaceholder: "<html><body><script>/* payload */</script>...</body></html>",
+      emptyScanning: "🔍 Running multi-layer threat inspection (PyFunceble Liveness, Rules, ML, CIDR)...",
+      enterUrlAlert: "Please enter a URL or domain to inspect.",
+      overallThreatScore: "Overall Threat Score",
+      whitelistTier: "1. Whitelist",
+      heuristicTier: "2. Heuristic Rules",
+      livenessTier: "3. Liveness (PyFunceble)",
+      mlTier: "4. Machine Learning",
+      hostPortTier: "5. Host & Port",
+      detectionsTitle: "Detections & Indicators",
+      noDetections: "✓ No malicious signatures, webhooks, or dropper patterns detected.",
+      viewRawTelemetry: "View Raw Elastic Common Schema (ECS 8.11+) Telemetry",
+      safeBadge: "TRANCO 1M (SAFE)",
+      bypassedBadge: "BYPASSED (THREAT)",
+      notWhitelistedBadge: "NOT WHITELISTED",
+      activeBadge: "● ACTIVE",
+      inactiveBadge: "○ INACTIVE (NXDOMAIN)",
+      unknownBadge: "? UNKNOWN",
+      highRisk: "High Risk",
+      elevated: "Elevated",
+      lowRisk: "Low",
+      ruleHits: "Rule Hits",
+      targetLabel: "Target",
+      analysisComplete: "Analysis Complete",
+      invalidReport: "Invalid threat report format received from server.",
+      networkError: "Network error connecting to scanner: "
+    },
+    tr: {
+      scannerTitle: "Entegre Tehdit İstihbaratı & URL Tarayıcı",
+      scannerBadge: "5 Katmanlı Güvenlik Motoru Aktif",
+      scannerDesc: "Çok katmanlı derin tehdit analizi: Tranco 1M Beyaz Liste, Sezgisel Kural Tabanı (Webhook/Dropper), Ağ CIDR Filtresi, PyFunceble Canlılık Testi ve LightGBM Karar Ağacı.",
+      scanPlaceholder: "Hedef URL, alan adı veya IP girin (örn. https://hedef-site.com/giris)...",
+      scanBtn: "Tehdidi İncele",
+      scanBtnScanning: "Taranıyor...",
+      deepScanLabel: "Derin İçerik Taraması (Canlı HTML, Betik ML & YARA-X)",
+      pastePayloadBtn: "+ Özel HTML / Betik Yapıştır",
+      hidePayloadBtn: "- Özel HTML'i Gizle",
+      payloadLabel: "Hedef Sayfa HTML / JavaScript yükü (sıfır-gün betik analizi için):",
+      payloadPlaceholder: "<html><body><script>/* zararlı kod */</script>...</body></html>",
+      emptyScanning: "🔍 Çok katmanlı tehdit analizi yürütülüyor (PyFunceble Canlılık, Kurallar, ML, CIDR)...",
+      enterUrlAlert: "Lütfen analiz edilecek geçerli bir URL veya alan adı girin.",
+      overallThreatScore: "Genel Tehdit Skoru",
+      whitelistTier: "1. Beyaz Liste",
+      heuristicTier: "2. Sezgisel Kurallar",
+      livenessTier: "3. Canlılık (PyFunceble)",
+      mlTier: "4. Makine Öğrenimi",
+      hostPortTier: "5. Sunucu & Port",
+      detectionsTitle: "Tespitler ve Tehdit Belirteçleri",
+      noDetections: "✓ Zararlı imza, webhook veya dropper kalıbı tespit edilmedi.",
+      viewRawTelemetry: "Ham Elastic Common Schema (ECS 8.11+) Telemetrisini İncele",
+      safeBadge: "TRANCO 1M (GÜVENLİ)",
+      bypassedBadge: "ATLATILDI (TEHDİT)",
+      notWhitelistedBadge: "LİSTEDE YOK",
+      activeBadge: "● AKTİF",
+      inactiveBadge: "○ PASİF (NXDOMAIN)",
+      unknownBadge: "? BİLİNMİYOR",
+      highRisk: "Yüksek Risk",
+      elevated: "Şüpheli",
+      lowRisk: "Düşük Risk",
+      ruleHits: "Kural Eşleşmesi",
+      targetLabel: "Hedef",
+      analysisComplete: "Analiz Tamamlandı",
+      invalidReport: "Sunucudan geçersiz rapor biçimi alındı.",
+      networkError: "Tarayıcıya bağlanırken ağ hatası oluştu: "
+    }
+  };
+
+  let currentLang = localStorage.getItem("lang") || "tr";
+  let lastScanEcs = null;
+
+  function t(key) {
+    return (I18N[currentLang] && I18N[currentLang][key]) || (I18N.en[key] || key);
+  }
+
+  function applyLanguage(lang) {
+    currentLang = lang;
+    localStorage.setItem("lang", lang);
+    const langBtn = $("langBtn");
+    if (langBtn) langBtn.textContent = lang.toUpperCase();
+
+    document.querySelectorAll("[data-i18n]").forEach(el => {
+      const k = el.dataset.i18n;
+      if (I18N[lang] && I18N[lang][k]) el.textContent = I18N[lang][k];
+    });
+
+    document.querySelectorAll("[data-i18n-ph]").forEach(el => {
+      const k = el.dataset.i18nPh;
+      if (I18N[lang] && I18N[lang][k]) el.placeholder = I18N[lang][k];
+    });
+
+    if (togglePayloadBtn && customPayloadWrap) {
+      const isVisible = customPayloadWrap.style.display !== "none";
+      togglePayloadBtn.textContent = isVisible ? t("hidePayloadBtn") : t("pastePayloadBtn");
+    }
+
+    if (lastScanEcs) {
+      renderUrlResult(lastScanEcs);
+    }
+  }
+
+  const langBtn = $("langBtn");
+  if (langBtn) {
+    langBtn.onclick = () => {
+      applyLanguage(currentLang === "tr" ? "en" : "tr");
+    };
+  }
+
+  // Unified Threat Intelligence & URL Scanner Logic
+  const urlScanBtn = $("urlScanBtn");
+  const urlScanInput = $("urlScanInput");
+  const urlResultBox = $("urlResultBox");
+  const togglePayloadBtn = $("togglePayloadBtn");
+  const customPayloadWrap = $("customPayloadWrap");
+
+  if (togglePayloadBtn && customPayloadWrap) {
+    togglePayloadBtn.onclick = () => {
+      const isHidden = customPayloadWrap.style.display === "none";
+      customPayloadWrap.style.display = isHidden ? "block" : "none";
+      togglePayloadBtn.textContent = isHidden ? t("hidePayloadBtn") : t("pastePayloadBtn");
+    };
+  }
+
+  function renderUrlResult(ecs) {
+    lastScanEcs = ecs;
+    const box = $("urlResultBox");
+    if (!ecs || !ecs.antivirus) {
+      box.innerHTML = `<div class='error'>${t("invalidReport")}</div>`;
+      return;
+    }
+
+    const av = ecs.antivirus || {};
+    const th = (ecs.threat && ecs.threat.indicator) || {};
+    const urlInfo = ecs.url || {};
+    const verdict = (av.verdict || "unknown").toUpperCase();
+    const riskScore = av.risk_score != null ? av.risk_score : (th.ml_probability ? Math.round(th.ml_probability * 100) : 0);
+
+    let vCls = "t-clean";
+    let bgStyle = "var(--green-bg)";
+    let borderStyle = "var(--green)";
+    if (verdict === "MALICIOUS") {
+      vCls = "t-malicious";
+      bgStyle = "var(--red-bg)";
+      borderStyle = "var(--red)";
+    } else if (verdict === "SUSPICIOUS") {
+      vCls = "t-suspicious";
+      bgStyle = "var(--orange-bg)";
+      borderStyle = "var(--orange)";
+    }
+
+    const detections = th.detections || [];
+    let detectionsHtml = "";
+    if (detections.length > 0) {
+      detectionsHtml = `
+        <div style="margin-top: 12px;">
+          <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 8px;">${t("detectionsTitle")} (${detections.length}):</div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${detections.map(d => `
+              <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <div>
+                  <b style="font-size: 12.5px;">${d.title || d.rule_id}</b>
+                  <div style="font-size: 11.5px; color: var(--muted); margin-top: 2px;">${d.details || ""}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="tag t-${(d.severity || 'info').toLowerCase()}">${d.severity || 'Threat'}</span>
+                  <span style="font-family: Consolas, monospace; font-size: 12px; font-weight: 700;">+${d.score || 0}</span>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    } else {
+      detectionsHtml = `
+        <div style="margin-top: 10px; font-size: 12px; color: var(--green); display: flex; align-items: center; gap: 6px;">
+          <span>✓</span> ${t("noDetections")}
+        </div>
+      `;
+    }
+
+    const isLivenessActive = th.liveness === "ACTIVE";
+    const livenessBadge = isLivenessActive
+      ? `<span class="tag t-clean">${t("activeBadge")}</span>`
+      : th.liveness === "INACTIVE"
+      ? `<span class="tag t-unknown">${t("inactiveBadge")}</span>`
+      : `<span class="tag t-info">${t("unknownBadge")}</span>`;
+
+    const wlBadge = th.whitelisted
+      ? `<span class="tag t-clean">${t("safeBadge")}</span>`
+      : th.whitelist_bypassed
+      ? `<span class="tag t-suspicious">${t("bypassedBadge")}</span>`
+      : `<span class="tag t-unknown">${t("notWhitelistedBadge")}</span>`;
+
+    const mlPct = th.ml_probability != null ? (th.ml_probability * 100).toFixed(1) + "%" : "0.0%";
+    const mlBadge = th.ml_probability >= 0.8
+      ? `<span class="tag t-malicious">${mlPct} ${t("highRisk")}</span>`
+      : th.ml_probability >= 0.5
+      ? `<span class="tag t-suspicious">${mlPct} ${t("elevated")}</span>`
+      : `<span class="tag t-clean">${mlPct} ${t("lowRisk")}</span>`;
+
+    box.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 16px; border-radius: 6px; background: ${bgStyle}; border-left: 5px solid ${borderStyle}; margin-bottom: 14px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="tag ${vCls}" style="font-size: 14px; padding: 3px 12px; text-transform: uppercase;">${verdict}</span>
+            <span style="font-size: 13.5px; font-weight: 700;">${av.reason || t("analysisComplete")}</span>
+          </div>
+          <div style="font-family: Consolas, monospace; font-size: 12px; margin-top: 6px; word-break: break-all; opacity: .85;">
+            ${t("targetLabel")}: ${urlInfo.original || "—"}
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 11px; text-transform: uppercase; color: var(--muted); font-weight: 600;">${t("overallThreatScore")}</div>
+          <div style="font-size: 26px; font-weight: 800; font-family: Consolas, monospace;">${riskScore}<small style="font-size: 13px; font-weight: 500; opacity: .7;">/100</small></div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 12px;">
+        <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div style="font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase;">${t("whitelistTier")}</div>
+          <div style="margin-top: 5px;">${wlBadge}</div>
+        </div>
+        <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div style="font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase;">${t("heuristicTier")}</div>
+          <div style="margin-top: 5px;"><span class="tag ${detections.length > 0 ? 't-suspicious' : 't-clean'}">${detections.length} ${t("ruleHits")}</span></div>
+        </div>
+        <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div style="font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase;">${t("livenessTier")}</div>
+          <div style="margin-top: 5px;">${livenessBadge}</div>
+        </div>
+        <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div style="font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase;">${t("mlTier")}</div>
+          <div style="margin-top: 5px;">${mlBadge}</div>
+        </div>
+        <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div style="font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase;">${t("hostPortTier")}</div>
+          <div style="margin-top: 5px; font-family: Consolas, monospace; font-size: 12px; font-weight: 600;">${urlInfo.domain || '—'}:${urlInfo.port || 80}</div>
+        </div>
+      </div>
+
+      ${detectionsHtml}
+
+      <details style="margin-top: 14px;">
+        <summary style="font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer;">${t("viewRawTelemetry")}</summary>
+        <pre style="margin-top: 8px; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-family: Consolas, monospace; font-size: 11.5px; overflow-x: auto; max-height: 280px; color: var(--text);">${JSON.stringify(ecs, null, 2)}</pre>
+      </details>
+    `;
+  }
+
+  if (urlScanBtn && urlScanInput) {
+    urlScanInput.addEventListener("keydown", e => {
+      if (e.key === "Enter") urlScanBtn.click();
+    });
+
+    urlScanBtn.onclick = async () => {
+      const url = urlScanInput.value.trim();
+      if (!url) {
+        alert(t("enterUrlAlert"));
+        return;
+      }
+      urlScanBtn.disabled = true;
+      urlScanBtn.textContent = t("scanBtnScanning");
+      urlResultBox.style.display = "block";
+      urlResultBox.innerHTML = `<div class='empty'>${t("emptyScanning")}</div>`;
+
+      try {
+        const customContent = $("customHtmlInput") ? $("customHtmlInput").value.trim() : "";
+        const bodyPayload = { url };
+        if (customContent) bodyPayload.content = customContent;
+
+        const res = await fetch("/api/v1/scan/url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bodyPayload)
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Inspection failed" }));
+          urlResultBox.innerHTML = `<div class="error">${err.error || res.statusText}</div>`;
+          return;
+        }
+
+        const data = await res.json();
+        renderUrlResult(data);
+      } catch (err) {
+        urlResultBox.innerHTML = `<div class="error">${t("networkError")}${err.message}</div>`;
+      } finally {
+        urlScanBtn.disabled = false;
+        urlScanBtn.textContent = t("scanBtn");
+      }
+    };
+  }
+
+  applyLanguage(currentLang);
   poll();
 })();
 </script>
