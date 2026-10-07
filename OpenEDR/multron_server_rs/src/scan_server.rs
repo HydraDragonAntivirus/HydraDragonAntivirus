@@ -17,6 +17,7 @@ use hex::ToHex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, oneshot, RwLock, Semaphore};
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::budget::ByteBudget;
 use crate::cache::{now_secs, parse_sha, CachedVerdict, Sha, VerdictCache};
@@ -223,6 +224,11 @@ impl ScanServer {
             format!("/{}", path)
         };
 
+        let cors = CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any);
+
         Router::new()
             .route(&normalized_path, get(ws_handler))
             .route(
@@ -237,6 +243,7 @@ impl ScanServer {
             )
             .route("/api/v1/insights/:sha256", get(handle_hash_insights))
             .route("/api/v1/insights/stats", get(handle_insights_stats))
+            .layer(cors)
             .with_state(Arc::clone(self))
     }
 
@@ -503,7 +510,10 @@ async fn handle_hash_insights(
                 });
                 return (
                     StatusCode::BAD_REQUEST,
-                    [("Content-Type", "application/json")],
+                    [
+                        ("Content-Type", "application/json"),
+                        ("Access-Control-Allow-Origin", "*"),
+                    ],
                     serde_json::to_string(&err).unwrap(),
                 ).into_response();
             }
@@ -532,6 +542,7 @@ async fn handle_hash_insights(
                     StatusCode::OK,
                     [
                         ("Content-Type", "application/json"),
+                        ("Access-Control-Allow-Origin", "*"),
                         ("X-RateLimit-Limit", &header.limit.to_string()),
                         ("X-RateLimit-Remaining", &header.remaining.to_string()),
                     ],
@@ -555,6 +566,7 @@ async fn handle_hash_insights(
                     StatusCode::NOT_FOUND,
                     [
                         ("Content-Type", "application/json"),
+                        ("Access-Control-Allow-Origin", "*"),
                         ("X-RateLimit-Limit", &header.limit.to_string()),
                         ("X-RateLimit-Remaining", &header.remaining.to_string()),
                     ],
@@ -574,6 +586,7 @@ async fn handle_hash_insights(
                 StatusCode::TOO_MANY_REQUESTS,
                 [
                     ("Content-Type", "application/json"),
+                    ("Access-Control-Allow-Origin", "*"),
                     ("Retry-After", &retry_after.to_string()),
                     ("X-RateLimit-Limit", "10"),
                     ("X-RateLimit-Remaining", "0"),
@@ -618,6 +631,7 @@ async fn handle_insights_stats(
                 StatusCode::OK,
                 [
                     ("Content-Type", "application/json"),
+                    ("Access-Control-Allow-Origin", "*"),
                     ("X-RateLimit-Limit", &header.limit.to_string()),
                     ("X-RateLimit-Remaining", &header.remaining.to_string()),
                 ],
@@ -636,6 +650,7 @@ async fn handle_insights_stats(
                 StatusCode::TOO_MANY_REQUESTS,
                 [
                     ("Content-Type", "application/json"),
+                    ("Access-Control-Allow-Origin", "*"),
                     ("Retry-After", &retry_after.to_string()),
                     ("X-RateLimit-Limit", "10"),
                     ("X-RateLimit-Remaining", "0"),
