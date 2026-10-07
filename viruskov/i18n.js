@@ -548,7 +548,13 @@
 
   function t(key) {
     const lang = getCurrentLang();
-    return (translations[lang] && translations[lang][key]) || (translations.tr && translations.tr[key]) || key;
+    if (translations[lang] && translations[lang][key] !== undefined) {
+      return translations[lang][key];
+    }
+    if (translations.tr && translations.tr[key] !== undefined) {
+      return translations.tr[key];
+    }
+    return null;
   }
 
   function applyLanguage(lang) {
@@ -563,8 +569,8 @@
     document.querySelectorAll('[data-i18n]').forEach((el) => {
       const key = el.getAttribute('data-i18n');
       const val = t(key);
-      if (val !== undefined) {
-        if (val.includes('<') && val.includes('>')) {
+      if (val !== null && val !== undefined && val !== key) {
+        if (typeof val === 'string' && val.includes('<') && val.includes('>')) {
           el.innerHTML = val;
         } else {
           el.textContent = val;
@@ -576,14 +582,14 @@
     document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
       const key = el.getAttribute('data-i18n-placeholder');
       const val = t(key);
-      if (val !== undefined) el.setAttribute('placeholder', val);
+      if (val !== null && val !== undefined && val !== key) el.setAttribute('placeholder', val);
     });
 
     // Update data-i18n-title
     document.querySelectorAll('[data-i18n-title]').forEach((el) => {
       const key = el.getAttribute('data-i18n-title');
       const val = t(key);
-      if (val !== undefined) el.setAttribute('title', val);
+      if (val !== null && val !== undefined && val !== key) el.setAttribute('title', val);
     });
 
     // Update switcher buttons UI
