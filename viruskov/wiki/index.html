@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="../i18n.js"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -121,6 +122,44 @@
     .btn-amber { background: var(--accent-amber); color: #20180a; border: 1px solid var(--accent-amber); }
     .btn-amber:hover { background: #ffc633; transform: translateY(-2px); }
     .btn-sm { padding: 7px 14px; font-size: 0.72rem; }
+
+    /* Language Switcher */
+    .lang-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .lang-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 4px;
+      font-family: inherit;
+      font-size: inherit;
+      font-weight: inherit;
+      transition: all 0.2s ease;
+      border-radius: 2px;
+    }
+    .lang-btn:hover {
+      color: #fff;
+    }
+    .lang-btn.active {
+      color: var(--accent-cyan);
+      background: rgba(0, 229, 255, 0.1);
+      text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+    }
+    .lang-sep {
+      color: var(--text-dim);
+      font-size: 0.68rem;
+    }
 
     /* ---------- WIKI LAYOUT ---------- */
     .wiki-layout {
@@ -411,13 +450,13 @@
     <div class="container telemetry-inner">
       <div class="telemetry-item">
         <span class="status-dot"></span>
-        <span>VIRUSKOV WIKI &bull; MOTOR: PTM / PATTERNSMATCHING v2</span>
+        <span data-i18n="wiki.top_engine">VIRUSKOV WIKI &bull; MOTOR: PTM / PATTERNSMATCHING v2</span>
       </div>
       <div class="telemetry-item">
-        <span>ODAK KURAL: <span style="color: var(--accent-red);">MLE_RANSOM_BEHAVIOR</span> &bull; baseType 1000008</span>
+        <span data-i18n="wiki.top_focus">ODAK KURAL: <span style="color: var(--accent-red);">MLE_RANSOM_BEHAVIOR</span> &bull; baseType 1000008</span>
       </div>
       <div class="telemetry-item">
-        <a class="telemetry-link" href="../index.html">&larr; ANA SAYFA</a>
+        <a class="telemetry-link" href="../index.html" data-i18n="wiki.top_back">&larr; ANA SAYFA</a>
       </div>
     </div>
   </div>
@@ -430,32 +469,37 @@
       </a>
 
       <nav>
-        <a href="#kunya" class="nav-link highlight">Künye</a>
-        <a href="#mimari" class="nav-link">Mimari</a>
-        <a href="#anatomi" class="nav-link">Anatomi</a>
-        <a href="#suzgecler" class="nav-link">Süzgeçler</a>
-        <a href="#sayac" class="nav-link">Sayaç</a>
-        <a href="#entropy" class="nav-link">Entropi</a>
-        <a href="#kernel" class="nav-link">Kernel</a>
-        <a href="#yanit" class="nav-link">Yanıt</a>
-        <a href="#neden" class="nav-link">Neden Mükemmel</a>
-        <a href="#sinirlar" class="nav-link">Sınırlar</a>
-        <a href="#sss" class="nav-link">SSS</a>
+        <a href="#kunya" class="nav-link highlight" data-i18n="wiki.nav_kunya">Künye</a>
+        <a href="#mimari" class="nav-link" data-i18n="wiki.nav_mimari">Mimari</a>
+        <a href="#anatomi" class="nav-link" data-i18n="wiki.nav_anatomi">Anatomi</a>
+        <a href="#suzgecler" class="nav-link" data-i18n="wiki.nav_suzgecler">Süzgeçler</a>
+        <a href="#sayac" class="nav-link" data-i18n="wiki.nav_sayac">Sayaç</a>
+        <a href="#entropy" class="nav-link" data-i18n="wiki.nav_entropy">Entropi</a>
+        <a href="#kernel" class="nav-link" data-i18n="wiki.nav_kernel">Kernel</a>
+        <a href="#yanit" class="nav-link" data-i18n="wiki.nav_yanit">Yanıt</a>
+        <a href="#neden" class="nav-link" data-i18n="wiki.nav_neden">Neden Mükemmel</a>
+        <a href="#sinirlar" class="nav-link" data-i18n="wiki.nav_sinirlar">Sınırlar</a>
+        <a href="#sss" class="nav-link" data-i18n="wiki.nav_sss">SSS</a>
       </nav>
 
       <div class="header-actions">
+        <div class="lang-switch">
+          <button class="lang-btn active" data-lang="tr">TR</button>
+          <span class="lang-sep">/</span>
+          <button class="lang-btn" data-lang="en">EN</button>
+        </div>
         <a href="../stats.html" class="btn btn-ghost btn-sm" style="color:var(--accent-cyan); border-color: rgba(0,229,255,0.3);">
-          <span>📊 İSTATİSTİKLER</span>
+          <span data-i18n="wiki.btn_stats">📊 İSTATİSTİKLER</span>
         </a>
         <a href="../index.html" class="btn btn-ghost btn-sm">
-          <span>ANA SAYFA</span>
+          <span data-i18n="wiki.btn_home">ANA SAYFA</span>
         </a>
         <a href="mailto:viruskov@viruskov.com" class="btn btn-ghost btn-sm">
-          <span>DESTEK</span>
+          <span data-i18n="wiki.btn_support">DESTEK</span>
           <span>&rarr;</span>
         </a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-red btn-sm">
-          <span>REPO</span>
+          <span data-i18n="wiki.btn_repo">REPO</span>
           <span>&nearr;</span>
         </a>
       </div>
@@ -466,59 +510,59 @@
 
     <!-- ============ SIDEBAR TOC ============ -->
     <aside class="toc">
-      <div class="toc-title">&#9642; İÇİNDEKİLER</div>
-      <a href="#kunya">1 &mdash; Künye</a>
-      <a href="#tek-cumle">2 &mdash; Bir Cümlede</a>
-      <a href="#neden-davranis">3 &mdash; Neden Davranış</a>
-      <a href="#mimari">4 &mdash; Uçtan Uca Mimari</a>
-      <a href="#ptm-motor">5 &mdash; PTM Motoru</a>
-      <a class="sub" href="#ptm-directive">5.1 &mdash; Yönergeler</a>
-      <a class="sub" href="#ptm-operasyon">5.2 &mdash; Operasyonlar</a>
-      <a class="sub" href="#ptm-wildcard">5.3 &mdash; Joker Eşleme</a>
-      <a href="#anatomi">6 &mdash; Kural Anatomisi</a>
-      <a class="sub" href="#asama-1">6.1 &mdash; Aşama 1: Okuma</a>
-      <a class="sub" href="#asama-2">6.2 &mdash; Aşama 2: Aday</a>
-      <a class="sub" href="#asama-3">6.3 &mdash; Aşama 3: Değerlendirme</a>
-      <a class="sub" href="#asama-4">6.4 &mdash; Aşama 4: Karar</a>
-      <a class="sub" href="#asama-5">6.5 &mdash; Aşama 5: Temizlik</a>
-      <a href="#suzgecler">7 &mdash; Dokuz Süzgeç</a>
-      <a href="#sayac">8 &mdash; distinctCounter</a>
-      <a href="#dosya-alanlari">9 &mdash; Dosya Alanları</a>
-      <a href="#entropy">10 &mdash; Shannon Entropisi</a>
-      <a href="#beyazliste">11 &mdash; Beyaz Liste</a>
-      <a href="#kernel">12 &mdash; Kernel Tarafı</a>
-      <a href="#neden-iki-asama">13 &mdash; Neden İki Aşamalı</a>
-      <a href="#yanit">14 &mdash; Yanıt Zinciri</a>
-      <a href="#neden">15 &mdash; Neden Mükemmel</a>
-      <a href="#sinirlar">16 &mdash; Dürüst Sınırlar</a>
-      <a href="#komsu">17 &mdash; Komşu Kurallar</a>
-      <a href="#analist">18 &mdash; Analist El Kitabı</a>
-      <a href="#sss">19 &mdash; SSS</a>
-      <a href="#kaynak">20 &mdash; Kaynak Haritası</a>
+      <div class="toc-title" data-i18n="wiki.toc_title">&#9642; İÇİNDEKİLER</div>
+      <a href="#kunya" data-i18n="wiki.toc_1">1 &mdash; Künye</a>
+      <a href="#tek-cumle" data-i18n="wiki.toc_2">2 &mdash; Bir Cümlede</a>
+      <a href="#neden-davranis" data-i18n="wiki.toc_3">3 &mdash; Neden Davranış</a>
+      <a href="#mimari" data-i18n="wiki.toc_4">4 &mdash; Uçtan Uca Mimari</a>
+      <a href="#ptm-motor" data-i18n="wiki.toc_5">5 &mdash; PTM Motoru</a>
+      <a class="sub" href="#ptm-directive" data-i18n="wiki.toc_5_1">5.1 &mdash; Yönergeler</a>
+      <a class="sub" href="#ptm-operasyon" data-i18n="wiki.toc_5_2">5.2 &mdash; Operasyonlar</a>
+      <a class="sub" href="#ptm-wildcard" data-i18n="wiki.toc_5_3">5.3 &mdash; Joker Eşleme</a>
+      <a href="#anatomi" data-i18n="wiki.toc_6">6 &mdash; Kural Anatomisi</a>
+      <a class="sub" href="#asama-1" data-i18n="wiki.toc_6_1">6.1 &mdash; Aşama 1: Okuma</a>
+      <a class="sub" href="#asama-2" data-i18n="wiki.toc_6_2">6.2 &mdash; Aşama 2: Aday</a>
+      <a class="sub" href="#asama-3" data-i18n="wiki.toc_6_3">6.3 &mdash; Aşama 3: Değerlendirme</a>
+      <a class="sub" href="#asama-4" data-i18n="wiki.toc_6_4">6.4 &mdash; Aşama 4: Karar</a>
+      <a class="sub" href="#asama-5" data-i18n="wiki.toc_6_5">6.5 &mdash; Aşama 5: Temizlik</a>
+      <a href="#suzgecler" data-i18n="wiki.toc_7">7 &mdash; Dokuz Süzgeç</a>
+      <a href="#sayac" data-i18n="wiki.toc_8">8 &mdash; distinctCounter</a>
+      <a href="#dosya-alanlari" data-i18n="wiki.toc_9">9 &mdash; Dosya Alanları</a>
+      <a href="#entropy" data-i18n="wiki.toc_10">10 &mdash; Shannon Entropisi</a>
+      <a href="#beyazliste" data-i18n="wiki.toc_11">11 &mdash; Beyaz Liste</a>
+      <a href="#kernel" data-i18n="wiki.toc_12">12 &mdash; Kernel Tarafı</a>
+      <a href="#neden-iki-asama" data-i18n="wiki.toc_13">13 &mdash; Neden İki Aşamalı</a>
+      <a href="#yanit" data-i18n="wiki.toc_14">14 &mdash; Yanıt Zinciri</a>
+      <a href="#neden" data-i18n="wiki.toc_15">15 &mdash; Neden Mükemmel</a>
+      <a href="#sinirlar" data-i18n="wiki.toc_16">16 &mdash; Dürüst Sınırlar</a>
+      <a href="#komsu" data-i18n="wiki.toc_17">17 &mdash; Komşu Kurallar</a>
+      <a href="#analist" data-i18n="wiki.toc_18">18 &mdash; Analist El Kitabı</a>
+      <a href="#sss" data-i18n="wiki.toc_19">19 &mdash; SSS</a>
+      <a href="#kaynak" data-i18n="wiki.toc_20">20 &mdash; Kaynak Haritası</a>
       <div class="toc-sep"></div>
-      <a href="../index.html" style="color: var(--accent-red);">&larr; Ana Sayfa</a>
-      <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber);">Destek &amp; Bağış</a>
+      <a href="../index.html" style="color: var(--accent-red);" data-i18n="wiki.toc_home">&larr; Ana Sayfa</a>
+      <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber);" data-i18n="wiki.toc_support">Destek &amp; Bağış</a>
     </aside>
 
     <!-- ============ ARTICLE ============ -->
     <article>
 
-      <div class="crumb">
+      <div class="crumb" data-i18n="wiki.crumb">
         <a href="../index.html">VIRUSKOV</a> / WIKI / TESPİT KURALLARI / <span style="color: var(--accent-red);">MLE_RANSOM_BEHAVIOR</span>
       </div>
 
-      <h1 class="article-title">
+      <h1 class="article-title" data-i18n="wiki.article_title">
         MLE_RANSOM_<span class="hl">BEHAVIOR</span><br>
         Fidye Yazılımı Tespit Kuralının Tam Anatomisi
       </h1>
-      <p class="article-sub">
+      <p class="article-sub" data-i18n="wiki.article_sub">
         OpenEDR &times; Hydra Dragon çekirdeği &bull; PTM / PatternsMatching v2 politika motoru<br>
         Kural Kimliği: <span class="c-red">RANSOM_BEHAVIOR</span> &nbsp;|&nbsp; Yayın Olay Tipi: <span class="c-red">MLE_RANSOM_BEHAVIOR</span> &nbsp;|&nbsp; baseType: <span class="c-red">1000008</span><br>
         Politika Kaynağı: <code>OpenEDR/edrav2/iprj/edrdata/ptm.local.src</code> &nbsp;&bull;&nbsp; Satır 4636 &ndash; 5129
       </p>
       <div class="article-rule"></div>
 
-      <div class="hero-lead">
+      <div class="hero-lead" data-i18n="wiki.lead">
         <strong>MLE_RANSOM_BEHAVIOR</strong>, bir dosyanın hash'ine, derleyicisine ya da paketleyicisine bakmaz.
         Çekirdekte gördüğü <strong>tek şey davranıştır</strong>: bir süreç, kullanıcının kişisel
         dosyalarına <strong>60 saniye içinde en az 3 ayrı hedefe</strong> yazıyor, yeniden adlandırıyor
@@ -530,7 +574,7 @@
       </div>
 
       <!-- ============ 1 KÜNYE ============ -->
-      <h2 class="wiki-h2" id="kunya"><span class="num">01</span> Künye</h2>
+      <h2 class="wiki-h2" id="kunya" data-i18n="wiki.h2_1"><span class="num">01</span> Künye</h2>
 
       <p>
         Aşağıdaki tablo, kuralın kimlik bilgilerini ve teknik parametrelerini tek yerde toplar.
@@ -569,7 +613,7 @@
       </div>
 
       <!-- ============ 2 TEK CÜMLE ============ -->
-      <h2 class="wiki-h2" id="tek-cumle"><span class="num">02</span> Bir Cümlede</h2>
+      <h2 class="wiki-h2" id="tek-cumle" data-i18n="wiki.h2_2"><span class="num">02</span> Bir Cümlede</h2>
 
       <p>
         <strong>Yeni veya imzası bilinmeyen bir fidye yazılımı</strong>, sisteme indirilip
@@ -594,7 +638,7 @@
       </div>
 
       <!-- ============ 3 NEDEN DAVRANIŞ ============ -->
-      <h2 class="wiki-h2" id="neden-davranis"><span class="num">03</span> Neden Bu Kural Bir İmza Değil, Bir Davranış Kuralı?</h2>
+      <h2 class="wiki-h2" id="neden-davranis" data-i18n="wiki.h2_3"><span class="num">03</span> Neden Bu Kural Bir İmza Değil, Bir Davranış Kuralı?</h2>
 
       <p>
         Klasik antivirüs düşüncesi şöyledir: &ldquo;Bu dosyayı daha önce gördüm, SHA-256'sı
@@ -650,7 +694,7 @@
       </div>
 
       <!-- ============ 4 MİMARİ ============ -->
-      <h2 class="wiki-h2" id="mimari"><span class="num">04</span> Uçtan Uca Mimari: Olayın Yolculuğu</h2>
+      <h2 class="wiki-h2" id="mimari" data-i18n="wiki.h2_4"><span class="num">04</span> Uçtan Uca Mimari: Olayın Yolculuğu</h2>
 
       <p>
         Kuralın arkasında sekiz ayrı katman var. Olayın yolculuğunu baştan sona izleyelim.
@@ -710,7 +754,7 @@
       </div>
 
       <!-- ============ 5 PTM MOTORU ============ -->
-      <h2 class="wiki-h2" id="ptm-motor"><span class="num">05</span> Altyapı: PTM (PatternsMatching) Motoru</h2>
+      <h2 class="wiki-h2" id="ptm-motor" data-i18n="wiki.h2_5"><span class="num">05</span> Altyapı: PTM (PatternsMatching) Motoru</h2>
 
       <p>
         Kural, JSON tabanlı bir politika dilinde tanımlıdır. Derlendiğinde ürüne gömülür ve
@@ -843,7 +887,7 @@
       </div>
 
       <!-- ============ 6 ANATOMİ ============ -->
-      <h2 class="wiki-h2" id="anatomi"><span class="num">06</span> Kuralın Anatomisi: 16 Madde, 5 Aşama</h2>
+      <h2 class="wiki-h2" id="anatomi" data-i18n="wiki.h2_6"><span class="num">06</span> Kuralın Anatomisi: 16 Madde, 5 Aşama</h2>
 
       <p>
         <code>RANSOM_BEHAVIOR</code> deseni 16 kural maddesinden oluşur. Bu maddeler beş mantıksal
@@ -1163,7 +1207,7 @@
       </div>
 
       <!-- ============ 7 SÜZGECLER ============ -->
-      <h2 class="wiki-h2" id="suzgecler"><span class="num">07</span> Dokuz Süzgeç, Tek Tek</h2>
+      <h2 class="wiki-h2" id="suzgecler" data-i18n="wiki.h2_7"><span class="num">07</span> Dokuz Süzgeç, Tek Tek</h2>
 
       <p>
         Aşama 4'ün <code>condition</code> alanı, <strong>tek bir <code>"and"</code> zincirinde</strong>
@@ -1458,7 +1502,7 @@
       </div>
 
       <!-- ============ 8 SAYAÇ ============ -->
-      <h2 class="wiki-h2" id="sayac"><span class="num">08</span> <code>distinctCounter</code>: Kayan Pencerede Ayrı Değer Sayacı</h2>
+      <h2 class="wiki-h2" id="sayac" data-i18n="wiki.h2_8"><span class="num">08</span> <code>distinctCounter</code>: Kayan Pencerede Ayrı Değer Sayacı</h2>
 
       <p>
         <code>distinctCounter</code>, motorun en özgün yönergesidir. Basit bir sayaç değildir:
@@ -1555,7 +1599,7 @@ PID 4711  &mdash;  <s>suspect.exe</s>   (0. saniye)
       </div>
 
       <!-- ============ 9 DOSYA ALANLARI ============ -->
-      <h2 class="wiki-h2" id="dosya-alanlari"><span class="num">09</span> Dosya Nesnesi: Hangi Alana Bakılıyor?</h2>
+      <h2 class="wiki-h2" id="dosya-alanlari" data-i18n="wiki.h2_9"><span class="num">09</span> Dosya Nesnesi: Hangi Alana Bakılıyor?</h2>
 
       <p>
         Kuralın <code>@event.destination.*</code> ve <code>@event.file.*</code> ifadeleri,
@@ -1629,7 +1673,7 @@ PID 4711  &mdash;  <s>suspect.exe</s>   (0. saniye)
       </div>
 
       <!-- ============ 10 ENTROPİ ============ -->
-      <h2 class="wiki-h2" id="entropy"><span class="num">10</span> Shannon Entropisi: Q24 Sabit Nokta ile Hesaplama</h2>
+      <h2 class="wiki-h2" id="entropy" data-i18n="wiki.h2_10"><span class="num">10</span> Shannon Entropisi: Q24 Sabit Nokta ile Hesaplama</h2>
 
       <p>
         Entropi, verinin ne kadar &ldquo;rastgele&rdquo; olduğunun ölçüsüdür. Şifreli veri
@@ -1733,7 +1777,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 11 BEYAZ LİSTE ============ -->
-      <h2 class="wiki-h2" id="beyazliste"><span class="num">11</span> Beyaz Liste ve Uzantı Gözcüsü</h2>
+      <h2 class="wiki-h2" id="beyazliste" data-i18n="wiki.h2_11"><span class="num">11</span> Beyaz Liste ve Uzantı Gözcüsü</h2>
 
       <h3 class="wiki-h3">11.1 &mdash; Sistem İstisnaları (8 kayıt)</h3>
 
@@ -1852,7 +1896,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 12 KERNEL ============ -->
-      <h2 class="wiki-h2" id="kernel"><span class="num">12</span> Kernel Tarafı: Hangi IRP, Hangi Olay?</h2>
+      <h2 class="wiki-h2" id="kernel" data-i18n="wiki.h2_12"><span class="num">12</span> Kernel Tarafı: Hangi IRP, Hangi Olay?</h2>
 
       <p>
         Kuralın tetikleyicilerinin tamamı Ring-0'da üretilir. Minifilter, yedi IRP major
@@ -1974,7 +2018,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 13 İKİ AŞAMALI ============ -->
-      <h2 class="wiki-h2" id="neden-iki-asama"><span class="num">13</span> Neden İki Ara Olay Var?</h2>
+      <h2 class="wiki-h2" id="neden-iki-asama" data-i18n="wiki.h2_13"><span class="num">13</span> Neden İki Ara Olay Var?</h2>
 
       <p>
         <code>MLE_RANSOM_CANDIDATE</code> ve <code>MLE_RANSOM_EVALUATE</code> ara olayları
@@ -2011,7 +2055,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 14 YANIT ============ -->
-      <h2 class="wiki-h2" id="yanit"><span class="num">14</span> Yanıt Zinciri: Tespitten Sonrası Ne Olur?</h2>
+      <h2 class="wiki-h2" id="yanit" data-i18n="wiki.h2_14"><span class="num">14</span> Yanıt Zinciri: Tespitten Sonrası Ne Olur?</h2>
 
       <p>
         Tespit üretilmesi bir son değildir. <code>MLE_RANSOM_BEHAVIOR</code> olayı
@@ -2116,7 +2160,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 15 NEDEN MÜKEMMEL ============ -->
-      <h2 class="wiki-h2" id="neden"><span class="num">15</span> Neden Mükemmel Bir Ransomware Kuralı?</h2>
+      <h2 class="wiki-h2" id="neden" data-i18n="wiki.h2_15"><span class="num">15</span> Neden Mükemmel Bir Ransomware Kuralı?</h2>
 
       <p>
         &ldquo;Mükemmel&rdquo; burada şu anlama geliyor: <strong>sıfırıncı gün farkından
@@ -2268,7 +2312,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 16 SINIRLAR ============ -->
-      <h2 class="wiki-h2" id="sinirlar"><span class="num">16</span> Dürüst Sınırlar ve Bilinen Kusurlar</h2>
+      <h2 class="wiki-h2" id="sinirlar" data-i18n="wiki.h2_16"><span class="num">16</span> Dürüst Sınırlar ve Bilinen Kusurlar</h2>
 
       <p>
         Bu bölüm bilinçli olarak yazılmıştır. Bir ürünün güçlü yanlarını anlatmak kolaydır;
@@ -2467,7 +2511,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 17 KOMŞU KURALLAR ============ -->
-      <h2 class="wiki-h2" id="komsu"><span class="num">17</span> Komşu Kurallar: Tek Başına Yaşamaz</h2>
+      <h2 class="wiki-h2" id="komsu" data-i18n="wiki.h2_17"><span class="num">17</span> Komşu Kurallar: Tek Başına Yaşamaz</h2>
 
       <p>
         MLE_RANSOM_BEHAVIOR, fidye yazılımı savunmasının tek parçasıdır. Aşağıdaki komşu
@@ -2556,7 +2600,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 18 ANALİST ============ -->
-      <h2 class="wiki-h2" id="analist"><span class="num">18</span> Analist El Kitabı</h2>
+      <h2 class="wiki-h2" id="analist" data-i18n="wiki.h2_18"><span class="num">18</span> Analist El Kitabı</h2>
 
       <p>
         Bir SOC analisti veya bir güvenlik araştırmacı bu kuraldan nasıl faydalanır?
@@ -2656,7 +2700,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 19 SSS ============ -->
-      <h2 class="wiki-h2" id="sss"><span class="num">19</span> Sık Sorulan Sorular</h2>
+      <h2 class="wiki-h2" id="sss" data-i18n="wiki.h2_19"><span class="num">19</span> Sık Sorulan Sorular</h2>
 
       <div class="faq-item">
         <div class="faq-q"><span class="q-mark">01</span>Bu kural bir YARA kuralı mı?</div>
@@ -2754,7 +2798,7 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
       <!-- ============ 20 KAYNAK ============ -->
-      <h2 class="wiki-h2" id="kaynak"><span class="num">20</span> Kaynak Haritası</h2>
+      <h2 class="wiki-h2" id="kaynak" data-i18n="wiki.h2_20"><span class="num">20</span> Kaynak Haritası</h2>
 
       <p>
         Bu sayfadaki her iddianın <strong>kaynak dosyası</strong>. Politika motoru açık kaynak
@@ -2909,11 +2953,11 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
             <span>&rarr;</span>
           </a>
           <a href="../index.html" class="btn btn-ghost">
-            <span>ANA SAYFA</span>
+            <span data-i18n="wiki.btn_home">ANA SAYFA</span>
             <span>&larr;</span>
           </a>
           <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost">
-            <span>KAYNAK KODU İNCELE</span>
+            <span data-i18n="wiki.btn_inspect_code">KAYNAK KODU İNCELE</span>
             <span>&nearr;</span>
           </a>
         </div>
@@ -2921,10 +2965,10 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
 
       <div class="article-nav">
         <a href="../index.html" class="btn btn-ghost btn-sm">
-          <span>&larr; VIRUSKOV ANA SAYFA</span>
+          <span data-i18n="wiki.btn_back_home">&larr; VIRUSKOV ANA SAYFA</span>
         </a>
         <a href="#kunya" class="btn btn-red btn-sm">
-          <span>BAŞLIĞA DÖN</span>
+          <span data-i18n="wiki.btn_top">BAŞLIĞA DÖN</span>
           <span>&uarr;</span>
         </a>
       </div>
@@ -2935,18 +2979,18 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
   <!-- ============ FOOTER ============ -->
   <footer>
     <div class="container footer-inner">
-      <div>
+      <div data-i18n="wiki.footer_copy">
         &copy; 2026 <strong>VIRUSKOV</strong> &bull; Açık Kaynak Kurumsal EDR &amp; Antivirüs Sistemi.<br>
         Wiki: <strong>MLE_RANSOM_BEHAVIOR</strong> &mdash; kaynak kodla birebir doğrulanmış teknik dokümantasyon.<br>
         Kurucu &amp; Proje Lideri: <strong>Emirhan Uçan</strong>.
       </div>
       <div class="footer-links">
-        <a href="../index.html">Ana Sayfa</a>
-        <a href="../stats.html" style="color: var(--accent-cyan); font-weight: 700;">İstatistikler &amp; SOC</a>
-        <a href="#kunya">Künye</a>
-        <a href="#anatomi">Anatomi</a>
-        <a href="#neden">Neden Mükemmel</a>
-        <a href="#sinirlar">Sınırlar</a>
+        <a href="../index.html" data-i18n="nav.home">Ana Sayfa</a>
+        <a href="../stats.html" style="color: var(--accent-cyan); font-weight: 700;" data-i18n="nav.stats">İstatistikler &amp; SOC</a>
+        <a href="#kunya" data-i18n="wiki.nav_kunya">Künye</a>
+        <a href="#anatomi" data-i18n="wiki.nav_anatomi">Anatomi</a>
+        <a href="#neden" data-i18n="wiki.nav_neden">Neden Mükemmel</a>
+        <a href="#sinirlar" data-i18n="wiki.nav_sinirlar">Sınırlar</a>
         <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber);">viruskov@viruskov.com</a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--accent-red); font-weight: 700;">GitHub Repo</a>
       </div>
