@@ -65,10 +65,17 @@
       color: #fff;
     }
 
+    html, body {
+      max-width: 100vw;
+      overflow-x: clip;
+    }
+
     .container {
-      max-width: 1260px;
+      max-width: 1320px;
       margin: 0 auto;
-      padding: 0 24px;
+      padding: 0 20px;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     /* TELEMETRY TOP BAR */
@@ -80,6 +87,7 @@
       color: var(--text-muted);
       padding: 6px 0;
       letter-spacing: 0.5px;
+      overflow-x: clip;
     }
 
     .telemetry-inner {
@@ -87,7 +95,7 @@
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 10px;
     }
 
     .telemetry-item {
@@ -118,25 +126,30 @@
       position: sticky;
       top: 0;
       z-index: 1000;
+      width: 100%;
+      overflow-x: clip;
     }
 
     .header-inner {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 14px 0;
-      gap: 20px;
+      padding: 12px 0;
+      gap: 12px;
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     .brand-link {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       text-decoration: none;
+      flex-shrink: 0;
     }
 
     .brand-logo-img {
-      height: 34px;
+      height: 32px;
       width: auto;
       display: block;
     }
@@ -144,10 +157,11 @@
     nav {
       display: flex;
       align-items: center;
-      gap: 24px;
+      gap: 16px;
+      flex-wrap: wrap;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 1120px) {
       nav {
         display: none;
       }
@@ -155,15 +169,16 @@
 
     .nav-link {
       font-family: var(--font-mono);
-      font-size: 0.78rem;
+      font-size: 0.75rem;
       color: var(--text-muted);
       text-decoration: none;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.8px;
       transition: color 0.2s ease;
       display: inline-flex;
       align-items: center;
       gap: 4px;
+      white-space: nowrap;
     }
 
     .nav-link:hover, .nav-link.active {
@@ -178,19 +193,28 @@
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
     }
 
     .founder-badge {
       font-family: var(--font-mono);
-      font-size: 0.74rem;
+      font-size: 0.72rem;
       color: var(--text-muted);
       border: 1px solid var(--border-subtle);
-      padding: 6px 12px;
+      padding: 5px 10px;
       background: var(--bg-surface);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 1350px) {
+      .founder-badge {
+        display: none;
+      }
     }
 
     .founder-badge strong {
@@ -1525,39 +1549,39 @@
   <main class="container">
     <!-- HERO SECTION -->
     <section class="hero">
-      <div class="hero-meta-badge">
+      <div class="hero-meta-badge" data-i18n="hero.meta_badge">
         <span>⚡</span> AÇIK KAYNAK SAVUNMA MANİFESTOSU & KURUMSAL EDR EVRİMİ
       </div>
 
-      <h1 class="hero-title">
+      <h1 class="hero-title" data-i18n="hero.title">
         AÇIK KAYNAK ANTİVİRÜS TARİHİNDE BÖYLE BİR ZİRVE GÖRÜLMEMİŞTİ<br>
         <span class="strike">GİZLİLİKLE GÜVENLİK DEVRİ BİTTİ</span><br>
         <span class="highlight-red">ARTIK GERÇEK TEHDİTLERE KAFA TUTMA VAKTİ</span>
       </h1>
 
-      <p class="hero-lead">
+      <p class="hero-lead" data-i18n="hero.lead">
         Antivirüsler kapalı kutu olarak dağıtılıyor. Kullanıcı motorun ne yaptığını göremiyor, saldırgan görebiliyor. <em>Security by Obscurity</em> işi zorlaştırmıyor; sadece kullanıcıyı körleştiriyor.
       </p>
 
-      <p class="hero-subtext">
+      <p class="hero-subtext" data-i18n="hero.subtext">
         İlk <em>Antivirus.sln</em> 15 Nisan 2023'te açıldı. <strong>Turko Antivirus</strong> ve <strong>Hydra Dragon</strong>'dan sonra aynı depoya <strong>Sanctum, OpenEDR, Owlyshield, Ring-0 Kernel ve Genelleştirilmiş Makine Öğrenimi</strong> girdi. Aradaki yol tarihleriyle aşağıda.
       </p>
 
       <div class="hero-buttons">
         <a href="#tarihce" class="btn btn-red">
-          <span>DÜRÜST TARİHÇEYİ İNCELE</span>
+          <span data-i18n="hero.btn_history">DÜRÜST TARİHÇEYİ İNCELE</span>
           <span>&darr;</span>
         </a>
         <a href="#ransom-kurali" class="btn btn-outline-red">
-          <span>MLE_RANSOM_BEHAVIOR KURALI</span>
+          <span data-i18n="hero.btn_ransom">MLE_RANSOM_BEHAVIOR KURALI</span>
           <span>&darr;</span>
         </a>
         <a href="wiki/index.html" class="btn btn-ghost">
-          <span>DOKÜMANTASYON WİKİSİ</span>
+          <span data-i18n="hero.btn_wiki">DOKÜMANTASYON WİKİSİ</span>
           <span>&nearr;</span>
         </a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost">
-          <span>KAYNAK KODLARINI İNCELE</span>
+          <span data-i18n="hero.btn_code">KAYNAK KODLARINI İNCELE</span>
           <span>&nearr;</span>
         </a>
       </div>
@@ -1566,19 +1590,19 @@
       <div class="stats-strip">
         <div class="stat-card">
           <div class="stat-val red">2023 &rarr; 2026</div>
-          <div class="stat-lbl">Antivirus.sln Başlangıç Kabulü & Gelişim</div>
+          <div class="stat-lbl" data-i18n="hero.stat1_lbl">Antivirus.sln Başlangıç Kabulü & Gelişim</div>
         </div>
         <div class="stat-card">
-          <div class="stat-val green">%100 AÇIK</div>
-          <div class="stat-lbl">Denetlenebilir C / C++ & Rust</div>
+          <div class="stat-val green" data-i18n="hero.stat2_val">%100 AÇIK</div>
+          <div class="stat-lbl" data-i18n="hero.stat2_lbl">Denetlenebilir C / C++ & Rust</div>
         </div>
         <div class="stat-card">
           <div class="stat-val amber">RING-0 & EDR</div>
-          <div class="stat-lbl">BYOVD & Kernel Seviyesi Koruma</div>
+          <div class="stat-lbl" data-i18n="hero.stat3_lbl">BYOVD & Kernel Seviyesi Koruma</div>
         </div>
         <div class="stat-card">
           <div class="stat-val text-cyan">DUAL-STAGE ML</div>
-          <div class="stat-lbl">Statik PE Başlıkları + Dinamik Davranış</div>
+          <div class="stat-lbl" data-i18n="hero.stat4_lbl">Statik PE Başlıkları + Dinamik Davranış</div>
         </div>
       </div>
     </section>
@@ -1586,11 +1610,11 @@
     <!-- VIRUSKOV LIVE THREAT INTELLIGENCE (OPENTIP) SECTION -->
     <section class="section-wrap" id="threat-intel">
       <div class="section-header">
-        <div class="section-tag" style="background: rgba(0, 255, 102, 0.1); border-color: rgba(0, 255, 102, 0.3); color: var(--accent-green);">
+        <div class="section-tag" style="background: rgba(0, 255, 102, 0.1); border-color: rgba(0, 255, 102, 0.3); color: var(--accent-green);" data-i18n="ti.section_tag">
           CANLI TOPLULUK TELEMETRİSİ &amp; OPENTIP
         </div>
-        <h2 class="section-title">VirusKov Threat Intelligence &amp; Hash Lookup</h2>
-        <p class="section-desc">
+        <h2 class="section-title" data-i18n="ti.section_title">VirusKov Threat Intelligence &amp; Hash Lookup</h2>
+        <p class="section-desc" data-i18n="ti.section_desc">
           VirusKov uç nokta tarayıcılarından toplanan gerçek zamanlı tehdit yayılım (prevalence) veritabanı. 
           VirusKov küresel istihbarat ağında SHA-256 hash sorgulayın veya canlı telemetri akışını takip edin:
         </p>
@@ -1803,9 +1827,9 @@
     <!-- COMPLETE HONEST HISTORY & CHRONOLOGY SECTION -->
     <section class="section-wrap" id="tarihce">
       <div class="section-header">
-        <div class="section-tag">BELGELİ & ŞEFFAF KRONOLOJİ</div>
-        <h2 class="section-title">Viruskov'un Gerçek ve Sansürsüz Tarihçesi</h2>
-        <p class="section-desc">
+        <div class="section-tag" data-i18n="hist.tag">BELGELİ & ŞEFFAF KRONOLOJİ</div>
+        <h2 class="section-title" data-i18n="hist.title">Viruskov'un Gerçek ve Sansürsüz Tarihçesi</h2>
+        <p class="section-desc" data-i18n="hist.desc">
           Başlangıç bir Avast forumu hesabıydı. Sonra 1,5 yıl satranç, birkaç başarısız proje ve uzun bir Discord geçmişi geldi. Aşağıda ne olduğu, ne zaman olduğu ve bağlantıları ne olduğuyla birlikte var:
         </p>
       </div>
@@ -1814,15 +1838,15 @@
         <!-- CONTROLS & FILTER -->
         <div class="history-controls">
           <div class="filter-btn-group">
-            <button class="filter-btn active" data-filter="all">TÜMÜ (Kronolojik)</button>
-            <button class="filter-btn" data-filter="roots">Ön Geçmiş & Temeller (2019-2022)</button>
-            <button class="filter-btn" data-filter="birth">2023 Doğuş (Antivirus.sln & Hydra)</button>
-            <button class="filter-btn" data-filter="alliances">2024 Dostlar & İttifak</button>
-            <button class="filter-btn" data-filter="kernel">Teknik & Kernel Çağı</button>
+            <button class="filter-btn active" data-filter="all" data-i18n="hist.filter_all">TÜMÜ (Kronolojik)</button>
+            <button class="filter-btn" data-filter="roots" data-i18n="hist.filter_roots">Ön Geçmiş & Temeller (2019-2022)</button>
+            <button class="filter-btn" data-filter="birth" data-i18n="hist.filter_birth">2023 Doğuş (Antivirus.sln & Hydra)</button>
+            <button class="filter-btn" data-filter="alliances" data-i18n="hist.filter_alliances">2024 Dostlar & İttifak</button>
+            <button class="filter-btn" data-filter="kernel" data-i18n="hist.filter_kernel">Teknik & Kernel Çağı</button>
           </div>
           <div class="history-search-box">
             <span style="color: var(--accent-red); font-family: var(--font-mono); font-size: 0.8rem;">[ARA]</span>
-            <input type="text" id="historySearch" class="history-search-input" placeholder="Tarih, kişi, motor veya link ara...">
+            <input type="text" id="historySearch" class="history-search-input" placeholder="Tarih, kişi, motor veya link ara..." data-i18n-placeholder="hist.search_ph">
           </div>
         </div>
 
@@ -2127,9 +2151,9 @@
     <!-- TECHNICAL EVOLUTION PIPELINE SECTION -->
     <section class="section-wrap" id="teknik-evrim">
       <div class="section-header">
-        <div class="section-tag">KOD VE MOTOR MİMARİSİ ADIMLARI</div>
-        <h2 class="section-title">Teknik Motor Evrimi: Hash'ten Kernel EDR'a</h2>
-        <p class="section-desc">
+        <div class="section-tag" data-i18n="evo.tag">KOD VE MOTOR MİMARİSİ ADIMLARI</div>
+        <h2 class="section-title" data-i18n="evo.title">Teknik Motor Evrimi: Hash'ten Kernel EDR'a</h2>
+        <p class="section-desc" data-i18n="evo.desc">
           Hash eşleştirmesiyle başladı; yerine kernel, kural motoru ve makine öğrenimi geldi. Süreç:
         </p>
       </div>
@@ -2252,9 +2276,9 @@
     <!-- MANIFESTO SECTION -->
     <section class="section-wrap" id="manifesto">
       <div class="section-header">
-        <div class="section-tag">TEHDİT VE DİRENİŞ ANALİZİ</div>
-        <h2 class="section-title">Neden Kapalı Antivirüsler Çöküyor?</h2>
-        <p class="section-desc">
+        <div class="section-tag" data-i18n="manif.tag">TEHDİT VE DİRENİŞ ANALİZİ</div>
+        <h2 class="section-title" data-i18n="manif.title">Neden Kapalı Antivirüsler Çöküyor?</h2>
+        <p class="section-desc" data-i18n="manif.desc">
           Kutunun kapalı olması, içinde ne olduğunu göstermez. Viruskov'daki fark şu:
         </p>
       </div>
@@ -2339,9 +2363,9 @@
     <!-- REAL ARCHITECTURE SECTION -->
     <section class="section-wrap" id="mimari">
       <div class="section-header">
-        <div class="section-tag">MÜHENDİSLİK ÇEKİRDEĞİ</div>
-        <h2 class="section-title">Gerçek ve Repodan Güç Alan Özellikler</h2>
-        <p class="section-desc">
+        <div class="section-tag" data-i18n="arch.tag">MÜHENDİSLİK ÇEKİRDEĞİ</div>
+        <h2 class="section-title" data-i18n="arch.title">Gerçek ve Repodan Güç Alan Özellikler</h2>
+        <p class="section-desc" data-i18n="arch.desc">
           Repo genelinde derlenmiş ve aktif olarak entegre edilmiş kurumsal modüller:
         </p>
       </div>
@@ -2436,9 +2460,9 @@
     <!-- COMMUNITY & ALLIANCE SECTION -->
     <section class="section-wrap" id="ittifak">
       <div class="section-header">
-        <div class="section-tag">DOSTLAR, KATKIDA BULUNANLAR VE İTTİFAK</div>
-        <h2 class="section-title">Topluluk ve Dayanışma Masası</h2>
-        <p class="section-desc">
+        <div class="section-tag" data-i18n="team.tag">DOSTLAR, KATKIDA BULUNANLAR VE İTTİFAK</div>
+        <h2 class="section-title" data-i18n="team.title">Topluluk ve Dayanışma Masası</h2>
+        <p class="section-desc" data-i18n="team.desc">
           Bu depoya katkı verenler ve destekçiler:
         </p>
       </div>
@@ -2568,9 +2592,9 @@
     <!-- ==================================================================== -->
     <section class="section-wrap" id="ransom-kurali">
       <div class="section-header">
-        <div class="section-tag">TESPİT KURALLARI WİKİSİ &bull; ÖZEL DOKÜMANTASYON</div>
-        <h2 class="section-title">MLE_RANSOM_BEHAVIOR: Fidye Yazılımı Kuralının Tam Anatomisi</h2>
-        <p class="section-desc">
+        <div class="section-tag" data-i18n="ransom.tag">TESPİT KURALLARI WİKİSİ &bull; ÖZEL DOKÜMANTASYON</div>
+        <h2 class="section-title" data-i18n="ransom.title">MLE_RANSOM_BEHAVIOR: Fidye Yazılımı Kuralının Tam Anatomisi</h2>
+        <p class="section-desc" data-i18n="ransom.desc">
           Bu projenin en iddialı kuralı, imza değil — davranıştır. Tamamını, her detayıyla,
           kaynak koddan doğrulanmış biçimde <a href="wiki/index.html" style="color: var(--accent-red); font-weight: 700;">VIRUSKOV Wiki</a>
           sayfamızda belgeledik. Aşağıda kuralın özeti ve mimari haritası var.
@@ -2811,13 +2835,13 @@
     <section class="section-wrap" id="wiki">
       <div class="wiki-panel">
         <div class="wiki-panel-header">
-          <h2 class="wiki-panel-title">
+          <h2 class="wiki-panel-title" data-i18n="wiki_sec.title">
             <span class="text-cyan">▤</span> Viruskov Wiki &amp; Destek Masası
           </h2>
-          <span class="badge-pill" style="background: rgba(0,229,255,0.15); color:#00e5ff; font-weight:700;">KAYNAK KODLA DOĞRULANMIŞ</span>
+          <span class="badge-pill" style="background: rgba(0,229,255,0.15); color:#00e5ff; font-weight:700;" data-i18n="wiki_sec.badge">KAYNAK KODLA DOĞRULANMIŞ</span>
         </div>
 
-        <div class="wiki-notice">
+        <div class="wiki-notice" data-i18n="wiki_sec.notice">
           <strong>BİLGİLENDİRME:</strong> Daha önce bu bölümde bir bağış politikası yer alıyordu.
           Artık bağış <strong>hiçbir aracı platform, komisyon veya üçüncü taraf hesap üzerinden
           yürütülmüyor</strong>. Projeye katkıda bulunmak, ek kural yazmak, ya da finansal destek
@@ -2827,9 +2851,9 @@
 
         <div class="wiki-cards">
           <a href="wiki/index.html" class="wiki-card">
-            <div class="wiki-card-tag">WİKİ &bull; 20 BÖLÜM</div>
-            <h3 class="wiki-card-title">MLE_RANSOM_BEHAVIOR — Tam Dokümantasyon</h3>
-            <p class="wiki-card-desc">
+            <div class="wiki-card-tag" data-i18n="wiki_sec.card_tag">WİKİ &bull; 20 BÖLÜM</div>
+            <h3 class="wiki-card-title" data-i18n="wiki_sec.card_title">MLE_RANSOM_BEHAVIOR — Tam Dokümantasyon</h3>
+            <p class="wiki-card-desc" data-i18n="wiki_sec.card_desc">
               Kuralın 16 maddesi, 5 aşaması, 9 süzgütü, <code>distinctCounter</code> semantiği,
               Q24 Shannon entropi hesabı, kernel IRP eşlemesi, yanıt zinciri, 12 gerekçe ve
               bilinen sınır/kusurların tam listesi. Kaynak satırlarıyla birlikte.

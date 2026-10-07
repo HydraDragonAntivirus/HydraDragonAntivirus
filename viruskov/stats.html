@@ -37,6 +37,7 @@
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { max-width: 100vw; overflow-x: clip; }
     html { scroll-behavior: smooth; }
 
     body {
@@ -57,7 +58,7 @@
     ::-webkit-scrollbar-thumb { background: var(--border-strong); }
     ::-webkit-scrollbar-thumb:hover { background: var(--accent-red); }
 
-    .container { max-width: 1320px; margin: 0 auto; padding: 0 24px; }
+    .container { max-width: 1320px; margin: 0 auto; padding: 0 20px; width: 100%; box-sizing: border-box; }
     .mono { font-family: var(--font-mono); }
 
     /* Top Strip */
@@ -68,8 +69,9 @@
       font-size: 0.72rem;
       color: var(--text-muted);
       padding: 6px 0;
+      overflow-x: clip;
     }
-    .telemetry-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .telemetry-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
     .status-dot {
       width: 7px; height: 7px; background: var(--accent-green); border-radius: 50%;
       box-shadow: 0 0 8px var(--accent-green);
@@ -87,15 +89,19 @@
       background: rgba(6, 9, 10, 0.94);
       backdrop-filter: blur(14px);
       position: sticky; top: 0; z-index: 1000;
+      width: 100%;
+      overflow-x: clip;
     }
-    .header-inner { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; gap: 16px; }
-    .brand-link { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .header-inner { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; gap: 12px; max-width: 100%; box-sizing: border-box; }
+    .brand-link { display: flex; align-items: center; gap: 12px; text-decoration: none; flex-shrink: 0; }
     .brand-logo-img { height: 32px; width: auto; }
 
-    nav { display: flex; align-items: center; gap: 18px; }
+    nav { display: flex; align-items: center; gap: 16px; }
+    @media (max-width: 900px) { nav { display: none; } }
     nav a {
       color: var(--text-muted); text-decoration: none; font-size: 0.88rem; font-weight: 500;
       transition: color 0.2s ease;
+      white-space: nowrap;
     }
     nav a:hover, nav a.active { color: #fff; }
 

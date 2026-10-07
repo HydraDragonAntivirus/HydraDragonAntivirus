@@ -42,12 +42,16 @@
 
     html { scroll-behavior: smooth; scroll-padding-top: 100px; }
 
+    html, body {
+      max-width: 100vw;
+      overflow-x: clip;
+    }
+
     body {
       background-color: var(--bg-base);
       color: var(--text-main);
       font-family: var(--font-display);
       min-height: 100vh;
-      overflow-x: hidden;
       line-height: 1.6;
       background-image:
         linear-gradient(rgba(255, 51, 68, 0.025) 1px, transparent 1px),
@@ -95,25 +99,27 @@
       background: rgba(6, 9, 10, 0.94);
       backdrop-filter: blur(14px);
       position: sticky; top: 0; z-index: 1000;
+      width: 100%;
+      overflow-x: clip;
     }
-    .header-inner { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; gap: 20px; }
-    .brand-link { display: flex; align-items: center; gap: 14px; text-decoration: none; }
-    .brand-logo-img { height: 32px; width: auto; display: block; }
-    nav { display: flex; align-items: center; gap: 20px; }
-    @media (max-width: 1180px) { nav { display: none; } }
-    .nav-link {
-      font-family: var(--font-mono); font-size: 0.74rem; color: var(--text-muted);
-      text-decoration: none; text-transform: uppercase; letter-spacing: 1px;
-      transition: color 0.2s ease; display: inline-flex; align-items: center; gap: 4px;
+    .header-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      gap: 12px;
+      max-width: 100%;
+      box-sizing: border-box;
     }
-    .nav-link:hover { color: var(--text-main); }
-    .nav-link.highlight { color: var(--accent-red); font-weight: 700; }
-    .header-actions { display: flex; align-items: center; gap: 10px; }
+    .brand-link { display: flex; align-items: center; gap: 12px; text-decoration: none; flex-shrink: 0; }
+    .brand-logo-img { height: 30px; width: auto; display: block; }
+    .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
     .btn {
-      font-family: var(--font-mono); font-size: 0.8rem; font-weight: 700; text-decoration: none;
-      padding: 11px 20px; display: inline-flex; align-items: center; gap: 10px;
+      font-family: var(--font-mono); font-size: 0.76rem; font-weight: 700; text-decoration: none;
+      padding: 8px 14px; display: inline-flex; align-items: center; gap: 8px;
       transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); cursor: pointer; border: none;
       text-transform: uppercase; letter-spacing: 0.5px;
+      white-space: nowrap;
     }
     .btn-red { background: var(--accent-red); color: #fff; border: 1px solid var(--accent-red); box-shadow: 0 4px 20px var(--accent-red-glow); }
     .btn-red:hover { background: var(--accent-red-hover); transform: translateY(-2px); box-shadow: 0 6px 24px var(--accent-red-glow); }
@@ -121,7 +127,7 @@
     .btn-ghost:hover { border-color: var(--border-strong); background: var(--bg-surface-elevated); transform: translateY(-2px); }
     .btn-amber { background: var(--accent-amber); color: #20180a; border: 1px solid var(--accent-amber); }
     .btn-amber:hover { background: #ffc633; transform: translateY(-2px); }
-    .btn-sm { padding: 7px 14px; font-size: 0.72rem; }
+    .btn-sm { padding: 6px 12px; font-size: 0.72rem; }
 
     /* Language Switcher */
     .lang-switch {
@@ -164,13 +170,16 @@
     /* ---------- WIKI LAYOUT ---------- */
     .wiki-layout {
       display: grid;
-      grid-template-columns: 272px minmax(0, 1fr);
-      gap: 40px;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 32px;
       align-items: start;
-      padding: 34px 0 60px;
+      padding: 30px 0 60px;
+      max-width: 100%;
+      box-sizing: border-box;
     }
-    @media (max-width: 1040px) {
-      .wiki-layout { grid-template-columns: 1fr; gap: 26px; }
+    @media (max-width: 1060px) {
+      .wiki-layout { grid-template-columns: 1fr; gap: 24px; }
+      .wiki-tagline { display: none; }
     }
 
     .toc {
@@ -195,7 +204,7 @@
     .toc-sep { height: 1px; background: var(--border-subtle); margin: 12px 0; }
 
     /* ---------- ARTICLE ---------- */
-    article { min-width: 0; }
+    article { min-width: 0; max-width: 100%; overflow-x: clip; }
 
     .crumb {
       font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);
@@ -468,19 +477,10 @@
         <img src="../viruskov-wordmark.svg" alt="VIRUSKOV Logo" class="brand-logo-img">
       </a>
 
-      <nav>
-        <a href="#kunya" class="nav-link highlight" data-i18n="wiki.nav_kunya">Künye</a>
-        <a href="#mimari" class="nav-link" data-i18n="wiki.nav_mimari">Mimari</a>
-        <a href="#anatomi" class="nav-link" data-i18n="wiki.nav_anatomi">Anatomi</a>
-        <a href="#suzgecler" class="nav-link" data-i18n="wiki.nav_suzgecler">Süzgeçler</a>
-        <a href="#sayac" class="nav-link" data-i18n="wiki.nav_sayac">Sayaç</a>
-        <a href="#entropy" class="nav-link" data-i18n="wiki.nav_entropy">Entropi</a>
-        <a href="#kernel" class="nav-link" data-i18n="wiki.nav_kernel">Kernel</a>
-        <a href="#yanit" class="nav-link" data-i18n="wiki.nav_yanit">Yanıt</a>
-        <a href="#neden" class="nav-link" data-i18n="wiki.nav_neden">Neden Mükemmel</a>
-        <a href="#sinirlar" class="nav-link" data-i18n="wiki.nav_sinirlar">Sınırlar</a>
-        <a href="#sss" class="nav-link" data-i18n="wiki.nav_sss">SSS</a>
-      </nav>
+      <div class="wiki-tagline" style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-red); background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); padding: 4px 10px; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;">
+        <span style="display:inline-block; width:6px; height:6px; background:var(--accent-red); border-radius:50%;"></span>
+        <span>MLE_RANSOM_BEHAVIOR &bull; WIKI</span>
+      </div>
 
       <div class="header-actions">
         <div class="lang-switch">
