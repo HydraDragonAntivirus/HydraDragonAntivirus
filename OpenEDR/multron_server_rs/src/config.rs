@@ -5,11 +5,15 @@ use std::path::PathBuf;
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about = "Multron Cloud Scan Server in Rust")]
 pub struct CliArgs {
-    /// Start scanning right away on this address, e.g. 127.0.0.1:9443
+    /// Start scanning right away on this address, e.g. 127.0.0.1:5306
     #[arg(long, default_value = "")]
     pub listen: String,
 
-    /// WebSocket endpoint path used with --listen (default: /scan)
+    /// Port to listen on (default: 5306)
+    #[arg(short, long)]
+    pub port: Option<u16>,
+
+    /// WebSocket endpoint path used with --listen (default: /ws)
     #[arg(long, default_value = "")]
     pub path: String,
 
@@ -218,9 +222,9 @@ impl Default for SavedSettings {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_string(),
-            port: 9443,
-            path: "/scan".to_string(),
-            autostart: false,
+            port: 5306,
+            path: "/ws".to_string(),
+            autostart: true,
             keep_threats: true,
             keep_clean: false,
             compress_low_disk: true,

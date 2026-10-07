@@ -61,7 +61,11 @@ impl AppState {
             }
         }
 
-        // CLI --listen overrides saved address
+        // CLI --port, --listen, or --path overrides saved address
+        if let Some(port) = cfg.port {
+            settings.port = port;
+            settings.autostart = true;
+        }
         if !cfg.listen.is_empty() {
             if let Ok(addr) = cfg.listen.parse::<SocketAddr>() {
                 settings.host = addr.ip().to_string();
@@ -70,7 +74,11 @@ impl AppState {
             }
         }
         if !cfg.path.is_empty() {
-            settings.path = cfg.path.clone();
+            let mut p = cfg.path.clone();
+            if !p.starts_with('/') {
+                p = format!("/{}", p);
+            }
+            settings.path = p;
         }
 
         // Limits saved from the dashboard win over the command-line defaults.
