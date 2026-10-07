@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="i18n.js"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -87,7 +88,7 @@
       backdrop-filter: blur(14px);
       position: sticky; top: 0; z-index: 1000;
     }
-    .header-inner { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; gap: 20px; }
+    .header-inner { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; gap: 16px; }
     .brand-link { display: flex; align-items: center; gap: 12px; text-decoration: none; }
     .brand-logo-img { height: 32px; width: auto; }
 
@@ -108,6 +109,44 @@
     .btn-ghost { background: var(--bg-surface-elevated); border-color: var(--border-subtle); color: var(--text-main); }
     .btn-ghost:hover { border-color: var(--accent-cyan); color: #fff; }
     .btn-sm { font-size: 0.72rem; padding: 4px 10px; }
+
+    /* Language Switcher */
+    .lang-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .lang-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 4px;
+      font-family: inherit;
+      font-size: inherit;
+      font-weight: inherit;
+      transition: all 0.2s ease;
+      border-radius: 2px;
+    }
+    .lang-btn:hover {
+      color: #fff;
+    }
+    .lang-btn.active {
+      color: var(--accent-cyan);
+      background: rgba(0, 229, 255, 0.1);
+      text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+    }
+    .lang-sep {
+      color: var(--text-dim);
+      font-size: 0.68rem;
+    }
 
     /* Hero / Stat Cards */
     .hero-strip {
@@ -250,13 +289,13 @@
     <div class="container telemetry-inner">
       <div style="display: flex; align-items: center; gap: 8px;">
         <span class="status-dot"></span>
-        <span>VIRUSKOV SOC INTELLIGENCE &bull; WSS:5306 &bull; ECS 9.5.4</span>
+        <span data-i18n="top.soc_status">VIRUSKOV SOC INTELLIGENCE • WSS:5306 • ECS 9.5.4</span>
       </div>
       <div>
-        <span>GÖZLEM: HER 8 SANİYEDE BİR OTOMATİK SENKRONİZE</span>
+        <span data-i18n="top.sync_rate">GÖZLEM: HER 8 SANİYEDE BİR OTOMATİK SENKRONİZE</span>
       </div>
       <div>
-        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color:var(--text-main); text-decoration:none;">
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color:var(--text-main); text-decoration:none;" data-i18n="top.repo">
           GITHUB REPO &rarr;
         </a>
       </div>
@@ -271,18 +310,25 @@
       </a>
 
       <nav>
-        <a href="index.html">Ana Sayfa</a>
-        <a href="index.html#threat-intel">Canlı Tarayıcı</a>
-        <a href="stats.html" class="active" style="color: var(--accent-cyan); font-weight:700;">📊 İstatistikler &amp; SOC</a>
-        <a href="wiki/index.html">Wiki &amp; Dokümantasyon</a>
+        <a href="index.html" data-i18n="nav.home">Ana Sayfa</a>
+        <a href="index.html#threat-intel" data-i18n="nav.scanner">Canlı Tarayıcı</a>
+        <a href="stats.html" class="active" style="color: var(--accent-cyan); font-weight:700;" data-i18n="nav.stats">📊 İstatistikler &amp; SOC</a>
+        <a href="wiki/index.html" data-i18n="nav.wiki_docs">Wiki &amp; Dokümantasyon</a>
       </nav>
 
-      <div style="display: flex; gap: 10px;">
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <!-- Language Switcher -->
+        <div class="lang-switch">
+          <button type="button" class="lang-btn active" data-lang="tr">TR</button>
+          <span class="lang-sep">/</span>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
+
         <a href="index.html#threat-intel" class="btn btn-red btn-sm">
-          <span>⚡ DOSYA TARA</span>
+          <span data-i18n="nav.scan_file_btn">⚡ DOSYA TARA</span>
         </a>
         <a href="wiki/index.html" class="btn btn-ghost btn-sm">
-          <span>WİKİ &nearr;</span>
+          <span data-i18n="nav.wiki_btn">WİKİ &nearr;</span>
         </a>
       </div>
     </div>
@@ -291,8 +337,8 @@
   <main class="container">
     <!-- HERO -->
     <div class="hero-strip">
-      <h1 class="hero-title">Tehdit Telemetrisi &amp; Canlı İstatistikler</h1>
-      <p class="hero-desc">
+      <h1 class="hero-title" data-i18n="stats.title">Tehdit Telemetrisi &amp; Canlı İstatistikler</h1>
+      <p class="hero-desc" data-i18n="stats.desc">
         VirusKov küresel telemetri ağı, tersine mühendislik motoru, entropi analizi ve davranışsal kurallarla elde edilen canlı tehdit metrikleri.
       </p>
 
@@ -300,23 +346,23 @@
       <div class="stat-grid">
         <div class="stat-card c-cyan">
           <div class="stat-card-val text-cyan" id="tiTotalHashes">—</div>
-          <div class="stat-card-lbl">Benzersiz SHA-256 Hash</div>
+          <div class="stat-card-lbl" data-i18n="stat.total_hashes">Benzersiz SHA-256 Hash</div>
         </div>
         <div class="stat-card c-red">
           <div class="stat-card-val text-red" id="tiMalicious" style="color:var(--accent-red);">—</div>
-          <div class="stat-card-lbl">Engellenen Zararlı (Malicious)</div>
+          <div class="stat-card-lbl" data-i18n="stat.malicious">Engellenen Zararlı (Malicious)</div>
         </div>
         <div class="stat-card c-amber">
           <div class="stat-card-val" id="tiSuspicious" style="color:var(--accent-amber);">—</div>
-          <div class="stat-card-lbl">Şüpheli / Sezgisel (Suspicious)</div>
+          <div class="stat-card-lbl" data-i18n="stat.suspicious">Şüpheli / Sezgisel (Suspicious)</div>
         </div>
         <div class="stat-card c-green">
           <div class="stat-card-val" id="tiClean" style="color:var(--accent-green);">—</div>
-          <div class="stat-card-lbl">Doğrulanmış Temiz (Clean)</div>
+          <div class="stat-card-lbl" data-i18n="stat.clean">Doğrulanmış Temiz (Clean)</div>
         </div>
         <div class="stat-card c-gray">
           <div class="stat-card-val" id="tiUnknown" style="color:#b0bec5;">—</div>
-          <div class="stat-card-lbl">İmzasız / Bilinmeyen (Unknown)</div>
+          <div class="stat-card-lbl" data-i18n="stat.unknown">İmzasız / Bilinmeyen (Unknown)</div>
         </div>
       </div>
     </div>
@@ -325,7 +371,7 @@
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
-          <span>🌐</span> Global Tehdit Dağılım Oranları
+          <span>🌐</span> <span data-i18n="ratio.title">Global Tehdit Dağılım Oranları</span>
         </div>
         <div class="mono" style="font-size:0.8rem; color:var(--text-muted);" id="statTotalSightings">
           Toplam Gözlem: 0
@@ -344,22 +390,22 @@
       <div class="ratio-legend">
         <div class="legend-item">
           <span class="legend-dot" style="background:var(--accent-red);"></span>
-          <span style="color:var(--text-muted);">Zararlı (Malicious):</span>
+          <span style="color:var(--text-muted);" data-i18n="ratio.malicious">Zararlı (Malicious):</span>
           <b style="color:var(--accent-red); margin-left:auto;" id="pctMalicious">%0</b>
         </div>
         <div class="legend-item">
           <span class="legend-dot" style="background:var(--accent-amber);"></span>
-          <span style="color:var(--text-muted);">Şüpheli (Suspicious):</span>
+          <span style="color:var(--text-muted);" data-i18n="ratio.suspicious">Şüpheli (Suspicious):</span>
           <b style="color:var(--accent-amber); margin-left:auto;" id="pctSuspicious">%0</b>
         </div>
         <div class="legend-item">
           <span class="legend-dot" style="background:var(--accent-green);"></span>
-          <span style="color:var(--text-muted);">Temiz (Clean):</span>
+          <span style="color:var(--text-muted);" data-i18n="ratio.clean">Temiz (Clean):</span>
           <b style="color:var(--accent-green); margin-left:auto;" id="pctClean">%0</b>
         </div>
         <div class="legend-item">
           <span class="legend-dot" style="background:var(--accent-cyan);"></span>
-          <span style="color:var(--text-muted);">Bilinmeyen (Unknown):</span>
+          <span style="color:var(--text-muted);" data-i18n="ratio.unknown">Bilinmeyen (Unknown):</span>
           <b style="color:var(--accent-cyan); margin-left:auto;" id="pctUnknown">%0</b>
         </div>
       </div>
@@ -367,19 +413,19 @@
       <!-- Specification Strip -->
       <div class="specs-grid">
         <div class="spec-item">
-          <div class="spec-lbl">VERİ STANDARDİZASYONU</div>
+          <div class="spec-lbl" data-i18n="spec.standard">VERİ STANDARDİZASYONU</div>
           <div class="spec-val">Elasticsearch ECS 9.5.4</div>
         </div>
         <div class="spec-item">
-          <div class="spec-lbl">MOTOR MİMARİSİ</div>
+          <div class="spec-lbl" data-i18n="spec.engine">MOTOR MİMARİSİ</div>
           <div class="spec-val" style="color:var(--accent-green);">Rust Tokio Multi-Worker</div>
         </div>
         <div class="spec-item">
-          <div class="spec-lbl">BULUT PROTOKOLÜ</div>
+          <div class="spec-lbl" data-i18n="spec.protocol">BULUT PROTOKOLÜ</div>
           <div class="spec-val" style="color:var(--accent-cyan);">WSS:5306 / REST API v1</div>
         </div>
         <div class="spec-item">
-          <div class="spec-lbl">ORİJİN &amp; GÜVENLİK</div>
+          <div class="spec-lbl" data-i18n="spec.origin">ORİJİN &amp; GÜVENLİK</div>
           <div class="spec-val" style="color:var(--accent-amber);">Cloudflare Edge DYNAMIC</div>
         </div>
       </div>
@@ -390,17 +436,17 @@
       <div class="panel-header">
         <div>
           <div class="panel-title">
-            <span>📋</span> Yerel Oturum Tarama Geçmişi &amp; Raporları
+            <span>📋</span> <span data-i18n="history.title">Yerel Oturum Tarama Geçmişi &amp; Raporları</span>
           </div>
-          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="history.desc">
             Bu tarayıcı üzerinden taranan dosyaların kaydedilen sonuçları, skorları ve ECS logları.
           </div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
-          <button id="btnExportJson" class="btn btn-ghost btn-sm">
+          <button id="btnExportJson" class="btn btn-ghost btn-sm" data-i18n="history.export">
             📥 JSON İndir
           </button>
-          <button id="btnClearHistory" class="btn btn-ghost btn-sm" style="color:var(--accent-red);">
+          <button id="btnClearHistory" class="btn btn-ghost btn-sm" style="color:var(--accent-red);" data-i18n="history.clear">
             🗑️ Geçmişi Temizle
           </button>
         </div>
@@ -409,14 +455,14 @@
       <!-- Filters & Search -->
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:14px;">
         <div style="display:flex; gap:6px; flex-wrap:wrap;" id="filterPills">
-          <button class="btn btn-sm btn-red" data-filter="all">Tümü (<span id="cntAll">0</span>)</button>
-          <button class="btn btn-sm btn-ghost" data-filter="malicious">🚨 Zararlı (<span id="cntMal">0</span>)</button>
-          <button class="btn btn-sm btn-ghost" data-filter="suspicious">⚠️ Şüpheli (<span id="cntSusp">0</span>)</button>
-          <button class="btn btn-sm btn-ghost" data-filter="clean">✅ Temiz (<span id="cntClean">0</span>)</button>
-          <button class="btn btn-sm btn-ghost" data-filter="unknown">ℹ️ Bilinmeyen (<span id="cntUnk">0</span>)</button>
+          <button class="btn btn-sm btn-red" data-filter="all"><span data-i18n="history.filter_all">Tümü</span> (<span id="cntAll">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="malicious"><span data-i18n="history.filter_mal">🚨 Zararlı</span> (<span id="cntMal">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="suspicious"><span data-i18n="history.filter_susp">⚠️ Şüpheli</span> (<span id="cntSusp">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="clean"><span data-i18n="history.filter_clean">✅ Temiz</span> (<span id="cntClean">0</span>)</button>
+          <button class="btn btn-sm btn-ghost" data-filter="unknown"><span data-i18n="history.filter_unk">ℹ️ Bilinmeyen</span> (<span id="cntUnk">0</span>)</button>
         </div>
 
-        <input type="text" id="historySearch" placeholder="Dosya adı veya hash ara..."
+        <input type="text" id="historySearch" placeholder="Dosya adı veya hash ara..." data-i18n-placeholder="history.search_ph"
           style="background:var(--bg-terminal); border:1px solid var(--border-subtle); color:#fff; font-family:var(--font-mono); font-size:0.78rem; padding:6px 12px; border-radius:4px; outline:none; min-width:240px;">
       </div>
 
@@ -425,14 +471,14 @@
         <table>
           <thead>
             <tr>
-              <th>Zaman</th>
-              <th>Dosya Adı</th>
-              <th>Boyut</th>
-              <th>Karar</th>
-              <th>Skor</th>
-              <th>Tespit İmzası / Detay</th>
-              <th>SHA-256</th>
-              <th style="text-align:right;">İşlem</th>
+              <th data-i18n="history.th_time">Zaman</th>
+              <th data-i18n="history.th_name">Dosya Adı</th>
+              <th data-i18n="history.th_size">Boyut</th>
+              <th data-i18n="history.th_verdict">Karar</th>
+              <th data-i18n="history.th_score">Skor</th>
+              <th data-i18n="history.th_sig">Tespit İmzası / Detay</th>
+              <th data-i18n="history.th_hash">SHA-256</th>
+              <th style="text-align:right;" data-i18n="history.th_action">İşlem</th>
             </tr>
           </thead>
           <tbody id="historyTableBody">
@@ -444,7 +490,7 @@
       <!-- Detail Box for inspecting past scan in full ECS format -->
       <div id="historyDetailModal" style="display: none;" class="modal-box">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <span style="font-weight: 700; color: var(--accent-cyan);" id="historyDetailTitle">📄 Tarama Rapor Detayı (ECS 9.5.4)</span>
+          <span style="font-weight: 700; color: var(--accent-cyan);" id="historyDetailTitle" data-i18n="history.modal_title">📄 Tarama Rapor Detayı (ECS 9.5.4)</span>
           <button id="btnCloseDetail" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">&times;</button>
         </div>
         <pre id="historyDetailJson"></pre>
@@ -455,18 +501,19 @@
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
-          <span>🔍</span> Anlık Telemetri Hash Sorgulayıcı (OpenTIP)
+          <span>🔍</span> <span data-i18n="lookup.title">Anlık Telemetri Hash Sorgulayıcı (OpenTIP)</span>
         </div>
-        <div style="font-size:0.8rem; color:var(--text-muted);">
+        <div style="font-size:0.8rem; color:var(--text-muted);" data-i18n="lookup.desc">
           SHA-256 sorgulayarak VirusKov telemetri havuzundaki anlık kaydı kontrol edin.
         </div>
       </div>
 
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
         <input id="quickHashInput" type="text" placeholder="64 karakterli SHA-256 hash girin (örn: cf89be2f5702f70de92fbc861579d945c632a1c05d0ef60a9dfb24f2a818912c)..."
+          data-i18n-placeholder="lookup.placeholder"
           style="flex: 1; min-width: 280px; padding: 10px 14px; background: var(--bg-terminal); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; border-radius: 4px; outline: none;">
         <button id="quickSearchBtn" class="btn btn-red" style="padding: 10px 20px;">
-          SORGULA &nearr;
+          <span data-i18n="lookup.btn">SORGULA &nearr;</span>
         </button>
       </div>
 
@@ -478,14 +525,14 @@
   <footer>
     <div class="container footer-inner">
       <div>
-        &copy; 2026 <strong>VIRUSKOV</strong> &bull; Açık Kaynak Kurumsal EDR & Antivirüs Sistemi.<br>
-        Proje Lideri: <strong>Emirhan Uçan</strong> (<span style="color:var(--accent-red);">hydra_dragon_antivirus</span>)
+        <span data-i18n="footer.copy">&copy; 2026 <b>VIRUSKOV</b> &bull; Açık Kaynak Kurumsal EDR &amp; Antivirüs Sistemi.</span><br>
+        <span data-i18n="footer.lead">Proje Lideri: <b>Emirhan Uçan</b> (<span style="color:var(--accent-red);">hydra_dragon_antivirus</span>)</span>
       </div>
       <div class="footer-links">
-        <a href="index.html">Ana Sayfa</a>
-        <a href="index.html#threat-intel">Canlı Tarayıcı</a>
-        <a href="stats.html" style="color:var(--accent-cyan); font-weight:700;">İstatistikler</a>
-        <a href="wiki/index.html">Wiki Dokümantasyonu</a>
+        <a href="index.html" data-i18n="nav.home">Ana Sayfa</a>
+        <a href="index.html#threat-intel" data-i18n="nav.scanner">Canlı Tarayıcı</a>
+        <a href="stats.html" style="color:var(--accent-cyan); font-weight:700;" data-i18n="nav.stats">İstatistikler</a>
+        <a href="wiki/index.html" data-i18n="nav.wiki_docs">Wiki Dokümantasyonu</a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank">GitHub Repo</a>
       </div>
     </div>
@@ -513,11 +560,12 @@
             if (elMal) elMal.textContent = Number(t.verdicts.malicious).toLocaleString();
             if (elSusp) elSusp.textContent = Number(t.verdicts.suspicious).toLocaleString();
             if (elClean) elClean.textContent = Number(t.verdicts.clean).toLocaleString();
-            if (elUnknown && t.verdicts.unknown !== undefined) {
+            if (elUnknown && t.verdicts && t.verdicts.unknown !== undefined) {
               elUnknown.textContent = Number(t.verdicts.unknown).toLocaleString();
             }
             if (elTotalSightings) {
-              elTotalSightings.textContent = `Toplam Gözlem: ${Number(t.total_sightings || 0).toLocaleString()}`;
+              const prefix = window.ViruskovI18n ? window.ViruskovI18n.t('ratio.total_sightings') : 'Toplam Gözlem:';
+              elTotalSightings.textContent = `${prefix} ${Number(t.total_sightings || 0).toLocaleString()}`;
             }
 
             // Calculate ratios
@@ -568,6 +616,8 @@
       const tbody = document.getElementById('historyTableBody');
       if (!tbody) return;
 
+      const t = (k) => (window.ViruskovI18n ? window.ViruskovI18n.t(k) : k);
+
       // Update counts
       const cntAll = history.length;
       const cntMal = history.filter(h => h.verdict === 'malicious').length;
@@ -598,8 +648,8 @@
           <tr>
             <td colspan="8" style="text-align: center; padding: 32px 14px; color: var(--text-muted);">
               ${history.length === 0 
-                ? 'Henüz bu tarayıcıda taranmış dosya kaydı yok. <a href="index.html#threat-intel" style="color:var(--accent-red); font-weight:700;">Canlı Tarayıcı</a> üzerinden bir dosya analiz ederek ilk kaydı oluşturabilirsiniz.'
-                : 'Filtreye uygun dosya kaydı bulunamadı.'}
+                ? `${t('history.empty')} <a href="index.html#threat-intel" style="color:var(--accent-red); font-weight:700;">${t('nav.scanner')}</a>`
+                : t('history.empty_filter')}
             </td>
           </tr>
         `;
@@ -642,7 +692,7 @@
     window.copyHash = function(hash) {
       if (!hash) return;
       navigator.clipboard.writeText(hash).then(() => {
-        alert('SHA-256 hash panoya kopyalandı:\n' + hash);
+        alert('SHA-256 hash copied:\n' + hash);
       });
     };
 
@@ -655,7 +705,7 @@
       const jsonPre = document.getElementById('historyDetailJson');
       const title = document.getElementById('historyDetailTitle');
 
-      title.textContent = `📄 ${rec.fileName || 'Dosya'} &mdash; ECS 9.5.4 Karar Raporu`;
+      title.textContent = `📄 ${rec.fileName || 'Dosya'} &mdash; ECS 9.5.4`;
       jsonPre.textContent = JSON.stringify(rec.rawEcs || rec, null, 2);
       modal.style.display = 'block';
       modal.scrollIntoView({ behavior: 'smooth' });
@@ -706,6 +756,10 @@
         renderHistoryTable();
         document.getElementById('historyDetailModal').style.display = 'none';
       }
+    });
+
+    window.addEventListener('viruskov_lang_changed', () => {
+      renderHistoryTable();
     });
 
     renderHistoryTable();
