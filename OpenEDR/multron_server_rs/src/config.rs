@@ -58,7 +58,7 @@ pub struct CliArgs {
     pub max_mb: i64,
 
     /// New connections one IP may open per minute
-    #[arg(long, default_value_t = 20)]
+    #[arg(long, default_value_t = 120)]
     pub connects_per_min: u32,
 
     /// MB one IP may upload per hour (files answered by hash do not count)
@@ -74,7 +74,7 @@ pub struct CliArgs {
     pub checks_per_sec: u32,
 
     /// Limit violations before an IP is blocked
-    #[arg(long, default_value_t = 3)]
+    #[arg(long, default_value_t = 15)]
     pub ban_strikes: u32,
 
     /// Minutes an IP stays blocked

@@ -807,8 +807,7 @@ async fn session_loop(
             }
         },
         _ => {
-            server.limiter.strike(&session.address);
-            return Err("handshake timeout or invalid initial message".to_string());
+            return Err("handshake timeout or connection closed".to_string());
         }
     };
 
