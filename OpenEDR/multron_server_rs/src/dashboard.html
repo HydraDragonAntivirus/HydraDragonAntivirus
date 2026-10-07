@@ -793,6 +793,10 @@
       vCls = "t-suspicious";
       bgStyle = "var(--orange-bg)";
       borderStyle = "var(--orange)";
+    } else if (verdict === "UNKNOWN") {
+      vCls = "t-unknown";
+      bgStyle = "var(--panel2)";
+      borderStyle = "var(--border)";
     }
 
     const detections = th.detections || [];

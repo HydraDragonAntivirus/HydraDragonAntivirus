@@ -274,11 +274,11 @@
       </a>
 
       <nav>
-        <a href="../index.html" class="nav-link">Ana Sayfa</a>
-        <a href="index.html" class="nav-link active">⚡ Canlı Tarayıcı</a>
-        <a href="../stats.html" class="nav-link">📊 İstatistikler &amp; SOC</a>
-        <a href="../wiki/index.html" class="nav-link">Wiki &amp; Dokümantasyon</a>
-        <a href="../index.html#wiki" class="nav-link">Destek &amp; FP Bildirimi</a>
+        <a href="../index.html" class="nav-link" data-i18n="nav.home">Ana Sayfa</a>
+        <a href="index.html" class="nav-link active" data-i18n="nav.scanner">⚡ Canlı Tarayıcı</a>
+        <a href="../stats.html" class="nav-link" data-i18n="nav.stats">📊 İstatistikler &amp; SOC</a>
+        <a href="../wiki/index.html" class="nav-link" data-i18n="nav.wiki_docs">Wiki &amp; Dokümantasyon</a>
+        <a href="../index.html#wiki" class="nav-link" data-i18n="nav.wiki">Destek &amp; FP Bildirimi</a>
       </nav>
 
       <div class="header-actions">
@@ -288,10 +288,10 @@
           <button type="button" class="lang-btn" data-lang="en">EN</button>
         </div>
         <a href="../stats.html" class="btn btn-ghost btn-sm">
-          <span>📊 İSTATİSTİKLER</span>
+          <span data-i18n="nav.stats_btn">📊 İSTATİSTİKLER</span>
         </a>
         <a href="../wiki/index.html" class="btn btn-ghost btn-sm">
-          <span>WİKİ &rarr;</span>
+          <span data-i18n="nav.wiki_btn">WİKİ &rarr;</span>
         </a>
         <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-red btn-sm">
           <span>REPO &nearr;</span>
@@ -307,19 +307,19 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 24px;">
       <div class="stat-card">
         <div class="stat-val red" id="tiMalicious">—</div>
-        <div class="stat-lbl">Engellenen Zararlı (Malicious)</div>
+        <div class="stat-lbl" data-i18n="stat.malicious">Engellenen Zararlı (Malicious)</div>
       </div>
       <div class="stat-card">
         <div class="stat-val amber" id="tiSuspicious">—</div>
-        <div class="stat-lbl">Şüpheli / Sezgisel (Suspicious)</div>
+        <div class="stat-lbl" data-i18n="stat.suspicious">Şüpheli / Sezgisel (Suspicious)</div>
       </div>
       <div class="stat-card">
         <div class="stat-val green" id="tiClean">—</div>
-        <div class="stat-lbl">Doğrulanmış Temiz (Clean)</div>
+        <div class="stat-lbl" data-i18n="stat.clean">Doğrulanmış Temiz (Clean)</div>
       </div>
       <div class="stat-card">
         <div class="stat-val text-muted" id="tiUnknown">—</div>
-        <div class="stat-lbl">İmzasız / Bilinmeyen (Unknown)</div>
+        <div class="stat-lbl" data-i18n="stat.unknown">İmzasız / Bilinmeyen (Unknown)</div>
       </div>
     </div>
 
@@ -375,9 +375,9 @@
 
           <!-- Privacy & False Positive Notice -->
           <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim);">
-            <span>🔒 Güvenlik &amp; Yasal Uyarı: Sitelerin görünümleri kalıcı depolanmaz; yalnızca canlı DNS/HTTP durumu sorgulanır.</span>
+            <span data-i18n="scan_page.privacy_note">🔒 Güvenlik &amp; Yasal Uyarı: Sitelerin görünümleri kalıcı depolanmaz; yalnızca canlı DNS/HTTP durumu sorgulanır.</span>
             <span>&bull;</span>
-            <a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]%20URL%20Tarama%20Raporu" style="color: var(--accent-cyan); text-decoration: none; font-weight: 700;">
+            <a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]%20URL%20Tarama%20Raporu" data-i18n="scan_page.fp_report" style="color: var(--accent-cyan); text-decoration: none; font-weight: 700;">
               FP/FN Bildirimi: viruskov@viruskov.com &nearr;
             </a>
           </div>
@@ -404,13 +404,13 @@
         <div id="dropZone" style="border: 2px dashed var(--border-strong); border-radius: 8px; padding: 48px 20px; text-align: center; background: var(--bg-surface); cursor: pointer; transition: all 0.2s ease;">
           <input type="file" id="fileScanInput" style="display: none;">
           <div style="font-size: 38px; margin-bottom: 12px;">🛡️</div>
-          <div style="font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
+          <div data-i18n="drop.title" style="font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
             Analiz edilecek dosyayı buraya sürükleyin veya seçmek için tıklayın
           </div>
-          <div style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-muted);">
+          <div data-i18n="drop.types" style="font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-muted);">
             PE, EXE, DLL, ZIP, APK, ELF veya şüpheli belgeler / PDF (Maksimum 50 MB)
           </div>
-          <div style="font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent-cyan); margin-top: 10px;">
+          <div data-i18n="drop.tip" style="font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent-cyan); margin-top: 10px;">
             💡 <b>İpucu:</b> Eklenti (AdBlock / uBlock) engellemesi veya bağlantı hatası yaşarsanız lütfen sayfayı <b>gizli sekmeden (Incognito)</b> açıp deneyin.
           </div>
         </div>
@@ -431,9 +431,9 @@
       <!-- ============================================================ -->
       <div id="paneLookup" style="display: none;">
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <input id="tiHashInput" type="text" placeholder="SHA-256 hash girin (örn: cf89be2f5702f70de92fbc861579d945c632a1c05d0ef60a9dfb24f2a818912c)..."
+          <input id="tiHashInput" type="text" data-i18n-placeholder="lookup.placeholder" placeholder="SHA-256 hash girin (örn: cf89be2f5702f70de92fbc861579d945c632a1c05d0ef60a9dfb24f2a818912c)..."
             style="flex: 1; min-width: 280px; padding: 12px 16px; background: var(--bg-terminal); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: var(--font-mono); font-size: 0.85rem; border-radius: 4px; outline: none;">
-          <button id="tiSearchBtn" class="btn btn-red" style="padding: 12px 24px; cursor: pointer;">
+          <button id="tiSearchBtn" class="btn btn-red" data-i18n="lookup.btn" style="padding: 12px 24px; cursor: pointer;">
             SORGULA &nearr;
           </button>
         </div>
@@ -445,10 +445,10 @@
       <!-- ============================================================ -->
       <div id="paneStats" style="display: none;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-          <div style="font-family: var(--font-display); font-size: 1rem; font-weight: 700; color: #fff;">
+          <div data-i18n="scan_page.history_title" style="font-family: var(--font-display); font-size: 1rem; font-weight: 700; color: #fff;">
             Oturum Tarama Geçmişi &amp; Loglar
           </div>
-          <button onclick="localStorage.removeItem('viruskov_scan_history'); renderHistoryTable();" class="btn btn-sm btn-ghost" style="color:var(--accent-red);">
+          <button onclick="localStorage.removeItem('viruskov_scan_history'); renderHistoryTable();" class="btn btn-sm btn-ghost" data-i18n="scan_page.history_clear" style="color:var(--accent-red);">
             Geçmişi Temizle
           </button>
         </div>
@@ -456,13 +456,13 @@
           <table style="width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.8rem; text-align: left;">
             <thead>
               <tr style="border-bottom: 1px solid var(--border-strong); color: var(--text-muted);">
-                <th style="padding: 8px 12px;">Zaman</th>
-                <th style="padding: 8px 12px;">Hedef</th>
-                <th style="padding: 8px 12px;">Tür</th>
-                <th style="padding: 8px 12px;">Karar</th>
-                <th style="padding: 8px 12px;">Skor</th>
-                <th style="padding: 8px 12px;">Detay</th>
-                <th style="padding: 8px 12px;">SHA-256</th>
+                <th style="padding: 8px 12px;" data-i18n="scan_page.th_time">Zaman</th>
+                <th style="padding: 8px 12px;" data-i18n="scan_page.th_target">Hedef</th>
+                <th style="padding: 8px 12px;" data-i18n="scan_page.th_type">Tür</th>
+                <th style="padding: 8px 12px;" data-i18n="scan_page.th_verdict">Karar</th>
+                <th style="padding: 8px 12px;" data-i18n="scan_page.th_score">Skor</th>
+                <th style="padding: 8px 12px;" data-i18n="scan_page.th_detail">Detay</th>
+                <th style="padding: 8px 12px;" data-i18n="scan_page.th_hash">SHA-256</th>
               </tr>
             </thead>
             <tbody id="scanHistoryTableBody"></tbody>
@@ -475,14 +475,14 @@
     <!-- SUPPORT CALLOUT AT BOTTOM -->
     <div style="background: rgba(0, 229, 255, 0.04); border: 1px solid rgba(0, 229, 255, 0.2); border-left: 4px solid var(--accent-cyan); border-radius: 6px; padding: 20px 22px;">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 8px;">
-        <div style="font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: #fff;">
+        <div data-i18n="scan_page.support_title" style="font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: #fff;">
           📬 Destek &amp; Yanlış Pozitif / Negatif (FP/FN) Masası
         </div>
         <a href="mailto:viruskov@viruskov.com?subject=VirusKov%20Destek%20ve%20FP/FN%20Bildirimi" style="background: var(--accent-cyan); color: #000; font-family: var(--font-mono); font-size: 0.76rem; font-weight: 800; padding: 6px 14px; border-radius: 4px; text-decoration: none;">
           viruskov@viruskov.com &nearr;
         </a>
       </div>
-      <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; margin: 0;">
+      <p data-i18n="scan_page.support_desc" style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; margin: 0;">
         Eski imza listelerinin başkaları tarafından tekrar kullanılması ve meşru sitelere/dosyalara yanlış alarm (FP) üretmesi sebebiyle VirusKov; <b>Makine Öğrenimi (ML) ve Dinamik Whitelist</b> modelini benimsemiştir. Multron Server çekirdeğinde yerleşik URL tarayıcısı bulunmaktadır (özellikle PDF ve belgelere gömülü bağlantılara karşı tarama yapar). Sorularınız veya hatalı tespit bildirimleriniz için doğrudan <b>viruskov@viruskov.com</b> adresine yazabilirsiniz.
       </p>
     </div>
@@ -642,17 +642,20 @@
             return;
           }
 
+          const lang = (window.ViruskovI18n && window.ViruskovI18n.getLang()) || 'tr';
+          const isEn = lang === 'en';
+
           const host = parsed.hostname.toLowerCase();
           urlStatusBox.style.display = 'block';
-          urlStatusTitle.textContent = 'URL Makine Öğrenimi Modeli ile Analiz Ediliyor...';
-          urlStatusDetail.textContent = 'Cloudflare DoH ile DNS A kaydı ve HTTP liveness sorgulanıyor...';
+          urlStatusTitle.textContent = isEn ? 'Inspecting URL with Machine Learning Model...' : 'URL Makine Öğrenimi Modeli ile Analiz Ediliyor...';
+          urlStatusDetail.textContent = isEn ? 'Querying DNS A record via Cloudflare DoH & probing HTTP liveness...' : 'Cloudflare DoH ile DNS A kaydı ve HTTP liveness sorgulanıyor...';
           urlProgressBar.style.width = '30%';
           urlResultBox.style.display = 'none';
 
           // A. Liveness check
           const liveness = await checkDomainLiveness(host, normalized);
           urlProgressBar.style.width = '70%';
-          urlStatusDetail.textContent = 'Tranco Whitelist ve Makine Öğrenimi öznitelikleri değerlendiriliyor...';
+          urlStatusDetail.textContent = isEn ? 'Evaluating Tranco Whitelist & Machine Learning features...' : 'Tranco Whitelist ve Makine Öğrenimi öznitelikleri değerlendiriliyor...';
 
           // B. Whitelist check (Zero-FP Guarantee)
           let isWhitelisted = false;
@@ -671,9 +674,9 @@
           let isHomograph = host.startsWith('xn--') || /[а-яА-Я]/.test(host);
           let isUserinfo = normalized.includes('@');
 
-          let verdict = 'clean';
+          let verdict = 'unknown';
           let score = 0;
-          let threatName = 'WHITELIST_VERIFIED';
+          let threatName = 'UNVERIFIED_DOMAIN';
 
           if (isWhitelisted) {
             verdict = 'clean';
@@ -688,9 +691,9 @@
             score = 40;
             threatName = 'ML_STATISTICAL_ENTROPY_ANOMALY';
           } else {
-            verdict = 'clean';
+            verdict = 'unknown';
             score = 0;
-            threatName = 'ML_BENIGN_REPRESENTATION';
+            threatName = 'ML_UNVERIFIED_BENIGN_REPRESENTATION';
           }
 
           // D. Compute SHA-256
@@ -725,23 +728,45 @@
         urlStatusBox.style.display = 'none';
         urlResultBox.style.display = 'block';
 
+        const lang = (window.ViruskovI18n && window.ViruskovI18n.getLang()) || 'tr';
+        const isEn = lang === 'en';
+
         const isMal = res.verdict === 'malicious';
         const isSusp = res.verdict === 'suspicious';
-        const badgeColor = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : 'var(--accent-green)';
-        const badgeText = isMal ? '🚨 MALICIOUS (ZARARLI URL)' : isSusp ? '⚠️ SUSPICIOUS (ŞÜPHELİ ANOMALİ)' : (res.isWhitelisted ? '✅ CLEAN (DOĞRULANMIŞ WHITELIST)' : '✅ CLEAN (TEMİZ URL)');
+        const isClean = res.verdict === 'clean';
+        const isUnknown = res.verdict === 'unknown';
+
+        const badgeColor = isMal 
+          ? 'var(--accent-red)' 
+          : isSusp 
+          ? 'var(--accent-amber)' 
+          : isClean 
+          ? 'var(--accent-green)' 
+          : 'var(--accent-cyan)';
+
+        const badgeText = isMal 
+          ? (isEn ? '🚨 MALICIOUS (THREAT URL)' : '🚨 MALICIOUS (ZARARLI URL)')
+          : isSusp 
+          ? (isEn ? '⚠️ SUSPICIOUS (ANOMALY)' : '⚠️ SUSPICIOUS (ŞÜPHELİ ANOMALİ)')
+          : isClean 
+          ? (res.isWhitelisted 
+              ? (isEn ? '✅ CLEAN (WHITELIST VERIFIED)' : '✅ CLEAN (DOĞRULANMIŞ WHITELIST)') 
+              : (isEn ? '✅ CLEAN (VERIFIED BENIGN)' : '✅ CLEAN (DOĞRULANMIŞ TEMİZ)'))
+          : (isEn ? 'ℹ️ UNKNOWN (UNLISTED / NO SIGNATURE)' : 'ℹ️ UNKNOWN (LİSTEDE YOK / İMZASIZ)');
+
         const detectionCount = isMal ? '1 / 6' : isSusp ? '1 / 6' : '0 / 6';
 
         const livenessBadge = res.liveness.status === 'ACTIVE'
-          ? '<span style="color:var(--accent-green);">🌐 SİTE AKTİF (DNS: OK / HTTP: ONLINE)</span>'
-          : '<span style="color:var(--text-muted);">💤 SİTE PASİF VEYA ERİŞİLEMEZ</span>';
+          ? (isEn ? '<span style="color:var(--accent-green);">🌐 SITE ACTIVE (DNS: OK / HTTP: ONLINE)</span>' : '<span style="color:var(--accent-green);">🌐 SİTE AKTİF (DNS: OK / HTTP: ONLINE)</span>')
+          : (isEn ? '<span style="color:var(--text-muted);">💤 SITE INACTIVE / UNREACHABLE</span>' : '<span style="color:var(--text-muted);">💤 SİTE PASİF VEYA ERİŞİLEMEZ</span>');
 
         const engines = [
-          { name: 'VirusKov ML Core Engine', category: 'Deep Learning', status: isMal ? 'Malicious' : isSusp ? 'Suspicious' : 'Clean', color: badgeColor },
-          { name: 'Dynamic Whitelist Verifier', category: 'Zero-FP Reputation', status: res.isWhitelisted ? `Verified (*.${res.matchedDomain})` : 'Unlisted (ML Checked)', color: res.isWhitelisted ? 'var(--accent-green)' : 'var(--text-muted)' },
-          { name: 'Domain Liveness Inspector', category: 'DNS DoH & HTTP Probe', status: res.liveness.status === 'ACTIVE' ? 'Site Active & Online' : 'Inactive / Unreachable', color: res.liveness.status === 'ACTIVE' ? 'var(--accent-green)' : 'var(--text-muted)' },
-          { name: 'Homograph & Punycode Shield', category: 'IDN Attack Defense', status: res.threatName.includes('HOMOGRAPH') ? 'Homograph Detected' : 'Clean Script', color: res.threatName.includes('HOMOGRAPH') ? 'var(--accent-red)' : 'var(--accent-green)' },
-          { name: 'Statistical Shannon Classifier', category: 'Entropy Modeling', status: `${res.entropy} bits (Normal)`, color: 'var(--accent-green)' },
-          { name: 'Anti-FP Guard (No Legacy Rules)', category: 'Zero Rule Filter', status: 'Passed (No Reused Signatures)', color: 'var(--accent-green)' }
+          { name: 'VirusKov ML Core Engine', category: 'Deep Learning', status: isMal ? (isEn ? 'Malicious' : 'Zararlı') : isSusp ? (isEn ? 'Suspicious' : 'Şüpheli') : (isEn ? 'Clean' : 'Temiz'), color: badgeColor },
+          { name: 'Dynamic Whitelist Verifier', category: 'Zero-FP Reputation', status: res.isWhitelisted ? `Verified (*.${res.matchedDomain})` : (isEn ? 'Unlisted (ML Checked)' : 'Listede Yok (ML İncelendi)'), color: res.isWhitelisted ? 'var(--accent-green)' : 'var(--text-muted)' },
+          { name: 'Domain Liveness Inspector', category: 'DNS DoH & HTTP Probe', status: res.liveness.status === 'ACTIVE' ? (isEn ? 'Site Active & Online' : 'Site Aktif & Çevrimiçi') : (isEn ? 'Inactive / Unreachable' : 'Pasif / Erişilemez'), color: res.liveness.status === 'ACTIVE' ? 'var(--accent-green)' : 'var(--text-muted)' },
+          { name: 'Homograph & Punycode Shield', category: 'IDN Attack Defense', status: res.threatName.includes('HOMOGRAPH') ? (isEn ? 'Homograph Detected' : 'Homograf Tespit Edildi') : (isEn ? 'Clean Script' : 'Temiz Karakter'), color: res.threatName.includes('HOMOGRAPH') ? 'var(--accent-red)' : 'var(--accent-green)' },
+          { name: 'Statistical Shannon Classifier', category: 'Entropy Modeling', status: `${res.entropy} bits (${isEn ? 'Normal' : 'Olağan'})`, color: 'var(--accent-green)' },
+          { name: 'Anti-FP Guard (Zero Reused Lists)', category: 'Zero Rule Filter', status: isEn ? 'Passed (No Reused Signatures)' : 'Geçti (Eski İmza Yok)', color: 'var(--accent-green)' }
         ];
 
         let html = `
@@ -753,25 +778,25 @@
               <div>
                 <div style="font-family:var(--font-display); font-size:1.25rem; font-weight:800; color:${badgeColor};">${badgeText}</div>
                 <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
-                  Hedef: <span style="color:#fff;">${res.url}</span> &bull; ${livenessBadge}
+                  ${isEn ? 'Target:' : 'Hedef:'} <span style="color:#fff;">${res.url}</span> &bull; ${livenessBadge}
                 </div>
               </div>
             </div>
-            <a href="mailto:viruskov@viruskov.com?subject=URL%20FP/FN%20Bildirimi%20-%20${encodeURIComponent(res.url)}" style="background:rgba(255,51,68,0.1); border:1px solid var(--accent-red); color:#fff; padding:8px 14px; border-radius:4px; text-decoration:none; font-family:var(--font-mono); font-size:0.75rem; font-weight:700;">
-              📩 Hatalı Tespit (FP/FN) Bildir
+            <a href="mailto:viruskov@viruskov.com?subject=URL%20FP/FN%20Report%20-%20${encodeURIComponent(res.url)}" style="background:rgba(255,51,68,0.1); border:1px solid var(--accent-red); color:#fff; padding:8px 14px; border-radius:4px; text-decoration:none; font-family:var(--font-mono); font-size:0.75rem; font-weight:700;">
+              ${isEn ? '📩 Report False Positive (FP/FN)' : '📩 Hatalı Tespit (FP/FN) Bildir'}
             </a>
           </div>
 
           <div style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:6px; padding:12px 16px; margin-bottom:18px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-family:var(--font-mono); font-size:0.78rem;">
-            <div>Alan Adı: <span style="color:#fff; font-weight:700;">${res.host}</span></div>
-            <div>Protokol: <span style="color:var(--accent-cyan);">${res.protocol.toUpperCase()}</span></div>
-            <div>Shannon Entropisi: <span style="color:#fff;">${res.entropy} bits</span></div>
+            <div>${isEn ? 'Domain:' : 'Alan Adı:'} <span style="color:#fff; font-weight:700;">${res.host}</span></div>
+            <div>${isEn ? 'Protocol:' : 'Protokol:'} <span style="color:var(--accent-cyan);">${res.protocol.toUpperCase()}</span></div>
+            <div>${isEn ? 'Shannon Entropy:' : 'Shannon Entropisi:'} <span style="color:#fff;">${res.entropy} bits</span></div>
             <div>SHA-256: <span style="color:var(--accent-cyan);">${urlSha256.slice(0, 16)}...</span></div>
           </div>
 
           <div style="margin-bottom:18px;">
             <div style="font-family:var(--font-display); font-size:0.95rem; font-weight:700; color:#fff; margin-bottom:10px;">
-              🛡️ Güvenlik Motorları ve ML Analiz Sonuçları
+              🛡️ ${isEn ? 'Security Engines & ML Analysis Breakdown' : 'Güvenlik Motorları ve ML Analiz Sonuçları'}
             </div>
             <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(310px, 1fr)); gap:10px;">
               ${engines.map(eng => `

@@ -538,13 +538,17 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
             risk_score = max_score.max((ml_prob * 100.0) as u32);
             verdict_reason = format!("Rule & ML Decision (Suspicious): Suspicious indicators or elevated ML risk score ({risk_score}/100) detected.");
         } else if unwhitelisted_for_ml {
-            verdict = "Clean";
+            verdict = "Unknown";
             risk_score = (ml_prob * 100.0) as u32;
-            verdict_reason = format!("Analysis Result (Clean): No threat indicators detected (evaluated with ML model on unwhitelisted subdomain, prob: {:.1}%).", ml_prob * 100.0);
+            verdict_reason = format!("Analysis Result (Unknown): No malicious indicators detected, but domain is not in global verified whitelist (ML prob: {:.1}%).", ml_prob * 100.0);
+        } else if !is_whitelisted {
+            verdict = "Unknown";
+            risk_score = 0;
+            verdict_reason = "Analysis Result (Unknown): No malicious indicators detected, but domain is unverified / not in global whitelist.".to_string();
         } else {
             verdict = "Clean";
             risk_score = 0;
-            verdict_reason = "Analysis Result (Clean): No threat indicators or suspicious patterns detected.".to_string();
+            verdict_reason = "Analysis Result (Clean): Whitelist verified benign domain with no threat indicators.".to_string();
         }
 
         UrlThreatReport {
