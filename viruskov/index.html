@@ -1607,6 +1607,9 @@
             <div style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);">
               PE, EXE, DLL, ZIP, APK, ELF veya şüpheli belgeler (Maksimum 50 MB)
             </div>
+            <div style="font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent-cyan); margin-top: 8px;">
+              💡 <b>İpucu:</b> Eklenti (AdBlock / uBlock) engellemesi veya bağlantı hatası yaşarsanız lütfen sayfayı <b>gizli sekmeden (Incognito)</b> açıp deneyin.
+            </div>
           </div>
 
           <!-- Scan Progress / Status Box -->
@@ -3038,12 +3041,16 @@
 
         ws.onerror = (e) => {
           errorMessageReceived = true;
-          updateScanStatus('Bağlantı hatası', 'api.viruskov.com Cloudflare Tunnel uç noktasına ulaşılamadı. Lütfen sunucunun açık olduğundan emin olun.', 100);
+          updateScanStatus(
+            'Bağlantı hatası',
+            'api.viruskov.com WebSocket uç noktasına ulaşılamadı. Eklenti (AdBlock / uBlock) engellemesi yaşıyorsanız lütfen sayfayı gizli sekmeden (Incognito) açıp tekrar deneyin.',
+            100
+          );
         };
 
         ws.onclose = () => {
           if (!errorMessageReceived && !uploadStarted && scanStatusBox.style.display !== 'none' && (!scanResultBox || scanResultBox.style.display === 'none')) {
-            updateScanStatus('Bağlantı kapandı', 'Sunucu oturumu sonlandırdı.', 100);
+            updateScanStatus('Bağlantı kapandı', 'Sunucu oturumu sonlandırdı. Sorun devam ederse lütfen gizli sekmeden (Incognito) deneyin.', 100);
           }
         };
       }
@@ -3077,18 +3084,49 @@
 
         scanResultBox.style.display = 'block';
 
-        const isMal = res.verdict === 'malicious';
-        const isSusp = res.verdict === 'suspicious';
-        const isClean = res.verdict === 'clean';
+        // 1. Elasticsearch ECS 9.5.4 uyumlu karar (verdict) çıkarımı
+        const verdict = (
+          (res.antivirus && res.antivirus.verdict) ||
+          (res.rule && res.rule.verdict) ||
+          (typeof res.verdict === 'string' && res.verdict) ||
+          'unknown'
+        ).toLowerCase();
+
+        const isMal = verdict === 'malicious';
+        const isSusp = verdict === 'suspicious';
+        const isClean = verdict === 'clean';
         const isUnknown = !isMal && !isSusp && !isClean;
 
         const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : isClean ? 'var(--accent-green)' : 'var(--accent-cyan)';
         const badge = isMal ? '🚨 MALICIOUS (ZARARLI YAZILIM)' : isSusp ? '⚠️ SUSPICIOUS (ŞÜPHELİ / SEZGİSEL)' : isClean ? '✅ CLEAN (DOĞRULANMIŞ TEMİZ)' : 'ℹ️ UNKNOWN (BİLİNMEYEN DOSYA - İMZA EŞLEŞMESİ YOK)';
 
-        const threatName = res.threat || (res.threat_indicator && res.threat_indicator.name) || (res.antivirus && res.antivirus.threat_indicator && res.antivirus.threat_indicator.name) || '';
-        const score = res.score !== undefined ? res.score : (isMal ? 100 : isSusp ? 50 : 0);
-        const engineVerdict = res.antivirus && res.antivirus.verdict ? res.antivirus.verdict : (res.verdict || 'unknown');
+        // 2. Tehdit / İmza adı çıkarımı (ECS threat_indicator objesi [object Object] olmasını engeller)
+        let threatName = '';
+        if (res.rule && typeof res.rule.name === 'string' && res.rule.name) {
+          threatName = res.rule.name;
+        } else if (res.threat && res.threat.indicator && typeof res.threat.indicator.name === 'string' && res.threat.indicator.name) {
+          threatName = res.threat.indicator.name;
+        } else if (typeof res.threat === 'string' && res.threat) {
+          threatName = res.threat;
+        } else if (res.antivirus && typeof res.antivirus.detail === 'string' && res.antivirus.detail) {
+          threatName = res.antivirus.detail;
+        } else if (typeof res.detail === 'string' && res.detail) {
+          threatName = res.detail;
+        }
+
+        // 3. Skor çıkarımı
+        let score = 0;
+        if (res.antivirus && res.antivirus.score !== undefined) {
+          score = res.antivirus.score;
+        } else if (res.score !== undefined) {
+          score = res.score;
+        } else {
+          score = isMal ? 100 : isSusp ? 50 : 0;
+        }
+
+        const engineVerdict = verdict;
         const scanMs = res.scan_ms || (res.event && res.event.duration ? Math.round(res.event.duration / 1000000) : '< 10');
+        const detailText = (res.antivirus && res.antivirus.detail) || (typeof res.detail === 'string' ? res.detail : '');
 
         let html = `
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; margin-bottom: 14px; flex-wrap:wrap; gap:8px;">
@@ -3111,7 +3149,7 @@
               <div><b>Telemetri Durumu:</b> <span style="color:#fff;">${isUnknown ? 'Telemetri Havuzuna Kaydedildi (Sighting: 1)' : 'Veritabanında Kayıtlı'}</span></div>
               <div><b>Tarama Süresi:</b> <span style="color:#fff;">${scanMs} ms</span></div>
             </div>
-            ${res.detail ? `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.8rem; color: var(--text-muted);"><b>Statik Detay / Çıkarım:</b> <span style="color:#fff;">${res.detail}</span></div>` : ''}
+            ${detailText ? `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.8rem; color: var(--text-muted);"><b>Statik Detay / Çıkarım:</b> <span style="color:#fff;">${detailText}</span></div>` : ''}
           </div>
 
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 14px; font-size: 0.85rem; color: var(--text-muted);">
