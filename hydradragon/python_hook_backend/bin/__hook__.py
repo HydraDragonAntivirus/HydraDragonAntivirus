@@ -4,6 +4,12 @@ import sys
 import os
 import threading
 import time
+import json
+import gc
+import types
+import hashlib
+import traceback
+
 
 # Get the directory where this script is located
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -52,7 +58,7 @@ try:
     _orig_marshal_loads = _stdlib_marshal.loads
     _orig_marshal_load = _stdlib_marshal.load
     _orig_marshal_dumps = _stdlib_marshal.dumps
-    _orig_marshal_dump = _stdlib_marshal.dump
+    _orig_marshal_dump = _stdlib_sodump
 except Exception:
     _orig_marshal_loads = None
     _orig_marshal_load = None
@@ -87,6 +93,435 @@ if _marshal_pyc_dir is None:
 # the real hook_log.  dump_pyc_files can override _marshal_log_fn later.
 _marshal_log_path = _Path(PYTHON_DUMPS_DIR) / "hook_dll.log"
 _marshal_log_fn = None
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+PyCodeObject Walker — CPythonizer / Nuitka / frozen module'lerden
+code object'leri çıkarır. marshal.loads'a bağımlı değildir.
+
+Bu modül şunları yapar:
+1. sys.modules'daki her modülü recursive gez
+2. FunctionType, MethodType, CodeType, property, staticmethod,
+   classmethod, functools.partial içindeki code object'leri bul
+3. Her code object için:
+   - marshal.dumps(code) → .bin dosyası
+   - dis.dis(code)       → .txt dosyası
+   - imports/names/consts → .meta.json
+4. Ayrıca GC (gc.get_objects()) üzerinden de tara — bazı code object'ler
+   modül namespace'inde değildir ama GC'de vardır.
+5. exec/eval/compile hook'ları ile dinamik üretilen code'ları yakala
+"""
+
+# ── Ayarlar ──
+OUTPUT_DIR_NAME = "PYCODE_DUMPS"
+MAX_DEPTH = 12
+MAX_OBJECTS = 500000
+
+
+class CodeObjectWalker:
+    def __init__(self, source_dir, hook_log=None):
+        self.source_dir = Path(source_dir)
+        self.out_dir = self.source_dir / OUTPUT_DIR_NAME
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.log = hook_log or (lambda _: None)
+        self.seen_code = set()      # id() ile dedup
+        self.seen_func = set()
+        self.stats = {
+            "functions": 0,
+            "code_objects": 0,
+            "written_marshal": 0,
+            "written_disasm": 0,
+            "written_meta": 0,
+            "errors": 0,
+        }
+
+    # ── Yardımcılar ─────────────────────────────────────────────────
+    def _safe_name(self, name):
+        if not name:
+            return "anon"
+        return "".join(
+            c if c.isalnum() or c in "._-" else "_"
+            for c in str(name)
+        )[:120]
+
+    def _hash_code(self, code):
+        try:
+            h = hashlib.sha256()
+            h.update(code.co_code)
+            h.update(code.co_name.encode("utf-8", "ignore"))
+            h.update(code.co_filename.encode("utf-8", "ignore"))
+            if code.co_consts:
+                for c in code.co_consts[:8]:
+                    if isinstance(c, (str, int, float, bytes)):
+                        h.update(repr(c).encode("utf-8", "ignore"))
+            return h.hexdigest()[:12]
+        except Exception:
+            return "nohash"
+
+    def _write_code_obj(self, code, tag="unknown"):
+        """Bir code object'i diske yaz (marshal + disassembly + metadata)."""
+        if not isinstance(code, types.CodeType):
+            return
+        cid = id(code)
+        if cid in self.seen_code:
+            return
+        self.seen_code.add(cid)
+        self.stats["code_objects"] += 1
+
+        try:
+            h = self._hash_code(code)
+            name = self._safe_name(code.co_name)
+            fname = self._safe_name(os.path.basename(code.co_filename or "anon"))
+            base = f"{tag}_{fname}_{name}_{h}"
+
+            # 1) Marshal .bin
+            try:
+                import marshal as _m
+                data = _m.dumps(code)
+                (self.out_dir / f"{base}.bin").write_bytes(data)
+                self.stats["written_marshal"] += 1
+            except Exception as e:
+                self.log(f"[CW] _m.dumps failed for {base}: {e}\n")
+                self.stats["errors"] += 1
+
+            # 2) Disassembly
+            try:
+                import io
+                buf = io.StringIO()
+                buf.write(f"# co_name     = {code.co_name!r}\n")
+                buf.write(f"# co_qualname = {getattr(code, 'co_qualname', code.co_name)!r}\n")
+                buf.write(f"# co_filename = {code.co_filename!r}\n")
+                buf.write(f"# co_firstlineno = {code.co_firstlineno}\n")
+                buf.write(f"# co_argcount = {getattr(code, 'co_argcount', 0)}\n")
+                buf.write(f"# co_kwonlyargcount = {getattr(code, 'co_kwonlyargcount', 0)}\n")
+                buf.write(f"# co_nlocals  = {code.co_nlocals}\n")
+                buf.write(f"# co_varnames = {code.co_varnames!r}\n")
+                buf.write(f"# co_names    = {code.co_names!r}\n")
+                buf.write(f"# co_freevars = {code.co_freevars!r}\n")
+                buf.write(f"# co_cellvars = {code.co_cellvars!r}\n")
+                buf.write("=" * 70 + "\n")
+                dis.dis(code, file=buf)
+                (self.out_dir / f"{base}.disasm.txt").write_text(
+                    buf.getvalue(), encoding="utf-8", errors="replace"
+                )
+                self.stats["written_disasm"] += 1
+            except Exception as e:
+                self.log(f"[CW] dis failed for {base}: {e}\n")
+                self.stats["errors"] += 1
+
+            # 3) Metadata JSON
+            try:
+                consts = []
+                for c in code.co_consts:
+                    if isinstance(c, types.CodeType):
+                        consts.append({"type": "code", "name": c.co_name})
+                    elif isinstance(c, (str, int, float, bool, type(None))):
+                        r = repr(c)
+                        if len(r) > 500:
+                            r = r[:500] + "..."
+                        consts.append({"type": type(c).__name__, "value": r})
+                    elif isinstance(c, (bytes, bytearray)):
+                        consts.append({"type": "bytes", "len": len(c), "hex_head": bytes(c)[:32].hex()})
+                    else:
+                        consts.append({"type": type(c).__name__, "repr": repr(c)[:200]})
+
+                meta = {
+                    "co_name": code.co_name,
+                    "co_qualname": getattr(code, "co_qualname", code.co_name),
+                    "co_filename": code.co_filename,
+                    "co_firstlineno": code.co_firstlineno,
+                    "co_argcount": getattr(code, "co_argcount", 0),
+                    "co_kwonlyargcount": getattr(code, "co_kwonlyargcount", 0),
+                    "co_posonlyargcount": getattr(code, "co_posonlyargcount", 0),
+                    "co_nlocals": code.co_nlocals,
+                    "co_stacksize": getattr(code, "co_stacksize", 0),
+                    "co_flags": code.co_flags,
+                    "co_varnames": list(code.co_varnames),
+                    "co_names": list(code.co_names),
+                    "co_freevars": list(code.co_freevars),
+                    "co_cellvars": list(code.co_cellvars),
+                    "co_consts": consts,
+                    "code_len": len(code.co_code),
+                    "hash": h,
+                    "tag": tag,
+                }
+                (self.out_dir / f"{base}.meta.json").write_text(
+                    json.dumps(meta, indent=2, ensure_ascii=False),
+                    encoding="utf-8", errors="replace"
+                )
+                self.stats["written_meta"] += 1
+            except Exception as e:
+                self.log(f"[CW] meta failed for {base}: {e}\n")
+                self.stats["errors"] += 1
+
+            # 4) Recursive — nested code objects in co_consts
+            for c in code.co_consts:
+                if isinstance(c, types.CodeType):
+                    self._write_code_obj(c, tag=f"{tag}_nested")
+
+        except Exception as e:
+            self.log(f"[CW] _write_code_obj crashed: {e}\n{traceback.format_exc()}\n")
+            self.stats["errors"] += 1
+
+    def _walk_function(self, func, tag="func"):
+        if not isinstance(func, types.FunctionType):
+            return
+        fid = id(func)
+        if fid in self.seen_func:
+            return
+        self.seen_func.add(fid)
+        self.stats["functions"] += 1
+        try:
+            code = func.__code__
+            qualname = getattr(func, "__qualname__", getattr(func, "__name__", "anon"))
+            self._write_code_obj(code, tag=f"{tag}_{self._safe_name(qualname)}")
+        except Exception as e:
+            self.log(f"[CW] walk_function failed: {e}\n")
+            self.stats["errors"] += 1
+
+    def _walk_object(self, obj, depth=0, visited=None):
+        """Bir objeyi recursive gez, code object'leri bul."""
+        if depth > MAX_DEPTH:
+            return
+        if visited is None:
+            visited = set()
+        oid = id(obj)
+        if oid in visited:
+            return
+        visited.add(oid)
+        if len(visited) > MAX_OBJECTS:
+            return
+
+        try:
+            # Direkt code object
+            if isinstance(obj, types.CodeType):
+                self._write_code_obj(obj, tag="direct")
+                return
+
+            # Function
+            if isinstance(obj, types.FunctionType):
+                self._walk_function(obj)
+                # Fonksiyon default argümanlarında code olabilir
+                for d in (obj.__defaults__ or ()):
+                    self._walk_object(d, depth + 1, visited)
+                for d in (obj.__kwdefaults__ or {}).values():
+                    self._walk_object(d, depth + 1, visited)
+                return
+
+            # Method / bound method
+            if isinstance(obj, types.MethodType):
+                self._walk_object(obj.__func__, depth + 1, visited)
+                return
+
+            # Class
+            if isinstance(obj, type):
+                # Class body code object
+                try:
+                    for attr_name, attr in obj.__dict__.items():
+                        if isinstance(attr, (types.FunctionType, types.MethodType)):
+                            self._walk_function(attr, tag=f"class_{obj.__name__}")
+                        elif isinstance(attr, (staticmethod, classmethod)):
+                            self._walk_function(attr.__func__, tag=f"class_{obj.__name__}")
+                        elif isinstance(attr, property):
+                            for f in (attr.fget, attr.fset, attr.fdel):
+                                if f:
+                                    self._walk_function(f, tag=f"class_{obj.__name__}")
+                except Exception:
+                    pass
+                return
+
+            # staticmethod / classmethod
+            if isinstance(obj, (staticmethod, classmethod)):
+                self._walk_function(obj.__func__, tag="sm_cm")
+                return
+
+            # property
+            if isinstance(obj, property):
+                for f in (obj.fget, obj.fset, obj.fdel):
+                    if f:
+                        self._walk_function(f, tag="property")
+                return
+
+            # functools.partial
+            try:
+                import functools
+                if isinstance(obj, functools.partial):
+                    self._walk_object(obj.func, depth + 1, visited)
+                    return
+            except Exception:
+                pass
+
+            # Module
+            if isinstance(obj, types.ModuleType):
+                for name in dir(obj):
+                    if name.startswith("__") and name not in ("__init__",):
+                        continue
+                    try:
+                        attr = getattr(obj, name)
+                    except Exception:
+                        continue
+                    if isinstance(attr, (types.FunctionType, types.MethodType,
+                                         types.CodeType, type,
+                                         staticmethod, classmethod, property)):
+                        self._walk_object(attr, depth + 1, visited)
+                    elif isinstance(attr, (list, tuple, dict, set)):
+                        # Koleksiyon içinde function olabilir
+                        self._walk_object(attr, depth + 1, visited)
+                return
+
+            # Koleksiyonlar
+            if isinstance(obj, dict):
+                for k, v in list(obj.items())[:500]:
+                    self._walk_object(v, depth + 1, visited)
+                return
+            if isinstance(obj, (list, tuple, set, frozenset)):
+                for item in list(obj)[:500]:
+                    self._walk_object(item, depth + 1, visited)
+                return
+
+        except Exception:
+            pass
+
+    # ── Ana giriş noktaları ─────────────────────────────────────────
+    def walk_sys_modules(self):
+        self.log(f"[CW] sys.modules geziiliyor ({len(sys.modules)} modül)\n")
+        for name, mod in list(sys.modules.items()):
+            if mod is None:
+                continue
+            if name == "__hook__" or name.startswith("__hook__."):
+                continue
+            try:
+                self._walk_object(mod, depth=0)
+            except Exception as e:
+                self.log(f"[CW] module {name} failed: {e}\n")
+                self.stats["errors"] += 1
+        self.log(f"[CW] sys.modules tarama bitti: "
+                 f"{self.stats['functions']} fonksiyon, "
+                 f"{self.stats['code_objects']} code object\n")
+
+    def walk_gc(self):
+        """GC'de bulunan ama namespace'te olmayan code object'leri yakala."""
+        self.log("[CW] gc.get_objects() taranıyor\n")
+        try:
+            objs = gc.get_objects()
+        except Exception as e:
+            self.log(f"[CW] gc.get_objects() failed: {e}\n")
+            return
+        count = 0
+        for obj in objs:
+            try:
+                if isinstance(obj, types.CodeType):
+                    self._write_code_obj(obj, tag="gc")
+                    count += 1
+                elif isinstance(obj, types.FunctionType):
+                    self._walk_function(obj, tag="gc_func")
+                    count += 1
+            except Exception:
+                continue
+        self.log(f"[CW] gc taraması bitti: {count} obje işlendi\n")
+
+    def walk_frames(self):
+        """Aktif frame stack'lerini gez — çalışan kodun code object'leri."""
+        self.log("[CW] frame'ler taranıyor\n")
+        try:
+            for thread_id, frame in sys._current_frames().items():
+                depth = 0
+                while frame is not None and depth < 64:
+                    try:
+                        self._write_code_obj(frame.f_code, tag=f"frame_t{thread_id}")
+                    except Exception:
+                        pass
+                    frame = frame.f_back
+                    depth += 1
+        except Exception as e:
+            self.log(f"[CW] frame tarama hatası: {e}\n")
+
+    def install_dynamic_hooks(self):
+        """exec/eval/compile hook'ları — dinamik üretilen code'ları yakala."""
+        import builtins
+        real_exec = builtins.exec
+        real_eval = builtins.eval
+        real_compile = builtins.compile
+        self_ref = self
+
+        def _patched_exec(obj, *a, **kw):
+            try:
+                if isinstance(obj, types.CodeType):
+                    self_ref._write_code_obj(obj, tag="exec_code")
+                elif isinstance(obj, (str, bytes)):
+                    try:
+                        src = obj.decode("utf-8", "ignore") if isinstance(obj, bytes) else obj
+                        c = real_compile(src, "<dyn_exec>", "exec")
+                        self_ref._write_code_obj(c, tag="exec_str")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return real_exec(obj, *a, **kw)
+
+        def _patched_eval(obj, *a, **kw):
+            try:
+                if isinstance(obj, types.CodeType):
+                    self_ref._write_code_obj(obj, tag="eval_code")
+                elif isinstance(obj, (str, bytes)):
+                    try:
+                        src = obj.decode("utf-8", "ignore") if isinstance(obj, bytes) else obj
+                        c = real_compile(src, "<dyn_eval>", "eval")
+                        self_ref._write_code_obj(c, tag="eval_str")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return real_eval(obj, *a, **kw)
+
+        def _patched_compile(source, filename, mode, *a, **kw):
+            c = real_compile(source, filename, mode, *a, **kw)
+            try:
+                if mode in ("exec", "eval"):
+                    self_ref._write_code_obj(c, tag=f"compile_{mode}")
+            except Exception:
+                pass
+            return c
+
+        builtins.exec = _patched_exec
+        builtins.eval = _patched_eval
+        builtins.compile = _patched_compile
+        self.log("[CW] exec/eval/compile hook'ları kuruldu\n")
+
+    # ── Public API ──────────────────────────────────────────────────
+    def run_all(self):
+        t0 = time.time()
+        self.log("=" * 60 + "\n[CW] PyCodeObject Walker başladı\n")
+        try:
+            self.walk_sys_modules()
+        except Exception as e:
+            self.log(f"[CW] walk_sys_modules crashed: {e}\n{traceback.format_exc()}\n")
+        try:
+            self.walk_frames()
+        except Exception as e:
+            self.log(f"[CW] walk_frames crashed: {e}\n")
+        try:
+            self.walk_gc()
+        except Exception as e:
+            self.log(f"[CW] walk_gc crashed: {e}\n")
+        try:
+            self.install_dynamic_hooks()
+        except Exception as e:
+            self.log(f"[CW] install_dynamic_hooks crashed: {e}\n")
+
+        dt = time.time() - t0
+        self.log(
+            f"[CW] BİTTİ ({dt:.2f}s) — "
+            f"{self.stats['functions']} fonksiyon, "
+            f"{self.stats['code_objects']} code object, "
+            f"{self.stats['written_marshal']} marshal, "
+            f"{self.stats['written_disasm']} disasm, "
+            f"{self.stats['written_meta']} meta, "
+            f"{self.stats['errors']} hata\n"
+        )
+        self.log(f"[CW] Çıktı: {self.out_dir}\n")
+        return self.stats
 
 def _write_log(msg):
     global _marshal_log_fn
@@ -2641,6 +3076,17 @@ def run_decompiler():
             except Exception:
                 pass
 
+        # ── PyCodeObject Walker ─────────────────────────────────
+        try:
+            walker = CodeObjectWalker(source_dir, hook_log=hook_log)
+            walker_stats = walker.run_all()
+            hook_log(f"[CW] Walker bitti: {walker_stats}\n")
+        except Exception as e:
+            error_count += 1
+            hook_log(f"[CW ERR] PyCodeObject walker crashed: {e}\n")
+            import traceback as _tb
+            hook_log(_tb.format_exc())
+        # ────────────────────────────────────────────────────────
         hook_log("\n" + "=" * 60 + "\n--- FINISHED ---\n")
         hook_log(f"Output location: {backup_dir}\n")
         hook_log(f"Processed: {processed_count} modules\nErrors: {error_count}\n")
