@@ -792,79 +792,36 @@
         const isClean = res.verdict === 'clean';
         const isUnknown = res.verdict === 'unknown';
 
-        const badgeColor = isMal 
-          ? 'var(--accent-red)' 
-          : isSusp 
-          ? 'var(--accent-amber)' 
-          : isClean 
-          ? 'var(--accent-green)' 
+        const badgeColor = isMal
+          ? 'var(--accent-red)'
+          : isSusp
+          ? 'var(--accent-amber)'
+          : isClean
+          ? 'var(--accent-green)'
           : 'var(--accent-cyan)';
 
-        const badgeText = isMal 
+        const badgeText = isMal
           ? t('scan.badge_malicious_url')
-          : isSusp 
+          : isSusp
           ? t('scan.badge_suspicious_url')
           : isClean
           ? t('scan.badge_clean_benign')
           : t('scan.badge_unknown');
 
-        const detectionCount = isMal ? '1 / 6' : isSusp ? '1 / 6' : '0 / 6';
-
-        const livenessBadge = res.liveness.status === 'ACTIVE'
-          ? ('<span style="color:var(--accent-green);">' + t('scan.liveness_active') + '</span>')
-          : ('<span style="color:var(--text-muted);">' + t('scan.liveness_inactive') + '</span>');
-
-        const engines = [
-          { name: t('scan.eng_ml'), category: t('scan.eng_ml_cat'), status: isMal ? t('scan.st_malicious') : isSusp ? t('scan.st_suspicious') : isClean ? t('scan.st_clean') : t('scan.st_unknown'), color: badgeColor },
-          { name: t('scan.eng_wl'), category: t('scan.eng_wl_cat'), status: res.serverWhitelisted === true ? t('scan.st_verified') : res.serverWhitelisted === false ? t('scan.st_unlisted') : (res.contentScanned ? t('scan.st_active') : t('scan.st_unlisted')), color: res.serverWhitelisted === true ? 'var(--accent-green)' : 'var(--text-muted)' },
-          { name: t('scan.eng_live'), category: t('scan.eng_live_cat'), status: res.liveness.status === 'ACTIVE' ? t('scan.st_active') : t('scan.st_inactive'), color: res.liveness.status === 'ACTIVE' ? 'var(--accent-green)' : 'var(--text-muted)' },
-          { name: t('scan.eng_homo'), category: t('scan.eng_homo_cat'), status: res.threatName.includes('HOMOGRAPH') ? t('scan.st_homo_detected') : t('scan.st_clean_script'), color: res.threatName.includes('HOMOGRAPH') ? 'var(--accent-red)' : 'var(--accent-green)' },
-          { name: t('scan.eng_shannon'), category: t('scan.eng_shannon_cat'), status: `${res.entropy} bits (${t('scan.st_normal')})`, color: 'var(--accent-green)' },
-          { name: t('scan.eng_antifp'), category: t('scan.eng_antifp_cat'), status: t('scan.st_antifp_passed'), color: 'var(--accent-green)' }
-        ];
+        const threatLine = (isMal || isSusp)
+          ? `<div style="font-family:var(--font-mono); font-size:0.8rem; color:${badgeColor}; margin-top:4px;">${res.threatName} &bull; ${res.score}/100</div>`
+          : '';
 
         let html = `
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:18px; margin-bottom:18px; flex-wrap:wrap; gap:14px;">
-            <div style="display:flex; align-items:center; gap:16px;">
-              <div style="width:58px; height:58px; border-radius:50%; border:3px solid ${badgeColor}; display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:1rem; font-weight:800; color:${badgeColor}; background:rgba(0,0,0,0.3); box-shadow:0 0 16px ${badgeColor}33;">
-                ${detectionCount}
-              </div>
-              <div>
-                <div style="font-family:var(--font-display); font-size:1.25rem; font-weight:800; color:${badgeColor};">${badgeText}</div>
-                <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
-                  ${t('scan.lbl_target')} <span style="color:#fff;">${res.url}</span> &bull; ${livenessBadge} &bull; <span style="color:var(--text-dim);">SRC:${(res.source || 'local').toUpperCase()}</span>
-                </div>
-              </div>
+            <div>
+              <div style="font-family:var(--font-display); font-size:1.5rem; font-weight:800; color:${badgeColor};">${badgeText}</div>
+              <div style="font-family:var(--font-mono); font-size:0.85rem; color:#fff; margin-top:6px;">${res.url}</div>
+              ${threatLine}
             </div>
             <a href="mailto:viruskov@viruskov.com?subject=URL%20FP/FN%20Report%20-%20${encodeURIComponent(res.url)}" style="background:rgba(255,51,68,0.1); border:1px solid var(--accent-red); color:#fff; padding:8px 14px; border-radius:4px; text-decoration:none; font-family:var(--font-mono); font-size:0.75rem; font-weight:700;">
               ${t('scan.report_fp')}
             </a>
-          </div>
-
-          <div style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:6px; padding:12px 16px; margin-bottom:18px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-family:var(--font-mono); font-size:0.78rem;">
-            <div>${t('scan.lbl_domain')} <span style="color:#fff; font-weight:700;">${res.host}</span></div>
-            <div>${t('scan.lbl_protocol')} <span style="color:var(--accent-cyan);">${res.protocol.toUpperCase()}</span></div>
-            <div>${t('scan.lbl_entropy')} <span style="color:#fff;">${res.entropy} bits</span></div>
-            <div>SHA-256: <span style="color:var(--accent-cyan);">${urlSha256.slice(0, 16)}...</span></div>
-          </div>
-
-          <div style="margin-bottom:18px;">
-            <div style="font-family:var(--font-display); font-size:0.95rem; font-weight:700; color:#fff; margin-bottom:10px;">
-              ${t('scan.breakdown_title')}
-            </div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(310px, 1fr)); gap:10px;">
-              ${engines.map(eng => `
-                <div style="background:var(--bg-surface); border:1px solid var(--border-subtle); padding:10px 14px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;">
-                  <div>
-                    <div style="font-weight:700; color:#fff; font-size:0.8rem;">${eng.name}</div>
-                    <div style="font-size:0.7rem; color:var(--text-dim);">${eng.category}</div>
-                  </div>
-                  <div style="font-weight:700; font-size:0.76rem; color:${eng.color}; text-align:right;">
-                    ${eng.status}
-                  </div>
-                </div>
-              `).join('')}
-            </div>
           </div>
         `;
         urlResultBox.innerHTML = html;
@@ -986,36 +943,55 @@
         fileStatusTitle.textContent = t('scan.wss_connecting');
         fileProgressBar.style.width = '55%';
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.hostname}:5306/ws`;
-        let ws;
-        try { ws = new WebSocket(wsUrl); } catch (_) { ws = new WebSocket('wss://api.viruskov.com/ws'); }
+        const primaryUrl = 'wss://api.viruskov.com/ws';
+        const fallbackUrl = `${wsProtocol}//${window.location.hostname}:5306/ws`;
+        connectWs(primaryUrl, false);
 
-        ws.onopen = () => {
-          ws.send(JSON.stringify({ type: 'hello', version: 3, client: 'VirusKov Web Portal', token: '' }));
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'hello_ok') {
-              fileStatusTitle.textContent = t('scan.checking');
-              ws.send(JSON.stringify({ type: 'check', items: [{ id: 1, name: file.name, size: file.size, sha256: sha }] }));
-            } else if (msg.type === 'need_upload') {
-              fileStatusTitle.textContent = t('scan.queuing');
-              ws.send(JSON.stringify({ type: 'scan', id: 1, name: file.name, size: file.size, sha256: sha }));
-            } else if (msg.type === 'send_file') {
-              uploadChunks(ws, buf);
-            } else if (msg.type === 'result') {
-              renderFileResult(msg, file.name, file.size, sha);
-              ws.close();
+        function connectWs(url, isFallback) {
+          let opened = false;
+          let settled = false;
+          let ws = null;
+          const failover = () => {
+            if (settled) return;
+            settled = true;
+            try { if (ws) ws.close(); } catch (_) {}
+            if (!isFallback && url !== fallbackUrl) {
+              connectWs(fallbackUrl, true);
+            } else {
+              fileStatusTitle.textContent = t('scan.conn_error');
+              fileStatusDetail.textContent = t('scan.conn_error_desc');
             }
-          } catch (_) {}
-        };
+          };
+          try { ws = new WebSocket(url); } catch (_) { ws = null; }
+          if (!ws) { failover(); return; }
 
-        ws.onerror = () => {
-          fileStatusTitle.textContent = t('scan.conn_error');
-          fileStatusDetail.textContent = t('scan.conn_error_desc');
-        };
+          ws.onopen = () => {
+            opened = true;
+            ws.send(JSON.stringify({ type: 'hello', version: 3, client: 'VirusKov Web Portal', token: '' }));
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.type === 'hello_ok') {
+                fileStatusTitle.textContent = t('scan.checking');
+                ws.send(JSON.stringify({ type: 'check', items: [{ id: 1, name: file.name, size: file.size, sha256: sha }] }));
+              } else if (msg.type === 'need_upload') {
+                fileStatusTitle.textContent = t('scan.queuing');
+                ws.send(JSON.stringify({ type: 'scan', id: 1, name: file.name, size: file.size, sha256: sha }));
+              } else if (msg.type === 'send_file') {
+                uploadChunks(ws, buf);
+              } else if (msg.type === 'result') {
+                settled = true;
+                renderFileResult(msg, file.name, file.size, sha);
+                ws.close();
+              }
+            } catch (_) {}
+          };
+
+          ws.onerror = failover;
+          ws.onclose = () => { if (!opened) failover(); };
+        }
       }
 
       function uploadChunks(ws, buf) {

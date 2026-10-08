@@ -586,7 +586,7 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
             detections.push(UrlRuleHit {
                 rule_id: "LIGHTGBM_URL_MODEL".to_string(),
                 title: "LightGBM URL Classification".to_string(),
-                severity: if ml_prob >= 0.80 { "Malicious".to_string() } else { "Suspicious".to_string() },
+                severity: if ml_prob >= 0.90 { "Malicious".to_string() } else { "Suspicious".to_string() },
                 score,
                 details: format!("Machine learning model malicious probability: {:.1}%", ml_prob * 100.0),
             });
@@ -618,16 +618,26 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
             risk_score = 10;
             fp_mitigated = true;
             verdict_reason = "Liveness Protection: Domain is inactive / dead (NXDOMAIN). Score suppressed to mitigate false positive.".to_string();
-        } else if ml_prob >= 0.80 {
+        } else if ml_prob >= 0.90 {
             verdict = "Malicious";
             let max_score = detections.iter().map(|d| d.score).max().unwrap_or(80);
             risk_score = max_score.max((ml_prob * 100.0) as u32);
             verdict_reason = format!("ML Decision (Malicious): Machine learning model classified URL as high-confidence malicious ({:.1}%).", ml_prob * 100.0);
-        } else if has_suspicious_rule || ml_prob >= 0.50 {
+        } else if has_suspicious_rule {
+            // Suspicious comes ONLY from YAML rule hits, never from the model
+            // alone: mid-range ML noise without a supporting rule reports
+            // Unknown instead (zero-FP policy).
             verdict = "Suspicious";
             let max_score = detections.iter().map(|d| d.score).max().unwrap_or(50);
             risk_score = max_score.max((ml_prob * 100.0) as u32);
-            verdict_reason = format!("Rule & ML Decision (Suspicious): Suspicious indicators or elevated ML risk score ({risk_score}/100) detected.");
+            verdict_reason = format!("Rule Decision (Suspicious): Suspicious indicators detected ({risk_score}/100).");
+        } else if ml_prob >= 0.50 {
+            // Model alone, no rule hit: not enough to convict. Malicious only
+            // above the high-confidence bar; mid-range model noise reports
+            // Unknown instead of Suspicious (zero-FP policy).
+            verdict = "Unknown";
+            risk_score = (ml_prob * 100.0) as u32;
+            verdict_reason = format!("Analysis Result (Unknown): Elevated model score ({:.1}%) with no supporting rule hit; not judged suspicious.", ml_prob * 100.0);
         } else if unwhitelisted_for_ml {
             verdict = "Unknown";
             risk_score = (ml_prob * 100.0) as u32;

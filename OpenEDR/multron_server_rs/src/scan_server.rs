@@ -1463,6 +1463,8 @@ fn merge_url_reports(
                 server.bypass_reason = Some(format!("Whitelist overridden by threat rule {}", hit.rule_id));
             }
             hit.details.push_str(&format!(" {}", facts));
+            // Rule-driven escalation only: Malicious or Suspicious difference-rule
+            // hits can raise the verdict; model noise alone never does.
             if (hit.severity == "Malicious" || hit.severity == "Suspicious")
                 && verdict_rank(&hit.severity) > verdict_rank(&verdict)
             {
