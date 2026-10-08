@@ -34,6 +34,8 @@ use crate::threat_intel::{RestRateLimiter, ThreatIntelStore};
 const MAX_WS_MESSAGE: usize = 1024 * 1024;
 /// Uploads slower than this are cut off (stops connections that trickle bytes to hold memory).
 const MIN_UPLOAD_BYTES_PER_SEC: i64 = 64 * 1024;
+/// Upload window per client = pipeline × this (see `session_loop`).
+const UPLOAD_WINDOW_FACTOR: usize = 4;
 
 /// 3 = hash-first: the client sends `check` batches of SHA-256s and uploads only the
 /// files the server answers with `need_upload`. Version 2 clients (scan only) still work.
@@ -895,7 +897,13 @@ async fn session_loop(
         }),
     );
 
-    let slots = Arc::new(Semaphore::new(pipeline));
+    // `window`: files one client may have uploading or waiting for a result. It is wider
+    // than `scan_slots` so the next uploads stream in while earlier files are being
+    // scanned (before, the upload of file N+1 waited for a scan to finish, which made the
+    // upload rate look like ~0.3 MB/s). Memory stays bounded by the shared budget.
+    let slots = Arc::new(Semaphore::new(pipeline * UPLOAD_WINDOW_FACTOR));
+    // `scan_slots`: files one client may have in the engine at the same time.
+    let scan_slots = Arc::new(Semaphore::new(pipeline));
 
     // Per-connection flood limits (one second of burst headroom on top of the rate).
     // Rates are read on every message, so a change in the dashboard applies at once.
@@ -951,7 +959,7 @@ async fn session_loop(
                 if server.maintenance() {
                     send_error(out, Some(msg.id), "server in maintenance mode, retry later");
                 } else {
-                    handle_scan(ws_rx, out, server, session, &slots, msg, server.limits.max_bytes()).await?;
+                    handle_scan(ws_rx, out, server, session, &slots, &scan_slots, msg, server.limits.max_bytes()).await?;
                 }
             }
             "scan_url" => {
@@ -1054,6 +1062,7 @@ async fn handle_scan(
     server: &Arc<ScanServer>,
     session: &Arc<SessionHandle>,
     slots: &Arc<Semaphore>,
+    scan_slots: &Arc<Semaphore>,
     msg: ClientMessage,
     max_bytes: i64,
 ) -> Result<(), String> {
@@ -1137,21 +1146,27 @@ async fn handle_scan(
     let (rtx, rrx) = oneshot::channel();
     let engine = Arc::clone(&server.engine);
     let (job_name, job_sha) = (name.clone(), sha_hex.clone());
-    server.scheduler.submit(
-        session.id,
-        Box::new(move || {
-            let r = engine.scan_blocking(&data, &job_name, &job_sha);
-            drop(data);
-            let _ = rtx.send(r);
-        }),
-    );
+    let scan_slots = Arc::clone(scan_slots);
 
     let srv = Arc::clone(server);
     let sess = Arc::clone(session);
     let out = out.clone();
     tokio::spawn(async move {
+        // Wait for a scan slot here, not in the session loop, so the connection keeps
+        // accepting uploads while this file waits for the engine.
+        let scan_slot = scan_slots.acquire_owned().await.ok();
+        let session_id = sess.id;
+        srv.scheduler.submit(
+            session_id,
+            Box::new(move || {
+                let r = engine.scan_blocking(&data, &job_name, &job_sha);
+                drop(data);
+                let _ = rtx.send(r);
+            }),
+        );
         let outcome = rrx.await;
         drop(budget);
+        drop(scan_slot);
         drop(slot);
         sess.in_flight.fetch_sub(1, Ordering::Relaxed);
 
