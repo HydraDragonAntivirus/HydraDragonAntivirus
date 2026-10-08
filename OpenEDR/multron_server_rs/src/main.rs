@@ -10,6 +10,7 @@ mod analyzer;
 mod human_review;
 mod naming;
 mod reports;
+mod rescan;
 mod sample_zip;
 mod similarity;
 mod events;

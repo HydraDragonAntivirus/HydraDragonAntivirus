@@ -87,6 +87,7 @@ impl AppState {
             settings.keep_possible_clean = false;
         }
         engine.keep_possible_clean.store(settings.keep_possible_clean, std::sync::atomic::Ordering::Relaxed);
+        scan_server.rescan.after_reload.store(settings.rescan_after_reload, std::sync::atomic::Ordering::Relaxed);
 
         // Limits saved from the dashboard win over the command-line defaults.
         if let Some(saved) = settings.limits.take() {
@@ -194,6 +195,7 @@ impl AppState {
             s.limits = g.limits.take();
             // Not part of the listener form: keep the current choice.
             s.keep_possible_clean = g.keep_possible_clean;
+            s.rescan_after_reload = g.rescan_after_reload;
             *g = s.clone();
         }
         self.save_settings().await;
@@ -261,6 +263,10 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/stop", post(handle_stop))
         .route("/api/maintenance", post(handle_maintenance))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
+        .route("/api/rescan", post(handle_rescan_one))
+        .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
+        .route("/api/rescan/stop", post(handle_rescan_stop))
+        .route("/api/rescan/after-reload", post(handle_rescan_after_reload))
         .route("/api/limits", post(handle_limits))
         .route("/api/limits/reset", post(handle_limits_reset))
         .route("/api/unban", post(handle_unban))
@@ -370,6 +376,7 @@ async fn handle_state(
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },
         "editableLimits": srv.limits.get(),
+        "rescan": srv.rescan.status(),
         "bannedIps": srv.limiter.banned_now(),
         "lanAddresses": lan_addresses(),
         "stats": {
@@ -460,6 +467,46 @@ async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): J
     app.settings.write().await.keep_possible_clean = t.enabled;
     app.save_settings().await;
     info_event(&app, format!("keep possible_clean files: {}", if t.enabled { "on" } else { "off" }));
+    Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+#[derive(Deserialize)]
+struct RescanBody {
+    sha256: String,
+}
+
+/// Rescans one file kept in multron_incoming with the current engine, analyst
+/// signatures and smart whitelist; updates cache, telemetry and the website.
+async fn handle_rescan_one(State(app): State<Arc<AppState>>, Json(b): Json<RescanBody>) -> Response {
+    let srv = Arc::clone(&app.scan_server);
+    let sha = b.sha256.clone();
+    match tokio::task::spawn_blocking(move || crate::rescan::rescan_one(&srv, &sha)).await {
+        Ok(Ok(c)) => Json(serde_json::json!({ "ok": true, "change": c })).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+async fn handle_rescan_bulk(State(app): State<Arc<AppState>>) -> Response {
+    match crate::rescan::start_bulk(&app.scan_server) {
+        Ok(n) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
+        Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn handle_rescan_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(app.scan_server.rescan.status())
+}
+
+async fn handle_rescan_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    app.scan_server.rescan.request_stop();
+    Json(serde_json::json!({ "ok": true }))
+}
+
+async fn handle_rescan_after_reload(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
+    app.scan_server.rescan.after_reload.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+    app.settings.write().await.rescan_after_reload = t.enabled;
+    app.save_settings().await;
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
@@ -570,6 +617,12 @@ async fn handle_engine_reload(
                     if keep_cache { "" } else { ", verdict cache invalidated" }
                 ),
             );
+            // New rules may settle kept unknown / possible_clean files.
+            if app2.scan_server.rescan.after_reload.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Err(e) = crate::rescan::start_bulk(&app2.scan_server) {
+                    info_event(&app2, format!("rescan after reload not started: {e}"));
+                }
+            }
         }
         Err(e) => info_event(&app2, format!("engine reload failed, old engine kept: {e}")),
     });

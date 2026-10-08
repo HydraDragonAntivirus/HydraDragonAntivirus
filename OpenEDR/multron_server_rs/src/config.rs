@@ -217,6 +217,9 @@ pub struct SavedSettings {
     /// Keep `possible_clean` files (TLSH smart whitelist) in the work folder.
     #[serde(default = "default_true")]
     pub keep_possible_clean: bool,
+    /// Rescan kept unknown / possible_clean files after every engine reload.
+    #[serde(default = "default_true")]
+    pub rescan_after_reload: bool,
     #[serde(default = "default_true")]
     pub compress_low_disk: bool,
     #[serde(default = "default_low_disk_gb")]
@@ -236,6 +239,7 @@ impl Default for SavedSettings {
             keep_threats: true,
             keep_clean: false,
             keep_possible_clean: true,
+            rescan_after_reload: true,
             compress_low_disk: true,
             low_disk_gb: 15,
             limits: None,

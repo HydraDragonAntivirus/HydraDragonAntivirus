@@ -246,6 +246,23 @@ impl ThreatIntelStore {
         }
     }
 
+    /// Sets the engine verdict after a rescan with the current engine (may lower it,
+    /// unlike `record`). Not a sighting. A completed human review still overrides it.
+    pub fn set_engine_verdict(&self, sha256_hex: &str, verdict: &str, threat: Option<&str>, score: f64) {
+        let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
+        let updated = {
+            let mut guard = self.map.write().unwrap();
+            let Some(entry) = guard.get_mut(&sha_bytes) else { return };
+            entry.verdict = verdict.to_string();
+            entry.threat_name = threat.map(str::to_string);
+            entry.score = score;
+            entry.clone()
+        };
+        if let Some(writer) = &self.writer {
+            let _ = writer.send(updated);
+        }
+    }
+
     /// Hashes first seen on `date` (YYYY-MM-DD, UTC) with their effective verdict
     /// (a completed human review overrides the engine). Newest first, at most `limit`.
     pub fn first_seen_on(&self, date: &str, limit: usize) -> Vec<(ThreatInsight, String, bool)> {

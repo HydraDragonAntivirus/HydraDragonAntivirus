@@ -33,6 +33,14 @@ pub fn save(report: &FileReport) {
     }
 }
 
+/// Replaces the stored report (rescans: a newer analyzer may add fields, e.g. APK data).
+pub fn replace(report: &FileReport) {
+    if let Some(p) = path_for(&report.hashes.sha256.to_ascii_lowercase()) {
+        let _ = std::fs::remove_file(&p);
+    }
+    save(report);
+}
+
 pub fn load(sha256: &str) -> Option<serde_json::Value> {
     let p = path_for(&sha256.to_ascii_lowercase())?;
     let bytes = std::fs::read(p).ok()?;

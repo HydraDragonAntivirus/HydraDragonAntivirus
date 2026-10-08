@@ -63,6 +63,9 @@ struct ClientMessage {
     pub url: Option<String>,
     #[serde(default)]
     pub items: Vec<CheckItem>,
+    /// Client asked for a fresh scan: skip the shared verdict cache.
+    #[serde(default)]
+    pub rescan: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +77,9 @@ struct CheckItem {
     pub size: i64,
     #[serde(default)]
     pub sha256: String,
+    /// Skip the shared verdict cache for this file (client "Rescan").
+    #[serde(default)]
+    pub rescan: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +187,8 @@ pub struct ScanServer {
     pub maintenance: AtomicBool,
     /// Process boot time for uptime reporting.
     pub boot_time: std::time::Instant,
+    /// Background rescan of kept files (dashboard).
+    pub rescan: crate::rescan::BulkRescan,
 }
 
 pub struct SessionHandle {
@@ -242,6 +250,7 @@ impl ScanServer {
             active_connections: AtomicUsize::new(0),
             maintenance: AtomicBool::new(false),
             boot_time: std::time::Instant::now(),
+            rescan: crate::rescan::BulkRescan::default(),
         })
     }
 
@@ -330,8 +339,18 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         self.inflight.lock().unwrap().len()
     }
 
+    pub fn log_info(&self, message: String) {
+        self.events.add(simple_event("info", None, None, Some(message)));
+    }
+
     /// Verdict without the file: shared verdict cache, then hash signatures / whitelist.
     fn known(&self, sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {
+        self.known_opts(sha, sha_hex, false)
+    }
+
+    /// `skip_cache`: client "Rescan" — the human verdict and hash signatures still
+    /// apply, the shared cache does not.
+    fn known_opts(&self, sha: &Sha, sha_hex: &str, skip_cache: bool) -> Option<ResultMessage> {
         // A completed human review wins over the cache and the engine.
         if let Some(rv) = self.threat_intel.reviews.completed(sha_hex) {
             let verdict = rv.verdict.clone().unwrap_or_else(|| "unknown".into());
@@ -354,7 +373,7 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
             };
             return Some(verdict_message(sha_hex, v, "human_review", "human"));
         }
-        if self.cfg.cache() {
+        if self.cfg.cache() && !skip_cache {
             if let Some(v) = self.cache.get(sha) {
                 self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
                 return Some(verdict_message(sha_hex, v, "cache_lookup", "cache"));
@@ -369,7 +388,7 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         Some(r)
     }
 
-    fn remember(&self, sha: Sha, res: &ResultMessage) {
+    pub fn remember(&self, sha: Sha, res: &ResultMessage) {
         if !self.cfg.cache() {
             return;
         }
@@ -963,7 +982,7 @@ fn handle_check(
         };
         let name: String = it.name.chars().take(260).collect();
 
-        if let Some(mut r) = server.known(&sha, &sha_hex) {
+        if let Some(mut r) = server.known_opts(&sha, &sha_hex, it.rescan) {
             r.id = it.id;
             record_result(server, session, &r, &name, it.size);
             send_json(out, &r);
@@ -1026,7 +1045,7 @@ async fn handle_scan(
         return Ok(());
     };
 
-    if let Some(mut r) = server.known(&sha, &sha_hex) {
+    if let Some(mut r) = server.known_opts(&sha, &sha_hex, msg.rescan) {
         r.id = id;
         record_result(server, session, &r, &name, msg.size);
         send_json(out, &r);
@@ -1111,27 +1130,9 @@ async fn handle_scan(
                 let build_report = || {
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&data, &job_name))).ok()
                 };
-                // Smart whitelist (TLSH + injection guard; PE, and APK via DEX TLSH +
-                // signer) only for files nobody could classify (the APK ML engine
-                // included); it never overrides a detection. The result is
-                // `possible_clean`, not `clean`, and runs before the file is kept, so
-                // those files are kept under their own prefix.
                 let mut report = None;
                 let r = engine.scan_blocking_with(&data, &job_name, &job_sha, |res| {
-                    if res.verdict == "unknown" && (data.starts_with(b"MZ") || data.starts_with(b"PK\x03\x04")) {
-                        report = build_report();
-                        if let Some(rep) = report.as_ref() {
-                            if let Ok(cand) = serde_json::to_value(rep) {
-                                let reviews = &ti.reviews;
-                                let decision = crate::similarity::smart_whitelist(&ti.similarity, &cand, |sha| {
-                                    reviews.completed(sha).and_then(|r| r.verdict).as_deref() == Some("clean")
-                                });
-                                if let Some((_ref_sha, _d, detail)) = decision {
-                                    crate::engine_adapter::mark_possible_clean(res, detail, "smart_whitelist/tlsh");
-                                }
-                            }
-                        }
-                    }
+                    report = apply_smart_whitelist(&ti, &data, &job_name, res);
                 });
                 let _ = rtx.send(r);
                 // VirusKovAlyzer static report, after the verdict went out (the client is
@@ -1251,7 +1252,8 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
 
     // Valkyrie-style: files the engine could not settle after a real scan go to the
     // human analysis queue automatically.
-    if res.source == "scan" && (res.verdict == "unknown" || res.verdict == "suspicious") {
+    // possible_clean (TLSH smart whitelist) is not verified either.
+    if res.source == "scan" && matches!(res.verdict.as_str(), "unknown" | "suspicious" | "possible_clean") {
         let _ = server.threat_intel.reviews.enqueue(
             &res.sha256,
             "auto",
@@ -1381,6 +1383,32 @@ fn verdict_message(sha_hex: &str, v: CachedVerdict, action: &str, source: &str) 
         source: source.into(),
         extracted_objects: Vec::new(),
     }
+}
+
+/// Smart whitelist (TLSH + injection guard; PE, and APK via DEX TLSH + signer) only
+/// for files nobody could classify (the APK ML engine included); it never overrides a
+/// detection. The result is `possible_clean`, not `clean`. Returns the static report
+/// when it had to be built.
+pub fn apply_smart_whitelist(
+    ti: &crate::threat_intel::ThreatIntelStore,
+    data: &[u8],
+    name: &str,
+    res: &mut ResultMessage,
+) -> Option<crate::analyzer::FileReport> {
+    if res.verdict != "unknown" || !(data.starts_with(b"MZ") || data.starts_with(b"PK\x03\x04")) {
+        return None;
+    }
+    let rep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(data, name))).ok()?;
+    if let Ok(cand) = serde_json::to_value(&rep) {
+        let reviews = &ti.reviews;
+        let decision = crate::similarity::smart_whitelist(&ti.similarity, &cand, |sha| {
+            reviews.completed(sha).and_then(|r| r.verdict).as_deref() == Some("clean")
+        });
+        if let Some((_ref_sha, _d, detail)) = decision {
+            crate::engine_adapter::mark_possible_clean(res, detail, "smart_whitelist/tlsh");
+        }
+    }
+    Some(rep)
 }
 
 fn simple_event(kind: &str, session: Option<i64>, client: Option<String>, message: Option<String>) -> Event {

@@ -178,6 +178,23 @@
         Keep <b>possible clean</b> files (TLSH smart whitelist) in the work folder as <code>possible_clean_&lt;sha256&gt;_&lt;name&gt;</code>
       </label>
       <div class="hint">On by default. Saved in multron_server.json; <code>--no-keep-possible-clean</code> turns it off at start.</div>
+      <h2 style="margin-top:18px">Rescan kept files</h2>
+      <div class="hint">Scans files kept in multron_incoming again with the current engine, analyst signatures and smart whitelist. Cache, telemetry and the website follow the new verdict; nobody has to upload the file again.</div>
+      <div class="row2" style="margin-top:8px">
+        <input id="rsSha" type="text" placeholder="SHA-256 of a kept file">
+        <button class="ghost" id="rsOne">Rescan</button>
+      </div>
+      <div id="rsMsg" class="hint"></div>
+      <div class="row2" style="margin-top:8px">
+        <button class="ghost" id="rsBulk">Rescan all kept unknown / possible clean</button>
+        <button class="ghost" id="rsStop" hidden>Stop</button>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <input type="checkbox" id="rsAfterReload" style="width:auto">
+        Start this automatically after every engine reload
+      </label>
+      <div id="rsStatus" class="hint"></div>
+      <div id="rsChanges"></div>
       <div id="engineError" class="error"></div>
     </section>
 
@@ -434,6 +451,7 @@
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
+    renderRescan(state.rescan || {});
     renderLimitForm(state.editableLimits, l.maxFileMBCeiling);
     const banned = state.bannedIps || [];
     $("bannedList").textContent = banned.length ? "Blocked now: " + banned.join(", ") : "";
@@ -607,6 +625,45 @@
     return data;
   }
 
+  const rsEsc = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const rsTag = (v) => v === "malicious" ? "t-malicious" : v === "suspicious" ? "t-suspicious" : v === "clean" ? "t-clean" : v === "possible_clean" ? "t-possible_clean" : "t-unknown";
+  function renderRescan(r) {
+    if (document.activeElement !== $("rsAfterReload")) $("rsAfterReload").checked = !!r.afterReload;
+    $("rsBulk").disabled = !!r.running;
+    $("rsStop").hidden = !r.running;
+    if (r.startedAt) {
+      $("rsStatus").textContent = (r.running ? "Running: " : "Last run: ") + `${r.done}/${r.total} files, ${r.changed} verdicts changed, ${r.failed} failed` + (r.finishedAt ? ` (finished ${new Date(r.finishedAt).toLocaleString()})` : "");
+    }
+    $("rsChanges").innerHTML = (r.changes || []).map(c => `<div class="ha-item"><div class="h">${rsEsc(c.sha256)}</div>
+      <div>${rsEsc(c.file_name)}: <span class="tag ${rsTag(c.old_verdict)}">${rsEsc(c.old_verdict.toUpperCase())}</span> &rarr; <span class="tag ${rsTag(c.new_verdict)}">${rsEsc(c.new_verdict.toUpperCase())}</span>${c.threat ? " <b>" + rsEsc(c.threat) + "</b>" : ""}</div></div>`).join("");
+  }
+  window.rescanSha = async (sha) => {
+    $("rsSha").value = sha;
+    $("rsMsg").style.color = "";
+    $("rsMsg").textContent = "Rescanning…";
+    try {
+      const r = await post("/api/rescan", { sha256: sha });
+      const c = r.change;
+      $("rsMsg").style.color = "var(--green)";
+      $("rsMsg").textContent = `${c.file_name}: ${c.old_verdict} → ${c.new_verdict}${c.threat ? " (" + c.threat + ")" : ""}`;
+      if (typeof haLoad === "function") haLoad();
+    } catch (e) { $("rsMsg").style.color = "var(--red)"; $("rsMsg").textContent = e.message; }
+  };
+  $("rsOne").onclick = () => {
+    const sha = $("rsSha").value.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(sha)) { $("rsMsg").textContent = "Enter a valid SHA-256."; return; }
+    rescanSha(sha);
+  };
+  $("rsBulk").onclick = async () => {
+    try { const r = await post("/api/rescan/bulk"); $("rsStatus").textContent = `Started: ${r.queued} files queued.`; }
+    catch (e) { $("rsStatus").textContent = e.message; }
+  };
+  $("rsStop").onclick = async () => { try { await post("/api/rescan/stop"); } catch (_) {} };
+  $("rsAfterReload").onchange = async (e) => {
+    try { await post("/api/rescan/after-reload", { enabled: e.target.checked }); }
+    catch (_) { e.target.checked = !e.target.checked; }
+  };
+
   $("keepPossibleClean").onchange = async (e) => {
     try { await post("/api/keep-possible-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
@@ -767,6 +824,7 @@
           <div class="acts">
             <a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VirusTotal ↗</a>
             <button class="ghost" onclick="haFill('${haEsc(r.sha256)}')">Review</button>
+            <button class="ghost" onclick="rescanSha('${haEsc(r.sha256)}')">Rescan</button>
           </div>
         </div>`;
       }).join("") : `<div class="ha-item">Queue is empty.</div>`;

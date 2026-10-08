@@ -174,31 +174,35 @@ impl EngineAdapter {
         self.engine.get().is_some()
     }
 
-    /// Bytes of a kept upload (`threat_`, `clean_` or unknown prefix, plain or `.xz`).
+    /// Every kept upload in the work folder (`<prefix><SHA256>_<name>[.xz]`).
+    pub fn list_kept(&self) -> Vec<KeptFile> {
+        let Some(dir) = self.work_dir.as_ref() else { return Vec::new() };
+        let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+        rd.flatten().filter_map(|e| KeptFile::parse(e.path())).collect()
+    }
+
+    pub fn find_kept(&self, sha_upper: &str) -> Option<KeptFile> {
+        self.list_kept().into_iter().find(|k| k.sha256.eq_ignore_ascii_case(sha_upper))
+    }
+
+    /// Bytes of a kept upload (any prefix, plain or `.xz`).
     pub fn read_kept_sample(&self, sha_upper: &str) -> Option<Vec<u8>> {
-        let dir = self.work_dir.as_ref()?;
-        let rd = std::fs::read_dir(dir).ok()?;
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let rest = name
-                .strip_prefix("threat_")
-                .or_else(|| name.strip_prefix("possible_clean_"))
-                .or_else(|| name.strip_prefix("clean_"))
-                .unwrap_or(&name);
-            if rest.len() < 65 || !rest[..64].eq_ignore_ascii_case(sha_upper) || rest.as_bytes()[64] != b'_' {
-                continue;
-            }
-            let p = e.path();
-            if name.ends_with(".xz") {
-                use std::io::Read;
-                let f = std::fs::File::open(&p).ok()?;
-                let mut out = Vec::new();
-                lzma_rust2::XzReader::new(std::io::BufReader::new(f), false).read_to_end(&mut out).ok()?;
-                return Some(out);
-            }
-            return std::fs::read(&p).ok();
+        self.find_kept(sha_upper)?.read()
+    }
+
+    /// Renames a kept upload to the prefix of its new verdict (after a rescan).
+    pub fn relabel_kept(&self, sha_upper: &str, verdict: &str) {
+        let Some(k) = self.find_kept(sha_upper) else { return };
+        let prefix = KeptFile::prefix_for(verdict);
+        if k.prefix == prefix {
+            return;
         }
-        None
+        let file = format!("{prefix}{}_{}{}", k.sha256, k.name, if k.xz { ".xz" } else { "" });
+        if let Some(target) = k.path.parent().map(|d| d.join(file)) {
+            if !target.exists() {
+                let _ = std::fs::rename(&k.path, &target);
+            }
+        }
     }
 
     /// Adds the analyst-written YARA rules (`analyst_signatures/yara/*.yar`, kept apart
@@ -453,6 +457,19 @@ impl EngineAdapter {
         sha: &str,
         refine: impl FnOnce(&mut ResultMessage),
     ) -> Result<ResultMessage, String> {
+        self.scan_blocking_opts(data, name, sha, true, refine)
+    }
+
+    /// `keep = false` (rescans of an already kept file): the temporary copy is always
+    /// removed and nothing new is kept.
+    pub fn scan_blocking_opts(
+        &self,
+        data: &[u8],
+        name: &str,
+        sha: &str,
+        keep: bool,
+        refine: impl FnOnce(&mut ResultMessage),
+    ) -> Result<ResultMessage, String> {
         let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
         let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
 
@@ -537,7 +554,11 @@ impl EngineAdapter {
         refine(&mut res);
         res.scan_ms = started.elapsed().as_millis() as i64;
 
-        self.keep_or_remove(temp_path.as_deref(), data, &res, sha, &safe_filename);
+        if keep {
+            self.keep_or_remove(temp_path.as_deref(), data, &res, sha, &safe_filename);
+        } else if let Some(p) = temp_path {
+            let _ = std::fs::remove_file(p);
+        }
         Ok(res)
     }
 
@@ -618,6 +639,59 @@ impl EngineAdapter {
         if let Some(p) = temp {
             let _ = std::fs::remove_file(p);
         }
+    }
+}
+
+/// A file kept in the work folder: `<prefix><SHA256>_<name>[.xz]`.
+#[derive(Debug, Clone)]
+pub struct KeptFile {
+    pub path: PathBuf,
+    /// "threat_", "possible_clean_", "clean_" or "" (unknown).
+    pub prefix: &'static str,
+    pub sha256: String,
+    pub name: String,
+    pub xz: bool,
+}
+
+impl KeptFile {
+    const PREFIXES: [&'static str; 3] = ["threat_", "possible_clean_", "clean_"];
+
+    fn parse(path: PathBuf) -> Option<Self> {
+        let file = path.file_name()?.to_string_lossy().into_owned();
+        let (prefix, rest) = Self::PREFIXES
+            .iter()
+            .find_map(|p| file.strip_prefix(p).map(|r| (*p, r)))
+            .unwrap_or(("", file.as_str()));
+        let sha = rest.get(..64)?;
+        if !sha.chars().all(|c| c.is_ascii_hexdigit()) || rest.as_bytes().get(64) != Some(&b'_') {
+            return None;
+        }
+        let tail = &rest[65..];
+        let (name, xz) = match tail.strip_suffix(".xz") {
+            Some(n) => (n, true),
+            None => (tail, false),
+        };
+        Some(KeptFile { prefix, sha256: sha.to_ascii_uppercase(), name: name.to_string(), xz, path })
+    }
+
+    pub fn prefix_for(verdict: &str) -> &'static str {
+        match verdict {
+            "malicious" | "suspicious" => "threat_",
+            "possible_clean" => "possible_clean_",
+            "clean" => "clean_",
+            _ => "",
+        }
+    }
+
+    pub fn read(&self) -> Option<Vec<u8>> {
+        if self.xz {
+            use std::io::Read;
+            let f = std::fs::File::open(&self.path).ok()?;
+            let mut out = Vec::new();
+            lzma_rust2::XzReader::new(std::io::BufReader::new(f), false).read_to_end(&mut out).ok()?;
+            return Some(out);
+        }
+        std::fs::read(&self.path).ok()
     }
 }
 
