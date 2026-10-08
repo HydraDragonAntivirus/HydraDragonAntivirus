@@ -174,3 +174,175 @@ cargo run --manifest-path hydradragonsig/Cargo.toml -- `
 - **RAM Requirements:** Loading 34.6M opcodes and 77.3M strings requires approximately **6 GB to 10 GB of system RAM**. Ensure sufficient memory is available before training large sets.
 - **`--excludegood`:** Always include this flag so benign databases filter out false positives.
 - **`--meaningful-words-only`:** Ensures only meaningful English words are retained for clean, readable rules.
+
+---
+
+## 🧬 7. TLSH Similarity: Smart Whitelist & Blacklist
+
+TLSH (Trend Micro Locality Sensitive Hash) gives every file a `T1...` similarity digest. Two digests can be compared to get a **distance**: `0` means near-identical, below `30` is very close, `30–80` is often the same family, and above `100` is usually unrelated.
+
+All TLSH work is done in Rust with **`fast-tlsh`** (pinned to `0.1.10`, the same version `multron_server_rs` uses). Python TLSH is far too slow for 200,000-file corpora.
+
+> **Compatibility:** `tlsh_builder` output was checked against Trend Micro's reference C++ `tlsh` tool on 200 random files with 0 mismatches. The digests are therefore directly comparable with MalwareBazaar and VirusTotal TLSH values.
+
+### 7.1. Build the tool
+
+```powershell
+cargo build --release --manifest-path tlsh_builder/Cargo.toml
+# binary: tlsh_builder\target\release\tlsh_builder.exe
+```
+
+Every subcommand uses all CPU cores by default (`-j N` to limit). Run `tlsh_builder <command> --help` for every option.
+
+### 7.2. Hash a corpus
+
+```powershell
+# Benign corpus -> CSV (sha256,tlsh,size,path)
+tlsh_builder hash "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2" -o benign_tlsh.csv
+
+# Malware corpus
+tlsh_builder hash "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" -o malware_tlsh.csv
+
+# Same as the server's tlsh_index.jsonl (to pre-seed "similar files" on multron_server)
+tlsh_builder hash "C:\path\to\files" --jsonl -o tlsh_index.jsonl
+```
+
+- Files smaller than **50 bytes** are skipped (TLSH needs more data). Very uniform files, such as all zeros, are skipped too.
+- Files larger than `--max-mb` (default **100**) are skipped.
+- Re-run `hash` only when a corpus changes. `tune` and `compare` can read the CSVs directly, so you don't have to hash again.
+
+### 7.3. Build the TLSH blacklist for the server
+
+The blacklist is shown to analysts and on viruskov.com as "similar to known malware". **It never decides a verdict by itself.**
+
+```powershell
+tlsh_builder blacklist `
+  "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder" `
+  --mb-csv "C:\path\to\malwarebazaar\full.csv" `
+  --merge "path\to\bloom_builder\output\tlsh.txt" `
+  -o tlsh_blacklist.txt
+```
+
+- `--mb-csv`: MalwareBazaar `full.csv`. The TLSH column is found by its shape, so column order does not matter.
+- `--merge`: existing TLSH lists, such as the `tlsh.txt` written by `bloom_builder`, or another `hash` CSV.
+
+Then install it:
+
+1. Copy the result to `OpenMalwareScannerPortable\analyst_signatures\tlsh_blacklist.txt`, next to `multron_server.exe`.
+2. Press **Reload rules & models** in the dashboard. The list is re-read without restarting the server.
+
+### 7.4. Tune the smart whitelist (most important step)
+
+The server's **smart whitelist** turns an `unknown` PE into `clean` only when all of these hold:
+
+- **Close to an analyst-clean file.** The file is within TLSH distance **20** of a file an *analyst* marked clean. This drops to **10** if the entry point moved.
+- **Passes the injection guards:**
+  - same machine, subsystem, DLL / .NET status and signature presence
+  - same sections with the same permissions, no newly packed section
+  - entry point in the same section
+  - no new dangerous imports (`WriteProcessMemory`, `CreateRemoteThread`, `URLDownloadToFile`, ...)
+  - no grown or newly encrypted overlay
+  - size within ±15%
+  - no new medium/high static indicator
+- **Never overrides a detection.** It only applies to `unknown` files.
+
+Before trusting a distance limit, measure how close real malware gets to your clean corpus:
+
+```powershell
+tlsh_builder tune --clean benign_tlsh.csv --malware malware_tlsh.csv --report close_calls.csv
+```
+
+Example output:
+
+```
+Malware files whose closest clean file is within distance D
+(these would be at risk if the smart-whitelist limit were D):
+  D <=   5:        0 of 3171  (0.000%)
+  D <=  10:        0 of 3171  (0.000%)
+  D <=  20:        0 of 3171  (0.000%)
+  D <=  30:        0 of 3171  (0.000%)
+  D <=  50:       25 of 3171  (0.788%)
+  D <=  80:      843 of 3171  (26.585%)
+```
+
+- **If the `D <= 20` line is not 0:** open `close_calls.csv` (default `--report-dist 20`). These are usually trojanized installers or patched copies of clean software, which is exactly what the injection guards are for. Check that each of them is refused.
+  - **Server log:** a refused file is logged as `[similarity] smart whitelist refused: <reason>`.
+  - **Dashboard:** the file stays in the human-analysis queue.
+- **Lowering the limit:** if trojanized files keep landing very close to clean ones, lower `SMART_WL_MAX_DIST` / `SMART_WL_MAX_DIST_EP_MOVED` in `OpenEDR/multron_server_rs/src/similarity.rs`.
+- **Raising the limit:** never raise it above the first distance where malware appears.
+
+### 7.5. Compare one file
+
+```powershell
+tlsh_builder compare "C:\samples\suspect.exe" --db benign_tlsh.csv --db tlsh_blacklist.txt --max-dist 80 --top 20
+# or with a digest
+tlsh_builder compare T110669E12726D9BA9D15BA0340ECFE5036279F4B27E35306733861F2D2ABAD7547E8720 --db malware_tlsh.csv
+```
+
+Prints the distance, digest and SHA-256 of the closest entries. A full linear scan of a million digests takes a few milliseconds.
+
+### 7.6. How references get into the server
+
+The smart whitelist **only** uses files an analyst marked clean. Engine-clean files are never references, because an ML or heuristic miss must not spread to other files. Each reference needs:
+
+- **A human verdict:** open the dashboard → **Human analysis** → enter the SHA-256 → verdict **Clean** → Save.
+- **A static report:** the server must have analysed the file once, which happens on its first upload. That report is where its TLSH and structure come from.
+
+From then on, close variants of that file are whitelisted automatically, and the reason is written into the verdict detail:
+
+```
+Smart whitelist: TLSH distance 7 to analyst-verified clean 0235cf...; structure unchanged
+```
+
+A second source is the **verified benign corpus** `analyst_signatures\tlsh_whitelist_refs.jsonl` (built with `tlsh_builder refs`, see 7.7). Each line carries the TLSH and the structural fingerprint, so the injection guard runs without a stored report. Dashboard → **Reload engines** reloads it.
+
+### 7.7. Full training run (all training folders)
+
+`refs` and `hash` accept `.lst` file lists, `--resume` (append; skip files already in `<output>.done`) and `--deadline <seconds>`, so a run can be stopped and continued at any time.
+
+```powershell
+cd C:\Users\semae\OneDrive\Belgeler\usbdosyalar
+$tb = "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\tlsh_builder\target\release\tlsh_builder.exe"
+$w  = "tlsh_training\work"
+
+# File lists (only once; skip if they already exist)
+# Get-ChildItem data2 -Recurse -File | % { $_.FullName } > $w\benign_pe.lst   (etc.)
+
+& $tb --resume refs $w\benign_pe.lst -o $w\benign_refs.jsonl          # benign PE -> whitelist references
+& $tb --resume refs $w\mal_pe.lst    -o $w\malware_refs.jsonl         # malware PE (for tune + blacklist)
+& $tb --resume hash $w\js_benign.lst --jsonl -o $w\js_benign.jsonl
+& $tb --resume hash $w\js_mal.lst    --jsonl -o $w\js_malware.jsonl
+
+& "C:\Program Files\7-Zip\7z.exe" e hash\tlsh_db.xz -o"$w" -y        # lines "T1...:n/a" are accepted
+& $tb blacklist --merge $w\malware_refs.jsonl --merge $w\js_malware.jsonl --merge $w\tlsh_db -o $w\tlsh_blacklist.txt
+
+& $tb tune --clean $w\benign_refs.jsonl --malware $w\malware_refs.jsonl --report $w\close_calls.csv > $w\tune.txt
+```
+
+Install only when `tune.txt` reports **0 wrongly whitelisted** (or after removing the clean references named in the `would_be_whitelisted=true` rows of `close_calls.csv`: those "benign" files are usually mislabelled malware):
+
+```powershell
+$a = "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenMalwareScannerPortable\analyst_signatures"
+Copy-Item $w\benign_refs.jsonl  $a\tlsh_whitelist_refs.jsonl
+Copy-Item $w\tlsh_blacklist.txt $a\tlsh_blacklist.txt
+```
+
+#### APK smart whitelist
+
+For APKs the server compares the **DEX TLSH** (TLSH of `classes*.dex` concatenated; the APK itself is a compressed ZIP, so its own TLSH says little). An `unknown` APK (the APK ML engine included) becomes clean only when a clean reference is within distance 20 **and**:
+
+- same signing certificate(s) (v3/v2 block, else v1 `META-INF/*.RSA|DSA|EC`); never for Android debug / AOSP test keys
+- same package name and same number of DEX files
+- no new permission, service, receiver, provider or native library
+- size within ±15 %
+
+Repackaged malware (a real app plus a payload) cannot carry the original developer's signature, so this is the core check. APKs whose ZIP or binary manifest cannot be parsed (common anti-analysis tricks) are never whitelisted. `run_tlsh.bat` builds `apk_benign_refs.jsonl` / `apk_malware_refs.jsonl` from `HydraDragonAV-Mobile\dataset`, tunes PE and APK together and installs both into `tlsh_whitelist_refs.jsonl`.
+
+### 7.8. File formats
+
+| File | Location | Format |
+| :--- | :--- | :--- |
+| `tlsh_blacklist.txt` | `OpenMalwareScannerPortable\analyst_signatures\` | one `T1...` digest per line, `#` comments allowed |
+| `tlsh_index.jsonl` | next to `multron_server.exe` | `{"sha256":"…","tlsh":"T1…","size":123}` per line (written by the server) |
+| `tlsh_whitelist_refs.jsonl` | `OpenMalwareScannerPortable\analyst_signatures\` | `{"sha256","tlsh","fp":{…},"path"}` per line (written by `tlsh_builder refs`) |
+| `hash` CSV | anywhere | `sha256,tlsh,size,path` |

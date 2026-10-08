@@ -1,3 +1,6 @@
+# TLSH Smart Whitelist 
+OpenMalwareScannerPortable/analyst_signatures/tlsh_whitelist_refs.jsonl
+
 # NSRL Whitelist XORFilter
 OpenMalwareScannerPortable/xorfilter_rules/benign_sha256.xf
 

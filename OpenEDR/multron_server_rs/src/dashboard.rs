@@ -81,6 +81,13 @@ impl AppState {
             settings.path = p;
         }
 
+        // Keeping possible_clean files: saved dashboard choice, unless the command line
+        // turns it off.
+        if cfg.no_keep_possible_clean {
+            settings.keep_possible_clean = false;
+        }
+        engine.keep_possible_clean.store(settings.keep_possible_clean, std::sync::atomic::Ordering::Relaxed);
+
         // Limits saved from the dashboard win over the command-line defaults.
         if let Some(saved) = settings.limits.take() {
             let applied = scan_server.apply_limits(saved);
@@ -185,6 +192,8 @@ impl AppState {
         {
             let mut g = self.settings.write().await;
             s.limits = g.limits.take();
+            // Not part of the listener form: keep the current choice.
+            s.keep_possible_clean = g.keep_possible_clean;
             *g = s.clone();
         }
         self.save_settings().await;
@@ -251,6 +260,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
         .route("/api/maintenance", post(handle_maintenance))
+        .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
         .route("/api/limits", post(handle_limits))
         .route("/api/limits/reset", post(handle_limits_reset))
         .route("/api/unban", post(handle_unban))
@@ -258,6 +268,13 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
         .route("/api/rules", post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()))
         .route("/api/engine/reload", post(handle_engine_reload))
+        .route("/api/reviews", get(handle_reviews_list))
+        .route("/api/review", post(handle_review_save))
+        .route("/api/review/delete", post(handle_review_delete))
+        .route("/api/signatures", get(handle_signatures_list).post(handle_signature_save))
+        .route("/api/signatures/delete", post(handle_signature_delete))
+        .route("/api/naming", get(handle_naming_check))
+        .route("/api/companies", get(handle_companies_get).post(handle_companies_save))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
 }
@@ -348,6 +365,7 @@ async fn handle_state(
             "maxFileMBCeiling": crate::config::MAX_FILE_MB,
             "keepThreats": app.engine.keep_threats,
             "keepClean": app.engine.keep_clean,
+            "keepPossibleClean": app.engine.keep_possible_clean.load(std::sync::atomic::Ordering::Relaxed),
             "compressLowDisk": app.engine.compress_low_disk,
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },
@@ -427,6 +445,22 @@ async fn handle_start(
 async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     app.stop_listener(true).await;
     Json(serde_json::json!({"ok": true}))
+}
+
+#[derive(Deserialize)]
+struct KeepToggle {
+    #[serde(default)]
+    enabled: bool,
+}
+
+/// Whether `possible_clean` files (TLSH smart whitelist) are kept in the work folder.
+/// Applies at once and is saved to multron_server.json.
+async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
+    app.engine.keep_possible_clean.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+    app.settings.write().await.keep_possible_clean = t.enabled;
+    app.save_settings().await;
+    info_event(&app, format!("keep possible_clean files: {}", if t.enabled { "on" } else { "off" }));
+    Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
 #[derive(Deserialize)]
@@ -521,6 +555,9 @@ async fn handle_engine_reload(
 ) -> impl IntoResponse {
     let app2 = Arc::clone(&app);
     let keep_cache = q.keep_cache;
+    let tl = app.threat_intel.similarity.reload_known_malware();
+    let refs = app.threat_intel.similarity.reload_corpus_refs();
+    info_event(&app, format!("TLSH blacklist: {tl} digests, smart-whitelist corpus: {refs} references"));
     let started = app.engine.reload_all(move |res| match res {
         Ok(ms) => {
             if !keep_cache {
@@ -618,6 +655,7 @@ async fn handle_dashboard_insights_stats(State(app): State<Arc<AppState>>) -> im
                 "malicious": stats.malicious_count,
                 "suspicious": stats.suspicious_count,
                 "clean": stats.clean_count,
+                "possible_clean": stats.possible_clean_count,
                 "unknown": stats.unknown_count,
             }
         }
@@ -635,13 +673,276 @@ async fn handle_dashboard_insights_hash(
             "found": true,
             "prevalence": insight.prevalence(),
             "insight": insight,
+            "review": app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json()),
+            "virustotal": crate::human_review::virustotal_url(&clean),
         }))
     } else {
         Json(serde_json::json!({
             "ok": true,
             "found": false,
             "sha256": clean,
+            "review": app.threat_intel.reviews.get(&clean).map(|r| r.to_dashboard_json()),
+            "virustotal": crate::human_review::virustotal_url(&clean),
             "message": "Hash has not been observed in VirusKov telemetry",
         }))
     }
+}
+
+// ---------------- Human analysis (Valkyrie-style queue) ----------------
+
+async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let r = &app.threat_intel.reviews;
+    let pending: Vec<serde_json::Value> = r
+        .pending(100)
+        .iter()
+        .map(|rv| {
+            let mut v = rv.to_dashboard_json();
+            v["similar"] = serde_json::json!(crate::scan_server::similar_files(&app.threat_intel, &rv.sha256, 3));
+            if let Some(ins) = app.threat_intel.get(&rv.sha256) {
+                v["seen_count"] = serde_json::json!(ins.seen_count);
+                v["file_names"] = serde_json::json!(ins.file_names);
+                v["file_size"] = serde_json::json!(ins.file_size);
+            }
+            v
+        })
+        .collect();
+    Json(serde_json::json!({
+        "ok": true,
+        "stats": r.stats(),
+        "pending": pending,
+        "recent": r.recent_completed(100).iter().map(|rv| rv.to_dashboard_json()).collect::<Vec<_>>(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct ReviewSaveBody {
+    sha256: String,
+    verdict: String,
+    #[serde(default)]
+    threat_name: String,
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    internal_note: String,
+    #[serde(default)]
+    analyst: String,
+}
+
+async fn handle_review_save(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<ReviewSaveBody>,
+) -> Response {
+    let threat = if b.threat_name.trim().is_empty() { None } else { Some(b.threat_name.as_str()) };
+    match app.threat_intel.reviews.complete(b.sha256.trim(), &b.verdict, threat, &b.note, &b.internal_note, &b.analyst) {
+        Ok(r) => {
+            info_event(
+                &app,
+                format!(
+                    "human analysis: {} -> {} by {} ({} s)",
+                    r.sha256,
+                    r.verdict.as_deref().unwrap_or("?"),
+                    if r.analyst.is_empty() { "analyst" } else { r.analyst.as_str() },
+                    r.response_secs.unwrap_or(0)
+                ),
+            );
+            (StatusCode::OK, Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()}))).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ReviewDeleteBody {
+    sha256: String,
+}
+
+async fn handle_review_delete(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<ReviewDeleteBody>,
+) -> Response {
+    if app.threat_intel.reviews.remove(b.sha256.trim()) {
+        info_event(&app, format!("human analysis removed: {}", b.sha256.trim().to_lowercase()));
+        (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no review for this hash"}))).into_response()
+    }
+}
+
+// ---------------- Signature room (analyst YARA rules, stored apart) ----------------
+
+#[derive(Deserialize)]
+struct NamingQuery {
+    #[serde(default)]
+    name: String,
+}
+
+async fn handle_naming_check(Query(q): Query<NamingQuery>) -> impl IntoResponse {
+    match crate::naming::normalize_threat_name(&q.name) {
+        Ok(n) => Json(serde_json::json!({"ok": true, "name": n, "yara_id": crate::naming::yara_identifier(&n)})),
+        Err(e) => Json(serde_json::json!({"ok": false, "error": e})),
+    }
+}
+
+async fn handle_signatures_list() -> impl IntoResponse {
+    use crate::analyst_engine::SigKind;
+    let mut items = Vec::new();
+    for kind in SigKind::ALL {
+        let dir = crate::human_review::analyst_dir().join(kind.folder());
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) != Some(kind.ext()) {
+                continue;
+            }
+            let name = p.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let modified = e
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| chrono::DateTime::<Utc>::from(t).to_rfc3339());
+            items.push(serde_json::json!({
+                "kind": kind.id(),
+                "name": name,
+                "source": std::fs::read_to_string(&p).unwrap_or_default(),
+                "modified": modified,
+            }));
+        }
+    }
+    items.sort_by(|a, b| (a["name"].as_str(), a["kind"].as_str()).cmp(&(b["name"].as_str(), b["kind"].as_str())));
+    Json(serde_json::json!({
+        "ok": true,
+        "folder": crate::human_review::analyst_dir().display().to_string(),
+        "categories": crate::naming::CATEGORIES,
+        "platforms": crate::naming::PLATFORMS,
+        "items": items,
+    }))
+}
+
+fn default_kind() -> String {
+    "yara".into()
+}
+
+#[derive(Deserialize)]
+struct SignatureSaveBody {
+    #[serde(default = "default_kind")]
+    kind: String,
+    name: String,
+    source: String,
+}
+
+/// Validates the name and the source for its engine, then writes
+/// `analyst_signatures/<engine>/<Name>.<ext>`. YARA is compiled into the live engine
+/// (append-only); ClamAV and HydraDragonSig sets are rebuilt from disk at once.
+async fn handle_signature_save(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<SignatureSaveBody>,
+) -> Response {
+    use crate::analyst_engine::{validate_clamav, validate_hydrasig, SigKind};
+    let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    let Some(kind) = SigKind::parse(&b.kind) else {
+        return bad("unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb)".into());
+    };
+    let name = match crate::naming::normalize_threat_name(&b.name) {
+        Ok(n) => n,
+        Err(e) => return bad(e),
+    };
+    if b.source.len() > 1024 * 1024 {
+        return bad("rule source over 1 MB".into());
+    }
+    let path = kind.path(&name);
+    let existed = path.exists();
+    let checked = match kind {
+        SigKind::Yara => {
+            if !b.source.contains("rule ") {
+                return bad("the source does not contain a YARA rule".into());
+            }
+            app.engine.reload_rules("yara_src", &b.source).map(|_| 1)
+        }
+        SigKind::HydraSig => validate_hydrasig(&b.source),
+        SigKind::ClamNdb | SigKind::ClamLdb => validate_clamav(kind, &b.source),
+    };
+    let count = match checked {
+        Ok(n) => n,
+        Err(e) => return bad(e),
+    };
+    if let Err(e) = std::fs::write(&path, &b.source) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+    }
+    let note = if kind == SigKind::Yara {
+        if existed {
+            "Saved. The previous version stays loaded too until the next engine reload.".to_string()
+        } else {
+            "Saved and active.".to_string()
+        }
+    } else {
+        let engine = Arc::clone(&app.engine);
+        let summary = tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
+        format!("Saved and active ({count} signature(s)). {summary}")
+    };
+    info_event(&app, format!("signature room: {} {name} {}", kind.id(), if existed { "updated" } else { "added" }));
+    Json(serde_json::json!({ "ok": true, "kind": kind.id(), "name": name, "file": path.display().to_string(), "note": note })).into_response()
+}
+
+#[derive(Deserialize)]
+struct SignatureDeleteBody {
+    #[serde(default = "default_kind")]
+    kind: String,
+    name: String,
+}
+
+async fn handle_signature_delete(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<SignatureDeleteBody>,
+) -> Response {
+    use crate::analyst_engine::SigKind;
+    let (Some(kind), Ok(name)) = (SigKind::parse(&b.kind), crate::naming::normalize_threat_name(&b.name)) else {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid kind or name"}))).into_response();
+    };
+    if let Err(e) = std::fs::remove_file(kind.path(&name)) {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+    }
+    let note = if kind == SigKind::Yara {
+        "Deleted. It stays loaded until the next engine reload.".to_string()
+    } else {
+        let engine = Arc::clone(&app.engine);
+        tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
+        "Deleted and unloaded.".to_string()
+    };
+    info_event(&app, format!("signature room: {} {name} deleted", kind.id()));
+    Json(serde_json::json!({"ok": true, "note": note})).into_response()
+}
+
+// ---------------- Company (signer) allow / block lists ----------------
+
+async fn handle_companies_get(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists() }))
+}
+
+#[derive(Deserialize)]
+struct CompaniesBody {
+    #[serde(default)]
+    allow: Vec<String>,
+    #[serde(default)]
+    block: Vec<String>,
+}
+
+async fn handle_companies_save(
+    State(app): State<Arc<AppState>>,
+    Json(b): Json<CompaniesBody>,
+) -> Response {
+    if b.allow.len() + b.block.len() > 10_000 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "too many entries"}))).into_response();
+    }
+    if let Some(both) = b.allow.iter().find(|a| b.block.iter().any(|x| x.trim().eq_ignore_ascii_case(a.trim()))) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("\"{}\" is in both lists", both.trim())}))).into_response();
+    }
+    if let Err(e) = crate::analyst_engine::save_company_lists(&b.allow, &b.block) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+    }
+    let engine = Arc::clone(&app.engine);
+    let summary = tokio::task::spawn_blocking(move || engine.analyst.reload()).await.unwrap_or_default();
+    // Cached verdicts were made with the old lists.
+    app.scan_server.cache.invalidate_all();
+    info_event(&app, format!("company lists saved: {summary}"));
+    Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists(), "note": "Saved and active; cached verdicts cleared." })).into_response()
 }

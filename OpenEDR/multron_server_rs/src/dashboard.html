@@ -69,6 +69,7 @@
   .empty { color: var(--muted); text-align: center; padding: 18px; }
   .tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
   .t-clean { background: var(--green-bg); color: var(--green); }
+  .t-possible_clean { background: var(--green-bg); color: var(--green); opacity: .75; border: 1px dashed var(--green); }
   .t-malicious { background: var(--red-bg); color: var(--red); }
   .t-suspicious { background: var(--orange-bg); color: var(--orange); }
   .t-error, .t-rejected { background: var(--orange-bg); color: var(--orange); }
@@ -161,6 +162,11 @@
     <section class="card">
       <h2>Engine &amp; limits</h2>
       <div class="limits" id="limits"></div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <input type="checkbox" id="keepPossibleClean" style="width:auto">
+        Keep <b>possible clean</b> files (TLSH smart whitelist) in the work folder as <code>possible_clean_&lt;sha256&gt;_&lt;name&gt;</code>
+      </label>
+      <div class="hint">On by default. Saved in multron_server.json; <code>--no-keep-possible-clean</code> turns it off at start.</div>
       <div id="engineError" class="error"></div>
     </section>
 
@@ -198,6 +204,98 @@
       <div class="stat threat"><div class="v" id="sBlocked">0</div><div class="l">Requests blocked</div></div>
       <div class="stat threat"><div class="v" id="sBanned">0</div><div class="l">IPs blocked now</div></div>
     </div>
+
+    <section class="card" id="humanAnalysis">
+      <h2>Human analysis</h2>
+      <div class="ha-stats" id="haStats">—</div>
+      <div class="ha-grid">
+        <div>
+          <label for="haSha">SHA-256</label>
+          <input id="haSha" type="text" placeholder="64 hex characters" style="font-family:Consolas, monospace; font-size:11.5px;">
+          <div class="row2">
+            <div>
+              <label for="haVerdict">Verdict</label>
+              <select id="haVerdict">
+                <option value="malicious">Malicious</option>
+                <option value="suspicious">Suspicious / PUA</option>
+                <option value="clean">Clean</option>
+              </select>
+            </div>
+            <div>
+              <label for="haAnalyst">Analyst</label>
+              <input id="haAnalyst" type="text" placeholder="name or handle">
+            </div>
+          </div>
+          <label for="haThreat">Threat name (required for malicious)</label>
+          <input id="haThreat" type="text" placeholder="Category.Platform.Family[.Variant], e.g. Backdoor.Win32.Remcos.A">
+          <label for="haNote">Public note</label>
+          <textarea id="haNote" placeholder="Why this verdict. Shown on viruskov.com."></textarea>
+          <label for="haInternal">Internal note (analysts only)</label>
+          <textarea id="haInternal" placeholder="Private: sandbox findings, sources, doubts. Never published."></textarea>
+          <div class="hint">The verdict overrides the engine for every client and is published on the website with the public note and the response time. The internal note stays on this dashboard.</div>
+          <div class="row2">
+            <button class="primary" id="haSave">Save verdict</button>
+            <button class="danger" id="haDelete">Remove review</button>
+          </div>
+          <div id="haMsg" class="error"></div>
+        </div>
+        <div>
+          <div class="feedbar"><h2 style="margin:0">Queue (oldest first)</h2></div>
+          <div class="ha-list" id="haPending"><div class="ha-item">Loading…</div></div>
+          <div class="feedbar" style="margin-top:12px"><h2 style="margin:0">Recent verdicts</h2></div>
+          <div class="ha-list" id="haRecent" style="max-height:220px"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="signatureRoom">
+      <h2>Signature room</h2>
+      <div class="hint" style="margin-top:0">Analyst rules live in <code id="sigFolder">analyst_signatures/</code>, apart from the shipped rule folders. Names follow <b>Category.Platform.Family[.Variant]</b>.</div>
+      <div class="ha-grid" style="margin-top:10px">
+        <div>
+          <div class="row2">
+            <div><label for="nbCat">Category</label><select id="nbCat"></select></div>
+            <div><label for="nbPlat">Platform</label><select id="nbPlat"></select></div>
+          </div>
+          <div class="row2">
+            <div><label for="nbFam">Family</label><input id="nbFam" type="text" placeholder="Remcos"></div>
+            <div><label for="nbVar">Variant (optional)</label><input id="nbVar" type="text" placeholder="A" maxlength="8"></div>
+          </div>
+          <div class="addr" style="margin-top:10px"><span id="nbName">—</span><button class="ghost" id="nbCopy">Copy</button></div>
+          <div id="nbErr" class="error"></div>
+          <label for="sigKind">Signature format</label>
+          <select id="sigKind">
+            <option value="yara">YARA (.yar)</option>
+            <option value="hydradragonsig">HydraDragonSig rule (.yaml)</option>
+            <option value="clamav_ndb">ClamAV body signature (.ndb)</option>
+            <option value="clamav_ldb">ClamAV logical signature (.ldb)</option>
+          </select>
+          <div class="row2">
+            <button class="ghost" id="nbUseVerdict" style="margin-top:8px">Use in human verdict</button>
+            <button class="ghost" id="nbNewRule" style="margin-top:8px">New rule from template</button>
+          </div>
+          <label style="margin-top:14px">Saved analyst rules</label>
+          <div class="ha-list" id="sigList" style="max-height:220px"></div>
+        </div>
+        <div>
+          <label for="sigSource"><span id="sigKindLabel">YARA rule</span> <span id="sigEditing" style="font-weight:400"></span></label>
+          <textarea id="sigSource" spellcheck="false" style="min-height:300px; font-family:Consolas, monospace; font-size:12px; white-space:pre;"></textarea>
+          <div class="row2">
+            <button class="primary" id="sigSave">Compile &amp; save</button>
+            <button class="danger" id="sigDelete">Delete rule</button>
+          </div>
+          <div id="sigMsg" class="error"></div>
+        </div>
+      </div>
+      <h2 style="margin-top:22px">Company (signer) lists</h2>
+      <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Analyst ClamAV and HydraDragonSig hits still apply on top; a human hash verdict always wins.</div>
+      <div class="row2" style="margin-top:8px">
+        <div><label for="coAllow">Allow-list</label><textarea id="coAllow" spellcheck="false" placeholder="Microsoft Corporation" style="min-height:140px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
+        <div><label for="coBlock">Block-list</label><textarea id="coBlock" spellcheck="false" placeholder="Shady Software Ltd" style="min-height:140px; font-family:Consolas, monospace; font-size:12px;"></textarea></div>
+      </div>
+      <button class="primary" id="coSave">Save company lists</button>
+      <div id="coMsg" class="error"></div>
+    </section>
 
     <section class="card">
       <h2>Connected clients</h2>
@@ -324,6 +422,7 @@
                           ["Hash whitelist", l.hashWhitelist ? "on" : "off"], ["Hash signatures", l.hashSignatures]]) {
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
+    if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
     renderLimitForm(state.editableLimits, l.maxFileMBCeiling);
     const banned = state.bannedIps || [];
     $("bannedList").textContent = banned.length ? "Blocked now: " + banned.join(", ") : "";
@@ -497,6 +596,12 @@
     return data;
   }
 
+  $("keepPossibleClean").onchange = async (e) => {
+    try { await post("/api/keep-possible-clean", { enabled: e.target.checked }); }
+    catch (_) { e.target.checked = !e.target.checked; }
+  };
+
+
   $("startBtn").onclick = async () => {
     $("listenError").textContent = "";
     $("startBtn").disabled = true;
@@ -586,7 +691,7 @@
       const data = await res.json();
       if (data.ok && data.found) {
         const ins = data.insight;
-        const tagCls = ins.verdict === "malicious" ? "t-malicious" : ins.verdict === "suspicious" ? "t-suspicious" : ins.verdict === "clean" ? "t-clean" : "t-unknown";
+        const tagCls = ins.verdict === "malicious" ? "t-malicious" : ins.verdict === "suspicious" ? "t-suspicious" : ins.verdict === "clean" ? "t-clean" : ins.verdict === "possible_clean" ? "t-possible_clean" : "t-unknown";
         box.innerHTML = `
           <div><b>Verdict:</b> <span class="tag ${tagCls}">${ins.verdict.toUpperCase()}</span> (${ins.score}/100)</div>
           ${ins.threat_name ? `<div><b>Threat:</b> <span style="color:var(--red); font-weight:600;">${ins.threat_name}</span></div>` : ""}
@@ -603,6 +708,190 @@
       box.innerHTML = `<span style="color:var(--red);">Error searching: ${e.message}</span>`;
     }
   };
+
+  // ---------------- Human analysis ----------------
+  const haEsc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const haDur = (s) => {
+    if (s == null) return "—";
+    if (s < 60) return s + " s";
+    if (s < 3600) return Math.round(s / 60) + " min";
+    if (s < 86400) return (s / 3600).toFixed(1) + " h";
+    return (s / 86400).toFixed(1) + " d";
+  };
+  const haTag = (v) => v === "malicious" ? "t-malicious" : v === "suspicious" ? "t-suspicious" : v === "clean" ? "t-clean" : v === "possible_clean" ? "t-possible_clean" : "t-unknown";
+  try { $("haAnalyst").value = localStorage.getItem("multron_analyst") || ""; } catch (_) {}
+
+  const haFill = (sha, verdict, threat, note, internal) => {
+    $("haSha").value = sha;
+    if (verdict) $("haVerdict").value = verdict;
+    $("haThreat").value = threat || "";
+    $("haNote").value = note || "";
+    $("haInternal").value = internal || "";
+    $("haNote").focus();
+  };
+  window.haFill = haFill;
+  window.haEdit = (i) => { const r = (window.haRecentList || [])[i]; if (r) haFill(r.sha256, r.verdict, r.threat_name, r.note, r.internal_note); };
+
+  const haLoad = async () => {
+    try {
+      const res = await fetch("/api/reviews", { cache: "no-store" });
+      if (!res.ok) return;
+      const d = await res.json();
+      const st = d.stats || {};
+      $("haStats").innerHTML =
+        `<span>Pending: <b>${st.pending ?? 0}</b></span>` +
+        `<span>Completed: <b>${st.completed ?? 0}</b></span>` +
+        `<span>Last 24 h: <b>${st.completed_24h ?? 0}</b></span>` +
+        `<span>Avg response: <b>${haDur(st.avg_response_secs)}</b></span>` +
+        `<span>Median: <b>${haDur(st.median_response_secs)}</b></span>` +
+        `<span>Oldest waiting: <b>${haDur(st.oldest_pending_secs)}</b></span>`;
+      const pend = d.pending || [];
+      $("haPending").innerHTML = pend.length ? pend.map(r => {
+        const waited = Math.max(0, Math.round((Date.now() - new Date(r.requested_at)) / 1000));
+        const names = (r.file_names && r.file_names.length ? r.file_names : (r.file_name ? [r.file_name] : [])).join(", ");
+        return `<div class="ha-item">
+          <div class="h">${haEsc(r.sha256)}</div>
+          <div>${names ? haEsc(names) + " · " : ""}engine: <span class="tag ${haTag(r.engine_verdict)}">${haEsc((r.engine_verdict || "unknown").toUpperCase())}</span> · ${haEsc(r.source)} · waiting ${haDur(waited)}${r.seen_count ? " · " + r.seen_count + " sightings" : ""}</div>
+          ${(r.similar || []).length ? `<div style="color:var(--muted)">TLSH: ${(r.similar || []).map(x => `<span class="tag ${haTag(x.verdict)}">d=${x.distance} ${haEsc((x.verdict || "?").toUpperCase())}${x.verdict_source === "human" ? " (human)" : ""}</span>${x.threat_name ? " " + haEsc(x.threat_name) : ""}`).join(" ")}</div>` : ""}
+          <div class="acts">
+            <a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VirusTotal ↗</a>
+            <button class="ghost" onclick="haFill('${haEsc(r.sha256)}')">Review</button>
+          </div>
+        </div>`;
+      }).join("") : `<div class="ha-item">Queue is empty.</div>`;
+      const rec = d.recent || [];
+      window.haRecentList = rec;
+      $("haRecent").innerHTML = rec.length ? rec.map((r, i) => `<div class="ha-item">
+          <div class="h">${haEsc(r.sha256)}</div>
+          <div><span class="tag ${haTag(r.verdict)}">${haEsc((r.verdict || "").toUpperCase())}</span> ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b> · " : ""}${haEsc(r.analyst || "analyst")} · response ${haDur(r.response_secs)}</div>
+          ${r.note ? `<div style="color:var(--muted)">${haEsc(r.note)}</div>` : ""}
+          ${r.internal_note ? `<div style="color:var(--muted)"><b>Internal:</b> ${haEsc(r.internal_note)}</div>` : ""}
+          <div class="acts"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VirusTotal ↗</a>
+          <button class="ghost" onclick="haEdit(${i})">Edit</button></div>
+        </div>`).join("") : `<div class="ha-item">No verdicts yet.</div>`;
+    } catch (_) {}
+  };
+
+  $("haSave").onclick = async () => {
+    $("haMsg").textContent = "";
+    const sha = $("haSha").value.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(sha)) { $("haMsg").textContent = "Enter a valid SHA-256."; return; }
+    try { localStorage.setItem("multron_analyst", $("haAnalyst").value.trim()); } catch (_) {}
+    try {
+      const r = await post("/api/review", {
+        sha256: sha, verdict: $("haVerdict").value, threat_name: $("haThreat").value,
+        note: $("haNote").value, internal_note: $("haInternal").value, analyst: $("haAnalyst").value,
+      });
+      $("haMsg").style.color = "var(--green)";
+      $("haMsg").textContent = `Saved: ${r.review.verdict} (response ${haDur(r.review.response_secs)})`;
+      $("haSha").value = ""; $("haThreat").value = ""; $("haNote").value = "";
+      haLoad();
+    } catch (err) { $("haMsg").style.color = ""; $("haMsg").textContent = err.message; }
+  };
+  $("haDelete").onclick = async () => {
+    const sha = $("haSha").value.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(sha)) { $("haMsg").textContent = "Enter a valid SHA-256."; return; }
+    if (!confirm("Remove the human review for this hash? The engine verdict applies again.")) return;
+    try { await post("/api/review/delete", { sha256: sha }); $("haMsg").textContent = "Removed."; haLoad(); }
+    catch (err) { $("haMsg").textContent = err.message; }
+  };
+  haLoad();
+  setInterval(haLoad, 5000);
+
+  // ---------------- Signature room ----------------
+  let nbCurrent = "";
+  const nbBuild = async () => {
+    const parts = [$("nbCat").value, $("nbPlat").value, $("nbFam").value.trim()];
+    if ($("nbVar").value.trim()) parts.push($("nbVar").value.trim());
+    if (!parts[2]) { $("nbName").textContent = "—"; $("nbErr").textContent = ""; nbCurrent = ""; return; }
+    try {
+      const r = await (await fetch("/api/naming?name=" + encodeURIComponent(parts.join(".")))).json();
+      if (r.ok) { nbCurrent = r.name; $("nbName").textContent = r.name; $("nbErr").textContent = ""; }
+      else { nbCurrent = ""; $("nbName").textContent = "—"; $("nbErr").textContent = r.error; }
+    } catch (_) {}
+  };
+  const KIND_LABEL = { yara: "YARA rule", hydradragonsig: "HydraDragonSig rule (YAML)", clamav_ndb: "ClamAV .ndb (Name:TargetType:Offset:HexSig)", clamav_ldb: "ClamAV .ldb (Name;Target;Logic;Subsigs)" };
+  const sigTemplate = (name, kind) => {
+    const id = name.replace(/[^A-Za-z0-9_]/g, "_");
+    const today = new Date().toISOString().slice(0, 10);
+    const analyst = ($("haAnalyst").value || "").trim() || "analyst";
+    if (kind === "hydradragonsig") {
+      return `rules:\n  - id: ANALYST-${id.toUpperCase()}\n    title: "${name}"\n    description: "Written by ${analyst} on ${today}"\n    severity: high\n    verdict: malware\n    confidence: 90\n    score: 90\n    family: "${name}"\n    tags: [analyst]\n    logic: all\n    conditions:\n      - type: string_set\n        min: 2\n        nocase: true\n        values:\n          - "first unique string"\n          - "second unique string"\n      - type: import_set\n        min: 1\n        names:\n          - "VirtualAllocEx"\n`;
+    }
+    if (kind === "clamav_ndb") {
+      return `# ${name} by ${analyst}, ${today}\n# TargetType 1 = PE, 0 = any file. Offset * = anywhere, EP+0 = entry point.\n${name}:1:*:4d5a9000{-200}52656d636f73\n`;
+    }
+    if (kind === "clamav_ldb") {
+      return `# ${name} by ${analyst}, ${today}\n# Logic 0&1 = both subsignatures; subsigs are hex (use ::i for case-insensitive ASCII).\n${name};Engine:51-255,Target:1;0&1;52656d636f73;6c6963656e7365\n`;
+    }
+    return `rule ${id}\n{\n    meta:\n        threat_name = "${name}"\n        author = "${analyst}"\n        date = "${today}"\n        description = ""\n\n    strings:\n        $s1 = "" ascii wide\n\n    condition:\n        uint16(0) == 0x5A4D and any of them\n}\n`;
+  };
+  $("sigKind").addEventListener("change", () => { $("sigKindLabel").textContent = KIND_LABEL[$("sigKind").value]; });
+  let sigItems = [];
+  const sigLoad = async () => {
+    try {
+      const d = await (await fetch("/api/signatures", { cache: "no-store" })).json();
+      if (!$("nbCat").options.length) {
+        $("nbCat").innerHTML = d.categories.map(c => `<option>${c}</option>`).join("");
+        $("nbPlat").innerHTML = d.platforms.map(c => `<option>${c}</option>`).join("");
+      }
+      $("sigFolder").textContent = d.folder;
+      sigItems = d.items || [];
+      $("sigList").innerHTML = sigItems.length ? sigItems.map((it, i) => `<div class="ha-item">
+          <div><b>${haEsc(it.name)}</b> <span class="tag t-unknown">${haEsc(it.kind)}</span></div>
+          <div style="color:var(--muted)">${it.modified ? new Date(it.modified).toLocaleString() : ""}</div>
+          <div class="acts"><button class="ghost" onclick="sigEdit(${i})">Edit</button></div>
+        </div>`).join("") : `<div class="ha-item">No analyst rules yet.</div>`;
+    } catch (_) {}
+  };
+  window.sigEdit = (i) => {
+    const it = sigItems[i]; if (!it) return;
+    const p = it.name.split(".");
+    $("nbCat").value = p[0]; $("nbPlat").value = p[1]; $("nbFam").value = p[2] || ""; $("nbVar").value = p[3] || "";
+    nbCurrent = it.name; $("nbName").textContent = it.name; $("nbErr").textContent = "";
+    $("sigKind").value = it.kind; $("sigKindLabel").textContent = KIND_LABEL[it.kind];
+    $("sigSource").value = it.source; $("sigEditing").textContent = "— editing " + it.name;
+  };
+  ["nbCat", "nbPlat"].forEach(id => $(id).addEventListener("change", nbBuild));
+  ["nbFam", "nbVar"].forEach(id => $(id).addEventListener("input", nbBuild));
+  $("nbCopy").onclick = () => nbCurrent && navigator.clipboard.writeText(nbCurrent);
+  $("nbUseVerdict").onclick = () => { if (nbCurrent) { $("haThreat").value = nbCurrent; $("humanAnalysis").scrollIntoView({ behavior: "smooth" }); } };
+  $("nbNewRule").onclick = () => {
+    if (!nbCurrent) { $("nbErr").textContent = "Build a valid name first."; return; }
+    $("sigSource").value = sigTemplate(nbCurrent, $("sigKind").value); $("sigEditing").textContent = "— new " + nbCurrent;
+  };
+  $("sigSave").onclick = async () => {
+    $("sigMsg").style.color = ""; $("sigMsg").textContent = "";
+    if (!nbCurrent) { $("sigMsg").textContent = "Build a valid threat name first."; return; }
+    try {
+      const r = await post("/api/signatures", { kind: $("sigKind").value, name: nbCurrent, source: $("sigSource").value });
+      $("sigMsg").style.color = "var(--green)"; $("sigMsg").textContent = r.note; sigLoad();
+    } catch (err) { $("sigMsg").textContent = err.message; }
+  };
+  $("sigDelete").onclick = async () => {
+    if (!nbCurrent) return;
+    if (!confirm(`Delete ${nbCurrent}? It stays loaded until the next engine reload.`)) return;
+    try { const r = await post("/api/signatures/delete", { kind: $("sigKind").value, name: nbCurrent }); $("sigMsg").textContent = r.note; $("sigSource").value = ""; sigLoad(); }
+    catch (err) { $("sigMsg").textContent = err.message; }
+  };
+  sigLoad();
+
+  const coLoad = async () => {
+    try {
+      const d = await (await fetch("/api/companies", { cache: "no-store" })).json();
+      $("coAllow").value = (d.lists.allow || []).join("\n");
+      $("coBlock").value = (d.lists.block || []).join("\n");
+    } catch (_) {}
+  };
+  $("coSave").onclick = async () => {
+    $("coMsg").style.color = ""; $("coMsg").textContent = "";
+    const lines = id => $(id).value.split("\n").map(l => l.trim()).filter(Boolean);
+    try {
+      const r = await post("/api/companies", { allow: lines("coAllow"), block: lines("coBlock") });
+      $("coMsg").style.color = "var(--green)"; $("coMsg").textContent = r.note; coLoad();
+    } catch (err) { $("coMsg").textContent = err.message; }
+  };
+  coLoad();
 
   poll();
 })();

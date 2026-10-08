@@ -79,11 +79,16 @@ pub struct EngineAdapter {
     keep_unknown: bool,
     pub keep_threats: bool,
     pub keep_clean: bool,
+    /// Keep files the TLSH smart whitelist called `possible_clean` (default on; dashboard
+    /// toggle, saved in multron_server.json, `--no-keep-possible-clean`).
+    pub keep_possible_clean: AtomicBool,
     pub compress_low_disk: bool,
     pub low_disk_threshold_bytes: u64,
     keep_limit_bytes: u64,
     kept_bytes: AtomicU64,
     pub kept_files: AtomicI64,
+    /// Analyst ClamAV / HydraDragonSig signatures (analyst_signatures/), run after the main scan.
+    pub analyst: crate::analyst_engine::AnalystEngine,
     /// Rules folder the engine was loaded from; reused by `reload_all`.
     rules_dir: RwLock<Option<PathBuf>>,
     reloading: AtomicBool,
@@ -118,6 +123,7 @@ impl EngineAdapter {
             keep_unknown,
             keep_threats,
             keep_clean,
+            keep_possible_clean: AtomicBool::new(true),
             compress_low_disk,
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
@@ -126,6 +132,7 @@ impl EngineAdapter {
             reloading: AtomicBool::new(false),
             reload_msg: RwLock::new(String::new()),
             kept_files: AtomicI64::new(kept.1),
+            analyst: Default::default(),
         })
     }
 
@@ -150,6 +157,8 @@ impl EngineAdapter {
                             eprintln!("[engine] benign_sha256.xf not found in xorfilter_rules, hash whitelist is off");
                         }
                         let _ = adapter.engine.set(Arc::new(RwLock::new(engine)));
+                        adapter.load_analyst_yara();
+                        adapter.analyst.reload();
                         eprintln!("[engine] ready in {} ms", elapsed);
                     }
                     Err(_) => {
@@ -163,6 +172,61 @@ impl EngineAdapter {
 
     pub fn ready(&self) -> bool {
         self.engine.get().is_some()
+    }
+
+    /// Bytes of a kept upload (`threat_`, `clean_` or unknown prefix, plain or `.xz`).
+    pub fn read_kept_sample(&self, sha_upper: &str) -> Option<Vec<u8>> {
+        let dir = self.work_dir.as_ref()?;
+        let rd = std::fs::read_dir(dir).ok()?;
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let rest = name
+                .strip_prefix("threat_")
+                .or_else(|| name.strip_prefix("possible_clean_"))
+                .or_else(|| name.strip_prefix("clean_"))
+                .unwrap_or(&name);
+            if rest.len() < 65 || !rest[..64].eq_ignore_ascii_case(sha_upper) || rest.as_bytes()[64] != b'_' {
+                continue;
+            }
+            let p = e.path();
+            if name.ends_with(".xz") {
+                use std::io::Read;
+                let f = std::fs::File::open(&p).ok()?;
+                let mut out = Vec::new();
+                lzma_rust2::XzReader::new(std::io::BufReader::new(f), false).read_to_end(&mut out).ok()?;
+                return Some(out);
+            }
+            return std::fs::read(&p).ok();
+        }
+        None
+    }
+
+    /// Adds the analyst-written YARA rules (`analyst_signatures/yara/*.yar`, kept apart
+    /// from the shipped rule folders) to the live engine. Returns (loaded, failed files).
+    pub fn load_analyst_yara(&self) -> (usize, Vec<String>) {
+        let mut failed = Vec::new();
+        let Some(engine) = self.engine.get() else { return (0, failed) };
+        let dir = crate::human_review::analyst_dir().join("yara");
+        let Ok(rd) = std::fs::read_dir(&dir) else { return (0, failed) };
+        let mut files: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "yar" || e == "yara"))
+            .collect();
+        files.sort();
+        let Ok(mut g) = engine.write() else { return (0, failed) };
+        let mut ok = 0;
+        for p in files {
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            match std::fs::read_to_string(&p) {
+                Ok(src) if g.add_yara_source(&src) => ok += 1,
+                _ => failed.push(name),
+            }
+        }
+        if ok > 0 || !failed.is_empty() {
+            eprintln!("[engine] analyst YARA rules: {ok} loaded, {} failed {:?}", failed.len(), failed);
+        }
+        (ok, failed)
     }
 
     /// Hot reload of the whole engine (compiled `.yrc`, ML models, XOR filters, YAML
@@ -203,6 +267,8 @@ impl EngineAdapter {
                                 drop(guard);
                                 *adapter.malicious_xf.write().unwrap() = new_xf;
                                 drop(old); // free the old engine outside the lock
+                                adapter.load_analyst_yara();
+                                adapter.analyst.reload();
                                 let ms = started.elapsed().as_millis() as i64;
                                 adapter.load_ms.store(ms, Ordering::Relaxed);
                                 Ok(ms)
@@ -372,7 +438,21 @@ impl EngineAdapter {
 
     /// Runs on an engine thread. The file is written to the work folder first so the
     /// engine can check its Authenticode signature; it falls back to an in-memory scan.
+    #[allow(dead_code)]
     pub fn scan_blocking(&self, data: &[u8], name: &str, sha: &str) -> Result<ResultMessage, String> {
+        self.scan_blocking_with(data, name, sha, |_| {})
+    }
+
+    /// Like `scan_blocking`, with `refine` run on the result before the file is kept or
+    /// removed (the TLSH smart whitelist uses it, so `possible_clean` files are kept
+    /// under their own prefix).
+    pub fn scan_blocking_with(
+        &self,
+        data: &[u8],
+        name: &str,
+        sha: &str,
+        refine: impl FnOnce(&mut ResultMessage),
+    ) -> Result<ResultMessage, String> {
         let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
         let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
 
@@ -433,12 +513,36 @@ impl EngineAdapter {
         }
 
         let mut res = build_result(&report, sha);
+        // Analyst company lists (Authenticode signer): allow -> clean, block -> malicious.
+        let signer = report.signer_info.as_ref();
+        match self.analyst.company_decision(
+            signer.and_then(|s| s.signer_name.as_deref()),
+            signer.is_some_and(|s| s.is_signed && s.is_trusted),
+        ) {
+            Some(crate::analyst_engine::CompanyDecision::Block(company)) => apply_analyst_hit(
+                &mut res,
+                &crate::analyst_engine::AnalystHit {
+                    engine: "company_blocklist",
+                    name: format!("Riskware.Multi.BlockedSigner ({company})"),
+                    verdict: "malicious",
+                },
+            ),
+            Some(crate::analyst_engine::CompanyDecision::Allow(company)) => apply_company_allow(&mut res, &company),
+            None => {}
+        }
+        // Analyst ClamAV / HydraDragonSig signatures can only raise the verdict.
+        for hit in self.analyst.scan(data, name) {
+            apply_analyst_hit(&mut res, &hit);
+        }
+        refine(&mut res);
         res.scan_ms = started.elapsed().as_millis() as i64;
 
         self.keep_or_remove(temp_path.as_deref(), data, &res, sha, &safe_filename);
         Ok(res)
     }
 
+    /// Possible-clean files (TLSH smart whitelist, kept by default) are kept as
+    /// `possible_clean_<SHA256>_<name>`.
     /// Unknown, clean (if keep_clean enabled), and detected threat files (kept by default for false positive inspection)
     /// are kept in the work folder (multron_incoming) as `<SHA256>_<name>`, `clean_<SHA256>_<name>`, or `threat_<SHA256>_<name>`.
     /// When disk space is low, incoming files are automatically compressed using LZMA2 maximum preset (.xz).
@@ -447,9 +551,13 @@ impl EngineAdapter {
         let is_threat = res.verdict == "malicious" || res.verdict == "suspicious";
         let is_unknown = res.verdict == "unknown";
         let is_clean = res.verdict == "clean";
+        let is_possible_clean = res.verdict == "possible_clean";
 
         let should_keep = !data.is_empty()
-            && ((self.keep_threats && is_threat) || (self.keep_unknown && is_unknown) || (self.keep_clean && is_clean))
+            && ((self.keep_threats && is_threat)
+                || (self.keep_unknown && is_unknown)
+                || (self.keep_clean && is_clean)
+                || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean))
             && self.kept_bytes.load(Ordering::Relaxed) + size <= self.keep_limit_bytes;
 
         if should_keep {
@@ -457,6 +565,8 @@ impl EngineAdapter {
                 let name = if name.is_empty() { "file" } else { name };
                 let prefix = if is_threat {
                     "threat_"
+                } else if is_possible_clean {
+                    "possible_clean_"
                 } else if is_clean {
                     "clean_"
                 } else {
@@ -508,6 +618,27 @@ impl EngineAdapter {
         if let Some(p) = temp {
             let _ = std::fs::remove_file(p);
         }
+    }
+}
+
+/// TLSH smart whitelist: not proven clean, only very close to a verified clean file
+/// with no sign of injection. Clients show it apart from `clean`; it never feeds the
+/// hash whitelist and an analyst verdict or signature still overrides it.
+pub fn mark_possible_clean(res: &mut ResultMessage, detail: String, ruleset: &str) {
+    res.verdict = "possible_clean".into();
+    res.threat = None;
+    res.score = 0.0;
+    res.detail = Some(detail.clone());
+    res.threat_indicator = None;
+    res.rule = Some(serde_json::json!({ "name": "", "verdict": "possible_clean", "ruleset": ruleset }));
+    let av = res.antivirus.get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
+    if let Some(o) = av.as_object_mut() {
+        o.insert("verdict".into(), serde_json::json!("possible_clean"));
+        o.insert("score".into(), serde_json::json!(0.0));
+        o.insert("detail".into(), serde_json::json!(detail));
+    }
+    if let Some(ev) = res.event.as_mut().and_then(|e| e.as_object_mut()) {
+        ev.insert("kind".into(), serde_json::json!("event"));
     }
 }
 
@@ -577,6 +708,83 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
         scan_ms: 0,
         source: source.to_string(),
         extracted_objects: Vec::new(),
+    }
+}
+
+fn verdict_rank(v: &str) -> u8 {
+    match v {
+        "malicious" => 3,
+        "suspicious" => 2,
+        "clean" => 1,
+        _ => 0, // unknown, possible_clean
+    }
+}
+
+/// Raises a result to an analyst signature's verdict (never lowers it) and keeps the
+/// ECS fields the clients read (`antivirus`, `rule`, `threat`, `event.kind`) in sync.
+fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::AnalystHit) {
+    if verdict_rank(hit.verdict) <= verdict_rank(&res.verdict) {
+        return;
+    }
+    let detail = format!("Analyst signature ({}): {}", hit.engine, hit.name);
+    let score = if hit.verdict == "malicious" { 100.0 } else { 60.0 };
+    res.verdict = hit.verdict.to_string();
+    res.threat = Some(hit.name.clone());
+    res.detail = Some(match res.detail.take() {
+        Some(d) if !d.is_empty() => format!("{detail} — {d}"),
+        _ => detail.clone(),
+    });
+    res.score = res.score.max(score);
+    let av = res.antivirus.get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
+    if let Some(o) = av.as_object_mut() {
+        o.insert("verdict".into(), serde_json::json!(hit.verdict));
+        o.insert("score".into(), serde_json::json!(res.score));
+        o.insert("detail".into(), serde_json::json!(res.detail));
+    }
+    res.rule = Some(serde_json::json!({
+        "name": hit.name,
+        "verdict": hit.verdict,
+        "ruleset": format!("analyst/{}", hit.engine),
+    }));
+    res.threat_indicator = Some(serde_json::json!({
+        "indicator": {
+            "type": "file",
+            "name": hit.name,
+            "confidence": res.score,
+            "file": { "hash": { "sha256": res.sha256 } }
+        }
+    }));
+    if let Some(ev) = res.event.as_mut().and_then(|e| e.as_object_mut()) {
+        ev.insert("kind".into(), serde_json::json!("alert"));
+    }
+}
+
+/// Allow-listed, validly signed company: the engine verdict becomes clean. Analyst
+/// ClamAV/HydraDragonSig hits are applied afterwards and can still raise it again.
+fn apply_company_allow(res: &mut ResultMessage, company: &str) {
+    if res.verdict == "clean" {
+        return;
+    }
+    let detail = format!("Trusted company (analyst allow-list): {company}; engine said {}", res.verdict);
+    mark_clean(res, detail, "analyst/company_allowlist");
+}
+
+/// Rewrites a result as clean (keeps the ECS fields the clients read in sync).
+pub fn mark_clean(res: &mut ResultMessage, detail: String, ruleset: &str) {
+    res.verdict = "clean".into();
+    res.threat = None;
+    res.score = 0.0;
+    res.detail = Some(detail.clone());
+    res.threat_indicator = None;
+    res.rule = Some(serde_json::json!({ "name": "", "verdict": "clean", "ruleset": ruleset }));
+    let av = res.antivirus.get_or_insert_with(|| serde_json::json!({ "engine": ENGINE_NAME }));
+    if let Some(o) = av.as_object_mut() {
+        o.insert("verdict".into(), serde_json::json!("clean"));
+        o.insert("score".into(), serde_json::json!(0.0));
+        o.insert("detail".into(), serde_json::json!(detail));
+    }
+    if let Some(ev) = res.event.as_mut().and_then(|e| e.as_object_mut()) {
+        ev.insert("kind".into(), serde_json::json!("event"));
     }
 }
 

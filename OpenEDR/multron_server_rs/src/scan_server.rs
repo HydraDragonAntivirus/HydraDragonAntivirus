@@ -278,6 +278,12 @@ impl ScanServer {
             .route("/health", get(Self::handle_health))
             .route("/api/v1/insights/:sha256", get(handle_hash_insights))
             .route("/api/v1/insights/stats", get(handle_insights_stats))
+            .route("/api/v1/reviews", get(handle_public_reviews))
+            .route("/api/v1/report/:sha256", get(handle_file_report))
+            .route("/api/v1/similar/:sha256", get(handle_similar))
+            .route("/api/v1/feed/daily", get(handle_daily_feed))
+            .route("/api/v1/sample/:sha256", get(handle_sample_download))
+            .route("/api/v1/reviews/request/:sha256", post(handle_review_request))
             .route("/api/v1/scan/url", post(handle_scan_url).get(handle_scan_url_get))
             .layer(cors)
             .with_state(Arc::clone(self))
@@ -326,73 +332,32 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
 
     /// Verdict without the file: shared verdict cache, then hash signatures / whitelist.
     fn known(&self, sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {
+        // A completed human review wins over the cache and the engine.
+        if let Some(rv) = self.threat_intel.reviews.completed(sha_hex) {
+            let verdict = rv.verdict.clone().unwrap_or_else(|| "unknown".into());
+            let score = match verdict.as_str() {
+                "malicious" => 100.0,
+                "suspicious" => 60.0,
+                _ => 0.0,
+            };
+            let detail = if rv.note.is_empty() {
+                "Human analysis".to_string()
+            } else {
+                format!("Human analysis: {}", rv.note)
+            };
+            let v = CachedVerdict {
+                verdict,
+                threat: rv.threat_name.clone(),
+                detail: Some(detail),
+                score,
+                at: now_secs(),
+            };
+            return Some(verdict_message(sha_hex, v, "human_review", "human"));
+        }
         if self.cfg.cache() {
             if let Some(v) = self.cache.get(sha) {
                 self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
-                let is_threat = v.verdict == "malicious" || v.verdict == "suspicious";
-                let ecs = serde_json::json!({
-                    "@timestamp": chrono::Utc::now().to_rfc3339(),
-                    "ecs": { "version": "9.5.4" },
-                    "event": {
-                        "kind": if is_threat { "alert" } else { "event" },
-                        "category": ["malware", "file"],
-                        "type": if is_threat { vec!["info", "indicator"] } else { vec!["info"] },
-                        "action": "cache_lookup",
-                        "outcome": "success",
-                        "duration": 0,
-                    },
-                    "file": {
-                        "hash": {
-                            "sha256": sha_hex,
-                        }
-                    },
-                    "antivirus": {
-                        "engine": ENGINE_NAME,
-                        "verdict": v.verdict,
-                        "score": v.score,
-                        "source": "cache",
-                        "detail": v.detail,
-                    },
-                    "rule": {
-                        "name": v.threat.as_deref().unwrap_or(v.detail.as_deref().unwrap_or("")),
-                        "verdict": v.verdict,
-                    }
-                });
-                let threat_indicator = if is_threat {
-                    Some(serde_json::json!({
-                        "indicator": {
-                            "type": "file",
-                            "name": v.threat.as_deref().unwrap_or(""),
-                            "confidence": v.score,
-                            "file": {
-                                "hash": {
-                                    "sha256": sha_hex,
-                                }
-                            }
-                        }
-                    }))
-                } else {
-                    None
-                };
-                return Some(ResultMessage {
-                    r#type: "result".into(),
-                    id: 0,
-                    timestamp: ecs.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string()),
-                    ecs: Some(serde_json::json!({ "version": "9.5.4" })),
-                    event: ecs.get("event").cloned(),
-                    file: ecs.get("file").cloned(),
-                    antivirus: ecs.get("antivirus").cloned(),
-                    threat_indicator,
-                    rule: ecs.get("rule").cloned(),
-                    verdict: v.verdict,
-                    threat: v.threat,
-                    detail: v.detail,
-                    score: v.score,
-                    sha256: sha_hex.to_string(),
-                    scan_ms: 0,
-                    source: "cache".into(),
-                    extracted_objects: Vec::new(),
-                });
+                return Some(verdict_message(sha_hex, v, "cache_lookup", "cache"));
             }
         }
         let r = self.engine.hash_lookup(sha, sha_hex)?;
@@ -564,12 +529,23 @@ async fn handle_hash_insights(
                 ).into_response();
             }
 
+            let review = server.threat_intel.reviews.get(&sha_clean);
+            let human = review.as_ref().map(|r| r.to_public_json());
+            let human_verdict = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
+            let human_threat = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.threat_name.clone());
+            let vt = crate::human_review::virustotal_url(&sha_clean);
+
             if let Some(insight) = server.threat_intel.get(&sha_clean) {
                 let response = serde_json::json!({
                     "status": "success",
                     "sha256": insight.sha256,
-                    "verdict": insight.verdict,
-                    "threat_name": insight.threat_name,
+                    // Final verdict: the human one when an analyst has answered.
+                    "verdict": human_verdict.clone().unwrap_or_else(|| insight.verdict.clone()),
+                    "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
+                    "engine_verdict": insight.verdict,
+                    "human_analysis": human,
+                    "virustotal": vt,
+                    "threat_name": human_threat.or(insight.threat_name.clone()),
                     "first_seen": insight.first_seen,
                     "last_seen": insight.last_seen,
                     "seen_count": insight.seen_count,
@@ -598,7 +574,10 @@ async fn handle_hash_insights(
                 let response = serde_json::json!({
                     "status": "not_found",
                     "sha256": sha_clean,
-                    "verdict": "unknown",
+                    "verdict": human_verdict.clone().unwrap_or_else(|| "unknown".into()),
+                    "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
+                    "human_analysis": human,
+                    "virustotal": vt,
                     "seen_count": 0,
                     "prevalence": "not_seen",
                     "message": "Hash has not been observed in VirusKov telemetry",
@@ -643,68 +622,37 @@ async fn handle_hash_insights(
     }
 }
 
-async fn handle_insights_stats(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    State(server): State<Arc<ScanServer>>,
-) -> Response {
-    let client_ip = extract_client_ip(addr, &headers);
-    let api_key = headers
-        .get("x-api-key")
-        .or_else(|| headers.get("authorization"))
-        .and_then(|v| v.to_str().ok());
-
-    match server.rest_limiter.check(&client_ip, api_key) {
-        Ok(header) => {
-            let stats = server.threat_intel.stats();
-            let response = serde_json::json!({
-                "status": "success",
-                "engine": ENGINE_NAME,
-                "feed": "VirusKov Community Telemetry",
-                "telemetry": {
-                    "total_unique_hashes": stats.total_unique_hashes,
-                    "total_sightings": stats.total_sightings,
-                    "verdicts": {
-                        "malicious": stats.malicious_count,
-                        "suspicious": stats.suspicious_count,
-                        "clean": stats.clean_count,
-                        "unknown": stats.unknown_count,
-                    }
-                }
-            });
-
-            (
-                StatusCode::OK,
-                [
-                    ("Content-Type", "application/json"),
-                    ("Access-Control-Allow-Origin", "*"),
-                    ("X-RateLimit-Limit", &header.limit.to_string()),
-                    ("X-RateLimit-Remaining", &header.remaining.to_string()),
-                ],
-                serde_json::to_string_pretty(&response).unwrap(),
-            ).into_response()
+async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Response {
+    // No per-IP quota here: the website polls this endpoint, and the 500/day quota of the
+    // hash lookups was used up in about an hour, after which the numbers froze.
+    let stats = server.threat_intel.stats();
+    let response = serde_json::json!({
+        "status": "success",
+        "engine": ENGINE_NAME,
+        "feed": "VirusKov Community Telemetry",
+        "human_analysis": server.threat_intel.reviews.stats(),
+        "telemetry": {
+            "total_unique_hashes": stats.total_unique_hashes,
+            "total_sightings": stats.total_sightings,
+            "verdicts": {
+                "malicious": stats.malicious_count,
+                "suspicious": stats.suspicious_count,
+                "clean": stats.clean_count,
+                "possible_clean": stats.possible_clean_count,
+                "unknown": stats.unknown_count,
+            }
         }
-        Err(retry_after) => {
-            let error_json = serde_json::json!({
-                "status": "error",
-                "error": "Too Many Requests",
-                "message": "VirusKov Threat Insights rate limit exceeded. Please slow down.",
-                "retry_after_seconds": retry_after
-            });
-
-            (
-                StatusCode::TOO_MANY_REQUESTS,
-                [
-                    ("Content-Type", "application/json"),
-                    ("Access-Control-Allow-Origin", "*"),
-                    ("Retry-After", &retry_after.to_string()),
-                    ("X-RateLimit-Limit", "10"),
-                    ("X-RateLimit-Remaining", "0"),
-                ],
-                serde_json::to_string(&error_json).unwrap(),
-            ).into_response()
-        }
-    }
+    });
+    (
+        StatusCode::OK,
+        [
+            ("Content-Type", "application/json"),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Cache-Control", "public, max-age=5"),
+        ],
+        serde_json::to_string_pretty(&response).unwrap(),
+    )
+        .into_response()
 }
 
 async fn ws_handler(
@@ -1147,6 +1095,7 @@ async fn handle_scan(
     let engine = Arc::clone(&server.engine);
     let (job_name, job_sha) = (name.clone(), sha_hex.clone());
     let scan_slots = Arc::clone(scan_slots);
+    let ti = Arc::clone(&server.threat_intel);
 
     let srv = Arc::clone(server);
     let sess = Arc::clone(session);
@@ -1159,9 +1108,46 @@ async fn handle_scan(
         srv.scheduler.submit(
             session_id,
             Box::new(move || {
-                let r = engine.scan_blocking(&data, &job_name, &job_sha);
-                drop(data);
+                let build_report = || {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&data, &job_name))).ok()
+                };
+                // Smart whitelist (TLSH + injection guard; PE, and APK via DEX TLSH +
+                // signer) only for files nobody could classify (the APK ML engine
+                // included); it never overrides a detection. The result is
+                // `possible_clean`, not `clean`, and runs before the file is kept, so
+                // those files are kept under their own prefix.
+                let mut report = None;
+                let r = engine.scan_blocking_with(&data, &job_name, &job_sha, |res| {
+                    if res.verdict == "unknown" && (data.starts_with(b"MZ") || data.starts_with(b"PK\x03\x04")) {
+                        report = build_report();
+                        if let Some(rep) = report.as_ref() {
+                            if let Ok(cand) = serde_json::to_value(rep) {
+                                let reviews = &ti.reviews;
+                                let decision = crate::similarity::smart_whitelist(&ti.similarity, &cand, |sha| {
+                                    reviews.completed(sha).and_then(|r| r.verdict).as_deref() == Some("clean")
+                                });
+                                if let Some((_ref_sha, _d, detail)) = decision {
+                                    crate::engine_adapter::mark_possible_clean(res, detail, "smart_whitelist/tlsh");
+                                }
+                            }
+                        }
+                    }
+                });
                 let _ = rtx.send(r);
+                // VirusKovAlyzer static report, after the verdict went out (the client is
+                // not kept waiting unless the smart whitelist needed it). Stored once per hash.
+                if !crate::reports::exists(&job_sha) {
+                    if report.is_none() {
+                        report = build_report();
+                    }
+                    if let Some(rep) = report.as_ref() {
+                        crate::reports::save(rep);
+                        if let Some(t) = rep.hashes.similarity_tlsh() {
+                            ti.similarity.add(&rep.hashes.sha256, t, rep.size);
+                        }
+                    }
+                }
+                drop(data);
             }),
         );
         let outcome = rrx.await;
@@ -1251,14 +1237,28 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
     session.scanned.fetch_add(1, Ordering::Relaxed);
     server.total_scanned.fetch_add(1, Ordering::Relaxed);
 
+    // A human verdict is not an engine verdict: count the sighting only, so removing the
+    // review later brings back what the engine really said.
+    let engine_verdict = if res.source == "human" { "unknown" } else { res.verdict.as_str() };
     server.threat_intel.record(
         &res.sha256,
-        &res.verdict,
+        engine_verdict,
         res.threat.as_deref(),
         if file_name.is_empty() { None } else { Some(file_name) },
         if size > 0 { Some(size as u64) } else { None },
         res.score,
     );
+
+    // Valkyrie-style: files the engine could not settle after a real scan go to the
+    // human analysis queue automatically.
+    if res.source == "scan" && (res.verdict == "unknown" || res.verdict == "suspicious") {
+        let _ = server.threat_intel.reviews.enqueue(
+            &res.sha256,
+            "auto",
+            Some(&res.verdict),
+            if file_name.is_empty() { None } else { Some(file_name) },
+        );
+    }
 
     let threat = res.verdict == "malicious" || res.verdict == "suspicious";
     if threat {
@@ -1312,6 +1312,74 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
             message: Some(obj.origin_type.clone()),
             origin_type: Some(obj.origin_type.clone()),
         });
+    }
+}
+
+/// Result message for a verdict known without scanning (verdict cache or human review).
+fn verdict_message(sha_hex: &str, v: CachedVerdict, action: &str, source: &str) -> ResultMessage {
+    let is_threat = v.verdict == "malicious" || v.verdict == "suspicious";
+    let ecs = serde_json::json!({
+        "@timestamp": chrono::Utc::now().to_rfc3339(),
+        "ecs": { "version": "9.5.4" },
+        "event": {
+            "kind": if is_threat { "alert" } else { "event" },
+            "category": ["malware", "file"],
+            "type": if is_threat { vec!["info", "indicator"] } else { vec!["info"] },
+            "action": action,
+            "outcome": "success",
+            "duration": 0,
+        },
+        "file": {
+            "hash": {
+                "sha256": sha_hex,
+            }
+        },
+        "antivirus": {
+            "engine": ENGINE_NAME,
+            "verdict": v.verdict,
+            "score": v.score,
+            "source": source,
+            "detail": v.detail,
+        },
+        "rule": {
+            "name": v.threat.as_deref().unwrap_or(v.detail.as_deref().unwrap_or("")),
+            "verdict": v.verdict,
+        }
+    });
+    let threat_indicator = if is_threat {
+        Some(serde_json::json!({
+            "indicator": {
+                "type": "file",
+                "name": v.threat.as_deref().unwrap_or(""),
+                "confidence": v.score,
+                "file": {
+                    "hash": {
+                        "sha256": sha_hex,
+                    }
+                }
+            }
+        }))
+    } else {
+        None
+    };
+    ResultMessage {
+        r#type: "result".into(),
+        id: 0,
+        timestamp: ecs.get("@timestamp").and_then(|t| t.as_str()).map(|s| s.to_string()),
+        ecs: Some(serde_json::json!({ "version": "9.5.4" })),
+        event: ecs.get("event").cloned(),
+        file: ecs.get("file").cloned(),
+        antivirus: ecs.get("antivirus").cloned(),
+        threat_indicator,
+        rule: ecs.get("rule").cloned(),
+        verdict: v.verdict,
+        threat: v.threat,
+        detail: v.detail,
+        score: v.score,
+        sha256: sha_hex.to_string(),
+        scan_ms: 0,
+        source: source.into(),
+        extracted_objects: Vec::new(),
     }
 }
 
@@ -1678,4 +1746,319 @@ async fn handle_scan_url_get(
             axum::Json(serde_json::json!({ "error": err })),
         ).into_response(),
     }
+}
+
+
+/// Public list of the latest analyst verdicts plus queue statistics (for the website).
+async fn handle_public_reviews(
+    State(server): State<Arc<ScanServer>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let limit = q.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(20).clamp(1, 50);
+    let reviews = &server.threat_intel.reviews;
+    let body = serde_json::json!({
+        "status": "success",
+        "stats": reviews.stats(),
+        "recent": reviews.recent_completed(limit).iter().map(|r| r.to_public_json()).collect::<Vec<_>>(),
+    });
+    (
+        StatusCode::OK,
+        [
+            ("Content-Type", "application/json"),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Cache-Control", "public, max-age=15"),
+        ],
+        serde_json::to_string(&body).unwrap(),
+    )
+        .into_response()
+}
+
+/// A visitor asks for human analysis of a hash. Only hashes already seen in telemetry
+/// are accepted (so the queue cannot be filled with random hashes); rate limited per IP.
+async fn handle_review_request(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Path(sha256): Path<String>,
+) -> Response {
+    let json = |code: StatusCode, v: serde_json::Value| {
+        (
+            code,
+            [("Content-Type", "application/json"), ("Access-Control-Allow-Origin", "*")],
+            serde_json::to_string(&v).unwrap(),
+        )
+            .into_response()
+    };
+    let client_ip = extract_client_ip(addr, &headers);
+    if let Err(retry) = server.rest_limiter.check(&client_ip, None) {
+        return json(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}));
+    }
+    let sha = sha256.trim().to_lowercase();
+    if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return json(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "invalid sha256"}));
+    }
+    let Some(insight) = server.threat_intel.get(&sha) else {
+        return json(
+            StatusCode::NOT_FOUND,
+            serde_json::json!({"status": "error", "error": "scan the file first; only files seen by VirusKov can be queued"}),
+        );
+    };
+    let name = insight.file_names.first().map(String::as_str);
+    match server.threat_intel.reviews.enqueue(&sha, "user", Some(&insight.verdict), name) {
+        Ok(r) => json(StatusCode::OK, serde_json::json!({"status": "success", "human_analysis": r.to_public_json()})),
+        Err(e) => json(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({"status": "error", "error": e})),
+    }
+}
+
+
+fn json_response(code: StatusCode, v: serde_json::Value, cache: &'static str) -> Response {
+    (
+        code,
+        [
+            ("Content-Type", "application/json"),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Cache-Control", cache),
+        ],
+        serde_json::to_string(&v).unwrap_or_default(),
+    )
+        .into_response()
+}
+
+fn valid_sha(s: &str) -> Option<String> {
+    let s = s.trim().to_ascii_lowercase();
+    (s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())).then_some(s)
+}
+
+/// Full file page data: VirusKovAlyzer static report + telemetry + human analysis.
+async fn handle_file_report(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Path(sha256): Path<String>,
+) -> Response {
+    let ip = extract_client_ip(addr, &headers);
+    let key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
+    if let Err(retry) = server.rest_limiter.check(&ip, key) {
+        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
+    }
+    let Some(sha) = valid_sha(&sha256) else {
+        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "invalid sha256"}), "no-store");
+    };
+    let insight = server.threat_intel.get(&sha);
+    let review = server.threat_intel.reviews.get(&sha);
+    let report = crate::reports::load(&sha);
+    if insight.is_none() && review.is_none() && report.is_none() {
+        return json_response(StatusCode::NOT_FOUND, serde_json::json!({"status": "not_found", "sha256": sha, "virustotal": crate::human_review::virustotal_url(&sha)}), "no-store");
+    }
+    let human_verdict = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
+    let engine_verdict = insight.as_ref().map(|i| i.verdict.clone()).unwrap_or_else(|| "unknown".into());
+    let verdict = human_verdict.clone().unwrap_or_else(|| engine_verdict.clone());
+    let threat_name = review
+        .as_ref()
+        .filter(|r| r.is_completed())
+        .and_then(|r| r.threat_name.clone())
+        .or_else(|| insight.as_ref().and_then(|i| i.threat_name.clone()));
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({
+            "status": "success",
+            "sha256": sha,
+            "verdict": verdict,
+            "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
+            "engine_verdict": engine_verdict,
+            "threat_name": threat_name,
+            "telemetry": insight.as_ref().map(|i| serde_json::json!({
+                "first_seen": i.first_seen,
+                "last_seen": i.last_seen,
+                "seen_count": i.seen_count,
+                "prevalence": i.prevalence(),
+                "file_names": i.file_names,
+                "file_size": i.file_size,
+                "score": i.score,
+            })),
+            "human_analysis": review.as_ref().map(|r| r.to_public_json()),
+            "report": report,
+            "virustotal": crate::human_review::virustotal_url(&sha),
+            "similar": similar_files(&server.threat_intel, &sha, 10),
+            "sample_sharing": sample_keys().is_some() && matches!(verdict.as_str(), "malicious" | "suspicious"),
+        }),
+        "public, max-age=30",
+    )
+}
+
+/// MalwareBazaar-style daily list: hashes first seen on a UTC day with a malicious or
+/// suspicious verdict. `?date=YYYY-MM-DD` (default today), `&format=json|csv|txt`,
+/// `&all=1` to include clean and unknown files too.
+async fn handle_daily_feed(
+    State(server): State<Arc<ScanServer>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let date = q.get("date").cloned().unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    if chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err() {
+        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "date must be YYYY-MM-DD"}), "no-store");
+    }
+    let all = q.get("all").is_some_and(|v| v == "1" || v == "true");
+    let rows: Vec<_> = server
+        .threat_intel
+        .first_seen_on(&date, 20_000)
+        .into_iter()
+        .filter(|(_, v, _)| all || v == "malicious" || v == "suspicious")
+        .collect();
+    let keys = sample_keys().is_some();
+    match q.get("format").map(String::as_str) {
+        Some("txt") => (
+            StatusCode::OK,
+            [("Content-Type", "text/plain; charset=utf-8"), ("Access-Control-Allow-Origin", "*"), ("Cache-Control", "public, max-age=300")],
+            rows.iter().map(|(i, _, _)| i.sha256.to_lowercase()).collect::<Vec<_>>().join("\n"),
+        )
+            .into_response(),
+        Some("csv") => {
+            let mut csv = String::from("first_seen,sha256,verdict,verdict_source,threat_name,file_name,file_size,seen_count\n");
+            for (i, v, human) in &rows {
+                let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
+                csv.push_str(&format!(
+                    "{},{},{},{},{},{},{},{}\n",
+                    i.first_seen,
+                    i.sha256.to_lowercase(),
+                    v,
+                    if *human { "human" } else { "engine" },
+                    esc(i.threat_name.as_deref().unwrap_or("")),
+                    esc(i.file_names.first().map(String::as_str).unwrap_or("")),
+                    i.file_size.unwrap_or(0),
+                    i.seen_count
+                ));
+            }
+            (
+                StatusCode::OK,
+                [("Content-Type", "text/csv; charset=utf-8"), ("Access-Control-Allow-Origin", "*"), ("Cache-Control", "public, max-age=300")],
+                csv,
+            )
+                .into_response()
+        }
+        _ => json_response(
+            StatusCode::OK,
+            serde_json::json!({
+                "status": "success",
+                "date": date,
+                "count": rows.len(),
+                "items": rows.iter().map(|(i, v, human)| serde_json::json!({
+                    "sha256": i.sha256.to_lowercase(),
+                    "first_seen": i.first_seen,
+                    "verdict": v,
+                    "verdict_source": if *human { "human" } else { "engine" },
+                    "threat_name": server.threat_intel.reviews.completed(&i.sha256).and_then(|r| r.threat_name).or(i.threat_name.clone()),
+                    "file_name": i.file_names.first(),
+                    "file_size": i.file_size,
+                    "seen_count": i.seen_count,
+                    "has_report": crate::reports::exists(&i.sha256),
+                    "sample_sharing": keys,
+                })).collect::<Vec<_>>(),
+            }),
+            "public, max-age=300",
+        ),
+    }
+}
+
+/// Researcher API keys, one per line in `sample_api_keys.txt` next to the executable.
+/// No file (or no keys) means sample downloads are off.
+fn sample_keys() -> Option<Vec<String>> {
+    let text = std::fs::read_to_string(crate::config::app_dir().join("sample_api_keys.txt")).ok()?;
+    let keys: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.len() >= 16 && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect();
+    (!keys.is_empty()).then_some(keys)
+}
+
+/// Sample download for researchers: only malicious/suspicious files, only with a valid
+/// `X-API-Key`, delivered as a ZIP encrypted with the password `infected`.
+async fn handle_sample_download(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Path(sha256): Path<String>,
+) -> Response {
+    let err = |code: StatusCode, msg: &str| json_response(code, serde_json::json!({"status": "error", "error": msg}), "no-store");
+    let Some(keys) = sample_keys() else {
+        return err(StatusCode::FORBIDDEN, "sample sharing is disabled on this server");
+    };
+    let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if !keys.iter().any(|k| constant_time_eq(k.as_bytes(), provided.as_bytes())) {
+        server.limiter.strike(&extract_client_ip(addr, &headers));
+        return err(StatusCode::UNAUTHORIZED, "a valid X-API-Key header is required");
+    }
+    let Some(sha) = valid_sha(&sha256) else {
+        return err(StatusCode::BAD_REQUEST, "invalid sha256");
+    };
+    let verdict = server
+        .threat_intel
+        .reviews
+        .completed(&sha)
+        .and_then(|r| r.verdict)
+        .or_else(|| server.threat_intel.get(&sha).map(|i| i.verdict))
+        .unwrap_or_else(|| "unknown".into());
+    if verdict != "malicious" && verdict != "suspicious" {
+        return err(StatusCode::FORBIDDEN, "only malicious or suspicious samples are shared");
+    }
+    let engine = Arc::clone(&server.engine);
+    let sha_upper = sha.to_ascii_uppercase();
+    let data = tokio::task::spawn_blocking(move || engine.read_kept_sample(&sha_upper)).await.ok().flatten();
+    let Some(data) = data else {
+        return err(StatusCode::NOT_FOUND, "the sample is not stored on this server");
+    };
+    use sha2::Digest;
+    let actual: String = sha2::Sha256::digest(&data).encode_hex::<String>();
+    if actual != sha {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, "stored sample does not match its hash");
+    }
+    let zip = crate::sample_zip::build(&format!("{sha}.bin"), &data, crate::sample_zip::SAMPLE_PASSWORD);
+    (
+        StatusCode::OK,
+        [
+            ("Content-Type", "application/zip".to_string()),
+            ("Content-Disposition", format!("attachment; filename=\"{sha}.zip\"")),
+            ("Access-Control-Allow-Origin", "*".to_string()),
+            ("Cache-Control", "no-store".to_string()),
+        ],
+        zip,
+    )
+        .into_response()
+}
+
+
+/// Closest files by TLSH (from the static report, or the index), with verdicts.
+pub fn similar_files(ti: &crate::threat_intel::ThreatIntelStore, sha: &str, limit: usize) -> Vec<crate::similarity::SimilarFile> {
+    let tlsh = crate::reports::load(sha)
+        .and_then(|r| r["hashes"]["dex_tlsh"].as_str().or(r["hashes"]["tlsh"].as_str()).map(str::to_string))
+        .or_else(|| ti.similarity.tlsh_of(sha));
+    let Some(tlsh) = tlsh else { return Vec::new() };
+    let mut list = ti.similarity.nearest(&tlsh, crate::similarity::SIMILAR_MAX_DIST, limit, sha);
+    crate::similarity::fill_verdicts(&mut list, &|h: &str| ti.effective(h));
+    list
+}
+
+async fn handle_similar(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Path(sha256): Path<String>,
+) -> Response {
+    let ip = extract_client_ip(addr, &headers);
+    let key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
+    if let Err(retry) = server.rest_limiter.check(&ip, key) {
+        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
+    }
+    let Some(sha) = valid_sha(&sha256) else {
+        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "invalid sha256"}), "no-store");
+    };
+    let ti = Arc::clone(&server.threat_intel);
+    let s2 = sha.clone();
+    let list = tokio::task::spawn_blocking(move || similar_files(&ti, &s2, 25)).await.unwrap_or_default();
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({ "status": "success", "sha256": sha, "max_distance": crate::similarity::SIMILAR_MAX_DIST, "similar": list }),
+        "public, max-age=60",
+    )
 }

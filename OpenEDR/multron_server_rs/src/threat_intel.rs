@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::{parse_sha, Sha};
 use crate::config::app_dir;
+use crate::human_review::HumanReviewStore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreatInsight {
@@ -131,12 +132,18 @@ pub struct ThreatIntelStats {
     pub malicious_count: usize,
     pub suspicious_count: usize,
     pub clean_count: usize,
+    /// TLSH smart whitelist (`possible_clean`), counted apart from clean.
+    pub possible_clean_count: usize,
     pub unknown_count: usize,
 }
 
 pub struct ThreatIntelStore {
     map: RwLock<HashMap<Sha, ThreatInsight>>,
     writer: Option<mpsc::Sender<ThreatInsight>>,
+    /// Human analysis queue and verdicts (override the engine verdict).
+    pub reviews: HumanReviewStore,
+    /// TLSH index of analysed files (smart whitelist, similar files).
+    pub similarity: crate::similarity::SimilarityIndex,
 }
 
 impl ThreatIntelStore {
@@ -157,11 +164,14 @@ impl ThreatIntelStore {
             }
         }
 
+        let reviews = HumanReviewStore::new(&crate::human_review::analyst_dir().join("human_verdicts.jsonl"));
         let writer = start_batch_writer(target_path);
 
         Arc::new(Self {
             map: RwLock::new(initial_map),
             writer: Some(writer),
+            reviews,
+            similarity: crate::similarity::SimilarityIndex::load(),
         })
     }
 
@@ -203,7 +213,8 @@ impl ThreatIntelStore {
             let rank = |v: &str| match v {
                 "malicious" => 3,
                 "suspicious" => 2,
-                "clean" => 1,
+                "clean" => 2,
+                "possible_clean" => 1,
                 _ => 0,
             };
             if rank(verdict) > rank(&entry.verdict) {
@@ -235,6 +246,35 @@ impl ThreatIntelStore {
         }
     }
 
+    /// Hashes first seen on `date` (YYYY-MM-DD, UTC) with their effective verdict
+    /// (a completed human review overrides the engine). Newest first, at most `limit`.
+    pub fn first_seen_on(&self, date: &str, limit: usize) -> Vec<(ThreatInsight, String, bool)> {
+        let guard = self.map.read().unwrap();
+        let mut out: Vec<(ThreatInsight, String, bool)> = guard
+            .iter()
+            .filter(|(_, i)| i.first_seen.starts_with(date))
+            .map(|(sha, i)| {
+                let human = self.reviews.completed_verdict_raw(sha);
+                let is_human = human.is_some();
+                (i.clone(), human.unwrap_or_else(|| i.verdict.clone()), is_human)
+            })
+            .collect();
+        out.sort_by(|a, b| b.0.first_seen.cmp(&a.0.first_seen));
+        out.truncate(limit);
+        out
+    }
+
+    /// (verdict, source "human" | "engine" | "unseen", threat name) for one hash.
+    pub fn effective(&self, sha256_hex: &str) -> (String, String, Option<String>) {
+        if let Some(r) = self.reviews.completed(sha256_hex) {
+            return (r.verdict.clone().unwrap_or_default(), "human".into(), r.threat_name.clone());
+        }
+        match self.get(sha256_hex) {
+            Some(i) => (i.verdict.clone(), "engine".into(), i.threat_name.clone()),
+            None => ("unknown".into(), "unseen".into(), None),
+        }
+    }
+
     pub fn get(&self, sha256_hex: &str) -> Option<ThreatInsight> {
         let sha_bytes = parse_sha(sha256_hex)?;
         self.map.read().unwrap().get(&sha_bytes).cloned()
@@ -246,14 +286,18 @@ impl ThreatIntelStore {
         let mut malicious_count = 0;
         let mut suspicious_count = 0;
         let mut clean_count = 0;
+        let mut possible_clean_count = 0;
         let mut unknown_count = 0;
 
-        for item in guard.values() {
+        for (sha, item) in guard.iter() {
             total_sightings += item.seen_count;
-            match item.verdict.as_str() {
+            // A completed human review overrides the engine verdict.
+            let human = self.reviews.completed_verdict_raw(sha);
+            match human.as_deref().unwrap_or(item.verdict.as_str()) {
                 "malicious" => malicious_count += 1,
                 "suspicious" => suspicious_count += 1,
                 "clean" => clean_count += 1,
+                "possible_clean" => possible_clean_count += 1,
                 _ => unknown_count += 1,
             }
         }
@@ -264,6 +308,7 @@ impl ThreatIntelStore {
             malicious_count,
             suspicious_count,
             clean_count,
+            possible_clean_count,
             unknown_count,
         }
     }

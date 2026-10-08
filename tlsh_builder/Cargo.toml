@@ -1,0 +1,26 @@
+[package]
+name = "tlsh_builder"
+version = "0.1.0"
+edition = "2024"
+authors = ["Emirhan Ucan"]
+description = "Fast TLSH digests for HydraDragon / VIRUSKOV: hash corpora, build TLSH blacklists, compare, and tune the smart-whitelist distance"
+license = "GPL-2.0-only"
+
+[dependencies]
+# Same pinned TLSH crate as multron_server_rs, so digests match byte for byte.
+fast-tlsh = "=0.1.10"
+sha2 = "0.11"
+hex = "0.4"
+rayon = "1.10"
+walkdir = "2.5"
+clap = { version = "4.5", features = ["derive"] }
+# Shared with multron_server_rs (analyzer.rs / fingerprint.rs are included by path).
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+flate2 = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

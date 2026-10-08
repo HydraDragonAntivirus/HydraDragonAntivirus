@@ -141,6 +141,11 @@ pub struct CliArgs {
     #[arg(long)]
     pub keep_clean: bool,
 
+    /// Do not keep files the TLSH smart whitelist called possible_clean (kept by default;
+    /// also switchable from the dashboard)
+    #[arg(long)]
+    pub no_keep_possible_clean: bool,
+
     /// Disable automatic LZMA2 max compression when PC has low disk space
     #[arg(long)]
     pub no_compress_low_disk: bool,
@@ -209,6 +214,9 @@ pub struct SavedSettings {
     pub keep_threats: bool,
     #[serde(default)]
     pub keep_clean: bool,
+    /// Keep `possible_clean` files (TLSH smart whitelist) in the work folder.
+    #[serde(default = "default_true")]
+    pub keep_possible_clean: bool,
     #[serde(default = "default_true")]
     pub compress_low_disk: bool,
     #[serde(default = "default_low_disk_gb")]
@@ -227,6 +235,7 @@ impl Default for SavedSettings {
             autostart: true,
             keep_threats: true,
             keep_clean: false,
+            keep_possible_clean: true,
             compress_low_disk: true,
             low_disk_gb: 15,
             limits: None,

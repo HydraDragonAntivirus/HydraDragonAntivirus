@@ -105,7 +105,7 @@
     var t = lastTelemetry;
     if (!t) return;
     var v = t.verdicts || {};
-    var m = +v.malicious || 0, s = +v.suspicious || 0, c = +v.clean || 0, u = +v.unknown || 0;
+    var m = +v.malicious || 0, s = +v.suspicious || 0, c = +v.clean || 0, u = (+v.unknown || 0) + (+v.possible_clean || 0); // possible_clean is not verified
     var total = m + s + c + u;
     document.querySelectorAll('.js-total-hashes').forEach(function (el) { el.textContent = fmt(t.total_unique_hashes); });
     var set = function (id, val) { var el = document.getElementById(id); if (el) el.textContent = val; };
@@ -142,8 +142,52 @@
     malicious: ['var(--accent-red)', 'h.v.mal', 'Zararlı'],
     suspicious: ['var(--accent-amber)', 'h.v.sus', 'Şüpheli'],
     clean: ['var(--accent-green)', 'h.v.cln', 'Temiz'],
+    possible_clean: ['#6fcf97', 'h.v.pcl', 'Muhtemelen temiz'],
     unknown: ['var(--text-muted)', 'h.v.unk', 'Bilinmiyor']
   };
+
+  function dur(sec) {
+    if (sec == null) return '—';
+    var tr = lang() === 'tr';
+    if (sec < 60) return sec + (tr ? ' sn' : ' s');
+    if (sec < 3600) return Math.round(sec / 60) + (tr ? ' dk' : ' min');
+    if (sec < 86400) return (sec / 3600).toFixed(1).replace('.0', '') + (tr ? ' sa' : ' h');
+    return (sec / 86400).toFixed(1).replace('.0', '') + (tr ? ' gün' : ' d');
+  }
+  function since(iso) {
+    var t = Date.parse(iso);
+    return isNaN(t) ? null : Math.max(0, Math.round((Date.now() - t) / 1000));
+  }
+  function badge(v) {
+    var x = VERDICT[v] || VERDICT.unknown;
+    return '<span class="r-badge" style="color:' + x[0] + '">' + esc(T(x[1], x[2]).toUpperCase()) + '</span>';
+  }
+  function vtLink(sha) {
+    return '<a class="h-vt" href="file/index.html?sha256=' + esc(sha) + '">' + esc(T('h.ha.report', 'Tam rapor')) + ' &rarr;</a>' +
+      '<a class="h-vt h-vt2" href="https://www.virustotal.com/gui/file/' + esc(sha) + '" target="_blank" rel="noopener">VirusTotal &#8599;</a>';
+  }
+
+  /* Human analysis block inside a lookup result */
+  function humanBlock(h, sha, canRequest) {
+    if (h && h.status === 'completed' && h.verdict) {
+      return '<div class="h-human">' +
+        '<div class="h-human-top"><span class="h-human-k">' + esc(T('h.ha.human', 'İnsan analizi')) + '</span>' + badge(h.verdict) +
+        (h.threat_name ? '<b>' + esc(h.threat_name) + '</b>' : '') + '</div>' +
+        (h.note ? '<p>' + esc(h.note) + '</p>' : '') +
+        '<div class="h-human-meta">' + (h.analyst ? esc(h.analyst) + ' · ' : '') +
+        esc(T('h.ha.resp', 'yanıt')) + ' ' + dur(h.response_secs) +
+        (h.reviewed_at ? ' · ' + esc(new Date(h.reviewed_at).toLocaleString()) : '') + '</div></div>';
+    }
+    if (h && h.status === 'pending') {
+      return '<div class="h-human is-pending"><span class="h-human-k">' + esc(T('h.ha.queued', 'İnsan analizi kuyruğunda')) + '</span>' +
+        '<span>' + dur(since(h.requested_at)) + ' ' + esc(T('h.ha.waiting', 'bekliyor')) + '</span></div>';
+    }
+    if (canRequest) {
+      return '<div class="h-human is-ask"><button type="button" class="vk-btn vk-btn-ghost" data-request="' + esc(sha) + '">' +
+        esc(T('h.ha.request', 'İnsan analizi iste')) + '</button><span class="h-small h-dim">' + esc(T('h.ha.override', 'Analist kararı motorun kararından önce gelir.')) + '</span></div>';
+    }
+    return '';
+  }
 
   function row(k, fb, val) {
     return '<div class="r-row"><b>' + esc(T(k, fb)) + '</b><span>' + val + '</span></div>';
@@ -173,10 +217,13 @@
         return res.json().catch(function () { return {}; }).then(function (data) { return { res: res, data: data }; });
       }).then(function (o) {
         var res = o.res, data = o.data || {};
+        var human = data.human_analysis || null;
         if (res.ok && data.status === 'success') {
-          var v = VERDICT[data.verdict] || VERDICT.unknown;
-          var html = '<div class="r-head"><span class="r-badge" style="color:' + v[0] + '">' + esc(T(v[1], v[2]).toUpperCase()) + '</span>' +
-            '<span>' + esc(T('h.i.score', 'Skor')) + ' ' + esc(data.score) + '/100</span></div>';
+          var html = '<div class="r-head">' + badge(data.verdict) +
+            (data.verdict_source === 'human' ? '<span class="h-human-k">' + esc(T('h.ha.human', 'İnsan analizi')) + '</span>' :
+              '<span>' + esc(T('h.i.score', 'Skor')) + ' ' + esc(data.score) + '/100</span>') + vtLink(hash) + '</div>';
+          html += humanBlock(human, hash, true);
+          if (data.verdict_source === 'human' && data.engine_verdict) html += row('h.ha.engine', 'Motor', badge(data.engine_verdict));
           if (data.threat_name) html += row('h.i.sig', 'İmza', '<span style="color:var(--accent-red)">' + esc(data.threat_name) + '</span>');
           html += row('h.i.prev', 'Yayılım', esc(String(data.prevalence || 'unknown').toUpperCase()) + ' · ' + fmt(data.seen_count) + ' ' + esc(T('h.i.sightings', 'gözlem')));
           if (data.first_seen) html += row('h.i.first', 'İlk görülme', esc(new Date(data.first_seen).toLocaleString()));
@@ -187,8 +234,10 @@
         } else if (res.status === 429) {
           box.innerHTML = '<span style="color:var(--accent-amber)">' +
             esc(T('h.i.rate', 'Sorgu sınırı aşıldı (10/dk). Lütfen biraz sonra tekrar deneyin.')) + '</span>';
+        } else if (human) {
+          box.innerHTML = '<div class="r-head">' + badge(data.verdict) + vtLink(hash) + '</div>' + humanBlock(human, hash, false);
         } else {
-          box.innerHTML = '<div class="r-head"><span class="r-badge" style="color:var(--text-muted)">NOT SEEN</span></div>' +
+          box.innerHTML = '<div class="r-head"><span class="r-badge" style="color:var(--text-muted)">NOT SEEN</span>' + vtLink(hash) + '</div>' +
             '<span>' + esc(T('h.i.notseen', 'Bu hash henüz ağda görülmedi. Dosyayı canlı tarayıcıya yükleyerek ilk analizi başlatabilirsiniz.')) + '</span>' +
             ' <a href="scan/index.html" style="color:var(--text-main)">' + esc(T('h.i.goscan', 'Tarayıcıyı aç')) + ' &rarr;</a>';
         }
@@ -198,12 +247,69 @@
     });
   }
 
+  function initRequest() {
+    var box = document.getElementById('tiResultBox');
+    if (!box) return;
+    box.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-request]');
+      if (!btn) return;
+      var sha = btn.getAttribute('data-request');
+      btn.disabled = true;
+      fetch(API + '/reviews/request/' + sha, { method: 'POST' }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (o) {
+        var wrap = btn.parentNode;
+        if (o.ok && o.d.human_analysis) {
+          wrap.outerHTML = humanBlock(o.d.human_analysis, sha, false) ||
+            '<div class="h-human is-pending"><span class="h-human-k">' + esc(T('h.ha.requested', 'İnsan analizi kuyruğuna eklendi.')) + '</span></div>';
+          loadDesk();
+        } else {
+          btn.disabled = false;
+          wrap.querySelector('.h-small').textContent = T('h.ha.req_fail', 'Kuyruğa eklenemedi') + (o.d.error ? ': ' + o.d.error : '');
+        }
+      }).catch(function () { btn.disabled = false; });
+    });
+  }
+
+  /* Analyst desk: response times + latest published verdicts */
+  var lastDesk = null;
+  function paintDesk() {
+    var d = lastDesk;
+    if (!d) return;
+    var st = d.stats || {};
+    var set = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+    set('haAvg', dur(st.avg_response_secs));
+    set('haMedian', dur(st.median_response_secs));
+    set('haPending', fmt(st.pending || 0));
+    set('haDay', fmt(st.completed_24h || 0));
+    var list = document.getElementById('haList');
+    if (!list || !d.recent || !d.recent.length) return;
+    list.innerHTML = d.recent.slice(0, 8).map(function (r) {
+      var ago = since(r.reviewed_at);
+      return '<li><div class="h-desk-row">' + badge(r.verdict) +
+        (r.threat_name ? '<b>' + esc(r.threat_name) + '</b>' : '') +
+        '<a class="h-desk-hash" href="file/index.html?sha256=' + esc(r.sha256) + '">' +
+        esc(r.sha256.slice(0, 12) + '…' + r.sha256.slice(-6)) + ' &rarr;</a></div>' +
+        (r.note ? '<p>' + esc(r.note) + '</p>' : '') +
+        '<div class="h-desk-meta">' + (r.analyst ? esc(r.analyst) + ' · ' : '') + esc(T('h.ha.resp', 'yanıt')) + ' ' + dur(r.response_secs) +
+        (ago != null ? ' · ' + dur(ago) + ' ' + esc(T('h.ha.ago', 'önce')) : '') + '</div></li>';
+    }).join('');
+  }
+  function loadDesk() {
+    fetch(API + '/reviews?limit=8').then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (d && d.status === 'success') { lastDesk = d; paintDesk(); }
+    }).catch(function () {});
+  }
+
   function init() {
     runConsole();
     initLookup();
+    initRequest();
     pollTelemetry();
-    setInterval(pollTelemetry, 8000);
-    window.addEventListener('viruskov_lang_changed', function () { paintTelemetry(); });
+    loadDesk();
+    setInterval(pollTelemetry, 15000);
+    setInterval(loadDesk, 60000);
+    window.addEventListener('viruskov_lang_changed', function () { paintTelemetry(); paintDesk(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

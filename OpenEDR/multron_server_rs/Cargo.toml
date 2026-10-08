@@ -24,5 +24,14 @@ chrono = { version = "0.4", features = ["serde"] }
 tower-http = { version = "0.5", features = ["cors"] }
 
 openedr_static = { path = "../openedr_static" }
+# Analyst signature room: ClamAV-format and HydraDragonSig rules kept apart from the
+# shipped databases (same crates openedr_static already builds).
+hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
+hydradragonsig = { path = "../../hydradragonsig", default-features = false }
+# TLSH (Trend Micro similarity digest), output verified identical to the reference
+# C++ implementation. Pinned: the crate is pre-1.0.
+fast-tlsh = "=0.1.10"
+# APK classes.dex extraction for the DEX TLSH (already in the dependency tree).
+flate2 = "1"
 lzma-rust2 = "0.21"
 url = "2.5"
