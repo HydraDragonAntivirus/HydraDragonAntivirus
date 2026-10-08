@@ -584,7 +584,8 @@
             if (elSusp) elSusp.textContent = Number(t.verdicts.suspicious).toLocaleString();
             if (elClean) elClean.textContent = Number(t.verdicts.clean).toLocaleString();
             if (elUnknown && t.verdicts && t.verdicts.unknown !== undefined) {
-              elUnknown.textContent = Number(t.verdicts.unknown).toLocaleString();
+              // possible_clean (TLSH smart whitelist) is not verified: counted with unknown
+              elUnknown.textContent = Number(t.verdicts.unknown + (t.verdicts.possible_clean || 0)).toLocaleString();
             }
             if (elTotalSightings) {
               const prefix = window.ViruskovI18n ? window.ViruskovI18n.t('ratio.total_sightings') : 'Toplam Gözlem:';
@@ -595,7 +596,7 @@
             const m = t.verdicts.malicious || 0;
             const s = t.verdicts.suspicious || 0;
             const c = t.verdicts.clean || 0;
-            const u = t.verdicts.unknown || 0;
+            const u = (t.verdicts.unknown || 0) + (t.verdicts.possible_clean || 0);
             const total = m + s + c + u;
 
             if (total > 0) {

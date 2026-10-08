@@ -856,8 +856,9 @@
           const isMal = item.verdict === 'malicious';
           const isSusp = item.verdict === 'suspicious';
           const isClean = item.verdict === 'clean';
-          const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : isClean ? 'var(--accent-green)' : 'var(--accent-cyan)';
-          const badge = isMal ? t('history.filter_mal') : isSusp ? t('history.filter_susp') : isClean ? t('history.filter_clean') : t('history.filter_unk');
+          const isPossible = item.verdict === 'possible_clean';
+          const color = isMal ? 'var(--accent-red)' : isSusp ? 'var(--accent-amber)' : isClean ? 'var(--accent-green)' : isPossible ? '#6fcf97' : 'var(--accent-cyan)';
+          const badge = isMal ? t('history.filter_mal') : isSusp ? t('history.filter_susp') : isClean ? t('history.filter_clean') : isPossible ? t('res.possible_clean_short') : t('history.filter_unk');
           const typeLabel = item.scanType === 'url' ? t('scan.lbl_type_url') : t('scan.lbl_type_file');
           return `
             <tr style="border-bottom:1px solid var(--border-subtle);">
@@ -887,7 +888,7 @@
             const res = await fetch(`https://api.viruskov.com/api/v1/insights/${hash}`);
             const data = await res.json();
             if (res.ok && data.status === 'success') {
-              const color = data.verdict === 'malicious' ? 'var(--accent-red)' : data.verdict === 'clean' ? 'var(--accent-green)' : 'var(--accent-amber)';
+              const color = data.verdict === 'malicious' ? 'var(--accent-red)' : data.verdict === 'clean' ? 'var(--accent-green)' : data.verdict === 'possible_clean' ? '#6fcf97' : 'var(--accent-amber)';
               tiBox.innerHTML = `<div style="font-weight:800; color:${color}; font-size:1.05rem;">${data.verdict.toUpperCase()} &bull; ${t('lookup.score')} ${data.score}/100</div>${data.threat_name ? `<div style="color:var(--accent-red); margin-top:4px;"><b>${t('lookup.sig')}</b> ${data.threat_name}</div>` : ''}<div style="color:var(--text-muted); margin-top:4px;">${t('lookup.prevalence')} ${(data.prevalence || 'UNKNOWN').toUpperCase()} (${data.seen_count} ${t('lookup.sightings')})</div>`;
             } else {
               tiBox.innerHTML = '<div style="color:var(--accent-cyan);">' + t('lookup.unknown_note') + '</div>';
@@ -1021,8 +1022,8 @@
         fileStatusBox.style.display = 'none';
         fileResultBox.style.display = 'block';
         const verdict = ((res.antivirus && res.antivirus.verdict) || (res.rule && res.rule.verdict) || (typeof res.verdict === 'string' && res.verdict) || 'unknown').toLowerCase();
-        const color = verdict === 'malicious' ? 'var(--accent-red)' : verdict === 'clean' ? 'var(--accent-green)' : 'var(--accent-amber)';
-        const badge = verdict === 'malicious' ? t('res.malicious_badge') : verdict === 'clean' ? t('res.clean_badge') : verdict === 'suspicious' ? t('res.suspicious_badge') : t('res.unknown_badge');
+        const color = verdict === 'malicious' ? 'var(--accent-red)' : verdict === 'clean' ? 'var(--accent-green)' : verdict === 'possible_clean' ? '#6fcf97' : 'var(--accent-amber)';
+        const badge = verdict === 'malicious' ? t('res.malicious_badge') : verdict === 'clean' ? t('res.clean_badge') : verdict === 'possible_clean' ? t('res.possible_clean_badge') : verdict === 'suspicious' ? t('res.suspicious_badge') : t('res.unknown_badge');
         const threat = (res.rule && res.rule.name) || (res.threat && res.threat.indicator && res.threat.indicator.name) || res.detail || '';
 
         fileResultBox.innerHTML = `
