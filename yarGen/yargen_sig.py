@@ -452,6 +452,20 @@ def extract_opcodes(fileData) -> list[str]:
     # Opcode list
     opcodes = []
 
+    # Size-aware bounds: opcodes are great on short code but explode on long
+    # code (thousands of 16-byte hex patterns = huge scan-time matching cost).
+    # - Sections bigger than --opcode-max-mb are skipped entirely (strings
+    #   carry those files instead).
+    # - Smaller sections are scanned through an entrypoint-centered window so
+    #   the most distinctive bytes are kept with bounded work.
+    # - The emitted opcode list itself is capped as well.
+    try:
+        cap_mb = float(getattr(args, "opcode_max_mb", 4))
+    except Exception:
+        cap_mb = 4.0
+    OPCODE_WINDOW_BYTES = 1024 * 1024
+    MAX_OPCODE_PARTS = 4096
+
     try:
         # Read file data
         binary = lief.parse(fileData)
@@ -459,26 +473,44 @@ def extract_opcodes(fileData) -> list[str]:
 
         # Locate .text section
         text = None
+        ep_offset = 0
         if isinstance(binary, lief.PE.Binary):
             for sec in binary.sections:
                 if sec.virtual_address + binary.imagebase <= ep < sec.virtual_address + binary.imagebase + sec.virtual_size:
                     if args.debug:
                         print(f"EP is located at {sec.name} section")
-                    text = sec.content.tobytes()
+                    content = sec.content.tobytes()
+                    ep_offset = ep - (sec.virtual_address + binary.imagebase)
+                    text = content
                     break
         elif isinstance(binary, lief.ELF.Binary):
             for sec in binary.sections:
                 if sec.virtual_address <= ep < sec.virtual_address + sec.size:
                     if args.debug:
                         print(f"EP is located at {sec.name} section")
-                    text = sec.content.tobytes()
+                    content = sec.content.tobytes()
+                    ep_offset = ep - sec.virtual_address
+                    text = content
                     break
 
         if text is not None:
+            # 1. Skip code that is too long for opcodes (strings handle it).
+            if cap_mb > 0 and len(text) > cap_mb * 1024 * 1024:
+                if args.debug:
+                    print(f"Skipping opcodes: EP section too long ({len(text)} bytes > {cap_mb} MB cap)")
+                return opcodes
+            # 2. Entrypoint-centered window on the remaining (short) code.
+            if len(text) > OPCODE_WINDOW_BYTES:
+                ep_offset = max(0, min(ep_offset, len(text)))
+                start = ep_offset - OPCODE_WINDOW_BYTES // 2
+                start = max(0, min(start, len(text) - OPCODE_WINDOW_BYTES))
+                text = text[start:start + OPCODE_WINDOW_BYTES]
             # Split text into subs
             text_parts = re.split(b"[\x00]{3,}", text)
             # Now truncate and encode opcodes
             for text_part in text_parts:
+                if len(opcodes) >= MAX_OPCODE_PARTS:
+                    break
                 if text_part == "" or len(text_part) < 8:
                     continue
                 opcodes.append(binascii.hexlify(text_part[:16]).decode(encoding="ascii"))
@@ -2923,7 +2955,9 @@ if __name__ == "__main__":
 
     group_opcode = parser.add_argument_group("Other Features")
     group_opcode.add_argument("--opcodes", action="store_true", default=False, help="Do use the OpCode feature (use this if not enough high scoring strings can be found)")
+    group_opcode.add_argument("--no-opcodes", action="store_true", default=False, help="Never use opcodes, even when the output format would otherwise enable them (strings-only rules)")
     group_opcode.add_argument("-n", help="Number of opcodes to add if not enough high scoring string could be found (default=3)", metavar="opcode-num", default=3)
+    group_opcode.add_argument("--opcode-max-mb", help="Skip opcode extraction when the entrypoint section is bigger than this (MB). Opcodes are kept for short code; long code is carried by strings. 0 = no cap (default=4)", metavar="opcode-max-MB", default=4)
 
     group_inverse = parser.add_argument_group("Inverse Mode (unstable)")
     group_inverse.add_argument("--inverse", help=argparse.SUPPRESS, action="store_true", default=False)
@@ -2965,9 +2999,12 @@ Recommended command line:
             print("[E] Input is a file, please use a directory instead (-m path)")
             sys.exit(0)
 
-    # Opcodes evaluation or not
+    # Opcodes evaluation or not.
+    # --sig-yaml / .yaml output does NOT force opcodes: strings carry the
+    # rules, opcodes are only used when explicitly asked with --opcodes.
+    # --no-opcodes always wins (explicit opt-out).
     use_opcodes = False
-    if args.opcodes or getattr(args, "sig_yaml", "") or (args.o and (args.o.endswith(".yaml") or args.o.endswith(".yml"))):
+    if getattr(args, "opcodes", False) and not getattr(args, "no_opcodes", False):
         use_opcodes = True
 
     # Read PEStudio string list

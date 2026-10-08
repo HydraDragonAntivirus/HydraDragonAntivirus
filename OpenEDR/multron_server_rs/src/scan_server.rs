@@ -1374,8 +1374,8 @@ fn merge_url_reports(
         }
     }
 
-    let server_ids: HashSet<&str> = server.detections.iter().map(|d| d.rule_id.as_str()).collect();
-    let client_ids: HashSet<&str> = client.detections.iter().map(|d| d.rule_id.as_str()).collect();
+    let server_ids: HashSet<String> = server.detections.iter().map(|d| d.rule_id.clone()).collect();
+    let client_ids: HashSet<String> = client.detections.iter().map(|d| d.rule_id.clone()).collect();
 
     let mut server_only: Vec<String> = Vec::new();
     let mut client_only: Vec<String> = Vec::new();
