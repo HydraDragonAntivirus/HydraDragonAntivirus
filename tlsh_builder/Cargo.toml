@@ -6,6 +6,11 @@ authors = ["Emirhan Ucan"]
 description = "Fast TLSH digests for HydraDragon / VIRUSKOV: hash corpora, build TLSH blacklists, compare, and tune the smart-whitelist distance"
 license = "GPL-2.0-only"
 
+[features]
+# Builds analyzer::analyze_light from multron_server_rs/src/analyzer.rs (fast `refs`).
+default = ["analyze-light"]
+analyze-light = []
+
 [dependencies]
 # Same pinned TLSH crate as multron_server_rs, so digests match byte for byte.
 fast-tlsh = "=0.1.10"

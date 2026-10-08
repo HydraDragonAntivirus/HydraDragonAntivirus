@@ -9,6 +9,11 @@ description = "Native Rust scan server for Multron Win Cleaner with embedded das
 name = "multron_server"
 path = "src/main.rs"
 
+[features]
+# analyzer::analyze_light, for tlsh_builder (it includes src/analyzer.rs by path and turns
+# this on in its own Cargo.toml). Off for the server.
+analyze-light = []
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }

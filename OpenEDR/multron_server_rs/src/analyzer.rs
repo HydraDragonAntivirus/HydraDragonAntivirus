@@ -217,7 +217,8 @@ pub fn dex_tlsh(data: &[u8]) -> Option<String> {
 /// sections, imports, TLSH, SHA-256, imphash and PE/API indicators only. No CRC32/MD5/
 /// SHA-1 and no string extraction, so string-based indicators are absent; a candidate
 /// that has them is then refused by the injection guard (conservative by design).
-#[allow(dead_code)] // used by tlsh_builder (includes this file by path)
+// Only built for tlsh_builder, which includes this file by path and enables the feature.
+#[cfg(feature = "analyze-light")]
 pub fn analyze_light(data: &[u8], file_name: &str) -> FileReport {
     let mut indicators = Vec::new();
     let (file_type, mime) = detect_type(data, file_name);
