@@ -2,14 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="theme-color" content="#0a0b0d">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VIRUSKOV | Live Threat Scanner &amp; URL Analysis Workbench</title>
   <meta name="description" data-i18n="scan_page.meta_desc" content="VirusKov EDR live file inspection, OpenTIP hash lookup, and pure Machine Learning (ML) + Dynamic Whitelist next-gen URL scanner.">
   <link rel="icon" type="image/svg+xml" href="../viruskov-fav.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <script src="../i18n.js?v=3.0"></script>
+  <script src="../i18n.js?v=4"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -248,58 +246,51 @@
       font-family: var(--font-mono);
     }
   </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@400;500;600;700&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/vk.css?v=4">
+  <script src="../assets/vk.js?v=4" defer></script>
 </head>
-<body>
+<body class="vk-legacy">
 
-  <!-- TOP TELEMETRY STRIP -->
-  <div class="top-telemetry">
-    <div class="container telemetry-inner">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span style="width:7px; height:7px; background:var(--accent-green); border-radius:50%; box-shadow:0 0 8px var(--accent-green);"></span>
-        <span data-i18n="top.soc_status">VIRUSKOV SOC INTELLIGENCE • MULTI-ENGINE &amp; ML KERNEL • WSS:5306 • ECS 9.5.4</span>
-      </div>
-      <div>
-        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color:var(--text-muted); text-decoration:none;" data-i18n="top.repo">GITHUB REPO &rarr;</a>
-      </div>
-    </div>
-  </div>
 
-  <!-- HEADER -->
-  <header>
-    <div class="container header-inner">
-      <a href="../index.html" class="logo">
-        <img src="../viruskov-fav.svg" alt="VirusKov" width="28" height="28">
-        <span>VIRUSKOV</span>
-        <span class="logo-badge">SCAN</span>
+
+  <header class="vk-header">
+    <div class="vk-wrap vk-header-inner">
+      <a href="../index.html" class="vk-logo" aria-label="VIRUSKOV">
+        <img src="../assets/wordmark.svg" alt="VIRUSKOV" width="140" height="21">
       </a>
-
-      <nav>
-        <a href="../index.html" class="nav-link" data-i18n="nav.home">Home</a>
-        <a href="index.html" class="nav-link active" data-i18n="nav.scanner">⚡ Live Scanner</a>
-        <a href="../stats.html" class="nav-link" data-i18n="nav.stats">📊 Statistics &amp; SOC</a>
-        <a href="../wiki/index.html" class="nav-link" data-i18n="nav.wiki_docs">Wiki &amp; Docs</a>
-        <a href="../eula.html" class="nav-link" data-i18n="nav.eula">EULA &amp; Terms</a>
-        <a href="../index.html#wiki" class="nav-link" data-i18n="nav.wiki">Support &amp; FP Desk</a>
+      <nav class="vk-nav" aria-label="Main">
+        <a href="../index.html#platform" data-i18n="vk.nav.platform">Platform</a>
+        <a href="../index.html#ransom" data-i18n="vk.nav.ransom">Fidye Kuralı</a>
+        <a href="../scan/index.html" data-i18n="vk.nav.scanner" class="is-active" aria-current="page">Tarayıcı</a>
+        <a href="../stats.html" data-i18n="vk.nav.stats">İstatistikler</a>
+        <a href="../wiki/index.html" data-i18n="vk.nav.wiki">Wiki</a>
+        <a href="../about.html" data-i18n="vk.nav.about">Hikaye</a>
       </nav>
-
-      <div class="header-actions">
-        <div class="lang-switch">
+      <div class="vk-actions">
+        <div class="vk-lang" role="group" aria-label="Language">
           <button type="button" class="lang-btn" data-lang="tr">TR</button>
-          <span style="color:var(--text-dim); margin:0 2px;">/</span>
-          <button type="button" class="lang-btn active" data-lang="en">EN</button>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
         </div>
-        <a href="../stats.html" class="btn btn-ghost btn-sm">
-          <span data-i18n="nav.stats_btn">📊 STATISTICS</span>
-        </a>
-        <a href="../wiki/index.html" class="btn btn-ghost btn-sm">
-          <span data-i18n="nav.wiki_btn">WIKI &rarr;</span>
-        </a>
-        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-red btn-sm">
-          <span data-i18n="nav.repo_btn">REPO &nearr;</span>
-        </a>
+        <a class="vk-icon-btn vk-gh" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" aria-label="GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+        <a class="vk-btn vk-btn-primary" href="../scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+        <button type="button" class="vk-icon-btn vk-menu-btn" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button>
       </div>
     </div>
   </header>
+  <div class="vk-drawer" aria-label="Mobile">
+    <a href="../index.html#platform" data-i18n="vk.nav.platform">Platform</a>
+    <a href="../index.html#ransom" data-i18n="vk.nav.ransom">Fidye Kuralı</a>
+    <a href="../scan/index.html" data-i18n="vk.nav.scanner">Tarayıcı</a>
+    <a href="../stats.html" data-i18n="vk.nav.stats">İstatistikler</a>
+    <a href="../wiki/index.html" data-i18n="vk.nav.wiki">Wiki</a>
+    <a href="../about.html" data-i18n="vk.nav.about">Hikaye</a>
+    <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a>
+    <a class="vk-btn vk-btn-primary vk-btn-lg" href="../scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+  </div>
+
 
   <!-- MAIN CONTAINER -->
   <main class="container" style="padding-top: 36px; padding-bottom: 60px;">
@@ -329,16 +320,16 @@
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 14px; margin-bottom: 24px; flex-wrap: wrap; gap: 10px;">
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
           <button id="tabUrlBtn" class="btn btn-sm btn-red" style="cursor: pointer;" data-i18n="scan_page.tab_url">
-            🔗 LIVE URL SCAN (ML &amp; WHITELIST)
+             LIVE URL SCAN (ML &amp; WHITELIST)
           </button>
           <button id="tabScannerBtn" class="btn btn-sm btn-outline-red" style="cursor: pointer;" data-i18n="scan_page.tab_file">
-            ⚡ FILE ANALYSIS (WEBSOCKET)
+             FILE ANALYSIS (WEBSOCKET)
           </button>
           <button id="tabLookupBtn" class="btn btn-sm btn-outline-red" style="cursor: pointer;" data-i18n="scan_page.tab_hash">
-            🔍 HASH LOOKUP (OPENTIP)
+             HASH LOOKUP (OPENTIP)
           </button>
           <button id="tabStatsBtn" class="btn btn-sm btn-outline-red" style="cursor: pointer;" data-i18n="scan_page.tab_history">
-            📊 SCAN HISTORY
+             SCAN HISTORY
           </button>
         </div>
         <span style="color: var(--accent-green); display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 0.8rem;">
@@ -355,7 +346,7 @@
         <!-- Architecture Justification Card -->
         <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 24px; text-align: center; margin-bottom: 24px;">
           <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(0, 255, 102, 0.08); border: 1px solid rgba(0, 255, 102, 0.25); color: var(--accent-green); padding: 4px 14px; border-radius: 20px; font-family: var(--font-mono); font-size: 0.74rem; font-weight: 700; margin-bottom: 12px;">
-            <span data-i18n="scan_page.top_badge">🛡️ 100% MACHINE LEARNING (ML) + DYNAMIC WHITELIST</span>
+            <span data-i18n="scan_page.top_badge"> 100% MACHINE LEARNING (ML) + DYNAMIC WHITELIST</span>
           </div>
           <h2 data-i18n="scan_page.hero_title" style="font-family: var(--font-display); font-size: 1.45rem; font-weight: 800; color: #fff; margin-bottom: 8px;">
             VirusKov Live URL &amp; Web Threat Scanner
@@ -370,13 +361,13 @@
               style="flex: 1; min-width: 280px; padding: 14px 18px; background: var(--bg-terminal); border: 1px solid var(--border-strong); color: var(--text-main); font-family: var(--font-mono); font-size: 0.92rem; border-radius: 6px; outline: none; transition: border-color 0.2s;"
               onfocus="this.style.borderColor='var(--accent-red)'" onblur="this.style.borderColor='var(--border-strong)'">
             <button id="urlScanBtn" class="btn btn-red" data-i18n="scan_page.url_btn" style="padding: 14px 28px; cursor: pointer; border-radius: 6px;">
-              ⚡ SCAN &nearr;
+               SCAN &nearr;
             </button>
           </div>
 
           <!-- Privacy & False Positive Notice -->
           <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim);">
-            <span data-i18n="scan_page.privacy_note">🔒 Security &amp; Privacy Notice: Web page views are not persistently stored; only live DNS/HTTP status is inspected.</span>
+            <span data-i18n="scan_page.privacy_note"> Security &amp; Privacy Notice: Web page views are not persistently stored; only live DNS/HTTP status is inspected.</span>
             <span>&bull;</span>
             <a href="mailto:viruskov@viruskov.com?subject=[FP-REPORT]%20URL%20Scan%20Report" data-i18n="scan_page.fp_report" style="color: var(--accent-cyan); text-decoration: none; font-weight: 700;">
               Report FP/FN: viruskov@viruskov.com &nearr;
@@ -408,7 +399,7 @@
       <div id="paneScanner" style="display: none;">
         <div id="dropZone" style="border: 2px dashed var(--border-strong); border-radius: 8px; padding: 48px 20px; text-align: center; background: var(--bg-surface); cursor: pointer; transition: all 0.2s ease;">
           <input type="file" id="fileScanInput" style="display: none;">
-          <div style="font-size: 38px; margin-bottom: 12px;">🛡️</div>
+          <div style="font-size: 38px; margin-bottom: 12px;"></div>
           <div data-i18n="drop.title" style="font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
             Drag &amp; drop file to analyze or click to browse
           </div>
@@ -416,7 +407,7 @@
             PE, EXE, DLL, ZIP, APK, ELF or suspicious documents / PDF (Max 50 MB)
           </div>
           <div data-i18n="drop.tip" style="font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent-cyan); margin-top: 10px;">
-            💡 <b>Tip:</b> If you experience adblocker (uBlock/AdBlock) or extension connection blocks, please open in an <b>Incognito window</b>.
+             <b>Tip:</b> If you experience adblocker (uBlock/AdBlock) or extension connection blocks, please open in an <b>Incognito window</b>.
           </div>
           <div style="margin-top: 12px; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);" data-i18n="drop.eula_notice">
             Yükleme yaparak <a href="../eula.html" style="color:var(--accent-cyan); text-decoration:underline;">EULA &amp; Hizmet Koşulları</a>'nı (Multron Win Cleaner &amp; VirusKov Web) kabul etmiş olursunuz.
@@ -484,7 +475,7 @@
     <div style="background: rgba(0, 229, 255, 0.04); border: 1px solid rgba(0, 229, 255, 0.2); border-left: 4px solid var(--accent-cyan); border-radius: 6px; padding: 20px 22px;">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 8px;">
         <div data-i18n="scan_page.support_title" style="font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: #fff;">
-          📬 Support &amp; False Positive/Negative (FP/FN) Desk
+           Support &amp; False Positive/Negative (FP/FN) Desk
         </div>
         <a href="mailto:viruskov@viruskov.com?subject=VirusKov%20Support%20and%20FP/FN%20Report" style="background: var(--accent-cyan); color: #000; font-family: var(--font-mono); font-size: 0.76rem; font-weight: 800; padding: 6px 14px; border-radius: 4px; text-decoration: none;">
           viruskov@viruskov.com &nearr;
@@ -837,7 +828,7 @@
         `;
         urlResultBox.innerHTML = html;
 
-        saveRecordToHistory('🔗 ' + res.url, res.url.length, urlSha256, res.verdict, res.score, res.threatName, 'url');
+        saveRecordToHistory(' ' + res.url, res.url.length, urlSha256, res.verdict, res.score, res.threatName, 'url');
       }
 
       // 6. File & Hash Logic
@@ -1069,5 +1060,45 @@
       });
     })();
   </script>
+  <footer class="vk-footer">
+    <div class="vk-wrap">
+      <div class="vk-footer-grid">
+        <div class="vk-footer-brand">
+          <img src="../assets/wordmark.svg" alt="VIRUSKOV" width="130" height="19">
+          <p data-i18n="vk.foot.tagline">Kaynağı açık, her satırı denetlenebilir uç nokta koruması. Ring-0 sürücü, iki aşamalı makine öğrenimi ve davranış kuralları.</p>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.product">Ürün</h4>
+          <ul>
+            <li><a href="../scan/index.html" data-i18n="vk.foot.scanner">Canlı tarayıcı</a></li>
+            <li><a href="../index.html#intel" data-i18n="vk.foot.lookup">Hash sorgula</a></li>
+            <li><a href="../stats.html" data-i18n="vk.foot.stats">İstatistikler</a></li>
+            <li><a href="../wiki/index.html" data-i18n="vk.foot.wiki">Wiki &amp; dokümantasyon</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.project">Proje</h4>
+          <ul>
+            <li><a href="../about.html" data-i18n="vk.foot.story">Hikaye &amp; kronoloji</a></li>
+            <li><a href="../about.html#community" data-i18n="vk.foot.community">Topluluk</a></li>
+            <li><a href="../index.html#evolution" data-i18n="vk.foot.evolution">Teknik evrim</a></li>
+            <li><a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.support">Destek</h4>
+          <ul>
+            <li><a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]" data-i18n="vk.foot.fp">Yanlış pozitif bildir</a></li>
+            <li><a href="mailto:viruskov@viruskov.com">viruskov@viruskov.com</a></li>
+            <li><a href="../eula.html" data-i18n="vk.foot.eula">EULA &amp; koşullar</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="vk-footer-bottom">
+        <span>&copy; 2026 VIRUSKOV. <span data-i18n="vk.foot.founder">Kurucu ve proje lideri</span> Emirhan Uçan.</span>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" data-i18n="vk.foot.source">Kaynak kodu GitHub'da &nearr;</a>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>

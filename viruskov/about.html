@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VIRUSKOV — Hikaye ve topluluk</title>
+  <meta name="description" content="VIRUSKOV'un 2019'dan bugüne belgeli kronolojisi ve projeye katkı veren topluluk.">
+  <meta name="theme-color" content="#0a0b0d">
+  <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg">
+  <script src="i18n.js?v=4"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@400;500;600;700&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/vk.css?v=4">
+  <script src="assets/vk.js?v=4" defer></script>
+  <link rel="stylesheet" href="assets/home.css?v=4">
+  <link rel="stylesheet" href="assets/about.css?v=4">
+</head>
+<body>
+  <header class="vk-header">
+    <div class="vk-wrap vk-header-inner">
+      <a href="index.html" class="vk-logo" aria-label="VIRUSKOV">
+        <img src="assets/wordmark.svg" alt="VIRUSKOV" width="140" height="21">
+      </a>
+      <nav class="vk-nav" aria-label="Main">
+        <a href="index.html#platform" data-i18n="vk.nav.platform">Platform</a>
+        <a href="index.html#ransom" data-i18n="vk.nav.ransom">Fidye Kuralı</a>
+        <a href="scan/index.html" data-i18n="vk.nav.scanner">Tarayıcı</a>
+        <a href="stats.html" data-i18n="vk.nav.stats">İstatistikler</a>
+        <a href="wiki/index.html" data-i18n="vk.nav.wiki">Wiki</a>
+        <a href="about.html" data-i18n="vk.nav.about" class="is-active" aria-current="page">Hikaye</a>
+      </nav>
+      <div class="vk-actions">
+        <div class="vk-lang" role="group" aria-label="Language">
+          <button type="button" class="lang-btn" data-lang="tr">TR</button>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
+        <a class="vk-icon-btn vk-gh" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" aria-label="GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+        <a class="vk-btn vk-btn-primary" href="scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+        <button type="button" class="vk-icon-btn vk-menu-btn" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button>
+      </div>
+    </div>
+  </header>
+  <div class="vk-drawer" aria-label="Mobile">
+    <a href="index.html#platform" data-i18n="vk.nav.platform">Platform</a>
+    <a href="index.html#ransom" data-i18n="vk.nav.ransom">Fidye Kuralı</a>
+    <a href="scan/index.html" data-i18n="vk.nav.scanner">Tarayıcı</a>
+    <a href="stats.html" data-i18n="vk.nav.stats">İstatistikler</a>
+    <a href="wiki/index.html" data-i18n="vk.nav.wiki">Wiki</a>
+    <a href="about.html" data-i18n="vk.nav.about">Hikaye</a>
+    <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a>
+    <a class="vk-btn vk-btn-primary vk-btn-lg" href="scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+  </div>
+<main>
+  <section class="a-hero">
+    <div class="h-hero-bg" aria-hidden="true"></div>
+    <div class="vk-wrap a-hero-inner">
+      <span class="vk-eyebrow" data-i18n="a.eyebrow">Belgeli kronoloji</span>
+      <h1 class="vk-h1" data-i18n="a.title">Bir forum hesabından <span class="vk-serif">çekirdek sürücüsüne.</span></h1>
+      <p class="vk-lead" data-i18n="a.lead">Başlangıç bir Avast forumu hesabıydı. Ardından bir buçuk yıl satranç, birkaç başarısız proje ve uzun bir Discord geçmişi geldi. Aşağıda ne olduğu, ne zaman olduğu ve kanıt bağlantıları var.</p>
+      <dl class="a-facts">
+        <div><dt data-i18n="a.f1k">İlk merak</dt><dd>2019</dd></div>
+        <div><dt data-i18n="a.f2k">Proje miladı</dt><dd>15.04.2023</dd></div>
+        <div><dt data-i18n="a.f3k">İsim</dt><dd>Turko → Hydra Dragon → VIRUSKOV</dd></div>
+        <div><dt data-i18n="a.f4k">Web</dt><dd>viruskov.com · 2026</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="vk-section a-timeline-sec" id="timeline">
+    <div class="vk-wrap a-tl-grid">
+      <aside class="a-tl-side">
+        <div class="a-tl-sticky">
+          <label class="vk-sr" for="tlSearch" data-i18n="a.search_lbl">Kronolojide ara</label>
+          <div class="a-search">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+            <input id="tlSearch" type="search" placeholder="Tarih, kişi veya motor ara" data-i18n-placeholder="a.search_ph">
+          </div>
+          <div class="a-filters" role="tablist" aria-label="Filter">
+            <button type="button" class="a-filter is-active" data-filter="all"><span data-i18n="a.fl_all">Tümü</span><i id="cnt-all"></i></button>
+            <button type="button" class="a-filter" data-filter="roots"><span data-i18n="a.fl_roots">Temeller · 2019–2022</span><i id="cnt-roots"></i></button>
+            <button type="button" class="a-filter" data-filter="birth"><span data-i18n="a.fl_birth">Doğuş · 2023</span><i id="cnt-birth"></i></button>
+            <button type="button" class="a-filter" data-filter="alliances"><span data-i18n="a.fl_alliances">Dostluklar ve ittifak</span><i id="cnt-alliances"></i></button>
+            <button type="button" class="a-filter" data-filter="kernel"><span data-i18n="a.fl_kernel">Teknik ve kernel çağı</span><i id="cnt-kernel"></i></button>
+          </div>
+        </div>
+      </aside>
+      <ol class="a-tl" id="timelineList" aria-live="polite"></ol>
+    </div>
+  </section>
+
+  <section class="vk-section" id="community">
+    <div class="vk-wrap">
+      <div class="vk-section-head vk-reveal">
+        <div>
+          <span class="vk-eyebrow" data-i18n="a.c.eyebrow">Topluluk</span>
+          <h2 class="vk-h2" data-i18n="a.c.title">Bu depoya <span class="vk-serif">emek verenler.</span></h2>
+        </div>
+        <p class="vk-body" data-i18n="a.c.body">Kod, fikir, altyapı ya da sadece doğru zamanda bir mesaj. Hepsi projenin bugünkü haline katkı.</p>
+      </div>
+      <div class="a-people" id="peopleGrid"></div>
+    </div>
+  </section>
+
+  <section class="vk-section">
+    <div class="vk-wrap">
+      <div class="h-support vk-reveal">
+        <div class="h-support-copy">
+          <span class="vk-eyebrow" data-i18n="a.j.eyebrow">Katkı</span>
+          <h2 class="vk-h2" data-i18n="a.j.title">Sıradaki satırı <span class="vk-serif">siz yazın.</span></h2>
+          <p class="vk-body" data-i18n="a.j.body">Kural önerisi, hata düzeltmesi ya da yanlış pozitif bildirimi. Kod GitHub'da, iletişim tek bir e-posta adresinde.</p>
+        </div>
+        <div class="a-join-ctas">
+          <a class="vk-btn vk-btn-light vk-btn-lg" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
+          <a class="vk-btn vk-btn-ghost vk-btn-lg" href="mailto:viruskov@viruskov.com?subject=[KATKI]">viruskov@viruskov.com</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+  <footer class="vk-footer">
+    <div class="vk-wrap">
+      <div class="vk-footer-grid">
+        <div class="vk-footer-brand">
+          <img src="assets/wordmark.svg" alt="VIRUSKOV" width="130" height="19">
+          <p data-i18n="vk.foot.tagline">Kaynağı açık, her satırı denetlenebilir uç nokta koruması. Ring-0 sürücü, iki aşamalı makine öğrenimi ve davranış kuralları.</p>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.product">Ürün</h4>
+          <ul>
+            <li><a href="scan/index.html" data-i18n="vk.foot.scanner">Canlı tarayıcı</a></li>
+            <li><a href="index.html#intel" data-i18n="vk.foot.lookup">Hash sorgula</a></li>
+            <li><a href="stats.html" data-i18n="vk.foot.stats">İstatistikler</a></li>
+            <li><a href="wiki/index.html" data-i18n="vk.foot.wiki">Wiki &amp; dokümantasyon</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.project">Proje</h4>
+          <ul>
+            <li><a href="about.html" data-i18n="vk.foot.story">Hikaye &amp; kronoloji</a></li>
+            <li><a href="about.html#community" data-i18n="vk.foot.community">Topluluk</a></li>
+            <li><a href="index.html#evolution" data-i18n="vk.foot.evolution">Teknik evrim</a></li>
+            <li><a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.support">Destek</h4>
+          <ul>
+            <li><a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]" data-i18n="vk.foot.fp">Yanlış pozitif bildir</a></li>
+            <li><a href="mailto:viruskov@viruskov.com">viruskov@viruskov.com</a></li>
+            <li><a href="eula.html" data-i18n="vk.foot.eula">EULA &amp; koşullar</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="vk-footer-bottom">
+        <span>&copy; 2026 VIRUSKOV. <span data-i18n="vk.foot.founder">Kurucu ve proje lideri</span> Emirhan Uçan.</span>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" data-i18n="vk.foot.source">Kaynak kodu GitHub'da &nearr;</a>
+      </div>
+    </div>
+  </footer>
+  <script src="assets/about.js?v=4"></script>
+</body>
+</html>

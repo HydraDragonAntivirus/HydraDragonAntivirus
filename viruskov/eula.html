@@ -2,14 +2,12 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
+  <meta name="theme-color" content="#0a0b0d">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VIRUSKOV | EULA &amp; Bulut Tarama Hizmet Koşulları</title>
   <meta name="description" content="VirusKov & Multron Win Cleaner Bulut Tarama Son Kullanıcı Lisans Sözleşmesi (EULA), veri işleme ve gizlilik ilkeleri.">
   <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <script src="i18n.js?v=3.1"></script>
+  <script src="i18n.js?v=4"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -346,61 +344,51 @@
       color: var(--accent-red);
     }
   </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@400;500;600;700&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/vk.css?v=4">
+  <script src="assets/vk.js?v=4" defer></script>
 </head>
-<body>
+<body class="vk-legacy">
 
-  <!-- LIVE TELEMETRY BAR -->
-  <div class="top-telemetry">
-    <div class="container telemetry-inner">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span class="status-dot"></span>
-        <span data-i18n="top.active">VIRUSKOV CORE: TELEMETRY &amp; ML ACTIVE</span>
-      </div>
-      <div>
-        <span data-i18n="top.arch">MİMARİ: HYBRID RING-0 EDR + GELİŞMİŞ ML MOTORU</span>
-      </div>
-      <div>
-        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--text-main); text-decoration: none;" data-i18n="top.repo">
-          GITHUB REPO &rarr;
-        </a>
-      </div>
-    </div>
-  </div>
 
-  <!-- HEADER -->
-  <header>
-    <div class="container header-inner">
-      <a href="index.html" class="brand-link">
-        <img src="viruskov-fav.svg" alt="VIRUSKOV Logo" width="28" height="28">
-        <span>VIRUSKOV</span>
-        <span class="brand-badge">LEGAL</span>
+
+  <header class="vk-header">
+    <div class="vk-wrap vk-header-inner">
+      <a href="index.html" class="vk-logo" aria-label="VIRUSKOV">
+        <img src="assets/wordmark.svg" alt="VIRUSKOV" width="140" height="21">
       </a>
-
-      <nav>
-        <a href="index.html" class="nav-link" data-i18n="nav.home">Ana Sayfa</a>
-        <a href="scan/index.html" class="nav-link" style="color:var(--accent-red); font-weight:700;" data-i18n="nav.scanner">⚡ Canlı Tarayıcı</a>
-        <a href="stats.html" class="nav-link" style="color:var(--accent-cyan); font-weight:700;" data-i18n="nav.stats">📊 İstatistikler &amp; SOC</a>
-        <a href="wiki/index.html" class="nav-link" data-i18n="nav.wiki_btn">Wiki &rarr;</a>
-        <a href="eula.html" class="nav-link active" style="color:#fff; font-weight:700;" data-i18n="nav.eula">EULA &amp; Koşullar</a>
-        <a href="mailto:viruskov@viruskov.com" class="nav-link" data-i18n="nav.wiki">Destek</a>
+      <nav class="vk-nav" aria-label="Main">
+        <a href="index.html#platform" data-i18n="vk.nav.platform">Platform</a>
+        <a href="index.html#ransom" data-i18n="vk.nav.ransom">Fidye Kuralı</a>
+        <a href="scan/index.html" data-i18n="vk.nav.scanner">Tarayıcı</a>
+        <a href="stats.html" data-i18n="vk.nav.stats">İstatistikler</a>
+        <a href="wiki/index.html" data-i18n="vk.nav.wiki">Wiki</a>
+        <a href="about.html" data-i18n="vk.nav.about">Hikaye</a>
       </nav>
-
-      <div class="header-actions">
-        <!-- Language Switcher -->
-        <div class="lang-switch">
-          <button type="button" class="lang-btn active" data-lang="tr">TR</button>
-          <span class="lang-sep">/</span>
+      <div class="vk-actions">
+        <div class="vk-lang" role="group" aria-label="Language">
+          <button type="button" class="lang-btn" data-lang="tr">TR</button>
           <button type="button" class="lang-btn" data-lang="en">EN</button>
         </div>
-        <a href="scan/index.html" class="btn btn-red btn-sm">
-          <span data-i18n="nav.scan_file_btn">⚡ CANLI TARA</span>
-        </a>
-        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost btn-sm">
-          <span data-i18n="nav.repo_btn">REPO &nearr;</span>
-        </a>
+        <a class="vk-icon-btn vk-gh" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" aria-label="GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+        <a class="vk-btn vk-btn-primary" href="scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+        <button type="button" class="vk-icon-btn vk-menu-btn" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button>
       </div>
     </div>
   </header>
+  <div class="vk-drawer" aria-label="Mobile">
+    <a href="index.html#platform" data-i18n="vk.nav.platform">Platform</a>
+    <a href="index.html#ransom" data-i18n="vk.nav.ransom">Fidye Kuralı</a>
+    <a href="scan/index.html" data-i18n="vk.nav.scanner">Tarayıcı</a>
+    <a href="stats.html" data-i18n="vk.nav.stats">İstatistikler</a>
+    <a href="wiki/index.html" data-i18n="vk.nav.wiki">Wiki</a>
+    <a href="about.html" data-i18n="vk.nav.about">Hikaye</a>
+    <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a>
+    <a class="vk-btn vk-btn-primary vk-btn-lg" href="scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+  </div>
+
 
   <!-- MAIN -->
   <main class="container">
@@ -408,7 +396,7 @@
     <!-- HERO -->
     <div class="eula-hero">
       <div class="eula-tag">
-        <span>⚖️</span>
+        <span></span>
         <span data-i18n="eula.tag">YASAL SÖZLEŞME &bull; EULA &bull; GİZLİLİK &bull; ŞARTLAR</span>
       </div>
       <h1 class="eula-title" data-i18n="eula.hero_title">
@@ -422,7 +410,7 @@
     <!-- SCOPE NOTICE BOX -->
     <div class="scope-box">
       <div class="scope-title">
-        <span>🛡️</span>
+        <span></span>
         <span data-i18n="eula.scope_title">MÜŞTEREK KAPSAM: MULTRON WIN CLEANER &amp; VIRUSKOV WEB PORTALI</span>
       </div>
       <div class="scope-body" data-i18n="eula.scope_body">
@@ -431,7 +419,7 @@
       <div class="scope-apps">
         <div class="scope-app-card">
           <div class="scope-app-head">
-            <span>💻</span>
+            <span></span>
             <span data-i18n="eula.app1_head">1. Multron Win Cleaner (Masaüstü Uygulaması)</span>
           </div>
           <div style="font-size:0.85rem; color:var(--text-muted);" data-i18n="eula.app1_desc">
@@ -441,7 +429,7 @@
 
         <div class="scope-app-card">
           <div class="scope-app-head">
-            <span>🌐</span>
+            <span></span>
             <span data-i18n="eula.app2_head">2. VirusKov Web Portalı &amp; Canlı Tarayıcı</span>
           </div>
           <div style="font-size:0.85rem; color:var(--text-muted);" data-i18n="eula.app2_desc">
@@ -550,7 +538,7 @@
     <div style="background: rgba(255, 183, 3, 0.05); border: 1px solid rgba(255, 183, 3, 0.25); border-left: 4px solid var(--accent-amber); border-radius: 8px; padding: 22px 26px; margin-bottom: 60px;">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 8px;">
         <div style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; color: #fff;" data-i18n="eula.contact_title">
-          📬 Yasal &amp; Gizlilik Talepleri
+           Yasal &amp; Gizlilik Talepleri
         </div>
         <a href="mailto:viruskov@viruskov.com?subject=[EULA-TALEP]%20Kisisel%20Veri%20ve%20Hizmet%20Sartlari" style="background: var(--accent-amber); color: #000; font-family: var(--font-mono); font-size: 0.78rem; font-weight: 800; padding: 6px 14px; border-radius: 4px; text-decoration: none;">
           viruskov@viruskov.com &nearr;
@@ -563,25 +551,47 @@
 
   </main>
 
-  <!-- FOOTER -->
-  <footer>
-    <div class="container footer-inner">
-      <div data-i18n="footer.copy">
-        &copy; 2026 <strong>VIRUSKOV</strong> &bull; Açık Kaynak Kurumsal EDR & Antivirüs Sistemi.<br>
-        Kurucu & Proje Lideri: <strong>Emirhan Uçan</strong> (<span class="text-red">hydra_dragon_antivirus</span>).
+  <footer class="vk-footer">
+    <div class="vk-wrap">
+      <div class="vk-footer-grid">
+        <div class="vk-footer-brand">
+          <img src="assets/wordmark.svg" alt="VIRUSKOV" width="130" height="19">
+          <p data-i18n="vk.foot.tagline">Kaynağı açık, her satırı denetlenebilir uç nokta koruması. Ring-0 sürücü, iki aşamalı makine öğrenimi ve davranış kuralları.</p>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.product">Ürün</h4>
+          <ul>
+            <li><a href="scan/index.html" data-i18n="vk.foot.scanner">Canlı tarayıcı</a></li>
+            <li><a href="index.html#intel" data-i18n="vk.foot.lookup">Hash sorgula</a></li>
+            <li><a href="stats.html" data-i18n="vk.foot.stats">İstatistikler</a></li>
+            <li><a href="wiki/index.html" data-i18n="vk.foot.wiki">Wiki &amp; dokümantasyon</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.project">Proje</h4>
+          <ul>
+            <li><a href="about.html" data-i18n="vk.foot.story">Hikaye &amp; kronoloji</a></li>
+            <li><a href="about.html#community" data-i18n="vk.foot.community">Topluluk</a></li>
+            <li><a href="index.html#evolution" data-i18n="vk.foot.evolution">Teknik evrim</a></li>
+            <li><a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.support">Destek</h4>
+          <ul>
+            <li><a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]" data-i18n="vk.foot.fp">Yanlış pozitif bildir</a></li>
+            <li><a href="mailto:viruskov@viruskov.com">viruskov@viruskov.com</a></li>
+            <li><a href="eula.html" data-i18n="vk.foot.eula">EULA &amp; koşullar</a></li>
+          </ul>
+        </div>
       </div>
-
-      <div class="footer-links">
-        <a href="index.html" data-i18n="nav.home">Ana Sayfa</a>
-        <a href="scan/index.html" style="color: var(--accent-red); font-weight: 700;" data-i18n="nav.scanner">⚡ Canlı Tarayıcı</a>
-        <a href="stats.html" style="color: var(--accent-cyan); font-weight: 700;" data-i18n="nav.stats">İstatistikler &amp; SOC</a>
-        <a href="wiki/index.html" style="color: var(--accent-cyan);" data-i18n="nav.wiki_btn">Wiki &rarr;</a>
-        <a href="eula.html" style="color: #fff; font-weight: 700;" data-i18n="nav.eula">EULA &amp; Koşullar</a>
-        <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber); font-weight: 700;" data-i18n="nav.wiki">Destek</a>
-        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--accent-red); font-weight: 700;" data-i18n="nav.repo_btn">GitHub Repo</a>
+      <div class="vk-footer-bottom">
+        <span>&copy; 2026 VIRUSKOV. <span data-i18n="vk.foot.founder">Kurucu ve proje lideri</span> Emirhan Uçan.</span>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" data-i18n="vk.foot.source">Kaynak kodu GitHub'da &nearr;</a>
       </div>
     </div>
   </footer>
+
 
 </body>
 </html>
