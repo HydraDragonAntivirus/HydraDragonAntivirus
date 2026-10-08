@@ -58,6 +58,10 @@ pub struct UrlConditionsDef {
     pub tlds: Option<Vec<String>>,
     pub is_ip: Option<bool>,
     pub cidr_blacklisted: Option<bool>,
+    /// True when the client-supplied page and the server-fetched page produced
+    /// different findings. Set by difference scanning, never by single scans.
+    /// Verdict/severity/score come from the YAML rule itself.
+    pub content_difference: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +83,7 @@ pub struct CompiledUrlRule {
     pub tlds: Option<Vec<String>>,
     pub is_ip: Option<bool>,
     pub cidr_blacklisted: Option<bool>,
+    pub content_difference: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +189,7 @@ fn rule_matches(
     p: &UrlParts,
     is_cidr_blacklisted: bool,
     page_content: Option<&str>,
+    content_different: bool,
 ) -> bool {
     let mut matched = false;
 
@@ -237,6 +243,11 @@ fn rule_matches(
             if re.is_match(content) {
                 matched = true;
             }
+        }
+    }
+    if let Some(expected_diff) = rule.content_difference {
+        if expected_diff == content_different {
+            matched = true;
         }
     }
 
@@ -328,6 +339,7 @@ impl UrlThreatEngine {
                 tlds: def.conditions.tlds.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
                 is_ip: def.conditions.is_ip,
                 cidr_blacklisted: def.conditions.cidr_blacklisted,
+                content_difference: def.conditions.content_difference,
             });
         }
         let count = compiled.len();
@@ -412,12 +424,42 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
         }
         // No page content and no CIDR input on this path: only the
         // url/host/path/query conditions can apply.
-        if rule_matches(rule, url_str, &p, false, None) {
+        if rule_matches(rule, url_str, &p, false, None, false) {
             hits.push(rule.id.clone());
         }
     }
     hits
 }
+
+    /// Evaluate **only** rules carrying a `content_difference` condition, with the
+    /// difference flag set. Called after two independent per-source scans disagree.
+    /// Severity, score and whitelist handling come from the YAML rule itself;
+    /// this function only reports what the rules decided, each paired with its
+    /// `override_whitelist` / `skip_if_whitelisted` flags for the caller to apply.
+    pub fn match_difference_rules(&self, raw_url: &str) -> Vec<(UrlRuleHit, bool, bool)> {
+        let url_str = raw_url.trim();
+        let p = parse_parts(url_str);
+        let mut hits = Vec::new();
+        for rule in &self.rules {
+            if rule.content_difference.is_none() {
+                continue;
+            }
+            if rule_matches(rule, url_str, &p, false, None, true) {
+                hits.push((
+                    UrlRuleHit {
+                        rule_id: rule.id.clone(),
+                        title: rule.title.clone(),
+                        severity: rule.severity.clone(),
+                        score: rule.score,
+                        details: rule.description.clone(),
+                    },
+                    rule.override_whitelist,
+                    rule.skip_if_whitelisted,
+                ));
+            }
+        }
+        hits
+    }
 
 /// Full inspection evaluating Rust YAML rules, whitelist, liveness and ML.
     /// liveness_code: 0 = unknown, 1 = active, 2 = inactive/dead
@@ -429,6 +471,7 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
         ml_prob: f32,
         liveness_code: i32,
         page_content: Option<&str>,
+        content_different: bool,
     ) -> UrlThreatReport {
         let url_str = raw_url.trim();
         let p = parse_parts(url_str);
@@ -463,7 +506,7 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
                 continue;
             }
 
-            if rule_matches(rule, url_str, &p, is_cidr_blacklisted, page_content) {
+            if rule_matches(rule, url_str, &p, is_cidr_blacklisted, page_content, content_different) {
                 if rule.override_whitelist && is_whitelisted {
                     is_whitelisted = false;
                     whitelist_bypassed = true;

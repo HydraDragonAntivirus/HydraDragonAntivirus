@@ -214,6 +214,20 @@ impl EngineAdapter {
         Ok(engine.inspect_url_with_content(raw_url, liveness_code, page_content))
     }
 
+    /// Difference-scan judgment: evaluates only YAML rules carrying a
+    /// `content_difference` condition. Severity/score/whitelist handling come
+    /// from the rules; each hit is paired with its flags for the caller.
+    pub fn match_difference_rules(
+        &self,
+        raw_url: &str,
+    ) -> Result<Vec<(openedr_static::url_rules::UrlRuleHit, bool, bool)>, String> {
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "Engine not ready".to_string())?;
+        Ok(engine.url_engine.match_difference_rules(raw_url))
+    }
+
     /// Verdict from the SHA-256 alone, without the file: hash signatures first (a
     /// malicious hit must win), then the engine's benign whitelist. None = upload needed.
     pub fn hash_lookup(&self, _sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {

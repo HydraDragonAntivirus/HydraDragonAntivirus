@@ -1931,6 +1931,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
             prob,
             liveness_code,
             page_content,
+            false,
         );
 
         if let Some(body) = page_content {

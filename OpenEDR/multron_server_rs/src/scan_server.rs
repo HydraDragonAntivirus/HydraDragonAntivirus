@@ -1292,6 +1292,159 @@ fn send_error(tx: &Out, id: Option<i64>, msg: &str) {
     send_json(tx, &ErrorMessage { r#type: "error", id, message: msg });
 }
 
+/// Merge two independent per-source URL reports: the server-fetched copy vs the
+/// client-supplied copy. Detections are unioned with their origin noted. When
+/// the two sides disagree, YAML rules carrying a `content_difference` condition
+/// judge it -- severity, score and whitelist handling come from the rules, this
+/// function only records the facts and applies what the rules decided.
+/// Difference percentage (0-100) between two page sources via shingle Jaccard:
+/// 0 = identical, 100 = nothing in common. Line-based, falling back to 1 KiB
+/// chunks for minified single-line bodies. Capped work, approximation only.
+fn content_difference_percent(a: &str, b: &str) -> u8 {
+    use std::collections::HashSet;
+
+    fn shingles(text: &str) -> HashSet<&str> {
+        const CAP: usize = 50_000;
+        const CHUNK: usize = 1024;
+        let mut set = HashSet::new();
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        if lines.len() >= 10 {
+            for l in lines {
+                if set.len() >= CAP {
+                    break;
+                }
+                set.insert(l.trim());
+            }
+        } else {
+            let bytes = text.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() && set.len() < CAP {
+                let end = (i + CHUNK).min(bytes.len());
+                // str slices: step on UTF-8 boundaries only
+                let mut e = end;
+                while e > i && !text.is_char_boundary(e) {
+                    e -= 1;
+                }
+                if e <= i {
+                    break;
+                }
+                set.insert(&text[i..e]);
+                i = end;
+            }
+        }
+        set
+    }
+
+    if a == b {
+        return 0;
+    }
+    let sa = shingles(a);
+    let sb = shingles(b);
+    if sa.is_empty() && sb.is_empty() {
+        return 0;
+    }
+    let inter = sa.intersection(&sb).count();
+    let union = sa.union(&sb).count().max(1);
+    ((1.0 - inter as f64 / union as f64) * 100.0).round().clamp(0.0, 100.0) as u8
+}
+
+fn merge_url_reports(
+    engine: &crate::engine_adapter::EngineAdapter,
+    url_trimmed: &str,
+    difference_percent: u8,
+    mut server: openedr_static::url_rules::UrlThreatReport,
+    client: openedr_static::url_rules::UrlThreatReport,
+) -> Result<openedr_static::url_rules::UrlThreatReport, String> {
+    use std::collections::HashSet;
+
+    fn verdict_rank(v: &str) -> u8 {
+        match v {
+            "Malicious" => 3,
+            "Suspicious" => 2,
+            "Unknown" => 1,
+            "Clean" => 0,
+            _ => 1,
+        }
+    }
+
+    let server_ids: HashSet<&str> = server.detections.iter().map(|d| d.rule_id.as_str()).collect();
+    let client_ids: HashSet<&str> = client.detections.iter().map(|d| d.rule_id.as_str()).collect();
+
+    let mut server_only: Vec<String> = Vec::new();
+    let mut client_only: Vec<String> = Vec::new();
+
+    for d in server.detections.iter_mut() {
+        if !client_ids.contains(d.rule_id.as_str()) {
+            server_only.push(d.rule_id.clone());
+            d.details.push_str(" [seen in server fetch only]");
+        }
+    }
+    for mut d in client.detections.into_iter() {
+        if !server_ids.contains(d.rule_id.as_str()) {
+            client_only.push(d.rule_id.clone());
+            d.details.push_str(" [seen in client content only]");
+            server.detections.push(d);
+        }
+    }
+
+    let differed = server.verdict != client.verdict
+        || !server_only.is_empty()
+        || !client_only.is_empty();
+
+    // Worst verdict across both single-source scans wins.
+    let (mut verdict, mut risk_score, mut verdict_reason) =
+        if verdict_rank(&client.verdict) >= verdict_rank(&server.verdict) {
+            (client.verdict.clone(), client.risk_score, client.verdict_reason.clone())
+        } else {
+            (server.verdict.clone(), server.risk_score, server.verdict_reason.clone())
+        };
+
+    // Difference judgment comes from YAML rules, never from hardcoded logic.
+    if differed {
+        let facts = format!(
+            "Content difference: {}%. Client-supplied content verdict: {} vs server-fetched verdict: {}. Rules seen only in server fetch: [{}]; rules seen only in client content: [{}].",
+            difference_percent,
+            client.verdict,
+            server.verdict,
+            server_only.join(", "),
+            client_only.join(", "),
+        );
+        for (mut hit, override_wl, skip_wl) in engine.match_difference_rules(url_trimmed)? {
+            if skip_wl && server.whitelisted {
+                continue;
+            }
+            if override_wl && server.whitelisted {
+                server.whitelisted = false;
+                server.whitelist_bypassed = true;
+                server.bypass_reason = Some(format!("Whitelist overridden by threat rule {}", hit.rule_id));
+            }
+            hit.details.push_str(&format!(" {}", facts));
+            if (hit.severity == "Malicious" || hit.severity == "Suspicious")
+                && verdict_rank(&hit.severity) > verdict_rank(&verdict)
+            {
+                verdict = hit.severity.clone();
+                risk_score = risk_score.max(hit.score);
+                verdict_reason = format!("{}: {}", hit.title, hit.details);
+            }
+            server.detections.push(hit);
+        }
+    }
+
+    server.whitelisted = server.whitelisted && client.whitelisted;
+    server.whitelist_bypassed = server.whitelist_bypassed || client.whitelist_bypassed;
+    if server.bypass_reason.is_none() {
+        server.bypass_reason = client.bypass_reason.clone();
+    }
+    server.ml_probability = server.ml_probability.max(client.ml_probability);
+    server.fp_mitigated = server.fp_mitigated && client.fp_mitigated;
+    server.content_scanned = true;
+    server.unwhitelisted_for_ml = server.unwhitelisted_for_ml || client.unwhitelisted_for_ml;
+    server.verdict = verdict;
+    server.risk_score = risk_score;
+    server.verdict_reason = verdict_reason;
+    Ok(server)
+}
+
 pub async fn execute_url_scan(
     server: &Arc<ScanServer>,
     raw_url: &str,
@@ -1306,23 +1459,39 @@ pub async fn execute_url_scan(
     // Step 1: PyFunceble-style asynchronous liveness check (DNS / Host resolution)
     let (liveness_code, liveness_str) = crate::liveness::check_liveness(url_trimmed).await;
 
-    // Step 2: Optional Safe HTML / Page Content fetch for active sites
+    // Step 2: Fetch each content source SEPARATELY for difference scanning.
+    // Client-supplied HTML (what the user sees) and the server-fetched copy
+    // (what the scanner sees) are never merged: cloaking pages serve benign
+    // bytes to scanners and malicious bytes to victims, so any difference
+    // between the two is handed to the YAML rules for judgment.
     let fetched_body;
-    let effective_content = match page_content {
-        Some(c) => Some(c),
-        None => {
-            if liveness_code == crate::liveness::LIVENESS_ACTIVE {
-                fetched_body = crate::liveness::fetch_page_content_safe(url_trimmed).await;
-                fetched_body.as_deref()
-            } else {
-                None
-            }
-        }
+    let server_content: Option<&str> = if liveness_code == crate::liveness::LIVENESS_ACTIVE {
+        fetched_body = crate::liveness::fetch_page_content_safe(url_trimmed).await;
+        fetched_body.as_deref()
+    } else {
+        None
     };
 
-    // Step 3: OpenEDR Static Engine inspection
+    // Step 3: OpenEDR Static Engine inspection per source, then merge.
     // (Evaluates Whitelist -> Deterministic Rules -> CIDR -> Liveness Protection -> ML Gating -> HTML / JS YARA)
-    let report = server.engine.inspect_url(url_trimmed, liveness_code, effective_content)?;
+    // Single source -> single scan, unchanged behaviour. Both sources ->
+    // independent scans; when they differ, YAML difference rules judge it.
+    let mut difference_percent: Option<u8> = None;
+    let report = match (page_content, server_content) {
+        (Some(client_body), Some(server_body)) => {
+            let pct = content_difference_percent(client_body, server_body);
+            difference_percent = Some(pct);
+            let server_report = server.engine.inspect_url(url_trimmed, liveness_code, Some(server_body))?;
+            let client_report = server.engine.inspect_url(url_trimmed, liveness_code, Some(client_body))?;
+            merge_url_reports(&server.engine, url_trimmed, pct, server_report, client_report)?
+        }
+        (Some(client_body), None) => {
+            server.engine.inspect_url(url_trimmed, liveness_code, Some(client_body))?
+        }
+        (None, server_body) => {
+            server.engine.inspect_url(url_trimmed, liveness_code, server_body)?
+        }
+    };
     let scan_ms = started.elapsed().as_millis() as i64;
 
     // Record event in live event feed
