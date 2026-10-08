@@ -812,16 +812,27 @@
           ? `<div style="font-family:var(--font-mono); font-size:0.8rem; color:${badgeColor}; margin-top:4px;">${res.threatName} &bull; ${res.score}/100</div>`
           : '';
 
+        const livenessBadge = res.liveness.status === 'ACTIVE'
+          ? ('<span style="color:var(--accent-green);">' + t('scan.liveness_active') + '</span>')
+          : ('<span style="color:var(--text-muted);">' + t('scan.liveness_inactive') + '</span>');
+
         let html = `
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:18px; margin-bottom:18px; flex-wrap:wrap; gap:14px;">
             <div>
               <div style="font-family:var(--font-display); font-size:1.5rem; font-weight:800; color:${badgeColor};">${badgeText}</div>
-              <div style="font-family:var(--font-mono); font-size:0.85rem; color:#fff; margin-top:6px;">${res.url}</div>
+              <div style="font-family:var(--font-mono); font-size:0.85rem; color:#fff; margin-top:6px;">${res.url} &bull; ${livenessBadge}</div>
               ${threatLine}
             </div>
             <a href="mailto:viruskov@viruskov.com?subject=URL%20FP/FN%20Report%20-%20${encodeURIComponent(res.url)}" style="background:rgba(255,51,68,0.1); border:1px solid var(--accent-red); color:#fff; padding:8px 14px; border-radius:4px; text-decoration:none; font-family:var(--font-mono); font-size:0.75rem; font-weight:700;">
               ${t('scan.report_fp')}
             </a>
+          </div>
+
+          <div style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:6px; padding:12px 16px; margin-bottom:18px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-family:var(--font-mono); font-size:0.78rem;">
+            <div>${t('scan.lbl_domain')} <span style="color:#fff; font-weight:700;">${res.host}</span></div>
+            <div>${t('scan.lbl_protocol')} <span style="color:var(--accent-cyan);">${res.protocol.toUpperCase()}</span></div>
+            <div>${t('scan.lbl_entropy')} <span style="color:#fff;">${res.entropy} bits</span></div>
+            <div>SHA-256: <span style="color:var(--accent-cyan);">${urlSha256.slice(0, 16)}...</span></div>
           </div>
         `;
         urlResultBox.innerHTML = html;
