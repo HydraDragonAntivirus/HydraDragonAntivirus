@@ -351,7 +351,27 @@
       'wiki_sec.notice': '<strong>BİLGİLENDİRME:</strong> Daha önce bu bölümde bir bağış politikası yer alıyordu. Artık bağış <strong>hiçbir aracı platform, komisyon veya üçüncü taraf hesap üzerinden yürütülmüyor</strong>. Projeye katkıda bulunmak, ek kural yazmak, ya da finansal destek göstermek isteyen <strong>herkes</strong> doğrudan proje liderine ulaşır: <strong>viruskov@viruskov.com</strong>. Aracısız, komisyonsuz, şeffaf.',
       'wiki_sec.card_tag': 'WİKİ &bull; 20 BÖLÜM',
       'wiki_sec.card_title': 'MLE_RANSOM_BEHAVIOR — Tam Dokümantasyon',
-      'wiki_sec.card_desc': 'Kuralın 16 maddesi, 5 aşaması, 9 süzgütü, distinctCounter semantiği, Q24 Shannon entropi hesabı, kernel IRP eşlemesi, yanıt zinciri, 12 gerekçe ve bilinen sınır/kusurların tam listesi. Kaynak satırlarıyla birlikte.'
+      'wiki_sec.card_desc': 'Kuralın 16 maddesi, 5 aşaması, 9 süzgütü, distinctCounter semantiği, Q24 Shannon entropi hesabı, kernel IRP eşlemesi, yanıt zinciri, 12 gerekçe ve bilinen sınır/kusurların tam listesi. Kaynak satırlarıyla birlikte.',
+      'wiki_sec.card_go': 'WİKİYİ AÇ →',
+      'wiki_sec.card_scan_tag': 'CANLI ANALİZ • WEB & DOSYA',
+      'wiki_sec.card_scan_title': '⚡ Canlı Tehdit Tarayıcısı & URL Masası',
+      'wiki_sec.card_scan_desc': 'Geleneksel imza listelerini terk eden <strong>%100 Makine Öğrenimi (ML) ve Dinamik Whitelist</strong> tabanlı yeni nesil URL tarayıcısı ile canlı dosya ve hash analizini anında deneyin.',
+      'wiki_sec.card_scan_go': 'TARAYICIYI BAŞLAT →',
+      'wiki_sec.card2_tag': 'KAYNAK • DOĞRULANABİLİR',
+      'wiki_sec.card2_title': 'Politikayı Kendiniz Okuyun',
+      'wiki_sec.card2_desc': 'Bu sitedeki her teknik iddia doğrudan depodaki kaynak koddan alınmıştır. ptm.local.src satır 4636–5129 aralığı, policy_v2.cpp motoru, filemon.cpp ve ShanonEntropy.cpp hepsi açık. Wiki\'de satır numaralarıyla işaret edildi.',
+      'wiki_sec.card2_go': 'DEPOYU AÇ →',
+      'wiki_sec.card3_tag': 'DESTEK • FP/FN BİLDİRİMİ',
+      'wiki_sec.card3_title': 'Sorular & Yanlış Pozitif (FP) / Negatif Bildirimi',
+      'wiki_sec.card3_desc': 'Eski imza listelerinin başkaları tarafından tekrar kullanılması ve meşru alan adlarında/dosyalarda yüksek Yanlış Pozitif (False Positive - FP) üretmesi sebebiyle VirusKov; kural tabanlı eski yaklaşımları terk etmiş, <strong>Saf Makine Öğrenimi (ML) ve Dinamik Whitelist</strong> modeline geçmiştir. Multron Server çekirdeğinde yerleşik URL tarayıcısı bulunmaktadır (özellikle zararlı PDF ve belgelere gömülü bağlantılara karşı tarama yapar). Tespit hatası yaşadığınız dosya veya bağlantıları bildirerek modelin yeniden eğitilmesine katkı sağlayabilirsiniz.',
+      'wiki_sec.card3_go': 'BİLDİRİM YAP →',
+      'wiki_sec.help_intro': '<strong>Nasıl yardımcı olabilirsiniz?</strong> Konu satırına kısa bir etiket yazarak <strong>viruskov@viruskov.com</strong> adresine iletebilirsiniz:',
+      'wiki_sec.why_email': '<strong>Neden doğrudan e-posta, neden sponsor butonu değil?</strong> Bu sitenin kuruluş amacı <em>şeffaflık</em>: projenin ne yaptığını, nasıl çalıştığını ve nerede zayıf olduğunu aynı sayfada göstermek. Aracı bir platforma bağış butonu koymak, o şeffaflığın kendisiyle çelişirdi. Bu yüzden tek adres, tek muhatap, aracısız akış.',
+      'wiki_sec.btn_scan': '⚡ CANLI TARAYICI',
+      'wiki_sec.btn_wiki': 'DOKÜMANTASYON WİKİSİ',
+      'footer.copy': '© 2026 <strong>VIRUSKOV</strong> • Açık Kaynak Kurumsal EDR & Antivirüs Sistemi.<br>Kurucu & Proje Lideri: <strong>Emirhan Uçan</strong> (<span class="text-red">hydra_dragon_antivirus</span>).',
+      'index.title': 'VIRUSKOV | Yeni Nesil Açık Kaynak Kurumsal EDR & Antivirüs',
+      'index.meta_desc': 'Viruskov - Security by Obscurity yalanına son veren, OpenEDR\'den ilham alıp ötesine geçen, makine öğrenimi ve kernel savunması destekli açık kaynak kurumsal EDR & Antivirüs projesi. Kurucu: Emirhan Uçan.'
     },
 
     en: {
@@ -697,8 +717,27 @@
       'wiki_sec.badge': 'SOURCE-VERIFIED',
       'wiki_sec.notice': '<strong>NOTICE:</strong> Sponsorship and donations are not processed through third-party platforms or commissions. Anyone wishing to contribute rules or offer support reaches the project lead directly: <strong>viruskov@viruskov.com</strong>. Direct, transparent, zero middleman.',
       'wiki_sec.card_tag': 'WIKI &bull; 20 CHAPTERS',
-      'wiki_sec.card_title': 'MLE_RANSOM_BEHAVIOR — Full Documentation',
-      'wiki_sec.card_desc': '16 rule directives, 5 stages, 9 filter gates, distinctCounter semantics, Q24 fixed-point Shannon entropy, kernel IRP mapping, and incident response chain. Source lines included.'
+      'wiki_sec.card_desc': '16 rule directives, 5 stages, 9 filter gates, distinctCounter semantics, Q24 fixed-point Shannon entropy, kernel IRP mapping, and incident response chain. Source lines included.',
+      'wiki_sec.card_go': 'OPEN WIKI →',
+      'wiki_sec.card_scan_tag': 'LIVE INSPECTION • WEB & FILE',
+      'wiki_sec.card_scan_title': '⚡ Live Threat Scanner & URL Workbench',
+      'wiki_sec.card_scan_desc': 'Abandoning legacy signature lists in favor of <strong>100% Machine Learning (ML) & Dynamic Whitelist</strong>. Instantly inspect URLs, files, and threat hashes.',
+      'wiki_sec.card_scan_go': 'LAUNCH SCANNER →',
+      'wiki_sec.card2_tag': 'SOURCE • VERIFIABLE',
+      'wiki_sec.card2_title': 'Read the Policy Yourself',
+      'wiki_sec.card2_desc': 'Every technical claim on this website is derived directly from repository source code. Lines 4636–5129 in ptm.local.src, policy_v2.cpp engine, filemon.cpp, and ShanonEntropy.cpp are fully open. Highlighted with line numbers in the Wiki.',
+      'wiki_sec.card2_go': 'OPEN REPO →',
+      'wiki_sec.card3_tag': 'SUPPORT • FP/FN DESK',
+      'wiki_sec.card3_title': 'Questions & False Positive (FP) / Negative Reports',
+      'wiki_sec.card3_desc': 'Because legacy signature lists get reused and falsely flag benign domains/files producing high False Positives (FP), VirusKov abandoned legacy rules in favor of <strong>Pure Machine Learning (ML) & Dynamic Whitelist</strong>. Multron Server includes an embedded URL scanner (especially targeting embedded links in PDFs/docs). Report false detections to help retrain models.',
+      'wiki_sec.card3_go': 'REPORT FP/FN →',
+      'wiki_sec.help_intro': '<strong>How can you contribute?</strong> Write a short prefix in the subject line and email <strong>viruskov@viruskov.com</strong>:',
+      'wiki_sec.why_email': '<strong>Why direct email instead of a sponsor button?</strong> The purpose of this site is <em>transparency</em>: to show what the project does, how it works, and where its weaknesses lie on the same page. Putting a third-party donation button would contradict that transparency. Hence one direct address, no middlemen.',
+      'wiki_sec.btn_scan': '⚡ LIVE SCANNER',
+      'wiki_sec.btn_wiki': 'DOCUMENTATION WIKI',
+      'footer.copy': '© 2026 <strong>VIRUSKOV</strong> • Open Source Enterprise EDR & Antivirus System.<br>Founder & Project Lead: <strong>Emirhan Ucan</strong> (<span class="text-red">hydra_dragon_antivirus</span>).',
+      'index.title': 'VIRUSKOV | Next-Gen Open Source Enterprise EDR & Antivirus',
+      'index.meta_desc': 'Viruskov - Putting an end to Security by Obscurity, built upon and evolving beyond OpenEDR, powered by machine learning and ring-0 kernel defenses. Founder: Emirhan Ucan.'
     }
   };
 
@@ -746,11 +785,27 @@
       }
     });
 
-    // Safely update document.title based on active page
+    // Safely update document.title & meta description based on active page
     try {
-      if (window.location.pathname.includes('scan') || document.querySelector('#paneUrl')) {
+      const p = (window.location.pathname || '').toLowerCase();
+      if (p.includes('scan') || document.querySelector('#paneUrl')) {
         const scanTitle = t('scan_page.title');
         if (scanTitle && scanTitle !== 'scan_page.title') document.title = scanTitle;
+        const scanDesc = t('scan_page.meta_desc');
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (scanDesc && metaDesc) metaDesc.setAttribute('content', scanDesc);
+      } else if (p.includes('wiki') || document.querySelector('.wiki-layout')) {
+        const wikiTitle = t('wiki.article_title');
+        if (wikiTitle) document.title = 'VIRUSKOV WIKI | ' + wikiTitle.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+      } else if (p.includes('stats') || document.querySelector('#socLiveFeed')) {
+        const statsTitle = t('stats.title');
+        if (statsTitle && statsTitle !== 'stats.title') document.title = 'VIRUSKOV | ' + statsTitle;
+      } else {
+        const homeTitle = t('index.title');
+        if (homeTitle && homeTitle !== 'index.title') document.title = homeTitle;
+        const homeDesc = t('index.meta_desc');
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (homeDesc && metaDesc) metaDesc.setAttribute('content', homeDesc);
       }
     } catch (_) {}
 
