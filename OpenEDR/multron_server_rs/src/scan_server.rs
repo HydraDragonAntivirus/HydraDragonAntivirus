@@ -343,12 +343,8 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         self.events.add(simple_event("info", None, None, Some(message)));
     }
 
-    /// Verdict without the file: shared verdict cache, then hash signatures / whitelist.
-    fn known(&self, sha: &Sha, sha_hex: &str) -> Option<ResultMessage> {
-        self.known_opts(sha, sha_hex, false)
-    }
-
-    /// `skip_cache`: client "Rescan" — the human verdict and hash signatures still
+    /// Verdict without the file: human review, shared verdict cache, then hash
+    /// signatures / whitelist. `skip_cache`: client "Rescan" — the human verdict and hash signatures still
     /// apply, the shared cache does not.
     fn known_opts(&self, sha: &Sha, sha_hex: &str, skip_cache: bool) -> Option<ResultMessage> {
         // A completed human review wins over the cache and the engine.
