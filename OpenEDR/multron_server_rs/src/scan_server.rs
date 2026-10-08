@@ -1557,6 +1557,7 @@ pub async fn execute_url_scan(
                 "whitelisted": report.whitelisted,
                 "whitelist_bypassed": report.whitelist_bypassed,
                 "ml_probability": report.ml_probability,
+                "content_difference_percent": difference_percent,
                 "detections": detections_json,
             }
         }
