@@ -11,7 +11,7 @@ set "DATA=C:\Users\semae\OneDrive\Belgeler\usbdosyalar"
 set "APKD=C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset"
 set "TB=%REPO%\tlsh_builder\target\release\tlsh_builder.exe"
 set "W=tlsh_training\work"
-set "AS=%REPO%\OpenMalwareScannerPortable\analyst_signatures"
+set "AS=%REPO%\OpenMalwareScannerPortable\tlsh_signatures"
 set "J="
 if not "%~1"=="" set "J=-j %~1"
 

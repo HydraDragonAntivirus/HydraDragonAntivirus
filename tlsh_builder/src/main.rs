@@ -76,7 +76,7 @@ enum Cmd {
         #[arg(long, default_value_t = 100)]
         max_mb: u64,
     },
-    /// Build a TLSH blacklist (one digest per line) for analyst_signatures/tlsh_blacklist.txt
+    /// Build a TLSH blacklist (one digest per line) for tlsh_signatures/tlsh_blacklist.txt
     Blacklist {
         /// Malware folders to hash (recursive)
         paths: Vec<PathBuf>,
@@ -442,7 +442,7 @@ fn cmd_blacklist(paths: &[PathBuf], mb_csv: &[PathBuf], merge: &[PathBuf], outpu
     let mut lines: Vec<String> = set.into_iter().collect();
     lines.sort();
     let mut w = BufWriter::new(File::create(output).expect("cannot create output"));
-    writeln!(w, "# TLSH blacklist for analyst_signatures/tlsh_blacklist.txt ({} digests)", lines.len()).unwrap();
+    writeln!(w, "# TLSH blacklist for tlsh_signatures/tlsh_blacklist.txt ({} digests)", lines.len()).unwrap();
     for l in &lines {
         writeln!(w, "{l}").unwrap();
     }

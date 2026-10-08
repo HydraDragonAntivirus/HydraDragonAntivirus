@@ -4,7 +4,7 @@
 //! * Every analysed file's TLSH goes into `tlsh_index.jsonl` (sha256, tlsh, size) and an
 //!   in-memory list; a linear scan of a million digests takes a few milliseconds.
 //! * Known-malware digests without a hash of their own (e.g. MalwareBazaar's tlsh list)
-//!   can be dropped into `analyst_signatures/tlsh_blacklist.txt`, one per line.
+//!   can be dropped into `tlsh_signatures/tlsh_blacklist.txt`, one per line.
 //!
 //! Smart whitelist: an `unknown` PE becomes `clean` only when it is very close
 //! (TLSH distance <= `SMART_WL_MAX_DIST`) to a file an ANALYST marked clean, and
@@ -45,7 +45,7 @@ struct CorpusRef {
 
 #[derive(Default)]
 pub struct SimilarityIndex {
-    /// Verified benign corpus (`analyst_signatures/tlsh_whitelist_refs.jsonl`).
+    /// Verified benign corpus (`tlsh_signatures/tlsh_whitelist_refs.jsonl`).
     corpus_refs: RwLock<Vec<CorpusRef>>,
     files: RwLock<Vec<Entry>>,
     seen: RwLock<HashSet<String>>,
@@ -64,6 +64,28 @@ pub struct SimilarFile {
     pub verdict: String,
     pub verdict_source: String,
     pub threat_name: Option<String>,
+}
+
+/// Generated TLSH data (`tlsh_builder` output), next to the other rule folders and
+/// apart from the hand-written analyst signatures.
+pub fn tlsh_dir() -> std::path::PathBuf {
+    let dir = crate::config::app_dir().join("tlsh_signatures");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// `tlsh_signatures/<name>`; falls back to the old `analyst_signatures/<name>` while
+/// only that one exists.
+fn tlsh_file(name: &str) -> std::path::PathBuf {
+    let new = tlsh_dir().join(name);
+    if !new.exists() {
+        let old = crate::human_review::analyst_dir().join(name);
+        if old.exists() {
+            eprintln!("[similarity] using {} (move it to {})", old.display(), new.display());
+            return old;
+        }
+    }
+    new
 }
 
 fn index_path() -> std::path::PathBuf {
@@ -91,10 +113,10 @@ impl SimilarityIndex {
         idx
     }
 
-    /// (Re)reads `analyst_signatures/tlsh_whitelist_refs.jsonl` written by
+    /// (Re)reads `tlsh_signatures/tlsh_whitelist_refs.jsonl` written by
     /// `tlsh_builder refs` from a verified benign corpus.
     pub fn reload_corpus_refs(&self) -> usize {
-        let path = crate::human_review::analyst_dir().join("tlsh_whitelist_refs.jsonl");
+        let path = tlsh_file("tlsh_whitelist_refs.jsonl");
         let mut v = Vec::new();
         if let Ok(f) = std::fs::File::open(path) {
             for line in BufReader::new(f).lines().map_while(Result::ok) {
@@ -110,10 +132,10 @@ impl SimilarityIndex {
         n
     }
 
-    /// (Re)reads `analyst_signatures/tlsh_blacklist.txt` (one digest per line; extra
+    /// (Re)reads `tlsh_signatures/tlsh_blacklist.txt` (one digest per line; extra
     /// comma/tab-separated columns are ignored).
     pub fn reload_known_malware(&self) -> usize {
-        let path = crate::human_review::analyst_dir().join("tlsh_blacklist.txt");
+        let path = tlsh_file("tlsh_blacklist.txt");
         let list: Vec<Tlsh> = std::fs::read_to_string(path)
             .unwrap_or_default()
             .lines()

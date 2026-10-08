@@ -228,7 +228,7 @@ tlsh_builder blacklist `
 
 Then install it:
 
-1. Copy the result to `OpenMalwareScannerPortable\analyst_signatures\tlsh_blacklist.txt`, next to `multron_server.exe`.
+1. Copy the result to `OpenMalwareScannerPortable\tlsh_signatures\tlsh_blacklist.txt`, next to `multron_server.exe`.
 2. Press **Reload rules & models** in the dashboard. The list is re-read without restarting the server.
 
 ### 7.4. Tune the smart whitelist (most important step)
@@ -294,7 +294,7 @@ From then on, close variants of that file are whitelisted automatically, and the
 Smart whitelist: TLSH distance 7 to analyst-verified clean 0235cf...; structure unchanged
 ```
 
-A second source is the **verified benign corpus** `analyst_signatures\tlsh_whitelist_refs.jsonl` (built with `tlsh_builder refs`, see 7.7). Each line carries the TLSH and the structural fingerprint, so the injection guard runs without a stored report. Dashboard → **Reload engines** reloads it.
+A second source is the **verified benign corpus** `tlsh_signatures\tlsh_whitelist_refs.jsonl` (built with `tlsh_builder refs`, see 7.7). Each line carries the TLSH and the structural fingerprint, so the injection guard runs without a stored report. Dashboard → **Reload engines** reloads it.
 
 ### 7.7. Full training run (all training folders)
 
@@ -322,7 +322,7 @@ $w  = "tlsh_training\work"
 Install only when `tune.txt` reports **0 wrongly whitelisted** (or after removing the clean references named in the `would_be_whitelisted=true` rows of `close_calls.csv`: those "benign" files are usually mislabelled malware):
 
 ```powershell
-$a = "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenMalwareScannerPortable\analyst_signatures"
+$a = "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\OpenMalwareScannerPortable\tlsh_signatures"
 Copy-Item $w\benign_refs.jsonl  $a\tlsh_whitelist_refs.jsonl
 Copy-Item $w\tlsh_blacklist.txt $a\tlsh_blacklist.txt
 ```
@@ -342,7 +342,7 @@ Repackaged malware (a real app plus a payload) cannot carry the original develop
 
 | File | Location | Format |
 | :--- | :--- | :--- |
-| `tlsh_blacklist.txt` | `OpenMalwareScannerPortable\analyst_signatures\` | one `T1...` digest per line, `#` comments allowed |
+| `tlsh_blacklist.txt` | `OpenMalwareScannerPortable\tlsh_signatures\` | one `T1...` digest per line, `#` comments allowed |
 | `tlsh_index.jsonl` | next to `multron_server.exe` | `{"sha256":"…","tlsh":"T1…","size":123}` per line (written by the server) |
-| `tlsh_whitelist_refs.jsonl` | `OpenMalwareScannerPortable\analyst_signatures\` | `{"sha256","tlsh","fp":{…},"path"}` per line (written by `tlsh_builder refs`) |
+| `tlsh_whitelist_refs.jsonl` | `OpenMalwareScannerPortable\tlsh_signatures\` | `{"sha256","tlsh","fp":{…},"path"}` per line (written by `tlsh_builder refs`) |
 | `hash` CSV | anywhere | `sha256,tlsh,size,path` |
