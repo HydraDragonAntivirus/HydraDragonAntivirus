@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VIRUSKOV | EULA &amp; Bulut Tarama Hizmet Koşulları</title>
+  <meta name="description" content="VirusKov & Multron Win Cleaner Bulut Tarama Son Kullanıcı Lisans Sözleşmesi (EULA), veri işleme ve gizlilik ilkeleri.">
+  <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="i18n.js?v=3.1"></script>
+  <style>
+    :root {
+      --bg-base: #06090a;
+      --bg-surface: #0b1114;
+      --bg-surface-elevated: #10191d;
+      --bg-card: #0d1519;
+      --bg-terminal: #050708;
+      --border-subtle: #18262b;
+      --border-strong: #273e46;
+      --border-focus: #ff3344;
+      --text-main: #e8eff2;
+      --text-muted: #799099;
+      --text-dim: #4d5f66;
+      --accent-red: #ff3344;
+      --accent-red-hover: #e02435;
+      --accent-red-dim: rgba(255, 51, 68, 0.12);
+      --accent-green: #00ff66;
+      --accent-green-dim: rgba(0, 255, 102, 0.1);
+      --accent-amber: #ffb703;
+      --accent-amber-dim: rgba(255, 183, 3, 0.12);
+      --accent-cyan: #00e5ff;
+      --accent-cyan-dim: rgba(0, 229, 255, 0.1);
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-display: 'Space Grotesk', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { max-width: 100vw; overflow-x: clip; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      min-height: 100vh;
+      line-height: 1.6;
+      background-image:
+        linear-gradient(rgba(255, 51, 68, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    ::selection { background: var(--accent-red); color: #fff; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-terminal); }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-red); }
+
+    .container { max-width: 1140px; margin: 0 auto; padding: 0 24px; width: 100%; box-sizing: border-box; }
+    .mono { font-family: var(--font-mono); }
+
+    /* Top Strip */
+    .top-telemetry {
+      background: #040607;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding: 6px 0;
+      letter-spacing: 0.5px;
+    }
+    .telemetry-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+      display: inline-block;
+    }
+
+    /* Header */
+    header {
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(6, 9, 10, 0.94);
+      backdrop-filter: blur(14px);
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      width: 100%;
+    }
+    .header-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      gap: 12px;
+    }
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: #fff;
+      font-weight: 800;
+      font-size: 1.15rem;
+      letter-spacing: 1px;
+    }
+    .brand-badge {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      background: rgba(255, 51, 68, 0.15);
+      border: 1px solid rgba(255, 51, 68, 0.4);
+      color: var(--accent-red);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    nav {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .nav-link {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: color 0.2s ease;
+    }
+    .nav-link:hover, .nav-link.active {
+      color: #fff;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .lang-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .lang-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      transition: all 0.2s ease;
+      border-radius: 2px;
+    }
+    .lang-btn:hover { color: #fff; }
+    .lang-btn.active {
+      color: var(--accent-cyan);
+      background: rgba(0, 229, 255, 0.1);
+      text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+    }
+    .lang-sep { color: var(--text-dim); font-size: 0.68rem; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+    .btn-sm { padding: 6px 12px; font-size: 0.75rem; }
+    .btn-red { background: var(--accent-red); color: #fff; border: 1px solid var(--accent-red); }
+    .btn-red:hover { background: var(--accent-red-hover); }
+    .btn-ghost { background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-subtle); }
+    .btn-ghost:hover { border-color: var(--border-strong); color: #fff; }
+
+    /* Hero */
+    .eula-hero {
+      padding: 50px 0 30px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .eula-tag {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--accent-red);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .eula-title {
+      font-size: clamp(1.8rem, 3.8vw, 2.6rem);
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1.2;
+      color: #fff;
+    }
+    .eula-desc {
+      color: var(--text-muted);
+      margin-top: 14px;
+      max-width: 860px;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Scope Alert Box */
+    .scope-box {
+      background: rgba(0, 229, 255, 0.04);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      border-left: 5px solid var(--accent-cyan);
+      border-radius: 8px;
+      padding: 22px 26px;
+      margin: 32px 0;
+    }
+    .scope-title {
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .scope-body {
+      font-size: 0.92rem;
+      color: var(--text-main);
+      line-height: 1.65;
+    }
+    .scope-apps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .scope-app-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 14px 16px;
+    }
+    .scope-app-head {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Sections */
+    .sections-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      margin: 40px 0 60px;
+    }
+    .eula-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 26px 30px;
+      transition: border-color 0.2s ease;
+      position: relative;
+    }
+    .eula-card:hover {
+      border-color: var(--border-strong);
+    }
+    .eula-card.highlight {
+      border-left: 4px solid var(--accent-red);
+    }
+    .eula-card-num {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent-red);
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .eula-card-title {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 12px;
+    }
+    .eula-card-body {
+      font-size: 0.93rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+    .eula-card-body strong, .eula-card-body b {
+      color: var(--text-main);
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 46px 0;
+      background: var(--bg-surface);
+    }
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 24px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .footer-links {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+    .footer-links a:hover {
+      color: var(--accent-red);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LIVE TELEMETRY BAR -->
+  <div class="top-telemetry">
+    <div class="container telemetry-inner">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="status-dot"></span>
+        <span data-i18n="top.active">VIRUSKOV CORE: TELEMETRY &amp; ML ACTIVE</span>
+      </div>
+      <div>
+        <span data-i18n="top.arch">MİMARİ: HYBRID RING-0 EDR + GELİŞMİŞ ML MOTORU</span>
+      </div>
+      <div>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--text-main); text-decoration: none;" data-i18n="top.repo">
+          GITHUB REPO &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER -->
+  <header>
+    <div class="container header-inner">
+      <a href="index.html" class="brand-link">
+        <img src="viruskov-fav.svg" alt="VIRUSKOV Logo" width="28" height="28">
+        <span>VIRUSKOV</span>
+        <span class="brand-badge">LEGAL</span>
+      </a>
+
+      <nav>
+        <a href="index.html" class="nav-link" data-i18n="nav.home">Ana Sayfa</a>
+        <a href="scan/index.html" class="nav-link" style="color:var(--accent-red); font-weight:700;" data-i18n="nav.scanner">⚡ Canlı Tarayıcı</a>
+        <a href="stats.html" class="nav-link" style="color:var(--accent-cyan); font-weight:700;" data-i18n="nav.stats">📊 İstatistikler &amp; SOC</a>
+        <a href="wiki/index.html" class="nav-link" data-i18n="nav.wiki_btn">Wiki &rarr;</a>
+        <a href="eula.html" class="nav-link active" style="color:#fff; font-weight:700;" data-i18n="nav.eula">EULA &amp; Koşullar</a>
+        <a href="mailto:viruskov@viruskov.com" class="nav-link" data-i18n="nav.wiki">Destek</a>
+      </nav>
+
+      <div class="header-actions">
+        <!-- Language Switcher -->
+        <div class="lang-switch">
+          <button type="button" class="lang-btn active" data-lang="tr">TR</button>
+          <span class="lang-sep">/</span>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
+        <a href="scan/index.html" class="btn btn-red btn-sm">
+          <span data-i18n="nav.scan_file_btn">⚡ CANLI TARA</span>
+        </a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost btn-sm">
+          <span data-i18n="nav.repo_btn">REPO &nearr;</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="container">
+
+    <!-- HERO -->
+    <div class="eula-hero">
+      <div class="eula-tag">
+        <span>⚖️</span>
+        <span data-i18n="eula.tag">YASAL SÖZLEŞME &bull; EULA &bull; GİZLİLİK &bull; ŞARTLAR</span>
+      </div>
+      <h1 class="eula-title" data-i18n="eula.hero_title">
+        Bulut Tarama Son Kullanıcı Lisans Sözleşmesi (EULA)
+      </h1>
+      <p class="eula-desc" data-i18n="eula.hero_desc">
+        Bu sözleşme, VirusKov bulut altyapısı üzerinden yürütülen telemetri, zararlı yazılım incelemesi, dosya ve URL tarama hizmetlerinin yasal çerçevesini, tarafların sorumluluklarını ve veri koruma taahhütlerini belirler.
+      </p>
+    </div>
+
+    <!-- SCOPE NOTICE BOX -->
+    <div class="scope-box">
+      <div class="scope-title">
+        <span>🛡️</span>
+        <span data-i18n="eula.scope_title">MÜŞTEREK KAPSAM: MULTRON WIN CLEANER &amp; VIRUSKOV WEB PORTALI</span>
+      </div>
+      <div class="scope-body" data-i18n="eula.scope_body">
+        Bu Son Kullanıcı Lisans Sözleşmesi ve Bulut Tarama Koşulları ("Sözleşme"), viruskov.com bulut tarama motoru ile entegre çalışan <strong>tüm istemciler ve web arayüzleri için müştereken ve eşit derecede bağlayıcıdır</strong>.
+      </div>
+      <div class="scope-apps">
+        <div class="scope-app-card">
+          <div class="scope-app-head">
+            <span>💻</span>
+            <span data-i18n="eula.app1_head">1. Multron Win Cleaner (Masaüstü Uygulaması)</span>
+          </div>
+          <div style="font-size:0.85rem; color:var(--text-muted);" data-i18n="eula.app1_desc">
+            Kullanıcının bilgisayarında çalışan <b>Multron Win Cleaner</b> (ve arka plan EDR ajanları) tarafından seçilen işlemlerden, başlangıç kayıtlarından veya sürücülerden taranmak üzere viruskov.com bulutuna gönderilen tüm çalıştırılabilir dosya ve betikler için geçerlidir.
+          </div>
+        </div>
+
+        <div class="scope-app-card">
+          <div class="scope-app-head">
+            <span>🌐</span>
+            <span data-i18n="eula.app2_head">2. VirusKov Web Portalı &amp; Canlı Tarayıcı</span>
+          </div>
+          <div style="font-size:0.85rem; color:var(--text-muted);" data-i18n="eula.app2_desc">
+            <b>viruskov.com</b> web sitesi, <b>/scan</b> Canlı Tarayıcı arayüzü veya API uç noktaları üzerinden doğrudan sürüklenip bırakılan, yüklenen ya da analiz için sunulan tüm dosya, URL, betik ve SHA-256 hash sorguları için geçerlidir.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10 SECTIONS GRID -->
+    <div class="sections-grid">
+
+      <!-- SECTION 1 -->
+      <article class="eula-card highlight">
+        <div class="eula-card-num" data-i18n="eula.s1_num">BÖLÜM 1</div>
+        <h2 class="eula-card-title" data-i18n="eula.s1_title">1. Bulut zararlı yazılım taramasının işlevi</h2>
+        <div class="eula-card-body" data-i18n="eula.s1_body">
+          Bulut zararlı yazılım taraması, bilgisayarınızdaki veya web üzerinden yüklediğiniz dosyaları kötü amaçlı yazılımlara karşı denetler. Bunu gerçekleştirmek için Multron Win Cleaner ("Yazılım") ve VirusKov Web Tarayıcısı, dosyaları viruskov.com bulut tarama sunucularına iletir; dosyalar burada viruskov.com OPEN-EDR motoru tarafından incelenir. Her dosyanın analiz sonucu Yazılıma geri gönderilir veya web sitesinde size gösterilir.
+        </div>
+      </article>
+
+      <!-- SECTION 2 -->
+      <article class="eula-card">
+        <div class="eula-card-num" data-i18n="eula.s2_num">BÖLÜM 2</div>
+        <h2 class="eula-card-title" data-i18n="eula.s2_title">2. Buluta hangi dosyalar gönderilir</h2>
+        <div class="eula-card-body" data-i18n="eula.s2_body">
+          Multron Win Cleaner'da dosyalar yalnızca sizin seçtiğiniz konumlardan alınır: çalışan işlemler, başlangıç öğeleri ve tarama hedefi olarak eklediğiniz sürücü, klasör ve dosyalar. VirusKov web sitesinde ise yalnızca sürükleyip bıraktığınız veya yüklemek üzere bizzat seçtiğiniz dosya ve URL'ler gönderilir. Varsayılan olarak yalnızca çalıştırılabilir dosyalar ve betikler gönderilir (.exe, .dll, .sys, .scr, .msi, .bat, .cmd, .ps1, .vbs ve .js gibi). Her dosya için önce dosya adı, boyutu ve SHA-256 hash değeri iletilir; dosyanın tam içeriği yalnızca sunucu bu hash değerini henüz bilmiyorsa yüklenir. Web üzerinde 50 MB'tan büyük ya da Yazılımda belirlediğiniz üst boyutu aşan dosyalar atlanır.
+        </div>
+      </article>
+
+      <!-- SECTION 3 -->
+      <article class="eula-card highlight">
+        <div class="eula-card-num" data-i18n="eula.s3_num">BÖLÜM 3</div>
+        <h2 class="eula-card-title" data-i18n="eula.s3_title">3. Kişisel dosyalar</h2>
+        <div class="eula-card-body" data-i18n="eula.s3_body">
+          "Yalnızca çalıştırılabilir dosyalar ve betikler" filtresi açıkken (Yazılımda ve webde varsayılan), fotoğraf, video, müzik ve genel belgeler gibi kişisel dosyalar kesinlikle gönderilmez. Multron Win Cleaner'da Tarama Hedefleri ayarlarından bu filtreyi dilediğiniz zaman kapatabilirsiniz. Filtreyi kapatırsanız veya web sitesine manuel olarak kişisel doküman yüklerseniz, bu dosyalar buluta aktarılabilir ve incelenebilir. Yalnızca bu dosyaların bulut servisi tarafından işlenmesini onaylıyorsanız devam edin.
+        </div>
+      </article>
+
+      <!-- SECTION 4 -->
+      <article class="eula-card">
+        <div class="eula-card-num" data-i18n="eula.s4_num">BÖLÜM 4</div>
+        <h2 class="eula-card-title" data-i18n="eula.s4_title">4. Aktarım, işleme ve depolama</h2>
+        <div class="eula-card-body" data-i18n="eula.s4_body">
+          Dosyalar şifrelenmiş TLS bağlantısı üzerinden güvenle aktarılır. Yüklenen dosyalar, bunların hash değerleri ve tarama sonuçları viruskov.com sunucularında saklanabilir; zararlı yazılımları tespit etmek, analiz etmek, makine öğrenimi modellerini eğitmek ve tespit yeteneğini geliştirmek amacıyla kullanılabilir. Dosyalar hiçbir koşulda üçüncü taraflara satılmaz.
+        </div>
+      </article>
+
+      <!-- SECTION 5 -->
+      <article class="eula-card">
+        <div class="eula-card-num" data-i18n="eula.s5_num">BÖLÜM 5</div>
+        <h2 class="eula-card-title" data-i18n="eula.s5_title">5. Sorumluluklarınız</h2>
+        <div class="eula-card-body" data-i18n="eula.s5_body">
+          Taradığınız veya yüklediğiniz bilgisayarın ve dosyaların sahibi olduğunuzu ya da bunları analiz ettirmek için tam yetkiye sahip olduğunuzu onaylarsınız. Başkalarına ait gizli bilgileri, ticari sırları veya izinsiz kişisel verileri içeren dosyaları, paylaşma yetkiniz bulunmadıkça taramayın veya yüklemeyin.
+        </div>
+      </article>
+
+      <!-- SECTION 6 -->
+      <article class="eula-card highlight">
+        <div class="eula-card-num" data-i18n="eula.s6_num">BÖLÜM 6</div>
+        <h2 class="eula-card-title" data-i18n="eula.s6_title">6. Tarama sonuçları</h2>
+        <div class="eula-card-body" data-i18n="eula.s6_body">
+          Tarama sonuçları yalnızca bilgilendirme ve savunma amaçlı sunulur. Bir tespit bir dosyanın kesin olarak zararlı olduğunu kanıtlamaz (sezgisel bir anomali veya yanlış pozitif olabilir); temiz bir sonuç ise dosyanın yüzde yüz güvenli olduğunu garanti etmez. Dosyayı karantinaya alma veya silme kararı tamamen size aittir. Silinen dosyalar kurtarılamayabilir, bu nedenle önemli verilerinizin yedeğini aldığınızdan emin olun.
+        </div>
+      </article>
+
+      <!-- SECTION 7 -->
+      <article class="eula-card">
+        <div class="eula-card-num" data-i18n="eula.s7_num">BÖLÜM 7</div>
+        <h2 class="eula-card-title" data-i18n="eula.s7_title">7. Garanti verilmemesi</h2>
+        <div class="eula-card-body" data-i18n="eula.s7_body">
+          Bulut zararlı yazılım taraması (Multron Win Cleaner ve viruskov.com üzerinden), ticarete elverişlilik, belirli bir amaca uygunluk ve ihlal etmeme garantileri dahil ancak bunlarla sınırlı olmamak üzere, açık veya zımni hiçbir garanti olmaksızın "olduğu gibi" ve "mevcut olduğu şekilde" sunulur. Hizmet herhangi bir zamanda kesintiye uğrayabilir, değiştirilebilir veya sonlandırılabilir.
+        </div>
+      </article>
+
+      <!-- SECTION 8 -->
+      <article class="eula-card">
+        <div class="eula-card-num" data-i18n="eula.s8_num">BÖLÜM 8</div>
+        <h2 class="eula-card-title" data-i18n="eula.s8_title">8. Sorumluluğun sınırlandırılması</h2>
+        <div class="eula-card-body" data-i18n="eula.s8_body">
+          Yürürlükteki yasaların izin verdiği azami ölçüde, Yazılımın geliştiricileri ve viruskov.com işleticileri, bulut zararlı taramasının kullanımından veya kullanılamamasından kaynaklanan hiçbir dolaylı, arızi, özel veya netice kabilinden doğan zarardan, veri kaybından veya sistem hasarından sorumlu tutulamaz.
+        </div>
+      </article>
+
+      <!-- SECTION 9 -->
+      <article class="eula-card">
+        <div class="eula-card-num" data-i18n="eula.s9_num">BÖLÜM 9</div>
+        <h2 class="eula-card-title" data-i18n="eula.s9_title">9. Onayın geri çekilmesi</h2>
+        <div class="eula-card-body" data-i18n="eula.s9_body">
+          Bulut taramasını kullanmayı dilediğiniz zaman durdurabilirsiniz: Multron Win Cleaner'da Zararlı Yazılım Taraması seçeneğini kapatarak ya da tarama başlatmayarak; VirusKov web sitesinde ise dosya veya URL yüklemeyerek. Bu sözleşme, kullanımı durdurmadan önce iletilen dosya ve hash verileri için geçerliliğini korumaya devam eder.
+        </div>
+      </article>
+
+      <!-- SECTION 10 -->
+      <article class="eula-card highlight">
+        <div class="eula-card-num" data-i18n="eula.s10_num">BÖLÜM 10</div>
+        <h2 class="eula-card-title" data-i18n="eula.s10_title">10. Değişiklikler ve yasal haklarınız</h2>
+        <div class="eula-card-body" data-i18n="eula.s10_body">
+          Bu sözleşme periyodik olarak güncellenebilir. Değişiklik yapıldığında yeni şartları incelemeniz istenecektir. Bu sözleşmedeki hiçbir hüküm, Avrupa Birliği Genel Veri Koruma Tüzüğü (GDPR) veya 6698 sayılı Türkiye Kişisel Verilerin Korunması Kanunu (KVKK) gibi zorunlu tüketici veya veri koruma mevzuatından doğan yasal haklarınızı kısıtlamaz.
+        </div>
+      </article>
+
+    </div>
+
+    <!-- SUPPORT / INQUIRIES -->
+    <div style="background: rgba(255, 183, 3, 0.05); border: 1px solid rgba(255, 183, 3, 0.25); border-left: 4px solid var(--accent-amber); border-radius: 8px; padding: 22px 26px; margin-bottom: 60px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 8px;">
+        <div style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; color: #fff;" data-i18n="eula.contact_title">
+          📬 Yasal &amp; Gizlilik Talepleri
+        </div>
+        <a href="mailto:viruskov@viruskov.com?subject=[EULA-TALEP]%20Kisisel%20Veri%20ve%20Hizmet%20Sartlari" style="background: var(--accent-amber); color: #000; font-family: var(--font-mono); font-size: 0.78rem; font-weight: 800; padding: 6px 14px; border-radius: 4px; text-decoration: none;">
+          viruskov@viruskov.com &nearr;
+        </a>
+      </div>
+      <p style="font-size: 0.88rem; color: var(--text-muted); line-height: 1.6; margin: 0;" data-i18n="eula.contact_desc">
+        KVKK veya GDPR kapsamındaki veri silme talepleriniz, yanlış pozitif bildirimleriniz ya da sözleşme şartlarına dair sorularınız için doğrudan proje lideri ile iletişime geçebilirsiniz.
+      </p>
+    </div>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="container footer-inner">
+      <div data-i18n="footer.copy">
+        &copy; 2026 <strong>VIRUSKOV</strong> &bull; Açık Kaynak Kurumsal EDR & Antivirüs Sistemi.<br>
+        Kurucu & Proje Lideri: <strong>Emirhan Uçan</strong> (<span class="text-red">hydra_dragon_antivirus</span>).
+      </div>
+
+      <div class="footer-links">
+        <a href="index.html" data-i18n="nav.home">Ana Sayfa</a>
+        <a href="scan/index.html" style="color: var(--accent-red); font-weight: 700;" data-i18n="nav.scanner">⚡ Canlı Tarayıcı</a>
+        <a href="stats.html" style="color: var(--accent-cyan); font-weight: 700;" data-i18n="nav.stats">İstatistikler &amp; SOC</a>
+        <a href="wiki/index.html" style="color: var(--accent-cyan);" data-i18n="nav.wiki_btn">Wiki &rarr;</a>
+        <a href="eula.html" style="color: #fff; font-weight: 700;" data-i18n="nav.eula">EULA &amp; Koşullar</a>
+        <a href="mailto:viruskov@viruskov.com" style="color: var(--accent-amber); font-weight: 700;" data-i18n="nav.wiki">Destek</a>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" style="color: var(--accent-red); font-weight: 700;" data-i18n="nav.repo_btn">GitHub Repo</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

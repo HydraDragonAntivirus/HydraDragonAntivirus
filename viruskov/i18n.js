@@ -371,7 +371,51 @@
       'wiki_sec.btn_wiki': 'DOKÜMANTASYON WİKİSİ',
       'footer.copy': '© 2026 <strong>VIRUSKOV</strong> • Açık Kaynak Kurumsal EDR & Antivirüs Sistemi.<br>Kurucu & Proje Lideri: <strong>Emirhan Uçan</strong> (<span class="text-red">hydra_dragon_antivirus</span>).',
       'index.title': 'VIRUSKOV | Yeni Nesil Açık Kaynak Kurumsal EDR & Antivirüs',
-      'index.meta_desc': 'Viruskov - Security by Obscurity yalanına son veren, OpenEDR\'den ilham alıp ötesine geçen, makine öğrenimi ve kernel savunması destekli açık kaynak kurumsal EDR & Antivirüs projesi. Kurucu: Emirhan Uçan.'
+      'index.meta_desc': 'Viruskov - Security by Obscurity yalanına son veren, OpenEDR\'den ilham alıp ötesine geçen, makine öğrenimi ve kernel savunması destekli açık kaynak kurumsal EDR & Antivirüs projesi. Kurucu: Emirhan Uçan.',
+      'nav.eula': 'EULA & Koşullar',
+      'drop.eula_notice': 'Yükleme yaparak <a href="../eula.html" style="color:var(--accent-cyan); text-decoration:underline;">EULA &amp; Hizmet Koşulları</a>\'nı (Multron Win Cleaner &amp; VirusKov Web) kabul etmiş olursunuz.',
+      'eula.doc_title': 'VIRUSKOV | EULA & Bulut Tarama Hizmet Koşulları',
+      'eula.tag': 'YASAL SÖZLEŞME • EULA • GİZLİLİK • ŞARTLAR',
+      'eula.hero_title': 'Bulut Tarama Son Kullanıcı Lisans Sözleşmesi (EULA)',
+      'eula.hero_desc': 'Bu sözleşme, VirusKov bulut altyapısı üzerinden yürütülen telemetri, zararlı yazılım incelemesi, dosya ve URL tarama hizmetlerinin yasal çerçevesini, tarafların sorumluluklarını ve veri koruma taahhütlerini belirler.',
+      'eula.scope_title': 'MÜŞTEREK KAPSAM: MULTRON WIN CLEANER & VIRUSKOV WEB PORTALI',
+      'eula.scope_body': 'Bu Son Kullanıcı Lisans Sözleşmesi ve Bulut Tarama Koşulları ("Sözleşme"), viruskov.com bulut tarama motoru ile entegre çalışan <strong>tüm istemciler ve web arayüzleri için müştereken ve eşit derecede bağlayıcıdır</strong>.',
+      'eula.app1_head': '1. Multron Win Cleaner (Masaüstü Uygulaması)',
+      'eula.app1_desc': 'Kullanıcının bilgisayarında çalışan <b>Multron Win Cleaner</b> (ve arka plan EDR ajanları) tarafından seçilen işlemlerden, başlangıç kayıtlarından veya sürücülerden taranmak üzere viruskov.com bulutuna gönderilen tüm çalıştırılabilir dosya ve betikler için geçerlidir.',
+      'eula.app2_head': '2. VirusKov Web Portalı & Canlı Tarayıcı',
+      'eula.app2_desc': '<b>viruskov.com</b> web sitesi, <b>/scan</b> Canlı Tarayıcı arayüzü veya API uç noktaları üzerinden doğrudan sürüklenip bırakılan, yüklenen ya da analiz için sunulan tüm dosya, URL, betik ve SHA-256 hash sorguları için geçerlidir.',
+      'eula.s1_num': 'BÖLÜM 1',
+      'eula.s1_title': '1. Bulut zararlı yazılım taramasının işlevi',
+      'eula.s1_body': 'Bulut zararlı yazılım taraması, bilgisayarınızdaki veya web üzerinden yüklediğiniz dosyaları kötü amaçlı yazılımlara karşı denetler. Bunu gerçekleştirmek için Multron Win Cleaner ("Yazılım") ve VirusKov Web Tarayıcısı, dosyaları viruskov.com bulut tarama sunucularına iletir; dosyalar burada viruskov.com OPEN-EDR motoru tarafından incelenir. Her dosyanın analiz sonucu Yazılıma geri gönderilir veya web sitesinde size gösterilir.',
+      'eula.s2_num': 'BÖLÜM 2',
+      'eula.s2_title': '2. Buluta hangi dosyalar gönderilir',
+      'eula.s2_body': 'Multron Win Cleaner\'da dosyalar yalnızca sizin seçtiğiniz konumlardan alınır: çalışan işlemler, başlangıç öğeleri ve tarama hedefi olarak eklediğiniz sürücü, klasör ve dosyalar. VirusKov web sitesinde ise yalnızca sürükleyip bıraktığınız veya yüklemek üzere bizzat seçtiğiniz dosya ve URL\'ler gönderilir. Varsayılan olarak yalnızca çalıştırılabilir dosyalar ve betikler gönderilir (.exe, .dll, .sys, .scr, .msi, .bat, .cmd, .ps1, .vbs ve .js gibi). Her dosya için önce dosya adı, boyutu ve SHA-256 hash değeri iletilir; dosyanın tam içeriği yalnızca sunucu bu hash değerini henüz bilmiyorsa yüklenir. Web üzerinde 50 MB\'tan büyük ya da Yazılımda belirlediğiniz üst boyutu aşan dosyalar atlanır.',
+      'eula.s3_num': 'BÖLÜM 3',
+      'eula.s3_title': '3. Kişisel dosyalar',
+      'eula.s3_body': '"Yalnızca çalıştırılabilir dosyalar ve betikler" filtresi açıkken (Yazılımda ve webde varsayılan), fotoğraf, video, müzik ve genel belgeler gibi kişisel dosyalar kesinlikle gönderilmez. Multron Win Cleaner\'da Tarama Hedefleri ayarlarından bu filtreyi dilediğiniz zaman kapatabilirsiniz. Filtreyi kapatırsanız veya web sitesine manuel olarak kişisel doküman yüklerseniz, bu dosyalar buluta aktarılabilir ve incelenebilir. Yalnızca bu dosyaların bulut servisi tarafından işlenmesini onaylıyorsanız devam edin.',
+      'eula.s4_num': 'BÖLÜM 4',
+      'eula.s4_title': '4. Aktarım, işleme ve depolama',
+      'eula.s4_body': 'Dosyalar şifrelenmiş TLS bağlantısı üzerinden güvenle aktarılır. Yüklenen dosyalar, bunların hash değerleri ve tarama sonuçları viruskov.com sunucularında saklanabilir; zararlı yazılımları tespit etmek, analiz etmek, makine öğrenimi modellerini eğitmek ve tespit yeteneğini geliştirmek amacıyla kullanılabilir. Dosyalar hiçbir koşulda üçüncü taraflara satılmaz.',
+      'eula.s5_num': 'BÖLÜM 5',
+      'eula.s5_title': '5. Sorumluluklarınız',
+      'eula.s5_body': 'Taradığınız veya yüklediğiniz bilgisayarın ve dosyaların sahibi olduğunuzu ya da bunları analiz ettirmek için tam yetkiye sahip olduğunuzu onaylarsınız. Başkalarına ait gizli bilgileri, ticari sırları veya izinsiz kişisel verileri içeren dosyaları, paylaşma yetkiniz bulunmadıkça taramayın veya yüklemeyin.',
+      'eula.s6_num': 'BÖLÜM 6',
+      'eula.s6_title': '6. Tarama sonuçları',
+      'eula.s6_body': 'Tarama sonuçları yalnızca bilgilendirme ve savunma amaçlı sunulur. Bir tespit bir dosyanın kesin olarak zararlı olduğunu kanıtlamaz (sezgisel bir anomali veya yanlış pozitif olabilir); temiz bir sonuç ise dosyanın yüzde yüz güvenli olduğunu garanti etmez. Dosyayı karantinaya alma veya silme kararı tamamen size aittir. Silinen dosyalar kurtarılamayabilir, bu nedenle önemli verilerinizin yedeğini aldığınızdan emin olun.',
+      'eula.s7_num': 'BÖLÜM 7',
+      'eula.s7_title': '7. Garanti verilmemesi',
+      'eula.s7_body': 'Bulut zararlı yazılım taraması (Multron Win Cleaner ve viruskov.com üzerinden), ticarete elverişlilik, belirli bir amaca uygunluk ve ihlal etmeme garantileri dahil ancak bunlarla sınırlı olmamak üzere, açık veya zımni hiçbir garanti olmaksızın "olduğu gibi" ve "mevcut olduğu şekilde" sunulur. Hizmet herhangi bir zamanda kesintiye uğrayabilir, değiştirilebilir veya sonlandırılabilir.',
+      'eula.s8_num': 'BÖLÜM 8',
+      'eula.s8_title': '8. Sorumluluğun sınırlandırılması',
+      'eula.s8_body': 'Yürürlükteki yasaların izin verdiği azami ölçüde, Yazılımın geliştiricileri ve viruskov.com işleticileri, bulut zararlı taramasının kullanımından veya kullanılamamasından kaynaklanan hiçbir dolaylı, arızi, özel veya netice kabilinden doğan zarardan, veri kaybından veya sistem hasarından sorumlu tutulamaz.',
+      'eula.s9_num': 'BÖLÜM 9',
+      'eula.s9_title': '9. Onayın geri çekilmesi',
+      'eula.s9_body': 'Bulut taramasını kullanmayı dilediğiniz zaman durdurabilirsiniz: Multron Win Cleaner\'da Zararlı Yazılım Taraması seçeneğini kapatarak ya da tarama başlatmayarak; VirusKov web sitesinde ise dosya veya URL yüklemeyerek. Bu sözleşme, kullanımı durdurmadan önce iletilen dosya ve hash verileri için geçerliliğini korumaya devam eder.',
+      'eula.s10_num': 'BÖLÜM 10',
+      'eula.s10_title': '10. Değişiklikler ve yasal haklarınız',
+      'eula.s10_body': 'Bu sözleşme periyodik olarak güncellenebilir. Değişiklik yapıldığında yeni şartları incelemeniz istenecektir. Bu sözleşmedeki hiçbir hüküm, Avrupa Birliği Genel Veri Koruma Tüzüğü (GDPR) veya 6698 sayılı Türkiye Kişisel Verilerin Korunması Kanunu (KVKK) gibi zorunlu tüketici veya veri koruma mevzuatından doğan yasal haklarınızı kısıtlamaz.',
+      'eula.contact_title': '📬 Yasal & Gizlilik Talepleri',
+      'eula.contact_desc': 'KVKK veya GDPR kapsamındaki veri silme talepleriniz, yanlış pozitif bildirimleriniz ya da sözleşme şartlarına dair sorularınız için doğrudan proje lideri ile iletişime geçebilirsiniz.'
     },
 
     en: {
@@ -737,7 +781,51 @@
       'wiki_sec.btn_wiki': 'DOCUMENTATION WIKI',
       'footer.copy': '© 2026 <strong>VIRUSKOV</strong> • Open Source Enterprise EDR & Antivirus System.<br>Founder & Project Lead: <strong>Emirhan Ucan</strong> (<span class="text-red">hydra_dragon_antivirus</span>).',
       'index.title': 'VIRUSKOV | Next-Gen Open Source Enterprise EDR & Antivirus',
-      'index.meta_desc': 'Viruskov - Putting an end to Security by Obscurity, built upon and evolving beyond OpenEDR, powered by machine learning and ring-0 kernel defenses. Founder: Emirhan Ucan.'
+      'index.meta_desc': 'Viruskov - Putting an end to Security by Obscurity, built upon and evolving beyond OpenEDR, powered by machine learning and ring-0 kernel defenses. Founder: Emirhan Ucan.',
+      'nav.eula': 'EULA & Terms',
+      'drop.eula_notice': 'By uploading, you agree to the <a href="../eula.html" style="color:var(--accent-cyan); text-decoration:underline;">EULA &amp; Terms of Service</a> (Multron Win Cleaner &amp; VirusKov Web).',
+      'eula.doc_title': 'VIRUSKOV | EULA & Cloud Scanning Terms of Service',
+      'eula.tag': 'LEGAL AGREEMENT • EULA • PRIVACY • TERMS',
+      'eula.hero_title': 'Cloud Malware Scan End User License Agreement (EULA)',
+      'eula.hero_desc': 'This agreement governs the legal framework, mutual responsibilities, and data protection commitments for telemetry, malware inspection, file and URL scanning provided via the VirusKov cloud infrastructure.',
+      'eula.scope_title': 'JOINT SCOPE: MULTRON WIN CLEANER & VIRUSKOV WEB PORTAL',
+      'eula.scope_body': 'This End User License Agreement & Cloud Scanning Terms of Service ("Agreement") is <strong>jointly and equally binding for all client software and web interfaces</strong> integrated with the viruskov.com cloud scan engine.',
+      'eula.app1_head': '1. Multron Win Cleaner (Desktop Application)',
+      'eula.app1_desc': 'Applies to all executables, scripts, and processes selected and transmitted to the viruskov.com cloud by <b>Multron Win Cleaner</b> (and background EDR agents) running on the user\'s computer.',
+      'eula.app2_head': '2. VirusKov Web Portal & Live Cloud Scanner',
+      'eula.app2_desc': 'Applies to all files, URLs, scripts, and SHA-256 hash queries directly dragged, dropped, uploaded, or submitted through the <b>viruskov.com</b> website, the <b>/scan</b> Live Scanner interface, or API endpoints.',
+      'eula.s1_num': 'SECTION 1',
+      'eula.s1_title': '1. What the cloud malware scan does',
+      'eula.s1_body': 'The cloud malware scan checks files on your computer or submitted via the web for malicious software. To do this, Multron Win Cleaner (the "Software") and the VirusKov Web Scanner send files to the cloud scanning servers of viruskov.com, where they are examined by the viruskov.com OPEN-EDR engine. The result for each file is sent back to the Software and shown to you.',
+      'eula.s2_num': 'SECTION 2',
+      'eula.s2_title': '2. Which files are sent to the cloud',
+      'eula.s2_body': 'In Multron Win Cleaner, files are taken only from the locations you choose: running processes, startup items, and the drives, folders, and files you add as scan targets. On the VirusKov website, only files or URLs you explicitly upload or drag-and-drop are sent. By default only executable files and scripts are sent, for example .exe, .dll, .sys, .scr, .msi, .bat, .cmd, .ps1, .vbs, and .js files. For each file the name, size, and SHA-256 hash are sent first; the content of the file is uploaded only when the server does not already know it. Files larger than the maximum allowed size (e.g. 50 MB on web) or the limit you set in the Software are skipped.',
+      'eula.s3_num': 'SECTION 3',
+      'eula.s3_title': '3. Personal files',
+      'eula.s3_body': 'While the "Only executables & scripts" filter is turned on, which it is by default in the Software and on the website, personal files such as photos, videos, music, and documents are never sent. In Multron Win Cleaner, you can turn this filter off at any time in the Scan Targets settings of the Malware Scan window. If you turn it off, or if you manually upload personal documents on the website, every selected file, including personal files, may be uploaded and examined in the cloud. Only proceed if you agree that these files are processed by the cloud service.',
+      'eula.s4_num': 'SECTION 4',
+      'eula.s4_title': '4. Transfer, processing and storage',
+      'eula.s4_body': 'Files are transferred over an encrypted TLS connection. Uploaded files, their hashes, and the scan results may be stored on the viruskov.com servers and used to detect and analyze malware and to improve detection. Files are not sold to third parties.',
+      'eula.s5_num': 'SECTION 5',
+      'eula.s5_title': '5. Your responsibilities',
+      'eula.s5_body': 'You confirm that you own the computer and files you scan or are authorized to scan and submit them, and that you have the right to send the selected files for analysis. Do not scan or upload files that contain confidential data of other persons unless you are allowed to share them.',
+      'eula.s6_num': 'SECTION 6',
+      'eula.s6_title': '6. Scan results',
+      'eula.s6_body': 'Scan results are provided for information only. A detection does not prove that a file is harmful, and a clean result does not guarantee that a file is safe. You decide whether to delete or quarantine a file. Deleted files may not be recoverable, so make sure you have backups of important data.',
+      'eula.s7_num': 'SECTION 7',
+      'eula.s7_title': '7. No warranty',
+      'eula.s7_body': 'The cloud malware scan (via Multron Win Cleaner and viruskov.com) is provided "as is" and "as available", without warranties of any kind, express or implied, including warranties of merchantability, fitness for a particular purpose, and non-infringement. The service may be interrupted, changed, or discontinued at any time.',
+      'eula.s8_num': 'SECTION 8',
+      'eula.s8_title': '8. Limitation of liability',
+      'eula.s8_body': 'To the maximum extent permitted by applicable law, the developers of the Software and the operators of viruskov.com are not liable for any indirect, incidental, special, or consequential damages, loss of data, or damage to your system that result from using, or being unable to use, the cloud malware scan.',
+      'eula.s9_num': 'SECTION 9',
+      'eula.s9_title': '9. Withdrawing consent',
+      'eula.s9_body': 'You can stop using the cloud malware scan at any time: in Multron Win Cleaner by not starting scans and by turning off the Malware Scan option in the main window, and on the VirusKov website by refraining from uploading files or URLs. This agreement continues to apply to files that were sent before you stopped.',
+      'eula.s10_num': 'SECTION 10',
+      'eula.s10_title': '10. Changes and your legal rights',
+      'eula.s10_body': 'This agreement may be updated. When it changes, you will be notified to review and accept the new version before your next cloud scan. Nothing in this agreement limits rights you have under mandatory consumer or data protection law, such as the GDPR or the Turkish Personal Data Protection Law (KVKK).',
+      'eula.contact_title': '📬 Legal & Privacy Inquiries',
+      'eula.contact_desc': 'For data deletion requests under KVKK or GDPR, false positive reports, or inquiries regarding these terms, contact the project lead directly.'
     }
   };
 
@@ -800,6 +888,12 @@
       } else if (p.includes('stats') || document.querySelector('#socLiveFeed')) {
         const statsTitle = t('stats.title');
         if (statsTitle && statsTitle !== 'stats.title') document.title = 'VIRUSKOV | ' + statsTitle;
+      } else if (p.includes('eula') || document.querySelector('.eula-hero')) {
+        const eulaTitle = t('eula.doc_title');
+        if (eulaTitle && eulaTitle !== 'eula.doc_title') document.title = eulaTitle;
+        const eulaDesc = t('eula.hero_desc');
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (eulaDesc && metaDesc) metaDesc.setAttribute('content', eulaDesc);
       } else {
         const homeTitle = t('index.title');
         if (homeTitle && homeTitle !== 'index.title') document.title = homeTitle;
