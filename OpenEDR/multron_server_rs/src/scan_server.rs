@@ -273,7 +273,7 @@ impl ScanServer {
 
         Router::new()
             .route(&normalized_path, get(ws_handler))
-            .route("/health", get(handle_health))
+            .route("/health", get(Self::handle_health))
             .route("/api/v1/insights/:sha256", get(handle_hash_insights))
             .route("/api/v1/insights/stats", get(handle_insights_stats))
             .route("/api/v1/scan/url", post(handle_scan_url).get(handle_scan_url_get))
