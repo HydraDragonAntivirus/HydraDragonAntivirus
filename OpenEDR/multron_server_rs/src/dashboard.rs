@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::header::HeaderMap;
 use axum::http::{Method, Request, StatusCode};
 use axum::middleware::{self, Next};
@@ -256,6 +256,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/unban", post(handle_unban))
         .route("/api/insights/stats", get(handle_dashboard_insights_stats))
         .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
+        .route("/api/rules", post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
 }
@@ -501,6 +502,50 @@ async fn handle_unban(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let n = app.scan_server.limiter.unban_all();
     info_event(&app, format!("{n} blocked IP(s) unblocked"));
     Json(serde_json::json!({"ok": true, "unbanned": n}))
+}
+
+#[derive(Deserialize)]
+struct RulesReloadQuery {
+    #[serde(default)]
+    kind: String,
+}
+
+/// General runtime rule reload without restart or rebuild.
+///
+/// POST /api/rules?kind=url|strings|registry|yara_src with the raw rule text
+/// as the body (64 MB cap). Replaces the live rule set of that kind; binary
+/// bundles (ML models, compiled .yrc) stay restart-only.
+async fn handle_rules_reload(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<RulesReloadQuery>,
+    body: String,
+) -> impl IntoResponse {
+    const MAX_RULES_BODY: usize = 64 * 1024 * 1024;
+    if body.len() > MAX_RULES_BODY {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({"error": "rule body over 64 MB, refusing"})),
+        )
+            .into_response();
+    }
+    if body.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "empty rule body"})),
+        )
+            .into_response();
+    }
+    match app.engine.reload_rules(&q.kind, &body) {
+        Ok(detail) => {
+            info_event(&app, format!("rules reloaded ({kind}): {detail}", kind = q.kind));
+            (StatusCode::OK, Json(serde_json::json!({"ok": true, "detail": detail}))).into_response()
+        }
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": err})),
+        )
+            .into_response(),
+    }
 }
 
 fn lan_addresses() -> Vec<String> {

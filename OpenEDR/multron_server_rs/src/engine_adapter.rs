@@ -63,7 +63,7 @@ pub struct EngineStatus {
 }
 
 pub struct EngineAdapter {
-    engine: OnceLock<Arc<StaticEngine>>,
+    engine: OnceLock<Arc<RwLock<StaticEngine>>>,
     error_msg: RwLock<String>,
     load_ms: AtomicI64,
     work_dir: Option<PathBuf>,
@@ -150,7 +150,7 @@ impl EngineAdapter {
                         if adapter.whitelist_enabled && !engine.benign_whitelist_loaded() {
                             eprintln!("[engine] benign_sha256.xf not found in xorfilter_rules, hash whitelist is off");
                         }
-                        let _ = adapter.engine.set(Arc::new(engine));
+                        let _ = adapter.engine.set(Arc::new(RwLock::new(engine)));
                         eprintln!("[engine] ready in {} ms", elapsed);
                     }
                     Err(_) => {
@@ -197,7 +197,11 @@ impl EngineAdapter {
     }
 
     pub fn whitelist_active(&self) -> bool {
-        self.whitelist_enabled && self.engine.get().is_some_and(|e| e.benign_whitelist_loaded())
+        self.whitelist_enabled
+            && self
+                .engine
+                .get()
+                .is_some_and(|e| e.read().map(|g| g.benign_whitelist_loaded()).unwrap_or(false))
     }
 
     /// Full URL Threat Inspection through OpenEDR Static Engine.
@@ -211,7 +215,8 @@ impl EngineAdapter {
             .engine
             .get()
             .ok_or_else(|| "Engine not ready".to_string())?;
-        Ok(engine.inspect_url_with_content(raw_url, liveness_code, page_content))
+        let guard = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        Ok(guard.inspect_url_with_content(raw_url, liveness_code, page_content))
     }
 
     /// Difference-scan judgment: evaluates only YAML rules carrying a
@@ -229,7 +234,51 @@ impl EngineAdapter {
             .engine
             .get()
             .ok_or_else(|| "Engine not ready".to_string())?;
-        Ok(engine.url_engine.match_difference_rules(raw_url, difference_percent, client_status, server_status, liveness_code))
+        let guard = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
+        Ok(guard.url_engine.match_difference_rules(raw_url, difference_percent, client_status, server_status, liveness_code))
+    }
+
+    /// General runtime rule reload without restart. Kinds:
+    /// - `url`: URL threat rules YAML (replaces the whole document)
+    /// - `strings`: HydraDragonSig string-rule YAML (replaces)
+    /// - `registry`: PUA registry YAML (replaces; shares the string-rule store)
+    /// - `yara_src`: one YARA source document (appended to the YARA set)
+    /// Binary bundles (ML models, compiled `.yrc`) stay restart-only.
+    pub fn reload_rules(&self, kind: &str, content: &str) -> Result<String, String> {
+        let engine = self
+            .engine
+            .get()
+            .ok_or_else(|| "Engine not ready".to_string())?;
+        let mut guard = engine.write().map_err(|_| "engine lock poisoned".to_string())?;
+        match kind.to_ascii_lowercase().as_str() {
+            "url" => guard
+                .load_url_rules(content)
+                .map(|n| format!("url rules loaded: {n} rules")),
+            "strings" => {
+                let n = guard.set_string_rules(content);
+                if n >= 0 {
+                    Ok(format!("string rules loaded: {n} rules"))
+                } else {
+                    Err("string rules rejected (parse error)".to_string())
+                }
+            }
+            "registry" => {
+                let n = guard.set_registry_rules(content);
+                if n >= 0 {
+                    Ok(format!("registry rules loaded: {n} rules"))
+                } else {
+                    Err("registry rules rejected (parse error)".to_string())
+                }
+            }
+            "yara_src" => {
+                if guard.add_yara_source(content) {
+                    Ok("yara source compiled and added".to_string())
+                } else {
+                    Err("yara source rejected (compile error)".to_string())
+                }
+            }
+            _ => Err("unknown rule kind (url|strings|registry|yara_src)".to_string()),
+        }
     }
 
     /// Verdict from the SHA-256 alone, without the file: hash signatures first (a
@@ -245,8 +294,10 @@ impl EngineAdapter {
         }
         if self.whitelist_enabled {
             if let Some(engine) = self.engine.get() {
-                if engine.is_benign(sha_hex) {
-                    return Some(hash_result("clean", None, "Known benign file (whitelist)", 0.0, sha_hex, "whitelist"));
+                if let Ok(guard) = engine.read() {
+                    if guard.is_benign(sha_hex) {
+                        return Some(hash_result("clean", None, "Known benign file (whitelist)", 0.0, sha_hex, "whitelist"));
+                    }
                 }
             }
         }
@@ -257,6 +308,7 @@ impl EngineAdapter {
     /// engine can check its Authenticode signature; it falls back to an in-memory scan.
     pub fn scan_blocking(&self, data: &[u8], name: &str, sha: &str) -> Result<ResultMessage, String> {
         let engine = self.engine.get().ok_or_else(|| "engine not ready".to_string())?;
+        let engine = engine.read().map_err(|_| "engine lock poisoned".to_string())?;
 
         let started = Instant::now();
         if data.is_empty() {
