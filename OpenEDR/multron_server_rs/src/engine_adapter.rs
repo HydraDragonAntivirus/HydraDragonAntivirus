@@ -220,12 +220,16 @@ impl EngineAdapter {
     pub fn match_difference_rules(
         &self,
         raw_url: &str,
+        difference_percent: u8,
+        client_status: Option<u16>,
+        server_status: Option<u16>,
+        liveness_code: i32,
     ) -> Result<Vec<(openedr_static::url_rules::UrlRuleHit, bool, bool)>, String> {
         let engine = self
             .engine
             .get()
             .ok_or_else(|| "Engine not ready".to_string())?;
-        Ok(engine.url_engine.match_difference_rules(raw_url))
+        Ok(engine.url_engine.match_difference_rules(raw_url, difference_percent, client_status, server_status, liveness_code))
     }
 
     /// Verdict from the SHA-256 alone, without the file: hash signatures first (a

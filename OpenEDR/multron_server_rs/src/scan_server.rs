@@ -79,6 +79,10 @@ pub struct UrlScanRequest {
     pub url: String,
     #[serde(default)]
     pub content: Option<String>,
+    /// HTTP status the client saw when it fetched the content (if it did).
+    /// Used as a gate: difference rules only run when both sides agree.
+    #[serde(default)]
+    pub content_status: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -923,7 +927,7 @@ async fn session_loop(
             }
             "scan_url" => {
                 let target_url = msg.url.unwrap_or(msg.name);
-                match execute_url_scan(server, &target_url, None).await {
+                match execute_url_scan(server, &target_url, None, None).await {
                     Ok(ecs_val) => {
                         let res_msg = serde_json::json!({
                             "type": "url_result",
@@ -1352,6 +1356,9 @@ fn merge_url_reports(
     engine: &crate::engine_adapter::EngineAdapter,
     url_trimmed: &str,
     difference_percent: u8,
+    client_status: Option<u16>,
+    server_status: Option<u16>,
+    liveness_code: i32,
     mut server: openedr_static::url_rules::UrlThreatReport,
     client: openedr_static::url_rules::UrlThreatReport,
 ) -> Result<openedr_static::url_rules::UrlThreatReport, String> {
@@ -1400,16 +1407,20 @@ fn merge_url_reports(
         };
 
     // Difference judgment comes from YAML rules, never from hardcoded logic.
+    // Each rule declares its own gates (minimum percent, equal status);
+    // here the facts are only recorded for the rules to judge.
     if differed {
         let facts = format!(
-            "Content difference: {}%. Client-supplied content verdict: {} vs server-fetched verdict: {}. Rules seen only in server fetch: [{}]; rules seen only in client content: [{}].",
+            "Content difference: {}%. Client status: {} vs server status: {}. Client-supplied content verdict: {} vs server-fetched verdict: {}. Rules seen only in server fetch: [{}]; rules seen only in client content: [{}].",
             difference_percent,
+            client_status.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string()),
+            server_status.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string()),
             client.verdict,
             server.verdict,
             server_only.join(", "),
             client_only.join(", "),
         );
-        for (mut hit, override_wl, skip_wl) in engine.match_difference_rules(url_trimmed)? {
+        for (mut hit, override_wl, skip_wl) in engine.match_difference_rules(url_trimmed, difference_percent, client_status, server_status, liveness_code)? {
             if skip_wl && server.whitelisted {
                 continue;
             }
@@ -1449,6 +1460,7 @@ pub async fn execute_url_scan(
     server: &Arc<ScanServer>,
     raw_url: &str,
     page_content: Option<&str>,
+    content_status: Option<u16>,
 ) -> Result<serde_json::Value, String> {
     let started = std::time::Instant::now();
     let url_trimmed = raw_url.trim();
@@ -1457,20 +1469,30 @@ pub async fn execute_url_scan(
     }
 
     // Step 1: PyFunceble-style asynchronous liveness check (DNS / Host resolution)
-    let (liveness_code, liveness_str) = crate::liveness::check_liveness(url_trimmed).await;
+    let (dns_code, _) = crate::liveness::check_liveness(url_trimmed).await;
 
     // Step 2: Fetch each content source SEPARATELY for difference scanning.
     // Client-supplied HTML (what the user sees) and the server-fetched copy
     // (what the scanner sees) are never merged: cloaking pages serve benign
     // bytes to scanners and malicious bytes to victims, so any difference
     // between the two is handed to the YAML rules for judgment.
-    let fetched_body;
-    let server_content: Option<&str> = if liveness_code == crate::liveness::LIVENESS_ACTIVE {
-        fetched_body = crate::liveness::fetch_page_content_safe(url_trimmed).await;
-        fetched_body.as_deref()
-    } else {
-        None
-    };
+    let fetched_body: Option<(u16, String)>;
+    let (server_status, server_content): (Option<u16>, Option<&str>) =
+        if dns_code == crate::liveness::LIVENESS_ACTIVE {
+            fetched_body = crate::liveness::fetch_page_content_safe(url_trimmed).await;
+            match &fetched_body {
+                Some((st, body)) => (Some(*st), Some(body.as_str())),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
+    // Step 1b: refine DNS liveness with the HTTP status, PyFunceble-style.
+    // DNS-dead stays dead; DNS-alive is classified ACTIVE / POTENTIALLY_UP /
+    // POTENTIALLY_DOWN from the fetched status code.
+    let (liveness_code, liveness_str) =
+        crate::liveness::classify_with_http(dns_code, server_status);
 
     // Step 3: OpenEDR Static Engine inspection per source, then merge.
     // (Evaluates Whitelist -> Deterministic Rules -> CIDR -> Liveness Protection -> ML Gating -> HTML / JS YARA)
@@ -1483,7 +1505,7 @@ pub async fn execute_url_scan(
             difference_percent = Some(pct);
             let server_report = server.engine.inspect_url(url_trimmed, liveness_code, Some(server_body))?;
             let client_report = server.engine.inspect_url(url_trimmed, liveness_code, Some(client_body))?;
-            merge_url_reports(&server.engine, url_trimmed, pct, server_report, client_report)?
+            merge_url_reports(&server.engine, url_trimmed, pct, content_status, server_status, liveness_code, server_report, client_report)?
         }
         (Some(client_body), None) => {
             server.engine.inspect_url(url_trimmed, liveness_code, Some(client_body))?
@@ -1558,6 +1580,8 @@ pub async fn execute_url_scan(
                 "whitelist_bypassed": report.whitelist_bypassed,
                 "ml_probability": report.ml_probability,
                 "content_difference_percent": difference_percent,
+                "content_status_client": content_status,
+                "content_status_server": server_status,
                 "detections": detections_json,
             }
         }
@@ -1570,7 +1594,7 @@ async fn handle_scan_url(
     State(server): State<Arc<ScanServer>>,
     axum::Json(req): axum::Json<UrlScanRequest>,
 ) -> Response {
-    match execute_url_scan(&server, &req.url, req.content.as_deref()).await {
+    match execute_url_scan(&server, &req.url, req.content.as_deref(), req.content_status).await {
         Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
         Err(err) => (
             StatusCode::BAD_REQUEST,
@@ -1583,7 +1607,7 @@ async fn handle_scan_url_get(
     State(server): State<Arc<ScanServer>>,
     axum::extract::Query(query): axum::extract::Query<UrlScanQuery>,
 ) -> Response {
-    match execute_url_scan(&server, &query.url, None).await {
+    match execute_url_scan(&server, &query.url, None, None).await {
         Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
         Err(err) => (
             StatusCode::BAD_REQUEST,

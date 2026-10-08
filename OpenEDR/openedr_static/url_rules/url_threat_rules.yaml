@@ -229,4 +229,18 @@ rules:
     conditions:
       body_regex: "(?i)<iframe[^>]+style=[\"'][^\"']*(?:display:\\s*none|visibility:\\s*hidden|width:\\s*0|height:\\s*0)"
 
+  - id: "CONTENT_SOURCE_DIFFERENCE"
+    title: "Content Source Difference (Possible Cloaking)"
+    description: "User-visible page and scanner-fetched page differ extremely and produced different findings; possible cloaking"
+    severity: "Suspicious"
+    score: 75
+    override_whitelist: true
+    conditions:
+      content_difference: true
+      min_difference_percent: 90
+      require_equal_status: true
+      liveness:
+        - "active"
+        - "potentially_up"
+
 

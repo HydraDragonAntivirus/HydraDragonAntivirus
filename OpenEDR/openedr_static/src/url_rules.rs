@@ -58,10 +58,21 @@ pub struct UrlConditionsDef {
     pub tlds: Option<Vec<String>>,
     pub is_ip: Option<bool>,
     pub cidr_blacklisted: Option<bool>,
+    /// Liveness labels this rule applies to (OR term like the rest):
+    /// active, potentially_up, potentially_down, inactive, unknown.
+    pub liveness: Option<Vec<String>>,
     /// True when the client-supplied page and the server-fetched page produced
     /// different findings. Set by difference scanning, never by single scans.
     /// Verdict/severity/score come from the YAML rule itself.
     pub content_difference: Option<bool>,
+    /// Minimum content difference percent (0-100) for this rule to apply.
+    /// Only consulted alongside `content_difference`; lets YAML demand an
+    /// extremely high difference before calling it suspicious.
+    pub min_difference_percent: Option<u8>,
+    /// When true, the rule applies only if both sources agree on the HTTP
+    /// status code (a 403-bot-block vs 200 comparison is apples to oranges
+    /// and must never become a finding). Declared in YAML, not hardcoded.
+    pub require_equal_status: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -83,7 +94,10 @@ pub struct CompiledUrlRule {
     pub tlds: Option<Vec<String>>,
     pub is_ip: Option<bool>,
     pub cidr_blacklisted: Option<bool>,
+    pub liveness: Option<Vec<String>>,
     pub content_difference: Option<bool>,
+    pub min_difference_percent: Option<u8>,
+    pub require_equal_status: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +204,7 @@ fn rule_matches(
     is_cidr_blacklisted: bool,
     page_content: Option<&str>,
     content_different: bool,
+    live_label: &str,
 ) -> bool {
     let mut matched = false;
 
@@ -247,6 +262,11 @@ fn rule_matches(
     }
     if let Some(expected_diff) = rule.content_difference {
         if expected_diff == content_different {
+            matched = true;
+        }
+    }
+    if let Some(ref labels) = rule.liveness {
+        if labels.iter().any(|l| l == live_label) {
             matched = true;
         }
     }
@@ -339,7 +359,10 @@ impl UrlThreatEngine {
                 tlds: def.conditions.tlds.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
                 is_ip: def.conditions.is_ip,
                 cidr_blacklisted: def.conditions.cidr_blacklisted,
+                liveness: def.conditions.liveness.map(|v| v.into_iter().map(|s| s.to_lowercase()).collect()),
                 content_difference: def.conditions.content_difference,
+                min_difference_percent: def.conditions.min_difference_percent,
+                require_equal_status: def.conditions.require_equal_status,
             });
         }
         let count = compiled.len();
@@ -424,7 +447,7 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
         }
         // No page content and no CIDR input on this path: only the
         // url/host/path/query conditions can apply.
-        if rule_matches(rule, url_str, &p, false, None, false) {
+        if rule_matches(rule, url_str, &p, false, None, false, "unknown") {
             hits.push(rule.id.clone());
         }
     }
@@ -433,18 +456,45 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
 
     /// Evaluate **only** rules carrying a `content_difference` condition, with the
     /// difference flag set. Called after two independent per-source scans disagree.
-    /// Severity, score and whitelist handling come from the YAML rule itself;
-    /// this function only reports what the rules decided, each paired with its
+    /// Rules may additionally demand a minimum difference percent, so YAML can
+    /// require an extremely high difference before judging. Severity, score and
+    /// whitelist handling come from the YAML rule itself; this function only
+    /// reports what the rules decided, each paired with its
     /// `override_whitelist` / `skip_if_whitelisted` flags for the caller to apply.
-    pub fn match_difference_rules(&self, raw_url: &str) -> Vec<(UrlRuleHit, bool, bool)> {
+    pub fn match_difference_rules(
+        &self,
+        raw_url: &str,
+        difference_percent: u8,
+        client_status: Option<u16>,
+        server_status: Option<u16>,
+        liveness_code: i32,
+    ) -> Vec<(UrlRuleHit, bool, bool)> {
         let url_str = raw_url.trim();
         let p = parse_parts(url_str);
+        let live_label: &str = match liveness_code {
+            1 => "active",
+            2 => "inactive",
+            3 => "potentially_up",
+            4 => "potentially_down",
+            _ => "unknown",
+        };
         let mut hits = Vec::new();
         for rule in &self.rules {
             if rule.content_difference.is_none() {
                 continue;
             }
-            if rule_matches(rule, url_str, &p, false, None, true) {
+            if let Some(min_pct) = rule.min_difference_percent {
+                if difference_percent < min_pct {
+                    continue;
+                }
+            }
+            if rule.require_equal_status == Some(true) {
+                let agreed = matches!((client_status, server_status), (Some(c), Some(s)) if s != 0 && c == s);
+                if !agreed {
+                    continue;
+                }
+            }
+            if rule_matches(rule, url_str, &p, false, None, true, live_label) {
                 hits.push((
                     UrlRuleHit {
                         rule_id: rule.id.clone(),
@@ -479,6 +529,13 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
         let host = p.host.clone();
         let port = p.port;
         let is_ip = p.is_ip;
+        let live_label: &str = match liveness_code {
+            1 => "active",
+            2 => "inactive",
+            3 => "potentially_up",
+            4 => "potentially_down",
+            _ => "unknown",
+        };
 
         let mut detections = Vec::new();
         let mut whitelist_bypassed = false;
@@ -506,7 +563,7 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
                 continue;
             }
 
-            if rule_matches(rule, url_str, &p, is_cidr_blacklisted, page_content, content_different) {
+            if rule_matches(rule, url_str, &p, is_cidr_blacklisted, page_content, content_different, live_label) {
                 if rule.override_whitelist && is_whitelisted {
                     is_whitelisted = false;
                     whitelist_bypassed = true;
@@ -538,11 +595,7 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
         // ==========================================
         // FINAL VERDICT RULE ENGINE
         // ==========================================
-        let liveness_str = match liveness_code {
-            1 => "ACTIVE",
-            2 => "INACTIVE",
-            _ => "UNKNOWN",
-        };
+        let liveness_str = live_label.to_uppercase();
 
         let mut verdict;
         let mut risk_score;

@@ -10,9 +10,74 @@ use url::Url;
 /// - 0 = Unknown (timeout or ambiguous resolution)
 /// - 1 = Active (domain resolves to one or more valid IP addresses)
 /// - 2 = Inactive / Dead (NXDOMAIN or DNS host resolution failure)
+/// - 3 = Potentially Up (resolves, but HTTP answers evasively: 3xx, 403, 5xx)
+/// - 4 = Potentially Down (resolves, but HTTP says client error: 400/404/410...)
+///
+/// Codes 0/1/2 keep their historical meaning: the engine treats 3/4 like
+/// ACTIVE for ML gating (only 2 skips ML / earns the dead-domain Clean verdict).
 pub const LIVENESS_UNKNOWN: i32 = 0;
 pub const LIVENESS_ACTIVE: i32 = 1;
 pub const LIVENESS_INACTIVE: i32 = 2;
+pub const LIVENESS_POTENTIALLY_UP: i32 = 3;
+pub const LIVENESS_POTENTIALLY_DOWN: i32 = 4;
+
+/// PyFunceble `active_http_codes`: the server clearly answers.
+pub const ACTIVE_HTTP_CODES: &[u16] = &[100, 101, 200, 201, 202, 203, 204, 205, 206];
+/// PyFunceble `potentially_up_codes`: redirects, bot-blocks, server errors.
+/// The host answers, but we cannot be sure it is really serving the page.
+pub const POTENTIALLY_UP_HTTP_CODES: &[u16] = &[
+    0, 300, 301, 302, 303, 304, 305, 307, 403, 405, 406, 407, 408, 411, 413, 417,
+    500, 501, 502, 503, 504, 505,
+];
+/// PyFunceble `down_potentially_codes`: client errors. Checked before the
+/// potentially-up list (403 lives in both): we cannot be sure a 400/404
+/// means the domain is dead, so it is potentially down, not down.
+pub const POTENTIALLY_DOWN_HTTP_CODES: &[u16] =
+    &[400, 402, 403, 404, 409, 410, 412, 414, 415, 416];
+
+/// PyFunceble-style predicates over a liveness code.
+pub fn is_up(code: i32) -> bool {
+    code == LIVENESS_ACTIVE
+}
+
+pub fn is_potentially_up(code: i32) -> bool {
+    code == LIVENESS_POTENTIALLY_UP
+}
+
+pub fn is_potentially_down(code: i32) -> bool {
+    code == LIVENESS_POTENTIALLY_DOWN
+}
+
+pub fn is_down(code: i32) -> bool {
+    code == LIVENESS_INACTIVE
+}
+
+pub fn liveness_label(code: i32) -> &'static str {
+    match code {
+        LIVENESS_ACTIVE => "ACTIVE",
+        LIVENESS_INACTIVE => "INACTIVE",
+        LIVENESS_POTENTIALLY_UP => "POTENTIALLY_UP",
+        LIVENESS_POTENTIALLY_DOWN => "POTENTIALLY_DOWN",
+        _ => "UNKNOWN",
+    }
+}
+
+/// Refine a DNS-based liveness result with the HTTP status, PyFunceble-style.
+/// Non-ACTIVE DNS results are returned untouched (without DNS there is nothing
+/// to refine); DNS-ACTIVE with no HTTP answer stays ACTIVE.
+pub fn classify_with_http(dns_code: i32, http_status: Option<u16>) -> (i32, String) {
+    if dns_code != LIVENESS_ACTIVE {
+        return (dns_code, liveness_label(dns_code).to_string());
+    }
+    let refined = match http_status {
+        None => LIVENESS_ACTIVE,
+        Some(s) if ACTIVE_HTTP_CODES.contains(&s) => LIVENESS_ACTIVE,
+        Some(s) if POTENTIALLY_DOWN_HTTP_CODES.contains(&s) => LIVENESS_POTENTIALLY_DOWN,
+        Some(s) if POTENTIALLY_UP_HTTP_CODES.contains(&s) => LIVENESS_POTENTIALLY_UP,
+        Some(_) => LIVENESS_ACTIVE,
+    };
+    (refined, liveness_label(refined).to_string())
+}
 
 /// Inspects host liveness asynchronously.
 ///
@@ -87,7 +152,9 @@ pub async fn check_liveness(raw_url: &str) -> (i32, String) {
 
 /// Attempts to safely fetch page content over HTTP (512 KiB cap, 2s timeout)
 /// for deep HTML, script ML and YARA-X threat analysis.
-pub async fn fetch_page_content_safe(raw_url: &str) -> Option<String> {
+/// Returns the response status code with the raw bytes (headers included,
+/// same as before) so callers can gate comparisons on equal statuses.
+pub async fn fetch_page_content_safe(raw_url: &str) -> Option<(u16, String)> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let parsed = Url::parse(raw_url).or_else(|_| Url::parse(&format!("https://{}", raw_url))).ok()?;
@@ -131,5 +198,12 @@ pub async fn fetch_page_content_safe(raw_url: &str) -> Option<String> {
         }
     }
 
-    String::from_utf8(buf).ok()
+    let text = String::from_utf8(buf).ok()?;
+    let status = text
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|c| c.parse::<u16>().ok())
+        .unwrap_or(0);
+    Some((status, text))
 }

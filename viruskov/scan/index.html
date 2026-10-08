@@ -572,18 +572,18 @@
           const tid = setTimeout(() => ctrl.abort(), 3500);
           const res = await fetch(targetUrl, { method: 'GET', mode: 'cors', credentials: 'omit', signal: ctrl.signal });
           clearTimeout(tid);
-          if (!res.ok) return { scanned: false, text: null };
+          if (!res.ok) return { scanned: false, text: null, status: res.status || null };
           const ctype = (res.headers.get('content-type') || '').toLowerCase();
-          if (ctype && !(ctype.includes('text') || ctype.includes('html') || ctype.includes('json'))) return { scanned: false, text: null };
+          if (ctype && !(ctype.includes('text') || ctype.includes('html') || ctype.includes('json'))) return { scanned: false, text: null, status: res.status || null };
           const text = await res.text();
-          if (!text || text.length < 16) return { scanned: false, text: null };
-          return { scanned: true, text: text.length <= 1024 * 1024 ? text : null };
-        } catch (_) { return { scanned: false, text: null }; }
+          if (!text || text.length < 16) return { scanned: false, text: null, status: res.status || null };
+          return { scanned: true, text: text.length <= 1024 * 1024 ? text : null, status: res.status || null };
+        } catch (_) { return { scanned: false, text: null, status: null }; }
       }
 
       // 3d. Server taraması: POST {url, content} -> api.viruskov.com/api/v1/scan/url
       // Server static motor + bütün whitelist + body kurallarıyla karar verir.
-      async function scanUrlViaApi(targetUrl, contentText) {
+      async function scanUrlViaApi(targetUrl, contentText, contentStatus) {
         const endpoints = ['https://api.viruskov.com/api/v1/scan/url'];
         try {
           const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
@@ -597,7 +597,7 @@
             const res = await fetch(ep, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ url: targetUrl, content: contentText }),
+              body: JSON.stringify({ url: targetUrl, content: contentText, content_status: contentStatus }),
               signal: ctrl.signal,
             });
             clearTimeout(tid);
@@ -724,9 +724,9 @@
 
           let apiData = null;
           urlStatusDetail.textContent = t('scan.url_ml_eval');
-          try {
-            apiData = await scanUrlViaApi(normalized, pageScan.text);
-          } catch (_) { apiData = null; }
+            try {
+              apiData = await scanUrlViaApi(normalized, pageScan.text, pageScan.status);
+            } catch (_) { apiData = null; }
 
           if (apiData && apiData.antivirus && typeof apiData.antivirus.verdict === 'string') {
             source = 'server';
