@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -173,6 +173,12 @@ pub struct ScanServer {
     pub total_threats: AtomicI64,
     pub total_errors: AtomicI64,
     pub active_connections: AtomicUsize,
+    /// Maintenance mode: the listener stays up (health answers), but new
+    /// scans are refused with a message while in-flight work finishes.
+    /// Unlike stop, clients get an answer instead of a refused connection.
+    pub maintenance: AtomicBool,
+    /// Process boot time for uptime reporting.
+    pub boot_time: std::time::Instant,
 }
 
 pub struct SessionHandle {
@@ -232,7 +238,25 @@ impl ScanServer {
             total_threats: AtomicI64::new(0),
             total_errors: AtomicI64::new(0),
             active_connections: AtomicUsize::new(0),
+            maintenance: AtomicBool::new(false),
+            boot_time: std::time::Instant::now(),
         })
+    }
+
+    /// Seconds since the server process started.
+    pub fn uptime_secs(&self) -> u64 {
+        self.boot_time.elapsed().as_secs()
+    }
+
+    /// Maintenance flag: true while the operator holds new scans for updates.
+    pub fn maintenance(&self) -> bool {
+        self.maintenance.load(Ordering::Relaxed)
+    }
+
+    /// Flip maintenance mode. In-flight scans finish; new ones are refused
+    /// with a message until it is switched back off.
+    pub fn set_maintenance(&self, on: bool) {
+        self.maintenance.store(on, Ordering::Relaxed);
     }
 
     pub fn router(self: &Arc<Self>, path: &str) -> Router {
@@ -249,22 +273,23 @@ impl ScanServer {
 
         Router::new()
             .route(&normalized_path, get(ws_handler))
-            .route(
-                "/health",
-                get(|| async {
-                    axum::Json(serde_json::json!({
-                        "status": "ok",
-                        "engine": ENGINE_NAME,
-                        "protocol": PROTOCOL_VERSION,
-                    }))
-                }),
-            )
+            .route("/health", get(handle_health))
             .route("/api/v1/insights/:sha256", get(handle_hash_insights))
             .route("/api/v1/insights/stats", get(handle_insights_stats))
             .route("/api/v1/scan/url", post(handle_scan_url).get(handle_scan_url_get))
             .layer(cors)
             .with_state(Arc::clone(self))
     }
+
+async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoResponse {
+    axum::Json(serde_json::json!({
+        "status": if server.maintenance() { "maintenance" } else { "ok" },
+        "maintenance": server.maintenance(),
+        "uptimeSecs": server.uptime_secs(),
+        "engine": ENGINE_NAME,
+        "protocol": PROTOCOL_VERSION,
+    }))
+}
 
     pub async fn get_clients(&self) -> Vec<ClientInfo> {
         let guard = self.sessions.read().await;
@@ -923,9 +948,17 @@ async fn session_loop(
                 handle_check(server, session, out, msg.items, server.limits.max_bytes())?
             }
             "scan" => {
-                handle_scan(ws_rx, out, server, session, &slots, msg, server.limits.max_bytes()).await?;
+                if server.maintenance() {
+                    send_error(out, Some(msg.id), "server in maintenance mode, retry later");
+                } else {
+                    handle_scan(ws_rx, out, server, session, &slots, msg, server.limits.max_bytes()).await?;
+                }
             }
             "scan_url" => {
+                if server.maintenance() {
+                    send_error(out, Some(msg.id), "server in maintenance mode, retry later");
+                    continue;
+                }
                 let target_url = msg.url.unwrap_or(msg.name);
                 match execute_url_scan(server, &target_url, None, None).await {
                     Ok(ecs_val) => {
@@ -1594,6 +1627,13 @@ async fn handle_scan_url(
     State(server): State<Arc<ScanServer>>,
     axum::Json(req): axum::Json<UrlScanRequest>,
 ) -> Response {
+    if server.maintenance() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({ "error": "server in maintenance mode, retry later" })),
+        )
+            .into_response();
+    }
     match execute_url_scan(&server, &req.url, req.content.as_deref(), req.content_status).await {
         Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
         Err(err) => (
@@ -1607,6 +1647,13 @@ async fn handle_scan_url_get(
     State(server): State<Arc<ScanServer>>,
     axum::extract::Query(query): axum::extract::Query<UrlScanQuery>,
 ) -> Response {
+    if server.maintenance() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({ "error": "server in maintenance mode, retry later" })),
+        )
+            .into_response();
+    }
     match execute_url_scan(&server, &query.url, None, None).await {
         Ok(ecs_val) => (StatusCode::OK, axum::Json(ecs_val)).into_response(),
         Err(err) => (

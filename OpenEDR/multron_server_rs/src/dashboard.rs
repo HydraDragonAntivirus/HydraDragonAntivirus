@@ -250,6 +250,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/events/ecs", get(handle_events_ecs))
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
+        .route("/api/maintenance", post(handle_maintenance))
         .route("/api/limits", post(handle_limits))
         .route("/api/limits/reset", post(handle_limits_reset))
         .route("/api/unban", post(handle_unban))
@@ -325,6 +326,8 @@ async fn handle_state(
         },
         "server": {
             "running": running,
+            "maintenance": app.scan_server.maintenance(),
+            "uptimeSecs": app.scan_server.uptime_secs(),
             "host": settings.host,
             "port": settings.port,
             "path": settings.path,
@@ -420,6 +423,31 @@ async fn handle_start(
 async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     app.stop_listener(true).await;
     Json(serde_json::json!({"ok": true}))
+}
+
+#[derive(Deserialize)]
+struct MaintenanceToggle {
+    #[serde(default)]
+    enabled: bool,
+}
+
+/// Maintenance mode: the listener stays up (health answers) but new file and
+/// URL scans are refused with a message while in-flight work finishes.
+/// Used while swapping rule/model files or staging a new exe.
+async fn handle_maintenance(
+    State(app): State<Arc<AppState>>,
+    Json(toggle): Json<MaintenanceToggle>,
+) -> impl IntoResponse {
+    app.scan_server.set_maintenance(toggle.enabled);
+    info_event(
+        &app,
+        if toggle.enabled {
+            "maintenance mode ON: new scans refused, in-flight work finishes".into()
+        } else {
+            "maintenance mode OFF: scans accepted again".into()
+        },
+    );
+    Json(serde_json::json!({"ok": true, "maintenance": toggle.enabled}))
 }
 
 fn info_event(app: &AppState, message: String) {
