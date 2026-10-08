@@ -197,8 +197,16 @@ impl ThreatIntelStore {
             entry.seen_count += 1;
             entry.last_seen = now_str;
 
-            // Upgrade verdict if a better analysis emerged
-            if verdict == "malicious" || (verdict == "suspicious" && entry.verdict != "malicious") {
+            // Upgrade verdict if a better analysis emerged. A placeholder "unknown"
+            // (recorded by `check` before the upload) is replaced by any real verdict,
+            // so files that turn out clean leave the unknown bucket.
+            let rank = |v: &str| match v {
+                "malicious" => 3,
+                "suspicious" => 2,
+                "clean" => 1,
+                _ => 0,
+            };
+            if rank(verdict) > rank(&entry.verdict) {
                 entry.verdict = verdict.to_string();
                 if let Some(t) = threat {
                     entry.threat_name = Some(t.to_string());
@@ -270,8 +278,20 @@ fn start_batch_writer(path: PathBuf) -> mpsc::Sender<ThreatInsight> {
             let mut buffer: Vec<ThreatInsight> = Vec::with_capacity(128);
             let mut last_flush = std::time::Instant::now();
 
-            while let Ok(item) = rx.recv() {
-                buffer.push(item);
+            loop {
+                // Wake up at least every 2 s so a lone update is not left unflushed
+                // until the next one arrives (it would be lost on restart).
+                match rx.recv_timeout(Duration::from_secs(2)) {
+                    Ok(item) => buffer.push(item),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if !buffer.is_empty() {
+                            flush_insights(&path, &mut buffer);
+                            last_flush = std::time::Instant::now();
+                        }
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
 
                 // Drain remaining queued items non-blockingly
                 while let Ok(more) = rx.try_recv() {
