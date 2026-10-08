@@ -501,23 +501,18 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
             _ => "UNKNOWN",
         };
 
-        let verdict;
-        let risk_score;
-        let verdict_reason;
+        let mut verdict;
+        let mut risk_score;
+        let mut verdict_reason;
         let mut fp_mitigated = false;
 
         let has_malicious_rule = detections.iter().any(|d| d.severity == "Malicious");
-        let has_webhook_c2 = detections.iter().any(|d| d.rule_id == "DISCORD_WEBHOOK_ABUSE" || d.rule_id == "TELEGRAM_BOT_API_ABUSE");
         let has_suspicious_rule = detections.iter().any(|d| d.severity == "Suspicious");
 
         if has_malicious_rule && !is_whitelisted {
             verdict = "Malicious";
             risk_score = detections.iter().filter(|d| d.severity == "Malicious").map(|d| d.score).max().unwrap_or(90);
             verdict_reason = "Rule Decision (Malicious): Direct dropper payload, blacklisted CIDR, or critical threat pattern detected.".to_string();
-        } else if has_webhook_c2 {
-            verdict = "Suspicious";
-            risk_score = 75;
-            verdict_reason = "Rule Decision (Suspicious): Discord Webhook or Telegram Bot API endpoint detected. Flagged as suspicious due to high C2 / stealer exfiltration abuse risk.".to_string();
         } else if is_whitelisted && !has_malicious_rule {
             verdict = "Clean";
             risk_score = 0;
@@ -549,6 +544,15 @@ pub fn match_deterministic_rules(&self, raw_url: &str) -> Vec<String> {
             verdict = "Clean";
             risk_score = 0;
             verdict_reason = "Analysis Result (Clean): Whitelist verified benign domain with no threat indicators.".to_string();
+        }
+
+        // Safety net: Unknown must never stick to a whitelisted host.
+        // If no malicious/suspicious/ML signal fired and the host is still
+        // whitelisted at this point, report Clean instead of Unknown.
+        if verdict == "Unknown" && is_whitelisted {
+            verdict = "Clean";
+            risk_score = 0;
+            verdict_reason = "Whitelist Protection: Host matches Tranco 1M or benign CIDR subnet with no malicious override.".to_string();
         }
 
         UrlThreatReport {

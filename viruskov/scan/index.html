@@ -560,17 +560,53 @@
         renderHistoryTable();
       });
 
-      // 3. Dynamic Whitelist (Zero-FP List from BinaryFuse16 / Tranco Top 1M)
-      const DYNAMIC_URL_WHITELIST = [
-        'github.com', 'raw.githubusercontent.com', 'github.io', 'gitlab.com',
-        'google.com', 'google.com.tr', 'youtube.com', 'gmail.com', 'microsoft.com',
-        'azure.com', 'live.com', 'office.com', 'apple.com', 'icloud.com',
-        'cloudflare.com', 'amazon.com', 'aws.amazon.com', 'wikipedia.org',
-        'elastic.co', 'kernel.org', 'debian.org', 'ubuntu.com',
-        'archlinux.org', 'rust-lang.org', 'python.org', 'pypi.org', 'npmjs.com',
-        'stackoverflow.com', 'docker.com', 'redhat.com', 'cisco.com', 'gov.tr',
-        'edu.tr', 'belgeler.gov.tr', 'turkiye.gov.tr', 'openai.com', 'anthropic.com'
-      ];
+      // 3. Client-side whitelist yok.
+      // Tek whitelist serverdaki bütün whitelist'tir (xorfilter .xf).
+      // Web burada clean kararı vermez; clean'i server söyler.
+
+      // 3b. İçerik taşıma: sayfa HTML'i best-effort alınıp api'ye POST edilir.
+      // Tespit kararı client'ta verilmez; server (motor + yaml + whitelist) verir.
+      async function fetchPageText(targetUrl) {
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 3500);
+          const res = await fetch(targetUrl, { method: 'GET', mode: 'cors', credentials: 'omit', signal: ctrl.signal });
+          clearTimeout(tid);
+          if (!res.ok) return { scanned: false, text: null };
+          const ctype = (res.headers.get('content-type') || '').toLowerCase();
+          if (ctype && !(ctype.includes('text') || ctype.includes('html') || ctype.includes('json'))) return { scanned: false, text: null };
+          const text = await res.text();
+          if (!text || text.length < 16) return { scanned: false, text: null };
+          return { scanned: true, text: text.length <= 1024 * 1024 ? text : null };
+        } catch (_) { return { scanned: false, text: null }; }
+      }
+
+      // 3d. Server taraması: POST {url, content} -> api.viruskov.com/api/v1/scan/url
+      // Server static motor + bütün whitelist + body kurallarıyla karar verir.
+      async function scanUrlViaApi(targetUrl, contentText) {
+        const endpoints = ['https://api.viruskov.com/api/v1/scan/url'];
+        try {
+          const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+          endpoints.push(`${proto}//${window.location.hostname}:5306/api/v1/scan/url`);
+        } catch (_) {}
+        let lastErr = null;
+        for (const ep of endpoints) {
+          try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 20000);
+            const res = await fetch(ep, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ url: targetUrl, content: contentText }),
+              signal: ctrl.signal,
+            });
+            clearTimeout(tid);
+            if (!res.ok) { lastErr = new Error('HTTP ' + res.status); continue; }
+            return await res.json();
+          } catch (e) { lastErr = e; }
+        }
+        throw lastErr || new Error('api unreachable');
+      }
 
       // 4. Domain Liveness (via Cloudflare DNS-over-HTTPS & HTTP check from openedr_web)
       async function checkDomainLiveness(domain, rawUrl) {
@@ -674,40 +710,42 @@
           urlProgressBar.style.width = '70%';
           urlStatusDetail.textContent = t('scan.url_ml_eval');
 
-          // B. Whitelist check (Zero-FP Guarantee)
-          let isWhitelisted = false;
-          let matchedDomain = '';
-          for (const w of DYNAMIC_URL_WHITELIST) {
-            if (host === w || host.endsWith('.' + w)) {
-              isWhitelisted = true;
-              matchedDomain = w;
-              break;
-            }
-          }
+          // B. Önce server (api.viruskov.com): url + içerik gider,
+          // karar motor + yaml + bütün whitelist ile verilir. Api yoksa unknown.
+          const pageScan = await fetchPageText(normalized);
 
           const entropy = computeEntropy(host + parsed.pathname);
-
-          // C. Homograph & Userinfo Checks (No TLD bias, no keyword rules)
-          let isHomograph = host.startsWith('xn--') || /[а-яА-Я]/.test(host);
-          let isUserinfo = normalized.includes('@');
 
           let verdict = 'unknown';
           let score = 0;
           let threatName = 'UNVERIFIED_DOMAIN';
+          let source = 'local';
+          let serverWhitelisted = null;
 
-          if (isWhitelisted) {
-            verdict = 'clean';
-            score = 0;
-            threatName = 'WHITELIST_VERIFIED';
-          } else if (isHomograph || isUserinfo) {
-            verdict = 'malicious';
-            score = 85;
-            threatName = isHomograph ? 'ML_HOMOGRAPH_PUNYCODE_SPOOF' : 'ML_CREDENTIAL_USERINFO_OBFUSCATION';
-          } else if (entropy > 4.65 && host.length > 25) {
-            verdict = 'suspicious';
-            score = 40;
-            threatName = 'ML_STATISTICAL_ENTROPY_ANOMALY';
+          let apiData = null;
+          urlStatusDetail.textContent = t('scan.url_ml_eval');
+          try {
+            apiData = await scanUrlViaApi(normalized, pageScan.text);
+          } catch (_) { apiData = null; }
+
+          if (apiData && apiData.antivirus && typeof apiData.antivirus.verdict === 'string') {
+            source = 'server';
+            const v = apiData.antivirus.verdict.toLowerCase();
+            verdict = (v === 'malicious' || v === 'suspicious' || v === 'clean') ? v : 'unknown';
+            score = Number(apiData.antivirus.risk_score) || 0;
+            const dets = apiData.threat && apiData.threat.indicator && apiData.threat.indicator.detections;
+            threatName = (dets && dets.length && (dets[0].rule_id || dets[0].title)) || 'SERVER_VERDICT';
+            if (apiData.threat && apiData.threat.indicator && typeof apiData.threat.indicator.whitelisted === 'boolean') {
+              serverWhitelisted = apiData.threat.indicator.whitelisted;
+            }
+            if (verdict === 'unknown' && serverWhitelisted === true) {
+              verdict = 'clean';
+              score = 0;
+              threatName = 'WHITELIST_VERIFIED';
+            }
           } else {
+            // C. Local fallback: tespit yok, direkt ML/server'a güven.
+            // Api'ye ulaşılamadıysa unknown.
             verdict = 'unknown';
             score = 0;
             threatName = 'ML_UNVERIFIED_BENIGN_REPRESENTATION';
@@ -728,11 +766,12 @@
               protocol: parsed.protocol,
               verdict: verdict,
               score: score,
-              isWhitelisted: isWhitelisted,
               threatName: threatName,
               entropy: entropy,
               liveness: liveness,
-              matchedDomain: matchedDomain
+              contentScanned: pageScan.scanned,
+              source: source,
+              serverWhitelisted: serverWhitelisted
             }, urlSha256);
           }, 250);
         }
@@ -765,8 +804,8 @@
           ? t('scan.badge_malicious_url')
           : isSusp 
           ? t('scan.badge_suspicious_url')
-          : isClean 
-          ? (res.isWhitelisted ? t('scan.badge_clean_wl') : t('scan.badge_clean_benign'))
+          : isClean
+          ? t('scan.badge_clean_benign')
           : t('scan.badge_unknown');
 
         const detectionCount = isMal ? '1 / 6' : isSusp ? '1 / 6' : '0 / 6';
@@ -777,7 +816,7 @@
 
         const engines = [
           { name: t('scan.eng_ml'), category: t('scan.eng_ml_cat'), status: isMal ? t('scan.st_malicious') : isSusp ? t('scan.st_suspicious') : isClean ? t('scan.st_clean') : t('scan.st_unknown'), color: badgeColor },
-          { name: t('scan.eng_wl'), category: t('scan.eng_wl_cat'), status: res.isWhitelisted ? (t('scan.st_verified') + ` (*.${res.matchedDomain})`) : t('scan.st_unlisted'), color: res.isWhitelisted ? 'var(--accent-green)' : 'var(--text-muted)' },
+          { name: t('scan.eng_wl'), category: t('scan.eng_wl_cat'), status: res.serverWhitelisted === true ? t('scan.st_verified') : res.serverWhitelisted === false ? t('scan.st_unlisted') : (res.contentScanned ? t('scan.st_active') : t('scan.st_unlisted')), color: res.serverWhitelisted === true ? 'var(--accent-green)' : 'var(--text-muted)' },
           { name: t('scan.eng_live'), category: t('scan.eng_live_cat'), status: res.liveness.status === 'ACTIVE' ? t('scan.st_active') : t('scan.st_inactive'), color: res.liveness.status === 'ACTIVE' ? 'var(--accent-green)' : 'var(--text-muted)' },
           { name: t('scan.eng_homo'), category: t('scan.eng_homo_cat'), status: res.threatName.includes('HOMOGRAPH') ? t('scan.st_homo_detected') : t('scan.st_clean_script'), color: res.threatName.includes('HOMOGRAPH') ? 'var(--accent-red)' : 'var(--accent-green)' },
           { name: t('scan.eng_shannon'), category: t('scan.eng_shannon_cat'), status: `${res.entropy} bits (${t('scan.st_normal')})`, color: 'var(--accent-green)' },
@@ -793,7 +832,7 @@
               <div>
                 <div style="font-family:var(--font-display); font-size:1.25rem; font-weight:800; color:${badgeColor};">${badgeText}</div>
                 <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
-                  ${t('scan.lbl_target')} <span style="color:#fff;">${res.url}</span> &bull; ${livenessBadge}
+                  ${t('scan.lbl_target')} <span style="color:#fff;">${res.url}</span> &bull; ${livenessBadge} &bull; <span style="color:var(--text-dim);">SRC:${(res.source || 'local').toUpperCase()}</span>
                 </div>
               </div>
             </div>
