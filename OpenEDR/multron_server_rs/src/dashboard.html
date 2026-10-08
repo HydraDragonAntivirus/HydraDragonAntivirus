@@ -126,6 +126,8 @@
       </div>
       <button id="startBtn" class="primary">Start server</button>
       <button id="stopBtn" class="danger" hidden>Stop server</button>
+      <button id="reloadEngineBtn" title="Reload .yrc, ML models, XOR filters and YAML rules from disk. The process and listener keep running.">Reload rules &amp; models</button>
+      <div id="reloadMsg" style="font-size:12px;opacity:.75;margin-top:6px"></div>
       <div id="listenError" class="error"></div>
 
       <label>Client address (this PC)</label>
@@ -287,6 +289,9 @@
     else if (eng.status === "error") setPill($("enginePill"), "bad", "Engine failed");
     else setPill($("enginePill"), "wait", "Engine loading…");
     $("engineError").textContent = eng.error || "";
+    $("reloadEngineBtn").disabled = eng.status !== "ready" || !!eng.reloading;
+    $("reloadEngineBtn").textContent = eng.reloading ? "Reloading…" : "Reload rules & models";
+    $("reloadMsg").textContent = eng.reloadMsg || "";
 
     running = state.server.running;
     const s = state.server;
@@ -502,6 +507,12 @@
   $("stopBtn").onclick = async () => {
     if (!confirm("Stop the server? Connected clients will be disconnected.")) return;
     try { await post("/api/stop"); } catch (err) { $("listenError").textContent = err.message; }
+  };
+  $("reloadEngineBtn").onclick = async () => {
+    if (!confirm("Reload rules and models from disk? Scans keep running on the current engine until the new one is ready. Cached verdicts will be cleared so files are rescanned.")) return;
+    $("reloadEngineBtn").disabled = true;
+    try { await post("/api/engine/reload"); $("reloadMsg").textContent = "reloading…"; }
+    catch (err) { $("reloadMsg").textContent = err.message; $("reloadEngineBtn").disabled = false; }
   };
   $("saveLimitsBtn").onclick = async () => {
     try {

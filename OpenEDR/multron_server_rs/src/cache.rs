@@ -3,6 +3,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -51,6 +52,8 @@ pub struct VerdictCache {
     ttl_secs: i64,
     unknown_ttl_secs: i64,
     writer: Option<mpsc::Sender<String>>,
+    /// Verdicts produced before this Unix second are ignored (set after a rule reload).
+    invalidated_before: AtomicI64,
 }
 
 struct Inner {
@@ -69,6 +72,7 @@ impl VerdictCache {
             ttl_secs: ttl_days.max(0) * 86400,
             unknown_ttl_secs: unknown_ttl_hours.max(0) * 3600,
             writer: None,
+            invalidated_before: AtomicI64::new(0),
         };
         if let Some(path) = file {
             let lines = c.load(&path);
@@ -137,7 +141,9 @@ impl VerdictCache {
     pub fn get(&self, sha: &Sha) -> Option<CachedVerdict> {
         let mut g = self.inner.lock().unwrap();
         let v = g.map.get(sha)?.clone();
-        if now_secs() - v.at > self.ttl_for(&v.verdict) {
+        if v.at < self.invalidated_before.load(Ordering::Relaxed)
+            || now_secs() - v.at > self.ttl_for(&v.verdict)
+        {
             g.map.remove(sha);
             return None;
         }
@@ -160,6 +166,13 @@ impl VerdictCache {
                 g.map.remove(&old);
             }
         }
+    }
+
+    /// Makes every verdict cached so far a miss (files get rescanned with the new rules).
+    /// In memory only: entries already on disk come back after a process restart, the
+    /// same as before this feature existed.
+    pub fn invalidate_all(&self) {
+        self.invalidated_before.store(now_secs() + 1, Ordering::Relaxed);
     }
 
     pub fn len(&self) -> usize {

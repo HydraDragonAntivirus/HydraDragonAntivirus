@@ -257,6 +257,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/insights/stats", get(handle_dashboard_insights_stats))
         .route("/api/insights/:sha256", get(handle_dashboard_insights_hash))
         .route("/api/rules", post(handle_rules_reload).route_layer(DefaultBodyLimit::disable()))
+        .route("/api/engine/reload", post(handle_engine_reload))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
 }
@@ -323,6 +324,8 @@ async fn handle_state(
             "status": eng_status.status,
             "error": eng_status.error,
             "loadMs": eng_status.load_ms,
+            "reloading": eng_status.reloading,
+            "reloadMsg": eng_status.reload_msg,
             "name": eng_status.name,
         },
         "server": {
@@ -502,6 +505,44 @@ async fn handle_unban(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let n = app.scan_server.limiter.unban_all();
     info_event(&app, format!("{n} blocked IP(s) unblocked"));
     Json(serde_json::json!({"ok": true, "unbanned": n}))
+}
+
+#[derive(Deserialize)]
+struct EngineReloadQuery {
+    /// Keep cached verdicts (default: invalidate them so files are rescanned).
+    #[serde(default)]
+    keep_cache: bool,
+}
+
+/// Hot reload of the whole engine in this process; the listener and sessions stay up.
+async fn handle_engine_reload(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<EngineReloadQuery>,
+) -> impl IntoResponse {
+    let app2 = Arc::clone(&app);
+    let keep_cache = q.keep_cache;
+    let started = app.engine.reload_all(move |res| match res {
+        Ok(ms) => {
+            if !keep_cache {
+                app2.scan_server.cache.invalidate_all();
+            }
+            info_event(
+                &app2,
+                format!(
+                    "engine hot-reloaded in {ms} ms{}",
+                    if keep_cache { "" } else { ", verdict cache invalidated" }
+                ),
+            );
+        }
+        Err(e) => info_event(&app2, format!("engine reload failed, old engine kept: {e}")),
+    });
+    match started {
+        Ok(()) => {
+            info_event(&app, "engine hot reload started".to_string());
+            (StatusCode::ACCEPTED, Json(serde_json::json!({"ok": true, "detail": "reload started"}))).into_response()
+        }
+        Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({"error": e}))).into_response(),
+    }
 }
 
 #[derive(Deserialize)]

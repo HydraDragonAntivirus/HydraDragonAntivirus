@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
@@ -60,6 +60,12 @@ pub struct EngineStatus {
     pub error: String,
     pub load_ms: i64,
     pub name: String,
+    /// True while a hot reload is building the new engine in the background.
+    #[serde(default)]
+    pub reloading: bool,
+    /// Result of the last hot reload ("" if none yet).
+    #[serde(default)]
+    pub reload_msg: String,
 }
 
 pub struct EngineAdapter {
@@ -78,6 +84,10 @@ pub struct EngineAdapter {
     keep_limit_bytes: u64,
     kept_bytes: AtomicU64,
     pub kept_files: AtomicI64,
+    /// Rules folder the engine was loaded from; reused by `reload_all`.
+    rules_dir: RwLock<Option<PathBuf>>,
+    reloading: AtomicBool,
+    reload_msg: RwLock<String>,
 }
 
 impl EngineAdapter {
@@ -112,6 +122,9 @@ impl EngineAdapter {
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
             kept_bytes: AtomicU64::new(kept.0),
+            rules_dir: RwLock::new(None),
+            reloading: AtomicBool::new(false),
+            reload_msg: RwLock::new(String::new()),
             kept_files: AtomicI64::new(kept.1),
         })
     }
@@ -125,23 +138,9 @@ impl EngineAdapter {
                 let started = Instant::now();
                 let rules_dir = resolve_rules_dir(custom_rules_dir);
                 eprintln!("[engine] loading from: {}", rules_dir.display());
+                *adapter.rules_dir.write().unwrap() = Some(rules_dir.clone());
 
-                // Only check xorfilter_rules for XOR filters (.xf) - no .txt hash files
-                let xf_dir = rules_dir.join("xorfilter_rules");
-                let mut mal_filter = None;
-                for cand in &["malicious_sha256.xf", "malware.xf"] {
-                    let p = xf_dir.join(cand);
-                    if p.is_file() {
-                        if let Ok(bytes) = std::fs::read(&p) {
-                            if let Some(f) = BinaryFuse16Filter::from_bytes(&bytes) {
-                                eprintln!("[engine] {} malicious SHA-256 signatures loaded from XOR filter {}", f.len(), p.display());
-                                mal_filter = Some(f);
-                                break;
-                            }
-                        }
-                    }
-                }
-                *adapter.malicious_xf.write().unwrap() = mal_filter;
+                *adapter.malicious_xf.write().unwrap() = load_malicious_xf(&rules_dir);
 
                 match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
                     Ok(engine) => {
@@ -166,6 +165,71 @@ impl EngineAdapter {
         self.engine.get().is_some()
     }
 
+    /// Hot reload of the whole engine (compiled `.yrc`, ML models, XOR filters, YAML
+    /// rules) from the rules folder, without restarting the process or the listener.
+    ///
+    /// The new engine is built on a background thread while the old one keeps scanning;
+    /// only the final swap takes the write lock (waits for scans in progress, then
+    /// is instant). If loading fails or panics, the old engine stays in place.
+    /// Peak memory is roughly two engines while the new one loads.
+    pub fn reload_all<F>(self: &Arc<Self>, on_done: F) -> Result<(), String>
+    where
+        F: FnOnce(Result<i64, String>) + Send + 'static,
+    {
+        if !self.ready() {
+            return Err("engine is still loading".into());
+        }
+        let Some(rules_dir) = self.rules_dir.read().unwrap().clone() else {
+            return Err("rules folder unknown".into());
+        };
+        if self.reloading.swap(true, Ordering::SeqCst) {
+            return Err("a reload is already running".into());
+        }
+        *self.reload_msg.write().unwrap() = "reloading…".into();
+
+        let adapter = Arc::clone(self);
+        let spawned = std::thread::Builder::new()
+            .name("engine-reload".into())
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                let started = Instant::now();
+                eprintln!("[engine] hot reload from: {}", rules_dir.display());
+                let new_xf = load_malicious_xf(&rules_dir);
+                let result = match std::panic::catch_unwind(|| StaticEngine::init(&rules_dir)) {
+                    Ok(new_engine) => match adapter.engine.get() {
+                        Some(slot) => match slot.write() {
+                            Ok(mut guard) => {
+                                let old = std::mem::replace(&mut *guard, new_engine);
+                                drop(guard);
+                                *adapter.malicious_xf.write().unwrap() = new_xf;
+                                drop(old); // free the old engine outside the lock
+                                let ms = started.elapsed().as_millis() as i64;
+                                adapter.load_ms.store(ms, Ordering::Relaxed);
+                                Ok(ms)
+                            }
+                            Err(_) => Err("engine lock poisoned".to_string()),
+                        },
+                        None => Err("engine not ready".to_string()),
+                    },
+                    Err(_) => Err("panic while loading the new engine".to_string()),
+                };
+                let msg = match &result {
+                    Ok(ms) => format!("reloaded in {ms} ms"),
+                    Err(e) => format!("reload failed, old engine kept: {e}"),
+                };
+                eprintln!("[engine] {msg}");
+                *adapter.reload_msg.write().unwrap() = msg;
+                adapter.reloading.store(false, Ordering::SeqCst);
+                on_done(result);
+            });
+        if let Err(e) = spawned {
+            self.reloading.store(false, Ordering::SeqCst);
+            *self.reload_msg.write().unwrap() = String::new();
+            return Err(format!("cannot start reload thread: {e}"));
+        }
+        Ok(())
+    }
+
     pub async fn is_ready(&self) -> bool {
         self.ready()
     }
@@ -184,6 +248,8 @@ impl EngineAdapter {
             error,
             load_ms: self.load_ms.load(Ordering::Relaxed),
             name: ENGINE_NAME.to_string(),
+            reloading: self.reloading.load(Ordering::Relaxed),
+            reload_msg: self.reload_msg.read().unwrap().clone(),
         }
     }
 
@@ -600,6 +666,23 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
     res.rule = ecs_val.get("rule").cloned();
 
     res
+}
+
+/// Malicious SHA-256 XOR filter from `xorfilter_rules` (no .txt hash files).
+fn load_malicious_xf(rules_dir: &Path) -> Option<BinaryFuse16Filter> {
+    let xf_dir = rules_dir.join("xorfilter_rules");
+    for cand in &["malicious_sha256.xf", "malware.xf"] {
+        let p = xf_dir.join(cand);
+        if p.is_file() {
+            if let Ok(bytes) = std::fs::read(&p) {
+                if let Some(f) = BinaryFuse16Filter::from_bytes(&bytes) {
+                    eprintln!("[engine] {} malicious SHA-256 signatures loaded from XOR filter {}", f.len(), p.display());
+                    return Some(f);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {
