@@ -707,13 +707,16 @@
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved === 'en' || saved === 'tr') return saved;
     } catch (_) {}
-    return 'tr';
+    return 'en';
   }
 
   function t(key) {
     const lang = getCurrentLang();
     if (translations[lang] && translations[lang][key] !== undefined) {
       return translations[lang][key];
+    }
+    if (translations.en && translations.en[key] !== undefined) {
+      return translations.en[key];
     }
     if (translations.tr && translations.tr[key] !== undefined) {
       return translations.tr[key];
@@ -731,18 +734,25 @@
 
     // Update data-i18n text content
     document.querySelectorAll('[data-i18n]').forEach((el) => {
+      if (el.tagName === 'TITLE') return;
       const key = el.getAttribute('data-i18n');
       const val = t(key);
       if (val !== null && val !== undefined && val !== key) {
-        if (el.tagName === 'TITLE') {
-          document.title = val;
-        } else if (typeof val === 'string' && val.includes('<') && val.includes('>')) {
+        if (typeof val === 'string' && val.includes('<') && val.includes('>')) {
           el.innerHTML = val;
         } else {
           el.textContent = val;
         }
       }
     });
+
+    // Safely update document.title based on active page
+    try {
+      if (window.location.pathname.includes('scan') || document.querySelector('#paneUrl')) {
+        const scanTitle = t('scan_page.title');
+        if (scanTitle && scanTitle !== 'scan_page.title') document.title = scanTitle;
+      }
+    } catch (_) {}
 
     // Update data-i18n-placeholder
     document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
