@@ -11,6 +11,7 @@ oxc_parser = "0.152.0"
 oxc_ast = "0.152.0"
 oxc_allocator = "0.152.0"
 oxc_span = "0.152.0"
+oxc_ast_visit = "0.152.0"
 rayon = "1.11"
 
 [profile.release]

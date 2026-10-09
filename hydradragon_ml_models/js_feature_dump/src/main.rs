@@ -64,7 +64,21 @@ fn extract(files: &[PathBuf], label: u8) -> Vec<(u8, String, [f32; 51])> {
         .collect()
 }
 
+/// Stack for the main work thread and every extraction worker. Deeply nested JS
+/// recurses deep in the parser and AST walkers, and a stack overflow cannot be caught
+/// (it aborts the process), so give every thread far more than it will use; only the
+/// pages actually touched are committed.
+const STACK: usize = 512 * 1024 * 1024;
+
 fn main() {
+    rayon::ThreadPoolBuilder::new().stack_size(STACK).build_global().expect("thread pool");
+    let worker = std::thread::Builder::new().stack_size(STACK).spawn(run).expect("work thread");
+    if worker.join().is_err() {
+        std::process::exit(1);
+    }
+}
+
+fn run() {
     let a: Vec<String> = std::env::args().collect();
     if a.len() < 4 {
         eprintln!("usage: js_feature_dump <malicious_dir> <benign_dir> <out.csv> [max_per_class]");

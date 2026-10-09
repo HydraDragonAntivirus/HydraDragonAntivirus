@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::*;
+use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
@@ -522,7 +523,65 @@ impl AstWalkerCounts {
     }
 }
 
+/// Deeper ([{ nesting than this is not scored (treated like unparseable input). The
+/// parser and AST walkers recurse per level (~2 KB of stack each); about 500 levels
+/// already fill a 1 MB thread stack, and an overflow aborts the whole process (a DoS with one
+/// crafted file). Real code stays far below this.
+const MAX_NESTING: usize = 400;
+
+/// Deepest ([{ nesting outside strings, template literals and comments. A fast byte
+/// scan run before parsing, so absurd input never reaches the recursive parser.
+fn max_bracket_depth(src: &[u8]) -> usize {
+    let (mut depth, mut max, mut i) = (0usize, 0usize, 0usize);
+    while i < src.len() {
+        match src[i] {
+            b'(' | b'[' | b'{' => {
+                depth += 1;
+                max = max.max(depth);
+            }
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            q @ (b'"' | b'\'' | b'`') => {
+                i += 1;
+                while i < src.len() && src[i] != q {
+                    if src[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            b'/' if src.get(i + 1) == Some(&b'/') => {
+                while i < src.len() && src[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if src.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < src.len() && !(src[i] == b'*' && src[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    max
+}
+
+/// Source spans of every regular expression literal (full AST visit, so regexes inside
+/// class methods and other places the counting walker skips are found too).
+struct RegexSpans(Vec<(usize, usize)>);
+
+impl<'a> Visit<'a> for RegexSpans {
+    fn visit_reg_exp_literal(&mut self, it: &RegExpLiteral<'a>) {
+        self.0.push((it.span.start as usize, it.span.end as usize));
+    }
+}
+
 pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
+    if max_bracket_depth(source.as_bytes()) > MAX_NESTING {
+        return None;
+    }
     let allocator = Allocator::default();
     let source_type = SourceType::mjs();
     let ret = Parser::new(&allocator, source, source_type).parse();
@@ -553,8 +612,15 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
         return None;
     }
 
-    let hex_encoded = RE_HEX_ENCODED.find_iter(source).count() as f32;
-    let unicode_encoded = RE_UNICODE_ENCODED.find_iter(source).count() as f32;
+    // \xNN / \uNNNN inside regular expression literals (character ranges such as
+    // [\x00-\x20\x7F] in header parsers) are normal code, not string obfuscation.
+    // Comments are still counted: JScript `/*@cc_on ... @*/` hides real code in them.
+    let mut regexes = RegexSpans(Vec::new());
+    regexes.visit_program(&program);
+    let skip = regexes.0;
+    let outside = |m: &regex::Match| !skip.iter().any(|&(a, b)| m.start() >= a && m.start() < b);
+    let hex_encoded = RE_HEX_ENCODED.find_iter(source).filter(|m| outside(m)).count() as f32;
+    let unicode_encoded = RE_UNICODE_ENCODED.find_iter(source).filter(|m| outside(m)).count() as f32;
     let char_code = RE_CHAR_CODE.find_iter(source).count() as f32;
     let base64 = 0.0f32; // Do not treat base64 operations as obfuscation
     let escape = RE_ESCAPE.find_iter(source).count() as f32;

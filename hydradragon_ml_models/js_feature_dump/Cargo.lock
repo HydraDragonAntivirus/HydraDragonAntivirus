@@ -231,6 +231,7 @@ version = "0.1.0"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
+ "oxc_ast_visit",
  "oxc_parser",
  "oxc_span",
  "rayon",
@@ -323,6 +324,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "oxc_ast_visit"
+version = "0.152.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5dab648a994ca3b3675ccbea348b11006aca6c22d28a2bcc4fd22c891be47ed"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_span",
+ "oxc_syntax",
 ]
 
 [[package]]
