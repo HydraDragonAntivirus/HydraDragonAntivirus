@@ -16163,3 +16163,29 @@ rule Multifamily_RAT_Detection {
   condition:
     (pe.imphash() == "b8bb385806b89680e13fc0cf24f4431e" or pe.imphash() == "f34d5f2d4577ed6d9ceec516c1f5a744") and 3 of ($htt*) and $mzh
 }
+
+Path: C:\Users\semae\Downloads\kibana-9.5.0-windows-x86_64\kibana-9.5.0\node_modules\@kbn\ui-shared-deps-src\shared_built_assets\kbn-ui-shared-deps-src.js
+Result: False Positive
+Threat / Details: MS12_052
+SHA-256: DD28CBF3CA777B97F8A2575529BB33D3FF3135973977EEFF6CFF07DFC75FD558
+Size: 4,29 MB
+rule MS12_052 {
+  meta:
+    author       = "Adnan Mohd Shukor"
+    author_email = "adnan.shukor @ G!"
+    ref          = "MS12-052"
+    ref_url      = "http://seclists.org/bugtraq/2012/Sep/29"
+    cve          = "CVE-"
+    version      = "1"
+    impact       = 4
+    hide         = false
+
+  strings:
+    $ms12052_1 = /mailto\:.{2000,}/ nocase fullword
+    $ms12052_2 = /\.getElements?By/ nocase
+    $ms12052_3 = /\.removeChild\(/ nocase
+  //$ms12052_4 = /document\..*?= ?null/ nocase *greedy and ungreedy quantifiers can't be mixed in a regular expression*
+
+  condition:
+    $ms12052_1 and $ms12052_2 and ($ms12052_3  /*or $ms12052_4*/ )
+}
