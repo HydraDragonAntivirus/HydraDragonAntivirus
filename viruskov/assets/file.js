@@ -13,7 +13,8 @@
       human: 'İnsan analizi', engine: 'Motor', engineVerdict: 'Motor kararı', copy: 'Kopyala', copied: 'Kopyalandı',
       vt: 'VirusTotal\'da aç', download: 'Örneği indir (.zip)', keyPh: 'Araştırmacı API anahtarı', keyNote: 'Arşiv şifresi: infected. Yalnızca zararlı ve şüpheli dosyalar paylaşılır.',
       dlErr: 'İndirilemedi', haCard: 'İnsan analizi', haNone: 'Henüz bir analist bakmadı.', haPending: 'Analist kuyruğunda', waiting: 'bekliyor',
-      request: 'İnsan analizi iste', requested: 'Kuyruğa eklendi.', resp: 'Yanıt süresi', analyst: 'Analist', reviewed: 'Karar zamanı', note: 'Not',
+      request: 'İnsan analizi iste', requested: 'Kuyruğa eklendi.', resp: 'Toplam süre', analyst: 'Analist', reviewed: 'Analiz bitişi', note: 'Not',
+      reqAt: 'İstek zamanı', startAt: 'Analiz başlangıcı', waitT: 'Kuyrukta bekleme', anaT: 'Analiz süresi', inAnalysis: 'Analist inceliyor', since: 'süredir',
       tele: 'Telemetri', first: 'İlk görülme', last: 'Son görülme', seen: 'Gözlem', prev: 'Yayılım', names: 'Dosya adları',
       basic: 'Dosya', type: 'Tür', size: 'Boyut', entropy: 'Entropi', bytes: 'bayt',
       pe: 'PE başlığı', kind: 'Biçim', machine: 'Mimari', compiled: 'Derleme zamanı', entry: 'Giriş noktası', subsystem: 'Alt sistem',
@@ -33,7 +34,8 @@
       human: 'Human analysis', engine: 'Engine', engineVerdict: 'Engine verdict', copy: 'Copy', copied: 'Copied',
       vt: 'Open on VirusTotal', download: 'Download sample (.zip)', keyPh: 'Researcher API key', keyNote: 'Archive password: infected. Only malicious and suspicious files are shared.',
       dlErr: 'Download failed', haCard: 'Human analysis', haNone: 'No analyst has looked at it yet.', haPending: 'In the analyst queue', waiting: 'waiting',
-      request: 'Request human analysis', requested: 'Added to the queue.', resp: 'Response time', analyst: 'Analyst', reviewed: 'Reviewed', note: 'Note',
+      request: 'Request human analysis', requested: 'Added to the queue.', resp: 'Total time', analyst: 'Analyst', reviewed: 'Analysis end', note: 'Note',
+      reqAt: 'Requested', startAt: 'Analysis start', waitT: 'Waited in queue', anaT: 'Analysis time', inAnalysis: 'An analyst is on it', since: 'so far',
       tele: 'Telemetry', first: 'First seen', last: 'Last seen', seen: 'Sightings', prev: 'Prevalence', names: 'File names',
       basic: 'File', type: 'Type', size: 'Size', entropy: 'Entropy', bytes: 'bytes',
       pe: 'PE header', kind: 'Format', machine: 'Machine', compiled: 'Compiled', entry: 'Entry point', subsystem: 'Subsystem',
@@ -145,10 +147,19 @@
         [T.human, badge(h.verdict) + (h.threat_name ? ' <b style="margin-left:6px">' + esc(h.threat_name) + '</b>' : '')],
         h.note ? [T.note, esc(h.note)] : null,
         [T.analyst, esc(h.analyst || '—')],
-        [T.resp, esc(dur(h.response_secs))],
+        [T.reqAt, esc(when(h.requested_at))],
+        h.timed && h.started_at ? [T.startAt, esc(when(h.started_at))] : null,
         [T.reviewed, esc(when(h.reviewed_at))],
+        h.timed && h.wait_secs != null ? [T.waitT, esc(dur(h.wait_secs))] : null,
+        h.timed && h.analysis_secs != null ? [T.anaT, esc(dur(h.analysis_secs))] : null,
+        [T.resp, esc(dur(h.response_secs))],
         d.verdict_source === 'human' && d.engine_verdict ? [T.engineVerdict, badge(d.engine_verdict)] : null
       ]);
+    } else if (h && h.status === 'pending' && h.started_at) {
+      var going = Math.max(0, Math.round((Date.now() - Date.parse(h.started_at)) / 1000));
+      hBody = '<p class="vk-body"><span class="p-badge" style="color:var(--accent-cyan)">' + esc(T.inAnalysis) + '</span> ' +
+        (h.started_by ? esc(h.started_by) + ' · ' : '') + esc(dur(going)) + ' ' + esc(T.since) + '</p>' +
+        kv([[T.reqAt, esc(when(h.requested_at))], [T.startAt, esc(when(h.started_at))]]);
     } else if (h && h.status === 'pending') {
       var waited = Math.max(0, Math.round((Date.now() - Date.parse(h.requested_at)) / 1000));
       hBody = '<p class="vk-body"><span class="p-badge" style="color:var(--accent-amber)">' + esc(T.haPending) + '</span> ' + esc(dur(waited)) + ' ' + esc(T.waiting) + '</p>';

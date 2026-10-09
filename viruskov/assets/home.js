@@ -176,7 +176,12 @@
         (h.note ? '<p>' + esc(h.note) + '</p>' : '') +
         '<div class="h-human-meta">' + (h.analyst ? esc(h.analyst) + ' · ' : '') +
         esc(T('h.ha.resp', 'yanıt')) + ' ' + dur(h.response_secs) +
+        (h.timed && h.analysis_secs != null ? ' · ' + esc(T('h.ha.analysis', 'analiz')) + ' ' + dur(h.analysis_secs) : '') +
         (h.reviewed_at ? ' · ' + esc(new Date(h.reviewed_at).toLocaleString()) : '') + '</div></div>';
+    }
+    if (h && h.status === 'pending' && h.started_at) {
+      return '<div class="h-human is-pending"><span class="h-human-k">' + esc(T('h.ha.inprogress', 'Analist inceliyor')) + '</span>' +
+        '<span>' + (h.started_by ? esc(h.started_by) + ' · ' : '') + dur(since(h.started_at)) + '</span></div>';
     }
     if (h && h.status === 'pending') {
       return '<div class="h-human is-pending"><span class="h-human-k">' + esc(T('h.ha.queued', 'İnsan analizi kuyruğunda')) + '</span>' +
@@ -279,7 +284,8 @@
     var st = d.stats || {};
     var set = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
     set('haAvg', dur(st.avg_response_secs));
-    set('haMedian', dur(st.median_response_secs));
+    set('haAnalysis', dur(st.avg_analysis_secs));
+    set('haActive', fmt(st.in_progress || 0));
     set('haPending', fmt(st.pending || 0));
     set('haDay', fmt(st.completed_24h || 0));
     var list = document.getElementById('haList');
@@ -292,6 +298,7 @@
         esc(r.sha256.slice(0, 12) + '…' + r.sha256.slice(-6)) + ' &rarr;</a></div>' +
         (r.note ? '<p>' + esc(r.note) + '</p>' : '') +
         '<div class="h-desk-meta">' + (r.analyst ? esc(r.analyst) + ' · ' : '') + esc(T('h.ha.resp', 'yanıt')) + ' ' + dur(r.response_secs) +
+        (r.timed && r.analysis_secs != null ? ' · ' + esc(T('h.ha.analysis', 'analiz')) + ' ' + dur(r.analysis_secs) : '') +
         (ago != null ? ' · ' + dur(ago) + ' ' + esc(T('h.ha.ago', 'önce')) : '') + '</div></li>';
     }).join('');
   }

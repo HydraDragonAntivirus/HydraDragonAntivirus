@@ -386,7 +386,7 @@ p code, li code { background: rgba(255,255,255,0.05); border: 1px solid var(--bo
 .h-desk { margin-top: 24px; border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--bg-surface); padding: 28px; }
 .h-desk-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 32px; align-items: start; }
 .h-desk-head .vk-body { margin-top: 8px; max-width: 58ch; }
-.h-desk-stats { display: grid; grid-template-columns: repeat(4, auto); gap: 0; margin: 0; }
+.h-desk-stats { display: grid; grid-template-columns: repeat(5, auto); gap: 0; margin: 0; }
 .h-desk-stats > div { padding: 0 20px; border-left: 1px solid var(--border-subtle); }
 .h-desk-stats > div:first-child { border-left: 0; padding-left: 0; }
 .h-desk-stats dt { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); white-space: nowrap; }
@@ -408,7 +408,7 @@ p code, li code { background: rgba(255,255,255,0.05); border: 1px solid var(--bo
 @media (max-width: 560px) {
   .h-desk { padding: 22px 18px; }
   .h-desk-stats { grid-template-columns: 1fr 1fr; row-gap: 16px; }
-  .h-desk-stats > div:nth-child(3) { border-left: 0; padding-left: 0; }
+  .h-desk-stats > div:nth-child(odd) { border-left: 0; padding-left: 0; }
 }
 
 .h-vt2 { margin-left: 0; }

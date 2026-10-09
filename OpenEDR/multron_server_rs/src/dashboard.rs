@@ -294,6 +294,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/reviews", get(handle_reviews_list))
         .route("/api/review", post(handle_review_save))
         .route("/api/review/delete", post(handle_review_delete))
+        .route("/api/review/start", post(handle_review_start))
+        .route("/api/review/release", post(handle_review_release))
         .route("/api/reviews/similar/:sha256", get(handle_review_similar))
         .route(
             "/api/reviews/bulk",
@@ -1100,6 +1102,33 @@ async fn handle_review_save(
             );
             (StatusCode::OK, Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()}))).into_response()
         }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ReviewStartBody {
+    sha256: String,
+    #[serde(default)]
+    analyst: String,
+    #[serde(default)]
+    take_over: bool,
+}
+
+/// "Start analysis" (Valkyrie-style start date): marks the hash as being analysed.
+async fn handle_review_start(State(app): State<Arc<AppState>>, Json(b): Json<ReviewStartBody>) -> Response {
+    match app.threat_intel.reviews.start(b.sha256.trim(), &b.analyst, b.take_over) {
+        Ok(r) => {
+            info_event(&app, format!("human analysis started: {} by {}", r.sha256, if r.started_by.is_empty() { "analyst" } else { &r.started_by }));
+            (StatusCode::OK, Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()}))).into_response()
+        }
+        Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_review_release(State(app): State<Arc<AppState>>, Json(b): Json<ReviewDeleteBody>) -> Response {
+    match app.threat_intel.reviews.release(b.sha256.trim()) {
+        Ok(r) => (StatusCode::OK, Json(serde_json::json!({"ok": true, "review": r.to_dashboard_json()}))).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
     }
 }

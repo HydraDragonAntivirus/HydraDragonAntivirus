@@ -407,6 +407,7 @@
         <button class="ghost active" data-tab="Queue">Queue <span id="haQCount"></span></button>
         <button class="ghost" data-tab="Folder">Folder whitelist</button>
         <button class="ghost" data-tab="Recent">Verdicts</button>
+        <button class="ghost" data-tab="Stats">Analysts &amp; time</button>
       </div>
     </div>
 
@@ -480,6 +481,10 @@
           <textarea id="haNote" placeholder="Why this verdict. Shown on viruskov.com."></textarea>
           <label for="haInternal">Internal note (analysts only)</label>
           <textarea id="haInternal" placeholder="Private: sandbox findings, sources, doubts. Never published."></textarea>
+          <div class="row2" style="margin-top:4px">
+            <button class="ghost" id="haStart" style="margin-top:10px;padding:8px">&#9654; Start analysis</button>
+            <button class="ghost" id="haRelease" style="margin-top:10px;padding:8px">Release</button>
+          </div>
           <div class="row2">
             <button class="primary" id="haSave">Save verdict</button>
             <button class="danger" id="haDelete">Remove review</button>
@@ -549,9 +554,28 @@
       </div>
       <div class="tablewrap ha-table" style="margin-top:10px">
         <table>
-          <thead><tr><th>SHA-256</th><th>Verdict</th><th>Notes</th><th>Analyst</th><th>Response</th><th>Reviewed</th><th></th></tr></thead>
+          <thead><tr><th>SHA-256</th><th>Verdict</th><th>Notes</th><th>Analyst</th><th class="num">Waited</th><th class="num">Analysis</th><th class="num">Total</th><th>Reviewed</th><th></th></tr></thead>
           <tbody id="haRecentRows"></tbody>
         </table>
+      </div>
+    </div>
+    <div class="ha-tab" id="haTabStats" hidden>
+      <div class="hint" style="margin-top:0">Waited = queue to "Start analysis"; Analysis = start to verdict; Total = queue to verdict (the response time shown on viruskov.com). Analysis time only counts verdicts started with &#9654; Start analysis, so quick and bulk verdicts do not pull it to zero.</div>
+      <div class="hf-grid" style="margin-top:12px">
+        <div>
+          <div class="feedbar"><h2>Analysts</h2></div>
+          <div class="tablewrap"><table>
+            <thead><tr><th>Analyst</th><th class="num">Verdicts</th><th class="num">Last 7 d</th><th class="num">In analysis</th><th class="num">Avg analysis</th><th class="num">Avg total</th><th class="num">Time spent</th></tr></thead>
+            <tbody id="haAnalysts"></tbody>
+          </table></div>
+        </div>
+        <div>
+          <div class="feedbar"><h2>Last 14 days</h2></div>
+          <div class="tablewrap"><table>
+            <thead><tr><th>Day</th><th>Verdicts</th><th class="num">Avg total</th><th class="num">Avg analysis</th></tr></thead>
+            <tbody id="haDaily"></tbody>
+          </table></div>
+        </div>
       </div>
     </div>
   </section>
@@ -1047,7 +1071,7 @@
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Stats"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
@@ -1120,7 +1144,7 @@
           <td class="num">${r.seen_count || 0}</td>
           <td class="num">${haSize(r.file_size)}</td>
           <td class="fold" title="${haEsc(folders)}">${haEsc(haFolder(r) || "—")}${(r.folders || []).length > 1 ? ` <small>+${r.folders.length - 1}</small>` : ""}</td>
-          <td class="num">${haDur(wait)}</td>
+          <td class="num">${r.started_at ? `<span class="tag t-connect" title="In analysis since ${haEsc(new Date(r.started_at).toLocaleString())}">&#9654; ${haEsc(r.started_by || "analyst")} · ${haDur(Math.max(0, Math.round((now - new Date(r.started_at).getTime()) / 1000)))}</span>` : haDur(wait)}</td>
           <td style="white-space:nowrap"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" title="VirusTotal">VT ↗</a></td>
         </tr>`;
       }
@@ -1173,8 +1197,11 @@
       (r.folders || []).length ? `<div><span class="k">Folders:</span> ${r.folders.map(haEsc).join("<br>")}</div>` : "",
       `<div><span class="k">Engine:</span> ${haVTag(r.current_verdict || r.engine_verdict)} ${r.current_threat ? "<b>" + haEsc(r.current_threat) + "</b>" : ""} · seen ${r.seen_count || 0}× · ${haSize(r.file_size)}</div>`,
       `<div><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" style="color:var(--accent)">VirusTotal ↗</a> · <a href="#" onclick="rescanSha('${sha}');return false" style="color:var(--accent)">Rescan</a></div>`,
+      `<div><span class="k">Requested:</span> ${new Date(r.requested_at).toLocaleString()}${r.started_at ? ` · <span class="k">${r.timed ? "started" : "verdict"}:</span> ${new Date(r.started_at).toLocaleString()}${r.started_by ? " by <b>" + haEsc(r.started_by) + "</b>" : ""}` : ""}${r.reviewed_at ? ` · <span class="k">done:</span> ${new Date(r.reviewed_at).toLocaleString()}` : ""}</div>`,
       `<div id="haSimilar" class="k">Looking for similar files…</div>`,
     ].join("") : `<span class="k">Not in the queue.</span>`;
+    $("haStart").disabled = !!(r && r.status === "completed");
+    $("haRelease").disabled = !(r && r.started_at && r.status !== "completed");
     $("haInfo").innerHTML = info;
     if (!r) return;
     try {
@@ -1204,10 +1231,12 @@
         <td>${haVTag(r.verdict)} ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b>" : ""}</td>
         <td class="detail" title="${haEsc(r.note + (r.internal_note ? "\nInternal: " + r.internal_note : ""))}">${haEsc(r.note || "")}${r.internal_note ? ` <i>· internal: ${haEsc(r.internal_note)}</i>` : ""}</td>
         <td>${haEsc(r.analyst || "—")}</td>
+        <td class="num">${haDur(r.wait_secs)}</td>
+        <td class="num" title="${r.timed ? "Started with Start analysis" : "Verdict saved without Start analysis"}">${r.timed ? haDur(r.analysis_secs) : "—"}</td>
         <td class="num">${haDur(r.response_secs)}</td>
         <td class="num">${r.reviewed_at ? new Date(r.reviewed_at).toLocaleString() : "—"}</td>
         <td style="white-space:nowrap"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VT ↗</a> <button class="ghost" onclick="haEdit(${i})">Edit</button></td>
-      </tr>`).join("") : `<tr><td colspan="7" class="empty">No verdicts.</td></tr>`;
+      </tr>`).join("") : `<tr><td colspan="9" class="empty">No verdicts.</td></tr>`;
   };
   ["haRecentSearch", "haRecentF"].forEach(id => $(id).addEventListener("input", haRenderRecent));
 
@@ -1220,11 +1249,16 @@
       const st = d.stats || {};
       $("haStats").innerHTML =
         `<span>Waiting: <b>${st.pending ?? 0}</b></span>` +
-        `<span>Done: <b>${st.completed ?? 0}</b></span>` +
-        `<span>Last 24 h: <b>${st.completed_24h ?? 0}</b></span>` +
-        `<span>Avg response: <b>${haDur(st.avg_response_secs)}</b></span>` +
-        `<span>Median: <b>${haDur(st.median_response_secs)}</b></span>` +
+        `<span>In analysis: <b>${st.in_progress ?? 0}</b></span>` +
+        `<span>Done: <b>${st.completed ?? 0}</b> (24 h: <b>${st.completed_24h ?? 0}</b>)</span>` +
+        `<span title="Queue to verdict">Avg total: <b>${haDur(st.avg_response_secs)}</b> (median ${haDur(st.median_response_secs)})</span>` +
+        `<span title="Queue to Start analysis">Avg wait: <b>${haDur(st.avg_wait_secs)}</b></span>` +
+        `<span title="Start analysis to verdict">Avg analysis: <b>${haDur(st.avg_analysis_secs)}</b></span>` +
+        `<span>Analyst time: <b>${haDur(st.total_analysis_secs || null)}</b></span>` +
         `<span>Oldest waiting: <b>${haDur(st.oldest_pending_secs)}</b></span>`;
+      $("haAnalysts").innerHTML = (st.analysts || []).length ? st.analysts.map(a => `<tr><td><b>${haEsc(a.analyst)}</b></td><td class="num">${a.completed}</td><td class="num">${a.completed_7d}</td><td class="num">${a.in_progress || ""}</td><td class="num">${haDur(a.avg_analysis_secs)}</td><td class="num">${haDur(a.avg_response_secs)}</td><td class="num">${haDur(a.total_analysis_secs || null)}</td></tr>`).join("") : `<tr><td colspan="7" class="empty">No verdicts yet.</td></tr>`;
+      const maxDay = Math.max(1, ...(st.daily || []).map(x => x.completed));
+      $("haDaily").innerHTML = (st.daily || []).slice().reverse().map(x => `<tr><td class="mono">${x.date}</td><td><div style="display:flex;align-items:center;gap:8px"><div style="height:8px;border-radius:4px;background:var(--accent);width:${Math.round(120 * x.completed / maxDay)}px"></div>${x.completed}</div></td><td class="num">${haDur(x.avg_response_secs)}</td><td class="num">${haDur(x.avg_analysis_secs)}</td></tr>`).join("");
       haPend = d.pending || [];
       haRecentList = d.recent || [];
       const live = new Set(haPend.map(r => r.sha256));
@@ -1235,6 +1269,30 @@
     } catch (_) {}
   };
   window.haLoad = haLoad;
+
+  $("haStart").onclick = async () => {
+    const sha = $("haSha").value.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(sha)) { $("haMsg").textContent = "Enter a valid SHA-256."; return; }
+    const analyst = haAnalystName();
+    if (!analyst) { $("haMsg").textContent = "Enter your analyst name first."; $("haAnalyst").focus(); return; }
+    const go = async (take_over) => post("/api/review/start", { sha256: sha, analyst, take_over });
+    try {
+      try { await go(false); }
+      catch (e) {
+        if (!/already in analysis/.test(e.message) || !confirm(e.message + ". Take it over? The start time is reset.")) throw e;
+        await go(true);
+      }
+      $("haMsg").style.color = "var(--green)";
+      $("haMsg").textContent = "Analysis started; the clock runs until you save a verdict.";
+      await haLoad();
+      haOpen(sha);
+    } catch (err) { $("haMsg").style.color = ""; $("haMsg").textContent = err.message; }
+  };
+  $("haRelease").onclick = async () => {
+    const sha = $("haSha").value.trim().toLowerCase();
+    try { await post("/api/review/release", { sha256: sha }); $("haMsg").style.color = ""; $("haMsg").textContent = "Released back to the queue."; await haLoad(); haOpen(sha); }
+    catch (err) { $("haMsg").textContent = err.message; }
+  };
 
   $("haSave").onclick = async () => {
     $("haMsg").textContent = "";
