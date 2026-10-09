@@ -130,6 +130,7 @@ namespace VirusKov.ReactOS
             lv.FullRowSelect = true;
             lv.HideSelection = false;
             lv.GridLines = true;
+            lv.Scrollable = true;
             for (int i = 0; i + 1 < columns.Length; i += 2)
                 lv.Columns.Add((string)columns[i], (int)columns[i + 1]);
             return lv;
@@ -166,6 +167,8 @@ namespace VirusKov.ReactOS
         private void BuildScanTab()
         {
             var p = tabScan;
+            p.AutoScroll = true;
+            p.AutoScrollMinSize = new Size(740, 480);
             const AnchorStyles TL = AnchorStyles.Top | AnchorStyles.Left;
 
             p.Controls.Add(new Label { Text = "Locations to scan (folders, files, drives):", AutoSize = true, Location = new Point(10, 8) });
