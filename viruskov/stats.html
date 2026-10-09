@@ -7,7 +7,7 @@
   <title>VIRUSKOV &mdash; Canlı Tehdit Telemetrisi &amp; Tarama İstatistikleri</title>
   <meta name="description" content="VirusKov EDR & Antivirus küresel tehdit telemetrisi, canlı hash gözlemleri, algılama oranları ve Elasticsearch ECS 9.5.4 oturum tarama geçmişi.">
   <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg">
-  <script src="i18n.js?v=4"></script>
+  <script src="i18n.js?v=6"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -220,6 +220,7 @@
     .ratio-seg.mal { background: var(--accent-red); }
     .ratio-seg.susp { background: var(--accent-amber); }
     .ratio-seg.clean { background: var(--accent-green); }
+    .ratio-seg.pcl { background: #6fcf97; }
     .ratio-seg.unk { background: var(--accent-cyan); }
 
     .ratio-legend {
@@ -357,6 +358,10 @@
           <div class="stat-card-val" id="tiClean" style="color:var(--accent-green);">—</div>
           <div class="stat-card-lbl" data-i18n="stat.clean">Doğrulanmış Temiz (Clean)</div>
         </div>
+        <div class="stat-card c-green">
+          <div class="stat-card-val" id="tiPossibleClean" style="color:#6fcf97;">—</div>
+          <div class="stat-card-lbl" data-i18n="stat.possible_clean">Muhtemelen Temiz (TLSH smart whitelist)</div>
+        </div>
         <div class="stat-card c-gray">
           <div class="stat-card-val" id="tiUnknown" style="color:#b0bec5;">—</div>
           <div class="stat-card-lbl" data-i18n="stat.unknown">İmzasız / Bilinmeyen (Unknown)</div>
@@ -380,6 +385,7 @@
         <div id="barMalicious" class="ratio-seg mal" style="width: 0%;" title="Zararlı"></div>
         <div id="barSuspicious" class="ratio-seg susp" style="width: 0%;" title="Şüpheli"></div>
         <div id="barClean" class="ratio-seg clean" style="width: 0%;" title="Temiz"></div>
+        <div id="barPossibleClean" class="ratio-seg pcl" style="width: 0%;" title="Muhtemelen temiz"></div>
         <div id="barUnknown" class="ratio-seg unk" style="width: 0%;" title="Bilinmeyen"></div>
       </div>
 
@@ -399,6 +405,11 @@
           <span class="legend-dot" style="background:var(--accent-green);"></span>
           <span style="color:var(--text-muted);" data-i18n="ratio.clean">Temiz (Clean):</span>
           <b style="color:var(--accent-green); margin-left:auto;" id="pctClean">%0</b>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot" style="background:#6fcf97;"></span>
+          <span style="color:var(--text-muted);" data-i18n="ratio.possible_clean">Muhtemelen temiz:</span>
+          <b style="color:#6fcf97; margin-left:auto;" id="pctPossibleClean">%0</b>
         </div>
         <div class="legend-item">
           <span class="legend-dot" style="background:var(--accent-cyan);"></span>
@@ -583,9 +594,10 @@
             if (elMal) elMal.textContent = Number(t.verdicts.malicious).toLocaleString();
             if (elSusp) elSusp.textContent = Number(t.verdicts.suspicious).toLocaleString();
             if (elClean) elClean.textContent = Number(t.verdicts.clean).toLocaleString();
+            const elPcl = document.getElementById('tiPossibleClean');
+            if (elPcl) elPcl.textContent = Number(t.verdicts.possible_clean || 0).toLocaleString();
             if (elUnknown && t.verdicts && t.verdicts.unknown !== undefined) {
-              // possible_clean (TLSH smart whitelist) is not verified: counted with unknown
-              elUnknown.textContent = Number(t.verdicts.unknown + (t.verdicts.possible_clean || 0)).toLocaleString();
+              elUnknown.textContent = Number(t.verdicts.unknown).toLocaleString();
             }
             if (elTotalSightings) {
               const prefix = window.ViruskovI18n ? window.ViruskovI18n.t('ratio.total_sightings') : 'Toplam Gözlem:';
@@ -596,23 +608,27 @@
             const m = t.verdicts.malicious || 0;
             const s = t.verdicts.suspicious || 0;
             const c = t.verdicts.clean || 0;
-            const u = (t.verdicts.unknown || 0) + (t.verdicts.possible_clean || 0);
-            const total = m + s + c + u;
+            const pc = t.verdicts.possible_clean || 0;
+            const u = t.verdicts.unknown || 0;
+            const total = m + s + c + pc + u;
 
             if (total > 0) {
               const pM = ((m / total) * 100).toFixed(1);
               const pS = ((s / total) * 100).toFixed(1);
               const pC = ((c / total) * 100).toFixed(1);
-              const pU = (100 - pM - pS - pC).toFixed(1);
+              const pP = ((pc / total) * 100).toFixed(1);
+              const pU = (100 - pM - pS - pC - pP).toFixed(1);
 
               document.getElementById('barMalicious').style.width = pM + '%';
               document.getElementById('barSuspicious').style.width = pS + '%';
               document.getElementById('barClean').style.width = pC + '%';
+              document.getElementById('barPossibleClean').style.width = pP + '%';
               document.getElementById('barUnknown').style.width = pU + '%';
 
               document.getElementById('pctMalicious').textContent = `%${pM}`;
               document.getElementById('pctSuspicious').textContent = `%${pS}`;
               document.getElementById('pctClean').textContent = `%${pC}`;
+              document.getElementById('pctPossibleClean').textContent = `%${pP}`;
               document.getElementById('pctUnknown').textContent = `%${pU}`;
             }
           }

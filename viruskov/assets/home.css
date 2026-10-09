@@ -260,6 +260,7 @@ p code, li code { background: rgba(255,255,255,0.05); border: 1px solid var(--bo
 .b-mal { background: var(--accent-red); }
 .b-sus { background: var(--accent-amber); }
 .b-cln { background: var(--accent-green); }
+.b-pcl { background: #6fcf97; }
 .b-unk { background: #5b6470; }
 .h-tele-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0 0; }
 .h-tele-grid > div { display: grid; gap: 4px; }

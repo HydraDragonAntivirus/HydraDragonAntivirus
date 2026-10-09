@@ -126,6 +126,7 @@
       "h.i.mal": "Zararlı",
       "h.i.sus": "Şüpheli",
       "h.i.cln": "Temiz",
+      "h.i.pcl": "Muhtemelen temiz",
       "h.i.unk": "Bilinmeyen",
       "h.i.sp1": "Şema",
       "h.i.sp2": "Protokol",
@@ -295,6 +296,7 @@
       'stat.malicious': 'Engellenen Zararlı (Malicious)',
       'stat.suspicious': 'Şüpheli / Sezgisel (Suspicious)',
       'stat.clean': 'Doğrulanmış Temiz (Clean)',
+      'stat.possible_clean': 'Muhtemelen Temiz (TLSH smart whitelist)',
       'stat.unknown': 'İmzasız / Bilinmeyen (Unknown)',
 
       // Ratio Panel
@@ -303,6 +305,7 @@
       'ratio.malicious': 'Zararlı (Malicious):',
       'ratio.suspicious': 'Şüpheli (Suspicious):',
       'ratio.clean': 'Temiz (Clean):',
+      'ratio.possible_clean': 'Muhtemelen temiz:',
       'ratio.unknown': 'Bilinmeyen (Unknown):',
       'spec.standard': 'VERİ STANDARDİZASYONU',
       'spec.engine': 'MOTOR MİMARİSİ',
@@ -787,6 +790,7 @@
       "h.i.mal": "Malicious",
       "h.i.sus": "Suspicious",
       "h.i.cln": "Clean",
+      "h.i.pcl": "Possibly clean",
       "h.i.unk": "Unknown",
       "h.i.sp1": "Schema",
       "h.i.sp2": "Protocol",
@@ -956,6 +960,7 @@
       'stat.malicious': 'Blocked Malware (Malicious)',
       'stat.suspicious': 'Suspicious / Heuristics',
       'stat.clean': 'Verified Clean Files',
+      'stat.possible_clean': 'Possibly Clean (TLSH smart whitelist)',
       'stat.unknown': 'Unsigned / Unknown Files',
 
       // Ratio Panel
@@ -964,6 +969,7 @@
       'ratio.malicious': 'Malicious:',
       'ratio.suspicious': 'Suspicious:',
       'ratio.clean': 'Clean:',
+      'ratio.possible_clean': 'Possibly clean:',
       'ratio.unknown': 'Unknown:',
       'spec.standard': 'DATA STANDARDIZATION',
       'spec.engine': 'ENGINE ARCHITECTURE',

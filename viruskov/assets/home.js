@@ -105,14 +105,14 @@
     var t = lastTelemetry;
     if (!t) return;
     var v = t.verdicts || {};
-    var m = +v.malicious || 0, s = +v.suspicious || 0, c = +v.clean || 0, u = (+v.unknown || 0) + (+v.possible_clean || 0); // possible_clean is not verified
-    var total = m + s + c + u;
+    var m = +v.malicious || 0, s = +v.suspicious || 0, c = +v.clean || 0, pc = +v.possible_clean || 0, u = +v.unknown || 0;
+    var total = m + s + c + pc + u;
     document.querySelectorAll('.js-total-hashes').forEach(function (el) { el.textContent = fmt(t.total_unique_hashes); });
     var set = function (id, val) { var el = document.getElementById(id); if (el) el.textContent = val; };
-    set('tiMalicious', fmt(m)); set('tiSuspicious', fmt(s)); set('tiClean', fmt(c)); set('tiUnknown', fmt(u));
+    set('tiMalicious', fmt(m)); set('tiSuspicious', fmt(s)); set('tiClean', fmt(c)); set('tiPossibleClean', fmt(pc)); set('tiUnknown', fmt(u));
     if (total > 0) {
       var pct = function (x) { return (x / total) * 100; };
-      [['Malicious', m], ['Suspicious', s], ['Clean', c], ['Unknown', u]].forEach(function (p) {
+      [['Malicious', m], ['Suspicious', s], ['Clean', c], ['PossibleClean', pc], ['Unknown', u]].forEach(function (p) {
         var bar = document.getElementById('bar' + p[0]);
         if (bar) bar.style.width = pct(p[1]).toFixed(2) + '%';
         set('pct' + p[0], '%' + pct(p[1]).toFixed(1));
