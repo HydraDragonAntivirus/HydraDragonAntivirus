@@ -277,6 +277,11 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/reviews", get(handle_reviews_list))
         .route("/api/review", post(handle_review_save))
         .route("/api/review/delete", post(handle_review_delete))
+        .route("/api/reviews/similar/:sha256", get(handle_review_similar))
+        .route(
+            "/api/reviews/bulk",
+            post(handle_reviews_bulk).route_layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
         .route("/api/signatures", get(handle_signatures_list).post(handle_signature_save))
         .route("/api/signatures/delete", post(handle_signature_delete))
         .route("/api/naming", get(handle_naming_check))
@@ -751,18 +756,38 @@ async fn handle_dashboard_insights_hash(
 
 // ---------------- Human analysis (Valkyrie-style queue) ----------------
 
+/// Lower-case extension of a file name ("" when it has none).
+fn file_ext(name: &str) -> String {
+    let base = name.rsplit(['\\', '/']).next().unwrap_or(name);
+    match base.rfind('.') {
+        Some(i) if i > 0 && i + 1 < base.len() && base.len() - i <= 12 => base[i + 1..].to_ascii_lowercase(),
+        _ => String::new(),
+    }
+}
+
+/// Pending queue (up to 5000, oldest first) with telemetry for grouping by extension
+/// and folder. Similar files are loaded per item (`/api/reviews/similar/:sha256`).
 async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let r = &app.threat_intel.reviews;
     let pending: Vec<serde_json::Value> = r
-        .pending(100)
+        .pending(5000)
         .iter()
         .map(|rv| {
             let mut v = rv.to_dashboard_json();
-            v["similar"] = serde_json::json!(crate::scan_server::similar_files(&app.threat_intel, &rv.sha256, 3));
-            if let Some(ins) = app.threat_intel.get(&rv.sha256) {
+            let ins = app.threat_intel.get(&rv.sha256);
+            let name = rv
+                .file_name
+                .clone()
+                .or_else(|| ins.as_ref().and_then(|i| i.file_names.first().cloned()))
+                .unwrap_or_default();
+            v["ext"] = serde_json::json!(file_ext(&name));
+            if let Some(ins) = ins {
                 v["seen_count"] = serde_json::json!(ins.seen_count);
                 v["file_names"] = serde_json::json!(ins.file_names);
                 v["file_size"] = serde_json::json!(ins.file_size);
+                v["folders"] = serde_json::json!(ins.folders);
+                v["current_verdict"] = serde_json::json!(ins.verdict);
+                v["current_threat"] = serde_json::json!(ins.threat_name);
             }
             v
         })
@@ -771,8 +796,191 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
         "ok": true,
         "stats": r.stats(),
         "pending": pending,
-        "recent": r.recent_completed(100).iter().map(|rv| rv.to_dashboard_json()).collect::<Vec<_>>(),
+        "recent": r.recent_completed(200).iter().map(|rv| rv.to_dashboard_json()).collect::<Vec<_>>(),
     }))
+}
+
+async fn handle_review_similar(State(app): State<Arc<AppState>>, Path(sha256): Path<String>) -> impl IntoResponse {
+    let sha = sha256.trim().to_lowercase();
+    let ti = Arc::clone(&app.threat_intel);
+    let list = tokio::task::spawn_blocking(move || crate::scan_server::similar_files(&ti, &sha, 5)).await.unwrap_or_default();
+    Json(serde_json::json!({"ok": true, "similar": list}))
+}
+
+/// Bulk human verdicts: a whitelist from a folder hashed in the browser, or the queue
+/// entries of one extension. `dry_run` only reports what would happen, so the dashboard
+/// can warn before anything is written.
+#[derive(Deserialize)]
+struct ReviewBulkBody {
+    sha256s: Vec<String>,
+    /// malicious | suspicious | clean, or "dismiss" (remove pending entries from the queue).
+    verdict: String,
+    #[serde(default)]
+    threat_name: String,
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    internal_note: String,
+    #[serde(default)]
+    analyst: String,
+    #[serde(default)]
+    dry_run: bool,
+    /// Also write hashes that conflict (engine flagged them, or an analyst gave another verdict).
+    #[serde(default)]
+    override_conflicts: bool,
+    /// Skip hashes VirusKov has never seen (a folder whitelist may hold many of them).
+    #[serde(default)]
+    only_seen: bool,
+}
+
+const BULK_MAX: usize = 100_000;
+
+async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(b): Json<ReviewBulkBody>) -> Response {
+    let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    let verdict = b.verdict.trim().to_ascii_lowercase();
+    let dismiss = verdict == "dismiss";
+    if !dismiss && !crate::human_review::VERDICTS.contains(&verdict.as_str()) {
+        return bad("verdict must be malicious, suspicious, clean or dismiss".into());
+    }
+    if b.sha256s.len() > BULK_MAX {
+        return bad(format!("at most {BULK_MAX} hashes per request"));
+    }
+    // A dry run only counts, so the dashboard can warn before the threat name is typed.
+    if verdict == "malicious" && !b.dry_run && b.threat_name.trim().is_empty() {
+        return bad("a malicious verdict needs a threat name, e.g. Trojan.Win32.Remcos.A".into());
+    }
+    if !dismiss && !b.threat_name.trim().is_empty() {
+        if let Err(e) = crate::naming::normalize_threat_name(&b.threat_name) {
+            return bad(e);
+        }
+    }
+    let ti = Arc::clone(&app.threat_intel);
+    let result = tokio::task::spawn_blocking(move || {
+        let mut seen_set = std::collections::HashSet::new();
+        let (mut invalid, mut duplicates, mut unseen, mut pending, mut same, mut written, mut skipped, mut failed) =
+            (0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+        let mut engine_flagged = 0usize;
+        let mut human_conflicts = 0usize;
+        let mut conflicts: Vec<serde_json::Value> = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
+        for raw in &b.sha256s {
+            let sha = raw.trim().to_ascii_lowercase();
+            if sha.len() != 64 || !sha.bytes().all(|c| c.is_ascii_hexdigit()) {
+                invalid += 1;
+                continue;
+            }
+            if !seen_set.insert(sha.clone()) {
+                duplicates += 1;
+                continue;
+            }
+            let ins = ti.get(&sha);
+            let review = ti.reviews.get(&sha);
+            let is_pending = review.as_ref().is_some_and(|r| !r.is_completed());
+            if is_pending {
+                pending += 1;
+            }
+            if ins.is_none() {
+                unseen += 1;
+            }
+            if dismiss {
+                if !is_pending {
+                    skipped += 1;
+                } else if !b.dry_run {
+                    if ti.reviews.remove(&sha) { written += 1 } else { failed += 1 }
+                }
+                continue;
+            }
+            let human = review.as_ref().filter(|r| r.is_completed()).and_then(|r| r.verdict.clone());
+            if human.as_deref() == Some(verdict.as_str()) {
+                same += 1;
+                continue;
+            }
+            let engine = ins.as_ref().map(|i| i.verdict.as_str()).unwrap_or("unknown");
+            let engine_conflict = match verdict.as_str() {
+                "clean" => matches!(engine, "malicious" | "suspicious"),
+                _ => matches!(engine, "clean"),
+            };
+            let human_conflict = human.is_some();
+            if engine_conflict {
+                engine_flagged += 1;
+            }
+            if human_conflict {
+                human_conflicts += 1;
+            }
+            if engine_conflict || human_conflict {
+                if conflicts.len() < 200 {
+                    conflicts.push(serde_json::json!({
+                        "sha256": sha,
+                        "name": ins.as_ref().and_then(|i| i.file_names.first().cloned())
+                            .or_else(|| review.as_ref().and_then(|r| r.file_name.clone())),
+                        "engine": engine,
+                        "threat": ins.as_ref().and_then(|i| i.threat_name.clone()),
+                        "human": human,
+                    }));
+                }
+                if !b.override_conflicts {
+                    skipped += 1;
+                    continue;
+                }
+            }
+            if ins.is_none() && b.only_seen {
+                skipped += 1;
+                continue;
+            }
+            if b.dry_run {
+                written += 1;
+                continue;
+            }
+            let threat = if b.threat_name.trim().is_empty() { None } else { Some(b.threat_name.as_str()) };
+            match ti.reviews.complete(&sha, &verdict, threat, &b.note, &b.internal_note, &b.analyst) {
+                Ok(_) => written += 1,
+                Err(e) => {
+                    failed += 1;
+                    if errors.len() < 5 {
+                        errors.push(e);
+                    }
+                }
+            }
+        }
+        serde_json::json!({
+            "ok": true,
+            "dry_run": b.dry_run,
+            "verdict": verdict,
+            "received": b.sha256s.len(),
+            "valid": seen_set.len(),
+            "invalid": invalid,
+            "duplicates": duplicates,
+            "unseen": unseen,
+            "pending": pending,
+            "already_same": same,
+            "engine_flagged": engine_flagged,
+            "human_conflicts": human_conflicts,
+            "conflicts": conflicts,
+            "written": written,
+            "skipped": skipped,
+            "failed": failed,
+            "errors": errors,
+        })
+    })
+    .await;
+    match result {
+        Ok(v) => {
+            if !v["dry_run"].as_bool().unwrap_or(true) {
+                info_event(
+                    &app,
+                    format!(
+                        "human analysis bulk {}: {} written, {} skipped, {} failed",
+                        v["verdict"].as_str().unwrap_or("?"),
+                        v["written"],
+                        v["skipped"],
+                        v["failed"]
+                    ),
+                );
+            }
+            (StatusCode::OK, Json(v)).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
 }
 
 #[derive(Deserialize)]

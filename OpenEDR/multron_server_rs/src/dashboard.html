@@ -98,6 +98,56 @@
   .limitform input { padding: 5px 8px; text-align: right; }
   .limitform input.dirty { border-color: var(--accent); }
   .btnrow { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .ha-wide { grid-column: 1 / -1; }
+  .ha-head { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .ha-head h2 { margin: 0; }
+  .ha-head .ha-stats { margin: 0; }
+  .ha-head .spacer { flex: 1; }
+  .ha-tabs { display: flex; gap: 6px; }
+  .ha-tabs button { padding: 6px 14px; font-size: 12.5px; }
+  .ha-layout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 16px; align-items: start; }
+  @media (max-width: 1150px) { .ha-layout { grid-template-columns: 1fr; } }
+  .ha-editor { position: sticky; top: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .ha-editor input, .ha-editor select, .ha-editor textarea { background: var(--panel); }
+  .ha-editor h3 { margin: 0 0 4px; font-size: 13px; }
+  .ha-info { font-size: 12px; display: grid; gap: 3px; margin: 6px 0 4px; word-break: break-all; }
+  .ha-info .k { color: var(--muted); }
+  .ha-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) 170px 160px 140px; gap: 8px; }
+  @media (max-width: 800px) { .ha-toolbar { grid-template-columns: 1fr 1fr; } }
+  .ha-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .chip { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; }
+  .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chip small { opacity: .75; font-weight: 500; margin-left: 4px; }
+  .ha-selbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; font-size: 12.5px; }
+  .ha-selbar .spacer { flex: 1; }
+  .ha-selbar label.chk, .hf-opts label.chk, dialog label.chk { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--text); font-weight: 500; }
+  input[type=checkbox] { width: auto; }
+  button.ghost.ok { color: var(--green); } button.ghost.warn { color: var(--orange); } button.ghost.bad { color: var(--red); }
+  .ha-table { max-height: 600px; }
+  .ha-table tbody tr.it { cursor: pointer; }
+  .ha-table tbody tr.it:hover td { background: var(--panel2); }
+  .ha-table tbody tr.sel td { background: var(--blue-bg); }
+  .ha-table tbody tr.cur td { box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+  .ha-table tbody tr.grp td { background: var(--panel2); font-weight: 700; font-size: 12px; position: sticky; top: 29px; }
+  .ha-table td.fold { color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .ha-table a { color: var(--accent); text-decoration: none; }
+  .privacy { background: var(--blue-bg); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; }
+  .hf-opts { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 12px 0; font-size: 12.5px; }
+  .hf-opts input[type=number] { width: 90px; padding: 4px 8px; }
+  .bar { height: 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .hf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 1000px) { .hf-grid { grid-template-columns: 1fr; } }
+  dialog#haDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(760px, 94vw); }
+  dialog#haDlg::backdrop { background: rgba(0, 0, 0, .5); }
+  .dlg-body { padding: 18px 20px; max-height: 70vh; overflow: auto; }
+  .dlg-body h3 { margin: 0 0 10px; font-size: 16px; }
+  .dlg-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--border); }
+  .dlg-foot button { width: auto; margin: 0; }
+  .sumgrid { display: grid; grid-template-columns: 1fr auto; gap: 3px 18px; font-size: 13px; margin: 8px 0; }
+  .sumgrid span:nth-child(even) { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .warnbox { background: var(--orange-bg); color: var(--orange); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; margin: 8px 0; }
+  .dangerbox { background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; margin: 8px 0; }
   #feedWrap { max-height: 520px; }
   #clientsWrap { max-height: 260px; }
 </style>
@@ -239,49 +289,6 @@
       <div class="stat threat"><div class="v" id="sBanned">0</div><div class="l">IPs blocked now</div></div>
     </div>
 
-    <section class="card" id="humanAnalysis">
-      <h2>Human analysis</h2>
-      <div class="ha-stats" id="haStats">—</div>
-      <div class="ha-grid">
-        <div>
-          <label for="haSha">SHA-256</label>
-          <input id="haSha" type="text" placeholder="64 hex characters" style="font-family:Consolas, monospace; font-size:11.5px;">
-          <div class="row2">
-            <div>
-              <label for="haVerdict">Verdict</label>
-              <select id="haVerdict">
-                <option value="malicious">Malicious</option>
-                <option value="suspicious">Suspicious / PUA</option>
-                <option value="clean">Clean</option>
-              </select>
-            </div>
-            <div>
-              <label for="haAnalyst">Analyst</label>
-              <input id="haAnalyst" type="text" placeholder="name or handle">
-            </div>
-          </div>
-          <label for="haThreat">Threat name (required for malicious)</label>
-          <input id="haThreat" type="text" placeholder="Category.Platform.Family[.Variant], e.g. Backdoor.Win32.Remcos.A">
-          <label for="haNote">Public note</label>
-          <textarea id="haNote" placeholder="Why this verdict. Shown on viruskov.com."></textarea>
-          <label for="haInternal">Internal note (analysts only)</label>
-          <textarea id="haInternal" placeholder="Private: sandbox findings, sources, doubts. Never published."></textarea>
-          <div class="hint">The verdict overrides the engine for every client and is published on the website with the public note and the response time. The internal note stays on this dashboard.</div>
-          <div class="row2">
-            <button class="primary" id="haSave">Save verdict</button>
-            <button class="danger" id="haDelete">Remove review</button>
-          </div>
-          <div id="haMsg" class="error"></div>
-        </div>
-        <div>
-          <div class="feedbar"><h2 style="margin:0">Queue (oldest first)</h2></div>
-          <div class="ha-list" id="haPending"><div class="ha-item">Loading…</div></div>
-          <div class="feedbar" style="margin-top:12px"><h2 style="margin:0">Recent verdicts</h2></div>
-          <div class="ha-list" id="haRecent" style="max-height:220px"></div>
-        </div>
-      </div>
-    </section>
-
     <section class="card" id="signatureRoom">
       <h2>Signature room</h2>
       <div class="hint" style="margin-top:0">Analyst rules live in <code id="sigFolder">analyst_signatures/</code>, apart from the shipped rule folders. Names follow <b>Category.Platform.Family[.Variant]</b>.</div>
@@ -362,6 +369,171 @@
       </div>
     </section>
   </div>
+  <section class="card ha-wide" id="humanAnalysis">
+    <div class="ha-head">
+      <h2>Human analysis</h2>
+      <div class="ha-stats" id="haStats">—</div>
+      <span class="spacer"></span>
+      <div class="ha-tabs" id="haTabs">
+        <button class="ghost active" data-tab="Queue">Queue <span id="haQCount"></span></button>
+        <button class="ghost" data-tab="Folder">Folder whitelist</button>
+        <button class="ghost" data-tab="Recent">Verdicts</button>
+      </div>
+    </div>
+
+    <div class="ha-tab" id="haTabQueue">
+      <div class="ha-layout">
+        <div style="min-width:0">
+          <div class="ha-toolbar">
+            <input id="haSearch" type="search" placeholder="Search file name, SHA-256 or folder…">
+            <select id="haGroup">
+              <option value="ext">Group by extension</option>
+              <option value="folder">Group by folder</option>
+              <option value="none">No grouping</option>
+            </select>
+            <select id="haEngineF">
+              <option value="">Engine: any</option>
+              <option value="unknown">Unknown</option>
+              <option value="possible_clean">Possible clean</option>
+              <option value="suspicious">Suspicious</option>
+              <option value="malicious">Malicious</option>
+              <option value="clean">Clean</option>
+            </select>
+            <select id="haSourceF">
+              <option value="">Source: any</option>
+              <option value="auto">Engine (auto)</option>
+              <option value="user">Website user</option>
+              <option value="rescan">Rescan</option>
+            </select>
+          </div>
+          <div class="ha-chips" id="haExtChips"></div>
+          <div class="ha-selbar">
+            <label class="chk"><input type="checkbox" id="haSelAll"> <span id="haSelAllLbl">Select all shown</span></label>
+            <b id="haSelCount">0 selected</b>
+            <button class="ghost" id="haSelNone">Clear</button>
+            <span class="spacer"></span>
+            <button class="ghost ok" data-bulk="clean">Whitelist (clean)</button>
+            <button class="ghost warn" data-bulk="suspicious">Suspicious</button>
+            <button class="ghost bad" data-bulk="malicious">Malicious…</button>
+            <button class="ghost" data-bulk="dismiss">Remove from queue</button>
+          </div>
+          <div class="tablewrap ha-table">
+            <table>
+              <thead><tr><th style="width:30px"></th><th>File</th><th>Engine</th><th class="num">Seen</th><th class="num">Size</th><th>Folder</th><th>Waiting</th><th></th></tr></thead>
+              <tbody id="haRows"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="hint" id="haListHint"></div>
+        </div>
+
+        <aside class="ha-editor">
+          <h3>Verdict</h3>
+          <div class="ha-info" id="haInfo"><span class="k">Pick a file from the queue or enter a SHA-256.</span></div>
+          <label for="haSha">SHA-256</label>
+          <input id="haSha" type="text" placeholder="64 hex characters" style="font-family:Consolas, monospace; font-size:11.5px;">
+          <div class="row2">
+            <div>
+              <label for="haVerdict">Verdict</label>
+              <select id="haVerdict">
+                <option value="malicious">Malicious</option>
+                <option value="suspicious">Suspicious / PUA</option>
+                <option value="clean">Clean</option>
+              </select>
+            </div>
+            <div>
+              <label for="haAnalyst">Analyst</label>
+              <input id="haAnalyst" type="text" placeholder="name or handle">
+            </div>
+          </div>
+          <label for="haThreat">Threat name (required for malicious)</label>
+          <input id="haThreat" type="text" placeholder="e.g. Backdoor.Win32.Remcos.A">
+          <label for="haNote">Public note</label>
+          <textarea id="haNote" placeholder="Why this verdict. Shown on viruskov.com."></textarea>
+          <label for="haInternal">Internal note (analysts only)</label>
+          <textarea id="haInternal" placeholder="Private: sandbox findings, sources, doubts. Never published."></textarea>
+          <div class="row2">
+            <button class="primary" id="haSave">Save verdict</button>
+            <button class="danger" id="haDelete">Remove review</button>
+          </div>
+          <div id="haMsg" class="error"></div>
+          <div class="hint">The verdict overrides the engine for every client and is published on the website with the public note and the response time. The internal note and folders stay on this dashboard.</div>
+        </aside>
+      </div>
+    </div>
+
+    <div class="ha-tab" id="haTabFolder" hidden>
+      <div class="privacy">
+        <b>Private by design.</b> The folder is read and hashed in this browser. Only SHA-256 hashes are sent to the server;
+        file names, paths and contents never leave this computer. Every hash you confirm becomes a <b>clean</b> human verdict:
+        clients get it instantly and viruskov.com shows it with the public note.
+      </div>
+      <div class="hf-opts">
+        <button class="ghost" id="hfPickBtn" style="padding:7px 14px">Choose folder…</button>
+        <input type="file" id="hfPick" webkitdirectory directory multiple hidden>
+        <span id="hfInfo" class="hint" style="margin:0">No folder chosen.</span>
+        <span class="spacer" style="flex:1"></span>
+        <label class="chk">Skip files over <input type="number" id="hfMaxMb" min="1" value="512"> MB</label>
+      </div>
+      <div class="hf-grid">
+        <div>
+          <div class="feedbar">
+            <h2>File types</h2><span class="spacer"></span>
+            <button class="ghost" id="hfAll">All</button>
+            <button class="ghost" id="hfExec">Executables &amp; scripts</button>
+            <button class="ghost" id="hfNone">None</button>
+          </div>
+          <div class="tablewrap" style="max-height:340px">
+            <table>
+              <thead><tr><th style="width:30px"></th><th>Extension</th><th class="num">Files</th><th class="num">Size</th><th class="num">Hashed</th></tr></thead>
+              <tbody id="hfExts"><tr><td colspan="5" class="empty">Choose a folder to list its file types.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <label for="hfNote">Public note</label>
+          <input id="hfNote" type="text" value="Whitelisted by a VirusKov analyst (known-good software).">
+          <label for="hfInternal">Internal note (analysts only)</label>
+          <input id="hfInternal" type="text" placeholder="e.g. vendor installer set, verified signatures">
+          <div class="hf-opts" style="margin-bottom:0">
+            <label class="chk"><input type="checkbox" id="hfOnlySeen"> Only hashes VirusKov has already seen</label>
+          </div>
+          <div class="bar"><div id="hfBar"></div></div>
+          <div class="hint" id="hfProgress" style="margin-top:0"></div>
+          <div class="row2">
+            <button class="primary" id="hfRun" disabled>Hash &amp; review…</button>
+            <button class="danger" id="hfStop" disabled>Stop hashing</button>
+          </div>
+          <div id="hfMsg" class="error"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ha-tab" id="haTabRecent" hidden>
+      <div class="ha-toolbar" style="grid-template-columns:minmax(180px,1fr) 170px">
+        <input id="haRecentSearch" type="search" placeholder="Search SHA-256, threat, note, analyst…">
+        <select id="haRecentF">
+          <option value="">Verdict: any</option>
+          <option value="malicious">Malicious</option>
+          <option value="suspicious">Suspicious</option>
+          <option value="clean">Clean</option>
+        </select>
+      </div>
+      <div class="tablewrap ha-table" style="margin-top:10px">
+        <table>
+          <thead><tr><th>SHA-256</th><th>Verdict</th><th>Notes</th><th>Analyst</th><th>Response</th><th>Reviewed</th><th></th></tr></thead>
+          <tbody id="haRecentRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <dialog id="haDlg">
+    <div class="dlg-body" id="haDlgBody"></div>
+    <div class="dlg-foot">
+      <button class="ghost" id="haDlgCancel">Cancel</button>
+      <button class="primary" id="haDlgOk">Apply</button>
+    </div>
+  </dialog>
 </main>
 
 <script>
@@ -794,86 +966,460 @@
     if (s < 86400) return (s / 3600).toFixed(1) + " h";
     return (s / 86400).toFixed(1) + " d";
   };
+  const haSize = (n) => n == null ? "—" : n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
   const haTag = (v) => v === "malicious" ? "t-malicious" : v === "suspicious" ? "t-suspicious" : v === "clean" ? "t-clean" : v === "possible_clean" ? "t-possible_clean" : "t-unknown";
+  const haVTag = (v) => `<span class="tag ${haTag(v)}">${haEsc((v || "unknown").replace("_", " ").toUpperCase())}</span>`;
   try { $("haAnalyst").value = localStorage.getItem("multron_analyst") || ""; } catch (_) {}
+  const haAnalystName = () => { const a = $("haAnalyst").value.trim(); try { localStorage.setItem("multron_analyst", a); } catch (_) {} return a; };
 
-  const haFill = (sha, verdict, threat, note, internal) => {
+  // Tabs
+  document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
+    document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
+    ["Queue", "Folder", "Recent"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
+  });
+  const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
+
+  let haPend = [], haRecentList = [], haCur = null, haExt = "";
+  const haSel = new Set();
+  const haName = (r) => r.file_name || (r.file_names || [])[0] || "";
+  const haFolder = (r) => (r.folders || [])[0] || "";
+
+  const haFilter = () => {
+    const q = $("haSearch").value.trim().toLowerCase();
+    const ef = $("haEngineF").value, sf = $("haSourceF").value;
+    return haPend.filter(r => {
+      const eng = r.current_verdict || r.engine_verdict || "unknown";
+      if (haExt && (r.ext || "(none)") !== haExt) return false;
+      if (ef && eng !== ef) return false;
+      if (sf && r.source !== sf) return false;
+      if (q) {
+        const hay = [r.sha256, ...(r.file_names || []), r.file_name || "", ...(r.folders || [])].join("\n").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  };
+
+  const haSelUpdate = () => {
+    const shown = haFilter();
+    $("haSelCount").textContent = `${haSel.size} selected`;
+    $("haSelAllLbl").textContent = `Select all shown (${shown.length})`;
+    $("haSelAll").checked = shown.length > 0 && shown.every(r => haSel.has(r.sha256));
+    document.querySelectorAll("[data-bulk]").forEach(b => { b.disabled = haSel.size === 0; });
+  };
+
+  const HA_MAX_ROWS = 1500;
+  const haRender = () => {
+    // Extension chips (counts over the whole queue).
+    const counts = {};
+    haPend.forEach(r => { const e = r.ext || "(none)"; counts[e] = (counts[e] || 0) + 1; });
+    const exts = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    if (haExt && !counts[haExt]) haExt = "";
+    $("haExtChips").innerHTML = `<button class="chip ${haExt ? "" : "active"}" data-ext="">All<small>${haPend.length}</small></button>` +
+      exts.map(e => `<button class="chip ${haExt === e ? "active" : ""}" data-ext="${haEsc(e)}">${e === "(none)" ? "no extension" : "." + haEsc(e)}<small>${counts[e]}</small></button>`).join("");
+    $("haExtChips").querySelectorAll(".chip").forEach(c => c.onclick = () => { haExt = c.dataset.ext; haRender(); });
+
+    const shown = haFilter();
+    const mode = $("haGroup").value;
+    const groups = new Map();
+    shown.forEach(r => {
+      const k = mode === "ext" ? (r.ext ? "." + r.ext : "no extension") : mode === "folder" ? (haFolder(r) || "(folder not reported)") : "";
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(r);
+    });
+    const keys = [...groups.keys()].sort((a, b) => groups.get(b).length - groups.get(a).length);
+    const now = Date.now();
+    let html = "", rows = 0;
+    for (const k of keys) {
+      const list = groups.get(k);
+      if (mode !== "none") {
+        const all = list.every(r => haSel.has(r.sha256));
+        html += `<tr class="grp"><td><input type="checkbox" data-grp="${haEsc(k)}" ${all ? "checked" : ""}></td><td colspan="7">${haEsc(k)} · ${list.length} file${list.length === 1 ? "" : "s"}</td></tr>`;
+      }
+      for (const r of list) {
+        if (rows++ >= HA_MAX_ROWS) break;
+        const eng = r.current_verdict || r.engine_verdict || "unknown";
+        const wait = Math.max(0, Math.round((now - new Date(r.requested_at).getTime()) / 1000));
+        const folders = (r.folders || []).join("\n");
+        html += `<tr class="it${haSel.has(r.sha256) ? " sel" : ""}${haCur === r.sha256 ? " cur" : ""}" data-sha="${r.sha256}">
+          <td><input type="checkbox" data-sel="${r.sha256}" ${haSel.has(r.sha256) ? "checked" : ""}></td>
+          <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : ""}</td>
+          <td>${haVTag(eng)}</td>
+          <td class="num">${r.seen_count || 0}</td>
+          <td class="num">${haSize(r.file_size)}</td>
+          <td class="fold" title="${haEsc(folders)}">${haEsc(haFolder(r) || "—")}${(r.folders || []).length > 1 ? ` <small>+${r.folders.length - 1}</small>` : ""}</td>
+          <td class="num">${haDur(wait)}</td>
+          <td style="white-space:nowrap"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" title="VirusTotal">VT ↗</a></td>
+        </tr>`;
+      }
+      if (rows >= HA_MAX_ROWS) break;
+    }
+    $("haRows").innerHTML = html || `<tr><td colspan="8" class="empty">${haPend.length ? "Nothing matches the filters." : "The queue is empty."}</td></tr>`;
+    $("haListHint").textContent = shown.length > HA_MAX_ROWS ? `Showing ${HA_MAX_ROWS} of ${shown.length}; "Select all shown" still selects all ${shown.length}. Narrow the filters to see the rest.` : "";
+    haSelUpdate();
+  };
+
+  $("haRows").addEventListener("click", (e) => {
+    const t = e.target;
+    if (t.matches("input[data-sel]")) {
+      t.checked ? haSel.add(t.dataset.sel) : haSel.delete(t.dataset.sel);
+      t.closest("tr").classList.toggle("sel", t.checked);
+      haSelUpdate();
+      return;
+    }
+    if (t.matches("input[data-grp]")) {
+      const mode = $("haGroup").value;
+      haFilter().forEach(r => {
+        const k = mode === "ext" ? (r.ext ? "." + r.ext : "no extension") : (haFolder(r) || "(folder not reported)");
+        if (k === t.dataset.grp) t.checked ? haSel.add(r.sha256) : haSel.delete(r.sha256);
+      });
+      haRender();
+      return;
+    }
+    if (t.closest("a")) return;
+    const tr = t.closest("tr.it");
+    if (tr) haOpen(tr.dataset.sha);
+  });
+  ["haSearch", "haGroup", "haEngineF", "haSourceF"].forEach(id => $(id).addEventListener("input", haRender));
+  $("haSelAll").onchange = () => { haFilter().forEach(r => $("haSelAll").checked ? haSel.add(r.sha256) : haSel.delete(r.sha256)); haRender(); };
+  $("haSelNone").onclick = () => { haSel.clear(); haRender(); };
+
+  const haOpen = async (sha) => {
+    haCur = sha;
+    const r = haPend.find(x => x.sha256 === sha) || haRecentList.find(x => x.sha256 === sha);
+    document.querySelectorAll("#haRows tr.it").forEach(tr => tr.classList.toggle("cur", tr.dataset.sha === sha));
     $("haSha").value = sha;
+    $("haMsg").textContent = "";
+    if (r && r.status === "completed") {
+      if (r.verdict) $("haVerdict").value = r.verdict;
+      $("haThreat").value = r.threat_name || "";
+      $("haNote").value = r.note || "";
+      $("haInternal").value = r.internal_note || "";
+    }
+    const info = r ? [
+      `<div><span class="k">Names:</span> ${haEsc((r.file_names || [haName(r)]).filter(Boolean).join(", ") || "—")}</div>`,
+      (r.folders || []).length ? `<div><span class="k">Folders:</span> ${r.folders.map(haEsc).join("<br>")}</div>` : "",
+      `<div><span class="k">Engine:</span> ${haVTag(r.current_verdict || r.engine_verdict)} ${r.current_threat ? "<b>" + haEsc(r.current_threat) + "</b>" : ""} · seen ${r.seen_count || 0}× · ${haSize(r.file_size)}</div>`,
+      `<div><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" style="color:var(--accent)">VirusTotal ↗</a> · <a href="#" onclick="rescanSha('${sha}');return false" style="color:var(--accent)">Rescan</a></div>`,
+      `<div id="haSimilar" class="k">Looking for similar files…</div>`,
+    ].join("") : `<span class="k">Not in the queue.</span>`;
+    $("haInfo").innerHTML = info;
+    if (!r) return;
+    try {
+      const d = await (await fetch("/api/reviews/similar/" + sha, { cache: "no-store" })).json();
+      if (haCur !== sha || !$("haSimilar")) return;
+      const sim = d.similar || [];
+      $("haSimilar").innerHTML = sim.length ? "TLSH neighbours: " + sim.map(x => `<span class="tag ${haTag(x.verdict)}" title="${haEsc(x.sha256 || "")}">d=${x.distance}${x.threat_name ? " " + haEsc(x.threat_name) : ""}</span>`).join(" ") : "No similar files (TLSH).";
+    } catch (_) { if ($("haSimilar")) $("haSimilar").textContent = ""; }
+  };
+  window.haFill = (sha, verdict, threat, note, internal) => {
+    haShowTab("Queue");
+    haOpen(sha);
     if (verdict) $("haVerdict").value = verdict;
-    $("haThreat").value = threat || "";
-    $("haNote").value = note || "";
-    $("haInternal").value = internal || "";
+    if (threat != null) $("haThreat").value = threat;
+    if (note != null) $("haNote").value = note;
+    if (internal != null) $("haInternal").value = internal;
     $("haNote").focus();
   };
-  window.haFill = haFill;
-  window.haEdit = (i) => { const r = (window.haRecentList || [])[i]; if (r) haFill(r.sha256, r.verdict, r.threat_name, r.note, r.internal_note); };
+  window.haEdit = (i) => { const r = haRecentList[i]; if (r) window.haFill(r.sha256, r.verdict, r.threat_name || "", r.note || "", r.internal_note || ""); };
+
+  const haRenderRecent = () => {
+    const q = $("haRecentSearch").value.trim().toLowerCase(), f = $("haRecentF").value;
+    const rows = haRecentList.map((r, i) => [r, i]).filter(([r]) => (!f || r.verdict === f) &&
+      (!q || [r.sha256, r.threat_name, r.note, r.internal_note, r.analyst].join("\n").toLowerCase().includes(q)));
+    $("haRecentRows").innerHTML = rows.length ? rows.map(([r, i]) => `<tr>
+        <td class="mono" title="${r.sha256}">${r.sha256.slice(0, 20)}…</td>
+        <td>${haVTag(r.verdict)} ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b>" : ""}</td>
+        <td class="detail" title="${haEsc(r.note + (r.internal_note ? "\nInternal: " + r.internal_note : ""))}">${haEsc(r.note || "")}${r.internal_note ? ` <i>· internal: ${haEsc(r.internal_note)}</i>` : ""}</td>
+        <td>${haEsc(r.analyst || "—")}</td>
+        <td class="num">${haDur(r.response_secs)}</td>
+        <td class="num">${r.reviewed_at ? new Date(r.reviewed_at).toLocaleString() : "—"}</td>
+        <td style="white-space:nowrap"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VT ↗</a> <button class="ghost" onclick="haEdit(${i})">Edit</button></td>
+      </tr>`).join("") : `<tr><td colspan="7" class="empty">No verdicts.</td></tr>`;
+  };
+  ["haRecentSearch", "haRecentF"].forEach(id => $(id).addEventListener("input", haRenderRecent));
 
   const haLoad = async () => {
+    if ($("haDlg").open) return;
     try {
       const res = await fetch("/api/reviews", { cache: "no-store" });
       if (!res.ok) return;
       const d = await res.json();
       const st = d.stats || {};
       $("haStats").innerHTML =
-        `<span>Pending: <b>${st.pending ?? 0}</b></span>` +
-        `<span>Completed: <b>${st.completed ?? 0}</b></span>` +
+        `<span>Waiting: <b>${st.pending ?? 0}</b></span>` +
+        `<span>Done: <b>${st.completed ?? 0}</b></span>` +
         `<span>Last 24 h: <b>${st.completed_24h ?? 0}</b></span>` +
         `<span>Avg response: <b>${haDur(st.avg_response_secs)}</b></span>` +
         `<span>Median: <b>${haDur(st.median_response_secs)}</b></span>` +
         `<span>Oldest waiting: <b>${haDur(st.oldest_pending_secs)}</b></span>`;
-      const pend = d.pending || [];
-      $("haPending").innerHTML = pend.length ? pend.map(r => {
-        const waited = Math.max(0, Math.round((Date.now() - new Date(r.requested_at)) / 1000));
-        const names = (r.file_names && r.file_names.length ? r.file_names : (r.file_name ? [r.file_name] : [])).join(", ");
-        return `<div class="ha-item">
-          <div class="h">${haEsc(r.sha256)}</div>
-          <div>${names ? haEsc(names) + " · " : ""}engine: <span class="tag ${haTag(r.engine_verdict)}">${haEsc((r.engine_verdict || "unknown").toUpperCase())}</span> · ${haEsc(r.source)} · waiting ${haDur(waited)}${r.seen_count ? " · " + r.seen_count + " sightings" : ""}</div>
-          ${(r.similar || []).length ? `<div style="color:var(--muted)">TLSH: ${(r.similar || []).map(x => `<span class="tag ${haTag(x.verdict)}">d=${x.distance} ${haEsc((x.verdict || "?").toUpperCase())}${x.verdict_source === "human" ? " (human)" : ""}</span>${x.threat_name ? " " + haEsc(x.threat_name) : ""}`).join(" ")}</div>` : ""}
-          <div class="acts">
-            <a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VirusTotal ↗</a>
-            <button class="ghost" onclick="haFill('${haEsc(r.sha256)}')">Review</button>
-            <button class="ghost" onclick="rescanSha('${haEsc(r.sha256)}')">Rescan</button>
-          </div>
-        </div>`;
-      }).join("") : `<div class="ha-item">Queue is empty.</div>`;
-      const rec = d.recent || [];
-      window.haRecentList = rec;
-      $("haRecent").innerHTML = rec.length ? rec.map((r, i) => `<div class="ha-item">
-          <div class="h">${haEsc(r.sha256)}</div>
-          <div><span class="tag ${haTag(r.verdict)}">${haEsc((r.verdict || "").toUpperCase())}</span> ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b> · " : ""}${haEsc(r.analyst || "analyst")} · response ${haDur(r.response_secs)}</div>
-          ${r.note ? `<div style="color:var(--muted)">${haEsc(r.note)}</div>` : ""}
-          ${r.internal_note ? `<div style="color:var(--muted)"><b>Internal:</b> ${haEsc(r.internal_note)}</div>` : ""}
-          <div class="acts"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VirusTotal ↗</a>
-          <button class="ghost" onclick="haEdit(${i})">Edit</button></div>
-        </div>`).join("") : `<div class="ha-item">No verdicts yet.</div>`;
+      haPend = d.pending || [];
+      haRecentList = d.recent || [];
+      const live = new Set(haPend.map(r => r.sha256));
+      [...haSel].forEach(s => { if (!live.has(s)) haSel.delete(s); });
+      $("haQCount").textContent = st.pending ? `(${st.pending})` : "";
+      haRender();
+      haRenderRecent();
     } catch (_) {}
   };
+  window.haLoad = haLoad;
 
   $("haSave").onclick = async () => {
     $("haMsg").textContent = "";
     const sha = $("haSha").value.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(sha)) { $("haMsg").textContent = "Enter a valid SHA-256."; return; }
-    try { localStorage.setItem("multron_analyst", $("haAnalyst").value.trim()); } catch (_) {}
     try {
       const r = await post("/api/review", {
         sha256: sha, verdict: $("haVerdict").value, threat_name: $("haThreat").value,
-        note: $("haNote").value, internal_note: $("haInternal").value, analyst: $("haAnalyst").value,
+        note: $("haNote").value, internal_note: $("haInternal").value, analyst: haAnalystName(),
       });
       $("haMsg").style.color = "var(--green)";
       $("haMsg").textContent = `Saved: ${r.review.verdict} (response ${haDur(r.review.response_secs)})`;
-      $("haSha").value = ""; $("haThreat").value = ""; $("haNote").value = "";
-      haLoad();
+      haSel.delete(sha);
+      // Move on to the next file in the current view.
+      const shown = haFilter(), i = shown.findIndex(x => x.sha256 === sha);
+      const next = i >= 0 ? (shown[i + 1] || shown[i - 1]) : null;
+      $("haThreat").value = ""; $("haNote").value = ""; $("haInternal").value = "";
+      await haLoad();
+      if (next) haOpen(next.sha256); else { $("haSha").value = ""; haCur = null; }
     } catch (err) { $("haMsg").style.color = ""; $("haMsg").textContent = err.message; }
   };
   $("haDelete").onclick = async () => {
     const sha = $("haSha").value.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(sha)) { $("haMsg").textContent = "Enter a valid SHA-256."; return; }
-    if (!confirm("Remove the human review for this hash? The engine verdict applies again.")) return;
-    try { await post("/api/review/delete", { sha256: sha }); $("haMsg").textContent = "Removed."; haLoad(); }
+    if (!confirm("Remove the human review of this hash? The engine verdict applies again.")) return;
+    try { await post("/api/review/delete", { sha256: sha }); $("haMsg").style.color = ""; $("haMsg").textContent = "Removed."; haLoad(); }
     catch (err) { $("haMsg").textContent = err.message; }
   };
+
+  // ---------------- Bulk verdicts with a confirmation dialog ----------------
+  // 1) dry run: the server counts what would happen (engine conflicts, existing verdicts),
+  // 2) the dialog shows it, 3) only "Apply" writes.
+  const HA_LABEL = { clean: "Whitelist as CLEAN", suspicious: "Mark SUSPICIOUS", malicious: "Mark MALICIOUS", dismiss: "Remove from the queue" };
+  const haBulk = async ({ hashes, verdict, note, internal, onlySeen, title, onDone }) => {
+    const dlg = $("haDlg"), body = $("haDlgBody"), ok = $("haDlgOk");
+    let override = false, threat = $("haThreat").value.trim();
+    const base = () => ({ sha256s: hashes, verdict, threat_name: threat, note, internal_note: internal, analyst: haAnalystName(), only_seen: !!onlySeen, override_conflicts: override });
+    const show = async () => {
+      ok.disabled = true;
+      body.innerHTML = `<h3>${haEsc(title)}</h3><div class="hint">Checking ${hashes.length} hashes…</div>`;
+      let d;
+      try { d = await post("/api/reviews/bulk", { ...base(), dry_run: true }); }
+      catch (e) { body.innerHTML = `<h3>${haEsc(title)}</h3><div class="dangerbox">${haEsc(e.message)}</div>`; return; }
+      const conflicts = d.engine_flagged + d.human_conflicts;
+      const conflictRows = (d.conflicts || []).map(c => `<tr><td class="mono" title="${c.sha256}">${c.sha256.slice(0, 16)}…</td><td class="file">${haEsc(c.name || "—")}</td><td>${haVTag(c.engine)} ${c.threat ? "<b>" + haEsc(c.threat) + "</b>" : ""}</td><td>${c.human ? haVTag(c.human) : "—"}</td></tr>`).join("");
+      body.innerHTML = `<h3>${haEsc(title)}</h3>
+        <div class="sumgrid">
+          <span>Hashes received</span><span>${d.received}</span>
+          ${d.invalid ? `<span>Invalid</span><span>${d.invalid}</span>` : ""}
+          ${d.duplicates ? `<span>Duplicates</span><span>${d.duplicates}</span>` : ""}
+          ${verdict !== "dismiss" ? `<span>Already ${verdict} by an analyst (unchanged)</span><span>${d.already_same}</span>` : ""}
+          <span>In the queue now</span><span>${d.pending}</span>
+          <span>Never seen by VirusKov</span><span>${d.unseen}</span>
+          ${verdict !== "dismiss" ? `<span>Flagged by the engine</span><span>${d.engine_flagged}</span><span>Analyst gave another verdict</span><span>${d.human_conflicts}</span>` : ""}
+          <span>Skipped</span><span>${d.skipped}</span>
+          <span style="color:var(--text)">Will be written</span><span style="color:var(--accent)">${d.written}</span>
+        </div>
+        ${verdict === "clean" && d.engine_flagged ? `<div class="dangerbox"><b>${d.engine_flagged} file(s) are detected as malicious or suspicious by the engine.</b> They are skipped unless you override below. Whitelisting malware sends a clean verdict to every client.</div>` : ""}
+        ${d.human_conflicts ? `<div class="warnbox">${d.human_conflicts} hash(es) already have a different analyst verdict; they are skipped unless you override.</div>` : ""}
+        ${d.unseen && verdict !== "dismiss" && !onlySeen ? `<div class="warnbox">${d.unseen} hash(es) were never scanned by VirusKov. They are stored as verdicts anyway, so the first client that meets them gets this answer at once.</div>` : ""}
+        ${verdict === "malicious" ? `<label for="haDlgThreat">Threat name (required)</label><input id="haDlgThreat" type="text" value="${haEsc(threat)}" placeholder="e.g. Trojan.Win32.Agent.A">` : ""}
+        ${conflicts ? `<div style="margin-top:10px"><label class="chk"><input type="checkbox" id="haDlgOverride" ${override ? "checked" : ""}> Also overwrite the ${conflicts} conflicting hash(es)</label></div>` : ""}
+        ${override ? `<div style="margin-top:6px"><label class="chk" style="color:var(--red)"><input type="checkbox" id="haDlgSure"> I checked these files and take responsibility for this verdict</label></div>` : ""}
+        ${conflictRows ? `<div class="tablewrap" style="max-height:220px;margin-top:10px"><table><thead><tr><th>SHA-256</th><th>File</th><th>Engine</th><th>Analyst</th></tr></thead><tbody>${conflictRows}</tbody></table></div>` : ""}
+        <div class="hint">${verdict === "dismiss" ? "Removed entries can come back when a client meets the file again." : "Public note: " + haEsc(note || "—")}</div>`;
+      ok.textContent = d.written ? `${HA_LABEL[verdict] || "Apply"} (${d.written})` : "Nothing to do";
+      ok.className = verdict === "malicious" || override ? "danger" : "primary";
+      ok.disabled = !d.written || override;
+      const ov = $("haDlgOverride");
+      if (ov) ov.onchange = () => { override = ov.checked; show(); };
+      const sure = $("haDlgSure");
+      if (sure) sure.onchange = () => { ok.disabled = !sure.checked || !d.written; };
+      const th = $("haDlgThreat");
+      if (th) th.oninput = () => { threat = th.value.trim(); };
+    };
+    ok.onclick = async () => {
+      if (verdict === "malicious" && !threat) { $("haDlgThreat").focus(); return; }
+      ok.disabled = true;
+      ok.textContent = "Writing…";
+      try {
+        const r = await post("/api/reviews/bulk", { ...base(), dry_run: false });
+        dlg.close();
+        if (onDone) onDone(`${r.written} written, ${r.skipped} skipped${r.failed ? `, ${r.failed} failed (${(r.errors || []).join("; ")})` : ""}.`, !r.failed);
+        haLoad();
+      } catch (e) {
+        ok.disabled = false;
+        ok.textContent = "Retry";
+        body.insertAdjacentHTML("beforeend", `<div class="dangerbox">${haEsc(e.message)}</div>`);
+      }
+    };
+    $("haDlgCancel").onclick = () => dlg.close();
+    dlg.showModal();
+    await show();
+  };
+
+  document.querySelectorAll("[data-bulk]").forEach(b => b.onclick = () => {
+    const verdict = b.dataset.bulk;
+    const hashes = [...haSel];
+    if (!hashes.length) return;
+    haBulk({
+      hashes, verdict,
+      note: verdict === "dismiss" ? "" : $("haNote").value.trim(),
+      internal: verdict === "dismiss" ? "" : $("haInternal").value.trim(),
+      title: `${HA_LABEL[verdict]}: ${hashes.length} selected file(s)`,
+      onDone: (msg, good) => { haSel.clear(); $("haMsg").style.color = good ? "var(--green)" : ""; $("haMsg").textContent = msg; },
+    });
+  });
+
+  // ---------------- Folder whitelist (hashed in this browser) ----------------
+  const HF_EXEC = new Set(["exe", "dll", "sys", "scr", "ocx", "cpl", "drv", "com", "msi", "msp", "msix", "appx", "jar", "apk", "js", "jse", "vbs", "vbe", "wsf", "hta", "ps1", "psm1", "bat", "cmd", "lnk", "py", "efi", "node", "so", "dylib", "elf", "bin"]);
+  let hfFiles = [], hfExtOn = new Set(), hfHashes = new Map(), hfStop = false;
+  const hfExtOf = (name) => { const i = name.lastIndexOf("."); return i > 0 && name.length - i <= 12 ? name.slice(i + 1).toLowerCase() : ""; };
+  $("hfPickBtn").onclick = () => $("hfPick").click();
+  const hfRenderExts = () => {
+    const by = {};
+    const max = (+$("hfMaxMb").value || 512) * 1048576;
+    hfFiles.forEach(f => {
+      const e = hfExtOf(f.name);
+      const g = by[e] || (by[e] = { n: 0, size: 0, big: 0, done: 0 });
+      g.n++; g.size += f.size;
+      if (f.size > max) g.big++;
+      if (hfHashes.has(f)) g.done++;
+    });
+    const exts = Object.keys(by).sort((a, b) => by[b].n - by[a].n);
+    $("hfExts").innerHTML = exts.length ? exts.map(e => `<tr><td><input type="checkbox" data-hfext="${haEsc(e)}" ${hfExtOn.has(e) ? "checked" : ""}></td>
+      <td>${e ? "." + haEsc(e) : "<i>no extension</i>"}${HF_EXEC.has(e) ? ' <span class="tag t-suspicious">exec</span>' : ""}</td>
+      <td class="num">${by[e].n}${by[e].big ? ` <small title="over the size limit, skipped">(-${by[e].big})</small>` : ""}</td><td class="num">${haSize(by[e].size)}</td><td class="num">${by[e].done || ""}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="empty">Choose a folder to list its file types.</td></tr>`;
+    $("hfExts").querySelectorAll("input[data-hfext]").forEach(c => c.onchange = () => { c.checked ? hfExtOn.add(c.dataset.hfext) : hfExtOn.delete(c.dataset.hfext); hfSummary(); });
+    hfSummary();
+  };
+  const hfChosen = () => { const max = (+$("hfMaxMb").value || 512) * 1048576; return hfFiles.filter(f => hfExtOn.has(hfExtOf(f.name)) && f.size <= max); };
+  const hfSummary = () => {
+    const c = hfChosen();
+    const bytes = c.reduce((a, f) => a + f.size, 0);
+    $("hfRun").disabled = !c.length;
+    $("hfRun").textContent = c.length ? `Hash & review ${c.length} file(s) (${haSize(bytes)})…` : "Hash & review…";
+  };
+  $("hfPick").onchange = () => {
+    hfFiles = [...$("hfPick").files];
+    hfHashes = new Map();
+    const exts = new Set(hfFiles.map(f => hfExtOf(f.name)));
+    hfExtOn = new Set([...exts].filter(e => HF_EXEC.has(e)));
+    if (!hfExtOn.size) hfExtOn = new Set(exts);
+    const root = hfFiles[0] && hfFiles[0].webkitRelativePath ? hfFiles[0].webkitRelativePath.split("/")[0] : "";
+    $("hfInfo").textContent = hfFiles.length ? `${root ? root + ": " : ""}${hfFiles.length} files, ${exts.size} file types` : "The folder is empty.";
+    $("hfMsg").textContent = ""; $("hfProgress").textContent = ""; $("hfBar").style.width = "0";
+    hfRenderExts();
+  };
+  $("hfMaxMb").oninput = hfRenderExts;
+  $("hfAll").onclick = () => { hfExtOn = new Set(hfFiles.map(f => hfExtOf(f.name))); hfRenderExts(); };
+  $("hfNone").onclick = () => { hfExtOn = new Set(); hfRenderExts(); };
+  $("hfExec").onclick = () => { hfExtOn = new Set(hfFiles.map(f => hfExtOf(f.name)).filter(e => HF_EXEC.has(e))); hfRenderExts(); };
+  $("hfStop").onclick = () => { hfStop = true; };
+
+  const SHA_K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+  // Streaming SHA-256 for plain-HTTP dashboards, where crypto.subtle is missing, and for big files.
+  const sha256Stream = () => {
+    const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+    const W = new Uint32Array(64), buf = new Uint8Array(64);
+    let bl = 0, total = 0;
+    const block = (m, o) => {
+      for (let i = 0; i < 16; i++) W[i] = (m[o + 4 * i] << 24) | (m[o + 4 * i + 1] << 16) | (m[o + 4 * i + 2] << 8) | m[o + 4 * i + 3];
+      for (let i = 16; i < 64; i++) {
+        const a = W[i - 15], b = W[i - 2];
+        W[i] = (W[i - 16] + (((a >>> 7) | (a << 25)) ^ ((a >>> 18) | (a << 14)) ^ (a >>> 3)) + W[i - 7] + (((b >>> 17) | (b << 15)) ^ ((b >>> 19) | (b << 13)) ^ (b >>> 10))) | 0;
+      }
+      let a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (let i = 0; i < 64; i++) {
+        const t1 = (h + (((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))) + ((e & f) ^ (~e & g)) + SHA_K[i] + W[i]) | 0;
+        const t2 = ((((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] += a; H[1] += b; H[2] += c; H[3] += d; H[4] += e; H[5] += f; H[6] += g; H[7] += h;
+    };
+    return {
+      update(m) {
+        let i = 0;
+        total += m.length;
+        if (bl) {
+          while (bl < 64 && i < m.length) buf[bl++] = m[i++];
+          if (bl < 64) return;
+          block(buf, 0); bl = 0;
+        }
+        for (; i + 64 <= m.length; i += 64) block(m, i);
+        while (i < m.length) buf[bl++] = m[i++];
+      },
+      hex() {
+        const bits = total * 8;
+        buf[bl++] = 0x80;
+        if (bl > 56) { buf.fill(0, bl); block(buf, 0); bl = 0; }
+        buf.fill(0, bl, 56);
+        const hi = Math.floor(bits / 0x100000000), lo = bits >>> 0;
+        buf[56] = hi >>> 24; buf[57] = hi >>> 16; buf[58] = hi >>> 8; buf[59] = hi;
+        buf[60] = lo >>> 24; buf[61] = lo >>> 16; buf[62] = lo >>> 8; buf[63] = lo;
+        block(buf, 0);
+        return Array.from(H, x => x.toString(16).padStart(8, "0")).join("");
+      },
+    };
+  };
+  const hfHashFile = async (f) => {
+    // crypto.subtle exists only on https / localhost; plain-HTTP dashboards use the JS hasher.
+    if (window.crypto && crypto.subtle && f.size <= 64 * 1048576) {
+      const d = await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
+      return Array.from(new Uint8Array(d), b => b.toString(16).padStart(2, "0")).join("");
+    }
+    const h = sha256Stream();
+    for (let off = 0; off < f.size; off += 8 * 1048576) {
+      if (hfStop) throw new Error("stopped");
+      h.update(new Uint8Array(await f.slice(off, off + 8 * 1048576).arrayBuffer()));
+    }
+    return h.hex();
+  };
+  $("hfRun").onclick = async () => {
+    const list = hfChosen();
+    if (!list.length) return;
+    if (list.length > 100000) { $("hfMsg").textContent = "More than 100,000 files: pick fewer file types or a smaller folder."; return; }
+    hfStop = false;
+    $("hfRun").disabled = true; $("hfStop").disabled = false; $("hfPickBtn").disabled = true;
+    $("hfMsg").textContent = "";
+    const total = list.reduce((a, f) => a + f.size, 0);
+    let done = 0, bytes = 0, errors = 0, idx = 0;
+    const t0 = Date.now();
+    const tick = () => {
+      $("hfBar").style.width = (total ? 100 * bytes / total : 100 * done / list.length).toFixed(1) + "%";
+      const mbs = bytes / 1048576 / Math.max(0.001, (Date.now() - t0) / 1000);
+      $("hfProgress").textContent = `Hashing ${done}/${list.length} files · ${haSize(bytes)} of ${haSize(total)} · ${mbs.toFixed(0)} MB/s${errors ? ` · ${errors} unreadable` : ""}`;
+    };
+    const worker = async () => {
+      while (!hfStop && idx < list.length) {
+        const f = list[idx++];
+        if (!hfHashes.has(f)) {
+          try { hfHashes.set(f, await hfHashFile(f)); } catch (_) { if (!hfStop) errors++; }
+        }
+        done++; bytes += f.size;
+        if (done % 20 === 0 || done === list.length) tick();
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    tick();
+    $("hfStop").disabled = true; $("hfPickBtn").disabled = false;
+    hfRenderExts();
+    if (hfStop) { $("hfMsg").textContent = "Stopped. Already hashed files are kept; run again to continue."; return; }
+    const hashes = [...new Set(list.map(f => hfHashes.get(f)).filter(Boolean))];
+    if (!hashes.length) { $("hfMsg").textContent = "No file could be read."; return; }
+    haBulk({
+      hashes, verdict: "clean",
+      note: $("hfNote").value.trim(),
+      internal: $("hfInternal").value.trim(),
+      onlySeen: $("hfOnlySeen").checked,
+      title: `Folder whitelist: ${hashes.length} unique file(s)`,
+      onDone: (msg, good) => { $("hfMsg").style.color = good ? "var(--green)" : ""; $("hfMsg").textContent = msg; },
+    });
+  };
+
   haLoad();
-  setInterval(haLoad, 5000);
+  setInterval(() => { if (!document.hidden) haLoad(); }, 10000);
 
   // ---------------- Signature room ----------------
   let nbCurrent = "";

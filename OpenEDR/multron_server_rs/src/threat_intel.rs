@@ -26,6 +26,11 @@ pub struct ThreatInsight {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_size: Option<u64>,
     pub score: f64,
+    /// Folders the file was seen in (at most 5), normalized by the client with
+    /// environment placeholders (%USERPROFILE%, %APPDATA%, ...) so no user name is kept.
+    /// Dashboard only: never put in public JSON (website, insights API, client results).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<String>,
 }
 
 impl ThreatInsight {
@@ -199,6 +204,7 @@ impl ThreatIntelStore {
                 file_names: Vec::new(),
                 file_size,
                 score,
+                folders: Vec::new(),
             });
 
             entry.seen_count += 1;
@@ -240,6 +246,25 @@ impl ThreatIntelStore {
 
         if let Some(writer) = &self.writer {
             let _ = writer.send(updated_insight);
+        }
+    }
+
+    /// Adds a folder the file was seen in (see `ThreatInsight::folders`). Only for hashes
+    /// already recorded; empty or unusable paths are ignored.
+    pub fn add_folder(&self, sha256_hex: &str, folder: &str) {
+        let Some(folder) = sanitize_folder(folder) else { return };
+        let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
+        let updated = {
+            let mut guard = self.map.write().unwrap();
+            let Some(entry) = guard.get_mut(&sha_bytes) else { return };
+            if entry.folders.len() >= 5 || entry.folders.iter().any(|f| f.eq_ignore_ascii_case(&folder)) {
+                return;
+            }
+            entry.folders.push(folder);
+            entry.clone()
+        };
+        if let Some(writer) = &self.writer {
+            let _ = writer.send(updated);
         }
     }
 
@@ -392,4 +417,55 @@ fn flush_insights(path: &Path, buffer: &mut Vec<ThreatInsight>) {
         }
     }
     let _ = writer.flush();
+}
+
+/// Server-side guard for client folder paths: the client already replaces the profile
+/// path with %USERPROFILE%, this catches older or foreign clients. Keeps at most 260
+/// characters, drops control characters and replaces a user name in
+/// `X:\Users\<name>` / `/home/<name>` / `/Users/<name>` with a placeholder.
+pub fn sanitize_folder(folder: &str) -> Option<String> {
+    let f: String = folder.trim().chars().filter(|c| !c.is_control()).take(260).collect();
+    let f = f.trim_end_matches(['\\', '/']).to_string();
+    if f.is_empty() {
+        return None;
+    }
+    let lower = f.to_ascii_lowercase();
+    // Windows: "C:\Users\name\..." (also forward slashes).
+    let b = lower.as_bytes();
+    if b.len() >= 9 && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/') && lower[3..].starts_with("users") && (b.len() == 8 || b[8] == b'\\' || b[8] == b'/') {
+        let rest = &f[9.min(f.len())..];
+        let (user, tail) = match rest.find(['\\', '/']) {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, ""),
+        };
+        let u = user.to_ascii_lowercase();
+        if u.is_empty() || u == "public" || u == "default" {
+            return Some(f);
+        }
+        return Some(format!("%USERPROFILE%{tail}"));
+    }
+    for prefix in ["/home/", "/users/"] {
+        if lower.starts_with(prefix) {
+            let rest = &f[prefix.len()..];
+            let tail = rest.find('/').map(|i| &rest[i..]).unwrap_or("");
+            return Some(format!("~{tail}"));
+        }
+    }
+    Some(f)
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use super::sanitize_folder;
+
+    #[test]
+    fn hides_user_names() {
+        assert_eq!(sanitize_folder("C:\\Users\\emir\\Desktop\\x").as_deref(), Some("%USERPROFILE%\\Desktop\\x"));
+        assert_eq!(sanitize_folder("c:/users/emir").as_deref(), Some("%USERPROFILE%"));
+        assert_eq!(sanitize_folder("C:\\Users\\Public\\Downloads").as_deref(), Some("C:\\Users\\Public\\Downloads"));
+        assert_eq!(sanitize_folder("%APPDATA%\\Foo\\").as_deref(), Some("%APPDATA%\\Foo"));
+        assert_eq!(sanitize_folder("/home/bob/dl").as_deref(), Some("~/dl"));
+        assert_eq!(sanitize_folder("C:\\Program Files\\A").as_deref(), Some("C:\\Program Files\\A"));
+        assert_eq!(sanitize_folder("  ").as_deref(), None);
+    }
 }
