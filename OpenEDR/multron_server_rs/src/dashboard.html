@@ -186,12 +186,18 @@
       </div>
       <div id="rsMsg" class="hint"></div>
       <div class="row2" style="margin-top:8px">
-        <button class="ghost" id="rsBulk">Rescan all kept unknown / possible clean</button>
+        <button class="ghost" id="rsBulk">Rescan kept files</button>
         <button class="ghost" id="rsStop" hidden>Stop</button>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="unknown" checked style="width:auto"> Unknown</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="possible_clean" checked style="width:auto"> Possible clean</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="threat" style="width:auto"> Malicious / suspicious</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="clean" style="width:auto"> Clean (kept only with keep-clean)</label>
       </div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <input type="checkbox" id="rsAfterReload" style="width:auto">
-        Start this automatically after every engine reload
+        After every engine reload, rescan kept unknown / possible clean files automatically
       </label>
       <div id="rsStatus" class="hint"></div>
       <div id="rsChanges"></div>
@@ -655,7 +661,9 @@
     rescanSha(sha);
   };
   $("rsBulk").onclick = async () => {
-    try { const r = await post("/api/rescan/bulk"); $("rsStatus").textContent = `Started: ${r.queued} files queued.`; }
+    const categories = [...document.querySelectorAll(".rsCat:checked")].map(c => c.value);
+    if (!categories.length) { $("rsStatus").textContent = "Pick at least one category."; return; }
+    try { const r = await post("/api/rescan/bulk", { categories }); $("rsStatus").textContent = `Started: ${r.queued} files queued (${categories.join(", ")}).`; }
     catch (e) { $("rsStatus").textContent = e.message; }
   };
   $("rsStop").onclick = async () => { try { await post("/api/rescan/stop"); } catch (_) {} };

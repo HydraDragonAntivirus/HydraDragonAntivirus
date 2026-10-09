@@ -132,9 +132,34 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     Ok(change)
 }
 
-/// Starts a background rescan of every kept `unknown` and `possible_clean` file.
+/// Kept-file categories a bulk rescan can cover: "unknown", "possible_clean",
+/// "threat" (malicious / suspicious) and "clean".
+pub const CATEGORIES: [&str; 4] = ["unknown", "possible_clean", "threat", "clean"];
+/// Used after an engine reload and when no category is given.
+pub const DEFAULT_CATEGORIES: [&str; 2] = ["unknown", "possible_clean"];
+
+fn category_of(prefix: &str) -> &'static str {
+    match prefix {
+        "threat_" => "threat",
+        "possible_clean_" => "possible_clean",
+        "clean_" => "clean",
+        _ => "unknown",
+    }
+}
+
+/// Starts a background rescan of the kept files in `categories` (see `CATEGORIES`).
 /// Returns how many files are queued.
-pub fn start_bulk(server: &Arc<ScanServer>) -> Result<usize, String> {
+pub fn start_bulk(server: &Arc<ScanServer>, categories: &[String]) -> Result<usize, String> {
+    let cats: Vec<&str> = if categories.is_empty() {
+        DEFAULT_CATEGORIES.to_vec()
+    } else {
+        let mut v = Vec::new();
+        for c in categories {
+            let c = CATEGORIES.iter().find(|k| **k == c.as_str()).ok_or_else(|| format!("unknown category {c}"))?;
+            v.push(*c);
+        }
+        v
+    };
     let bulk = &server.rescan;
     if bulk.running.swap(true, Ordering::SeqCst) {
         return Err("a rescan is already running".into());
@@ -143,7 +168,7 @@ pub fn start_bulk(server: &Arc<ScanServer>) -> Result<usize, String> {
         .engine
         .list_kept()
         .into_iter()
-        .filter(|k| k.prefix.is_empty() || k.prefix == "possible_clean_")
+        .filter(|k| cats.contains(&category_of(k.prefix)))
         .map(|k| k.sha256)
         .collect();
     bulk.stop.store(false, Ordering::Relaxed);
@@ -194,6 +219,6 @@ pub fn start_bulk(server: &Arc<ScanServer>) -> Result<usize, String> {
         bulk.running.store(false, Ordering::SeqCst);
         return Err(format!("cannot start the rescan thread: {e}"));
     }
-    server.log_info(format!("bulk rescan started: {n} kept unknown / possible_clean files"));
+    server.log_info(format!("bulk rescan started: {n} kept files ({})", cats.join(", ")));
     Ok(n)
 }

@@ -488,8 +488,15 @@ async fn handle_rescan_one(State(app): State<Arc<AppState>>, Json(b): Json<Resca
     }
 }
 
-async fn handle_rescan_bulk(State(app): State<Arc<AppState>>) -> Response {
-    match crate::rescan::start_bulk(&app.scan_server) {
+#[derive(Deserialize, Default)]
+struct BulkRescanBody {
+    /// "unknown", "possible_clean", "threat", "clean"; empty = unknown + possible_clean.
+    #[serde(default)]
+    categories: Vec<String>,
+}
+
+async fn handle_rescan_bulk(State(app): State<Arc<AppState>>, Json(b): Json<BulkRescanBody>) -> Response {
+    match crate::rescan::start_bulk(&app.scan_server, &b.categories) {
         Ok(n) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
     }
@@ -620,7 +627,7 @@ async fn handle_engine_reload(
             );
             // New rules may settle kept unknown / possible_clean files.
             if app2.scan_server.rescan.after_reload.load(std::sync::atomic::Ordering::Relaxed) {
-                if let Err(e) = crate::rescan::start_bulk(&app2.scan_server) {
+                if let Err(e) = crate::rescan::start_bulk(&app2.scan_server, &[]) {
                     info_event(&app2, format!("rescan after reload not started: {e}"));
                 }
             }
