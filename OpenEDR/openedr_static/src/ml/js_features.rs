@@ -17,8 +17,6 @@ static RE_CHAR_CODE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"String\.fromCharCode").unwrap());
 static RE_ESCAPE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\bunescape\b|\bescape\b").unwrap());
-static RE_BRACKET_NOTATION: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r#"\[['"].*?['"]\]\s*\("#).unwrap());
 static RE_NETWORK: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r"http[s]?://|ws[s]?://|fetch\s*\(|XMLHttpRequest|\.send\s*\(|\.open\s*\(|WebSocket",
@@ -39,8 +37,6 @@ static RE_SUSPICIOUS_APIS: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 static RE_STRINGS: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"["']([^"']*)["']"#).unwrap());
-static RE_URL_STR: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"https?://|ftp://|ws[s]?://").unwrap());
 static RE_HEX_STR: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^[0-9a-fA-F]+$").unwrap());
 static RE_IDENTIFIERS: LazyLock<regex::Regex> =
@@ -570,6 +566,73 @@ fn max_bracket_depth(src: &[u8]) -> usize {
 
 /// Source spans of every regular expression literal (full AST visit, so regexes inside
 /// class methods and other places the counting walker skips are found too).
+/// Calls through computed member access that hide what is called
+/// (`bracket_notation_calls`). Counted: `o['ev'+'al'](...)`, `o[`...${x}`](...)`,
+/// `o['\x65val'](...)`, `o[dec(0x1f)](...)`, `o[tbl[3]](...)` and a plain string key
+/// that names a dangerous function (`window['eval'](...)`). Not counted: ordinary
+/// keys such as `params['delete'](...)` (an ES3 reserved-word workaround all over
+/// core-js) or `handlers[type](...)`.
+struct ObfuscatedCalls<'s> {
+    src: &'s str,
+    count: usize,
+}
+
+const DANGEROUS_KEYS: [&str; 16] = [
+    "eval", "Function", "constructor", "execScript", "setTimeout", "setInterval", "ActiveXObject",
+    "CreateObject", "Run", "Exec", "ShellExecute", "fromCharCode", "atob", "unescape", "write", "writeln",
+];
+
+impl ObfuscatedCalls<'_> {
+    fn raw(&self, span: oxc_span::Span) -> &str {
+        self.src.get(span.start as usize..span.end as usize).unwrap_or("")
+    }
+
+    fn hides_name(&self, key: &Expression) -> bool {
+        match key {
+            Expression::StringLiteral(s) => {
+                let raw = self.raw(s.span);
+                raw.contains("\\x") || raw.contains("\\u") || DANGEROUS_KEYS.contains(&s.value.as_str())
+            }
+            Expression::TemplateLiteral(t) => {
+                let raw = self.raw(t.span);
+                !t.expressions.is_empty() || raw.contains("\\x") || raw.contains("\\u")
+            }
+            Expression::BinaryExpression(b) => b.operator == BinaryOperator::Addition,
+            Expression::CallExpression(_) | Expression::ComputedMemberExpression(_) => true,
+            Expression::ParenthesizedExpression(p) => self.hides_name(&p.expression),
+            Expression::SequenceExpression(q) => q.expressions.last().is_some_and(|e| self.hides_name(e)),
+            _ => false,
+        }
+    }
+
+    fn check_callee(&mut self, callee: &Expression) {
+        match callee {
+            Expression::ComputedMemberExpression(m) if self.hides_name(&m.expression) => self.count += 1,
+            Expression::ParenthesizedExpression(p) => self.check_callee(&p.expression),
+            Expression::ChainExpression(c) => {
+                if let ChainElement::ComputedMemberExpression(m) = &c.expression {
+                    if self.hides_name(&m.expression) {
+                        self.count += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl<'a> Visit<'a> for ObfuscatedCalls<'_> {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        self.check_callee(&it.callee);
+        oxc_ast_visit::walk::walk_call_expression(self, it);
+    }
+
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        self.check_callee(&it.callee);
+        oxc_ast_visit::walk::walk_new_expression(self, it);
+    }
+}
+
 struct RegexSpans(Vec<(usize, usize)>);
 
 impl<'a> Visit<'a> for RegexSpans {
@@ -624,7 +687,9 @@ pub fn extract_js_features(source: &str) -> Option<JsFeatureVector> {
     let char_code = RE_CHAR_CODE.find_iter(source).count() as f32;
     let base64 = 0.0f32; // Do not treat base64 operations as obfuscation
     let escape = RE_ESCAPE.find_iter(source).count() as f32;
-    let bracket_notation = RE_BRACKET_NOTATION.find_iter(source).count() as f32;
+    let mut calls = ObfuscatedCalls { src: source, count: 0 };
+    calls.visit_program(&program);
+    let bracket_notation = calls.count as f32;
 
     let obfuscation_score =
         hex_encoded + unicode_encoded + char_code + escape + bracket_notation;
@@ -741,7 +806,10 @@ fn extract_string_features(source: &str) -> (f32, f32, f32, f32, f32, f32, f32) 
     let max = lengths.iter().cloned().fold(0.0f32, f32::max);
     let long = strings.iter().filter(|s| s.len() > 100).count() as f32;
     let b64 = 0.0f32; // Innocent lookup tables and alphanumeric sequences are not malware base64
-    let urls = strings.iter().filter(|s| RE_URL_STR.is_match(s)).count() as f32;
+    // URLs are judged by the URL model (embedded URL layer), not counted here: a
+    // count says nothing about whether a link is malicious and flagged test URLs in
+    // libraries (core-js url-constructor-detection.js).
+    let urls = 0.0f32;
     let hex = strings
         .iter()
         .filter(|s| s.len() > 10 && RE_HEX_STR.is_match(s))
