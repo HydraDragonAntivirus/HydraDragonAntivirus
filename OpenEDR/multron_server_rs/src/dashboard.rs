@@ -392,6 +392,7 @@ async fn handle_state(
             "checked": checked,
             "uploads": uploads,
             "gbUploaded": ld(&srv.stats.bytes_uploaded) as f64 / (1024.0 * 1024.0 * 1024.0),
+            "gbSavedByCompression": ld(&srv.stats.bytes_saved_compression) as f64 / (1024.0 * 1024.0 * 1024.0),
             "cacheHits": ld(&srv.stats.cache_hits),
             "whitelistHits": ld(&srv.stats.whitelist_hits),
             "hashSigHits": ld(&srv.stats.hash_sig_hits),

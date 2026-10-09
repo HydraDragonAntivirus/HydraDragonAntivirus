@@ -66,6 +66,12 @@ struct ClientMessage {
     /// Client asked for a fresh scan: skip the shared verdict cache.
     #[serde(default)]
     pub rescan: bool,
+    /// Upload encoding: "" (raw) or "br" (Brotli). Only sent when hello_ok listed it.
+    #[serde(default)]
+    pub encoding: String,
+    /// Bytes on the wire when `encoding` is set; `size` stays the original size.
+    #[serde(default)]
+    pub csize: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +158,8 @@ pub struct Stats {
     pub shared_hits: AtomicI64,
     pub uploads: AtomicI64,
     pub bytes_uploaded: AtomicI64,
+    /// Upload bytes saved by Brotli (original size - bytes on the wire).
+    pub bytes_saved_compression: AtomicI64,
     pub engine_scans: AtomicI64,
     pub engine_crashes: AtomicI64,
     pub rejected_auth: AtomicI64,
@@ -857,6 +865,8 @@ async fn session_loop(
             "pipeline": pipeline,
             "checkBatch": server.limits.max_check_batch(),
             "maxMB": server.limits.max_mb(),
+            // Compressed uploads the client may use (it falls back to raw otherwise).
+            "encodings": ["br"],
         }),
     );
 
@@ -1054,8 +1064,23 @@ async fn handle_scan(
         return Ok(());
     }
     let size = msg.size;
+    // Bytes that actually cross the network: the compressed size for Brotli uploads.
+    let brotli = match msg.encoding.as_str() {
+        "" => false,
+        "br" => true,
+        _ => {
+            send_error(out, Some(id), "unsupported upload encoding");
+            return Ok(());
+        }
+    };
+    let wire = if brotli { msg.csize } else { size };
+    if brotli && (wire <= 0 || wire >= size) {
+        server.limiter.strike(&session.address);
+        send_error(out, Some(id), "invalid compressed size");
+        return Err("invalid compressed size".into());
+    }
 
-    if !server.limiter.take_upload(&session.address, size) {
+    if !server.limiter.take_upload(&session.address, wire) {
         reject_file(server, session, out, id, &name, size, &sha_hex,
             "upload limit for this hour reached, try again later");
         return Ok(());
@@ -1068,9 +1093,9 @@ async fn handle_scan(
     send_json(out, &serde_json::json!({"type": "send_file", "id": id}));
 
     let deadline = tokio::time::Instant::now()
-        + Duration::from_secs(60 + (size / MIN_UPLOAD_BYTES_PER_SEC) as u64);
-    let mut data: Vec<u8> = Vec::with_capacity(size as usize);
-    while (data.len() as i64) < size {
+        + Duration::from_secs(60 + (wire / MIN_UPLOAD_BYTES_PER_SEC) as u64);
+    let mut data: Vec<u8> = Vec::with_capacity(wire as usize);
+    while (data.len() as i64) < wire {
         let wait = deadline
             .saturating_duration_since(tokio::time::Instant::now())
             .min(Duration::from_secs(120));
@@ -1081,7 +1106,7 @@ async fn handle_scan(
         }
         match tokio::time::timeout(wait, ws_rx.next()).await {
             Ok(Some(Ok(Message::Binary(bin)))) => {
-                if data.len() as i64 + bin.len() as i64 > size {
+                if data.len() as i64 + bin.len() as i64 > wire {
                     server.limiter.strike(&session.address);
                     send_error(out, Some(id), "more bytes than announced");
                     return Err("upload larger than announced size".into());
@@ -1091,6 +1116,25 @@ async fn handle_scan(
             Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => continue,
             _ => return Err("upload timeout or connection dropped".into()),
         }
+    }
+
+    if brotli {
+        // Decode with a hard cap: one byte more than announced means a lie or a bomb.
+        let mut plain: Vec<u8> = Vec::with_capacity(size as usize);
+        let res = {
+            use std::io::Read;
+            brotli_decompressor::Decompressor::new(&data[..], 64 * 1024)
+                .take(size as u64 + 1)
+                .read_to_end(&mut plain)
+        };
+        if res.is_err() || plain.len() as i64 != size {
+            server.limiter.strike(&session.address);
+            reject_file(server, session, out, id, &name, size, &sha_hex,
+                "compressed upload could not be decoded to the announced size");
+            return Ok(());
+        }
+        data = plain;
+        server.stats.bytes_saved_compression.fetch_add(size - wire, Ordering::Relaxed);
     }
 
     let calculated: String = Sha256::digest(&data).encode_hex_upper();

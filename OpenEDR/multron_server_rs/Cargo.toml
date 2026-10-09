@@ -39,4 +39,6 @@ fast-tlsh = "=0.1.10"
 # APK classes.dex extraction for the DEX TLSH (already in the dependency tree).
 flate2 = "1"
 lzma-rust2 = "0.21"
+# Brotli-compressed uploads from clients (pure Rust decoder; .NET has the encoder built in).
+brotli-decompressor = "5"
 url = "2.5"

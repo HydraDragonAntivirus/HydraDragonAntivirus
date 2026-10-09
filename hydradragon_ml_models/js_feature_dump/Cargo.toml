@@ -1,0 +1,17 @@
+[package]
+name = "js_feature_dump"
+version = "0.1.0"
+edition = "2024"
+description = "Writes JavaScript ML features with the exact OpenEDR/openedr_static extractor, for train_js_lgbm.py"
+
+[dependencies]
+# Same versions as OpenEDR/openedr_static (js_features.rs is included by path).
+regex = "1.12"
+oxc_parser = "0.152.0"
+oxc_ast = "0.152.0"
+oxc_allocator = "0.152.0"
+oxc_span = "0.152.0"
+rayon = "1.11"
+
+[profile.release]
+opt-level = 3
