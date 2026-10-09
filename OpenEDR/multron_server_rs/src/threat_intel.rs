@@ -319,6 +319,28 @@ impl ThreatIntelStore {
         self.map.read().unwrap().get(&sha_bytes).cloned()
     }
 
+    /// Puts every hash whose effective verdict is still open (unknown, suspicious or
+    /// possible_clean, no completed human review) into the human analysis queue if it
+    /// is not there yet, so the queue matches the "Unknown" / "Suspicious" counts.
+    /// Covers files recorded before auto-queueing existed, hashes a client checked but
+    /// never uploaded, and queue entries removed by hand. Returns how many were added.
+    pub fn sync_review_queue(&self) -> usize {
+        let open: Vec<(String, String, Option<String>)> = {
+            let guard = self.map.read().unwrap();
+            guard
+                .values()
+                .filter(|i| matches!(i.verdict.as_str(), "unknown" | "suspicious" | "possible_clean"))
+                .filter(|i| self.reviews.get(&i.sha256).is_none() && !self.reviews.was_removed(&i.sha256))
+                .map(|i| (i.sha256.clone(), i.verdict.clone(), i.file_names.first().cloned()))
+                .collect()
+        };
+        open.iter()
+            .filter(|(sha, verdict, name)| {
+                self.reviews.enqueue(&sha.to_ascii_lowercase(), "auto", Some(verdict), name.as_deref()).is_ok()
+            })
+            .count()
+    }
+
     pub fn stats(&self) -> ThreatIntelStats {
         let guard = self.map.read().unwrap();
         let mut total_sightings = 0u64;

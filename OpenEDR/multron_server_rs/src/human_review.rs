@@ -201,19 +201,25 @@ fn parse_time(s: &str) -> Option<DateTime<Utc>> {
 
 pub struct HumanReviewStore {
     map: RwLock<HashMap<Sha, HumanReview>>,
+    /// Hashes an analyst removed from the queue (or whose review was deleted): the
+    /// queue sync does not bring them back. A new real scan can still queue them.
+    removed: RwLock<std::collections::HashSet<Sha>>,
     file: Mutex<Option<File>>,
 }
 
 impl HumanReviewStore {
     pub fn new(path: &Path) -> Self {
         let mut map = HashMap::new();
+        let mut removed = std::collections::HashSet::new();
         if let Ok(f) = File::open(path) {
             for line in BufReader::new(f).lines().map_while(Result::ok) {
                 if let Ok(r) = serde_json::from_str::<HumanReview>(&line) {
                     if let Some(sha) = parse_sha(&r.sha256) {
                         if r.deleted {
                             map.remove(&sha);
+                            removed.insert(sha);
                         } else {
+                            removed.remove(&sha);
                             map.insert(sha, r);
                         }
                     }
@@ -224,7 +230,7 @@ impl HumanReviewStore {
         if file.is_none() {
             eprintln!("[review] cannot open {} for writing; reviews will not persist", path.display());
         }
-        Self { map: RwLock::new(map), file: Mutex::new(file) }
+        Self { map: RwLock::new(map), removed: RwLock::new(removed), file: Mutex::new(file) }
     }
 
     fn persist(&self, r: &HumanReview) {
@@ -234,6 +240,11 @@ impl HumanReviewStore {
                 let _ = f.flush();
             }
         }
+    }
+
+    /// True when an analyst removed this hash from the queue / deleted its review.
+    pub fn was_removed(&self, sha_hex: &str) -> bool {
+        parse_sha(sha_hex).is_some_and(|sha| self.removed.read().unwrap().contains(&sha))
     }
 
     pub fn get(&self, sha_hex: &str) -> Option<HumanReview> {
@@ -291,6 +302,7 @@ impl HumanReviewStore {
                 deleted: false,
             };
             g.insert(sha, r.clone());
+            self.removed.write().unwrap().remove(&sha);
             r
         };
         self.persist(&review);
@@ -441,6 +453,7 @@ impl HumanReviewStore {
     pub fn remove(&self, sha_hex: &str) -> bool {
         let Some(sha) = parse_sha(sha_hex) else { return false };
         let removed = self.map.write().unwrap().remove(&sha);
+        self.removed.write().unwrap().insert(sha);
         if let Some(mut r) = removed {
             r.deleted = true;
             self.persist(&r);
@@ -457,6 +470,12 @@ impl HumanReviewStore {
         v.sort_by(|a, b| a.requested_at.cmp(&b.requested_at));
         v.truncate(limit);
         v
+    }
+
+    /// (SHA-256, verdict) of every completed review.
+    pub fn completed_verdicts(&self) -> Vec<(String, String)> {
+        let g = self.map.read().unwrap();
+        g.values().filter(|r| r.is_completed()).filter_map(|r| Some((r.sha256.clone(), r.verdict.clone()?))).collect()
     }
 
     /// Newest first.
@@ -599,10 +618,13 @@ mod timing_tests {
         assert_eq!(s.analysts[0].completed, 2);
         assert_eq!(s.daily.len(), 14);
         assert_eq!(s.daily[13].completed, 2);
+        // A removed hash is remembered (the queue sync does not bring it back).
+        assert!(st.remove(&b) && st.was_removed(&b));
         // Reload keeps the fields.
         drop(st);
         let st2 = HumanReviewStore::new(&path);
         assert!(st2.get(&a).unwrap().timed);
+        assert!(st2.was_removed(&b) && !st2.was_removed(&a));
         let _ = std::fs::remove_file(&path);
     }
 }

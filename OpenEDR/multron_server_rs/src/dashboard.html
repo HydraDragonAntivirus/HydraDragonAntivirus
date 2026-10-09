@@ -136,6 +136,18 @@
   .hf-opts input[type=number] { width: 90px; padding: 4px 8px; }
   .bar { height: 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin: 8px 0; }
   .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .hf-step { display: flex; gap: 14px; padding: 14px 0; border-top: 1px solid var(--border); }
+  .hf-step:first-of-type { border-top: 0; }
+  .hf-num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: var(--blue-bg); color: var(--accent); font-weight: 700; display: grid; place-items: center; font-size: 13px; }
+  .hf-title { font-weight: 700; margin: 3px 0 8px; }
+  .hf-path { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
+  .hf-path button { padding: 7px 14px; font-size: 13px; }
+  @media (max-width: 700px) { .hf-path { grid-template-columns: 1fr 1fr; } .hf-path input { grid-column: 1 / -1; } }
+  .hf-browser { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; max-height: 260px; overflow: auto; font-size: 13px; }
+  .hf-browser .hb-head { position: sticky; top: 0; background: var(--panel2); padding: 7px 10px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+  .hf-browser .hb-head code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hf-browser .hb-row { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .hf-browser .hb-row:hover { background: var(--panel2); }
   .hf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
   @media (max-width: 1000px) { .hf-grid { grid-template-columns: 1fr; } }
   dialog#haDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(760px, 94vw); }
@@ -308,7 +320,7 @@
       <div class="stat"><div class="v" id="aClean" style="color:var(--green)">0</div><div class="l">Clean</div></div>
       <div class="stat"><div class="v" id="aHuman">0</div><div class="l">Human verdicts</div></div>
       <div class="stat"><div class="v" id="aQueue">0</div><div class="l">Human queue</div></div>
-      <div class="stat" style="grid-column:span 3"><div class="v" id="aKept" style="font-size:15px;line-height:1.6">—</div><div class="l">Kept in multron_incoming (files · GB)</div></div>
+      <div class="stat" style="grid-column:span 3"><div class="v" id="aKept" style="font-size:15px;line-height:1.6">—</div><div class="l">Files kept on disk in multron_incoming, by verdict (a human verdict wins)</div></div>
     </div>
     <div class="feedbar" style="margin-bottom:-6px"><h2 style="margin:0">This session</h2><span class="hint" style="margin:0">since the server started</span></div>
     <div class="stats">
@@ -511,45 +523,58 @@
 
     <div class="ha-tab" id="haTabFolder" hidden>
       <div class="privacy">
-        <b>Private by design.</b> The folder is read and hashed in this browser. Only SHA-256 hashes are sent to the server;
-        file names, paths and contents never leave this computer. Every hash you confirm becomes a <b>clean</b> human verdict:
-        clients get it instantly and viruskov.com shows it with the public note.
+        Pick a folder <b>on this server</b> (e.g. a vendor's install folder). The server lists its file types and hashes the ones you choose
+        itself, so nothing is uploaded from the browser and memory stays flat. Every hash you confirm becomes a <b>clean</b> human verdict.
+        <code>multron_incoming</code> and the move target are never read (client uploads, malware included).
       </div>
-      <div class="hf-opts">
-        <button class="ghost" id="hfPickBtn" style="padding:7px 14px">Choose folder…</button>
-        <input type="file" id="hfPick" webkitdirectory directory multiple hidden>
-        <span id="hfInfo" class="hint" style="margin:0">No folder chosen.</span>
-        <span class="spacer" style="flex:1"></span>
-        <label class="chk">Skip files over <input type="number" id="hfMaxMb" min="1" value="512"> MB</label>
+
+      <div class="hf-step">
+        <div class="hf-num">1</div>
+        <div style="flex:1;min-width:0">
+          <div class="hf-title">Folder</div>
+          <div class="hf-path">
+            <input id="hfPath" type="text" placeholder="C:\Program Files\Vendor" spellcheck="false">
+            <button class="ghost" id="hfBrowse">Browse…</button>
+            <button class="ghost" id="hfLoad">List file types</button>
+          </div>
+          <div class="hf-browser" id="hfBrowser" hidden></div>
+          <div id="hfInfo" class="hint"></div>
+        </div>
       </div>
-      <div class="hf-grid">
-        <div>
-          <div class="feedbar">
-            <h2>File types</h2><span class="spacer"></span>
+
+      <div class="hf-step">
+        <div class="hf-num">2</div>
+        <div style="flex:1;min-width:0">
+          <div class="feedbar" style="margin-bottom:8px">
+            <div class="hf-title" style="margin:0">File types</div><span class="spacer"></span>
+            <label class="chk" style="font-size:12.5px">Skip files over <input type="number" id="hfMaxMb" min="0" step="1" style="width:80px;padding:5px 8px;margin:0 4px"> MB <span class="hint" style="margin:0 8px 0 0">(0 = no limit)</span></label>
             <button class="ghost" id="hfAll">All</button>
             <button class="ghost" id="hfExec">Executables &amp; scripts</button>
             <button class="ghost" id="hfNone">None</button>
           </div>
-          <div class="tablewrap" style="max-height:340px">
+          <div class="tablewrap" style="max-height:300px">
             <table>
-              <thead><tr><th style="width:30px"></th><th>Extension</th><th class="num">Files</th><th class="num">Size</th><th class="num">Hashed</th></tr></thead>
-              <tbody id="hfExts"><tr><td colspan="5" class="empty">Choose a folder to list its file types.</td></tr></tbody>
+              <thead><tr><th style="width:30px"></th><th>Extension</th><th class="num">Files</th><th class="num">Size</th><th class="num">Over limit (skipped)</th></tr></thead>
+              <tbody id="hfExts"><tr><td colspan="5" class="empty">List a folder first.</td></tr></tbody>
             </table>
           </div>
         </div>
-        <div>
-          <label for="hfNote">Public note</label>
-          <input id="hfNote" type="text" value="Whitelisted by a VirusKov analyst (known-good software).">
-          <label for="hfInternal">Internal note (analysts only)</label>
-          <input id="hfInternal" type="text" placeholder="e.g. vendor installer set, verified signatures">
-          <div class="hf-opts" style="margin-bottom:0">
-            <label class="chk"><input type="checkbox" id="hfOnlySeen"> Only hashes VirusKov has already seen</label>
+      </div>
+
+      <div class="hf-step">
+        <div class="hf-num">3</div>
+        <div style="flex:1;min-width:0">
+          <div class="hf-title">Whitelist</div>
+          <div class="row2">
+            <div><label for="hfNote">Public note</label><input id="hfNote" type="text" value="Whitelisted by a VirusKov analyst (known-good software)."></div>
+            <div><label for="hfInternal">Internal note (analysts only)</label><input id="hfInternal" type="text" placeholder="e.g. vendor installer set, verified signatures"></div>
           </div>
+          <label class="chk" style="margin-top:10px;display:inline-flex"><input type="checkbox" id="hfOnlySeen"> Only hashes VirusKov has already seen</label>
           <div class="bar"><div id="hfBar"></div></div>
           <div class="hint" id="hfProgress" style="margin-top:0"></div>
-          <div class="row2">
-            <button class="primary" id="hfRun" disabled>Hash &amp; review…</button>
-            <button class="danger" id="hfStop" disabled>Stop hashing</button>
+          <div class="btnrow">
+            <button class="primary" id="hfRun" disabled style="width:auto;margin:0">Hash &amp; review…</button>
+            <button class="danger" id="hfStop" hidden style="width:auto;margin:0">Stop</button>
           </div>
           <div id="hfMsg" class="error"></div>
         </div>
@@ -736,7 +761,9 @@
       $("aHuman").textContent = n(at.humanVerdicts);
       $("aQueue").textContent = n(at.humanQueue);
       const k = at.kept || {};
-      $("aKept").innerHTML = ["unknown", "possible_clean", "suspicious", "malicious", "clean"].map(c => k[c] ? `<span style="white-space:nowrap;margin-right:12px">${c.replace("_", " ")}: <b>${n(k[c].files)}</b> · ${Number(k[c].gb).toFixed(2)}</span>` : "").join("");
+      const names = { unknown: "Unknown", possible_clean: "Possible clean", suspicious: "Suspicious", malicious: "Malicious", clean: "Clean" };
+      const gb = (x) => x >= 0.01 ? Number(x).toFixed(2) + " GB" : (x * 1024).toFixed(1) + " MB";
+      $("aKept").innerHTML = Object.keys(names).filter(c => k[c]).map(c => `<span style="white-space:nowrap">${names[c]}: <b>${n(k[c].files)}</b> files (${gb(k[c].gb)})</span>`).join(" &nbsp;|&nbsp; ");
     }
 
     const tbody = $("clients");
@@ -1355,13 +1382,13 @@
   // 1) dry run: the server counts what would happen (engine conflicts, existing verdicts),
   // 2) the dialog shows it, 3) only "Apply" writes.
   const HA_LABEL = { clean: "Whitelist as CLEAN", suspicious: "Mark SUSPICIOUS", malicious: "Mark MALICIOUS", dismiss: "Remove from the queue" };
-  const haBulk = async ({ hashes, verdict, note, internal, onlySeen, title, onDone }) => {
+  const haBulk = async ({ hashes, folderJob, count, verdict, note, internal, onlySeen, title, onDone }) => {
     const dlg = $("haDlg"), body = $("haDlgBody"), ok = $("haDlgOk");
     let override = false, threat = $("haThreat").value.trim();
-    const base = () => ({ sha256s: hashes, verdict, threat_name: threat, note, internal_note: internal, analyst: haAnalystName(), only_seen: !!onlySeen, override_conflicts: override });
+    const base = () => ({ sha256s: folderJob ? [] : hashes, folder_job: !!folderJob, verdict, threat_name: threat, note, internal_note: internal, analyst: haAnalystName(), only_seen: !!onlySeen, override_conflicts: override });
     const show = async () => {
       ok.disabled = true;
-      body.innerHTML = `<h3>${haEsc(title)}</h3><div class="hint">Checking ${hashes.length} hashes…</div>`;
+      body.innerHTML = `<h3>${haEsc(title)}</h3><div class="hint">Checking ${folderJob ? count : hashes.length} hashes…</div>`;
       let d;
       try { d = await post("/api/reviews/bulk", { ...base(), dry_run: true }); }
       catch (e) { body.innerHTML = `<h3>${haEsc(title)}</h3><div class="dangerbox">${haEsc(e.message)}</div>`; return; }
@@ -1430,152 +1457,97 @@
     });
   });
 
-  // ---------------- Folder whitelist (hashed in this browser) ----------------
+  // ---------------- Folder whitelist (folder on this server, hashed by the server) ----------------
   const HF_EXEC = new Set(["exe", "dll", "sys", "scr", "ocx", "cpl", "drv", "com", "msi", "msp", "msix", "appx", "jar", "apk", "js", "jse", "vbs", "vbe", "wsf", "hta", "ps1", "psm1", "bat", "cmd", "lnk", "py", "efi", "node", "so", "dylib", "elf", "bin"]);
-  let hfFiles = [], hfExtOn = new Set(), hfHashes = new Map(), hfStop = false;
-  const hfExtOf = (name) => { const i = name.lastIndexOf("."); return i > 0 && name.length - i <= 12 ? name.slice(i + 1).toLowerCase() : ""; };
-  $("hfPickBtn").onclick = () => $("hfPick").click();
-  const hfRenderExts = () => {
-    const by = {};
-    const max = (+$("hfMaxMb").value || 512) * 1048576;
-    hfFiles.forEach(f => {
-      const e = hfExtOf(f.name);
-      const g = by[e] || (by[e] = { n: 0, size: 0, big: 0, done: 0 });
-      g.n++; g.size += f.size;
-      if (f.size > max) g.big++;
-      if (hfHashes.has(f)) g.done++;
-    });
-    const exts = Object.keys(by).sort((a, b) => by[b].n - by[a].n);
-    $("hfExts").innerHTML = exts.length ? exts.map(e => `<tr><td><input type="checkbox" data-hfext="${haEsc(e)}" ${hfExtOn.has(e) ? "checked" : ""}></td>
-      <td>${e ? "." + haEsc(e) : "<i>no extension</i>"}${HF_EXEC.has(e) ? ' <span class="tag t-suspicious">exec</span>' : ""}</td>
-      <td class="num">${by[e].n}${by[e].big ? ` <small title="over the size limit, skipped">(-${by[e].big})</small>` : ""}</td><td class="num">${haSize(by[e].size)}</td><td class="num">${by[e].done || ""}</td></tr>`).join("")
-      : `<tr><td colspan="5" class="empty">Choose a folder to list its file types.</td></tr>`;
-    $("hfExts").querySelectorAll("input[data-hfext]").forEach(c => c.onchange = () => { c.checked ? hfExtOn.add(c.dataset.hfext) : hfExtOn.delete(c.dataset.hfext); hfSummary(); });
+  let hfTypes = [], hfOn = new Set(), hfPoll = null;
+  const hfBrowse = async (path) => {
+    const box = $("hfBrowser");
+    box.hidden = false;
+    box.innerHTML = `<div class="hb-head">Loading…</div>`;
+    try {
+      const d = await (await fetch("/api/fs/list?path=" + encodeURIComponent(path || ""), { cache: "no-store" })).json();
+      if (d.error) throw new Error(d.error);
+      box.innerHTML = `<div class="hb-head">${d.parent != null || d.path ? `<button class="ghost" data-go="${haEsc(d.parent ?? "")}">&uarr; Up</button>` : ""}
+          <code>${haEsc(d.path || "Drives")}</code>${d.path ? `<button class="ghost" data-pick="${haEsc(d.path)}">Use this folder</button>` : ""}</div>` +
+        (d.dirs.length ? d.dirs.map(n => { const full = d.path ? (d.path.replace(/[\\/]$/, "") + (d.path.includes("/") && !d.path.includes("\\") ? "/" : "\\") + n) : n; return `<div class="hb-row" data-go="${haEsc(full)}">&#128193; ${haEsc(n)}</div>`; }).join("") : `<div class="hb-row" style="cursor:default;color:var(--muted)">No sub-folders.</div>`);
+    } catch (e) { box.innerHTML = `<div class="hb-head" style="color:var(--red)">${haEsc(e.message)}</div>`; }
+  };
+  $("hfBrowser").addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]"), pick = e.target.closest("[data-pick]");
+    if (pick) { $("hfPath").value = pick.dataset.pick; $("hfBrowser").hidden = true; hfLoadTypes(); }
+    else if (go) hfBrowse(go.dataset.go);
+  });
+  $("hfBrowse").onclick = () => hfBrowse($("hfPath").value.trim());
+  const hfRenderTypes = () => {
+    $("hfExts").innerHTML = hfTypes.length ? hfTypes.map(t => `<tr><td><input type="checkbox" data-hfext="${haEsc(t.ext)}" ${hfOn.has(t.ext) ? "checked" : ""}></td>
+      <td>${t.ext ? "." + haEsc(t.ext) : "<i>no extension</i>"}${HF_EXEC.has(t.ext) ? ' <span class="tag t-suspicious">exec</span>' : ""}</td>
+      <td class="num">${Number(t.files).toLocaleString()}</td><td class="num">${haSize(t.bytes)}</td><td class="num">${t.tooLarge ? Number(t.tooLarge).toLocaleString() : ""}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="empty">List a folder first.</td></tr>`;
+    $("hfExts").querySelectorAll("input[data-hfext]").forEach(c => c.onchange = () => { c.checked ? hfOn.add(c.dataset.hfext) : hfOn.delete(c.dataset.hfext); hfSummary(); });
     hfSummary();
   };
-  const hfChosen = () => { const max = (+$("hfMaxMb").value || 512) * 1048576; return hfFiles.filter(f => hfExtOn.has(hfExtOf(f.name)) && f.size <= max); };
   const hfSummary = () => {
-    const c = hfChosen();
-    const bytes = c.reduce((a, f) => a + f.size, 0);
-    $("hfRun").disabled = !c.length;
-    $("hfRun").textContent = c.length ? `Hash & review ${c.length} file(s) (${haSize(bytes)})…` : "Hash & review…";
+    const sel = hfTypes.filter(t => hfOn.has(t.ext));
+    const files = sel.reduce((a, t) => a + t.files - (t.tooLarge || 0), 0);
+    $("hfRun").disabled = !files;
+    $("hfRun").textContent = files ? `Hash & review ${files.toLocaleString()} file(s)…` : "Hash & review…";
   };
-  $("hfPick").onchange = () => {
-    hfFiles = [...$("hfPick").files];
-    hfHashes = new Map();
-    const exts = new Set(hfFiles.map(f => hfExtOf(f.name)));
-    hfExtOn = new Set([...exts].filter(e => HF_EXEC.has(e)));
-    if (!hfExtOn.size) hfExtOn = new Set(exts);
-    const root = hfFiles[0] && hfFiles[0].webkitRelativePath ? hfFiles[0].webkitRelativePath.split("/")[0] : "";
-    $("hfInfo").textContent = hfFiles.length ? `${root ? root + ": " : ""}${hfFiles.length} files, ${exts.size} file types` : "The folder is empty.";
-    $("hfMsg").textContent = ""; $("hfProgress").textContent = ""; $("hfBar").style.width = "0";
-    hfRenderExts();
+  const hfLoadTypes = async () => {
+    const path = $("hfPath").value.trim();
+    if (!path) { $("hfInfo").textContent = "Enter or browse to a folder."; return; }
+    $("hfInfo").style.color = ""; $("hfInfo").textContent = "Listing files…"; $("hfMsg").textContent = "";
+    try {
+      const d = await post("/api/folder-wl/types", { path, max_mb: hfMaxMb() });
+      hfTypes = d.types || [];
+      hfOn = new Set(hfTypes.map(t => t.ext).filter(e => HF_EXEC.has(e)));
+      if (!hfOn.size) hfOn = new Set(hfTypes.map(t => t.ext));
+      $("hfInfo").textContent = `${Number(d.files).toLocaleString()} files, ${hfTypes.length} file types${d.capped ? " (stopped at 200,000 files: pick a smaller folder)" : ""}.`;
+      hfRenderTypes();
+    } catch (e) { $("hfInfo").style.color = "var(--red)"; $("hfInfo").textContent = e.message; hfTypes = []; hfRenderTypes(); }
   };
-  $("hfMaxMb").oninput = hfRenderExts;
-  $("hfAll").onclick = () => { hfExtOn = new Set(hfFiles.map(f => hfExtOf(f.name))); hfRenderExts(); };
-  $("hfNone").onclick = () => { hfExtOn = new Set(); hfRenderExts(); };
-  $("hfExec").onclick = () => { hfExtOn = new Set(hfFiles.map(f => hfExtOf(f.name)).filter(e => HF_EXEC.has(e))); hfRenderExts(); };
-  $("hfStop").onclick = () => { hfStop = true; };
-
-  const SHA_K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
-  // Streaming SHA-256 for plain-HTTP dashboards, where crypto.subtle is missing, and for big files.
-  const sha256Stream = () => {
-    const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
-    const W = new Uint32Array(64), buf = new Uint8Array(64);
-    let bl = 0, total = 0;
-    const block = (m, o) => {
-      for (let i = 0; i < 16; i++) W[i] = (m[o + 4 * i] << 24) | (m[o + 4 * i + 1] << 16) | (m[o + 4 * i + 2] << 8) | m[o + 4 * i + 3];
-      for (let i = 16; i < 64; i++) {
-        const a = W[i - 15], b = W[i - 2];
-        W[i] = (W[i - 16] + (((a >>> 7) | (a << 25)) ^ ((a >>> 18) | (a << 14)) ^ (a >>> 3)) + W[i - 7] + (((b >>> 17) | (b << 15)) ^ ((b >>> 19) | (b << 13)) ^ (b >>> 10))) | 0;
-      }
-      let a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
-      for (let i = 0; i < 64; i++) {
-        const t1 = (h + (((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))) + ((e & f) ^ (~e & g)) + SHA_K[i] + W[i]) | 0;
-        const t2 = ((((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
-        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
-      }
-      H[0] += a; H[1] += b; H[2] += c; H[3] += d; H[4] += e; H[5] += f; H[6] += g; H[7] += h;
-    };
-    return {
-      update(m) {
-        let i = 0;
-        total += m.length;
-        if (bl) {
-          while (bl < 64 && i < m.length) buf[bl++] = m[i++];
-          if (bl < 64) return;
-          block(buf, 0); bl = 0;
-        }
-        for (; i + 64 <= m.length; i += 64) block(m, i);
-        while (i < m.length) buf[bl++] = m[i++];
-      },
-      hex() {
-        const bits = total * 8;
-        buf[bl++] = 0x80;
-        if (bl > 56) { buf.fill(0, bl); block(buf, 0); bl = 0; }
-        buf.fill(0, bl, 56);
-        const hi = Math.floor(bits / 0x100000000), lo = bits >>> 0;
-        buf[56] = hi >>> 24; buf[57] = hi >>> 16; buf[58] = hi >>> 8; buf[59] = hi;
-        buf[60] = lo >>> 24; buf[61] = lo >>> 16; buf[62] = lo >>> 8; buf[63] = lo;
-        block(buf, 0);
-        return Array.from(H, x => x.toString(16).padStart(8, "0")).join("");
-      },
-    };
-  };
-  const hfHashFile = async (f) => {
-    // crypto.subtle exists only on https / localhost; plain-HTTP dashboards use the JS hasher.
-    if (window.crypto && crypto.subtle && f.size <= 64 * 1048576) {
-      const d = await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
-      return Array.from(new Uint8Array(d), b => b.toString(16).padStart(2, "0")).join("");
-    }
-    const h = sha256Stream();
-    for (let off = 0; off < f.size; off += 8 * 1048576) {
-      if (hfStop) throw new Error("stopped");
-      h.update(new Uint8Array(await f.slice(off, off + 8 * 1048576).arrayBuffer()));
-    }
-    return h.hex();
+  $("hfLoad").onclick = hfLoadTypes;
+  // Default: the server's upload limit (bigger files are what a whitelist can rescue,
+  // so 0 = no limit is allowed too). Remembered in this browser.
+  const hfMaxMb = () => Math.max(0, Math.floor(Number($("hfMaxMb").value) || 0));
+  $("hfMaxMb").value = "100";
+  try { const v = localStorage.getItem("multron_hf_maxmb"); if (v !== null) $("hfMaxMb").value = v; } catch (_) {}
+  $("hfMaxMb").addEventListener("change", () => { try { localStorage.setItem("multron_hf_maxmb", String(hfMaxMb())); } catch (_) {} if (hfTypes.length) hfLoadTypes(); });
+  $("hfPath").addEventListener("keydown", (e) => { if (e.key === "Enter") hfLoadTypes(); });
+  $("hfAll").onclick = () => { hfOn = new Set(hfTypes.map(t => t.ext)); hfRenderTypes(); };
+  $("hfNone").onclick = () => { hfOn = new Set(); hfRenderTypes(); };
+  $("hfExec").onclick = () => { hfOn = new Set(hfTypes.map(t => t.ext).filter(e => HF_EXEC.has(e))); hfRenderTypes(); };
+  $("hfStop").onclick = () => post("/api/folder-wl/stop", {}).catch(() => {});
+  const hfShow = (st) => {
+    const pct = st.totalBytes ? 100 * st.doneBytes / st.totalBytes : (st.totalFiles ? 100 * st.doneFiles / st.totalFiles : 0);
+    $("hfBar").style.width = (st.running || st.finishedAt ? pct : 0).toFixed(1) + "%";
+    $("hfStop").hidden = !st.running;
+    $("hfProgress").textContent = st.startedAt ? `${st.running ? "Hashing" : "Hashed"} ${st.doneFiles.toLocaleString()} / ${st.totalFiles.toLocaleString()} files · ${haSize(st.doneBytes)} of ${haSize(st.totalBytes)}${st.unreadable ? ` · ${st.unreadable} unreadable` : ""}${st.tooLarge ? ` · ${st.tooLarge.toLocaleString()} skipped (over ${st.maxMb} MB)` : ""}` : "";
   };
   $("hfRun").onclick = async () => {
-    const list = hfChosen();
-    if (!list.length) return;
-    if (list.length > 100000) { $("hfMsg").textContent = "More than 100,000 files: pick fewer file types or a smaller folder."; return; }
-    hfStop = false;
-    $("hfRun").disabled = true; $("hfStop").disabled = false; $("hfPickBtn").disabled = true;
+    const path = $("hfPath").value.trim(), exts = [...hfOn];
     $("hfMsg").textContent = "";
-    const total = list.reduce((a, f) => a + f.size, 0);
-    let done = 0, bytes = 0, errors = 0, idx = 0;
-    const t0 = Date.now();
-    const tick = () => {
-      $("hfBar").style.width = (total ? 100 * bytes / total : 100 * done / list.length).toFixed(1) + "%";
-      const mbs = bytes / 1048576 / Math.max(0.001, (Date.now() - t0) / 1000);
-      $("hfProgress").textContent = `Hashing ${done}/${list.length} files · ${haSize(bytes)} of ${haSize(total)} · ${mbs.toFixed(0)} MB/s${errors ? ` · ${errors} unreadable` : ""}`;
-    };
-    const worker = async () => {
-      while (!hfStop && idx < list.length) {
-        const f = list[idx++];
-        if (!hfHashes.has(f)) {
-          try { hfHashes.set(f, await hfHashFile(f)); } catch (_) { if (!hfStop) errors++; }
-        }
-        done++; bytes += f.size;
-        if (done % 20 === 0 || done === list.length) tick();
-      }
-    };
-    await Promise.all([worker(), worker(), worker()]);
-    tick();
-    $("hfStop").disabled = true; $("hfPickBtn").disabled = false;
-    hfRenderExts();
-    if (hfStop) { $("hfMsg").textContent = "Stopped. Already hashed files are kept; run again to continue."; return; }
-    const hashes = [...new Set(list.map(f => hfHashes.get(f)).filter(Boolean))];
-    if (!hashes.length) { $("hfMsg").textContent = "No file could be read."; return; }
-    haBulk({
-      hashes, verdict: "clean",
-      note: $("hfNote").value.trim(),
-      internal: $("hfInternal").value.trim(),
-      onlySeen: $("hfOnlySeen").checked,
-      title: `Folder whitelist: ${hashes.length} unique file(s)`,
-      onDone: (msg, good) => { $("hfMsg").style.color = good ? "var(--green)" : ""; $("hfMsg").textContent = msg; },
-    });
+    try { await post("/api/folder-wl/start", { path, exts, max_mb: hfMaxMb() }); }
+    catch (e) { $("hfMsg").textContent = e.message; return; }
+    $("hfRun").disabled = true;
+    clearInterval(hfPoll);
+    hfPoll = setInterval(async () => {
+      let st;
+      try { st = await (await fetch("/api/folder-wl/status", { cache: "no-store" })).json(); } catch (_) { return; }
+      hfShow(st);
+      if (st.running) return;
+      clearInterval(hfPoll);
+      hfSummary();
+      if (st.error) { $("hfMsg").textContent = st.error === "stopped" ? "Stopped." : st.error; return; }
+      if (!st.unique) { $("hfMsg").textContent = "No file could be read."; return; }
+      haBulk({
+        folderJob: true, count: st.unique, verdict: "clean",
+        note: $("hfNote").value.trim(), internal: $("hfInternal").value.trim(), onlySeen: $("hfOnlySeen").checked,
+        title: `Folder whitelist: ${st.unique.toLocaleString()} unique file(s) from ${st.path}${st.tooLarge ? ` (${st.tooLarge.toLocaleString()} over ${st.maxMb} MB skipped)` : ""}`,
+        onDone: (msg, good) => { $("hfMsg").style.color = good ? "var(--green)" : ""; $("hfMsg").textContent = msg; },
+      });
+    }, 700);
   };
+  fetch("/api/folder-wl/status", { cache: "no-store" }).then(r => r.json()).then(st => { if (st.path) $("hfPath").value = st.path; hfShow(st); }).catch(() => {});
 
   haLoad();
   setInterval(() => { if (!document.hidden) haLoad(); }, 10000);

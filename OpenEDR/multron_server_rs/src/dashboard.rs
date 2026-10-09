@@ -297,6 +297,11 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/review/start", post(handle_review_start))
         .route("/api/review/release", post(handle_review_release))
         .route("/api/reviews/similar/:sha256", get(handle_review_similar))
+        .route("/api/fs/list", get(handle_fs_list))
+        .route("/api/folder-wl/types", post(handle_folder_types))
+        .route("/api/folder-wl/start", post(handle_folder_start))
+        .route("/api/folder-wl/status", get(handle_folder_status))
+        .route("/api/folder-wl/stop", post(handle_folder_stop))
         .route(
             "/api/reviews/bulk",
             post(handle_reviews_bulk).route_layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
@@ -588,6 +593,74 @@ async fn handle_rescan_after_reload(State(app): State<Arc<AppState>>, Json(t): J
     app.settings.write().await.rescan_after_reload = t.enabled;
     app.save_settings().await;
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+// ---------------- Folder whitelist on the server's own disk ----------------
+
+#[derive(Deserialize)]
+struct FsListQuery {
+    #[serde(default)]
+    path: String,
+}
+
+async fn handle_fs_list(Query(q): Query<FsListQuery>) -> Response {
+    match tokio::task::spawn_blocking(move || crate::folder_wl::list_dir(&q.path)).await {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct FolderBody {
+    path: String,
+    #[serde(default)]
+    exts: Vec<String>,
+    /// Skip files larger than this (0 = no limit).
+    #[serde(default)]
+    max_mb: u64,
+}
+
+/// Work folder and move target: never walked (client uploads, malware included).
+fn folder_exclusions(app: &AppState) -> Vec<Option<PathBuf>> {
+    let target = app.scan_server.offload.target();
+    vec![
+        app.engine.work_dir().map(|p| p.to_path_buf()),
+        if target.trim().is_empty() { None } else { Some(PathBuf::from(target.trim())) },
+    ]
+}
+
+async fn handle_folder_types(State(app): State<Arc<AppState>>, Json(b): Json<FolderBody>) -> Response {
+    let ex = folder_exclusions(&app);
+    let res = tokio::task::spawn_blocking(move || {
+        let refs: Vec<Option<&std::path::Path>> = ex.iter().map(|p| p.as_deref()).collect();
+        crate::folder_wl::scan_types(&b.path, b.max_mb * 1024 * 1024, &refs)
+    })
+    .await;
+    match res {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
+}
+
+async fn handle_folder_start(State(app): State<Arc<AppState>>, Json(b): Json<FolderBody>) -> Response {
+    let ex = folder_exclusions(&app);
+    let refs: Vec<Option<&std::path::Path>> = ex.iter().map(|p| p.as_deref()).collect();
+    let srv = Arc::clone(&app.scan_server);
+    match crate::folder_wl::start(&b.path, &b.exts, b.max_mb * 1024 * 1024, &refs, move |m| srv.log_info(m)) {
+        Ok(()) => Json(serde_json::json!({"ok": true})).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_folder_status() -> impl IntoResponse {
+    Json(crate::folder_wl::JOB.status())
+}
+
+async fn handle_folder_stop() -> impl IntoResponse {
+    crate::folder_wl::JOB.request_stop();
+    Json(serde_json::json!({"ok": true}))
 }
 
 // ---------------- Moving kept files to another disk / network share ----------------
@@ -890,6 +963,10 @@ fn file_ext(name: &str) -> String {
 /// Pending queue (up to 5000, oldest first) with telemetry for grouping by extension
 /// and folder. Similar files are loaded per item (`/api/reviews/similar/:sha256`).
 async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    // Open files that are not queued yet (e.g. removed by hand, or seen before
+    // auto-queueing) are added before listing.
+    let ti = Arc::clone(&app.threat_intel);
+    let _ = tokio::task::spawn_blocking(move || ti.sync_review_queue()).await;
     let r = &app.threat_intel.reviews;
     let pending: Vec<serde_json::Value> = r
         .pending(5000)
@@ -934,7 +1011,11 @@ async fn handle_review_similar(State(app): State<Arc<AppState>>, Path(sha256): P
 /// can warn before anything is written.
 #[derive(Deserialize)]
 struct ReviewBulkBody {
+    #[serde(default)]
     sha256s: Vec<String>,
+    /// Use the hashes of the last finished server-side folder hashing (`folder_wl`).
+    #[serde(default)]
+    folder_job: bool,
     /// malicious | suspicious | clean, or "dismiss" (remove pending entries from the queue).
     verdict: String,
     #[serde(default)]
@@ -957,7 +1038,13 @@ struct ReviewBulkBody {
 
 const BULK_MAX: usize = 100_000;
 
-async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(b): Json<ReviewBulkBody>) -> Response {
+async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(mut b): Json<ReviewBulkBody>) -> Response {
+    if b.folder_job {
+        if crate::folder_wl::JOB.is_running() {
+            return (StatusCode::CONFLICT, Json(serde_json::json!({"error": "the folder is still being hashed"}))).into_response();
+        }
+        b.sha256s = crate::folder_wl::JOB.hashes();
+    }
     let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
     let verdict = b.verdict.trim().to_ascii_lowercase();
     let dismiss = verdict == "dismiss";
@@ -977,7 +1064,9 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(b): Json<Rev
         }
     }
     let ti = Arc::clone(&app.threat_intel);
+    let engine = Arc::clone(&app.engine);
     let result = tokio::task::spawn_blocking(move || {
+        let mut relabel: Vec<(String, String)> = Vec::new();
         let mut seen_set = std::collections::HashSet::new();
         let (mut invalid, mut duplicates, mut unseen, mut pending, mut same, mut written, mut skipped, mut failed) =
             (0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
@@ -1055,7 +1144,10 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(b): Json<Rev
             }
             let threat = if b.threat_name.trim().is_empty() { None } else { Some(b.threat_name.as_str()) };
             match ti.reviews.complete(&sha, &verdict, threat, &b.note, &b.internal_note, &b.analyst) {
-                Ok(_) => written += 1,
+                Ok(_) => {
+                    written += 1;
+                    relabel.push((sha.clone(), verdict.clone()));
+                }
                 Err(e) => {
                     failed += 1;
                     if errors.len() < 5 {
@@ -1064,8 +1156,10 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(b): Json<Rev
                 }
             }
         }
+        let moved = engine.relabel_many(&relabel);
         serde_json::json!({
             "ok": true,
+            "moved_kept": moved,
             "dry_run": b.dry_run,
             "verdict": verdict,
             "received": b.sha256s.len(),
@@ -1126,6 +1220,10 @@ async fn handle_review_save(
     let threat = if b.threat_name.trim().is_empty() { None } else { Some(b.threat_name.as_str()) };
     match app.threat_intel.reviews.complete(b.sha256.trim(), &b.verdict, threat, &b.note, &b.internal_note, &b.analyst) {
         Ok(r) => {
+            if let Some(v) = r.verdict.clone() {
+                let (eng, sha) = (Arc::clone(&app.engine), r.sha256.clone());
+                tokio::task::spawn_blocking(move || eng.relabel_kept(&sha.to_ascii_uppercase(), &v));
+            }
             info_event(
                 &app,
                 format!(

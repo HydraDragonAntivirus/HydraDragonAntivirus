@@ -10,6 +10,7 @@ mod analyzer;
 mod human_review;
 mod naming;
 mod reports;
+mod folder_wl;
 mod offload;
 mod rescan;
 mod sample_zip;
@@ -71,6 +72,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let ti = Arc::clone(&threat_intel);
         engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
+        // Kept files follow human verdicts (e.g. bulk whitelists made by older builds).
+        let queued = ti.sync_review_queue();
+        if queued > 0 {
+            eprintln!("[review] {queued} open files added to the human analysis queue");
+        }
+        let moved = engine.relabel_many(&ti.reviews.completed_verdicts());
+        if moved > 0 {
+            eprintln!("[engine] {moved} kept files moved to the folder of their human verdict");
+        }
     }
     let scan_server = ScanServer::new(
         args.clone(),

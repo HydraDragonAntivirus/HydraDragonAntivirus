@@ -191,6 +191,11 @@ impl EngineAdapter {
                 out.extend(rd.flatten().filter_map(|e| KeptFile::parse(e.path(), Some(cat))));
             }
         }
+        // `threat/` from an earlier build that did not split malicious and suspicious
+        // (sorted by `sort_legacy_kept`, malicious until then).
+        if let Ok(rd) = std::fs::read_dir(dir.join(KeptFile::LEGACY_THREAT_DIR)) {
+            out.extend(rd.flatten().filter_map(|e| KeptFile::parse(e.path(), Some("malicious"))));
+        }
         if let Ok(rd) = std::fs::read_dir(dir) {
             out.extend(rd.flatten().filter(|e| e.path().is_file()).filter_map(|e| KeptFile::parse(e.path(), None)));
         }
@@ -208,21 +213,45 @@ impl EngineAdapter {
 
     /// Moves a kept upload to the folder of its new verdict (after a rescan).
     pub fn relabel_kept(&self, sha_upper: &str, verdict: &str) {
-        let Some(dir) = self.work_dir.as_ref() else { return };
-        let Some(k) = self.find_kept(sha_upper) else { return };
-        let cat = KeptFile::category_for(verdict);
+        if let Some(k) = self.find_kept(sha_upper) {
+            self.move_kept(&k, KeptFile::category_for(verdict));
+        }
+    }
+
+    /// `relabel_kept` for many files with one walk of the folders (human verdicts:
+    /// bulk whitelists, startup). `items` are (SHA-256, verdict). Returns files moved.
+    pub fn relabel_many(&self, items: &[(String, String)]) -> usize {
+        if items.is_empty() || self.work_dir.is_none() {
+            return 0;
+        }
+        let kept: std::collections::HashMap<String, KeptFile> =
+            self.list_kept().into_iter().map(|k| (k.sha256.clone(), k)).collect();
+        items
+            .iter()
+            .filter_map(|(sha, verdict)| kept.get(&sha.to_ascii_uppercase()).map(|k| (k, verdict)))
+            .filter(|(k, verdict)| self.move_kept(k, KeptFile::category_for(verdict)))
+            .count()
+    }
+
+    /// Moves a kept file into the folder of `cat`, moving its bytes between the clean
+    /// quota and the shared one when needed. True when it moved.
+    fn move_kept(&self, k: &KeptFile, cat: &'static str) -> bool {
+        let Some(dir) = self.work_dir.as_ref() else { return false };
         if k.category == cat && !k.legacy {
-            return;
+            return false;
         }
         let target = dir.join(cat).join(k.file_name());
         let _ = std::fs::create_dir_all(dir.join(cat));
-        if !target.exists() && std::fs::rename(&k.path, &target).is_ok() && (k.category == "clean") != (cat == "clean") {
-            // Moved between the clean quota and the shared one.
+        if target.exists() || std::fs::rename(&k.path, &target).is_err() {
+            return false;
+        }
+        if (k.category == "clean") != (cat == "clean") {
             let len = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
             let (from, to) = if cat == "clean" { (&self.kept_bytes, &self.kept_clean_bytes) } else { (&self.kept_clean_bytes, &self.kept_bytes) };
             let _ = from.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_sub(len)));
             to.fetch_add(len, Ordering::Relaxed);
         }
+        true
     }
 
     /// Kept files on disk per category: (category, files, bytes). Walks the folders,
@@ -289,6 +318,8 @@ impl EngineAdapter {
         if moved + left > 0 {
             eprintln!("[engine] kept files sorted into category folders: {moved} moved, {left} left in place");
         }
+        // Remove the old threat/ folder once it is empty.
+        let _ = std::fs::remove_dir(dir.join(KeptFile::LEGACY_THREAT_DIR));
     }
 
     /// Adds the analyst-written YARA rules (`analyst_signatures/yara/*.yar`, kept apart
@@ -770,6 +801,8 @@ pub struct KeptFile {
 
 impl KeptFile {
     pub const CATEGORIES: [&'static str; 5] = ["unknown", "possible_clean", "suspicious", "malicious", "clean"];
+    /// Folder of an earlier build for malicious + suspicious together.
+    pub const LEGACY_THREAT_DIR: &'static str = "threat";
     /// Old file name prefixes. `threat_` did not tell malicious from suspicious: such files
     /// are sorted by their recorded verdict (`sort_legacy_kept`), malicious by default.
     const LEGACY_PREFIXES: [(&'static str, &'static str); 3] =
@@ -1199,6 +1232,9 @@ fn remove_leftover_uploads(dir: &Path) -> (u64, i64, u64) {
             count(rd, Some(cat));
         }
     }
+    if let Ok(rd) = std::fs::read_dir(dir.join(KeptFile::LEGACY_THREAT_DIR)) {
+        count(rd, Some("malicious"));
+    }
     // Old-style files still in the root (sorted later by `sort_legacy_kept`).
     if let Ok(rd) = std::fs::read_dir(dir) {
         count(rd, None);
@@ -1345,8 +1381,10 @@ mod kept_tests {
         std::fs::write(dir.join(format!("possible_clean_{}_c.dll", sha('C'))), b"x").unwrap();
         std::fs::write(dir.join(format!("{}_d.js", sha('D'))), b"x").unwrap();
         std::fs::write(dir.join("00000012_tmp.exe"), b"x").unwrap();
+        std::fs::create_dir_all(dir.join("threat")).unwrap();
+        std::fs::write(dir.join("threat").join(format!("{}_e.exe", sha('E'))), b"x").unwrap();
         let (_, n, _) = remove_leftover_uploads(&dir);
-        assert_eq!(n, 4);
+        assert_eq!(n, 5);
         assert!(!dir.join("00000012_tmp.exe").exists());
         let ad = EngineAdapter::new(Some(dir.clone()), false, true, 1, true, false, 1, false, 1);
         ad.sort_legacy_kept(|s| (s == sha('B')).then(|| "suspicious".to_string()));
@@ -1354,11 +1392,16 @@ mod kept_tests {
         assert!(dir.join("suspicious").join(format!("{}_b.exe", sha('B'))).exists());
         assert!(dir.join("possible_clean").join(format!("{}_c.dll", sha('C'))).exists());
         assert!(dir.join("unknown").join(format!("{}_d.js", sha('D'))).exists());
+        assert!(dir.join("malicious").join(format!("{}_e.exe", sha('E'))).exists());
+        assert!(!dir.join("threat").exists());
         ad.relabel_kept(&sha('D'), "clean");
         let k = ad.find_kept(&sha('D')).unwrap();
         assert_eq!(k.category, "clean");
         assert!(!k.legacy);
-        assert_eq!(ad.list_kept().len(), 4);
+        assert_eq!(ad.list_kept().len(), 5);
+        let moved = ad.relabel_many(&[(sha('a'), "clean".into()), (sha('C'), "possible_clean".into()), ("F".repeat(64), "clean".into())]);
+        assert_eq!(moved, 1);
+        assert!(dir.join("clean").join(format!("{}_a.exe", sha('A'))).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -94,7 +94,9 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
         report = crate::scan_server::apply_smart_whitelist(&ti, &data, &kept.name, res);
     })?;
 
-    server.engine.relabel_kept(&sha_up, &res.verdict);
+    // The kept file sits in the folder of the effective verdict: a human verdict wins.
+    let human = server.threat_intel.reviews.completed(&sha_up).and_then(|r| r.verdict);
+    server.engine.relabel_kept(&sha_up, human.as_deref().unwrap_or(&res.verdict));
     server.remember(sha, &res);
     server.threat_intel.set_engine_verdict(&sha_up, &res.verdict, res.threat.as_deref(), res.score);
 
