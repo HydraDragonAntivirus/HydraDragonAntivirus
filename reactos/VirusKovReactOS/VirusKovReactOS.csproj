@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    VirusKov for ReactOS: cloud scanner, real-time folder protection and boot sector
+    backup for ReactOS, Windows XP SP3 and (with dotnet9x) Windows 95/98/ME.
+    .NET Framework 3.5 (CLR 2.0) on purpose: .NET 4.x is incomplete on ReactOS.
+    Talks to the same wss:// protocol as Multron Win Cleaner; the server is unchanged.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net35</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>VirusKovReactOS</AssemblyName>
+    <RootNamespace>VirusKov.ReactOS</RootNamespace>
+    <PlatformTarget>x86</PlatformTarget>
+    <Version>1.0.0</Version>
+    <Product>VirusKov for ReactOS</Product>
+    <Copyright>VirusKov</Copyright>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 1.8.9 is the last release with net20 binaries and the TLS 1.2 client used here
+         (Org.BouncyCastle.Crypto.Tls). Do not upgrade to 2.x: it dropped .NET 2.0/3.5. -->
+    <PackageReference Include="BouncyCastle" Version="1.8.9" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="roots.pem" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="App.config" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+</Project>
