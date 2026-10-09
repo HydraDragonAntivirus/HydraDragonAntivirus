@@ -30,7 +30,7 @@ from sklearn.model_selection import train_test_split
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 DUMP_CRATE = os.path.join(BASE_DIR, "js_feature_dump")
-ENGINE_THRESHOLD = 0.85  # JS_TREE_THRESHOLD in OpenEDR/openedr_static/src/engine.rs
+ENGINE_THRESHOLD = 0.90  # JS_TREE_THRESHOLD in OpenEDR/openedr_static/src/engine.rs
 DATA = r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript"
 
 # JsFeatureVector::to_array order (OpenEDR/openedr_static/src/ml/features.rs).

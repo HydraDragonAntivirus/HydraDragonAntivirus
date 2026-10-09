@@ -30,9 +30,9 @@ pub const APK_TREE_THRESHOLD: f32 = 0.8;
 /// on non-standard compilers/tools (MinGW DWARF sections, PyInstaller/decompilers, Lazarus).
 pub const PE_TREE_THRESHOLD: f32 = 0.90;
 
-/// JS tree-model decision threshold. Set to 0.85 (Malicious cutoff) to eliminate
+/// JS tree-model decision threshold. Set to 0.90 (Malicious cutoff) to eliminate
 /// false positives in the 0.75-0.84 suspicious range on minified/bundled JS files.
-pub const JS_TREE_THRESHOLD: f32 = 0.85;
+pub const JS_TREE_THRESHOLD: f32 = 0.90;
 
 /// Generic whole-buffer ML fallback threshold. Fires only when every other
 /// layer (ClamAV/YARA/HydraSig/PE/JS/APK ML) found nothing, so keep it at the
