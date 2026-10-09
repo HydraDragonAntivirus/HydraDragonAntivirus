@@ -35,23 +35,6 @@ pub const POTENTIALLY_UP_HTTP_CODES: &[u16] = &[
 pub const POTENTIALLY_DOWN_HTTP_CODES: &[u16] =
     &[400, 402, 403, 404, 409, 410, 412, 414, 415, 416];
 
-/// PyFunceble-style predicates over a liveness code.
-pub fn is_up(code: i32) -> bool {
-    code == LIVENESS_ACTIVE
-}
-
-pub fn is_potentially_up(code: i32) -> bool {
-    code == LIVENESS_POTENTIALLY_UP
-}
-
-pub fn is_potentially_down(code: i32) -> bool {
-    code == LIVENESS_POTENTIALLY_DOWN
-}
-
-pub fn is_down(code: i32) -> bool {
-    code == LIVENESS_INACTIVE
-}
-
 pub fn liveness_label(code: i32) -> &'static str {
     match code {
         LIVENESS_ACTIVE => "ACTIVE",

@@ -150,10 +150,6 @@ impl SimilarityIndex {
         n
     }
 
-    pub fn len(&self) -> usize {
-        self.files.read().unwrap().len()
-    }
-
     pub fn tlsh_of(&self, sha256: &str) -> Option<String> {
         let sha = sha256.to_ascii_lowercase();
         self.files.read().unwrap().iter().find(|e| e.sha256 == sha).map(|e| e.tlsh.to_string())

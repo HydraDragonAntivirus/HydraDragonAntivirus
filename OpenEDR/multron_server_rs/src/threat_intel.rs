@@ -58,7 +58,6 @@ struct IpQuota {
 pub struct RateLimitHeader {
     pub limit: u32,
     pub remaining: u32,
-    pub retry_after: u64,
 }
 
 impl RestRateLimiter {
@@ -77,7 +76,6 @@ impl RestRateLimiter {
                 return Ok(RateLimitHeader {
                     limit: 1000,
                     remaining: 999,
-                    retry_after: 0,
                 });
             }
         }
@@ -120,7 +118,6 @@ impl RestRateLimiter {
         Ok(RateLimitHeader {
             limit: 10,
             remaining: quota.tokens.floor() as u32,
-            retry_after: 0,
         })
     }
 }
