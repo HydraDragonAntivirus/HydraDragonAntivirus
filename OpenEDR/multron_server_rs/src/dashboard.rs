@@ -341,6 +341,26 @@ async fn handle_index() -> impl IntoResponse {
     (headers, Html(DASHBOARD_HTML))
 }
 
+/// Kept-file counts walk multron_incoming; refreshed at most every 30 s.
+static KEPT_CACHE: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> = std::sync::Mutex::new(None);
+
+async fn kept_counts_cached(engine: &Arc<EngineAdapter>) -> serde_json::Value {
+    if let Some((t, v)) = KEPT_CACHE.lock().unwrap().as_ref() {
+        if t.elapsed() < std::time::Duration::from_secs(30) {
+            return v.clone();
+        }
+    }
+    let eng = Arc::clone(engine);
+    let counts = tokio::task::spawn_blocking(move || eng.kept_counts()).await.unwrap_or_default();
+    let mut v = serde_json::Map::new();
+    for (cat, files, bytes) in counts {
+        v.insert(cat.to_string(), serde_json::json!({ "files": files, "gb": bytes as f64 / (1024.0 * 1024.0 * 1024.0) }));
+    }
+    let v = serde_json::Value::Object(v);
+    *KEPT_CACHE.lock().unwrap() = Some((std::time::Instant::now(), v.clone()));
+    v
+}
+
 async fn handle_state(
     Query(q): Query<StateQuery>,
     State(app): State<Arc<AppState>>,
@@ -353,6 +373,21 @@ async fn handle_state(
 
     let clients = app.scan_server.get_clients().await;
     let (events, seq) = app.events.since(q.since);
+    // Whole database, not only this run of the server.
+    let tstats = app.threat_intel.stats();
+    let rstats = app.threat_intel.reviews.stats();
+    let all_time = serde_json::json!({
+        "hashes": tstats.total_unique_hashes,
+        "sightings": tstats.total_sightings,
+        "malicious": tstats.malicious_count,
+        "suspicious": tstats.suspicious_count,
+        "clean": tstats.clean_count,
+        "possibleClean": tstats.possible_clean_count,
+        "unknown": tstats.unknown_count,
+        "humanVerdicts": rstats.completed,
+        "humanQueue": rstats.pending,
+        "kept": kept_counts_cached(&app.engine).await,
+    });
 
     let srv = &app.scan_server;
     let queued = srv.scheduler.queued();
@@ -434,6 +469,7 @@ async fn handle_state(
             "keptUnknown": ld(&app.engine.kept_files),
             "uploadSavedPct": saved_pct,
         },
+        "allTime": all_time,
         "clients": clients,
         "events": events,
         "seq": seq,

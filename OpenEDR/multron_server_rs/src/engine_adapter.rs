@@ -225,6 +225,19 @@ impl EngineAdapter {
         }
     }
 
+    /// Kept files on disk per category: (category, files, bytes). Walks the folders,
+    /// so callers cache it.
+    pub fn kept_counts(&self) -> Vec<(&'static str, u64, u64)> {
+        let mut out: Vec<(&'static str, u64, u64)> = KeptFile::CATEGORIES.iter().map(|c| (*c, 0, 0)).collect();
+        for k in self.list_kept() {
+            if let Some(e) = out.iter_mut().find(|e| e.0 == k.category) {
+                e.1 += 1;
+                e.2 += std::fs::metadata(&k.path).map(|m| m.len()).unwrap_or(0);
+            }
+        }
+        out
+    }
+
     pub fn work_dir(&self) -> Option<&Path> {
         self.work_dir.as_deref()
     }

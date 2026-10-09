@@ -297,6 +297,20 @@
   </div>
 
   <div class="col">
+    <div class="feedbar" style="margin-bottom:-6px"><h2 style="margin:0">All time (database)</h2><span class="hint" style="margin:0">every file VirusKov has seen, kept across restarts</span></div>
+    <div class="stats">
+      <div class="stat"><div class="v" id="aHashes">0</div><div class="l">Unique files seen</div></div>
+      <div class="stat"><div class="v" id="aSightings">0</div><div class="l">Sightings</div></div>
+      <div class="stat threat"><div class="v" id="aMal">0</div><div class="l">Malicious</div></div>
+      <div class="stat"><div class="v" id="aSus" style="color:var(--orange)">0</div><div class="l">Suspicious</div></div>
+      <div class="stat"><div class="v" id="aUnknown">0</div><div class="l">Unknown</div></div>
+      <div class="stat"><div class="v" id="aPcl" style="color:var(--green);opacity:.8">0</div><div class="l">Possible clean</div></div>
+      <div class="stat"><div class="v" id="aClean" style="color:var(--green)">0</div><div class="l">Clean</div></div>
+      <div class="stat"><div class="v" id="aHuman">0</div><div class="l">Human verdicts</div></div>
+      <div class="stat"><div class="v" id="aQueue">0</div><div class="l">Human queue</div></div>
+      <div class="stat" style="grid-column:span 3"><div class="v" id="aKept" style="font-size:15px;line-height:1.6">—</div><div class="l">Kept in multron_incoming (files · GB)</div></div>
+    </div>
+    <div class="feedbar" style="margin-bottom:-6px"><h2 style="margin:0">This session</h2><span class="hint" style="margin:0">since the server started</span></div>
     <div class="stats">
       <div class="stat"><div class="v" id="sConn">0</div><div class="l">Connected clients</div></div>
       <div class="stat"><div class="v" id="sScanned">0</div><div class="l">Files scanned</div></div>
@@ -312,8 +326,8 @@
       <div class="stat"><div class="v" id="sWl">0</div><div class="l">Whitelist hits</div></div>
       <div class="stat"><div class="v" id="sShared">0</div><div class="l">Shared with other clients</div></div>
       <div class="stat"><div class="v" id="sGb">0</div><div class="l">GB received</div></div>
-      <div class="stat"><div class="v" id="sKnown">0</div><div class="l">Known verdicts</div></div>
-      <div class="stat"><div class="v" id="sKept">0</div><div class="l">Unknown files kept</div></div>
+      <div class="stat"><div class="v" id="sKnown">0</div><div class="l">Verdicts in memory cache</div></div>
+      <div class="stat"><div class="v" id="sKept">0</div><div class="l">Kept files (all categories)</div></div>
       <div class="stat threat"><div class="v" id="sBlocked">0</div><div class="l">Requests blocked</div></div>
       <div class="stat threat"><div class="v" id="sBanned">0</div><div class="l">IPs blocked now</div></div>
     </div>
@@ -709,6 +723,21 @@
     $("sKept").textContent = st.keptUnknown;
     $("sBlocked").textContent = st.blocked;
     $("sBanned").textContent = st.bannedNow;
+    const at = state.allTime;
+    if (at) {
+      const n = (x) => Number(x || 0).toLocaleString();
+      $("aHashes").textContent = n(at.hashes);
+      $("aSightings").textContent = n(at.sightings);
+      $("aMal").textContent = n(at.malicious);
+      $("aSus").textContent = n(at.suspicious);
+      $("aUnknown").textContent = n(at.unknown);
+      $("aPcl").textContent = n(at.possibleClean);
+      $("aClean").textContent = n(at.clean);
+      $("aHuman").textContent = n(at.humanVerdicts);
+      $("aQueue").textContent = n(at.humanQueue);
+      const k = at.kept || {};
+      $("aKept").innerHTML = ["unknown", "possible_clean", "suspicious", "malicious", "clean"].map(c => k[c] ? `<span style="white-space:nowrap;margin-right:12px">${c.replace("_", " ")}: <b>${n(k[c].files)}</b> · ${Number(k[c].gb).toFixed(2)}</span>` : "").join("");
+    }
 
     const tbody = $("clients");
     tbody.replaceChildren();
