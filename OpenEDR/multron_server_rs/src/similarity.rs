@@ -47,6 +47,8 @@ struct CorpusRef {
 pub struct SimilarityIndex {
     /// Verified benign corpus (`tlsh_signatures/tlsh_whitelist_refs.jsonl`).
     corpus_refs: RwLock<Vec<CorpusRef>>,
+    /// SHA-256 (lower case) of every corpus reference: exact copies are simply clean.
+    corpus_shas: RwLock<HashSet<String>>,
     files: RwLock<Vec<Entry>>,
     seen: RwLock<HashSet<String>>,
     known_malware: RwLock<Vec<Tlsh>>,
@@ -127,6 +129,7 @@ impl SimilarityIndex {
             }
         }
         let n = v.len();
+        *self.corpus_shas.write().unwrap() = v.iter().map(|r| r.sha256.clone()).collect();
         *self.corpus_refs.write().unwrap() = v;
         eprintln!("[similarity] {n} benign corpus references loaded");
         n
@@ -148,6 +151,11 @@ impl SimilarityIndex {
         let n = list.len();
         *self.known_malware.write().unwrap() = list;
         n
+    }
+
+    /// The file itself (same SHA-256) is in the verified benign corpus.
+    pub fn in_benign_corpus(&self, sha256: &str) -> bool {
+        self.corpus_shas.read().unwrap().contains(&sha256.to_ascii_lowercase())
     }
 
     pub fn tlsh_of(&self, sha256: &str) -> Option<String> {

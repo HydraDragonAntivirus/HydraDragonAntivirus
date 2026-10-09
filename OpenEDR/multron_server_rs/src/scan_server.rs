@@ -1438,6 +1438,16 @@ pub fn apply_smart_whitelist(
     if res.verdict != "unknown" || !(data.starts_with(b"MZ") || data.starts_with(b"PK\x03\x04")) {
         return None;
     }
+    // The exact file is in the verified benign corpus: that is a known file, not a
+    // look-alike, so it is clean (possible_clean is for TLSH neighbours only).
+    if ti.similarity.in_benign_corpus(&res.sha256) {
+        crate::engine_adapter::mark_clean(
+            res,
+            "Known benign: exact SHA-256 match in the verified benign reference corpus".into(),
+            "benign_corpus/sha256",
+        );
+        return None;
+    }
     let rep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(data, name))).ok()?;
     if let Ok(cand) = serde_json::to_value(&rep) {
         let reviews = &ti.reviews;
