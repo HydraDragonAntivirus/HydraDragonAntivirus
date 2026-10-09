@@ -132,20 +132,12 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     Ok(change)
 }
 
-/// Kept-file categories a bulk rescan can cover: "unknown", "possible_clean",
-/// "threat" (malicious / suspicious) and "clean".
-pub const CATEGORIES: [&str; 4] = ["unknown", "possible_clean", "threat", "clean"];
+/// Kept-file categories (folders in multron_incoming) a bulk rescan can cover:
+/// "unknown", "possible_clean", "suspicious", "malicious" and "clean". "threat" is
+/// accepted for malicious + suspicious.
+pub const CATEGORIES: [&str; 5] = crate::engine_adapter::KeptFile::CATEGORIES;
 /// Used after an engine reload and when no category is given.
 pub const DEFAULT_CATEGORIES: [&str; 2] = ["unknown", "possible_clean"];
-
-fn category_of(prefix: &str) -> &'static str {
-    match prefix {
-        "threat_" => "threat",
-        "possible_clean_" => "possible_clean",
-        "clean_" => "clean",
-        _ => "unknown",
-    }
-}
 
 /// Starts a background rescan of the kept files in `categories` (see `CATEGORIES`).
 /// Returns how many files are queued.
@@ -155,6 +147,10 @@ pub fn start_bulk(server: &Arc<ScanServer>, categories: &[String]) -> Result<usi
     } else {
         let mut v = Vec::new();
         for c in categories {
+            if c == "threat" {
+                v.extend(["malicious", "suspicious"]);
+                continue;
+            }
             let c = CATEGORIES.iter().find(|k| **k == c.as_str()).ok_or_else(|| format!("unknown category {c}"))?;
             v.push(*c);
         }
@@ -168,7 +164,7 @@ pub fn start_bulk(server: &Arc<ScanServer>, categories: &[String]) -> Result<usi
         .engine
         .list_kept()
         .into_iter()
-        .filter(|k| cats.contains(&category_of(k.prefix)))
+        .filter(|k| cats.contains(&k.category))
         .map(|k| k.sha256)
         .collect();
     bulk.stop.store(false, Ordering::Relaxed);

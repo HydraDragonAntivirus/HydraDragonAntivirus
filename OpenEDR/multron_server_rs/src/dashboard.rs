@@ -87,7 +87,17 @@ impl AppState {
             settings.keep_possible_clean = false;
         }
         engine.keep_possible_clean.store(settings.keep_possible_clean, std::sync::atomic::Ordering::Relaxed);
+        // Keeping clean PE / APK files: saved dashboard choice; `--keep-clean` turns it on.
+        if cfg.keep_clean {
+            settings.keep_clean = true;
+        }
+        engine.keep_clean.store(settings.keep_clean, std::sync::atomic::Ordering::Relaxed);
         scan_server.rescan.after_reload.store(settings.rescan_after_reload, std::sync::atomic::Ordering::Relaxed);
+        if !cfg.offload_dir.trim().is_empty() {
+            settings.offload_target = cfg.offload_dir.trim().to_string();
+        }
+        *scan_server.offload.target.write().unwrap() = settings.offload_target.clone();
+        scan_server.offload.auto.store(settings.offload_auto, std::sync::atomic::Ordering::Relaxed);
 
         // Limits saved from the dashboard win over the command-line defaults.
         if let Some(saved) = settings.limits.take() {
@@ -195,7 +205,10 @@ impl AppState {
             s.limits = g.limits.take();
             // Not part of the listener form: keep the current choice.
             s.keep_possible_clean = g.keep_possible_clean;
+            s.keep_clean = g.keep_clean;
             s.rescan_after_reload = g.rescan_after_reload;
+            s.offload_target = g.offload_target.clone();
+            s.offload_auto = g.offload_auto;
             *g = s.clone();
         }
         self.save_settings().await;
@@ -263,10 +276,14 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/stop", post(handle_stop))
         .route("/api/maintenance", post(handle_maintenance))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
+        .route("/api/keep-clean", post(handle_keep_clean))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
         .route("/api/rescan/after-reload", post(handle_rescan_after_reload))
+        .route("/api/offload/config", post(handle_offload_config))
+        .route("/api/offload/start", post(handle_offload_start))
+        .route("/api/offload/stop", post(handle_offload_stop))
         .route("/api/limits", post(handle_limits))
         .route("/api/limits/reset", post(handle_limits_reset))
         .route("/api/unban", post(handle_unban))
@@ -375,13 +392,16 @@ async fn handle_state(
             "signatureCheck": !app.cfg.memory_only,
             "maxFileMBCeiling": crate::config::MAX_FILE_MB,
             "keepThreats": app.engine.keep_threats,
-            "keepClean": app.engine.keep_clean,
+            "keepClean": app.engine.keep_clean.load(std::sync::atomic::Ordering::Relaxed),
+            "keepCleanGB": app.engine.keep_clean_limit_bytes / (1024 * 1024 * 1024),
+            "keptCleanGB": app.engine.kept_clean_bytes.load(std::sync::atomic::Ordering::Relaxed) as f64 / (1024.0 * 1024.0 * 1024.0),
             "keepPossibleClean": app.engine.keep_possible_clean.load(std::sync::atomic::Ordering::Relaxed),
             "compressLowDisk": app.engine.compress_low_disk,
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },
         "editableLimits": srv.limits.get(),
         "rescan": srv.rescan.status(),
+        "offload": srv.offload.status(),
         "bannedIps": srv.limiter.banned_now(),
         "lanAddresses": lan_addresses(),
         "stats": {
@@ -476,6 +496,14 @@ async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): J
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
+async fn handle_keep_clean(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
+    app.engine.keep_clean.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+    app.settings.write().await.keep_clean = t.enabled;
+    app.save_settings().await;
+    info_event(&app, format!("keep clean PE/APK files: {}", if t.enabled { "on" } else { "off" }));
+    Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
 #[derive(Deserialize)]
 struct RescanBody {
     sha256: String,
@@ -495,7 +523,8 @@ async fn handle_rescan_one(State(app): State<Arc<AppState>>, Json(b): Json<Resca
 
 #[derive(Deserialize, Default)]
 struct BulkRescanBody {
-    /// "unknown", "possible_clean", "threat", "clean"; empty = unknown + possible_clean.
+    /// "unknown", "possible_clean", "suspicious", "malicious", "clean" ("threat" = both);
+    /// empty = unknown + possible_clean for a rescan, every category for a move.
     #[serde(default)]
     categories: Vec<String>,
 }
@@ -521,6 +550,61 @@ async fn handle_rescan_after_reload(State(app): State<Arc<AppState>>, Json(t): J
     app.settings.write().await.rescan_after_reload = t.enabled;
     app.save_settings().await;
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+// ---------------- Moving kept files to another disk / network share ----------------
+
+#[derive(Deserialize)]
+struct OffloadConfigBody {
+    #[serde(default)]
+    target: String,
+    #[serde(default)]
+    auto: bool,
+}
+
+async fn handle_offload_config(State(app): State<Arc<AppState>>, Json(b): Json<OffloadConfigBody>) -> Response {
+    let target = b.target.trim().to_string();
+    if !target.is_empty() {
+        let engine = Arc::clone(&app.engine);
+        let t = target.clone();
+        match tokio::task::spawn_blocking(move || crate::offload::check_target(&engine, &t)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        }
+    }
+    let off = &app.scan_server.offload;
+    *off.target.write().unwrap() = target.clone();
+    off.auto.store(b.auto && !target.is_empty(), std::sync::atomic::Ordering::Relaxed);
+    {
+        let mut g = app.settings.write().await;
+        g.offload_target = target.clone();
+        g.offload_auto = b.auto && !target.is_empty();
+    }
+    app.save_settings().await;
+    info_event(&app, format!("move target: {} (automatic: {})", if target.is_empty() { "off" } else { &target }, if b.auto { "on" } else { "off" }));
+    Json(serde_json::json!({ "ok": true, "offload": off.status() })).into_response()
+}
+
+async fn handle_offload_start(State(app): State<Arc<AppState>>, body: Option<Json<BulkRescanBody>>) -> Response {
+    let cats = body.map(|Json(b)| b.categories).unwrap_or_default();
+    let srv = Arc::clone(&app.scan_server);
+    let engine = Arc::clone(&app.engine);
+    let res = tokio::task::spawn_blocking(move || {
+        let log_srv = Arc::clone(&srv);
+        crate::offload::start(&engine, &srv.offload, crate::offload::Mode::Categories(cats), move |m| log_srv.log_info(m))
+    })
+    .await;
+    match res {
+        Ok(Ok(n)) => Json(serde_json::json!({ "ok": true, "files": n })).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+async fn handle_offload_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    app.scan_server.offload.request_stop();
+    Json(serde_json::json!({ "ok": true }))
 }
 
 #[derive(Deserialize)]

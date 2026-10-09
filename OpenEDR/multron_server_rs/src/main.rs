@@ -10,6 +10,7 @@ mod analyzer;
 mod human_review;
 mod naming;
 mod reports;
+mod offload;
 mod rescan;
 mod sample_zip;
 mod similarity;
@@ -55,6 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.keep_unknown_gb,
         args.keep_threats(),
         args.keep_clean,
+        args.keep_clean_gb,
         args.compress_low_disk(),
         args.low_disk_gb,
     );
@@ -66,12 +68,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.start_loading(custom_rules);
 
     let threat_intel = threat_intel::ThreatIntelStore::new(None);
+    {
+        let ti = Arc::clone(&threat_intel);
+        engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
+    }
     let scan_server = ScanServer::new(
         args.clone(),
         Arc::clone(&engine),
         Arc::clone(&events),
         Arc::clone(&threat_intel),
     );
+    {
+        let srv = Arc::clone(&scan_server);
+        crate::offload::spawn_watcher(Arc::clone(&engine), Arc::clone(&scan_server.offload), move |m| srv.log_info(m));
+    }
     let app_state = AppState::new(
         args.clone(),
         Arc::clone(&engine),

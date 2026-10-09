@@ -225,9 +225,14 @@
       <div class="limits" id="limits"></div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <input type="checkbox" id="keepPossibleClean" style="width:auto">
-        Keep <b>possible clean</b> files (TLSH smart whitelist) in the work folder as <code>possible_clean_&lt;sha256&gt;_&lt;name&gt;</code>
+        Keep <b>possible clean</b> files (TLSH smart whitelist) in <code>multron_incoming/possible_clean/</code>
       </label>
       <div class="hint">On by default. Saved in multron_server.json; <code>--no-keep-possible-clean</code> turns it off at start.</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <input type="checkbox" id="keepClean" style="width:auto">
+        Keep <b>clean</b> PE / APK files in <code>multron_incoming/clean/</code>
+      </label>
+      <div class="hint">Lets rescans after engine updates catch malware the engine missed, and feeds the benign corpus. Own quota, so unknown and threat files keep their space: <span id="keepCleanQuota">—</span>. <code>--keep-clean</code> turns it on at start.</div>
       <h2 style="margin-top:18px">Rescan kept files</h2>
       <div class="hint">Scans files kept in multron_incoming again with the current engine, analyst signatures and smart whitelist. Cache, telemetry and the website follow the new verdict; nobody has to upload the file again.</div>
       <div class="row2" style="margin-top:8px">
@@ -242,8 +247,9 @@
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="unknown" checked style="width:auto"> Unknown</label>
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="possible_clean" checked style="width:auto"> Possible clean</label>
-        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="threat" style="width:auto"> Malicious / suspicious</label>
-        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="clean" style="width:auto"> Clean (kept only with keep-clean)</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="suspicious" style="width:auto"> Suspicious</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="malicious" style="width:auto"> Malicious</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="rsCat" value="clean" style="width:auto"> Clean (kept only with "Keep clean")</label>
       </div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <input type="checkbox" id="rsAfterReload" style="width:auto">
@@ -251,6 +257,29 @@
       </label>
       <div id="rsStatus" class="hint"></div>
       <div id="rsChanges"></div>
+      <h2 style="margin-top:18px">Move kept files to another disk</h2>
+      <div class="hint">Copies kept files to a folder on the main PC (network share) or an external drive, checks each copy against its SHA-256 and then deletes it here. Moved files are no longer rescanned from this server.</div>
+      <label for="ofTarget">Target folder</label>
+      <div class="row2">
+        <input id="ofTarget" type="text" placeholder="\\MAINPC\multron_archive or E:\multron_archive">
+        <button class="ghost" id="ofSave">Save</button>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <input type="checkbox" id="ofAuto" style="width:auto">
+        Move automatically when free space drops under the low-disk threshold or a keep quota is 80 % full, until there is room (clean first, then possible clean, malicious, suspicious, unknown last; oldest first)
+      </label>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="unknown" checked style="width:auto"> Unknown</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="possible_clean" checked style="width:auto"> Possible clean</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="suspicious" checked style="width:auto"> Suspicious</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="malicious" checked style="width:auto"> Malicious</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="clean" checked style="width:auto"> Clean</label>
+      </div>
+      <div class="row2" style="margin-top:8px">
+        <button class="ghost" id="ofStart">Move now</button>
+        <button class="ghost" id="ofStop" hidden>Stop</button>
+      </div>
+      <div id="ofMsg" class="hint"></div>
       <div id="engineError" class="error"></div>
     </section>
 
@@ -629,7 +658,10 @@
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
+    if (document.activeElement !== $("keepClean")) $("keepClean").checked = !!l.keepClean;
+    $("keepCleanQuota").textContent = `${Number(l.keptCleanGB || 0).toFixed(2)} of ${l.keepCleanGB} GB used`;
     renderRescan(state.rescan || {});
+    renderOffload(state.offload || {});
     renderLimitForm(state.editableLimits, l.maxFileMBCeiling);
     const banned = state.bannedIps || [];
     $("bannedList").textContent = banned.length ? "Blocked now: " + banned.join(", ") : "";
@@ -841,6 +873,46 @@
   $("rsStop").onclick = async () => { try { await post("/api/rescan/stop"); } catch (_) {} };
   $("rsAfterReload").onchange = async (e) => {
     try { await post("/api/rescan/after-reload", { enabled: e.target.checked }); }
+    catch (_) { e.target.checked = !e.target.checked; }
+  };
+
+  function renderOffload(o) {
+    if (document.activeElement !== $("ofTarget") && !$("ofTarget").dataset.dirty) $("ofTarget").value = o.target || "";
+    if (document.activeElement !== $("ofAuto")) $("ofAuto").checked = !!o.auto;
+    $("ofStart").disabled = !!o.running || !o.target;
+    $("ofStop").hidden = !o.running;
+    if (o.startedAt && !$("ofMsg").dataset.hold) {
+      $("ofMsg").style.color = o.lastError ? "var(--orange)" : "";
+      $("ofMsg").textContent = (o.running ? "Moving" : "Last move") + ` (${o.reason}): ${o.moved}/${o.total} files, ${Number(o.gbMoved).toFixed(2)} GB freed, ${o.failed} failed` +
+        (o.lastError ? ` · ${o.lastError}` : "") + (o.finishedAt ? ` · finished ${new Date(o.finishedAt).toLocaleString()}` : "");
+    }
+  }
+  $("ofTarget").oninput = () => { $("ofTarget").dataset.dirty = "1"; };
+  const ofSave = async () => {
+    $("ofMsg").dataset.hold = "1";
+    $("ofMsg").style.color = "";
+    $("ofMsg").textContent = "Checking the folder…";
+    try {
+      await post("/api/offload/config", { target: $("ofTarget").value.trim(), auto: $("ofAuto").checked });
+      delete $("ofTarget").dataset.dirty;
+      $("ofMsg").style.color = "var(--green)";
+      $("ofMsg").textContent = $("ofTarget").value.trim() ? "Saved; the folder is reachable and writable." : "Moving is off.";
+    } catch (e) { $("ofMsg").style.color = "var(--red)"; $("ofMsg").textContent = e.message; }
+    setTimeout(() => { delete $("ofMsg").dataset.hold; }, 4000);
+  };
+  $("ofSave").onclick = ofSave;
+  $("ofAuto").onchange = ofSave;
+  $("ofStart").onclick = async () => {
+    const categories = [...document.querySelectorAll(".ofCat:checked")].map(c => c.value);
+    if (!categories.length) { $("ofMsg").textContent = "Pick at least one category."; return; }
+    if (!confirm(`Move every kept file in: ${categories.join(", ")} to ${$("ofTarget").value.trim()}?\n\nEach copy is verified, then the file is deleted here and can no longer be rescanned from this server.`)) return;
+    try { const r = await post("/api/offload/start", { categories }); $("ofMsg").textContent = `Moving ${r.files} files…`; }
+    catch (e) { $("ofMsg").style.color = "var(--red)"; $("ofMsg").textContent = e.message; }
+  };
+  $("ofStop").onclick = () => post("/api/offload/stop", {}).catch(() => {});
+
+  $("keepClean").onchange = async (e) => {
+    try { await post("/api/keep-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
   };
 

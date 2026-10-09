@@ -137,9 +137,20 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_keep_threats: bool,
 
-    /// Keep scanned clean files in work folder (disabled by default)
+    /// Keep clean PE / APK files in the work folder (off by default; also switchable
+    /// from the dashboard)
     #[arg(long)]
     pub keep_clean: bool,
+
+    /// Folder to move kept files to when space runs low, e.g. a share on the main PC
+    /// (\\MAINPC\multron_archive) or an external drive. Overrides the dashboard setting.
+    #[arg(long, default_value = "")]
+    pub offload_dir: String,
+
+    /// Separate disk quota for kept clean files in GB, so they never use the space of
+    /// unknown and threat files
+    #[arg(long, default_value_t = 20)]
+    pub keep_clean_gb: u64,
 
     /// Do not keep files the TLSH smart whitelist called possible_clean (kept by default;
     /// also switchable from the dashboard)
@@ -212,11 +223,18 @@ pub struct SavedSettings {
     pub autostart: bool,
     #[serde(default = "default_true")]
     pub keep_threats: bool,
+    /// Keep clean PE / APK files (own quota, `--keep-clean-gb`).
     #[serde(default)]
     pub keep_clean: bool,
     /// Keep `possible_clean` files (TLSH smart whitelist) in the work folder.
     #[serde(default = "default_true")]
     pub keep_possible_clean: bool,
+    /// Folder kept files are moved to (empty = off) and whether that happens
+    /// automatically when space runs low.
+    #[serde(default)]
+    pub offload_target: String,
+    #[serde(default)]
+    pub offload_auto: bool,
     /// Rescan kept unknown / possible_clean files after every engine reload.
     #[serde(default = "default_true")]
     pub rescan_after_reload: bool,
@@ -240,6 +258,8 @@ impl Default for SavedSettings {
             keep_clean: false,
             keep_possible_clean: true,
             rescan_after_reload: true,
+            offload_target: String::new(),
+            offload_auto: false,
             compress_low_disk: true,
             low_disk_gb: 15,
             limits: None,

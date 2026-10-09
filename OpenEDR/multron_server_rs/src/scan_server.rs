@@ -201,6 +201,8 @@ pub struct ScanServer {
     pub boot_time: std::time::Instant,
     /// Background rescan of kept files (dashboard).
     pub rescan: crate::rescan::BulkRescan,
+    /// Moving kept files to another disk or network share (dashboard).
+    pub offload: Arc<crate::offload::Offload>,
 }
 
 pub struct SessionHandle {
@@ -263,6 +265,7 @@ impl ScanServer {
             maintenance: AtomicBool::new(false),
             boot_time: std::time::Instant::now(),
             rescan: crate::rescan::BulkRescan::default(),
+            offload: Arc::new(crate::offload::Offload::default()),
         })
     }
 

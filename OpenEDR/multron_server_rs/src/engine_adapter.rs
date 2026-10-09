@@ -78,7 +78,9 @@ pub struct EngineAdapter {
     whitelist_enabled: bool,
     keep_unknown: bool,
     pub keep_threats: bool,
-    pub keep_clean: bool,
+    /// Keep clean PE / APK files (dashboard toggle, saved; `--keep-clean` turns it on).
+    /// They have their own disk quota so they never crowd out unknown and threat files.
+    pub keep_clean: AtomicBool,
     /// Keep files the TLSH smart whitelist called `possible_clean` (default on; dashboard
     /// toggle, saved in multron_server.json, `--no-keep-possible-clean`).
     pub keep_possible_clean: AtomicBool,
@@ -86,6 +88,8 @@ pub struct EngineAdapter {
     pub low_disk_threshold_bytes: u64,
     keep_limit_bytes: u64,
     kept_bytes: AtomicU64,
+    pub keep_clean_limit_bytes: u64,
+    pub kept_clean_bytes: AtomicU64,
     pub kept_files: AtomicI64,
     /// Analyst ClamAV / HydraDragonSig signatures (analyst_signatures/), run after the main scan.
     pub analyst: crate::analyst_engine::AnalystEngine,
@@ -103,10 +107,11 @@ impl EngineAdapter {
         keep_unknown_gb: u64,
         keep_threats: bool,
         keep_clean: bool,
+        keep_clean_gb: u64,
         compress_low_disk: bool,
         low_disk_gb: u64,
     ) -> Arc<Self> {
-        let mut kept = (0u64, 0i64);
+        let mut kept = (0u64, 0i64, 0u64);
         if let Some(ref dir) = work_dir {
             let _ = std::fs::create_dir_all(dir);
             kept = remove_leftover_uploads(dir);
@@ -122,12 +127,14 @@ impl EngineAdapter {
             whitelist_enabled,
             keep_unknown,
             keep_threats,
-            keep_clean,
+            keep_clean: AtomicBool::new(keep_clean),
             keep_possible_clean: AtomicBool::new(true),
             compress_low_disk,
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
             kept_bytes: AtomicU64::new(kept.0),
+            keep_clean_limit_bytes: keep_clean_gb * 1024 * 1024 * 1024,
+            kept_clean_bytes: AtomicU64::new(kept.2),
             rules_dir: RwLock::new(None),
             reloading: AtomicBool::new(false),
             reload_msg: RwLock::new(String::new()),
@@ -174,34 +181,100 @@ impl EngineAdapter {
         self.engine.get().is_some()
     }
 
-    /// Every kept upload in the work folder (`<prefix><SHA256>_<name>[.xz]`).
+    /// Every kept upload: `<work>/<category>/<SHA256>_<name>[.xz]`, plus old-style
+    /// `<prefix><SHA256>_<name>` files left in the work folder itself.
     pub fn list_kept(&self) -> Vec<KeptFile> {
         let Some(dir) = self.work_dir.as_ref() else { return Vec::new() };
-        let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
-        rd.flatten().filter_map(|e| KeptFile::parse(e.path())).collect()
+        let mut out = Vec::new();
+        for cat in KeptFile::CATEGORIES {
+            if let Ok(rd) = std::fs::read_dir(dir.join(cat)) {
+                out.extend(rd.flatten().filter_map(|e| KeptFile::parse(e.path(), Some(cat))));
+            }
+        }
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            out.extend(rd.flatten().filter(|e| e.path().is_file()).filter_map(|e| KeptFile::parse(e.path(), None)));
+        }
+        out
     }
 
     pub fn find_kept(&self, sha_upper: &str) -> Option<KeptFile> {
         self.list_kept().into_iter().find(|k| k.sha256.eq_ignore_ascii_case(sha_upper))
     }
 
-    /// Bytes of a kept upload (any prefix, plain or `.xz`).
+    /// Bytes of a kept upload (any category, plain or `.xz`).
     pub fn read_kept_sample(&self, sha_upper: &str) -> Option<Vec<u8>> {
         self.find_kept(sha_upper)?.read()
     }
 
-    /// Renames a kept upload to the prefix of its new verdict (after a rescan).
+    /// Moves a kept upload to the folder of its new verdict (after a rescan).
     pub fn relabel_kept(&self, sha_upper: &str, verdict: &str) {
+        let Some(dir) = self.work_dir.as_ref() else { return };
         let Some(k) = self.find_kept(sha_upper) else { return };
-        let prefix = KeptFile::prefix_for(verdict);
-        if k.prefix == prefix {
+        let cat = KeptFile::category_for(verdict);
+        if k.category == cat && !k.legacy {
             return;
         }
-        let file = format!("{prefix}{}_{}{}", k.sha256, k.name, if k.xz { ".xz" } else { "" });
-        if let Some(target) = k.path.parent().map(|d| d.join(file)) {
-            if !target.exists() {
-                let _ = std::fs::rename(&k.path, &target);
+        let target = dir.join(cat).join(k.file_name());
+        let _ = std::fs::create_dir_all(dir.join(cat));
+        if !target.exists() && std::fs::rename(&k.path, &target).is_ok() && (k.category == "clean") != (cat == "clean") {
+            // Moved between the clean quota and the shared one.
+            let len = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
+            let (from, to) = if cat == "clean" { (&self.kept_bytes, &self.kept_clean_bytes) } else { (&self.kept_clean_bytes, &self.kept_bytes) };
+            let _ = from.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_sub(len)));
+            to.fetch_add(len, Ordering::Relaxed);
+        }
+    }
+
+    pub fn work_dir(&self) -> Option<&Path> {
+        self.work_dir.as_deref()
+    }
+
+    /// Deletes a kept file (it was moved elsewhere) and frees its quota. Returns the bytes freed.
+    pub fn forget_kept(&self, k: &KeptFile) -> Option<u64> {
+        let len = std::fs::metadata(&k.path).map(|m| m.len()).unwrap_or(0);
+        std::fs::remove_file(&k.path).ok()?;
+        let used = if k.category == "clean" { &self.kept_clean_bytes } else { &self.kept_bytes };
+        let _ = used.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_sub(len)));
+        let _ = self.kept_files.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some((v - 1).max(0)));
+        Some(len)
+    }
+
+    /// What is short of room: (clean quota, shared quota, disk). A quota counts when it is
+    /// at least 80 % full and the disk when free space is under the low-disk threshold;
+    /// with `until_relieved` the marks are 60 % and the threshold + 25 %, so an automatic
+    /// move does not stop right at the edge.
+    pub fn storage_pressure(&self, until_relieved: bool) -> Pressure {
+        let Some(dir) = self.work_dir.as_ref() else { return Pressure::default() };
+        let (num, den) = if until_relieved { (6, 10) } else { (8, 10) };
+        let over = |used: &AtomicU64, limit: u64| limit > 0 && used.load(Ordering::Relaxed) >= limit * num / den;
+        let threshold = if until_relieved { self.low_disk_threshold_bytes + self.low_disk_threshold_bytes / 4 } else { self.low_disk_threshold_bytes };
+        Pressure {
+            clean: over(&self.kept_clean_bytes, self.keep_clean_limit_bytes),
+            shared: over(&self.kept_bytes, self.keep_limit_bytes),
+            disk: get_available_disk_space_bytes(dir).is_some_and(|free| free <= threshold),
+        }
+    }
+
+    /// Moves old-style `<prefix><SHA256>_<name>` files from the work folder root into the
+    /// category folders. `verdict_of` gives the recorded engine verdict, which splits the
+    /// old `threat_` files into malicious and suspicious. Run once at startup.
+    pub fn sort_legacy_kept(&self, verdict_of: impl Fn(&str) -> Option<String>) {
+        let Some(dir) = self.work_dir.as_ref() else { return };
+        let (mut moved, mut left) = (0usize, 0usize);
+        for k in self.list_kept().into_iter().filter(|k| k.legacy) {
+            let cat = match (k.category, verdict_of(&k.sha256).as_deref()) {
+                ("malicious", Some("suspicious")) => "suspicious",
+                (c, _) => c,
+            };
+            let target = dir.join(cat).join(k.file_name());
+            if !target.exists() && std::fs::rename(&k.path, &target).is_ok() {
+                moved += 1;
+            } else {
+                left += 1;
             }
+        }
+        if moved + left > 0 {
+            eprintln!("[engine] kept files sorted into category folders: {moved} moved, {left} left in place");
         }
     }
 
@@ -562,10 +635,11 @@ impl EngineAdapter {
         Ok(res)
     }
 
-    /// Possible-clean files (TLSH smart whitelist, kept by default) are kept as
-    /// `possible_clean_<SHA256>_<name>`.
-    /// Unknown, clean (if keep_clean enabled), and detected threat files (kept by default for false positive inspection)
-    /// are kept in the work folder (multron_incoming) as `<SHA256>_<name>`, `clean_<SHA256>_<name>`, or `threat_<SHA256>_<name>`.
+    /// Unknown, possible-clean (TLSH smart whitelist), suspicious and malicious (for
+    /// false positive inspection) and, if enabled, clean PE / APK files are kept in the
+    /// work folder (multron_incoming) by category: `unknown/`, `possible_clean/`,
+    /// `suspicious/`, `malicious/`, `clean/`, each as `<SHA256>_<name>`. Clean files use
+    /// their own quota (`--keep-clean-gb`), the rest share `--keep-unknown-gb`.
     /// When disk space is low, incoming files are automatically compressed using LZMA2 maximum preset (.xz).
     fn keep_or_remove(&self, temp: Option<&Path>, data: &[u8], res: &ResultMessage, sha: &str, name: &str) {
         let size = data.len() as u64;
@@ -574,36 +648,34 @@ impl EngineAdapter {
         let is_clean = res.verdict == "clean";
         let is_possible_clean = res.verdict == "possible_clean";
 
+        let (used, limit) = if is_clean {
+            (&self.kept_clean_bytes, self.keep_clean_limit_bytes)
+        } else {
+            (&self.kept_bytes, self.keep_limit_bytes)
+        };
         let should_keep = !data.is_empty()
             && ((self.keep_threats && is_threat)
                 || (self.keep_unknown && is_unknown)
-                || (self.keep_clean && is_clean)
+                || (is_clean && self.keep_clean.load(Ordering::Relaxed) && is_pe_or_apk(data, name))
                 || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean))
-            && self.kept_bytes.load(Ordering::Relaxed) + size <= self.keep_limit_bytes;
+            && used.load(Ordering::Relaxed) + size <= limit;
 
         if should_keep {
             if let Some(dir) = &self.work_dir {
                 let name = if name.is_empty() { "file" } else { name };
-                let prefix = if is_threat {
-                    "threat_"
-                } else if is_possible_clean {
-                    "possible_clean_"
-                } else if is_clean {
-                    "clean_"
-                } else {
-                    ""
-                };
+                let cat_dir = dir.join(KeptFile::category_for(&res.verdict));
+                let _ = std::fs::create_dir_all(&cat_dir);
                 let low_disk = self.compress_low_disk
                     && is_disk_space_low(
                         dir,
-                        self.kept_bytes.load(Ordering::Relaxed),
-                        self.keep_limit_bytes,
+                        used.load(Ordering::Relaxed),
+                        limit,
                         self.low_disk_threshold_bytes,
                     );
 
                 if low_disk {
                     // PC has low disk space: compress with LZMA2 Max (Preset 9) into .xz
-                    let target_xz = dir.join(format!("{}{}_{}.xz", prefix, sha, name));
+                    let target_xz = cat_dir.join(format!("{}_{}.xz", sha, name));
                     if !target_xz.exists() {
                         let comp_res = if let Some(p) = temp {
                             compress_file_lzma2_max(p, &target_xz)
@@ -611,7 +683,7 @@ impl EngineAdapter {
                             compress_bytes_lzma2_max(data, &target_xz)
                         };
                         if let Ok(compressed_len) = comp_res {
-                            self.kept_bytes.fetch_add(compressed_len, Ordering::Relaxed);
+                            used.fetch_add(compressed_len, Ordering::Relaxed);
                             self.kept_files.fetch_add(1, Ordering::Relaxed);
                             if let Some(p) = temp {
                                 let _ = std::fs::remove_file(p);
@@ -620,7 +692,7 @@ impl EngineAdapter {
                         }
                     }
                 } else {
-                    let target = dir.join(format!("{}{}_{}", prefix, sha, name));
+                    let target = cat_dir.join(format!("{}_{}", sha, name));
                     let stored = if target.exists() {
                         false
                     } else if let Some(p) = temp {
@@ -629,7 +701,7 @@ impl EngineAdapter {
                         std::fs::write(&target, data).is_ok()
                     };
                     if stored {
-                        self.kept_bytes.fetch_add(size, Ordering::Relaxed);
+                        used.fetch_add(size, Ordering::Relaxed);
                         self.kept_files.fetch_add(1, Ordering::Relaxed);
                         return;
                     }
@@ -642,26 +714,65 @@ impl EngineAdapter {
     }
 }
 
-/// A file kept in the work folder: `<prefix><SHA256>_<name>[.xz]`.
+/// See `EngineAdapter::storage_pressure`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Pressure {
+    /// Clean quota (`--keep-clean-gb`).
+    pub clean: bool,
+    /// Shared quota of the other categories (`--keep-unknown-gb`).
+    pub shared: bool,
+    /// Free disk space.
+    pub disk: bool,
+}
+
+impl Pressure {
+    pub fn any(&self) -> bool {
+        self.clean || self.shared || self.disk
+    }
+
+    /// Whether moving a file of `category` helps.
+    pub fn helped_by(&self, category: &str) -> bool {
+        self.disk || if category == "clean" { self.clean } else { self.shared }
+    }
+
+    /// Still short of room in any of the resources that were short at the start.
+    pub fn still(&self, start: &Pressure) -> bool {
+        (start.clean && self.clean) || (start.shared && self.shared) || (start.disk && self.disk)
+    }
+}
+
+/// A file kept in the work folder: `<category>/<SHA256>_<name>[.xz]` (older servers
+/// wrote `<prefix><SHA256>_<name>[.xz]` into the work folder itself).
 #[derive(Debug, Clone)]
 pub struct KeptFile {
     pub path: PathBuf,
-    /// "threat_", "possible_clean_", "clean_" or "" (unknown).
-    pub prefix: &'static str,
+    /// "unknown", "possible_clean", "suspicious", "malicious" or "clean".
+    pub category: &'static str,
     pub sha256: String,
     pub name: String,
     pub xz: bool,
+    /// Old prefixed file still in the work folder root.
+    pub legacy: bool,
 }
 
 impl KeptFile {
-    const PREFIXES: [&'static str; 3] = ["threat_", "possible_clean_", "clean_"];
+    pub const CATEGORIES: [&'static str; 5] = ["unknown", "possible_clean", "suspicious", "malicious", "clean"];
+    /// Old file name prefixes. `threat_` did not tell malicious from suspicious: such files
+    /// are sorted by their recorded verdict (`sort_legacy_kept`), malicious by default.
+    const LEGACY_PREFIXES: [(&'static str, &'static str); 3] =
+        [("threat_", "malicious"), ("possible_clean_", "possible_clean"), ("clean_", "clean")];
 
-    fn parse(path: PathBuf) -> Option<Self> {
+    /// `category` is the folder the file is in; `None` for the work folder root, where
+    /// the category comes from the old file name prefix.
+    fn parse(path: PathBuf, category: Option<&'static str>) -> Option<Self> {
         let file = path.file_name()?.to_string_lossy().into_owned();
-        let (prefix, rest) = Self::PREFIXES
-            .iter()
-            .find_map(|p| file.strip_prefix(p).map(|r| (*p, r)))
-            .unwrap_or(("", file.as_str()));
+        let (category, rest) = match category {
+            Some(c) => (c, file.as_str()),
+            None => Self::LEGACY_PREFIXES
+                .iter()
+                .find_map(|(p, c)| file.strip_prefix(p).map(|r| (*c, r)))
+                .unwrap_or(("unknown", file.as_str())),
+        };
         let sha = rest.get(..64)?;
         if !sha.chars().all(|c| c.is_ascii_hexdigit()) || rest.as_bytes().get(64) != Some(&b'_') {
             return None;
@@ -671,16 +782,29 @@ impl KeptFile {
             Some(n) => (n, true),
             None => (tail, false),
         };
-        Some(KeptFile { prefix, sha256: sha.to_ascii_uppercase(), name: name.to_string(), xz, path })
+        Some(KeptFile {
+            category,
+            sha256: sha.to_ascii_uppercase(),
+            name: name.to_string(),
+            xz,
+            legacy: category_dir_of(&path).is_none(),
+            path,
+        })
     }
 
-    pub fn prefix_for(verdict: &str) -> &'static str {
+    pub fn category_for(verdict: &str) -> &'static str {
         match verdict {
-            "malicious" | "suspicious" => "threat_",
-            "possible_clean" => "possible_clean_",
-            "clean" => "clean_",
-            _ => "",
+            "malicious" => "malicious",
+            "suspicious" => "suspicious",
+            "possible_clean" => "possible_clean",
+            "clean" => "clean",
+            _ => "unknown",
         }
+    }
+
+    /// File name inside a category folder.
+    pub fn file_name(&self) -> String {
+        format!("{}_{}{}", self.sha256, self.name, if self.xz { ".xz" } else { "" })
     }
 
     pub fn read(&self) -> Option<Vec<u8>> {
@@ -1008,27 +1132,63 @@ fn resolve_rules_dir(custom: Option<PathBuf>) -> PathBuf {
 }
 
 /// Deletes temp files left by a previous run; returns (bytes, count) of kept unknown files.
-fn remove_leftover_uploads(dir: &Path) -> (u64, i64) {
-    let mut kept = (0u64, 0i64);
+/// Only PE files and Android packages are worth keeping when clean: they feed rescans
+/// after engine updates and the TLSH / ML benign corpus.
+fn is_pe_or_apk(data: &[u8], name: &str) -> bool {
+    if data.starts_with(b"MZ") {
+        return true;
+    }
+    if !data.starts_with(b"PK\x03\x04") {
+        return false;
+    }
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".apk") || lower.ends_with(".xapk") || data.windows(11).any(|w| w == b"classes.dex")
+}
+
+/// Category folder (`unknown`, `malicious`, ...) a kept file is in, if any.
+fn category_dir_of(path: &Path) -> Option<&'static str> {
+    let parent = path.parent()?.file_name()?.to_str()?;
+    KeptFile::CATEGORIES.iter().copied().find(|c| *c == parent)
+}
+
+/// At startup: deletes temp files of interrupted scans, creates the category folders
+/// and counts what is kept (bytes outside clean/, files, bytes in clean/).
+fn remove_leftover_uploads(dir: &Path) -> (u64, i64, u64) {
+    for cat in KeptFile::CATEGORIES {
+        let _ = std::fs::create_dir_all(dir.join(cat));
+    }
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
             let b = name.as_bytes();
-            if b.len() >= 9 && b[..8].iter().all(|c| c.is_ascii_digit()) && b[8] == b'_' {
+            if path.is_file() && b.len() >= 9 && b[..8].iter().all(|c| c.is_ascii_digit()) && b[8] == b'_' {
                 let _ = std::fs::remove_file(&path);
-            } else {
-                let check_name = name
-                    .strip_prefix("threat_")
-                    .or_else(|| name.strip_prefix("clean_"))
-                    .unwrap_or(name);
-                let cb = check_name.as_bytes();
-                if cb.len() > 65 && cb[64] == b'_' && cb[..64].iter().all(|c| c.is_ascii_hexdigit()) {
-                    kept.0 += entry.metadata().map(|m| m.len()).unwrap_or(0);
-                    kept.1 += 1;
-                }
             }
         }
+    }
+    let mut kept = (0u64, 0i64, 0u64);
+    let mut count = |rd: std::fs::ReadDir, cat: Option<&'static str>| {
+        for e in rd.flatten() {
+            if let Some(k) = KeptFile::parse(e.path(), cat) {
+                let len = e.metadata().map(|m| m.len()).unwrap_or(0);
+                if k.category == "clean" {
+                    kept.2 += len;
+                } else {
+                    kept.0 += len;
+                }
+                kept.1 += 1;
+            }
+        }
+    };
+    for cat in KeptFile::CATEGORIES {
+        if let Ok(rd) = std::fs::read_dir(dir.join(cat)) {
+            count(rd, Some(cat));
+        }
+    }
+    // Old-style files still in the root (sorted later by `sort_legacy_kept`).
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        count(rd, None);
     }
     kept
 }
@@ -1145,4 +1305,47 @@ pub fn file_system_name(name: &str) -> String {
         .collect::<String>()
         .trim_matches(['.', ' '])
         .to_string()
+}
+
+#[cfg(test)]
+mod pc_test {
+    #[test]
+    fn possible_clean_wire() {
+        let mut r = super::hash_result("unknown", None, "x", 0.0, "AB", "scan");
+        super::mark_possible_clean(&mut r, "Smart whitelist: test".into(), "smart_whitelist/tlsh");
+        println!("WIRE {}", serde_json::to_string(&r).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod kept_tests {
+    use super::*;
+
+    #[test]
+    fn categories_and_legacy() {
+        let dir = std::env::temp_dir().join(format!("kept_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sha = |c: char| c.to_string().repeat(64);
+        std::fs::write(dir.join(format!("threat_{}_a.exe", sha('A'))), b"x").unwrap();
+        std::fs::write(dir.join(format!("threat_{}_b.exe", sha('B'))), b"x").unwrap();
+        std::fs::write(dir.join(format!("possible_clean_{}_c.dll", sha('C'))), b"x").unwrap();
+        std::fs::write(dir.join(format!("{}_d.js", sha('D'))), b"x").unwrap();
+        std::fs::write(dir.join("00000012_tmp.exe"), b"x").unwrap();
+        let (_, n, _) = remove_leftover_uploads(&dir);
+        assert_eq!(n, 4);
+        assert!(!dir.join("00000012_tmp.exe").exists());
+        let ad = EngineAdapter::new(Some(dir.clone()), false, true, 1, true, false, 1, false, 1);
+        ad.sort_legacy_kept(|s| (s == sha('B')).then(|| "suspicious".to_string()));
+        assert!(dir.join("malicious").join(format!("{}_a.exe", sha('A'))).exists());
+        assert!(dir.join("suspicious").join(format!("{}_b.exe", sha('B'))).exists());
+        assert!(dir.join("possible_clean").join(format!("{}_c.dll", sha('C'))).exists());
+        assert!(dir.join("unknown").join(format!("{}_d.js", sha('D'))).exists());
+        ad.relabel_kept(&sha('D'), "clean");
+        let k = ad.find_kept(&sha('D')).unwrap();
+        assert_eq!(k.category, "clean");
+        assert!(!k.legacy);
+        assert_eq!(ad.list_kept().len(), 4);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
