@@ -216,6 +216,7 @@ body.vk-locked { overflow: hidden; }
 .vk-footer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .vk-footer ul a { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; transition: color .15s; }
 .vk-footer ul a:hover { color: var(--text-main); }
+.vk-footer .vk-foot-note { color: var(--text-muted); font-size: 0.78rem; line-height: 1.5; max-width: 30ch; opacity: .85; }
 .vk-footer-bottom {
   margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border-subtle);
   display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; color: var(--text-dim); font-size: 0.82rem;
