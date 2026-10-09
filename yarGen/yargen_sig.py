@@ -45,7 +45,23 @@ import nltk
 import glob
 import struct
 import zipfile
+import gc
 import pefile
+
+
+class _YoungGenerationGC:
+    """pefile calls a FULL gc.collect() every time a PE object is closed (always on a
+    parse error, i.e. for every malformed sample). A full collection walks every object
+    in the process, and string_stats grows to tens of millions of objects on a large
+    corpus, so each sample cost more than the one before: seconds per file after a few
+    thousand files. Collecting the young generations still frees pefile's own cycles."""
+
+    @staticmethod
+    def collect(generation=2):
+        return gc.collect(1)
+
+
+pefile.gc = _YoungGenerationGC
 
 # Ensure that necessary NLTK resources are available
 nltk.download("punkt")
@@ -64,6 +80,22 @@ def filter_meaningful_words(word_list):
 
 # Load NLTK word corpus
 nltk_words = set(words.words())
+
+_meaningful_cache = {}
+
+
+def is_meaningful_string(string: str) -> bool:
+    """--meaningful-words-only check (same rule as before): the string has a token of
+    4+ characters that is an English word. Cached, because the same string was
+    tokenized again for every file and every combination it appears in."""
+    r = _meaningful_cache.get(string)
+    if r is None:
+        # Strip the wide-string marker so the content, not "UTF16LE:", is evaluated.
+        target = string[8:] if string.startswith("UTF16LE:") else string
+        r = any(word.lower() in nltk_words and len(word) >= 4 for word in word_tokenize(target))
+        if len(_meaningful_cache) < 5_000_000:
+            _meaningful_cache[string] = r
+    return r
 
 RELEVANT_EXTENSIONS = [
     ".asp",
@@ -204,7 +236,7 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
     string_stats = {}
     opcode_stats = {}
     file_info = {}
-    known_sha1sums = []
+    known_sha256sums = set()
 
     for filePath in get_files(dir, notRecursive):
         try:
@@ -238,9 +270,28 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                     fileData = f.read()
             except Exception:
                 print("[-] Cannot read file - skipping %s" % filePath)
+                continue
+
+            # Skip duplicates BEFORE the expensive parts (strings, lief, pefile, icons)
+            sha256sum = sha256(fileData).hexdigest()
+            if sha256sum in known_sha256sums:
+                print("[-] Skipping %s (duplicate of an already processed file)" % filePath)
+                continue
+            known_sha256sums.add(sha256sum)
 
             # Extract strings from file
             strings = extract_strings(fileData)
+
+            # --excludegood / --meaningful-words-only: drop those strings right away.
+            # filter_string_set() drops them later anyway; dropping them here keeps
+            # millions of goodware strings out of memory, and makes the flags work for
+            # the YAML output too (it is written from these strings directly).
+            if args.excludegood or args.meaningful_words_only:
+                strings = [
+                    st for st in strings
+                    if not (args.excludegood and st in good_strings_db)
+                    and not (args.meaningful_words_only and not is_meaningful_string(st))
+                ]
 
             # Extract opcodes from file
             opcodes = []
@@ -250,13 +301,12 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
 
             # Add sha256 value
             if generateInfo:
-                sha256sum = sha256(fileData).hexdigest()
                 file_info[filePath] = {}
                 file_info[filePath]["hash"] = sha256sum
                 file_info[filePath]["imphash"], file_info[filePath]["exports"] = get_pe_info(fileData)
                 file_info[filePath]["entropy"] = calculate_shannon_entropy(fileData)
                 if fileData[:2] == b"MZ":
-                    pe_imps, susp_imps, max_ent, is_pkd, pkd_secs, dist_secs, cap_dlls, exps = extract_pe_advanced(filePath)
+                    pe_imps, susp_imps, max_ent, is_pkd, pkd_secs, dist_secs, cap_dlls, exps = extract_pe_advanced(filePath, fileData)
                     file_info[filePath]["suspicious_imports"] = susp_imps
                     file_info[filePath]["max_section_entropy"] = max_ent
                     file_info[filePath]["is_packed"] = is_pkd
@@ -264,7 +314,7 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                     file_info[filePath]["distinctive_sections"] = dist_secs
                     file_info[filePath]["capability_dlls"] = cap_dlls
                     file_info[filePath]["exports"] = exps
-                    file_info[filePath]["icons"] = extract_pe_icons(filePath)
+                    file_info[filePath]["icons"] = extract_pe_icons(filePath, fileData)
                 else:
                     file_info[filePath]["suspicious_imports"] = []
                     file_info[filePath]["max_section_entropy"] = 0.0
@@ -275,14 +325,8 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                     file_info[filePath]["exports"] = []
                     file_info[filePath]["icons"] = []
                 file_info[filePath]["apk"] = extract_apk_metadata(filePath)
-
-            # Skip if hash already known - avoid duplicate files
-            if sha256sum in known_sha1sums:
-                # if args.debug:
-                print("[-] Skipping strings/opcodes from %s due to MD5 duplicate detection" % filePath)
-                continue
             else:
-                known_sha1sums.append(sha256sum)
+                file_info[filePath] = {}
 
             # Magic evaluation
             if not args.nomagic:
@@ -291,7 +335,8 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
                 file_info[filePath]["magic"] = ""
 
             # File Size
-            file_info[filePath]["size"] = os.stat(filePath).st_size
+            file_info[filePath]["size"] = len(fileData)
+            del fileData
 
             # Add stats for basename (needed for inverse rule generation)
             fileName = os.path.basename(filePath)
@@ -306,39 +351,31 @@ def parse_sample_dir(dir, notRecursive=False, generateInfo=False, onlyRelevantEx
             if folderName not in file_info[fileName]["folder_names"]:
                 file_info[fileName]["folder_names"].append(folderName)
 
-            # Add strings to statistics
+            # Add strings to statistics. extract_strings() returns every string once
+            # per file and every path is processed once, so the path is appended
+            # without the old "not in list" scan (that scan was quadratic: a string
+            # found in 100k files was compared against up to 100k paths per file).
             for string in strings:
-                # String is not already known
-                if string not in string_stats:
-                    string_stats[string] = {}
-                    string_stats[string]["count"] = 0
-                    string_stats[string]["files"] = []
-                    string_stats[string]["files_basename"] = {}
-                # String count
-                string_stats[string]["count"] += 1
-                # Add file information
-                if fileName not in string_stats[string]["files_basename"]:
-                    string_stats[string]["files_basename"][fileName] = 0
-                string_stats[string]["files_basename"][fileName] += 1
-                if filePath not in string_stats[string]["files"]:
-                    string_stats[string]["files"].append(filePath)
+                st = string_stats.get(string)
+                if st is None:
+                    st = string_stats[string] = {"count": 0, "files": [], "files_basename": {}}
+                st["count"] += 1
+                fb = st["files_basename"]
+                fb[fileName] = fb.get(fileName, 0) + 1
+                st["files"].append(filePath)
 
-            # Add opcodes to statistics
+            # Add opcodes to statistics (an opcode can repeat within a file)
+            seen_ops = set()
             for opcode in opcodes:
-                # Opcode is not already known
-                if opcode not in opcode_stats:
-                    opcode_stats[opcode] = {}
-                    opcode_stats[opcode]["count"] = 0
-                    opcode_stats[opcode]["files"] = []
-                    opcode_stats[opcode]["files_basename"] = {}
-                # Opcode count
-                opcode_stats[opcode]["count"] += 1
-                # Add file information
-                if fileName not in opcode_stats[opcode]["files_basename"]:
-                    opcode_stats[opcode]["files_basename"][fileName] = 0
-                opcode_stats[opcode]["files_basename"][fileName] += 1
-                if filePath not in opcode_stats[opcode]["files"]:
-                    opcode_stats[opcode]["files"].append(filePath)
+                op = opcode_stats.get(opcode)
+                if op is None:
+                    op = opcode_stats[opcode] = {"count": 0, "files": [], "files_basename": {}}
+                op["count"] += 1
+                fb = op["files_basename"]
+                fb[fileName] = fb.get(fileName, 0) + 1
+                if opcode not in seen_ops:
+                    seen_ops.add(opcode)
+                    op["files"].append(filePath)
 
             if args.debug:
                 print("[+] Processed " + filePath + " Size: " + str(size) + " Strings: " + str(len(string_stats)) + " OpCodes: " + str(len(opcode_stats)) + " ... ")
@@ -419,11 +456,13 @@ def extract_strings(fileData) -> list[str]:
         wide_strings = [ws for ws in re.findall(b"(?:[\x1f-\x7e][\x00]){6,}", fileData)]
 
         # Post-process
-        # WIDE
+        # WIDE (set for the membership test: "not in list" was quadratic on big files)
+        seen = set(strings)
         for ws in wide_strings:
             # Decode UTF16 and prepend a marker (facilitates handling)
             wide_string = ("UTF16LE:%s" % ws.decode("utf-16")).encode("utf-8")
-            if wide_string not in strings:
+            if wide_string not in seen:
+                seen.add(wide_string)
                 strings.append(wide_string)
         for string in strings:
             # Escape strings
@@ -693,11 +732,11 @@ def compute_phash_64_from_gray(gray: list[float], side: int) -> str:
         return ""
 
 
-def extract_pe_icons(file_path: str) -> list[tuple[str, str]]:
+def extract_pe_icons(file_path: str, file_data: bytes = None) -> list[tuple[str, str]]:
     """Extract (dhash_hex, phash_hex) for each icon in a PE file."""
     results = []
     try:
-        pe = pefile.PE(file_path, fast_load=True)
+        pe = pefile.PE(data=file_data, fast_load=True) if file_data is not None else pefile.PE(file_path, fast_load=True)
         pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]])
         if not hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):
             return results
@@ -761,10 +800,12 @@ def calculate_shannon_entropy(data: bytes) -> float:
     """Calculate Shannon entropy of byte data."""
     if not data:
         return 0.0
-    counts = Counter(data)
+    # bytes.count runs in C; Counter(data) walked every byte in Python (seconds on a 50 MB file)
     total = len(data)
     ent = 0.0
-    for count in counts.values():
+    for count in (data.count(bytes((b,))) for b in range(256)):
+        if count == 0:
+            continue
         p_x = count / total
         ent -= p_x * math.log2(p_x)
     return round(ent, 3)
@@ -786,7 +827,7 @@ STANDARD_PE_SECTIONS = {
 KNOWN_PACKER_SECTIONS = re.compile(r"^(upx[0-9]?|\.upx|\.aspack|\.vmp[0-9]?|\.themida|\.fsg|\.petite|\.nsp[0-9]?|\.pecrypt)$", re.IGNORECASE)
 
 
-def extract_pe_advanced(file_path: str):
+def extract_pe_advanced(file_path: str, file_data: bytes = None):
     """Extract imports, suspicious APIs, max section entropy, packed status, distinctive sections, capability DLLs, and exports."""
     imports = []
     suspicious_found = []
@@ -797,7 +838,17 @@ def extract_pe_advanced(file_path: str):
     distinctive_section_names = []
     pe_exports = []
     try:
-        pe = pefile.PE(file_path, fast_load=False)
+        # Only the import and export directories are used: parse just those
+        # (fast_load=False also parsed relocations, resources, debug, TLS ...),
+        # from the bytes already in memory instead of reading the file again.
+        if file_data is not None:
+            pe = pefile.PE(data=file_data, fast_load=True)
+        else:
+            pe = pefile.PE(file_path, fast_load=True)
+        pe.parse_data_directories(directories=[
+            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"],
+            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_EXPORT"],
+        ])
         if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
             for entry in pe.DIRECTORY_ENTRY_IMPORT:
                 if entry.dll:
@@ -896,6 +947,7 @@ def sample_string_evaluation(string_stats, opcode_stats, file_info):
     inverse_stats = {}
     max_combi_count = 0
     super_rules = []
+    skip_super = nosuper or args.inverse
 
     # OPCODE EVALUATION --------------------------------------------------------
     for opcode in opcode_stats:
@@ -942,7 +994,7 @@ def sample_string_evaluation(string_stats, opcode_stats, file_info):
                             inverse_stats[fileName].append(string)
 
         # SUPER RULE GENERATION -----------------------------------------------
-        if not nosuper and not args.inverse:
+        if not skip_super:
             # SUPER RULES GENERATOR	- preliminary work
             # If a string occurs more than once in different files
             # print sample_string_stats[string]["count"]
@@ -970,9 +1022,11 @@ def sample_string_evaluation(string_stats, opcode_stats, file_info):
                     # print "Max Combi Count set to: %s" % max_combi_count
 
     print("[+] Generating Super Rules ... (a lot of magic)")
-    for combi_count in range(max_combi_count, 1, -1):
-        for combi in combinations:
-            if combi_count == combinations[combi]["count"]:
+    # Same order as before (highest count first, then insertion order) but one
+    # pass over the combinations instead of one pass per possible count.
+    ordered_combis = sorted((c for c in combinations if combinations[c]["count"] > 1), key=lambda c: -combinations[c]["count"])
+    for combi in ordered_combis:
+            if True:
                 # print "Count %s - Combi %s" % ( str(combinations[combi]["count"]), combi )
                 # Filter the string set
                 # print "BEFORE"
@@ -1046,22 +1100,13 @@ def filter_string_set(string_set):
     # Local string scores
     localStringScores = {}
 
-    # Local UTF strings
-    utfstrings = []
+    # Local UTF strings (set: membership is checked for every result string)
+    utfstrings = set()
 
     for string in string_set:
         # Filter meaningful words based on the flag
-        if args.meaningful_words_only:
-            # Strip the wide-string marker before tokenizing so that the
-            # actual content — not the "UTF16LE:" prefix — is evaluated.
-            tokenize_target = string[8:] if string.startswith("UTF16LE:") else string
-            # Tokenize the string and check if it contains any meaningful word
-            tokens = word_tokenize(tokenize_target)
-            contains_meaningful_word = any(word.lower() in nltk_words and len(word) >= 4 for word in tokens)
-
-            # If no meaningful word is found, skip this string
-            if not contains_meaningful_word:
-                continue
+        if args.meaningful_words_only and not is_meaningful_string(string):
+            continue
 
         # Goodware string marker
         goodstring = False
@@ -1080,7 +1125,7 @@ def filter_string_set(string_set):
         if string[:8] == "UTF16LE:":
             # print "removed UTF16LE from %s" % string
             string = string[8:]
-            utfstrings.append(string)
+            utfstrings.add(string)
 
         # Good string evaluation (after the UTF modification)
         if goodstring:
