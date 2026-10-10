@@ -245,6 +245,9 @@
         <option value="127.0.0.1">This PC only (127.0.0.1) — for cloudflared</option>
         <option value="0.0.0.0">All network interfaces (0.0.0.0) — LAN clients</option>
       </select>
+      <div class="dangerbox" id="pathWarn" style="font-size:15px;font-weight:700;line-height:1.5;padding:14px 16px;border:2px solid var(--red);margin:12px 0">
+        &#9888; Path must be <span style="font-family:Consolas,monospace;font-size:18px">/ws</span>. Anything other than /ws will not work: clients cannot connect.
+      </div>
       <div class="row2">
         <div>
           <label for="port">Port</label>
@@ -252,7 +255,7 @@
         </div>
         <div>
           <label for="path">Path</label>
-          <input id="path" type="text" value="/scan">
+          <input id="path" type="text" value="/ws">
         </div>
       </div>
       <button id="startBtn" class="primary">Start server</button>
@@ -269,7 +272,7 @@
       </div>
       <label>cloudflared service</label>
       <div class="addr"><span id="tunnelUrl">—</span><button class="ghost" data-copy="tunnelUrl">Copy</button></div>
-      <div class="hint">Through the tunnel the client uses <b>wss://your-domain<span id="pathHint">/scan</span></b>.</div>
+      <div class="hint">Through the tunnel the client uses <b>wss://your-domain<span id="pathHint">/ws</span></b>.</div>
     </section>
 
     <section class="card">
@@ -813,12 +816,12 @@
   }
 
   function currentForm() {
-    return { host: $("host").value, port: parseInt($("port").value, 10), path: $("path").value.trim() || "/scan" };
+    return { host: $("host").value, port: parseInt($("port").value, 10), path: $("path").value.trim() || "/ws" };
   }
 
   function updateAddresses(state) {
     const f = running ? { host: state.server.host, port: state.server.port, path: state.server.path } : currentForm();
-    const path = "/" + (f.path || "/scan").replace(/^\/+|\/+$/g, "");
+    const path = "/" + (f.path || "/ws").replace(/^\/+|\/+$/g, "");
     $("localUrl").textContent = `ws://127.0.0.1:${f.port}${path}`;
     $("tunnelUrl").textContent = `http://127.0.0.1:${f.port}`;
     $("pathHint").textContent = path;

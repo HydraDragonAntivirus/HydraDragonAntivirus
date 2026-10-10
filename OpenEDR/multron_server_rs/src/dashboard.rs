@@ -141,7 +141,7 @@ impl AppState {
             path = format!("/{}", path);
         }
         if path == "/" || path == "/health" {
-            return Err("path must be something like /scan".to_string());
+            return Err("path must be /ws".to_string());
         }
         s.path = path.clone();
 
