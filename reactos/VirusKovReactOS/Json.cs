@@ -43,17 +43,38 @@ namespace VirusKov.ReactOS
             object v = Get(root, path);
             if (v == null) return null;
             if (v is string) return (string)v;
-            if (v is double) return ((double)v).ToString(CultureInfo.InvariantCulture);
             if (v is bool) return (bool)v ? "true" : "false";
-            return null;
+            if (v is IConvertible)
+            {
+                try { return Convert.ToString(v, CultureInfo.InvariantCulture); }
+                catch (Exception) { }
+            }
+            return v.ToString();
         }
 
         public static long GetLong(object root, string path, long fallback)
         {
             object v = Get(root, path);
+            if (v == null) return fallback;
+            if (v is long) return (long)v;
+            if (v is int) return (int)v;
             if (v is double) return (long)(double)v;
-            long l;
-            if (v is string && long.TryParse((string)v, NumberStyles.Integer, CultureInfo.InvariantCulture, out l)) return l;
+            if (v is float) return (long)(float)v;
+            if (v is decimal) return (long)(decimal)v;
+            if (v is short) return (short)v;
+            if (v is byte) return (byte)v;
+            if (v is uint) return (uint)v;
+            if (v is ulong) return (long)(ulong)v;
+            if (v is IConvertible)
+            {
+                try { return Convert.ToInt64(v, CultureInfo.InvariantCulture); }
+                catch (Exception) { }
+            }
+            if (v is string)
+            {
+                long l;
+                if (long.TryParse((string)v, NumberStyles.Integer | NumberStyles.Float, CultureInfo.InvariantCulture, out l)) return l;
+            }
             return fallback;
         }
 

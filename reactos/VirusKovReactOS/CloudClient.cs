@@ -43,7 +43,7 @@ namespace VirusKov.ReactOS
         private const int TimeoutMs = 120000;
 
         private readonly Settings settings;
-        private TcpClient tcp;
+        private IDisposable conn;
         private WebSocketClient ws;
         private long nextId;
 
@@ -71,15 +71,12 @@ namespace VirusKov.ReactOS
                 if (!uri.IsLoopback)
                     throw new InvalidOperationException("Unencrypted ws:// addresses are only allowed for a server on this PC (localhost). Use wss://.");
                 port = uri.Port > 0 ? uri.Port : 80;
-                tcp = new TcpClient();
-                tcp.ReceiveTimeout = tcp.SendTimeout = TimeoutMs;
-                tcp.Connect(uri.Host, port);
-                stream = tcp.GetStream();
+                stream = SecureChannel.ConnectStream(uri.Host, port, TimeoutMs, out conn);
             }
             else if (uri.Scheme == "wss")
             {
                 port = uri.IsDefaultPort || uri.Port <= 0 ? 443 : uri.Port;
-                stream = SecureChannel.Connect(uri.Host, port, TimeoutMs, out tcp);
+                stream = SecureChannel.Connect(uri.Host, port, TimeoutMs, out conn);
             }
             else
                 throw new InvalidOperationException("The server address must start with wss://.");
@@ -276,7 +273,7 @@ namespace VirusKov.ReactOS
         public void Dispose()
         {
             if (ws != null) { ws.Dispose(); ws = null; }
-            if (tcp != null) { try { tcp.Close(); } catch (Exception) { } tcp = null; }
+            if (conn != null) { try { conn.Dispose(); } catch (Exception) { } conn = null; }
         }
     }
 }

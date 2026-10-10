@@ -169,16 +169,15 @@ namespace VirusKov.ReactOS
             var p = tabScan;
             p.AutoScroll = true;
             p.AutoScrollMinSize = new Size(740, 480);
-            const AnchorStyles TL = AnchorStyles.Top | AnchorStyles.Left;
 
             p.Controls.Add(new Label { Text = "Locations to scan (folders, files, drives):", AutoSize = true, Location = new Point(10, 8) });
-            lstTargets.SetBounds(10, 26, 380, 110);
+            lstTargets.SetBounds(10, 26, 420, 110);
             lstTargets.SelectionMode = SelectionMode.MultiExtended;
             lstTargets.HorizontalScrollbar = true;
             foreach (string t in settings.ScanTargetList()) lstTargets.Items.Add(t);
             p.Controls.Add(lstTargets);
 
-            Btn(btnAddFolderT, "Add folder...", 396, 26, 110).Anchor = TL;
+            Btn(btnAddFolderT, "Add folder...", 438, 26, 120);
             btnAddFolderT.Click += (s, e) =>
             {
                 using (var d = new FolderBrowserDialog())
@@ -188,7 +187,7 @@ namespace VirusKov.ReactOS
                 }
             };
             p.Controls.Add(btnAddFolderT);
-            Btn(btnAddFile, "Add file...", 396, 54, 110);
+            Btn(btnAddFile, "Add file...", 438, 54, 120);
             btnAddFile.Click += (s, e) =>
             {
                 using (var d = new OpenFileDialog())
@@ -199,7 +198,7 @@ namespace VirusKov.ReactOS
                 }
             };
             p.Controls.Add(btnAddFile);
-            Btn(btnRemoveT, "Remove", 396, 82, 110);
+            Btn(btnRemoveT, "Remove", 438, 82, 120);
             btnRemoveT.Click += (s, e) =>
             {
                 var sel = new List<object>();
@@ -207,12 +206,12 @@ namespace VirusKov.ReactOS
                 foreach (object o in sel) lstTargets.Items.Remove(o);
             };
             p.Controls.Add(btnRemoveT);
-            Btn(btnClearT, "Clear", 396, 110, 110);
+            Btn(btnClearT, "Clear", 438, 110, 120);
             btnClearT.Click += (s, e) => lstTargets.Items.Clear();
             p.Controls.Add(btnClearT);
 
             cmbDrives.DropDownStyle = ComboBoxStyle.DropDownList;
-            cmbDrives.SetBounds(514, 27, 120, 22);
+            cmbDrives.SetBounds(568, 27, 90, 22);
             foreach (DriveInfo d in DriveInfo.GetDrives())
             {
                 try
@@ -224,17 +223,17 @@ namespace VirusKov.ReactOS
             }
             if (cmbDrives.Items.Count > 0) cmbDrives.SelectedIndex = 0;
             p.Controls.Add(cmbDrives);
-            Btn(btnAddDrive, "Add drive", 640, 26, 100);
+            Btn(btnAddDrive, "Add drive", 662, 26, 80);
             btnAddDrive.Click += (s, e) =>
             {
                 if (cmbDrives.SelectedItem == null) return;
                 AddTarget(((string)cmbDrives.SelectedItem).Split(' ')[0]);
             };
             p.Controls.Add(btnAddDrive);
-            Btn(btnAllDrives, "Add all hard disks", 514, 54, 226);
+            Btn(btnAllDrives, "Add all hard disks", 568, 54, 174);
             btnAllDrives.Click += (s, e) => { foreach (string d in FixedDrives()) AddTarget(d); };
             p.Controls.Add(btnAllDrives);
-            Btn(btnQuickFolders, "Add quick scan folders", 514, 82, 226);
+            Btn(btnQuickFolders, "Add quick scan folders", 568, 82, 174);
             btnQuickFolders.Click += (s, e) => { foreach (string d in realtime.Folders()) AddTarget(d); };
             p.Controls.Add(btnQuickFolders);
 
@@ -452,10 +451,10 @@ namespace VirusKov.ReactOS
             lblRealtime.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             p.Controls.Add(lblRealtime);
 
-            lstFolders.SetBounds(10, 98, 600, 110);
+            lstFolders.SetBounds(10, 98, 560, 110);
             lstFolders.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             p.Controls.Add(lstFolders);
-            Btn(btnAddFolder, "Add folder...", 620, 98, 120).Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            Btn(btnAddFolder, "Add folder...", 580, 98, 150).Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnAddFolder.Click += (s, e) =>
             {
                 using (var d = new FolderBrowserDialog())
@@ -469,7 +468,7 @@ namespace VirusKov.ReactOS
                 }
             };
             p.Controls.Add(btnAddFolder);
-            Btn(btnRemoveFolder, "Remove", 620, 128, 120).Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            Btn(btnRemoveFolder, "Remove", 580, 128, 150).Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnRemoveFolder.Click += (s, e) =>
             {
                 if (lstFolders.SelectedItem == null) return;

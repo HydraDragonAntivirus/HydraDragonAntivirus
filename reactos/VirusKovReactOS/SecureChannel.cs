@@ -21,19 +21,295 @@ namespace VirusKov.ReactOS
     public static class SecureChannel
     {
         /// <summary>Opens a TCP connection and runs the TLS handshake. Returns the encrypted stream.</summary>
-        public static Stream Connect(string host, int port, int timeoutMs, out TcpClient tcp)
+        public static Stream Connect(string host, int port, int timeoutMs, out IDisposable conn)
         {
-            tcp = new TcpClient();
-            tcp.ReceiveTimeout = timeoutMs;
-            tcp.SendTimeout = timeoutMs;
-            tcp.NoDelay = true;
-            tcp.Connect(host, port);
-            NetworkStream ns = tcp.GetStream();
-            ns.ReadTimeout = timeoutMs;
-            ns.WriteTimeout = timeoutMs;
-            var protocol = new TlsClientProtocol(ns, new SecureRandom());
+            Stream stream = ConnectStream(host, port, timeoutMs, out conn);
+            var protocol = new TlsClientProtocol(stream, new SecureRandom());
             protocol.Connect(new Client(host, TrustStore.Roots));
             return protocol.Stream;
+        }
+
+        public static Stream ConnectStream(string host, int port, int timeoutMs, out IDisposable conn)
+        {
+            var addrs = new List<System.Net.IPAddress>();
+            System.Net.IPAddress parsed;
+            if (System.Net.IPAddress.TryParse(host, out parsed))
+            {
+                addrs.Add(parsed);
+            }
+            else
+            {
+                try
+                {
+                    var a = System.Net.Dns.GetHostAddresses(host);
+                    if (a != null) foreach (var ip in a) if (ip != null) addrs.Add(ip);
+                }
+                catch (Exception e)
+                {
+                    Log.Write("dns GetHostAddresses: " + e.Message);
+                }
+
+                if (addrs.Count == 0)
+                {
+                    try
+                    {
+                        var entry = System.Net.Dns.GetHostEntry(host);
+                        if (entry != null && entry.AddressList != null)
+                            foreach (var ip in entry.AddressList) if (ip != null) addrs.Add(ip);
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Write("dns GetHostEntry: " + e.Message);
+                    }
+                }
+
+#pragma warning disable 618
+                if (addrs.Count == 0)
+                {
+                    try
+                    {
+                        var entry = System.Net.Dns.GetHostByName(host);
+                        if (entry != null && entry.AddressList != null)
+                            foreach (var ip in entry.AddressList) if (ip != null) addrs.Add(ip);
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Write("dns GetHostByName: " + e.Message);
+                    }
+                }
+#pragma warning restore 618
+
+                // ReactOS DNS resolver fallback: if ReactOS cannot resolve external DNS inside VM,
+                // fallback to the official Anycast Cloudflare IPs for api.viruskov.com.
+                if (addrs.Count == 0 && host.Equals("api.viruskov.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Write("dns fallback: using known Cloudflare Anycast IPs for api.viruskov.com");
+                    addrs.Add(System.Net.IPAddress.Parse("172.67.174.121"));
+                    addrs.Add(System.Net.IPAddress.Parse("104.21.47.233"));
+                }
+            }
+
+            if (addrs.Count == 0)
+                throw new IOException("Could not resolve host name: " + host);
+
+            Exception lastEx = null;
+            foreach (var ip in addrs)
+            {
+                // Only IPv4 on legacy systems / ReactOS
+                if (ip.AddressFamily != AddressFamily.InterNetwork) continue;
+
+                // Attempt 1: TcpClient with IPAddress directly (avoids Dns.GetHostAddresses in TcpClient)
+                try
+                {
+                    var client = new TcpClient();
+                    client.ReceiveTimeout = timeoutMs;
+                    client.SendTimeout = timeoutMs;
+                    client.NoDelay = true;
+                    client.Connect(ip, port);
+                    NetworkStream ns = client.GetStream();
+                    ns.ReadTimeout = timeoutMs;
+                    ns.WriteTimeout = timeoutMs;
+                    conn = client;
+                    return ns;
+                }
+                catch (Exception ex)
+                {
+                    lastEx = ex;
+                    Log.Write("TcpClient.Connect(" + ip + ":" + port + ") failed: " + ex.Message);
+                }
+
+                // Attempt 2: Direct raw Socket with NetworkStream(socket, true)
+                try
+                {
+                    var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    sock.NoDelay = true;
+                    sock.ReceiveTimeout = timeoutMs;
+                    sock.SendTimeout = timeoutMs;
+                    sock.Connect(new System.Net.IPEndPoint(ip, port));
+
+                    var ns = new NetworkStream(sock, true);
+                    ns.ReadTimeout = timeoutMs;
+                    ns.WriteTimeout = timeoutMs;
+                    conn = sock;
+                    return ns;
+                }
+                catch (Exception ex)
+                {
+                    lastEx = ex;
+                    Log.Write("Socket.Connect(" + ip + ":" + port + ") failed: " + ex.Message);
+                }
+
+                // Attempt 3: Native Winsock (ws2_32.dll) P/Invoke fallback.
+                // ReactOS Mono/CLR 2.0 has an internal bug in Socket.Connect/IPEndPoint marshalling
+                // that throws InvalidCastException. Native ws2_32.dll connect works directly on ReactOS kernel.
+                try
+                {
+                    var nativeStream = NativeSocketStream.Connect(ip, port, timeoutMs);
+                    conn = nativeStream;
+                    Log.Write("Connected via Native Winsock to " + ip + ":" + port);
+                    return nativeStream;
+                }
+                catch (Exception ex)
+                {
+                    lastEx = ex;
+                    Log.Write("NativeSocketStream.Connect(" + ip + ":" + port + ") failed: " + ex.Message);
+                }
+            }
+
+            throw new IOException("Failed to connect to " + host + ":" + port + (lastEx != null ? " (" + lastEx.Message + ")" : ""));
+        }
+
+        private sealed class NativeSocketStream : Stream
+        {
+            [System.Runtime.InteropServices.DllImport("ws2_32.dll", SetLastError = true)]
+            private static extern int WSAStartup(short wVersionRequested, byte[] lpWSAData);
+
+            [System.Runtime.InteropServices.DllImport("ws2_32.dll", SetLastError = true)]
+            private static extern IntPtr socket(int af, int type, int protocol);
+
+            [System.Runtime.InteropServices.DllImport("ws2_32.dll", SetLastError = true)]
+            private static extern int connect(IntPtr s, byte[] name, int namelen);
+
+            [System.Runtime.InteropServices.DllImport("ws2_32.dll", SetLastError = true)]
+            private static extern int send(IntPtr s, IntPtr buf, int len, int flags);
+
+            [System.Runtime.InteropServices.DllImport("ws2_32.dll", SetLastError = true)]
+            private static extern int recv(IntPtr s, IntPtr buf, int len, int flags);
+
+            [System.Runtime.InteropServices.DllImport("ws2_32.dll", SetLastError = true)]
+            private static extern int setsockopt(IntPtr s, int level, int optname, ref int optval, int optlen);
+
+            [System.Runtime.InteropServices.DllImport("ws2_32.dll")]
+            private static extern int WSAGetLastError();
+
+            [System.Runtime.InteropServices.DllImport("ws2_32.dll", SetLastError = true)]
+            private static extern int closesocket(IntPtr s);
+
+            private IntPtr sock = IntPtr.Zero;
+
+            public static NativeSocketStream Connect(System.Net.IPAddress ip, int port, int timeoutMs)
+            {
+                byte[] wsaData = new byte[512];
+                WSAStartup(0x0202, wsaData);
+
+                const int AF_INET = 2;
+                const int SOCK_STREAM = 1;
+                const int IPPROTO_TCP = 6;
+                IntPtr s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+                if (s == IntPtr.Zero || s.ToInt64() == -1)
+                {
+                    int err = WSAGetLastError();
+                    throw new IOException("Native socket creation failed: " + err);
+                }
+
+                // Set timeouts
+                const int SOL_SOCKET = 0xFFFF;
+                const int SO_RCVTIMEO = 0x1006;
+                const int SO_SNDTIMEO = 0x1005;
+                const int TCP_NODELAY = 0x0001;
+                int t = timeoutMs;
+                int nodelay = 1;
+                setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, ref t, 4);
+                setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, ref t, 4);
+                setsockopt(s, IPPROTO_TCP, TCP_NODELAY, ref nodelay, 4);
+
+                // Build sockaddr_in (16 bytes)
+                byte[] sockaddr = new byte[16];
+                sockaddr[0] = (byte)(AF_INET & 0xFF);
+                sockaddr[1] = (byte)((AF_INET >> 8) & 0xFF);
+                sockaddr[2] = (byte)((port >> 8) & 0xFF); // Big-endian port
+                sockaddr[3] = (byte)(port & 0xFF);
+                byte[] ipBytes = ip.GetAddressBytes();
+                sockaddr[4] = ipBytes[0];
+                sockaddr[5] = ipBytes[1];
+                sockaddr[6] = ipBytes[2];
+                sockaddr[7] = ipBytes[3];
+
+                int res = connect(s, sockaddr, 16);
+                if (res != 0)
+                {
+                    int err = WSAGetLastError();
+                    closesocket(s);
+                    throw new IOException("Native connect failed, error code: " + err);
+                }
+
+                return new NativeSocketStream { sock = s };
+            }
+
+            public override bool CanRead { get { return sock != IntPtr.Zero && sock.ToInt64() != -1; } }
+            public override bool CanSeek { get { return false; } }
+            public override bool CanWrite { get { return sock != IntPtr.Zero && sock.ToInt64() != -1; } }
+            public override long Length { get { throw new NotSupportedException(); } }
+            public override long Position { get { throw new NotSupportedException(); } set { throw new NotSupportedException(); } }
+
+            public override void Flush() { }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                if (sock == IntPtr.Zero || sock.ToInt64() == -1) throw new ObjectDisposedException("NativeSocketStream");
+                if (buffer == null) throw new ArgumentNullException("buffer");
+                if (offset < 0 || count < 0 || offset + count > buffer.Length) throw new ArgumentOutOfRangeException();
+                if (count == 0) return 0;
+
+                var handle = System.Runtime.InteropServices.GCHandle.Alloc(buffer, System.Runtime.InteropServices.GCHandleType.Pinned);
+                try
+                {
+                    IntPtr ptr = new IntPtr(handle.AddrOfPinnedObject().ToInt64() + offset);
+                    int n = recv(sock, ptr, count, 0);
+                    if (n < 0)
+                    {
+                        int err = WSAGetLastError();
+                        throw new IOException("Native recv error: " + err);
+                    }
+                    return n;
+                }
+                finally
+                {
+                    handle.Free();
+                }
+            }
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                if (sock == IntPtr.Zero || sock.ToInt64() == -1) throw new ObjectDisposedException("NativeSocketStream");
+                if (buffer == null) throw new ArgumentNullException("buffer");
+                if (offset < 0 || count < 0 || offset + count > buffer.Length) throw new ArgumentOutOfRangeException();
+                if (count == 0) return;
+
+                var handle = System.Runtime.InteropServices.GCHandle.Alloc(buffer, System.Runtime.InteropServices.GCHandleType.Pinned);
+                try
+                {
+                    int sent = 0;
+                    while (sent < count)
+                    {
+                        IntPtr ptr = new IntPtr(handle.AddrOfPinnedObject().ToInt64() + offset + sent);
+                        int n = send(sock, ptr, count - sent, 0);
+                        if (n <= 0)
+                        {
+                            int err = WSAGetLastError();
+                            throw new IOException("Native send error: " + err);
+                        }
+                        sent += n;
+                    }
+                }
+                finally
+                {
+                    handle.Free();
+                }
+            }
+
+            public override long Seek(long offset, SeekOrigin origin) { throw new NotSupportedException(); }
+            public override void SetLength(long value) { throw new NotSupportedException(); }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (sock != IntPtr.Zero && sock.ToInt64() != -1)
+                {
+                    try { closesocket(sock); } catch (Exception) { }
+                    sock = IntPtr.Zero;
+                }
+                base.Dispose(disposing);
+            }
         }
 
         private sealed class Client : DefaultTlsClient
