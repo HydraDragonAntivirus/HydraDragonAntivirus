@@ -1391,8 +1391,9 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
 
     // Valkyrie-style: files the engine could not settle after a real scan go to the
     // human analysis queue automatically.
-    // possible_clean (TLSH smart whitelist) is not verified either.
-    if res.source == "scan" && matches!(res.verdict.as_str(), "unknown" | "suspicious" | "possible_clean") {
+    // possible_clean (TLSH smart whitelist) is not verified either, and a malicious
+    // engine verdict can be a false positive.
+    if res.source == "scan" && crate::human_review::AUTO_QUEUE_VERDICTS.contains(&res.verdict.as_str()) {
         let _ = server.threat_intel.reviews.enqueue(
             &res.sha256,
             "auto",

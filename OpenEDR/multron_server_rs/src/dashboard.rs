@@ -281,6 +281,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
+        .route("/api/rescan/log", get(handle_rescan_log))
         .route("/api/rescan/after-reload", post(handle_rescan_after_reload))
         .route("/api/offload/config", post(handle_offload_config))
         .route("/api/offload/start", post(handle_offload_start))
@@ -558,7 +559,7 @@ struct RescanBody {
 async fn handle_rescan_one(State(app): State<Arc<AppState>>, Json(b): Json<RescanBody>) -> Response {
     let srv = Arc::clone(&app.scan_server);
     let sha = b.sha256.clone();
-    match tokio::task::spawn_blocking(move || crate::rescan::rescan_one(&srv, &sha)).await {
+    match tokio::task::spawn_blocking(move || crate::rescan::rescan_logged(&srv, &sha, "single", 0)).await {
         Ok(Ok(c)) => Json(serde_json::json!({ "ok": true, "change": c })).into_response(),
         Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
@@ -578,6 +579,11 @@ async fn handle_rescan_bulk(State(app): State<Arc<AppState>>, Json(b): Json<Bulk
         Ok(n) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
     }
+}
+
+/// Every rescanned file (newest first, across runs) with old/new verdict and engines.
+async fn handle_rescan_log(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(serde_json::json!({ "ok": true, "status": app.scan_server.rescan.status(), "log": app.scan_server.rescan.log() }))
 }
 
 async fn handle_rescan_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
@@ -828,7 +834,7 @@ async fn handle_engine_reload(
             );
             // New rules may settle kept unknown / possible_clean files.
             if app2.scan_server.rescan.after_reload.load(std::sync::atomic::Ordering::Relaxed) {
-                if let Err(e) = crate::rescan::start_bulk(&app2.scan_server, &[]) {
+                if let Err(e) = crate::rescan::start_bulk_from(&app2.scan_server, &[], "reload") {
                     info_event(&app2, format!("rescan after reload not started: {e}"));
                 }
             }

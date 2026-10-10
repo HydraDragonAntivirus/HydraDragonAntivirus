@@ -329,7 +329,7 @@ impl ThreatIntelStore {
             let guard = self.map.read().unwrap();
             guard
                 .values()
-                .filter(|i| matches!(i.verdict.as_str(), "unknown" | "suspicious" | "possible_clean"))
+                .filter(|i| crate::human_review::AUTO_QUEUE_VERDICTS.contains(&i.verdict.as_str()))
                 .filter(|i| self.reviews.get(&i.sha256).is_none() && !self.reviews.was_removed(&i.sha256))
                 .map(|i| (i.sha256.clone(), i.verdict.clone(), i.file_names.first().cloned()))
                 .collect()

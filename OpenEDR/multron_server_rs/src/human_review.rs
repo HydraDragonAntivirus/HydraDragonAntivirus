@@ -27,6 +27,10 @@ pub const MAX_PENDING: usize = 20_000;
 
 pub const VERDICTS: [&str; 3] = ["malicious", "suspicious", "clean"];
 
+/// Engine verdicts that put a file in the human analysis queue until an analyst
+/// decides. Malicious is included so engine false positives get a human look too.
+pub const AUTO_QUEUE_VERDICTS: [&str; 4] = ["malicious", "suspicious", "unknown", "possible_clean"];
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewStatus {
