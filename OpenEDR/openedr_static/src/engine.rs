@@ -39,13 +39,7 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
 pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
 
-/// Embedded-URL layer threshold: a URL harvested from the file's own bytes must
-/// clear this before the file is called a dropper/stager. Same 0.90 bar
-/// `StaticEngine::scan_url` applies to a live URL, so the desktop static scan
-/// and the live firewall path never disagree about the same string.
-pub const EMBEDDED_URL_ML_THRESHOLD: f32 = 0.90;
-
-/// Cap on `Embedded_URL_ML` detections attached to one file. A sample with 300
+/// Cap on `Embedded_URL_Blacklist` detections attached to one file. A sample with 300
 /// embedded links should not return 300 findings — the cap is enough to triage
 /// and the URLs themselves are in the details.
 const MAX_EMBEDDED_URL_DETECTIONS: usize = 8;
@@ -322,15 +316,13 @@ impl StaticEngine {
             &format!("init_total_parallel={}ms", t_scope.elapsed().as_millis()),
         );
 
-        // The embedded-URL layer is gated on `url_loaded()`. Without
-        // `models/url_trees.bin` it becomes a silent no-op on every file, which
-        // reads as "we scanned and found nothing" rather than "this capability
-        // is off", so say so once at init instead.
+        // The URL model is used by URL scanning only (`scan_url`), never on links
+        // found inside files. Say once at init when it is missing.
         if !ml.url_loaded() {
             diagnostics::log(
                 "capability-disabled",
-                "Embedded_URL_ML: models/url_trees.bin missing or unparseable; \
-                 embedded C2/phishing URL detection is OFF for every scan",
+                "URL ML: models/url_trees.bin missing or unparseable; \
+                 URL scanning falls back to rules and lists only",
             );
         }
 
@@ -430,7 +422,8 @@ impl StaticEngine {
         self.signers.set_benign_whitelist(data)
     }
 
-    /// Harvest every `http(s)` URL in `data` and score it with the URL forest.
+    /// Harvest every `http(s)` URL in `data` and report the ones whose host is on
+    /// the CIDR blacklist.
 ///
 /// `origin` prefixes the layer name so a finding lifted out of an archive entry
 /// is not reported as if it came from the parent file; `context` names the
@@ -438,8 +431,8 @@ impl StaticEngine {
 /// first, which is required for formats that do not store their payload as
 /// contiguous bytes — PDF text and Office macro bodies.
 ///
-/// Whitelist-then-ML, nothing else: see the layer 4c comment in
-/// `scan_bytes_internal` for why no rule matching happens here.
+/// Blacklist only: the URL ML is for URL scanning, not for links inside files (it
+/// false-positived on ordinary links in documents, scripts and installers).
 fn embedded_url_detections(
     &self,
     data: &[u8],
@@ -447,10 +440,6 @@ fn embedded_url_detections(
     context: &str,
     inflate: bool,
 ) -> Vec<DetectionItem> {
-    if !self.ml.url_loaded() {
-        return Vec::new();
-    }
-
     let mut candidates = embedded_url::extract_urls(data);
     if inflate {
         candidates.extend(embedded_url::extract_urls_from_streams(data));
@@ -463,21 +452,15 @@ fn embedded_url_detections(
         if whitelisted {
             continue;
         }
-        let ml_prob = self.ml.predict_url(&candidate.url).unwrap_or(0.0);
-        let (prob, reason) = if blacklisted {
-            (1.0f32, " (CIDR blacklist)".to_string())
-        } else if ml_prob >= EMBEDDED_URL_ML_THRESHOLD {
-            (ml_prob, String::new())
-        } else {
+        if !blacklisted {
             continue;
-        };
+        }
         out.push(DetectionItem {
-            layer: format!("{origin}Embedded_URL_ML"),
+            layer: format!("{origin}Embedded_URL_Blacklist"),
             name: "Dropper.EmbeddedC2Url".to_string(),
-            score: Some(prob),
+            score: Some(1.0),
             details: Some(format!(
-                "URL embedded in {context} scored {:.2}% malicious{reason} (host {}): {}",
-                prob * 100.0,
+                "URL embedded in {context} points to a CIDR-blacklisted host ({}): {}",
                 candidate.host,
                 candidate.url.chars().take(200).collect::<String>()
             )),
@@ -1293,6 +1276,27 @@ fn entry_is_compressed_document(name: &str) -> bool {
             };
         }
 
+        // 0.3 YARA rule source (a signature file, not a program). Rule files carry
+        // exactly the strings malware carries, so every content layer below
+        // (ClamAV, YARA, HydraSig, embedded URLs, ML) would only produce false
+        // positives on them. Only reached after the hash layers and EICAR, so a
+        // known-bad hash is still caught. Strict: see `is_yara_rule_source`.
+        if detections.is_empty() && is_yara_rule_source(data, target_name) {
+            diagnostics::log("yara-rule-file", &format!("{target_name}: YARA rule source, content layers skipped"));
+            return StaticScanReport {
+                target: target_name.to_string(),
+                file_size,
+                sha256: sha256_hex,
+                verdict: "Clean".to_string(),
+                max_threat_score: 0.0,
+                detections: Vec::new(),
+                signer_info: signer_details,
+                pua_registry_matches: Vec::new(),
+                extracted_objects: Vec::new(),
+                scan_time_ms: start_time.elapsed().as_millis() as u64,
+            };
+        }
+
         // 2a. APK path (web parity): own forest + heuristics + capped YARA/HydraSig.
         // Runs even without the bundle so APKs never return Error.
         let is_apk_file = apk::is_apk(data, target_name);
@@ -1441,10 +1445,11 @@ fn entry_is_compressed_document(name: &str) -> bool {
             }
         }
 
-        // 4c. Embedded-URL C2 / phishing layer. Stage-1 droppers, phishing
-        // documents and macro stagers carry a *link*, not a payload: harvest
-        // every http(s) URL out of the file's own bytes (ASCII + UTF-16LE) and
-        // score it with the same URL forest the live firewall path uses.
+        // 4c. Embedded-URL C2 layer. Stage-1 droppers, phishing documents and
+        // macro stagers carry a *link*, not a payload: harvest every http(s) URL
+        // out of the file's own bytes (ASCII + UTF-16LE) and flag the ones whose
+        // host is on the CIDR blacklist. The URL ML is NOT used here: it is for
+        // URL scanning only (`scan_url`); on links inside files it gave FPs.
         //
         // Placement matters for false positives. This runs after the
         // SHA-256-benign and trusted-signer fast paths above, so a signed,
@@ -1458,7 +1463,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
         //    whitelisted host is skipped outright: a benign link sitting inside
         //    a document is not a finding. A CIDR-blacklisted host is Malicious
         //    on its own, because that is deterministic rather than a guess.
-        // 2. The URL ML, at the same 0.90 bar `scan_url` applies to a live URL.
+        // 2. (The URL ML was used here before; it is URL-scanning only now.)
         //
         // No rule matching happens here. The patterns in url_threat_rules.yaml
         // are tuned for a URL a person chose to visit and would fire on every
@@ -1989,6 +1994,47 @@ fn entry_is_compressed_document(name: &str) -> bool {
     pub fn is_unwhitelisted_subdomain(&self, host: &str) -> bool {
         self.url_engine.is_unwhitelisted(host)
     }
+}
+
+/// Largest rule file that is parsed to prove it is one (bigger files are scanned
+/// normally).
+const YARA_RULE_FILE_MAX: usize = 16 * 1024 * 1024;
+
+/// True only for a file that IS a YARA rule source, not one that merely contains
+/// a rule-looking block. Decided by content alone (no extension dependency, like
+/// the rest of the engine):
+///
+/// 1. Plain UTF-8 text (no NUL bytes), at least one `rule NAME` declaration.
+/// 2. The whole file parses as YARA (syntax only, with the YARA-X parser — no
+///    compilation, ~3x faster). Anything outside rule syntax (a line of code, an
+///    HTML page, a payload) is a syntax error, so a script cannot hide a working
+///    payload behind a rule block.
+pub fn is_yara_rule_source(data: &[u8], _name: &str) -> bool {
+    if data.len() > YARA_RULE_FILE_MAX || data.len() < 16 {
+        return false;
+    }
+    if data.contains(&0) {
+        return false;
+    }
+    let text = match std::str::from_utf8(data.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(data)) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    // Cheap pre-check before parsing.
+    let has_rule = text.lines().any(|l| {
+        let mut w = l.split_whitespace();
+        let mut first = w.next();
+        while matches!(first, Some("private") | Some("global")) {
+            first = w.next();
+        }
+        first == Some("rule") && w.next().is_some()
+    });
+    if !has_rule || !text.contains("condition") {
+        return false;
+    }
+    let ast = yara_x_parser::Parser::new(text.as_bytes()).into_ast();
+    ast.errors().is_empty()
+        && ast.items.iter().any(|i| matches!(i, yara_x_parser::ast::Item::Rule(_)))
 }
 
 fn find_valid_embedded_pe(data: &[u8]) -> Option<usize> {

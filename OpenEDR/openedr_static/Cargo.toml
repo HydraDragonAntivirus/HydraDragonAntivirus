@@ -25,6 +25,8 @@ oxc_allocator = "0.152.0"
 oxc_span = "0.152.0"
 oxc_ast_visit = "0.152.0"
 yara-x = "1.21"
+# Syntax-only parse to recognise YARA rule files (no compilation).
+yara-x-parser = "1.21"
 url = "2.5"
 daachorse = "5.0.0"
 

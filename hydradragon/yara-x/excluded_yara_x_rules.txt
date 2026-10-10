@@ -394,3 +394,13 @@ multiple_filtering_ren
 invalid_trailer_structure_ren
 # 2026-10-10 FP: x0r capability rule, any one dynamic-DNS domain string (audio.1.sg JS)
 network_dyndns
+# 2026-10-10 FP: PDF structure rules weight 0-1 (incremental updates, version/xref quirks of normal PDFs; Revo Uninstaller Help.pdf)
+multiple_versions_ren
+FlateDecode_wrong_version
+FlateDecode_wrong_version_ren
+invalid_xref_numbers
+invalid_xref_numbers_ren
+JBIG2_wrong_version
+JBIG2_wrong_version_ren
+embed_wrong_version
+embed_wrong_version_ren

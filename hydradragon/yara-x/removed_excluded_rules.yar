@@ -18835,3 +18835,157 @@ rule network_dyndns {
 }
 
 
+// ===== removed from C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus\hydradragon\yara-x\rules\clean_rules.yar (20261011_001234) =====
+rule JBIG2_wrong_version: PDF raw {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    description = "JBIG2 was introduced in v1.4"
+    ref         = "http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/devnet/pdf/pdfs/pdf_reference_1-7.pdf"
+    version     = "0.1"
+    weight      = 1
+
+  strings:
+    $magic = "%PDF"
+    $js    = /\/JBIG2Decode/
+    $ver   = /%PDF-1\.[4-9]/
+
+  condition:
+    $magic in (0..1024) and $js and not $ver
+}
+
+rule FlateDecode_wrong_version: PDF raw {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    description = "Flate was introduced in v1.2"
+    ref         = "http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/devnet/pdf/pdfs/pdf_reference_1-7.pdf"
+    version     = "0.1"
+    weight      = 1
+
+  strings:
+    $magic = "%PDF"
+    $js    = /\/FlateDecode/
+    $ver   = /%PDF-1\.[2-9]/
+
+  condition:
+    $magic in (0..1024) and $js and not $ver
+}
+
+rule embed_wrong_version: PDF raw {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    description = "EmbeddedFiles were introduced in v1.3"
+    ref         = "http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/devnet/pdf/pdfs/pdf_reference_1-7.pdf"
+    version     = "0.1"
+    weight      = 1
+
+  strings:
+    $magic = "%PDF"
+    $embed = /\/EmbeddedFiles/
+    $ver   = /%PDF-1\.[3-9]/
+
+  condition:
+    $magic in (0..1024) and $embed and not $ver
+}
+
+rule invalid_xref_numbers: PDF raw {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    version     = "0.1"
+    description = "The first entry in a cross-reference table is always free and has a generation number of 65,535"
+    notes       = "This can be also be in a stream..."
+    weight      = 1
+
+  strings:
+    $magic = "%PDF"
+    $reg0  = /xref\r?\n?.*\r?\n?.*65535\sf/
+    $reg1  = /endstream.*\r?\n?endobj.*\r?\n?startxref/
+
+  condition:
+    $magic in (0..1024) and not $reg0 and not $reg1
+}
+
+rule multiple_versions_ren: PDF {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    version     = "0.1"
+    description = "Written very generically and doesn't hold any weight - just something that might be useful to know about to help show incremental updates to the file being analyzed"
+    weight      = 0
+
+  strings:
+    $magic = "%PDF"
+    $s0    = "trailer"
+    $s1    = "%%EOF"
+
+  condition:
+    $magic at 0 and #s0 > 1 and #s1 > 1
+}
+
+rule JBIG2_wrong_version_ren: PDF {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    description = "JBIG2 was introduced in v1.4"
+    ref         = "http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/devnet/pdf/pdfs/pdf_reference_1-7.pdf"
+    version     = "0.1"
+    weight      = 1
+
+  strings:
+    $magic = "%PDF"
+    $js    = /\/JBIG2Decode/
+    $ver   = /%PDF-1\.[4-9]/
+
+  condition:
+    $magic at 0 and $js and not $ver
+}
+
+rule FlateDecode_wrong_version_ren: PDF {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    description = "Flate was introduced in v1.2"
+    ref         = "http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/devnet/pdf/pdfs/pdf_reference_1-7.pdf"
+    version     = "0.1"
+    weight      = 1
+
+  strings:
+    $magic = "%PDF"
+    $js    = /\/FlateDecode/
+    $ver   = /%PDF-1\.[2-9]/
+
+  condition:
+    $magic at 0 and $js and not $ver
+}
+
+rule embed_wrong_version_ren: PDF {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    description = "EmbeddedFiles were introduced in v1.3"
+    ref         = "http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/devnet/pdf/pdfs/pdf_reference_1-7.pdf"
+    version     = "0.1"
+    weight      = 1
+
+  strings:
+    $magic = "%PDF"
+    $embed = /\/EmbeddedFiles/
+    $ver   = /%PDF-1\.[3-9]/
+
+  condition:
+    $magic at 0 and $embed and not $ver
+}
+
+rule invalid_xref_numbers_ren: PDF {
+  meta:
+    author      = "Glenn Edwards (@hiddenillusion)"
+    version     = "0.1"
+    description = "The first entry in a cross-reference table is always free and has a generation number of 65,535"
+    notes       = "This can be also be in a stream..."
+    weight      = 1
+
+  strings:
+    $magic = "%PDF"
+    $reg0  = /xref\r?\n?.*\r?\n?.*65535\sf/
+    $reg1  = /endstream.*\r?\n?endobj.*\r?\n?startxref/
+
+  condition:
+    $magic at 0 and not $reg0 and not $reg1
+}
+
+

@@ -3,8 +3,9 @@
 //! Stage-1 droppers, phishing documents and macro stagers no longer carry a
 //! payload: they carry a *link*. This module pulls the `http://` / `https://`
 //! URLs out of a file's own bytes (ASCII **and** UTF-16LE, so the `.docx`/
-//! `.hta`/`.lnk` string tables are covered) and hands them to the URL LightGBM
-//! forest, which is the same model the live firewall path scores with.
+//! `.hta`/`.lnk` string tables are covered). The engine flags the ones whose
+//! host is on the CIDR blacklist; the URL ML is NOT used on them (it is for URL
+//! scanning only and false-positived on ordinary links inside files).
 //!
 //! Precision rules — every one of these is an *exclusion*, none of them is a
 //! detection rule, and none of them is a host list:
@@ -21,8 +22,7 @@
 //! through `StaticEngine::check_whitelist_blacklist` — the Tranco 1M
 //! `.xf` (xorfilter_rules/url_whitelist.xf) plus the compiled CIDR
 //! whitelist/blacklist tables — and through the `unwhitelist_subdomains`
-//! include-list in `url_threat_rules.yaml`, then applies the 0.90 decision
-//! threshold (`EMBEDDED_URL_ML_THRESHOLD`).
+//! include-list in `url_threat_rules.yaml`; only a blacklisted host is a finding.
 
 /// Bytes inspected per file. Same "the first N MB still carries the header and
 /// the string table" reasoning as the YARA (32 MB) and HydraSig (16 MB) caps.
