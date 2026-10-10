@@ -168,6 +168,7 @@ impl Sample {
 
         let base_addr = opt_header.image_base as u64;
         let virtualmemorysize = get_virtual_memory_size(&sections);
+        check_image_size(virtualmemorysize)?;
         let ep = entrypoint(&opt_header);
 
         let sec_headers: Vec<crate::filetype::pe_file::SectionHeader> = sections
@@ -219,6 +220,7 @@ impl Sample {
 
         let base_addr = opt_header.image_base as u64;
         let virtualmemorysize = get_virtual_memory_size(&sections);
+        check_image_size(virtualmemorysize)?;
         let ep = entrypoint(&opt_header);
 
         let sec_headers: Vec<crate::filetype::pe_file::SectionHeader> = sections
@@ -1027,6 +1029,22 @@ pub fn align(value: u64, page_size: u64) -> u64 {
 
 pub fn entrypoint(opt_header: &OptionalHeader) -> u64 {
     opt_header.image_base as u64 + opt_header.address_of_entry_point as u64
+}
+
+/// Largest image the emulator will map. The image is allocated up to three times
+/// (host copy, Unicorn mapping, dump buffer), and section sizes come from the file,
+/// so a PE claiming a multi-GB VirtualSize would otherwise exhaust RAM and abort
+/// the whole scanner with "memory allocation failed".
+pub const MAX_EMU_IMAGE_SIZE: u64 = 256 * 1024 * 1024;
+
+fn check_image_size(size: u64) -> UnpackerResult<()> {
+    if size == 0 || size > MAX_EMU_IMAGE_SIZE {
+        return Err(UnpackerError::General(format!(
+            "image size {} bytes is outside the emulation limit (1..={} bytes), not emulated",
+            size, MAX_EMU_IMAGE_SIZE
+        )));
+    }
+    Ok(())
 }
 
 pub fn get_virtual_memory_size(sections: &[Section]) -> u64 {
