@@ -31,6 +31,24 @@ pub struct ThreatInsight {
     /// Dashboard only: never put in public JSON (website, insights API, client results).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folders: Vec<String>,
+    /// Authenticode signer from the last engine scan (dashboard; None = not checked,
+    /// e.g. a hash-only verdict or a non-PE file).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer: Option<SignerSummary>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SignerSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub signed: bool,
+    #[serde(default)]
+    pub trusted: bool,
+    #[serde(default)]
+    pub catalog: bool,
+    #[serde(default)]
+    pub status: String,
 }
 
 impl ThreatInsight {
@@ -205,6 +223,7 @@ impl ThreatIntelStore {
                 file_size,
                 score,
                 folders: Vec::new(),
+                signer: None,
             });
 
             entry.seen_count += 1;
@@ -261,6 +280,23 @@ impl ThreatIntelStore {
                 return;
             }
             entry.folders.push(folder);
+            entry.clone()
+        };
+        if let Some(writer) = &self.writer {
+            let _ = writer.send(updated);
+        }
+    }
+
+    /// Stores the Authenticode signer the engine saw (after a real scan or rescan).
+    pub fn set_signer(&self, sha256_hex: &str, signer: &SignerSummary) {
+        let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
+        let updated = {
+            let mut guard = self.map.write().unwrap();
+            let Some(entry) = guard.get_mut(&sha_bytes) else { return };
+            if entry.signer.as_ref() == Some(signer) {
+                return;
+            }
+            entry.signer = Some(signer.clone());
             entry.clone()
         };
         if let Some(writer) = &self.writer {

@@ -1322,6 +1322,7 @@ async fn handle_scan(
                     scan_ms: 0,
                     source: "scan".into(),
                     extracted_objects: Vec::new(),
+                    signer: None,
                 })
             }
             Ok(Err(e)) => Err(e),
@@ -1388,6 +1389,9 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
         if size > 0 { Some(size as u64) } else { None },
         res.score,
     );
+    if let Some(sg) = res.signer.as_ref() {
+        server.threat_intel.set_signer(&res.sha256, sg);
+    }
 
     // Valkyrie-style: files the engine could not settle after a real scan go to the
     // human analysis queue automatically.
@@ -1522,6 +1526,7 @@ fn verdict_message(sha_hex: &str, v: CachedVerdict, action: &str, source: &str) 
         scan_ms: 0,
         source: source.into(),
         extracted_objects: Vec::new(),
+        signer: None,
     }
 }
 

@@ -52,6 +52,9 @@ pub struct ResultMessage {
     pub source: String,
     #[serde(default, skip)]
     pub extracted_objects: Vec<ExtractedObject>,
+    /// Authenticode signer seen by the engine (dashboard only, not sent to clients).
+    #[serde(default, skip)]
+    pub signer: Option<crate::threat_intel::SignerSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -610,6 +613,7 @@ impl EngineAdapter {
                 scan_ms: started.elapsed().as_millis() as i64,
                 source: "scan".to_string(),
                 extracted_objects: Vec::new(),
+                signer: None,
             };
             return Ok(res);
         }
@@ -952,6 +956,7 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
         scan_ms: 0,
         source: source.to_string(),
         extracted_objects: Vec::new(),
+        signer: None,
     }
 }
 
@@ -1057,6 +1062,13 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
         scan_ms: report.scan_time_ms as i64,
         source: "scan".to_string(),
         extracted_objects: report.extracted_objects.clone(),
+        signer: report.signer_info.as_ref().map(|s| crate::threat_intel::SignerSummary {
+            name: s.signer_name.clone().filter(|n| !n.trim().is_empty()),
+            signed: s.is_signed,
+            trusted: s.is_trusted,
+            catalog: s.is_catalog_signed,
+            status: s.status.clone(),
+        }),
     };
 
     let mut detail_parts = Vec::new();

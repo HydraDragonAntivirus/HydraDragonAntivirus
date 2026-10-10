@@ -161,6 +161,8 @@
   .hf-browser .hb-row:hover { background: var(--panel2); }
   .hf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
   @media (max-width: 1000px) { .hf-grid { grid-template-columns: 1fr; } }
+  .sg { font-size: 11.5px; font-weight: 600; } .sg.ok { color: var(--green); } .sg.warn { color: var(--orange); } .sg.none { color: var(--muted); font-weight: 500; }
+  td.file .sgline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
   td.eng .engd { font-size: 11px; color: var(--muted); max-width: 280px; white-space: normal; word-break: break-word; margin-top: 2px; }
   dialog#haDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(760px, 94vw); }
   dialog#haDlg::backdrop { background: rgba(0, 0, 0, .5); }
@@ -1242,6 +1244,15 @@
   let haPend = [], haRecentList = [], haCur = null, haExt = "", haPendTotal = 0;
   const haSel = new Set();
   const haName = (r) => r.file_name || (r.file_names || [])[0] || "";
+  // Authenticode signer the engine saw at the last real scan.
+  const haSigner = (r, long) => {
+    const s = r.signer;
+    if (!s) return long ? '<span class="k">not checked (hash-only verdict or not a PE)</span>' : "";
+    const who = s.name ? haEsc(s.name) : (s.signed ? "unknown signer" : "");
+    if (s.signed && s.trusted) return `<span class="sg ok" title="${haEsc(s.status || "trusted")}">&#10003; ${who}${s.catalog ? " (catalog)" : ""}</span>`;
+    if (s.signed) return `<span class="sg warn" title="${haEsc(s.status || "")}">&#9888; ${who} · not trusted${long && s.status ? " (" + haEsc(s.status) + ")" : ""}</span>`;
+    return `<span class="sg none" title="${haEsc(s.status || "")}">unsigned</span>`;
+  };
   const haFolder = (r) => (r.folders || [])[0] || "";
 
   const haFilter = () => {
@@ -1303,7 +1314,7 @@
         const folders = (r.folders || []).join("\n");
         html += `<tr class="it${haSel.has(r.sha256) ? " sel" : ""}${haCur === r.sha256 ? " cur" : ""}" data-sha="${r.sha256}">
           <td><input type="checkbox" data-sel="${r.sha256}" ${haSel.has(r.sha256) ? "checked" : ""}></td>
-          <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : ""}</td>
+          <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : ""}${r.signer ? `<div class="sgline">${haSigner(r, false)}</div>` : ""}</td>
           <td class="eng" title="${haEsc(r.engine_detail || r.current_threat || "")}">${haVTag(eng)}${r.engine_detail || r.current_threat ? `<div class="engd">${haEsc(r.engine_detail || r.current_threat)}</div>` : ""}</td>
           <td class="num">${r.seen_count || 0}</td>
           <td class="num">${haSize(r.file_size)}</td>
@@ -1362,6 +1373,7 @@
       (r.folders || []).length ? `<div><span class="k">Folders:</span> ${r.folders.map(haEsc).join("<br>")}</div>` : "",
       `<div><span class="k">Engine:</span> ${haVTag(r.current_verdict || r.engine_verdict)} ${r.current_threat ? "<b>" + haEsc(r.current_threat) + "</b>" : ""} · seen ${r.seen_count || 0}× · ${haSize(r.file_size)}</div>`,
       r.engine_detail ? `<div><span class="k">Detected by:</span> ${haEsc(r.engine_detail)}</div>` : "",
+      `<div><span class="k">Signer:</span> ${haSigner(r, true)}</div>`,
       `<div><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" style="color:var(--accent)">VirusTotal ↗</a> · <a href="#" onclick="rescanSha('${sha}');return false" style="color:var(--accent)">Rescan</a></div>`,
       `<div><span class="k">Requested:</span> ${new Date(r.requested_at).toLocaleString()}${r.started_at ? ` · <span class="k">${r.timed ? "started" : "verdict"}:</span> ${new Date(r.started_at).toLocaleString()}${r.started_by ? " by <b>" + haEsc(r.started_by) + "</b>" : ""}` : ""}${r.reviewed_at ? ` · <span class="k">done:</span> ${new Date(r.reviewed_at).toLocaleString()}` : ""}</div>`,
       `<div id="haSimilar" class="k">Looking for similar files…</div>`,
