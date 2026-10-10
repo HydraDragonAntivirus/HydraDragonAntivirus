@@ -161,6 +161,14 @@
   .hf-browser .hb-row:hover { background: var(--panel2); }
   .hf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
   @media (max-width: 1000px) { .hf-grid { grid-template-columns: 1fr; } }
+  #ctxMenu { position: fixed; z-index: 1000; min-width: 250px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.28); padding: 4px; font-size: 13px; }
+  #ctxMenu .mi { padding: 6px 12px; border-radius: 5px; cursor: pointer; display: flex; gap: 10px; align-items: center; white-space: nowrap; }
+  #ctxMenu .mi:hover { background: var(--panel2); }
+  #ctxMenu .mi.dis { opacity: .45; pointer-events: none; }
+  #ctxMenu .mi .ic { width: 16px; text-align: center; opacity: .8; }
+  #ctxMenu .sep { height: 1px; background: var(--border); margin: 4px 6px; }
+  #ctxMenu .hd { padding: 4px 12px 6px; font-size: 11.5px; color: var(--muted); max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+  #ctxToast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 1001; background: var(--text); color: var(--panel); padding: 7px 14px; border-radius: 6px; font-size: 12.5px; }
   .sg { font-size: 11.5px; font-weight: 600; } .sg.ok { color: var(--green); } .sg.warn { color: var(--orange); } .sg.none { color: var(--muted); font-weight: 500; }
   td.file .sgline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
   td.eng .engd { font-size: 11px; color: var(--muted); max-width: 280px; white-space: normal; word-break: break-word; margin-top: 2px; }
@@ -1018,7 +1026,7 @@
       return true;
     });
     const MAX = 1500;
-    $("rsRows").innerHTML = rows.slice(0, MAX).map(e => `<tr class="${e.error ? "rs-err" : ""}">
+    $("rsRows").innerHTML = rows.slice(0, MAX).map(e => `<tr class="${e.error ? "rs-err" : ""}" data-sha="${rsEsc(e.sha256)}" data-name="${rsEsc(e.file_name || "")}">
         <td class="num" title="${rsEsc(new Date(e.at).toLocaleString())}">${rsEsc(new Date(e.at).toLocaleTimeString())}<div class="hint" style="margin:0">${rsEsc(new Date(e.at).toLocaleDateString())}</div></td>
         <td class="file" title="${rsEsc(e.file_name)}"><b>${rsEsc(e.file_name || "—")}</b></td>
         <td class="mono" title="${rsEsc(e.sha256)}">${rsEsc(e.sha256.slice(0, 16))}…</td>
@@ -1404,7 +1412,7 @@
     const q = $("haRecentSearch").value.trim().toLowerCase(), f = $("haRecentF").value;
     const rows = haRecentList.map((r, i) => [r, i]).filter(([r]) => (!f || r.verdict === f) &&
       (!q || [r.sha256, r.threat_name, r.note, r.internal_note, r.analyst].join("\n").toLowerCase().includes(q)));
-    $("haRecentRows").innerHTML = rows.length ? rows.map(([r, i]) => `<tr>
+    $("haRecentRows").innerHTML = rows.length ? rows.map(([r, i]) => `<tr data-sha="${r.sha256}" data-name="${haEsc(r.file_name || "")}">
         <td class="mono" title="${r.sha256}">${r.sha256.slice(0, 20)}…</td>
         <td>${haVTag(r.verdict)} ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b>" : ""}</td>
         <td class="detail" title="${haEsc(r.note + (r.internal_note ? "\nInternal: " + r.internal_note : ""))}">${haEsc(r.note || "")}${r.internal_note ? ` <i>· internal: ${haEsc(r.internal_note)}</i>` : ""}</td>
@@ -1782,7 +1790,7 @@
   const row = (e, scanning, now) => {
     const since = new Date(scanning ? e.started_at : e.queued_at).getTime();
     const secs = Math.max(0, Math.round((now - since) / 1000));
-    return `<tr>
+    return `<tr data-sha="${esc(e.sha256)}" data-name="${esc(e.file)}">
       <td>${scanning ? '<span class="tag t-connect">scanning</span>' : '<span class="tag t-unknown">waiting</span>'}</td>
       <td class="file" title="${esc(e.file)}"><b>${esc(e.file)}</b></td>
       <td class="num">${size(e.size)}</td>
@@ -1807,6 +1815,109 @@
   };
   load();
   setInterval(load, 3000);
+})();
+</script>
+<script>
+(() => {
+  // Right-click menu for file rows: queue, verdicts, rescan log, scan queue.
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha]";
+  let menu = null;
+  const toast = (msg) => {
+    let t = document.getElementById("ctxToast");
+    if (!t) { t = document.createElement("div"); t.id = "ctxToast"; document.body.appendChild(t); }
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(t._h); t._h = setTimeout(() => { t.hidden = true; }, 2600);
+  };
+  const copy = async (text, what) => {
+    try { await navigator.clipboard.writeText(text); }
+    catch (_) { const a = document.createElement("textarea"); a.value = text; document.body.appendChild(a); a.select(); document.execCommand("copy"); a.remove(); }
+    toast(what + " copied");
+  };
+  const api = async (url, body) => {
+    const res = await fetch(url, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || res.statusText);
+    return d;
+  };
+  const close = () => { if (menu) { menu.remove(); menu = null; } };
+  const show = (x, y, sha, name, inQueue, folders) => {
+    close();
+    menu = document.createElement("div");
+    menu.id = "ctxMenu";
+    const items = [
+      ["hd", `${name ? esc(name) + " · " : ""}<span style="font-family:Consolas,monospace">${esc(sha.slice(0, 16))}…</span>`],
+      ["reveal", "&#128194;", "Open file location (server)"],
+      ["copypath", "&#128203;", "Copy kept file path"],
+      ["sep"],
+      ["copysha", "#", "Copy SHA-256"],
+      ["copyname", "A", "Copy file name", !name],
+      ["copyfolder", "&#128193;", "Copy client folder" + (folders.length > 1 ? "s" : ""), !folders.length],
+      ["sep"],
+      ["vt", "&#8599;", "Open on VirusTotal"],
+      ["site", "&#8599;", "Open report on viruskov.com"],
+      ["rescan", "&#8635;", "Rescan"],
+      ["sep"],
+      ["analyse", "&#9654;", inQueue ? "Show in the verdict panel" : "Open in human analysis"],
+      ["v-clean", "&#10003;", "Verdict: clean (whitelist)…"],
+      ["v-suspicious", "!", "Verdict: suspicious…"],
+      ["v-malicious", "&#10007;", "Verdict: malicious…"],
+      ["dismiss", "&#8722;", "Remove from queue", !inQueue],
+    ];
+    menu.innerHTML = items.map(it => it[0] === "sep" ? '<div class="sep"></div>' : it[0] === "hd" ? `<div class="hd">${it[1]}</div>` :
+      `<div class="mi${it[3] ? " dis" : ""}" data-act="${it[0]}"><span class="ic">${it[1]}</span>${it[2]}</div>`).join("");
+    document.body.appendChild(menu);
+    const r = menu.getBoundingClientRect();
+    menu.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
+    menu.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+    menu.onclick = async (ev) => {
+      const act = ev.target.closest(".mi")?.dataset.act;
+      if (!act) return;
+      close();
+      const open = (verdict) => {
+        if (typeof window.haFill !== "function") return;
+        window.haFill(sha, verdict);
+        document.getElementById("humanAnalysis").scrollIntoView({ behavior: "smooth" });
+      };
+      try {
+        if (act === "reveal") { const d = await api("/api/kept/reveal", { sha256: sha }); toast("Opened in Explorer: " + d.path); }
+        else if (act === "copypath") {
+          const d = await api("/api/kept/info/" + sha);
+          if (!d.kept) toast("This file is not kept on the server (not uploaded, or moved by offload)."); else copy(d.path, "Path");
+        }
+        else if (act === "copysha") copy(sha, "SHA-256");
+        else if (act === "copyname") copy(name, "File name");
+        else if (act === "copyfolder") copy(folders.join("\n"), "Folder");
+        else if (act === "vt") window.open("https://www.virustotal.com/gui/file/" + sha, "_blank", "noopener");
+        else if (act === "site") window.open("https://viruskov.com/file/?sha256=" + sha, "_blank", "noopener");
+        else if (act === "rescan") { if (typeof window.rescanSha === "function") { window.rescanSha(sha); toast("Rescanning…"); } }
+        else if (act === "analyse") open();
+        else if (act.startsWith("v-")) open(act.slice(2));
+        else if (act === "dismiss") {
+          if (!confirm(`Remove ${name || sha} from the queue without a verdict?`)) return;
+          await api("/api/reviews/bulk", { sha256s: [sha], verdict: "dismiss" });
+          toast("Removed from the queue");
+          if (typeof window.haLoad === "function") window.haLoad();
+        }
+      } catch (e) { toast(e.message); }
+    };
+  };
+  document.addEventListener("contextmenu", (e) => {
+    const tr = e.target.closest(ROWS);
+    if (!tr || e.target.closest("input, textarea, a")) return;
+    e.preventDefault();
+    const sha = (tr.dataset.sha || "").toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(sha)) return;
+    const inQueue = !!tr.closest("#haRows");
+    const fold = tr.querySelector("td.fold");
+    const folders = fold && fold.title ? fold.title.split("\n").filter(Boolean) : [];
+    const name = tr.dataset.name || (tr.querySelector("td.file b") || {}).textContent || "";
+    show(e.clientX, e.clientY, sha, name, inQueue, folders);
+  });
+  document.addEventListener("click", (e) => { if (menu && !menu.contains(e.target)) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+  window.addEventListener("scroll", close, true);
+  window.addEventListener("resize", close);
 })();
 </script>
 </body>

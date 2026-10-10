@@ -282,6 +282,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
         .route("/api/rescan/log", get(handle_rescan_log))
+        .route("/api/kept/info/:sha256", get(handle_kept_info))
+        .route("/api/kept/reveal", post(handle_kept_reveal))
         .route("/api/rescan/after-reload", post(handle_rescan_after_reload))
         .route("/api/offload/config", post(handle_offload_config))
         .route("/api/offload/start", post(handle_offload_start))
@@ -579,6 +581,61 @@ async fn handle_rescan_bulk(State(app): State<Arc<AppState>>, Json(b): Json<Bulk
         Ok(n) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
     }
+}
+
+/// Where a kept upload is on this server (multron_incoming/<category>/...).
+async fn handle_kept_info(State(app): State<Arc<AppState>>, Path(sha256): Path<String>) -> impl IntoResponse {
+    let sha = sha256.trim().to_ascii_uppercase();
+    let eng = Arc::clone(&app.engine);
+    let kept = tokio::task::spawn_blocking(move || eng.find_kept(&sha)).await.ok().flatten();
+    match kept {
+        Some(k) => Json(serde_json::json!({
+            "ok": true, "kept": true,
+            "path": k.path.display().to_string(),
+            "folder": k.path.parent().map(|p| p.display().to_string()),
+            "category": k.category, "name": k.name, "compressed": k.xz,
+        })),
+        None => Json(serde_json::json!({ "ok": true, "kept": false })),
+    }
+}
+
+/// Opens Explorer on this server with the kept file selected. The dashboard only
+/// answers on localhost, so this is the machine the analyst is sitting at (or the
+/// remote desktop of the VDS).
+async fn handle_kept_reveal(State(app): State<Arc<AppState>>, Json(b): Json<RescanBody>) -> Response {
+    let sha = b.sha256.trim().to_ascii_uppercase();
+    let eng = Arc::clone(&app.engine);
+    let Some(k) = tokio::task::spawn_blocking(move || eng.find_kept(&sha)).await.ok().flatten() else {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "this file is not kept on the server (not uploaded, deleted, or moved by offload)" }))).into_response();
+    };
+    let path = k.path.clone();
+    let res = reveal_in_file_manager(&path);
+    match res {
+        Ok(()) => Json(serde_json::json!({ "ok": true, "path": path.display().to_string() })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e, "path": path.display().to_string() }))).into_response(),
+    }
+}
+
+#[cfg(windows)]
+fn reveal_in_file_manager(path: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    // explorer.exe wants `/select,"C:\path"` as one raw argument (Rust's quoting would
+    // wrap the whole thing in quotes, which explorer does not understand).
+    std::process::Command::new("explorer.exe")
+        .raw_arg(format!("/select,\"{}\"", path.display()))
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("cannot start explorer.exe: {e}"))
+}
+
+#[cfg(not(windows))]
+fn reveal_in_file_manager(path: &std::path::Path) -> Result<(), String> {
+    let dir = path.parent().ok_or("no parent folder")?;
+    std::process::Command::new("xdg-open")
+        .arg(dir)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("cannot open the folder: {e}"))
 }
 
 /// Every rescanned file (newest first, across runs) with old/new verdict and engines.
