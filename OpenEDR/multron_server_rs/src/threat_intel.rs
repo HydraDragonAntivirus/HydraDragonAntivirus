@@ -377,6 +377,52 @@ impl ThreatIntelStore {
             .count()
     }
 
+    /// Puts files with this engine verdict and no human review into the queue again,
+    /// also the ones an analyst removed when `include_removed`. Returns how many.
+    pub fn requeue(&self, verdict: &str, include_removed: bool) -> Result<usize, String> {
+        let todo: Vec<(String, Option<String>)> = {
+            let guard = self.map.read().unwrap();
+            guard
+                .values()
+                .filter(|i| i.verdict == verdict)
+                .filter(|i| self.reviews.get(&i.sha256).is_none())
+                .filter(|i| include_removed || !self.reviews.was_removed(&i.sha256))
+                .map(|i| (i.sha256.to_ascii_lowercase(), i.file_names.first().cloned()))
+                .collect()
+        };
+        let mut n = 0;
+        for (sha, name) in &todo {
+            match self.reviews.enqueue(sha, "requeue", Some(verdict), name.as_deref()) {
+                Ok(_) => n += 1,
+                Err(e) if n == 0 => return Err(e),
+                Err(_) => break,
+            }
+        }
+        Ok(n)
+    }
+
+    /// Why engine-flagged files are or are not in the human queue, per engine verdict:
+    /// {verdict: {total, pending, done, removed, missing}}. `missing` should be 0 after
+    /// `sync_review_queue`; anything else there is a bug or a full queue.
+    pub fn queue_coverage(&self) -> serde_json::Value {
+        let guard = self.map.read().unwrap();
+        let mut out = serde_json::Map::new();
+        for v in crate::human_review::AUTO_QUEUE_VERDICTS {
+            let (mut total, mut pending, mut done, mut removed, mut missing) = (0u64, 0u64, 0u64, 0u64, 0u64);
+            for i in guard.values().filter(|i| i.verdict == v) {
+                total += 1;
+                match self.reviews.get(&i.sha256) {
+                    Some(r) if r.is_completed() => done += 1,
+                    Some(_) => pending += 1,
+                    None if self.reviews.was_removed(&i.sha256) => removed += 1,
+                    None => missing += 1,
+                }
+            }
+            out.insert(v.to_string(), serde_json::json!({"total": total, "pending": pending, "done": done, "removed": removed, "missing": missing}));
+        }
+        serde_json::Value::Object(out)
+    }
+
     pub fn stats(&self) -> ThreatIntelStats {
         let guard = self.map.read().unwrap();
         let mut total_sightings = 0u64;

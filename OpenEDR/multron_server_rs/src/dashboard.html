@@ -268,7 +268,7 @@
       </label>
       <div class="hint">Lets rescans after engine updates catch malware the engine missed, and feeds the benign corpus. Own quota, so unknown and threat files keep their space: <span id="keepCleanQuota">—</span>. <code>--keep-clean</code> turns it on at start.</div>
       <h2 style="margin-top:18px">Rescan kept files</h2>
-      <div class="hint">Moved to its own section below: <a href="#rescanCard" style="color:var(--accent)">Rescan &#8595;</a></div>
+      <div class="hint">Moved to <a href="#humanAnalysis" onclick="document.querySelector('#haTabs button[data-tab=Rescan]').click()" style="color:var(--accent)">Human analysis &rarr; Rescan tab</a></div>
       <h2 style="margin-top:18px">Move kept files to another disk</h2>
       <div class="hint">Copies kept files to a folder on the main PC (network share) or an external drive, checks each copy against its SHA-256 and then deletes it here. Moved files are no longer rescanned from this server.</div>
       <label for="ofTarget">Target folder</label>
@@ -444,10 +444,12 @@
         <button class="ghost" data-tab="Folder">Folder whitelist</button>
         <button class="ghost" data-tab="Recent">Verdicts</button>
         <button class="ghost" data-tab="Stats">Analysts &amp; time</button>
+        <button class="ghost" data-tab="Rescan">Rescan</button>
       </div>
     </div>
 
     <div class="ha-tab" id="haTabQueue">
+      <div class="hint" id="haCoverage" style="margin:-6px 0 10px"></div>
       <div class="ha-layout">
         <div style="min-width:0">
           <div class="ha-toolbar">
@@ -627,61 +629,60 @@
         </div>
       </div>
     </div>
+    <div class="ha-tab" id="haTabRescan" hidden>
+      <div class="feedbar" style="margin-bottom:6px">
+        <div class="ha-stats" id="rsStats" style="margin:0">—</div>
+        <span class="spacer"></span>
+        <button class="ghost" id="rsBulk">Rescan kept files</button>
+        <button class="ghost bad" id="rsStop" hidden>Stop</button>
+      </div>
+      <div class="hint" style="margin-top:-6px">Scans files kept in multron_incoming again with the current engine, analyst signatures and smart whitelist. Cache, telemetry, the human analysis queue and the website follow the new verdict; nobody has to upload the file again.</div>
+      <div class="rs-controls">
+        <div>
+          <label>Categories for "Rescan kept files"</label>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
+            <label class="chkl"><input type="checkbox" class="rsCat" value="unknown" checked> Unknown</label>
+            <label class="chkl"><input type="checkbox" class="rsCat" value="possible_clean" checked> Possible clean</label>
+            <label class="chkl"><input type="checkbox" class="rsCat" value="suspicious"> Suspicious</label>
+            <label class="chkl"><input type="checkbox" class="rsCat" value="malicious"> Malicious</label>
+            <label class="chkl"><input type="checkbox" class="rsCat" value="clean"> Clean (kept only with "Keep clean")</label>
+          </div>
+          <label class="chkl" style="margin-top:8px"><input type="checkbox" id="rsAfterReload"> After every engine reload, rescan kept unknown / possible clean files automatically</label>
+        </div>
+        <div>
+          <label for="rsSha">One file</label>
+          <div style="display:flex;gap:8px"><input id="rsSha" type="text" placeholder="SHA-256 of a kept file"><button class="ghost" id="rsOne">Rescan</button></div>
+          <div id="rsMsg" class="hint"></div>
+        </div>
+      </div>
+      <div class="rs-prog" id="rsProgWrap" hidden><div class="rs-bar"><div id="rsBar"></div></div><div class="hint" id="rsStatus" style="margin:4px 0 0"></div></div>
+      <div class="ha-toolbar rs-toolbar">
+        <input id="rsSearch" type="search" placeholder="Search file name, SHA-256, threat or engine…">
+        <select id="rsShow">
+          <option value="all">All rescanned files</option>
+          <option value="changed">Changed verdicts only</option>
+          <option value="failed">Failed</option>
+        </select>
+        <select id="rsNewF">
+          <option value="">New verdict: any</option>
+          <option value="malicious">Malicious</option>
+          <option value="suspicious">Suspicious</option>
+          <option value="unknown">Unknown</option>
+          <option value="possible_clean">Possible clean</option>
+          <option value="clean">Clean</option>
+        </select>
+        <select id="rsRunF"><option value="">All runs</option></select>
+      </div>
+      <div class="tablewrap" style="max-height:560px;margin-top:10px">
+        <table>
+          <thead><tr><th>Time</th><th>File</th><th>SHA-256</th><th>Before &rarr; after</th><th>Threat / detected by</th><th>Source</th><th class="num">Size</th><th class="num">Took</th><th></th></tr></thead>
+          <tbody id="rsRows"><tr><td colspan="9" class="empty">No rescans yet.</td></tr></tbody>
+        </table>
+      </div>
+      <div class="hint" id="rsListHint"></div>
+    </div>
   </section>
 
-  <section class="card ha-wide" id="rescanCard">
-    <div class="ha-head">
-      <h2>Rescan</h2>
-      <div class="ha-stats" id="rsStats">—</div>
-      <span class="spacer"></span>
-      <button class="ghost" id="rsBulk">Rescan kept files</button>
-      <button class="ghost bad" id="rsStop" hidden>Stop</button>
-    </div>
-    <div class="hint" style="margin-top:-6px">Scans files kept in multron_incoming again with the current engine, analyst signatures and smart whitelist. Cache, telemetry, the human analysis queue and the website follow the new verdict; nobody has to upload the file again.</div>
-    <div class="rs-controls">
-      <div>
-        <label>Categories for "Rescan kept files"</label>
-        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
-          <label class="chkl"><input type="checkbox" class="rsCat" value="unknown" checked> Unknown</label>
-          <label class="chkl"><input type="checkbox" class="rsCat" value="possible_clean" checked> Possible clean</label>
-          <label class="chkl"><input type="checkbox" class="rsCat" value="suspicious"> Suspicious</label>
-          <label class="chkl"><input type="checkbox" class="rsCat" value="malicious"> Malicious</label>
-          <label class="chkl"><input type="checkbox" class="rsCat" value="clean"> Clean (kept only with "Keep clean")</label>
-        </div>
-        <label class="chkl" style="margin-top:8px"><input type="checkbox" id="rsAfterReload"> After every engine reload, rescan kept unknown / possible clean files automatically</label>
-      </div>
-      <div>
-        <label for="rsSha">One file</label>
-        <div style="display:flex;gap:8px"><input id="rsSha" type="text" placeholder="SHA-256 of a kept file"><button class="ghost" id="rsOne">Rescan</button></div>
-        <div id="rsMsg" class="hint"></div>
-      </div>
-    </div>
-    <div class="rs-prog" id="rsProgWrap" hidden><div class="rs-bar"><div id="rsBar"></div></div><div class="hint" id="rsStatus" style="margin:4px 0 0"></div></div>
-    <div class="ha-toolbar rs-toolbar">
-      <input id="rsSearch" type="search" placeholder="Search file name, SHA-256, threat or engine…">
-      <select id="rsShow">
-        <option value="changed">Changed verdicts</option>
-        <option value="all">All rescanned files</option>
-        <option value="failed">Failed</option>
-      </select>
-      <select id="rsNewF">
-        <option value="">New verdict: any</option>
-        <option value="malicious">Malicious</option>
-        <option value="suspicious">Suspicious</option>
-        <option value="unknown">Unknown</option>
-        <option value="possible_clean">Possible clean</option>
-        <option value="clean">Clean</option>
-      </select>
-      <select id="rsRunF"><option value="">All runs</option></select>
-    </div>
-    <div class="tablewrap" style="max-height:560px;margin-top:10px">
-      <table>
-        <thead><tr><th>Time</th><th>File</th><th>SHA-256</th><th>Before &rarr; after</th><th>Threat / detected by</th><th>Source</th><th class="num">Size</th><th class="num">Took</th><th></th></tr></thead>
-        <tbody id="rsRows"><tr><td colspan="9" class="empty">No rescans yet.</td></tr></tbody>
-      </table>
-    </div>
-    <div class="hint" id="rsListHint"></div>
-  </section>
 
   <dialog id="haDlg">
     <div class="dlg-body" id="haDlgBody"></div>
@@ -1040,7 +1041,11 @@
           <button class="ghost" title="Rescan this file again" onclick="rescanSha('${rsEsc(e.sha256)}')">Rescan</button></td>
       </tr>`).join("") || `<tr><td colspan="9" class="empty">${rsLog.length ? "Nothing matches the filters." : "No rescans yet."}</td></tr>`;
     const changed = rsLog.filter(e => e.changed).length, failed = rsLog.filter(e => e.error).length;
-    $("rsListHint").textContent = `${rsLog.length} rescanned files in the log (${changed} changed, ${failed} failed; the newest 3000 are kept)` + (rows.length > MAX ? ` · showing ${MAX} of ${rows.length}` : "");
+    const byV = {};
+    rsLog.forEach(e => { if (!e.error) byV[e.new_verdict] = (byV[e.new_verdict] || 0) + 1; });
+    $("rsListHint").textContent = `${rsLog.length} rescanned files in the log (${changed} changed, ${failed} failed; the newest 3000 are kept)` +
+      (Object.keys(byV).length ? " · now: " + Object.entries(byV).sort((a, b) => b[1] - a[1]).map(([v, n]) => `${v.replace("_", " ")} ${n}`).join(", ") : "") +
+      (rows.length > MAX ? ` · showing ${MAX} of ${rows.length}` : "");
   }
   ["rsSearch", "rsShow", "rsNewF", "rsRunF"].forEach(id => $(id).addEventListener("input", rsRender));
   rsLoadLog();
@@ -1245,7 +1250,7 @@
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent", "Stats"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Stats", "Rescan"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
@@ -1447,6 +1452,12 @@
       $("haDaily").innerHTML = (st.daily || []).slice().reverse().map(x => `<tr><td class="mono">${x.date}</td><td><div style="display:flex;align-items:center;gap:8px"><div style="height:8px;border-radius:4px;background:var(--accent);width:${Math.round(120 * x.completed / maxDay)}px"></div>${x.completed}</div></td><td class="num">${haDur(x.avg_response_secs)}</td><td class="num">${haDur(x.avg_analysis_secs)}</td></tr>`).join("");
       haPend = d.pending || [];
       haPendTotal = st.pending || haPend.length;
+      // Engine verdict -> where those files are (queue / human verdict / removed by an analyst).
+      const cov = d.coverage || {};
+      $("haCoverage").innerHTML = Object.keys(cov).length ? "Engine verdicts in telemetry: " + Object.entries(cov).filter(([, c]) => c.total).map(([v, c]) =>
+        `<span title="${c.pending} in the queue, ${c.done} with a human verdict, ${c.removed} removed from the queue by an analyst${c.missing ? ", " + c.missing + " NOT queued" : ""}"><b>${haEsc(v.replace("_", " "))}</b> ${c.total} → queue ${c.pending} · verdict ${c.done} · removed ${c.removed}${c.missing ? ` · <b style="color:var(--red)">missing ${c.missing}</b>` : ""}` +
+        (c.missing ? ` <button class="ghost" style="padding:1px 8px;font-size:11px" onclick="haRequeue('${v}', false)">Queue missing</button>` : "") +
+        (c.removed ? ` <button class="ghost" style="padding:1px 8px;font-size:11px" onclick="haRequeue('${v}', true)">Queue removed too</button>` : "") + `</span>`).join(" &nbsp;|&nbsp; ") : "";
       haRecentList = d.recent || [];
       const live = new Set(haPend.map(r => r.sha256));
       [...haSel].forEach(s => { if (!live.has(s)) haSel.delete(s); });
@@ -1456,6 +1467,12 @@
     } catch (_) {}
   };
   window.haLoad = haLoad;
+  window.haRequeue = async (verdict, withRemoved) => {
+    if (withRemoved && !confirm(`Put every ${verdict} file without a human verdict back in the queue, also the ones removed from it earlier?`)) return;
+    try { const r = await post("/api/reviews/requeue", { verdict, include_removed: withRemoved }); alert(`${r.queued} file(s) added to the queue.`); }
+    catch (e) { alert(e.message); }
+    haLoad();
+  };
 
   $("haStart").onclick = async () => {
     const sha = $("haSha").value.trim().toLowerCase();

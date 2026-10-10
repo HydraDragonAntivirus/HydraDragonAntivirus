@@ -22,9 +22,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::{parse_sha, Sha};
 
-/// Upper bound for the pending queue so it cannot be flooded.
-pub const MAX_PENDING: usize = 20_000;
-
 pub const VERDICTS: [&str; 3] = ["malicious", "suspicious", "clean"];
 
 /// Engine verdicts that put a file in the human analysis queue until an analyst
@@ -279,10 +276,6 @@ impl HumanReviewStore {
             let mut g = self.map.write().unwrap();
             if let Some(existing) = g.get(&sha) {
                 return Ok(existing.clone());
-            }
-            let pending = g.values().filter(|r| r.status == ReviewStatus::Pending).count();
-            if pending >= MAX_PENDING {
-                return Err("the human analysis queue is full, try again later".into());
             }
             let r = HumanReview {
                 sha256: sha_hex.to_lowercase(),

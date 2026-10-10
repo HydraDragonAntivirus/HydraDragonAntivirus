@@ -283,6 +283,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/rescan/stop", post(handle_rescan_stop))
         .route("/api/rescan/log", get(handle_rescan_log))
         .route("/api/kept/info/:sha256", get(handle_kept_info))
+        .route("/api/reviews/requeue", post(handle_reviews_requeue))
         .route("/api/kept/reveal", post(handle_kept_reveal))
         .route("/api/rescan/after-reload", post(handle_rescan_after_reload))
         .route("/api/offload/config", post(handle_offload_config))
@@ -580,6 +581,28 @@ async fn handle_rescan_bulk(State(app): State<Arc<AppState>>, Json(b): Json<Bulk
     match crate::rescan::start_bulk(&app.scan_server, &b.categories) {
         Ok(n) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct RequeueBody {
+    verdict: String,
+    #[serde(default)]
+    include_removed: bool,
+}
+
+/// Queues again the files with this engine verdict that have no human review
+/// ("missing" in the coverage line), plus the removed ones when asked.
+async fn handle_reviews_requeue(State(app): State<Arc<AppState>>, Json(b): Json<RequeueBody>) -> Response {
+    let v = b.verdict.trim().to_ascii_lowercase();
+    if !crate::human_review::AUTO_QUEUE_VERDICTS.contains(&v.as_str()) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "unknown verdict" }))).into_response();
+    }
+    let ti = Arc::clone(&app.threat_intel);
+    match tokio::task::spawn_blocking(move || ti.requeue(&v, b.include_removed)).await {
+        Ok(Ok(n)) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
+        Ok(Err(e)) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
     }
 }
 
@@ -1084,6 +1107,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
     Json(serde_json::json!({
         "ok": true,
         "stats": r.stats(),
+        "coverage": app.threat_intel.queue_coverage(),
         "pending": pending,
         "recent": recent,
     }))
