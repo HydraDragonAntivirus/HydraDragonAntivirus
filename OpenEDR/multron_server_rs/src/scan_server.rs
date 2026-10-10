@@ -2023,7 +2023,13 @@ async fn handle_file_report(
     };
     let insight = server.threat_intel.get(&sha);
     let review = server.threat_intel.reviews.get(&sha);
-    let report = crate::reports::load(&sha);
+    let mut report = crate::reports::load(&sha);
+    // Extracted strings (URLs, IPs, paths, commands, ...) only for researcher API key
+    // holders (`sample_api_keys.txt`); everyone else gets the counts.
+    let has_key = key.is_some_and(|k| {
+        sample_keys().is_some_and(|keys| keys.iter().any(|x| constant_time_eq(x.as_bytes(), k.as_bytes())))
+    });
+    let strings_locked = !has_key && lock_strings(report.as_mut());
     if insight.is_none() && review.is_none() && report.is_none() {
         return json_response(StatusCode::NOT_FOUND, serde_json::json!({"status": "not_found", "sha256": sha, "virustotal": crate::human_review::virustotal_url(&sha)}), "no-store");
     }
@@ -2035,7 +2041,7 @@ async fn handle_file_report(
         .filter(|r| r.is_completed())
         .and_then(|r| r.threat_name.clone())
         .or_else(|| insight.as_ref().and_then(|i| i.threat_name.clone()));
-    json_response(
+    let mut resp = json_response(
         StatusCode::OK,
         serde_json::json!({
             "status": "success",
@@ -2058,9 +2064,33 @@ async fn handle_file_report(
             "virustotal": crate::human_review::virustotal_url(&sha),
             "similar": similar_files(&server.threat_intel, &sha, 10),
             "sample_sharing": sample_keys().is_some() && matches!(verdict.as_str(), "malicious" | "suspicious"),
+            "strings_locked": strings_locked,
         }),
-        "public, max-age=30",
-    )
+        if has_key { "private, no-store" } else { "public, max-age=30" },
+    );
+    // The answer depends on the key: never let a cache hand one to the other.
+    resp.headers_mut().insert(axum::http::header::VARY, axum::http::HeaderValue::from_static("X-API-Key"));
+    resp
+}
+
+/// Replaces the string lists of a stored report with their sizes. Returns true when
+/// the report had strings to hide.
+fn lock_strings(report: Option<&mut serde_json::Value>) -> bool {
+    let Some(st) = report.and_then(|r| r.get_mut("strings")).and_then(|s| s.as_object_mut()) else {
+        return false;
+    };
+    let mut counts = serde_json::Map::new();
+    for (k, v) in st.iter() {
+        if let Some(a) = v.as_array() {
+            counts.insert(k.clone(), serde_json::json!(a.len()));
+        }
+    }
+    for (k, n) in &counts {
+        st.insert(k.clone(), serde_json::json!([]));
+        st.insert(format!("{k}_count"), n.clone());
+    }
+    st.insert("locked".into(), serde_json::json!(true));
+    true
 }
 
 /// MalwareBazaar-style daily list: hashes first seen on a UTC day with a malicious or
