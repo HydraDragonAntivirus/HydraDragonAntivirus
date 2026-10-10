@@ -70,20 +70,20 @@ def check_malicious_files():
     start_time = time.time()
 
     # Define directories
-    data2 = Path(r"F:\data2")
-    malicious_dataset = Path(r"F:\datamaliciousorder")
-    duplicate_files = Path(r"F:\duplicate_files")
+    data2 = Path(r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2")
+    malicious_dataset = Path(r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder")
+    duplicate_files = Path(r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\duplicate_files")
 
     # Create duplicate_files directory if it doesn't exist
     duplicate_files.mkdir(parents=True, exist_ok=True)
 
     # Check if directories exist
     if not data2.exists():
-        print("❌ F:\\data2 does not exist!")
+        print("❌ C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\data2 does not exist!")
         return
 
     if not malicious_dataset.exists():
-        print("❌ F:\\datamaliciousorder does not exist!")
+        print("❌ C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\datamaliciousorder does not exist!")
         return
 
     num_workers = cpu_count()

@@ -380,7 +380,6 @@ pub fn inspect_pe_rva_trick(data: &[u8]) -> Option<String> {
     let sec_off = opt + size_of_optional;
     let mut in_virtual = false;
     let mut in_raw = false;
-    let mut exec = false;
     for i in 0..num_sections {
         let s = sec_off + i * 40;
         if s + 40 > data.len() {
@@ -389,7 +388,6 @@ pub fn inspect_pe_rva_trick(data: &[u8]) -> Option<String> {
         let vs = read_u32(data, s + 8)?;
         let va = read_u32(data, s + 12)?;
         let raw_size = read_u32(data, s + 16)?;
-        let chars = read_u32(data, s + 36)?;
         let span = vs.max(raw_size);
         if ep_rva >= va && ep_rva < va.saturating_add(span) {
             in_virtual = true;
@@ -397,7 +395,6 @@ pub fn inspect_pe_rva_trick(data: &[u8]) -> Option<String> {
             if delta < raw_size {
                 in_raw = true;
             }
-            exec = chars & 0x2000_0000 != 0;
         }
     }
     if ep_rva != 0 && ep_rva >= size_of_image && size_of_image != 0 {
@@ -415,11 +412,9 @@ pub fn inspect_pe_rva_trick(data: &[u8]) -> Option<String> {
             "AddressOfEntryPoint RVA 0x{ep_rva:x} lands in virtual-only section padding"
         ));
     }
-    if in_virtual && !exec {
-        return Some(format!(
-            "AddressOfEntryPoint RVA 0x{ep_rva:x} is in a non-executable section"
-        ));
-    }
+    // No "EP in a non-executable section" check: signed drivers (ASMedia
+    // asmtxhci.sys / asmthub3.sys, EP in .rdata) and small hand-made DLLs
+    // (code in .data) do this and run fine, so it was a false positive source.
     None
 }
 
