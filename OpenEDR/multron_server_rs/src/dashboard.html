@@ -161,6 +161,41 @@
   .hf-browser .hb-row:hover { background: var(--panel2); }
   .hf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
   @media (max-width: 1000px) { .hf-grid { grid-template-columns: 1fr; } }
+  .va-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .va-bar input[type=text], .va-bar input[type=search] { flex: 1; min-width: 200px; }
+  .va-bar input, .va-bar select { width: auto; }
+  .va-bar button.primary { width: auto; margin-top: 0; }
+  .va-bar .spacer { flex: 1; } .va-sep { width: 1px; height: 22px; background: var(--border); }
+  .va-title { font-size: 14px; margin: 4px 0 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .va-sub { margin-bottom: 12px; }
+  .va-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .va-kv { display: grid; grid-template-columns: 150px 1fr; gap: 3px 10px; font-size: 12.5px; }
+  .va-kv .k { color: var(--muted); } .va-kv .v { font-family: Consolas, monospace; word-break: break-all; }
+  .va-h { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin: 14px 0 6px; }
+  .va-imp { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 1.4fr); gap: 14px; }
+  .va-imp tr.sel td { background: var(--blue-bg); }
+  .va-ent { display: inline-block; height: 8px; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+  .va-hexwrap { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 12px; margin-top: 8px; }
+  @media (max-width: 1100px) { .va-hexwrap { grid-template-columns: 1fr; } }
+  .va-hex { position: relative; height: 560px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px; outline: none; background: var(--panel); }
+  .va-hex:focus { border-color: var(--accent); }
+  #vaHexRows { position: absolute; left: 0; right: 0; top: 0; }
+  .va-row { display: flex; height: 20px; line-height: 20px; white-space: pre; padding-left: 8px; }
+  .va-off { color: var(--muted); width: 92px; flex: none; user-select: none; }
+  .va-bytes { flex: none; } .va-asc { flex: none; margin-left: 16px; border-left: 1px solid var(--border); padding-left: 10px; }
+  .va-b { display: inline-block; width: 2ch; margin-right: 1ch; text-align: center; cursor: text; }
+  .va-b.g8 { margin-right: 2ch; }
+  .va-c { display: inline-block; width: 1ch; cursor: text; }
+  .va-b.z, .va-c.z { color: var(--muted); opacity: .55; }
+  .va-b.ed, .va-c.ed { color: var(--orange); font-weight: 700; }
+  .va-b.sel, .va-c.sel { background: var(--blue-bg); }
+  .va-b.cur, .va-c.cur { outline: 2px solid var(--accent); outline-offset: -1px; border-radius: 2px; }
+  .va-b.cur.nib1 { box-shadow: inset -1ch 0 0 0 rgba(0,120,212,.18); }
+  .va-legend { display: flex; gap: 6px 12px; flex-wrap: wrap; font-size: 11.5px; margin-top: 8px; }
+  .va-legend span { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .va-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .va-insp { border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; font-family: Consolas, monospace; align-self: start; }
+  .va-insp div { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; } .va-insp .k { color: var(--muted); font-family: inherit; }
   #ctxMenu { position: fixed; z-index: 1000; min-width: 250px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.28); padding: 4px; font-size: 13px; }
   #ctxMenu .mi { padding: 6px 12px; border-radius: 5px; cursor: pointer; display: flex; gap: 10px; align-items: center; white-space: nowrap; }
   #ctxMenu .mi:hover { background: var(--panel2); }
@@ -445,6 +480,7 @@
         <button class="ghost" data-tab="Recent">Verdicts</button>
         <button class="ghost" data-tab="Stats">Analysts &amp; time</button>
         <button class="ghost" data-tab="Rescan">Rescan</button>
+        <button class="ghost" data-tab="Alyzer">VirusKovAlyzer</button>
       </div>
     </div>
 
@@ -626,6 +662,66 @@
             <thead><tr><th>Day</th><th>Verdicts</th><th class="num">Avg total</th><th class="num">Avg analysis</th></tr></thead>
             <tbody id="haDaily"></tbody>
           </table></div>
+        </div>
+      </div>
+    </div>
+    <div class="ha-tab" id="haTabAlyzer" hidden>
+      <div class="va-bar">
+        <input id="vaSrc" type="text" placeholder="SHA-256 of a kept file, or a path on this server (C:\...\file.exe)">
+        <button class="primary" id="vaOpen">Open</button>
+        <select id="vaDocs" title="Files open in VirusKovAlyzer"><option value="">Open files…</option></select>
+        <button class="ghost" id="vaScan" disabled>Scan with engine</button>
+      </div>
+      <div class="hint" id="vaMsg" style="margin:4px 0 8px">Opens a kept upload or any file on this server: hashes, PE headers, sections with entropy, imports / exports, strings, indicators and a hex editor. The original file is never changed; edits are saved as a copy in <code>alyzer_edited\</code>.</div>
+      <div id="vaBody" hidden>
+        <div class="va-title" id="vaTitle"></div>
+        <div class="ha-tabs va-sub" id="vaTabs">
+          <button class="ghost active" data-va="Overview">Overview</button>
+          <button class="ghost" data-va="Pe">PE &amp; sections</button>
+          <button class="ghost" data-va="Imports">Imports / exports</button>
+          <button class="ghost" data-va="Strings">Strings</button>
+          <button class="ghost" data-va="Hex">Hex editor</button>
+        </div>
+        <div class="va-pane" id="vaPaneOverview"></div>
+        <div class="va-pane" id="vaPanePe" hidden></div>
+        <div class="va-pane" id="vaPaneImports" hidden>
+          <div class="va-imp">
+            <div><input id="vaImpFilter" type="search" placeholder="Filter DLLs / functions…"><div class="tablewrap" style="max-height:470px;margin-top:6px"><table><thead><tr><th>DLL</th><th class="num">Funcs</th></tr></thead><tbody id="vaImpDlls"></tbody></table></div></div>
+            <div><div class="hint" id="vaImpTitle" style="margin:2px 0 6px">Pick a DLL</div><div class="tablewrap" style="max-height:500px"><table><tbody id="vaImpFuncs"></tbody></table></div></div>
+          </div>
+          <h3 class="va-h">Exports <span class="hint" id="vaExpCount"></span></h3>
+          <div class="tablewrap" style="max-height:300px"><table><thead><tr><th class="num">Ord</th><th>Name</th><th>RVA</th><th>Forwarder</th></tr></thead><tbody id="vaExports"></tbody></table></div>
+        </div>
+        <div class="va-pane" id="vaPaneStrings" hidden>
+          <div class="va-bar">
+            <input id="vaStrQ" type="search" placeholder="Filter strings (case-insensitive)…">
+            <label class="chkl">Min length <input id="vaStrMin" type="number" min="3" max="64" value="5" style="width:64px"></label>
+            <select id="vaStrEnc"><option value="">ASCII + UTF-16</option><option value="A">ASCII</option><option value="W">UTF-16LE</option></select>
+          </div>
+          <div class="hint" id="vaStrInfo" style="margin:4px 0"></div>
+          <div class="tablewrap" style="max-height:560px"><table><thead><tr><th class="num">Offset</th><th>Enc</th><th>String</th></tr></thead><tbody id="vaStrRows"></tbody></table></div>
+        </div>
+        <div class="va-pane" id="vaPaneHex" hidden>
+          <div class="va-bar">
+            <input id="vaGoto" type="text" placeholder="Go to offset (0x1F00 or 7936)" style="max-width:220px">
+            <button class="ghost" id="vaGotoBtn">Go</button>
+            <span class="va-sep"></span>
+            <select id="vaFindType"><option value="hex">Hex</option><option value="ascii">ASCII</option><option value="utf16">UTF-16LE</option></select>
+            <input id="vaFind" type="text" placeholder="Find (e.g. 4D 5A 90 or kernel32)" style="max-width:260px">
+            <button class="ghost" id="vaFindPrev" title="Shift+F3">&#9650;</button>
+            <button class="ghost" id="vaFindNext" title="F3">&#9660;</button>
+            <span class="spacer"></span>
+            <span class="hint" id="vaEdits" style="margin:0"></span>
+            <button class="ghost" id="vaUndo" title="Ctrl+Z" disabled>Undo</button>
+            <button class="ghost" id="vaRevert" disabled>Revert all</button>
+            <button class="primary" id="vaSave" disabled>Save patched copy</button>
+          </div>
+          <div class="va-legend" id="vaLegend"></div>
+          <div class="va-hexwrap">
+            <div class="va-hex" id="vaHex" tabindex="0"><div id="vaHexSpacer"></div><div id="vaHexRows"></div></div>
+            <div class="va-insp" id="vaInsp"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">Click a byte, type hex digits (or text in the ASCII column) to overwrite. Shift+click / Shift+arrows select. Ctrl+C copies the selection as hex (as text in the ASCII column), Ctrl+Z undoes, Ctrl+G goes to an offset, Ctrl+F finds, F3 finds next. Edits are shown in orange and only saved as a copy.</div>
         </div>
       </div>
     </div>
@@ -1250,7 +1346,7 @@
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent", "Stats", "Rescan"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Stats", "Rescan", "Alyzer"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
@@ -1874,6 +1970,7 @@
       ["vt", "&#8599;", "Open on VirusTotal"],
       ["site", "&#8599;", "Open report on viruskov.com"],
       ["rescan", "&#8635;", "Rescan"],
+      ["alyzer", "&#128269;", "Open in VirusKovAlyzer"],
       ["sep"],
       ["analyse", "&#9654;", inQueue ? "Show in the verdict panel" : "Open in human analysis"],
       ["v-clean", "&#10003;", "Verdict: clean (whitelist)…"],
@@ -1907,6 +2004,7 @@
         else if (act === "copyfolder") copy(folders.join("\n"), "Folder");
         else if (act === "vt") window.open("https://www.virustotal.com/gui/file/" + sha, "_blank", "noopener");
         else if (act === "site") window.open("https://viruskov.com/file/?sha256=" + sha, "_blank", "noopener");
+        else if (act === "alyzer") { if (typeof window.vaOpenSha === "function") window.vaOpenSha(sha); }
         else if (act === "rescan") { if (typeof window.rescanSha === "function") { window.rescanSha(sha); toast("Rescanning…"); } }
         else if (act === "analyse") open();
         else if (act.startsWith("v-")) open(act.slice(2));
@@ -1935,6 +2033,406 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
   window.addEventListener("scroll", close, true);
   window.addEventListener("resize", close);
+})();
+</script>
+<script>
+(() => {
+  // ---------------- VirusKovAlyzer (dashboard port of the Lazarus form) ----------------
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const hex2 = (n) => n == null ? "—" : n.toString(16).toUpperCase().padStart(2, "0");
+  const hexN = (n, w) => n == null ? "—" : n.toString(16).toUpperCase().padStart(w, "0");
+  const size = (n) => n == null ? "—" : n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(2) + " MB" : (n / 1073741824).toFixed(2) + " GB";
+  const vtag = (v) => { const c = v === "malicious" ? "t-malicious" : v === "suspicious" ? "t-suspicious" : v === "clean" ? "t-clean" : v === "possible_clean" ? "t-possible_clean" : "t-unknown"; return `<span class="tag ${c}">${esc((v || "unknown").replace("_", " ").toUpperCase())}</span>`; };
+  const api = async (url, body) => {
+    const res = await fetch(url, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || res.statusText);
+    return d;
+  };
+  const msg = (t, bad) => { $("vaMsg").textContent = t; $("vaMsg").style.color = bad ? "var(--red)" : ""; };
+
+  let doc = null;              // last /api/alyzer/open answer
+  let sections = [];           // [{name, start, end, color}]
+  const SEC_COLORS = ["rgba(0,120,212,.13)", "rgba(31,157,85,.14)", "rgba(217,130,0,.15)", "rgba(155,89,182,.15)", "rgba(214,58,58,.12)", "rgba(0,150,150,.15)", "rgba(120,120,120,.15)"];
+
+  // ---------------- open ----------------
+  const showSub = (name) => {
+    document.querySelectorAll("#vaTabs button").forEach(b => b.classList.toggle("active", b.dataset.va === name));
+    ["Overview", "Pe", "Imports", "Strings", "Hex"].forEach(t => { $("vaPane" + t).hidden = t !== name; });
+    if (name === "Strings" && !strLoaded) loadStrings();
+    if (name === "Hex") { hexRender(); $("vaHex").focus(); }
+  };
+  document.querySelectorAll("#vaTabs button").forEach(b => b.onclick = () => showSub(b.dataset.va));
+
+  async function open(body) {
+    if (hasEdits() && !confirm("Discard the unsaved hex edits of the current file?")) return;
+    msg("Opening…");
+    try { setDoc(await api("/api/alyzer/open", body)); msg(""); refreshDocs(); }
+    catch (e) { msg(e.message, true); }
+  }
+  $("vaOpen").onclick = () => {
+    const v = $("vaSrc").value.trim().replace(/^"|"$/g, "");
+    if (!v) return;
+    open(/^[0-9a-fA-F]{64}$/.test(v) ? { sha256: v } : { path: v });
+  };
+  $("vaSrc").addEventListener("keydown", (e) => { if (e.key === "Enter") $("vaOpen").click(); });
+  window.vaOpenSha = (sha) => {
+    const btn = document.querySelector('#haTabs button[data-tab="Alyzer"]');
+    if (btn) btn.click();
+    $("humanAnalysis").scrollIntoView({ behavior: "smooth" });
+    $("vaSrc").value = sha;
+    open({ sha256: sha });
+  };
+  async function refreshDocs() {
+    try {
+      const d = await api("/api/alyzer/list");
+      $("vaDocs").innerHTML = `<option value="">Open files (${d.open.length})…</option>` + d.open.map(o => `<option value="${esc(o.source)}">${esc(o.name)} · ${size(o.size)}</option>`).join("");
+    } catch (_) {}
+  }
+  $("vaDocs").onchange = () => { const v = $("vaDocs").value; if (v) { $("vaSrc").value = v; $("vaOpen").click(); } $("vaDocs").value = ""; };
+
+  function setDoc(d) {
+    doc = d; edits = new Map(); undoStack = []; cur = 0; anchor = null; nib = 0; pane = "hex"; chunks.clear(); strLoaded = false;
+    const r = d.report || {};
+    sections = [];
+    if (r.pe) {
+      sections.push({ name: "Headers", start: 0, end: r.pe.size_of_headers || 0x400, color: SEC_COLORS[6] });
+      (r.pe.sections || []).forEach((s, i) => {
+        const st = parseInt(s.raw_offset, 16) || 0;
+        if (s.raw_size) sections.push({ name: s.name || `#${i}`, start: st, end: st + s.raw_size, color: SEC_COLORS[i % 6] });
+      });
+      if (r.pe.overlay_size) sections.push({ name: "Overlay", start: r.pe.overlay_offset, end: r.pe.overlay_offset + r.pe.overlay_size, color: "rgba(214,58,58,.10)" });
+    }
+    $("vaBody").hidden = false;
+    $("vaScan").disabled = false;
+    $("vaTitle").innerHTML = `<b>${esc(d.name)}</b> <span class="hint" style="margin:0">${size(d.size)} · ${esc(r.file_type || "")} · ${esc(d.source)}</span>`;
+    renderOverview(); renderPe(); renderImports();
+    $("vaStrRows").innerHTML = ""; $("vaStrInfo").textContent = "";
+    $("vaLegend").innerHTML = sections.map((s, i) => `<span data-go="${s.start}"><i style="background:${s.color.replace(/[\d.]+\)$/, ".6)")}"></i>${esc(s.name)} <small class="hint" style="margin:0">0x${hexN(s.start, 1)}</small></span>`).join("");
+    $("vaHexSpacer").style.height = (Math.ceil(d.size / 16) * ROW_H + 8) + "px";
+    $("vaHex").scrollTop = 0;
+    updateEditsUi();
+    showSub("Overview");
+  }
+
+  // ---------------- overview ----------------
+  function kv(rows) { return `<div class="va-kv">${rows.filter(Boolean).map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${v}</div>`).join("")}</div>`; }
+  const copyBtn = (t) => `<a href="#" class="va-copy" data-copy="${esc(t)}" style="color:var(--accent);font-family:Segoe UI,sans-serif;font-size:11px;margin-left:6px">copy</a>`;
+  function renderOverview() {
+    const d = doc, r = d.report || {}, h = r.hashes || {};
+    const sg = d.signer;
+    const signer = !sg ? '<span class="hint" style="margin:0">not checked yet (Scan with engine)</span>' : sg.signed && sg.trusted ? `<span style="color:var(--green)">&#10003; ${esc(sg.name || "signed")}${sg.catalog ? " (catalog)" : ""}</span>` : sg.signed ? `<span style="color:var(--orange)">&#9888; ${esc(sg.name || "signed")} · not trusted (${esc(sg.status || "")})</span>` : "unsigned";
+    const ind = (r.indicators || []);
+    $("vaPaneOverview").innerHTML = `<div class="va-grid">
+      <div><h3 class="va-h" style="margin-top:0">File</h3>${kv([
+        ["Name", esc(d.name)], ["Source", esc(d.source)], ["Size", `${d.size.toLocaleString()} bytes (0x${hexN(d.size, 1)})`],
+        ["Type", esc(r.file_type) + (r.mime ? ` <span class="hint" style="margin:0">${esc(r.mime)}</span>` : "")],
+        ["Entropy", `${r.entropy} / 8 ${r.entropy >= 7.2 ? '<span class="tag t-suspicious">packed / encrypted?</span>' : ""}`],
+      ])}
+      <h3 class="va-h">Hashes</h3>${kv([
+        ["CRC-32", esc(h.crc32) + copyBtn(h.crc32)], ["MD5", esc(h.md5) + copyBtn(h.md5)], ["SHA-1", esc(h.sha1) + copyBtn(h.sha1)],
+        ["SHA-256", esc(h.sha256) + copyBtn(h.sha256)], h.imphash && ["Imphash", esc(h.imphash) + copyBtn(h.imphash)], h.tlsh && ["TLSH", esc(h.tlsh) + copyBtn(h.tlsh)],
+      ])}</div>
+      <div><h3 class="va-h" style="margin-top:0">Security</h3>${kv([
+        ["Engine verdict", d.engine ? vtag(d.engine.verdict) + (d.engine.threat ? ` <b>${esc(d.engine.threat)}</b>` : "") : '<span class="hint" style="margin:0">never seen by the scanner</span>'],
+        d.engine_detail && ["Detected by", esc(d.engine_detail)],
+        d.human && d.human.verdict && ["Human verdict", vtag(d.human.verdict) + (d.human.threat_name ? ` <b>${esc(d.human.threat_name)}</b>` : "") + (d.human.analyst ? ` · ${esc(d.human.analyst)}` : "")],
+        ["Signer", signer],
+        d.engine && ["Seen", `${d.engine.seen}× · first ${esc(new Date(d.engine.first_seen).toLocaleString())}`],
+        d.engine && d.engine.folders && d.engine.folders.length && ["Folders", d.engine.folders.map(esc).join("<br>")],
+        d.engine && d.engine.file_names && d.engine.file_names.length > 1 && ["Other names", d.engine.file_names.slice(0, 8).map(esc).join(", ")],
+      ])}
+      <div id="vaScanRes" style="margin-top:8px"></div>
+      <h3 class="va-h">Static indicators (${ind.length})</h3>
+      ${ind.length ? ind.map(i => `<div style="font-size:12.5px;padding:3px 0"><span class="tag ${i.severity === "high" ? "t-malicious" : i.severity === "medium" ? "t-suspicious" : "t-unknown"}">${esc(i.severity)}</span> ${esc(i.detail)}</div>`).join("") : '<div class="hint">None.</div>'}
+      </div></div>`;
+  }
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest(".va-copy"); if (a) { e.preventDefault(); navigator.clipboard.writeText(a.dataset.copy).catch(() => {}); a.textContent = "copied"; setTimeout(() => a.textContent = "copy", 1200); }
+    const g = e.target.closest("[data-go]"); if (g && doc) { e.preventDefault(); gotoOffset(+g.dataset.go, true); }
+  });
+  $("vaScan").onclick = async () => {
+    if (!doc) return;
+    $("vaScan").disabled = true;
+    const box = () => $("vaScanRes");
+    try {
+      const r = await api("/api/alyzer/scan", { token: doc.token });
+      doc.signer = r.signer || doc.signer;
+      renderOverview();
+      box().innerHTML = `<div class="hint" style="margin:0 0 4px">Engine scan just now (${r.ms} ms, nothing kept):</div>${vtag(r.verdict)} ${r.threat ? "<b>" + esc(r.threat) + "</b>" : ""}<div style="font-size:12px;margin-top:4px">${esc(r.detail || "")}</div>`;
+    } catch (e) { box().innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+    $("vaScan").disabled = false;
+  };
+
+  // ---------------- PE ----------------
+  function renderPe() {
+    const pe = (doc.report || {}).pe;
+    if (!pe) { $("vaPanePe").innerHTML = '<div class="hint">Not a PE file.</div>'; return; }
+    const entBar = (e) => `<span class="va-ent" style="width:${Math.round(e / 8 * 60)}px;background:${e >= 7.2 ? "var(--red)" : e >= 6.5 ? "var(--orange)" : "var(--green)"}"></span>${e.toFixed(2)}`;
+    $("vaPanePe").innerHTML = `<div class="va-grid"><div>${kv([
+        ["Format", esc(pe.kind) + (pe.is_dll ? " · DLL" : "") + (pe.is_dotnet ? " · .NET" : "")], ["Machine", `${esc(pe.machine)} (0x${hexN(pe.machine_raw, 4)})`],
+        ["Subsystem", esc(pe.subsystem)], ["Compiled", esc(pe.timestamp_utc || String(pe.timestamp))],
+        ["Entry point", `${esc(pe.entry_point)}${pe.entry_section ? " in " + esc(pe.entry_section) : ""}`], ["Image base", esc(pe.image_base)],
+        ["Size of image", `0x${hexN(pe.size_of_image, 1)}`], ["Headers", `0x${hexN(pe.size_of_headers, 1)}`],
+        ["Alignment", `section 0x${hexN(pe.section_alignment, 1)} · file 0x${hexN(pe.file_alignment, 1)}`],
+      ])}</div><div>${kv([
+        ["Characteristics", (pe.characteristics || []).map(esc).join(", ") || "—"], ["DLL characteristics", (pe.dll_characteristics || []).map(esc).join(", ") || "—"],
+        ["Authenticode", pe.has_signature ? "signature block present" : "none"],
+        ["Overlay", pe.overlay_size ? `<a href="#" data-go="${pe.overlay_offset}" style="color:var(--accent)">0x${hexN(pe.overlay_offset, 1)}</a> · ${size(pe.overlay_size)}${pe.overlay_entropy != null ? " · entropy " + pe.overlay_entropy : ""}` : "none"],
+        ["Imports", `${pe.import_count} functions from ${(pe.imports || []).length} DLLs`], ["Exports", `${(pe.exports || []).length}${pe.export_name ? " · " + esc(pe.export_name) : ""}`],
+      ])}</div></div>
+      <h3 class="va-h">Sections</h3><div class="tablewrap"><table><thead><tr><th>Name</th><th>VA</th><th class="num">Virtual size</th><th>Raw offset</th><th class="num">Raw size</th><th>Entropy</th><th>Class</th><th>Perms</th><th>Flags</th></tr></thead><tbody>
+      ${(pe.sections || []).map(s => `<tr><td><b>${esc(s.name)}</b></td><td class="mono">${esc(s.virtual_address)}</td><td class="num">${s.virtual_size.toLocaleString()}</td>
+        <td class="mono"><a href="#" data-go="${parseInt(s.raw_offset, 16) || 0}" style="color:var(--accent)">${esc(s.raw_offset)}</a></td><td class="num">${s.raw_size.toLocaleString()}</td>
+        <td>${entBar(s.entropy)}</td><td>${esc(s.class)}</td><td class="mono">${esc(s.perms)}</td><td style="font-size:11.5px">${(s.flags || []).map(esc).join(", ")}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+
+  // ---------------- imports / exports ----------------
+  let impSel = -1;
+  function renderImports() {
+    const pe = (doc.report || {}).pe || { imports: [], exports: [] };
+    const q = $("vaImpFilter").value.trim().toLowerCase();
+    const dlls = (pe.imports || []).map((d, i) => ({ ...d, i })).filter(d => !q || d.dll.toLowerCase().includes(q) || d.functions.some(f => f.toLowerCase().includes(q)));
+    if (impSel >= 0 && !dlls.some(d => d.i === impSel)) impSel = -1;
+    if (impSel < 0 && dlls.length) impSel = dlls[0].i;
+    $("vaImpDlls").innerHTML = dlls.map(d => `<tr data-dll="${d.i}" class="${d.i === impSel ? "sel" : ""}" style="cursor:pointer"><td>${esc(d.dll)}</td><td class="num">${d.functions.length}</td></tr>`).join("") || '<tr><td class="empty" colspan="2">No imports.</td></tr>';
+    const sel = (pe.imports || [])[impSel];
+    $("vaImpTitle").textContent = sel ? `${sel.dll} · ${sel.functions.length} functions` : "Pick a DLL";
+    $("vaImpFuncs").innerHTML = sel ? sel.functions.filter(f => !q || f.toLowerCase().includes(q) || sel.dll.toLowerCase().includes(q)).map(f => `<tr><td class="mono">${esc(f)}</td></tr>`).join("") : "";
+    const ex = pe.exports || [];
+    $("vaExpCount").textContent = ex.length ? `(${ex.length})` : "";
+    $("vaExports").innerHTML = ex.map(e => `<tr><td class="num">${e.ordinal}</td><td class="mono">${esc(e.name)}</td><td class="mono">${esc(e.rva)}</td><td class="mono">${esc(e.forwarder || "")}</td></tr>`).join("") || '<tr><td class="empty" colspan="4">No exports.</td></tr>';
+  }
+  $("vaImpFilter").addEventListener("input", () => doc && renderImports());
+  $("vaImpDlls").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-dll]"); if (tr) { impSel = +tr.dataset.dll; renderImports(); } });
+
+  // ---------------- strings ----------------
+  let strLoaded = false, strTimer = 0, strData = [];
+  async function loadStrings() {
+    if (!doc) return;
+    strLoaded = true;
+    $("vaStrInfo").textContent = "Extracting…";
+    try {
+      const d = await api(`/api/alyzer/strings?token=${encodeURIComponent(doc.token)}&min=${+$("vaStrMin").value || 5}&q=${encodeURIComponent($("vaStrQ").value.trim())}`);
+      strData = d.strings; renderStrings(d.truncated);
+    } catch (e) { $("vaStrInfo").textContent = e.message; }
+  }
+  function renderStrings(truncated) {
+    const enc = $("vaStrEnc").value;
+    const rows = enc ? strData.filter(s => s.e === enc) : strData;
+    $("vaStrInfo").textContent = `${rows.length.toLocaleString()} strings${truncated ? " (first 50,000 — narrow the filter)" : ""}. Click an offset to see it in the hex editor.`;
+    $("vaStrRows").innerHTML = rows.slice(0, 5000).map(s => `<tr><td class="mono num"><a href="#" data-go="${s.o}" data-len="${s.e === "W" ? s.s.length * 2 : s.s.length}" style="color:var(--accent)">0x${hexN(s.o, 8)}</a></td><td>${s.e === "W" ? "UTF-16" : "ASCII"}</td><td class="mono" style="white-space:pre-wrap;word-break:break-all">${esc(s.s)}</td></tr>`).join("");
+  }
+  ["vaStrQ", "vaStrMin"].forEach(id => $(id).addEventListener("input", () => { clearTimeout(strTimer); strTimer = setTimeout(loadStrings, 350); }));
+  $("vaStrEnc").onchange = () => renderStrings(false);
+
+  // ---------------- hex editor ----------------
+  const ROW_H = 20, CHUNK = 65536;
+  const chunks = new Map(); const pending = new Set();
+  let edits = new Map(), undoStack = [], cur = 0, anchor = null, nib = 0, pane = "hex";
+  const hasEdits = () => edits.size > 0;
+  async function loadChunk(ci) {
+    if (chunks.has(ci) || pending.has(ci) || !doc) return;
+    pending.add(ci);
+    const tok = doc.token;
+    try {
+      const res = await fetch(`/api/alyzer/bytes?token=${encodeURIComponent(tok)}&offset=${ci * CHUNK}&len=${CHUNK}`, { cache: "no-store" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      if (doc && doc.token === tok) { chunks.set(ci, new Uint8Array(await res.arrayBuffer())); hexRender(); }
+    } catch (e) { msg(e.message, true); }
+    pending.delete(ci);
+  }
+  const orig = (o) => { const c = chunks.get(Math.floor(o / CHUNK)); return c ? c[o % CHUNK] : undefined; };
+  const byteAt = (o) => edits.has(o) ? edits.get(o) : orig(o);
+  const secOf = (o) => sections.find(s => o >= s.start && o < s.end);
+  const selRange = () => anchor == null ? [cur, cur] : [Math.min(anchor, cur), Math.max(anchor, cur)];
+
+  function hexRender() {
+    if (!doc || $("vaPaneHex").hidden) return;
+    const box = $("vaHex");
+    const first = Math.floor(box.scrollTop / ROW_H), count = Math.ceil(box.clientHeight / ROW_H) + 2;
+    const totalRows = Math.ceil(doc.size / 16);
+    const [s0, s1] = selRange();
+    let html = "";
+    for (let r = first; r < Math.min(totalRows, first + count); r++) {
+      const base = r * 16;
+      loadChunk(Math.floor(base / CHUNK)); loadChunk(Math.floor(Math.min(doc.size - 1, base + 15) / CHUNK));
+      let hx = "", as = "";
+      for (let i = 0; i < 16; i++) {
+        const o = base + i;
+        if (o >= doc.size) { hx += `<span class="va-b${i === 7 ? " g8" : ""}">  </span>`; as += '<span class="va-c"> </span>'; continue; }
+        const b = byteAt(o), sec = secOf(o);
+        const cls = (b === 0 ? " z" : "") + (edits.has(o) ? " ed" : "") + (o >= s0 && o <= s1 && anchor != null ? " sel" : "") + (o === cur ? " cur" + (pane === "hex" && nib ? " nib1" : "") : "");
+        const bg = sec ? ` style="background:${sec.color}"` : "";
+        hx += `<span class="va-b${i === 7 ? " g8" : ""}${cls}" data-o="${o}" data-p="hex"${bg}>${b === undefined ? "··" : hex2(b)}</span>`;
+        const ch = b === undefined ? "·" : b >= 0x20 && b < 0x7f ? esc(String.fromCharCode(b)) : ".";
+        as += `<span class="va-c${cls}" data-o="${o}" data-p="ascii">${ch}</span>`;
+      }
+      html += `<div class="va-row" style="position:absolute;top:${r * ROW_H}px"><span class="va-off">${hexN(base, 8)}</span><span class="va-bytes">${hx}</span><span class="va-asc">${as}</span></div>`;
+    }
+    $("vaHexRows").innerHTML = html;
+    renderInspector();
+  }
+  $("vaHex").addEventListener("scroll", () => requestAnimationFrame(hexRender));
+
+  function renderInspector() {
+    const o = cur, sec = secOf(o);
+    const rd = (n) => { let v = 0n; for (let i = n - 1; i >= 0; i--) { const b = byteAt(o + i); if (b === undefined) return null; v = (v << 8n) | BigInt(b); } return v; };
+    const u8 = rd(1), u16 = rd(2), u32 = rd(4), u64 = rd(8);
+    const sgn = (v, bits) => v == null ? "—" : (v >= (1n << BigInt(bits - 1)) ? v - (1n << BigInt(bits)) : v).toString();
+    let rva = "";
+    const pe = (doc.report || {}).pe;
+    if (pe && sec && sec.name !== "Headers" && sec.name !== "Overlay") {
+      const s = (pe.sections || []).find(x => x.name === sec.name && (parseInt(x.raw_offset, 16) || 0) === sec.start);
+      if (s) rva = "0x" + hexN(parseInt(s.virtual_address, 16) + (o - sec.start), 1);
+    }
+    const [s0, s1] = selRange();
+    const rows = [
+      ["Offset", `0x${hexN(o, 8)}`], ["Decimal", o.toLocaleString()], ["Section", sec ? esc(sec.name) : "—"], rva && ["RVA", rva],
+      anchor != null && ["Selection", `${(s1 - s0 + 1).toLocaleString()} bytes`],
+      ["u8 / i8", u8 == null ? "—" : `${u8} / ${sgn(u8, 8)}`], ["u16 LE", u16 == null ? "—" : `${u16} / 0x${hexN(Number(u16), 4)}`],
+      ["i16 LE", sgn(u16, 16)], ["u32 LE", u32 == null ? "—" : `${u32} / 0x${hexN(Number(u32), 8)}`], ["i32 LE", sgn(u32, 32)],
+      ["u64 LE", u64 == null ? "—" : u64.toString()],
+      ["Original", orig(o) === undefined ? "—" : hex2(orig(o)) + (edits.has(o) ? ` → ${hex2(edits.get(o))}` : "")],
+    ].filter(Boolean);
+    $("vaInsp").innerHTML = rows.map(([k, v]) => `<div><span class="k">${k}</span><span>${v}</span></div>`).join("");
+  }
+
+  function ensureVisible() {
+    const box = $("vaHex"), y = Math.floor(cur / 16) * ROW_H;
+    if (y < box.scrollTop) box.scrollTop = y;
+    else if (y + ROW_H > box.scrollTop + box.clientHeight) box.scrollTop = y + ROW_H - box.clientHeight;
+  }
+  function gotoOffset(o, switchTab, selLen) {
+    if (!doc) return;
+    o = Math.max(0, Math.min(doc.size - 1, o));
+    if (switchTab) showSub("Hex");
+    cur = o; nib = 0; anchor = selLen > 1 ? o : null;
+    if (selLen > 1) { anchor = o; cur = Math.min(doc.size - 1, o + selLen - 1); }
+    const box = $("vaHex");
+    box.scrollTop = Math.max(0, Math.floor(o / 16) * ROW_H - box.clientHeight / 3);
+    hexRender(); $("vaHex").focus();
+  }
+  document.addEventListener("click", (e) => { const a = e.target.closest("a[data-len]"); if (a && doc) { e.preventDefault(); e.stopPropagation(); gotoOffset(+a.dataset.go, true, +a.dataset.len); } }, true);
+
+  $("vaHex").addEventListener("mousedown", (e) => {
+    const t = e.target.closest("[data-o]"); if (!t) return;
+    e.preventDefault(); $("vaHex").focus();
+    const o = +t.dataset.o;
+    if (e.shiftKey) { if (anchor == null) anchor = cur; } else anchor = null;
+    cur = o; nib = 0; pane = t.dataset.p; hexRender();
+  });
+
+  function setByte(o, v) {
+    if (o >= doc.size || orig(o) === undefined) return false;
+    undoStack.push([o, edits.has(o) ? edits.get(o) : undefined]);
+    if (v === orig(o)) edits.delete(o); else edits.set(o, v);
+    return true;
+  }
+  function updateEditsUi() {
+    $("vaEdits").textContent = edits.size ? `${edits.size.toLocaleString()} byte(s) changed` : "";
+    $("vaUndo").disabled = !undoStack.length; $("vaRevert").disabled = !edits.size; $("vaSave").disabled = !edits.size;
+  }
+  function move(delta, shift) {
+    if (shift) { if (anchor == null) anchor = cur; } else anchor = null;
+    cur = Math.max(0, Math.min(doc.size - 1, cur + delta)); nib = 0; ensureVisible(); hexRender();
+  }
+  function selectionBytes() { const [a, b] = selRange(); const out = []; for (let o = a; o <= b; o++) { const v = byteAt(o); if (v === undefined) return null; out.push(v); } return out; }
+
+  $("vaHex").addEventListener("keydown", async (e) => {
+    if (!doc) return;
+    const k = e.key, ctrl = e.ctrlKey || e.metaKey;
+    const rows = Math.max(1, Math.floor($("vaHex").clientHeight / ROW_H) - 1);
+    if (k === "ArrowRight") { e.preventDefault(); move(1, e.shiftKey); }
+    else if (k === "ArrowLeft") { e.preventDefault(); move(-1, e.shiftKey); }
+    else if (k === "ArrowDown") { e.preventDefault(); move(16, e.shiftKey); }
+    else if (k === "ArrowUp") { e.preventDefault(); move(-16, e.shiftKey); }
+    else if (k === "PageDown") { e.preventDefault(); move(16 * rows, e.shiftKey); }
+    else if (k === "PageUp") { e.preventDefault(); move(-16 * rows, e.shiftKey); }
+    else if (k === "Home") { e.preventDefault(); move(ctrl ? -cur : -(cur % 16), e.shiftKey); }
+    else if (k === "End") { e.preventDefault(); move(ctrl ? doc.size - 1 - cur : 15 - (cur % 16), e.shiftKey); }
+    else if (k === "Tab") { e.preventDefault(); pane = pane === "hex" ? "ascii" : "hex"; nib = 0; hexRender(); }
+    else if (ctrl && (k === "z" || k === "Z")) { e.preventDefault(); undo(); }
+    else if (ctrl && (k === "c" || k === "C")) {
+      e.preventDefault(); const b = selectionBytes(); if (!b) return;
+      const text = pane === "ascii" ? b.map(x => x >= 0x20 && x < 0x7f ? String.fromCharCode(x) : ".").join("") : b.map(hex2).join(" ");
+      navigator.clipboard.writeText(text).catch(() => {}); msg(`Copied ${b.length} byte(s)`);
+    }
+    else if (ctrl && (k === "g" || k === "G")) { e.preventDefault(); $("vaGoto").focus(); $("vaGoto").select(); }
+    else if (ctrl && (k === "f" || k === "F")) { e.preventDefault(); $("vaFind").focus(); $("vaFind").select(); }
+    else if (k === "F3") { e.preventDefault(); find(e.shiftKey); }
+    else if (k === "Backspace") { e.preventDefault(); if (edits.has(cur)) { setByte(cur, orig(cur)); } move(-1, false); updateEditsUi(); }
+    else if (!ctrl && !e.altKey && k.length === 1) {
+      if (pane === "hex") {
+        if (!/^[0-9a-fA-F]$/.test(k)) return;
+        e.preventDefault();
+        const v = byteAt(cur); if (v === undefined) return;
+        const d = parseInt(k, 16);
+        const nv = nib === 0 ? (d << 4) | (v & 0x0f) : (v & 0xf0) | d;
+        setByte(cur, nv); anchor = null;
+        if (nib === 0) { nib = 1; hexRender(); } else { nib = 0; move(1, false); }
+      } else {
+        e.preventDefault();
+        const c = k.charCodeAt(0); if (c > 0xff) return;
+        setByte(cur, c); anchor = null; move(1, false);
+      }
+      updateEditsUi();
+    }
+  });
+  function undo() { const u = undoStack.pop(); if (!u) return; const [o, prev] = u; if (prev === undefined) edits.delete(o); else edits.set(o, prev); cur = o; nib = 0; ensureVisible(); hexRender(); updateEditsUi(); }
+  $("vaUndo").onclick = undo;
+  $("vaRevert").onclick = () => { if (confirm(`Revert all ${edits.size} changed byte(s)?`)) { edits.clear(); undoStack = []; hexRender(); updateEditsUi(); } };
+
+  const parseOffset = (s) => { s = s.trim().toLowerCase(); if (!s) return NaN; return s.startsWith("0x") ? parseInt(s.slice(2), 16) : /[a-f]/.test(s) ? parseInt(s, 16) : parseInt(s, 10); };
+  $("vaGotoBtn").onclick = () => { const o = parseOffset($("vaGoto").value); if (isNaN(o)) { msg("Bad offset", true); return; } gotoOffset(o, false); };
+  $("vaGoto").addEventListener("keydown", (e) => { if (e.key === "Enter") $("vaGotoBtn").click(); });
+
+  function patternHex() {
+    const v = $("vaFind").value, t = $("vaFindType").value;
+    if (!v) return "";
+    if (t === "hex") { const h = v.replace(/[^0-9a-fA-F]/g, ""); return h.length % 2 ? "" : h; }
+    const bytes = [];
+    for (const ch of v) { const c = ch.charCodeAt(0) & 0xff; bytes.push(c); if (t === "utf16") bytes.push(0); }
+    return bytes.map(hex2).join("");
+  }
+  async function find(back) {
+    if (!doc) return;
+    const p = patternHex(); if (!p) { msg("Enter what to find (hex needs an even number of digits)", true); return; }
+    const from = back ? cur : cur + 1;
+    try {
+      const d = await api(`/api/alyzer/search?token=${encodeURIComponent(doc.token)}&pattern=${p}&from=${from}&back=${back ? "true" : "false"}`);
+      if (d.offset == null) { msg(back ? "No earlier match" : "No more matches", true); return; }
+      msg(`Found at 0x${hexN(d.offset, 8)}${edits.size ? " (search looks at the original bytes)" : ""}`);
+      gotoOffset(d.offset, false, p.length / 2);
+    } catch (e) { msg(e.message, true); }
+  }
+  $("vaFindNext").onclick = () => find(false);
+  $("vaFindPrev").onclick = () => find(true);
+  $("vaFind").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === "F3") { e.preventDefault(); find(e.shiftKey); } });
+
+  $("vaSave").onclick = async () => {
+    if (!doc || !edits.size) return;
+    const offs = [...edits.keys()].sort((a, b) => a - b);
+    const patches = []; let start = offs[0], buf = [edits.get(start)];
+    for (let i = 1; i < offs.length; i++) {
+      if (offs[i] === offs[i - 1] + 1) buf.push(edits.get(offs[i]));
+      else { patches.push([start, buf.map(hex2).join("")]); start = offs[i]; buf = [edits.get(start)]; }
+    }
+    patches.push([start, buf.map(hex2).join("")]);
+    const reopen = confirm(`Save ${edits.size} changed byte(s) as a patched copy (the original stays untouched)?\n\nOK = save and open the copy here\nCancel = do not save`);
+    if (!reopen) return;
+    try {
+      const d = await api("/api/alyzer/save", { token: doc.token, patches, open: true });
+      edits = new Map(); undoStack = [];
+      setDoc(d); refreshDocs();
+      msg(`Saved: ${d.source}`); showSub("Hex");
+    } catch (e) { msg(e.message, true); }
+  };
+
+  window.addEventListener("beforeunload", (e) => { if (hasEdits()) { e.preventDefault(); e.returnValue = ""; } });
+  refreshDocs();
 })();
 </script>
 </body>

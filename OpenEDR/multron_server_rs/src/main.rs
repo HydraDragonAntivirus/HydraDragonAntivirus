@@ -7,6 +7,7 @@ mod apk;
 mod fingerprint;
 mod analyst_engine;
 mod analyzer;
+mod alyzer;
 mod human_review;
 mod naming;
 mod reports;
