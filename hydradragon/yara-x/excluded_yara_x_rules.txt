@@ -381,3 +381,14 @@ win_houdini_auto
 win_winmm_auto
 winrar_4xx
 write_msr
+# 2026-10-10 FP: file-type rules (any JPEG/OGG/VCD) and PDF structure rules (manual.pdf)
+jpeg
+jpeg_with_Canon_EOS
+jpeg_with_Samsung_D500
+jpg_with_SPIFF
+jpeg_2000
+videocd
+ogg
+multiple_filtering
+multiple_filtering_ren
+invalid_trailer_structure_ren

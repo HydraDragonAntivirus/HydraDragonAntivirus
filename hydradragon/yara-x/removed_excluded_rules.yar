@@ -18662,3 +18662,129 @@ rule VMProtect: VMProtect Software {
   //pe.sections[pe.section_index(pe.entry_point)].name contains "vmp"
 }
 
+// ===== removed from /sessions/rcw-01cb6aleu5qambgheepfyztp/mnt/HydraDragonAntivirus/hydradragon/yara-x/rules/clean_rules.yar (20261010_141400) =====
+rule multiple_filtering: PDF raw {
+  meta:
+    author  = "Glenn Edwards (@hiddenillusion)"
+    version = "0.2"
+    weight  = 3
+
+  strings:
+    $magic  = "%PDF"
+    $attrib = /\/Filter.*(\/ASCIIHexDecode\W+|\/LZWDecode\W+|\/ASCII85Decode\W+|\/FlateDecode\W+|\/RunLengthDecode){2}/
+  // left out: /CCITTFaxDecode, JBIG2Decode, DCTDecode, JPXDecode, Crypt
+
+  condition:
+    $magic in (0..1024) and $attrib
+}
+
+rule multiple_filtering_ren: PDF {
+  meta:
+    author  = "Glenn Edwards (@hiddenillusion)"
+    version = "0.2"
+    weight  = 3
+
+  strings:
+    $magic  = "%PDF"
+    $attrib = /\/Filter\s*(\/(ASCIIHexDecode|LZWDecode|ASCII85Decode|FlateDecode|RunLengthDecode)){2}/
+  // left out: /CCITTFaxDecode, JBIG2Decode, DCTDecode, JPXDecode, Crypt
+
+  condition:
+    $magic at 0 and $attrib
+}
+
+rule invalid_trailer_structure_ren: PDF {
+  meta:
+    author  = "Glenn Edwards (@hiddenillusion)"
+    version = "0.1"
+    weight  = 1
+
+  strings:
+    $magic = "%PDF"
+    // Required for a valid PDF
+    $reg0  = /trailer\r?\n?.*\/Size.*\r?\n?\.*/
+    $reg1  = /\/Root.*\r?\n?.*startxref\r?\n?.*\r?\n?%%EOF/
+
+  condition:
+    $magic at 0 and not $reg0 and not $reg1
+}
+
+rule jpeg: JFIF JPE JPEG JPG {
+  meta:
+    author = "Jaume Martin"
+
+  strings:
+    $a = { FF D8 FF E0 ?? ?? 4A 46 49 46 00 }
+
+  condition:
+    $a at 0
+}
+
+rule jpeg_with_Canon_EOS: JPEG {
+  meta:
+    author = "Jaume Martin"
+
+  strings:
+    $a = { FF D8 FF E2 ?? ?? 53 50 49 46 46 00 }
+
+  condition:
+    $a at 0
+}
+
+rule jpeg_with_Samsung_D500: JPEG {
+  meta:
+    author = "Jaume Martin"
+
+  strings:
+    $a = { FF D8 FF E3 ?? ?? 53 50 49 46 46 00 }
+
+  condition:
+    $a at 0
+}
+
+rule jpg_with_SPIFF: JPG {
+  meta:
+    author = "Jaume Martin"
+
+  strings:
+    $a = { FF D8 FF E8 ?? ?? 53 50 49 46 46 00 }
+
+  condition:
+    $a at 0
+}
+
+rule jpeg_2000: JPEG2000 {
+  meta:
+    author = "Jaume Martin"
+
+  strings:
+    $a = { 00 00 00 0C 6A 50 20 20 0D 0A }
+
+  condition:
+    $a at 0
+}
+
+rule videocd: VCD {
+  meta:
+    author = "Jaume Martin"
+
+  strings:
+    $a = { 45 4E 54 52 59 56 43 44 02 00 00 01 02 00 18 58 }
+
+  condition:
+    $a at 0
+}
+
+rule ogg: OGG {
+  meta:
+    author    = "Jaume Martin"
+    file_info = "Ogg Vorbis Codec"
+
+  strings:
+    $a = { 4F 67 67 53 00 02 00 00 00 00 00 00 00 00 }
+
+  condition:
+    $a at 0
+}
+
+

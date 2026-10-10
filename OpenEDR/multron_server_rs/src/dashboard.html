@@ -150,6 +150,7 @@
   .hf-browser .hb-row:hover { background: var(--panel2); }
   .hf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
   @media (max-width: 1000px) { .hf-grid { grid-template-columns: 1fr; } }
+  td.eng .engd { font-size: 11px; color: var(--muted); max-width: 280px; white-space: normal; word-break: break-word; margin-top: 2px; }
   dialog#haDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(760px, 94vw); }
   dialog#haDlg::backdrop { background: rgba(0, 0, 0, .5); }
   .dlg-body { padding: 18px 20px; max-height: 70vh; overflow: auto; }
@@ -328,7 +329,7 @@
       <div class="stat"><div class="v" id="sScanned">0</div><div class="l">Files scanned</div></div>
       <div class="stat threat"><div class="v" id="sThreats">0</div><div class="l">Threats found</div></div>
       <div class="stat"><div class="v" id="sErrors">0</div><div class="l">Scan errors</div></div>
-      <div class="stat"><div class="v" id="sQueued">0</div><div class="l">Waiting for engine</div></div>
+      <div class="stat" style="cursor:pointer" title="Show the files" onclick="document.getElementById('scanQueue').scrollIntoView({behavior:'smooth'})"><div class="v" id="sQueued">0</div><div class="l">Waiting for engine &#8595;</div></div>
       <div class="stat"><div class="v" id="sMem">0</div><div class="l">MB in flight</div></div>
       <div class="stat"><div class="v" id="sBusy">0</div><div class="l">Engine threads busy</div></div>
       <div class="stat"><div class="v" id="sChecked">0</div><div class="l">Hashes checked</div></div>
@@ -343,6 +344,16 @@
       <div class="stat threat"><div class="v" id="sBlocked">0</div><div class="l">Requests blocked</div></div>
       <div class="stat threat"><div class="v" id="sBanned">0</div><div class="l">IPs blocked now</div></div>
     </div>
+
+    <section class="card" id="scanQueue">
+      <div class="feedbar" style="margin:0 0 8px"><h2 style="margin:0">Scan queue</h2><span class="hint" id="sqSummary" style="margin:0">—</span></div>
+      <div class="hint" style="margin-top:0">Files received in full and not answered yet: being scanned, or waiting for a free engine thread. Refreshes every 3 s.</div>
+      <div class="tablewrap" style="max-height:420px">
+        <table><thead><tr><th>State</th><th>File</th><th class="num">Size</th><th>Client</th><th>SHA-256</th><th class="num">Time</th></tr></thead>
+        <tbody id="sqRows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
+      </div>
+      <div class="hint" id="sqMore"></div>
+    </section>
 
     <section class="card" id="signatureRoom">
       <h2>Signature room</h2>
@@ -1196,7 +1207,7 @@
         html += `<tr class="it${haSel.has(r.sha256) ? " sel" : ""}${haCur === r.sha256 ? " cur" : ""}" data-sha="${r.sha256}">
           <td><input type="checkbox" data-sel="${r.sha256}" ${haSel.has(r.sha256) ? "checked" : ""}></td>
           <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : ""}</td>
-          <td>${haVTag(eng)}</td>
+          <td class="eng" title="${haEsc(r.engine_detail || r.current_threat || "")}">${haVTag(eng)}${r.engine_detail || r.current_threat ? `<div class="engd">${haEsc(r.engine_detail || r.current_threat)}</div>` : ""}</td>
           <td class="num">${r.seen_count || 0}</td>
           <td class="num">${haSize(r.file_size)}</td>
           <td class="fold" title="${haEsc(folders)}">${haEsc(haFolder(r) || "—")}${(r.folders || []).length > 1 ? ` <small>+${r.folders.length - 1}</small>` : ""}</td>
@@ -1252,6 +1263,7 @@
       `<div><span class="k">Names:</span> ${haEsc((r.file_names || [haName(r)]).filter(Boolean).join(", ") || "—")}</div>`,
       (r.folders || []).length ? `<div><span class="k">Folders:</span> ${r.folders.map(haEsc).join("<br>")}</div>` : "",
       `<div><span class="k">Engine:</span> ${haVTag(r.current_verdict || r.engine_verdict)} ${r.current_threat ? "<b>" + haEsc(r.current_threat) + "</b>" : ""} · seen ${r.seen_count || 0}× · ${haSize(r.file_size)}</div>`,
+      r.engine_detail ? `<div><span class="k">Detected by:</span> ${haEsc(r.engine_detail)}</div>` : "",
       `<div><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" style="color:var(--accent)">VirusTotal ↗</a> · <a href="#" onclick="rescanSha('${sha}');return false" style="color:var(--accent)">Rescan</a></div>`,
       `<div><span class="k">Requested:</span> ${new Date(r.requested_at).toLocaleString()}${r.started_at ? ` · <span class="k">${r.timed ? "started" : "verdict"}:</span> ${new Date(r.started_at).toLocaleString()}${r.started_by ? " by <b>" + haEsc(r.started_by) + "</b>" : ""}` : ""}${r.reviewed_at ? ` · <span class="k">done:</span> ${new Date(r.reviewed_at).toLocaleString()}` : ""}</div>`,
       `<div id="haSimilar" class="k">Looking for similar files…</div>`,
@@ -1648,6 +1660,42 @@
   coLoad();
 
   poll();
+})();
+</script>
+<script>
+(() => {
+  const $q = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const size = (n) => n == null ? "—" : n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
+  const dur = (s) => s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min " + (s % 60) + " s" : Math.floor(s / 3600) + " h " + Math.floor(s % 3600 / 60) + " min";
+  const row = (e, scanning, now) => {
+    const since = new Date(scanning ? e.started_at : e.queued_at).getTime();
+    const secs = Math.max(0, Math.round((now - since) / 1000));
+    return `<tr>
+      <td>${scanning ? '<span class="tag t-connect">scanning</span>' : '<span class="tag t-unknown">waiting</span>'}</td>
+      <td class="file" title="${esc(e.file)}"><b>${esc(e.file)}</b></td>
+      <td class="num">${size(e.size)}</td>
+      <td>${esc(e.client)} #${e.session}</td>
+      <td class="mono" title="${esc(e.sha256)}">${esc(e.sha256.slice(0, 16))}…</td>
+      <td class="num" title="${scanning ? "Scanning for" : "Waiting for"}">${dur(secs)}</td>
+    </tr>`;
+  };
+  const load = async () => {
+    if (document.hidden) return;
+    try {
+      const r = await fetch("/api/scan-queue", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = await r.json();
+      const now = new Date(d.now).getTime() || Date.now();
+      const html = d.scanning.map(e => row(e, true, now)).join("") + d.waiting.map(e => row(e, false, now)).join("");
+      $q("sqRows").innerHTML = html || `<tr><td colspan="6" class="empty">Nothing is waiting for the engine.</td></tr>`;
+      $q("sqSummary").textContent = `${d.scanningTotal} scanning · ${d.waitingTotal} waiting`;
+      const hidden = (d.scanningTotal - d.scanning.length) + (d.waitingTotal - d.waiting.length);
+      $q("sqMore").textContent = hidden > 0 ? `${hidden} more not shown (oldest 500 of each are listed).` : "";
+    } catch (_) {}
+  };
+  load();
+  setInterval(load, 3000);
 })();
 </script>
 </body>

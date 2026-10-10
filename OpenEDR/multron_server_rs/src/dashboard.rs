@@ -271,6 +271,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(handle_index))
         .route("/api/state", get(handle_state))
+        .route("/api/scan-queue", get(handle_scan_queue))
         .route("/api/events/ecs", get(handle_events_ecs))
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
@@ -962,6 +963,19 @@ fn file_ext(name: &str) -> String {
 
 /// Pending queue (up to 5000, oldest first) with telemetry for grouping by extension
 /// and folder. Similar files are loaded per item (`/api/reviews/similar/:sha256`).
+/// Files waiting for the engine and files being scanned right now (oldest first).
+async fn handle_scan_queue(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let (scanning, waiting, ns, nw) = app.scan_server.scan_queue.snapshot(500);
+    Json(serde_json::json!({
+        "ok": true,
+        "scanning": scanning,
+        "waiting": waiting,
+        "scanningTotal": ns,
+        "waitingTotal": nw,
+        "now": Utc::now(),
+    }))
+}
+
 async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     // Open files that are not queued yet (e.g. removed by hand, or seen before
     // auto-queueing) are added before listing.
@@ -988,6 +1002,16 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
                 v["current_verdict"] = serde_json::json!(ins.verdict);
                 v["current_threat"] = serde_json::json!(ins.threat_name);
             }
+            add_engine_detail(&app, &mut v, &rv.sha256);
+            v
+        })
+        .collect();
+    let recent: Vec<serde_json::Value> = r
+        .recent_completed(200)
+        .iter()
+        .map(|rv| {
+            let mut v = rv.to_dashboard_json();
+            add_engine_detail(&app, &mut v, &rv.sha256);
             v
         })
         .collect();
@@ -995,8 +1019,25 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
         "ok": true,
         "stats": r.stats(),
         "pending": pending,
-        "recent": r.recent_completed(200).iter().map(|rv| rv.to_dashboard_json()).collect::<Vec<_>>(),
+        "recent": recent,
     }))
+}
+
+/// Which engines flagged the file ("jpeg (YARA), MalwareNet.PE (PE_ML)"), from the
+/// last engine verdict in the scan cache. Missing when the cache entry expired.
+fn add_engine_detail(app: &AppState, v: &mut serde_json::Value, sha256: &str) {
+    if let Some(sha) = crate::cache::parse_sha(sha256) {
+        if let Some(c) = app.scan_server.cache.get(&sha) {
+            if let Some(d) = c.detail.filter(|d| !d.is_empty()) {
+                v["engine_detail"] = serde_json::json!(d);
+            }
+            if v.get("current_threat").map_or(true, |t| t.is_null()) {
+                if let Some(t) = c.threat {
+                    v["current_threat"] = serde_json::json!(t);
+                }
+            }
+        }
+    }
 }
 
 async fn handle_review_similar(State(app): State<Arc<AppState>>, Path(sha256): Path<String>) -> impl IntoResponse {

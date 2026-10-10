@@ -203,6 +203,89 @@ pub struct ScanServer {
     pub rescan: crate::rescan::BulkRescan,
     /// Moving kept files to another disk or network share (dashboard).
     pub offload: Arc<crate::offload::Offload>,
+    /// Uploaded files waiting for or inside the engine (dashboard "Scan queue").
+    pub scan_queue: Arc<ScanQueueList>,
+}
+
+/// One uploaded file waiting for, or inside, the engine (dashboard list).
+#[derive(Clone, serde::Serialize)]
+pub struct QueuedScan {
+    pub id: u64,
+    pub file: String,
+    pub size: i64,
+    pub sha256: String,
+    pub client: String,
+    pub session: i64,
+    pub queued_at: chrono::DateTime<Utc>,
+    /// Set when an engine thread picked the file up.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<chrono::DateTime<Utc>>,
+}
+
+/// Files received in full and not answered yet: waiting for a scan slot or an engine
+/// thread, or being scanned. Entries leave the list when their guard is dropped.
+#[derive(Default)]
+pub struct ScanQueueList {
+    next: AtomicU64,
+    map: StdMutex<std::collections::BTreeMap<u64, QueuedScan>>,
+}
+
+pub struct ScanQueueGuard {
+    list: Arc<ScanQueueList>,
+    pub id: u64,
+}
+
+impl Drop for ScanQueueGuard {
+    fn drop(&mut self) {
+        self.list.map.lock().unwrap().remove(&self.id);
+    }
+}
+
+impl ScanQueueList {
+    pub fn add(self: &Arc<Self>, file: &str, size: i64, sha256: &str, client: &str, session: i64) -> ScanQueueGuard {
+        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        self.map.lock().unwrap().insert(
+            id,
+            QueuedScan {
+                id,
+                file: file.to_string(),
+                size,
+                sha256: sha256.to_ascii_lowercase(),
+                client: client.to_string(),
+                session,
+                queued_at: Utc::now(),
+                started_at: None,
+            },
+        );
+        ScanQueueGuard { list: Arc::clone(self), id }
+    }
+
+    pub fn mark_started(&self, id: u64) {
+        if let Some(e) = self.map.lock().unwrap().get_mut(&id) {
+            e.started_at = Some(Utc::now());
+        }
+    }
+
+    /// (being scanned, waiting) — oldest first, at most `limit` of each, plus the totals.
+    pub fn snapshot(&self, limit: usize) -> (Vec<QueuedScan>, Vec<QueuedScan>, usize, usize) {
+        let g = self.map.lock().unwrap();
+        let (mut scanning, mut waiting) = (Vec::new(), Vec::new());
+        let (mut ns, mut nw) = (0usize, 0usize);
+        for e in g.values() {
+            if e.started_at.is_some() {
+                ns += 1;
+                if scanning.len() < limit {
+                    scanning.push(e.clone());
+                }
+            } else {
+                nw += 1;
+                if waiting.len() < limit {
+                    waiting.push(e.clone());
+                }
+            }
+        }
+        (scanning, waiting, ns, nw)
+    }
 }
 
 pub struct SessionHandle {
@@ -266,6 +349,7 @@ impl ScanServer {
             boot_time: std::time::Instant::now(),
             rescan: crate::rescan::BulkRescan::default(),
             offload: Arc::new(crate::offload::Offload::default()),
+            scan_queue: Arc::new(ScanQueueList::default()),
         })
     }
 
@@ -1164,6 +1248,8 @@ async fn handle_scan(
     let (rtx, rrx) = oneshot::channel();
     let engine = Arc::clone(&server.engine);
     let (job_name, job_sha) = (name.clone(), sha_hex.clone());
+    let queue_entry = server.scan_queue.add(&name, size, &sha_hex, &session.address, session.id);
+    let (queue_list, queue_id) = (Arc::clone(&server.scan_queue), queue_entry.id);
     let scan_slots = Arc::clone(scan_slots);
     let ti = Arc::clone(&server.threat_intel);
 
@@ -1178,6 +1264,7 @@ async fn handle_scan(
         srv.scheduler.submit(
             session_id,
             Box::new(move || {
+                queue_list.mark_started(queue_id);
                 let build_report = || {
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::analyzer::analyze(&data, &job_name))).ok()
                 };
@@ -1203,6 +1290,7 @@ async fn handle_scan(
             }),
         );
         let outcome = rrx.await;
+        drop(queue_entry);
         drop(budget);
         drop(scan_slot);
         drop(slot);
