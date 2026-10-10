@@ -1938,11 +1938,95 @@ def generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_i
 
         lines.append("")
 
+    super_count = 0
+    if getattr(args, "sig_super", False) and super_rules:
+        super_count = append_sig_super_rules(lines, super_rules, file_info)
+
     content = "\n".join(lines)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(content)
-    print(f"[+] Successfully wrote HydraDragonSig YAML rules to: {out_path} ({len(file_groups)} rules)")
-    return len(file_groups)
+    print(f"[+] Successfully wrote HydraDragonSig YAML rules to: {out_path} ({len(file_groups)} simple + {super_count} super rules)")
+    return len(file_groups), super_count
+
+
+def append_sig_super_rules(lines, super_rules, file_info):
+    """Write yarGen super rules (a string set shared by several samples) as HydraDragonSig rules.
+
+    Kept strict because shared strings are more often toolchain / packer / installer text
+    than family-specific text:
+      * only sets that span at least two different sample families (file name stems);
+        a set inside one family is already covered by that family's simple rule,
+      * at least args.w clean strings, of which 80 % (at least 4) must match,
+      * logic "all": file type + size guard + the string set must all hold.
+    """
+    written = 0
+    seen_sets = set()
+    for sr in super_rules:
+        files = sorted(sr.get("files", []))
+        if len(files) < 2:
+            continue
+        stems = sorted({get_file_name_stem(os.path.basename(fp)) for fp in files})
+        if len(stems) < 2:
+            continue
+        strings = [x for x in sr.get("strings", []) if is_clean_string(x[8:] if x.startswith("UTF16LE:") else x)]
+        strings = sorted(dict.fromkeys(strings), key=lambda x: (-stringScores.get(x, 0), x))[:20]
+        if len(strings) < max(int(args.w), 4):
+            continue
+        key = tuple(sorted(strings))
+        if key in seen_sets:
+            continue
+        seen_sets.add(key)
+
+        fmt = "pe"
+        for fp in files:
+            info = file_info.get(fp, {})
+            magic = info.get("magic", "")
+            if magic == "MZ":
+                fmt = "pe"
+                break
+            if magic.startswith("504b") or fp.lower().endswith(".apk"):
+                fmt = "apk"
+                break
+            if fp.lower().endswith((".js", ".jse", ".vbs", ".ps1")):
+                fmt = "javascript" if fp.lower().endswith((".js", ".jse")) else "script"
+
+        max_sz = max([file_info.get(fp, {}).get("size", 1000000) for fp in files] or [1000000])
+        size_limit = min(max(int(max_sz * 2.5), 5 * 1024 * 1024), 35 * 1024 * 1024)
+        need = max(4, -(-len(strings) * 4 // 5))  # ceil(80 %)
+
+        written += 1
+        family = "_".join(stems[:3]) + ("_etc" if len(stems) > 3 else "")
+        listing = ", ".join(os.path.basename(f) for f in files[:10]) + (f" (+{len(files) - 10} more)" if len(files) > 10 else "")
+        lines.append(f"  - id: MALW_SUPER_{written:04d}")
+        lines.append(f'    title: "Malware.{fmt.upper()}.Super.{family}"')
+        lines.append("    description: >")
+        lines.append(f"      Super rule: {len(strings)} strings shared by {len(files)} samples of {len(stems)} families.")
+        lines.append(f"      Samples: {listing}")
+        lines.append("    severity: high")
+        lines.append("    verdict: malware")
+        lines.append("    confidence: 80")
+        lines.append(f'    family: "{yaml_escape(family)}"')
+        lines.append("    score: 80")
+        lines.append(f"    tags: [{fmt}, malware, super]")
+        lines.append("    logic: all")
+        lines.append("    conditions:")
+        lines.append("      - type: file_type")
+        lines.append(f"        values: [{fmt}]")
+        lines.append("      - type: file_size_lte")
+        lines.append(f"        bytes: {size_limit}")
+        lines.append("      - type: string_set")
+        lines.append(f"        min: {need}")
+        lines.append("        nocase: true")
+        lines.append("        ascii: true")
+        lines.append("        decoded: true")
+        if any(x.startswith("UTF16LE:") for x in strings):
+            lines.append("        wide: true")
+        lines.append("        values:")
+        for x in strings:
+            raw = x[8:] if x.startswith("UTF16LE:") else x
+            lines.append(f'          - "{yaml_escape(raw)}"')
+        lines.append("")
+    return written
 
 
 def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_stats):
@@ -1954,9 +2038,9 @@ def generate_rules(file_strings, file_opcodes, super_rules, file_info, inverse_s
         sig_yaml_path = args.o
 
     if sig_yaml_path:
-        count = generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_info, good_opcodes_db, sig_yaml_path)
+        count, sig_super_count = generate_hydradragonsig_yaml(file_strings, file_opcodes, super_rules, file_info, good_opcodes_db, sig_yaml_path)
         if args.o == sig_yaml_path:
-            return (count, 0, 0)
+            return (count, 0, sig_super_count)
 
     # Write to file ---------------------------------------------------
     if args.o:
@@ -2978,6 +3062,7 @@ if __name__ == "__main__":
     group_output.add_argument("--globalrule", help="Create global rules (improved rule set speed)", action="store_true", default=False)
     group_output.add_argument("--nosuper", action="store_true", default=False, help="Don't try to create super rules that match against various files")
     group_output.add_argument("--sig-yaml", help="Path to output HydraDragonSig YAML rules", metavar="output_sig_yaml", default="")
+    group_output.add_argument("--sig-super", action="store_true", default=False, help="Also write super rules (strings shared by several samples) to the HydraDragonSig YAML. Off by default: shared strings are more often runtime / packer / installer strings, so test them for false positives first")
 
     group_db = parser.add_argument_group("Database Operations")
     group_db.add_argument("--update", action="store_true", default=False, help="Update the local strings and opcodes dbs from the online repository")
