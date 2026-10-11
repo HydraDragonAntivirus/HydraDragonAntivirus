@@ -39,6 +39,20 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
 pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
 
+/// Score of a ClamAV `PUA.*` signature (potentially unwanted: adware, bundlers,
+/// packers, hack tools). Between the Suspicious (0.50) and Malicious (0.85) cut-offs,
+/// so a PUA hit alone gives Suspicious / PUA; another malicious layer still wins.
+pub const CLAM_PUA_SCORE: f32 = 0.60;
+
+/// ClamAV hit score: 1.0 for malware, `CLAM_PUA_SCORE` for `PUA.` signatures.
+fn clam_score(name: &str) -> f32 {
+    if name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA.")) {
+        CLAM_PUA_SCORE
+    } else {
+        1.0
+    }
+}
+
 /// Canonical EICAR SHA-256 (standard test file). Web had a typo variant;
 /// both are accepted, plus a prefix check so any EICAR build flags.
 const EICAR_SHA256: &str = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
@@ -792,13 +806,14 @@ impl StaticEngine {
             let tag = format!("pid:{pid}:0x{base:x}");
 
             for m in self.clam.scan_bytes(&buf, &tag) {
+                let score = clam_score(&m.name);
                 report.detections.push(DetectionItem {
                     layer: "Memory_ClamAV".to_string(),
                     name: format!("Memory:{}", m.name),
-                    score: Some(1.0),
+                    score: Some(score),
                     details: Some(format!("ClamAV hit in process memory ({tag})")),
                 });
-                report.max_threat_score = report.max_threat_score.max(1.0);
+                report.max_threat_score = report.max_threat_score.max(score);
             }
             for y_name in self.yara.scan_bytes(&buf) {
                 report.detections.push(DetectionItem {
@@ -852,6 +867,7 @@ impl StaticEngine {
 
         // 1. ClamAV
         for m in self.clam.scan_bytes(bytes, name) {
+            let score = clam_score(&m.name);
             let det_name = if origin_prefix.is_empty() {
                 m.name
             } else {
@@ -860,10 +876,10 @@ impl StaticEngine {
             detections.push(DetectionItem {
                 layer: format!("{}ClamAV", layer_prefix),
                 name: det_name,
-                score: Some(1.0),
+                score: Some(score),
                 details: Some(format!("matched view {:?}", m.view)),
             });
-            *max_score = max_score.max(1.0);
+            *max_score = max_score.max(score);
         }
 
         // 2. YARA-X
@@ -1307,13 +1323,14 @@ impl StaticEngine {
         if !is_apk_file {
             let clam_matches = self.clam.scan_bytes(data, target_name);
             for m in clam_matches {
+                let score = clam_score(&m.name);
                 detections.push(DetectionItem {
                     layer: "ClamAV".to_string(),
                     name: m.name,
-                    score: Some(1.0),
+                    score: Some(score),
                     details: Some(format!("matched view {:?}", m.view)),
                 });
-                max_score = max_score.max(1.0);
+                max_score = max_score.max(score);
             }
         }
 

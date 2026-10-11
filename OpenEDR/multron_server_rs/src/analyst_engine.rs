@@ -277,7 +277,9 @@ impl AnalystEngine {
         let mut hits = Vec::new();
         if let Some(clam) = self.clam.read().unwrap().as_ref() {
             for m in clam.scan_bytes_named(data, if name.is_empty() { "file" } else { name }, ClamScanOptions::default(), &[]) {
-                hits.push(AnalystHit { engine: "clamav", name: m.name, verdict: "malicious" });
+                // `PUA.*` signatures are potentially unwanted, not malware (same as the engine).
+                let verdict = if m.name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA.")) { "suspicious" } else { "malicious" };
+                hits.push(AnalystHit { engine: "clamav", name: m.name, verdict });
             }
         }
         if let Some(rules) = self.sig.read().unwrap().as_ref() {
