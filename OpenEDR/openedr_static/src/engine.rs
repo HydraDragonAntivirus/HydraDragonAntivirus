@@ -39,10 +39,21 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
 pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
 
-/// Score of a ClamAV `PUA.*` signature (potentially unwanted: adware, bundlers,
+/// Score of a ClamAV `PUA.*` signature or a YARA-X `PUA_*` rule (potentially unwanted: adware, bundlers,
 /// packers, hack tools). Between the Suspicious (0.50) and Malicious (0.85) cut-offs,
 /// so a PUA hit alone gives Suspicious / PUA; another malicious layer still wins.
 pub const CLAM_PUA_SCORE: f32 = 0.60;
+
+/// YARA-X hit score: 0.95, or `CLAM_PUA_SCORE` for rules named `PUA_*` / `PUA.*`
+/// (potentially unwanted or vulnerable software, e.g. the LOLDrivers rules), so they
+/// give Suspicious / PUA instead of Malicious.
+fn yara_score(name: &str) -> f32 {
+    if name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA_") || p.eq_ignore_ascii_case("PUA.")) {
+        CLAM_PUA_SCORE
+    } else {
+        0.95
+    }
+}
 
 /// ClamAV hit score: 1.0 for malware, `CLAM_PUA_SCORE` for `PUA.` signatures.
 fn clam_score(name: &str) -> f32 {
@@ -816,13 +827,14 @@ impl StaticEngine {
                 report.max_threat_score = report.max_threat_score.max(score);
             }
             for y_name in self.yara.scan_bytes(&buf) {
+                let score = yara_score(&y_name);
                 report.detections.push(DetectionItem {
                     layer: "Memory_YARA".to_string(),
                     name: format!("Memory:{y_name}"),
-                    score: Some(0.95),
+                    score: Some(score),
                     details: Some(format!("YARA hit in process memory ({tag})")),
                 });
-                report.max_threat_score = report.max_threat_score.max(0.95);
+                report.max_threat_score = report.max_threat_score.max(score);
             }
             if buf.starts_with(b"MZ") && pefile_rs::PE::parse(&buf).is_ok() {
                 if let Some(prob) = self.ml.predict_pe(&buf) {
@@ -889,6 +901,7 @@ impl StaticEngine {
             bytes
         };
         for ym in self.yara.scan_bytes(yara_slice) {
+            let score = yara_score(&ym);
             let det_name = if origin_prefix.is_empty() {
                 ym
             } else {
@@ -897,10 +910,10 @@ impl StaticEngine {
             detections.push(DetectionItem {
                 layer: format!("{}YARA", layer_prefix),
                 name: det_name,
-                score: Some(0.95),
+                score: Some(score),
                 details: None,
             });
-            *max_score = max_score.max(0.95);
+            *max_score = max_score.max(score);
         }
 
         // 3. HydraDragonSig (strings + PE imports/exports/sections)
@@ -1276,13 +1289,14 @@ impl StaticEngine {
                 &data[..data.len().min(8 * 1024 * 1024)]
             });
             for name in self.yara.scan_bytes(yara_slice) {
+                let score = yara_score(&name);
                 detections.push(DetectionItem {
                     layer: "YARA".to_string(),
                     name,
-                    score: Some(0.95),
+                    score: Some(score),
                     details: None,
                 });
-                max_score = max_score.max(0.95);
+                max_score = max_score.max(score);
             }
             // HydraSig over capped APK strings with APK file-type tags.
             {
@@ -1343,13 +1357,14 @@ impl StaticEngine {
             };
             let yara_matches = self.yara.scan_bytes(slice);
             for y_name in yara_matches {
+                let score = yara_score(&y_name);
                 detections.push(DetectionItem {
                     layer: "YARA".to_string(),
                     name: y_name,
-                    score: Some(0.95),
+                    score: Some(score),
                     details: None,
                 });
-                max_score = max_score.max(0.95);
+                max_score = max_score.max(score);
             }
         }
 
@@ -1851,16 +1866,24 @@ impl StaticEngine {
             // 2. YARA-X rules on page content
             let yara_hits = self.yara.scan_bytes(body.as_bytes());
             for hit in yara_hits {
+                // `PUA_*` rules: Suspicious / PUA, same as for files (see `yara_score`).
+                let pua = yara_score(&hit) < 0.85;
+                let (severity, score) = if pua { ("Suspicious", (CLAM_PUA_SCORE * 100.0) as u32) } else { ("Malicious", 95) };
                 report.detections.push(crate::url_rules::UrlRuleHit {
                     rule_id: "CONTENT_YARA_SIGNATURE".to_string(),
                     title: format!("YARA Match: {}", hit),
-                    severity: "Malicious".to_string(),
-                    score: 95,
+                    severity: severity.to_string(),
+                    score,
                     details: format!("Page content matched YARA rule: {}", hit),
                 });
-                report.risk_score = report.risk_score.max(95);
-                report.verdict = "Malicious".to_string();
-                report.verdict_reason = format!("Content Decision (Malicious): Page content matched YARA signature ({}).", hit);
+                report.risk_score = report.risk_score.max(score);
+                if !pua {
+                    report.verdict = "Malicious".to_string();
+                    report.verdict_reason = format!("Content Decision (Malicious): Page content matched YARA signature ({}).", hit);
+                } else if report.verdict != "Malicious" {
+                    report.verdict = "Suspicious".to_string();
+                    report.verdict_reason = format!("Content Decision (Suspicious / PUA): Page content matched PUA YARA rule ({}).", hit);
+                }
             }
         }
 

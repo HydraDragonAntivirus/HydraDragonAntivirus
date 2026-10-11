@@ -484,6 +484,99 @@ impl HumanReviewStore {
         v
     }
 
+    /// Numbers for the public website (`/api/v1/insights/stats`). No analyst names,
+    /// notes, hashes or folder paths. Bulk verdicts (folder whitelists, multi-select)
+    /// are counted apart: more than `BULK_PER_SECOND` verdicts saved in the same second
+    /// cannot be one person looking at files, so "reviewed" only counts the rest.
+    pub fn public_stats(&self) -> serde_json::Value {
+        const BULK_PER_SECOND: usize = 20;
+        let g = self.map.read().unwrap();
+        let now = Utc::now();
+        let today = now.date_naive();
+        let done: Vec<(&HumanReview, Option<DateTime<Utc>>)> = g
+            .values()
+            .filter(|r| r.is_completed())
+            .map(|r| (r, r.reviewed_at.as_deref().and_then(parse_time)))
+            .collect();
+        let mut per_second: HashMap<i64, usize> = HashMap::new();
+        for (_, t) in &done {
+            if let Some(t) = t {
+                *per_second.entry(t.timestamp()).or_default() += 1;
+            }
+        }
+        let is_bulk = |t: &Option<DateTime<Utc>>| t.is_some_and(|t| per_second.get(&t.timestamp()).copied().unwrap_or(0) > BULK_PER_SECOND);
+
+        let (mut clean, mut suspicious, mut malicious, mut bulk) = (0usize, 0usize, 0usize, 0usize);
+        let (mut last_24h, mut last_7d, mut fp_fixed, mut missed_found) = (0usize, 0usize, 0usize, 0usize);
+        let mut resp: Vec<i64> = Vec::new();
+        // date, clean, suspicious, malicious, bulk
+        let mut days: Vec<(chrono::NaiveDate, usize, usize, usize, usize)> =
+            (0..14).rev().map(|i| (today - chrono::Duration::days(i), 0, 0, 0, 0)).collect();
+        for (r, t) in &done {
+            let day = t.and_then(|t| days.iter_mut().find(|d| d.0 == t.date_naive()));
+            if is_bulk(t) {
+                bulk += 1;
+                if let Some(d) = day {
+                    d.4 += 1;
+                }
+                continue;
+            }
+            let v = r.verdict.as_deref().unwrap_or("");
+            match v {
+                "clean" => clean += 1,
+                "suspicious" => suspicious += 1,
+                "malicious" => malicious += 1,
+                _ => {}
+            }
+            if let Some(d) = day {
+                match v {
+                    "clean" => d.1 += 1,
+                    "suspicious" => d.2 += 1,
+                    "malicious" => d.3 += 1,
+                    _ => {}
+                }
+            }
+            if let Some(t) = t {
+                if now - *t < chrono::Duration::hours(24) {
+                    last_24h += 1;
+                }
+                if now - *t < chrono::Duration::days(7) {
+                    last_7d += 1;
+                }
+            }
+            resp.extend(r.response_secs);
+            let engine = r.engine_verdict.as_deref().unwrap_or("");
+            if v == "clean" && matches!(engine, "malicious" | "suspicious") {
+                fp_fixed += 1;
+            }
+            if v == "malicious" && matches!(engine, "clean" | "possible_clean" | "unknown") {
+                missed_found += 1;
+            }
+        }
+        let (mut pending, mut in_progress) = (0usize, 0usize);
+        for r in g.values().filter(|r| !r.is_completed()) {
+            pending += 1;
+            if r.started_at.is_some() {
+                in_progress += 1;
+            }
+        }
+        serde_json::json!({
+            "reviewed": clean + suspicious + malicious,
+            "reviewed_24h": last_24h,
+            "reviewed_7d": last_7d,
+            "verdicts": { "clean": clean, "suspicious": suspicious, "malicious": malicious },
+            "false_positives_corrected": fp_fixed,
+            "missed_threats_found": missed_found,
+            "bulk_verdicts": bulk,
+            "queue": { "pending": pending, "in_progress": in_progress },
+            "avg_response_secs": avg(&resp),
+            "median_response_secs": median(&mut resp),
+            "daily": days.iter().map(|d| serde_json::json!({
+                "date": d.0.to_string(), "clean": d.1, "suspicious": d.2, "malicious": d.3, "bulk": d.4
+            })).collect::<Vec<_>>(),
+        })
+    }
+
     pub fn stats(&self) -> ReviewStats {
         let g = self.map.read().unwrap();
         let now = Utc::now();
@@ -622,6 +715,31 @@ mod timing_tests {
         let st2 = HumanReviewStore::new(&path);
         assert!(st2.get(&a).unwrap().timed);
         assert!(st2.was_removed(&b) && !st2.was_removed(&a));
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod public_probe {
+    use super::*;
+    #[test]
+    fn bulk_is_separate() {
+        let path = std::env::temp_dir().join(format!("hr_pub_{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let st = HumanReviewStore::new(&path);
+        let h = |i: u32| format!("{:064x}", i);
+        st.enqueue(&h(1), "auto", Some("malicious"), Some("a.exe")).unwrap();
+        st.complete(&h(1), "clean", None, "", "", "x").unwrap();
+        st.complete(&h(2), "malicious", Some("Trojan.Win32.Agent"), "", "", "x").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        for i in 100..140 { st.complete(&h(i), "clean", None, "", "", "x").unwrap(); }
+        st.enqueue(&h(999), "auto", Some("unknown"), None).unwrap();
+        let v = st.public_stats();
+        eprintln!("{}", serde_json::to_string(&v).unwrap());
+        assert_eq!(v["reviewed"], 2);
+        assert_eq!(v["bulk_verdicts"], 40);
+        assert_eq!(v["false_positives_corrected"], 1);
+        assert_eq!(v["queue"]["pending"], 1);
         let _ = std::fs::remove_file(&path);
     }
 }

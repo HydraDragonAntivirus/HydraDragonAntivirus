@@ -404,3 +404,8 @@ JBIG2_wrong_version
 JBIG2_wrong_version_ren
 embed_wrong_version
 embed_wrong_version_ren
+# 2026-10-11 FPs: RecuvaShell64.dll (PlugXStrings), MultronWinCleaner.dll (psexec_generic), main.js (banbra), wireguard.exe (win_hive_auto)
+PlugXStrings
+psexec_generic
+banbra
+win_hive_auto

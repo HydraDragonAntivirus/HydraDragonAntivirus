@@ -7,7 +7,7 @@
   <title>VIRUSKOV &mdash; Canlı Tehdit Telemetrisi &amp; Tarama İstatistikleri</title>
   <meta name="description" content="VirusKov EDR & Antivirus küresel tehdit telemetrisi, canlı hash gözlemleri, algılama oranları ve Elasticsearch ECS 9.5.4 oturum tarama geçmişi.">
   <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg">
-  <script src="i18n.js?v=8"></script>
+  <script src="i18n.js?v=9"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -240,6 +240,18 @@
     }
     .spec-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
     .spec-val { font-size: 0.88rem; font-weight: 700; color: #fff; margin-top: 4px; }
+    /* Human analysis panel */
+    .ha-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .ha-chart { display: flex; align-items: flex-end; gap: 6px; height: 160px; padding: 10px 4px 0; border-bottom: 1px solid var(--border-subtle); }
+    .ha-day { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column-reverse; position: relative; }
+    .ha-day > i { display: block; width: 100%; }
+    .ha-day > i.c { background: var(--accent-green); }
+    .ha-day > i.s { background: var(--accent-amber); }
+    .ha-day > i.m { background: var(--accent-red); }
+    .ha-days { display: flex; gap: 6px; padding: 6px 4px 0; font-size: 0.68rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+    .ha-days span { flex: 1; min-width: 0; text-align: center; overflow: hidden; }
+    .ha-note { font-size: 0.8rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5; }
+    @media (max-width: 600px) { .ha-days span:nth-child(odd) { visibility: hidden; } }
 
     /* Table */
     .table-container {
@@ -437,6 +449,33 @@
           <div class="spec-val" style="color:var(--accent-amber);">Cloudflare Edge DYNAMIC</div>
         </div>
       </div>
+    </div>
+
+    <!-- HUMAN ANALYSIS PANEL -->
+    <div class="panel" id="humanPanel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title"><span></span> <span data-i18n="ha.title">İnsan Analizi (Human Analysis)</span></div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="ha.desc">Motorun emin olamadığı dosyaları VirusKov analistleri tek tek inceliyor. Bu sayılar insanların verdiği kararlardır.</div>
+        </div>
+      </div>
+      <div class="ha-grid">
+        <div class="stat-card c-cyan"><div class="stat-card-val text-cyan" id="haReviewed">—</div><div class="stat-card-lbl" data-i18n="ha.reviewed">İncelenen dosya</div></div>
+        <div class="stat-card c-cyan"><div class="stat-card-val" id="haReviewed7d">—</div><div class="stat-card-lbl" data-i18n="ha.reviewed_7d">Son 7 gün</div></div>
+        <div class="stat-card c-gray"><div class="stat-card-val" id="haPending">—</div><div class="stat-card-lbl" data-i18n="ha.pending">İnceleme sırasında</div></div>
+        <div class="stat-card c-gray"><div class="stat-card-val" id="haMedian">—</div><div class="stat-card-lbl" data-i18n="ha.median">Ortanca yanıt süresi</div></div>
+        <div class="stat-card c-green"><div class="stat-card-val" id="haFp" style="color:var(--accent-green);">—</div><div class="stat-card-lbl" data-i18n="ha.fp">Düzeltilen yanlış alarm</div></div>
+        <div class="stat-card c-red"><div class="stat-card-val" id="haMissed" style="color:var(--accent-red);">—</div><div class="stat-card-lbl" data-i18n="ha.missed">Motorun kaçırıp insanın bulduğu tehdit</div></div>
+      </div>
+      <div class="ratio-legend" style="margin-bottom:10px">
+        <div class="legend-item"><span class="legend-dot" style="background:var(--accent-green);"></span><span style="color:var(--text-muted);" data-i18n="ha.clean">Temiz</span><b style="color:var(--accent-green); margin-left:auto;" id="haClean">0</b></div>
+        <div class="legend-item"><span class="legend-dot" style="background:var(--accent-amber);"></span><span style="color:var(--text-muted);" data-i18n="ha.suspicious">Şüpheli / PUA</span><b style="color:var(--accent-amber); margin-left:auto;" id="haSusp">0</b></div>
+        <div class="legend-item"><span class="legend-dot" style="background:var(--accent-red);"></span><span style="color:var(--text-muted);" data-i18n="ha.malicious">Zararlı</span><b style="color:var(--accent-red); margin-left:auto;" id="haMal">0</b></div>
+      </div>
+      <div class="spec-lbl" data-i18n="ha.chart">Son 14 gün — günlük insan kararları</div>
+      <div class="ha-chart" id="haChart" aria-label="Daily human verdicts"></div>
+      <div class="ha-days" id="haDays"></div>
+      <div class="ha-note" id="haBulkNote"></div>
     </div>
 
     <!-- LOCAL SCAN HISTORY PANEL -->
@@ -638,8 +677,61 @@
       } catch (_) {}
     }
 
+    // Human analysis (public numbers: no analyst names, hashes or paths)
+    function haT(key, fb) {
+      const v = window.ViruskovI18n ? window.ViruskovI18n.t(key) : null;
+      return v && v !== key ? v : fb;
+    }
+    function haDur(s) {
+      if (s === null || s === undefined) return '—';
+      if (s < 90) return s + ' ' + haT('ha.unit_s', 'sn');
+      if (s < 5400) return Math.round(s / 60) + ' ' + haT('ha.unit_m', 'dk');
+      if (s < 172800) return (s / 3600).toFixed(1) + ' ' + haT('ha.unit_h', 'sa');
+      return Math.round(s / 86400) + ' ' + haT('ha.unit_d', 'gün');
+    }
+    function renderHuman(h) {
+      if (!h || h.reviewed === undefined) return;
+      const n = (x) => Number(x || 0).toLocaleString();
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      set('haReviewed', n(h.reviewed));
+      set('haReviewed7d', n(h.reviewed_7d));
+      set('haPending', n(h.queue && h.queue.pending));
+      set('haMedian', haDur(h.median_response_secs));
+      set('haFp', n(h.false_positives_corrected));
+      set('haMissed', n(h.missed_threats_found));
+      set('haClean', n(h.verdicts && h.verdicts.clean));
+      set('haSusp', n(h.verdicts && h.verdicts.suspicious));
+      set('haMal', n(h.verdicts && h.verdicts.malicious));
+      const days = h.daily || [];
+      const max = Math.max(1, ...days.map(d => d.clean + d.suspicious + d.malicious));
+      const chart = document.getElementById('haChart'), labels = document.getElementById('haDays');
+      if (chart) {
+        chart.innerHTML = days.map(d => {
+          const tot = d.clean + d.suspicious + d.malicious;
+          const pct = (v) => (v / max * 100).toFixed(2) + '%';
+          const tip = `${d.date}: ${tot} · ${haT('ha.clean', 'Temiz')} ${d.clean} · ${haT('ha.suspicious', 'Şüpheli / PUA')} ${d.suspicious} · ${haT('ha.malicious', 'Zararlı')} ${d.malicious}`;
+          return `<div class="ha-day" title="${tip}"><i class="c" style="height:${pct(d.clean)}"></i><i class="s" style="height:${pct(d.suspicious)}"></i><i class="m" style="height:${pct(d.malicious)}"></i></div>`;
+        }).join('');
+      }
+      if (labels) labels.innerHTML = days.map(d => `<span>${d.date.slice(8, 10)}.${d.date.slice(5, 7)}</span>`).join('');
+      const note = document.getElementById('haBulkNote');
+      if (note) {
+        note.textContent = h.bulk_verdicts
+          ? haT('ha.bulk_note', 'Ayrıca {n} dosya toplu olarak (ör. doğrulanmış yazılım klasörleri) beyaz listeye alındı; bunlar yukarıdaki sayılara dahil değildir.').replace('{n}', n(h.bulk_verdicts))
+          : '';
+      }
+    }
+    async function fetchHuman() {
+      try {
+        const res = await fetch('https://api.viruskov.com/api/v1/insights/stats');
+        if (res.ok) { const d = await res.json(); renderHuman(d.human_analysis); }
+      } catch (_) {}
+    }
+
     fetchTelemetry();
     setInterval(fetchTelemetry, 8000);
+    fetchHuman();
+    setInterval(fetchHuman, 30000);
 
     // 2. Scan History Manager
     function getScanHistory() {

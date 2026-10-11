@@ -744,7 +744,8 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
         "status": "success",
         "engine": ENGINE_NAME,
         "feed": "VirusKov Community Telemetry",
-        "human_analysis": server.threat_intel.reviews.stats(),
+        // Public numbers only (no analyst names); the dashboard has the full stats.
+        "human_analysis": server.threat_intel.reviews.public_stats(),
         "telemetry": {
             "total_unique_hashes": stats.total_unique_hashes,
             "total_sightings": stats.total_sightings,
