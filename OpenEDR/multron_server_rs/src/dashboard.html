@@ -545,7 +545,7 @@
               <select id="haVerdict">
                 <option value="malicious">Malicious</option>
                 <option value="suspicious">Suspicious / PUA</option>
-                <option value="clean">Clean</option>
+                <option value="clean" selected>Clean</option>
               </select>
             </div>
             <div>
@@ -1527,6 +1527,9 @@
       $("haThreat").value = r.threat_name || "";
       $("haNote").value = r.note || "";
       $("haInternal").value = r.internal_note || "";
+    } else {
+      // A file without an analyst verdict yet starts at Clean (the default).
+      $("haVerdict").value = "clean";
     }
     const info = r ? [
       `<div><span class="k">Names:</span> ${haEsc((r.file_names || [haName(r)]).filter(Boolean).join(", ") || "—")}</div>`,
