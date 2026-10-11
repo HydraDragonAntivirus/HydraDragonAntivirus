@@ -780,6 +780,8 @@
           <option value="all">All rescanned files</option>
           <option value="changed">Changed verdicts only</option>
           <option value="failed">Failed</option>
+          <option value="pc_threat">Possible clean &rarr; malicious / suspicious</option>
+          <option value="tlsh_analyst">Possible clean by TLSH to an analyst-clean file</option>
         </select>
         <select id="rsNewF">
           <option value="">New verdict: any</option>
@@ -1139,6 +1141,10 @@
     const rows = rsLog.filter(e => {
       if (show === "changed" && !e.changed) return false;
       if (show === "failed" && !e.error) return false;
+      // Was possible clean (TLSH smart whitelist) and the engine now flags it.
+      if (show === "pc_threat" && !(e.old_verdict === "possible_clean" && (e.new_verdict === "malicious" || e.new_verdict === "suspicious"))) return false;
+      // Became possible clean because its TLSH neighbour got a clean human verdict.
+      if (show === "tlsh_analyst" && !(e.new_verdict === "possible_clean" && /analyst-verified clean/i.test(e.detail || ""))) return false;
       if (nv && e.new_verdict !== nv) return false;
       if (run !== "" && String(e.run) !== run) return false;
       if (q && ![e.sha256, e.file_name, e.threat, e.detail, e.error].join("\n").toLowerCase().includes(q)) return false;
