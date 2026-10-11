@@ -1,5 +1,6 @@
 //! VirusKov threat naming convention: `Category.Platform.Family[.Variant]`
-//! e.g. `Trojan.Win32.Remcos.A`, `Ransom.MSIL.Chaos`, `PUA.Win64.Bundler.B`.
+//! e.g. `Trojan.Win32.Remcos.A`, `Ransom.MSIL.Chaos`, `PUA.Win64.Bundler.B`,
+//! `Vuln.WinDrv.RTCore64` (a legitimate but exploitable file, e.g. a vulnerable driver).
 //!
 //! Used by the signature room (analyst YARA rules) and by human verdicts, so every
 //! name an analyst publishes has the same shape and can be grouped by family.
@@ -7,7 +8,7 @@
 pub const CATEGORIES: &[&str] = &[
     "Trojan", "Backdoor", "RAT", "Ransom", "Wiper", "Worm", "Virus", "Rootkit", "Bootkit", "Exploit",
     "Downloader", "Dropper", "Loader", "Stealer", "Spyware", "Keylogger", "Banker", "Miner", "Botnet",
-    "Phishing", "Adware", "PUA", "HackTool", "Riskware", "Packed", "Generic", "Test",
+    "Phishing", "Adware", "PUA", "HackTool", "Riskware", "Vuln", "Packed", "Generic", "Test",
 ];
 
 pub const PLATFORMS: &[&str] = &[
@@ -70,6 +71,7 @@ mod tests {
         assert!(normalize_threat_name("Foo.Win32.Remcos").is_err());
         assert!(normalize_threat_name("Trojan.Win32.1abc").is_err());
         assert!(normalize_threat_name("Trojan.Win32.Remcos.TOOLONGVAR").is_err());
+        assert_eq!(normalize_threat_name("vuln.windrv.RTCore64").unwrap(), "Vuln.WinDrv.RTCore64");
         assert_eq!(yara_identifier("Trojan.Win32.Remcos.A"), "Trojan_Win32_Remcos_A");
     }
 }
