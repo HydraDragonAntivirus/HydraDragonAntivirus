@@ -288,6 +288,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
+        .route("/api/rescan/audit", get(handle_rescan_audit).post(handle_rescan_audit_bulk))
         .route("/api/rescan/log", get(handle_rescan_log))
         .route("/api/kept/info/:sha256", get(handle_kept_info))
         .route("/api/reviews/requeue", post(handle_reviews_requeue))
@@ -588,6 +589,33 @@ async fn handle_rescan_bulk(State(app): State<Arc<AppState>>, Json(b): Json<Bulk
     match crate::rescan::start_bulk(&app.scan_server, &b.categories) {
         Ok(n) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
         Err(e) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
+}
+
+/// Duplicate / not-listed kept files per category. Walks the work folder.
+async fn handle_rescan_audit(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    let srv = Arc::clone(&app.scan_server);
+    let v = tokio::task::spawn_blocking(move || crate::rescan::kept_audit(&srv))
+        .await
+        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
+    Json(v)
+}
+
+#[derive(Deserialize, Default)]
+struct AuditBulkBody {
+    #[serde(default)]
+    categories: Vec<String>,
+    /// "duplicate", "not_listed" (empty = both).
+    #[serde(default)]
+    kinds: Vec<String>,
+}
+
+async fn handle_rescan_audit_bulk(State(app): State<Arc<AppState>>, Json(b): Json<AuditBulkBody>) -> Response {
+    let srv = Arc::clone(&app.scan_server);
+    match tokio::task::spawn_blocking(move || crate::rescan::start_bulk_problems(&srv, &b.categories, &b.kinds)).await {
+        Ok(Ok(n)) => Json(serde_json::json!({ "ok": true, "queued": n })).into_response(),
+        Ok(Err(e)) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
     }
 }
 

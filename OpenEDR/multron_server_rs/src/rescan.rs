@@ -145,7 +145,13 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     let human = server.threat_intel.reviews.completed(&sha_up).and_then(|r| r.verdict);
     server.engine.relabel_kept(&sha_up, human.as_deref().unwrap_or(&res.verdict));
     server.remember(sha, &res);
-    server.threat_intel.set_engine_verdict(&sha_up, &res.verdict, res.threat.as_deref(), res.score);
+    if server.threat_intel.get(&sha_up).is_none() {
+        // Kept on disk but missing from the list (e.g. telemetry lost): add it, so it is
+        // counted in the statistics and shows up in human analysis.
+        server.threat_intel.record(&sha_up.to_ascii_lowercase(), &res.verdict, res.threat.as_deref(), Some(&kept.name), Some(data_len), res.score);
+    } else {
+        server.threat_intel.set_engine_verdict(&sha_up, &res.verdict, res.threat.as_deref(), res.score);
+    }
     if let Some(sg) = res.signer.as_ref() {
         server.threat_intel.set_signer(&sha_up, sg);
     }
@@ -245,8 +251,8 @@ pub fn start_bulk(server: &Arc<ScanServer>, categories: &[String]) -> Result<usi
 }
 
 /// `source`: "bulk" (dashboard button) or "reload" (after an engine reload).
-pub fn start_bulk_from(server: &Arc<ScanServer>, categories: &[String], source: &'static str) -> Result<usize, String> {
-    let cats: Vec<&str> = if categories.is_empty() {
+fn parse_categories(categories: &[String]) -> Result<Vec<&'static str>, String> {
+    Ok(if categories.is_empty() {
         DEFAULT_CATEGORIES.to_vec()
     } else {
         let mut v = Vec::new();
@@ -259,11 +265,11 @@ pub fn start_bulk_from(server: &Arc<ScanServer>, categories: &[String], source: 
             v.push(*c);
         }
         v
-    };
-    let bulk = &server.rescan;
-    if bulk.running.swap(true, Ordering::SeqCst) {
-        return Err("a rescan is already running".into());
-    }
+    })
+}
+
+pub fn start_bulk_from(server: &Arc<ScanServer>, categories: &[String], source: &'static str) -> Result<usize, String> {
+    let cats = parse_categories(categories)?;
     let files: Vec<String> = server
         .engine
         .list_kept()
@@ -271,6 +277,101 @@ pub fn start_bulk_from(server: &Arc<ScanServer>, categories: &[String], source: 
         .filter(|k| cats.contains(&k.category))
         .map(|k| k.sha256)
         .collect();
+    let label = cats.join(", ");
+    spawn_bulk(server, files, cats.iter().map(|c| c.to_string()).collect(), label, source)
+}
+
+/// One kept file with what is wrong with it.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditItem {
+    pub sha256: String,
+    pub file_name: String,
+    /// Folders (categories) the file is in; more than one for a duplicate.
+    pub categories: Vec<&'static str>,
+    pub copies: usize,
+    pub duplicate: bool,
+    /// Not in the telemetry list, so not counted in the statistics.
+    pub not_listed: bool,
+}
+
+/// Groups the kept files by SHA-256 and returns the ones that are duplicate (the same
+/// file in more than one place of multron_incoming) or not listed (no telemetry entry).
+pub fn kept_problems(server: &Arc<ScanServer>) -> Vec<AuditItem> {
+    let mut by_sha: std::collections::BTreeMap<String, AuditItem> = std::collections::BTreeMap::new();
+    for k in server.engine.list_kept() {
+        let e = by_sha.entry(k.sha256.clone()).or_insert_with(|| AuditItem {
+            sha256: k.sha256.to_ascii_lowercase(),
+            file_name: k.name.clone(),
+            categories: Vec::new(),
+            copies: 0,
+            duplicate: false,
+            not_listed: false,
+        });
+        e.copies += 1;
+        if !e.categories.contains(&k.category) {
+            e.categories.push(k.category);
+        }
+    }
+    by_sha
+        .into_values()
+        .filter_map(|mut e| {
+            e.duplicate = e.copies > 1;
+            e.not_listed = server.threat_intel.get(&e.sha256).is_none();
+            (e.duplicate || e.not_listed).then_some(e)
+        })
+        .collect()
+}
+
+/// Counts per category for the dashboard plus the first files of each kind.
+pub fn kept_audit(server: &Arc<ScanServer>) -> serde_json::Value {
+    let items = kept_problems(server);
+    let mut per = serde_json::Map::new();
+    for c in CATEGORIES {
+        let inc = items.iter().filter(|i| i.categories.contains(&c));
+        let (dup, nl) = inc.fold((0usize, 0usize), |(d, n), i| (d + i.duplicate as usize, n + i.not_listed as usize));
+        per.insert(c.to_string(), serde_json::json!({ "duplicate": dup, "not_listed": nl }));
+    }
+    serde_json::json!({
+        "ok": true,
+        "duplicate": items.iter().filter(|i| i.duplicate).count(),
+        "not_listed": items.iter().filter(|i| i.not_listed).count(),
+        "categories": per,
+        "items": items.iter().take(500).collect::<Vec<_>>(),
+        "total_items": items.len(),
+    })
+}
+
+/// Rescans the duplicate and/or not-listed kept files of `categories` (one rescan per
+/// SHA-256). `kinds`: "duplicate", "not_listed" (empty = both).
+pub fn start_bulk_problems(server: &Arc<ScanServer>, categories: &[String], kinds: &[String]) -> Result<usize, String> {
+    let cats = parse_categories(categories)?;
+    let want_dup = kinds.is_empty() || kinds.iter().any(|k| k == "duplicate");
+    let want_nl = kinds.is_empty() || kinds.iter().any(|k| k == "not_listed");
+    for k in kinds {
+        if k != "duplicate" && k != "not_listed" {
+            return Err(format!("unknown kind {k} (duplicate or not_listed)"));
+        }
+    }
+    let files: Vec<String> = kept_problems(server)
+        .into_iter()
+        .filter(|i| i.categories.iter().any(|c| cats.contains(c)))
+        .filter(|i| (want_dup && i.duplicate) || (want_nl && i.not_listed))
+        .map(|i| i.sha256.to_ascii_uppercase())
+        .collect();
+    let what = match (want_dup, want_nl) {
+        (true, true) => "duplicate + not listed",
+        (true, false) => "duplicate",
+        _ => "not listed",
+    };
+    let label = format!("{what}: {}", cats.join(", "));
+    spawn_bulk(server, files, cats.iter().map(|c| c.to_string()).collect(), label, "bulk")
+}
+
+fn spawn_bulk(server: &Arc<ScanServer>, files: Vec<String>, cats: Vec<String>, label: String, source: &'static str) -> Result<usize, String> {
+    let bulk = &server.rescan;
+    if bulk.running.swap(true, Ordering::SeqCst) {
+        return Err("a rescan is already running".into());
+    }
     bulk.stop.store(false, Ordering::Relaxed);
     bulk.total.store(files.len(), Ordering::Relaxed);
     bulk.done.store(0, Ordering::Relaxed);
@@ -280,7 +381,7 @@ pub fn start_bulk_from(server: &Arc<ScanServer>, categories: &[String], source: 
     *bulk.finished_at.lock().unwrap() = None;
     bulk.changes.lock().unwrap().clear();
     let run = bulk.run.fetch_add(1, Ordering::Relaxed) + 1;
-    *bulk.categories.lock().unwrap() = cats.iter().map(|c| c.to_string()).collect();
+    *bulk.categories.lock().unwrap() = cats;
 
     let n = files.len();
     let srv = Arc::clone(server);
@@ -321,6 +422,6 @@ pub fn start_bulk_from(server: &Arc<ScanServer>, categories: &[String], source: 
         bulk.running.store(false, Ordering::SeqCst);
         return Err(format!("cannot start the rescan thread: {e}"));
     }
-    server.log_info(format!("bulk rescan started: {n} kept files ({})", cats.join(", ")));
+    server.log_info(format!("bulk rescan started: {n} kept files ({label})"));
     Ok(n)
 }

@@ -99,6 +99,7 @@
   .limitform input.dirty { border-color: var(--accent); }
   .btnrow { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .ha-wide { grid-column: 1 / -1; }
+  .rs-audit { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; background: var(--panel2); }
   .rs-controls { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; margin: 12px 0; }
   @media (max-width: 900px) { .rs-controls { grid-template-columns: 1fr; } }
   label.chkl { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-size: 12.5px; color: var(--text); }
@@ -754,6 +755,24 @@
           <div id="rsMsg" class="hint"></div>
         </div>
       </div>
+      <div class="rs-audit">
+        <div class="feedbar" style="margin:0">
+          <b style="font-size:13px">Duplicate / not listed kept files</b>
+          <span class="spacer"></span>
+          <button class="ghost" id="auCheck">Find</button>
+          <button class="ghost" id="auRun" disabled>Rescan selected</button>
+        </div>
+        <div class="hint" style="margin:4px 0 8px"><b>Duplicate</b>: the same file (SHA-256) is kept more than once in multron_incoming, e.g. in two category folders. <b>Not listed</b>: the file is on disk but missing from the telemetry list, so it is not counted in the statistics or shown in human analysis; a rescan adds it. Nothing is deleted.</div>
+        <div id="auBody" hidden>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+            <label class="chkl"><input type="checkbox" class="auKind" value="duplicate" checked> Duplicate</label>
+            <label class="chkl"><input type="checkbox" class="auKind" value="not_listed" checked> Not listed</label>
+          </div>
+          <div class="tablewrap"><table><thead><tr><th></th><th>Category</th><th class="num">Duplicate</th><th class="num">Not listed</th></tr></thead><tbody id="auCats"></tbody></table></div>
+          <div class="hint" id="auInfo" style="margin:6px 0"></div>
+          <div class="tablewrap" style="max-height:300px"><table><thead><tr><th>SHA-256</th><th>File</th><th>Folders</th><th class="num">Copies</th><th>Problem</th></tr></thead><tbody id="auRows"></tbody></table></div>
+        </div>
+      </div>
       <div class="rs-prog" id="rsProgWrap" hidden><div class="rs-bar"><div id="rsBar"></div></div><div class="hint" id="rsStatus" style="margin:4px 0 0"></div></div>
       <div class="ha-toolbar rs-toolbar">
         <input id="rsSearch" type="search" placeholder="Search file name, SHA-256, threat or engine…">
@@ -1173,6 +1192,35 @@
     catch (e) { $("rsStatus").textContent = e.message; }
   };
   $("rsStop").onclick = async () => { try { await post("/api/rescan/stop"); } catch (_) {} };
+  // Duplicate / not-listed kept files: find per category, rescan the selected ones.
+  async function auFind() {
+    $("auCheck").disabled = true; $("auInfo").textContent = "Walking multron_incoming…"; $("auBody").hidden = false;
+    try {
+      const res = await fetch("/api/rescan/audit", { cache: "no-store" });
+      const d = await res.json();
+      if (!res.ok || d.ok === false) throw new Error(d.error || res.statusText);
+      const prev = new Set([...document.querySelectorAll(".auCat:checked")].map(c => c.value));
+      $("auCats").innerHTML = Object.entries(d.categories).map(([c, v]) => {
+        const any = v.duplicate + v.not_listed > 0;
+        const on = prev.size ? prev.has(c) : any;
+        return `<tr><td><input type="checkbox" class="auCat" value="${rsEsc(c)}" ${on ? "checked" : ""} ${any ? "" : "disabled"}></td><td>${rsV(c)}</td><td class="num">${v.duplicate.toLocaleString()}</td><td class="num">${v.not_listed.toLocaleString()}</td></tr>`;
+      }).join("");
+      $("auInfo").textContent = d.total_items
+        ? `${d.duplicate.toLocaleString()} duplicate, ${d.not_listed.toLocaleString()} not listed${d.total_items > d.items.length ? ` (first ${d.items.length} shown)` : ""}.`
+        : "No duplicate or not-listed kept files.";
+      $("auRows").innerHTML = d.items.map(i => `<tr><td class="mono" title="${rsEsc(i.sha256)}">${rsEsc(i.sha256.slice(0, 16))}…</td><td class="file">${rsEsc(i.file_name)}</td><td>${i.categories.map(rsV).join(" ")}</td><td class="num">${i.copies}</td><td>${[i.duplicate ? "duplicate" : "", i.not_listed ? "not listed" : ""].filter(Boolean).join(", ")}</td></tr>`).join("");
+      $("auRun").disabled = !d.total_items;
+    } catch (e) { $("auInfo").textContent = e.message; }
+    $("auCheck").disabled = false;
+  }
+  $("auCheck").onclick = auFind;
+  $("auRun").onclick = async () => {
+    const categories = [...document.querySelectorAll(".auCat:checked")].map(c => c.value);
+    const kinds = [...document.querySelectorAll(".auKind:checked")].map(c => c.value);
+    if (!categories.length || !kinds.length) { $("auInfo").textContent = "Pick at least one category and one problem."; return; }
+    try { const r = await post("/api/rescan/audit", { categories, kinds }); $("rsStatus").textContent = `Started: ${r.queued} files queued (${kinds.join(" + ").replace("_", " ")}: ${categories.join(", ")}).`; $("auInfo").textContent = `Rescan started for ${r.queued} file(s); progress is shown below.`; }
+    catch (e) { $("auInfo").textContent = e.message; }
+  };
   $("rsAfterReload").onchange = async (e) => {
     try { await post("/api/rescan/after-reload", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
