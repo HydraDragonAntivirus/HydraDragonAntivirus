@@ -7,7 +7,6 @@ use crate::apk;
 use crate::crypto;
 use crate::clam::ClamScanner;
 use crate::diagnostics;
-use crate::embedded_url;
 use crate::ml::filetype;
 use crate::hayabusa_scanner::{HayabusaEventMatch, HayabusaScanner};
 use crate::hosts::{self, HostsCheckReport, HostsRestoreReport};
@@ -38,11 +37,6 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 /// layer (ClamAV/YARA/HydraSig/PE/JS/APK ML) found nothing, so keep it at the
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
 pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
-
-/// Cap on `Embedded_URL_Blacklist` detections attached to one file. A sample with 300
-/// embedded links should not return 300 findings — the cap is enough to triage
-/// and the URLs themselves are in the details.
-const MAX_EMBEDDED_URL_DETECTIONS: usize = 8;
 
 /// Canonical EICAR SHA-256 (standard test file). Web had a typo variant;
 /// both are accepted, plus a prefix check so any EICAR build flags.
@@ -421,67 +415,6 @@ impl StaticEngine {
     pub fn load_benign_whitelist(&mut self, data: &[u8]) -> bool {
         self.signers.set_benign_whitelist(data)
     }
-
-    /// Harvest every `http(s)` URL in `data` and report the ones whose host is on
-    /// the CIDR blacklist.
-///
-/// `origin` prefixes the layer name so a finding lifted out of an archive entry
-/// is not reported as if it came from the parent file; `context` names the
-/// container in the details. `inflate` additionally decompresses Flate streams
-/// first, which is required for formats that do not store their payload as
-/// contiguous bytes — PDF text and Office macro bodies.
-///
-/// Blacklist only: the URL ML is for URL scanning, not for links inside files (it
-/// false-positived on ordinary links in documents, scripts and installers).
-fn embedded_url_detections(
-    &self,
-    data: &[u8],
-    origin: &str,
-    context: &str,
-    inflate: bool,
-) -> Vec<DetectionItem> {
-    let mut candidates = embedded_url::extract_urls(data);
-    if inflate {
-        candidates.extend(embedded_url::extract_urls_from_streams(data));
-    }
-
-    let mut out: Vec<DetectionItem> = Vec::new();
-    let mut scored = 0usize;
-    for candidate in candidates {
-        let (whitelisted, blacklisted) = self.check_whitelist_blacklist(&candidate.host);
-        if whitelisted {
-            continue;
-        }
-        if !blacklisted {
-            continue;
-        }
-        out.push(DetectionItem {
-            layer: format!("{origin}Embedded_URL_Blacklist"),
-            name: "Dropper.EmbeddedC2Url".to_string(),
-            score: Some(1.0),
-            details: Some(format!(
-                "URL embedded in {context} points to a CIDR-blacklisted host ({}): {}",
-                candidate.host,
-                candidate.url.chars().take(200).collect::<String>()
-            )),
-        });
-        scored += 1;
-        if scored >= MAX_EMBEDDED_URL_DETECTIONS {
-            break;
-        }
-    }
-    out
-}
-
-/// Archive members that hide their payload behind a second layer of
-/// compression. `word/vbaProject.bin` is an OLE compound file whose streams are
-/// themselves deflated, so the raw pass over the extracted member finds nothing;
-/// XML parts such as `word/_rels/document.xml.rels` are already plain text once
-/// extracted and need no extra pass.
-fn entry_is_compressed_document(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.ends_with(".bin") || lower.ends_with(".pdf")
-}
 
 /// True when the URL/domain/IP whitelist `.xf` was loaded at init.
     pub fn url_whitelist_loaded(&self) -> bool {
@@ -899,7 +832,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
 
     /// Global multi-engine evaluation over any in-memory byte slice.
     /// Evaluates ClamAV, YARA-X, HydraDragonSig (strings + PE imports/exports),
-    /// ML models, and embedded URLs uniformly, with automatic origin-prefix tagging.
+    /// and ML models uniformly, with automatic origin-prefix tagging.
     fn scan_bytes_core(
         &self,
         bytes: &[u8],
@@ -915,7 +848,6 @@ fn entry_is_compressed_document(name: &str) -> bool {
 
         let is_pe = bytes.starts_with(b"MZ") && pefile_rs::PE::parse(bytes).is_ok();
         let is_js = is_js_content(bytes);
-        let is_pdf = bytes.starts_with(b"%PDF");
 
         // 1. ClamAV
         for m in self.clam.scan_bytes(bytes, name) {
@@ -1039,15 +971,10 @@ fn entry_is_compressed_document(name: &str) -> bool {
             }
         }
 
-        // 5. Embedded URLs
-        for d in self.embedded_url_detections(bytes, layer_prefix, &format!("payload '{name}'"), is_pdf) {
-            *max_score = max_score.max(d.score.unwrap_or(0.0));
-            detections.push(d);
-        }
     }
 
     /// Scan a first-class extracted object (archive member, emulated unpacked PE, overlay, or stripped buffer).
-    /// Runs all detection engines (ClamAV, YARA-X, HydraDragonSig, ML, embedded URLs, and PE heuristics)
+    /// Runs all detection engines (ClamAV, YARA-X, HydraDragonSig, ML and PE heuristics)
     /// on the in-memory bytes and returns an isolated `ExtractedObject`.
     pub fn scan_object(&self, object: &ScanObject) -> ExtractedObject {
         let mut obj_detections = Vec::new();
@@ -1278,7 +1205,7 @@ fn entry_is_compressed_document(name: &str) -> bool {
 
         // 0.3 YARA rule source (a signature file, not a program). Rule files carry
         // exactly the strings malware carries, so every content layer below
-        // (ClamAV, YARA, HydraSig, embedded URLs, ML) would only produce false
+        // (ClamAV, YARA, HydraSig, ML) would only produce false
         // positives on them. Only reached after the hash layers and EICAR, so a
         // known-bad hash is still caught. Strict: see `is_yara_rule_source`.
         if detections.is_empty() && is_yara_rule_source(data, target_name) {
@@ -1442,45 +1369,6 @@ fn entry_is_compressed_document(name: &str) -> bool {
                     details: Some(details),
                 });
                 max_score = max_score.max(score);
-            }
-        }
-
-        // 4c. Embedded-URL C2 layer. Stage-1 droppers, phishing documents and
-        // macro stagers carry a *link*, not a payload: harvest every http(s) URL
-        // out of the file's own bytes (ASCII + UTF-16LE) and flag the ones whose
-        // host is on the CIDR blacklist. The URL ML is NOT used here: it is for
-        // URL scanning only (`scan_url`); on links inside files it gave FPs.
-        //
-        // Placement matters for false positives. This runs after the
-        // SHA-256-benign and trusted-signer fast paths above, so a signed,
-        // publisher-trusted binary or document can never reach it — only
-        // unsigned samples are judged on their links.
-        //
-        // Two inputs, nothing else:
-        //
-        // 1. `check_whitelist_blacklist` — the Tranco `.xf`, the CIDR tables and
-        //    the `unwhitelist_subdomains` list in url_threat_rules.yaml. A
-        //    whitelisted host is skipped outright: a benign link sitting inside
-        //    a document is not a finding. A CIDR-blacklisted host is Malicious
-        //    on its own, because that is deterministic rather than a guess.
-        // 2. (The URL ML was used here before; it is URL-scanning only now.)
-        //
-        // No rule matching happens here. The patterns in url_threat_rules.yaml
-        // are tuned for a URL a person chose to visit and would fire on every
-        // ordinary link inside a document; that judgement belongs to the
-        // inspection path (`openedr_static_inspect_url` / the firewall), which
-        // has liveness and page content to work with. This layer only answers
-        // "is one of these links malicious", and the model answers it.
-        //
-        // Hosts in `unwhitelist_subdomains` — raw.githubusercontent.com,
-        // storage.googleapis.com and the rest — are kept out of the whitelist
-        // precisely so they reach step 2. Being listed is not a detection: a
-        // GitHub link is scored like any other URL.
-        if !is_apk_file {
-            let is_pdf = file_type.file_type == filetype::FileKind::Pdf.as_str();
-            for d in self.embedded_url_detections(data, "", "the file", is_pdf) {
-                max_score = max_score.max(d.score.unwrap_or(0.0));
-                detections.push(d);
             }
         }
 
@@ -1798,20 +1686,6 @@ fn entry_is_compressed_document(name: &str) -> bool {
                             }
                         }
 
-                        // Embedded URLs inside the entry. This is the only path
-                        // that sees an Office macro body: `word/vbaProject.bin`
-                        // and friends are deflated ZIP members, so their URLs
-                        // are invisible to the parent-file pass.
-                        for d in self.embedded_url_detections(
-                            &entry.data,
-                            "Archive_",
-                            &format!("archive entry '{}'", entry.name),
-                            Self::entry_is_compressed_document(&entry.name),
-                        ) {
-                            max_score = max_score.max(d.score.unwrap_or(0.0));
-                            detections.push(d);
-                        }
-
                         extracted_objects.push(extracted);
                     }
                 }
@@ -2032,7 +1906,7 @@ pub fn is_yara_rule_source(data: &[u8], _name: &str) -> bool {
     if !has_rule || !text.contains("condition") {
         return false;
     }
-    let ast = yara_x_parser::Parser::new(text.as_bytes()).into_ast();
+    let ast = yara_x_parser::ast::AST::from(yara_x_parser::Parser::new(text.as_bytes()));
     ast.errors().is_empty()
         && ast.items.iter().any(|i| matches!(i, yara_x_parser::ast::Item::Rule(_)))
 }
@@ -2093,5 +1967,3 @@ fn is_js_content(bytes: &[u8]) -> bool {
         false
     }
 }
-
-

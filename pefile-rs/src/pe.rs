@@ -258,10 +258,24 @@ impl PE {
     }
 
     pub fn get_offset_from_rva(&self, rva: u32) -> Result<usize, PeError> {
+        let map = |s: &Section| (rva - s.virtual_address) as usize + s.pointer_to_raw_data as usize;
+        // A section's real extent in memory is its VirtualSize. Packers often give a
+        // section a SizeOfRawData far larger than that (here .text: 8.6 MB raw, 1.1 MB
+        // virtual), which made it "cover" the RVAs of the sections after it, so the
+        // import directory was read from encrypted .text bytes. Prefer the section
+        // that holds the RVA by VirtualSize; fall back to the raw size only when none
+        // does (VirtualSize 0 or truncated values). u64 math: no u32 wrap.
         for s in &self.sections {
-            let limit = s.virtual_size.max(s.size_of_raw_data);
-            if rva >= s.virtual_address && rva < s.virtual_address + limit {
-                return Ok((rva - s.virtual_address + s.pointer_to_raw_data) as usize);
+            let (va, vs) = (s.virtual_address as u64, s.virtual_size as u64);
+            if vs > 0 && (rva as u64) >= va && (rva as u64) < va + vs {
+                return Ok(map(s));
+            }
+        }
+        for s in &self.sections {
+            let va = s.virtual_address as u64;
+            let limit = s.virtual_size.max(s.size_of_raw_data) as u64;
+            if (rva as u64) >= va && (rva as u64) < va + limit {
+                return Ok(map(s));
             }
         }
         Err(PeError::RvaNotMapped(rva))
@@ -331,6 +345,13 @@ impl PE {
     }
 
     fn parse_imports(&mut self) {
+        // Limits as in Python pefile (MAX_IMPORT_SYMBOLS). Import tables are
+        // attacker-controlled: a packed sample whose descriptors and thunks point
+        // into encrypted data never hits the terminating zero, and the walk used to
+        // run (and wrap the u32 RVA) until the process ran out of memory.
+        const MAX_IMPORT_DLLS: usize = 1024;
+        const MAX_IMPORT_SYMBOLS: u32 = 0x2000;
+        const MAX_TOTAL_IMPORT_SYMBOLS: usize = 0x10000;
         if self.optional_header.data_directories.len() <= DIRECTORY_ENTRY_IMPORT {
             return;
         }
@@ -346,8 +367,12 @@ impl PE {
 
         let raw = &self.raw_data;
         let mut imports = Vec::new();
+        let mut total_symbols = 0usize;
 
-        while desc_off + 20 <= raw.len() {
+        while desc_off + 20 <= raw.len()
+            && imports.len() < MAX_IMPORT_DLLS
+            && total_symbols < MAX_TOTAL_IMPORT_SYMBOLS
+        {
             let orig_first_thunk = u32::from_le_bytes(raw[desc_off..desc_off + 4].try_into().unwrap());
             let time_date_stamp = u32::from_le_bytes(raw[desc_off + 4..desc_off + 8].try_into().unwrap());
             let forwarder_chain = u32::from_le_bytes(raw[desc_off + 8..desc_off + 12].try_into().unwrap());
@@ -364,7 +389,9 @@ impl PE {
             let mut thunk_idx = 0;
 
             if self.is_64bit {
-                while let Ok(t_off) = self.get_offset_from_rva(thunk_rva_base + thunk_idx * 8) {
+                while thunk_idx < MAX_IMPORT_SYMBOLS {
+                    let Some(thunk_rva) = thunk_rva_base.checked_add(thunk_idx * 8) else { break };
+                    let Ok(t_off) = self.get_offset_from_rva(thunk_rva) else { break };
                     if t_off + 8 > raw.len() { break; }
                     let thunk_val = u64::from_le_bytes(raw[t_off..t_off + 8].try_into().unwrap());
                     if thunk_val == 0 { break; }
@@ -394,7 +421,9 @@ impl PE {
                     thunk_idx += 1;
                 }
             } else {
-                while let Ok(t_off) = self.get_offset_from_rva(thunk_rva_base + thunk_idx * 4) {
+                while thunk_idx < MAX_IMPORT_SYMBOLS {
+                    let Some(thunk_rva) = thunk_rva_base.checked_add(thunk_idx * 4) else { break };
+                    let Ok(t_off) = self.get_offset_from_rva(thunk_rva) else { break };
                     if t_off + 4 > raw.len() { break; }
                     let thunk_val = u32::from_le_bytes(raw[t_off..t_off + 4].try_into().unwrap());
                     if thunk_val == 0 { break; }
@@ -424,6 +453,7 @@ impl PE {
                 }
             }
 
+            total_symbols += entries.len();
             imports.push(ImportDirectory {
                 dll: dll_name,
                 original_first_thunk: orig_first_thunk,

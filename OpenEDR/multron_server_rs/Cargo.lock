@@ -2985,6 +2985,7 @@ name = "multron_server_rs"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "brotli-decompressor",
  "chrono",
  "clap",
  "fast-tlsh",
@@ -3273,6 +3274,7 @@ dependencies = [
  "nested",
  "oxc_allocator",
  "oxc_ast",
+ "oxc_ast_visit",
  "oxc_parser",
  "oxc_span",
  "pefile-rs",
@@ -3286,6 +3288,7 @@ dependencies = [
  "url",
  "windows",
  "yara-x",
+ "yara-x-parser",
  "yaxpeax-arch",
  "yaxpeax-arm",
 ]
@@ -3389,6 +3392,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "oxc_ast_visit"
+version = "0.152.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5dab648a994ca3b3675ccbea348b11006aca6c22d28a2bcc4fd22c891be47ed"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_span",
+ "oxc_syntax",
 ]
 
 [[package]]

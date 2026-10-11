@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -168,7 +168,6 @@ impl Sample {
 
         let base_addr = opt_header.image_base as u64;
         let virtualmemorysize = get_virtual_memory_size(&sections);
-        check_image_size(virtualmemorysize)?;
         let ep = entrypoint(&opt_header);
 
         let sec_headers: Vec<crate::filetype::pe_file::SectionHeader> = sections
@@ -220,7 +219,6 @@ impl Sample {
 
         let base_addr = opt_header.image_base as u64;
         let virtualmemorysize = get_virtual_memory_size(&sections);
-        check_image_size(virtualmemorysize)?;
         let ep = entrypoint(&opt_header);
 
         let sec_headers: Vec<crate::filetype::pe_file::SectionHeader> = sections
@@ -270,7 +268,12 @@ struct HookState {
     sections_read: HashMap<String, u64>,
     sections_written: HashMap<String, u64>,
     sections_executed: HashMap<String, u64>,
-    write_targets: Vec<(u64, u64)>,
+    /// Pages (address >> 12) written inside the image. A set stays bounded however
+    /// long a decryption loop runs; the old Vec of every single write grew by 16 bytes
+    /// per write (millions per second) until the scanner ran out of memory.
+    written_pages: HashSet<u64>,
+    /// Section addresses are RVAs; hook addresses are absolute.
+    image_base: u64,
     apicall_counter: HashMap<String, u64>,
     hook_addr: u64,
     start_time: Instant,
@@ -318,6 +321,7 @@ impl UnpackerEngine {
         let teb_base = TEB_ADDR;
         let sections = sample.sections.clone();
         let unpacker = sample.unpacker.clone();
+        let image_base = sample.base_addr;
 
         Self {
             sample,
@@ -347,7 +351,8 @@ impl UnpackerEngine {
                 sections_read: HashMap::new(),
                 sections_written: HashMap::new(),
                 sections_executed: HashMap::new(),
-                write_targets: Vec::new(),
+                written_pages: HashSet::new(),
+                image_base,
                 apicall_counter: HashMap::new(),
                 hook_addr: HOOK_ADDR,
                 start_time: Instant::now(),
@@ -583,80 +588,45 @@ impl UnpackerEngine {
                     return;
                 }
 
-                // Drop state before potentially recursive calls
                 drop(state);
 
-                // Store the hook addresses we need to check
-                let hook_addr_val: u64;
-                let do_section_hopping: bool;
-                let do_write_execute: bool;
-                let allowed_sections: Vec<String>;
-                let allowed_ranges: Vec<(u64, u64)>;
-                let secs: Vec<Section>;
-                let apicall_counter: HashMap<String, u64>;
-
-                {
-                    let s = hook_state.borrow();
-                    hook_addr_val = s.hook_addr;
-                    do_section_hopping = s.unpacker.section_hopping_control;
-                    do_write_execute = s.unpacker.write_execute_control;
-                    allowed_sections = s.unpacker.allowed_sections.clone();
-                    allowed_ranges = s.unpacker.allowed_addr_ranges.clone();
-                    secs = s.sample_sections.clone();
-                    apicall_counter = s.apicall_counter.clone();
-                }
-
-                // Detect API calls via hook address
-                if addr >= hook_addr_val && addr < hook_addr_val + 0x100000 {
-                    if let Some(api_name) = resolve_hook_name(&apicall_counter, addr) {
-                        log::info!("API call: {}", api_name);
-                    }
-                    let _ = uc.emu_stop();
-                    return;
-                }
-
-                // Track section execution
-                let sec_name = get_section_name(&secs, addr);
-                if !sec_name.is_empty() {
-                    let mut s = hook_state.borrow_mut();
-                    *s.sections_executed.entry(sec_name.clone()).or_insert(0) += 1;
-                }
-
-                // Write-execute detection
-                if do_write_execute {
-                    let s = hook_state.borrow();
-                    for &(w_start, w_end) in &s.write_targets {
-                        if addr >= w_start && addr < w_end {
-                            log::warn!(
-                                "Write-execute at {:#x} in range {:#x}-{:#x}",
-                                addr,
-                                w_start,
-                                w_end
-                            );
-                            drop(s);
-                            let _ = uc.emu_stop();
-                            return;
+                // Runs for every emulated instruction: one borrow, no clones.
+                let stop = {
+                    let mut guard = hook_state.borrow_mut();
+                    let st = &mut *guard;
+                    if addr >= st.hook_addr && addr < st.hook_addr + 0x100000 {
+                        // API call via a patched IAT entry.
+                        if let Some(api_name) = resolve_hook_name(&st.apicall_counter, addr) {
+                            log::info!("API call: {}", api_name);
+                        }
+                        true
+                    } else {
+                        let idx = section_index(&st.sample_sections, st.image_base, addr);
+                        if let Some(i) = idx {
+                            let name = &st.sample_sections[i].name;
+                            match st.sections_executed.get_mut(name) {
+                                Some(c) => *c += 1,
+                                None => {
+                                    st.sections_executed.insert(name.clone(), 1);
+                                }
+                            }
+                        }
+                        if st.unpacker.write_execute_control && st.written_pages.contains(&(addr >> 12)) {
+                            log::warn!("Write-execute at {:#x}", addr);
+                            true
+                        } else if st.unpacker.section_hopping_control
+                            && !idx.is_some_and(|i| st.unpacker.allowed_sections.iter().any(|n| *n == st.sample_sections[i].name))
+                            && !st.unpacker.allowed_addr_ranges.iter().any(|&(lo, hi)| addr >= lo && addr < hi)
+                        {
+                            log::warn!("Section hopping detected at {:#x}, stopping", addr);
+                            true
+                        } else {
+                            false
                         }
                     }
-                }
-
-                // Section hopping detection
-                if do_section_hopping {
-                    let in_allowed_section = allowed_sections.iter().any(|name| {
-                        get_section_name(&secs, addr) == *name
-                    });
-                    let in_allowed_range = allowed_ranges
-                        .iter()
-                        .any(|&(lo, hi)| addr >= lo && addr < hi);
-
-                    if !in_allowed_section && !in_allowed_range {
-                        log::warn!(
-                            "Section hopping detected at {:#x}, stopping",
-                            addr
-                        );
-                        let _ = uc.emu_stop();
-                        return;
-                    }
+                };
+                if stop {
+                    let _ = uc.emu_stop();
                 }
             })
             .map_err(|e| UnpackerError::EmulatorError(format!("add_code_hook: {:?}", e)))?;
@@ -670,25 +640,38 @@ impl UnpackerEngine {
                 0,
                 u64::MAX,
                 move |_uc, mem_type, addr, size, _value| {
-                    let sec_name = get_section_name_from_state(&hook_state2, addr);
-                    if sec_name.is_empty() {
+                    let mut guard = hook_state2.borrow_mut();
+                    let st = &mut *guard;
+                    let Some(i) = section_index(&st.sample_sections, st.image_base, addr) else {
                         return true;
+                    };
+                    let name = &st.sample_sections[i].name;
+                    let is_write = matches!(mem_type, MemType::WRITE);
+                    let counters = if is_write {
+                        Some(&mut st.sections_written)
+                    } else if matches!(mem_type, MemType::READ) {
+                        Some(&mut st.sections_read)
+                    } else {
+                        None
+                    };
+                    if let Some(map) = counters {
+                        match map.get_mut(name) {
+                            Some(v) => *v += size as u64,
+                            None => {
+                                map.insert(name.clone(), size as u64);
+                            }
+                        }
                     }
-
-                    let mut state = hook_state2.borrow_mut();
-                    match mem_type {
-                        MemType::READ => {
-                            *state.sections_read.entry(sec_name).or_insert(0) += size as u64;
+                    if is_write {
+                        let first = addr >> 12;
+                        let last = (addr + (size as u64).max(1) - 1) >> 12;
+                        for page in first..=last {
+                            st.written_pages.insert(page);
                         }
-                        MemType::WRITE => {
-                            *state.sections_written.entry(sec_name).or_insert(0) += size as u64;
-                            state.write_targets.push((addr, addr + size as u64));
-                        }
-                        _ => {}
                     }
 
                     // Check memory breakpoints
-                    for &(bp_start, bp_end) in &state.mem_breakpoints {
+                    for &(bp_start, bp_end) in &st.mem_breakpoints {
                         if addr >= bp_start && addr < bp_end {
                             return false; // stop emulation
                         }
@@ -755,7 +738,17 @@ impl UnpackerEngine {
             self.sections_read = hs.sections_read.clone();
             self.sections_written = hs.sections_written.clone();
             self.sections_executed = hs.sections_executed.clone();
-            self.write_targets = hs.write_targets.clone();
+            // Written pages as merged [start, end) address ranges.
+            let mut pages: Vec<u64> = hs.written_pages.iter().copied().collect();
+            pages.sort_unstable();
+            let mut ranges: Vec<(u64, u64)> = Vec::new();
+            for p in pages {
+                match ranges.last_mut() {
+                    Some(r) if r.1 == p << 12 => r.1 = (p + 1) << 12,
+                    _ => ranges.push((p << 12, (p + 1) << 12)),
+                }
+            }
+            self.write_targets = ranges;
             self.apicall_counter = hs.apicall_counter.clone();
         }
 
@@ -1031,22 +1024,6 @@ pub fn entrypoint(opt_header: &OptionalHeader) -> u64 {
     opt_header.image_base as u64 + opt_header.address_of_entry_point as u64
 }
 
-/// Largest image the emulator will map. The image is allocated up to three times
-/// (host copy, Unicorn mapping, dump buffer), and section sizes come from the file,
-/// so a PE claiming a multi-GB VirtualSize would otherwise exhaust RAM and abort
-/// the whole scanner with "memory allocation failed".
-pub const MAX_EMU_IMAGE_SIZE: u64 = 256 * 1024 * 1024;
-
-fn check_image_size(size: u64) -> UnpackerResult<()> {
-    if size == 0 || size > MAX_EMU_IMAGE_SIZE {
-        return Err(UnpackerError::General(format!(
-            "image size {} bytes is outside the emulation limit (1..={} bytes), not emulated",
-            size, MAX_EMU_IMAGE_SIZE
-        )));
-    }
-    Ok(())
-}
-
 pub fn get_virtual_memory_size(sections: &[Section]) -> u64 {
     let mut max_end = 0u64;
     for s in sections {
@@ -1246,27 +1223,13 @@ fn setup_ldr_entries(
     Ok(())
 }
 
-fn get_section_name(sections: &[Section], addr: u64) -> String {
-    for s in sections {
-        let sec_end =
-            s.virtual_address as u64 + s.virtual_size.max(s.size_of_raw_data) as u64;
-        if addr >= s.virtual_address as u64 && addr < sec_end {
-            return s.name.clone();
-        }
-    }
-    String::new()
-}
-
-fn get_section_name_from_state(hook_state: &Rc<RefCell<HookState>>, addr: u64) -> String {
-    let state = hook_state.borrow();
-    for s in &state.sample_sections {
-        let sec_end =
-            s.virtual_address as u64 + s.virtual_size.max(s.size_of_raw_data) as u64;
-        if addr >= s.virtual_address as u64 && addr < sec_end {
-            return s.name.clone();
-        }
-    }
-    String::new()
+/// Index of the section that holds `addr` (an absolute address in the emulated image).
+fn section_index(sections: &[Section], image_base: u64, addr: u64) -> Option<usize> {
+    let rva = addr.checked_sub(image_base)?;
+    sections.iter().position(|s| {
+        let start = s.virtual_address as u64;
+        rva >= start && rva < start + s.virtual_size.max(s.size_of_raw_data) as u64
+    })
 }
 
 fn resolve_hook_name(
