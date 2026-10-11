@@ -1,4 +1,4 @@
-pimport "pe"
+import "pe"
 import "hash"
 import "elf"
 import "console"
