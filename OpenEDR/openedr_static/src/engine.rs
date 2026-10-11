@@ -25,9 +25,10 @@ use crate::yara::YaraScanner;
 /// Web parity (`openedr_web/src/engine.rs::APK_TREE_THRESHOLD`).
 pub const APK_TREE_THRESHOLD: f32 = 0.8;
 
-/// PE tree-model decision threshold. Retuned to 0.90 to eliminate false positives
+/// PE tree-model decision threshold, calibrated by train_pe_lgbm.py (0.1 % FPR on held-out
+/// benign) for the model trained on all benign data. Was 0.90 to eliminate false positives
 /// on non-standard compilers/tools (MinGW DWARF sections, PyInstaller/decompilers, Lazarus).
-pub const PE_TREE_THRESHOLD: f32 = 0.90;
+pub const PE_TREE_THRESHOLD: f32 = 0.9095;
 
 /// JS tree-model decision threshold. Set to 0.90 (Malicious cutoff) to eliminate
 /// false positives in the 0.75-0.84 suspicious range on minified/bundled JS files.

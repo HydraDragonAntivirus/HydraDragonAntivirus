@@ -11,6 +11,7 @@ import math
 import struct
 import shutil
 import argparse
+import json
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import pefile
@@ -348,6 +349,9 @@ def parse_args():
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 4, help="Feature extraction threads")
     parser.add_argument("--extract-only", action="store_true", help="Only extract chunks to disk, do not train")
     parser.add_argument("--train-only", action="store_true", help="Only train from existing chunk directory")
+    parser.add_argument("--balance", action="store_true", help="Old behaviour: undersample both classes to 50/50 (default: use ALL samples)")
+    parser.add_argument("--max-benign-ratio", type=float, default=0.0, help="Cap benign at N x malicious (0 = no cap, e.g. 4 = at most 4 benign per malicious)")
+    parser.add_argument("--target-fpr", type=float, default=0.001, help="Pick the threshold so at most this share of held-out benign is flagged (0.001 = 0.1%%)")
     return parser.parse_args()
 
 def collect_features_batch(file_batch, executor):
@@ -397,48 +401,63 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
     print(f"[+] Total {label_name} PE samples extracted: {total_valid}")
     return total_valid
 
-def load_chunks_balanced(chunk_dir):
+def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0):
+    """Load every feature chunk. By default ALL samples are used (benign > malicious is
+    fine and lowers false positives); `balance` restores the old 50/50 undersampling.
+    Exact duplicate feature rows are removed, and rows that occur in BOTH classes
+    (label noise) are dropped."""
     import glob
     chunk_files = glob.glob(os.path.join(chunk_dir, "chunk_pe_*.joblib"))
     if not chunk_files:
         raise RuntimeError(f"No PE chunk files found in {chunk_dir}")
-        
-    print(f"[*] Found {len(chunk_files)} chunk files in {chunk_dir}. Loading and balancing 50/50...")
+
+    print(f"[*] Found {len(chunk_files)} chunk files in {chunk_dir}.")
     X_mal_list, X_ben_list = [], []
-    
     for cf in chunk_files:
         data = joblib.load(cf)
-        X_sub = data["X"]
-        y_sub = data["y"]
-        if y_sub[0] == 1:
-            X_mal_list.append(X_sub)
-        else:
-            X_ben_list.append(X_sub)
-            
+        if len(data["y"]) == 0:
+            continue
+        (X_mal_list if data["y"][0] == 1 else X_ben_list).append(data["X"])
     if not X_mal_list or not X_ben_list:
         raise RuntimeError(f"Need both Malicious and Benign chunks in {chunk_dir} to train!")
-        
-    X_mal = np.vstack(X_mal_list)
-    X_ben = np.vstack(X_ben_list)
-    
-    n_mal = len(X_mal)
-    n_ben = len(X_ben)
-    target_each = min(n_mal, n_ben)
-    print(f"[*] Raw counts: {n_mal} Malicious, {n_ben} Benign -> Balancing to {target_each} each (50/50)")
-    
-    np.random.seed(42)
-    idx_mal = np.random.choice(n_mal, target_each, replace=False)
-    idx_ben = np.random.choice(n_ben, target_each, replace=False)
-    
-    X = np.vstack([X_mal[idx_mal], X_ben[idx_ben]])
-    y = np.array([1] * target_each + [0] * target_each, dtype=np.int32)
-    
-    del X_mal, X_ben, X_mal_list, X_ben_list
-    import gc
-    gc.collect()
-    
-    print(f"[+] Loaded perfectly balanced dataset: {len(X)} samples ({target_each} Malicious, {target_each} Benign)")
+
+    X_mal = np.unique(np.vstack(X_mal_list), axis=0)
+    X_ben = np.unique(np.vstack(X_ben_list), axis=0)
+    del X_mal_list, X_ben_list
+
+    # Same feature vector labelled both ways: the model cannot learn it, drop from both.
+    mal_keys = {r.tobytes() for r in X_mal}
+    both = {r.tobytes() for r in X_ben} & mal_keys
+    if both:
+        X_mal = np.array([r for r in X_mal if r.tobytes() not in both])
+        X_ben = np.array([r for r in X_ben if r.tobytes() not in both])
+    print(f"[*] After dedup: {len(X_mal)} Malicious, {len(X_ben)} Benign ({len(both)} conflicting rows dropped)")
+
+    rng = np.random.default_rng(42)
+    if balance:
+        n = min(len(X_mal), len(X_ben))
+        X_mal = X_mal[rng.choice(len(X_mal), n, replace=False)]
+        X_ben = X_ben[rng.choice(len(X_ben), n, replace=False)]
+        print(f"[*] --balance: undersampled to {n} each (50/50)")
+    elif max_benign_ratio > 0 and len(X_ben) > max_benign_ratio * len(X_mal):
+        n = int(max_benign_ratio * len(X_mal))
+        X_ben = X_ben[rng.choice(len(X_ben), n, replace=False)]
+        print(f"[*] --max-benign-ratio {max_benign_ratio}: benign capped at {n}")
+
+    X = np.vstack([X_mal, X_ben])
+    y = np.array([1] * len(X_mal) + [0] * len(X_ben), dtype=np.int32)
+    print(f"[+] Dataset: {len(X)} samples ({len(X_mal)} Malicious, {len(X_ben)} Benign, ratio 1:{len(X_ben) / max(len(X_mal), 1):.2f})")
     return X, y
+
+
+def report(name, y_true, prob, thr):
+    pred = (prob >= thr).astype(int)
+    cm = confusion_matrix(y_true, pred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
+    fpr = fp / (fp + tn) * 100.0 if (fp + tn) else 0.0
+    rec = tp / (tp + fn) * 100.0 if (tp + fn) else 0.0
+    print(f"  {name:<28} thr={thr:.4f}  Recall={rec:6.2f}%  FPR={fpr:7.4f}%  (TP={tp} FN={fn} TN={tn} FP={fp})")
+
 
 def main():
     args = parse_args()
@@ -461,12 +480,14 @@ def main():
         print("[+] Feature extraction finished. Exiting as --extract-only was specified.")
         return
 
-    X, y = load_chunks_balanced(args.chunk_dir)
+    X, y = load_chunks(args.chunk_dir, balance=args.balance, max_benign_ratio=args.max_benign_ratio)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
-    print(f"[*] Train set: {len(X_train)} | Test set: {len(X_test)}")
+    # 70 % train, 15 % validation (threshold), 15 % test (final numbers).
+    X_train, X_rest, y_train, y_rest = train_test_split(X, y, test_size=0.30, random_state=42, stratify=y)
+    X_val, X_test, y_val, y_test = train_test_split(X_rest, y_rest, test_size=0.50, random_state=42, stratify=y_rest)
+    print(f"[*] Train: {len(X_train)} | Validation: {len(X_val)} | Test: {len(X_test)}")
 
-    print("[*] Training LightGBM Classifier (Balanced 50/50, zero false-positive tuning)...")
+    print("[*] Training LightGBM Classifier (no class re-weighting: extra benign keeps FPs down)...")
     clf = lgb.LGBMClassifier(
         n_estimators=500,
         learning_rate=0.03,
@@ -481,18 +502,21 @@ def main():
     )
     clf.fit(X_train, y_train)
 
-    y_pred = clf.predict(X_test)
+    # Threshold from the validation benign scores: at most target-fpr of them above it.
+    val_ben = np.sort(clf.predict_proba(X_val[y_val == 0])[:, 1])
+    k = int(np.ceil(len(val_ben) * (1.0 - args.target_fpr)))
+    thr = float(val_ben[min(k, len(val_ben) - 1)]) + 1e-6 if len(val_ben) else 0.9
+    thr = min(max(thr, 0.5), 0.9999)
 
-    print("\n" + "=" * 30 + " EVALUATION REPORT " + "=" * 30)
-    print(classification_report(y_test, y_pred, target_names=["Benign", "Malicious"], digits=4))
-    cm = confusion_matrix(y_test, y_pred)
-    tn, fp, fn, tp = cm.ravel()
-    fpr = fp / (fp + tn) * 100.0 if (fp + tn) > 0 else 0.0
-    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
-    print(f"Confusion Matrix: TP={tp}, FN={fn}, TN={tn}, FP={fp}")
-    print(f"Malware Recall (Detection Rate): {recall:.2f}%")
-    print(f"False Positive Rate (FPR):       {fpr:.2f}%")
-    print("=" * 79)
+    prob_test = clf.predict_proba(X_test)[:, 1]
+    print("\n" + "=" * 30 + " EVALUATION REPORT (test set) " + "=" * 30)
+    report("default 0.50", y_test, prob_test, 0.50)
+    report("engine PE_TREE_THRESHOLD 0.90", y_test, prob_test, 0.90)
+    report(f"calibrated (target FPR {args.target_fpr * 100:.3f}%)", y_test, prob_test, thr)
+    print(f"\n[!] Set PE_TREE_THRESHOLD = {thr:.4f} in OpenEDR/openedr_static/src/engine.rs for this model.")
+    with open(os.path.splitext(args.output_bin)[0] + "_threshold.json", "w") as f:
+        json.dump({"pe_tree_threshold": round(thr, 4), "target_fpr": args.target_fpr}, f)
+    print("=" * 89)
 
     print(f"[*] Converting LightGBM model to ONNX: {args.output_onnx}...")
     initial_type = [("float_input", FloatTensorType([None, len(FEATURE_NAMES)]))]

@@ -15,14 +15,19 @@
 //! similar size, and no new medium/high static indicator. Engine-clean files are
 //! never used as references, and the whitelist never overrides a detection.
 //!
-//! Malware similarity is shown to people only; it never sets a verdict.
+//! Malware similarity is shown to people only; it never sets a verdict, with one
+//! exception: analyst TLSH signatures. A human "malicious" verdict stores the file's
+//! TLSH (`tlsh_signatures/analyst_tlsh.jsonl`), and a file the engine does not detect
+//! that is within `ANALYST_TLSH_MAX_DIST` of one gets the analyst's threat name. The
+//! TLSH is taken with trailing zero bytes stripped, so appending 00 padding to a sample
+//! does not hide it.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::{Mutex, RwLock};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tlsh::{FuzzyHashType, Tlsh};
 
@@ -30,6 +35,41 @@ use crate::fingerprint::{accept, RefLine, Structure};
 pub use crate::fingerprint::SMART_WL_MAX_DIST;
 /// "Similar files" shown to people.
 pub const SIMILAR_MAX_DIST: u32 = 80;
+/// Analyst TLSH signatures: a file this close to an analyst-confirmed malicious file
+/// is flagged. Low enough for near-copies (padding, a changed string or resource).
+pub const ANALYST_TLSH_MAX_DIST: u32 = 30;
+/// ...and its size (padding stripped) must be within this factor of the sample's.
+const ANALYST_TLSH_SIZE_FACTOR: f64 = 1.5;
+
+/// One analyst TLSH signature (a line of `analyst_tlsh.jsonl`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalystTlsh {
+    pub sha256: String,
+    pub tlsh: String,
+    pub threat: String,
+    #[serde(default)]
+    pub analyst: String,
+    /// Size with trailing zero padding stripped; 0 = unknown (no size check).
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub added: String,
+}
+
+struct AnalystSig {
+    meta: AnalystTlsh,
+    tlsh: Tlsh,
+}
+
+/// The file without trailing 0x00 padding.
+pub fn trim_trailing_padding(data: &[u8]) -> &[u8] {
+    let end = data.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+    &data[..end]
+}
+
+fn analyst_tlsh_path() -> std::path::PathBuf {
+    tlsh_dir().join("analyst_tlsh.jsonl")
+}
 
 struct Entry {
     sha256: String,
@@ -52,6 +92,7 @@ pub struct SimilarityIndex {
     files: RwLock<Vec<Entry>>,
     seen: RwLock<HashSet<String>>,
     known_malware: RwLock<Vec<Tlsh>>,
+    analyst_sigs: RwLock<Vec<AnalystSig>>,
     writer: Mutex<Option<std::fs::File>>,
 }
 
@@ -112,7 +153,88 @@ impl SimilarityIndex {
         *idx.writer.lock().unwrap() = OpenOptions::new().create(true).append(true).open(index_path()).ok();
         idx.reload_known_malware();
         idx.reload_corpus_refs();
+        idx.reload_analyst_sigs();
         idx
+    }
+
+    /// (Re)reads `analyst_tlsh.jsonl`. It is append-only: a later line for the same
+    /// SHA-256 replaces the earlier one, `"removed": true` deletes it.
+    pub fn reload_analyst_sigs(&self) -> usize {
+        let mut by_sha: HashMap<String, AnalystSig> = HashMap::new();
+        if let Ok(f) = std::fs::File::open(analyst_tlsh_path()) {
+            for line in BufReader::new(f).lines().map_while(Result::ok) {
+                let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+                let Some(sha) = v["sha256"].as_str().map(str::to_ascii_lowercase) else { continue };
+                if v["removed"].as_bool() == Some(true) {
+                    by_sha.remove(&sha);
+                    continue;
+                }
+                let Ok(meta) = serde_json::from_value::<AnalystTlsh>(v) else { continue };
+                let Ok(tlsh) = meta.tlsh.parse::<Tlsh>() else { continue };
+                by_sha.insert(sha, AnalystSig { meta, tlsh });
+            }
+        }
+        let n = by_sha.len();
+        *self.analyst_sigs.write().unwrap() = by_sha.into_values().collect();
+        if n > 0 {
+            eprintln!("[similarity] {n} analyst TLSH signatures loaded");
+        }
+        n
+    }
+
+    fn append_analyst_line(v: &Value) {
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(analyst_tlsh_path()) {
+            let _ = writeln!(f, "{v}");
+        }
+    }
+
+    /// Adds (or replaces) the signature of one analyst-confirmed malicious file.
+    pub fn add_analyst_sig(&self, mut meta: AnalystTlsh) -> bool {
+        meta.sha256 = meta.sha256.to_ascii_lowercase();
+        let Ok(tlsh) = meta.tlsh.parse::<Tlsh>() else { return false };
+        let mut sigs = self.analyst_sigs.write().unwrap();
+        sigs.retain(|s| s.meta.sha256 != meta.sha256);
+        Self::append_analyst_line(&serde_json::to_value(&meta).unwrap_or_default());
+        sigs.push(AnalystSig { meta, tlsh });
+        true
+    }
+
+    /// Drops the signature of `sha256` (its human verdict is no longer malicious).
+    pub fn remove_analyst_sig(&self, sha256: &str) -> bool {
+        let sha = sha256.to_ascii_lowercase();
+        let mut sigs = self.analyst_sigs.write().unwrap();
+        let before = sigs.len();
+        sigs.retain(|s| s.meta.sha256 != sha);
+        let removed = sigs.len() != before;
+        if removed {
+            Self::append_analyst_line(&serde_json::json!({ "sha256": sha, "removed": true }));
+        }
+        removed
+    }
+
+    /// Closest analyst signature within `ANALYST_TLSH_MAX_DIST` of `data` (padding
+    /// stripped), ignoring the file's own signature.
+    pub fn analyst_match(&self, data: &[u8], sha256: &str) -> Option<(AnalystTlsh, u32)> {
+        let sigs = self.analyst_sigs.read().unwrap();
+        if sigs.is_empty() {
+            return None;
+        }
+        let body = trim_trailing_padding(data);
+        let q = crate::analyzer::tlsh_digest(body)?.parse::<Tlsh>().ok()?;
+        let own = sha256.to_ascii_lowercase();
+        let len = body.len() as f64;
+        sigs.iter()
+            .filter(|s| s.meta.sha256 != own)
+            .filter(|s| {
+                s.meta.size == 0 || {
+                    let sz = s.meta.size as f64;
+                    len.max(sz) <= len.min(sz) * ANALYST_TLSH_SIZE_FACTOR
+                }
+            })
+            .map(|s| (s, q.compare(&s.tlsh)))
+            .filter(|(_, d)| *d <= ANALYST_TLSH_MAX_DIST)
+            .min_by_key(|(_, d)| *d)
+            .map(|(s, d)| (s.meta.clone(), d))
     }
 
     /// (Re)reads `tlsh_signatures/tlsh_whitelist_refs.jsonl` written by

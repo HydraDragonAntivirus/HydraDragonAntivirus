@@ -971,7 +971,7 @@ fn verdict_rank(v: &str) -> u8 {
 
 /// Raises a result to an analyst signature's verdict (never lowers it) and keeps the
 /// ECS fields the clients read (`antivirus`, `rule`, `threat`, `event.kind`) in sync.
-fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::AnalystHit) {
+pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::AnalystHit) {
     if verdict_rank(hit.verdict) <= verdict_rank(&res.verdict) {
         return;
     }

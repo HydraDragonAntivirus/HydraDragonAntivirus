@@ -1270,6 +1270,7 @@ async fn handle_scan(
                 };
                 let mut report = None;
                 let r = engine.scan_blocking_with(&data, &job_name, &job_sha, |res| {
+                    apply_analyst_tlsh(&ti, &data, res);
                     report = apply_smart_whitelist(&ti, &data, &job_name, res);
                 });
                 let _ = rtx.send(r);
@@ -1534,6 +1535,33 @@ fn verdict_message(sha_hex: &str, v: CachedVerdict, action: &str, source: &str) 
 /// for files nobody could classify (the APK ML engine included); it never overrides a
 /// detection. The result is `possible_clean`, not `clean`. Returns the static report
 /// when it had to be built.
+/// Analyst TLSH signatures (see `similarity`): a file the engine did not detect is
+/// flagged when it is a near-copy of a file an analyst marked malicious, e.g. the same
+/// sample with 00 bytes appended. Only raises unknown / possible_clean / suspicious
+/// results; never touches an engine-clean file or one an analyst marked clean.
+pub fn apply_analyst_tlsh(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], res: &mut ResultMessage) {
+    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") {
+        return;
+    }
+    if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
+        return;
+    }
+    let Some((sig, d)) = ti.similarity.analyst_match(data, &res.sha256) else { return };
+    crate::engine_adapter::apply_analyst_hit(
+        res,
+        &crate::analyst_engine::AnalystHit { engine: "analyst_tlsh", name: sig.threat.clone(), verdict: "malicious" },
+    );
+    let detail = format!(
+        "Analyst TLSH signature: distance {d} to {} (marked malicious by {})",
+        sig.sha256,
+        if sig.analyst.is_empty() { "an analyst" } else { sig.analyst.as_str() }
+    );
+    res.detail = Some(detail.clone());
+    if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
+        o.insert("detail".into(), serde_json::json!(detail));
+    }
+}
+
 pub fn apply_smart_whitelist(
     ti: &crate::threat_intel::ThreatIntelStore,
     data: &[u8],

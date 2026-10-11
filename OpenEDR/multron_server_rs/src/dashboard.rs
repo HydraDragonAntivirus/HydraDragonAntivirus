@@ -1237,6 +1237,7 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(mut b): Json
     let ti = Arc::clone(&app.threat_intel);
     let engine = Arc::clone(&app.engine);
     let result = tokio::task::spawn_blocking(move || {
+        let adapter = Arc::clone(&engine);
         let mut relabel: Vec<(String, String)> = Vec::new();
         let mut seen_set = std::collections::HashSet::new();
         let (mut invalid, mut duplicates, mut unseen, mut pending, mut same, mut written, mut skipped, mut failed) =
@@ -1315,9 +1316,10 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(mut b): Json
             }
             let threat = if b.threat_name.trim().is_empty() { None } else { Some(b.threat_name.as_str()) };
             match ti.reviews.complete(&sha, &verdict, threat, &b.note, &b.internal_note, &b.analyst) {
-                Ok(_) => {
+                Ok(r) => {
                     written += 1;
                     relabel.push((sha.clone(), verdict.clone()));
+                    sync_analyst_tlsh(&adapter, &ti, &sha, &verdict, r.threat_name.as_deref(), &b.analyst);
                 }
                 Err(e) => {
                     failed += 1;
@@ -1384,6 +1386,40 @@ struct ReviewSaveBody {
     analyst: String,
 }
 
+/// Keeps the analyst TLSH signature of `sha` in step with its human verdict: created
+/// for malicious (from the kept file, padding stripped; else the indexed TLSH of the
+/// whole file), dropped for any other verdict. Blocking (reads the kept file).
+fn sync_analyst_tlsh(
+    engine: &crate::engine_adapter::EngineAdapter,
+    ti: &crate::threat_intel::ThreatIntelStore,
+    sha: &str,
+    verdict: &str,
+    threat: Option<&str>,
+    analyst: &str,
+) {
+    let sha = sha.trim().to_ascii_lowercase();
+    if verdict != "malicious" {
+        ti.similarity.remove_analyst_sig(&sha);
+        return;
+    }
+    let (tlsh, size) = match engine.read_kept_sample(&sha.to_ascii_uppercase()) {
+        Some(data) => {
+            let body = crate::similarity::trim_trailing_padding(&data);
+            (crate::analyzer::tlsh_digest(body), body.len() as u64)
+        }
+        None => (ti.similarity.tlsh_of(&sha), 0),
+    };
+    let Some(tlsh) = tlsh else { return };
+    ti.similarity.add_analyst_sig(crate::similarity::AnalystTlsh {
+        sha256: sha,
+        tlsh,
+        threat: threat.filter(|t| !t.is_empty()).unwrap_or("Generic.Multi.Malware").to_string(),
+        analyst: analyst.to_string(),
+        size,
+        added: chrono::Utc::now().to_rfc3339(),
+    });
+}
+
 async fn handle_review_save(
     State(app): State<Arc<AppState>>,
     Json(b): Json<ReviewSaveBody>,
@@ -1392,8 +1428,12 @@ async fn handle_review_save(
     match app.threat_intel.reviews.complete(b.sha256.trim(), &b.verdict, threat, &b.note, &b.internal_note, &b.analyst) {
         Ok(r) => {
             if let Some(v) = r.verdict.clone() {
-                let (eng, sha) = (Arc::clone(&app.engine), r.sha256.clone());
-                tokio::task::spawn_blocking(move || eng.relabel_kept(&sha.to_ascii_uppercase(), &v));
+                let (eng, ti, sha) = (Arc::clone(&app.engine), Arc::clone(&app.threat_intel), r.sha256.clone());
+                let (threat, analyst) = (r.threat_name.clone(), r.analyst.clone());
+                tokio::task::spawn_blocking(move || {
+                    eng.relabel_kept(&sha.to_ascii_uppercase(), &v);
+                    sync_analyst_tlsh(&eng, &ti, &sha, &v, threat.as_deref(), &analyst);
+                });
             }
             info_event(
                 &app,
@@ -1448,6 +1488,7 @@ async fn handle_review_delete(
     Json(b): Json<ReviewDeleteBody>,
 ) -> Response {
     if app.threat_intel.reviews.remove(b.sha256.trim()) {
+        app.threat_intel.similarity.remove_analyst_sig(b.sha256.trim());
         info_event(&app, format!("human analysis removed: {}", b.sha256.trim().to_lowercase()));
         (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
     } else {
