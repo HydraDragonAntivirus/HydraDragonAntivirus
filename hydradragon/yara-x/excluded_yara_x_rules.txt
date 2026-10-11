@@ -409,3 +409,5 @@ PlugXStrings
 psexec_generic
 banbra
 win_hive_auto
+# 2026-10-11 FP: MultronWinCleaner.dll (psexec, mthcht greyware_tool_keyword: PsExec command-line patterns)
+psexec
