@@ -495,7 +495,14 @@
   </div>
 
 
-  <style>.lang-block[hidden]{display:none !important}</style>
+  <style>
+.lang-block[hidden]{display:none !important}
+.wiki-hub{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 18px;font-family:var(--font-mono, 'JetBrains Mono', monospace);font-size:.72rem;letter-spacing:.06em}
+.wiki-hub span{color:var(--text-dim);margin-right:4px}
+.wiki-hub-link{border:1px solid var(--border-strong);border-radius:6px;padding:6px 10px;color:var(--text-muted)!important;text-decoration:none!important}
+.wiki-hub-link:hover{color:var(--text-main)!important;border-color:var(--accent-red)}
+.wiki-hub-link.on{color:var(--text-main)!important;border-color:var(--accent-red);background:var(--accent-red-dim)}
+</style>
 
   <div class="container wiki-layout lang-block" data-lang-block="tr">
     <aside class="toc">
@@ -516,6 +523,7 @@
       <a href="index.html" style="color: var(--accent-red);">&larr; Wiki ana sayfa</a>
     </aside>
     <article>
+      <nav class="wiki-hub" aria-label="Wiki"><span>WIKI SAYFALARI</span><a href="index.html" class="wiki-hub-link">Fidye kuralı: MLE_RANSOM_BEHAVIOR</a><a href="hydradragonsig.html" class="wiki-hub-link on">HydraDragonSig imza formatı</a></nav>
       <div class="crumb"><a href="../index.html">VIRUSKOV</a> / <a href="index.html">WIKI</a> / İMZALAR / <span style="color: var(--accent-red);">HYDRADRAGONSIG</span></div>
       <h1 class="article-title">HydraDragon<span class="hl">Sig</span><br>İmza Formatı Rehberi</h1>
       <p class="article-sub">HydraDragonSig YAML kuralları &bull; Multron imza odası &bull; HydraDragon Antivirus &bull; OpenEDR</p>
@@ -628,6 +636,7 @@
       <a href="index.html" style="color: var(--accent-red);">&larr; Wiki home</a>
     </aside>
     <article>
+      <nav class="wiki-hub" aria-label="Wiki"><span>WIKI PAGES</span><a href="index.html" class="wiki-hub-link">Ransomware rule: MLE_RANSOM_BEHAVIOR</a><a href="hydradragonsig.html" class="wiki-hub-link on">HydraDragonSig signature format</a></nav>
       <div class="crumb"><a href="../index.html">VIRUSKOV</a> / <a href="index.html">WIKI</a> / SIGNATURES / <span style="color: var(--accent-red);">HYDRADRAGONSIG</span></div>
       <h1 class="article-title">HydraDragon<span class="hl">Sig</span><br>Signature Format Guide</h1>
       <p class="article-sub">HydraDragonSig YAML rules &bull; Multron signature room &bull; HydraDragon Antivirus &bull; OpenEDR</p>

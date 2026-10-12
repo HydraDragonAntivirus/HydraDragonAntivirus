@@ -454,6 +454,14 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@400;500;600;700&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../assets/vk.css?v=6">
   <script src="../assets/vk.js?v=5" defer></script>
+<style>
+.lang-block[hidden]{display:none !important}
+.wiki-hub{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 18px;font-family:var(--font-mono, 'JetBrains Mono', monospace);font-size:.72rem;letter-spacing:.06em}
+.wiki-hub span{color:var(--text-dim);margin-right:4px}
+.wiki-hub-link{border:1px solid var(--border-strong);border-radius:6px;padding:6px 10px;color:var(--text-muted)!important;text-decoration:none!important}
+.wiki-hub-link:hover{color:var(--text-main)!important;border-color:var(--accent-red)}
+.wiki-hub-link.on{color:var(--text-main)!important;border-color:var(--accent-red);background:var(--accent-red-dim)}
+</style>
 </head>
 <body class="vk-legacy">
 
@@ -535,7 +543,9 @@
     </aside>
 
     <!-- ============ ARTICLE ============ -->
-    <article>
+    <article class="lang-block" data-lang-block="tr">
+<nav class="wiki-hub" aria-label="Wiki"><span>WIKI SAYFALARI</span><a href="index.html" class="wiki-hub-link on">Fidye kuralı: MLE_RANSOM_BEHAVIOR</a><a href="hydradragonsig.html" class="wiki-hub-link">HydraDragonSig imza formatı</a></nav>
+
 
       <div class="crumb" data-i18n="wiki.crumb">
         <a href="../index.html">VIRUSKOV</a> / WIKI / TESPİT KURALLARI / <span style="color: var(--accent-red);">MLE_RANSOM_BEHAVIOR</span>
@@ -2964,6 +2974,2429 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
       </div>
 
     </article>
+    <article class="lang-block" data-lang-block="en" hidden>
+<nav class="wiki-hub" aria-label="Wiki"><span>WIKI PAGES</span><a href="index.html" class="wiki-hub-link on">Ransomware rule: MLE_RANSOM_BEHAVIOR</a><a href="hydradragonsig.html" class="wiki-hub-link">HydraDragonSig signature format</a></nav>
+
+
+      <div class="crumb" data-i18n="wiki.crumb">
+        <a href="../index.html">VIRUSKOV</a> / WIKI / TESPİT KURALLARI / <span style="color: var(--accent-red);">MLE_RANSOM_BEHAVIOR</span>
+      </div>
+
+      <h1 class="article-title" data-i18n="wiki.article_title">
+        MLE_RANSOM_<span class="hl">BEHAVIOR</span><br>
+        Fidye Yazılımı Tespit Kuralının Tam Anatomisi
+      </h1>
+      <p class="article-sub" data-i18n="wiki.article_sub">
+        OpenEDR &times; Hydra Dragon çekirdeği &bull; PTM / PatternsMatching v2 politika motoru<br>
+        Kural Kimliği: <span class="c-red">RANSOM_BEHAVIOR</span> &nbsp;|&nbsp; Yayın Olay Tipi: <span class="c-red">MLE_RANSOM_BEHAVIOR</span> &nbsp;|&nbsp; baseType: <span class="c-red">1000008</span><br>
+        Politika Kaynağı: <code>OpenEDR/edrav2/iprj/edrdata/ptm.local.src</code> &nbsp;&bull;&nbsp; Satır 4636 &ndash; 5129
+      </p>
+      <div class="article-rule"></div>
+
+      <div class="hero-lead" data-i18n="wiki.lead">
+        <strong>MLE_RANSOM_BEHAVIOR</strong>, bir dosyanın hash'ine, derleyicisine ya da paketleyicisine bakmaz.
+        Çekirdekte gördüğü <strong>tek şey davranıştır</strong>: bir süreç, kullanıcının kişisel
+        dosyalarına <strong>60 saniye içinde en az 3 ayrı hedefe</strong> yazıyor, yeniden adlandırıyor
+        ya da siliyor; bu hedefler <strong>metin dosyası değil</strong> ve <strong>şifrelenmiş gibi
+        yüksek entropili</strong> veri taşıyor. Bu üçlü &mdash; <em>kitle &times; hacim &times; içerik</em>
+        &mdash; eşleştiği anda motor, saldırganın <strong>proses imajını karantinaya alır ve
+        süreci anında öldürür</strong>. Bu sayfa, bunun her tek satırını, her tek süzgecini ve
+        her bilinen sınırını açar.
+      </div>
+
+      <!-- ============ 1 KÜNYE ============ -->
+      <h2 class="wiki-h2" id="kunya" data-i18n="wiki.h2_1"><span class="num">01</span> Künye</h2>
+
+      <p>
+        The table below collects the rule's identifying details and technical parameters in one place.
+        All of these values are <strong>taken verbatim</strong> from the source code in the repository; none of them
+        is an estimate. Source lines and file paths are given in each cell.
+      </p>
+
+      <div class="spec-card">
+        <div class="spec-row"><div class="spec-key">Rule Name (policy pattern)</div><div class="spec-val c-red">RANSOM_BEHAVIOR</div></div>
+        <div class="spec-row"><div class="spec-key">Emitted Event (createEvent)</div><div class="spec-val c-red">MLE_RANSOM_BEHAVIOR</div></div>
+        <div class="spec-row"><div class="spec-key">baseType (eventBaseType)</div><div class="spec-val c-amber">1000008</div></div>
+        <div class="spec-row"><div class="spec-key">Rule Type</div><div class="spec-val c-cyan">BEHAVIOUR DETECTION / POLICY (behavior)</div></div>
+        <div class="spec-row"><div class="spec-key">Policy Group</div><div class="spec-val">patternsMatching</div></div>
+        <div class="spec-row"><div class="spec-key">Policy Dependency</div><div class="spec-val">common (version 2)</div></div>
+        <div class="spec-row"><div class="spec-key">Engine</div><div class="spec-val">PTM v2 &mdash; PatternsMatching / EVM</div></div>
+        <div class="spec-row"><div class="spec-key">Source File</div><div class="spec-val">OpenEDR/edrav2/iprj/edrdata/ptm.local.src</div></div>
+        <div class="spec-row"><div class="spec-key">Line Range</div><div class="spec-val">4636 &ndash; 5129 (16 rule clauses in total)</div></div>
+        <div class="spec-row"><div class="spec-key">Number of Stages</div><div class="spec-val c-green">5 logical stages: RECORD &rarr; CANDIDATE &rarr; EVALUATION &rarr; DECISION &rarr; CLEANUP</div></div>
+        <div class="spec-row"><div class="spec-key">Number of Filters (stage 4)</div><div class="spec-val c-amber">9 independent filters in a single AND chain</div></div>
+        <div class="spec-row"><div class="spec-key">Counter Threshold</div><div class="spec-val c-cyan">3 DISTINCT target files</div></div>
+        <div class="spec-row"><div class="spec-key">Counter Window</div><div class="spec-val c-cyan">60000 ms (60 seconds) sliding window</div></div>
+        <div class="spec-row"><div class="spec-key">Number of Source Events</div><div class="spec-val">Triggered by 10 different kernel file events</div></div>
+        <div class="spec-row"><div class="spec-key">Whitelist</div><div class="spec-val">8 system path patterns</div></div>
+        <div class="spec-row"><div class="spec-key">Extension Watcher</div><div class="spec-val">1479 user file extensions</div></div>
+        <div class="spec-row"><div class="spec-key">Severity Level</div><div class="spec-val c-red">3 &mdash; CRITICAL (hard-coded in source)</div></div>
+        <div class="spec-row"><div class="spec-key">Default Response</div><div class="spec-val c-red">QUARANTINE + KILL PROCESS + RESTORE</div></div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num">16</div><div class="stat-lbl">Rule Clauses</div></div>
+        <div class="stat-box"><div class="stat-num c">10</div><div class="stat-lbl">Kernel Triggers</div></div>
+        <div class="stat-box"><div class="stat-num a">9</div><div class="stat-lbl">Decision Filters</div></div>
+        <div class="stat-box"><div class="stat-num g">1479</div><div class="stat-lbl">Watched Extensions</div></div>
+        <div class="stat-box"><div class="stat-num">3 / 60s</div><div class="stat-lbl">Threshold / Window</div></div>
+        <div class="stat-box"><div class="stat-num c">Ring-0</div><div class="stat-lbl">Detection Layer</div></div>
+      </div>
+
+      <!-- ============ 2 TEK CÜMLE ============ -->
+      <h2 class="wiki-h2" id="tek-cumle" data-i18n="wiki.h2_2"><span class="num">02</span> Bir Cümlede</h2>
+
+      <p>
+        <strong>New or unsigned ransomware</strong> is detected from the moment it is downloaded
+        and executed, <strong>without looking at any compiled-code signature</strong>. This is because the rule looks at
+        <em>what the code does</em>:
+      </p>
+
+      <ol>
+        <li>The kernel file system filter (minifilter) records a process that performs write / rename / delete operations on <strong>3 or more distinct user files within 60 seconds</strong>.</li>
+        <li>The policy engine verifies that those files are <strong>not text</strong> (via an ASCII scan of the first 8 KiB) and have <strong>high entropy, like encrypted data</strong>.</li>
+        <li>It verifies that the targets are <strong>in a user profile</strong> (<code>C:\Users\...</code>) and <strong>outside AppData / Temp / Windows / Program Files</strong>.</li>
+        <li>If all conditions hold, an <code>MLE_RANSOM_BEHAVIOR</code> event is generated; the engine <strong>quarantines the process image file</strong> and <strong>kills the process by Global ID</strong>.</li>
+        <li>The kernel's <strong>RansomShield</strong> module restores the original file copies it saved earlier.</li>
+      </ol>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; What this means in practice</div>
+        Whether the ransomware family was compiled <strong>yesterday or today</strong>, is packed,
+        or carries a name never seen before <strong>makes no difference</strong>. The rule describes a <em>behaviour</em>,
+        not a <em>family</em>. That is why zero-day ransomware goes through the same gate without
+        any signature database update.
+      </div>
+
+      <!-- ============ 3 NEDEN DAVRANIŞ ============ -->
+      <h2 class="wiki-h2" id="neden-davranis" data-i18n="wiki.h2_3"><span class="num">03</span> Neden Bu Kural Bir İmza Değil, Bir Davranış Kuralı?</h2>
+
+      <p>
+        Classic antivirus thinking goes like this: &ldquo;I have seen this file before, its SHA-256
+        is on the list, it is malicious.&rdquo; This approach breaks in two places.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Approach</th>
+              <th>What it does</th>
+              <th>Breaking point</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Hash signature</strong></td>
+              <td>Looks up the file's digest in a fixed list</td>
+              <td>Change a single byte and the hash changes. <span class="c-red">Bypass: 1 second.</span></td>
+            </tr>
+            <tr>
+              <td><strong>YARA / byte signature</strong></td>
+              <td>Searches the content for fixed sequences</td>
+              <td>Polymorphic code, XOR encryption, UPX/Themida packing. <span class="c-red">Bypass: minutes.</span></td>
+            </tr>
+            <tr>
+              <td><strong>Packer recognition</strong></td>
+              <td>Reads the signature left by the compiler</td>
+              <td>A new compiler version changes the signature. <span class="c-red">Bypass: one update.</span></td>
+            </tr>
+            <tr>
+              <td><strong>AI-assisted static ML</strong></td>
+              <td>Scores deviation from PE headers</td>
+              <td>Well-written malware mimics a legitimate PE header. <span class="c-red">Weak separation.</span></td>
+            </tr>
+            <tr>
+              <td style="border-left:3px solid var(--accent-red);"><strong class="c-red">MLE_RANSOM_BEHAVIOR</strong></td>
+              <td><strong>Watches the file system I/O flow and recognises the encryption operation itself</strong></td>
+              <td><span class="c-green">The code may change, but the behaviour does not. Encryption is a mandatory step.</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout violet">
+        <div class="co-title">&#9654; Core idea</div>
+        <strong>Ransomware has one unchangeable requirement: to read the user's file
+        and corrupt it irreversibly.</strong>
+        Code signature, packer, file name, error message, extension &mdash; all of these can change.
+        But the action of &ldquo;writing to dozens of user files in a row and making them unrecoverable&rdquo;
+        does not. The rule signs exactly this action.
+      </div>
+
+      <!-- ============ 4 MİMARİ ============ -->
+      <h2 class="wiki-h2" id="mimari" data-i18n="wiki.h2_4"><span class="num">04</span> Uçtan Uca Mimari: Olayın Yolculuğu</h2>
+
+      <p>
+        There are eight separate layers behind the rule. Let's follow the event's journey from start to finish.
+      </p>
+
+      <div class="pipeline">
+<b>[1] RING-0  &mdash;  edrdrv.sys (minifilter)</b>
+    IRP_MJ_CREATE / CLEANUP / WRITE / READ / SET_INFORMATION
+    IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION   (mmap capture)
+        |
+        |  LLE_FILE_CREATE  /  LLE_FILE_DATA_READ_FULL  /  LLE_FILE_DATA_WRITE_FULL
+        |  LLE_FILE_MAP_READ  /  LLE_FILE_MAP_WRITE  /  LLE_FILE_DATA_CHANGE
+        |  LLE_FILE_RENAME  /  LLE_FILE_DELETE
+        v
+<b>[2] LBVS WIRE PROTOCOL</b>   (libsysmon/inc/edrdrvapi.hpp)
+    Schema-based, parsed named byte stream
+        |
+        v
+<u>[3] libsysmon CONTROLLER</u>   (controller.cpp)
+    SysmonEvent -&gt; Event enum mapping, "type" tag
+        |
+        v
+<u>[4] EventEnricher</u>   (eventenricher.cpp)
+    Process enrichment, processes[] chain, file object
+    -&gt; file fields are a LAZY PROXY (64KB read only on demand)
+        |
+        v
+<u>[5] QUEUE: match_patterns</u>   (qsc/match_patterns.qsc)
+        |
+        v
+<s>[6] PTM POLICY ENGINE</s>   (ptm.local.src / RANSOM_BEHAVIOR)
+        |
+        |   destination "IN"  -&gt; back to match_patterns  (state machine)
+        |   destination "OUT" -&gt; enrich_mle queue          (detection output)
+        v
+<u>[7] enrich_mle -&gt; check_for_valkyrie -&gt; transform_for_cloud -&gt; output</u>
+        |
+        v
+<u>[8] DetectionNotifier</u>   (detectionnotifier.cpp)
+    Trust check -&gt; KILL by GID -&gt; QUARANTINE -&gt; RESTORE -&gt; GUI
+      </div>
+
+      <p>
+        The key distinction is this: <code>destination: "IN"</code> keeps the event <em>inside</em> the engine
+        (this is not a detection but a state machine step); <code>destination: "OUT"</code>, on the other hand,
+        sends the event out of the engine into the enrichment and response chain.
+        <strong>MLE_RANSOM_BEHAVIOR is emitted with <code>OUT</code></strong> &mdash; that is, it is a real
+        detection.
+      </p>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Why two queues?</div>
+        <code>IN</code> events are fed back into the same queue; this lets the policy file
+        build a multi-stage state machine by <em>generating events and sending them back to its own rule</em>.
+        This is the cleanest way to build a &ldquo;read &rarr; write &rarr; count &rarr; decide&rdquo;
+        chain on top of a single file operation, and it is exactly the architecture of MLE_RANSOM_BEHAVIOR.
+      </div>
+
+      <!-- ============ 5 PTM MOTORU ============ -->
+      <h2 class="wiki-h2" id="ptm-motor" data-i18n="wiki.h2_5"><span class="num">05</span> Altyapı: PTM (PatternsMatching) Motoru</h2>
+
+      <p>
+        The rule is defined in a JSON-based policy language. When compiled it is embedded in the product and
+        remains <strong>auditable</strong> &mdash; that is, every line on this page is a line of the real code
+        running in the product. The engine is written in C++
+        (<code>libedr/src/policy_v2.cpp</code>, <code>policycompiler.cpp</code>,
+        <code>policyoperation.cpp</code>, <code>signcontext.cpp</code>).
+      </p>
+
+      <h3 class="wiki-h3" id="ptm-directive">5.1 &mdash; Directives</h3>
+
+      <p>Each rule clause consists of directives inside a <code>"rule"</code> dictionary:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Directive</th><th>What it does</th><th>Where in This Rule</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>condition</code></td>
+              <td>Filter. If absent, the rule <strong>always</strong> matches.</td>
+              <td>Absent in stages 1a/1b and 5; present in the candidate generation and decision rules</td>
+            </tr>
+            <tr>
+              <td><code>saveContext</code></td>
+              <td>Writes a record into a basket (<code>basket</code>) with key + data + <strong>lifetime (ms)</strong>.</td>
+              <td>Stages 1a, 1b &mdash; <code>RANSOM_FILE_READ_WRITE</code> basket</td>
+            </tr>
+            <tr>
+              <td><code>loadContext</code></td>
+              <td>Reads from the basket. Using <code>@context.*</code> requires it.</td>
+              <td><span class="c-amber">Not used in this rule</span> (see Section 16)</td>
+            </tr>
+            <tr>
+              <td><code>deleteContext</code></td>
+              <td>Deletes a key or group from the basket.</td>
+              <td>Stage 5 &mdash; when the process terminates</td>
+            </tr>
+            <tr>
+              <td><code>createEvent</code></td>
+              <td>Generates a new event. <code>destination</code>: <code>IN</code> / <code>OUT</code> / <code>IN_OUT</code>. With <code>clone:false</code>, only the fields in <code>data</code> are carried over.</td>
+              <td>Stages 2, 3 and 4 &mdash; the heart of the rule</td>
+            </tr>
+            <tr>
+              <td><code>distinctCounter</code></td>
+              <td><strong>Counts distinct values in a sliding window</strong> and writes a boolean to the <code>flag</code> field when the threshold is exceeded.</td>
+              <td>Stage 4 &mdash; <code>ransomFileDistinct</code> basket</td>
+            </tr>
+            <tr>
+              <td><code>discard</code></td>
+              <td>Drops the event.</td>
+              <td><span class="c-amber">Not used</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; Key engine constraint: one <code>condition</code> per rule</div>
+        <strong>A rule dictionary can have only one <code>condition</code> key.</strong>
+        The engine stores directives in an <code>unordered_map&lt;Directive, DirectivePtr&gt;</code>;
+        if a second <code>condition</code> is written, the first is silently dropped. That is why
+        all nine filters in stage 4 <strong>are combined into a single <code>"and"</code> chain</strong>.
+        This is a deliberate design decision arising from a constraint of how rules are written, and
+        it is also documented explicitly in <code>ptm.local.src</code>.
+      </div>
+
+      <h3 class="wiki-h3" id="ptm-operasyon">5.2 &mdash; Operations and Evaluation Semantics</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Operation</th><th>Arity</th><th>Meaning</th><th>In This Rule</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>imatch</code></td><td>1 value + <code>pattern</code></td><td><strong>Case-insensitive</strong> wildcard match</td><td><code>*\users\*</code> etc.</td></tr>
+            <tr><td><code>!imatch</code></td><td>1 value + <code>pattern</code></td><td><code>true</code> if it does not match</td><td>Whitelist checks</td></tr>
+            <tr><td><code>and</code> / <code>or</code></td><td>&ge; 2</td><td>Logical combination (<strong>no short-circuit</strong>, all are evaluated)</td><td>Filter chain</td></tr>
+            <tr><td><code>equal</code> / <code>!equal</code></td><td>exactly 2</td><td>Type-based equality</td><td><code>type == "OTHER"</code>, <code>isAsciiText</code></td></tr>
+            <tr><td><code>greater</code></td><td>exactly 2</td><td><strong>Integer</strong> comparison; null/bool/string &rarr; treated as 0</td><td>Entropy threshold</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3" id="ptm-wildcard">5.3 &mdash; Wildcard Matching Semantics</h3>
+
+      <p>
+        The <code>imatch</code> operator dispatches wildcard patterns to <strong>two separate engines</strong>, and
+        this choice directly affects performance:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Pattern Form</th><th>Compiled Engine</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>*\Windows\*</code></td>
+              <td><code>StringMatcher</code>, mode <code>all</code></td>
+              <td>&ldquo;contains <code>\Windows\</code>&rdquo; &mdash; fast path, no regex</td>
+            </tr>
+            <tr>
+              <td><code>*.docx</code></td>
+              <td><code>StringMatcher</code>, mode <code>end</code></td>
+              <td>&ldquo;ends with <code>.docx</code>&rdquo; &mdash; the 1479 extensions take this path</td>
+            </tr>
+            <tr>
+              <td><code>C:\Windows\explorer.exe</code></td>
+              <td><code>StringMatcher</code>, mode <code>begin</code></td>
+              <td>&ldquo;<strong>starts</strong> with&rdquo; (so <code>.exe.bak</code> also matches)</td>
+            </tr>
+            <tr>
+              <td><code>*\*.*.*</code></td>
+              <td><strong>POSIX regex</strong> (basic)</td>
+              <td>A wildcard in the middle falls through to the regex path; <code>*</code>&rarr;<code>.*</code>, <code>?</code>&rarr;<code>.</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Important distinction</div>
+        Leading and trailing <code>*</code> characters are not &ldquo;regex wildcards&rdquo;;
+        they act as <strong>anchors</strong> and are converted to the <code>begin</code> / <code>end</code> /
+        <code>all</code> modes. That is why the 1479-extension list runs without compiling a regex,
+        as a single <code>StringMatcher</code> table &mdash; on a live system this means a cost of
+        <strong>tens of microseconds</strong>.
+      </div>
+
+      <!-- ============ 6 ANATOMİ ============ -->
+      <h2 class="wiki-h2" id="anatomi" data-i18n="wiki.h2_6"><span class="num">06</span> Kuralın Anatomisi: 16 Madde, 5 Aşama</h2>
+
+      <p>
+        The <code>RANSOM_BEHAVIOR</code> pattern consists of 16 rule clauses. These clauses are grouped into five logical
+        stages. Each stage is explained below together with the relevant source code.
+      </p>
+
+      <!-- AŞAMA 1 -->
+      <div class="stage cyan" id="asama-1">
+        <div class="stage-head">
+          <span class="stage-num">STAGE 1</span>
+          <span class="stage-title">Recording the Read Side &mdash; <code>saveContext</code></span>
+        </div>
+        <p>
+          Two rule clauses record that a non-system file has been <strong>read in full</strong>.
+          The goal is to keep the fact that &ldquo;this process read this file&rdquo; for 120
+          seconds. This is the basis for later building a &ldquo;reader &rarr; writer&rdquo; match
+          (see Section 16, item 3: this basket is currently only written, never read).
+        </p>
+      </div>
+
+      <h4 class="wiki-h4">Clause 1a &mdash; LLE_FILE_DATA_READ_FULL</h4>
+      <p>
+        Captures the kernel event generated when a file is read from start to end
+        <strong>completely and sequentially</strong>. The minifilter emits it only when the condition
+        <code>readInfo.nNextPos == nSizeAtCreation</code> holds &mdash; so partial reads do not count.
+      </p>
+
+      <div class="code-block cyan">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; STAGE 1a</span><span>saveContext / 120000 ms</span></div>
+<pre>{
+  "eventType": <span class="tok-str">"LLE_FILE_DATA_READ_FULL"</span>,
+  "rule": {
+    "condition": {
+      "$operation": <span class="tok-str">"!imatch"</span>,
+      "pattern":   <span class="tok-str">"@const.ransomSystemExclusions"</span>,
+      "args": [ <span class="tok-str">"@event.file.path"</span> ]
+    },
+    "saveContext": {
+      "basket":    <span class="tok-str">"@const.ransomBasket.readWrite"</span>,   <span class="tok-cm">// "RANSOM_FILE_READ_WRITE"</span>
+      "key":       <span class="tok-str">"@event.file.path"</span>,
+      "lifetime":  <span class="tok-num">120000</span>,                              <span class="tok-cm">// 120 saniye (ms)</span>
+      "data": { <span class="tok-str">"file"</span>: <span class="tok-str">"@event.file"</span> }
+    }
+  }
+}</pre>
+      </div>
+
+      <h4 class="wiki-h4">Clause 1b &mdash; LLE_FILE_MAP_READ (read via memory mapping)</h4>
+      <p>
+        The same work, when done through <strong>mapping (mmap)</strong>. Many modern ransomware strains
+        map the file into memory not with <code>CreateFile</code> + <code>ReadFile</code> but with
+        <code>NtCreateSection</code> + <code>NtMapViewOfSection</code>. This path
+        <strong>never sends <code>IRP_MJ_READ</code></strong>, so clause 1a above
+        cannot catch it. That is why the minifilter turns the <code>PAGE_READONLY</code> page protection of the
+        <code>IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION</code> IRP
+        into a separate event.
+      </p>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Why does this separate clause matter?</div>
+        Without the <code>LLE_FILE_MAP_READ</code> and <code>LLE_FILE_MAP_WRITE</code> clauses,
+        mapping-based encryptors &mdash; most modern ransomware written in
+        Rust/Go/C++ &mdash; would be <strong>completely invisible</strong>. These two lines are
+        the key technical decision that lifts the rule to the level of &ldquo;catches everyone who reads&rdquo;.
+      </div>
+
+      <!-- AŞAMA 2 -->
+      <div class="stage" id="asama-2">
+        <div class="stage-head">
+          <span class="stage-num">STAGE 2</span>
+          <span class="stage-title">Generating the Candidate Event &mdash; <code>MLE_RANSOM_CANDIDATE</code></span>
+        </div>
+        <p>
+          This <strong>ten-clause</strong> block is the heart of the engine. <em>Any</em> write,
+          modification, rename or delete on a non-system file
+          is turned into an <code>MLE_RANSOM_CANDIDATE</code> event. <strong>No decision is
+          made</strong> here; the event is only recorded.
+        </p>
+        <p>
+          Because of <code>destination: "IN"</code>, this event stays inside the engine and is fed back into
+          the <code>match_patterns</code> queue to be processed again in stage 3.
+        </p>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Clause</th><th>Source Event</th><th>When It Is Generated (Kernel)</th><th>Note</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>2a</td><td><code>LLE_FILE_CREATE</code></td>
+              <td>After <code>IRP_MJ_CREATE</code> &mdash; file created or truncated</td>
+              <td>First step of the pattern that creates a new encrypted file</td>
+            </tr>
+            <tr>
+              <td>2b</td><td><code>LLE_FILE_DATA_WRITE_FULL</code></td>
+              <td>After <code>IRP_MJ_CLEANUP</code> &mdash; file written <strong>from start to end</strong></td>
+              <td><span class="c-green">Entropy is measured only on this event</span></td>
+            </tr>
+            <tr>
+              <td>2c</td><td><code>LLE_FILE_MAP_WRITE</code></td>
+              <td><code>ACQUIRE_FOR_SECTION_SYNC</code> &mdash; <code>PAGE_READWRITE</code> / <code>WRITECOPY</code> / <code>EXECUTE_READWRITE</code></td>
+              <td>mmap-based encryption</td>
+            </tr>
+            <tr>
+              <td>2d</td><td><code>LLE_FILE_DATA_CHANGE</code></td>
+              <td><code>IRP_MJ_CLEANUP</code> &mdash; the handle dirtied the file</td>
+              <td>Coarse &ldquo;file changed&rdquo; flag</td>
+            </tr>
+            <tr>
+              <td>2e</td><td><code>RF10*</code></td>
+              <td>&mdash;</td>
+              <td><span class="c-amber">Dropped at compile time (Section 16)</span></td>
+            </tr>
+            <tr>
+              <td>2f</td><td><code>LLE_FILE_RENAME</code></td>
+              <td><code>IRP_MJ_SET_INFORMATION</code> &mdash; <code>FileRenameInformation(Ex)</code></td>
+              <td><code>.docx</code> &rarr; <code>.docx.locked</code> moves</td>
+            </tr>
+            <tr>
+              <td>2g</td><td><code>LLE_FILE_DELETE</code></td>
+              <td><code>IRP_MJ_CLEANUP</code> &mdash; delete flag or <code>FileDispositionInformation</code></td>
+              <td>Deleting the original file and leaving the encrypted copy</td>
+            </tr>
+            <tr>
+              <td>2h</td><td><code>RF4*</code></td>
+              <td>&mdash;</td>
+              <td><span class="c-amber">Dropped at compile time (Section 16)</span></td>
+            </tr>
+            <tr>
+              <td>2f&prime;</td><td><code>LLE_FILE_RENAME</code></td>
+              <td colspan="2"><span class="c-amber">Exact copy of 2f &mdash; redundant (Section 16)</span></td>
+            </tr>
+            <tr>
+              <td>2g&prime;</td><td><code>LLE_FILE_DELETE</code></td>
+              <td colspan="2"><span class="c-amber">Exact copy of 2g &mdash; redundant (Section 16)</span></td>
+            </tr>
+            <tr>
+              <td>2h&prime;</td><td><code>RF4*</code></td>
+              <td colspan="2"><span class="c-amber">Exact copy of 2h &mdash; redundant</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The eight real clauses (2a&ndash;2g) share the same pattern. All have the structure below &mdash;
+        clause 2b as an example:
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; STAGE 2b (all candidate generators share this pattern)</span><span>createEvent / IN</span></div>
+<pre>{
+  "eventType": <span class="tok-str">"LLE_FILE_DATA_WRITE_FULL"</span>,
+  "rule": {
+    "condition": {
+      "$operation": <span class="tok-str">"!imatch"</span>,
+      "pattern":   <span class="tok-str">"@const.ransomSystemExclusions"</span>,
+      "args": [ <span class="tok-str">"@event.file.path"</span> ]
+    },
+    "createEvent": {
+      "eventType":   <span class="tok-str">"MLE_RANSOM_CANDIDATE"</span>,
+      "destination": <span class="tok-str">"IN"</span>,            <span class="tok-cm">// stays inside the engine</span>
+      "clone":       false,
+      "data": [
+        { "name": <span class="tok-str">"baseType"</span>,         "value": <span class="tok-str">"@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR"</span> },
+        { "name": <span class="tok-str">"process"</span>,          "value": <span class="tok-str">"@event.process"</span> },
+        { "name": <span class="tok-str">"processes"</span>,        "value": <span class="tok-str">"@event.processes"</span> },
+        { "name": <span class="tok-str">"destination"</span>,      "value": <span class="tok-str">"@event.file"</span> },
+        { "name": <span class="tok-str">"time"</span>,             "value": <span class="tok-str">"@event.time"</span> },
+        { "name": <span class="tok-str">"tickTime"</span>,         "value": <span class="tok-str">"@event.tickTime"</span> },
+        { "name": <span class="tok-str">"quarantineTarget"</span>, "value": <span class="tok-str">"@event.file.path"</span> }
+      ]
+    }
+  }
+}</pre>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Why is <code>clone: false</code> everywhere?</div>
+        If the default <code>clone: true</code> were used, <strong>all fields</strong> of the triggering event
+        would be copied automatically into the new event. With <code>clone: false</code>, the engine carries only
+        the fields in the <code>data</code> array that are <strong>listed by hand</strong>. This makes it visible, at
+        every step of the chain, which field is deliberately carried (and <strong>which is deliberately
+        not carried</strong>) &mdash; so the policy gains readability and
+        auditability.
+      </div>
+
+      <!-- AŞAMA 3 -->
+      <div class="stage" id="asama-3">
+        <div class="stage-head">
+          <span class="stage-num">STAGE 3</span>
+          <span class="stage-title">From Candidate to Evaluation &mdash; <code>MLE_RANSOM_EVALUATE</code></span>
+        </div>
+        <p>
+          The engine takes the <code>MLE_RANSOM_CANDIDATE</code> event and turns it into an
+          <code>MLE_RANSOM_EVALUATE</code> event. This single-clause rule is designed as
+          <strong>a pure step separated from the decision itself</strong>, and
+          does three things:
+        </p>
+        <ul>
+          <li>Relabelling: the event is no longer &ldquo;a file was touched&rdquo; but &ldquo;suspicious file&rdquo;.</li>
+          <li>Field normalisation: the <code>destination</code> field, which was <code>@event.file</code> in stage 2, is read here as <code>@event.destination</code> &mdash; that is, the field carried by the previous event.</li>
+          <li>Timestamp carry-over: <code>time</code> and <code>tickTime</code> are preserved, so the counter and the analysis timeline stay correct.</li>
+        </ul>
+      </div>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; STAGE 3</span><span>createEvent / IN</span></div>
+<pre>{
+  "eventType": <span class="tok-str">"MLE_RANSOM_CANDIDATE"</span>,
+  "rule": {
+    "createEvent": {
+      "eventType":   <span class="tok-str">"MLE_RANSOM_EVALUATE"</span>,
+      "destination": <span class="tok-str">"IN"</span>,
+      "clone":       false,
+      "data": [
+        { "name": <span class="tok-str">"baseType"</span>,    "value": <span class="tok-str">"@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR"</span> },
+        { "name": <span class="tok-str">"process"</span>,     "value": <span class="tok-str">"@event.process"</span> },
+        { "name": <span class="tok-str">"processes"</span>,   "value": <span class="tok-str">"@event.processes"</span> },
+        { "name": <span class="tok-str">"destination"</span>, "value": <span class="tok-str">"@event.destination"</span> },
+        { "name": <span class="tok-str">"source"</span>,      "value": <span class="tok-str">"@event.source"</span> },
+        { "name": <span class="tok-str">"time"</span>,        "value": <span class="tok-str">"@event.time"</span> },
+        { "name": <span class="tok-str">"tickTime"</span>,    "value": <span class="tok-str">"@event.tickTime"</span> }
+      ]
+    }
+  }
+}</pre>
+      </div>
+
+      <!-- AŞAMA 4 -->
+      <div class="stage active" id="asama-4">
+        <div class="stage-head">
+          <span class="stage-num">STAGE 4</span>
+          <span class="stage-title">Decision &mdash; <code>distinctCounter</code> + Nine Filters &rarr; <code>MLE_RANSOM_BEHAVIOR</code></span>
+        </div>
+        <p>
+          The <strong>heart</strong> of the rule. Two things happen here at the same time:
+        </p>
+        <ol>
+          <li><code>distinctCounter</code> runs: per process ID (PID), it counts how many <strong>distinct</strong> target files were touched in the last 60 seconds. When it reaches 3, <code>@event.RansomThresholdMet = true</code> is written.</li>
+          <li><code>condition</code> runs: all nine filters must hold. If they do, the final detection event is emitted with <code>OUT</code>.</li>
+        </ol>
+      </div>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; Evaluation order: counter FIRST, condition AFTER</div>
+        The compiler emits directives in a <strong>fixed order</strong>:
+        <code>distinctCounter</code> &rarr; <code>condition</code>.
+        So <strong>every</strong> <code>MLE_RANSOM_EVALUATE</code> feeds the counter &mdash; the condition is
+        evaluated afterwards. The practical consequence is covered in detail in Section 16;
+        for now, know this: <strong>the counter counts &ldquo;potential candidates&rdquo;, not confirmed suspects.</strong>
+      </div>
+
+      <div class="code-block red">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; STAGE 4, createEvent (5100-5116)</span><span>createEvent / OUT &mdash; REAL DETECTION</span></div>
+<pre>"createEvent": {
+  "eventType":   <span class="tok-str">"MLE_RANSOM_BEHAVIOR"</span>,
+  "destination": <span class="tok-str">"OUT"</span>,              <span class="tok-cm">// DETECTION OUTPUT: leaves the engine</span>
+  "clone":       false,
+  "data": [
+    { "name": <span class="tok-str">"baseType"</span>,                       "value": <span class="tok-str">"@const.ransomBehaviorEventBaseType.MLE_RANSOM_BEHAVIOR"</span> },
+    { "name": <span class="tok-str">"process"</span>,                        "value": <span class="tok-str">"@event.process"</span> },
+    { "name": <span class="tok-str">"processes"</span>,                      "value": <span class="tok-str">"@event.processes"</span> },
+    { "name": <span class="tok-str">"destination"</span>,                    "value": <span class="tok-str">"@event.destination"</span> },
+    { "name": <span class="tok-str">"time"</span>,                           "value": <span class="tok-str">"@event.time"</span> },
+    { "name": <span class="tok-str">"tickTime"</span>,                       "value": <span class="tok-str">"@event.tickTime"</span> },
+    { "name": <span class="tok-str">"quarantineTarget"</span>,               "value": <span class="tok-str">"@event.process.imageFile.rawPath"</span> },
+    { "name": <span class="tok-str">"should_trust_company_whitelist"</span>, "value": true },
+    { "name": <span class="tok-str">"should_trust_comodo_fls_cloud"</span>,  "value": true }
+  ]
+}</pre>
+      </div>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; The most critical line: <code>quarantineTarget</code></div>
+        In the candidate stage, <code>quarantineTarget</code> pointed to <strong>the file being encrypted</strong>.
+        In the final detection it is set to <code>@event.process.imageFile.rawPath</code> &mdash; that is,
+        <strong>the path of the attacker's own executable</strong>.
+        <br><br>
+        This is the most important architectural decision of the whole rule: <strong>it is not the victim file but the
+        offending process.</strong> Quarantine is applied to the ransomware binary; the user's
+        data is restored by <code>RansomShield</code>.
+      </div>
+
+      <!-- AŞAMA 5 -->
+      <div class="stage green" id="asama-5">
+        <div class="stage-head">
+          <span class="stage-num">STAGE 5</span>
+          <span class="stage-title">Context Cleanup &mdash; <code>deleteContext</code></span>
+        </div>
+        <p>
+          When the process terminates (<code>LLE_PROCESS_DELETE</code>), the engine tries to clear the read basket.
+          This is a <strong>hygiene clause</strong> that prevents memory bloat on a long-running machine.
+        </p>
+        <div class="code-block green">
+          <div class="code-head"><span class="src">ptm.local.src &mdash; STAGE 5</span><span>deleteContext</span></div>
+<pre>{
+  "eventType": <span class="tok-str">"LLE_PROCESS_DELETE"</span>,
+  "rule": {
+    "deleteContext": {
+      "basket": <span class="tok-str">"@const.ransomBasket.readWrite"</span>,
+      "group":  <span class="tok-str">"@event.process.id"</span>
+    }
+  }
+}</pre>
+        </div>
+        <div class="callout warn">
+          <div class="co-title">&#9654; Honest note</div>
+          Stage 1a/1b records are written with the <code>group</code> field <em>omitted</em>, while stage 5
+          tries to delete by <code>group</code>. Because the engine cannot make this match, cleanup
+          in practice happens <strong>via the 120-second TTL</strong>. This is not a functional
+          problem; it does not affect the rule, only the record lifetime is decisive.
+          Details in Section 16.
+        </div>
+      </div>
+
+      <!-- ============ 7 SÜZGECLER ============ -->
+      <h2 class="wiki-h2" id="suzgecler" data-i18n="wiki.h2_7"><span class="num">07</span> Dokuz Süzgeç, Tek Tek</h2>
+
+      <p>
+        The <code>condition</code> field of stage 4 is nine independent filters combined
+        <strong>in a single <code>"and"</code> chain</strong>. For the rule to fire, <strong>all of them</strong>
+        must hold at the same time. This is a <strong>closed-by-default</strong> (fail-safe)
+        design: it is built around <strong>missed detections</strong>, not false positives.
+      </p>
+
+      <div class="code-block amber">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; STAGE 4: distinctCounter + CONDITION (4991-5099)</span><span>9 FILTERS</span></div>
+<pre>"rule": {
+  "distinctCounter": {
+    "basket":    <span class="tok-str">"ransomFileDistinct"</span>,
+    "key":       <span class="tok-str">"@event.process.pid"</span>,          <span class="tok-cm">// EACH PROCESS IS COUNTED SEPARATELY</span>
+    "values":    [ <span class="tok-str">"@event.destination.path"</span> ],  <span class="tok-cm">// counted value</span>
+    "threshold": <span class="tok-num">3</span>,
+    "window":    <span class="tok-num">60000</span>,
+    "flag":      <span class="tok-str">"@event.RansomThresholdMet"</span>
+  },
+  "condition": {
+    "$operation": <span class="tok-str">"and"</span>,
+    "args": [
+      <span class="tok-cm">// [1] Is the ACTOR whitelisted?</span>
+      { "$operation": <span class="tok-str">"!imatch"</span>, "pattern": <span class="tok-str">"@const.ransomSystemExclusions"</span>,
+        "args": [ <span class="tok-str">"@event.process.imageFile.rawPath"</span> ] },
+
+      <span class="tok-cm">// [2] Is the TARGET whitelisted?</span>
+      { "$operation": <span class="tok-str">"!imatch"</span>, "pattern": <span class="tok-str">"@const.ransomSystemExclusions"</span>,
+        "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+
+      <span class="tok-cm">// [3] Is the TARGET the user's own data?  (required +)</span>
+      { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"*\\users\\*"</span>,
+        "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+
+      <span class="tok-cm">// [4] Excludes AppData?  (browser / cache FP protection)</span>
+      { "$operation": <span class="tok-str">"!imatch"</span>, "pattern": <span class="tok-str">"*\\appdata\\*"</span>,
+        "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+
+      <span class="tok-cm">// [5] Not a MOTW ADS?  (downloaded file / FP protection)</span>
+      { "$operation": <span class="tok-str">"!imatch"</span>, "pattern": <span class="tok-str">"*:Zone.Identifier*"</span>,
+        "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+
+      <span class="tok-cm">// [6] Is the target not an executable file?</span>
+      { "$operation": <span class="tok-str">"equal"</span>, "args": [ <span class="tok-str">"@event.destination.type"</span>, <span class="tok-str">"OTHER"</span> ] },
+
+      <span class="tok-cm">// [7] EXTENSION file  AND  USER EXTENSION  AND  ENTROPY</span>
+      { "$operation": <span class="tok-str">"and"</span>, "args": [
+          { "$operation": <span class="tok-str">"or"</span>, "args": [
+              { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"*\\*.*.*"</span>, "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+              { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"*\\*.*.*"</span>, "args": [ <span class="tok-str">"@event.source.path"</span>      ] } ] },
+          { "$operation": <span class="tok-str">"or"</span>, "args": [
+              { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"@const.ransomFileExtensions"</span>, "args": [ <span class="tok-str">"@event.destination.path"</span> ] },
+              { "$operation": <span class="tok-str">"imatch"</span>, "pattern": <span class="tok-str">"@const.ransomFileExtensions"</span>, "args": [ <span class="tok-str">"@event.source.path"</span>      ] } ] },
+          { "$operation": <span class="tok-str">"or"</span>, "args": [
+              { "$operation": <span class="tok-str">"greater"</span>, "args": [ <span class="tok-str">"@event.destination.owlyEntropy"</span>, <span class="tok-num">6</span> ] },
+              { "$operation": <span class="tok-str">"greater"</span>, "args": [ <span class="tok-str">"@event.destination.entropy"</span>,      <span class="tok-num">6</span> ] },
+              { "$operation": <span class="tok-str">"greater"</span>, "args": [ <span class="tok-str">"@event.owlyEntropy"</span>,               <span class="tok-num">6</span> ] },
+              { "$operation": <span class="tok-str">"greater"</span>, "args": [ <span class="tok-str">"@event.entropy"</span>,                   <span class="tok-num">6</span> ] } ] }
+      ] },
+
+      <span class="tok-cm">// [8] Is the target NOT A TEXT FILE?  (main text protection)</span>
+      { "$operation": <span class="tok-str">"!equal"</span>, "args": [ <span class="tok-str">"@event.destination.isAsciiText"</span>, true ] },
+
+      <span class="tok-cm">// [9] Is the VOLUME threshold exceeded?  (3+ DISTINCT targets in 60 s)</span>
+      { "$operation": <span class="tok-str">"equal"</span>, "args": [ <span class="tok-str">"@event.RansomThresholdMet"</span>, true ] }
+    ]
+  }
+}</pre>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S1</span>
+          <span class="filter-name">!imatch(ransomSystemExclusions, @event.process.imageFile.rawPath)</span>
+        </div>
+        <div class="filter-why">
+          <strong>Actor whitelist.</strong> The &ldquo;encrypting process&rdquo; is checked,
+          not the &ldquo;encrypted file&rdquo;. Legitimate tools running from <code>C:\Windows\</code> or
+          <code>C:\Program Files\</code> (updaters, setup
+          wizards, antivirus engines) are filtered out here.
+          <strong>Why check the actor?</strong> A setup wizard
+          may also write under <code>C:\Users\alice\Desktop</code>; but a
+          <code>setup.exe</code> in <code>C:\Windows\Temp\</code> does not write to dozens of user
+          files. Excluding the actor is a <strong>much more reliable</strong>
+          false-positive cutter than looking at the target.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S2</span>
+          <span class="filter-name">!imatch(ransomSystemExclusions, @event.destination.path)</span>
+        </div>
+        <div class="filter-why">
+          <strong>Target whitelist.</strong> The target path itself must not resemble
+          any of the 8 system patterns. See Section 11. Without this filter, <strong>update engines</strong>,
+          <strong>browser caches</strong> and <strong>installer caches</strong> would
+          trigger the rule periodically.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S3</span>
+          <span class="filter-name">imatch("*\\users\\*", @event.destination.path) &mdash; <span class="c-amber">REQUIRED (+)</span></span>
+        </div>
+        <div class="filter-why">
+          <strong>Location narrowing.</strong> This is the only required positive condition: the target
+          must be <strong>inside a user profile</strong>. It is clear <em>why</em> ransomware
+          encrypts &mdash; personal data stores such as <code>C:\Users\alice\Documents</code>,
+          <code>Desktop</code>, <code>Downloads</code>, <code>Photos</code>. A tool that encrypts
+          <code>C:\Windows</code> or network drives <strong>is not targeted by the rule</strong>. This single condition
+          dramatically lowers the false-positive rate on corporate desktops.
+          <br><strong>Note:</strong> This pattern is compiled in <code>StringMatcher</code> &ldquo;contains&rdquo;
+          mode. The installation name always stays in English (<code>\Users\</code>), so it
+          also works on localised Windows installations.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S4</span>
+          <span class="filter-name">!imatch("*\\appdata\\*", @event.destination.path)</span>
+        </div>
+        <div class="filter-why">
+          <strong>Application data protection.</strong> Inside <code>AppData</code>, hundreds of applications such as Chrome, Firefox,
+          VS Code, Steam and Discord write to dozens of files <strong>continuously</strong>. These are &ldquo;legitimate processes that write to many files&rdquo;, and
+          the user's actually valuable data is <strong>not here</strong>. This filter shuts off the noisiest
+          source of false positives.
+          <br><strong>Conflict note:</strong> S3 looks for <code>\AppData\</code> inside <code>\users\</code>; S2 already contains the <code>*\AppData\*</code> pattern. Therefore <strong>S4 performs exactly the same</strong> check as S2 and, as of today, <strong>is not an additional
+          filter</strong> &mdash; it is deliberately
+          repeated for defence in depth and readability.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S5</span>
+          <span class="filter-name">!imatch("*:Zone.Identifier*", @event.destination.path)</span>
+        </div>
+        <div class="filter-why">
+          <strong>Mark-of-the-Web protection.</strong> In NTFS <strong>alternate data streams</strong>,
+          <code>Zone.Identifier</code> is the &ldquo;this file was downloaded from the internet&rdquo; marker.
+          <strong>Mark of the Web attacks</strong> use exactly this stream:
+          by touching the MOTW stream of a downloaded file they make corporate files &ldquo;internet-originated&rdquo;
+          and trick the user with a warning. This filter pushes such techniques outside the rule's
+          scope.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S6</span>
+          <span class="filter-name">equal(@event.destination.type, "OTHER")</span>
+        </div>
+        <div class="filter-why">
+          <strong>The target is not an executable.</strong> The file type is determined by whether the extension is in the configured
+          executable list (<code>.exe;.dll;.sys;.cpl;.mui;.tlb;.scr</code>). The rule accepts only <code>"OTHER"</code> targets,
+          i.e. <strong>documents, spreadsheets, images, videos, archives, source code and databases</strong>.
+          <br><strong>Why does it matter?</strong> Malware modifying its own binary
+          (to gain persistence) does not trigger this rule &mdash; such actions belong to neighbouring rules such as
+          <code>MLE_PUA_REGISTRY_WRITE</code> and <code>MLE_FILE_COPY</code>. The rule has <strong>a single purpose</strong>: destroying user data.
+          A single purpose means few false positives.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S7</span>
+          <span class="filter-name">has extension  AND  user-file extension  AND  entropy &gt; 6</span>
+        </div>
+        <div class="filter-why">
+          An AND&amp;OR structure of three sub-conditions. <strong>7a:</strong> the target (or source) must contain a
+          dot &mdash; extensionless temporary files are filtered out. <strong>7b:</strong> the extension
+          must be one of the <strong>1479</strong>-pattern user-data list. <strong>7c:</strong>
+          Shannon entropy must exceed the threshold. Together these three answer the rule's question &ldquo;is this a data file, and is it
+          encrypted?&rdquo;
+          <br>
+          <strong>Practical result:</strong> a text editor writing plain text to <code>C:\Users\alice\Notes.txt</code>
+          is filtered out (7b: <code>.txt</code> is on the list, but filter 8
+          <code>isAsciiText=true</code> &rarr; filtered out). Ransomware encrypting the same file
+          <strong>passes</strong>.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S8</span>
+          <span class="filter-name">!equal(@event.destination.isAsciiText, true) &mdash; <span class="c-green">THE REAL TEXT GUARD</span></span>
+        </div>
+        <div class="filter-why">
+          <strong>The single strongest filter.</strong> The <strong>current</strong> first
+          64 KiB of the file on disk is read, but whether it is text is decided by looking at <strong>only the first 8192 bytes (8 KiB)</strong>:
+          if the number of bytes outside <code>\t \n \r</code> and <code>0x20-0x7E</code> reaches the threshold
+          <code>8 KiB &times; %15 + 1 = 1229</code>, the file is marked
+          &ldquo;not text&rdquo; (fail-fast).
+          <br>
+          <strong>What does it read, and when?</strong> The field reads <strong>the current on-disk content at the moment
+          the rule is evaluated</strong> &mdash; i.e. the
+          <strong>ciphertext</strong> the attacker has just written. It does not look at the extension, the file name or a &ldquo;suspicious file&rdquo;
+          label. Because stage 4 mostly runs on <code>LLE_FILE_DATA_WRITE_FULL</code>,
+          the file <strong>is already encrypted</strong> at this point and the scan sees the
+          ciphertext. The same filter, on the other hand, filters out plain text written to the same file by a text editor.
+          <br><br>
+          <strong>Measurement window: 8 KiB, threshold 15% + 1, fail-fast.</strong> The implementation reads up to 64 KiB
+          in a single call, but <strong>analysis is done only on the first 8192 bytes</strong>
+          and stops as soon as the threshold is reached &mdash; no further bytes are examined:
+        </div>
+
+        <div class="code-block">
+          <div class="code-head"><span class="src">libsyswin/src/filedataprovider.cpp (1195-1210) &mdash; verbatim</span><span>FIRST 8 KiB ONLY</span></div>
+<pre><span class="tok-cm">// Content-based ASCII-text check. Exact C++ port of:</span>
+<span class="tok-cm">//   fn looks_like_ascii_text(data: &amp;[u8]) -&gt; bool</span>
+<span class="tok-cm">// Empty input -&gt; false. Samples at most the first 8192 bytes, fail-fast once</span>
+<span class="tok-cm">// the non-printable count reaches 15% + 1. Printable set: \t \n \r 0x20..=0x7E.</span>
+<span class="tok-key">bool</span> FileDataProvider::is_look_like_ascii_text(<span class="tok-key">const</span> uint8_t* data, size_t len)
+{
+    <span class="tok-key">if</span> (data == <span class="tok-key">nullptr</span> || len == 0) <span class="tok-key">return</span> <span class="tok-key">false</span>;
+    <span class="tok-key">const</span> size_t sampleLen = len &lt; 8192 ? len : 8192;        <span class="tok-cm">// &lt;-- ANALYSIS WINDOW 8 KiB</span>
+    <span class="tok-key">const</span> size_t threshold = sampleLen * 15 / 100 + 1;  <span class="tok-cm">// 8192'de = 1229 bayt</span>
+    size_t nonPrintable = 0;
+    <span class="tok-key">for</span> (size_t i = 0; i &lt; sampleLen; ++i)
+    {
+        <span class="tok-key">const</span> uint8_t b = data[i];
+        <span class="tok-key">const</span> bool printable = (b == <span class="tok-str">'\t'</span> || b == <span class="tok-str">'\n'</span> || b == <span class="tok-str">'\r'</span> || (b &gt;= 0x20 &amp;&amp; b &lt;= 0x7E));
+        <span class="tok-key">if</span> (!printable &amp;&amp; ++nonPrintable &gt;= threshold)
+            <span class="tok-key">return</span> <span class="tok-key">false</span>;                             <span class="tok-cm">// &lt;-- FAIL-FAST</span>
+    }
+    <span class="tok-key">return</span> <span class="tok-key">true</span>;
+}</pre>
+        </div>
+
+        <div class="filter-why" style="margin-top:14px;">
+          <strong>Flow (1217-1236).</strong>
+          <code>isAsciiTextFile()</code> &rarr; if the file object has the <code>deleted</code> flag:
+          <strong>no disk read at all</strong>, <code>false</code> &rarr; the file is opened via <code>getFileStream()</code>
+          in <code>Read | ShareRead | ShareWrite</code> mode (if needed, a second open is attempted with
+          <strong>impersonation</strong> using the process token) &rarr; <strong>up to 64 KiB is read
+          from offset 0 in a single call</strong> &rarr; if 0 bytes were read, <code>false</code> &rarr;
+          the 8 KiB analysis above.
+          <br>
+          Thanks to the <code>ShareWrite</code> flag, the file can be read even while the attacker
+          <strong>holds open write handles at that moment</strong> &mdash; i.e. the file is not locked
+          while encryption is in progress, and the scan still sees the content.
+          <br>
+          <strong>Why is 8 KiB enough?</strong> The first 8 KiB of a plain-text file consists of
+          printable characters anyway; in ciphertext, reaching 1229 bytes (~15%) is
+          <strong>practically guaranteed</strong> given a random distribution. This cuts the cost from a 64 KiB
+          scan to <strong>8 KiB + fail-fast</strong>.
+          <br>
+          <strong>Why is it so decisive?</strong> A JPEG, an MP4, a <code>.docx</code>
+          (ZIP), an <code>.xlsx</code>, a database file &mdash; they may all look <em>like</em>
+          text, but none of them is text. The rule filters out only files that are <strong>clearly text</strong>.
+          This draws the line between &ldquo;a compressed folder copy that only looks
+          like encryption&rdquo; and &ldquo;real encryption&rdquo;.
+          <br>
+          <strong>Fail-closed behaviour:</strong> if the file was deleted, cannot be opened or 0 bytes were read,
+          the result is <code>false</code>&mdash; i.e. &ldquo;not text&rdquo;. If the rule cannot gather
+          evidence, it <strong>errs on the strict side</strong> and does not filter the file out. This is a deliberate choice:
+          the cost of a false negative (missed real encryption) is higher than the cost of a false positive (a user's
+          legitimate file being quarantined).
+          <br>
+          <strong>Trigger-specific detail:</strong> on <code>LLE_FILE_CREATE</code>
+          the file is still empty, so 0 bytes are read and the filter <strong>passes</strong>;
+          on <code>LLE_FILE_RENAME</code> / <code>LLE_FILE_DELETE</code> the content is
+          whatever it is at that moment &mdash; for a not-yet-encrypted file the filter may filter it out
+          (on <code>LLE_FILE_DELETE</code> the <code>deleted</code> flag additionally returns
+          <code>false</code> without reading). Since the rule's main trigger is <code>LLE_FILE_DATA_WRITE_FULL</code>,
+          this is not a problem in the normal encryption flow.
+        </div>
+      </div>
+
+      <div class="filter-card">
+        <div class="filter-head">
+          <span class="filter-idx">S9</span>
+          <span class="filter-name">equal(@event.RansomThresholdMet, true) &mdash; <span class="c-red">VOLUME THRESHOLD</span></span>
+        </div>
+        <div class="filter-why">
+          <strong>The lifeblood of the rule.</strong> Each of the other eight filters on its own describes a single file
+          operation; <strong>this filter turns it into an attack.</strong> Within 60 seconds,
+          <strong>3 or more SEPARATE target files</strong> must have been touched.
+          See Section 8. An operation on a single file, however suspicious,
+          <strong>never triggers</strong>. This is what separates &ldquo;a user edited a photo&rdquo;
+          from &ldquo;someone is encrypting the disk&rdquo;.
+        </div>
+      </div>
+
+      <!-- ============ 8 SAYAÇ ============ -->
+      <h2 class="wiki-h2" id="sayac" data-i18n="wiki.h2_8"><span class="num">08</span> <code>distinctCounter</code>: Kayan Pencerede Ayrı Değer Sayacı</h2>
+
+      <p>
+        <code>distinctCounter</code> is the engine's most distinctive directive. It is not a simple counter:
+        <strong>repeats of the same value do not add to the count</strong>. This small but critical distinction
+        explains why the rule says &ldquo;3 files&rdquo;.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; distinctCounter configuration</span><span>THRESHOLD 3 / WINDOW 60000ms</span></div>
+<pre>"distinctCounter": {
+  "basket":    <span class="tok-str">"ransomFileDistinct"</span>,        <span class="tok-cm">// separate counter space (container)</span>
+  "key":       <span class="tok-str">"@event.process.pid"</span>,         <span class="tok-cm">// EACH PROCESS IS COUNTED SEPARATELY</span>
+  "values":    [ <span class="tok-str">"@event.destination.path"</span> ], <span class="tok-cm">// counted value: TARGET PATH</span>
+  "threshold": <span class="tok-num">3</span>,                             <span class="tok-cm">// 3 AYRI hedef</span>
+  "window":    <span class="tok-num">60000</span>,                         <span class="tok-cm">// 60 saniye kayan pencere</span>
+  "flag":      <span class="tok-str">"@event.RansomThresholdMet"</span>    <span class="tok-cm">// result is written here</span>
+}</pre>
+      </div>
+
+      <h3 class="wiki-h3">8.1 &mdash; Semantics: what is counted and what is not?</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Property</th><th>Behaviour</th><th>Relevance to Ransomware</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Counted</strong></td>
+              <td>Non-empty values within the same key that are <strong>DISTINCT from each other</strong></td>
+              <td>&ldquo;How many different files did it touch?&rdquo; &mdash; the right question</td>
+            </tr>
+            <tr>
+              <td><strong>Not counted</strong></td>
+              <td>Repeated writes to the same file</td>
+              <td>A backup tool writing the same file 500 times &rarr; counter = 1, threshold not crossed <span class="ok-mark">&#10003;</span></td>
+            </tr>
+            <tr>
+              <td><strong>Key</strong></td>
+              <td><code>@event.process.pid</code> &mdash; per PID</td>
+              <td><strong>Process isolation</strong>: two different malware processes cannot fill each other's counter; a backup tool cannot pollute the counter</td>
+            </tr>
+            <tr>
+              <td><strong>Window</strong></td>
+              <td>60000 ms; expired entries are <strong>pruned sporadically</strong> on calls</td>
+              <td>Slow, scattered encryption (1 file every 40 seconds) <strong>does not cross the threshold</strong> &mdash; a deliberate trade-off</td>
+            </tr>
+            <tr>
+              <td><strong>Flag</strong></td>
+              <td>While <code>Size &gt;= threshold</code> holds, it is <code>true</code> &mdash; <strong>level-triggered (latching), not edge-triggered</strong></td>
+              <td>Until the window expires, detection <strong>continues</strong>; every new file triggers again</td>
+            </tr>
+            <tr>
+              <td><strong>Cleanup</strong></td>
+              <td>There is <strong>no</strong> explicit reset path; entries only expire with the window</td>
+              <td>See Section 16 &mdash; an intended or unintended consequence</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">8.2 &mdash; Concrete Scenario</h3>
+
+      <div class="pipeline">
+PID 4711  &mdash;  <s>suspect.exe</s>   (second 0)
+  write  C:\Users\alice\Documents\sozlesme.docx    -&gt; DISTINCT #1   counter = 1
+  write  C:\Users\alice\Photos\tatil.jpg          -&gt; DISTINCT #2   counter = 2
+  write  C:\Users\alice\Desktop\butce.xlsx       -&gt; DISTINCT #3   <b>RansomThresholdMet = TRUE</b>
+                                         |
+                                         +--&gt; S1..S8 verified  ==&gt;  <i>MLE_RANSOM_BEHAVIOR</i>
+                                         |
+                                         +--&gt; write  C:\Users\alice\Videos\dogum.mov
+                                                  -&gt; DISTINCT #4   flag STILL TRUE
+                                                       ==&gt;  <i>second MLE_RANSOM_BEHAVIOR</i>
+  <b>After 60 seconds:</b> all entries go stale, the window is cleared
+  <b>Second 61:</b> a new write -&gt; the counter starts again from 1
+  </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Why 3, and why 60 seconds?</div>
+        <strong>The threshold of 3</strong> balances three things at once: (a) it filters out legitimate software
+        that does not touch more than one file, (b) it screens out two-file sample ransomware specimens
+        (<em>common among test samples</em>), (c) it does not delay detection, because in real encryption runs the
+        file count quickly climbs into the tens.
+        <br>
+        <strong>The 60-second window</strong> captures the reasonable time gap between &ldquo;frequent user activity&rdquo; and &ldquo;bulk
+        operations at machine speed&rdquo;. A human does not encrypt
+        3 documents in 60 seconds; ransomware does hundreds within seconds.
+        <br>
+        <strong>A practical trade-off:</strong> sophisticated &ldquo;slow-crawling&rdquo; encryptors that wait several minutes
+        per file can evade this window. What catches them will not be another
+        rule but <strong>combined temporal behaviour</strong>. This is a known limit of the rule,
+        <a href="#sinirlar">honestly documented</a>.
+      </div>
+
+      <!-- ============ 9 DOSYA ALANLARI ============ -->
+      <h2 class="wiki-h2" id="dosya-alanlari" data-i18n="wiki.h2_9"><span class="num">09</span> Dosya Nesnesi: Hangi Alana Bakılıyor?</h2>
+
+      <p>
+        The rule's <code>@event.destination.*</code> and <code>@event.file.*</code> expressions
+        do not refer to a raw path from the driver but to <strong>fields of an enriched file
+        object</strong>. This object is built lazily: <strong>nothing is read from disk
+        unless a field is actually read.</strong>
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Source</th><th>Use in the Rule</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>path</code></td>
+              <td>Normalized, human-readable path</td>
+              <td>S1, S2, S3, S4, S5, S7, S9 &mdash; the path <strong>itself</strong></td>
+            </tr>
+            <tr>
+              <td><code>type</code></td>
+              <td>Is the extension in the configured executable list? (<code>EXECUTABLE</code> / <code>OTHER</code>)</td>
+              <td>S6 &mdash; <code>== "OTHER"</code></td>
+            </tr>
+            <tr>
+              <td><code>isAsciiText</code></td>
+              <td><strong>64 KiB</strong> is read from disk (offset 0, <code>ShareRead|ShareWrite</code>, with impersonation if needed); text analysis is done <strong>only on the first 8 KiB (8192 bytes)</strong>, threshold <code>%15+1</code> (1229 bytes in 8 KiB), fail-fast. Read time: the current content at the moment the rule is evaluated &mdash; i.e. ciphertext if the file has been encrypted.</td>
+              <td>S8 &mdash; <code>!= true</code></td>
+            </tr>
+            <tr>
+              <td><code>size</code></td>
+              <td>Lazy file size</td>
+              <td>Not used directly (the kernel already applies the full-read / full-write threshold)</td>
+            </tr>
+            <tr>
+              <td><code>rawHash</code></td>
+              <td>xxh64 over the read/write sequence</td>
+              <td>Not used directly in this rule; used in the <code>MLE_FILE_COPY</code> rule</td>
+            </tr>
+            <tr>
+              <td><code>renameTarget</code></td>
+              <td>New name, only for rename events</td>
+              <td>None &mdash; not carried into the candidate event</td>
+            </tr>
+            <tr>
+              <td><code>volume</code></td>
+              <td>{guid, type, device} &mdash; fixed / removable / network</td>
+              <td>Not in this rule (used in USB rules)</td>
+            </tr>
+            <tr>
+              <td><code>owlyEntropy</code></td>
+              <td><strong>Event root field</strong> &mdash; only on the full-write event</td>
+              <td>S7c</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Security and performance value of lazy evaluation</div>
+        <code>isAsciiText</code> means a disk read on every evaluation. The system builds it as a
+        <strong>lazy proxy object</strong> (lambda proxy): no byte is read unless the rule
+        <strong>actually touches</strong> that field. If none of the 10 kernel triggers
+        read this field, not a single byte is spent.
+        <br><br>
+        When it is touched, the work is cheap on <strong>two levels</strong>: the 64 KiB I/O
+        is done in one call, but <strong>analysis completes fail-fast within the first 8 KiB</strong>.
+        So for typical ciphertext the decision is made after roughly <strong>1229 bytes</strong> have been read
+        &mdash; the remaining 63 KiB are never scanned. This is what makes an EDR
+        usable on a live system.
+      </div>
+
+      <!-- ============ 10 ENTROPİ ============ -->
+      <h2 class="wiki-h2" id="entropy" data-i18n="wiki.h2_10"><span class="num">10</span> Shannon Entropisi: Q24 Sabit Nokta ile Hesaplama</h2>
+
+      <p>
+        Entropy is a measure of how &ldquo;random&rdquo; data is. Encrypted data
+        (AES, ChaCha) is close to the theoretical maximum of <strong>8 bits/byte</strong>.
+        Plain text sits in the 3.5&ndash;5 band. This difference turns the question &ldquo;is it encrypted?&rdquo;
+        into a numerical criterion.
+      </p>
+
+      <h3 class="wiki-h3">10.1 &mdash; Algorithm</h3>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">edrdrv/src/ShanonEntropy.cpp + ShanonEntropy.h</span><span>RING-0 &mdash; NO FLOAT</span></div>
+<pre><span class="tok-cm">// ENTROPY_ONE_Q24 = 2^24.  Range: [0, 8 * ENTROPY_ONE_Q24]
+// To convert to float: (double)result / (double)ENTROPY_ONE_Q24
+constexpr ULONGLONG ENTROPY_ONE_Q24 = 1ULL &lt;&lt; 24;</span>
+
+ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
+{
+    <span class="tok-key">if</span> (!buffer || size == 0) <span class="tok-key">return</span> 0;
+
+    <span class="tok-cm">// 256-bucket byte histogram</span>
+    ULONGLONG bkt[256] = {};
+    <span class="tok-key">for</span> (size_t i = 0; i &lt; size; i++) bkt[buffer[i]]++;
+
+    ULONGLONG slQ24 = OwlyLog2Q24((ULONGLONG)size);        <span class="tok-cm">// log2(N)</span>
+    ULONGLONG wsum  = 0;
+    <span class="tok-key">for</span> (ULONG i = 0; i &lt; 256; i++)
+        <span class="tok-key">if</span> (bkt[i]) wsum += bkt[i] * OwlyLog2Q24(bkt[i]);
+
+    ULONGLONG avg  = wsum / (ULONGLONG)size;               <span class="tok-cm">// (1/N) * SUM n_i*log2(n_i)</span>
+    ULONGLONG eQ24 = (slQ24 &gt; avg) ? (slQ24 - avg) : 0;   <span class="tok-cm">// H = log2(N) - (1/N)*SUM(...)</span>
+    <span class="tok-key">if</span> (eQ24 &gt; c_EntMaxQ24) eQ24 = c_EntMaxQ24;   <span class="tok-cm">// clamp to 8</span>
+    <span class="tok-key">return</span> eQ24;
+}</pre>
+      </div>
+
+      <h3 class="wiki-h3">10.2 &mdash; Why Q24 fixed point?</h3>
+
+      <div class="callout violet">
+        <div class="co-title">&#9654; Floating point is forbidden in the kernel</div>
+        This computation runs <strong>in Ring-0, in the post-operation of every write</strong>.
+        Floating-point operations (SSE/MMX) are <strong>strictly forbidden</strong> in the Windows kernel
+        &mdash; an exception leads to an aborted operation and system instability.
+        <br><br>
+        That is why the <code>log2</code> function is rewritten in integer
+        arithmetic using an <strong>atanh series</strong> (terms <code>/3, /5, /7, /9, /11, /13</code>),
+        with 24 fractional bits (<code>Q24</code>), and the result is hard-clamped to
+        <code>8 &times; 2^24</code>. <strong>Precision is about
+        6&times;10^-8 bits/byte</strong> &mdash; more than enough for the decision threshold of &ldquo;6&rdquo;.
+      </div>
+
+      <h3 class="wiki-h3">10.3 &mdash; Where and how is it sampled?</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Property</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Sampling point</strong></td><td>Only <strong>write</strong> operations (pre/post write, every MDL page and every direct buffer)</td></tr>
+            <tr><td><strong>Aggregation</strong></td><td>The <strong>maximum</strong> chunk entropy in the sequence</td></tr>
+            <tr><td><strong>Publication</strong></td><td>Only on the <code>LLE_FILE_DATA_WRITE_FULL</code> event (<code>owlyEntropy</code> + <code>owlyIsEntropyCalc=1</code>)</td></tr>
+            <tr><td><strong>Type</strong></td><td><code>uint64</code> Q24 fixed point &mdash; raw value, unscaled</td></tr>
+            <tr><td><strong>Accuracy note</strong></td><td>Not IEEE-exact because the series is cut off after 6 terms and the mantissa is truncated; deviation of a few ULPs in practical ranges</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">10.4 &mdash; Typical values</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Content</th><th>Theoretical H (bits/byte)</th><th>Q24 Raw Value</th><th>Result in the Rule</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Fully constant (zeros)</td><td>0,0</td><td>0</td><td><span class="no-mark">FILTERED</span></td></tr>
+            <tr><td>English text, source code, <code>.txt/.js/.html/.json</code></td><td>3.5 &ndash; 5.0</td><td>58,720,256 &ndash; 83,886,080</td><td><span class="warn-mark">Filtered by S8</span></td></tr>
+            <tr><td>Compiled PE (mix of code + data)</td><td>6.0 &ndash; 7.2</td><td>100,663,296 &ndash; 120,795,955</td><td><span class="ok-mark">PASSES</span></td></tr>
+            <tr><td>Compressed archive (<code>.zip/.7z/.zst</code>)</td><td>7.9 &ndash; 8.0</td><td>&asymp;132,120,000 &ndash; 134,217,728</td><td><span class="ok-mark">PASSES</span></td></tr>
+            <tr><td>Fresh AES/ChaCha ciphertext</td><td>7.9 &ndash; 8.0</td><td>&asymp;132,120,000 &ndash; 134,217,728</td><td><span class="ok-mark">PASSES</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; Scaling defect (known limitation)</div>
+        The driver writes entropy as a <strong>raw Q24 integer</strong> (0 &hellip; 134,217,728),
+        but the policy rule compares it with <code>6</code> &mdash; i.e. it compares against the
+        <strong>raw Q24</strong> value. This means &ldquo;pass if greater than 3.6&times;10^-7
+        bits/byte&rdquo;; in practice it turns into the question &ldquo;was this a full-write
+        event?&rdquo;.
+        <br><br>
+        The scaling is mentioned in a <code>filemon.cpp</code> comment (&ldquo;the Rust side divides by 1&lt;&lt;24&rdquo;),
+        and it applies to the <strong>OwlyShield Rust consumer</strong>;
+        no scaling is done on the PTM/C++ path. As a result, <strong>the entropy distinction that
+        actually works is filter 8</strong> (<code>isAsciiText</code>), while block 7c acts as a &ldquo;was it a full-write
+        event&rdquo; filter. Details and the proposed fix:
+        <a href="#sinirlar">Section 16</a>.
+      </div>
+
+      <!-- ============ 11 BEYAZ LİSTE ============ -->
+      <h2 class="wiki-h2" id="beyazliste" data-i18n="wiki.h2_11"><span class="num">11</span> Beyaz Liste ve Uzantı Gözcüsü</h2>
+
+      <h3 class="wiki-h3">11.1 &mdash; System Exclusions (8 entries)</h3>
+
+      <p>
+        This list feeds the rule's two hardest-working filters (S1 and S2). The comment line in the source
+        states it explicitly: <em>&ldquo;System and browser cache paths excluded from ransomware
+        tripping (FP reduction)&rdquo;</em> &mdash; system and browser cache paths are excluded
+        to reduce false positives.
+      </p>
+
+      <div class="code-block amber">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; @const.ransomSystemExclusions (lines 1660-1670)</span><span>8 ENTRIES</span></div>
+<pre><span class="tok-cm">// System and browser cache paths excluded from ransomware tripping (FP reduction)</span>
+<span class="tok-str">"ransomSystemExclusions"</span>: [
+  <span class="tok-str">"*\\Windows\\*"</span>,                <span class="tok-cm">// mode "all"   &lt;-- contains \Windows\</span>
+  <span class="tok-str">"C:\\Windows\\explorer.exe"</span>,   <span class="tok-cm">// mode "begin" &lt;-- STARTS WITH</span>
+  <span class="tok-str">"*\\Program Files\\*"</span>,          <span class="tok-cm">// mod "all"</span>
+  <span class="tok-str">"*\\Program Files (x86)\\*"</span>,    <span class="tok-cm">// mod "all"</span>
+  <span class="tok-str">"*\\ProgramData\\*"</span>,            <span class="tok-cm">// mod "all"</span>
+  <span class="tok-str">"*\\AppData\\*"</span>,                <span class="tok-cm">// mode "all"  (case-insensitive)</span>
+  <span class="tok-str">"*\\Temp\\*"</span>,                   <span class="tok-cm">// mod "all"</span>
+  <span class="tok-str">"*:Zone.Identifier*"</span>            <span class="tok-cm">// mod "all"  &lt;-- NTFS ADS</span>
+],</pre>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; A subtle detail of the <code>C:\Windows\explorer.exe</code> line</div>
+        Since this pattern contains no wildcard, it becomes a <strong>prefix (<code>begin</code>) match</strong>.
+        That is, any path that has <code>C:\Windows\explorer.exe</code> as a <strong>prefix</strong> matches
+        &mdash; such as <code>C:\Windows\explorer.exe.bak</code>. This breadth is deliberate: it is also filtered out when the installer's
+        desktop backup tool creates <code>explorer.exe.bak</code>.
+        <br>
+        Likewise, <code>*\Windows\*</code> already covers everything under <code>C:\Windows\</code>; this
+        line is <strong>redundant</strong>, but because the name <code>explorer.exe</code> is given
+        explicitly, it appears to have been kept as a fallback that would still apply if the <code>\Windows\</code> pattern
+        were narrowed later.
+      </div>
+
+      <h3 class="wiki-h3">11.2 &mdash; User File Extension Watchlist (1479 entries)</h3>
+
+      <p>
+        The source comment says: <em>&ldquo;Extensions of user files whose encryption is treated
+        as ransomware-relevant. Scopes the file-encryption candidate so extensionless / temp files
+        do not FP.&rdquo;</em>
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; @const.ransomFileExtensions (lines 137-1619)</span><span>1479 ENTRIES</span></div>
+<pre><span class="tok-cm">// Extensions of user files whose encryption is treated as ransomware-relevant.</span>
+<span class="tok-cm">// Scopes the file-encryption candidate so extensionless / temp files do not FP.</span>
+<span class="tok-str">"ransomFileExtensions"</span>: [
+  <span class="tok-str">"*.0"</span>, <span class="tok-str">"*.0nv"</span>, <span class="tok-str">"*.0rv"</span>, <span class="tok-str">"*.1"</span>, <span class="tok-str">"*.10"</span>, <span class="tok-str">"*.10-config"</span>,
+  <span class="tok-str">"*.12"</span>, <span class="tok-str">"*.13"</span>, <span class="tok-str">"*.14"</span>, <span class="tok-str">"*.15"</span>, <span class="tok-str">"*.16"</span>, <span class="tok-str">"*.17"</span>,
+  <span class="tok-str">"*.18"</span>, <span class="tok-str">"*.199"</span>, <span class="tok-str">"*.1cd"</span>, <span class="tok-str">"*.1m"</span>, <span class="tok-str">"*.20"</span>, <span class="tok-str">"*.25"</span>,
+  <span class="tok-str">"*.3fr"</span>, <span class="tok-str">"*.3gp"</span>, <span class="tok-str">"*.3g2"</span>, <span class="tok-str">"*.amr"</span>, <span class="tok-str">"*.avi"</span>, <span class="tok-str">"*.bak"</span>,
+  <span class="tok-str">"*.blend"</span>, <span class="tok-str">"*.bmp"</span>, <span class="tok-str">"*.cdr"</span>, <span class="tok-str">"*.cpp"</span>, <span class="tok-str">"*.cr3"</span>, <span class="tok-str">"*.csv"</span>,
+  <span class="tok-str">"*.dbf"</span>, <span class="tok-str">"*.dll"</span>, <span class="tok-str">"*.doc"</span>, <span class="tok-str">"*.docx"</span>, <span class="tok-str">"*.dot"</span>, <span class="tok-str">"*.dotx"</span>,
+  <span class="tok-str">"*.dwg"</span>, <span class="tok-str">"*.eml"</span>, <span class="tok-str">"*.enc"</span>, <span class="tok-str">"*.encrypted"</span>, <span class="tok-str">"*.flac"</span>, <span class="tok-str">"*.gif"</span>,
+  <span class="tok-str">"*.gz"</span>, <span class="tok-str">"*.htm"</span>, <span class="tok-str">"*.html"</span>, <span class="tok-str">"*.ico"</span>, <span class="tok-str">"*.indd"</span>, <span class="tok-str">"*.java"</span>,
+  <span class="tok-str">"*.jpeg"</span>, <span class="tok-str">"*.jpg"</span>, <span class="tok-str">"*.js"</span>, <span class="tok-str">"*.json"</span>, <span class="tok-str">"*.locked"</span>, <span class="tok-str">"*.log"</span>,
+  <span class="tok-str">"*.mdb"</span>, <span class="tok-str">"*.mdf"</span>, <span class="tok-str">"*.mkv"</span>, <span class="tok-str">"*.mov"</span>, <span class="tok-str">"*.mp3"</span>, <span class="tok-str">"*.mp4"</span>,
+  <span class="tok-str">"*.odt"</span>, <span class="tok-str">"*.pdf"</span>, <span class="tok-str">"*.php"</span>, <span class="tok-str">"*.png"</span>, <span class="tok-str">"*.ppt"</span>, <span class="tok-str">"*.pptx"</span>,
+  <span class="tok-str">"*.psd"</span>, <span class="tok-str">"*.py"</span>, <span class="tok-str">"*.rar"</span>, <span class="tok-str">"*.rb"</span>, <span class="tok-str">"*.rtf"</span>, <span class="tok-str">"*.sln"</span>,
+  <span class="tok-str">"*.sql"</span>, <span class="tok-str">"*.tar"</span>, <span class="tok-str">"*.tiff"</span>, <span class="tok-str">"*.txt"</span>, <span class="tok-str">"*.vhd"</span>, <span class="tok-str">"*.vmdk"</span>,
+  <span class="tok-str">"*.wav"</span>, <span class="tok-str">"*.webm"</span>, <span class="tok-str">"*.webp"</span>, <span class="tok-str">"*.wmv"</span>, <span class="tok-str">"*.xls"</span>, <span class="tok-str">"*.xlsx"</span>,
+  <span class="tok-str">"*.xml"</span>, <span class="tok-str">"*.zip"</span>, <span class="tok-str">"*.zip-o-matic"</span>, <span class="tok-str">"*.zoo"</span>, <span class="tok-str">"*.zst"</span>
+  <span class="tok-cm">// ... alphabetical, 1479 entries, *.0 -&gt; *.zst</span>
+],</pre>
+      </div>
+
+      <h4 class="wiki-h4">Analysing the list</h4>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Category</th><th>Examples</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Typical ransomware victim extensions</strong></td>
+              <td><code>*.doc *.docx *.xls *.xlsx *.ppt *.pptx *.pdf *.jpg *.png *.psd *.ai *.dwg *.mdb *.sql *.bak *.vmdk *.vhd</code></td>
+              <td>The classic &ldquo;files that can be encrypted&rdquo; list</td>
+            </tr>
+            <tr>
+              <td><strong>Family-specific extensions</strong></td>
+              <td><code>*.locked *.crypt *.enc *.encrypted *.ryk *.ryuk *.wcry *.wncry *.wnry *.locky *.zepto *.odin *.thor</code></td>
+              <td>Distinctive extensions that appear during an attack; they strengthen detection of a second-round wave</td>
+            </tr>
+            <tr>
+              <td><strong>Developer / database / VM</strong></td>
+              <td><code>*.sln *.cs *.java *.py *.rb *.go *.rs *.sql *.mdf *.ldf *.sqlite*</code></td>
+              <td>High-value &ldquo;original work&rdquo; files, the type most often lost</td>
+            </tr>
+            <tr>
+              <td><strong>Media / creative</strong></td>
+              <td><code>*.blend *.psd *.indd *.cdr *.aep *.prproj *.raw</code></td>
+              <td>Photo and video archives &mdash; usually the directory with the most photos</td>
+            </tr>
+            <tr>
+              <td><strong>Structurally <em>broad</em> entries</strong></td>
+              <td><code>*.0 *.1 ... *.100</code>, <code>*.log *.tmp *.dat</code></td>
+              <td><span class="c-amber">Low signal</span>, but neutralized when combined with filters 7a &amp; 7b</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Design that narrows the list: two-layer protection</div>
+        <code>ransomFileExtensions</code> deliberately relies on a <strong>broad</strong> list
+        &mdash; 1479 extensions cost almost nothing in a single StringMatcher table.
+        <strong>Narrowing is left to the subsequent filters</strong> (7a: is there a dot; S8: is it text
+        or not; S9: 3+ distinct targets). This is the right architecture for preserving detection power
+        <strong>while removing the burden of constantly keeping a list
+        up to date</strong>: a broad candidate pool + layered strict filters beats a narrow candidate pool that constantly needs updating.
+      </div>
+
+      <!-- ============ 12 KERNEL ============ -->
+      <h2 class="wiki-h2" id="kernel" data-i18n="wiki.h2_12"><span class="num">12</span> Kernel Tarafı: Hangi IRP, Hangi Olay?</h2>
+
+      <p>
+        All of the rule's triggers are generated in Ring-0. The minifilter registers seven IRP major
+        functions. This registration determines the <strong>entire</strong> rule:
+      </p>
+
+      <div class="code-block red">
+        <div class="code-head"><span class="src">edrdrv/src/filemon.cpp (2645-2661)</span><span>MINIFILTER REGISTRATION</span></div>
+<pre>CONST FLT_OPERATION_REGISTRATION c_Callbacks[] =
+{
+    { IRP_MJ_CREATE,  0, preCreate,  postCreate  },
+    { IRP_MJ_CLEANUP, 0, preCleanup, postCleanup },
+    { IRP_MJ_SET_INFORMATION, FLTFL_OPERATION_REGISTRATION_SKIP_PAGING_IO, preSetFileInfo, postSetFileInfo },
+    { IRP_MJ_WRITE,   0, preWrite,   postWrite   },
+    { IRP_MJ_READ,    0, preRead,    postRead    },
+    { IRP_MJ_DEVICE_CONTROL, 0, preDeviceControl, nullptr },
+    { IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION, 0, preAcquireForSectionSync, nullptr },
+
+    { IRP_MJ_OPERATION_END }
+};</pre>
+      </div>
+
+      <h3 class="wiki-h3">12.1 &mdash; Driver-Side Event Codes</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>SysmonEvent</th><th>Code</th><th>LLE Value</th><th>Origin</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>FileCreate</code></td><td>0x0007</td><td><code>LLE_FILE_CREATE</code> = 0x0003</td><td><code>postCreate</code></td></tr>
+            <tr><td><code>FileDelete</code></td><td>0x0008</td><td><code>LLE_FILE_DELETE</code> = 0x0004</td><td><code>postCleanup</code> / <code>postSetFileInfo</code></td></tr>
+            <tr><td><code>FileClose</code></td><td>0x0009</td><td><code>LLE_FILE_CLOSE</code> = 0x0005</td><td><code>postCleanup</code></td></tr>
+            <tr><td><code>FileDataChange</code></td><td>0x000A</td><td><code>LLE_FILE_DATA_CHANGE</code> = 0x0006</td><td><code>postCleanup</code></td></tr>
+            <tr><td><code>FileDataReadFull</code></td><td>0x000B</td><td><code>LLE_FILE_DATA_READ_FULL</code> = 0x0007</td><td><code>postCleanup</code></td></tr>
+            <tr><td><code>FileDataWriteFull</code></td><td>0x000C</td><td><code>LLE_FILE_DATA_WRITE_FULL</code> = 0x0008</td><td><code>postCleanup</code></td></tr>
+            <tr><td><code>FileMapRead</code></td><td>0x0011</td><td><code>LLE_FILE_MAP_READ</code> = 0x0034</td><td><code>preAcquireForSectionSync</code></td></tr>
+            <tr><td><code>FileMapWrite</code></td><td>0x0012</td><td><code>LLE_FILE_MAP_WRITE</code> = 0x0035</td><td><code>preAcquireForSectionSync</code></td></tr>
+            <tr><td><code>FileRename</code></td><td>0x0014</td><td><code>LLE_FILE_RENAME</code> = 0x0032</td><td><code>postSetFileInfo</code></td></tr>
+            <tr><td><code>OwlyPreImageSaved</code></td><td>0x0017</td><td><code>LLE_FILE_PREIMAGE_SAVED</code> = 0x0037</td><td>RansomShield</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">12.2 &mdash; How are &ldquo;full read&rdquo; and &ldquo;full write&rdquo; proven?</h3>
+
+      <p>
+        This is the most robust engineering part of the rule. The minifilter <strong>never simply says
+        &ldquo;the file was written&rdquo;</strong>; it <strong>proves</strong> it:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Evidence</th><th>Condition</th><th>Why It Matters</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Initial size</strong></td>
+              <td><code>nSizeAtCreation</code> is recorded at <code>postCreate</code> time</td>
+              <td>The full-write detector is armed <strong>only when the size is 0</strong> (new/truncated file)</td>
+            </tr>
+            <tr>
+              <td><strong>Sequential position</strong></td>
+              <td><code>nNextPos</code> is advanced after each write/read; a full read requires <code>nNextPos == nSizeAtCreation</code></td>
+              <td><strong>Partial reads/writes do not count</strong> &mdash; random access is filtered out</td>
+            </tr>
+            <tr>
+              <td><strong>Size limits</strong></td>
+              <td>The total size written/read must be within the range <code>[nMinFullActFileSize, nMaxFullActFileSize]</code></td>
+              <td>Log files, cache, temporary artifacts &mdash; very large or tiny files are filtered out</td>
+            </tr>
+            <tr>
+              <td><strong>Truncation guard</strong></td>
+              <td><code>eCreationStatus</code> &mdash; <code>FILE_CREATED</code> / <code>FILE_OVERWRITTEN</code> / <code>FILE_SUPERSEDED</code> / <code>FILE_OPENED</code></td>
+              <td>&ldquo;Open the file, then write&rdquo; is distinguished from &ldquo;create and write&rdquo;</td>
+            </tr>
+            <tr>
+              <td><strong>Backup name exception</strong></td>
+              <td>Files whose path contains <code>HydraDragonBackups</code> are skipped</td>
+              <td><strong>The product's own restore mechanism</strong> does not trigger itself &mdash; an important safeguard</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Important: this technique is resilient to BYOVD and anti-EDR evasion</div>
+        Ransomware either writes <em>in place over the original file</em>, produces a duplicate
+        file, or creates a new file and deletes the original. All three models leave an
+        &ldquo;IRP_MJ_CREATE + WRITE/CLEANUP + SET_INFORMATION&rdquo; trace &mdash;
+        captured <strong>without API hooking</strong>. Classic hook-based AVs
+        (usermode) do not see this; a Ring-0 minifilter does.
+      </div>
+
+      <h3 class="wiki-h3">12.3 &mdash; The mmap path: catching the invisible</h3>
+
+      <div class="code-block">
+        <div class="code-head"><span class="src">edrdrv/src/filemon.cpp (2564-2573) &mdash; driver comment, verbatim</span><span>WHY A SEPARATE IRP?</span></div>
+<pre><span class="tok-cm">/*  Reads/writes via mmap produce NO IRP_MJ_READ / IRP_MJ_WRITE.
+    NtCreateSection + NtMapViewOfSection map directly into
+    memory.  So the only visible signal is the section acquisition IRP.  */</span></pre>
+      </div>
+
+      <p>
+        The driver classifies <code>PAGE_READONLY</code> protection as read intent, and <code>PAGE_READWRITE</code> /
+        <code>PAGE_WRITECOPY</code> / <code>PAGE_EXECUTE_READWRITE</code> / <code>PAGE_EXECUTE_WRITECOPY</code>
+        protections as write intent. The page protection is written to the <code>accessMask</code>
+        field.
+      </p>
+
+      <div class="callout violet">
+        <div class="co-title">&#9654; The choice of modern encryptors</div>
+        A significant share of professional ransomware written in Rust (an open-source language), Go and C++
+        processes files with <code>mmap</code> &mdash; because this path is <strong>faster</strong>
+        and <strong>leaves no trace</strong> in user-mode API hooks. Without the LLE_FILE_MAP_READ and
+        LLE_FILE_MAP_WRITE items, this class of ransomware would be <strong>completely
+        invisible</strong> to the rule.
+      </div>
+
+      <!-- ============ 13 İKİ AŞAMALI ============ -->
+      <h2 class="wiki-h2" id="neden-iki-asama" data-i18n="wiki.h2_13"><span class="num">13</span> Neden İki Ara Olay Var?</h2>
+
+      <p>
+        The intermediate events <code>MLE_RANSOM_CANDIDATE</code> and <code>MLE_RANSOM_EVALUATE</code>
+        may look like &ldquo;unnecessary processing&rdquo;. They are not. They have three concrete benefits:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Benefit</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Decoupling</strong></td>
+              <td>Stage 2 only <strong>aggregates</strong>, stage 4 only <strong>decides</strong>. If the two responsibilities were combined in one place, the threshold calculation would be buried inside the generation logic and become impossible to change.</td>
+            </tr>
+            <tr>
+              <td><strong>Rule traceability</strong></td>
+              <td>Every step appears under its own event name in the log and debugger flow. &ldquo;A candidate was produced but the threshold was not met&rdquo; can be distinguished from &ldquo;No candidate was produced at all&rdquo; &mdash; a critical diagnostic capability in production.</td>
+            </tr>
+            <tr>
+              <td><strong>Policy extensibility</strong></td>
+              <td>The <code>MLE_RANSOM_EVALUATE</code> output is a public hook point. A future rule (e.g. &ldquo;different threshold, different window&rdquo;) can attach to the same candidate stream without touching the existing rule at all.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; An enterprise architecture lesson</div>
+        <strong>Separating aggregation from decision</strong> is a standard
+        pattern in large event processing systems. The rule applies this pattern <em>to file system observation rather than a database</em>.
+        It is cheap, auditable and extensible.
+      </div>
+
+      <!-- ============ 14 YANIT ============ -->
+      <h2 class="wiki-h2" id="yanit" data-i18n="wiki.h2_14"><span class="num">14</span> Yanıt Zinciri: Tespitten Sonrası Ne Olur?</h2>
+
+      <p>
+        Producing a detection is not the end. The <code>MLE_RANSOM_BEHAVIOR</code> event
+        passes through the <code>OUT</code> chain of enrichment, trust check, kill, quarantine and restore.
+        The flow below is the actual order inside <code>DetectionNotifier::execute("put")</code>.
+      </p>
+
+      <div class="pipeline">
+<u>MLE_RANSOM_BEHAVIOR</u>  (baseType 1000008, OUT)
+   |
+   |--&gt; [1] <b>severity = 3 (CRITICAL)</b> + <b>alert_kind = "critical"</b>   &lt;-- fixed for every detection
+   |
+   |--&gt; [2] Title synthesis  +  <b>quarantineTarget</b> lock
+   |         &lt;- @event.process.imageFile.rawPath  (ATTACKER'S BINARY)
+   |
+   |--&gt; [3] OwlyShield verdict synchronization   (owlyshield_update_process_verdict)
+   |
+   |--&gt; [4] <s>TRUST CHECK</s>  (detailed below)
+   |         should_trust_company_whitelist = true
+   |         should_trust_comodo_fls_cloud  = true
+   |            -&gt; trusted signed / FLS SAFE  ==&gt;  kill + quarantine <b>CANCELLED</b>
+   |            -&gt; malicious / PUA vendor       ==&gt; strict enforcement
+   |
+   |--&gt; [5] <i>KILL PROCESS</i>  &mdash; edrdrv IOCTL
+   |         DeviceIoControl(\\.\\{157980D8-09B4-4580-B8B6-D32971D056DA})
+   |         msgType = 6 (MESSAGE_KILL_ONLY_GID),  target = Global ID
+   |
+   |--&gt; [6] <i>QUARANTINE</i>  &mdash; owlyshield_ransom.dll
+   |         owlyshield_dll_quarantine_file(dosyaYolu)
+   |         + recordMalwareDetection()  (persistent database record)
+   |         on failure, via: \\.\pipe\HydraHipEvent
+   |                     "Malicious file locked! Please restart your computer..."
+   |
+   |--&gt; [7] <b>RESTORE</b>  &mdash; EventEnricher::rollbackRansomBackups()
+   |         Process, root process, GID only &mdash; pre-image restore for all three
+   |         (original copies RansomShield saved under %PROGRAMDATA%\HydraDragonBackups
+   |          before modification)
+   |
+   +--&gt; [8] GUI notification  +  append to 1000-entry ring buffer
+</div>
+
+      <h3 class="wiki-h3">14.1 &mdash; Why is <code>quarantineTarget</code> the process image?</h3>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; A critical architectural decision</div>
+        At the candidate stage, <code>quarantineTarget</code> points to <strong>the file being encrypted</strong>.
+        In the final detection, <strong>the process's own image file</strong> is assigned.
+        <br><br>
+        This is the rule's biggest distinguishing feature. Classic EDRs usually
+        <strong>quarantine the victim file</strong> &mdash; this does not protect the user's data,
+        it only removes the file flagged as malicious. Viruskov instead
+        <strong>destroys the tool and restores the data</strong>. The difference between the two is whether a product
+        is a &ldquo;detector&rdquo; or a &ldquo;rescuer&rdquo;.
+      </div>
+
+      <h3 class="wiki-h3">14.2 &mdash; Trust flags: <code>should_trust_*</code></h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Flag</th><th>Value</th><th>Effect</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>should_trust_company_whitelist</code></td>
+              <td class="c-amber">true</td>
+              <td>Allows the call to <code>owlyshield_is_trusted_company_signer</code>. A binary signed by a trusted organization &rarr; <strong>kill + quarantine are cancelled</strong> (the alert record is still kept).</td>
+            </tr>
+            <tr>
+              <td><code>should_trust_comodo_fls_cloud</code></td>
+              <td class="c-amber">true</td>
+              <td>Vetoes if the FLS cloud returns <code>verdict = 1 (SAFE)</code>. It also vetoes on <code>verdict = 4 (FAIL/ERROR)</code> &mdash; so a cloud outage does not paralyze the detection system.</td>
+            </tr>
+            <tr>
+              <td><code>owlyshield_is_malicious_company_signer</code></td>
+              <td class="c-red">overrides the trust flags</td>
+              <td>If a malicious / PUA vendor is detected, the verdict is forced to <code>verdict = 2</code> and <strong>strict enforcement</strong> takes effect; the whitelist is disabled.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; This choice is deliberate and correct</div>
+        The ransomware's &ldquo;executed file&rdquo; is often an unsigned intermediate binary
+        (LiveWire, PowerShell, script host, code with a stolen signature). That is why the
+        <code>should_trust_*</code> flags are <strong>kept enabled</strong> in this rule
+        (not <code>false</code>). This keeps the enterprise-security assumption &ldquo;signed = safe&rdquo;
+        on the right side. At the same time, since the
+        &ldquo;trusted signed &rarr; encrypting exe&rdquo; scenario is technically close to impossible,
+        this setting produces no FPs in practice, and only handles signed but compromised
+        (supply-chain) cases correctly.
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; What neutralization does not do</div>
+        On the <code>put</code> path, <strong>network blocking (firewall / IPC block)</strong>,
+        <strong>bootkit / driver cleanup</strong> or <strong>sending the MLE to the cloud</strong>
+        <strong>is not performed</strong>. These belong to separate modules. MLE_RANSOM_BEHAVIOR
+        <strong>focuses on a single job</strong>: stop the attacker, recover the data, notify the analyst.
+      </div>
+
+      <!-- ============ 15 NEDEN MÜKEMMEL ============ -->
+      <h2 class="wiki-h2" id="neden" data-i18n="wiki.h2_15"><span class="num">15</span> Neden Mükemmel Bir Ransomware Kuralı?</h2>
+
+      <p>
+        &ldquo;Excellent&rdquo; here means: <strong>independent of zero-day status,
+        target-focused, evidence-based, and provably restorative.</strong>
+        Below are twelve concrete reasons.
+      </p>
+
+      <div class="reason-grid">
+        <div class="reason-card">
+          <div class="reason-idx">R01 &bull; INDEPENDENCE</div>
+          <div class="reason-title">Completely independent of the code</div>
+          <div class="reason-text">The rule does not look at the file's content, hash, compiler, packer or <strong>even its size</strong>. Even if the malicious code is completely changed, repacked or rewritten in a new language &mdash; the rule works the same. This <strong>alone</strong> provides zero-day coverage.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R02 &bull; NECESSITY</div>
+          <div class="reason-title">Encryption is a mandatory step</div>
+          <div class="reason-text">For ransomware to achieve its goal, it <strong>must corrupt the file irreversibly</strong>. &ldquo;Destroy&quot;, &ldquo;encrypt&quot;, &ldquo;remote wipe&quot; &mdash; all three leave the same file system trace. This ties the rule to a <strong>mandatory behaviour</strong>: it cannot be skipped.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R03 &bull; NAME-AGNOSTIC</div>
+          <div class="reason-title">Encryption is family-agnostic</div>
+          <div class="reason-text">Family, variant, build date, language, packer &mdash; none of them matter. The rule does not say &ldquo;this is <strong>LockBit</strong>&rdquo;, it says &ldquo;this is <strong>encryption</strong>&rdquo;. That is why new variants are not <strong>separate work</strong>.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R04 &bull; RING-0</div>
+          <div class="reason-title">Observation in the kernel</div>
+          <div class="reason-text">Detection looks at <strong>IRPs, not usermode hooks</strong>. This provides two critical advantages: (a) usermode API evasion does not work, (b) wiping the antivirus from memory via BYOVD does <strong>not prevent</strong> detection &mdash; the engine is already running.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R05 &bull; MMAP</div>
+          <div class="reason-title">Catches the invisible path</div>
+          <div class="reason-text"><code>NtMapViewOfSection</code> produces no <code>IRP_MJ_READ/WRITE</code>. Thanks to the LLE_FILE_MAP_READ / MAP_WRITE items, mapping-based encryptors are caught as well. Many EDRs <strong>miss this path entirely</strong>.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R06 &bull; VOLUME</div>
+          <div class="reason-title">A single operation is not enough</div>
+          <div class="reason-text">The threshold of <strong>3 distinct targets</strong> in 60 seconds completely rules out single-file operations. This is the rule's most important FP safety net: &ldquo;a user worked on one of their files&rdquo; and &ldquo;someone is bulk-encrypting&rdquo; are separated <strong>mathematically</strong>.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R07 &bull; DISTINCT COUNTING</div>
+          <div class="reason-title">Repeats are not counted</div>
+          <div class="reason-text"><code>distinctCounter</code> counts <strong>distinct values</strong>. A backup tool writing to the same file 500 times cannot fill the counter. This makes the critical distinction between &ldquo;many operations&quot; and &ldquo;many <strong>different</strong> files&quot;.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R08 &bull; PROCESS ISOLATION</div>
+          <div class="reason-title">Key = PID</div>
+          <div class="reason-text">The counter is kept <strong>per process</strong>. Two different applications cannot fill each other's counter; a browser extension cannot &ldquo;inherit&quot; another process's progress. This breaks false-positive chains in enterprise environments.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R09 &bull; CONTENT EVIDENCE</div>
+          <div class="reason-title">Content, not file name</div>
+          <div class="reason-text"><code>isAsciiText</code> measures the file's <strong>actual content</strong>: it looks for 15%+1 non-printable bytes in the first 8 KiB read from disk. It does not say &ldquo;malicious because the name contained .doc&quot;, but &ldquo;malicious because this is no longer plain text&quot;. Deciding by extension would constantly push enterprise email encryption and document processing software into false positives.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R10 &bull; CONTROL MECHANISM</div>
+          <div class="reason-title">Lazy evaluation</div>
+          <div class="reason-text">Content scanning runs only <strong>when the rule actually touches that field</strong>. When it does, 64 KiB of I/O is performed, but the decision is made fail-fast on the first 8 KiB. The same rule is usable on a live system and has a provable FP rate. Not &ldquo;tight but slow&quot;.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R11 &bull; RECOVERY</div>
+          <div class="reason-title">Not just detection, but recovery</div>
+          <div class="reason-text">Quarantine is applied to <strong>the attacker's binary</strong>, and <strong>the user's data is restored</strong> (RansomShield pre-image). A system where the attack was detected but the data was lost does not count as recovered. This rule combines detection with <strong>action</strong>.</div>
+        </div>
+        <div class="reason-card">
+          <div class="reason-idx">R12 &bull; AUDITABILITY</div>
+          <div class="reason-title">Not a black box, but a readable policy</div>
+          <div class="reason-text">The rule sits in JSON, <strong>as 16 items, in full</strong>. Everything you are reading now exists verbatim in the product. The answer to &ldquo;Why did it raise this alert?&rdquo; comes from a <strong>screenshot</strong>, not a support ticket. This is the project's core philosophy: not <em>Security by Obscurity</em>, but <em>Security by Legibility</em>.</div>
+        </div>
+      </div>
+
+      <h3 class="wiki-h3">15.1 &mdash; How would an attacker try to bypass this rule?</h3>
+
+      <p>
+        To test the safe side, one has to answer a red-team question:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Attacker Technique</th><th>Effect on the Rule</th><th>Why</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Packing / polymorphic code</td>
+              <td class="ok-mark">INEFFECTIVE</td>
+              <td>The rule looks at file system operations, not code</td>
+            </tr>
+            <tr>
+              <td>Bypassing <code>ReadFile</code>/<code>WriteFile</code> via API hooking</td>
+              <td class="ok-mark">INEFFECTIVE</td>
+              <td>The IRP layer is observed; the usermode API is not invisible, it is <strong>irrelevant</strong></td>
+            </tr>
+            <tr>
+              <td>Direct <code>NtWriteFile</code> / <code>ZwWriteFile</code></td>
+              <td class="ok-mark">INEFFECTIVE</td>
+              <td>Ends up as the same IRP</td>
+            </tr>
+            <tr>
+              <td>Built-in file system APIs (deletion via <code>SetFileInformationByHandle</code>)</td>
+              <td class="ok-mark">INEFFECTIVE</td>
+              <td>IRP_MJ_SET_INFORMATION is monitored</td>
+            </tr>
+            <tr>
+              <td>Pre-filtering with a file system filter (minifilter)</td>
+              <td class="warn-mark">HARD &mdash; malicious</td>
+              <td>A running &ldquo;legitimate&quot; minifilter is visible; it is separate software that must itself be identified</td>
+            </tr>
+            <tr>
+              <td>Bulk encryption via WMI / remote management</td>
+              <td class="ok-mark">INEFFECTIVE</td>
+              <td>Still the same file system operation</td>
+            </tr>
+            <tr>
+              <td>Encrypting only the <code>C:\</code> root (outside user folders)</td>
+              <td class="no-mark">OUT OF SCOPE</td>
+              <td>Filter S3 requires <code>\users\</code> &mdash; this is a deliberate <strong>limit</strong> (see Section 16)</td>
+            </tr>
+            <tr>
+              <td>Slow encryption, waiting several minutes per file</td>
+              <td class="no-mark">MISSED</td>
+              <td>Exceeds the 60-second window &mdash; known limit (see Section 16)</td>
+            </tr>
+            <tr>
+              <td>Writing under <code>AppData</code> first, then moving from there</td>
+              <td class="no-mark">OUT OF SCOPE</td>
+              <td>S2 &amp; S4 filter out <code>\AppData\</code> completely</td>
+            </tr>
+            <tr>
+              <td>Delete backups, then encrypt</td>
+              <td class="ok-mark">INEFFECTIVE</td>
+              <td>The neighbouring rule <code>MLE_RANSOM_SHADOW_COPY_DELETE</code> takes over (Section 17)</td>
+            </tr>
+            <tr>
+              <td>Targeting plain text (encrypt only <code>.txt</code>)</td>
+              <td class="no-mark">EVADES</td>
+              <td>The S8 <code>isAsciiText</code> guard <strong>deliberately</strong> skips text files &mdash; an FP-reduction choice</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Mathematical summary</div>
+        <strong>Covered:</strong> Signature changes, packing, API evasion, complete code
+        rewrites, mmap, built-in APIs, new language, new compiler, remote execution.<br>
+        <strong>Bypassed by:</strong> Slow encryption, disk-root encryption, plain-text-only targeting.<br>
+        <strong>This is a commercial trade-off.</strong> Every EDR makes this trade-off; Viruskov does
+        <strong>not hide it</strong>, but documents it exactly as on this page.
+      </div>
+
+      <!-- ============ 16 SINIRLAR ============ -->
+      <h2 class="wiki-h2" id="sinirlar" data-i18n="wiki.h2_16"><span class="num">16</span> Dürüst Sınırlar ve Bilinen Kusurlar</h2>
+
+      <p>
+        This section was written deliberately. Describing a product's strengths is easy;
+        <strong>describing its weaknesses on the same page, with the same candour</strong> is what makes
+        trust human. The items below are
+        <strong>real findings</strong> identified through source code review &mdash; not assumptions, not malice, just plain fact.
+      </p>
+
+      <h3 class="wiki-h3">16.1 &mdash; Limits by design</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Limit</th><th>Impact</th><th>Fix</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>The <strong>60-second window</strong> misses sophisticated encryptors that wait several minutes per file</td>
+              <td>Medium &mdash; any high-volume encryption is still caught</td>
+              <td>Increase the window to 5-10 minutes, raise the threshold to 5-10, or add a <strong>temporal rate</strong> (files/s) metric</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>The <strong>S3 <code>*\users\*</code> requirement</strong> leaves encryptors targeting the disk root or network drives out of scope</td>
+              <td>Low &mdash; these targets usually do not hold user data</td>
+              <td>A new rule: <code>MLE_RANSOM_BEHAVIOR_SYSTEM</code> (path-independent, excluding <code>C:\Windows</code>)</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td><strong>Entropy is measured only on full-write events</strong> &mdash; no entropy is produced for <code>LLE_FILE_MAP_WRITE</code></td>
+              <td>Low &mdash; S8 <code>isAsciiText</code> already covers this path</td>
+              <td>Sampling mmap pages in <code>preAcquireForSectionSync</code></td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td><strong>S4 is the same check as S2</strong> (double check)</td>
+              <td>None &mdash; defence in depth at zero cost</td>
+              <td>Recommended to keep; high value for readability and as an example</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td><strong><code>ransomFileExtensions</code> is too broad</strong> (numeric and short extensions, <code>*.0</code> &hellip; <code>*.100</code>)</td>
+              <td>Low &mdash; 7a + S8 + S9 filter it together</td>
+              <td>Narrow the list to real victim extensions. <em>Note: the <code>"*.2538)"</code> entry on line 165 is a typo.</em></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">16.2 &mdash; Defects verified directly in the code</h3>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; DEFECT 1 &mdash; Three rule items are duplicated verbatim</div>
+        The <code>LLE_FILE_RENAME</code> (2f), <code>LLE_FILE_DELETE</code> (2g) and
+        <code>RF4*</code> (2h) items &mdash; each is written <strong>twice</strong>.
+        Of the 16 items in total, <strong>3 are redundant</strong>.
+        <br>
+        <strong>Impact:</strong> <span class="ok-mark">None.</span> The same
+        <code>MLE_RANSOM_CANDIDATE</code> is produced for the same event; because the counter counts distinct values,
+        the second one does not change the counter. However, it <strong>hurts</strong> the policy's readability,
+        and if one copy is fixed later, the other will diverge.
+        <br>
+        <strong>Fix:</strong> Delete items 2f', 2g' and 2h'. 16 items &rarr; 13 items.
+      </div>
+
+      <div class="callout danger">
+        <div class="co-title">&#9654; DEFECT 2 &mdash; <code>RF10*</code> and <code>RF4*</code> are dropped at compile time</div>
+        The policy compiler expands <code>eventType</code> keys containing wildcards
+        <strong>by prefix matching</strong> and looks <strong>only at event types that appear
+        without wildcards in the same policy</strong>. For <code>RF10*</code> the prefix is
+        <code>"RF10"</code>, for <code>RF4*</code> it is <code>"RF4"</code> &mdash; both produce
+        <strong>zero</strong> matches, the key is removed and the rule <strong>silently</strong>
+        disappears.
+        <br>
+        <strong>Root cause:</strong> The <code>RF*</code> aliases (event class names of the v1 / legacy EVM
+        engine: <code>RF4 = LLE_FILE_DELETE</code>, <code>RF10 = LLE_FILE_DATA_CHANGE</code>)
+        <strong>are not defined in the v2 engine</strong>. The names that should be used are
+        <code>LLE_FILE_DELETE</code> and <code>LLE_FILE_DATA_CHANGE</code>.
+        <br>
+        <strong>Impact:</strong> <span class="ok-mark">No functional loss.</span> The two intended
+        events (<code>LLE_FILE_DATA_CHANGE</code> = item 2d, <code>LLE_FILE_DELETE</code> =
+        item 2g) <strong>are already covered directly</strong>. All that remains is that three rules disappear from the compiled
+        output and the compiler <strong>emits no warning</strong>.
+        <br>
+        <strong>Fix:</strong> Delete items 2e, 2h and 2h' entirely; this does not change
+        the rule's logic.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; DEFECT 3 &mdash; The read bucket is written but never read</div>
+        Stages 1a and 1b write records to the <code>RANSOM_FILE_READ_WRITE</code>
+        bucket via <code>saveContext</code>. However, <strong>there is no <code>loadContext</code> inside <code>RANSOM_BEHAVIOR</code> that reads
+        this bucket</strong>. Stage 2 triggers only on <code>LLE_FILE_CREATE</code>
+        and write/map/change/rename/delete events &mdash;
+        <strong>read events are not triggers</strong>.
+        <br>
+        <strong>Impact:</strong> <span class="ok-mark">Does not affect the rule</span> (the threshold decision
+        is made entirely on the write side). It only wastes some memory for 120 seconds.
+        Stage 1 is a fully <strong>legitimate</strong> foundation ready for future work: a rule that wants to
+        build a &ldquo;reader &rarr; writer&rdquo; correlation
+        can attach here.
+        <br>
+        <strong>Fix options:</strong> (a) remove Stage 1, (b) add a
+        <code>loadContext</code> check for &ldquo;was this file read first?&rdquo;
+        (needed for the &ldquo;physical copy + delete&rdquo; model), (c) leave it as is.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; DEFECT 4 &mdash; Stage 5 cleanup does not match</div>
+        Stage 1 records are written without a <code>group</code> field; stage 5 tries to delete them
+        with <code>group: "@event.process.id"</code>. Because the engine stores the records
+        <strong>with an empty group marker</strong>, the group-based delete <strong>finds
+        nothing</strong>.
+        <br>
+        <strong>Impact:</strong> <span class="ok-mark">Not functional</span> &mdash; the 120-second
+        TTL already does this job correctly. The only effect is that if the process ends earlier, the record
+        stays for 120 seconds unnecessarily.
+        <br>
+        <strong>Fix:</strong> Add <code>"group": "@event.process.id"</code>
+        to stages 1a/1b.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; DEFECT 5 &mdash; Entropy is not scaled</div>
+        The driver writes entropy as a <strong>raw Q24 integer</strong>; the policy compares it with
+        <code>6</code>. So <code>owlyEntropy &gt; 6</code> in practice does not ask
+        &ldquo;is the value greater than 6?&rdquo; but rather &ldquo;is the value greater than almost zero?&rdquo;
+        <br>
+        In addition, of the four branches these <strong>never fire</strong>:
+        <code>@event.destination.owlyEntropy</code> (<strong>not</strong> in the schema;
+        the field is at the event root), <code>@event.destination.entropy</code> / <code>@event.entropy</code>
+        (<strong>not defined anywhere</strong>). Only the <code>@event.owlyEntropy</code>
+        branch works.
+        <br>
+        <strong>Impact:</strong> <span class="warn-mark">Medium.</span> Block 7c in practice becomes a
+        &ldquo;was this an <code>LLE_FILE_DATA_WRITE_FULL</code> event?&rdquo; filter.
+        The real entropy discrimination is carried by <strong>the 8th filter</strong> (S8).
+        <br>
+        <strong>Fix:</strong> (a) in the enricher, convert to decimal with <code>owlyEntropy / (1&lt;&lt;24)</code>
+        and produce a <code>file.entropy</code> field, (b) write the threshold in Q24 units:
+        <code>greater(@event.owlyEntropy, 100663296)</code> (= 6 &times; 2^24),
+        (c) remove the non-existent <code>destination.owlyEntropy</code> / <code>entropy</code> branches.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; FLAW 6 &mdash; <code>@event.source</code> is always null</div>
+        The <code>source</code> field is populated only in <code>MLE_FILE_COPY*</code> events.
+        Because <code>MLE_RANSOM_CANDIDATE</code> is produced from LLE file events,
+        <strong><code>source</code> is never carried over</strong> &mdash; it is not read
+        at the candidate stage, and it stays <code>null</code> at the evaluation stage.
+        <br>
+        <strong>Impact:</strong> <span class="ok-mark">Very low.</span> The second branch of 7b
+        (<code>imatch(ransomFileExtensions, @event.source.path)</code>) always returns
+        <code>false</code>; the same holds for the second branch of 7a. These two branches are
+        <strong>dead code</strong> and can be removed.
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; FLAW 7 &mdash; Comments do not match the code</div>
+        The stage 4 comment in <code>ptm.local.src</code> contains these statements:
+        &ldquo;The entropy <strong>&gt; 6.8</strong> clause...&rdquo; and
+        &ldquo;plain explorer copies of text <code>.js</code> must <strong>never reach the
+        counter</strong>&rdquo;.
+        <br>
+        Both statements are <strong>wrong</strong>: (1) the threshold in the code is <code>6</code>,
+        not <code>6.8</code>; (2) because, relative to the
+        <code>condition</code>, the counter runs <strong>first</strong>, text copies <em>do feed</em> the counter (the rule's own filter drops
+        them, but the counter still sees them).
+        <br>
+        <strong>Impact:</strong> <span class="ok-mark">None</span> &mdash; it matters only because the
+        comment is misleading. <strong>Fix:</strong> Align the comment with the actual code.
+      </div>
+
+      <h3 class="wiki-h3">16.3 &mdash; Build and production pipeline notes</h3>
+
+      <ul>
+        <li><strong>Developer build tool:</strong> <code>edrdata/compile_ptm.bat</code>,
+            <code>edrcon.exe compile -o ptm.act common.src ptm.local.src</code>. The generated
+            <code>ptm.act</code> is synced to the <code>srcBinInstall</code> and <code>srcBinUpgrade</code>
+            directories.</li>
+        <li><strong>The product also compiles it:</strong> The policy is recompiled when the service
+            starts; the developer script is only a convenience.</li>
+        <li><strong>Boundary test:</strong> For <code>distinctCounter</code> only the threshold and
+            window are set; the <strong>threshold, window, key and counted value</strong> all
+            come from the policy file &mdash; the engine has no rule-specific constants.</li>
+      </ul>
+
+      <div class="callout ok">
+        <div class="co-title">&#9654; Why does this page exist?</div>
+        The quality of an EDR is measured <strong>less by its error rate than by how quickly and honestly
+        it admits its errors</strong>. The seven flaws above <strong>may not be fixed yet</strong>;
+        but they <strong>are known</strong>. This is a concrete application of the project's &ldquo;Security by
+        Legibility instead of Security by Obscurity&rdquo; philosophy.
+      </div>
+
+      <!-- ============ 17 KOMŞU KURALLAR ============ -->
+      <h2 class="wiki-h2" id="komsu" data-i18n="wiki.h2_17"><span class="num">17</span> Komşu Kurallar: Tek Başına Yaşamaz</h2>
+
+      <p>
+        MLE_RANSOM_BEHAVIOR is one part of the ransomware defense. The neighboring
+        rules below are complementary layers that <strong>work alongside it</strong>.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Rule / Event</th><th>baseType</th><th>Purpose</th><th>Relationship</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>MLE_RANSOM_SHADOW_COPY_DELETE</code></td>
+              <td>1000009</td>
+              <td>Monitors shadow copy / backup destruction commands</td>
+              <td><strong>Comes first.</strong> Ransomware deletes backups before encrypting. If this rule catches it, no data is lost.</td>
+            </tr>
+            <tr>
+              <td><code>RANSOM_BEHAVIOR</code></td>
+              <td>1000008</td>
+              <td>The subject of this page</td>
+              <td><strong>Main detection</strong></td>
+            </tr>
+            <tr>
+              <td><code>CRYPTO_API_MASS</code></td>
+              <td>&mdash;</td>
+              <td>Measures crypto API usage (<code>CryptEncrypt</code> etc.)</td>
+              <td><strong>Complementary.</strong> Early signal for malware that does cryptographic work before touching files.</td>
+            </tr>
+            <tr>
+              <td><code>RANSOM_COUNTER_INIT</code></td>
+              <td>&mdash;</td>
+              <td>Starts a per-process operation counter (TTL 24 hours)</td>
+              <td><strong>Foundation.</strong> For future per-process total operation limits.</td>
+            </tr>
+            <tr>
+              <td><code>LLE_FILE_PREIMAGE_SAVED</code> / <code>RansomShield</code></td>
+              <td>0x0037</td>
+              <td>Backs up the original file <strong>before</strong> encryption</td>
+              <td><strong>This is why the data can be recovered.</strong> When the MLE fires, <code>rollbackRansomBackups</code> restores these copies.</td>
+            </tr>
+            <tr>
+              <td><code>MLE_FILE_COPY*</code></td>
+              <td>1000001+</td>
+              <td>USB / network copy detection</td>
+              <td><strong>Counterpart.</strong> Covers exfiltration (outbound). Complements 1000008, which covers <em>internal</em> destruction.</td>
+            </tr>
+            <tr>
+              <td><code>MLE_DRIVER_INSTALL_TAMPER</code></td>
+              <td>1000021</td>
+              <td>Driver / custom exclusion tampering</td>
+              <td><strong>Front guard.</strong> Blocks &ldquo;disable yourself&rdquo; attempts.</td>
+            </tr>
+            <tr>
+              <td><code>MLE_FLS_MALICIOUS_VERDICT</code></td>
+              <td>1000010</td>
+              <td>Cloud FLS verdict = MALWARE</td>
+              <td><strong>Shared trust gate.</strong> Uses the same <code>should_trust_comodo_fls_cloud</code> mechanism.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block amber">
+        <div class="code-head"><span class="src">ptm.local.src &mdash; @const.ransomShadowDeleteCmdLines</span><span>7 COMMAND PATTERNS</span></div>
+<pre><span class="tok-str">"ransomShadowDeleteCmdLines"</span>: [
+  <span class="tok-str">"*vssadmin*delete shadows*"</span>,
+  <span class="tok-str">"*wmic*shadowcopy delete*"</span>,
+  <span class="tok-str">"*wmic*shadowcopy*delete*"</span>,
+  <span class="tok-str">"*wbadmin*delete catalog*"</span>,
+  <span class="tok-str">"*bcdedit*recoveryenabled*no*"</span>,
+  <span class="tok-str">"*wbadmin*delete systemstatebackup*"</span>,
+  <span class="tok-str">"*vssadmin*resize shadowstorage*"</span>
+]</pre>
+      </div>
+
+      <div class="callout">
+        <div class="co-title">&#9654; Order of operation</div>
+        <s>1.</s> <code>vssadmin delete shadows</code> &rarr; <code>MLE_RANSOM_SHADOW_COPY_DELETE</code><br>
+        <s>2.</s> <code>CryptEncrypt</code> calls &rarr; <code>CRYPTO_API_MASS</code><br>
+        <s>3.</s> User files are read &rarr; <strong>RansomShield</strong> saves a pre-image backup<br>
+        <s>4.</s> Files are encrypted &rarr; <strong>MLE_RANSOM_BEHAVIOR</strong> (fires on the 3rd file)<br>
+        <s>5.</s> The process is killed and the binary is quarantined<br>
+        <s>6.</s> <code>rollbackRansomBackups</code> <strong>restores the data</strong>
+      </div>
+
+      <!-- ============ 18 ANALİST ============ -->
+      <h2 class="wiki-h2" id="analist" data-i18n="wiki.h2_18"><span class="num">18</span> Analist El Kitabı</h2>
+
+      <p>
+        How does a SOC analyst or security researcher get value from this rule?
+        The path below is the fastest way to read the right parts.
+      </p>
+
+      <h3 class="wiki-h3">18.1 &mdash; The 8 fields to check first after a detection</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Question to Ask</th><th>Key Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>quarantineTarget</code></td><td>Which binary was quarantined?</td><td>File name, path, signature</td></tr>
+            <tr><td><code>process.id</code> / <code>process.pid</code></td><td>What is the global ID? (kill target)</td><td><span class="c-cyan">Important</span> &mdash; used in the analysis trail</td></tr>
+            <tr><td><code>process.cmdLine</code></td><td>How was it started?</td><td><code>powershell -enc</code>, <code>mshta</code>, <code>wmic</code> clues</td></tr>
+            <tr><td><code>process.imageFile.rawPath</code></td><td>Where was it located?</td><td><code>%APPDATA%</code>, <code>%TEMP%</code> = high priority</td></tr>
+            <tr><td><code>destination.path</code></td><td>Which file did it touch?</td><td>Last target hit (single file; if &lt; 3, the threshold was not met)</td></tr>
+            <tr><td><code>destination.abstractPath</code></td><td>What is the target's &ldquo;logical&rdquo; name?</td><td>Resolves tokens such as <code>%appdata%</code>; more readable in the GUI</td></tr>
+            <tr><td><code>processes[]</code></td><td>Who started this process?</td><td>Parent chain &mdash; walk up to the first <strong>untrusted</strong> ancestor</td></tr>
+            <tr><td><code>time</code> / <code>tickTime</code></td><td>What does the timeline look like?</td><td>First event, 3rd file, encryption duration</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">18.2 &mdash; False positive triage decisions</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Observed</th><th>Assessment</th><th>Decision</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Process is under <code>C:\Windows\</code> or <code>Program Files</code></td>
+              <td>S1 would already have dropped it &mdash; probably a different alert</td>
+              <td>Do not triage</td>
+            </tr>
+            <tr>
+              <td>Target paths are under <code>AppData</code></td>
+              <td>S2/S4 would already have dropped it &mdash; probably a cache/application operation</td>
+              <td>Do not triage</td>
+            </tr>
+            <tr>
+              <td>Targets are under <code>C:\Users\</code>, text files</td>
+              <td>S8 may have let it through &mdash; could be a document editor / sync tool</td>
+              <td>Check the process signature and <code>cmdLine</code></td>
+            </tr>
+            <tr>
+              <td>Process is signed by a trusted organization, verdict SAFE</td>
+              <td>The trust gate rule already applied (there should be no kill)</td>
+              <td>May be an integration test; log it</td>
+            </tr>
+            <tr>
+              <td>Process is unsigned, in <code>%TEMP%</code>, high operation counter</td>
+              <td>Classic <strong>first run</strong> profile</td>
+              <td><strong>High priority</strong> &mdash; verify the restore</td>
+            </tr>
+            <tr>
+              <td>A <code>winword.exe</code> / <code>excel.exe</code> appears in the <code>processes[]</code> chain</td>
+              <td>Could be a document macro or COM hijacking</td>
+              <td>High priority; analyze the macro</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="wiki-h3">18.3 &mdash; If you want to change the rule</h3>
+
+      <p>
+        The rule is <strong>not externally configurable</strong>; source code modifications
+        carry a risk of introducing vulnerabilities. The cleanest approach is to fork the policy file and
+        edit the <code>RANSOM_BEHAVIOR</code> block in
+        <code>edrdata/ptm.local.src</code>. The most commonly needed changes:
+      </p>
+
+      <div class="code-block green">
+        <div class="code-head"><span class="src">COMMON TUNING POINTS</span><span>4 LINES</span></div>
+<pre><span class="tok-cm">// 1) Sensitivity / tolerance tuning  (default 3/60s)</span>
+"threshold": 3,        <span class="tok-cm">// set to 2 to also catch test samples</span>
+"window":    60000,    <span class="tok-cm">// set to 300000 to also catch slow encryptors</span>
+
+<span class="tok-cm">// 2) Location tuning  (required positive condition)</span>
+"pattern": "*\\users\\*"   <span class="tok-cm">// create a separate rule for network drives</span>
+
+<span class="tok-cm">// 3) Yeni korunacak yol eklemek</span>
+<span class="tok-str">"ransomSystemExclusions"</span>: [ ..., <span class="tok-str">"*\\OneDrive\\*"</span>, <span class="tok-str">"*\\Google\\Drive\\*"</span> ]</pre>
+      </div>
+
+      <div class="callout warn">
+        <div class="co-title">&#9654; Warning</div>
+        In the <code>ransomSystemExclusions</code> list, adding a <strong>broad</strong> path
+        (such as <code>*\OneDrive\*</code>) also hides <strong>real</strong> ransomware encryption
+        in that folder. Because corporate cloud sync folders are real targets,
+        such extensions must be made with care.
+      </div>
+
+      <!-- ============ 19 SSS ============ -->
+      <h2 class="wiki-h2" id="sss" data-i18n="wiki.h2_19"><span class="num">19</span> Sık Sorulan Sorular</h2>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">01</span>Is this rule a YARA rule?</div>
+        <div class="faq-a">
+          <strong>No.</strong> It is a <em>PTM v2 policy rule</em> (JSON), evaluated in the C++
+          engine. In the Viruskov project, YARA &times; runs separately and <strong>complements it</strong>:
+          YARA looks at <em>file content</em>, while MLE_RANSOM_BEHAVIOR looks at
+          <em>behavior</em>. Together they provide both static and dynamic coverage.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">02</span>Is malware that encrypts a single file caught?</div>
+        <div class="faq-a">
+          <strong>No.</strong> The S9 filter requires <strong>at least 3 distinct targets</strong> within 60 seconds.
+          This is a deliberate design decision: encrypting a single file is usually user or
+          backup software behavior. If you want the rule to fire on a single file, you can try
+          <code>threshold: 1</code> &mdash; but the false positive rate rises sharply.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">03</span>What about malware that encrypts only text files?</div>
+        <div class="faq-a">
+          <strong>No, that is out of scope.</strong> S8 (<code>!equal(isAsciiText, true)</code>)
+          deliberately lets text files through. Reason: corporate email encryption, document
+          processing software and sync clients constantly write text files;
+          covering them would make the FP rate unusable.
+          This is a <strong>deliberate FP/recall trade-off</strong>.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">04</span>I already have an antivirus, why do I need this?</div>
+        <div class="faq-a">
+          Three concrete reasons: <strong>(1)</strong> Commercial AVs run in user mode;
+          they can be wiped from memory in one go with BYOVD &mdash; this rule detects
+          <em>while that is already happening</em>. <strong>(2)</strong> Without power or network connectivity, whitelists cannot be updated;
+          this rule <em>needs no external signatures</em>. <strong>(3)</strong> It produces an
+          <em>evidence-grade</em> timeline for insurance, audit and incident
+          response (DFIR).
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">05</span>What happens to my data, is it really restored?</div>
+        <div class="faq-a">
+          <strong>Yes, as long as the file system still holds the original data on disk.</strong>
+          Before an <em>in-place</em> write to a file, the minifilter saves a pre-image of the original
+          content under <code>%PROGRAMDATA%\HydraDragonBackups</code> during the <code>preSetFileInfo</code>
+          stage. When the MLE fires, <code>EventEnricher::rollbackRansomBackups()</code>
+          restores these copies.
+          <br>
+          <strong>Important limit:</strong> Restore succeeds only for files for which
+          <strong>a pre-image could be taken</strong>. If the encryptor uses the &ldquo;read first, create a new encrypted file, then
+          delete the original&rdquo; model, the minifilter still takes the pre-image
+          (the &ldquo;generic guard against every ransomware family&rdquo; comment states this explicitly in the code),
+          but data fully erased from disk cannot be recovered.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">06</span>What if the rule is triggered by trusted software?</div>
+        <div class="faq-a">
+          <strong>There are two layers of protection.</strong> (1) The S1/S2 whitelist, (2) the
+          <code>should_trust_company_whitelist</code> and
+          <code>should_trust_comodo_fls_cloud</code> trust gate. If both apply, the
+          process is not killed or quarantined; only an alert is logged. However, if
+          <code>owlyshield_is_malicious_company_signer</code> identifies a malicious/PUA vendor,
+          <strong>the trust flags are overridden</strong> and strict enforcement takes effect.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">07</span>Can it be demonstrated with a real sample?</div>
+        <div class="faq-a">
+          Yes &mdash; a live detection recording of the rule has been shared via a <a href="https://www.youtube.com/watch?v=2ZxJmZ3XTEM" target="_blank">zero-day
+          sample on YouTube</a>.
+          <br>
+          <span class="c-amber"><strong>Important:</strong></span> Do not run ransomware samples
+          <strong>on your own machine</strong>. Deliberately infecting a system
+          can have legal consequences. This project offers no technical support for running samples
+          outside a container / virtual environment &mdash; <strong>do not run integration tests</strong>.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-q"><span class="q-mark">08</span>Who wrote this rule, and for which process?</div>
+        <div class="faq-a">
+          The rule was developed on a fork of <strong>OpenEDR</strong> (the EDR core open-sourced by COMODO)
+          as part of the <strong>VIRUSKOV / Hydra Dragon</strong> project.
+          Project lead: <strong>Emirhan Uçan</strong>. All source code is in the
+          <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank">public repository</a>;
+          every claim on this page is taken directly from that code.
+        </div>
+      </div>
+
+      <!-- ============ 20 KAYNAK ============ -->
+      <h2 class="wiki-h2" id="kaynak" data-i18n="wiki.h2_20"><span class="num">20</span> Kaynak Haritası</h2>
+
+      <p>
+        The <strong>source file</strong> for every claim on this page. Because the policy engine is
+        open source, everything you read can be verified directly.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>File</th><th>Relevant Section</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>OpenEDR/edrav2/iprj/edrdata/ptm.local.src</code><br><span class="c-dim">4636&ndash;5129</span></td>
+              <td><strong>The entire RANSOM_BEHAVIOR rule</strong> &mdash; 16 clauses, 5 stages</td>
+            </tr>
+            <tr>
+              <td><code>ptm.local.src</code> <span class="c-dim">137&ndash;1619</span></td>
+              <td><code>@const.ransomFileExtensions</code> &mdash; 1479 extensions</td>
+            </tr>
+            <tr>
+              <td><code>ptm.local.src</code> <span class="c-dim">1660&ndash;1670</span></td>
+              <td><code>@const.ransomSystemExclusions</code> &mdash; 8 whitelist patterns</td>
+            </tr>
+            <tr>
+              <td><code>ptm.local.src</code> <span class="c-dim">18&ndash;36</span></td>
+              <td><code>ransomShadowDeleteCmdLines</code>, <code>ransomEventBaseType</code>, <code>ransomBasket</code></td>
+            </tr>
+            <tr>
+              <td><code>ptm.local.src</code> <span class="c-dim">4555&ndash;4631</span></td>
+              <td><code>CRYPTO_API_MASS</code> and <code>RANSOM_COUNTER_INIT</code> neighbor rules</td>
+            </tr>
+            <tr>
+              <td><code>edrdata/common.src</code> <span class="c-dim">9&ndash;28, 87</span></td>
+              <td><code>eventBaseType: MLE_RANSOM_BEHAVIOR = 1000008</code> and <code>eventTypes</code> registration</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/policy_v2.cpp</code> <span class="c-dim">258&ndash;1197</span></td>
+              <td>PTM v2 engine: <code>saveContext</code>, <code>distinctCounter</code>, <code>createEvent</code>, directive order</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/policyoperation.cpp</code> <span class="c-dim">367&ndash;600</span></td>
+              <td><code>imatch</code> / <code>!imatch</code>, wildcard &rarr; regex/StringMatcher conversion</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/policycompiler.cpp</code> <span class="c-dim">262&ndash;296</span></td>
+              <td>Wildcard <code>eventType</code> expansion &mdash; the cause of the <code>RF10*</code> / <code>RF4*</code> loss</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/signcontext.cpp</code> <span class="c-dim">87&ndash;538</span></td>
+              <td>Basket and <code>distinctCounter</code> runtime semantics</td>
+            </tr>
+            <tr>
+              <td><code>libcore/src/string.cpp</code> <span class="c-dim">21&ndash;50</span></td>
+              <td><code>convertWildcardToRegex</code> &mdash; <code>*</code>&rarr;<code>.*</code>, <code>?</code>&rarr;<code>.</code></td>
+            </tr>
+            <tr>
+              <td><code>edrdrv/src/filemon.cpp</code> <span class="c-dim">1320&ndash;1554, 2564&ndash;2661</span></td>
+              <td>Minifilter callbacks, full read/write evidence, mmap classification, entropy sampling</td>
+            </tr>
+            <tr>
+              <td><code>edrdrv/src/ShanonEntropy.cpp</code></td>
+              <td>Q24 Shannon entropy calculation (integer, in-kernel)</td>
+            </tr>
+            <tr>
+              <td><code>libsyswin/src/filedataprovider.cpp</code> <span class="c-dim">790&ndash;1236</span></td>
+              <td>File object fields, <code>isAsciiTextFile</code> (1195-1236): 64 KiB I/O, 8 KiB analysis window, 15%+1 threshold, fail-fast</td>
+            </tr>
+            <tr>
+              <td><code>libedr/src/detectionnotifier.cpp</code> <span class="c-dim">488&ndash;2148</span></td>
+              <td>Detection classification, trust gate, kill by GID, quarantine, restore</td>
+            </tr>
+            <tr>
+              <td><code>libsysmon/inc/edrdrvapi.hpp</code> <span class="c-dim">42&ndash;307</span></td>
+              <td>Driver &rarr; service telemetry schema, <code>SysmonEvent</code> codes</td>
+            </tr>
+            <tr>
+              <td><code>libcore/inc/events.hpp</code> <span class="c-dim">19&ndash;117</span></td>
+              <td><code>Event</code> numbers, <code>MLE_MASK</code>, <code>createMle</code></td>
+            </tr>
+            <tr>
+              <td><code>edrdata/compile_ptm.bat</code></td>
+              <td>Compiling the policy into <code>ptm.act</code></td>
+            </tr>
+            <tr>
+              <td><code>edrdata/compiler.cfg</code> <span class="c-dim">10&ndash;138, 330&ndash;477</span></td>
+              <td>Event class schemas, default values, legacy <code>RF*</code>/<code>RP*</code> aliases</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="spec-card" style="margin-top:28px;">
+        <div class="spec-row"><div class="spec-key">Rule ID</div><div class="spec-val c-red">RANSOM_BEHAVIOR / MLE_RANSOM_BEHAVIOR</div></div>
+        <div class="spec-row"><div class="spec-key">baseType</div><div class="spec-val c-amber">1000008</div></div>
+        <div class="spec-row"><div class="spec-key">Engine</div><div class="spec-val">PTM v2 (PatternsMatching / EVM)</div></div>
+        <div class="spec-row"><div class="spec-key">Detection Layer</div><div class="spec-val c-cyan">Ring-0 (edrdrv.sys minifilter) + user-mode policy engine</div></div>
+        <div class="spec-row"><div class="spec-key">Rule Clauses</div><div class="spec-val">16 (3 of them duplicate / dead code &mdash; see Section 16)</div></div>
+        <div class="spec-row"><div class="spec-key">Threshold</div><div class="spec-val">3 distinct targets / 60000 ms sliding window</div></div>
+        <div class="spec-row"><div class="spec-key">Confidence Level</div><div class="spec-val c-red">3 &mdash; CRITICAL</div></div>
+        <div class="spec-row"><div class="spec-key">Response</div><div class="spec-val">Quarantine (attacker binary) + kill by GID + pre-image restore</div></div>
+        <div class="spec-row"><div class="spec-key">License</div><div class="spec-val">Open source (OpenEDR fork: BSD-3 / VirusKat contributions)</div></div>
+      </div>
+
+      <div class="tag" style="margin-top:14px;">RANSOM_BEHAVIOR</div>
+      <div class="tag">MLE_RANSOM_CANDIDATE</div>
+      <div class="tag">MLE_RANSOM_EVALUATE</div>
+      <div class="tag">distinctCounter</div>
+      <div class="tag">saveContext</div>
+      <div class="tag">createEvent</div>
+      <div class="tag">imatch</div>
+      <div class="tag">StringMatcher</div>
+      <div class="tag">Shannon Entropy Q24</div>
+      <div class="tag">minifilter</div>
+      <div class="tag">IRP_MJ_ACQUIRE_FOR_SECTION_SYNCHRONIZATION</div>
+      <div class="tag">isAsciiText</div>
+      <div class="tag">RansomShield</div>
+      <div class="tag">OwlyShield</div>
+      <div class="tag">Ring-0</div>
+      <div class="tag">PTM v2</div>
+      <div class="tag">EDR</div>
+      <div class="tag">anti-ransomware</div>
+
+      <!-- ============ SUPPORT PANEL ============ -->
+      <div class="support-panel">
+        <div class="support-title">
+          <span class="c-amber">✦</span> Support, Contributions and Donations
+        </div>
+        <p class="support-text">
+          This wiki and the <code>MLE_RANSOM_BEHAVIOR</code> documentation are part of the project's open source
+          philosophy: <strong>nothing is hidden</strong>. You have read this rule,
+          examined its source code, and even seen the
+          <a href="#sinirlar"><strong>known flaws</strong></a> on this page.
+          <br><br>
+          If you want to contribute to the project, write additional rules, or simply offer <strong>financial support</strong>
+          (server / test environment / code signing certificate costs):
+          <strong>viruskov@viruskov.com</strong>. All requests go directly to the project lead &mdash;
+          no intermediaries, no commissions; just as you see <strong>what is inside the box</strong> on these pages,
+          you will see it in the donation flow too.
+        </p>
+        <a href="mailto:viruskov@viruskov.com" class="mailbox">
+          <span>✉</span>
+          <span>viruskov@viruskov.com</span>
+        </a>
+        <p class="support-text" style="font-size:0.88rem;">
+          A short description in the subject line is enough: <code>[KATKI]</code>,
+          <code>[KURAL]</code>, <code>[BİLGİ]</code> or <code>[DESTEK]</code>.
+        </p>
+        <div class="support-links">
+          <a href="mailto:viruskov@viruskov.com" class="btn btn-amber">
+            <span>SEND EMAIL</span>
+            <span>&rarr;</span>
+          </a>
+          <a href="../index.html" class="btn btn-ghost">
+            <span data-i18n="wiki.btn_home">ANA SAYFA</span>
+            <span>&larr;</span>
+          </a>
+          <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" class="btn btn-ghost">
+            <span data-i18n="wiki.btn_inspect_code">KAYNAK KODU İNCELE</span>
+            <span>&nearr;</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="article-nav">
+        <a href="../index.html" class="btn btn-ghost btn-sm">
+          <span data-i18n="wiki.btn_back_home">&larr; VIRUSKOV ANA SAYFA</span>
+        </a>
+        <a href="#kunya" class="btn btn-red btn-sm">
+          <span data-i18n="wiki.btn_top">BAŞLIĞA DÖN</span>
+          <span>&uarr;</span>
+        </a>
+      </div>
+
+    </article>
   </div>
 
   <footer class="vk-footer">
@@ -3011,5 +5444,28 @@ ULONGLONG shannonEntropyQ24(PUCHAR buffer, size_t size)
   </footer>
 
 
+
+  <script>
+  (function () {
+    var titles = {"tr": "VIRUSKOV WIKI | MLE_RANSOM_BEHAVIOR — Davranış Tabanlı Fidye Yazılımı Tespit Kuralı", "en": "VIRUSKOV WIKI | MLE_RANSOM_BEHAVIOR — Behaviour-Based Ransomware Detection Rule"};
+    var blocks = document.querySelectorAll('.lang-block');
+    blocks.forEach(function (b) {
+      b.querySelectorAll('[id]').forEach(function (el) { el.setAttribute('data-wid', el.id); });
+    });
+    function show(lang) {
+      if (lang !== 'en') lang = 'tr';
+      blocks.forEach(function (b) {
+        var on = b.getAttribute('data-lang-block') === lang;
+        b.hidden = !on;
+        b.querySelectorAll('[data-wid]').forEach(function (el) {
+          if (on) el.id = el.getAttribute('data-wid'); else el.removeAttribute('id');
+        });
+      });
+      if (titles[lang]) document.title = titles[lang];
+    }
+    show(window.ViruskovI18n ? window.ViruskovI18n.getLang() : 'tr');
+    window.addEventListener('viruskov_lang_changed', function (e) { show(e.detail && e.detail.lang); });
+  })();
+  </script>
 </body>
 </html>
