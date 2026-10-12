@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -202,7 +202,9 @@ pub struct ScanServer {
     /// Maintenance mode: the listener stays up (health answers), but new
     /// scans are refused with a message while in-flight work finishes.
     /// Unlike stop, clients get an answer instead of a refused connection.
-    pub maintenance: AtomicBool,
+    /// 0 = off, 1 = maintenance, 2 = updating (set by Multron Updater before it
+    /// replaces the exe; not saved, so the updated server starts without it).
+    pub maintenance: std::sync::atomic::AtomicU8,
     /// Process boot time for uptime reporting.
     pub boot_time: std::time::Instant,
     /// Background rescan of kept files (dashboard).
@@ -211,6 +213,8 @@ pub struct ScanServer {
     pub retrohunt: crate::retrohunt::RetroHunt,
     /// Moving kept files to another disk or network share (dashboard).
     pub offload: Arc<crate::offload::Offload>,
+    /// Copies the database and kept files to the backup archive (main server).
+    pub mirror: Arc<crate::archive::Mirror>,
     /// Uploaded files waiting for or inside the engine (dashboard "Scan queue").
     pub scan_queue: Arc<ScanQueueList>,
 }
@@ -354,11 +358,12 @@ impl ScanServer {
             total_threats: AtomicI64::new(0),
             total_errors: AtomicI64::new(0),
             active_connections: AtomicUsize::new(0),
-            maintenance: AtomicBool::new(false),
+            maintenance: std::sync::atomic::AtomicU8::new(0),
             boot_time: std::time::Instant::now(),
             rescan: crate::rescan::BulkRescan::default(),
             retrohunt: crate::retrohunt::RetroHunt::default(),
             offload: Arc::new(crate::offload::Offload::default()),
+            mirror: Arc::new(crate::archive::Mirror::default()),
             scan_queue: Arc::new(ScanQueueList::default()),
         })
     }
@@ -370,13 +375,36 @@ impl ScanServer {
 
     /// Maintenance flag: true while the operator holds new scans for updates.
     pub fn maintenance(&self) -> bool {
-        self.maintenance.load(Ordering::Relaxed)
+        self.maintenance.load(Ordering::Relaxed) != 0
+    }
+
+    /// "off", "maintenance" or "updating".
+    pub fn maintenance_mode(&self) -> &'static str {
+        match self.maintenance.load(Ordering::Relaxed) {
+            0 => "off",
+            2 => "updating",
+            _ => "maintenance",
+        }
+    }
+
+    /// What clients are told while scans are refused.
+    pub fn maintenance_message(&self) -> &'static str {
+        if self.maintenance.load(Ordering::Relaxed) == 2 {
+            "Under maintenance: the server is being updated. Try again in a few minutes."
+        } else {
+            "Under maintenance. Try again later."
+        }
     }
 
     /// Flip maintenance mode. In-flight scans finish; new ones are refused
     /// with a message until it is switched back off.
-    pub fn set_maintenance(&self, on: bool) {
-        self.maintenance.store(on, Ordering::Relaxed);
+    pub fn set_maintenance(&self, mode: &str) {
+        let v = match mode {
+            "updating" => 2,
+            "maintenance" => 1,
+            _ => 0,
+        };
+        self.maintenance.store(v, Ordering::Relaxed);
     }
 
     pub fn router(self: &Arc<Self>, path: &str) -> Router {
@@ -412,9 +440,12 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
     axum::Json(serde_json::json!({
         "status": if server.maintenance() { "maintenance" } else { "ok" },
         "maintenance": server.maintenance(),
+        "maintenanceMode": server.maintenance_mode(),
+        "message": if server.maintenance() { server.maintenance_message() } else { "" },
         "uptimeSecs": server.uptime_secs(),
         "engine": ENGINE_NAME,
         "protocol": PROTOCOL_VERSION,
+        "archive": crate::config::is_archive(),
     }))
 }
 
@@ -631,6 +662,18 @@ async fn ban_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    // Archive server: read-only, no scans (WebSocket) and no submissions.
+    if crate::config::is_archive() {
+        let upgrade = req.headers().get("upgrade").is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
+        if upgrade || (req.method() != axum::http::Method::GET && req.method() != axum::http::Method::OPTIONS) {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [("Content-Type", "application/json"), ("Access-Control-Allow-Origin", "*")],
+                r#"{"status":"error","error":"this is the read-only VirusKov archive; scans go to viruskov.com"}"#,
+            )
+                .into_response();
+        }
+    }
     let ip = extract_client_ip(addr, req.headers());
     if server.ip_bans.check(&ip).is_some() {
         return (StatusCode::FORBIDDEN, "blocked").into_response();
@@ -1060,14 +1103,14 @@ async fn session_loop(
             }
             "scan" => {
                 if server.maintenance() {
-                    send_error(out, Some(msg.id), "server in maintenance mode, retry later");
+                    send_error(out, Some(msg.id), server.maintenance_message());
                 } else {
                     handle_scan(ws_rx, out, server, session, &slots, &scan_slots, msg, server.limits.max_bytes()).await?;
                 }
             }
             "scan_url" => {
                 if server.maintenance() {
-                    send_error(out, Some(msg.id), "server in maintenance mode, retry later");
+                    send_error(out, Some(msg.id), server.maintenance_message());
                     continue;
                 }
                 let target_url = msg.url.unwrap_or(msg.name);
@@ -1967,7 +2010,7 @@ async fn handle_scan_url(
     if server.maintenance() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(serde_json::json!({ "error": "server in maintenance mode, retry later" })),
+            axum::Json(serde_json::json!({ "error": server.maintenance_message(), "maintenanceMode": server.maintenance_mode() })),
         )
             .into_response();
     }
@@ -1987,7 +2030,7 @@ async fn handle_scan_url_get(
     if server.maintenance() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(serde_json::json!({ "error": "server in maintenance mode, retry later" })),
+            axum::Json(serde_json::json!({ "error": server.maintenance_message(), "maintenanceMode": server.maintenance_mode() })),
         )
             .into_response();
     }

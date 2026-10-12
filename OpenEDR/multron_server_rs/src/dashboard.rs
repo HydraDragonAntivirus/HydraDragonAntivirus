@@ -97,6 +97,20 @@ impl AppState {
             settings.offload_target = cfg.offload_dir.trim().to_string();
         }
         *scan_server.offload.target.write().unwrap() = settings.offload_target.clone();
+        if !cfg.archive_mirror.trim().is_empty() {
+            settings.archive_mirror = cfg.archive_mirror.trim().to_string();
+        }
+        if crate::config::is_archive() {
+            // Nothing is ever written here: no mirror out, no rescans after reloads.
+            settings.archive_mirror.clear();
+            settings.rescan_after_reload = false;
+            scan_server.rescan.after_reload.store(false, std::sync::atomic::Ordering::Relaxed);
+        }
+        scan_server.mirror.set_target(&settings.archive_mirror);
+        if settings.maintenance {
+            scan_server.set_maintenance("maintenance");
+            eprintln!("[maintenance] still on from before the restart (turn it off in the dashboard)");
+        }
         scan_server.offload.auto.store(settings.offload_auto, std::sync::atomic::Ordering::Relaxed);
 
         // Limits saved from the dashboard win over the command-line defaults.
@@ -209,6 +223,8 @@ impl AppState {
             s.rescan_after_reload = g.rescan_after_reload;
             s.offload_target = g.offload_target.clone();
             s.offload_auto = g.offload_auto;
+            s.archive_mirror = g.archive_mirror.clone();
+            s.maintenance = g.maintenance;
             *g = s.clone();
         }
         self.save_settings().await;
@@ -282,7 +298,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/events/ecs", get(handle_events_ecs))
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
-        .route("/api/maintenance", post(handle_maintenance))
+        .route("/api/maintenance", get(handle_maintenance_status).post(handle_maintenance))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
         .route("/api/keep-clean", post(handle_keep_clean))
         .route("/api/rescan", post(handle_rescan_one))
@@ -293,7 +309,12 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/kept/info/:sha256", get(handle_kept_info))
         .route("/api/reviews/requeue", post(handle_reviews_requeue))
         .route("/api/kept/reveal", post(handle_kept_reveal))
+        .route("/api/kept/dedupe", post(handle_kept_dedupe))
         .route("/api/rescan/after-reload", post(handle_rescan_after_reload))
+        .route("/api/mirror/config", post(handle_mirror_config))
+        .route("/api/mirror/run", post(handle_mirror_run))
+        .route("/api/mirror/stop", post(handle_mirror_stop))
+        .route("/api/mirror/dedupe", post(handle_mirror_dedupe))
         .route("/api/offload/config", post(handle_offload_config))
         .route("/api/offload/start", post(handle_offload_start))
         .route("/api/offload/stop", post(handle_offload_stop))
@@ -338,6 +359,12 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
+/// Dashboard calls that change nothing in the mirrored data (archive mode).
+const ARCHIVE_ALLOWED: [&str; 12] = [
+    "/api/start", "/api/stop", "/api/maintenance", "/api/limits", "/api/limits/reset", "/api/unban",
+    "/api/alyzer/open", "/api/alyzer/bytes", "/api/alyzer/search", "/api/alyzer/strings", "/api/alyzer/list", "/api/fs/list",
+];
+
 async fn guard_middleware(req: Request<axum::body::Body>, next: Next) -> Response {
     let headers = req.headers();
 
@@ -351,6 +378,15 @@ async fn guard_middleware(req: Request<axum::body::Body>, next: Next) -> Respons
             )
                 .into_response();
         }
+    }
+
+    // Archive server: read-only. Only running the listener and viewing files are allowed.
+    if crate::config::is_archive() && req.method() != Method::GET && !ARCHIVE_ALLOWED.contains(&req.uri().path()) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"ok": false, "error": "archive server: read-only (make changes on the main server; they are mirrored here)"})),
+        )
+            .into_response();
     }
 
     // State-changing calls need X-Multron-Dashboard header
@@ -442,6 +478,7 @@ async fn handle_state(
         "server": {
             "running": running,
             "maintenance": app.scan_server.maintenance(),
+            "maintenanceMode": app.scan_server.maintenance_mode(),
             "uptimeSecs": app.scan_server.uptime_secs(),
             "host": settings.host,
             "port": settings.port,
@@ -468,6 +505,8 @@ async fn handle_state(
         "editableLimits": srv.limits.get(),
         "rescan": srv.rescan.status(),
         "offload": srv.offload.status(),
+        "mirror": srv.mirror.status(),
+        "archive": if crate::config::is_archive() { crate::archive::info_json() } else { serde_json::Value::Null },
         "bannedIps": srv.limiter.banned_now(),
         "lanAddresses": lan_addresses(),
         "stats": {
@@ -796,6 +835,75 @@ async fn handle_folder_stop() -> impl IntoResponse {
     Json(serde_json::json!({"ok": true}))
 }
 
+// ---------------- Backup archive mirror ----------------
+
+#[derive(Deserialize)]
+struct MirrorConfigBody {
+    #[serde(default)]
+    target: String,
+}
+
+async fn handle_mirror_config(State(app): State<Arc<AppState>>, Json(b): Json<MirrorConfigBody>) -> Response {
+    let target = b.target.trim().to_string();
+    if !target.is_empty() && !std::path::Path::new(&target).is_absolute() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "use an absolute path, e.g. \\\\ARCHIVEPC\\viruskov_archive or Z:\\viruskov_archive" }))).into_response();
+    }
+    app.scan_server.mirror.set_target(&target);
+    app.settings.write().await.archive_mirror = target.clone();
+    app.save_settings().await;
+    info_event(&app, format!("archive mirror: {}", if target.is_empty() { "off" } else { &target }));
+    if !target.is_empty() {
+        app.scan_server.mirror.run_now();
+    }
+    Json(serde_json::json!({ "ok": true, "mirror": app.scan_server.mirror.status() })).into_response()
+}
+
+async fn handle_mirror_run(State(app): State<Arc<AppState>>) -> Response {
+    if app.scan_server.mirror.target().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "set the archive folder first" }))).into_response();
+    }
+    app.scan_server.mirror.run_now();
+    Json(serde_json::json!({ "ok": true })).into_response()
+}
+
+/// Removes extra copies of the same sample from this server's work folder.
+async fn handle_kept_dedupe(State(app): State<Arc<AppState>>) -> Response {
+    let engine = Arc::clone(&app.engine);
+    let ti = Arc::clone(&app.threat_intel);
+    let r = tokio::task::spawn_blocking(move || {
+        engine.dedupe_kept(|sha| {
+            let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
+            (source != "unseen").then_some(verdict)
+        })
+    })
+    .await;
+    match r {
+        Ok((n, bytes)) => {
+            *KEPT_CACHE.lock().unwrap() = None;
+            info_event(&app, format!("{n} duplicate kept file(s) removed, {:.1} MB freed", bytes as f64 / 1048576.0));
+            Json(serde_json::json!({ "ok": true, "removed": n, "bytes": bytes })).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+async fn handle_mirror_dedupe(State(app): State<Arc<AppState>>) -> Response {
+    let m = Arc::clone(&app.scan_server.mirror);
+    match tokio::task::spawn_blocking(move || m.dedupe_now()).await {
+        Ok(Ok((n, bytes))) => {
+            info_event(&app, format!("archive: {n} duplicate sample(s) removed, {:.1} MB freed", bytes as f64 / 1048576.0));
+            Json(serde_json::json!({ "ok": true, "removed": n, "bytes": bytes })).into_response()
+        }
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+async fn handle_mirror_stop(State(app): State<Arc<AppState>>) -> Response {
+    app.scan_server.mirror.request_stop();
+    Json(serde_json::json!({ "ok": true })).into_response()
+}
+
 // ---------------- Moving kept files to another disk / network share ----------------
 
 #[derive(Deserialize)]
@@ -855,25 +963,58 @@ async fn handle_offload_stop(State(app): State<Arc<AppState>>) -> impl IntoRespo
 struct MaintenanceToggle {
     #[serde(default)]
     enabled: bool,
+    /// "maintenance" (default) or "updating" (Multron Updater, before it replaces the exe).
+    #[serde(default)]
+    mode: String,
+}
+
+/// Files being uploaded or scanned right now (the updater waits for 0 before closing).
+fn active_work(app: &AppState) -> usize {
+    let srv = &app.scan_server;
+    srv.inflight_files() + srv.scheduler.busy() + srv.scheduler.queued()
+}
+
+fn maintenance_json(app: &AppState) -> serde_json::Value {
+    let srv = &app.scan_server;
+    serde_json::json!({
+        "ok": true,
+        "maintenance": srv.maintenance(),
+        "mode": srv.maintenance_mode(),
+        "message": if srv.maintenance() { srv.maintenance_message() } else { "" },
+        "activeWork": active_work(app),
+    })
+}
+
+async fn handle_maintenance_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(maintenance_json(&app))
 }
 
 /// Maintenance mode: the listener stays up (health answers) but new file and
 /// URL scans are refused with a message while in-flight work finishes.
-/// Used while swapping rule/model files or staging a new exe.
+/// "maintenance" is the normal mode (kept across restarts); "updating" is set by
+/// Multron Updater right before it closes and replaces the server, so the updated
+/// server starts with scans open again.
 async fn handle_maintenance(
     State(app): State<Arc<AppState>>,
     Json(toggle): Json<MaintenanceToggle>,
 ) -> impl IntoResponse {
-    app.scan_server.set_maintenance(toggle.enabled);
+    let mode = if !toggle.enabled { "off" } else if toggle.mode.eq_ignore_ascii_case("updating") { "updating" } else { "maintenance" };
+    app.scan_server.set_maintenance(mode);
+    // "updating" is not saved and leaves the saved choice alone: a server that was in
+    // normal maintenance before the update comes back in normal maintenance.
+    if mode != "updating" {
+        app.settings.write().await.maintenance = mode == "maintenance";
+        app.save_settings().await;
+    }
     info_event(
         &app,
-        if toggle.enabled {
-            "maintenance mode ON: new scans refused, in-flight work finishes".into()
-        } else {
-            "maintenance mode OFF: scans accepted again".into()
+        match mode {
+            "updating" => "maintenance mode ON (updating server): new scans refused, in-flight work finishes".into(),
+            "maintenance" => "maintenance mode ON: new scans refused, in-flight work finishes".into(),
+            _ => "maintenance mode OFF: scans accepted again".into(),
         },
     );
-    Json(serde_json::json!({"ok": true, "maintenance": toggle.enabled}))
+    Json(maintenance_json(&app))
 }
 
 fn info_event(app: &AppState, message: String) {

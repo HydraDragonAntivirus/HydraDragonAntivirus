@@ -75,6 +75,11 @@ impl VerdictCache {
             invalidated_before: AtomicI64::new(0),
         };
         if let Some(path) = file {
+            if crate::config::is_archive() {
+                // Read only; the archive follows the file with `archive_ingest`.
+                c.load(&path);
+                return c;
+            }
             let lines = c.load(&path);
             // Rewrite the file when it is mostly stale or duplicate lines.
             let live = c.len();
@@ -116,6 +121,32 @@ impl VerdictCache {
             }
         }
         lines
+    }
+
+    /// Archive mode: lines the main server added to `multron_cache.jsonl`;
+    /// `reset` = the file was rewritten (compacted).
+    pub fn archive_ingest(&self, lines: &[String], reset: bool) {
+        let now = now_secs();
+        let mut g = self.inner.lock().unwrap();
+        if reset {
+            g.map.clear();
+            g.order.clear();
+        }
+        for line in lines {
+            let Ok(l) = serde_json::from_str::<Line>(line) else { continue };
+            let Some(sha) = parse_sha(&l.s) else { continue };
+            if now - l.v.at > self.ttl_for(&l.v.verdict) {
+                continue;
+            }
+            if g.map.insert(sha, l.v).is_none() {
+                g.order.push_back(sha);
+            }
+            while g.order.len() > self.max {
+                if let Some(old) = g.order.pop_front() {
+                    g.map.remove(&old);
+                }
+            }
+        }
     }
 
     fn compact(&self, path: &Path) {

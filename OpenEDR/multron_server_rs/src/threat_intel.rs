@@ -209,11 +209,12 @@ impl ThreatIntelStore {
         }
 
         let reviews = HumanReviewStore::new(&crate::human_review::analyst_dir().join("human_verdicts.jsonl"));
-        let writer = start_batch_writer(target_path);
+        // The archive server never writes: its data comes from the main server's mirror.
+        let writer = (!crate::config::is_archive()).then(|| start_batch_writer(target_path));
 
         Arc::new(Self {
             map: RwLock::new(initial_map),
-            writer: Some(writer),
+            writer,
             reviews,
             similarity: crate::similarity::SimilarityIndex::load(),
         })
@@ -383,6 +384,22 @@ impl ThreatIntelStore {
         match self.get(sha256_hex) {
             Some(i) => (i.verdict.clone(), "engine".into(), i.threat_name.clone()),
             None => ("unknown".into(), "unseen".into(), None),
+        }
+    }
+
+    /// Archive mode: lines the main server added to `threat_insights.jsonl` (a later
+    /// line for the same hash replaces the earlier one); `reset` = the file was rewritten.
+    pub fn archive_ingest(&self, lines: &[String], reset: bool) {
+        let mut g = self.map.write().unwrap();
+        if reset {
+            g.clear();
+        }
+        for line in lines {
+            if let Ok(item) = serde_json::from_str::<ThreatInsight>(line) {
+                if let Some(sha) = parse_sha(&item.sha256) {
+                    g.insert(sha, item);
+                }
+            }
         }
     }
 

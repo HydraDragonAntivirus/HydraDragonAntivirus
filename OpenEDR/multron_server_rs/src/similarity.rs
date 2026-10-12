@@ -150,11 +150,32 @@ impl SimilarityIndex {
                 }
             }
         }
-        *idx.writer.lock().unwrap() = OpenOptions::new().create(true).append(true).open(index_path()).ok();
+        if !crate::config::is_archive() {
+            *idx.writer.lock().unwrap() = OpenOptions::new().create(true).append(true).open(index_path()).ok();
+        }
         idx.reload_known_malware();
         idx.reload_corpus_refs();
         idx.reload_analyst_sigs();
         idx
+    }
+
+    /// Archive mode: lines the main server added to `tlsh_index.jsonl`;
+    /// `reset` = the file was rewritten.
+    pub fn archive_ingest_index(&self, lines: &[String], reset: bool) {
+        let mut files = self.files.write().unwrap();
+        let mut seen = self.seen.write().unwrap();
+        if reset {
+            files.clear();
+            seen.clear();
+        }
+        for line in lines {
+            let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+            let (Some(sha), Some(t)) = (v["sha256"].as_str(), v["tlsh"].as_str()) else { continue };
+            let Ok(tlsh) = t.parse::<Tlsh>() else { continue };
+            if seen.insert(sha.to_ascii_lowercase()) {
+                files.push(Entry { sha256: sha.to_ascii_lowercase(), tlsh, size: v["size"].as_u64().unwrap_or(0) });
+            }
+        }
     }
 
     /// (Re)reads `analyst_tlsh.jsonl`. It is append-only: a later line for the same

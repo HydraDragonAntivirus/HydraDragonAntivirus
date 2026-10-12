@@ -8,6 +8,7 @@ mod fingerprint;
 mod analyst_engine;
 mod analyzer;
 mod alyzer;
+mod archive;
 mod human_review;
 mod ip_bans;
 mod naming;
@@ -43,6 +44,10 @@ use scan_server::ScanServer;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = CliArgs::parse();
     args.enforce_limits();
+    config::set_archive(args.archive);
+    if args.archive {
+        eprintln!("[archive] read-only archive server: data comes from the main server's mirror in {}", app_dir().display());
+    }
 
     let events = Arc::new(EventLog::new(args.verbose));
 
@@ -73,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.start_loading(custom_rules);
 
     let threat_intel = threat_intel::ThreatIntelStore::new(None);
-    {
+    if !args.archive {
         let ti = Arc::clone(&threat_intel);
         engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
         // Kept files follow human verdicts (e.g. bulk whitelists made by older builds).
@@ -85,6 +90,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if moved > 0 {
             eprintln!("[engine] {moved} kept files moved to the folder of their human verdict");
         }
+        let (dups, bytes) = engine.dedupe_kept(|sha| {
+            let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
+            (source != "unseen").then_some(verdict)
+        });
+        if dups > 0 {
+            eprintln!("[engine] {dups} duplicate kept files removed ({:.1} MB)", bytes as f64 / 1048576.0);
+        }
     }
     let scan_server = ScanServer::new(
         args.clone(),
@@ -92,9 +104,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&events),
         Arc::clone(&threat_intel),
     );
-    {
+    if args.archive {
+        crate::archive::spawn_reloader(Arc::clone(&scan_server));
+    } else {
         let srv = Arc::clone(&scan_server);
         crate::offload::spawn_watcher(Arc::clone(&engine), Arc::clone(&scan_server.offload), move |m| srv.log_info(m));
+        let srv = Arc::clone(&scan_server);
+        scan_server.mirror.set_work_dir(engine.work_dir().map(|p| p.to_path_buf()));
+        let ti = Arc::clone(&threat_intel);
+        scan_server.mirror.set_verdict_lookup(Arc::new(move |sha: &str| {
+            let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
+            (source != "unseen").then_some(verdict)
+        }));
+        scan_server.mirror.spawn(move |m| srv.log_info(m));
     }
     let app_state = AppState::new(
         args.clone(),

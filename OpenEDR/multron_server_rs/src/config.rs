@@ -164,6 +164,20 @@ pub struct CliArgs {
     /// Free disk threshold in GB below which incoming files are compressed with LZMA2 max (default: 15)
     #[arg(long, default_value_t = 15)]
     pub low_disk_gb: u64,
+
+    /// Archive server: read-only copy of the main server. Serves file pages, the API and
+    /// sample downloads from the data the main server mirrors into this folder
+    /// (`--archive-mirror` there), refuses scans and every change, and picks up new data
+    /// while it runs.
+    #[arg(long)]
+    pub archive: bool,
+
+    /// Main server: folder the whole database and every kept file are mirrored to, e.g.
+    /// the archive PC's server folder over a share (\\ARCHIVEPC\viruskov_archive).
+    /// Copies only what changed, whenever the folder is reachable. Overrides the
+    /// dashboard setting.
+    #[arg(long, default_value = "")]
+    pub archive_mirror: String,
 }
 
 /// Hard ceiling for one uploaded file. --max-mb can lower it, never raise it.
@@ -235,6 +249,13 @@ pub struct SavedSettings {
     pub offload_target: String,
     #[serde(default)]
     pub offload_auto: bool,
+    /// Normal maintenance mode stays on across restarts (the "updating" mode set by
+    /// Multron Updater is never saved).
+    #[serde(default)]
+    pub maintenance: bool,
+    /// Folder the archive mirror copies everything to (empty = off).
+    #[serde(default)]
+    pub archive_mirror: String,
     /// Rescan kept unknown / possible_clean files after every engine reload.
     #[serde(default = "default_true")]
     pub rescan_after_reload: bool,
@@ -260,11 +281,24 @@ impl Default for SavedSettings {
             rescan_after_reload: true,
             offload_target: String::new(),
             offload_auto: false,
+            archive_mirror: String::new(),
+            maintenance: false,
             compress_low_disk: true,
             low_disk_gb: 15,
             limits: None,
         }
     }
+}
+
+static ARCHIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Archive mode (`--archive`): read-only, data comes from the main server's mirror.
+pub fn is_archive() -> bool {
+    ARCHIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_archive(on: bool) {
+    ARCHIVE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn app_dir() -> PathBuf {

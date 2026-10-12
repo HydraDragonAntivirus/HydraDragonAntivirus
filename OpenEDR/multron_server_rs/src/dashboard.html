@@ -247,6 +247,7 @@
   <button id="themeBtn" class="ghost" style="padding: 4px 8px; font-size: 14px;" title="Toggle dark mode"></button>
   <span id="uptime" class="hint" style="margin:0"></span>
 </header>
+<div id="archiveBanner" hidden style="margin:12px 20px 0;padding:10px 14px;border-radius:10px;border:1px solid var(--orange);background:var(--orange-bg);color:var(--orange);font-size:13px"></div>
 
 <main>
   <div class="col">
@@ -274,6 +275,13 @@
       <button id="stopBtn" class="danger" hidden>Stop server</button>
       <button id="reloadEngineBtn" title="Reload .yrc, ML models, XOR filters and YAML rules from disk. The process and listener keep running.">Reload rules &amp; models</button>
       <div id="reloadMsg" style="font-size:12px;opacity:.75;margin-top:6px"></div>
+      <label for="mtMode">Maintenance mode</label>
+      <select id="mtMode">
+        <option value="off">Off (scans accepted)</option>
+        <option value="maintenance">Maintenance</option>
+        <option value="updating">Updating server</option>
+      </select>
+      <div class="hint" id="mtMsg">New scans are refused with "Under maintenance. Try again later." (or, while updating, "Under maintenance: the server is being updated. Try again in a few minutes."); scans in progress finish and hash lookups keep working. Normal maintenance stays on after a restart. Multron Updater sets "Updating server" by itself before it replaces the server, and the updated server starts with it off.</div>
       <div id="listenError" class="error"></div>
 
       <label>Client address (this PC)</label>
@@ -342,6 +350,23 @@
         <button class="ghost" id="ofStop" hidden>Stop</button>
       </div>
       <div id="ofMsg" class="hint"></div>
+      <h2 style="margin-top:18px">Duplicate samples</h2>
+      <div class="hint">The same SHA-256 kept more than once (under another file name, in two category folders, or plain and .xz). Keeps the copy in the folder of its current verdict (human verdict first), otherwise the uncompressed one, then the newest, and deletes the others. Also runs at every start; new duplicates are no longer stored.</div>
+      <div class="row2" style="margin-top:8px"><button class="ghost" id="kdRun">Remove duplicates</button></div>
+      <div id="kdMsg" class="hint"></div>
+      <h2 style="margin-top:18px">Backup archive</h2>
+      <div class="hint">Copies the whole database (telemetry with IPs and paths, human verdicts, signatures, TLSH, reports, bans, API keys, event log) and every kept file to the archive PC whenever its folder is reachable: every 5 minutes, only what changed. Nothing is deleted there, so files moved or removed here stay in the archive. Run the server on the archive PC from that folder with <code>--archive</code>: read-only, it serves file pages, the API and samples and picks up new data every minute. A sample whose verdict changed here is moved to its new category in the archive as well, and leftover duplicates are removed. Tip: set the move target above to <code>&lt;archive folder&gt;\multron_incoming</code> so moved files stay downloadable from the archive.</div>
+      <label for="mrTarget">Archive folder</label>
+      <div class="row2">
+        <input id="mrTarget" type="text" placeholder="\\ARCHIVEPC\viruskov_archive or Z:\viruskov_archive">
+        <button class="ghost" id="mrSave">Save</button>
+      </div>
+      <div class="row2" style="margin-top:8px">
+        <button class="ghost" id="mrRun">Copy now</button>
+        <button class="ghost" id="mrStop" hidden>Stop</button>
+        <button class="ghost" id="mrDedupe" title="The same sample in more than one category folder of the archive (a file whose verdict changed): keeps the copy where this server has it, or the one in the folder of its current verdict, and deletes the others. Also runs at the end of every copy.">Remove duplicates</button>
+      </div>
+      <div id="mrMsg" class="hint"></div>
       <div id="engineError" class="error"></div>
     </section>
 
@@ -892,6 +917,12 @@
   };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
+  $("mtMode").onchange = async (e) => {
+    const mode = e.target.value;
+    try { await post("/api/maintenance", { enabled: mode !== "off", mode }); }
+    catch (err) { $("mtMsg").textContent = err.message; }
+  };
+
   function setPill(pill, cls, text) {
     pill.className = "pill " + cls;
     pill.lastElementChild.textContent = text;
@@ -937,7 +968,9 @@
 
     running = state.server.running;
     const s = state.server;
-    if (running) setPill($("serverPill"), "ok", `Listening on ${s.host}:${s.port}${s.path}`);
+    if (document.activeElement !== $("mtMode")) $("mtMode").value = s.maintenanceMode || "off";
+    if (running && s.maintenance) setPill($("serverPill"), "wait", (s.maintenanceMode === "updating" ? "Updating server" : "Maintenance") + ` · ${s.host}:${s.port}${s.path}`);
+    else if (running) setPill($("serverPill"), "ok", `Listening on ${s.host}:${s.port}${s.path}`);
     else setPill($("serverPill"), s.error ? "bad" : "", s.error ? "Stopped (error)" : "Stopped");
     $("uptime").textContent = running ? "Running since " + new Date(s.startedAt).toLocaleString() : "";
 
@@ -971,6 +1004,7 @@
     $("keepCleanQuota").textContent = `${Number(l.keptCleanGB || 0).toFixed(2)} of ${l.keepCleanGB} GB used`;
     renderRescan(state.rescan || {});
     renderOffload(state.offload || {});
+    renderMirror(state.mirror || {}, state.archive);
     renderLimitForm(state.editableLimits, l.maxFileMBCeiling);
     const banned = state.bannedIps || [];
     $("bannedList").textContent = banned.length ? "Blocked now: " + banned.join(", ") : "";
@@ -1310,6 +1344,63 @@
         (o.lastError ? ` · ${o.lastError}` : "") + (o.finishedAt ? ` · finished ${new Date(o.finishedAt).toLocaleString()}` : "");
     }
   }
+  function renderMirror(m, arch) {
+    const ban = $("archiveBanner");
+    if (arch) {
+      ban.hidden = false;
+      ban.textContent = `Archive server (read-only): data from the main server's mirror` +
+        (arch.data_as_of ? `, last copied ${new Date(arch.data_as_of).toLocaleString()}` : ", not copied yet") +
+        (arch.last_reload ? ` · read ${new Date(arch.last_reload).toLocaleTimeString()}` : "") + ` · ${arch.insights || 0} files. Changes are made on the main server.`;
+    } else ban.hidden = true;
+    if (document.activeElement !== $("mrTarget") && !$("mrTarget").dataset.dirty) $("mrTarget").value = m.target || "";
+    $("mrRun").disabled = !!m.running || !m.target || !!arch;
+    $("mrDedupe").disabled = !!m.running || !m.target || !!arch;
+    $("mrSave").disabled = !!arch;
+    $("mrStop").hidden = !m.running;
+    if ($("mrMsg").dataset.hold) return;
+    if (arch) { $("mrMsg").textContent = "This is the archive server; the mirror runs on the main server."; return; }
+    if (!m.target) { $("mrMsg").style.color = ""; $("mrMsg").textContent = "Off."; return; }
+    if (m.running) { $("mrMsg").style.color = ""; $("mrMsg").textContent = `Copying… ${m.checked} checked, ${m.copied} copied, ${m.appended} appended, ${(m.bytes / 1048576).toFixed(1)} MB · ${m.current || ""}`; return; }
+    const unreachable = m.reachable === false;
+    $("mrMsg").style.color = unreachable ? "var(--orange)" : (m.failed ? "var(--orange)" : "");
+    $("mrMsg").textContent = (unreachable ? "Archive not reachable now (PC off or share not connected); trying again every 5 minutes. " : "") +
+      (m.last_complete ? `Last complete copy ${new Date(m.last_complete).toLocaleString()}` : "No complete copy yet") +
+      (m.finished_at && !unreachable ? ` · last run: ${m.copied} copied, ${m.appended} appended, ${m.moved || 0} moved to their new category, ${m.duplicates_removed || 0} duplicates removed, ${(m.bytes / 1048576).toFixed(1)} MB, ${m.failed} failed` : "") +
+      (m.last_error ? ` · ${m.last_error}` : "");
+  }
+  $("mrTarget").oninput = () => { $("mrTarget").dataset.dirty = "1"; };
+  $("mrSave").onclick = async () => {
+    $("mrMsg").dataset.hold = "1";
+    try {
+      await post("/api/mirror/config", { target: $("mrTarget").value.trim() });
+      delete $("mrTarget").dataset.dirty;
+      $("mrMsg").style.color = "var(--green)";
+      $("mrMsg").textContent = $("mrTarget").value.trim() ? "Saved; copying starts now." : "Mirror is off.";
+    } catch (e) { $("mrMsg").style.color = "var(--red)"; $("mrMsg").textContent = e.message; }
+    setTimeout(() => { delete $("mrMsg").dataset.hold; }, 4000);
+  };
+  $("mrRun").onclick = () => post("/api/mirror/run", {}).catch(e => { $("mrMsg").textContent = e.message; });
+  $("mrStop").onclick = () => post("/api/mirror/stop", {}).catch(() => {});
+  $("kdRun").onclick = async () => {
+    $("kdRun").disabled = true; $("kdMsg").style.color = ""; $("kdMsg").textContent = "Looking for duplicates…";
+    try {
+      const r = await post("/api/kept/dedupe", {});
+      $("kdMsg").style.color = "var(--green)";
+      $("kdMsg").textContent = r.removed ? `${r.removed} duplicate copies removed, ${(r.bytes / 1048576).toFixed(1)} MB freed.` : "No duplicates.";
+    } catch (e) { $("kdMsg").style.color = "var(--red)"; $("kdMsg").textContent = e.message; }
+    $("kdRun").disabled = false;
+  };
+  $("mrDedupe").onclick = async () => {
+    $("mrMsg").dataset.hold = "1";
+    $("mrMsg").style.color = ""; $("mrMsg").textContent = "Looking for duplicates in the archive…";
+    try {
+      const r = await post("/api/mirror/dedupe", {});
+      $("mrMsg").style.color = "var(--green)";
+      $("mrMsg").textContent = r.removed ? `${r.removed} duplicate copies removed, ${(r.bytes / 1048576).toFixed(1)} MB freed.` : "No duplicates in the archive.";
+    } catch (e) { $("mrMsg").style.color = "var(--red)"; $("mrMsg").textContent = e.message; }
+    setTimeout(() => { delete $("mrMsg").dataset.hold; }, 6000);
+  };
+
   $("ofTarget").oninput = () => { $("ofTarget").dataset.dirty = "1"; };
   const ofSave = async () => {
     $("ofMsg").dataset.hold = "1";

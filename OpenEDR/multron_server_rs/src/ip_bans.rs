@@ -121,6 +121,13 @@ impl BanList {
         Self { path, list: RwLock::new(list) }
     }
 
+    /// Reads the file again (archive mode: the main server's bans were mirrored).
+    pub fn reload(&self) {
+        let fresh = Self::load_from(self.path.clone());
+        let list = std::mem::take(&mut *fresh.list.write().unwrap());
+        *self.list.write().unwrap() = list;
+    }
+
     fn save(&self, list: &[(Net, IpBan)]) -> Result<(), String> {
         let items: Vec<&IpBan> = list.iter().map(|(_, b)| b).collect();
         let text = serde_json::to_string_pretty(&items).map_err(|e| e.to_string())?;

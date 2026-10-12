@@ -227,11 +227,35 @@ impl HumanReviewStore {
                 }
             }
         }
-        let file = OpenOptions::new().create(true).append(true).open(path).ok();
-        if file.is_none() {
+        let file = if crate::config::is_archive() { None } else { OpenOptions::new().create(true).append(true).open(path).ok() };
+        if file.is_none() && !crate::config::is_archive() {
             eprintln!("[review] cannot open {} for writing; reviews will not persist", path.display());
         }
         Self { map: RwLock::new(map), removed: RwLock::new(removed), file: Mutex::new(file) }
+    }
+
+    /// Archive mode: lines the main server added to `human_verdicts.jsonl`;
+    /// `reset` = the file was rewritten.
+    pub fn archive_ingest(&self, lines: &[String], reset: bool) {
+        let mut map = self.map.write().unwrap();
+        let mut removed = self.removed.write().unwrap();
+        if reset {
+            map.clear();
+            removed.clear();
+        }
+        for line in lines {
+            if let Ok(r) = serde_json::from_str::<HumanReview>(line) {
+                if let Some(sha) = parse_sha(&r.sha256) {
+                    if r.deleted {
+                        map.remove(&sha);
+                        removed.insert(sha);
+                    } else {
+                        removed.remove(&sha);
+                        map.insert(sha, r);
+                    }
+                }
+            }
+        }
     }
 
     fn persist(&self, r: &HumanReview) {

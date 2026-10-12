@@ -94,6 +94,9 @@ pub struct EngineAdapter {
     pub keep_clean_limit_bytes: u64,
     pub kept_clean_bytes: AtomicU64,
     pub kept_files: AtomicI64,
+    /// SHA-256 (upper case) -> path of every kept file, built on first use, so a file
+    /// that is already kept is not stored a second time under another name.
+    kept_index: std::sync::Mutex<Option<std::collections::HashMap<String, PathBuf>>>,
     /// Analyst ClamAV / HydraDragonSig signatures (analyst_signatures/), run after the main scan.
     pub analyst: crate::analyst_engine::AnalystEngine,
     /// Rules folder the engine was loaded from; reused by `reload_all`.
@@ -142,6 +145,7 @@ impl EngineAdapter {
             reloading: AtomicBool::new(false),
             reload_msg: RwLock::new(String::new()),
             kept_files: AtomicI64::new(kept.1),
+            kept_index: std::sync::Mutex::new(None),
             analyst: Default::default(),
         })
     }
@@ -220,6 +224,66 @@ impl EngineAdapter {
         self.find_kept(sha_upper)?.read()
     }
 
+    /// Where this sample is kept, if it is (one stat call after the first walk).
+    fn kept_path_of(&self, sha: &str) -> Option<PathBuf> {
+        let sha = sha.to_ascii_uppercase();
+        let mut g = self.kept_index.lock().unwrap();
+        let idx = g.get_or_insert_with(|| {
+            let mut m = std::collections::HashMap::new();
+            for k in self.list_kept() {
+                m.entry(k.sha256.clone()).or_insert(k.path);
+            }
+            m
+        });
+        let p = idx.get(&sha)?.clone();
+        if p.exists() {
+            return Some(p);
+        }
+        // Moved (offload, another build) or deleted: look again once.
+        idx.remove(&sha);
+        drop(g);
+        let k = self.find_kept(&sha)?;
+        self.kept_index_set(&sha, &k.path);
+        Some(k.path)
+    }
+
+    fn kept_index_set(&self, sha: &str, path: &Path) {
+        if let Some(idx) = self.kept_index.lock().unwrap().as_mut() {
+            idx.insert(sha.to_ascii_uppercase(), path.to_path_buf());
+        }
+    }
+
+    /// Removes extra copies of the same sample (the same SHA-256 kept more than once:
+    /// under another file name, in two category folders, or plain and `.xz`). The copy
+    /// in the folder of its current verdict stays; otherwise the plain one, then the
+    /// newest. Returns (files removed, bytes freed).
+    pub fn dedupe_kept(&self, verdict_of: impl Fn(&str) -> Option<String>) -> (u64, u64) {
+        let mut by_sha: std::collections::HashMap<String, Vec<KeptFile>> = std::collections::HashMap::new();
+        for k in self.list_kept() {
+            by_sha.entry(k.sha256.clone()).or_default().push(k);
+        }
+        let (mut removed, mut bytes) = (0u64, 0u64);
+        for (sha, copies) in by_sha.into_iter().filter(|(_, v)| v.len() > 1) {
+            let want = verdict_of(&sha).map(|v| KeptFile::category_for(&v));
+            let mtime = |k: &KeptFile| std::fs::metadata(&k.path).and_then(|m| m.modified()).ok();
+            let Some(keep) = copies
+                .iter()
+                .max_by_key(|k| (Some(k.category) == want && !k.legacy, !k.xz, !k.legacy, mtime(k)))
+                .map(|k| k.path.clone())
+            else {
+                continue;
+            };
+            for k in copies.iter().filter(|k| k.path != keep) {
+                if let Some(n) = self.forget_kept(k) {
+                    removed += 1;
+                    bytes += n;
+                }
+            }
+        }
+        *self.kept_index.lock().unwrap() = None;
+        (removed, bytes)
+    }
+
     /// Moves a kept upload to the folder of its new verdict (after a rescan).
     pub fn relabel_kept(&self, sha_upper: &str, verdict: &str) {
         if let Some(k) = self.find_kept(sha_upper) {
@@ -251,9 +315,16 @@ impl EngineAdapter {
         }
         let target = dir.join(cat).join(k.file_name());
         let _ = std::fs::create_dir_all(dir.join(cat));
-        if target.exists() || std::fs::rename(&k.path, &target).is_err() {
+        if target.exists() {
+            // Already there (the same SHA-256 and name): this one is a duplicate.
+            self.forget_kept(k);
+            self.kept_index_set(&k.sha256, &target);
+            return true;
+        }
+        if std::fs::rename(&k.path, &target).is_err() {
             return false;
         }
+        self.kept_index_set(&k.sha256, &target);
         if (k.category == "clean") != (cat == "clean") {
             let len = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
             let (from, to) = if cat == "clean" { (&self.kept_bytes, &self.kept_clean_bytes) } else { (&self.kept_clean_bytes, &self.kept_bytes) };
@@ -715,6 +786,17 @@ impl EngineAdapter {
             && used.load(Ordering::Relaxed) + size <= limit;
 
         if should_keep {
+            // Already kept (under another name or in another category): keep that copy,
+            // moved to the folder of this verdict, instead of storing a second one.
+            if let Some(existing) = self.kept_path_of(sha) {
+                if let Some(k) = KeptFile::parse(existing.clone(), category_dir_of(&existing)) {
+                    self.move_kept(&k, KeptFile::category_for(&res.verdict));
+                }
+                if let Some(p) = temp {
+                    let _ = std::fs::remove_file(p);
+                }
+                return;
+            }
             if let Some(dir) = &self.work_dir {
                 let name = if name.is_empty() { "file" } else { name };
                 let cat_dir = dir.join(KeptFile::category_for(&res.verdict));
@@ -737,6 +819,7 @@ impl EngineAdapter {
                             compress_bytes_lzma2_max(data, &target_xz)
                         };
                         if let Ok(compressed_len) = comp_res {
+                            self.kept_index_set(sha, &target_xz);
                             used.fetch_add(compressed_len, Ordering::Relaxed);
                             self.kept_files.fetch_add(1, Ordering::Relaxed);
                             if let Some(p) = temp {
@@ -755,6 +838,7 @@ impl EngineAdapter {
                         std::fs::write(&target, data).is_ok()
                     };
                     if stored {
+                        self.kept_index_set(sha, &target);
                         used.fetch_add(size, Ordering::Relaxed);
                         self.kept_files.fetch_add(1, Ordering::Relaxed);
                         return;
@@ -1387,6 +1471,30 @@ mod pc_test {
 #[cfg(test)]
 mod kept_tests {
     use super::*;
+
+    #[test]
+    fn duplicates_removed_and_not_stored_again() {
+        let dir = std::env::temp_dir().join(format!("kept_dup_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sha = "D".repeat(64);
+        let ad = EngineAdapter::new(Some(dir.clone()), false, true, 1, true, false, 1, false, 1);
+        for (cat, name) in [("unknown", "a.exe"), ("malicious", "b.exe"), ("malicious", "c.exe.xz")] {
+            std::fs::create_dir_all(dir.join(cat)).unwrap();
+            std::fs::write(dir.join(cat).join(format!("{sha}_{name}")), b"MZ").unwrap();
+        }
+        let (n, _) = ad.dedupe_kept(|_| Some("malicious".into()));
+        assert_eq!(n, 2);
+        let left: Vec<_> = ad.list_kept().into_iter().map(|k| (k.category, k.name, k.xz)).collect();
+        assert_eq!(left, vec![("malicious", "b.exe".to_string(), false)]);
+
+        // the same sample uploaded again under another name and verdict: moved, not stored twice
+        let res = hash_result("suspicious", None, "z", 0.0, &sha, "scan");
+        ad.keep_or_remove(None, b"MZ", &res, &sha, "other.exe");
+        let left: Vec<_> = ad.list_kept().into_iter().map(|k| (k.category, k.name)).collect();
+        assert_eq!(left, vec![("suspicious", "b.exe".to_string())]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn categories_and_legacy() {

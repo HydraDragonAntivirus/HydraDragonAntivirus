@@ -231,7 +231,12 @@ impl EventLog {
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(crate::config::app_dir().join("multron_events.ecs.jsonl"))
+            .open(crate::config::app_dir().join(if crate::config::is_archive() {
+                    // The main server's log is mirrored as multron_events.ecs.jsonl.
+                    "multron_events.archive.ecs.jsonl"
+                } else {
+                    "multron_events.ecs.jsonl"
+                }))
         {
             use std::io::Write;
             if let Ok(json_line) = serde_json::to_string(&ecs_json) {
