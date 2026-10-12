@@ -1006,6 +1006,12 @@
     tr.append(el("td", "mono", fmtTime(e.time)), el("td", "mono", who), tdTag, tdFile,
               el("td", "num", e.size ? fmtSize(e.size) : ""), tdDetail, el("td", "num", e.ms ? e.ms + " ms" : ""));
     if ((e.kind === "result" || e.kind === "extracted" || e.kind === "url_scan") && (e.verdict === "malicious" || e.verdict === "suspicious")) tr.className = "threat";
+    // Right-click menu (same as the other file lists) for events that name a file.
+    if (e.sha256 && /^[0-9a-fA-F]{64}$/.test(e.sha256)) {
+      tr.dataset.sha = e.sha256.toLowerCase();
+      if (e.file) tr.dataset.name = e.file;
+      tr.title = "Right-click for actions";
+    }
     return tr;
   }
 
@@ -2053,7 +2059,7 @@
 (() => {
   // Right-click menu for file rows: queue, verdicts, rescan log, scan queue.
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha]";
+  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #feed tr[data-sha]";
   let menu = null;
   const toast = (msg) => {
     let t = document.getElementById("ctxToast");
