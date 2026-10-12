@@ -7,34 +7,8 @@ static ENV_REF_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)(%[A-Z0-9_]{2,}%|\$env:[A-Z0-9_]+|getenv\([^)]+\)|GetEnvironmentVariable[A-Za-z]*|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|COMSPEC|WINDIR|SYSTEMROOT|PROCESSOR_IDENTIFIER|NUMBER_OF_PROCESSORS|USERNAME|USERDOMAIN)").unwrap()
 });
 
-static SANDBOX_ENV_NAMES: &[&str] = &[
-    "SANDBOX",
-    "VBOX_INSTALL_PATH",
-    "VBOX_MSI_INSTALL_PATH",
-    "VMWARE_TOOLS",
-    "PROCESSOR_IDENTIFIER",
-    "NUMBER_OF_PROCESSORS",
-    "COMPUTERNAME",
-    "USERNAME",
-    "USERDOMAIN",
-    "USERDNSDOMAIN",
-];
-
-static SUSPICIOUS_ENV_VALUES: &[&str] = &[
-    "vbox",
-    "virtualbox",
-    "vmware",
-    "qemu",
-    "xen",
-    "sandbox",
-    "maltest",
-    "analysis",
-    "cuckoo",
-    "joebox",
-    "any.run",
-    "triage",
-];
-
+/// Environment-variable references in the file's own strings. Only the file is
+/// looked at: the result must not depend on the machine that runs the scan.
 pub fn scan_environment(strings: &[StringHit], decoded: &[DecodedString]) -> Vec<EnvHit> {
     let mut hits = Vec::new();
     let mut seen = HashSet::new();
@@ -65,24 +39,6 @@ pub fn scan_environment(strings: &[StringHit], decoded: &[DecodedString]) -> Vec
                 Some(s),
                 "environment API usage string",
             );
-        }
-    }
-
-    for name in SANDBOX_ENV_NAMES {
-        if let Ok(value) = std::env::var(name) {
-            let low = value.to_ascii_lowercase();
-            if SUSPICIOUS_ENV_VALUES
-                .iter()
-                .any(|needle| low.contains(needle))
-            {
-                push(
-                    &mut hits,
-                    &mut seen,
-                    name,
-                    Some(&value),
-                    "current host environment contains sandbox/VM-like marker",
-                );
-            }
         }
     }
 

@@ -52,7 +52,7 @@ pub struct Rule {
     pub mitre: Vec<MitreMapping>,
 
     /// Private rule flag (YARA-style). When true, this rule is evaluated but doesn't generate findings.
-    /// Private rules can be used by other rules for detection logic but won't trigger alerts themselves.
+    /// Later rules can use it through a `rule_match` condition.
     #[serde(default)]
     pub private: bool,
 
@@ -131,9 +131,12 @@ fn default_confidence() -> u8 {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleLogic {
+    #[serde(alias = "All", alias = "ALL")]
     All,
     #[default]
+    #[serde(alias = "Any", alias = "ANY")]
     Any,
+    #[serde(alias = "Threshold", alias = "THRESHOLD")]
     Threshold,
 }
 
@@ -141,8 +144,11 @@ pub enum RuleLogic {
 #[serde(rename_all = "snake_case")]
 pub enum SignatureAtomKind {
     #[default]
+    #[serde(alias = "Text", alias = "TEXT")]
     Text,
+    #[serde(alias = "Regex", alias = "REGEX")]
     Regex,
+    #[serde(alias = "Bytes", alias = "BYTES", alias = "hex")]
     Bytes,
 }
 
@@ -231,6 +237,7 @@ pub enum RuleCondition {
     /// signature atoms and a boolean expression such as:
     /// `any of them`, `2 of ($a*)`, `$a and ($b or $c)`, `filesize < 500KB`.
     NativeSignature {
+        #[serde(default)]
         atoms: Vec<SignatureAtom>,
         expression: String,
     },
@@ -334,6 +341,14 @@ pub enum RuleCondition {
         /// Known-benign blobs that veto this condition when any of them is present.
         #[serde(default)]
         excludes: Vec<String>,
+    },
+
+    /// True when other rules of the same set matched earlier in this scan
+    /// (`private: true` helper rules included). `min` defaults to all `ids`.
+    RuleMatch {
+        ids: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
     },
 
     /// Packer / protector identification by byte signature. Matches the first

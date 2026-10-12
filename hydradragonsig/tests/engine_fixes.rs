@@ -1,0 +1,192 @@
+//! End-to-end checks of rule conditions through the public scan API.
+
+use hydradragonsig::models::{MemoryScanContext, Verdict};
+use hydradragonsig::rules::RuleSet;
+use hydradragonsig::{scan_memory_owned, ScanOptions};
+
+fn rules(body: &str) -> RuleSet {
+    let set = RuleSet::from_yaml_str(&format!("rules:\n{body}")).expect("rules parse");
+    assert!(set.warnings().is_empty(), "unexpected warnings: {:?}", set.warnings());
+    set
+}
+
+fn scan(set: &RuleSet, data: &[u8]) -> Vec<String> {
+    scan_with(set, data, ScanOptions::default())
+}
+
+fn scan_with(set: &RuleSet, data: &[u8], options: ScanOptions) -> Vec<String> {
+    let ctx = MemoryScanContext { buffer: data.to_vec(), identifier: "t".into(), base_address: None };
+    let report = scan_memory_owned(ctx, set, &options).expect("scan");
+    report.findings.iter().map(|f| f.rule_id.clone()).collect()
+}
+
+fn one(cond: &str) -> RuleSet {
+    rules(&format!("  - id: R\n    title: t\n    severity: high\n    verdict: malware\n    conditions:\n{cond}"))
+}
+
+fn wide(s: &str) -> Vec<u8> {
+    s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect()
+}
+
+#[test]
+fn string_regex_matches_extracted_strings() {
+    let set = one("      - type: string_regex\n        pattern: 'https?://[a-z]+\\.evil/[a-z]+'\n");
+    assert_eq!(scan(&set, b"\x00\x01GET http://www.evil/payload HTTP\x00"), vec!["R"]);
+    assert!(scan(&set, b"\x00nothing to see\x00").is_empty());
+    // UTF-16LE strings are extracted too.
+    let mut data = b"\x00\x00".to_vec();
+    data.extend(wide("http://abc.evil/xyz"));
+    assert_eq!(scan(&set, &data), vec!["R"]);
+}
+
+#[test]
+fn string_contains_default_flags_match() {
+    let set = one("      - type: string_contains\n        value: 'Mimikatz'\n        nocase: true\n");
+    assert_eq!(scan(&set, b"\x00\x02 by mimikatz author \x00"), vec!["R"]);
+    assert!(scan(&set, b"\x00nothing\x00").is_empty());
+}
+
+#[test]
+fn decoded_base64_and_hex_strings() {
+    let set = one("      - type: string_contains\n        value: 'http://c2.example/gate'\n        decoded: true\n");
+    // base64("download http://c2.example/gate now")
+    assert_eq!(scan(&set, b"\x00ZG93bmxvYWQgaHR0cDovL2MyLmV4YW1wbGUvZ2F0ZSBub3c=\x00"), vec!["R"]);
+    // hex("http://c2.example/gate")
+    assert_eq!(scan(&set, b"\x00687474703a2f2f63322e6578616d706c652f67617465\x00"), vec!["R"]);
+    // decoding switched off
+    let options = ScanOptions { decode_obfuscated_strings: false, ..ScanOptions::default() };
+    assert!(scan_with(&set, b"\x00ZG93bmxvYWQgaHR0cDovL2MyLmV4YW1wbGUvZ2F0ZSBub3c=\x00", options).is_empty());
+}
+
+#[test]
+fn string_set_without_min_needs_every_value() {
+    let set = one("      - type: string_set\n        values: ['alpha', 'beta']\n");
+    assert!(scan(&set, b"alpha only").is_empty());
+    assert_eq!(scan(&set, b"alpha and beta"), vec!["R"]);
+    let set = one("      - type: string_set\n        min: 1\n        values: ['alpha', 'beta']\n");
+    assert_eq!(scan(&set, b"alpha only"), vec!["R"]);
+}
+
+#[test]
+fn byte_set_counts_wildcard_patterns() {
+    let set = one("      - type: byte_set\n        min: 2\n        patterns: ['4D 5A', 'E8 ?? ?? ?? ?? C3']\n");
+    assert_eq!(scan(&set, b"MZ\x00\xE8\x01\x02\x03\x04\xC3"), vec!["R"]);
+    assert!(scan(&set, b"MZ\x00\xE8\x01\x02\xC3").is_empty());
+}
+
+#[test]
+fn byte_pattern_scope_applies_to_exact_patterns() {
+    let set = one("      - type: byte_pattern\n        pattern: '50 41 59'\n        scope: {start: 0, end: 8}\n");
+    assert_eq!(scan(&set, b"xxPAYxxxxxxxxxxxx"), vec!["R"]);
+    assert!(scan(&set, b"xxxxxxxxxxxxPAY").is_empty());
+    let set = one("      - type: byte_pattern\n        pattern: '50 41 59'\n        excludes: ['42 45 4E 49 47 4E']\n");
+    assert!(scan(&set, b"PAY BENIGN").is_empty());
+    assert_eq!(scan(&set, b"PAY"), vec!["R"]);
+}
+
+#[test]
+fn byte_pattern_jumps_alternations_negation() {
+    let set = one("      - type: byte_pattern\n        pattern: '{ 4D 5A [2-4] ( 90 | 91 ) ~00 }'\n");
+    assert_eq!(scan(&set, b"MZab\x90\x01"), vec!["R"]);
+    assert_eq!(scan(&set, b"MZabcd\x91\x02"), vec!["R"]);
+    assert!(scan(&set, b"MZa\x90\x01").is_empty(), "jump too short");
+    assert!(scan(&set, b"MZab\x92\x01").is_empty(), "no alternative");
+    assert!(scan(&set, b"MZab\x90\x00").is_empty(), "negated byte");
+}
+
+#[test]
+fn rule_match_with_private_helpers() {
+    let set = rules(
+        "  - id: H1\n    title: h\n    severity: info\n    private: true\n    conditions:\n      - type: string_contains\n        value: 'alpha'\n\
+         \x20 - id: H2\n    title: h\n    severity: info\n    private: true\n    conditions:\n      - type: string_contains\n        value: 'beta'\n\
+         \x20 - id: R\n    title: r\n    severity: high\n    verdict: malware\n    conditions:\n      - type: rule_match\n        ids: [H1, H2]\n",
+    );
+    // stop_on_detection (the library default) must not stop at a private match.
+    assert_eq!(scan(&set, b"alpha beta"), vec!["R"]);
+    assert!(scan(&set, b"alpha only").is_empty());
+}
+
+#[test]
+fn env_reference_and_features() {
+    let set = one("      - type: env_reference\n        min: 1\n");
+    assert_eq!(scan(&set, b"\x00copy to %APPDATA%\\run.exe\x00"), vec!["R"]);
+    assert!(scan(&set, b"\x00plain text here\x00").is_empty());
+    let set = one("      - type: feature_gte\n        name: string_count\n        value: 3\n");
+    assert_eq!(scan(&set, b"first\x00second\x00third\x00"), vec!["R"]);
+    assert!(scan(&set, b"first\x00second\x00").is_empty());
+}
+
+#[test]
+fn native_offsets_see_every_occurrence() {
+    let set = one("      - type: native_signature\n        expression: '$a at 16'\n        atoms:\n          - id: a\n            value: 'MARK'\n");
+    let mut data = b"MARK".to_vec();
+    data.resize(16, b'.');
+    data.extend_from_slice(b"MARK");
+    assert_eq!(scan(&set, &data), vec!["R"]);
+}
+
+#[test]
+fn native_base64_any_alignment() {
+    let set = one("      - type: native_signature\n        expression: 'any of them'\n        atoms:\n          - id: a\n            value: 'AmsiScanBuffer'\n            base64: true\n");
+    use base64::Engine as _;
+    for prefix in ["", "x", "xy"] {
+        let enc = base64::engine::general_purpose::STANDARD.encode(format!("{prefix}AmsiScanBuffer!"));
+        assert_eq!(scan(&set, enc.as_bytes()), vec!["R"], "prefix {prefix:?}");
+    }
+}
+
+#[test]
+fn verdict_and_case_insensitive_enums() {
+    let set = RuleSet::from_yaml_str(
+        "rules:\n  - id: R\n    title: t\n    severity: Critical\n    verdict: Malware\n    logic: ALL\n    conditions:\n      - type: string_contains\n        value: 'zzzz'\n",
+    )
+    .unwrap();
+    let ctx = MemoryScanContext { buffer: b"aa zzzz".to_vec(), identifier: "t".into(), base_address: None };
+    let report = scan_memory_owned(ctx, &set, &ScanOptions::default()).unwrap();
+    assert_eq!(report.verdict, Verdict::Malware);
+}
+
+#[test]
+fn load_warnings_and_strict_mode() {
+    let doc = "rules:\n  - id: R\n    title: t\n    severity: low\n    sevrity: high\n    conditions:\n      - type: byte_pattern\n        pattern: '4D 5A'\n        scope: {offset: 0}\n      - type: string_regex\n        pattern: '(unclosed'\n      - type: native_signature\n        expression: '#a > 2 and pe.is_pe'\n        atoms:\n          - id: a\n            value: x\n";
+    let set = RuleSet::from_yaml_str(doc).unwrap();
+    let w = set.warnings().join("\n");
+    assert!(w.contains("unknown key `sevrity`"), "{w}");
+    assert!(w.contains("unknown key `offset`"), "{w}");
+    assert!(w.contains("invalid regex"), "{w}");
+    assert!(w.contains("#a"), "{w}");
+    assert!(RuleSet::from_yaml_str_strict(doc).is_err());
+}
+
+#[test]
+fn expression_validation() {
+    let bad = [
+        ("$a $b", "two operands"),
+        ("$a and pe.is_pe", "unsupported"),
+        ("$missing", "names no atom"),
+        ("($a or $b", "unbalanced"),
+        ("uint8(0) == 0x4D", "unsupported"),
+    ];
+    for (expr, needle) in bad {
+        let doc = format!("rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: native_signature\n        expression: '{expr}'\n        atoms:\n          - id: a\n            value: x\n          - id: b\n            value: y\n");
+        let set = RuleSet::from_yaml_str(&doc).unwrap();
+        assert!(set.warnings().iter().any(|w| w.contains(needle)), "{expr}: {:?}", set.warnings());
+    }
+    let good = ["2 of ($a, $b)", "$a and not $b", "@a < @b and filesize < 1MB", "uint16(0) == 0x5A4D or $a at 0", "any of them and PE"];
+    for expr in good {
+        let doc = format!("rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: native_signature\n        expression: '{expr}'\n        atoms:\n          - id: a\n            value: x\n          - id: b\n            value: y\n");
+        let set = RuleSet::from_yaml_str(&doc).unwrap();
+        assert!(set.warnings().is_empty(), "{expr}: {:?}", set.warnings());
+    }
+}
+
+#[test]
+fn macho_with_valid_header_is_not_broken() {
+    let set = one("      - type: file_type\n        values: [broken_executable]\n");
+    // 64-bit little-endian Mach-O: magic, cputype x86_64, subtype, filetype, ncmds=1, sizeofcmds=16
+    let mut data = vec![0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01, 0x03, 0, 0, 0, 0x02, 0, 0, 0, 0x01, 0, 0, 0, 0x10, 0, 0, 0];
+    data.resize(64, 0);
+    assert!(scan(&set, &data).is_empty());
+    let truncated = data[..24].to_vec();
+    assert_eq!(scan(&set, &truncated), vec!["R"]);
+}

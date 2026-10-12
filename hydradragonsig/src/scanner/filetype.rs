@@ -491,8 +491,12 @@ fn inspect_binary_formats(data: &[u8]) -> BinaryFormatValidation {
         validation.elf = FormatValidation::Valid;
         validation.elf_type = elf_file_type(data).or_else(|| Some("ELF".to_string()));
     } else if has_macho_magic(data) {
-        validation.macho = FormatValidation::Broken;
-        validation.broken_type = Some("Mach-O".to_string());
+        if macho_header_valid(data) {
+            validation.macho = FormatValidation::Valid;
+        } else {
+            validation.macho = FormatValidation::Broken;
+            validation.broken_type = Some("Mach-O".to_string());
+        }
     }
 
     if validation.pe == FormatValidation::NotDetected
@@ -689,6 +693,32 @@ fn has_macho_magic(data: &[u8]) -> bool {
         read_u32_be(data, 0).unwrap_or(0),
         0xfeedface | 0xcefaedfe | 0xfeedfacf | 0xcffaedfe
     )
+}
+
+/// A thin Mach-O header whose load commands fit in the file: CPU type set,
+/// at least one load command, and `sizeofcmds` inside the file.
+fn macho_header_valid(data: &[u8]) -> bool {
+    let Some(magic) = read_u32_be(data, 0) else { return false };
+    let (big_endian, header_len) = match magic {
+        0xfeedface => (true, 28usize),
+        0xfeedfacf => (true, 32usize),
+        0xcefaedfe => (false, 28usize),
+        0xcffaedfe => (false, 32usize),
+        _ => return false,
+    };
+    let field = |off: usize| -> Option<u32> {
+        let b = data.get(off..off + 4)?;
+        let arr = [b[0], b[1], b[2], b[3]];
+        Some(if big_endian { u32::from_be_bytes(arr) } else { u32::from_le_bytes(arr) })
+    };
+    let (Some(cputype), Some(ncmds), Some(sizeofcmds)) = (field(4), field(16), field(20)) else {
+        return false;
+    };
+    cputype != 0
+        && ncmds > 0
+        && ncmds < 0x10000
+        && (sizeofcmds as usize) >= ncmds as usize * 8
+        && header_len + sizeofcmds as usize <= data.len()
 }
 
 fn looks_like_zip(data: &[u8]) -> bool {

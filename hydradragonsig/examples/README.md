@@ -1,11 +1,13 @@
 # HydraDragonSig Native Yamdle Signature Packs
 
+The rule format is described in [`../FORMAT.md`](../FORMAT.md).
+
 These packs are examples and are **not built in**. HydraDragonSig does not load them unless you pass them with `--rules`.
 
 ```bash
 cargo run --release -- sample.exe \
-  --rules examples/signatures/god_mode_iddqd_yamdle.yaml \
-  --rules examples/signatures/windows_registry_sabotage_yamdle.yaml
+  --rules examples/god_mode_iddqd_yamdle.yaml \
+  --rules examples/windows_registry_sabotage_yamdle.yaml
 ```
 
 ## Added native modifiers

@@ -152,6 +152,8 @@ fn finalize_scan_context(
     let bytes = std::mem::take(&mut ctx.bytes);
     let mut report = report::build_report(ctx);
     evaluate_rules(&mut report, &bytes, rules, options);
+    // Strings / PE data may have been loaded lazily by the rules.
+    report::refresh_features(&mut report);
     finalize_report_metadata(&mut report, &bytes, rules, options);
 
     if should_scan_archive(&report, &bytes, options, archive_depth) {
@@ -185,6 +187,8 @@ fn evaluate_rules(report: &mut ScanReport, bytes: &[u8], rules: &RuleSet, option
             profile_rules: options.profile_rules,
             parallel_rules: options.parallel_rules,
             stop_on_detection: options.stop_on_detection,
+            min_string_len: options.min_string_len,
+            decode_strings: options.decode_obfuscated_strings,
         },
     );
 }

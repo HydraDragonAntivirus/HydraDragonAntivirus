@@ -1,19 +1,43 @@
 rules:
   - id: OPEN-001
-    title: "Open Rule - Basic Malware Pattern"
-    description: "Detects basic malware patterns in open rule set"
+    title: "Open Rule - Small PE with a downloader string"
+    description: "Small PE file that carries a typical downloader API name"
     severity: medium
     verdict: suspicious
-    private: false
-    signature:
-      - kind: "native"
-        expression: "pe.is_pe and filesize < 100KB"
-  
+    family: "Trojan.Win32.Downloader.Example"
+    logic: all
+    conditions:
+      - type: file_type
+        values: [pe]
+      - type: file_size_lte
+        bytes: 102400
+      - type: string_set
+        nocase: true
+        wide: true
+        min: 1
+        values: ["URLDownloadToFile", "WinHttpReadData"]
+
   - id: OPEN-002
-    title: "Open Rule - Suspicious Strings"
-    description: "Public detection for common malware strings"
+    title: "Open Rule - Encoded PowerShell launcher"
+    description: "PowerShell started hidden with an encoded command"
     severity: low
     verdict: suspicious
-    signature:
-      - kind: "native"
-        expression: "pe.is_pe"
+    conditions:
+      - type: native_signature
+        expression: "$ps and ($enc or $hidden)"
+        atoms:
+          - id: ps
+            value: "powershell"
+            nocase: true
+            ascii: true
+            wide: true
+          - id: enc
+            value: "-EncodedCommand"
+            nocase: true
+            ascii: true
+            wide: true
+          - id: hidden
+            value: "-w hidden"
+            nocase: true
+            ascii: true
+            wide: true

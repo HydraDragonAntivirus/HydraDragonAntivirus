@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="theme-color" content="#0a0b0d">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VIRUSKOV WIKI | HydraDragonSig imza formatı</title>
+  <meta name="description" content="HydraDragonSig YAML imza formatı: kural alanları, koşul türleri, bayt desenleri, native_signature ifadeleri, rule_match, yükleme kontrolleri ve yanlış pozitiften kaçınma.">
+  <link rel="icon" type="image/svg+xml" href="../viruskov-fav.svg">
+  <script src="../i18n.js?v=10"></script>
+  <style>
+    :root {
+      --bg-base: #06090a;
+      --bg-surface: #0b1114;
+      --bg-surface-elevated: #10191d;
+      --bg-card: #0d1519;
+      --bg-terminal: #050708;
+      --border-subtle: #18262b;
+      --border-strong: #273e46;
+      --border-focus: #ff3344;
+      --text-main: #e8eff2;
+      --text-muted: #799099;
+      --text-dim: #4d5f66;
+      --accent-red: #ff3344;
+      --accent-red-hover: #e02435;
+      --accent-red-dim: rgba(255, 51, 68, 0.12);
+      --accent-red-glow: rgba(255, 51, 68, 0.25);
+      --accent-green: #00ff66;
+      --accent-green-dim: rgba(0, 255, 102, 0.1);
+      --accent-amber: #ffb703;
+      --accent-amber-dim: rgba(255, 183, 3, 0.12);
+      --accent-cyan: #00e5ff;
+      --accent-cyan-dim: rgba(0, 229, 255, 0.1);
+      --accent-violet: #b57bff;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-display: 'Space Grotesk', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; scroll-padding-top: 100px; }
+
+    html, body {
+      max-width: 100vw;
+      overflow-x: clip;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      min-height: 100vh;
+      line-height: 1.6;
+      background-image:
+        linear-gradient(rgba(255, 51, 68, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    ::selection { background: var(--accent-red); color: #fff; }
+
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--bg-terminal); }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-red); }
+
+    .mono { font-family: var(--font-mono); }
+    .container { max-width: 1320px; margin: 0 auto; padding: 0 24px; }
+
+    /* ---------- TOP TELEMETRY ---------- */
+    .top-telemetry {
+      background: #040607;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding: 6px 0;
+      letter-spacing: 0.5px;
+    }
+    .telemetry-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .telemetry-item { display: inline-flex; align-items: center; gap: 8px; }
+    .status-dot {
+      width: 7px; height: 7px; background: var(--accent-green); border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulseGreen 2s infinite ease-in-out;
+    }
+    @keyframes pulseGreen {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    a.telemetry-link { color: var(--text-main); text-decoration: none; }
+    a.telemetry-link:hover { color: var(--accent-red); }
+
+    /* ---------- HEADER ---------- */
+    header {
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(6, 9, 10, 0.94);
+      backdrop-filter: blur(14px);
+      position: sticky; top: 0; z-index: 1000;
+      width: 100%;
+      overflow-x: clip;
+    }
+    .header-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      gap: 12px;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .brand-link { display: flex; align-items: center; gap: 12px; text-decoration: none; flex-shrink: 0; }
+    .brand-logo-img { height: 30px; width: auto; display: block; }
+    .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+    .btn {
+      font-family: var(--font-mono); font-size: 0.76rem; font-weight: 700; text-decoration: none;
+      padding: 8px 14px; display: inline-flex; align-items: center; gap: 8px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); cursor: pointer; border: none;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    .btn-red { background: var(--accent-red); color: #fff; border: 1px solid var(--accent-red); box-shadow: 0 4px 20px var(--accent-red-glow); }
+    .btn-red:hover { background: var(--accent-red-hover); transform: translateY(-2px); box-shadow: 0 6px 24px var(--accent-red-glow); }
+    .btn-ghost { background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-subtle); }
+    .btn-ghost:hover { border-color: var(--border-strong); background: var(--bg-surface-elevated); transform: translateY(-2px); }
+    .btn-amber { background: var(--accent-amber); color: #20180a; border: 1px solid var(--accent-amber); }
+    .btn-amber:hover { background: #ffc633; transform: translateY(-2px); }
+    .btn-sm { padding: 6px 12px; font-size: 0.72rem; }
+
+    /* Language Switcher */
+    .lang-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .lang-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 4px;
+      font-family: inherit;
+      font-size: inherit;
+      font-weight: inherit;
+      transition: all 0.2s ease;
+      border-radius: 2px;
+    }
+    .lang-btn:hover {
+      color: #fff;
+    }
+    .lang-btn.active {
+      color: var(--accent-cyan);
+      background: rgba(0, 229, 255, 0.1);
+      text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+    }
+    .lang-sep {
+      color: var(--text-dim);
+      font-size: 0.68rem;
+    }
+
+    /* ---------- WIKI LAYOUT ---------- */
+    .wiki-layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 32px;
+      align-items: start;
+      padding: 30px 0 60px;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    @media (max-width: 1060px) {
+      .wiki-layout { grid-template-columns: 1fr; gap: 24px; }
+      .wiki-tagline { display: none; }
+    }
+
+    .toc {
+      position: sticky; top: 100px;
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      padding: 20px 18px; max-height: calc(100vh - 140px); overflow-y: auto;
+      font-family: var(--font-mono); font-size: 0.74rem;
+    }
+    @media (max-width: 1040px) { .toc { position: static; max-height: none; } }
+    .toc-title {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px;
+      color: var(--accent-red); font-weight: 800; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .toc a {
+      display: block; color: var(--text-muted); text-decoration: none;
+      padding: 4px 0 4px 10px; border-left: 2px solid var(--border-subtle);
+      line-height: 1.35; transition: all 0.15s ease;
+    }
+    .toc a:hover { color: var(--text-main); border-left-color: var(--border-strong); }
+    .toc a.sub { padding-left: 22px; font-size: 0.7rem; color: #5f747d; }
+    .toc-sep { height: 1px; background: var(--border-subtle); margin: 12px 0; }
+
+    /* ---------- ARTICLE ---------- */
+    article { min-width: 0; max-width: 100%; overflow-x: clip; }
+
+    .crumb {
+      font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px;
+    }
+    .crumb a { color: var(--text-muted); text-decoration: none; }
+    .crumb a:hover { color: var(--accent-red); }
+
+    .article-title {
+      font-size: clamp(1.9rem, 4.4vw, 3rem); font-weight: 900; letter-spacing: -1.5px;
+      line-height: 1.1; text-transform: uppercase; margin-bottom: 8px;
+    }
+    .article-title .hl { color: var(--accent-red); }
+    .article-sub {
+      font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);
+      margin-bottom: 22px; line-height: 1.8;
+    }
+    .article-rule { height: 3px; background: var(--accent-red); width: 90px; margin-bottom: 30px; }
+
+    .hero-lead {
+      font-size: 1.1rem; line-height: 1.7; color: var(--text-main);
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-left: 4px solid var(--accent-red); padding: 20px 22px; margin-bottom: 30px;
+    }
+    .hero-lead strong { color: #fff; }
+
+    h2.wiki-h2 {
+      font-size: clamp(1.3rem, 2.6vw, 1.8rem); font-weight: 800; letter-spacing: -0.6px;
+      text-transform: uppercase; margin: 46px 0 16px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex; align-items: baseline; gap: 12px; scroll-margin-top: 104px;
+    }
+    h2.wiki-h2 .num {
+      font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-red); font-weight: 700;
+      flex-shrink: 0;
+    }
+    h3.wiki-h3 {
+      font-size: 1.08rem; font-weight: 800; color: #fff; margin: 28px 0 10px;
+      scroll-margin-top: 104px;
+    }
+    h4.wiki-h4 {
+      font-family: var(--font-mono); font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan);
+      margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 1px;
+      scroll-margin-top: 104px;
+    }
+    p { margin-bottom: 14px; color: var(--text-muted); font-size: 0.97rem; }
+    p strong { color: var(--text-main); }
+    p em { color: #b9cbd3; font-style: italic; }
+    article ul, article ol { margin: 0 0 18px 22px; color: var(--text-muted); font-size: 0.95rem; }
+    article ul { list-style: none; }
+    article ol { list-style: decimal; }
+    article li { margin-bottom: 8px; }
+    article ul li::before { content: '\25B8'; color: var(--accent-red); margin-right: 9px; font-family: var(--font-mono); }
+    article ol li::marker { color: var(--accent-red); font-family: var(--font-mono); font-weight: 700; }
+    article a { color: var(--accent-cyan); }
+    code {
+      font-family: var(--font-mono); font-size: 0.86em; background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle); padding: 1px 6px; color: #ffd166;
+      word-break: break-word;
+    }
+    .c-red { color: var(--accent-red); font-weight: 700; }
+    .c-green { color: var(--accent-green); font-weight: 700; }
+    .c-amber { color: var(--accent-amber); font-weight: 700; }
+    .c-cyan { color: var(--accent-cyan); font-weight: 700; }
+    .c-violet { color: var(--accent-violet); font-weight: 700; }
+
+    /* ---------- SPEC CARD ---------- */
+    .spec-card {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-top: 3px solid var(--accent-red); margin: 24px 0 34px;
+    }
+    .spec-row { display: grid; grid-template-columns: 230px minmax(0, 1fr); border-bottom: 1px solid var(--border-subtle); }
+    .spec-row:last-child { border-bottom: none; }
+    @media (max-width: 720px) { .spec-row { grid-template-columns: 1fr; } }
+    .spec-key {
+      font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1px; padding: 12px 16px;
+      background: var(--bg-terminal); border-right: 1px solid var(--border-subtle);
+    }
+    .spec-val { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-main); padding: 12px 16px; word-break: break-word; }
+
+    /* ---------- CODE BLOCKS ---------- */
+    .code-block {
+      background: var(--bg-terminal); border: 1px solid #1c2b30; border-left: 3px solid var(--accent-cyan);
+      margin: 16px 0 20px; overflow-x: auto;
+    }
+    .code-block.red { border-left-color: var(--accent-red); }
+    .code-block.green { border-left-color: var(--accent-green); }
+    .code-block.amber { border-left-color: var(--accent-amber); }
+    .code-head {
+      font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1.4px; padding: 8px 14px;
+      border-bottom: 1px solid #1c2b30; background: #070b0c;
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    }
+    .code-head .src { color: var(--accent-cyan); }
+    .code-block.red .code-head .src { color: var(--accent-red); }
+    .code-block.green .code-head .src { color: var(--accent-green); }
+    .code-block.amber .code-head .src { color: var(--accent-amber); }
+    .code-block pre {
+      padding: 14px 16px; font-family: var(--font-mono); font-size: 0.78rem;
+      line-height: 1.65; color: #c4d6de; white-space: pre;
+    }
+    .tok-key { color: #7fb3ff; }
+    .tok-str { color: #ffd166; }
+    .tok-num { color: #00e5ff; }
+    .tok-op { color: #ff8fa3; }
+    .tok-cm { color: #5a6f78; }
+
+    /* ---------- CALLOUTS ---------- */
+    .callout {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-left: 4px solid var(--accent-cyan); padding: 16px 18px; margin: 18px 0 22px;
+      font-size: 0.92rem; line-height: 1.65; color: var(--text-muted);
+    }
+    .callout .co-title {
+      font-family: var(--font-mono); font-size: 0.7rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 1.4px; color: var(--accent-cyan);
+      margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+    }
+    .callout strong { color: var(--text-main); }
+    .callout.warn { border-left-color: var(--accent-amber); }
+    .callout.warn .co-title { color: var(--accent-amber); }
+    .callout.danger { border-left-color: var(--accent-red); }
+    .callout.danger .co-title { color: var(--accent-red); }
+    .callout.ok { border-left-color: var(--accent-green); }
+    .callout.ok .co-title { color: var(--accent-green); }
+    .callout.violet { border-left-color: var(--accent-violet); }
+    .callout.violet .co-title { color: var(--accent-violet); }
+
+    /* ---------- TABLES ---------- */
+    .table-wrap { overflow-x: auto; margin: 18px 0 24px; border: 1px solid var(--border-subtle); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 560px; }
+    thead th {
+      background: var(--bg-terminal); color: var(--accent-red); font-family: var(--font-mono);
+      font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1.1px; text-align: left;
+      padding: 11px 14px; border-bottom: 1px solid var(--border-strong); font-weight: 800; white-space: nowrap;
+    }
+    tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); vertical-align: top; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--bg-surface); }
+    tbody td code { font-size: 0.8rem; }
+    td .ok-mark { color: var(--accent-green); font-weight: 800; }
+    td .no-mark { color: var(--accent-red); font-weight: 800; }
+    td .warn-mark { color: var(--accent-amber); font-weight: 800; }
+
+    /* ---------- PIPELINE ---------- */
+    .pipeline {
+      background: var(--bg-terminal); border: 1px solid #1c2b30; padding: 20px;
+      font-family: var(--font-mono); font-size: 0.76rem; line-height: 1.9; color: #a4bcc7;
+      overflow-x: auto; margin: 18px 0 24px; white-space: pre;
+    }
+    .pipeline b { color: var(--accent-green); }
+    .pipeline i { color: var(--accent-red); font-style: normal; }
+    .pipeline u { color: var(--accent-cyan); text-decoration: none; }
+    .pipeline s { color: var(--accent-amber); text-decoration: none; }
+
+    /* ---------- STAGE BLOCKS ---------- */
+    .stage {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-left: 4px solid var(--border-strong); padding: 20px 22px; margin: 22px 0 26px;
+    }
+    .stage.active { border-left-color: var(--accent-red); }
+    .stage.cyan { border-left-color: var(--accent-cyan); }
+    .stage.green { border-left-color: var(--accent-green); }
+    .stage-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .stage-num {
+      font-family: var(--font-mono); font-size: 0.68rem; font-weight: 800; letter-spacing: 1.4px;
+      background: var(--bg-surface-elevated); border: 1px solid var(--border-strong);
+      padding: 3px 10px; color: var(--text-muted);
+    }
+    .stage.active .stage-num { color: var(--accent-red); border-color: var(--accent-red); }
+    .stage.cyan .stage-num { color: var(--accent-cyan); border-color: var(--accent-cyan); }
+    .stage.green .stage-num { color: var(--accent-green); border-color: var(--accent-green); }
+    .stage-title { font-size: 1rem; font-weight: 800; color: #fff; }
+    .stage p:last-child { margin-bottom: 0; }
+
+    /* ---------- FILTER CARDS ---------- */
+    .filter-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 18px 20px; margin: 14px 0; }
+    .filter-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+    .filter-idx {
+      font-family: var(--font-mono); font-size: 0.76rem; font-weight: 800;
+      color: var(--bg-base); background: var(--accent-red); padding: 2px 9px; flex-shrink: 0;
+    }
+    .filter-name { font-family: var(--font-mono); font-size: 0.84rem; font-weight: 700; color: #fff; word-break: break-word; }
+    .filter-why { font-size: 0.92rem; color: var(--text-muted); line-height: 1.65; }
+    .filter-why strong { color: var(--text-main); }
+
+    /* ---------- REASON GRID ---------- */
+    .reason-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 22px 0 26px; }
+    .reason-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-top: 3px solid var(--accent-red); padding: 20px; }
+    .reason-idx { font-family: var(--font-mono); font-size: 0.68rem; color: var(--accent-red); letter-spacing: 1.4px; font-weight: 800; margin-bottom: 8px; }
+    .reason-title { font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 8px; line-height: 1.3; }
+    .reason-text { font-size: 0.88rem; color: var(--text-muted); line-height: 1.6; }
+    .reason-text strong { color: var(--text-main); }
+
+    /* ---------- STAT GRID ---------- */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 22px 0 28px; }
+    .stat-box { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 16px 18px; }
+    .stat-num { font-family: var(--font-mono); font-size: 1.35rem; font-weight: 800; color: var(--accent-red); }
+    .stat-num.g { color: var(--accent-green); }
+    .stat-num.a { color: var(--accent-amber); }
+    .stat-num.c { color: var(--accent-cyan); }
+    .stat-lbl { font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; line-height: 1.4; }
+
+    /* ---------- FAQ ---------- */
+    .faq-item { background: var(--bg-card); border: 1px solid var(--border-subtle); padding: 18px 20px; margin-bottom: 12px; }
+    .faq-q { font-size: 0.98rem; font-weight: 800; color: #fff; margin-bottom: 8px; display: flex; gap: 10px; }
+    .faq-q .q-mark { color: var(--accent-cyan); font-family: var(--font-mono); flex-shrink: 0; }
+    .faq-a { font-size: 0.92rem; color: var(--text-muted); line-height: 1.65; }
+    .faq-a strong { color: var(--text-main); }
+
+    /* ---------- SUPPORT PANEL ---------- */
+    .support-panel {
+      background: linear-gradient(135deg, #0e161a 0%, #131d22 100%);
+      border: 1px solid var(--border-strong); border-left: 4px solid var(--accent-amber);
+      padding: 30px 28px; margin: 44px 0 0;
+    }
+    .support-title { font-size: 1.25rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .support-text { font-size: 0.95rem; color: var(--text-muted); line-height: 1.7; }
+    .support-text strong { color: var(--text-main); }
+    .mailbox {
+      display: inline-flex; align-items: center; gap: 12px; margin: 18px 0;
+      background: var(--bg-terminal); border: 1px solid var(--accent-amber);
+      padding: 14px 18px; font-family: var(--font-mono); font-size: 1rem;
+      color: var(--accent-amber); text-decoration: none; font-weight: 700;
+      transition: all 0.2s ease; word-break: break-all;
+    }
+    .mailbox:hover { background: var(--accent-amber-dim); transform: translateY(-2px); }
+    .support-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+
+    .article-nav { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 46px 0 0; padding-top: 22px; border-top: 1px solid var(--border-subtle); }
+
+    /* ---------- FOOTER ---------- */
+    footer { border-top: 1px solid var(--border-subtle); padding: 42px 0; background: var(--bg-surface); margin-top: 40px; }
+    .footer-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 22px; font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-muted); }
+    .footer-inner strong { color: var(--text-main); }
+    .footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
+    .footer-links a { color: var(--text-muted); text-decoration: none; transition: color 0.2s ease; }
+    .footer-links a:hover { color: var(--accent-red); }
+    .badge-pill {
+      font-family: var(--font-mono); font-size: 0.68rem; padding: 2px 8px;
+      background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border-subtle); color: var(--text-muted);
+    }
+    .tag { display: inline-block; font-family: var(--font-mono); font-size: 0.66rem; padding: 3px 8px; background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); color: #9cb2ba; margin: 0 5px 5px 0; }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@400;500;600;700&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/vk.css?v=6">
+  <script src="../assets/vk.js?v=5" defer></script>
+</head>
+<body class="vk-legacy">
+
+
+
+  <header class="vk-header">
+    <div class="vk-wrap vk-header-inner">
+      <a href="../index.html" class="vk-logo" aria-label="VIRUSKOV">
+        <img src="../assets/wordmark.svg" alt="VIRUSKOV" width="140" height="21">
+      </a>
+      <nav class="vk-nav" aria-label="Main">
+        <a href="../index.html#platform" data-i18n="vk.nav.platform">Platform</a>
+        <a href="../index.html#ransom" data-i18n="vk.nav.ransom">Fidye Kuralı</a>
+        <a href="../scan/index.html" data-i18n="vk.nav.scanner">Tarayıcı</a>
+        <a href="../stats.html" data-i18n="vk.nav.stats">İstatistikler</a>
+        <a href="../wiki/index.html" data-i18n="vk.nav.wiki" class="is-active" aria-current="page">Wiki</a>
+        <a href="../about.html" data-i18n="vk.nav.about">Hikaye</a>
+      </nav>
+      <div class="vk-actions">
+        <div class="vk-lang" role="group" aria-label="Language">
+          <button type="button" class="lang-btn" data-lang="tr">TR</button>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
+        <a class="vk-icon-btn vk-gh" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" aria-label="GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+        <a class="vk-btn vk-btn-primary" href="../scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+        <button type="button" class="vk-icon-btn vk-menu-btn" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button>
+      </div>
+    </div>
+  </header>
+  <div class="vk-drawer" aria-label="Mobile">
+    <a href="../index.html#platform" data-i18n="vk.nav.platform">Platform</a>
+    <a href="../index.html#ransom" data-i18n="vk.nav.ransom">Fidye Kuralı</a>
+    <a href="../scan/index.html" data-i18n="vk.nav.scanner">Tarayıcı</a>
+    <a href="../stats.html" data-i18n="vk.nav.stats">İstatistikler</a>
+    <a href="../wiki/index.html" data-i18n="vk.nav.wiki">Wiki</a>
+    <a href="../about.html" data-i18n="vk.nav.about">Hikaye</a>
+    <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a>
+    <a class="vk-btn vk-btn-primary vk-btn-lg" href="../scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+  </div>
+
+
+  <style>.lang-block[hidden]{display:none !important}</style>
+
+  <div class="container wiki-layout lang-block" data-lang-block="tr">
+    <aside class="toc">
+      <div class="toc-title">&#9642; İÇİNDEKİLER</div>
+      <a href="#ne-zaman">1 — Ne zaman HydraDragonSig</a>
+<a href="#yapi">2 — Dosya yapısı</a>
+<a href="#alanlar">3 — Kural alanları</a>
+<a href="#mantik">4 — Mantık ve karar</a>
+<a href="#kosullar">5 — Koşul türleri</a>
+<a href="#bayt">6 — Bayt desenleri</a>
+<a href="#native">7 — native_signature</a>
+<a href="#birlestirme">8 — Kuralları birleştirme</a>
+<a href="#kontrol">9 — Yükleme kontrolleri</a>
+<a href="#iyi-imza">10 — İyi imza yazmak</a>
+<a href="#imza-odasi">11 — İmza odası ve retrohunt</a>
+<a href="#referans">12 — Tam referans</a>
+      <div class="toc-sep"></div>
+      <a href="index.html" style="color: var(--accent-red);">&larr; Wiki ana sayfa</a>
+    </aside>
+    <article>
+      <div class="crumb"><a href="../index.html">VIRUSKOV</a> / <a href="index.html">WIKI</a> / İMZALAR / <span style="color: var(--accent-red);">HYDRADRAGONSIG</span></div>
+      <h1 class="article-title">HydraDragon<span class="hl">Sig</span><br>İmza Formatı Rehberi</h1>
+      <p class="article-sub">HydraDragonSig YAML kuralları &bull; Multron imza odası &bull; HydraDragon Antivirus &bull; OpenEDR</p>
+      <div class="article-rule"></div>
+      <div class="hero-lead"><strong>HydraDragonSig</strong>, HydraDragon'un kendi imza motorudur: bir kural, dosyadaki stringleri, PE importlarını, bayt desenlerini, bölümleri ve ikonları birlikte değerlendirir. YARA'nın bayt gücünü PE yapısı ve kural birleştirme ile tek bir YAML dosyasında toplar. Yeni aile imzaları için genellikle en iyi seçenek budur. Bu sayfa formatı örneklerle anlatır; her anahtarın tam tanımı <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/blob/HEAD/hydradragonsig/FORMAT.md" target="_blank" rel="noopener">FORMAT.md</a> dosyasındadır.</div>
+      <h2 class="wiki-h2" id="ne-zaman"><span class="num">01</span> Ne zaman HydraDragonSig?</h2>
+<div class="table-wrap"><table><thead><tr><th>Format</th><th>En iyi olduğu yer</th></tr></thead><tbody><tr><td><strong>HydraDragonSig</strong></td><td>Bir ailenin birkaç benzersiz stringi + importları / bayt deseni / bölüm adları; kuralları birleştirme; PE'ye özel koşullar.</td></tr><tr><td>YARA</td><td>Karmaşık bayt mantığı, sayaçlar (<code>#a</code>), modüller (<code>pe.</code>, <code>math.</code>).</td></tr><tr><td>ClamAV .ndb / .ldb</td><td>Tek bayt imzası ya da birkaç alt imzalı mantık; ClamAV ile paylaşılacak imzalar.</td></tr></tbody></table></div>
+<h2 class="wiki-h2" id="yapi"><span class="num">02</span> Dosya yapısı</h2>
+<p>Bir dosya <code>rules:</code> altında kural listesi taşır. Her kuralın bir <code>id</code>, <code>title</code>, <code>severity</code> ve en az bir koşulu olur. <code>!include diger.yaml</code> satırı başka bir dosyayı önce yükler.</p>
+<div class="code-block green"><div class="code-head"><span class="src">Remcos örneği</span></div><pre>rules:
+  - id: TROJAN-REMCOS-A-001
+    title: &quot;Remcos RAT&quot;
+    severity: high
+    verdict: malware
+    family: &quot;Trojan.Win32.Remcos.A&quot;
+    logic: all
+    conditions:
+      - type: string_set
+        min: 2
+        nocase: true
+        wide: true
+        values:
+          - &quot;Remcos_Mutex_Inj&quot;
+          - &quot;licence_code.txt&quot;
+          - &quot;Breaking-Security.Net&quot;
+      - type: import_any
+        names: [&quot;!SetWindowsHookExA&quot;, &quot;!GetAsyncKeyState&quot;]</pre></div>
+<p>Bu kural, üç benzersiz stringden en az ikisi (ASCII veya UTF-16, büyük/küçük harf duyarsız) <strong>ve</strong> iki klavye/kanca API'sinden biri birlikte görüldüğünde dosyayı <code>Trojan.Win32.Remcos.A</code> olarak işaretler.</p>
+<h2 class="wiki-h2" id="alanlar"><span class="num">03</span> Kural alanları</h2>
+<div class="table-wrap"><table><thead><tr><th>Anahtar</th><th>Anlamı</th></tr></thead><tbody><tr><td><code>id</code></td><td>Benzersiz kimlik. <code>rule_match</code> bununla başvurur.</td></tr><tr><td><code>title</code>, <code>description</code>, <code>tags</code></td><td>Yalnızca çıktı.</td></tr><tr><td><code>severity</code></td><td><code>info</code> … <code>critical</code>. Kararı değiştirmez.</td></tr><tr><td><code>verdict</code></td><td><code>malware</code>, <code>pua</code>, <code>suspicious</code> (varsayılan), <code>clean</code>, <code>trusted</code>.</td></tr><tr><td><code>family</code></td><td>Dosya için bildirilen tehdit adı (<code>Category.Platform.Family[.Variant]</code>).</td></tr><tr><td><code>score</code>, <code>confidence</code></td><td>Skor toplanır (en çok 100); en yüksek skorlu bulgu tehdit adını verir.</td></tr><tr><td><code>logic</code>, <code>threshold</code></td><td><code>any</code> (varsayılan), <code>all</code>, <code>threshold</code>.</td></tr><tr><td><code>private</code></td><td>Eşleşir ama bulgu üretmez; <code>rule_match</code> için yapı taşı.</td></tr><tr><td><code>file_path</code></td><td>Kuralı yalnızca bu tam yol için çalıştırır (<code>%SystemRoot%\…</code>).</td></tr><tr><td><code>mitre</code></td><td><code>{id, name, tactic}</code> listesi.</td></tr></tbody></table></div>
+<h2 class="wiki-h2" id="mantik"><span class="num">04</span> Mantık ve karar</h2>
+<ul><li><code>any</code>: tek bir koşul yeter.</li><li><code>all</code>: bütün koşullar tutmalı.</li><li><code>threshold</code>: en az <code>threshold</code> koşul tutmalı.</li><li>Dosya kararı: <code>malware</code> bulgusu varsa zararlı, yoksa <code>pua</code>, sonra <code>suspicious</code>; tek bir <code>verdict: malware</code> kuralı yeter.</li></ul>
+<div class="callout danger"><div class="co-title">&#9654; Threshold tuzağı</div><code>threshold</code> her koşulu sayar; <code>file_type: pe</code> ve <code>file_size_lte</code> gibi neredeyse her PE'de tutan koşullar da dahil. <code>threshold: 3</code> ile bu ikisi varken tek bir yaygın import (ör. <code>VirtualAlloc</code>) kuralı tetikler ve temiz dosyalar zararlı görünür. Bu tür kapıları <code>logic: all</code> ile ya da ayrı bir <code>private</code> kural + <code>rule_match</code> ile kurun.</div>
+<h2 class="wiki-h2" id="kosullar"><span class="num">05</span> Koşul türleri</h2>
+<div class="table-wrap"><table><thead><tr><th>Grup</th><th>Türler</th><th>Notlar</th></tr></thead><tbody><tr><td>Stringler</td><td><code>string_contains</code>, <code>string_set</code>, <code>string_regex</code>, <code>env_reference</code></td><td><code>string_contains</code> ve <code>string_set</code> dosyanın ham baytlarında aranır (<code>ascii</code>, <code>wide</code> = UTF-16LE, <code>utf16</code> = UTF-16BE). <code>string_set</code> için <code>min</code> yazılmazsa <strong>bütün değerler</strong> gerekir. Regex'ler 5+ karakterlik çıkarılmış stringlerde çalışır. <code>decoded: true</code> base64 / hex stringleri çözüp onlarda da arar.</td></tr><tr><td>PE</td><td><code>import_any/all/set/regex</code>, <code>export_*</code>, <code>dll_any</code>, <code>dll_regex</code>, <code>suspicious_import_count</code>, <code>section_entropy</code>, <code>section_name_regex</code>, <code>packed_pe</code></td><td>Import adları <code>dll!fonksiyon</code> sonuna göre eşleşir: <code>!VirtualAlloc</code> tam fonksiyon adını ister. <code>import_set</code> için <code>min</code> varsayılanı 1'dir.</td></tr><tr><td>Dosya</td><td><code>file_type</code>, <code>file_size_gte/lte</code>, <code>file_entropy</code>, <code>hash_sha256/md5</code>, <code>path_regex</code>, <code>feature_gte</code></td><td>Tür, boyut, entropi, hash, yol, sayısal özellikler.</td></tr><tr><td>Baytlar</td><td><code>byte_pattern</code>, <code>byte_set</code>, <code>unpacker_any</code></td><td>Bölüm 6'daki sözdizimi; <code>scope</code> arama aralığını sınırlar, <code>excludes</code> bilinen temiz blobları dışarıda bırakır. <code>byte_set</code> için <code>min</code> varsayılanı tüm desenlerdir.</td></tr><tr><td>Birleştirme</td><td><code>rule_match</code></td><td>Bölüm 8.</td></tr><tr><td>İkon / görsel</td><td><code>pe_icon_any</code>, <code>image_fuzzy_hash_any</code></td><td>dHash / pHash / ClamAV <code>.idb</code>. İkonlar paylaşılır: tek başına karar değildir.</td></tr></tbody></table></div>
+<h2 class="wiki-h2" id="bayt"><span class="num">06</span> Bayt desenleri</h2>
+<div class="table-wrap"><table><thead><tr><th>Sözdizimi</th><th>Anlamı</th></tr></thead><tbody><tr><td><code>4D 5A</code> / <code>4D5A</code></td><td>Sabit baytlar</td></tr><tr><td><code>??</code>, <code>4?</code></td><td>Herhangi bir bayt / yarım bayt joker</td></tr><tr><td><code>~00</code></td><td>Bu bayt dışında herhangi biri</td></tr><tr><td><code>[4]</code>, <code>[2-8]</code>, <code>[4-]</code></td><td>Atlama: tam 4 / 2–8 arası / 4 ve fazlası (en çok 4096)</td></tr><tr><td><code>( 90 | E8 ?? )</code></td><td>Alternatifler</td></tr></tbody></table></div>
+<div class="code-block "><div class="code-head"><span class="src">byte_pattern</span></div><pre>{ 4D 5A [2-4] ( 90 | 91 ) ~00 }</pre></div>
+<h2 class="wiki-h2" id="native"><span class="num">07</span> native_signature</h2>
+<p>YARA'ya benzer atomlar (<code>text</code>, <code>regex</code>, <code>bytes</code>) ve bir mantıksal ifade. Text atomları <code>ascii</code>, <code>wide</code>, <code>nocase</code>, <code>fullword</code>, <code>xor</code>, <code>base64</code> değiştiricilerini destekler.</p>
+<div class="code-block amber"><div class="code-head"><span class="src">native_signature</span></div><pre>- type: native_signature
+  expression: &quot;$cmd and (2 of ($url*) or $key at 0x40)&quot;
+  atoms:
+    - id: cmd
+      value: &quot;powershell -enc&quot;
+      nocase: true
+      ascii: true
+      wide: true
+    - id: url1
+      value: &quot;/gate.php&quot;
+    - id: url2
+      kind: regex
+      value: &quot;https?://[0-9]{1,3}(\\.[0-9]{1,3}){3}/&quot;
+    - id: key
+      kind: bytes
+      value: &quot;{ 6A 40 68 00 30 00 00 }&quot;</pre></div>
+<div class="table-wrap"><table><thead><tr><th>İfade</th><th>Anlamı</th></tr></thead><tbody><tr><td><code>$a</code>, <code>any/all/2 of them</code>, <code>2 of ($s*)</code></td><td>Atom eşleşmeleri</td></tr><tr><td><code>$a at 0x40</code>, <code>$a in (0..1024)</code>, <code>$a at $b + 16</code></td><td>Konumlar (her geçiş dikkate alınır)</td></tr><tr><td><code>@a &lt; @b</code>, <code>@a[8] == @b</code></td><td>Konum karşılaştırma; <code>[n]</code> konuma n bayt <strong>ekler</strong> (YARA'daki sıra numarası değildir)</td></tr><tr><td><code>filesize &lt; 500KB</code>, <code>uint16(0) == 0x5A4D</code></td><td>Boyut ve sabit değerler</td></tr><tr><td><code>PE</code>, <code>DotNet</code>, <code>ELF</code>, <code>Script</code> …</td><td>Dosya türü</td></tr><tr><td><code>and</code>, <code>or</code>, <code>not</code>, <code>( )</code></td><td>Mantık</td></tr></tbody></table></div>
+<p>Desteklenmeyenler yüklemede reddedilir: <code>#a</code>, <code>!a</code>, <code>for</code>, <code>uint8</code>, <code>pe.</code> gibi modüller.</p>
+<h2 class="wiki-h2" id="birlestirme"><span class="num">08</span> Kuralları birleştirme</h2>
+<p><code>rule_match</code>, aynı taramada daha önce eşleşmiş kurallara bakar. <code>private: true</code> yardımcı kurallar kendi başlarına bulgu üretmez; bunları birleştiren kural karar verir.</p>
+<div class="code-block green"><div class="code-head"><span class="src">private + rule_match</span></div><pre>rules:
+  - id: HELPER-INJECT
+    title: &quot;Helper: injection imports&quot;
+    severity: info
+    private: true
+    conditions:
+      - type: import_all
+        names: [&quot;!VirtualAllocEx&quot;, &quot;!WriteProcessMemory&quot;, &quot;!CreateRemoteThread&quot;]
+
+  - id: TROJAN-INJECTOR-001
+    title: &quot;Small PE with injection imports&quot;
+    severity: high
+    verdict: malware
+    family: &quot;Trojan.Win32.Injector.A&quot;
+    logic: all
+    conditions:
+      - type: file_size_lte
+        bytes: 307200
+      - type: rule_match
+        ids: [HELPER-INJECT]</pre></div>
+<h2 class="wiki-h2" id="kontrol"><span class="num">09</span> Yükleme kontrolleri</h2>
+<p>Motor kural dosyasını yüklerken şunları bildirir: bilinmeyen anahtarlar (yazım hataları), geçersiz regex / bayt deseni / ifade, hiç eşleşemeyecek koşullar, bilinmeyen dosya türleri, tekrar eden kimlikler. Taramadan kontrol etmek için:</p>
+<div class="code-block "><div class="code-head"><span class="src">CLI</span></div><pre>hydradragonsig --rules my_rules.yaml --check-rules</pre></div>
+<div class="callout warn"><div class="co-title">&#9654; YAML tırnakları</div>İçinde <code>: </code> veya <code>#</code> geçen, ya da özel karakterle başlayan değerleri tırnak içine alın. Tek tırnak içinde <code>'</code> karakteri <code>''</code> diye yazılır. Bir YAML hatası bütün dosyanın yüklenmesini durdurur.</div>
+<h2 class="wiki-h2" id="iyi-imza"><span class="num">10</span> İyi imza yazmak</h2>
+<ul><li>Tek bir sinyal yerine birkaç özgül sinyal kullanın: aileye özgü stringlerden <code>min: 2</code> + bir import veya bayt koşulu, <code>logic: all</code>.</li><li>Derleyici, çalışma zamanı, kurulum aracı ve ortak kütüphane stringlerinden kaçının (<code>Rich</code>, <code>.text</code>, <code>kernel32.dll</code>, <code>This program cannot be run in DOS mode</code>).</li><li><code>VirtualAlloc</code>, <code>LoadLibraryA</code> gibi yaygın importlar tek başına bir şey kanıtlamaz.</li><li>Deseniniz bazı temiz dosyalarda da varsa <code>excludes</code>, yalnızca belli bir yerde anlamlıysa <code>scope</code> kullanın.</li><li>Yayımlamadan önce temiz yazılımlarda (sistem dosyaları, yaygın kurulum dosyaları) ve ailenin birkaç örneğinde deneyin.</li></ul>
+<h2 class="wiki-h2" id="imza-odasi"><span class="num">11</span> İmza odası ve retrohunt</h2>
+<ol><li>Multron panelindeki imza odasında adı <code>Category.Platform.Family[.Variant]</code> olarak kurun ve <em>HydraDragonSig rule</em> şablonunu açın.</li><li>Her kuralın kanonik biçimde bir <code>family</code> değeri ve <code>malware</code>, <code>pua</code> veya <code>suspicious</code> kararı olmalı.</li><li>Kaydetme katı modda yapılır: yükleme kontrollerindeki her sorun kaydı reddeder ve hatayı gösterir.</li><li>Kaydettikten sonra retrohunt, imzayı saklanan bütün dosyalarda arar; eşleşmeleri tam motorla yeniden tarar. Sonuçlarda temiz bir dosya varsa imzayı daraltın.</li></ol>
+<h2 class="wiki-h2" id="referans"><span class="num">12</span> Tam referans</h2>
+<p>Her anahtarın varsayılanı, eşleşme ayrıntıları, dosya türü ve özellik listeleri: <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/blob/HEAD/hydradragonsig/FORMAT.md" target="_blank" rel="noopener">hydradragonsig/FORMAT.md</a>.</p>
+    </article>
+  </div>
+
+  <div class="container wiki-layout lang-block" data-lang-block="en" hidden>
+    <aside class="toc">
+      <div class="toc-title">&#9642; CONTENTS</div>
+      <a href="#en-ne-zaman">1 — When to use it</a>
+<a href="#en-yapi">2 — File layout</a>
+<a href="#en-alanlar">3 — Rule fields</a>
+<a href="#en-mantik">4 — Logic and verdict</a>
+<a href="#en-kosullar">5 — Condition types</a>
+<a href="#en-bayt">6 — Byte patterns</a>
+<a href="#en-native">7 — native_signature</a>
+<a href="#en-birlestirme">8 — Combining rules</a>
+<a href="#en-kontrol">9 — Load checks</a>
+<a href="#en-iyi-imza">10 — Writing good signatures</a>
+<a href="#en-imza-odasi">11 — Signature room and retrohunt</a>
+<a href="#en-referans">12 — Full reference</a>
+      <div class="toc-sep"></div>
+      <a href="index.html" style="color: var(--accent-red);">&larr; Wiki home</a>
+    </aside>
+    <article>
+      <div class="crumb"><a href="../index.html">VIRUSKOV</a> / <a href="index.html">WIKI</a> / SIGNATURES / <span style="color: var(--accent-red);">HYDRADRAGONSIG</span></div>
+      <h1 class="article-title">HydraDragon<span class="hl">Sig</span><br>Signature Format Guide</h1>
+      <p class="article-sub">HydraDragonSig YAML rules &bull; Multron signature room &bull; HydraDragon Antivirus &bull; OpenEDR</p>
+      <div class="article-rule"></div>
+      <div class="hero-lead"><strong>HydraDragonSig</strong> is HydraDragon's own signature engine: one rule weighs the file's strings, PE imports, byte patterns, sections and icons together. It combines YARA-style byte matching with PE structure and rule composition in a single YAML file, and it is usually the best choice for a new family signature. This page explains the format with examples; the exact definition of every key is in <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/blob/HEAD/hydradragonsig/FORMAT.md" target="_blank" rel="noopener">FORMAT.md</a>.</div>
+      <h2 class="wiki-h2" id="en-ne-zaman"><span class="num">01</span> When to use HydraDragonSig</h2>
+<div class="table-wrap"><table><thead><tr><th>Format</th><th>Best for</th></tr></thead><tbody><tr><td><strong>HydraDragonSig</strong></td><td>A family's unique strings plus imports / byte pattern / section names; combining rules; PE-specific conditions.</td></tr><tr><td>YARA</td><td>Complex byte logic, counts (<code>#a</code>), modules (<code>pe.</code>, <code>math.</code>).</td></tr><tr><td>ClamAV .ndb / .ldb</td><td>A single body signature or a few logical sub-signatures; signatures shared with ClamAV.</td></tr></tbody></table></div>
+<h2 class="wiki-h2" id="en-yapi"><span class="num">02</span> File layout</h2>
+<p>A file holds a list of rules under <code>rules:</code>. Each rule has an <code>id</code>, a <code>title</code>, a <code>severity</code> and at least one condition. A <code>!include other.yaml</code> line loads another file first.</p>
+<div class="code-block green"><div class="code-head"><span class="src">Remcos example</span></div><pre>rules:
+  - id: TROJAN-REMCOS-A-001
+    title: &quot;Remcos RAT&quot;
+    severity: high
+    verdict: malware
+    family: &quot;Trojan.Win32.Remcos.A&quot;
+    logic: all
+    conditions:
+      - type: string_set
+        min: 2
+        nocase: true
+        wide: true
+        values:
+          - &quot;Remcos_Mutex_Inj&quot;
+          - &quot;licence_code.txt&quot;
+          - &quot;Breaking-Security.Net&quot;
+      - type: import_any
+        names: [&quot;!SetWindowsHookExA&quot;, &quot;!GetAsyncKeyState&quot;]</pre></div>
+<p>The rule marks the file <code>Trojan.Win32.Remcos.A</code> when at least two of the three unique strings (ASCII or UTF-16, case-insensitive) <strong>and</strong> one of the two keyboard/hook APIs are present.</p>
+<h2 class="wiki-h2" id="en-alanlar"><span class="num">03</span> Rule fields</h2>
+<div class="table-wrap"><table><thead><tr><th>Key</th><th>Meaning</th></tr></thead><tbody><tr><td><code>id</code></td><td>Unique id, used by <code>rule_match</code>.</td></tr><tr><td><code>title</code>, <code>description</code>, <code>tags</code></td><td>Output only.</td></tr><tr><td><code>severity</code></td><td><code>info</code> … <code>critical</code>. Does not change the verdict.</td></tr><tr><td><code>verdict</code></td><td><code>malware</code>, <code>pua</code>, <code>suspicious</code> (default), <code>clean</code>, <code>trusted</code>.</td></tr><tr><td><code>family</code></td><td>Threat name reported for the file (<code>Category.Platform.Family[.Variant]</code>).</td></tr><tr><td><code>score</code>, <code>confidence</code></td><td>Scores add up (max 100); the highest-scoring finding names the threat.</td></tr><tr><td><code>logic</code>, <code>threshold</code></td><td><code>any</code> (default), <code>all</code>, <code>threshold</code>.</td></tr><tr><td><code>private</code></td><td>Matches without a finding; a building block for <code>rule_match</code>.</td></tr><tr><td><code>file_path</code></td><td>Runs the rule only for this exact path (<code>%SystemRoot%\…</code>).</td></tr><tr><td><code>mitre</code></td><td>List of <code>{id, name, tactic}</code>.</td></tr></tbody></table></div>
+<h2 class="wiki-h2" id="en-mantik"><span class="num">04</span> Logic and verdict</h2>
+<ul><li><code>any</code>: one condition is enough.</li><li><code>all</code>: every condition must match.</li><li><code>threshold</code>: at least <code>threshold</code> conditions must match.</li><li>File verdict: any <code>malware</code> finding makes it malicious, else <code>pua</code>, then <code>suspicious</code>; one <code>verdict: malware</code> rule is enough.</li></ul>
+<div class="callout danger"><div class="co-title">&#9654; The threshold trap</div><code>threshold</code> counts every condition, including ones almost every PE meets, such as <code>file_type: pe</code> and <code>file_size_lte</code>. With <code>threshold: 3</code> and those two, a single common import (e.g. <code>VirtualAlloc</code>) fires the rule and clean files look malicious. Build such gates with <code>logic: all</code>, or a separate <code>private</code> rule plus <code>rule_match</code>.</div>
+<h2 class="wiki-h2" id="en-kosullar"><span class="num">05</span> Condition types</h2>
+<div class="table-wrap"><table><thead><tr><th>Group</th><th>Types</th><th>Notes</th></tr></thead><tbody><tr><td>Strings</td><td><code>string_contains</code>, <code>string_set</code>, <code>string_regex</code>, <code>env_reference</code></td><td><code>string_contains</code> and <code>string_set</code> search the raw bytes (<code>ascii</code>, <code>wide</code> = UTF-16LE, <code>utf16</code> = UTF-16BE). Without <code>min</code>, <code>string_set</code> needs <strong>every value</strong>. Regexes run on extracted strings of 5+ characters. <code>decoded: true</code> also searches base64 / hex strings after decoding.</td></tr><tr><td>PE</td><td><code>import_any/all/set/regex</code>, <code>export_*</code>, <code>dll_any</code>, <code>dll_regex</code>, <code>suspicious_import_count</code>, <code>section_entropy</code>, <code>section_name_regex</code>, <code>packed_pe</code></td><td>Imports match on the end of <code>dll!function</code>: <code>!VirtualAlloc</code> requires the whole function name. <code>import_set</code> <code>min</code> defaults to 1.</td></tr><tr><td>File</td><td><code>file_type</code>, <code>file_size_gte/lte</code>, <code>file_entropy</code>, <code>hash_sha256/md5</code>, <code>path_regex</code>, <code>feature_gte</code></td><td>Type, size, entropy, hash, path, numeric features.</td></tr><tr><td>Bytes</td><td><code>byte_pattern</code>, <code>byte_set</code>, <code>unpacker_any</code></td><td>Section 6 syntax; <code>scope</code> limits the search range, <code>excludes</code> lists known-clean blobs. <code>byte_set</code> <code>min</code> defaults to all patterns.</td></tr><tr><td>Composition</td><td><code>rule_match</code></td><td>Section 8.</td></tr><tr><td>Icon / image</td><td><code>pe_icon_any</code>, <code>image_fuzzy_hash_any</code></td><td>dHash / pHash / ClamAV <code>.idb</code>. Icons are shared: never a verdict alone.</td></tr></tbody></table></div>
+<h2 class="wiki-h2" id="en-bayt"><span class="num">06</span> Byte patterns</h2>
+<div class="table-wrap"><table><thead><tr><th>Syntax</th><th>Meaning</th></tr></thead><tbody><tr><td><code>4D 5A</code> / <code>4D5A</code></td><td>Exact bytes</td></tr><tr><td><code>??</code>, <code>4?</code></td><td>Any byte / nibble wildcard</td></tr><tr><td><code>~00</code></td><td>Any byte except this one</td></tr><tr><td><code>[4]</code>, <code>[2-8]</code>, <code>[4-]</code></td><td>Jump: exactly 4 / 2 to 8 / 4 or more (max 4096)</td></tr><tr><td><code>( 90 | E8 ?? )</code></td><td>Alternatives</td></tr></tbody></table></div>
+<div class="code-block "><div class="code-head"><span class="src">byte_pattern</span></div><pre>{ 4D 5A [2-4] ( 90 | 91 ) ~00 }</pre></div>
+<h2 class="wiki-h2" id="en-native"><span class="num">07</span> native_signature</h2>
+<p>YARA-like atoms (<code>text</code>, <code>regex</code>, <code>bytes</code>) and a boolean expression. Text atoms support the <code>ascii</code>, <code>wide</code>, <code>nocase</code>, <code>fullword</code>, <code>xor</code> and <code>base64</code> modifiers.</p>
+<div class="code-block amber"><div class="code-head"><span class="src">native_signature</span></div><pre>- type: native_signature
+  expression: &quot;$cmd and (2 of ($url*) or $key at 0x40)&quot;
+  atoms:
+    - id: cmd
+      value: &quot;powershell -enc&quot;
+      nocase: true
+      ascii: true
+      wide: true
+    - id: url1
+      value: &quot;/gate.php&quot;
+    - id: url2
+      kind: regex
+      value: &quot;https?://[0-9]{1,3}(\\.[0-9]{1,3}){3}/&quot;
+    - id: key
+      kind: bytes
+      value: &quot;{ 6A 40 68 00 30 00 00 }&quot;</pre></div>
+<div class="table-wrap"><table><thead><tr><th>Expression</th><th>Meaning</th></tr></thead><tbody><tr><td><code>$a</code>, <code>any/all/2 of them</code>, <code>2 of ($s*)</code></td><td>Atom matches</td></tr><tr><td><code>$a at 0x40</code>, <code>$a in (0..1024)</code>, <code>$a at $b + 16</code></td><td>Offsets (every occurrence counts)</td></tr><tr><td><code>@a &lt; @b</code>, <code>@a[8] == @b</code></td><td>Offset comparison; <code>[n]</code> <strong>adds</strong> n bytes (not YARA's occurrence index)</td></tr><tr><td><code>filesize &lt; 500KB</code>, <code>uint16(0) == 0x5A4D</code></td><td>Size and fixed values</td></tr><tr><td><code>PE</code>, <code>DotNet</code>, <code>ELF</code>, <code>Script</code> …</td><td>File type</td></tr><tr><td><code>and</code>, <code>or</code>, <code>not</code>, <code>( )</code></td><td>Logic</td></tr></tbody></table></div>
+<p>Unsupported constructs are refused at load time: <code>#a</code>, <code>!a</code>, <code>for</code>, <code>uint8</code>, modules such as <code>pe.</code>.</p>
+<h2 class="wiki-h2" id="en-birlestirme"><span class="num">08</span> Combining rules</h2>
+<p><code>rule_match</code> looks at rules that matched earlier in the same scan. <code>private: true</code> helper rules produce no finding of their own; the rule that combines them decides.</p>
+<div class="code-block green"><div class="code-head"><span class="src">private + rule_match</span></div><pre>rules:
+  - id: HELPER-INJECT
+    title: &quot;Helper: injection imports&quot;
+    severity: info
+    private: true
+    conditions:
+      - type: import_all
+        names: [&quot;!VirtualAllocEx&quot;, &quot;!WriteProcessMemory&quot;, &quot;!CreateRemoteThread&quot;]
+
+  - id: TROJAN-INJECTOR-001
+    title: &quot;Small PE with injection imports&quot;
+    severity: high
+    verdict: malware
+    family: &quot;Trojan.Win32.Injector.A&quot;
+    logic: all
+    conditions:
+      - type: file_size_lte
+        bytes: 307200
+      - type: rule_match
+        ids: [HELPER-INJECT]</pre></div>
+<h2 class="wiki-h2" id="en-kontrol"><span class="num">09</span> Load checks</h2>
+<p>When the engine loads a rule file it reports unknown keys (typos), invalid regexes / byte patterns / expressions, conditions that can never match, unknown file types and duplicate ids. To check without scanning:</p>
+<div class="code-block "><div class="code-head"><span class="src">CLI</span></div><pre>hydradragonsig --rules my_rules.yaml --check-rules</pre></div>
+<div class="callout warn"><div class="co-title">&#9654; YAML quoting</div>Quote values that contain <code>: </code> or <code>#</code>, or start with a special character. Inside single quotes write <code>'</code> as <code>''</code>. A YAML error stops the whole file from loading.</div>
+<h2 class="wiki-h2" id="en-iyi-imza"><span class="num">10</span> Writing good signatures</h2>
+<ul><li>Prefer several specific signals: <code>min: 2</code> of family-unique strings plus an import or byte condition, <code>logic: all</code>.</li><li>Avoid compiler, runtime, installer and common library strings (<code>Rich</code>, <code>.text</code>, <code>kernel32.dll</code>, <code>This program cannot be run in DOS mode</code>).</li><li>Common imports such as <code>VirtualAlloc</code> or <code>LoadLibraryA</code> prove nothing alone.</li><li>Use <code>excludes</code> when clean files contain your pattern, and <code>scope</code> when it only makes sense in one place.</li><li>Test on clean software (system files, common installers) and a few samples of the family before shipping.</li></ul>
+<h2 class="wiki-h2" id="en-imza-odasi"><span class="num">11</span> Signature room and retrohunt</h2>
+<ol><li>In the Multron dashboard signature room, build the name as <code>Category.Platform.Family[.Variant]</code> and open the <em>HydraDragonSig rule</em> template.</li><li>Every rule needs a canonical <code>family</code> and a <code>malware</code>, <code>pua</code> or <code>suspicious</code> verdict.</li><li>Saving is strict: any load-check problem refuses the save and shows the error.</li><li>After saving, the retrohunt runs the signature over every stored file and rescans the matches with the full engine. If a clean file shows up, narrow the signature.</li></ol>
+<h2 class="wiki-h2" id="en-referans"><span class="num">12</span> Full reference</h2>
+<p>Defaults of every key, matching details, file type and feature lists: <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/blob/HEAD/hydradragonsig/FORMAT.md" target="_blank" rel="noopener">hydradragonsig/FORMAT.md</a>.</p>
+    </article>
+  </div>
+
+  <script>
+  (function () {
+    var titles = { tr: 'VIRUSKOV WIKI | HydraDragonSig imza formatı', en: 'VIRUSKOV WIKI | HydraDragonSig signature format' };
+    function show(lang) {
+      if (lang !== 'en') lang = 'tr';
+      document.querySelectorAll('.lang-block').forEach(function (b) { b.hidden = b.getAttribute('data-lang-block') !== lang; });
+      document.title = titles[lang];
+    }
+    show(window.ViruskovI18n ? window.ViruskovI18n.getLang() : 'tr');
+    window.addEventListener('viruskov_lang_changed', function (e) { show(e.detail && e.detail.lang); });
+  })();
+  </script>
+
+  <footer class="vk-footer">
+    <div class="vk-wrap">
+      <div class="vk-footer-grid">
+        <div class="vk-footer-brand">
+          <img src="../assets/wordmark.svg" alt="VIRUSKOV" width="130" height="19">
+          <p data-i18n="vk.foot.tagline">Kaynağı açık, her satırı denetlenebilir uç nokta koruması. Ring-0 sürücü, iki aşamalı makine öğrenimi ve davranış kuralları.</p>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.product">Ürün</h4>
+          <ul>
+            <li><a href="../scan/index.html" data-i18n="vk.foot.scanner">Canlı tarayıcı</a></li>
+            <li><a href="../index.html#intel" data-i18n="vk.foot.lookup">Hash sorgula</a></li>
+            <li><a href="../feed.html" data-i18n="vk.foot.feed">Günlük tehdit listesi</a></li>
+            <li><a href="../stats.html" data-i18n="vk.foot.stats">İstatistikler</a></li>
+            <li><a href="../wiki/index.html" data-i18n="vk.foot.wiki">Wiki &amp; dokümantasyon</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.project">Proje</h4>
+          <ul>
+            <li><a href="../about.html" data-i18n="vk.foot.story">Hikaye &amp; kronoloji</a></li>
+            <li><a href="../about.html#community" data-i18n="vk.foot.community">Topluluk</a></li>
+            <li><a href="../index.html#evolution" data-i18n="vk.foot.evolution">Teknik evrim</a></li>
+            <li><a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 data-i18n="vk.foot.support">Destek</h4>
+          <ul>
+            <li><a href="mailto:viruskov@viruskov.com?subject=[FP-BILDIRIMI]" data-i18n="vk.foot.fp">Yanlış pozitif bildir</a></li>
+            <li><a href="mailto:viruskov@viruskov.com">viruskov@viruskov.com</a></li>
+            <li><a href="../eula.html" data-i18n="vk.foot.eula">EULA &amp; koşullar</a></li>
+            <li><a href="https://www.patreon.com/cw/multron" target="_blank" rel="noopener" data-i18n="vk.foot.patreon">Patreon'da destek ol &nearr;</a></li>
+            <li class="vk-foot-note" data-i18n="vk.foot.patreon_note">Patreon sayfası Multron Win Cleaner'dan gelir; projenin başlarından beri winball501'e aittir. İlk amacı sunucu masraflarını karşılamaktır.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="vk-footer-bottom">
+        <span>&copy; 2026 VIRUSKOV. <span data-i18n="vk.foot.founder">Kurucu ve proje lideri</span> Emirhan Uçan.</span>
+        <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" data-i18n="vk.foot.source">Kaynak kodu GitHub'da &nearr;</a>
+      </div>
+    </div>
+  </footer>
+
+
+</body>
+</html>

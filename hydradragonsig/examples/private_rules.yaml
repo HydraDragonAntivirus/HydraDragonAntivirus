@@ -1,20 +1,28 @@
+# `private: true` helper rules produce no finding of their own; a later rule
+# combines them with `rule_match`.
 rules:
-  - id: PRIVATE-001
-    title: "Private Rule - Suspicious Import Pattern"
-    description: "Detects suspicious imports in private rule set"
+  - id: PRIVATE-INJECT-APIS
+    title: "Helper - process injection imports"
+    severity: info
+    private: true
+    conditions:
+      - type: import_all
+        names: ["!VirtualAllocEx", "!WriteProcessMemory", "!CreateRemoteThread"]
+
+  - id: PRIVATE-SMALL-PE
+    title: "Helper - small PE"
+    severity: info
+    private: true
+    conditions:
+      - type: native_signature
+        expression: "PE and filesize < 200KB"
+
+  - id: PRIV-INJECTOR-001
+    title: "Small PE with process injection imports"
+    description: "Both helper rules matched"
     severity: high
     verdict: malware
-    private: true
-    signature:
-      - kind: "native"
-        expression: "pe.imports(\"kernel32.dll\", \"VirtualAlloc\") and pe.imports(\"kernel32.dll\", \"WriteProcessMemory\")"
-  
-  - id: PRIVATE-002
-    title: "Private Rule - Advanced Evasion"
-    description: "Private detection for advanced evasion techniques"
-    severity: critical
-    verdict: malware
-    private: true
-    signature:
-      - kind: "native"
-        expression: "pe.is_pe and filesize < 200KB"
+    family: "Trojan.Win32.Injector.Example"
+    conditions:
+      - type: rule_match
+        ids: [PRIVATE-INJECT-APIS, PRIVATE-SMALL-PE]

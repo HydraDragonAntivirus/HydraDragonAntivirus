@@ -1,5 +1,5 @@
-# Combined rules file with both private and open rules
-# Private rules will NOT trigger unless --enable-private-rules is used
+# Combined rule file: the included files are loaded first, in this order,
+# then the rules of this file.
 
 - !include private_rules.yaml
 - !include open_rules.yaml
@@ -7,10 +7,13 @@
 rules:
   - id: COMBINED-001
     title: "Combined Rule Example"
-    description: "A rule that combines detection logic"
+    description: "PE that imports CreateRemoteThread and matched the open downloader rule"
     severity: high
     verdict: malware
-    private: false
-    signature:
-      - kind: "native"
-        expression: "pe.is_pe and pe.imports(\"kernel32.dll\", \"CreateRemoteThread\")"
+    family: "Trojan.Win32.Combined.Example"
+    logic: all
+    conditions:
+      - type: import_any
+        names: ["!CreateRemoteThread"]
+      - type: rule_match
+        ids: [OPEN-001]

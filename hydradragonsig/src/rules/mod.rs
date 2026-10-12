@@ -2,6 +2,7 @@ mod engine;
 mod icon;
 mod icon_metric;
 mod types;
+pub mod validate;
 
 pub use engine::{aggregate_verdict, RuleEvalOptions, RuleSet};
 pub use icon::{dhash_distance, extract_icons, DecodedIcon, IconFingerprints};

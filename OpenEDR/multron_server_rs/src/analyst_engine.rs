@@ -171,7 +171,9 @@ pub fn validate_clamav(kind: SigKind, src: &str) -> Result<usize, String> {
 /// Checks a HydraDragonSig YAML document: it parses, every rule has a `family` in the
 /// naming convention and a malware/pua/suspicious verdict. Returns the rule count.
 pub fn validate_hydrasig(src: &str) -> Result<usize, String> {
-    let rs = RuleSet::from_yaml_str(src).map_err(|e| format!("{e:#}"))?;
+    // Strict: unknown keys, invalid regexes / byte patterns / expressions and
+    // conditions that can never match are refused instead of silently ignored.
+    let rs = RuleSet::from_yaml_str_strict(src).map_err(|e| format!("{e:#}"))?;
     if rs.rules().is_empty() {
         return Err("no rules in the document".into());
     }

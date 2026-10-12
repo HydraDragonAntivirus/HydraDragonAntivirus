@@ -7,20 +7,30 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
+    #[serde(alias = "Info", alias = "INFO")]
     Info,
+    #[serde(alias = "Low", alias = "LOW")]
     Low,
+    #[serde(alias = "Medium", alias = "MEDIUM")]
     Medium,
+    #[serde(alias = "High", alias = "HIGH")]
     High,
+    #[serde(alias = "Critical", alias = "CRITICAL")]
     Critical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
+    #[serde(alias = "Trusted", alias = "TRUSTED")]
     Trusted,
+    #[serde(alias = "Clean", alias = "CLEAN")]
     Clean,
+    #[serde(alias = "Suspicious", alias = "SUSPICIOUS")]
     Suspicious,
+    #[serde(alias = "Pua", alias = "PUA")]
     Pua,
+    #[serde(alias = "Malware", alias = "MALWARE")]
     Malware,
 }
 

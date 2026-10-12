@@ -159,6 +159,10 @@ impl PeStringRules {
             profile_rules: false,
             parallel_rules: false,
             stop_on_detection: false,
+            // The strings are supplied above; decoding / extraction only for
+            // conditions that ask for them.
+            min_string_len: 0,
+            decode_strings: true,
         };
         rs.evaluate_into(&mut report, data, options);
         aggregate_verdict(&mut report);

@@ -47,8 +47,8 @@ impl Default for DecodeConfig {
             exe_keywords: vec![".exe".into(), ".dll".into()],
             reg_keywords: vec!["HKEY".into(), "Registry".into()],
             suspicious_short_threshold: 32,
-            input_limit: 3_000,
-            output_limit: 500,
+            input_limit: 50_000,
+            output_limit: 5_000,
             raw_len_range: (10, 256),
             b64_len_range: (16, 200),
             hex_len_range: (20, 128),
@@ -71,8 +71,9 @@ pub fn extract_strings(bytes: &[u8], cfg: &ExtractConfig) -> Vec<StringHit> {
     out
 }
 
-/// Scans strings as-is — no decoding, no transformation.
-/// Tags each string with its detected encoding type and moves on.
+/// Decodes base64- and hex-looking strings (kept when the result is readable text,
+/// ASCII or UTF-16LE) and keeps suspicious plaintext strings as they are.
+/// `method` is "base64", "hex" or "plaintext".
 pub fn classify_strings(strings: &[StringHit], cfg: &DecodeConfig) -> Vec<DecodedString> {
     let limit = strings.len().min(cfg.input_limit);
     let mut out = Vec::with_capacity(limit / 10);
@@ -97,18 +98,20 @@ pub fn classify_strings(strings: &[StringHit], cfg: &DecodeConfig) -> Vec<Decode
         let (b64_min, b64_max) = cfg.b64_len_range;
         let (hex_min, hex_max) = cfg.hex_len_range;
 
-        let encoding = if raw.len() >= b64_min
+        // Hex digits are also valid base64: try hex first.
+        let encoding = if raw.len() >= hex_min
+            && raw.len() <= hex_max
+            && is_hex_alphabet(raw.trim_start_matches("0x").as_bytes())
+            && raw.trim_start_matches("0x").len() % 2 == 0
+            && HEX_RE.is_match(raw.trim_start_matches("0x"))
+        {
+            Some("hex")
+        } else if raw.len() >= b64_min
             && raw.len() <= b64_max
             && is_base64_alphabet(raw.as_bytes())
             && B64_RE.is_match(raw)
         {
             Some("base64")
-        } else if raw.len() >= hex_min
-            && raw.len() <= hex_max
-            && is_hex_alphabet(raw.as_bytes())
-            && HEX_RE.is_match(raw.trim_start_matches("0x"))
-        {
-            Some("hex")
         } else {
             None
         };
@@ -123,8 +126,21 @@ pub fn classify_strings(strings: &[StringHit], cfg: &DecodeConfig) -> Vec<Decode
             }
         }
 
-        let method = encoding.unwrap_or("plaintext");
-        flag(method, raw, cfg, &mut out, &mut seen);
+        match encoding {
+            Some(method) => {
+                let decoded = match method {
+                    "base64" => decode_base64(raw),
+                    _ => hex::decode(raw.trim_start_matches("0x")).ok(),
+                };
+                match decoded.as_deref().and_then(readable_text) {
+                    Some(text) => flag(method, raw, &text, cfg, &mut out, &mut seen),
+                    // Not text once decoded: keep the raw string only if it is suspicious.
+                    None if is_suspicious => flag("plaintext", raw, raw, cfg, &mut out, &mut seen),
+                    None => {}
+                }
+            }
+            None => flag("plaintext", raw, raw, cfg, &mut out, &mut seen),
+        }
 
         if out.len() >= cfg.output_limit {
             break;
@@ -133,6 +149,27 @@ pub fn classify_strings(strings: &[StringHit], cfg: &DecodeConfig) -> Vec<Decode
 
     out.shrink_to_fit();
     out
+}
+
+fn decode_base64(raw: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let trimmed = raw.trim_end_matches('=');
+    base64::engine::general_purpose::STANDARD_NO_PAD.decode(trimmed).ok()
+}
+
+/// Decoded bytes as text: printable ASCII (UTF-8 allowed), or UTF-16LE with ASCII
+/// characters. None for binary data.
+fn readable_text(bytes: &[u8]) -> Option<String> {
+    let printable = |b: u8| b == b'\t' || b == b'\n' || b == b'\r' || (0x20..=0x7e).contains(&b);
+    if bytes.len() >= 4 && bytes.len() % 2 == 0 && bytes.iter().skip(1).step_by(2).all(|&b| b == 0) {
+        let narrow: Vec<u8> = bytes.iter().step_by(2).copied().collect();
+        if narrow.iter().all(|&b| printable(b)) {
+            return Some(String::from_utf8_lossy(&narrow).into_owned());
+        }
+    }
+    let text = std::str::from_utf8(bytes).ok()?;
+    let ok = text.chars().filter(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r')).count();
+    (!text.is_empty() && ok * 100 >= text.chars().count() * 95).then(|| text.to_string())
 }
 
 // Keep old name as alias so mod.rs doesn't break.
@@ -208,11 +245,13 @@ fn extract_utf16le(bytes: &[u8], min_len: usize, out: &mut Vec<StringHit>) {
 fn flag(
     method: &str,
     raw: &str,
+    decoded: &str,
     cfg: &DecodeConfig,
     out: &mut Vec<DecodedString>,
     seen: &mut HashSet<String>,
 ) {
-    if raw.len() < cfg.decoded_min_len {
+    let decoded = decoded.trim();
+    if decoded.len() < cfg.decoded_min_len {
         return;
     }
     let mut key = String::with_capacity(method.len() + 1 + raw.len());
@@ -223,7 +262,7 @@ fn flag(
         out.push(DecodedString {
             method: method.to_string(),
             source: truncate_middle(raw, cfg.source_trunc),
-            decoded: truncate_middle(raw.trim(), cfg.decoded_trunc),
+            decoded: truncate_middle(decoded, cfg.decoded_trunc),
         });
     }
 }

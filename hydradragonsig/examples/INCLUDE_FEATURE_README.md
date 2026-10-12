@@ -45,13 +45,17 @@ You can combine `!include` directives with direct rule definitions in the same f
 
 # Define rules directly
 rules:
-  - name: "DirectRule"
-    description: "A rule defined in this file"
-    level: "high"
-    signature:
-      - kind: "native"
-        expression: "pe.is_pe and filesize > 1MB"
+  - id: DIRECT-001
+    title: "Large PE"
+    severity: low
+    verdict: suspicious
+    conditions:
+      - type: native_signature
+        expression: "PE and filesize > 1MB"
 ```
+
+Included rules come first (in include order), then the rules of the including
+file. `rule_match` conditions can refer to any rule loaded before them.
 
 ## Private vs Open Rules Use Case
 
@@ -147,6 +151,14 @@ The implementation includes protection against circular includes with a maximum 
 - If an included file doesn't exist, a warning is printed and loading continues
 - If an included file has syntax errors, the error is reported and loading continues
 - The main rule loading process won't fail due to a single bad include
+- Load warnings (unknown keys, invalid regexes or byte patterns, conditions that can
+  never match) are printed too; `hydradragonsig --rules <file> --check-rules` lists
+  them without scanning anything
+
+"Private rules" in this guide means rule files kept out of a public release. That
+is different from a rule with `private: true`, which matches without producing a
+finding and is meant to be combined by other rules through `rule_match` (see
+`private_rules.yaml`).
 
 ## Loading Rules with Includes
 

@@ -16,6 +16,11 @@ pub struct RuleEvalOptions {
     pub profile_rules: bool,
     pub parallel_rules: bool,
     pub stop_on_detection: bool,
+    /// Minimum length of extracted strings (0 = 5). Strings are extracted lazily,
+    /// the first time a rule condition needs them.
+    pub min_string_len: usize,
+    /// Allow `decoded: true` conditions (base64 / hex decoding of extracted strings).
+    pub decode_strings: bool,
 }
 
 #[derive(Debug)]
@@ -25,6 +30,18 @@ struct ScanView {
     imports_lower: Vec<String>,
     dlls_lower: Vec<String>,
     exports_lower: Vec<String>,
+    /// Lazy work already done for this scan.
+    strings_loaded: bool,
+    /// The caller supplied `report.strings` (they may be normalized differently
+    /// from the raw bytes, so raw-byte index misses are re-checked against them).
+    strings_external: bool,
+    decoded_loaded: bool,
+    env_loaded: bool,
+    features_loaded: bool,
+    min_string_len: usize,
+    decode_strings: bool,
+    /// Ids of the rules that matched so far in this scan (`rule_match` conditions).
+    matched_rules: std::collections::HashSet<String>,
 }
 
 impl ScanView {
@@ -72,12 +89,81 @@ impl ScanView {
             .unwrap_or_default();
 
         Self {
+            strings_loaded: !report.strings.is_empty(),
+            strings_external: !report.strings.is_empty(),
+            decoded_loaded: !report.decoded_strings.is_empty(),
+            env_loaded: !report.env_hits.is_empty(),
+            features_loaded: false,
+            min_string_len: 5,
+            decode_strings: true,
+            matched_rules: std::collections::HashSet::new(),
             strings_lower,
             decoded_lower,
             imports_lower,
             dlls_lower,
             exports_lower,
         }
+    }
+
+    /// Extracts the printable ASCII / UTF-16LE strings of the file the first time a
+    /// condition needs them (the scanner leaves them empty for speed).
+    fn ensure_strings(&mut self, report: &mut ScanReport, bytes: &[u8]) {
+        if self.strings_loaded {
+            return;
+        }
+        self.strings_loaded = true;
+        let cfg = crate::scanner::strings::ExtractConfig { min_len: self.min_string_len.max(1) };
+        report.strings = crate::scanner::strings::extract_strings(bytes, &cfg);
+        self.strings_lower = report.strings.iter().map(|hit| hit.value.to_ascii_lowercase()).collect();
+    }
+
+    /// Decoded (base64 / hex) strings, when decoding is enabled.
+    fn ensure_decoded(&mut self, report: &mut ScanReport, bytes: &[u8]) {
+        if self.decoded_loaded {
+            return;
+        }
+        self.ensure_strings(report, bytes);
+        self.decoded_loaded = true;
+        if !self.decode_strings {
+            return;
+        }
+        report.decoded_strings = crate::scanner::strings::decode_obfuscated_strings(
+            &report.strings,
+            &crate::scanner::strings::DecodeConfig::default(),
+        );
+        self.decoded_lower = report.decoded_strings.iter().map(|hit| hit.decoded.to_ascii_lowercase()).collect();
+    }
+
+    fn ensure_env(&mut self, report: &mut ScanReport, bytes: &[u8]) {
+        if self.env_loaded {
+            return;
+        }
+        self.ensure_decoded(report, bytes);
+        self.env_loaded = true;
+        report.env_hits = crate::scanner::env::scan_environment(&report.strings, &report.decoded_strings);
+    }
+
+    fn ensure_pe(&mut self, report: &mut ScanReport, bytes: &[u8]) {
+        if report.pe.is_none() && is_pe_magic(bytes) {
+            if let Some(pe) = crate::scanner::pe::scan_pe(bytes) {
+                self.update_pe(&pe);
+                report.pe = Some(pe);
+            }
+        }
+    }
+
+    /// `feature_gte` reads the report features: fill in everything they are built from.
+    fn ensure_features(&mut self, report: &mut ScanReport, bytes: &[u8]) {
+        if self.features_loaded {
+            return;
+        }
+        self.features_loaded = true;
+        self.ensure_env(report, bytes);
+        self.ensure_pe(report, bytes);
+        if report.entropy == 0.0 && !bytes.is_empty() {
+            report.entropy = crate::utils::entropy::byte_entropy(bytes);
+        }
+        crate::report::refresh_features(report);
     }
 
     fn update_pe(&mut self, pe: &crate::models::PeInfo) {
@@ -355,6 +441,25 @@ impl GlobalRuleIndex {
                             }
                         }
                     }
+                    RuleCondition::StringContains { value, nocase, ascii, wide, utf8, .. } if !value.is_empty() => {
+                        let mut forms: Vec<(Vec<u8>, bool)> = Vec::new();
+                        if *ascii || *utf8 {
+                            forms.push((if *nocase { value.to_ascii_lowercase().into_bytes() } else { value.as_bytes().to_vec() }, false));
+                        }
+                        if *wide {
+                            forms.push((if *nocase { to_wide_ascii_lowercase(value) } else { to_wide_bytes(value) }, true));
+                        }
+                        for (bytes, is_wide) in forms {
+                            let target = PatternTarget { rule_idx, cond_idx, item_idx: 0, value: value.clone(), is_wide, is_hex: false };
+                            if *nocase {
+                                nocase_pats.push(bytes);
+                                nocase_meta.push(target);
+                            } else {
+                                exact_pats.push(bytes);
+                                exact_meta.push(target);
+                            }
+                        }
+                    }
                     RuleCondition::ByteSet { patterns, .. } => {
                         for (item_idx, pat_str) in patterns.iter().enumerate() {
                             if let Some(compiled) = compile_byte_pattern(pat_str) {
@@ -483,6 +588,9 @@ impl GlobalRuleIndex {
 pub struct RuleSet {
     rules: Vec<Rule>,
     index: Option<Arc<GlobalRuleIndex>>,
+    /// Problems found while loading (unknown keys, invalid regexes / byte
+    /// patterns / expressions, conditions that can never match, ...).
+    warnings: Vec<String>,
 }
 
 impl RuleSet {
@@ -490,15 +598,41 @@ impl RuleSet {
         Self {
             rules: Vec::new(),
             index: None,
+            warnings: Vec::new(),
         }
+    }
+
+    /// Problems found while loading. The rules are kept, but an affected
+    /// condition may never match.
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    /// Like [`Self::from_yaml_str`], but any load warning is an error. Use it to
+    /// check a rule before it is saved.
+    pub fn from_yaml_str_strict(yaml: &str) -> Result<Self> {
+        let set = Self::from_yaml_str(yaml)?;
+        if !set.warnings.is_empty() {
+            anyhow::bail!("{}", set.warnings.join("\n"));
+        }
+        Ok(set)
     }
 
     pub fn compile(&mut self) {
         self.index = Some(Arc::new(GlobalRuleIndex::build(&self.rules)));
     }
 
+    /// Parses a YAML rule document. Problems that do not stop parsing are listed
+    /// in [`Self::warnings`].
     pub fn from_yaml_str(yaml: &str) -> Result<Self> {
+        Self::from_yaml_str_after(yaml, &std::collections::HashSet::new())
+    }
+
+    /// `known_ids`: rules loaded before this document (for `rule_match`).
+    fn from_yaml_str_after(yaml: &str, known_ids: &std::collections::HashSet<String>) -> Result<Self> {
         let file: YamlRulesFile = yaml_serde::from_str(yaml).context("invalid YAML rule file")?;
+        let mut warnings = super::validate::unknown_keys(yaml);
+        warnings.extend(super::validate::check_rules(&file.rules, known_ids));
         let mut rules = file.rules;
         for rule in &rules {
             warm_rule_caches(rule);
@@ -509,13 +643,19 @@ impl RuleSet {
         let mut ruleset = Self {
             rules,
             index: None,
+            warnings,
         };
         ruleset.compile();
         Ok(ruleset)
     }
 
+    /// Loads a rule file and its `!include`s. Load warnings are printed to stderr
+    /// and kept in [`Self::warnings`].
     pub fn from_yaml_file(path: &Path) -> Result<Self> {
         let mut ruleset = Self::from_yaml_file_recursive(path, 0)?;
+        for w in &ruleset.warnings {
+            eprintln!("[HydraDragonSig] Warning: {}: {w}", path.display());
+        }
         ruleset.compile();
         Ok(ruleset)
     }
@@ -580,15 +720,19 @@ impl RuleSet {
             .join("\n");
 
         if !filtered_content.trim().is_empty() {
-            let current_rules = Self::from_yaml_str(&filtered_content)?;
+            let known: std::collections::HashSet<String> = combined_rules.rules.iter().map(|r| r.id.clone()).collect();
+            let current_rules = Self::from_yaml_str_after(&filtered_content, &known)?;
             combined_rules.extend(current_rules);
         }
 
         Ok(combined_rules)
     }
 
+    /// Appends the rules of `other` (they run after these). `rule_match` ids may
+    /// refer to rules of either set.
     pub fn extend(&mut self, other: RuleSet) {
         self.rules.extend(other.rules);
+        self.warnings.extend(other.warnings);
         self.index = None;
     }
 
@@ -603,6 +747,10 @@ impl RuleSet {
             .unwrap_or_else(|| Arc::new(GlobalRuleIndex::build(&self.rules)));
         let matches = index.scan(bytes, self.rules.len());
         let mut view = ScanView::new(report);
+        if options.min_string_len > 0 {
+            view.min_string_len = options.min_string_len;
+        }
+        view.decode_strings = options.decode_strings;
         if options.parallel_rules {
             self.evaluate_parallel_into(report, &mut view, bytes, options, &matches);
         } else {
@@ -685,7 +833,11 @@ impl RuleSet {
                 performance,
             };
             push_rule_eval_result(report, eval_res);
-            if options.stop_on_detection && matched {
+            if matched {
+                view.matched_rules.insert(rule.id.clone());
+            }
+            // A private rule only feeds `rule_match`: it never ends the scan.
+            if options.stop_on_detection && matched && !rule.private {
                 break;
             }
         }
@@ -755,7 +907,11 @@ impl RuleSet {
                 performance,
             };
             push_rule_eval_result(report, eval_res);
-            if options.stop_on_detection && matched {
+            if matched {
+                view.matched_rules.insert(rule.id.clone());
+            }
+            // A private rule only feeds `rule_match`: it never ends the scan.
+            if options.stop_on_detection && matched && !rule.private {
                 break;
             }
         }
@@ -964,6 +1120,36 @@ fn rule_signature_atom_count(rule: &Rule) -> usize {
         .sum()
 }
 
+/// A value inside a decoded (base64 / hex) string. Plain strings are left out:
+/// the raw-byte index already covers them. Returns the decoding method.
+fn find_in_decoded(report: &ScanReport, view: &ScanView, value: &str, nocase: bool) -> Option<String> {
+    let needle = if nocase { value.to_ascii_lowercase() } else { value.to_string() };
+    report.decoded_strings.iter().enumerate().find_map(|(i, hit)| {
+        if hit.method == "plaintext" {
+            return None;
+        }
+        let hay = if nocase { view.decoded_lower.get(i)?.as_str() } else { hit.decoded.as_str() };
+        hay.contains(&needle).then(|| hit.method.clone())
+    })
+}
+
+/// Members a group condition (`string_set`, `byte_set`, `rule_match`) needs:
+/// `min`, or every member when `min` is not given.
+fn set_needed(min: Option<usize>, len: usize) -> usize {
+    min.unwrap_or(len).max(1)
+}
+
+/// Wildcard-free byte patterns are searched through the global index.
+fn is_indexed_byte_pattern(pattern: &str) -> bool {
+    cached_byte_pattern(pattern).is_some_and(|c| c.exact.as_ref().is_some_and(|e| !e.is_empty()))
+}
+
+/// Expression words that need the parsed PE (imports) rather than the magic bytes.
+fn expression_needs_pe(expression: &str) -> bool {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\bdotnet\b").unwrap());
+    RE.is_match(expression)
+}
+
 fn evaluate_rule_with_matches(
     rule: &Rule,
     rule_idx: usize,
@@ -990,27 +1176,28 @@ fn evaluate_rule_with_matches(
         }
     }
 
-    // Quick precondition check for RuleLogic::All:
+    // Quick precondition check for RuleLogic::All: an indexed group that cannot
+    // reach its minimum rejects the rule before anything expensive runs.
     if rule.logic == RuleLogic::All {
         for (cond_idx, cond) in rule.conditions.iter().enumerate() {
+            let hit_count = || {
+                matches
+                    .rules
+                    .get(rule_idx)
+                    .and_then(|r| r.get(&cond_idx))
+                    .map(|v| v.len())
+                    .unwrap_or(0)
+            };
             match cond {
-                RuleCondition::StringSet { values, min, regex, .. } if !*regex => {
-                    let needed = min.unwrap_or(values.len()).max(1);
-                    let hit_count = matches.rules.get(rule_idx)
-                        .and_then(|r| r.get(&cond_idx))
-                        .map(|v| v.len())
-                        .unwrap_or(0);
-                    if hit_count < needed {
+                RuleCondition::StringSet { values, min, regex: false, decoded: false, utf16: false, .. } => {
+                    if hit_count() < set_needed(*min, values.len()) {
                         return None;
                     }
                 }
-                RuleCondition::ByteSet { patterns, min, .. } => {
-                    let needed = min.unwrap_or(patterns.len()).max(1);
-                    let hit_count = matches.rules.get(rule_idx)
-                        .and_then(|r| r.get(&cond_idx))
-                        .map(|v| v.len())
-                        .unwrap_or(0);
-                    if hit_count < needed {
+                RuleCondition::ByteSet { patterns, min, scope: None, excludes } if excludes.is_empty() => {
+                    // Patterns with wildcards are not in the index: they may still match.
+                    let unindexed = patterns.iter().filter(|p| !is_indexed_byte_pattern(p)).count();
+                    if hit_count() + unindexed < set_needed(*min, patterns.len()) {
                         return None;
                     }
                 }
@@ -1020,61 +1207,111 @@ fn evaluate_rule_with_matches(
     }
 
     let eval_cond = |cond_idx: usize, cond: &RuleCondition, report: &mut ScanReport, view: &mut ScanView| -> Option<String> {
-        // Fast path for indexed StringSet
+        let indexed = matches.rules.get(rule_idx).and_then(|r| r.get(&cond_idx));
+        // Fast paths over the global Aho-Corasick index (raw file bytes).
         match cond {
-            RuleCondition::StringSet { values, min, regex, .. } if !*regex => {
-                let needed = min.unwrap_or(values.len()).max(1);
-                if let Some(cond_hits) = matches.rules.get(rule_idx).and_then(|r| r.get(&cond_idx)) {
-                    if cond_hits.len() >= needed {
-                        let ev_items: Vec<String> = cond_hits
-                            .iter()
-                            .take(8)
-                            .map(|h| {
-                                let label = if h.is_wide { " wide" } else { "" };
-                                format!("literal{label} `{}` at 0x{:x}", h.value, h.offset)
-                            })
-                            .collect();
-                        return Some(format!(
-                            "string_set matched {}/{}: {}",
-                            cond_hits.len(),
-                            needed,
-                            ev_items.join("; ")
-                        ));
+            RuleCondition::StringContains { value, nocase, decoded, utf16, .. } => {
+                if let Some(h) = indexed.and_then(|v| v.first()) {
+                    let label = if h.is_wide { " wide" } else { "" };
+                    return Some(format!("string_contains{label} `{value}` at 0x{:x}", h.offset));
+                }
+                // Not in the raw bytes: only decoded strings, UTF-16BE or strings the
+                // caller supplied (possibly normalized) can still hold it.
+                if *decoded {
+                    view.ensure_decoded(report, bytes);
+                    if let Some(hit) = find_in_decoded(report, view, value, *nocase) {
+                        return Some(format!("decoded_string_contains `{value}` via {}", hit));
                     }
                 }
-                return None;
-            }
-            RuleCondition::ByteSet { patterns, min, scope, excludes } if scope.is_none() && excludes.is_empty() => {
-                let needed = min.unwrap_or(patterns.len()).max(1);
-                if let Some(cond_hits) = matches.rules.get(rule_idx).and_then(|r| r.get(&cond_idx)) {
-                    if cond_hits.len() >= needed {
-                        let ev_items: Vec<String> = cond_hits
-                            .iter()
-                            .take(8)
-                            .map(|h| format!("`{}` at 0x{:x}", h.value, h.offset))
-                            .collect();
-                        return Some(format!(
-                            "byte_set matched {}/{}: {}",
-                            cond_hits.len(),
-                            needed,
-                            ev_items.join("; ")
-                        ));
+                if *utf16 {
+                    if let Some(offset) = find_text_bytes(bytes, &utf16be_bytes(value), *nocase, false) {
+                        return Some(format!("string_contains utf16 `{value}` at 0x{offset:x}"));
                     }
                 }
-                return None;
+                if !view.strings_external {
+                    return None;
+                }
             }
-            RuleCondition::BytePattern { pattern: _, .. } => {
-                if let Some(cond_hits) = matches.rules.get(rule_idx).and_then(|r| r.get(&cond_idx)) {
-                    if !cond_hits.is_empty() {
-                        let h = &cond_hits[0];
-                        return Some(format!("byte_pattern matched `{}` at 0x{:x}", h.value, h.offset));
+            RuleCondition::StringSet { values, min, regex: false, nocase, decoded, utf16, .. } => {
+                let needed = set_needed(*min, values.len());
+                let hits = indexed.map(|v| v.as_slice()).unwrap_or(&[]);
+                let mut ev_items: Vec<String> = hits
+                    .iter()
+                    .take(8)
+                    .map(|h| {
+                        let label = if h.is_wide { " wide" } else { "" };
+                        format!("literal{label} `{}` at 0x{:x}", h.value, h.offset)
+                    })
+                    .collect();
+                let mut count = hits.len();
+                if count < needed && (*decoded || *utf16) {
+                    // UTF-16BE forms and decoded (base64 / hex) strings are not in the index.
+                    let found: std::collections::HashSet<usize> = hits.iter().map(|h| h.item_idx).collect();
+                    if *decoded {
+                        view.ensure_decoded(report, bytes);
                     }
+                    for (i, value) in values.iter().enumerate() {
+                        if count >= needed {
+                            break;
+                        }
+                        if found.contains(&i) || value.is_empty() {
+                            continue;
+                        }
+                        let extra = if *decoded {
+                            find_in_decoded(report, view, value, *nocase).map(|m| format!("decoded literal `{value}` via {m}"))
+                        } else {
+                            None
+                        }
+                        .or_else(|| {
+                            utf16.then(|| find_text_bytes(bytes, &utf16be_bytes(value), *nocase, false)).flatten()
+                                .map(|o| format!("literal utf16 `{value}` at 0x{o:x}"))
+                        });
+                        if let Some(ev) = extra {
+                            count += 1;
+                            if ev_items.len() < 8 {
+                                ev_items.push(ev);
+                            }
+                        }
+                    }
+                }
+                return (count >= needed)
+                    .then(|| format!("string_set matched {}/{}: {}", count, needed, ev_items.join("; ")));
+            }
+            RuleCondition::ByteSet { patterns, min, scope: None, excludes } if excludes.is_empty() => {
+                let needed = set_needed(*min, patterns.len());
+                let hits = indexed.map(|v| v.as_slice()).unwrap_or(&[]);
+                let mut ev_items: Vec<String> = hits
+                    .iter()
+                    .take(8)
+                    .map(|h| format!("`{}` at 0x{:x}", h.value, h.offset))
+                    .collect();
+                let mut count = hits.len();
+                // Wildcard patterns are searched directly.
+                for pattern in patterns.iter().filter(|p| !is_indexed_byte_pattern(p)) {
+                    if count >= needed {
+                        break;
+                    }
+                    if let Some(compiled) = cached_byte_pattern(pattern)
+                        && let Some(offset) = find_byte_pattern(bytes, compiled.as_ref())
+                    {
+                        count += 1;
+                        if ev_items.len() < 8 {
+                            ev_items.push(format!("`{}` at 0x{:x}", pattern, offset));
+                        }
+                    }
+                }
+                return (count >= needed)
+                    .then(|| format!("byte_set matched {}/{}: {}", count, needed, ev_items.join("; ")));
+            }
+            RuleCondition::BytePattern { scope: None, excludes, .. } if excludes.is_empty() => {
+                if let Some(h) = indexed.and_then(|v| v.first()) {
+                    return Some(format!("byte_pattern matched `{}` at 0x{:x}", h.value, h.offset));
                 }
             }
             _ => {}
         }
 
-        // Lazy components loading if required
+        // Data the scanner leaves out for speed, loaded the first time a condition needs it.
         match cond {
             RuleCondition::ImportAny { .. }
             | RuleCondition::ImportAll { .. }
@@ -1088,14 +1325,7 @@ fn evaluate_rule_with_matches(
             | RuleCondition::SuspiciousImportCount { .. }
             | RuleCondition::SectionEntropy { .. }
             | RuleCondition::SectionNameRegex { .. }
-            | RuleCondition::PackedPe => {
-                if report.pe.is_none() && is_pe_magic(bytes) {
-                    if let Some(pe) = crate::scanner::pe::scan_pe(bytes) {
-                        view.update_pe(&pe);
-                        report.pe = Some(pe);
-                    }
-                }
-            }
+            | RuleCondition::PackedPe => view.ensure_pe(report, bytes),
             RuleCondition::HashSha256 { .. } | RuleCondition::HashMd5 { .. } => {
                 if report.hashes.sha256.is_empty() && !bytes.is_empty() {
                     report.hashes = crate::utils::hash::hashes(bytes);
@@ -1105,6 +1335,37 @@ fn evaluate_rule_with_matches(
                 if report.entropy == 0.0 && !bytes.is_empty() {
                     report.entropy = crate::utils::entropy::byte_entropy(bytes);
                 }
+            }
+            RuleCondition::StringContains { decoded, .. }
+            | RuleCondition::StringRegex { decoded, .. }
+            | RuleCondition::StringSet { decoded, .. } => {
+                if *decoded {
+                    view.ensure_decoded(report, bytes);
+                } else {
+                    view.ensure_strings(report, bytes);
+                }
+            }
+            RuleCondition::NativeSignature { atoms, expression } => {
+                if atoms.iter().any(|a| a.decoded) {
+                    view.ensure_decoded(report, bytes);
+                } else if atoms.iter().any(|a| a.kind == SignatureAtomKind::Regex) {
+                    view.ensure_strings(report, bytes);
+                }
+                if expression_needs_pe(expression) {
+                    view.ensure_pe(report, bytes);
+                }
+            }
+            RuleCondition::EnvReference { .. } => view.ensure_env(report, bytes),
+            RuleCondition::FeatureGte { .. } => view.ensure_features(report, bytes),
+            RuleCondition::RuleMatch { ids, min } => {
+                let needed = set_needed(*min, ids.len());
+                let found: Vec<&str> = ids
+                    .iter()
+                    .filter(|id| view.matched_rules.contains(id.as_str()))
+                    .map(String::as_str)
+                    .collect();
+                return (found.len() >= needed)
+                    .then(|| format!("rule_match {}/{}: {}", found.len(), needed, found.join(", ")));
             }
             _ => {}
         }
@@ -1297,7 +1558,7 @@ fn evaluate_condition(
             utf8,
             utf16,
         } => {
-            let needed = min.unwrap_or(1).max(1);
+            let needed = set_needed(*min, values.len());
             if !regex {
                 return match_string_set_literals(report, view, bytes, values, needed, *nocase, *decoded, *ascii, *wide, *utf8, *utf16);
             }
@@ -1433,7 +1694,8 @@ fn evaluate_condition(
         }
         RuleCondition::DllRegex { pattern } => {
             let pe = report.pe.as_ref()?;
-            let re = cached_regex(pattern)?;
+            // DLL names are stored lowercased: match without regard to case.
+            let re = cached_regex(&format!("(?i){pattern}"))?;
             pe.dlls
                 .iter()
                 .find(|dll| re.is_match(dll))
@@ -1539,7 +1801,7 @@ fn evaluate_condition(
             if find_excluded_byte(excludes, bytes).is_some() {
                 return None;
             }
-            let needed = min.unwrap_or(1).max(1);
+            let needed = set_needed(*min, patterns.len());
             let (start, end) = resolve_scope(bytes.len(), scope.as_ref());
             let mut evidence = Vec::new();
             for pattern in patterns {
@@ -1559,6 +1821,8 @@ fn evaluate_condition(
             }
             None
         }
+        // Evaluated by the rule loop, which knows the rules matched so far.
+        RuleCondition::RuleMatch { .. } => None,
         RuleCondition::UnpackerAny { signatures } => {
             for signature in signatures {
                 let Some(compiled) = cached_byte_pattern(&signature.pattern) else {
@@ -1943,11 +2207,18 @@ fn evaluate_native_signature(
     }
 
     let mut atom_hits = HashMap::new();
+    let wants_offsets = expression_uses_offsets(expression);
     for atom in atoms {
-        atom_hits.insert(
-            atom.id.clone(),
-            match_signature_atom(report, view, bytes, atom),
-        );
+        let mut hit = match_signature_atom(report, view, bytes, atom);
+        // `at`, `in` and `@a` comparisons need every occurrence, not only the first.
+        if wants_offsets && hit.matched {
+            for offset in atom_all_offsets(bytes, atom) {
+                if !hit.offsets.contains(&offset) {
+                    hit.offsets.push(offset);
+                }
+            }
+        }
+        atom_hits.insert(atom.id.clone(), hit);
     }
 
     let matched = evaluate_signature_expression(expression, &atom_hits, report, bytes, atoms);
@@ -1978,6 +2249,69 @@ fn evaluate_native_signature(
     Some(evidence.join("; "))
 }
 
+/// Most occurrences collected per atom for offset comparisons.
+const MAX_ATOM_OFFSETS: usize = 4096;
+
+fn expression_uses_offsets(expression: &str) -> bool {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)@[A-Za-z0-9_]|\$[A-Za-z0-9_]+\s+(at|in)\b").unwrap());
+    RE.is_match(expression)
+}
+
+/// Every raw-byte occurrence of an atom (plain text forms, base64 forms or byte
+/// pattern), up to `MAX_ATOM_OFFSETS`.
+fn atom_all_offsets(bytes: &[u8], atom: &SignatureAtom) -> Vec<usize> {
+    let mut out = Vec::new();
+    match atom.kind {
+        SignatureAtomKind::Text => {
+            let mut needles: Vec<(Vec<u8>, bool)> = text_atom_raw_variants(atom).into_iter().map(|(_, n)| (n, atom.nocase)).collect();
+            if atom.base64 {
+                needles.extend(base64_needles(atom.value.as_bytes()).into_iter().map(|n| (n, false)));
+            }
+            if atom.base64wide {
+                needles.extend(base64_needles(&utf16le_bytes(&atom.value)).into_iter().map(|n| (n, false)));
+            }
+            for (needle, nocase) in needles {
+                let mut pos = 0usize;
+                while pos < bytes.len() && out.len() < MAX_ATOM_OFFSETS {
+                    let Some(rel) = find_text_bytes(&bytes[pos..], &needle, nocase, false) else { break };
+                    let abs = pos + rel;
+                    if !atom.fullword || byte_word_boundary_at(bytes, abs, needle.len()) {
+                        out.push(abs);
+                    }
+                    pos = abs + 1;
+                }
+            }
+            if atom.xor && out.len() < MAX_ATOM_OFFSETS {
+                if let Some(xor_ac) = build_xor_text_ac(atom) {
+                    for mat in xor_ac.ac.find_overlapping_iter(bytes) {
+                        if out.len() >= MAX_ATOM_OFFSETS {
+                            break;
+                        }
+                        if !atom.fullword || byte_word_boundary_at(bytes, mat.start(), mat.end() - mat.start()) {
+                            out.push(mat.start());
+                        }
+                    }
+                }
+            }
+        }
+        SignatureAtomKind::Bytes => {
+            if let Some(pattern) = cached_byte_pattern(&atom.value) {
+                let mut pos = 0usize;
+                while out.len() < MAX_ATOM_OFFSETS {
+                    let Some(abs) = find_byte_pattern_in(bytes, pattern.as_ref(), pos, bytes.len()) else { break };
+                    out.push(abs);
+                    pos = abs + 1;
+                }
+            }
+        }
+        // Regex atoms match inside extracted strings: their first offset is kept.
+        SignatureAtomKind::Regex => {}
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 fn evaluate_simple_native_signature(
     report: &ScanReport,
     view: &ScanView,
@@ -1996,10 +2330,11 @@ fn evaluate_simple_native_signature(
         (caps.get(1).unwrap().as_str(), atoms.iter().collect())
     } else if let Some(caps) = GROUP_RE.captures(expr) {
         let spec = caps.get(2).unwrap().as_str();
-        (
-            caps.get(1).unwrap().as_str(),
-            select_signature_atoms(spec, atoms),
-        )
+        // An id that names no atom counts as unmatched: leave that to the general path.
+        let Some(selected) = select_signature_atoms(spec, atoms) else {
+            return None;
+        };
+        (caps.get(1).unwrap().as_str(), selected)
     } else {
         return None;
     };
@@ -2035,17 +2370,18 @@ fn evaluate_simple_native_signature(
     Some(None)
 }
 
-fn select_signature_atoms<'a>(spec: &str, atoms: &'a [SignatureAtom]) -> Vec<&'a SignatureAtom> {
+/// Atoms named by an `of (...)` list. None when an explicit id names no atom.
+fn select_signature_atoms<'a>(spec: &str, atoms: &'a [SignatureAtom]) -> Option<Vec<&'a SignatureAtom>> {
     let mut selected = Vec::new();
     for part in spec.split(',').map(|p| p.trim()).filter(|p| !p.is_empty()) {
         let part = part.trim_start_matches('$').trim();
         if let Some(prefix) = part.strip_suffix('*') {
             selected.extend(atoms.iter().filter(|atom| atom.id.starts_with(prefix)));
-        } else if let Some(atom) = atoms.iter().find(|atom| atom.id == part) {
-            selected.push(atom);
+        } else {
+            selected.push(atoms.iter().find(|atom| atom.id == part)?);
         }
     }
-    selected
+    Some(selected)
 }
 
 fn native_signature_evidence(expression: &str, hits: &[(&SignatureAtom, AtomMatch)]) -> String {
@@ -2223,34 +2559,27 @@ fn match_text_atom(
         }
     }
 
-    if atom.base64 {
-        let encoded = general_purpose::STANDARD.encode(atom.value.as_bytes());
-        if let Some(offset) = find_text_bytes(bytes, encoded.as_bytes(), atom.nocase, false) {
-            out.matched = true;
-            out.offsets.push(offset);
-            out.evidence.push(format!(
-                "${} base64 `{}` at 0x{:x}",
-                atom.id,
-                truncate_for_evidence(&atom.value, 80),
-                offset
-            ));
-            return out;
+    // base64 / base64wide: the value can sit at any of the three byte alignments
+    // of the encoded stream (as in YARA); base64 text is case-sensitive.
+    for (enabled, label, plain) in [
+        (atom.base64, "base64", atom.value.as_bytes().to_vec()),
+        (atom.base64wide, "base64wide", utf16le_bytes(&atom.value)),
+    ] {
+        if !enabled {
+            continue;
         }
-    }
-
-    if atom.base64wide {
-        let wide = utf16le_bytes(&atom.value);
-        let encoded = general_purpose::STANDARD.encode(wide);
-        if let Some(offset) = find_text_bytes(bytes, encoded.as_bytes(), atom.nocase, false) {
-            out.matched = true;
-            out.offsets.push(offset);
-            out.evidence.push(format!(
-                "${} base64wide `{}` at 0x{:x}",
-                atom.id,
-                truncate_for_evidence(&atom.value, 80),
-                offset
-            ));
-            return out;
+        for needle in base64_needles(&plain) {
+            if let Some(offset) = find_text_bytes(bytes, &needle, false, false) {
+                out.matched = true;
+                out.offsets.push(offset);
+                out.evidence.push(format!(
+                    "${} {label} `{}` at 0x{:x}",
+                    atom.id,
+                    truncate_for_evidence(&atom.value, 80),
+                    offset
+                ));
+                return out;
+            }
         }
     }
 
@@ -2268,14 +2597,17 @@ fn match_regex_atom(report: &ScanReport, atom: &SignatureAtom) -> AtomMatch {
         return out;
     };
     for hit in &report.strings {
-        if re.is_match(&hit.value) {
+        if let Some(m) = re.find(&hit.value) {
+            // UTF-16LE strings hold one ASCII character per two file bytes.
+            let unit = if hit.encoding == "utf16le" { 2 } else { 1 };
+            let offset = hit.offset + m.start() * unit;
             out.matched = true;
-            out.offsets.push(hit.offset);
+            out.offsets.push(offset);
             out.evidence.push(format!(
                 "${} regex `{}` at 0x{:x}",
                 atom.id,
                 truncate_for_evidence(&atom.value, 80),
-                hit.offset
+                offset
             ));
             return out;
         }
@@ -2312,7 +2644,8 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
             return out;
         }
 
-        if atom.xor {
+        // xor is applied to fixed-width patterns only (no jumps / alternations).
+        if atom.xor && pattern.program.is_none() {
             let (lo, hi) = xor_key_range(atom);
 
             // Fast path: if all tokens are exact (no wildcards) the XOR'd pattern is a
@@ -2393,6 +2726,27 @@ fn text_atom_plain_xor_variants(atom: &SignatureAtom) -> Vec<(&'static str, Vec<
     // and wide are set, both encodings are tried. If neither is specified,
     // ASCII is used as the default practical representation.
     text_atom_raw_variants(atom)
+}
+
+/// Base64 forms of `data` at the three possible alignments inside a longer encoded
+/// stream, without the characters that depend on the neighbouring bytes.
+fn base64_needles(data: &[u8]) -> Vec<Vec<u8>> {
+    let mut out = Vec::with_capacity(3);
+    for pad in 0..3usize {
+        let mut buf = vec![0u8; pad];
+        buf.extend_from_slice(data);
+        let enc = general_purpose::STANDARD_NO_PAD.encode(&buf);
+        let skip = [0, 2, 3][pad];
+        // The last character is incomplete unless the length is a multiple of 3.
+        let stable = buf.len() * 8 / 6;
+        if stable > skip {
+            let needle = enc.as_bytes()[skip..stable.min(enc.len())].to_vec();
+            if needle.len() >= 2 && !out.contains(&needle) {
+                out.push(needle);
+            }
+        }
+    }
+    out
 }
 
 fn utf16le_bytes(text: &str) -> Vec<u8> {
@@ -2856,14 +3210,125 @@ fn replace_file_type_words(expr: &str, report: &ScanReport, bytes: &[u8]) -> Str
         ("Text", report.file_type.is_plain_text),
         ("PlainText", report.file_type.is_plain_text),
         ("Script", report.file_type.is_script),
-        ("DotNet", is_dotnet_like(report)),
+        ("DotNet", is_dotnet_like(report, bytes)),
     ] {
-        let pattern = format!(r"(?i)\b{}\b", regex::escape(word));
-        if let Some(re) = cached_regex(&pattern) {
-            out = re.replace_all(&out, bool_lit(value)).to_string();
-        }
+        out = replace_type_word(&out, word, value);
     }
     out
+}
+
+/// File-type words of native signature expressions.
+const EXPRESSION_TYPE_WORDS: [&str; 17] = [
+    "Macho", "MachO", "PE", "PE32", "PE64", "ELF", "ELF32", "ELF64", "APK", "ZIP", "Archive", "JAR", "DEX", "Text",
+    "PlainText", "Script", "DotNet",
+];
+
+fn replace_type_word(expr: &str, word: &str, value: bool) -> String {
+    let pattern = format!(r"(?i)\b{}\b", regex::escape(word));
+    match cached_regex(&pattern) {
+        Some(re) => re.replace_all(expr, bool_lit(value)).to_string(),
+        None => expr.to_string(),
+    }
+}
+
+/// Checks a native signature expression at load time: every `$id` / `@id` names
+/// an atom, and after the supported constructs are evaluated only `true`, `false`,
+/// `and`, `or`, `not` and balanced parentheses are left.
+pub(crate) fn validate_signature_expression(expression: &str, atoms: &[SignatureAtom]) -> Result<(), String> {
+    if expression.trim().is_empty() {
+        return Err("empty expression".into());
+    }
+    static REF_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"([$@#!])([A-Za-z0-9_]*)(\*?)").unwrap());
+    for caps in REF_RE.captures_iter(expression) {
+        let sigil = caps.get(1).unwrap().as_str();
+        let id = caps.get(2).unwrap().as_str();
+        let star = !caps.get(3).unwrap().as_str().is_empty();
+        match sigil {
+            "#" => return Err(format!("`#{id}` (match count) is not supported")),
+            "!" if !id.is_empty() => return Err(format!("`!{id}` (match length) is not supported")),
+            "!" => {}
+            _ if star => {
+                if !atoms.iter().any(|a| a.id.starts_with(id)) {
+                    return Err(format!("`{sigil}{id}*` matches no atom"));
+                }
+            }
+            _ => {
+                if id.is_empty() {
+                    return Err(format!("`{sigil}` without an atom id"));
+                }
+                if !atoms.iter().any(|a| a.id == id) {
+                    return Err(format!("`{sigil}{id}` names no atom"));
+                }
+            }
+        }
+    }
+    if Regex::new(r"(?i)\bthem\b").unwrap().is_match(expression) && atoms.is_empty() {
+        return Err("`them` with no atoms".into());
+    }
+    // Evaluate the supported constructs with every atom matched at offset 0.
+    let hits: HashMap<String, AtomMatch> = atoms
+        .iter()
+        .map(|a| (a.id.clone(), AtomMatch { matched: true, evidence: Vec::new(), offsets: vec![0] }))
+        .collect();
+    let mut expr = expression.replace(['\n', '\r'], " ");
+    expr = replace_group_of(&expr, &hits, atoms);
+    expr = replace_them_of(&expr, &hits, atoms);
+    expr = replace_relative_offsets(&expr, &hits);
+    expr = replace_atom_locations(&expr, &hits);
+    expr = replace_plain_atoms(&expr, &hits);
+    expr = replace_filesize(&expr, 0);
+    expr = replace_magic_uints(&expr, &[]);
+    for word in EXPRESSION_TYPE_WORDS {
+        expr = replace_type_word(&expr, word, false);
+    }
+    // Strict lexing of what is left.
+    let mut depth = 0i32;
+    let mut prev_operand = false;
+    for raw in expr.replace('(', " ( ").replace(')', " ) ").split_whitespace() {
+        let tok = raw.to_ascii_lowercase();
+        match tok.as_str() {
+            "true" | "false" => {
+                if prev_operand {
+                    return Err("two operands without `and` / `or` between them".into());
+                }
+                prev_operand = true;
+            }
+            "and" | "or" => {
+                if !prev_operand {
+                    return Err(format!("`{tok}` without a left operand"));
+                }
+                prev_operand = false;
+            }
+            "not" => {
+                if prev_operand {
+                    return Err("`not` after an operand (missing `and` / `or`?)".into());
+                }
+            }
+            "(" => {
+                if prev_operand {
+                    return Err("`(` after an operand (missing `and` / `or`?)".into());
+                }
+                depth += 1;
+            }
+            ")" => {
+                if !prev_operand {
+                    return Err("empty `( )` or operator before `)`".into());
+                }
+                depth -= 1;
+                if depth < 0 {
+                    return Err("unbalanced `)`".into());
+                }
+            }
+            other => return Err(format!("unsupported expression text `{other}`")),
+        }
+    }
+    if depth != 0 {
+        return Err("unbalanced `(`".into());
+    }
+    if !prev_operand {
+        return Err("expression ends with an operator".into());
+    }
+    Ok(())
 }
 
 fn eval_of_spec(
@@ -2966,18 +3431,16 @@ fn is_macho_magic(bytes: &[u8]) -> bool {
         || magic == [0xcf, 0xfa, 0xed, 0xfe].as_slice()
 }
 
-fn is_dotnet_like(report: &ScanReport) -> bool {
-    let Some(pe) = &report.pe else { return false };
-    pe.imports.iter().any(|i| {
-        i.eq_ignore_ascii_case("mscoree.dll!_CorExeMain")
-            || i.to_ascii_lowercase().contains("_corexemain")
-    }) || pe
-        .dlls
-        .iter()
-        .any(|dll| dll.eq_ignore_ascii_case("mscoree.dll"))
-        || report.strings.iter().any(|s| {
-            s.value.contains("BSJB") || s.value.contains("#~") || s.value.contains("mscoree.dll")
-        })
+fn is_dotnet_like(report: &ScanReport, bytes: &[u8]) -> bool {
+    if !is_pe_magic(bytes) {
+        return false;
+    }
+    let imports_clr = report.pe.as_ref().is_some_and(|pe| {
+        pe.imports.iter().any(|i| i.to_ascii_lowercase().contains("_corexemain") || i.to_ascii_lowercase().contains("_cordllmain"))
+            || pe.dlls.iter().any(|dll| dll.eq_ignore_ascii_case("mscoree.dll"))
+    });
+    // CLI metadata root signature ("BSJB") or the runtime DLL name in the file.
+    imports_clr || memmem::find(bytes, b"BSJB").is_some() || memmem::find(bytes, b"mscoree.dll").is_some()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3105,6 +3568,191 @@ struct CompiledBytePattern {
     tokens: Vec<ByteToken>,
     exact: Option<Vec<u8>>,
     anchor: Option<(usize, Vec<u8>)>,
+    /// Patterns with jumps `[n-m]`, alternations `( a | b )` or negations `~XX`:
+    /// matched by `match_units` instead of the fixed-width `tokens`.
+    program: Option<Vec<ByteUnit>>,
+}
+
+/// One element of a byte pattern with variable parts.
+#[derive(Debug, Clone)]
+enum ByteUnit {
+    Byte(ByteToken),
+    /// `~XX`: any byte except XX (nibble wildcards allowed: `~4?`).
+    NotByte(ByteToken),
+    /// `[n]`, `[n-m]`, `[n-]`, `[-]`: skip between `min` and `max` bytes.
+    Jump { min: usize, max: usize },
+    /// `( A | B | ... )`
+    Alt(Vec<Vec<ByteUnit>>),
+}
+
+/// Upper bound of an open jump `[n-]` / `[-]`.
+const BYTE_JUMP_MAX: usize = 4096;
+/// Backtracking steps allowed per candidate offset.
+const BYTE_MATCH_BUDGET: usize = 200_000;
+
+/// Parses a byte pattern with variable parts. Err explains the syntax error.
+fn parse_byte_program(text: &str) -> Result<Vec<ByteUnit>, String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut pos = 0usize;
+    let units = parse_byte_seq(&chars, &mut pos, 0)?;
+    if pos < chars.len() {
+        return Err(format!("unexpected `{}` at column {}", chars[pos], pos + 1));
+    }
+    if units.is_empty() {
+        return Err("empty byte pattern".into());
+    }
+    Ok(units)
+}
+
+fn parse_byte_seq(chars: &[char], pos: &mut usize, depth: usize) -> Result<Vec<ByteUnit>, String> {
+    if depth > 8 {
+        return Err("alternations nested too deeply".into());
+    }
+    let mut out = Vec::new();
+    while *pos < chars.len() {
+        let c = chars[*pos];
+        if c.is_whitespace() {
+            *pos += 1;
+            continue;
+        }
+        match c {
+            ')' | '|' => break,
+            '(' => {
+                *pos += 1;
+                let mut alts = vec![parse_byte_seq(chars, pos, depth + 1)?];
+                while *pos < chars.len() && chars[*pos] == '|' {
+                    *pos += 1;
+                    alts.push(parse_byte_seq(chars, pos, depth + 1)?);
+                }
+                if *pos >= chars.len() || chars[*pos] != ')' {
+                    return Err("missing `)` in alternation".into());
+                }
+                *pos += 1;
+                if alts.iter().any(|a| a.is_empty()) {
+                    return Err("empty alternative in `( | )`".into());
+                }
+                out.push(ByteUnit::Alt(alts));
+            }
+            '[' => {
+                *pos += 1;
+                let start = *pos;
+                while *pos < chars.len() && chars[*pos] != ']' {
+                    *pos += 1;
+                }
+                if *pos >= chars.len() {
+                    return Err("missing `]` in jump".into());
+                }
+                let spec: String = chars[start..*pos].iter().filter(|c| !c.is_whitespace()).collect();
+                *pos += 1;
+                let num = |t: &str| t.parse::<usize>().map_err(|_| format!("bad jump `[{spec}]`"));
+                let (min, max) = match spec.split_once('-') {
+                    None => {
+                        let n = num(&spec)?;
+                        (n, n)
+                    }
+                    Some((a, b)) => {
+                        let min = if a.is_empty() { 0 } else { num(a)? };
+                        let max = if b.is_empty() { BYTE_JUMP_MAX } else { num(b)? };
+                        (min, max)
+                    }
+                };
+                if min > max {
+                    return Err(format!("jump `[{spec}]`: minimum is larger than maximum"));
+                }
+                if min > BYTE_JUMP_MAX || max > BYTE_JUMP_MAX {
+                    return Err(format!("jump `[{spec}]` is longer than {BYTE_JUMP_MAX} bytes"));
+                }
+                out.push(ByteUnit::Jump { min, max });
+            }
+            '~' => {
+                *pos += 1;
+                let tok = read_hex_pair(chars, pos)?;
+                out.push(ByteUnit::NotByte(tok));
+            }
+            _ => {
+                // A run of hex digits / `?` written with or without spaces.
+                let tok = read_hex_pair(chars, pos)?;
+                out.push(ByteUnit::Byte(tok));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn read_hex_pair(chars: &[char], pos: &mut usize) -> Result<ByteToken, String> {
+    let a = chars.get(*pos).copied().ok_or("pattern ends in the middle of a byte")?;
+    let b = chars.get(*pos + 1).copied().ok_or_else(|| format!("`{a}` is half a byte"))?;
+    let (hi_val, hi_mask) = hex_nibble(a).ok_or_else(|| format!("`{a}` is not a hex digit"))?;
+    let (lo_val, lo_mask) = hex_nibble(b).ok_or_else(|| format!("`{a}{b}` is not a hex byte"))?;
+    *pos += 2;
+    Ok(ByteToken { value: (hi_val << 4) | lo_val, mask: (hi_mask << 4) | lo_mask })
+}
+
+/// Matches `units` at `pos`, then the continuation. Backtracks over jumps and
+/// alternatives; `budget` bounds the work per candidate offset.
+fn match_units(
+    units: &[ByteUnit],
+    cont: &dyn Fn(usize, &mut usize) -> bool,
+    bytes: &[u8],
+    pos: usize,
+    budget: &mut usize,
+) -> bool {
+    if *budget == 0 {
+        return false;
+    }
+    *budget -= 1;
+    let Some((unit, rest)) = units.split_first() else {
+        return cont(pos, budget);
+    };
+    match unit {
+        ByteUnit::Byte(t) => {
+            pos < bytes.len() && (bytes[pos] & t.mask) == (t.value & t.mask) && match_units(rest, cont, bytes, pos + 1, budget)
+        }
+        ByteUnit::NotByte(t) => {
+            pos < bytes.len() && (bytes[pos] & t.mask) != (t.value & t.mask) && match_units(rest, cont, bytes, pos + 1, budget)
+        }
+        ByteUnit::Jump { min, max } => {
+            let mut k = *min;
+            while k <= *max && pos + k <= bytes.len() {
+                if match_units(rest, cont, bytes, pos + k, budget) {
+                    return true;
+                }
+                k += 1;
+            }
+            false
+        }
+        ByteUnit::Alt(alts) => alts.iter().any(|alt| {
+            let next = |p: usize, b: &mut usize| match_units(rest, cont, bytes, p, b);
+            match_units(alt, &next, bytes, pos, budget)
+        }),
+    }
+}
+
+fn find_byte_program(bytes: &[u8], units: &[ByteUnit]) -> Option<usize> {
+    // Fixed leading bytes narrow the candidate offsets.
+    let lead: Vec<u8> = units
+        .iter()
+        .map_while(|u| match u {
+            ByteUnit::Byte(t) if t.mask == 0xff => Some(t.value),
+            _ => None,
+        })
+        .collect();
+    let try_at = |start: usize| {
+        let mut budget = BYTE_MATCH_BUDGET;
+        match_units(units, &|_, _| true, bytes, start, &mut budget)
+    };
+    if lead.len() >= 2 {
+        let mut from = 0usize;
+        while from < bytes.len() {
+            let start = from + memmem::find(&bytes[from..], &lead)?;
+            if try_at(start) {
+                return Some(start);
+            }
+            from = start + 1;
+        }
+        return None;
+    }
+    (0..bytes.len()).find(|&start| try_at(start))
 }
 
 impl CompiledBytePattern {
@@ -3147,11 +3795,18 @@ impl CompiledBytePattern {
             tokens,
             exact,
             anchor,
+            program: None,
         }
     }
 }
 
 fn compile_byte_pattern(pattern: &str) -> Option<CompiledBytePattern> {
+    byte_pattern_problem(pattern).is_none().then_some(())?;
+    let text = pattern.trim().trim_start_matches('{').trim_end_matches('}').trim();
+    if text.contains(['(', '[', '~']) {
+        let units = parse_byte_program(text).ok()?;
+        return Some(CompiledBytePattern { tokens: Vec::new(), exact: None, anchor: None, program: Some(units) });
+    }
     let tokens = normalize_hex_tokens(pattern);
     let mut out = Vec::new();
     for token in tokens {
@@ -3172,6 +3827,30 @@ fn compile_byte_pattern(pattern: &str) -> Option<CompiledBytePattern> {
     }
 
     (!out.is_empty()).then(|| CompiledBytePattern::from_tokens(out))
+}
+
+/// Why a byte pattern is invalid, or None when it compiles.
+pub(crate) fn byte_pattern_problem(pattern: &str) -> Option<String> {
+    let text = pattern.trim().trim_start_matches('{').trim_end_matches('}').trim();
+    if text.is_empty() {
+        return Some("empty byte pattern".into());
+    }
+    if text.contains(['(', '[', '~']) {
+        return parse_byte_program(text).err();
+    }
+    for tok in normalize_hex_tokens(pattern) {
+        if tok == "?" || tok == "??" {
+            continue;
+        }
+        let mut chars = tok.chars();
+        let ok = tok.chars().count() == 2
+            && chars.next().and_then(hex_nibble).is_some()
+            && chars.next().and_then(hex_nibble).is_some();
+        if !ok {
+            return Some(format!("`{tok}` is not a hex byte"));
+        }
+    }
+    None
 }
 
 fn normalize_hex_tokens(pattern: &str) -> Vec<String> {
@@ -3294,6 +3973,9 @@ fn find_byte_pattern_in(
 }
 
 fn find_byte_pattern_unscoped(bytes: &[u8], pattern: &CompiledBytePattern) -> Option<usize> {
+    if let Some(units) = &pattern.program {
+        return find_byte_program(bytes, units);
+    }
     let tokens = pattern.tokens.as_slice();
     if tokens.is_empty() || tokens.len() > bytes.len() {
         return None;

@@ -280,7 +280,7 @@ rules:
     tags: [masquerading, process-spoof, suspicious-name]
     mitre:
       - id: T1036.005
-        name: Masquerading: Match Legitimate Name or Location
+        name: "Masquerading: Match Legitimate Name or Location"
         tactic: Defense Evasion
     conditions:
       - type: path_regex

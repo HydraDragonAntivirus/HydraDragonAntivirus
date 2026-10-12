@@ -145,7 +145,7 @@ impl FpRemoveSelector {
 )]
 struct Cli {
     /// File(s) or directory root(s) to scan. Multiple roots are supported.
-    #[arg(value_name = "PATH", required = true, num_args = 1..)]
+    #[arg(value_name = "PATH", required_unless_present = "check_rules", num_args = 1..)]
     paths: Vec<PathBuf>,
 
     /// Add an extra scan root without putting it in the positional PATH list.
@@ -209,11 +209,17 @@ struct Cli {
     #[arg(long)]
     no_progress: bool,
 
+    /// Only load and check the rule files: print every load warning (unknown keys,
+    /// invalid regexes / byte patterns / expressions, conditions that never match)
+    /// and exit with code 1 when there is any. No PATH is needed.
+    #[arg(long)]
+    check_rules: bool,
+
     /// Minimum ASCII/UTF-16LE string length to extract. Higher values reduce memory and rule matching cost.
     #[arg(long, default_value_t = 5)]
     min_string_len: usize,
 
-    /// Disable base64/hex/reverse/rot13/xor decoded-string extraction for faster raw signature scans.
+    /// Disable base64/hex decoding of extracted strings (conditions with `decoded: true` then use only the raw strings).
     #[arg(long)]
     no_decode: bool,
 
@@ -335,13 +341,19 @@ fn main() -> Result<()> {
     let scan_paths = cli.scan_paths.clone();
     let recursive = cli.recursive;
 
+    let rule_sources = cli.rules.clone();
+    let rule_files = collect_rule_files_from_sources(&rule_sources)?;
+
+    if cli.check_rules {
+        let rules = load_external_rules_from_files(&rule_files)?;
+        println!("{} rule(s) from {} file(s), {} warning(s)", rules.rules().len(), rule_files.len(), rules.warnings().len());
+        std::process::exit(if rules.warnings().is_empty() { 0 } else { 1 });
+    }
+
     if paths.is_empty() && scan_paths.is_empty() && cli.path_lists.is_empty() {
         anyhow::bail!("at least one scan PATH is required; pass a file or directory to scan");
     }
 
-    let rule_sources = cli.rules.clone();
-
-    let rule_files = collect_rule_files_from_sources(&rule_sources)?;
     let rules = load_external_rules_from_files(&rule_files)?;
     if rules.rules().is_empty() {
         anyhow::bail!(

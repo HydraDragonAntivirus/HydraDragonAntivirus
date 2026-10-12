@@ -2,6 +2,31 @@ use crate::models::{PeInfo, PeSectionInfo};
 use crate::utils::entropy::byte_entropy;
 use std::collections::HashSet;
 
+/// Function names counted by `suspicious_import_count` (compared without regard to case).
+pub const SUSPICIOUS_APIS: &[&str] = &[
+    // Process injection / memory of other processes
+    "VirtualAllocEx", "VirtualProtectEx", "WriteProcessMemory", "ReadProcessMemory",
+    "CreateRemoteThread", "CreateRemoteThreadEx", "NtCreateThreadEx", "RtlCreateUserThread",
+    "QueueUserAPC", "NtQueueApcThread", "SetThreadContext", "GetThreadContext",
+    "NtUnmapViewOfSection", "ZwUnmapViewOfSection", "NtMapViewOfSection", "NtWriteVirtualMemory",
+    "NtAllocateVirtualMemory", "OpenProcess", "SuspendThread", "ResumeThread",
+    // Hooks and input capture
+    "SetWindowsHookExA", "SetWindowsHookExW", "GetAsyncKeyState", "GetKeyboardState",
+    "RegisterRawInputDevices", "GetClipboardData",
+    // Credentials, tokens, privileges
+    "AdjustTokenPrivileges", "LookupPrivilegeValueA", "LookupPrivilegeValueW", "OpenProcessToken",
+    "DuplicateTokenEx", "ImpersonateLoggedOnUser", "CredEnumerateA", "CredEnumerateW",
+    "CryptUnprotectData", "LsaRetrievePrivateData", "MiniDumpWriteDump",
+    // Anti-analysis
+    "IsDebuggerPresent", "CheckRemoteDebuggerPresent", "NtQueryInformationProcess",
+    "NtSetInformationThread", "OutputDebugStringA",
+    // Services, drivers and persistence
+    "CreateServiceA", "CreateServiceW", "StartServiceA", "StartServiceW", "NtLoadDriver", "ZwLoadDriver",
+    // Download and execute
+    "URLDownloadToFileA", "URLDownloadToFileW", "WinExec", "ShellExecuteA", "ShellExecuteW",
+    "InternetOpenUrlA", "InternetOpenUrlW",
+];
+
 pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
     let pe = pefile_rs::PE::parse(bytes).ok()?;
 
@@ -25,7 +50,18 @@ pub fn scan_pe(bytes: &[u8]) -> Option<PeInfo> {
         .into_iter()
         .collect();
 
-    let suspicious_imports: Vec<String> = Vec::new();
+    // Imports often used for injection, credential theft, anti-analysis or
+    // persistence. Common in malware but also in legitimate tools: a count, not a verdict.
+    let suspicious_imports: Vec<String> = imports
+        .iter()
+        .filter(|imp| {
+            let func = imp.rsplit_once('!').map(|(_, f)| f).unwrap_or(imp);
+            SUSPICIOUS_APIS.iter().any(|api| func.eq_ignore_ascii_case(api))
+        })
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
 
     let mut sections = Vec::new();
     let mut suspicious_sections = Vec::new();
