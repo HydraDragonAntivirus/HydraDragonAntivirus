@@ -2064,7 +2064,12 @@ async fn handle_file_report(
     let has_key = key.is_some_and(|k| {
         sample_keys().is_some_and(|keys| keys.iter().any(|x| constant_time_eq(x.as_bytes(), k.as_bytes())))
     });
-    let strings_locked = !has_key && lock_strings(report.as_mut());
+    // Text files (scripts, configs, logs, UTF-8 documents): their "strings" are the
+    // content itself, which may hold personal or sensitive data (passwords, tokens,
+    // e-mail addresses, paths). Only researcher API key holders get them; everyone
+    // else does not even get the counts.
+    let strings_hidden = !has_key && hide_text_strings(report.as_mut());
+    let strings_locked = !strings_hidden && !has_key && lock_strings(report.as_mut());
     if insight.is_none() && review.is_none() && report.is_none() {
         return json_response(StatusCode::NOT_FOUND, serde_json::json!({"status": "not_found", "sha256": sha, "virustotal": crate::human_review::virustotal_url(&sha)}), "no-store");
     }
@@ -2100,6 +2105,7 @@ async fn handle_file_report(
             "similar": similar_files(&server.threat_intel, &sha, 10),
             "sample_sharing": sample_keys().is_some() && matches!(verdict.as_str(), "malicious" | "suspicious"),
             "strings_locked": strings_locked,
+            "strings_hidden": strings_hidden,
         }),
         if has_key { "private, no-store" } else { "public, max-age=30" },
     );
@@ -2110,6 +2116,19 @@ async fn handle_file_report(
 
 /// Replaces the string lists of a stored report with their sizes. Returns true when
 /// the report had strings to hide.
+/// Removes the extracted strings of a text (non-binary) file from a public report.
+/// True when the report was a text file.
+fn hide_text_strings(report: Option<&mut serde_json::Value>) -> bool {
+    let Some(r) = report else { return false };
+    let is_text = r.get("mime").and_then(|m| m.as_str()).is_some_and(|m| m.starts_with("text/"));
+    if is_text {
+        if let Some(o) = r.as_object_mut() {
+            o.remove("strings");
+        }
+    }
+    is_text
+}
+
 fn lock_strings(report: Option<&mut serde_json::Value>) -> bool {
     let Some(st) = report.and_then(|r| r.get_mut("strings")).and_then(|s| s.as_object_mut()) else {
         return false;

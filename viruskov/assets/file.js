@@ -23,6 +23,7 @@
       imports: 'Importlar', exports: 'Exportlar', funcs: 'fonksiyon', noImports: 'Import tablosu yok.', noExports: 'Export yok.',
       strings: 'Stringler', urls: 'URL', ips: 'IP', registry: 'Registry', paths: 'Dosya yolu', commands: 'Komut', crypto_wallets: 'Cüzdan', sample: 'Örnek', none: 'Bu kategoride string yok.',
       strLocked: 'Stringler yalnızca araştırmacı API anahtarı sahiplerine gösterilir.', unlock: 'Göster',
+      strHidden: 'Bu bir metin dosyası; stringleri dosyanın içeriğinin kendisi olduğu için ve kişisel ya da hassas bilgiler (parola, token, e-posta, dosya yolu gibi) içerebileceği için yalnızca araştırmacı API anahtarı sahiplerine gösterilir.',
       sim: 'Benzer dosyalar (TLSH)', simNote: 'Mesafe ne kadar küçükse dosyalar o kadar benzer. 0–30 çok yakın, 30–80 aynı aileden olabilir. Benzerlik tek başına karar değildir.', dist: 'Mesafe', list: 'TLSH kara listesi', noSim: 'Yakın bir dosya bulunmadı.',
       ind: 'Statik göstergeler', noInd: 'Kayda değer bir statik gösterge bulunmadı.', noReport: 'Bu dosya için statik rapor henüz yok (yalnızca hash ile görüldü). Dosyayı tarayıcıya yüklediğinizde oluşturulur.',
       sev: { high: 'yüksek', medium: 'orta', low: 'düşük', info: 'bilgi' }, ago: 'önce'
@@ -45,6 +46,7 @@
       imports: 'Imports', exports: 'Exports', funcs: 'functions', noImports: 'No import table.', noExports: 'No exports.',
       strings: 'Strings', urls: 'URLs', ips: 'IPs', registry: 'Registry', paths: 'Paths', commands: 'Commands', crypto_wallets: 'Wallets', sample: 'Sample', none: 'No strings in this category.',
       strLocked: 'Strings are shown only to researcher API key holders.', unlock: 'Show',
+      strHidden: 'This is a text file. Its strings are the file content itself and may contain personal or sensitive information (passwords, tokens, e-mail addresses, paths), so they are shown only to researcher API key holders.',
       sim: 'Similar files (TLSH)', simNote: 'The smaller the distance, the more alike. 0–30 is very close, 30–80 may be the same family. Similarity alone is not a verdict.', dist: 'Distance', list: 'TLSH blacklist', noSim: 'No close files found.',
       ind: 'Static indicators', noInd: 'No notable static indicators.', noReport: 'No static report for this file yet (seen by hash only). It is created when the file is uploaded to the scanner.',
       sev: { high: 'high', medium: 'medium', low: 'low', info: 'info' }, ago: 'ago'
@@ -270,7 +272,16 @@
         }).join('') + '</ul>' : '<p class="vk-body">' + esc(T.noExports) + '</p>') + '</section>';
     }
 
-    // ---- strings
+    // ---- strings (never for text files: they are the content and may hold sensitive data)
+    if (d.strings_hidden || !rep.strings) {
+      html += '<section class="p-card p-wide"><h2>' + esc(T.strings) + '</h2><p class="vk-body">' + esc(T.strHidden) + '</p>' +
+        '<div class="p-keyrow" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><input id="strKey" type="password" autocomplete="off" placeholder="' + esc(T.keyPh) + '" style="flex:1;min-width:220px">' +
+        '<button type="button" class="vk-btn vk-btn-light" id="strUnlock">' + esc(T.unlock) + '</button></div></section>';
+      html += '</div>';
+      root.innerHTML = html;
+      bind();
+      return;
+    }
     var st = rep.strings || {};
     var kinds = ['urls', 'ips', 'registry', 'paths', 'commands', 'crypto_wallets', 'sample'];
     if (!st[state.tab] || !st[state.tab].length) {
