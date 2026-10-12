@@ -740,6 +740,18 @@ impl RuleSet {
         &self.rules
     }
 
+    /// Drops the rules whose `id` is in `ids` (false-positive ignore lists, like
+    /// ClamAV `.ign2`). Returns how many were removed.
+    pub fn remove_ids(&mut self, ids: &std::collections::HashSet<String>) -> usize {
+        let before = self.rules.len();
+        self.rules.retain(|r| !ids.contains(&r.id));
+        let removed = before - self.rules.len();
+        if removed > 0 {
+            self.compile();
+        }
+        removed
+    }
+
     pub fn evaluate_into(&self, report: &mut ScanReport, bytes: &[u8], options: RuleEvalOptions) {
         let index = self
             .index

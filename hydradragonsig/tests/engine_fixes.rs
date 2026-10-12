@@ -190,3 +190,13 @@ fn macho_with_valid_header_is_not_broken() {
     let truncated = data[..24].to_vec();
     assert_eq!(scan(&set, &truncated), vec!["R"]);
 }
+
+#[test]
+fn remove_ids_drops_rules() {
+    let mut set = rules("  - id: A\n    title: t\n    severity: low\n    conditions:\n      - type: string_contains\n        value: 'aaaa'\n  - id: B\n    title: t\n    severity: low\n    conditions:\n      - type: string_contains\n        value: 'bbbb'\n");
+    let all = || ScanOptions { stop_on_detection: false, ..ScanOptions::default() };
+    assert_eq!(scan_with(&set, b"aaaa bbbb", all()).len(), 2);
+    let ids: std::collections::HashSet<String> = ["A".to_string()].into_iter().collect();
+    assert_eq!(set.remove_ids(&ids), 1);
+    assert_eq!(scan_with(&set, b"aaaa bbbb", all()), vec!["B"]);
+}

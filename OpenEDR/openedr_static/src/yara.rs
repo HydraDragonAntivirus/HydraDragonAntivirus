@@ -3,12 +3,15 @@ use yara_x::{Compiler, Rules, Scanner};
 
 pub struct YaraScanner {
     rules: Vec<Rules>,
+    /// Rule names turned off by `*.ign2` / `*.ign` false-positive lists in the rules
+    /// folder (ClamAV ignore-list format). Their matches are dropped.
+    ignored: std::collections::HashSet<String>,
 }
 
 impl YaraScanner {
     pub fn new(rules_dir: &Path) -> Self {
         if !rules_dir.is_dir() {
-            return Self { rules: Vec::new() };
+            return Self { rules: Vec::new(), ignored: Default::default() };
         }
 
         let mut compiler = Compiler::new();
@@ -42,7 +45,7 @@ impl YaraScanner {
             loaded_rules.push(compiled);
         }
 
-        Self { rules: loaded_rules }
+        Self { rules: loaded_rules, ignored: crate::string_rules::read_ignore_lists(rules_dir) }
     }
 
     pub fn scan_bytes(&self, data: &[u8]) -> Vec<String> {
@@ -55,7 +58,9 @@ impl YaraScanner {
             let mut scanner = Scanner::new(rules);
             if let Ok(results) = scanner.scan(data) {
                 for m in results.matching_rules() {
-                    hits.push(m.identifier().to_string());
+                    if !self.ignored.contains(m.identifier()) {
+                        hits.push(m.identifier().to_string());
+                    }
                 }
             }
         }
@@ -88,6 +93,11 @@ impl YaraScanner {
         }
         self.rules.push(compiler.build());
         true
+    }
+
+    /// How many rule names the `.ign2` lists turn off.
+    pub fn ignored_count(&self) -> usize {
+        self.ignored.len()
     }
 
     pub fn rule_count(&self) -> usize {

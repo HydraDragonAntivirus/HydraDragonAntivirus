@@ -185,6 +185,8 @@ pub struct ScanServer {
     pub limits: Arc<LiveLimits>,
     pub threat_intel: Arc<ThreatIntelStore>,
     pub rest_limiter: RestRateLimiter,
+    /// Analyst IP bans (dashboard, Sources tab).
+    pub ip_bans: crate::ip_bans::BanList,
 
     inflight: StdMutex<HashMap<Sha, InflightEntry>>,
     next_token: AtomicU64,
@@ -334,6 +336,7 @@ impl ScanServer {
             limits,
             threat_intel,
             rest_limiter,
+            ip_bans: crate::ip_bans::BanList::load(),
             cfg,
             engine,
             scheduler,
@@ -400,6 +403,7 @@ impl ScanServer {
             .route("/api/v1/sample/:sha256", get(handle_sample_download))
             .route("/api/v1/reviews/request/:sha256", post(handle_review_request))
             .route("/api/v1/scan/url", post(handle_scan_url).get(handle_scan_url_get))
+            .layer(axum::middleware::from_fn_with_state(Arc::clone(self), ban_guard))
             .layer(cors)
             .with_state(Arc::clone(self))
     }
@@ -432,6 +436,19 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         }
         list.sort_by_key(|c| c.id);
         list
+    }
+
+    /// Closes the open sessions of every address the ban list now covers. Returns how many.
+    pub async fn close_banned_sessions(&self) -> usize {
+        let guard = self.sessions.read().await;
+        let mut n = 0;
+        for sess in guard.values() {
+            if self.ip_bans.is_banned(&sess.address) {
+                let _ = sess.abort_tx.try_send(());
+                n += 1;
+            }
+        }
+        n
     }
 
     pub async fn close_all_sessions(&self) {
@@ -605,6 +622,20 @@ impl Drop for InflightGuard {
             self.server.finish_inflight(&self.sha, self.token, &Outcome::UploadFailed);
         }
     }
+}
+
+/// Refuses analyst-banned addresses on every public route (WebSocket included).
+async fn ban_guard(
+    State(server): State<Arc<ScanServer>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let ip = extract_client_ip(addr, req.headers());
+    if server.ip_bans.check(&ip).is_some() {
+        return (StatusCode::FORBIDDEN, "blocked").into_response();
+    }
+    next.run(req).await
 }
 
 fn extract_client_ip(addr: SocketAddr, headers: &HeaderMap) -> String {
@@ -1090,7 +1121,7 @@ fn handle_check(
         if let Some(mut r) = server.known_opts(&sha, &sha_hex, it.rescan) {
             r.id = it.id;
             record_result(server, session, &r, &name, it.size);
-            server.threat_intel.add_folder(&sha_hex, &it.folder, &it.path);
+            server.threat_intel.add_folder(&sha_hex, &session.address, &it.folder, &it.path);
             send_json(out, &r);
             continue;
         }
@@ -1113,7 +1144,7 @@ fn handle_check(
                     size: it.size,
                 });
                 drop(g);
-                server.threat_intel.add_folder(&sha_hex, &it.folder, &it.path);
+                server.threat_intel.add_folder(&sha_hex, &session.address, &it.folder, &it.path);
                 continue;
             }
         }
@@ -1126,7 +1157,7 @@ fn handle_check(
             if it.size > 0 { Some(it.size as u64) } else { None },
             0.0,
         );
-        server.threat_intel.add_folder(&sha_hex, &it.folder, &it.path);
+        server.threat_intel.add_folder(&sha_hex, &session.address, &it.folder, &it.path);
         send_json(out, &serde_json::json!({"type": "need_upload", "id": it.id}));
     }
     Ok(())
@@ -1401,6 +1432,8 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
     if let Some(sg) = res.signer.as_ref() {
         server.threat_intel.set_signer(&res.sha256, sg);
     }
+    // Which IP sent it (the check message adds the full path to the same entry).
+    server.threat_intel.add_folder(&res.sha256, &session.address, "", "");
 
     // Valkyrie-style: files the engine could not settle after a real scan go to the
     // human analysis queue automatically.

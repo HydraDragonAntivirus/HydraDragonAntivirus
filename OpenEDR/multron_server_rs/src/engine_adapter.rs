@@ -180,6 +180,12 @@ impl EngineAdapter {
             .expect("cannot start engine loader");
     }
 
+    /// Folder the engine loads its rules from (`database/`, `yara_rules/`,
+    /// `hydradragonsig_rules/`, ...). None until loading starts.
+    pub fn rules_dir(&self) -> Option<PathBuf> {
+        self.rules_dir.read().unwrap().clone()
+    }
+
     pub fn ready(&self) -> bool {
         self.engine.get().is_some()
     }

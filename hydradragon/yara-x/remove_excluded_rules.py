@@ -4,7 +4,15 @@
 remove_excluded_rules.py
 
 Lite excluded-rules remover. Does ONE thing: strip the rule blocks named in
-excluded_yara_x_rules.txt out of the .yar/.yara files in a directory. No
+exclusion lists out of the .yar/.yara files in a directory.
+
+Exclusion lists (-x, repeatable; a directory means every list in it):
+  * excluded_yara_x_rules.txt style: one rule name per line ('rule NAME' allowed),
+    '#' or '//' comments.
+  * ClamAV-style .ign2 / .ign ignore lists, as written by the Multron dashboard
+    ("False positive: turn off a signature"): 'NAME' or 'NAME:md5' per line,
+    '#' comments. The same file that turns the rule off at run time can then
+    remove it from the sources for good. No
 duplicate scan, no content-dedupe, no index building (that is YARA_Util's job) —
 just the exclusion pass, using the same rule-block boundaries YARA_Util uses.
 
@@ -32,6 +40,12 @@ Examples
 
   # explicit paths
   py -3.12 remove_excluded_rules.py -d rules -x excluded_yara_x_rules.txt
+
+  # the dashboard's FP list (.ign2), together with the txt list
+  py -3.12 remove_excluded_rules.py -x multron_fp.ign2 -x excluded_yara_x_rules.txt
+
+  # every .ign2 / .ign list in a folder (e.g. the server's yara_rules folder)
+  py -3.12 remove_excluded_rules.py -x C:\\path\\to\\yara_rules
 """
 
 import argparse
@@ -81,9 +95,13 @@ def parse_rule_decl(line):
     return None
 
 
+LIST_EXTS = (".ign2", ".ign")
+
+
 def load_exclude_set(filepath):
     """Rule names to remove, accepting bare names or 'rule NAME' lines (the
-    'rule ' prefix is stripped) — same as YARA_Util's load_exclude_list."""
+    'rule ' prefix is stripped) — same as YARA_Util's load_exclude_list — and
+    ClamAV ignore-list lines 'NAME:md5' (.ign2 / .ign)."""
     names = set()
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
@@ -92,9 +110,29 @@ def load_exclude_set(filepath):
                 continue
             if name.lower().startswith("rule "):
                 name = name[5:].strip()
+            # 'NAME:md5' (ign2) or 'NAME : tag' — a YARA identifier has no ':'.
+            name = name.split(":", 1)[0].strip()
             if name:
                 names.add(name)
     return names
+
+
+def resolve_exclude_files(paths):
+    """Files behind the -x arguments: a file as is, a directory as its
+    .ign2 / .ign lists. Returns (files, missing)."""
+    files, missing = [], []
+    for p in paths:
+        if os.path.isdir(p):
+            found = sorted(os.path.join(p, n) for n in os.listdir(p)
+                           if n.lower().endswith(LIST_EXTS) and os.path.isfile(os.path.join(p, n)))
+            if not found:
+                missing.append(p + " (no .ign2 / .ign list in it)")
+            files.extend(found)
+        elif os.path.isfile(p):
+            files.append(p)
+        else:
+            missing.append(p)
+    return files, missing
 
 
 def strip_excluded(lines, excluded):
@@ -128,8 +166,9 @@ def main():
     parser = argparse.ArgumentParser(description="Lite remover: strip excluded rules from YARA files.")
     parser.add_argument("-d", "--directory", default=os.path.join(here, "rules"),
                         help="Directory of .yar/.yara files (default: ./rules next to this script)")
-    parser.add_argument("-x", "--exclude", default=os.path.join(here, "excluded_yara_x_rules.txt"),
-                        help="Exclusion list path (default: ./excluded_yara_x_rules.txt next to this script)")
+    parser.add_argument("-x", "--exclude", action="append", default=None,
+                        help="Exclusion list: .txt, .ign2 / .ign, or a folder of .ign2 / .ign lists. "
+                             "Repeatable. Default: ./excluded_yara_x_rules.txt next to this script")
     parser.add_argument("-o", "--output", default=None,
                         help="Write cleaned copies here instead of editing originals in place")
     parser.add_argument("--no-recurse", action="store_true", help="Do not recurse into subdirectories")
@@ -143,12 +182,19 @@ def main():
     if not os.path.isdir(args.directory):
         print(f"[!] Directory not found: {args.directory}")
         sys.exit(1)
-    if not os.path.isfile(args.exclude):
-        print(f"[!] Exclusion list not found: {args.exclude}")
+    exclude_files, missing = resolve_exclude_files(args.exclude or [os.path.join(here, "excluded_yara_x_rules.txt")])
+    if missing:
+        for m in missing:
+            print(f"[!] Exclusion list not found: {m}")
         sys.exit(1)
 
-    excluded = load_exclude_set(args.exclude)
-    print(f"[*] Loaded {len(excluded)} exclusion entry/entries from {args.exclude}")
+    excluded = set()
+    for xf in exclude_files:
+        names = load_exclude_set(xf)
+        print(f"[*] Loaded {len(names)} exclusion entry/entries from {xf}")
+        excluded |= names
+    if len(exclude_files) > 1:
+        print(f"[*] {len(excluded)} distinct rule name(s) in total")
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         print(f"[*] Output directory: {args.output}")
@@ -165,7 +211,8 @@ def main():
 
     for fp in files:
         try:
-            with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+            # newline="" keeps CRLF / LF exactly as they are in the file.
+            with open(fp, "r", encoding="utf-8", errors="ignore", newline="") as f:
                 lines = f.readlines()
         except OSError as e:
             print(f"  [!] skip {fp}: {e}")
@@ -188,12 +235,12 @@ def main():
 
         if args.output:
             out_path = os.path.join(args.output, os.path.basename(fp))
-            with open(out_path, "w", encoding="utf-8", errors="ignore") as f:
+            with open(out_path, "w", encoding="utf-8", errors="ignore", newline="") as f:
                 f.writelines(kept)
         else:
             if not args.no_backup:
                 shutil.copyfile(fp, f"{fp}.{stamp}.bak")
-            with open(fp, "w", encoding="utf-8", errors="ignore") as f:
+            with open(fp, "w", encoding="utf-8", errors="ignore", newline="") as f:
                 f.writelines(kept)
 
     # Append the removed blocks to the log (so removals are recoverable).

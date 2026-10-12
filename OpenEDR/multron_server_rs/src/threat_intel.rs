@@ -35,11 +35,31 @@ pub struct ThreatInsight {
     /// several user profiles on one computer stay apart. Dashboard only, like `folders`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub full_folders: Vec<String>,
+    /// Which client IP sent the file from which full path (at most `MAX_SIGHTINGS`
+    /// IP/path pairs). Lets analysts count how many different sources a file came
+    /// from and spot abuse. Dashboard only, like `folders`: never published.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sightings: Vec<Sighting>,
     /// Authenticode signer from the last engine scan (dashboard; None = not checked,
     /// e.g. a hash-only verdict or a non-PE file).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signer: Option<SignerSummary>,
 }
+
+/// One client IP + full path a file was sent from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Sighting {
+    pub ip: String,
+    /// Full folder path as sent by the client (empty when the client sent none).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+    pub first_seen: String,
+    pub last_seen: String,
+    pub count: u64,
+}
+
+/// Most IP/path pairs kept per file.
+pub const MAX_SIGHTINGS: usize = 100;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SignerSummary {
@@ -228,6 +248,7 @@ impl ThreatIntelStore {
                 score,
                 folders: Vec::new(),
                 full_folders: Vec::new(),
+                sightings: Vec::new(),
                 signer: None,
             });
 
@@ -273,30 +294,27 @@ impl ThreatIntelStore {
         }
     }
 
-    /// Adds a folder the file was seen in (see `ThreatInsight::folders`) and its full
-    /// path (`ThreatInsight::full_folders`). Only for hashes already recorded; empty or
-    /// unusable paths are ignored.
-    pub fn add_folder(&self, sha256_hex: &str, folder: &str, full: &str) {
+    /// Adds a folder the file was seen in (see `ThreatInsight::folders`), its full
+    /// path (`ThreatInsight::full_folders`) and the client IP it came from together
+    /// with that full path (`ThreatInsight::sightings`). Only for hashes already
+    /// recorded; empty or unusable paths are ignored (the IP is still counted).
+    pub fn add_folder(&self, sha256_hex: &str, ip: &str, folder: &str, full: &str) {
         let folder = sanitize_folder(folder);
         let full = clean_full_folder(full);
-        if folder.is_none() && full.is_none() {
-            return;
-        }
+        let ip: String = ip.trim().chars().filter(|c| !c.is_control()).take(64).collect();
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
         let updated = {
             let mut guard = self.map.write().unwrap();
             let Some(entry) = guard.get_mut(&sha_bytes) else { return };
-            let mut changed = false;
-            for (list, item) in [(&mut entry.folders, folder), (&mut entry.full_folders, full)] {
+            for (list, item) in [(&mut entry.folders, folder), (&mut entry.full_folders, full.clone())] {
                 if let Some(item) = item {
                     if list.len() < 5 && !list.iter().any(|f| f.eq_ignore_ascii_case(&item)) {
                         list.push(item);
-                        changed = true;
                     }
                 }
             }
-            if !changed {
-                return;
+            if !ip.is_empty() {
+                add_sighting(&mut entry.sightings, &ip, full.as_deref().unwrap_or(""), &Utc::now().to_rfc3339());
             }
             entry.clone()
         };
@@ -441,6 +459,106 @@ impl ThreatIntelStore {
         serde_json::Value::Object(out)
     }
 
+    /// Client IPs that sent files (from `ThreatInsight::sightings`), most files first.
+    /// `ip_q` / `path_q` are case-insensitive substrings of the IP / full path; with a
+    /// path filter only the matching sightings are counted. Dashboard only.
+    pub fn sources(&self, ip_q: &str, path_q: &str, limit: usize) -> Vec<serde_json::Value> {
+        let ip_q = ip_q.trim().to_ascii_lowercase();
+        let path_q = path_q.trim().to_lowercase();
+        #[derive(Default)]
+        struct Acc {
+            files: u64,
+            uploads: u64,
+            paths: std::collections::HashSet<String>,
+            first: String,
+            last: String,
+            verdicts: HashMap<String, u64>,
+        }
+        let mut acc: HashMap<String, Acc> = HashMap::new();
+        {
+            let guard = self.map.read().unwrap();
+            for (sha, i) in guard.iter() {
+                let mut seen_ips: Vec<&str> = Vec::new();
+                for sg in &i.sightings {
+                    if !ip_q.is_empty() && !sg.ip.to_ascii_lowercase().contains(&ip_q) {
+                        continue;
+                    }
+                    if !path_q.is_empty() && !sg.path.to_lowercase().contains(&path_q) {
+                        continue;
+                    }
+                    let a = acc.entry(sg.ip.clone()).or_default();
+                    a.uploads += sg.count;
+                    if !sg.path.is_empty() {
+                        a.paths.insert(sg.path.to_lowercase());
+                    }
+                    if a.first.is_empty() || sg.first_seen < a.first {
+                        a.first = sg.first_seen.clone();
+                    }
+                    if sg.last_seen > a.last {
+                        a.last = sg.last_seen.clone();
+                    }
+                    if !seen_ips.contains(&sg.ip.as_str()) {
+                        seen_ips.push(&sg.ip);
+                        a.files += 1;
+                        let v = self.reviews.completed_verdict_raw(sha).unwrap_or_else(|| i.verdict.clone());
+                        *a.verdicts.entry(v).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let mut out: Vec<(u64, serde_json::Value)> = acc
+            .into_iter()
+            .map(|(ip, a)| {
+                (a.files, serde_json::json!({
+                    "ip": ip, "files": a.files, "uploads": a.uploads, "paths": a.paths.len(),
+                    "first_seen": a.first, "last_seen": a.last, "verdicts": a.verdicts,
+                }))
+            })
+            .collect();
+        out.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1["last_seen"].as_str().cmp(&a.1["last_seen"].as_str())));
+        out.into_iter().take(limit).map(|(_, v)| v).collect()
+    }
+
+    /// Files one client IP sent (exact IP), newest first, with the full paths it sent
+    /// them from. `path_q` keeps only sightings whose path contains it. Dashboard only.
+    pub fn files_from_ip(&self, ip: &str, path_q: &str, limit: usize) -> (usize, Vec<serde_json::Value>) {
+        let ip = ip.trim();
+        let path_q = path_q.trim().to_lowercase();
+        let mut out: Vec<(String, serde_json::Value)> = {
+            let guard = self.map.read().unwrap();
+            guard
+                .iter()
+                .filter_map(|(sha, i)| {
+                    let mine: Vec<&Sighting> = i
+                        .sightings
+                        .iter()
+                        .filter(|s| s.ip == ip && (path_q.is_empty() || s.path.to_lowercase().contains(&path_q)))
+                        .collect();
+                    if mine.is_empty() {
+                        return None;
+                    }
+                    let last = mine.iter().map(|s| s.last_seen.as_str()).max().unwrap_or("").to_string();
+                    let human = self.reviews.completed_verdict_raw(sha);
+                    let v = serde_json::json!({
+                        "sha256": i.sha256.to_ascii_lowercase(),
+                        "file_names": i.file_names,
+                        "file_size": i.file_size,
+                        "verdict": human.clone().unwrap_or_else(|| i.verdict.clone()),
+                        "human": human.is_some(),
+                        "threat": i.threat_name,
+                        "seen_count": i.seen_count,
+                        "sources": i.sightings.iter().map(|s| s.ip.as_str()).collect::<std::collections::HashSet<_>>().len(),
+                        "sightings": mine,
+                    });
+                    Some((last, v))
+                })
+                .collect()
+        };
+        let total = out.len();
+        out.sort_by(|a, b| b.0.cmp(&a.0));
+        (total, out.into_iter().take(limit).map(|(_, v)| v).collect())
+    }
+
     pub fn stats(&self) -> ThreatIntelStats {
         let guard = self.map.read().unwrap();
         let mut total_sightings = 0u64;
@@ -541,6 +659,40 @@ fn flush_insights(path: &Path, buffer: &mut Vec<ThreatInsight>) {
     let _ = writer.flush();
 }
 
+/// Records one IP/path sighting (at most `MAX_SIGHTINGS` entries per file).
+/// The engine result is recorded without a path and the client's check message with
+/// one, so one upload must count once:
+/// - no path: refreshes the IP's entry (counted only when that entry has no path
+///   either, i.e. a client that never sends paths) or adds a pathless entry;
+/// - a path: counts an exact IP+path match, otherwise fills the IP's pathless entry
+///   (not counted again) or adds a new entry.
+pub fn add_sighting(list: &mut Vec<Sighting>, ip: &str, path: &str, now: &str) {
+    let (hit, count) = if path.is_empty() {
+        match list.iter().position(|s| s.ip == ip) {
+            Some(i) => (Some(i), list[i].path.is_empty()),
+            None => (None, false),
+        }
+    } else if let Some(i) = list.iter().position(|s| s.ip == ip && s.path.eq_ignore_ascii_case(path)) {
+        (Some(i), true)
+    } else {
+        (list.iter().position(|s| s.ip == ip && s.path.is_empty()), false)
+    };
+    if let Some(i) = hit {
+        let s = &mut list[i];
+        if s.path.is_empty() && !path.is_empty() {
+            s.path = path.to_string();
+        }
+        if count {
+            s.count += 1;
+        }
+        s.last_seen = now.to_string();
+        return;
+    }
+    if list.len() < MAX_SIGHTINGS {
+        list.push(Sighting { ip: ip.to_string(), path: path.to_string(), first_seen: now.to_string(), last_seen: now.to_string(), count: 1 });
+    }
+}
+
 /// Server-side guard for client folder paths: the client already replaces the profile
 /// path with %USERPROFILE%, this catches older or foreign clients. Keeps at most 260
 /// characters, drops control characters and replaces a user name in
@@ -597,5 +749,33 @@ mod folder_tests {
         assert_eq!(sanitize_folder("/home/bob/dl").as_deref(), Some("~/dl"));
         assert_eq!(sanitize_folder("C:\\Program Files\\A").as_deref(), Some("C:\\Program Files\\A"));
         assert_eq!(sanitize_folder("  ").as_deref(), None);
+    }
+}
+
+#[cfg(test)]
+mod sighting_tests {
+    use super::*;
+
+    #[test]
+    fn one_upload_counts_once() {
+        let mut l = Vec::new();
+        // known hash: engine result first (no path), then the check message's path
+        add_sighting(&mut l, "1.2.3.4", "", "t1");
+        add_sighting(&mut l, "1.2.3.4", r"C:\Users\a\Downloads", "t1");
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0].count, 1);
+        assert_eq!(l[0].path, r"C:\Users\a\Downloads");
+        // same file again from the same place
+        add_sighting(&mut l, "1.2.3.4", "", "t2");
+        add_sighting(&mut l, "1.2.3.4", r"c:\users\a\downloads", "t2");
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0].count, 2);
+        assert_eq!(l[0].last_seen, "t2");
+        // another profile on the same computer, another IP
+        add_sighting(&mut l, "1.2.3.4", r"C:\Users\b\Desktop", "t3");
+        add_sighting(&mut l, "5.6.7.8", "", "t3");
+        add_sighting(&mut l, "5.6.7.8", "", "t4");
+        assert_eq!(l.len(), 3);
+        assert_eq!(l[2].count, 2, "client without paths counts each upload");
     }
 }

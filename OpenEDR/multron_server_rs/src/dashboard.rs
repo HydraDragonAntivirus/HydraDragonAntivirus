@@ -321,6 +321,15 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/signatures", get(handle_signatures_list).post(handle_signature_save))
         .route("/api/signatures/delete", post(handle_signature_delete))
+        .route("/api/fp/detections/:sha256", get(handle_fp_detections))
+        .route("/api/fp/lists", get(handle_fp_lists))
+        .route("/api/fp/ignore", post(handle_fp_ignore))
+        .route("/api/fp/unignore", post(handle_fp_unignore))
+        .route("/api/sources", get(handle_sources))
+        .route("/api/sources/files", get(handle_source_files))
+        .route("/api/bans", get(handle_bans_list))
+        .route("/api/bans/add", post(handle_ban_add))
+        .route("/api/bans/remove", post(handle_ban_remove))
         .route("/api/retrohunt", get(handle_retrohunt_status))
         .route("/api/retrohunt/stop", post(handle_retrohunt_stop))
         .route("/api/naming", get(handle_naming_check))
@@ -1123,6 +1132,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
                 v["file_size"] = serde_json::json!(ins.file_size);
                 v["folders"] = serde_json::json!(ins.folders);
                 v["full_folders"] = serde_json::json!(ins.full_folders);
+                v["sightings"] = serde_json::json!(ins.sightings);
                 v["current_verdict"] = serde_json::json!(ins.verdict);
                 v["current_threat"] = serde_json::json!(ins.threat_name);
                 if let Some(sg) = &ins.signer {
@@ -1688,4 +1698,188 @@ async fn handle_companies_save(
     app.scan_server.cache.invalidate_all();
     info_event(&app, format!("company lists saved: {summary}"));
     Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists(), "note": "Saved and active; cached verdicts cleared." })).into_response()
+}
+
+
+// ---------------- False-positive signature lists ----------------
+
+fn fp_rules_dir(app: &AppState) -> Result<std::path::PathBuf, Response> {
+    app.engine.rules_dir().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "the engine has not started loading yet"}))).into_response()
+    })
+}
+
+/// Signatures named in the last result for this file (verdict cache, else the
+/// rescan log), with the engine each belongs to.
+async fn handle_fp_detections(State(app): State<Arc<AppState>>, Path(sha256): Path<String>) -> impl IntoResponse {
+    let sha = sha256.trim().to_ascii_lowercase();
+    let detail = crate::cache::parse_sha(&sha.to_ascii_uppercase())
+        .and_then(|s| app.scan_server.cache.get(&s))
+        .and_then(|c| c.detail.clone())
+        .or_else(|| app.scan_server.rescan.log().into_iter().find(|e| e.sha256 == sha && e.error.is_none()).and_then(|e| e.detail));
+    let threat = app.threat_intel.get(&sha).and_then(|i| i.threat_name);
+    match detail {
+        Some(d) => Json(serde_json::json!({"ok": true, "detail": d, "threat": threat, "detections": crate::fp_ignore::parse_detail(&d)})),
+        None => Json(serde_json::json!({"ok": true, "detail": null, "threat": threat, "detections": [],
+            "note": "No engine detail for this file in memory: rescan it first."})),
+    }
+}
+
+#[derive(Deserialize)]
+struct SourcesQuery {
+    #[serde(default)]
+    ip: String,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// Client IPs that sent files, with file / path counts (bot and abuse hunting).
+async fn handle_sources(State(app): State<Arc<AppState>>, Query(q): Query<SourcesQuery>) -> Response {
+    let ti = Arc::clone(&app.threat_intel);
+    let limit = q.limit.unwrap_or(200).clamp(1, 2000);
+    let mut list = tokio::task::spawn_blocking(move || ti.sources(&q.ip, &q.path, limit)).await.unwrap_or_default();
+    for v in &mut list {
+        let banned = v["ip"].as_str().is_some_and(|ip| app.scan_server.ip_bans.is_banned(ip));
+        v["banned"] = serde_json::json!(banned);
+    }
+    Json(serde_json::json!({"ok": true, "sources": list})).into_response()
+}
+
+/// Files one client IP sent, with the full paths it sent them from.
+async fn handle_source_files(State(app): State<Arc<AppState>>, Query(q): Query<SourcesQuery>) -> Response {
+    if q.ip.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok": false, "error": "ip required"}))).into_response();
+    }
+    let ti = Arc::clone(&app.threat_intel);
+    let limit = q.limit.unwrap_or(500).clamp(1, 5000);
+    let ip = q.ip.clone();
+    let (total, files) = tokio::task::spawn_blocking(move || ti.files_from_ip(&q.ip, &q.path, limit)).await.unwrap_or_default();
+    let banned = app.scan_server.ip_bans.is_banned(&ip);
+    Json(serde_json::json!({"ok": true, "ip": ip.trim(), "banned": banned, "total": total, "files": files})).into_response()
+}
+
+/// Analyst IP bans plus the automatic (rate limit) bans active now.
+async fn handle_bans_list(State(app): State<Arc<AppState>>) -> Response {
+    Json(serde_json::json!({
+        "ok": true,
+        "bans": app.scan_server.ip_bans.list(),
+        "auto": app.scan_server.limiter.banned_now(),
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct BanBody {
+    ip: String,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    analyst: String,
+    /// 0 = until removed.
+    #[serde(default)]
+    minutes: u64,
+}
+
+/// Bans an IP or CIDR range on every public route and closes its open sessions.
+async fn handle_ban_add(State(app): State<Arc<AppState>>, Json(b): Json<BanBody>) -> Response {
+    match app.scan_server.ip_bans.add(&b.ip, &b.reason, &b.analyst, b.minutes) {
+        Ok(ban) => {
+            let closed = app.scan_server.close_banned_sessions().await;
+            let span = if b.minutes == 0 { "until removed".to_string() } else { format!("for {} min", b.minutes) };
+            info_event(&app, format!("IP ban {} {span} by {}: {} ({closed} session(s) closed)", ban.rule,
+                if ban.analyst.is_empty() { "analyst" } else { &ban.analyst }, ban.reason));
+            Json(serde_json::json!({"ok": true, "ban": ban, "closed": closed})).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok": false, "error": e}))).into_response(),
+    }
+}
+
+async fn handle_ban_remove(State(app): State<Arc<AppState>>, Json(b): Json<BanBody>) -> Response {
+    match app.scan_server.ip_bans.remove(&b.ip) {
+        Ok(removed) => {
+            if removed {
+                info_event(&app, format!("IP ban {} removed", b.ip.trim()));
+            }
+            Json(serde_json::json!({"ok": true, "removed": removed})).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok": false, "error": e}))).into_response(),
+    }
+}
+
+async fn handle_fp_lists(State(app): State<Arc<AppState>>) -> Response {
+    let rules = match fp_rules_dir(&app) {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    let lists: Vec<_> = crate::fp_ignore::Kind::ALL.iter().map(|k| crate::fp_ignore::list(&rules, *k)).collect();
+    Json(serde_json::json!({"ok": true, "lists": lists})).into_response()
+}
+
+#[derive(Deserialize)]
+struct FpIgnoreBody {
+    kind: String,
+    name: String,
+    #[serde(default)]
+    file: String,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    analyst: String,
+    #[serde(default)]
+    sha256: String,
+    #[serde(default)]
+    file_name: String,
+}
+
+async fn handle_fp_ignore(State(app): State<Arc<AppState>>, Json(b): Json<FpIgnoreBody>) -> Response {
+    let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    let Some(kind) = crate::fp_ignore::Kind::parse(&b.kind) else {
+        return bad("kind must be clamav, hydrasig or yara".into());
+    };
+    let rules = match fp_rules_dir(&app) {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    let req = crate::fp_ignore::AddRequest {
+        kind,
+        name: b.name.trim(),
+        file: &b.file,
+        reason: &b.reason,
+        analyst: &b.analyst,
+        sha256: &b.sha256,
+        file_name: &b.file_name,
+    };
+    match crate::fp_ignore::add(&rules, &req) {
+        Ok(path) => {
+            info_event(&app, format!("FP list: {} {} added to {} ({})", kind.id(), b.name.trim(), path.display(), b.reason.trim()));
+            Json(serde_json::json!({"ok": true, "file": path.display().to_string(), "note": kind.note()})).into_response()
+        }
+        Err(e) => bad(e),
+    }
+}
+
+#[derive(Deserialize)]
+struct FpUnignoreBody {
+    kind: String,
+    file: String,
+    name: String,
+}
+
+async fn handle_fp_unignore(State(app): State<Arc<AppState>>, Json(b): Json<FpUnignoreBody>) -> Response {
+    let Some(kind) = crate::fp_ignore::Kind::parse(&b.kind) else {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "unknown kind"}))).into_response();
+    };
+    let rules = match fp_rules_dir(&app) {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    match crate::fp_ignore::remove(&rules, kind, &b.file, b.name.trim()) {
+        Ok(()) => {
+            info_event(&app, format!("FP list: {} {} removed from {}", kind.id(), b.name.trim(), b.file));
+            Json(serde_json::json!({"ok": true, "note": "Removed. Active after the next engine reload."})).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+    }
 }

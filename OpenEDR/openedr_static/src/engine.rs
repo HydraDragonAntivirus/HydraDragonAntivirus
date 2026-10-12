@@ -317,6 +317,13 @@ impl StaticEngine {
                                 }
                             }
                         }
+                        // False-positive ignore lists (`*.ign2` / `*.ign`, ClamAV format:
+                        // one rule id per line, `#` comments): those rules are dropped.
+                        let ignored = crate::string_rules::read_ignore_lists(&dir);
+                        if !ignored.is_empty() {
+                            let n = string_rules.ignore(&ignored);
+                            diagnostics::log("hydrasig-ignore", &format!("{} id(s) listed, {} rule(s) dropped", ignored.len(), n));
+                        }
                     }
                 }
             });

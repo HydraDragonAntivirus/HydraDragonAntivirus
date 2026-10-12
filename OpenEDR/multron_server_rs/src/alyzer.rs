@@ -130,7 +130,7 @@ async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u
         "report": report,
         "engine": insight.as_ref().map(|i| serde_json::json!({
             "verdict": i.verdict, "threat": i.threat_name, "seen": i.seen_count,
-            "first_seen": i.first_seen, "last_seen": i.last_seen, "file_names": i.file_names, "folders": i.folders, "full_folders": i.full_folders,
+            "first_seen": i.first_seen, "last_seen": i.last_seen, "file_names": i.file_names, "folders": i.folders, "full_folders": i.full_folders, "sightings": i.sightings,
         })),
         "engine_detail": cached.as_ref().and_then(|c| c.detail.clone()),
         "signer": insight.as_ref().and_then(|i| i.signer.clone()),

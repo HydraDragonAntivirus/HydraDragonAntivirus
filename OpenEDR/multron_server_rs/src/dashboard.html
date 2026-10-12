@@ -200,6 +200,17 @@
   #ctxMenu { position: fixed; z-index: 1000; min-width: 250px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.28); padding: 4px; font-size: 13px; }
   #ctxMenu .mi { padding: 6px 12px; border-radius: 5px; cursor: pointer; display: flex; gap: 10px; align-items: center; white-space: nowrap; }
   #ctxMenu .mi:hover { background: var(--panel2); }
+  #fpModal { position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; overflow: auto; }
+  #fpModal .box { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; width: min(760px, 100%); padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  #fpModal .det { display: flex; gap: 10px; align-items: flex-start; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; margin-top: 6px; cursor: pointer; }
+  #fpModal .det.dis { opacity: .55; cursor: default; }
+  #fpModal .det input { margin-top: 3px; width: auto; flex: none; }
+  #fpModal .det > div { flex: 1; text-align: left; }
+  #fpModal .acts button { width: auto; flex: none; }
+  #fpModal .det .nm { font-family: Consolas, monospace; font-size: 12.5px; word-break: break-all; }
+  .fp-entry { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 6px 8px; border-top: 1px solid var(--border); }
+  .fp-entry .nm { font-family: Consolas, monospace; font-size: 12.5px; word-break: break-all; }
+  .fp-entry .cm { color: var(--muted); font-size: 12px; }
   #ctxMenu .mi.dis { opacity: .45; pointer-events: none; }
   #ctxMenu .mi .ic { width: 16px; text-align: center; opacity: .8; }
   #ctxMenu .sep { height: 1px; background: var(--border); margin: 4px 6px; }
@@ -432,6 +443,10 @@
           <div id="sigMsg" class="error"></div>
         </div>
       </div>
+      <h2 style="margin-top:22px">False-positive signature lists</h2>
+      <div class="hint" style="margin-top:0">Signatures turned off because they flag clean files, each with its reason. All three engines (ClamAV, HydraDragonSig, YARA) use <code>.ign2</code> ignore lists in their rule folders, active after the next engine reload. For YARA, <code>remove_excluded_rules.py -x &lt;list&gt;.ign2</code> also removes the rules from the sources for good before the next <code>.yrc</code> build. Add entries from a file's right-click menu or from human analysis.</div>
+      <div style="margin:8px 0"><button class="ghost" id="fpReload">Refresh</button> <button class="ghost" id="fpEngineReload">Reload engine now</button> <span id="fpListMsg" class="hint"></span></div>
+      <div id="fpLists"></div>
       <h2 style="margin-top:22px">Retrohunt</h2>
       <div class="hint" style="margin-top:0">Every saved signature is matched against all kept files (every category of the work folder), like VirusTotal Retrohunt. Each match is rescanned with the full engine and the current settings, so its verdict updates; a human verdict still wins. Saving a rule again starts a new hunt.</div>
       <div class="row2" style="margin-top:8px"><div id="rhSummary" class="hint" style="margin:0"></div><div style="text-align:right"><button class="danger" id="rhStop" style="width:auto" hidden>Stop retrohunt</button></div></div>
@@ -489,6 +504,7 @@
         <button class="ghost" data-tab="Stats">Analysts &amp; time</button>
         <button class="ghost" data-tab="Rescan">Rescan</button>
         <button class="ghost" data-tab="Alyzer">VirusKovAlyzer</button>
+        <button class="ghost" data-tab="Sources">Sources (IP)</button>
       </div>
     </div>
 
@@ -672,6 +688,47 @@
           </table></div>
         </div>
       </div>
+    </div>
+    <div class="ha-tab" id="haTabSources" hidden>
+      <div class="ha-toolbar" style="grid-template-columns:200px minmax(200px,1fr) auto auto;align-items:center">
+        <input id="srcIp" type="search" placeholder="IP contains…" spellcheck="false">
+        <input id="srcPath" type="search" placeholder="Full path contains… (C:\Users\name\Downloads)" spellcheck="false">
+        <button class="primary" id="srcGo">List</button>
+        <span class="hint" id="srcMsg" style="margin:0"></span>
+      </div>
+      <div class="ha-toolbar" style="grid-template-columns:200px minmax(160px,1fr) 150px auto;align-items:center;margin-top:8px">
+        <input id="banIp" type="text" placeholder="IP or range (1.2.3.0/24)" spellcheck="false">
+        <input id="banReason" type="text" placeholder="Reason (e.g. bot uploading sandbox files)">
+        <select id="banFor">
+          <option value="60">1 hour</option>
+          <option value="1440">24 hours</option>
+          <option value="10080">7 days</option>
+          <option value="43200">30 days</option>
+          <option value="0" selected>Until removed</option>
+        </select>
+        <button class="danger" id="banGo" style="width:auto;margin-top:0">Ban IP</button>
+        <span class="hint" id="banMsg" style="margin:0;grid-column:1/-1"></span>
+      </div>
+      <div class="hint" style="margin:4px 0 8px">Which client IP sent which files from which full path. Many files, many paths or only unknown files from one IP usually means a bot. Click an IP to list its files, click a path to filter by it. Right-click a file for the usual menu.</div>
+      <div class="ha-grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1.6fr)">
+        <div class="tablewrap" style="max-height:620px;overflow:auto"><table>
+          <thead><tr><th>IP</th><th class="num">Files</th><th class="num">Uploads</th><th class="num">Paths</th><th>Verdicts</th><th>Last seen</th></tr></thead>
+          <tbody id="srcRows"><tr><td colspan="6" class="empty">Press List</td></tr></tbody>
+        </table></div>
+        <div style="min-width:0">
+          <div class="feedbar" style="margin:0 0 6px"><h2 style="margin:0;font-size:14px" id="srcFilesTitle">Files</h2><span class="spacer"></span><button class="ghost" id="srcCopy" disabled>Copy SHA-256 list</button></div>
+          <div class="tablewrap" style="max-height:620px;overflow:auto"><table>
+            <thead><tr><th>File</th><th>Verdict</th><th class="num">Sources</th><th>Full path (count, last seen)</th></tr></thead>
+            <tbody id="srcFiles"><tr><td colspan="4" class="empty">Pick an IP</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+      <div class="feedbar" style="margin:16px 0 6px"><h2 style="margin:0;font-size:14px">Banned IPs</h2><span class="hint" style="margin:0">Banned addresses get 403 on every public route (scans, file pages, API) and their open connections are closed. Saved in <code>ip_bans.json</code>.</span><span class="spacer"></span><button class="ghost" id="banRefresh">Refresh</button></div>
+      <div class="tablewrap" style="max-height:320px;overflow:auto"><table>
+        <thead><tr><th>IP / range</th><th>Reason</th><th>Analyst</th><th>Since</th><th>Until</th><th class="num">Refused</th><th></th></tr></thead>
+        <tbody id="banRows"><tr><td colspan="7" class="empty">No bans</td></tr></tbody>
+      </table></div>
+      <div class="hint" id="banAuto" style="margin-top:6px"></div>
     </div>
     <div class="ha-tab" id="haTabAlyzer" hidden>
       <div class="va-bar">
@@ -1413,7 +1470,7 @@
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {
     document.querySelectorAll("#haTabs button").forEach(x => x.classList.toggle("active", x === b));
-    ["Queue", "Folder", "Recent", "Stats", "Rescan", "Alyzer"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
+    ["Queue", "Folder", "Recent", "Stats", "Rescan", "Alyzer", "Sources"].forEach(t => { $("haTab" + t).hidden = t !== b.dataset.tab; });
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
@@ -1552,7 +1609,7 @@
       (r.full_folders || []).length ? `<div><span class="k">Full paths:</span> ${r.full_folders.map(haEsc).join("<br>")}</div>` : "",
       (r.folders || []).length ? `<div><span class="k">Folders:</span> ${r.folders.map(haEsc).join("<br>")}</div>` : "",
       `<div><span class="k">Engine:</span> ${haVTag(r.current_verdict || r.engine_verdict)} ${r.current_threat ? "<b>" + haEsc(r.current_threat) + "</b>" : ""} · seen ${r.seen_count || 0}× · ${haSize(r.file_size)}</div>`,
-      r.engine_detail ? `<div><span class="k">Detected by:</span> ${haEsc(r.engine_detail)}</div>` : "",
+      r.engine_detail ? `<div><span class="k">Detected by:</span> ${haEsc(r.engine_detail)} · <a href="#" onclick="fpOpen('${sha}', ${haEsc(JSON.stringify(haName(r) || ""))});return false" style="color:var(--accent)">False positive: turn off a signature…</a></div>` : "",
       `<div><span class="k">Signer:</span> ${haSigner(r, true)}</div>`,
       `<div><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" style="color:var(--accent)">VirusTotal ↗</a> · <a href="#" onclick="rescanSha('${sha}');return false" style="color:var(--accent)">Rescan</a></div>`,
       `<div><span class="k">Requested:</span> ${new Date(r.requested_at).toLocaleString()}${r.started_at ? ` · <span class="k">${r.timed ? "started" : "verdict"}:</span> ${new Date(r.started_at).toLocaleString()}${r.started_by ? " by <b>" + haEsc(r.started_by) + "</b>" : ""}` : ""}${r.reviewed_at ? ` · <span class="k">done:</span> ${new Date(r.reviewed_at).toLocaleString()}` : ""}</div>`,
@@ -2059,7 +2116,7 @@
 (() => {
   // Right-click menu for file rows: queue, verdicts, rescan log, scan queue.
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #feed tr[data-sha]";
+  const ROWS = "#haRows tr.it, #haRecentRows tr[data-sha], #rsRows tr[data-sha], #sqRows tr[data-sha], #feed tr[data-sha], #srcFiles tr[data-sha]";
   let menu = null;
   const toast = (msg) => {
     let t = document.getElementById("ctxToast");
@@ -2096,6 +2153,7 @@
       ["site", "&#8599;", "Open report on viruskov.com"],
       ["rescan", "&#8635;", "Rescan"],
       ["alyzer", "&#128269;", "Open in VirusKovAlyzer"],
+      ["fp", "&#9888;", "False positive: turn off a signature…"],
       ["sep"],
       ["analyse", "&#9654;", inQueue ? "Show in the verdict panel" : "Open in human analysis"],
       ["v-clean", "&#10003;", "Verdict: clean (whitelist)…"],
@@ -2130,6 +2188,7 @@
         else if (act === "vt") window.open("https://www.virustotal.com/gui/file/" + sha, "_blank", "noopener");
         else if (act === "site") window.open("https://viruskov.com/file/?sha256=" + sha, "_blank", "noopener");
         else if (act === "alyzer") { if (typeof window.vaOpenSha === "function") window.vaOpenSha(sha); }
+        else if (act === "fp") { if (typeof window.fpOpen === "function") window.fpOpen(sha, name); }
         else if (act === "rescan") { if (typeof window.rescanSha === "function") { window.rescanSha(sha); toast("Rescanning…"); } }
         else if (act === "analyse") open();
         else if (act.startsWith("v-")) open(act.slice(2));
@@ -2559,6 +2618,229 @@
 
   window.addEventListener("beforeunload", (e) => { if (hasEdits()) { e.preventDefault(); e.returnValue = ""; } });
   refreshDocs();
+})();
+</script>
+<script>
+(() => {
+  // ---------------- False-positive signature lists ----------------
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const api = async (url, body) => {
+    const res = await fetch(url, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || res.statusText);
+    return d;
+  };
+  const KIND_LABEL = { clamav: "ClamAV (.ign2)", hydrasig: "HydraDragonSig (.ign2)", yara: "YARA (.ign2)" };
+  let lists = [];
+  const listOf = (kind) => lists.find(l => l.kind === kind) || { files: [], default_file: "multron_fp.ign2", note: "" };
+
+  async function loadLists() {
+    try { lists = (await api("/api/fp/lists")).lists || []; } catch (e) { $("fpListMsg").textContent = e.message; lists = []; }
+    renderLists();
+  }
+  function renderLists() {
+    const box = $("fpLists"); if (!box) return;
+    box.innerHTML = lists.map(l => {
+      const files = l.files.filter(f => f.entries.length);
+      return `<div class="ha-item" style="display:block;margin-top:8px"><div><b>${esc(KIND_LABEL[l.kind] || l.kind)}</b> <span class="hint" style="margin:0">${esc(l.dir)}</span></div>` +
+        (files.length ? files.map(f => `<div style="margin-top:6px"><div class="hint" style="margin:0">${esc(f.file)} · ${f.entries.length} entr${f.entries.length === 1 ? "y" : "ies"}</div>` +
+          f.entries.map(e => `<div class="fp-entry"><div><div class="nm">${esc(e.name)}</div><div class="cm">${e.comment.map(esc).join("<br>")}</div></div>
+            <button class="ghost" data-fpdel="${esc(l.kind)}|${esc(f.file)}|${esc(e.name)}">Remove</button></div>`).join("") + `</div>`).join("")
+          : `<div class="hint">Nothing turned off.</div>`) + `</div>`;
+    }).join("");
+  }
+  document.addEventListener("click", async (ev) => {
+    const b = ev.target.closest("[data-fpdel]"); if (!b) return;
+    const [kind, file, name] = b.dataset.fpdel.split("|");
+    if (!confirm(`Turn ${name} back on (remove it from ${file})?`)) return;
+    try { const r = await api("/api/fp/unignore", { kind, file, name }); $("fpListMsg").textContent = r.note; loadLists(); }
+    catch (e) { $("fpListMsg").textContent = e.message; }
+  });
+  const reloadEngine = async () => { await api("/api/engine/reload", {}); };
+  if ($("fpReload")) $("fpReload").onclick = loadLists;
+  if ($("fpEngineReload")) $("fpEngineReload").onclick = async () => {
+    try { await reloadEngine(); $("fpListMsg").textContent = "Engine reload started (cached verdicts are cleared when it finishes)."; } catch (e) { $("fpListMsg").textContent = e.message; }
+  };
+
+  window.fpOpen = async (sha, name) => {
+    const old = $("fpModal"); if (old) old.remove();
+    const m = document.createElement("div"); m.id = "fpModal";
+    m.innerHTML = `<div class="box"><h2 style="margin:0 0 4px">False positive: turn off a signature</h2>
+      <div class="hint" style="margin:0 0 10px">${esc(name || "")} <span style="font-family:Consolas,monospace">${esc(sha)}</span></div>
+      <div id="fpDets">Loading the detections…</div>
+      <div id="fpForm" hidden>
+        <div class="row2" style="margin-top:12px">
+          <div><label for="fpFile">List file</label><select id="fpFile"></select></div>
+          <div><label for="fpNewFile">New file name</label><input id="fpNewFile" type="text" placeholder="multron_fp.ign2"></div>
+        </div>
+        <label for="fpReason" style="margin-top:10px">Reason (kept as a comment above the entry)</label>
+        <textarea id="fpReason" style="min-height:70px" placeholder="FP on <product / file>: <why the signature is wrong>"></textarea>
+        <label style="margin-top:8px;font-weight:400"><input type="checkbox" id="fpDoReload"> Reload the engine after saving</label>
+        <div class="hint" id="fpNote"></div>
+      </div>
+      <div id="fpMsg" class="error"></div>
+      <div class="acts" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="ghost" id="fpCancel">Cancel</button><button class="primary" id="fpSave" disabled>Turn off</button></div></div>`;
+    document.body.appendChild(m);
+    const close = () => m.remove();
+    m.addEventListener("click", (e) => { if (e.target === m) close(); });
+    $("fpCancel").onclick = close;
+    document.addEventListener("keydown", function onKey(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } });
+    const [d] = await Promise.all([api("/api/fp/detections/" + sha).catch(e => ({ error: e.message })), loadLists()]);
+    if (d.error) { $("fpDets").textContent = d.error; return; }
+    const dets = d.detections || [];
+    if (!dets.length) { $("fpDets").innerHTML = `<div class="hint">${esc(d.note || "No signature named in the engine result" + (d.detail ? ": " + d.detail : "."))}</div>`; return; }
+    const why = { analyst: "Analyst signature: edit or delete it in the signature room.", other: "Not a named signature (ML, heuristic or signer): give the file a clean human verdict instead." };
+    $("fpDets").innerHTML = dets.map((x, i) => {
+      const ok = ["clamav", "hydrasig", "yara"].includes(x.kind);
+      return `<div class="det${ok ? "" : " dis"}" data-i="${i}"><input type="radio" name="fpDet" value="${i}" ${ok ? "" : "disabled"}>
+        <div><div class="nm">${esc(x.name)}</div><div class="hint" style="margin:0">${esc(x.layer)}${x.raw !== x.name ? " · reported as " + esc(x.raw) : ""}${ok ? "" : " · " + esc(why[x.kind] || "")}</div></div></div>`;
+    }).join("");
+    const pick = () => {
+      const sel = m.querySelector('input[name="fpDet"]:checked'); if (!sel) return null;
+      return dets[+sel.value];
+    };
+    const fill = () => {
+      const x = pick(); if (!x) return;
+      const l = listOf(x.kind);
+      const names = l.files.map(f => f.file);
+      if (!names.includes(l.default_file)) names.unshift(l.default_file);
+      $("fpFile").innerHTML = names.map(n => `<option>${esc(n)}</option>`).join("") + `<option value="">New file…</option>`;
+      $("fpNewFile").placeholder = "my_list.ign2";
+      $("fpNewFile").disabled = true;
+      $("fpDoReload").checked = false;
+      $("fpNote").textContent = l.note || "";
+      $("fpForm").hidden = false; $("fpSave").disabled = false;
+    };
+    m.querySelectorAll('input[name="fpDet"]').forEach(r => r.addEventListener("change", fill));
+    m.querySelectorAll("#fpDets .det").forEach(d => d.addEventListener("click", (e) => {
+      const r = d.querySelector("input"); if (r.disabled || e.target === r) return; r.checked = true; fill();
+    }));
+    const first = m.querySelector('input[name="fpDet"]:not([disabled])'); if (first) { first.checked = true; fill(); }
+    $("fpFile").onchange = () => { $("fpNewFile").disabled = $("fpFile").value !== ""; if (!$("fpNewFile").disabled) $("fpNewFile").focus(); };
+    $("fpSave").onclick = async () => {
+      const x = pick(); if (!x) return;
+      const file = $("fpFile").value || $("fpNewFile").value.trim();
+      const reason = $("fpReason").value.trim();
+      if (!file) { $("fpMsg").textContent = "Pick a list file or enter a new file name."; return; }
+      if (reason.length < 3) { $("fpMsg").textContent = "Write the reason."; $("fpReason").focus(); return; }
+      let analyst = ""; try { analyst = localStorage.getItem("multron_analyst") || ""; } catch (_) {}
+      $("fpSave").disabled = true;
+      try {
+        const r = await api("/api/fp/ignore", { kind: x.kind, name: x.name, file, reason, analyst, sha256: sha, file_name: name || "" });
+        let note = `Saved to ${r.file}. ${r.note}`;
+        if ($("fpDoReload").checked) { await reloadEngine(); note += " Engine reload started."; }
+        close(); $("fpListMsg").textContent = note; loadLists();
+        let t = $("ctxToast");
+        if (!t) { t = document.createElement("div"); t.id = "ctxToast"; document.body.appendChild(t); }
+        t.textContent = note; t.hidden = false;
+        clearTimeout(t._h); t._h = setTimeout(() => { t.hidden = true; }, 6000);
+      } catch (e) { $("fpMsg").textContent = e.message; $("fpSave").disabled = false; }
+    };
+  };
+  loadLists();
+})();
+</script>
+<script>
+(() => {
+  // ---------------- Sources (client IP -> files -> full paths) ----------------
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const tag = (v) => `<span class="tag t-${["malicious","suspicious","clean","possible_clean"].includes(v) ? v : "unknown"}">${esc(v || "unknown")}</span>`;
+  const when = (t) => t ? esc(String(t).replace("T", " ").slice(0, 19)) : "—";
+  let curIp = "", shas = [];
+  const get = async (url) => {
+    const r = await fetch(url, { cache: "no-store" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.ok === false) throw new Error(d.error || r.statusText);
+    return d;
+  };
+  async function listSources() {
+    $("srcMsg").textContent = "Loading…";
+    try {
+      const d = await get(`/api/sources?ip=${encodeURIComponent($("srcIp").value)}&path=${encodeURIComponent($("srcPath").value)}&limit=500`);
+      const rows = d.sources || [];
+      $("srcMsg").textContent = `${rows.length} IP${rows.length === 1 ? "" : "s"}${rows.length >= 500 ? " (first 500)" : ""}`;
+      $("srcRows").innerHTML = rows.length ? rows.map(r => `<tr data-ip="${esc(r.ip)}" style="cursor:pointer${r.ip === curIp ? ";background:var(--panel2)" : ""}">
+        <td class="mono">${esc(r.ip)}${r.banned ? ' <span class="tag t-malicious">banned</span>' : ""}</td><td class="num">${r.files}</td><td class="num">${r.uploads}</td><td class="num">${r.paths}</td>
+        <td>${Object.entries(r.verdicts || {}).sort((a, b) => b[1] - a[1]).map(([v, n]) => `<span style="white-space:nowrap;display:inline-block;margin:1px 4px 1px 0">${tag(v)} ${n}</span>`).join("")}</td>
+        <td style="white-space:nowrap">${when(r.last_seen)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty">No sources recorded yet (only files sent after this update carry an IP)</td></tr>`;
+    } catch (e) { $("srcMsg").textContent = e.message; }
+  }
+  async function listFiles(ip) {
+    curIp = ip;
+    document.querySelectorAll("#srcRows tr[data-ip]").forEach(tr => tr.style.background = tr.dataset.ip === ip ? "var(--panel2)" : "");
+    $("srcFilesTitle").textContent = `Files from ${ip} …`;
+    try {
+      const d = await get(`/api/sources/files?ip=${encodeURIComponent(ip)}&path=${encodeURIComponent($("srcPath").value)}&limit=2000`);
+      const files = d.files || [];
+      shas = files.map(f => f.sha256);
+      $("srcCopy").disabled = !shas.length;
+      $("srcFilesTitle").textContent = `Files from ${ip}: ${d.total}${d.total > files.length ? ` (showing ${files.length})` : ""}${d.banned ? " — BANNED" : ""}`;
+      $("banIp").value = ip;
+      $("srcFiles").innerHTML = files.length ? files.map(f => {
+        const name = (f.file_names || [])[0] || "";
+        return `<tr data-sha="${esc(f.sha256)}" data-name="${esc(name)}">
+          <td><div>${esc(name || "—")}</div><div class="mono" style="font-size:11px;color:var(--muted)" title="${esc(f.sha256)}">${esc(f.sha256.slice(0, 24))}…</div></td>
+          <td>${tag(f.verdict)}${f.human ? " <i>human</i>" : ""}${f.threat ? `<div style="font-size:11px">${esc(f.threat)}</div>` : ""}</td>
+          <td class="num" title="different IPs that sent this file">${f.sources}</td>
+          <td style="font-size:12px">${(f.sightings || []).map(s => `<div><a href="#" class="srcPath" data-path="${esc(s.path)}" style="color:var(--accent);text-decoration:none;word-break:break-all">${esc(s.path || "(no path sent)")}</a> <span style="color:var(--muted)">×${s.count}, ${when(s.last_seen)}</span></div>`).join("")}</td></tr>`;
+      }).join("") : `<tr><td colspan="4" class="empty">No files</td></tr>`;
+    } catch (e) { $("srcFilesTitle").textContent = e.message; }
+  }
+  $("srcGo").onclick = listSources;
+  ["srcIp", "srcPath"].forEach(id => $(id).addEventListener("keydown", e => { if (e.key === "Enter") listSources(); }));
+  $("srcRows").addEventListener("click", e => { const tr = e.target.closest("tr[data-ip]"); if (tr) listFiles(tr.dataset.ip); });
+  $("srcFiles").addEventListener("click", e => {
+    const a = e.target.closest("a.srcPath"); if (!a) return;
+    e.preventDefault();
+    if (!a.dataset.path) return;
+    $("srcPath").value = a.dataset.path;
+    listSources(); if (curIp) listFiles(curIp);
+  });
+  $("srcCopy").onclick = () => { navigator.clipboard.writeText(shas.join("\n")).then(() => { $("srcMsg").textContent = `${shas.length} SHA-256 copied`; }, () => {}); };
+  // ---- IP bans ----
+  const post = async (url, body) => {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Multron-Dashboard": "1" }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.ok === false) throw new Error(d.error || r.statusText);
+    return d;
+  };
+  async function listBans() {
+    try {
+      const d = await get("/api/bans");
+      const bans = d.bans || [];
+      $("banRows").innerHTML = bans.length ? bans.map(b => `<tr style="${b.active ? "" : "opacity:.55"}">
+        <td class="mono">${esc(b.rule)}${b.active ? "" : " (expired)"}</td><td>${esc(b.reason || "—")}</td><td>${esc(b.analyst || "—")}</td>
+        <td style="white-space:nowrap">${when(b.created)}</td><td style="white-space:nowrap">${b.expires ? when(b.expires) : "until removed"}</td>
+        <td class="num">${b.hits || 0}</td><td><button class="ghost" data-unban="${esc(b.rule)}" style="width:auto;padding:3px 10px">Unban</button></td></tr>`).join("")
+        : `<tr><td colspan="7" class="empty">No bans</td></tr>`;
+      const auto = d.auto || [];
+      $("banAuto").textContent = auto.length ? `Temporarily blocked by the rate limiter now: ${auto.join(", ")}` : "";
+    } catch (e) { $("banMsg").textContent = e.message; }
+  }
+  $("banGo").onclick = async () => {
+    const ip = $("banIp").value.trim(), reason = $("banReason").value.trim();
+    if (!ip) { $("banMsg").textContent = "Enter an IP or range."; $("banIp").focus(); return; }
+    if (reason.length < 3) { $("banMsg").textContent = "Write the reason."; $("banReason").focus(); return; }
+    let analyst = ""; try { analyst = localStorage.getItem("multron_analyst") || ""; } catch (_) {}
+    $("banGo").disabled = true;
+    try {
+      const d = await post("/api/bans/add", { ip, reason, analyst, minutes: Number($("banFor").value) });
+      $("banMsg").textContent = `Banned ${d.ban.rule}${d.closed ? `, ${d.closed} connection(s) closed` : ""}.`;
+      $("banReason").value = "";
+      listBans(); listSources();
+    } catch (e) { $("banMsg").textContent = e.message; }
+    $("banGo").disabled = false;
+  };
+  $("banRows").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-unban]"); if (!b) return;
+    b.disabled = true;
+    try { await post("/api/bans/remove", { ip: b.dataset.unban }); $("banMsg").textContent = `Unbanned ${b.dataset.unban}.`; listBans(); listSources(); }
+    catch (err) { $("banMsg").textContent = err.message; b.disabled = false; }
+  });
+  $("banRefresh").onclick = listBans;
+  document.querySelector('#haTabs button[data-tab="Sources"]').addEventListener("click", () => { if (!$("srcRows").querySelector("tr[data-ip]")) listSources(); listBans(); });
 })();
 </script>
 </body>

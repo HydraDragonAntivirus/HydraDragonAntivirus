@@ -55,6 +55,11 @@ impl PeStringRules {
         }
     }
 
+    /// Drops rules by id (`.ign2` false-positive lists next to the rule files).
+    pub fn ignore(&mut self, ids: &std::collections::HashSet<String>) -> usize {
+        self.ruleset.as_mut().map_or(0, |rs| rs.remove_ids(ids))
+    }
+
     pub fn pattern_count(&self) -> usize {
         self.ruleset.as_ref().map(|r| r.rules().len()).unwrap_or(0)
     }
@@ -214,4 +219,33 @@ fn shannon_entropy(data: &[u8]) -> f64 {
 /// Preserves the raw string for exact-case and slash matching in RuleSet.
 pub fn normalize_text(s: &str) -> String {
     s.to_string()
+}
+
+/// Rule ids listed in the `*.ign2` / `*.ign` files of `dir` (ClamAV ignore-list
+/// format: `Name` or `Name:md5` per line, `#` comments, blank lines ignored).
+pub fn read_ignore_lists(dir: &std::path::Path) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    let Ok(entries) = std::fs::read_dir(dir) else { return out };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let is_ign = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("ign2") || e.eq_ignore_ascii_case("ign"));
+        if !is_ign {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&p) else { continue };
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let name = line.split(':').next().unwrap_or("").trim();
+            if !name.is_empty() {
+                out.insert(name.to_string());
+            }
+        }
+    }
+    out
 }
