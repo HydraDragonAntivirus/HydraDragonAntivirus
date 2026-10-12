@@ -135,6 +135,7 @@ namespace VirusKov.ReactOS
                     item["size"] = j.Size;
                     item["sha256"] = j.Sha256;
                     item["folder"] = FileFilter.NormalizeFolder(j.Path);
+                    item["path"] = FileFilter.FullFolder(j.Path);
                     items.Add(item);
                 }
                 var check = new Dictionary<string, object>();
@@ -192,6 +193,7 @@ namespace VirusKov.ReactOS
             scan["size"] = job.Size;
             scan["sha256"] = job.Sha256;
             scan["folder"] = FileFilter.NormalizeFolder(job.Path);
+            scan["path"] = FileFilter.FullFolder(job.Path);
             ws.SendText(Json.Serialize(scan));
 
             // The server either answers from its cache (result), refuses (error) or asks for the bytes.

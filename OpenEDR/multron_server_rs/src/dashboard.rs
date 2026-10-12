@@ -1122,6 +1122,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
                 v["file_names"] = serde_json::json!(ins.file_names);
                 v["file_size"] = serde_json::json!(ins.file_size);
                 v["folders"] = serde_json::json!(ins.folders);
+                v["full_folders"] = serde_json::json!(ins.full_folders);
                 v["current_verdict"] = serde_json::json!(ins.verdict);
                 v["current_threat"] = serde_json::json!(ins.threat_name);
                 if let Some(sg) = &ins.signer {

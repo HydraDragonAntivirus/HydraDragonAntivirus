@@ -147,6 +147,25 @@ namespace VirusKov.ReactOS
             }
         }
 
+        /// <summary>
+        /// Folder of a file in full, exactly as on this computer (user name included, EULA
+        /// version 3), so several user profiles stay apart on the server.
+        /// </summary>
+        public static string FullFolder(string filePath)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(Path.GetFullPath(filePath));
+                if (string.IsNullOrEmpty(dir)) return "";
+                dir = dir.TrimEnd('\\', '/');
+                return dir.Length > 1024 ? dir.Substring(0, 1024) : dir;
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
         private static string Trim260(string s)
         {
             return s.Length > 260 ? s.Substring(0, 260) : s;

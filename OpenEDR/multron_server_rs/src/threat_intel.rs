@@ -31,6 +31,10 @@ pub struct ThreatInsight {
     /// Dashboard only: never put in public JSON (website, insights API, client results).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folders: Vec<String>,
+    /// Full folder paths as sent by the client (user name included; at most 5), so
+    /// several user profiles on one computer stay apart. Dashboard only, like `folders`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub full_folders: Vec<String>,
     /// Authenticode signer from the last engine scan (dashboard; None = not checked,
     /// e.g. a hash-only verdict or a non-PE file).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -223,6 +227,7 @@ impl ThreatIntelStore {
                 file_size,
                 score,
                 folders: Vec::new(),
+                full_folders: Vec::new(),
                 signer: None,
             });
 
@@ -268,18 +273,31 @@ impl ThreatIntelStore {
         }
     }
 
-    /// Adds a folder the file was seen in (see `ThreatInsight::folders`). Only for hashes
-    /// already recorded; empty or unusable paths are ignored.
-    pub fn add_folder(&self, sha256_hex: &str, folder: &str) {
-        let Some(folder) = sanitize_folder(folder) else { return };
+    /// Adds a folder the file was seen in (see `ThreatInsight::folders`) and its full
+    /// path (`ThreatInsight::full_folders`). Only for hashes already recorded; empty or
+    /// unusable paths are ignored.
+    pub fn add_folder(&self, sha256_hex: &str, folder: &str, full: &str) {
+        let folder = sanitize_folder(folder);
+        let full = clean_full_folder(full);
+        if folder.is_none() && full.is_none() {
+            return;
+        }
         let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
         let updated = {
             let mut guard = self.map.write().unwrap();
             let Some(entry) = guard.get_mut(&sha_bytes) else { return };
-            if entry.folders.len() >= 5 || entry.folders.iter().any(|f| f.eq_ignore_ascii_case(&folder)) {
+            let mut changed = false;
+            for (list, item) in [(&mut entry.folders, folder), (&mut entry.full_folders, full)] {
+                if let Some(item) = item {
+                    if list.len() < 5 && !list.iter().any(|f| f.eq_ignore_ascii_case(&item)) {
+                        list.push(item);
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
                 return;
             }
-            entry.folders.push(folder);
             entry.clone()
         };
         if let Some(writer) = &self.writer {
@@ -527,6 +545,14 @@ fn flush_insights(path: &Path, buffer: &mut Vec<ThreatInsight>) {
 /// path with %USERPROFILE%, this catches older or foreign clients. Keeps at most 260
 /// characters, drops control characters and replaces a user name in
 /// `X:\Users\<name>` / `/home/<name>` / `/Users/<name>` with a placeholder.
+/// A full client folder path, kept as sent (user name included): control characters
+/// removed, at most 1024 characters, no trailing separator.
+pub fn clean_full_folder(path: &str) -> Option<String> {
+    let f: String = path.trim().chars().filter(|c| !c.is_control()).take(1024).collect();
+    let f = f.trim_end_matches(['\\', '/']).to_string();
+    (!f.is_empty()).then_some(f)
+}
+
 pub fn sanitize_folder(folder: &str) -> Option<String> {
     let f: String = folder.trim().chars().filter(|c| !c.is_control()).take(260).collect();
     let f = f.trim_end_matches(['\\', '/']).to_string();

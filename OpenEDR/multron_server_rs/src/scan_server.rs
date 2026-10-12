@@ -90,6 +90,10 @@ struct CheckItem {
     /// stored for analysts only (see `ThreatInsight::folders`).
     #[serde(default)]
     pub folder: String,
+    /// The same folder in full, exactly as on the client (user name included, EULA
+    /// version 3), so several user profiles on one computer stay apart. Analysts only.
+    #[serde(default)]
+    pub path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1086,7 +1090,7 @@ fn handle_check(
         if let Some(mut r) = server.known_opts(&sha, &sha_hex, it.rescan) {
             r.id = it.id;
             record_result(server, session, &r, &name, it.size);
-            server.threat_intel.add_folder(&sha_hex, &it.folder);
+            server.threat_intel.add_folder(&sha_hex, &it.folder, &it.path);
             send_json(out, &r);
             continue;
         }
@@ -1109,7 +1113,7 @@ fn handle_check(
                     size: it.size,
                 });
                 drop(g);
-                server.threat_intel.add_folder(&sha_hex, &it.folder);
+                server.threat_intel.add_folder(&sha_hex, &it.folder, &it.path);
                 continue;
             }
         }
@@ -1122,7 +1126,7 @@ fn handle_check(
             if it.size > 0 { Some(it.size as u64) } else { None },
             0.0,
         );
-        server.threat_intel.add_folder(&sha_hex, &it.folder);
+        server.threat_intel.add_folder(&sha_hex, &it.folder, &it.path);
         send_json(out, &serde_json::json!({"type": "need_upload", "id": it.id}));
     }
     Ok(())

@@ -572,7 +572,7 @@
             <button class="danger" id="haDelete">Remove review</button>
           </div>
           <div id="haMsg" class="error"></div>
-          <div class="hint">The verdict overrides the engine for every client and is published on the website with the public note and the response time. The internal note and folders stay on this dashboard.</div>
+          <div class="hint">The verdict overrides the engine for every client and is published on the website with the public note and the response time. The internal note, folders and full paths stay on this dashboard.</div>
         </aside>
       </div>
     </div>
@@ -1434,7 +1434,7 @@
       if (ef && eng !== ef) return false;
       if (sf && r.source !== sf) return false;
       if (q) {
-        const hay = [r.sha256, ...(r.file_names || []), r.file_name || "", ...(r.folders || [])].join("\n").toLowerCase();
+        const hay = [r.sha256, ...(r.file_names || []), r.file_name || "", ...(r.folders || []), ...(r.full_folders || [])].join("\n").toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -1481,7 +1481,7 @@
         if (rows++ >= HA_MAX_ROWS) break;
         const eng = r.current_verdict || r.engine_verdict || "unknown";
         const wait = Math.max(0, Math.round((now - new Date(r.requested_at).getTime()) / 1000));
-        const folders = (r.folders || []).join("\n");
+        const folders = [...(r.full_folders || []), ...(r.folders || [])].join("\n");
         html += `<tr class="it${haSel.has(r.sha256) ? " sel" : ""}${haCur === r.sha256 ? " cur" : ""}" data-sha="${r.sha256}">
           <td><input type="checkbox" data-sel="${r.sha256}" ${haSel.has(r.sha256) ? "checked" : ""}></td>
           <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : ""}${r.signer ? `<div class="sgline">${haSigner(r, false)}</div>` : ""}</td>
@@ -1543,6 +1543,7 @@
     }
     const info = r ? [
       `<div><span class="k">Names:</span> ${haEsc((r.file_names || [haName(r)]).filter(Boolean).join(", ") || "—")}</div>`,
+      (r.full_folders || []).length ? `<div><span class="k">Full paths:</span> ${r.full_folders.map(haEsc).join("<br>")}</div>` : "",
       (r.folders || []).length ? `<div><span class="k">Folders:</span> ${r.folders.map(haEsc).join("<br>")}</div>` : "",
       `<div><span class="k">Engine:</span> ${haVTag(r.current_verdict || r.engine_verdict)} ${r.current_threat ? "<b>" + haEsc(r.current_threat) + "</b>" : ""} · seen ${r.seen_count || 0}× · ${haSize(r.file_size)}</div>`,
       r.engine_detail ? `<div><span class="k">Detected by:</span> ${haEsc(r.engine_detail)}</div>` : "",
@@ -2258,6 +2259,7 @@
         d.human && d.human.verdict && ["Human verdict", vtag(d.human.verdict) + (d.human.threat_name ? ` <b>${esc(d.human.threat_name)}</b>` : "") + (d.human.analyst ? ` · ${esc(d.human.analyst)}` : "")],
         ["Signer", signer],
         d.engine && ["Seen", `${d.engine.seen}× · first ${esc(new Date(d.engine.first_seen).toLocaleString())}`],
+        d.engine && d.engine.full_folders && d.engine.full_folders.length && ["Full paths", d.engine.full_folders.map(esc).join("<br>")],
         d.engine && d.engine.folders && d.engine.folders.length && ["Folders", d.engine.folders.map(esc).join("<br>")],
         d.engine && d.engine.file_names && d.engine.file_names.length > 1 && ["Other names", d.engine.file_names.slice(0, 8).map(esc).join(", ")],
       ])}
