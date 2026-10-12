@@ -39,7 +39,7 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
 pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
 
-/// Score of a ClamAV `PUA.*` signature or a YARA-X `PUA_*` rule (potentially unwanted: adware, bundlers,
+/// Score of a ClamAV `PUA.*` signature, a YARA-X `PUA_*` rule or a PUA signer (potentially unwanted: adware, bundlers,
 /// packers, hack tools). Between the Suspicious (0.50) and Malicious (0.85) cut-offs,
 /// so a PUA hit alone gives Suspicious / PUA; another malicious layer still wins.
 pub const CLAM_PUA_SCORE: f32 = 0.60;
@@ -1171,13 +1171,15 @@ impl StaticEngine {
                     });
                     max_score = max_score.max(1.0);
                 } else if self.signers.is_pua(signer) {
+                    // PUA vendor: Suspicious / PUA, not Malicious (0.85 is the
+                    // Malicious cut-off, so the old 0.85 made every PUA signer malicious).
                     detections.push(DetectionItem {
                         layer: "SignerRule".to_string(),
                         name: format!("PuaSigner: {signer}"),
-                        score: Some(0.85),
+                        score: Some(CLAM_PUA_SCORE),
                         details: Some("Matched pua_vendors.yaml".to_string()),
                     });
-                    max_score = max_score.max(0.85);
+                    max_score = max_score.max(CLAM_PUA_SCORE);
                 } else if is_trusted && self.signers.is_trusted(signer) {
                     trusted_by_yaml = true;
                 }
