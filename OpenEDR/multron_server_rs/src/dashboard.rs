@@ -225,6 +225,7 @@ impl AppState {
             s.offload_auto = g.offload_auto;
             s.archive_mirror = g.archive_mirror.clone();
             s.maintenance = g.maintenance;
+            s.archive = g.archive;
             *g = s.clone();
         }
         self.save_settings().await;
@@ -506,6 +507,7 @@ async fn handle_state(
         "rescan": srv.rescan.status(),
         "offload": srv.offload.status(),
         "mirror": srv.mirror.status(),
+        "uptimeTotal": crate::uptime::json(),
         "archive": if crate::config::is_archive() { crate::archive::info_json() } else { serde_json::Value::Null },
         "bannedIps": srv.limiter.banned_now(),
         "lanAddresses": lan_addresses(),
@@ -1181,8 +1183,11 @@ fn lan_addresses() -> Vec<String> {
 
 async fn handle_dashboard_insights_stats(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     let stats = app.threat_intel.stats();
+    let srv = Arc::clone(&app.scan_server);
+    let types = tokio::task::spawn_blocking(move || crate::scan_server::cached_type_stats(&srv)).await.unwrap_or_default();
     Json(serde_json::json!({
         "ok": true,
+        "types": types,
         "telemetry": {
             "total_unique_hashes": stats.total_unique_hashes,
             "total_sightings": stats.total_sightings,
@@ -1281,6 +1286,10 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
                 }
             }
             add_engine_detail(&app, &mut v, &rv.sha256);
+            v["classification"] = crate::scan_server::classification_json(
+                v["current_verdict"].as_str().unwrap_or(""),
+                v["current_threat"].as_str(),
+            );
             v
         })
         .collect();
@@ -1290,6 +1299,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoRespo
         .map(|rv| {
             let mut v = rv.to_dashboard_json();
             add_engine_detail(&app, &mut v, &rv.sha256);
+            v["classification"] = crate::scan_server::classification_json(rv.verdict.as_deref().unwrap_or(""), rv.threat_name.as_deref());
             v
         })
         .collect();

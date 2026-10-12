@@ -310,6 +310,9 @@
         <span>Clean:</span><b id="tiClean" style="color:var(--green);">—</b>
         <span>Unknown:</span><b id="tiUnknown">—</b>
       </div>
+      <div class="hint" style="margin:10px 0 4px">Malicious + suspicious by malware type (all time · first seen in the last 7 days). <span title="Names in Category.Platform.Family form (human verdicts, analyst signatures) are exact; other engine names are classified from their words.">ⓘ</span></div>
+      <div id="tiTypes" style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px"></div>
+      <div class="hint" id="tiFamilies" style="margin-top:6px"></div>
     </section>
 
     <section class="card">
@@ -542,6 +545,7 @@
             <select id="haGroup">
               <option value="ext">Group by extension</option>
               <option value="folder">Group by folder</option>
+              <option value="type">Group by malware type</option>
               <option value="none">No grouping</option>
             </select>
             <select id="haEngineF">
@@ -679,7 +683,7 @@
     </div>
 
     <div class="ha-tab" id="haTabRecent" hidden>
-      <div class="ha-toolbar" style="grid-template-columns:minmax(180px,1fr) 170px">
+      <div class="ha-toolbar" style="grid-template-columns:minmax(180px,1fr) 170px 170px">
         <input id="haRecentSearch" type="search" placeholder="Search SHA-256, threat, note, analyst…">
         <select id="haRecentF">
           <option value="">Verdict: any</option>
@@ -687,6 +691,7 @@
           <option value="suspicious">Suspicious</option>
           <option value="clean">Clean</option>
         </select>
+        <select id="haRecentType"><option value="">Type: any</option></select>
       </div>
       <div class="tablewrap ha-table" style="margin-top:10px">
         <table>
@@ -960,6 +965,7 @@
     const eng = state.engine;
     if (eng.status === "ready") setPill($("enginePill"), "ok", `Engine ready (${(eng.loadMs / 1000).toFixed(1)} s)`);
     else if (eng.status === "error") setPill($("enginePill"), "bad", "Engine failed");
+    else if (eng.status === "off") setPill($("enginePill"), "", "Engine not loaded (archive)");
     else setPill($("enginePill"), "wait", "Engine loading…");
     $("engineError").textContent = eng.error || "";
     $("reloadEngineBtn").disabled = eng.status !== "ready" || !!eng.reloading;
@@ -972,7 +978,10 @@
     if (running && s.maintenance) setPill($("serverPill"), "wait", (s.maintenanceMode === "updating" ? "Updating server" : "Maintenance") + ` · ${s.host}:${s.port}${s.path}`);
     else if (running) setPill($("serverPill"), "ok", `Listening on ${s.host}:${s.port}${s.path}`);
     else setPill($("serverPill"), s.error ? "bad" : "", s.error ? "Stopped (error)" : "Stopped");
-    $("uptime").textContent = running ? "Running since " + new Date(s.startedAt).toLocaleString() : "";
+    const ut = state.uptimeTotal;
+    const dur = (sec) => { const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; };
+    $("uptime").textContent = (running ? "Running since " + new Date(s.startedAt).toLocaleString() : "") +
+      (ut ? ` · total ${dur(ut.totalUptimeSecs)} since ${new Date(ut.since).toLocaleDateString()} (${Number(ut.availability).toFixed(1)} % up, ${ut.restarts} restarts)` : "");
 
     if (!formLoaded || running) {
       $("host").value = s.host === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1";
@@ -1504,6 +1513,15 @@
           $("tiSuspicious").textContent = t.verdicts.suspicious.toLocaleString();
           $("tiClean").textContent = t.verdicts.clean.toLocaleString();
           $("tiUnknown").textContent = t.verdicts.unknown.toLocaleString();
+          const ty = data.types;
+          if (ty && ty.all) {
+            const cats = Object.entries(ty.all.categories || {}).sort((a, b) => b[1] - a[1]);
+            const recent = (ty.recent && ty.recent.categories) || {};
+            const e = (x) => String(x).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+            $("tiTypes").innerHTML = cats.length ? cats.map(([c, n]) => `<span class="tag t-info">${e(c)} <b>${n.toLocaleString()}</b>${recent[c] ? ` · +${recent[c]}` : ""}</span>`).join("") : '<span class="hint" style="margin:0">No malicious or suspicious files yet.</span>';
+            const fam = (ty.all.families || []).slice(0, 10);
+            $("tiFamilies").textContent = fam.length ? "Top families: " + fam.map(f => `${f.family} (${f.category}) ${f.count}`).join(", ") + ` · ${ty.all.exact} of ${ty.all.total} exact` : "";
+          }
         }
       }
     } catch (_) {}
@@ -1604,6 +1622,13 @@
   };
 
   const HA_MAX_ROWS = 1500;
+  // Malware type (server: naming::classify). "~" = guessed from an engine's own name.
+  const haType = (c, long) => !c ? "" : c.category + (long && c.platform ? "." + c.platform : "") + (long && c.family ? "." + c.family : "");
+  const haTypeTag = (c) => c ? ` <span class="tag t-info" title="${c.exact ? "Malware type from the name (Category.Platform.Family)" : "Malware type guessed from the engine's detection name"}">${haEsc((c.exact ? "" : "~") + haType(c, false))}</span>` : "";
+  const haGroupKey = (r, mode) => mode === "ext" ? (r.ext ? "." + r.ext : "no extension")
+    : mode === "folder" ? (haFolder(r) || "(folder not reported)")
+    : mode === "type" ? (r.classification ? r.classification.category : "Not flagged by the engine")
+    : "";
   const haRender = () => {
     // Extension chips (counts over the whole queue).
     const counts = {};
@@ -1618,7 +1643,7 @@
     const mode = $("haGroup").value;
     const groups = new Map();
     shown.forEach(r => {
-      const k = mode === "ext" ? (r.ext ? "." + r.ext : "no extension") : mode === "folder" ? (haFolder(r) || "(folder not reported)") : "";
+      const k = haGroupKey(r, mode);
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(r);
     });
@@ -1639,7 +1664,7 @@
         html += `<tr class="it${haSel.has(r.sha256) ? " sel" : ""}${haCur === r.sha256 ? " cur" : ""}" data-sha="${r.sha256}">
           <td><input type="checkbox" data-sel="${r.sha256}" ${haSel.has(r.sha256) ? "checked" : ""}></td>
           <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : ""}${r.signer ? `<div class="sgline">${haSigner(r, false)}</div>` : ""}</td>
-          <td class="eng" title="${haEsc(r.engine_detail || r.current_threat || "")}">${haVTag(eng)}${r.engine_detail || r.current_threat ? `<div class="engd">${haEsc(r.engine_detail || r.current_threat)}</div>` : ""}</td>
+          <td class="eng" title="${haEsc(r.engine_detail || r.current_threat || "")}">${haVTag(eng)}${haTypeTag(r.classification)}${r.engine_detail || r.current_threat ? `<div class="engd">${haEsc(r.engine_detail || r.current_threat)}</div>` : ""}</td>
           <td class="num">${r.seen_count || 0}</td>
           <td class="num">${haSize(r.file_size)}</td>
           <td class="fold" title="${haEsc(folders)}">${haEsc(haFolder(r) || "—")}${(r.folders || []).length > 1 ? ` <small>+${r.folders.length - 1}</small>` : ""}</td>
@@ -1666,7 +1691,7 @@
     if (t.matches("input[data-grp]")) {
       const mode = $("haGroup").value;
       haFilter().forEach(r => {
-        const k = mode === "ext" ? (r.ext ? "." + r.ext : "no extension") : (haFolder(r) || "(folder not reported)");
+        const k = haGroupKey(r, mode);
         if (k === t.dataset.grp) t.checked ? haSel.add(r.sha256) : haSel.delete(r.sha256);
       });
       haRender();
@@ -1729,12 +1754,16 @@
   window.haEdit = (i) => { const r = haRecentList[i]; if (r) window.haFill(r.sha256, r.verdict, r.threat_name || "", r.note || "", r.internal_note || ""); };
 
   const haRenderRecent = () => {
-    const q = $("haRecentSearch").value.trim().toLowerCase(), f = $("haRecentF").value;
-    const rows = haRecentList.map((r, i) => [r, i]).filter(([r]) => (!f || r.verdict === f) &&
+    const q = $("haRecentSearch").value.trim().toLowerCase(), f = $("haRecentF").value, ty = $("haRecentType").value;
+    const types = {};
+    haRecentList.forEach(r => { if (r.classification) types[r.classification.category] = (types[r.classification.category] || 0) + 1; });
+    $("haRecentType").innerHTML = `<option value="">Type: any</option>` + Object.keys(types).sort((a, b) => types[b] - types[a])
+      .map(t => `<option value="${haEsc(t)}" ${t === ty ? "selected" : ""}>${haEsc(t)} (${types[t]})</option>`).join("");
+    const rows = haRecentList.map((r, i) => [r, i]).filter(([r]) => (!f || r.verdict === f) && (!ty || r.classification?.category === ty) &&
       (!q || [r.sha256, r.threat_name, r.note, r.internal_note, r.analyst].join("\n").toLowerCase().includes(q)));
     $("haRecentRows").innerHTML = rows.length ? rows.map(([r, i]) => `<tr data-sha="${r.sha256}" data-name="${haEsc(r.file_name || "")}">
         <td class="mono" title="${r.sha256}">${r.sha256.slice(0, 20)}…</td>
-        <td>${haVTag(r.verdict)} ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b>" : ""}</td>
+        <td>${haVTag(r.verdict)} ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b>" : haTypeTag(r.classification)}</td>
         <td class="detail" title="${haEsc(r.note + (r.internal_note ? "\nInternal: " + r.internal_note : ""))}">${haEsc(r.note || "")}${r.internal_note ? ` <i>· internal: ${haEsc(r.internal_note)}</i>` : ""}</td>
         <td>${haEsc(r.analyst || "—")}</td>
         <td class="num">${haDur(r.wait_secs)}</td>
@@ -1744,7 +1773,7 @@
         <td style="white-space:nowrap"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener">VT ↗</a> <button class="ghost" onclick="haEdit(${i})">Edit</button></td>
       </tr>`).join("") : `<tr><td colspan="9" class="empty">No verdicts.</td></tr>`;
   };
-  ["haRecentSearch", "haRecentF"].forEach(id => $(id).addEventListener("input", haRenderRecent));
+  ["haRecentSearch", "haRecentF", "haRecentType"].forEach(id => $(id).addEventListener("input", haRenderRecent));
 
   const haLoad = async () => {
     if ($("haDlg").open) return;

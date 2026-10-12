@@ -27,6 +27,7 @@ mod ratelimit;
 mod scan_server;
 mod scheduler;
 mod threat_intel;
+mod uptime;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -44,7 +45,9 @@ use scan_server::ScanServer;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = CliArgs::parse();
     args.enforce_limits();
+    args.archive = args.archive || config::archive_in_settings();
     config::set_archive(args.archive);
+    uptime::start();
     if args.archive {
         eprintln!("[archive] read-only archive server: data comes from the main server's mirror in {}", app_dir().display());
     }
@@ -75,7 +78,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Some(PathBuf::from(&args.rules))
     };
-    engine.start_loading(custom_rules);
+    // The archive serves stored data only and never scans: no rules, no models, no RAM for them.
+    if !args.archive {
+        engine.start_loading(custom_rules);
+    }
 
     let threat_intel = threat_intel::ThreatIntelStore::new(None);
     if !args.archive {
@@ -130,8 +136,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Background watcher for engine ready -> auto-start scan server if configured
     let app_clone = Arc::clone(&app_state);
     let engine_clone = Arc::clone(&engine);
+    let archive = args.archive;
     tokio::spawn(async move {
-        while !engine_clone.is_ready().await {
+        while !archive && !engine_clone.is_ready().await {
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
 
@@ -187,6 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_graceful_shutdown(async move {
         let _ = tokio::signal::ctrl_c().await;
         eprintln!("shutting down...");
+        uptime::save_now();
         shutdown_app.stop_listener(false).await;
     });
 

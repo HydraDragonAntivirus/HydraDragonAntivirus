@@ -282,6 +282,11 @@ impl HumanReviewStore {
         self.get(sha_hex).filter(|r| r.is_completed())
     }
 
+    /// Completed (verdict, threat name) by raw hash (statistics by malware type).
+    pub fn completed_raw(&self, sha: &Sha) -> Option<(Option<String>, Option<String>)> {
+        self.map.read().unwrap().get(sha).filter(|r| r.is_completed()).map(|r| (r.verdict.clone(), r.threat_name.clone()))
+    }
+
     /// Completed verdict by raw hash (used while counting statistics).
     pub fn completed_verdict_raw(&self, sha: &Sha) -> Option<String> {
         self.map.read().unwrap().get(sha).filter(|r| r.is_completed()).and_then(|r| r.verdict.clone())

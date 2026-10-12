@@ -253,6 +253,10 @@ pub struct SavedSettings {
     /// Multron Updater is never saved).
     #[serde(default)]
     pub maintenance: bool,
+    /// Archive server (same as `--archive`): set once in the archive folder's
+    /// multron_server.json, so the server always starts read-only there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archive: bool,
     /// Folder the archive mirror copies everything to (empty = off).
     #[serde(default)]
     pub archive_mirror: String,
@@ -283,6 +287,7 @@ impl Default for SavedSettings {
             offload_auto: false,
             archive_mirror: String::new(),
             maintenance: false,
+            archive: false,
             compress_low_disk: true,
             low_disk_gb: 15,
             limits: None,
@@ -295,6 +300,16 @@ static ARCHIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 /// Archive mode (`--archive`): read-only, data comes from the main server's mirror.
 pub fn is_archive() -> bool {
     ARCHIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// `"archive": true` in multron_server.json next to the exe. Read before anything is
+/// loaded (the dashboard settings are read later), so the stores start read-only.
+pub fn archive_in_settings() -> bool {
+    std::fs::read_to_string(app_dir().join("multron_server.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v["archive"].as_bool())
+        .unwrap_or(false)
 }
 
 pub fn set_archive(on: bool) {

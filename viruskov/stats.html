@@ -7,7 +7,7 @@
   <title>VIRUSKOV &mdash; Canlı Tehdit Telemetrisi &amp; Tarama İstatistikleri</title>
   <meta name="description" content="VirusKov EDR & Antivirus küresel tehdit telemetrisi, canlı hash gözlemleri, algılama oranları ve Elasticsearch ECS 9.5.4 oturum tarama geçmişi.">
   <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg">
-  <script src="i18n.js?v=9"></script>
+  <script src="i18n.js?v=11"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -222,6 +222,18 @@
     .ratio-seg.clean { background: var(--accent-green); }
     .ratio-seg.pcl { background: #6fcf97; }
     .ratio-seg.unk { background: var(--accent-cyan); }
+    .types-tabs { display: flex; gap: 6px; }
+    .types-tab { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); font-family: var(--font-mono); font-size: 0.72rem; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+    .types-tab.active { color: #fff; border-color: var(--accent-red); }
+    .types-bars { display: grid; gap: 7px; margin-top: 6px; }
+    .types-row { display: grid; grid-template-columns: 130px 1fr 64px; gap: 10px; align-items: center; font-family: var(--font-mono); font-size: 0.78rem; }
+    .types-track { height: 10px; background: var(--bg-terminal); border-radius: 3px; overflow: hidden; }
+    .types-fill { height: 100%; background: var(--accent-red); transition: width 0.5s ease; }
+    .types-fam-title { margin-top: 16px; font-size: 0.72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); }
+    .types-fams { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-family: var(--font-mono); font-size: 0.75rem; }
+    .types-fam { border: 1px solid var(--border-subtle); border-radius: 4px; padding: 3px 8px; color: var(--text-main); }
+    .types-fam small { color: var(--text-muted); margin-left: 4px; }
+    @media (max-width: 600px) { .types-row { grid-template-columns: 96px 1fr 48px; } }
 
     .ratio-legend {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;
@@ -451,6 +463,24 @@
       </div>
     </div>
 
+    <!-- MALWARE TYPES PANEL -->
+    <div class="panel" id="typesPanel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title"><span></span> <span data-i18n="types.title">Zararlı Türleri</span></div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="types.desc">Zararlı ve şüpheli dosyalar türlerine göre.</div>
+        </div>
+        <div class="types-tabs">
+          <button type="button" class="types-tab active" data-range="all" data-i18n="types.all">Tüm zamanlar</button>
+          <button type="button" class="types-tab" data-range="recent" data-i18n="types.recent">Son 7 gün</button>
+        </div>
+      </div>
+      <div id="typesBars" class="types-bars"></div>
+      <div class="types-fam-title" data-i18n="types.families">En sık aileler</div>
+      <div id="typesFamilies" class="types-fams"></div>
+      <div id="typesExact" class="mono" style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;"></div>
+    </div>
+
     <!-- HUMAN ANALYSIS PANEL -->
     <div class="panel" id="humanPanel">
       <div class="panel-header">
@@ -643,6 +673,9 @@
               elTotalSightings.textContent = `${prefix} ${Number(t.total_sightings || 0).toLocaleString()}`;
             }
 
+            typesData = data.types || null;
+            renderTypes();
+
             // Calculate ratios
             const m = t.verdicts.malicious || 0;
             const s = t.verdicts.suspicious || 0;
@@ -674,6 +707,30 @@
         }
       } catch (_) {}
     }
+
+    // Malware types (all time / last 7 days)
+    let typesData = null, typesRange = 'all';
+    function renderTypes() {
+      const bars = document.getElementById('typesBars');
+      if (!bars || !typesData) return;
+      const T = (k, fb) => { const v = window.ViruskovI18n ? window.ViruskovI18n.t(k) : null; return v && v !== k ? v : fb; };
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const d = typesData[typesRange] || {};
+      const cats = Object.entries(d.categories || {}).sort((a, b) => b[1] - a[1]);
+      const max = cats.length ? cats[0][1] : 1;
+      bars.innerHTML = cats.length ? cats.map(([c, n]) =>
+        `<div class="types-row"><span>${esc(c === 'Unclassified' ? T('types.unclassified', c) : c)}</span><div class="types-track"><div class="types-fill" style="width:${Math.max(2, n / max * 100)}%"></div></div><b style="text-align:right">${Number(n).toLocaleString()}</b></div>`).join('')
+        : `<div style="color:var(--text-muted); font-size:0.85rem;">${esc(T('types.empty', 'No malicious or suspicious files yet.'))}</div>`;
+      const fams = d.families || [];
+      document.getElementById('typesFamilies').innerHTML = fams.map(f => `<span class="types-fam">${esc(f.family)}<small>${esc(f.category)} · ${Number(f.count).toLocaleString()}</small></span>`).join('') || '—';
+      document.getElementById('typesExact').textContent = d.total ? T('types.exact', '{n} of {t} exact names').replace('{n}', Number(d.exact || 0).toLocaleString()).replace('{t}', Number(d.total).toLocaleString()) : '';
+    }
+    document.querySelectorAll('.types-tab').forEach(b => b.addEventListener('click', () => {
+      typesRange = b.dataset.range;
+      document.querySelectorAll('.types-tab').forEach(x => x.classList.toggle('active', x === b));
+      renderTypes();
+    }));
+    window.addEventListener('viruskov_lang_changed', renderTypes);
 
     // Human analysis (public numbers: no analyst names, hashes or paths)
     function haT(key, fb) {

@@ -576,6 +576,61 @@ impl ThreatIntelStore {
         (total, out.into_iter().take(limit).map(|(_, v)| v).collect())
     }
 
+    /// Malicious and suspicious files by malware type: counts per category and the
+    /// most common families, for all files and for the ones first seen in the last
+    /// `recent_days`. `public` leaves out nothing sensitive: names only, no hashes.
+    pub fn type_stats(&self, recent_days: i64) -> serde_json::Value {
+        use std::collections::BTreeMap;
+        let since = (Utc::now() - chrono::Duration::days(recent_days)).to_rfc3339();
+        #[derive(Default)]
+        struct Acc {
+            categories: BTreeMap<&'static str, u64>,
+            platforms: BTreeMap<&'static str, u64>,
+            families: HashMap<(String, &'static str), u64>,
+            total: u64,
+            exact: u64,
+        }
+        let (mut all, mut recent) = (Acc::default(), Acc::default());
+        {
+            let guard = self.map.read().unwrap();
+            for (sha, i) in guard.iter() {
+                let (verdict, threat) = match self.reviews.completed_raw(sha) {
+                    Some((v, t)) => (v.unwrap_or_default(), t),
+                    None => (i.verdict.clone(), i.threat_name.clone()),
+                };
+                if verdict != "malicious" && verdict != "suspicious" {
+                    continue;
+                }
+                let c = crate::naming::classify(threat.as_deref().unwrap_or(""));
+                let is_recent = i.first_seen >= since;
+                for acc in std::iter::once(&mut all).chain(is_recent.then_some(&mut recent)) {
+                    acc.total += 1;
+                    acc.exact += c.exact as u64;
+                    *acc.categories.entry(c.category).or_default() += 1;
+                    if !c.platform.is_empty() {
+                        *acc.platforms.entry(c.platform).or_default() += 1;
+                    }
+                    if !c.family.is_empty() {
+                        *acc.families.entry((c.family.clone(), c.category)).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let out = |a: Acc| {
+            let mut fam: Vec<_> = a.families.into_iter().collect();
+            fam.sort_by(|x, y| y.1.cmp(&x.1).then_with(|| x.0 .0.cmp(&y.0 .0)));
+            fam.truncate(20);
+            serde_json::json!({
+                "total": a.total,
+                "exact": a.exact,
+                "categories": a.categories,
+                "platforms": a.platforms,
+                "families": fam.into_iter().map(|((f, c), n)| serde_json::json!({"family": f, "category": c, "count": n})).collect::<Vec<_>>(),
+            })
+        };
+        serde_json::json!({ "all": out(all), "recent": out(recent), "recent_days": recent_days })
+    }
+
     pub fn stats(&self) -> ThreatIntelStats {
         let guard = self.map.read().unwrap();
         let mut total_sightings = 0u64;

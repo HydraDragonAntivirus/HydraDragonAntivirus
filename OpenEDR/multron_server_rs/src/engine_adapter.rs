@@ -503,7 +503,10 @@ impl EngineAdapter {
 
     pub async fn get_status(&self) -> EngineStatus {
         let error = self.error_msg.read().unwrap().clone();
-        let status = if self.ready() {
+        let status = if crate::config::is_archive() {
+            // Not loaded on purpose (archive server).
+            "off"
+        } else if self.ready() {
             "ready"
         } else if !error.is_empty() {
             "error"

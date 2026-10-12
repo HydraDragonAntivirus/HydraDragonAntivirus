@@ -443,6 +443,7 @@ async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoRespon
         "maintenanceMode": server.maintenance_mode(),
         "message": if server.maintenance() { server.maintenance_message() } else { "" },
         "uptimeSecs": server.uptime_secs(),
+        "uptimeTotal": crate::uptime::json(),
         "engine": ENGINE_NAME,
         "protocol": PROTOCOL_VERSION,
         "archive": crate::config::is_archive(),
@@ -740,6 +741,10 @@ async fn handle_hash_insights(
                     "engine_verdict": insight.verdict,
                     "human_analysis": human,
                     "virustotal": vt,
+                    "classification": classification_json(
+                        human_verdict.as_deref().unwrap_or(&insight.verdict),
+                        human_threat.as_deref().or(insight.threat_name.as_deref()),
+                    ),
                     "threat_name": human_threat.or(insight.threat_name.clone()),
                     "first_seen": insight.first_seen,
                     "last_seen": insight.last_seen,
@@ -817,6 +822,20 @@ async fn handle_hash_insights(
     }
 }
 
+/// `ThreatIntelStore::type_stats` walks every record; the website polls, so cache it.
+pub fn cached_type_stats(server: &ScanServer) -> serde_json::Value {
+    static CACHE: StdMutex<Option<(std::time::Instant, serde_json::Value)>> = StdMutex::new(None);
+    let mut g = CACHE.lock().unwrap();
+    if let Some((t, v)) = g.as_ref() {
+        if t.elapsed() < Duration::from_secs(60) {
+            return v.clone();
+        }
+    }
+    let v = server.threat_intel.type_stats(7);
+    *g = Some((std::time::Instant::now(), v.clone()));
+    v
+}
+
 async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Response {
     // No per-IP quota here: the website polls this endpoint, and the 500/day quota of the
     // hash lookups was used up in about an hour, after which the numbers froze.
@@ -827,6 +846,8 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
         "feed": "VirusKov Community Telemetry",
         // Public numbers only (no analyst names); the dashboard has the full stats.
         "human_analysis": server.threat_intel.reviews.public_stats(),
+        // Malicious + suspicious files by malware type (all time and last 7 days).
+        "types": cached_type_stats(&server),
         "telemetry": {
             "total_unique_hashes": stats.total_unique_hashes,
             "total_sightings": stats.total_sightings,
@@ -2054,7 +2075,11 @@ async fn handle_public_reviews(
     let body = serde_json::json!({
         "status": "success",
         "stats": reviews.stats(),
-        "recent": reviews.recent_completed(limit).iter().map(|r| r.to_public_json()).collect::<Vec<_>>(),
+        "recent": reviews.recent_completed(limit).iter().map(|r| {
+            let mut v = r.to_public_json();
+            v["classification"] = classification_json(r.verdict.as_deref().unwrap_or(""), r.threat_name.as_deref());
+            v
+        }).collect::<Vec<_>>(),
     });
     (
         StatusCode::OK,
@@ -2105,6 +2130,14 @@ async fn handle_review_request(
     }
 }
 
+
+/// Malware type of a malicious / suspicious verdict (null otherwise), see `naming::classify`.
+pub fn classification_json(verdict: &str, threat: Option<&str>) -> serde_json::Value {
+    if verdict != "malicious" && verdict != "suspicious" {
+        return serde_json::Value::Null;
+    }
+    serde_json::to_value(crate::naming::classify(threat.unwrap_or(""))).unwrap_or_default()
+}
 
 fn json_response(code: StatusCode, v: serde_json::Value, cache: &'static str) -> Response {
     (
@@ -2171,6 +2204,7 @@ async fn handle_file_report(
             "verdict": verdict,
             "verdict_source": if human_verdict.is_some() { "human" } else { "engine" },
             "engine_verdict": engine_verdict,
+            "classification": classification_json(&verdict, threat_name.as_deref()),
             "threat_name": threat_name,
             "telemetry": insight.as_ref().map(|i| serde_json::json!({
                 "first_seen": i.first_seen,
@@ -2235,11 +2269,14 @@ async fn handle_daily_feed(
         )
             .into_response(),
         Some("csv") => {
-            let mut csv = String::from("first_seen,sha256,verdict,verdict_source,threat_name,file_name,file_size,seen_count\n");
+            let mut csv = String::from("first_seen,sha256,verdict,verdict_source,threat_name,file_name,file_size,seen_count,category,platform,family\n");
             for (i, v, human) in &rows {
                 let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
+                let human_threat = server.threat_intel.reviews.completed(&i.sha256).and_then(|r| r.threat_name);
+                let c = crate::naming::classify(human_threat.as_deref().or(i.threat_name.as_deref()).unwrap_or(""));
+                let malicious = v == "malicious" || v == "suspicious";
                 csv.push_str(&format!(
-                    "{},{},{},{},{},{},{},{}\n",
+                    "{},{},{},{},{},{},{},{},{},{},{}\n",
                     i.first_seen,
                     i.sha256.to_lowercase(),
                     v,
@@ -2247,7 +2284,10 @@ async fn handle_daily_feed(
                     esc(i.threat_name.as_deref().unwrap_or("")),
                     esc(i.file_names.first().map(String::as_str).unwrap_or("")),
                     i.file_size.unwrap_or(0),
-                    i.seen_count
+                    i.seen_count,
+                    if malicious { c.category } else { "" },
+                    if malicious { c.platform } else { "" },
+                    esc(if malicious { &c.family } else { "" }),
                 ));
             }
             (
@@ -2263,18 +2303,21 @@ async fn handle_daily_feed(
                 "status": "success",
                 "date": date,
                 "count": rows.len(),
-                "items": rows.iter().map(|(i, v, human)| serde_json::json!({
+                "items": rows.iter().map(|(i, v, human)| {
+                    let threat = server.threat_intel.reviews.completed(&i.sha256).and_then(|r| r.threat_name).or(i.threat_name.clone());
+                    serde_json::json!({
                     "sha256": i.sha256.to_lowercase(),
                     "first_seen": i.first_seen,
                     "verdict": v,
                     "verdict_source": if *human { "human" } else { "engine" },
-                    "threat_name": server.threat_intel.reviews.completed(&i.sha256).and_then(|r| r.threat_name).or(i.threat_name.clone()),
+                    "classification": classification_json(v, threat.as_deref()),
+                    "threat_name": threat,
                     "file_name": i.file_names.first(),
                     "file_size": i.file_size,
                     "seen_count": i.seen_count,
                     "has_report": crate::reports::exists(&i.sha256),
                     "sample_sharing": keys,
-                })).collect::<Vec<_>>(),
+                })}).collect::<Vec<_>>(),
             }),
             "public, max-age=300",
         ),

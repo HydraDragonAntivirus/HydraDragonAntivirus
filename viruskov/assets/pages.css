@@ -1,11 +1,12 @@
 /* VIRUSKOV — file report + daily feed pages */
 .p-main { padding: 48px 0 96px; min-height: 60vh; }
 .p-search { display: flex; gap: 8px; margin-bottom: 36px; }
-.p-search input, .p-controls input[type="date"] {
+.p-search input, .p-controls input[type="date"], .p-controls .p-select {
   flex: 1; min-width: 0; height: 42px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border-strong);
   background: var(--bg-terminal); color: var(--text-main); font-family: var(--font-mono); font-size: 0.8rem; outline: none; color-scheme: dark;
 }
 .p-search input:focus, .p-controls input:focus { border-color: #4a525c; }
+.p-controls .p-select { flex: 0 0 auto; min-width: 150px; }
 .p-search .vk-btn { height: 42px; }
 
 .p-card { border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--bg-surface); padding: 24px; min-width: 0; }

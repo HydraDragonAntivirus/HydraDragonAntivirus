@@ -10,7 +10,7 @@
       invalid: '64 karakterlik geçerli bir SHA-256 girin.', loading: 'Rapor yükleniyor…', neterr: 'Rapor alınamadı',
       rate: 'Sorgu sınırı aşıldı, biraz sonra tekrar deneyin.',
       v: { malicious: 'Zararlı', suspicious: 'Şüpheli', clean: 'Temiz', possible_clean: 'Muhtemelen temiz', unknown: 'Bilinmiyor' },
-      human: 'İnsan analizi', engine: 'Motor', engineVerdict: 'Motor kararı', copy: 'Kopyala', copied: 'Kopyalandı',
+      human: 'İnsan analizi', engine: 'Motor', engineVerdict: 'Motor kararı', copy: 'Kopyala', copied: 'Kopyalandı', type: 'Tür', guessed: 'motorun tespit adından tahmin', exactType: 'Kategori.Platform.Aile adından',
       vt: 'VirusTotal\'da aç', download: 'Örneği indir (.zip)', keyPh: 'Araştırmacı API anahtarı', keyNote: 'Arşiv şifresi: infected. Yalnızca zararlı ve şüpheli dosyalar paylaşılır.',
       dlErr: 'İndirilemedi', haCard: 'İnsan analizi', haNone: 'Henüz bir analist bakmadı.', haPending: 'Analist kuyruğunda', waiting: 'bekliyor',
       request: 'İnsan analizi iste', requested: 'Kuyruğa eklendi.', resp: 'Toplam süre', analyst: 'Analist', reviewed: 'Analiz bitişi', note: 'Not',
@@ -33,7 +33,7 @@
       invalid: 'Enter a valid 64-character SHA-256.', loading: 'Loading report…', neterr: 'Could not load the report',
       rate: 'Rate limit reached, please try again shortly.',
       v: { malicious: 'Malicious', suspicious: 'Suspicious', clean: 'Clean', possible_clean: 'Possibly clean', unknown: 'Unknown' },
-      human: 'Human analysis', engine: 'Engine', engineVerdict: 'Engine verdict', copy: 'Copy', copied: 'Copied',
+      human: 'Human analysis', engine: 'Engine', engineVerdict: 'Engine verdict', copy: 'Copy', copied: 'Copied', type: 'Type', guessed: 'guessed from the engine detection name', exactType: 'from the Category.Platform.Family name',
       vt: 'Open on VirusTotal', download: 'Download sample (.zip)', keyPh: 'Researcher API key', keyNote: 'Archive password: infected. Only malicious and suspicious files are shared.',
       dlErr: 'Download failed', haCard: 'Human analysis', haNone: 'No analyst has looked at it yet.', haPending: 'In the analyst queue', waiting: 'waiting',
       request: 'Request human analysis', requested: 'Added to the queue.', resp: 'Total time', analyst: 'Analyst', reviewed: 'Analysis end', note: 'Note',
@@ -136,6 +136,7 @@
     html += '<section class="p-hero" style="--vcol:' + COLORS[v] + '"><div>' +
       '<div>' + badge(v) + (d.verdict_source === 'human' ? '<span class="p-source">' + esc(T.human) + '</span>' : '<span class="p-source" style="color:var(--text-dim)">' + esc(T.engine) + '</span>') + '</div>' +
       '<h1>' + esc(d.threat_name || T.v[v]) + '</h1>' +
+      (d.classification ? '<div class="p-file">' + esc(T.type) + ': <b>' + esc([d.classification.category, d.classification.platform, d.classification.family].filter(Boolean).join(' · ')) + '</b> <span style="color:var(--text-dim)">(' + esc(d.classification.exact ? T.exactType : T.guessed) + ')</span></div>' : '') +
       (name ? '<div class="p-file">' + esc(name) + (rep ? ' · ' + esc(rep.file_type) + ' · ' + fmt(rep.size) + ' ' + esc(T.bytes) : '') + '</div>' : '') +
       '<div class="p-sha"><span>' + esc(d.sha256) + '</span><button type="button" data-copy="' + esc(d.sha256) + '">' + esc(T.copy) + '</button></div>' +
       '</div><div class="p-actions">' +
