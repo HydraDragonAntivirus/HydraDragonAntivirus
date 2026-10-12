@@ -33,6 +33,9 @@ openedr_static = { path = "../openedr_static" }
 # shipped databases (same crates openedr_static already builds).
 hydradragonclamav = { path = "../owlyshield_predict/hydradragonclamav" }
 hydradragonsig = { path = "../../hydradragonsig", default-features = false }
+# Retrohunt: one saved analyst YARA document compiled on its own (same version as
+# openedr_static, so no second copy is built).
+yara-x = "1.21"
 # TLSH (Trend Micro similarity digest), output verified identical to the reference
 # C++ implementation. Pinned: the crate is pre-1.0.
 fast-tlsh = "=0.1.10"

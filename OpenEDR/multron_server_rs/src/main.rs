@@ -14,6 +14,7 @@ mod reports;
 mod folder_wl;
 mod offload;
 mod rescan;
+mod retrohunt;
 mod sample_zip;
 mod similarity;
 mod events;

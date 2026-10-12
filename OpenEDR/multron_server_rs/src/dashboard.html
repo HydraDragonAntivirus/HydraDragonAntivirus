@@ -432,6 +432,10 @@
           <div id="sigMsg" class="error"></div>
         </div>
       </div>
+      <h2 style="margin-top:22px">Retrohunt</h2>
+      <div class="hint" style="margin-top:0">Every saved signature is matched against all kept files (every category of the work folder), like VirusTotal Retrohunt. Each match is rescanned with the full engine and the current settings, so its verdict updates; a human verdict still wins. Saving a rule again starts a new hunt.</div>
+      <div class="row2" style="margin-top:8px"><div id="rhSummary" class="hint" style="margin:0"></div><div style="text-align:right"><button class="danger" id="rhStop" style="width:auto" hidden>Stop retrohunt</button></div></div>
+      <div id="rhList"></div>
       <h2 style="margin-top:22px">Company (signer) lists</h2>
       <div class="hint" style="margin-top:0">One Authenticode signer name per line, exactly as in the certificate. <b>Allow</b> makes validly signed files clean (a broken or untrusted signature is ignored). <b>Block</b> marks the signer's files malicious. Analyst ClamAV and HydraDragonSig hits still apply on top; a human hash verdict always wins.</div>
       <div class="row2" style="margin-top:8px">
@@ -1924,6 +1928,7 @@
     try {
       const r = await post("/api/signatures", { kind: $("sigKind").value, name: nbCurrent, source: $("sigSource").value });
       $("sigMsg").style.color = "var(--green)"; $("sigMsg").textContent = r.note; sigLoad();
+      if (r.retrohunt) { rhOpen.add(r.retrohunt); rhLoad(); }
     } catch (err) { $("sigMsg").textContent = err.message; }
   };
   $("sigDelete").onclick = async () => {
@@ -1933,6 +1938,59 @@
     catch (err) { $("sigMsg").textContent = err.message; }
   };
   sigLoad();
+
+  // Retrohunt results of saved signatures.
+  const rhOpen = new Set();
+  let rhTimer = null, rhHunts = [];
+  const rhStateTag = { queued: "t-unknown", running: "t-suspicious", done: "t-clean", stopped: "t-unknown", error: "t-malicious" };
+  function rhRender() {
+    const active = rhHunts.some(h => h.state === "running" || h.state === "queued");
+    $("rhStop").hidden = !active;
+    $("rhSummary").textContent = rhHunts.length ? `${rhHunts.length} hunt(s) in memory (the newest 20 are kept until a restart)` : "No retrohunt yet. Save a signature to start one.";
+    $("rhList").innerHTML = rhHunts.map(h => {
+      const pct = h.total ? Math.round(100 * h.done / h.total) : (h.state === "done" ? 100 : 0);
+      const open = rhOpen.has(h.id);
+      const rows = h.matches.map(m => `<tr>
+          <td class="file" title="${rsEsc(m.file_name)}"><b>${rsEsc(m.file_name || "—")}</b></td>
+          <td class="mono" title="${rsEsc(m.sha256)}">${rsEsc(m.sha256.slice(0, 16))}…</td>
+          <td>${rsEsc(m.category.replace("_", " "))}</td>
+          <td class="mono">${rsEsc(m.rule)}</td>
+          <td style="white-space:nowrap">${rsV(m.old_verdict)} &rarr; ${m.error ? '<span class="tag t-malicious">FAILED</span>' : rsV(m.new_verdict)}</td>
+          <td class="rsd">${m.error ? rsEsc(m.error) : (m.threat ? "<b>" + rsEsc(m.threat) + "</b>" : "—") + (m.detail ? `<div class="engd">${rsEsc(m.detail)}</div>` : "")}</td>
+          <td class="num">${rsSize(m.size)}</td>
+          <td style="white-space:nowrap"><a href="https://www.virustotal.com/gui/file/${rsEsc(m.sha256)}" target="_blank" rel="noopener" style="color:var(--accent)">VT&nbsp;&#8599;</a>
+            <button class="ghost" title="Open in human analysis" onclick="haFill('${rsEsc(m.sha256)}');document.getElementById('humanAnalysis').scrollIntoView({behavior:'smooth'})">Analyse</button></td>
+        </tr>`).join("");
+      return `<div class="ha-item" style="display:block;margin-top:8px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <b>#${h.id} ${rsEsc(h.name)}</b> <span class="tag t-unknown">${rsEsc(h.kind)}</span>
+          <span class="tag ${rhStateTag[h.state] || "t-unknown"}">${rsEsc(h.state.toUpperCase())}</span>
+          <span style="color:var(--muted)">${h.done}/${h.total} files (${pct}%) · <b>${h.matched}</b> matched · ${h.changed} verdicts changed${h.unreadable ? ` · ${h.unreadable} unreadable` : ""}${h.started_at ? " · " + new Date(h.started_at).toLocaleString() : ""}</span>
+          ${h.matched ? `<button class="ghost" onclick="rhToggle(${h.id})">${open ? "Hide" : "Show"} matches</button>` : ""}
+        </div>
+        ${h.error ? `<div class="error">${rsEsc(h.error)}</div>` : ""}
+        ${h.state === "running" ? `<div class="rs-prog" style="margin-top:6px"><div class="rs-bar"><div style="width:${pct}%"></div></div></div>` : ""}
+        ${open && h.matched ? `<div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>File</th><th>SHA-256</th><th>Folder</th><th>Rule</th><th>Verdict</th><th>Threat / detail</th><th class="num">Size</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` +
+          (h.matched > h.matches.length ? `<div class="hint">Showing the first ${h.matches.length} of ${h.matched} matches.</div>` : "") : ""}
+      </div>`;
+    }).join("");
+  }
+  window.rhToggle = (id) => { rhOpen.has(id) ? rhOpen.delete(id) : rhOpen.add(id); rhRender(); };
+  async function rhLoad() {
+    clearTimeout(rhTimer);
+    try {
+      const d = await (await fetch("/api/retrohunt", { cache: "no-store" })).json();
+      rhHunts = d.hunts || [];
+      rhRender();
+      if (d.active) rhTimer = setTimeout(rhLoad, 2000);
+    } catch (_) { rhTimer = setTimeout(rhLoad, 5000); }
+  }
+  $("rhStop").onclick = async () => {
+    if (!confirm("Stop the running retrohunt and drop the queued ones?")) return;
+    try { await post("/api/retrohunt/stop"); } catch (_) {}
+    rhLoad();
+  };
+  rhLoad();
 
   const coLoad = async () => {
     try {

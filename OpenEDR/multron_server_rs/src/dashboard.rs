@@ -321,6 +321,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/signatures", get(handle_signatures_list).post(handle_signature_save))
         .route("/api/signatures/delete", post(handle_signature_delete))
+        .route("/api/retrohunt", get(handle_retrohunt_status))
+        .route("/api/retrohunt/stop", post(handle_retrohunt_stop))
         .route("/api/naming", get(handle_naming_check))
         .route("/api/companies", get(handle_companies_get).post(handle_companies_save))
         .layer(middleware::from_fn(guard_middleware))
@@ -1608,7 +1610,19 @@ async fn handle_signature_save(
         format!("Saved and active ({count} signature(s)). {summary}")
     };
     info_event(&app, format!("signature room: {} {name} {}", kind.id(), if existed { "updated" } else { "added" }));
-    Json(serde_json::json!({ "ok": true, "kind": kind.id(), "name": name, "file": path.display().to_string(), "note": note })).into_response()
+    // Retrohunt: this signature over every kept file, matches rescanned with the full engine.
+    let hunt = crate::retrohunt::start(&app.scan_server, kind, &name, &b.source);
+    let note = format!("{note} Retrohunt #{hunt} queued over all kept files.");
+    Json(serde_json::json!({ "ok": true, "kind": kind.id(), "name": name, "file": path.display().to_string(), "note": note, "retrohunt": hunt })).into_response()
+}
+
+async fn handle_retrohunt_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(app.scan_server.retrohunt.status())
+}
+
+async fn handle_retrohunt_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    app.scan_server.retrohunt.stop_all();
+    Json(serde_json::json!({ "ok": true }))
 }
 
 #[derive(Deserialize)]

@@ -201,6 +201,8 @@ pub struct ScanServer {
     pub boot_time: std::time::Instant,
     /// Background rescan of kept files (dashboard).
     pub rescan: crate::rescan::BulkRescan,
+    /// Retrohunt of saved analyst signatures over the kept files (signature room).
+    pub retrohunt: crate::retrohunt::RetroHunt,
     /// Moving kept files to another disk or network share (dashboard).
     pub offload: Arc<crate::offload::Offload>,
     /// Uploaded files waiting for or inside the engine (dashboard "Scan queue").
@@ -348,6 +350,7 @@ impl ScanServer {
             maintenance: AtomicBool::new(false),
             boot_time: std::time::Instant::now(),
             rescan: crate::rescan::BulkRescan::default(),
+            retrohunt: crate::retrohunt::RetroHunt::default(),
             offload: Arc::new(crate::offload::Offload::default()),
             scan_queue: Arc::new(ScanQueueList::default()),
         })
@@ -2059,8 +2062,7 @@ async fn handle_file_report(
     let insight = server.threat_intel.get(&sha);
     let review = server.threat_intel.reviews.get(&sha);
     let mut report = crate::reports::load(&sha);
-    // Extracted strings (URLs, IPs, paths, commands, ...) only for researcher API key
-    // holders (`sample_api_keys.txt`); everyone else gets the counts.
+    // Researcher API key holders (`sample_api_keys.txt`).
     let has_key = key.is_some_and(|k| {
         sample_keys().is_some_and(|keys| keys.iter().any(|x| constant_time_eq(x.as_bytes(), k.as_bytes())))
     });
@@ -2068,8 +2070,8 @@ async fn handle_file_report(
     // content itself, which may hold personal or sensitive data (passwords, tokens,
     // e-mail addresses, paths). Only researcher API key holders get them; everyone
     // else does not even get the counts.
+    // Strings of binary files are public.
     let strings_hidden = !has_key && hide_text_strings(report.as_mut());
-    let strings_locked = !strings_hidden && !has_key && lock_strings(report.as_mut());
     if insight.is_none() && review.is_none() && report.is_none() {
         return json_response(StatusCode::NOT_FOUND, serde_json::json!({"status": "not_found", "sha256": sha, "virustotal": crate::human_review::virustotal_url(&sha)}), "no-store");
     }
@@ -2104,7 +2106,6 @@ async fn handle_file_report(
             "virustotal": crate::human_review::virustotal_url(&sha),
             "similar": similar_files(&server.threat_intel, &sha, 10),
             "sample_sharing": sample_keys().is_some() && matches!(verdict.as_str(), "malicious" | "suspicious"),
-            "strings_locked": strings_locked,
             "strings_hidden": strings_hidden,
         }),
         if has_key { "private, no-store" } else { "public, max-age=30" },
@@ -2114,8 +2115,6 @@ async fn handle_file_report(
     resp
 }
 
-/// Replaces the string lists of a stored report with their sizes. Returns true when
-/// the report had strings to hide.
 /// Removes the extracted strings of a text (non-binary) file from a public report.
 /// True when the report was a text file.
 fn hide_text_strings(report: Option<&mut serde_json::Value>) -> bool {
@@ -2127,24 +2126,6 @@ fn hide_text_strings(report: Option<&mut serde_json::Value>) -> bool {
         }
     }
     is_text
-}
-
-fn lock_strings(report: Option<&mut serde_json::Value>) -> bool {
-    let Some(st) = report.and_then(|r| r.get_mut("strings")).and_then(|s| s.as_object_mut()) else {
-        return false;
-    };
-    let mut counts = serde_json::Map::new();
-    for (k, v) in st.iter() {
-        if let Some(a) = v.as_array() {
-            counts.insert(k.clone(), serde_json::json!(a.len()));
-        }
-    }
-    for (k, n) in &counts {
-        st.insert(k.clone(), serde_json::json!([]));
-        st.insert(format!("{k}_count"), n.clone());
-    }
-    st.insert("locked".into(), serde_json::json!(true));
-    true
 }
 
 /// MalwareBazaar-style daily list: hashes first seen on a UTC day with a malicious or
