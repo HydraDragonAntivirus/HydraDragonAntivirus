@@ -787,7 +787,9 @@ impl RuleSet {
     pub fn extend(&mut self, other: RuleSet) {
         self.rules.extend(other.rules);
         self.warnings.extend(other.warnings);
-        self.index = None;
+        // Rebuilt here once: without an index every scan would build it again
+        // (`evaluate_into` falls back to building one per call).
+        self.compile();
     }
 
     pub fn rules(&self) -> &[Rule] {
