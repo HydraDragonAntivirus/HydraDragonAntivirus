@@ -328,6 +328,11 @@
         Keep <b>clean</b> PE / APK files in <code>multron_incoming/clean/</code>
       </label>
       <div class="hint">Lets rescans after engine updates catch malware the engine missed, and feeds the benign corpus. Own quota, so unknown and threat files keep their space: <span id="keepCleanQuota">—</span>. <code>--keep-clean</code> turns it on at start.</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <input type="checkbox" id="compressLowDisk" style="width:auto">
+        Compress new kept files with LZMA2 (<code>.xz</code>) when space runs low
+      </label>
+      <div class="hint">Off by default. When on, a file kept while free disk space is under <span id="lowDiskGb">15</span> GB or a keep quota is 80 % full is stored as <code>.xz</code> (smaller, slower to rescan). Saved in multron_server.json; <code>--compress-low-disk</code> / <code>--no-compress-low-disk</code> override it at start.</div>
       <h2 style="margin-top:18px">Rescan kept files</h2>
       <div class="hint">Moved to <a href="#humanAnalysis" onclick="document.querySelector('#haTabs button[data-tab=Rescan]').click()" style="color:var(--accent)">Human analysis &rarr; Rescan tab</a></div>
       <h2 style="margin-top:18px">Move kept files to another disk</h2>
@@ -423,7 +428,7 @@
     </div>
 
     <section class="card" id="scanQueue">
-      <div class="feedbar" style="margin:0 0 8px"><h2 style="margin:0">Scan queue</h2><span class="hint" id="sqSummary" style="margin:0">—</span></div>
+      <div class="feedbar" style="margin:0 0 8px"><h2 style="margin:0">Scan queue</h2><span class="hint" id="sqSummary" style="margin:0">—</span><span class="spacer"></span><label class="chk"><input type="checkbox" id="sqAll"> Show all</label></div>
       <div class="hint" style="margin-top:0">Files received in full and not answered yet: being scanned, or waiting for a free engine thread. Refreshes every 3 s.</div>
       <div class="tablewrap" style="max-height:420px">
         <table><thead><tr><th>State</th><th>File</th><th class="num">Size</th><th>Client</th><th>SHA-256</th><th class="num">Time</th></tr></thead>
@@ -579,6 +584,13 @@
               <thead><tr><th style="width:30px"></th><th>File</th><th>Engine</th><th class="num">Seen</th><th class="num">Size</th><th>Folder</th><th>Waiting</th><th></th></tr></thead>
               <tbody id="haRows"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
             </table>
+          </div>
+          <div class="ha-pager" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+            <label class="chk"><input type="checkbox" id="haAll"> Load the whole queue</label>
+            <span class="spacer" style="flex:1"></span>
+            <button class="ghost" id="haPrev" style="width:auto;padding:3px 10px" disabled>&larr; Prev</button>
+            <span class="hint" id="haPageInfo" style="margin:0"></span>
+            <button class="ghost" id="haNext" style="width:auto;padding:3px 10px" disabled>Next &rarr;</button>
           </div>
           <div class="hint" id="haListHint"></div>
         </div>
@@ -1010,6 +1022,8 @@
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
     if (document.activeElement !== $("keepClean")) $("keepClean").checked = !!l.keepClean;
+    if (document.activeElement !== $("compressLowDisk")) $("compressLowDisk").checked = !!l.compressLowDisk;
+    if (l.lowDiskThresholdGB != null) $("lowDiskGb").textContent = l.lowDiskThresholdGB;
     $("keepCleanQuota").textContent = `${Number(l.keptCleanGB || 0).toFixed(2)} of ${l.keepCleanGB} GB used`;
     renderRescan(state.rescan || {});
     renderOffload(state.offload || {});
@@ -1434,6 +1448,10 @@
   };
   $("ofStop").onclick = () => post("/api/offload/stop", {}).catch(() => {});
 
+  $("compressLowDisk").onchange = async (e) => {
+    try { await post("/api/compress-low-disk", { enabled: e.target.checked }); }
+    catch (_) { e.target.checked = !e.target.checked; }
+  };
   $("keepClean").onchange = async (e) => {
     try { await post("/api/keep-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
@@ -1583,7 +1601,7 @@
   });
   const haShowTab = (t) => document.querySelector(`#haTabs button[data-tab="${t}"]`).click();
 
-  let haPend = [], haRecentList = [], haCur = null, haExt = "", haPendTotal = 0;
+  let haPend = [], haRecentList = [], haCur = null, haExt = "", haPendTotal = 0, haPage = 0;
   const haSel = new Set();
   const haName = (r) => r.file_name || (r.file_names || [])[0] || "";
   // Authenticode signer the engine saw at the last real scan.
@@ -1637,7 +1655,7 @@
     if (haExt && !counts[haExt]) haExt = "";
     $("haExtChips").innerHTML = `<button class="chip ${haExt ? "" : "active"}" data-ext="">All<small>${haPend.length}</small></button>` +
       exts.map(e => `<button class="chip ${haExt === e ? "active" : ""}" data-ext="${haEsc(e)}">${e === "(none)" ? "no extension" : "." + haEsc(e)}<small>${counts[e]}</small></button>`).join("");
-    $("haExtChips").querySelectorAll(".chip").forEach(c => c.onclick = () => { haExt = c.dataset.ext; haRender(); });
+    $("haExtChips").querySelectorAll(".chip").forEach(c => c.onclick = () => { haExt = c.dataset.ext; haPage = 0; haRender(); });
 
     const shown = haFilter();
     const mode = $("haGroup").value;
@@ -1649,15 +1667,21 @@
     });
     const keys = [...groups.keys()].sort((a, b) => groups.get(b).length - groups.get(a).length);
     const now = Date.now();
-    let html = "", rows = 0;
+    // Pages of HA_MAX_ROWS rows, in group order.
+    const pages = Math.max(1, Math.ceil(shown.length / HA_MAX_ROWS));
+    haPage = Math.min(Math.max(0, haPage), pages - 1);
+    const pStart = haPage * HA_MAX_ROWS, pEnd = pStart + HA_MAX_ROWS;
+    let html = "", idx = 0;
     for (const k of keys) {
-      const list = groups.get(k);
+      const whole = groups.get(k);
+      const list = whole.slice(Math.max(0, pStart - idx), Math.max(0, pEnd - idx));
+      idx += whole.length;
+      if (!list.length) { if (idx >= pEnd) break; continue; }
       if (mode !== "none") {
-        const all = list.every(r => haSel.has(r.sha256));
-        html += `<tr class="grp"><td><input type="checkbox" data-grp="${haEsc(k)}" ${all ? "checked" : ""}></td><td colspan="7">${haEsc(k)} · ${list.length} file${list.length === 1 ? "" : "s"}</td></tr>`;
+        const all = whole.every(r => haSel.has(r.sha256));
+        html += `<tr class="grp"><td><input type="checkbox" data-grp="${haEsc(k)}" ${all ? "checked" : ""}></td><td colspan="7">${haEsc(k)} · ${whole.length} file${whole.length === 1 ? "" : "s"}${list.length < whole.length ? ` <small>(${list.length} on this page)</small>` : ""}</td></tr>`;
       }
       for (const r of list) {
-        if (rows++ >= HA_MAX_ROWS) break;
         const eng = r.current_verdict || r.engine_verdict || "unknown";
         const wait = Math.max(0, Math.round((now - new Date(r.requested_at).getTime()) / 1000));
         const folders = [...(r.full_folders || []), ...(r.folders || [])].join("\n");
@@ -1672,11 +1696,14 @@
           <td style="white-space:nowrap"><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" title="VirusTotal">VT ↗</a></td>
         </tr>`;
       }
-      if (rows >= HA_MAX_ROWS) break;
+      if (idx >= pEnd) break;
     }
+    $("haPrev").disabled = haPage <= 0;
+    $("haNext").disabled = haPage >= pages - 1;
+    $("haPageInfo").textContent = shown.length ? `${pStart + 1}–${Math.min(pEnd, shown.length)} of ${shown.length}${pages > 1 ? ` · page ${haPage + 1} / ${pages}` : ""}` : "";
     $("haRows").innerHTML = html || `<tr><td colspan="8" class="empty">${haPend.length ? "Nothing matches the filters." : "The queue is empty."}</td></tr>`;
-    $("haListHint").textContent = (shown.length > HA_MAX_ROWS ? `Showing ${HA_MAX_ROWS} of ${shown.length}; "Select all shown" still selects all ${shown.length}. Narrow the filters to see the rest. ` : "") +
-      (haPendTotal > haPend.length ? `The server sent the oldest ${haPend.length} of ${haPendTotal} waiting files; give verdicts to see the rest.` : "");
+    $("haListHint").textContent = (pages > 1 ? `"Select all shown" selects all ${shown.length} matching files, on every page. ` : "") +
+      (haPendTotal > haPend.length ? `The server sent the oldest ${haPend.length} of ${haPendTotal} waiting files; tick "Load the whole queue" to get all of them.` : "");
     haSelUpdate();
   };
 
@@ -1701,7 +1728,10 @@
     const tr = t.closest("tr.it");
     if (tr) haOpen(tr.dataset.sha);
   });
-  ["haSearch", "haGroup", "haEngineF", "haSourceF"].forEach(id => $(id).addEventListener("input", haRender));
+  ["haSearch", "haGroup", "haEngineF", "haSourceF"].forEach(id => $(id).addEventListener("input", () => { haPage = 0; haRender(); }));
+  $("haPrev").onclick = () => { haPage--; haRender(); $("haRows").closest(".tablewrap").scrollTop = 0; };
+  $("haNext").onclick = () => { haPage++; haRender(); $("haRows").closest(".tablewrap").scrollTop = 0; };
+  $("haAll").onchange = () => { haPage = 0; haLoad(); };
   $("haSelAll").onchange = () => { haFilter().forEach(r => $("haSelAll").checked ? haSel.add(r.sha256) : haSel.delete(r.sha256)); haRender(); };
   $("haSelNone").onclick = () => { haSel.clear(); haRender(); };
 
@@ -1778,7 +1808,7 @@
   const haLoad = async () => {
     if ($("haDlg").open) return;
     try {
-      const res = await fetch("/api/reviews", { cache: "no-store" });
+      const res = await fetch("/api/reviews" + ($("haAll").checked ? "?all=1" : ""), { cache: "no-store" });
       if (!res.ok) return;
       const d = await res.json();
       const st = d.stats || {};
@@ -2217,7 +2247,7 @@
   const load = async () => {
     if (document.hidden) return;
     try {
-      const r = await fetch("/api/scan-queue", { cache: "no-store" });
+      const r = await fetch("/api/scan-queue" + ($q("sqAll").checked ? "?all=1" : ""), { cache: "no-store" });
       if (!r.ok) return;
       const d = await r.json();
       const now = new Date(d.now).getTime() || Date.now();
@@ -2225,11 +2255,12 @@
       $q("sqRows").innerHTML = html || `<tr><td colspan="6" class="empty">Nothing is waiting for the engine.</td></tr>`;
       $q("sqSummary").textContent = `${d.scanningTotal} scanning · ${d.waitingTotal} waiting`;
       const hidden = (d.scanningTotal - d.scanning.length) + (d.waitingTotal - d.waiting.length);
-      $q("sqMore").textContent = hidden > 0 ? `${hidden} more not shown (oldest 500 of each are listed).` : "";
+      $q("sqMore").textContent = hidden > 0 ? `${hidden} more not shown (oldest 500 of each are listed; tick "Show all" to list every one).` : "";
     } catch (_) {}
   };
   load();
   setInterval(load, 3000);
+  $q("sqAll").onchange = load;
 })();
 </script>
 <script>

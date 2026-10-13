@@ -92,6 +92,12 @@ impl AppState {
             settings.keep_clean = true;
         }
         engine.keep_clean.store(settings.keep_clean, std::sync::atomic::Ordering::Relaxed);
+        // Low-disk LZMA2 compression: saved dashboard choice (off by default); the
+        // command line (--compress-low-disk / --no-compress-low-disk) wins.
+        if let Some(on) = cfg.compress_low_disk_flag() {
+            settings.lzma_low_disk = on;
+        }
+        engine.compress_low_disk.store(settings.lzma_low_disk, std::sync::atomic::Ordering::Relaxed);
         scan_server.rescan.after_reload.store(settings.rescan_after_reload, std::sync::atomic::Ordering::Relaxed);
         if !cfg.offload_dir.trim().is_empty() {
             settings.offload_target = cfg.offload_dir.trim().to_string();
@@ -220,6 +226,7 @@ impl AppState {
             // Not part of the listener form: keep the current choice.
             s.keep_possible_clean = g.keep_possible_clean;
             s.keep_clean = g.keep_clean;
+            s.lzma_low_disk = g.lzma_low_disk;
             s.rescan_after_reload = g.rescan_after_reload;
             s.offload_target = g.offload_target.clone();
             s.offload_auto = g.offload_auto;
@@ -302,6 +309,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/maintenance", get(handle_maintenance_status).post(handle_maintenance))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
         .route("/api/keep-clean", post(handle_keep_clean))
+        .route("/api/compress-low-disk", post(handle_compress_low_disk))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
         .route("/api/rescan/stop", post(handle_rescan_stop))
@@ -500,7 +508,7 @@ async fn handle_state(
             "keepCleanGB": app.engine.keep_clean_limit_bytes / (1024 * 1024 * 1024),
             "keptCleanGB": app.engine.kept_clean_bytes.load(std::sync::atomic::Ordering::Relaxed) as f64 / (1024.0 * 1024.0 * 1024.0),
             "keepPossibleClean": app.engine.keep_possible_clean.load(std::sync::atomic::Ordering::Relaxed),
-            "compressLowDisk": app.engine.compress_low_disk,
+            "compressLowDisk": app.engine.compress_low_disk.load(std::sync::atomic::Ordering::Relaxed),
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },
         "editableLimits": srv.limits.get(),
@@ -609,6 +617,14 @@ async fn handle_keep_clean(State(app): State<Arc<AppState>>, Json(t): Json<KeepT
     app.settings.write().await.keep_clean = t.enabled;
     app.save_settings().await;
     info_event(&app, format!("keep clean PE/APK files: {}", if t.enabled { "on" } else { "off" }));
+    Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+async fn handle_compress_low_disk(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
+    app.engine.compress_low_disk.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+    app.settings.write().await.lzma_low_disk = t.enabled;
+    app.save_settings().await;
+    info_event(&app, format!("LZMA2 compression of kept files when space runs low: {}", if t.enabled { "on" } else { "off" }));
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
@@ -1242,8 +1258,20 @@ fn file_ext(name: &str) -> String {
 /// Pending queue (up to 5000, oldest first) with telemetry for grouping by extension
 /// and folder. Similar files are loaded per item (`/api/reviews/similar/:sha256`).
 /// Files waiting for the engine and files being scanned right now (oldest first).
-async fn handle_scan_queue(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    let (scanning, waiting, ns, nw) = app.scan_server.scan_queue.snapshot(500);
+#[derive(Deserialize)]
+struct AllQuery {
+    #[serde(default)]
+    all: Option<String>,
+}
+
+impl AllQuery {
+    fn all(&self) -> bool {
+        self.all.as_deref().is_some_and(|v| v == "1" || v == "true")
+    }
+}
+
+async fn handle_scan_queue(State(app): State<Arc<AppState>>, Query(q): Query<AllQuery>) -> impl IntoResponse {
+    let (scanning, waiting, ns, nw) = app.scan_server.scan_queue.snapshot(if q.all() { usize::MAX } else { 500 });
     Json(serde_json::json!({
         "ok": true,
         "scanning": scanning,
@@ -1254,14 +1282,14 @@ async fn handle_scan_queue(State(app): State<Arc<AppState>>) -> impl IntoRespons
     }))
 }
 
-async fn handle_reviews_list(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<AllQuery>) -> impl IntoResponse {
     // Open files that are not queued yet (e.g. removed by hand, or seen before
     // auto-queueing) are added before listing.
     let ti = Arc::clone(&app.threat_intel);
     let _ = tokio::task::spawn_blocking(move || ti.sync_review_queue()).await;
     let r = &app.threat_intel.reviews;
     let pending: Vec<serde_json::Value> = r
-        .pending(5000)
+        .pending(if q.all() { usize::MAX } else { 5000 })
         .iter()
         .map(|rv| {
             let mut v = rv.to_dashboard_json();

@@ -157,7 +157,12 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_keep_possible_clean: bool,
 
-    /// Disable automatic LZMA2 max compression when PC has low disk space
+    /// Compress kept files with LZMA2 max (.xz) when disk space or the keep quota runs
+    /// low (off by default; also switchable from the dashboard)
+    #[arg(long)]
+    pub compress_low_disk: bool,
+
+    /// Turn the low-disk LZMA2 compression off at start, whatever the dashboard saved
     #[arg(long)]
     pub no_compress_low_disk: bool,
 
@@ -194,8 +199,16 @@ impl CliArgs {
     }
 
     /// Compress kept files with LZMA2 max on low disk space (default: true)
-    pub fn compress_low_disk(&self) -> bool {
-        !self.no_compress_low_disk
+    /// Low-disk LZMA2 compression from the command line: Some(on/off), None = the
+    /// dashboard setting (off by default).
+    pub fn compress_low_disk_flag(&self) -> Option<bool> {
+        if self.no_compress_low_disk {
+            Some(false)
+        } else if self.compress_low_disk {
+            Some(true)
+        } else {
+            None
+        }
     }
 
     /// Clamps values that would let one client use too much memory or disk.
@@ -263,8 +276,11 @@ pub struct SavedSettings {
     /// Rescan kept unknown / possible_clean files after every engine reload.
     #[serde(default = "default_true")]
     pub rescan_after_reload: bool,
-    #[serde(default = "default_true")]
-    pub compress_low_disk: bool,
+    /// Low-disk LZMA2 compression of kept files (dashboard). A new key on purpose: the
+    /// old `compress_low_disk` was written as true by every earlier build without being
+    /// a choice, so it is ignored and the default is off.
+    #[serde(default)]
+    pub lzma_low_disk: bool,
     #[serde(default = "default_low_disk_gb")]
     pub low_disk_gb: u64,
     /// Limits edited in the dashboard; None until they are changed there once.
@@ -288,7 +304,7 @@ impl Default for SavedSettings {
             archive_mirror: String::new(),
             maintenance: false,
             archive: false,
-            compress_low_disk: true,
+            lzma_low_disk: false,
             low_disk_gb: 15,
             limits: None,
         }

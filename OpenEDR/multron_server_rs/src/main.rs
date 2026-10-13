@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.keep_threats(),
         args.keep_clean,
         args.keep_clean_gb,
-        args.compress_low_disk(),
+        args.compress_low_disk_flag().unwrap_or(false),
         args.low_disk_gb,
     );
     let custom_rules = if args.rules.is_empty() {

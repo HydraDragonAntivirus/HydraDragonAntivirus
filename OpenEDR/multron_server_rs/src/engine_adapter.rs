@@ -87,7 +87,8 @@ pub struct EngineAdapter {
     /// Keep files the TLSH smart whitelist called `possible_clean` (default on; dashboard
     /// toggle, saved in multron_server.json, `--no-keep-possible-clean`).
     pub keep_possible_clean: AtomicBool,
-    pub compress_low_disk: bool,
+    /// LZMA2-compress kept files when space runs low (dashboard toggle, off by default).
+    pub compress_low_disk: AtomicBool,
     pub low_disk_threshold_bytes: u64,
     keep_limit_bytes: u64,
     kept_bytes: AtomicU64,
@@ -135,7 +136,7 @@ impl EngineAdapter {
             keep_threats,
             keep_clean: AtomicBool::new(keep_clean),
             keep_possible_clean: AtomicBool::new(true),
-            compress_low_disk,
+            compress_low_disk: AtomicBool::new(compress_low_disk),
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
             kept_bytes: AtomicU64::new(kept.0),
@@ -804,7 +805,7 @@ impl EngineAdapter {
                 let name = if name.is_empty() { "file" } else { name };
                 let cat_dir = dir.join(KeptFile::category_for(&res.verdict));
                 let _ = std::fs::create_dir_all(&cat_dir);
-                let low_disk = self.compress_low_disk
+                let low_disk = self.compress_low_disk.load(Ordering::Relaxed)
                     && is_disk_space_low(
                         dir,
                         used.load(Ordering::Relaxed),
