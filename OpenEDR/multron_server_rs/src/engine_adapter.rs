@@ -55,6 +55,9 @@ pub struct ResultMessage {
     /// Authenticode signer seen by the engine (dashboard only, not sent to clients).
     #[serde(default, skip)]
     pub signer: Option<crate::threat_intel::SignerSummary>,
+    /// Every signature that matched (dashboard only, not sent to clients).
+    #[serde(default, skip)]
+    pub detections: Vec<crate::threat_intel::DetectionRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -695,6 +698,7 @@ impl EngineAdapter {
                 source: "scan".to_string(),
                 extracted_objects: Vec::new(),
                 signer: None,
+                detections: Vec::new(),
             };
             return Ok(res);
         }
@@ -1051,6 +1055,11 @@ fn hash_result(verdict: &str, threat: Option<&str>, detail: &str, score: f64, sh
         source: source.to_string(),
         extracted_objects: Vec::new(),
         signer: None,
+        detections: if is_threat {
+            vec![crate::threat_intel::DetectionRef { layer: format!("Hash ({source})"), name: threat.unwrap_or(detail).to_string() }]
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -1066,6 +1075,11 @@ fn verdict_rank(v: &str) -> u8 {
 /// Raises a result to an analyst signature's verdict (never lowers it) and keeps the
 /// ECS fields the clients read (`antivirus`, `rule`, `threat`, `event.kind`) in sync.
 pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::AnalystHit) {
+    // Listed even when it does not raise the verdict: it matched.
+    let d = crate::threat_intel::DetectionRef { layer: format!("Analyst {}", hit.engine), name: hit.name.clone() };
+    if !res.detections.contains(&d) {
+        res.detections.insert(0, d);
+    }
     if verdict_rank(hit.verdict) <= verdict_rank(&res.verdict) {
         return;
     }
@@ -1163,6 +1177,12 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
             catalog: s.is_catalog_signed,
             status: s.status.clone(),
         }),
+        detections: report
+            .detections
+            .iter()
+            .take(32)
+            .map(|d| crate::threat_intel::DetectionRef { layer: d.layer.clone(), name: d.name.clone() })
+            .collect(),
     };
 
     let mut detail_parts = Vec::new();

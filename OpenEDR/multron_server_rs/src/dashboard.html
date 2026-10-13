@@ -227,6 +227,9 @@
   #ctxToast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 1001; background: var(--text); color: var(--panel); padding: 7px 14px; border-radius: 6px; font-size: 12.5px; }
   .sg { font-size: 11.5px; font-weight: 600; } .sg.ok { color: var(--green); } .sg.warn { color: var(--orange); } .sg.none { color: var(--muted); font-weight: 500; }
   td.file .sgline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+  .sigs { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+  .sigc { font-size: 11px; line-height: 1.35; padding: 1px 6px; border-radius: 6px; background: var(--panel2); border: 1px solid var(--border); font-family: Consolas, monospace; word-break: break-all; }
+  .sigc b { font-family: "Segoe UI", sans-serif; font-weight: 600; color: var(--muted); margin-right: 4px; }
   td.eng .engd { font-size: 11px; color: var(--muted); max-width: 280px; white-space: normal; word-break: break-word; margin-top: 2px; }
   dialog#haDlg { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(760px, 94vw); }
   dialog#haDlg::backdrop { background: rgba(0, 0, 0, .5); }
@@ -322,6 +325,7 @@
       <div class="hint" style="margin:10px 0 4px">Malicious + suspicious by malware type (all time · first seen in the last 7 days). <span title="Names in Category.Platform.Family form (human verdicts, analyst signatures) are exact; other engine names are classified from their words.">ⓘ</span></div>
       <div id="tiTypes" style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px"></div>
       <div class="hint" id="tiFamilies" style="margin-top:6px"></div>
+      <div id="tiSigs"></div>
     </section>
 
     <section class="card">
@@ -561,6 +565,7 @@
               <option value="ext">Group by extension</option>
               <option value="folder">Group by folder</option>
               <option value="type">Group by malware type</option>
+              <option value="sig">Group by matched signature</option>
               <option value="none">No grouping</option>
             </select>
             <select id="haEngineF">
@@ -962,6 +967,16 @@
 </main>
 
 <script>
+// Matched signatures (engine layer + rule name) as chips; `max` = how many before "+n more".
+window.sigChips = (list, max) => {
+  if (!list || !list.length) return "";
+  const e = (x) => String(x ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const shown = max ? list.slice(0, max) : list;
+  const all = list.map(d => `${d.layer}: ${d.name}`).join("\n");
+  return `<div class="sigs" title="${e(all)}">` + shown.map(d => `<span class="sigc"><b>${e(d.layer)}</b>${e(d.name)}</span>`).join("") +
+    (list.length > shown.length ? `<span class="sigc">+${list.length - shown.length} more</span>` : "") + `</div>`;
+};
+window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].name}` : "";
 (() => {
   const $ = id => document.getElementById(id);
   const MAX_ROWS = 1000;
@@ -1585,6 +1600,8 @@
             $("tiTypes").innerHTML = cats.length ? cats.map(([c, n]) => `<span class="tag t-info">${e(c)} <b>${n.toLocaleString()}</b>${recent[c] ? ` · +${recent[c]}` : ""}</span>`).join("") : '<span class="hint" style="margin:0">No malicious or suspicious files yet.</span>';
             const fam = (ty.all.families || []).slice(0, 10);
             $("tiFamilies").textContent = fam.length ? "Top families: " + fam.map(f => `${f.family} (${f.category}) ${f.count}`).join(", ") + ` · ${ty.all.exact} of ${ty.all.total} exact` : "";
+            const sigs = (ty.all.signatures || []).slice(0, 15);
+            $("tiSigs").innerHTML = sigs.length ? `<div class="hint" style="margin:6px 0 2px">Top matched signatures (files):</div><div class="sigs">` + sigs.map(s => `<span class="sigc"><b>${e(s.layer)}</b>${e(s.name)} · ${s.count.toLocaleString()}</span>`).join("") + `</div>` : "";
           }
         }
       }
@@ -1611,6 +1628,7 @@
         box.innerHTML = `
           <div><b>Verdict:</b> <span class="tag ${tagCls}">${ins.verdict.toUpperCase()}</span> (${ins.score}/100)</div>
           ${ins.threat_name ? `<div><b>Threat:</b> <span style="color:var(--red); font-weight:600;">${ins.threat_name}</span></div>` : ""}
+          ${(ins.detections || []).length ? `<div><b>Signatures (${ins.detections.length}):</b>${sigChips(ins.detections)}</div>` : ""}
           <div><b>Prevalence:</b> <span style="font-weight:600;">${data.prevalence}</span> (${ins.seen_count} sightings)</div>
           <div><b>First seen:</b> ${ins.first_seen}</div>
           <div><b>Last seen:</b> ${ins.last_seen}</div>
@@ -1692,6 +1710,7 @@
   const haGroupKey = (r, mode) => mode === "ext" ? (r.ext ? "." + r.ext : "no extension")
     : mode === "folder" ? (haFolder(r) || "(folder not reported)")
     : mode === "type" ? (r.classification ? r.classification.category : "Not flagged by the engine")
+    : mode === "sig" ? (sigKey(r.detections) || (r.classification ? "(no signature stored) " + r.classification.category : "Not flagged by the engine"))
     : "";
   const haRender = () => {
     // Extension chips (counts over the whole queue).
@@ -1734,7 +1753,7 @@
         html += `<tr class="it${haSel.has(r.sha256) ? " sel" : ""}${haCur === r.sha256 ? " cur" : ""}" data-sha="${r.sha256}">
           <td><input type="checkbox" data-sel="${r.sha256}" ${haSel.has(r.sha256) ? "checked" : ""}></td>
           <td class="file" title="${haEsc((r.file_names || [haName(r)]).join("\n") + "\n" + r.sha256)}"><b>${haEsc(haName(r) || r.sha256.slice(0, 16) + "…")}</b>${r.source === "user" ? ' <span class="tag t-connect">user</span>' : ""}${r.signer ? `<div class="sgline">${haSigner(r, false)}</div>` : ""}</td>
-          <td class="eng" title="${haEsc(r.engine_detail || r.current_threat || "")}">${haVTag(eng)}${haTypeTag(r.classification)}${r.engine_detail || r.current_threat ? `<div class="engd">${haEsc(r.engine_detail || r.current_threat)}</div>` : ""}</td>
+          <td class="eng" title="${haEsc(r.engine_detail || r.current_threat || "")}">${haVTag(eng)}${haTypeTag(r.classification)}${(r.detections || []).length ? sigChips(r.detections, 3) : r.engine_detail || r.current_threat ? `<div class="engd">${haEsc(r.engine_detail || r.current_threat)}</div>` : ""}</td>
           <td class="num">${r.seen_count || 0}</td>
           <td class="num">${haSize(r.file_size)}</td>
           <td class="fold" title="${haEsc(folders)}">${haEsc(haFolder(r) || "—")}${(r.folders || []).length > 1 ? ` <small>+${r.folders.length - 1}</small>` : ""}</td>
@@ -1801,6 +1820,7 @@
       (r.full_folders || []).length ? `<div><span class="k">Full paths:</span> ${r.full_folders.map(haEsc).join("<br>")}</div>` : "",
       (r.folders || []).length ? `<div><span class="k">Folders:</span> ${r.folders.map(haEsc).join("<br>")}</div>` : "",
       `<div><span class="k">Engine:</span> ${haVTag(r.current_verdict || r.engine_verdict)} ${r.current_threat ? "<b>" + haEsc(r.current_threat) + "</b>" : ""} · seen ${r.seen_count || 0}× · ${haSize(r.file_size)}</div>`,
+      (r.detections || []).length ? `<div><span class="k">Signatures (${r.detections.length}):</span>${sigChips(r.detections)}</div>` : "",
       r.engine_detail ? `<div><span class="k">Detected by:</span> ${haEsc(r.engine_detail)} · <a href="#" onclick="fpOpen('${sha}', ${haEsc(JSON.stringify(haName(r) || ""))});return false" style="color:var(--accent)">False positive: turn off a signature…</a></div>` : "",
       `<div><span class="k">Signer:</span> ${haSigner(r, true)}</div>`,
       `<div><a href="${haEsc(r.virustotal)}" target="_blank" rel="noopener" style="color:var(--accent)">VirusTotal ↗</a> · <a href="#" onclick="rescanSha('${sha}');return false" style="color:var(--accent)">Rescan</a></div>`,
@@ -1839,7 +1859,7 @@
       (!q || [r.sha256, r.threat_name, r.note, r.internal_note, r.analyst].join("\n").toLowerCase().includes(q)));
     $("haRecentRows").innerHTML = rows.length ? rows.map(([r, i]) => `<tr data-sha="${r.sha256}" data-name="${haEsc(r.file_name || "")}">
         <td class="mono" title="${r.sha256}">${r.sha256.slice(0, 20)}…</td>
-        <td>${haVTag(r.verdict)} ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b>" : haTypeTag(r.classification)}</td>
+        <td>${haVTag(r.verdict)} ${r.threat_name ? "<b>" + haEsc(r.threat_name) + "</b>" : haTypeTag(r.classification)}${sigChips(r.detections, 2)}</td>
         <td class="detail" title="${haEsc(r.note + (r.internal_note ? "\nInternal: " + r.internal_note : ""))}">${haEsc(r.note || "")}${r.internal_note ? ` <i>· internal: ${haEsc(r.internal_note)}</i>` : ""}</td>
         <td>${haEsc(r.analyst || "—")}</td>
         <td class="num">${haDur(r.wait_secs)}</td>
@@ -2530,6 +2550,7 @@
       ])}</div>
       <div><h3 class="va-h" style="margin-top:0">Security</h3>${kv([
         ["Engine verdict", d.engine ? vtag(d.engine.verdict) + (d.engine.threat ? ` <b>${esc(d.engine.threat)}</b>` : "") : '<span class="hint" style="margin:0">never seen by the scanner</span>'],
+        d.engine && d.engine.detections && d.engine.detections.length && ["Signatures", sigChips(d.engine.detections)],
         d.engine_detail && ["Detected by", esc(d.engine_detail)],
         d.human && d.human.verdict && ["Human verdict", vtag(d.human.verdict) + (d.human.threat_name ? ` <b>${esc(d.human.threat_name)}</b>` : "") + (d.human.analyst ? ` · ${esc(d.human.analyst)}` : "")],
         ["Signer", signer],
@@ -2555,7 +2576,7 @@
       const r = await api("/api/alyzer/scan", { token: doc.token });
       doc.signer = r.signer || doc.signer;
       renderOverview();
-      box().innerHTML = `<div class="hint" style="margin:0 0 4px">Engine scan just now (${r.ms} ms, nothing kept):</div>${vtag(r.verdict)} ${r.threat ? "<b>" + esc(r.threat) + "</b>" : ""}<div style="font-size:12px;margin-top:4px">${esc(r.detail || "")}</div>` + extractedHtml(r.extracted_objects || []);
+      box().innerHTML = `<div class="hint" style="margin:0 0 4px">Engine scan just now (${r.ms} ms, nothing kept):</div>${vtag(r.verdict)} ${r.threat ? "<b>" + esc(r.threat) + "</b>" : ""}<div style="font-size:12px;margin-top:4px">${esc(r.detail || "")}</div>` + sigChips(r.detections) + extractedHtml(r.extracted_objects || []);
     } catch (e) { box().innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
     $("vaScan").disabled = false;
   };
@@ -3127,7 +3148,7 @@
         const name = (f.file_names || [])[0] || "";
         return `<tr data-sha="${esc(f.sha256)}" data-name="${esc(name)}">
           <td><div>${esc(name || "—")}</div><div class="mono" style="font-size:11px;color:var(--muted)" title="${esc(f.sha256)}">${esc(f.sha256.slice(0, 24))}…</div></td>
-          <td>${tag(f.verdict)}${f.human ? " <i>human</i>" : ""}${f.threat ? `<div style="font-size:11px">${esc(f.threat)}</div>` : ""}</td>
+          <td>${tag(f.verdict)}${f.human ? " <i>human</i>" : ""}${f.threat ? `<div style="font-size:11px">${esc(f.threat)}</div>` : ""}${sigChips(f.detections, 2)}</td>
           <td class="num" title="different IPs that sent this file">${f.sources}</td>
           <td style="font-size:12px">${(f.sightings || []).map(s => `<div><a href="#" class="srcPath" data-path="${esc(s.path)}" style="color:var(--accent);text-decoration:none;word-break:break-all">${esc(s.path || "(no path sent)")}</a> <span style="color:var(--muted)">×${s.count}, ${when(s.last_seen)}</span></div>`).join("")}</td></tr>`;
       }).join("") : `<tr><td colspan="4" class="empty">No files</td></tr>`;

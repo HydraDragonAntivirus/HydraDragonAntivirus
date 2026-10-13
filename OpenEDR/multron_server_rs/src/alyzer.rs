@@ -131,6 +131,7 @@ async fn open_doc(app: &Arc<AppState>, name: String, source: String, data: Vec<u
         "engine": insight.as_ref().map(|i| serde_json::json!({
             "verdict": i.verdict, "threat": i.threat_name, "seen": i.seen_count,
             "first_seen": i.first_seen, "last_seen": i.last_seen, "file_names": i.file_names, "folders": i.folders, "full_folders": i.full_folders, "sightings": i.sightings,
+            "detections": i.detections,
         })),
         "engine_detail": cached.as_ref().and_then(|c| c.detail.clone()),
         "signer": insight.as_ref().and_then(|i| i.signer.clone()),
@@ -576,6 +577,7 @@ pub async fn handle_scan(State(app): State<Arc<AppState>>, Json(b): Json<TokenBo
             // What the engine itself pulled out: archive members, Unicorn-unpacked PE,
             // overlay, stripped buffers, each with its own verdict.
             "extracted_objects": r.extracted_objects,
+            "detections": r.detections,
         }))
         .into_response(),
         Ok(Err(e)) => err(StatusCode::SERVICE_UNAVAILABLE, e),

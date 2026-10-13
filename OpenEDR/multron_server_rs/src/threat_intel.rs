@@ -44,6 +44,19 @@ pub struct ThreatInsight {
     /// e.g. a hash-only verdict or a non-PE file).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signer: Option<SignerSummary>,
+    /// Every signature that matched in the last engine scan of the stored verdict
+    /// (engine layer + rule name), so analysts see the exact rules, not only the
+    /// malware type. Dashboard only, like `folders`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub detections: Vec<DetectionRef>,
+}
+
+/// One matched signature: the engine layer ("YARA", "ClamAV", "Analyst clamav", ...)
+/// and the rule / signature name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetectionRef {
+    pub layer: String,
+    pub name: String,
 }
 
 /// One client IP + full path a file was sent from.
@@ -251,6 +264,7 @@ impl ThreatIntelStore {
                 full_folders: Vec::new(),
                 sightings: Vec::new(),
                 signer: None,
+                detections: Vec::new(),
             });
 
             entry.seen_count += 1;
@@ -334,6 +348,28 @@ impl ThreatIntelStore {
                 return;
             }
             entry.signer = Some(signer.clone());
+            entry.clone()
+        };
+        if let Some(writer) = &self.writer {
+            let _ = writer.send(updated);
+        }
+    }
+
+    /// Stores the signatures that matched. `force` (rescan): always replaces them, an
+    /// empty list clears them. Otherwise only when the scan's verdict is the stored one
+    /// (a weaker later scan does not replace the rules behind the stored verdict).
+    pub fn set_detections(&self, sha256_hex: &str, verdict: &str, detections: &[DetectionRef], force: bool) {
+        let Some(sha_bytes) = parse_sha(sha256_hex) else { return };
+        let updated = {
+            let mut guard = self.map.write().unwrap();
+            let Some(entry) = guard.get_mut(&sha_bytes) else { return };
+            if !force && (detections.is_empty() || entry.verdict != verdict) {
+                return;
+            }
+            if entry.detections.as_slice() == detections {
+                return;
+            }
+            entry.detections = detections.to_vec();
             entry.clone()
         };
         if let Some(writer) = &self.writer {
@@ -563,6 +599,7 @@ impl ThreatIntelStore {
                         "verdict": human.clone().unwrap_or_else(|| i.verdict.clone()),
                         "human": human.is_some(),
                         "threat": i.threat_name,
+                        "detections": i.detections,
                         "seen_count": i.seen_count,
                         "sources": i.sightings.iter().map(|s| s.ip.as_str()).collect::<std::collections::HashSet<_>>().len(),
                         "sightings": mine,
@@ -587,6 +624,8 @@ impl ThreatIntelStore {
             categories: BTreeMap<&'static str, u64>,
             platforms: BTreeMap<&'static str, u64>,
             families: HashMap<(String, &'static str), u64>,
+            /// Matched signatures (layer, rule) of the engine's last scan; dashboard only.
+            signatures: HashMap<(String, String), u64>,
             total: u64,
             exact: u64,
         }
@@ -613,6 +652,9 @@ impl ThreatIntelStore {
                     if !c.family.is_empty() {
                         *acc.families.entry((c.family.clone(), c.category)).or_default() += 1;
                     }
+                    for d in &i.detections {
+                        *acc.signatures.entry((d.layer.clone(), d.name.clone())).or_default() += 1;
+                    }
                 }
             }
         }
@@ -620,7 +662,11 @@ impl ThreatIntelStore {
             let mut fam: Vec<_> = a.families.into_iter().collect();
             fam.sort_by(|x, y| y.1.cmp(&x.1).then_with(|| x.0 .0.cmp(&y.0 .0)));
             fam.truncate(20);
+            let mut sig: Vec<_> = a.signatures.into_iter().collect();
+            sig.sort_by(|x, y| y.1.cmp(&x.1).then_with(|| x.0.cmp(&y.0)));
+            sig.truncate(30);
             serde_json::json!({
+                "signatures": sig.into_iter().map(|((l, r), n)| serde_json::json!({"layer": l, "name": r, "count": n})).collect::<Vec<_>>(),
                 "total": a.total,
                 "exact": a.exact,
                 "categories": a.categories,

@@ -1316,6 +1316,7 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<A
                 v["sightings"] = serde_json::json!(ins.sightings);
                 v["current_verdict"] = serde_json::json!(ins.verdict);
                 v["current_threat"] = serde_json::json!(ins.threat_name);
+                v["detections"] = serde_json::json!(ins.detections);
                 if let Some(sg) = &ins.signer {
                     v["signer"] = serde_json::json!(sg);
                 }
@@ -1350,9 +1351,16 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<A
 /// Which engines flagged the file ("jpeg (YARA), MalwareNet.PE (PE_ML)"), from the
 /// last engine verdict in the scan cache. Missing when the cache entry expired.
 fn add_engine_detail(app: &AppState, v: &mut serde_json::Value, sha256: &str) {
-    if v.get("signer").map_or(true, |s| s.is_null()) {
-        if let Some(sg) = app.threat_intel.get(sha256).and_then(|i| i.signer) {
-            v["signer"] = serde_json::json!(sg);
+    if v.get("signer").map_or(true, |s| s.is_null()) || v.get("detections").is_none() {
+        if let Some(ins) = app.threat_intel.get(sha256) {
+            if v.get("signer").map_or(true, |s| s.is_null()) {
+                if let Some(sg) = ins.signer {
+                    v["signer"] = serde_json::json!(sg);
+                }
+            }
+            if v.get("detections").is_none() {
+                v["detections"] = serde_json::json!(ins.detections);
+            }
         }
     }
     if let Some(sha) = crate::cache::parse_sha(sha256) {

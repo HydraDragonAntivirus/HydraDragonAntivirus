@@ -156,6 +156,7 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     if let Some(sg) = res.signer.as_ref() {
         server.threat_intel.set_signer(&sha_up, sg);
     }
+    server.threat_intel.set_detections(&sha_up, &res.verdict, &res.detections, true);
 
     // Fresh static report (a newer analyzer may add fields) and TLSH index entry.
     if report.is_none() {

@@ -836,6 +836,16 @@ pub fn cached_type_stats(server: &ScanServer) -> serde_json::Value {
     v
 }
 
+/// The matched signature names are for the dashboard only.
+fn public_type_stats(mut v: serde_json::Value) -> serde_json::Value {
+    for k in ["all", "recent"] {
+        if let Some(o) = v.get_mut(k).and_then(|x| x.as_object_mut()) {
+            o.remove("signatures");
+        }
+    }
+    v
+}
+
 async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Response {
     // No per-IP quota here: the website polls this endpoint, and the 500/day quota of the
     // hash lookups was used up in about an hour, after which the numbers froze.
@@ -847,7 +857,7 @@ async fn handle_insights_stats(State(server): State<Arc<ScanServer>>) -> Respons
         // Public numbers only (no analyst names); the dashboard has the full stats.
         "human_analysis": server.threat_intel.reviews.public_stats(),
         // Malicious + suspicious files by malware type (all time and last 7 days).
-        "types": cached_type_stats(&server),
+        "types": public_type_stats(cached_type_stats(&server)),
         "telemetry": {
             "total_unique_hashes": stats.total_unique_hashes,
             "total_sightings": stats.total_sightings,
@@ -1427,6 +1437,7 @@ async fn handle_scan(
                     source: "scan".into(),
                     extracted_objects: Vec::new(),
                     signer: None,
+                    detections: Vec::new(),
                 })
             }
             Ok(Err(e)) => Err(e),
@@ -1495,6 +1506,9 @@ fn record_result(server: &ScanServer, session: &SessionHandle, res: &ResultMessa
     );
     if let Some(sg) = res.signer.as_ref() {
         server.threat_intel.set_signer(&res.sha256, sg);
+    }
+    if res.source != "human" {
+        server.threat_intel.set_detections(&res.sha256, &res.verdict, &res.detections, false);
     }
     // Which IP sent it (the check message adds the full path to the same entry).
     server.threat_intel.add_folder(&res.sha256, &session.address, "", "");
@@ -1633,6 +1647,7 @@ fn verdict_message(sha_hex: &str, v: CachedVerdict, action: &str, source: &str) 
         source: source.into(),
         extracted_objects: Vec::new(),
         signer: None,
+        detections: Vec::new(),
     }
 }
 
