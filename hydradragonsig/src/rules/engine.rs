@@ -335,6 +335,9 @@ pub struct MatchedItem {
 #[derive(Debug, Default)]
 pub struct RuleScanMatches {
     pub rules: Vec<HashMap<usize, Vec<MatchedItem>>>,
+    /// The literal index ran (the rules' literals are in it): a literal it did not
+    /// find is not in the raw bytes.
+    pub indexed: bool,
     /// The same index over the strings the caller supplied (`string_contains` falls
     /// back to them when the value is not in the raw bytes): ASCII / other strings,
     /// and UTF-16LE strings. Offsets are the strings' own offsets. Empty when the
@@ -343,18 +346,64 @@ pub struct RuleScanMatches {
     pub in_wide_strings: Vec<HashMap<usize, Vec<MatchedItem>>>,
 }
 
+/// Literal index, built like YARA's atoms: every literal (case-insensitive or exact)
+/// gets one short "atom" (its rarest window of up to `ATOM_LEN` bytes); one
+/// Aho-Corasick automaton over all atoms (every upper/lower case form of the atoms of
+/// case-insensitive literals) runs once over the raw bytes, without a lowercased
+/// copy, and each atom hit is then verified against the whole literal.
 pub struct GlobalRuleIndex {
-    ac_exact: Option<DoubleArrayAhoCorasick<u32>>,
-    exact_meta: Vec<PatternTarget>,
-    ac_nocase: Option<DoubleArrayAhoCorasick<u32>>,
-    nocase_meta: Vec<PatternTarget>,
+    ac: Option<DoubleArrayAhoCorasick<u32>>,
+    /// Per automaton pattern (atom form): the literals that use it.
+    pattern_targets: Vec<Vec<u32>>,
+    targets: Vec<IndexedLiteral>,
+}
+
+struct IndexedLiteral {
+    target: PatternTarget,
+    /// The literal: exact bytes, or ASCII-lowercased for a case-insensitive one.
+    bytes: Vec<u8>,
+    exact: bool,
+    /// Where the atom starts inside the literal.
+    atom_off: usize,
+}
+
+/// Atom length: short enough that a case-insensitive atom has at most 64 forms.
+const ATOM_LEN: usize = 4;
+
+/// How common each (lowercased) byte is in executables: about log2 of its share of
+/// the bytes of a set of native and .NET Windows binaries (higher = more common).
+/// Atoms are the windows with the lowest sum, i.e. the rarest byte sequences.
+const ATOM_BYTE_COST: [u8; 256] = [30,27,26,26,26,25,26,25,25,24,25,24,24,24,24,25,25,25,25,24,24,26,24,23,24,24,23,23,23,24,23,23,25,23,23,23,25,23,23,23,25,23,24,23,23,23,23,22,24,23,23,24,23,23,23,22,23,24,23,24,23,23,23,23,24,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,23,23,24,23,24,23,26,24,25,25,26,24,24,27,26,23,24,26,25,25,25,25,23,25,25,26,25,24,24,24,24,23,24,23,24,23,23,25,24,23,25,23,24,23,22,23,25,22,27,22,25,22,22,24,23,23,23,23,23,23,22,22,22,22,22,22,22,22,21,23,22,23,22,23,23,22,22,23,22,22,22,23,22,22,22,23,22,22,22,22,22,22,22,23,23,23,22,22,22,22,22,25,23,23,24,24,22,23,23,23,23,22,22,26,22,22,22,24,22,22,22,22,22,22,22,23,22,22,22,22,22,22,22,24,22,22,22,22,22,22,22,24,23,22,23,23,22,22,21,24,22,22,22,22,22,23,23,24,22,22,23,22,22,24,27];
+
+/// The rarest window of `lower`: (offset, length).
+fn choose_atom(lower: &[u8]) -> (usize, usize) {
+    let k = lower.len().min(ATOM_LEN);
+    (0..=lower.len() - k)
+        .min_by_key(|&s| lower[s..s + k].iter().map(|&b| ATOM_BYTE_COST[b as usize] as u32).sum::<u32>())
+        .map_or((0, k), |s| (s, k))
+}
+
+/// Every ASCII upper/lower case form of `atom` (lowercase input).
+fn case_forms(atom: &[u8]) -> Vec<Vec<u8>> {
+    let letters: Vec<usize> = (0..atom.len()).filter(|&i| atom[i].is_ascii_alphabetic()).collect();
+    (0..1u32 << letters.len())
+        .map(|m| {
+            let mut v = atom.to_vec();
+            for (bit, &i) in letters.iter().enumerate() {
+                if m >> bit & 1 == 1 {
+                    v[i] = v[i].to_ascii_uppercase();
+                }
+            }
+            v
+        })
+        .collect()
 }
 
 impl std::fmt::Debug for GlobalRuleIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GlobalRuleIndex")
-            .field("exact_patterns", &self.exact_meta.len())
-            .field("nocase_patterns", &self.nocase_meta.len())
+            .field("atom_forms", &self.pattern_targets.len())
+            .field("targets", &self.targets.len())
             .finish()
     }
 }
@@ -507,86 +556,81 @@ impl GlobalRuleIndex {
             }
         }
 
-        let ac_exact = if !exact_pats.is_empty() {
-            let patvals: Vec<(Vec<u8>, u32)> = exact_pats
-                .into_iter()
-                .enumerate()
-                .map(|(i, p)| (p, i as u32))
-                .collect();
-            DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()
-        } else {
+        let mut targets: Vec<IndexedLiteral> = Vec::new();
+        let mut by_form: HashMap<Vec<u8>, usize> = HashMap::new();
+        let mut forms: Vec<Vec<u8>> = Vec::new();
+        let mut pattern_targets: Vec<Vec<u32>> = Vec::new();
+        let mut add = |bytes: Vec<u8>, target: PatternTarget, exact: bool| {
+            if bytes.is_empty() {
+                return;
+            }
+            let lower = bytes.to_ascii_lowercase();
+            let (off, len) = choose_atom(&lower);
+            let atom_forms = if exact { vec![bytes[off..off + len].to_vec()] } else { case_forms(&lower[off..off + len]) };
+            let id = targets.len() as u32;
+            for form in atom_forms {
+                let fi = *by_form.entry(form.clone()).or_insert_with(|| {
+                    forms.push(form);
+                    pattern_targets.push(Vec::new());
+                    forms.len() - 1
+                });
+                pattern_targets[fi].push(id);
+            }
+            targets.push(IndexedLiteral { target, bytes: if exact { bytes } else { lower }, exact, atom_off: off });
+        };
+        for (p, t) in exact_pats.into_iter().zip(exact_meta) {
+            add(p, t, true);
+        }
+        for (p, t) in nocase_pats.into_iter().zip(nocase_meta) {
+            add(p, t, false);
+        }
+        let ac = if forms.is_empty() {
             None
+        } else {
+            let patvals: Vec<(Vec<u8>, u32)> = forms.into_iter().enumerate().map(|(i, p)| (p, i as u32)).collect();
+            DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()
         };
 
-        let ac_nocase = if !nocase_pats.is_empty() {
-            let patvals: Vec<(Vec<u8>, u32)> = nocase_pats
-                .into_iter()
-                .enumerate()
-                .map(|(i, p)| (p, i as u32))
-                .collect();
-            DoubleArrayAhoCorasick::<u32>::with_values(patvals).ok()
-        } else {
-            None
-        };
+        Self { ac, pattern_targets, targets }
+    }
 
-        Self {
-            ac_exact,
-            exact_meta,
-            ac_nocase,
-            nocase_meta,
+    /// Every literal found in `hay` with its start offset: atom hits on the raw bytes,
+    /// each verified against the whole literal.
+    fn for_each_match(&self, hay: &[u8], mut f: impl FnMut(&PatternTarget, usize)) {
+        let Some(ac) = &self.ac else { return };
+        for mat in ac.find_overlapping_iter(hay) {
+            let Some(ids) = self.pattern_targets.get(mat.value() as usize) else { continue };
+            for &t in ids {
+                let lit = &self.targets[t as usize];
+                let Some(start) = mat.start().checked_sub(lit.atom_off) else { continue };
+                let Some(window) = hay.get(start..start + lit.bytes.len()) else { continue };
+                let ok = if lit.exact { window == lit.bytes.as_slice() } else { window.eq_ignore_ascii_case(&lit.bytes) };
+                if ok {
+                    f(&lit.target, start);
+                }
+            }
         }
     }
 
     pub fn scan(&self, bytes: &[u8], num_rules: usize) -> RuleScanMatches {
         let mut matches = RuleScanMatches {
             rules: (0..num_rules).map(|_| HashMap::new()).collect(),
+            indexed: self.ac.is_some(),
             ..Default::default()
         };
-
-        if let Some(ac) = &self.ac_exact {
-            for mat in ac.find_overlapping_iter(bytes) {
-                let pat_id = mat.value() as usize;
-                if let Some(target) = self.exact_meta.get(pat_id) {
-                    if target.rule_idx < matches.rules.len() {
-                        let cond_entry = matches.rules[target.rule_idx]
-                            .entry(target.cond_idx)
-                            .or_default();
-                        if !cond_entry.iter().any(|m| m.item_idx == target.item_idx) {
-                            cond_entry.push(MatchedItem {
-                                item_idx: target.item_idx,
-                                offset: mat.start(),
-                                value: target.value.clone(),
-                                is_wide: target.is_wide,
-                            });
-                        }
-                    }
+        self.for_each_match(bytes, |target, start| {
+            if target.rule_idx < matches.rules.len() {
+                let cond_entry = matches.rules[target.rule_idx].entry(target.cond_idx).or_default();
+                if !cond_entry.iter().any(|m| m.item_idx == target.item_idx) {
+                    cond_entry.push(MatchedItem {
+                        item_idx: target.item_idx,
+                        offset: start,
+                        value: target.value.clone(),
+                        is_wide: target.is_wide,
+                    });
                 }
             }
-        }
-
-        if let Some(ac) = &self.ac_nocase {
-            let mut bytes_lower = bytes.to_vec();
-            bytes_lower.make_ascii_lowercase();
-            for mat in ac.find_overlapping_iter(&bytes_lower) {
-                let pat_id = mat.value() as usize;
-                if let Some(target) = self.nocase_meta.get(pat_id) {
-                    if target.rule_idx < matches.rules.len() {
-                        let cond_entry = matches.rules[target.rule_idx]
-                            .entry(target.cond_idx)
-                            .or_default();
-                        if !cond_entry.iter().any(|m| m.item_idx == target.item_idx) {
-                            cond_entry.push(MatchedItem {
-                                item_idx: target.item_idx,
-                                offset: mat.start(),
-                                value: target.value.clone(),
-                                is_wide: target.is_wide,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
+        });
         matches
     }
 
@@ -619,21 +663,7 @@ impl GlobalRuleIndex {
                 e.push(MatchedItem { item_idx: target.item_idx, offset: string_offset(pos), value: target.value.clone(), is_wide: false });
             }
         };
-        if let Some(ac) = &self.ac_exact {
-            for mat in ac.find_overlapping_iter(&buf) {
-                if let Some(t) = self.exact_meta.get(mat.value() as usize) {
-                    add(t, mat.start());
-                }
-            }
-        }
-        if let Some(ac) = &self.ac_nocase {
-            buf.make_ascii_lowercase();
-            for mat in ac.find_overlapping_iter(&buf) {
-                if let Some(t) = self.nocase_meta.get(mat.value() as usize) {
-                    add(t, mat.start());
-                }
-            }
-        }
+        self.for_each_match(&buf, |t, pos| add(t, pos));
         out
     }
 }
@@ -846,6 +876,9 @@ impl RuleSet {
         matches: &RuleScanMatches,
     ) {
         for (rule_idx, rule) in self.rules.iter().enumerate() {
+            if !options.profile_rules && cannot_match(rule, rule_idx, report, matches, view.strings_external) {
+                continue;
+            }
             let start = options.profile_rules.then(Instant::now);
             let result = evaluate_rule_with_matches(rule, rule_idx, report, view, bytes, matches);
             let elapsed_micros = start
@@ -931,6 +964,9 @@ impl RuleSet {
         matches: &RuleScanMatches,
     ) {
         for (rule_idx, rule) in self.rules.iter().enumerate() {
+            if !options.profile_rules && cannot_match(rule, rule_idx, report, matches, view.strings_external) {
+                continue;
+            }
             let start = options.profile_rules.then(Instant::now);
             let result = evaluate_rule_with_matches(rule, rule_idx, report, view, bytes, matches);
             let elapsed_micros = start
@@ -995,6 +1031,55 @@ impl RuleSet {
             }
         }
     }
+}
+
+/// True when an `all` rule cannot match, decided without evaluating it: a plain
+/// `string_contains` literal or wildcard-free `byte_pattern` the index found neither
+/// in the raw bytes nor in the supplied strings, or a failed file-size limit. Such
+/// rules (most of a large literal rule set) are skipped, like YARA skips rules whose
+/// atoms did not hit. Mirrors the fast paths of `evaluate_rule_with_matches`.
+fn cannot_match(rule: &Rule, rule_idx: usize, report: &ScanReport, matches: &RuleScanMatches, strings_external: bool) -> bool {
+    if rule.logic != RuleLogic::All {
+        return false;
+    }
+    let size_fails = rule.conditions.iter().any(|c| match c {
+        RuleCondition::FileSizeGte { bytes } => report.file_size < *bytes,
+        RuleCondition::FileSizeLte { bytes } => report.file_size > *bytes,
+        _ => false,
+    });
+    if size_fails {
+        return true;
+    }
+    if !matches.indexed {
+        return false;
+    }
+    let hit = |list: &Vec<HashMap<usize, Vec<MatchedItem>>>, cond_idx: usize| {
+        list.get(rule_idx).and_then(|r| r.get(&cond_idx)).is_some_and(|v| !v.is_empty())
+    };
+    rule.conditions.iter().enumerate().any(|(cond_idx, cond)| match cond {
+        RuleCondition::StringContains { value, decoded: false, utf16: false, ascii, wide, utf8, .. } if !value.is_empty() => {
+            if !(*ascii || *utf8 || *wide) {
+                return false;
+            }
+            if hit(&matches.rules, cond_idx) {
+                return false;
+            }
+            if strings_external {
+                // Wide-only values are searched in the UTF-16LE strings directly.
+                if *wide && !*ascii && !*utf8 {
+                    return false;
+                }
+                if (*ascii && hit(&matches.in_strings, cond_idx)) || (*wide && hit(&matches.in_wide_strings, cond_idx)) {
+                    return false;
+                }
+            }
+            true
+        }
+        RuleCondition::BytePattern { pattern, scope: None, excludes } if excludes.is_empty() => {
+            is_indexed_byte_pattern(pattern) && !hit(&matches.rules, cond_idx)
+        }
+        _ => false,
+    })
 }
 
 fn warm_rule_caches(rule: &Rule) {
@@ -1402,9 +1487,13 @@ fn evaluate_rule_with_matches(
                 return (count >= needed)
                     .then(|| format!("byte_set matched {}/{}: {}", count, needed, ev_items.join("; ")));
             }
-            RuleCondition::BytePattern { scope: None, excludes, .. } if excludes.is_empty() => {
+            RuleCondition::BytePattern { pattern, scope: None, excludes } if excludes.is_empty() => {
                 if let Some(h) = indexed.and_then(|v| v.first()) {
                     return Some(format!("byte_pattern matched `{}` at 0x{:x}", h.value, h.offset));
+                }
+                // A wildcard-free pattern is in the index: not found there, not in the file.
+                if matches.indexed && is_indexed_byte_pattern(pattern) {
+                    return None;
                 }
             }
             _ => {}

@@ -81,13 +81,13 @@ impl PeStringRules {
             Some(rs) if !strings.is_empty() && cap > 0 => rs,
             _ => return Vec::new(),
         };
-        let pe = if is_pe {
-            hydradragonsig::scanner::pe::scan_pe(data)
-        } else {
-            None
-        };
-        let is_pe32 = pe.as_ref().map_or(false, |p| !p.is_64);
-        let is_pe64 = pe.as_ref().map_or(false, |p| p.is_64);
+        // The PE is parsed and the entropy computed by hydradragonsig only when a
+        // rule needs them (imports, sections, entropy...): most scans never do.
+        // PE32 / PE32+ comes from the optional header magic.
+        let pe = None;
+        let bits = if is_pe { pe_bitness(data) } else { None };
+        let is_pe32 = bits == Some(32);
+        let is_pe64 = bits == Some(64);
 
         let mut report = ScanReport {
             path: PathBuf::from(target_name),
@@ -95,7 +95,7 @@ impl PeStringRules {
             // string/filetype conditions, only stamped on the report.
             scanned_at: Default::default(),
             file_size: data.len() as u64,
-            entropy: shannon_entropy(data),
+            entropy: 0.0,
             hashes: Hashes {
                 sha256: sha256_hex.to_string(),
                 md5: String::new(),
@@ -197,6 +197,21 @@ impl PeStringRules {
     }
 }
 
+/// 32 or 64 from the PE optional header magic (0x10b / 0x20b).
+fn pe_bitness(data: &[u8]) -> Option<u32> {
+    let lfanew = u32::from_le_bytes(data.get(0x3c..0x40)?.try_into().ok()?) as usize;
+    if data.get(lfanew..lfanew.checked_add(4)?)? != b"PE\0\0" {
+        return None;
+    }
+    let magic = lfanew.checked_add(24)?;
+    match u16::from_le_bytes(data.get(magic..magic + 2)?.try_into().ok()?) {
+        0x10b => Some(32),
+        0x20b => Some(64),
+        _ => None,
+    }
+}
+
+#[allow(dead_code)]
 fn shannon_entropy(data: &[u8]) -> f64 {
     if data.is_empty() {
         return 0.0;

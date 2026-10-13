@@ -1,17 +1,70 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
-  <!-- Zemin -->
-  <rect width="256" height="256" fill="#06090A" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 250" width="100%" height="100%">
+    <defs>
+        <!-- Primary White / Titanium Gradient ("V" / "VIRUS") -->
+        <linearGradient id="vkWhiteGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#FFFFFF" />
+            
+            <stop offset="100%" stop-color="#E2E7F2" />
+        </linearGradient>
 
-  <!-- Sade ve Temiz VK Monogramı -->
-  <g transform="translate(32, 68)">
-    <!-- V (Beyaz) -->
-    <polygon points="0,0 22,0 48,78 74,0 96,0 60,120 36,120" fill="#FFFFFF" />
+        <!-- Primary Accent Crimson / Cyber Gradient ("K" / "KOV") -->
+        <linearGradient id="vkAccentGrad" x1="0%" y1="0%" x2="15%" y2="100%">
+            <stop offset="0%" stop-color="#ff283e" />
+            <stop offset="55%" stop-color="#FF2438" />
+            <stop offset="100%" stop-color="#9E0B1C" />
+        </linearGradient>
 
-    <!-- K (Kırmızı) -->
-    <g fill="#FF3344">
-      <rect x="114" y="0" width="22" height="120" />
-      <polygon points="136,54 186,0 158,0 136,28" />
-      <polygon points="144,48 192,120 164,120 136,70" />
+        <!-- Razor Blade Cut Highlight Gradient -->
+        <linearGradient id="vkBladeHighlight" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95" />
+            <stop offset="100%" stop-color="#FF2438" stop-opacity="0.2" />
+        </linearGradient>
+
+        <!-- Cyber Scanline Pattern for V2 -->
+        <pattern id="vkScanlines" width="8" height="4" patternUnits="userSpaceOnUse">
+            <line x1="0" y1="0" x2="8" y2="0" stroke="#000000" stroke-width="1" stroke-opacity="0.28" />
+        </pattern>
+
+        <!-- Glow & 3D Drop Shadow Filter -->
+        <filter id="vkRedGlow" x="-30%" y="-30%" width="160%" height="160%">
+            
+            <feGaussianBlur in="SourceGraphic" stdDeviation="5.9" result="blur1" />
+            <feColorMatrix in="blur1" type="matrix" values="
+                1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 0.5525 0" result="coloredGlow" />
+            
+            
+            <feMerge>
+                <feMergeNode in="coloredGlow" />
+                <feMergeNode in="SourceGraphic" />
+            </feMerge>
+        </filter>
+
+        <!-- 3D Bevel Specular Filter for V3 -->
+        <filter id="vkBevel3D" x="-15%" y="-15%" width="130%" height="130%">
+            <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#000000" flood-opacity="0.55" />
+        </filter>
+    </defs>
+    <rect width="250" height="250" rx="32" fill="#08090C" />
+    
+    <g transform="translate(22.5, 45.0) " style="transform-origin: center;">
+        <!-- V (Pure Crisp White / Titanium) -->
+        <path d="M 0 20 L 26.5 20 L 48 104 L 69.5 20 L 96 20 L 60.5 140 L 35.5 140 Z" fill="url(#vkWhiteGrad)"  />
+
+        <!-- K (Crimson Red with Signature Diagonal Blade Cut) -->
+        <g transform="translate(110.0, 0)" filter="url(#vkRedGlow)">
+            <path d="M 0 20 L 25.5 20 L 25.5 68 L 62 20 L 92.5 20 L 42 84.5 L 25.5 105 L 25.5 140 L 0 140 Z" fill="url(#vkAccentGrad)" />
+            <path d="M 50.2 77.4 L 95 140 L 64.5 140 L 33.7 102.6 Z" fill="url(#vkAccentGrad)" class="animate-kinetic-leg" />
+            
+            
+            <!-- Razor Highlight along K Slice Edge -->
+            <line x1="33.725" y1="102.62" x2="50.18" y2="77.425" stroke="url(#vkBladeHighlight)" stroke-width="2.2" stroke-linecap="round" class="animate-kinetic-leg" />
+            
+            <!-- Laser Slash Beam -->
+            <line x1="25.725" y1="116.62" x2="72.18" y2="49.425" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" class="animate-kinetic-beam" opacity="1" />
+        </g>
     </g>
-  </g>
+    
 </svg>
