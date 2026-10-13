@@ -474,7 +474,9 @@ fn arm32(code: &[u8], off: u64, va: u64, thumb: bool, count: usize) -> Vec<Insn>
     while pos + step <= code.len() && out.len() < count {
         let addr = va + pos as u64;
         let mut r = U8Reader::new(&code[pos..]);
-        let (text, len) = match dec.decode(&mut r) {
+        // yaxpeax-arm 0.5 panics on A32 LDRD/STRD with Rt = 15: shown as undecodable.
+        let decoded = if !thumb && a32_ldrd_strd_rt15(&code[pos..]) { Err(()) } else { dec.decode(&mut r).map_err(|_| ()) };
+        let (text, len) = match decoded {
             Ok(i) => {
                 let n = <U8Reader as Reader<u32, u8>>::total_offset(&mut r) as usize;
                 (i.to_string(), n.max(step))
@@ -499,12 +501,28 @@ fn arm32(code: &[u8], off: u64, va: u64, thumb: bool, count: usize) -> Vec<Insn>
     out
 }
 
+/// A32 LDRD / STRD with Rt = 15 outside the unconditional space (yaxpeax-arm 0.5
+/// panics decoding them).
+fn a32_ldrd_strd_rt15(bytes: &[u8]) -> bool {
+    let Some(w) = bytes.get(..4) else { return false };
+    let w = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+    (w & 0x0e10_00d0) == 0x0000_00d0 && (w >> 12) & 0xf == 15 && w >> 28 != 0xf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn raw() -> Layout {
         Layout { format: "raw", arch: None, image_base: 0, entry: None, regions: Vec::new(), imports: Default::default() }
+    }
+
+    #[test]
+    fn a32_ldrd_rt15_does_not_panic() {
+        // ldrd r15, [r0] would panic inside yaxpeax-arm
+        let v = disassemble(&0xe1c0_f0d0u32.to_le_bytes(), &raw(), Arch::Arm, 0, 1);
+        assert_eq!(v.len(), 1);
+        assert!(v[0].text.starts_with(".inst"), "{}", v[0].text);
     }
 
     #[test]

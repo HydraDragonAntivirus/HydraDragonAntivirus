@@ -101,25 +101,42 @@ pub(crate) fn scan_pe(
             }
         }
     } else if is_arm32 {
-        use yaxpeax_arch::{Decoder, U8Reader};
-        let decoder = yaxpeax_arm::armv7::InstDecoder::default();
+        use yaxpeax_arch::{Decoder, Reader, U8Reader};
+        // Windows ARMNT (0x1c4) and THUMB (0x1c2) images are Thumb-2 code; only
+        // 0x1c0 is A32. Decoding Thumb as A32 reads garbage.
+        let thumb = pe.file_header.machine != 0x01c0;
+        let decoder = if thumb {
+            yaxpeax_arm::armv7::InstDecoder::default_thumb()
+        } else {
+            yaxpeax_arm::armv7::InstDecoder::default()
+        };
+        let step = if thumb { 2 } else { 4 };
         for section in &sections {
             if !section.is_exec || section.bytes.is_empty() {
                 continue;
             }
             let mut offset = 0;
-            while offset + 2 <= section.bytes.len() {
+            while offset + step <= section.bytes.len() {
                 let slice = &section.bytes[offset..];
+                // yaxpeax-arm 0.5 panics on A32 LDRD/STRD with Rt = 15 (an
+                // unpredictable encoding): treat it as undecodable instead of
+                // unwinding (and printing a panic message) for every such word.
+                if !thumb && a32_ldrd_strd_rt15(slice) {
+                    offset += 2;
+                    continue;
+                }
                 let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let mut reader = U8Reader::new(slice);
-                    decoder.decode(&mut reader)
+                    decoder
+                        .decode(&mut reader)
+                        .map(|inst| (inst, <U8Reader as Reader<u32, u8>>::total_offset(&mut reader) as usize))
                 }));
-                if let Ok(Ok(inst)) = decoded {
+                if let Ok(Ok((inst, len))) = decoded {
                     if opts.code_refs {
                         let curr_va = section.va.wrapping_add(offset as u64);
-                        arm32_code_ref(&inst, curr_va, data, &sections, min_len, known, &mut emitted, out);
+                        arm32_code_ref(&inst, curr_va, thumb, data, &sections, min_len, known, &mut emitted, out);
                     }
-                    offset += 4;
+                    offset += if thumb { len.max(2) } else { 4 };
                 } else {
                     offset += 2;
                 }
@@ -382,6 +399,7 @@ fn arm64_code_ref(
 fn arm32_code_ref(
     inst: &yaxpeax_arm::armv7::Instruction,
     curr_va: u64,
+    thumb: bool,
     data: &[u8],
     sections: &[CodeSection],
     min_len: usize,
@@ -402,15 +420,25 @@ fn arm32_code_ref(
                 _ => None,
             };
             if let Some(disp) = offset_opt {
-                let target_va = (curr_va + 8).wrapping_add(disp as u64);
+                // PC reads as the instruction + 8 in A32, and as the instruction + 4
+                // aligned down to 4 for Thumb literal loads.
+                let pc = if thumb { (curr_va + 4) & !3 } else { curr_va + 8 };
+                let target_va = pc.wrapping_add(disp as u64);
                 if let Some(off) = va_to_file_off(target_va, sections, data.len()) {
-                    if let Some((text, kind)) = decode_at(data, off, min_len) {
+                    // The literal is usually the string's address (a literal pool
+                    // entry), not the text itself: follow it once.
+                    let found = decode_at(data, off, min_len).map(|t| (t, off)).or_else(|| {
+                        let p = data.get(off..off + 4)?;
+                        let ptr = u32::from_le_bytes([p[0], p[1], p[2], p[3]]) as u64;
+                        let to = va_to_file_off(ptr, sections, data.len())?;
+                        decode_at(data, to, min_len).map(|t| (t, to))
+                    });
+                    if let Some(((text, _kind), at)) = found {
                         if !known.contains(text.as_str()) && emitted.insert(text.clone()) {
-                            let _ = kind;
                             out.push(ExtractedString {
                                 text,
                                 kind: StringKind::CodeRef,
-                                offset: Some(off),
+                                offset: Some(at),
                             });
                         }
                     }
@@ -469,5 +497,30 @@ impl OpcodePatterns {
         if m == Mnemonic::Ror || m == Mnemonic::Rol {
             self.pending_ror.push((insn.ip() as usize, 3));
         }
+    }
+}
+
+/// A32 LDRD / STRD (register or immediate) with Rt = 15, outside the unconditional
+/// space: yaxpeax-arm 0.5 panics on these ("register number out of range" for Rt+1).
+fn a32_ldrd_strd_rt15(bytes: &[u8]) -> bool {
+    let Some(w) = bytes.get(..4) else { return false };
+    let w = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+    (w & 0x0e10_00d0) == 0x0000_00d0 && (w >> 12) & 0xf == 15 && w >> 28 != 0xf
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a32_ldrd_rt15_is_recognised() {
+        // ldrd r15, [r0, #0] (cond AL): yaxpeax-arm 0.5 panics on this word
+        assert!(a32_ldrd_strd_rt15(&0xe1c0_f0d0u32.to_le_bytes()));
+        // strd r15, [r0, r1]
+        assert!(a32_ldrd_strd_rt15(&0xe180_f0f1u32.to_le_bytes()));
+        // ldrd r2, [r0] and the unconditional space are not
+        assert!(!a32_ldrd_strd_rt15(&0xe1c0_20d0u32.to_le_bytes()));
+        assert!(!a32_ldrd_strd_rt15(&0xf1c0_f0d0u32.to_le_bytes()));
+        assert!(!a32_ldrd_strd_rt15(&[0xd0, 0xf0]));
     }
 }
