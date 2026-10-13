@@ -328,7 +328,7 @@ impl EngineAdapter {
         if (k.category == "clean") != (cat == "clean") {
             let len = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
             let (from, to) = if cat == "clean" { (&self.kept_bytes, &self.kept_clean_bytes) } else { (&self.kept_clean_bytes, &self.kept_bytes) };
-            let _ = from.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_sub(len)));
+            sub_u64(from, len);
             to.fetch_add(len, Ordering::Relaxed);
         }
         true
@@ -356,8 +356,8 @@ impl EngineAdapter {
         let len = std::fs::metadata(&k.path).map(|m| m.len()).unwrap_or(0);
         std::fs::remove_file(&k.path).ok()?;
         let used = if k.category == "clean" { &self.kept_clean_bytes } else { &self.kept_bytes };
-        let _ = used.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_sub(len)));
-        let _ = self.kept_files.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some((v - 1).max(0)));
+        sub_u64(used, len);
+        dec_i64(&self.kept_files);
         Some(len)
     }
 
@@ -1297,6 +1297,23 @@ fn is_pe_or_apk(data: &[u8], name: &str) -> bool {
 }
 
 /// Category folder (`unknown`, `malicious`, ...) a kept file is in, if any.
+/// `v -= n`, never below 0 (a compare-exchange loop: `fetch_update` is deprecated in
+/// newer Rust and its replacement `try_update` does not exist in older versions).
+fn sub_u64(v: &AtomicU64, n: u64) {
+    let mut cur = v.load(Ordering::Relaxed);
+    while let Err(actual) = v.compare_exchange_weak(cur, cur.saturating_sub(n), Ordering::Relaxed, Ordering::Relaxed) {
+        cur = actual;
+    }
+}
+
+/// `v -= 1`, never below 0.
+fn dec_i64(v: &AtomicI64) {
+    let mut cur = v.load(Ordering::Relaxed);
+    while let Err(actual) = v.compare_exchange_weak(cur, (cur - 1).max(0), Ordering::Relaxed, Ordering::Relaxed) {
+        cur = actual;
+    }
+}
+
 fn category_dir_of(path: &Path) -> Option<&'static str> {
     let parent = path.parent()?.file_name()?.to_str()?;
     KeptFile::CATEGORIES.iter().copied().find(|c| *c == parent)
