@@ -335,6 +335,12 @@ pub struct MatchedItem {
 #[derive(Debug, Default)]
 pub struct RuleScanMatches {
     pub rules: Vec<HashMap<usize, Vec<MatchedItem>>>,
+    /// The same index over the strings the caller supplied (`string_contains` falls
+    /// back to them when the value is not in the raw bytes): ASCII / other strings,
+    /// and UTF-16LE strings. Offsets are the strings' own offsets. Empty when the
+    /// scan extracted the strings itself.
+    pub in_strings: Vec<HashMap<usize, Vec<MatchedItem>>>,
+    pub in_wide_strings: Vec<HashMap<usize, Vec<MatchedItem>>>,
 }
 
 pub struct GlobalRuleIndex {
@@ -534,6 +540,7 @@ impl GlobalRuleIndex {
     pub fn scan(&self, bytes: &[u8], num_rules: usize) -> RuleScanMatches {
         let mut matches = RuleScanMatches {
             rules: (0..num_rules).map(|_| HashMap::new()).collect(),
+            ..Default::default()
         };
 
         if let Some(ac) = &self.ac_exact {
@@ -581,6 +588,53 @@ impl GlobalRuleIndex {
         }
 
         matches
+    }
+
+    /// Runs the text forms of the patterns (not the UTF-16 byte forms) over `texts`
+    /// joined with NUL separators, so one Aho-Corasick pass replaces a substring
+    /// search per rule per string. Returns, per rule and condition, the matched items
+    /// with the offset of the string they were found in.
+    fn scan_texts<'a>(&self, texts: &[(&'a str, usize)], num_rules: usize) -> Vec<HashMap<usize, Vec<MatchedItem>>> {
+        let mut out: Vec<HashMap<usize, Vec<MatchedItem>>> = (0..num_rules).map(|_| HashMap::new()).collect();
+        if texts.is_empty() {
+            return out;
+        }
+        let mut buf: Vec<u8> = Vec::with_capacity(texts.iter().map(|t| t.0.len() + 1).sum());
+        let mut starts: Vec<usize> = Vec::with_capacity(texts.len());
+        for (t, _) in texts {
+            starts.push(buf.len());
+            buf.extend_from_slice(t.as_bytes());
+            buf.push(0);
+        }
+        let string_offset = |pos: usize| {
+            let i = starts.partition_point(|&s| s <= pos).saturating_sub(1);
+            texts[i].1
+        };
+        let mut add = |target: &PatternTarget, pos: usize| {
+            if target.is_wide || target.is_hex || target.rule_idx >= out.len() {
+                return;
+            }
+            let e = out[target.rule_idx].entry(target.cond_idx).or_default();
+            if !e.iter().any(|m| m.item_idx == target.item_idx) {
+                e.push(MatchedItem { item_idx: target.item_idx, offset: string_offset(pos), value: target.value.clone(), is_wide: false });
+            }
+        };
+        if let Some(ac) = &self.ac_exact {
+            for mat in ac.find_overlapping_iter(&buf) {
+                if let Some(t) = self.exact_meta.get(mat.value() as usize) {
+                    add(t, mat.start());
+                }
+            }
+        }
+        if let Some(ac) = &self.ac_nocase {
+            buf.make_ascii_lowercase();
+            for mat in ac.find_overlapping_iter(&buf) {
+                if let Some(t) = self.nocase_meta.get(mat.value() as usize) {
+                    add(t, mat.start());
+                }
+            }
+        }
+        out
     }
 }
 
@@ -757,8 +811,19 @@ impl RuleSet {
             .index
             .clone()
             .unwrap_or_else(|| Arc::new(GlobalRuleIndex::build(&self.rules)));
-        let matches = index.scan(bytes, self.rules.len());
+        let mut matches = index.scan(bytes, self.rules.len());
         let mut view = ScanView::new(report);
+        if view.strings_external {
+            // Supplied strings (e.g. code references and stack strings a decompiler
+            // recovered) may hold values that are not in the raw bytes: index them once.
+            let mut other: Vec<(&str, usize)> = Vec::new();
+            let mut wide: Vec<(&str, usize)> = Vec::new();
+            for h in &report.strings {
+                if h.encoding == "utf16le" { &mut wide } else { &mut other }.push((h.value.as_str(), h.offset));
+            }
+            matches.in_strings = index.scan_texts(&other, self.rules.len());
+            matches.in_wide_strings = index.scan_texts(&wide, self.rules.len());
+        }
         if options.min_string_len > 0 {
             view.min_string_len = options.min_string_len;
         }
@@ -1222,10 +1287,30 @@ fn evaluate_rule_with_matches(
         let indexed = matches.rules.get(rule_idx).and_then(|r| r.get(&cond_idx));
         // Fast paths over the global Aho-Corasick index (raw file bytes).
         match cond {
-            RuleCondition::StringContains { value, nocase, decoded, utf16, .. } => {
+            RuleCondition::StringContains { value, nocase, decoded, utf16, ascii, wide, utf8 } => {
                 if let Some(h) = indexed.and_then(|v| v.first()) {
                     let label = if h.is_wide { " wide" } else { "" };
                     return Some(format!("string_contains{label} `{value}` at 0x{:x}", h.offset));
+                }
+                // The supplied strings, from the same index (see `RuleSet::evaluate_into`):
+                // ASCII / other strings count for `ascii`, UTF-16LE strings for `wide`.
+                if view.strings_external {
+                    let in_list = |v: &Vec<HashMap<usize, Vec<MatchedItem>>>| v.get(rule_idx).and_then(|r| r.get(&cond_idx)).and_then(|m| m.first()).map(|h| h.offset);
+                    let hit = ascii.then(|| in_list(&matches.in_strings)).flatten().or_else(|| wide.then(|| in_list(&matches.in_wide_strings)).flatten());
+                    if let Some(offset) = hit {
+                        return Some(format!("string_contains `{value}` at 0x{offset:x}"));
+                    }
+                    // Wide-only values have no text form in the index: search the
+                    // UTF-16LE strings directly (few rules, few strings).
+                    if *wide && !*ascii && !*utf8 {
+                        let needle = if *nocase { value.to_ascii_lowercase() } else { value.clone() };
+                        for (idx, h) in report.strings.iter().enumerate().filter(|(_, h)| h.encoding == "utf16le") {
+                            let hay = if *nocase { view.strings_lower.get(idx).map(String::as_str).unwrap_or("") } else { h.value.as_str() };
+                            if hay.contains(&needle) {
+                                return Some(format!("string_contains `{value}` at 0x{:x}", h.offset));
+                            }
+                        }
+                    }
                 }
                 // Not in the raw bytes: only decoded strings, UTF-16BE or strings the
                 // caller supplied (possibly normalized) can still hold it.
@@ -1240,9 +1325,9 @@ fn evaluate_rule_with_matches(
                         return Some(format!("string_contains utf16 `{value}` at 0x{offset:x}"));
                     }
                 }
-                if !view.strings_external {
-                    return None;
-                }
+                // Raw bytes (all encodings), decoded strings and the supplied strings
+                // were all checked above.
+                return None;
             }
             RuleCondition::StringSet { values, min, regex: false, nocase, decoded, utf16, .. } => {
                 let needed = set_needed(*min, values.len());
@@ -4108,6 +4193,58 @@ static _REGEX_COMPILE_GUARD: Lazy<Regex> = Lazy::new(|| Regex::new(".*").unwrap(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `string_contains` over strings the caller supplies (not in the raw bytes), as
+    /// multron does with decompiler-recovered strings: found through the index.
+    #[test]
+    fn string_contains_finds_supplied_strings() {
+        let rs = RuleSet::from_yaml_str(r#"
+rules:
+  - id: S_ASCII
+    title: ascii
+    severity: medium
+    verdict: pua
+    conditions:
+      - type: string_contains
+        value: "Evil\\Key"
+        nocase: true
+  - id: S_EXACT
+    title: exact
+    severity: medium
+    verdict: pua
+    conditions:
+      - type: string_contains
+        value: "CaseSensitive"
+  - id: S_WIDE_ONLY
+    title: wide
+    severity: medium
+    verdict: pua
+    conditions:
+      - type: string_contains
+        value: "widetext"
+        ascii: false
+        wide: true
+"#).unwrap();
+        let run = |strings: Vec<(&str, &str)>| {
+            let mut report = ScanReport::default();
+            report.strings = strings
+                .into_iter()
+                .enumerate()
+                .map(|(i, (v, enc))| crate::models::StringHit { value: v.to_string(), offset: i * 100, encoding: enc.to_string() })
+                .collect();
+            rs.evaluate_into(&mut report, b"nothing in the raw bytes", RuleEvalOptions { profile_rules: false, parallel_rules: false, stop_on_detection: false, min_string_len: 0, decode_strings: false });
+            let mut ids: Vec<String> = report.findings.iter().map(|f| f.rule_id.clone()).collect();
+            ids.sort();
+            ids
+        };
+        assert_eq!(run(vec![("aaa", "ascii"), ("x EVIL\\key y", "ascii"), ("CaseSensitive!", "ascii")]), vec!["S_ASCII", "S_EXACT"]);
+        assert_eq!(run(vec![("casesensitive", "ascii")]), Vec::<String>::new(), "case-sensitive value must not match lower case");
+        // wide-only: only UTF-16LE strings count
+        assert_eq!(run(vec![("widetext", "ascii")]), Vec::<String>::new());
+        assert_eq!(run(vec![("my widetext", "utf16le")]), vec!["S_WIDE_ONLY"]);
+        // no match across two strings
+        assert_eq!(run(vec![("Evil", "ascii"), ("Key", "ascii")]), Vec::<String>::new());
+    }
 
     fn pat(pattern: &str) -> CompiledBytePattern {
         compile_byte_pattern(pattern).expect("pattern must compile")

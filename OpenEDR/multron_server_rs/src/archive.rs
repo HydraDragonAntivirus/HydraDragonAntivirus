@@ -8,6 +8,14 @@
 //! in the archive; the only exception is a second copy of the same sample (a kept file
 //! moved to another category here is moved there too, and leftover duplicates removed). A copy goes through `.mirror_tmp/` and is renamed into place.
 //!
+//! The databases (`LOG_FILES`: telemetry, human verdicts, verdict cache, TLSH index,
+//! events) are never replaced in the archive, only added to: the archive can hold more
+//! than the main server (it is the main store and the main server starts again with
+//! only new, not yet archived data, or a file here was rewritten). New bytes since the
+//! last run are appended; a source that is not a continuation of what was copied is
+//! appended whole (its lines come after the archive's, and the newest line of a hash
+//! wins when the data is read).
+//!
 //! Archive server (`--archive`, run from that folder): read-only. It loads the data at
 //! start and follows the files while it runs (new lines are added, rewritten files are
 //! read again), so it is up to date a minute after each mirror run.
@@ -33,6 +41,14 @@ pub const MIRROR_FILES: [&str; 6] = [
     "multron_events.ecs.jsonl",
     "ip_bans.json",
     "sample_api_keys.txt",
+];
+/// Append-only line databases: added to in the archive, never replaced (see the module docs).
+pub const LOG_FILES: [&str; 5] = [
+    "threat_insights.jsonl",
+    "multron_cache.jsonl",
+    "tlsh_index.jsonl",
+    "multron_events.ecs.jsonl",
+    "analyst_signatures/human_verdicts.jsonl",
 ];
 /// Folders mirrored with everything in them (the work folder is added separately).
 pub const MIRROR_DIRS: [&str; 3] = ["analyst_signatures", "tlsh_signatures", "reports"];
@@ -69,8 +85,11 @@ struct MirrorStats {
 /// duplicated sample stays.
 pub type VerdictOf = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
-/// (length, modified time in ns) of a source file when it was last copied.
-type Seen = HashMap<String, (u64, u128)>;
+/// (length, modified time in ns, `tail_hash` of the copied part for `LOG_FILES`) of a
+/// source file when it was last copied. Older state files have only the first two.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct SeenFile(u64, u128, #[serde(default)] u64);
+type Seen = HashMap<String, SeenFile>;
 
 #[derive(Default)]
 pub struct Mirror {
@@ -241,9 +260,15 @@ impl Mirror {
                     }
                 }
             }
-            match sync_file(&src, &target.join(&rel), &tmp, seen.get(&rel).copied()) {
-                Ok(Some((outcome, len, mt, bytes))) => {
-                    seen.insert(rel, (len, mt));
+            let prev = seen.get(&rel).copied();
+            let r = if LOG_FILES.contains(&rel.as_str()) {
+                sync_log(&src, &dst, prev)
+            } else {
+                sync_file(&src, &dst, &tmp, prev.map(|p| (p.0, p.1))).map(|o| o.map(|(a, b, c, d)| (a, b, c, d, 0)))
+            };
+            match r {
+                Ok(Some((outcome, len, mt, bytes, fp))) => {
+                    seen.insert(rel, SeenFile(len, mt, fp));
                     let mut s = self.stats.lock().unwrap();
                     s.checked += 1;
                     s.bytes += bytes;
@@ -422,6 +447,79 @@ enum Outcome {
     Same,
     Copied,
     Appended,
+}
+
+/// FNV-1a of the (up to) 4 KB before `len`: recognises the part of a source already
+/// copied (0 = nothing copied yet).
+fn tail_hash(p: &Path, len: u64) -> io::Result<u64> {
+    if len == 0 {
+        return Ok(0);
+    }
+    let n = len.min(4096);
+    let mut f = File::open(p)?;
+    f.seek(SeekFrom::Start(len - n))?;
+    let mut buf = vec![0u8; n as usize];
+    f.read_exact(&mut buf)?;
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in buf {
+        h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    Ok(h.max(1))
+}
+
+/// A `LOG_FILES` database: only added to in the archive (see the module docs).
+/// Returns (outcome, source length copied, source mtime, bytes written, tail hash).
+fn sync_log(src: &Path, dst: &Path, prev: Option<SeenFile>) -> io::Result<Option<(Outcome, u64, u128, u64, u64)>> {
+    let Ok(sm) = fs::metadata(src) else { return Ok(None) };
+    let (slen, smt) = (sm.len(), mtime_ns(&sm));
+    let dlen = fs::metadata(dst).ok().map(|m| m.len());
+    let Some(dlen) = dlen else {
+        // Not in the archive yet: a plain copy.
+        if let Some(p) = dst.parent() {
+            fs::create_dir_all(p)?;
+        }
+        let n = append_from(src, &create(dst)?, 0, slen)?;
+        return Ok(Some((Outcome::Copied, slen, smt, n, tail_hash(src, slen)?)));
+    };
+    // Where this source continues from: what the last run copied, recognised by its
+    // tail; on a first run against an archive, the archive's own copy when it is a
+    // copy of this source so far.
+    let from = match prev {
+        Some(SeenFile(plen, pmt, pfp)) if plen == slen && pmt == smt => return Ok(Some((Outcome::Same, slen, smt, 0, pfp))),
+        Some(SeenFile(plen, _, pfp)) if pfp != 0 && plen <= slen && tail_hash(src, plen)? == pfp => Some(plen),
+        Some(SeenFile(plen, _, 0)) if plen == dlen && dlen <= slen && same_tail(src, dst, dlen)? => Some(dlen),
+        None if dlen <= slen && same_tail(src, dst, dlen)? => Some(dlen),
+        _ => None,
+    };
+    let fp = tail_hash(src, slen)?;
+    match from {
+        Some(f) if f == slen => Ok(Some((Outcome::Same, slen, smt, 0, fp))),
+        Some(f) => {
+            let n = append_from(src, dst, f, slen)?;
+            Ok(Some((Outcome::Appended, slen, smt, n, fp)))
+        }
+        None => {
+            // A new or rewritten source: added whole after the archive's lines.
+            if dlen > 0 && !ends_with_newline(dst, dlen)? {
+                OpenOptions::new().append(true).open(dst)?.write_all(b"\n")?;
+            }
+            let n = append_from(src, dst, 0, slen)?;
+            Ok(Some((Outcome::Appended, slen, smt, n, fp)))
+        }
+    }
+}
+
+fn create(p: &Path) -> io::Result<PathBuf> {
+    File::create(p)?;
+    Ok(p.to_path_buf())
+}
+
+fn ends_with_newline(p: &Path, len: u64) -> io::Result<bool> {
+    let mut f = File::open(p)?;
+    f.seek(SeekFrom::Start(len - 1))?;
+    let mut b = [0u8; 1];
+    f.read_exact(&mut b)?;
+    Ok(b[0] == b'\n')
 }
 
 /// Copies one file if it changed since `prev` (length, mtime of the source when last
@@ -684,6 +782,48 @@ mod tests {
         assert_eq!(fs::read_to_string(&dst).unwrap(), "ONE\ntwo\nthree\n");
         assert!(sync_file(&d.join("missing"), &dst, &tmp, None).unwrap().is_none());
         assert_eq!(fs::read_dir(&tmp).unwrap().count(), 0, "no temp files left");
+    }
+
+    #[test]
+    fn logs_are_only_added_to() {
+        let d = tmpdir("log");
+        let (src, dst) = (d.join("threat_insights.jsonl"), d.join("arch/threat_insights.jsonl"));
+        // the archive already holds older data than this (fresh) main server
+        fs::create_dir_all(d.join("arch")).unwrap();
+        fs::write(&dst, "old1\nold2\nold3\n").unwrap();
+        fs::write(&src, "new1\n").unwrap();
+        let r = sync_log(&src, &dst, None).unwrap().unwrap();
+        assert_eq!(r.0, Outcome::Appended);
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "old1\nold2\nold3\nnew1\n");
+        let prev = Some(SeenFile(r.1, r.2, r.4));
+        assert_eq!(sync_log(&src, &dst, prev).unwrap().unwrap().0, Outcome::Same);
+        // grown: only the new bytes
+        fs::write(&src, "new1\nnew2\n").unwrap();
+        let r = sync_log(&src, &dst, prev).unwrap().unwrap();
+        assert_eq!((r.0, r.3), (Outcome::Appended, 5));
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "old1\nold2\nold3\nnew1\nnew2\n");
+        // rewritten here (compacted, or started again): added whole, nothing replaced
+        fs::write(&src, "x\n").unwrap();
+        let r = sync_log(&src, &dst, Some(SeenFile(r.1, r.2, r.4))).unwrap().unwrap();
+        assert_eq!(r.0, Outcome::Appended);
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "old1\nold2\nold3\nnew1\nnew2\nx\n");
+        // a normal mirror (archive = copy of this file) keeps only appending
+        let (s2, d2) = (d.join("b.jsonl"), d.join("arch/b.jsonl"));
+        fs::write(&s2, "a\nb\n").unwrap();
+        fs::write(&d2, "a\n").unwrap();
+        let r = sync_log(&s2, &d2, None).unwrap().unwrap();
+        assert_eq!((r.0, fs::read_to_string(&d2).unwrap()), (Outcome::Appended, "a\nb\n".to_string()));
+        // older state (no tail hash) whose copy matches: continues
+        fs::write(&s2, "a\nb\nc\n").unwrap();
+        let r = sync_log(&s2, &d2, Some(SeenFile(4, 1, 0))).unwrap().unwrap();
+        assert_eq!((r.0, fs::read_to_string(&d2).unwrap()), (Outcome::Appended, "a\nb\nc\n".to_string()));
+        // missing in the archive: copied
+        let d3 = d.join("arch/new/c.jsonl");
+        assert_eq!(sync_log(&s2, &d3, None).unwrap().unwrap().0, Outcome::Copied);
+        assert_eq!(fs::read_to_string(&d3).unwrap(), "a\nb\nc\n");
+        // old state files ([len, mtime]) still load
+        let old: Seen = serde_json::from_str(r#"{"x.jsonl":[10,20]}"#).unwrap();
+        assert_eq!(old["x.jsonl"], SeenFile(10, 20, 0));
     }
 
     #[test]
