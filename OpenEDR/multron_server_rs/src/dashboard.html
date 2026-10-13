@@ -173,6 +173,15 @@
   .va-kv { display: grid; grid-template-columns: 150px 1fr; gap: 3px 10px; font-size: 12.5px; }
   .va-kv .k { color: var(--muted); } .va-kv .v { font-family: Consolas, monospace; word-break: break-all; }
   .va-h { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin: 14px 0 6px; }
+  .va-dis table { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; }
+  .va-dis td { padding: 2px 8px; white-space: nowrap; }
+  .va-dis td.b { color: var(--muted); max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
+  .va-dis tr.f-call td.i { color: var(--accent); }
+  .va-dis tr.f-jmp td.i, .va-dis tr.f-jcc td.i { color: var(--orange); }
+  .va-dis tr.f-ret td.i { color: var(--red); }
+  .va-dis tr.f-ret td { border-bottom: 1px dashed var(--border); }
+  .va-dis tr.here td { background: var(--blue-bg); }
+  .va-dis a { color: var(--accent); text-decoration: none; cursor: pointer; }
   .va-imp { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 1.4fr); gap: 14px; }
   .va-imp tr.sel td { background: var(--blue-bg); }
   .va-ent { display: inline-block; height: 8px; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
@@ -778,8 +787,9 @@
         <button class="primary" id="vaOpen">Open</button>
         <select id="vaDocs" title="Files open in VirusKovAlyzer"><option value="">Open files…</option></select>
         <button class="ghost" id="vaScan" disabled>Scan with engine</button>
+        <button class="ghost" id="vaUnpack" disabled title="Runs the PE in the engine's Unicorn emulator and opens the memory image">Unpack (Unicorn)</button>
       </div>
-      <div class="hint" id="vaMsg" style="margin:4px 0 8px">Opens a kept upload or any file on this server: hashes, PE headers, sections with entropy, imports / exports, strings, indicators and a hex editor. The original file is never changed; edits are saved as a copy in <code>alyzer_edited\</code>.</div>
+      <div class="hint" id="vaMsg" style="margin:4px 0 8px">Opens a kept upload or any file on this server: hashes, PE headers, sections with entropy, imports / exports, strings, indicators, a disassembler (x86 / x64, ARM, Thumb, ARM64 for PE, ELF, Mach-O and raw code, with import names), the scanner's own decompiler, archive extractor and Unicorn unpacker, and a hex editor. The original file is never changed; edits are saved as a copy in <code>alyzer_edited\</code>.</div>
       <div id="vaBody" hidden>
         <div class="va-title" id="vaTitle"></div>
         <div class="ha-tabs va-sub" id="vaTabs">
@@ -788,6 +798,9 @@
           <button class="ghost" data-va="Imports">Imports / exports</button>
           <button class="ghost" data-va="Strings">Strings</button>
           <button class="ghost" data-va="Hex">Hex editor</button>
+          <button class="ghost" data-va="Disasm">Disassembly</button>
+          <button class="ghost" data-va="Decomp">Decompiler</button>
+          <button class="ghost" data-va="Archive">Archive</button>
         </div>
         <div class="va-pane" id="vaPaneOverview"></div>
         <div class="va-pane" id="vaPanePe" hidden></div>
@@ -807,6 +820,37 @@
           </div>
           <div class="hint" id="vaStrInfo" style="margin:4px 0"></div>
           <div class="tablewrap" style="max-height:560px"><table><thead><tr><th class="num">Offset</th><th>Enc</th><th>String</th></tr></thead><tbody id="vaStrRows"></tbody></table></div>
+        </div>
+        <div class="va-pane" id="vaPaneDisasm" hidden>
+          <div class="va-bar">
+            <select id="vaDisArch" title="Architecture"><option value="auto">Arch: from header</option><option value="x86">x86 (32-bit)</option><option value="x64">x64</option><option value="arm">ARM (A32)</option><option value="thumb">Thumb</option><option value="arm64">ARM64</option></select>
+            <select id="vaDisJump" title="Jump to"><option value="">Jump to…</option></select>
+            <input id="vaDisAt" type="text" placeholder="Address in hex (401000), o:offset or entry" style="max-width:280px">
+            <button class="ghost" id="vaDisGo">Go</button>
+            <button class="ghost" id="vaDisBack" disabled title="Back (Alt+←)">&larr; Back</button>
+          </div>
+          <div class="hint" id="vaDisInfo" style="margin:4px 0"></div>
+          <div class="tablewrap va-dis" style="max-height:560px"><table><thead><tr><th>Address</th><th>Offset</th><th>Bytes</th><th>Instruction</th></tr></thead><tbody id="vaDisRows"></tbody></table></div>
+          <div style="margin-top:6px"><button class="ghost" id="vaDisMore" style="width:auto" hidden>Load more</button></div>
+        </div>
+        <div class="va-pane" id="vaPaneDecomp" hidden>
+          <div class="va-bar">
+            <input id="vaDecQ" type="search" placeholder="Filter (case-insensitive)…">
+            <select id="vaDecKind"><option value="">All kinds</option></select>
+            <label class="chkl">Min length <input id="vaDecMin" type="number" min="2" max="64" value="5" style="width:64px"></label>
+            <label class="chkl"><input id="vaDecAll" type="checkbox"> Plain ASCII / UTF-16 runs too</label>
+            <button class="ghost" id="vaDecRun">Run</button>
+          </div>
+          <div class="hint" id="vaDecInfo" style="margin:4px 0">hydradragondecompiler: strings the code references by address, strings built on the stack and opcode patterns (API hashing, PEB walks, indirect syscalls).</div>
+          <div class="tablewrap" style="max-height:560px"><table><thead><tr><th class="num">Offset</th><th>Kind</th><th>Text</th></tr></thead><tbody id="vaDecRows"></tbody></table></div>
+        </div>
+        <div class="va-pane" id="vaPaneArchive" hidden>
+          <div class="va-bar">
+            <input id="vaArcQ" type="search" placeholder="Filter entries…">
+          </div>
+          <div class="hint" id="vaArcInfo" style="margin:4px 0"></div>
+          <div id="vaArcHeur"></div>
+          <div class="tablewrap" style="max-height:560px"><table><thead><tr><th>Entry</th><th class="num">Size</th><th></th></tr></thead><tbody id="vaArcRows"></tbody></table></div>
         </div>
         <div class="va-pane" id="vaPaneHex" hidden>
           <div class="va-bar">
@@ -2394,7 +2438,10 @@
   // ---------------- open ----------------
   const showSub = (name) => {
     document.querySelectorAll("#vaTabs button").forEach(b => b.classList.toggle("active", b.dataset.va === name));
-    ["Overview", "Pe", "Imports", "Strings", "Hex"].forEach(t => { $("vaPane" + t).hidden = t !== name; });
+    ["Overview", "Pe", "Imports", "Strings", "Hex", "Disasm", "Decomp", "Archive"].forEach(t => { $("vaPane" + t).hidden = t !== name; });
+    if (name === "Disasm" && !disLoaded) disLoad("entry", false);
+    if (name === "Decomp" && !decLoaded) decLoad();
+    if (name === "Archive" && !arcLoaded) arcLoad();
     if (name === "Strings" && !strLoaded) loadStrings();
     if (name === "Hex") { hexRender(); $("vaHex").focus(); }
   };
@@ -2428,7 +2475,8 @@
   $("vaDocs").onchange = () => { const v = $("vaDocs").value; if (v) { $("vaSrc").value = v; $("vaOpen").click(); } $("vaDocs").value = ""; };
 
   function setDoc(d) {
-    doc = d; edits = new Map(); undoStack = []; cur = 0; anchor = null; nib = 0; pane = "hex"; chunks.clear(); strLoaded = false;
+    doc = d; edits = new Map(); undoStack = []; cur = 0; anchor = null; nib = 0; pane = "hex"; chunks.clear(); strLoaded = false; disLoaded = false; disHist = []; decLoaded = false; arcLoaded = false;
+    $("vaDecRows").innerHTML = ""; $("vaArcRows").innerHTML = ""; $("vaArcHeur").innerHTML = "";
     const r = d.report || {};
     sections = [];
     if (r.pe) {
@@ -2441,6 +2489,7 @@
     }
     $("vaBody").hidden = false;
     $("vaScan").disabled = false;
+    $("vaUnpack").disabled = !r.pe;
     $("vaTitle").innerHTML = `<b>${esc(d.name)}</b> <span class="hint" style="margin:0">${size(d.size)} · ${esc(r.file_type || "")} · ${esc(d.source)}</span>`;
     renderOverview(); renderPe(); renderImports();
     $("vaStrRows").innerHTML = ""; $("vaStrInfo").textContent = "";
@@ -2496,10 +2545,18 @@
       const r = await api("/api/alyzer/scan", { token: doc.token });
       doc.signer = r.signer || doc.signer;
       renderOverview();
-      box().innerHTML = `<div class="hint" style="margin:0 0 4px">Engine scan just now (${r.ms} ms, nothing kept):</div>${vtag(r.verdict)} ${r.threat ? "<b>" + esc(r.threat) + "</b>" : ""}<div style="font-size:12px;margin-top:4px">${esc(r.detail || "")}</div>`;
+      box().innerHTML = `<div class="hint" style="margin:0 0 4px">Engine scan just now (${r.ms} ms, nothing kept):</div>${vtag(r.verdict)} ${r.threat ? "<b>" + esc(r.threat) + "</b>" : ""}<div style="font-size:12px;margin-top:4px">${esc(r.detail || "")}</div>` + extractedHtml(r.extracted_objects || []);
     } catch (e) { box().innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
     $("vaScan").disabled = false;
   };
+
+  function extractedHtml(list) {
+    if (!list.length) return "";
+    return `<h3 class="va-h">Extracted by the scanner (${list.length})</h3><div class="tablewrap" style="max-height:260px"><table><thead><tr><th>Origin</th><th>Name</th><th class="num">Depth</th><th class="num">Size</th><th>Verdict</th><th>SHA-256</th></tr></thead><tbody>` +
+      list.map(o => `<tr><td>${esc(o.origin_type || "")}</td><td title="${esc(o.path || "")}">${esc(o.name || o.path || "")}</td><td class="num">${o.depth ?? ""}</td><td class="num">${size(o.size)}</td><td>${vtag(o.verdict)}${(o.detections || []).length ? ` <span class="hint" style="margin:0">${(o.detections || []).slice(0, 3).map(x => esc(x.name || x.rule || "")).join(", ")}</span>` : ""}</td><td class="mono" style="font-size:11px">${o.sha256 ? `<a href="#" class="va-sha" data-sha="${esc(o.sha256)}" title="Open if the server kept it" style="color:var(--accent)">${esc(o.sha256.slice(0, 16))}…</a>` : ""}</td></tr>`).join("") +
+      `</tbody></table></div>`;
+  }
+  document.addEventListener("click", (e) => { const a = e.target.closest(".va-sha"); if (a) { e.preventDefault(); $("vaSrc").value = a.dataset.sha; open({ sha256: a.dataset.sha }); } });
 
   // ---------------- PE ----------------
   function renderPe() {
@@ -2546,6 +2603,133 @@
 
   // ---------------- strings ----------------
   let strLoaded = false, strTimer = 0, strData = [];
+
+  // ---------------- decompiler (hydradragondecompiler) ----------------
+  let decLoaded = false, decItems = [];
+  const DEC_KIND = { CodeRef: "Code reference", StackString: "Stack string", OpcodePattern: "Opcode pattern", Ascii: "ASCII", Wide: "UTF-16" };
+  async function decLoad() {
+    if (!doc) return;
+    decLoaded = true;
+    $("vaDecInfo").textContent = "Decompiling…"; $("vaDecRows").innerHTML = "";
+    try {
+      const d = await api(`/api/alyzer/decompile?token=${encodeURIComponent(doc.token)}&min=${+$("vaDecMin").value || 5}&all=${$("vaDecAll").checked}`);
+      decItems = d.items || [];
+      const sel = $("vaDecKind").value;
+      $("vaDecKind").innerHTML = `<option value="">All kinds (${decItems.length})</option>` + Object.entries(d.counts || {}).map(([k, n]) => `<option value="${esc(k)}">${esc(DEC_KIND[k] || k)} (${n})</option>`).join("");
+      if ([...$("vaDecKind").options].some(o => o.value === sel)) $("vaDecKind").value = sel;
+      decRender();
+    } catch (e) { $("vaDecInfo").textContent = e.message; }
+  }
+  function decRender() {
+    const q = $("vaDecQ").value.trim().toLowerCase(), k = $("vaDecKind").value;
+    const list = decItems.filter(i => (!k || i.kind === k) && (!q || String(i.text).toLowerCase().includes(q)));
+    $("vaDecInfo").textContent = `${list.length.toLocaleString()} of ${decItems.length.toLocaleString()} items` + (list.length > 3000 ? " (first 3000 shown)" : "");
+    $("vaDecRows").innerHTML = list.slice(0, 3000).map(i => `<tr><td class="num mono">${i.offset != null ? `<a href="#" data-go="${i.offset}" data-len="${Math.max(1, Math.min(4096, String(i.text).length))}" style="color:var(--accent)">${hx(i.offset)}</a>` : ""}</td><td><span class="tag ${i.kind === "OpcodePattern" ? "t-suspicious" : "t-unknown"}">${esc(DEC_KIND[i.kind] || i.kind)}</span></td><td class="mono" style="white-space:pre-wrap;word-break:break-all">${esc(i.text)}</td></tr>`).join("") || '<tr><td colspan="3" class="empty">Nothing found.</td></tr>';
+  }
+  $("vaDecQ").addEventListener("input", () => decRender());
+  $("vaDecKind").onchange = () => decRender();
+  $("vaDecRun").onclick = () => decLoad();
+
+  // ---------------- archive (hydradragonextractor) ----------------
+  let arcLoaded = false, arcEntries = [];
+  async function arcLoad() {
+    if (!doc) return;
+    arcLoaded = true;
+    $("vaArcInfo").textContent = "Reading…"; $("vaArcRows").innerHTML = ""; $("vaArcHeur").innerHTML = "";
+    try {
+      const d = await api(`/api/alyzer/archive?token=${encodeURIComponent(doc.token)}`);
+      arcEntries = d.entries || [];
+      $("vaArcInfo").textContent = !d.format ? "Not an archive the extractor knows." : `${d.format} · ${arcEntries.length} entries` + (d.error ? ` · ${d.error}` : "");
+      $("vaArcHeur").innerHTML = (d.heuristics || []).map(h => `<div style="font-size:12.5px;padding:3px 0"><span class="tag ${h.score >= 50 ? "t-malicious" : "t-suspicious"}">${esc(h.name)} · ${h.score}</span> ${esc(h.details || "")}${h.entry ? ` <span class="mono">${esc(h.entry)}</span>` : ""}</div>`).join("");
+      arcRender();
+    } catch (e) { $("vaArcInfo").textContent = e.message; }
+  }
+  function arcRender() {
+    const q = $("vaArcQ").value.trim().toLowerCase();
+    const list = arcEntries.map((e, i) => ({ ...e, i })).filter(e => !q || e.name.toLowerCase().includes(q));
+    $("vaArcRows").innerHTML = list.slice(0, 5000).map(e => `<tr><td class="mono">${esc(e.name)}</td><td class="num">${size(e.size)}</td><td>${/[\/\\]$/.test(e.name) ? "" : `<button class="ghost" data-arc="${e.i}" style="width:auto;padding:2px 10px">Open</button>`}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">${arcEntries.length ? "No match." : "No entries."}</td></tr>`;
+  }
+  $("vaArcQ").addEventListener("input", () => arcRender());
+  $("vaArcRows").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-arc]"); if (!b || !doc) return;
+    const ent = arcEntries[+b.dataset.arc];
+    if (hasEdits() && !confirm("Discard the unsaved hex edits of the current file?")) return;
+    b.disabled = true; msg(`Extracting ${ent.name}…`);
+    try { setDoc(await api("/api/alyzer/archive/open", { token: doc.token, name: ent.name })); msg(""); refreshDocs(); }
+    catch (err) { msg(err.message, true); b.disabled = false; }
+  });
+
+  // ---------------- Unicorn unpack (hydradragonunicorn) ----------------
+  $("vaUnpack").onclick = async () => {
+    if (!doc) return;
+    if (hasEdits() && !confirm("Discard the unsaved hex edits of the current file?")) return;
+    $("vaUnpack").disabled = true; msg("Emulating in Unicorn… (can take a while)");
+    try {
+      const r = await api("/api/alyzer/unpack", { token: doc.token });
+      if (r.ok === false) { msg(r.message || "Nothing unpacked."); $("vaUnpack").disabled = false; return; }
+      setDoc(r); msg(`Unpacked: ${r.source}`); refreshDocs();
+    } catch (e) { msg(e.message, true); $("vaUnpack").disabled = false; }
+  };
+
+  // ---------------- disassembly (iced-x86 / yaxpeax-arm on the server) ----------------
+  let disLoaded = false, disHist = [], disCur = "entry", disNext = null, disRegions = [];
+  const hx = (n) => n == null ? "—" : Number(n).toString(16).toUpperCase();
+  const disRow = (i, first) => {
+    // Branch / call targets and RIP-relative addresses are links into the listing.
+    let text = i.symbol ? esc(i.text.replace(/\s+; [^;]*$/, "")) + ` <span style="color:var(--green)">; ${esc(i.symbol)}</span>` : esc(i.text);
+    const tgt = i.target != null ? `<a data-dis="${hx(i.target)}" title="Go to ${hx(i.target)}">→ ${hx(i.target)}</a>` : "";
+    return `<tr class="${i.flow ? "f-" + i.flow : ""}${first ? " here" : ""}" data-off="${i.offset}">
+      <td><a data-dis="${hx(i.va)}" title="Start the listing here">${hx(i.va)}</a></td>
+      <td><a data-hexoff="${i.offset}" title="Show in the hex editor">${hx(i.offset)}</a></td>
+      <td class="b" title="${esc(i.bytes)}">${esc(i.bytes)}</td>
+      <td class="i">${text} ${tgt}</td></tr>`;
+  };
+  async function disLoad(at, more) {
+    if (!doc) return;
+    const arch = $("vaDisArch").value;
+    $("vaDisInfo").textContent = "Disassembling…";
+    try {
+      const d = await api(`/api/alyzer/disasm?token=${encodeURIComponent(doc.token)}&arch=${arch}&at=${encodeURIComponent(at)}&count=${more ? 500 : 300}`);
+      disLoaded = true;
+      if (!more) { disCur = at; $("vaDisRows").innerHTML = ""; }
+      $("vaDisRows").insertAdjacentHTML("beforeend", d.insns.map((i, k) => disRow(i, !more && k === 0)).join("") || `<tr><td colspan="4" class="empty">No code here.</td></tr>`);
+      disNext = d.next_offset;
+      $("vaDisMore").hidden = disNext == null;
+      const region = (d.regions || []).find(r => d.start_offset >= r.offset && d.start_offset < r.offset + r.file_size);
+      $("vaDisInfo").textContent = `${d.format} · ${String(d.arch).toUpperCase()}${d.detected_arch && d.detected_arch !== d.arch ? ` (header says ${String(d.detected_arch).toUpperCase()})` : ""}` +
+        (d.entry != null ? ` · entry ${hx(d.entry)}` : "") + (d.image_base ? ` · image base ${hx(d.image_base)}` : "") +
+        ` · from ${hx(d.start_va)} (offset ${hx(d.start_offset)}${region ? ", " + region.name : ""})`;
+      if (!more) {
+        disRegions = d.regions || [];
+        const opts = [`<option value="">Jump to…</option>`];
+        if (d.entry != null) opts.push(`<option value="entry">Entry point · ${hx(d.entry)}</option>`);
+        disRegions.filter(r => r.file_size > 0).forEach(r => opts.push(`<option value="${hx(r.va)}">${esc(r.name || "(unnamed)")}${r.exec ? " · code" : ""} · ${hx(r.va)}</option>`));
+        ((doc.report || {}).pe && (doc.report.pe.exports || [])).slice(0, 300).forEach(x => {
+          const rva = parseInt(x.rva, 16); if (!isNaN(rva) && !x.forwarder && d.format === "PE") opts.push(`<option value="${hx(Number(d.image_base) + rva)}">export ${esc(x.name || "#" + x.ordinal)}</option>`);
+        });
+        $("vaDisJump").innerHTML = opts.join("");
+      }
+    } catch (e) { $("vaDisInfo").textContent = e.message; }
+  }
+  const disGo = (at) => { disHist.push(disCur); $("vaDisBack").disabled = false; $("vaDisAt").value = at === "entry" ? "" : at; disLoad(at, false); };
+  $("vaDisGo").onclick = () => disGo($("vaDisAt").value.trim() || "entry");
+  $("vaDisAt").addEventListener("keydown", (e) => { if (e.key === "Enter") $("vaDisGo").click(); });
+  $("vaDisArch").onchange = () => disLoad(disCur, false);
+  $("vaDisJump").onchange = () => {
+    const o = $("vaDisJump").selectedOptions[0];
+    if (!o || !o.value) return;
+    disGo(o.value);
+    $("vaDisJump").value = "";
+  };
+  $("vaDisBack").onclick = () => { const at = disHist.pop(); if (at != null) disLoad(at, false); $("vaDisBack").disabled = !disHist.length; };
+  $("vaDisMore").onclick = () => { if (disNext != null) disLoad("o:" + hx(disNext), true); };
+  $("vaDisRows").addEventListener("click", (e) => {
+    const a = e.target.closest("a"); if (!a) return;
+    e.preventDefault();
+    if (a.dataset.dis) disGo(a.dataset.dis);
+    else if (a.dataset.hexoff) gotoOffset(+a.dataset.hexoff, true, 1);
+  });
+  $("vaPaneDisasm").addEventListener("keydown", (e) => { if (e.altKey && e.key === "ArrowLeft") $("vaDisBack").click(); });
   async function loadStrings() {
     if (!doc) return;
     strLoaded = true;

@@ -2,6 +2,7 @@ mod budget;
 mod cache;
 mod config;
 mod dashboard;
+mod disasm;
 mod engine_adapter;
 mod apk;
 mod fingerprint;

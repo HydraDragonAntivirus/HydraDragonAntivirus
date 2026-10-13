@@ -161,6 +161,221 @@ pub async fn handle_bytes(Query(q): Query<RangeQuery>) -> Response {
 }
 
 #[derive(Deserialize)]
+pub struct DisasmQuery {
+    token: String,
+    /// "auto" (from the file header) or x86, x64, arm, thumb, arm64.
+    #[serde(default)]
+    arch: String,
+    /// Where to start: empty / "entry", a virtual address in hex ("401000" or
+    /// "0x401000"), or a file offset as "o:400" / "o:0x400".
+    #[serde(default)]
+    at: String,
+    #[serde(default)]
+    count: usize,
+}
+
+fn parse_hex(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    u64::from_str_radix(&s.replace(['_', '`', ' '], ""), 16).ok()
+}
+
+/// Disassembly of an open file: layout (format, architecture, entry, sections) and up
+/// to `count` instructions from the chosen place.
+pub async fn handle_disasm(Query(q): Query<DisasmQuery>) -> Response {
+    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let layout = crate::disasm::Layout::of(&data);
+    let arch = match q.arch.trim() {
+        "" | "auto" => layout.arch.unwrap_or(crate::disasm::Arch::X64),
+        a => match crate::disasm::Arch::parse(a) {
+            Some(a) => a,
+            None => return err(StatusCode::BAD_REQUEST, format!("unknown architecture {a}")),
+        },
+    };
+    let at = q.at.trim();
+    let start = if at.is_empty() || at.eq_ignore_ascii_case("entry") {
+        layout
+            .entry
+            .and_then(|va| layout.va_to_off(va))
+            .or_else(|| layout.regions.iter().find(|r| r.exec && r.file_size > 0).map(|r| r.offset))
+            .unwrap_or(0)
+    } else if let Some(o) = at.strip_prefix("o:").or_else(|| at.strip_prefix("O:")) {
+        match parse_hex(o) {
+            Some(o) if (o as usize) < data.len() => o,
+            _ => return err(StatusCode::BAD_REQUEST, "offset is outside the file"),
+        }
+    } else {
+        match parse_hex(at).map(|va| (va, layout.va_to_off(va))) {
+            Some((_, Some(o))) if (o as usize) < data.len() => o,
+            Some((va, _)) => return err(StatusCode::BAD_REQUEST, format!("{va:#x} is not backed by bytes in the file")),
+            None => return err(StatusCode::BAD_REQUEST, "give an address in hex (401000), o:offset or entry"),
+        }
+    };
+    let count = if q.count == 0 { 300 } else { q.count };
+    let insns = crate::disasm::disassemble(&data, &layout, arch, start, count);
+    let next = insns.last().map(|i| i.offset + (i.bytes.len() as u64 + 1) / 3);
+    Json(serde_json::json!({
+        "format": layout.format,
+        "arch": arch,
+        "detected_arch": layout.arch,
+        "image_base": layout.image_base,
+        "entry": layout.entry,
+        "regions": layout.regions,
+        "start_offset": start,
+        "start_va": layout.off_to_va(start),
+        "next_offset": next.filter(|n| (*n as usize) < data.len()),
+        "insns": insns,
+    }))
+    .into_response()
+}
+
+// ---------------- the scanner's own extractor, decompiler and unpacker ----------------
+
+#[derive(Deserialize)]
+pub struct TokenQuery {
+    token: String,
+}
+
+/// Archive contents (hydradragonextractor, as the engine uses it) and the archive
+/// heuristics (encrypted bait, RLO names, ...).
+pub async fn handle_archive(Query(q): Query<TokenQuery>) -> Response {
+    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let r = tokio::task::spawn_blocking(move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let format = hydradragonextractor::detect_format(&data);
+            let heur: Vec<serde_json::Value> = hydradragonextractor::heuristics::inspect_archive(&data)
+                .into_iter()
+                .map(|h| serde_json::json!({"name": h.name, "score": h.score, "details": h.details, "entry": h.entry_name}))
+                .collect();
+            let (entries, error) = match format {
+                None => (Vec::new(), None),
+                Some(_) => match hydradragonextractor::list_entries(&data) {
+                    Ok(v) => (v.into_iter().map(|e| serde_json::json!({"name": e.name, "size": e.size})).collect::<Vec<_>>(), None),
+                    Err(e) => (Vec::new(), Some(e.to_string())),
+                },
+            };
+            serde_json::json!({"ok": true, "format": format, "entries": entries, "error": error, "heuristics": heur})
+        }))
+    })
+    .await;
+    match r {
+        Ok(Ok(v)) => Json(v).into_response(),
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, "the extractor failed on this file"),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ArchiveOpenBody {
+    token: String,
+    name: String,
+}
+
+/// Extracts one archive entry and opens it as a new document.
+pub async fn handle_archive_open(State(app): State<Arc<AppState>>, Json(b): Json<ArchiveOpenBody>) -> Response {
+    let Some((parent, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let entry = b.name.clone();
+    let r = tokio::task::spawn_blocking(move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hydradragonextractor::extract_entry(&data, &entry).map_err(|e| e.to_string())))
+            .unwrap_or_else(|_| Err("the extractor failed".into()))
+    })
+    .await;
+    let bytes = match r {
+        Ok(Ok(b)) => b,
+        Ok(Err(e)) => return err(StatusCode::BAD_REQUEST, e),
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    if bytes.len() as u64 > MAX_OPEN_BYTES {
+        return err(StatusCode::BAD_REQUEST, format!("entry is larger than {} MB", MAX_OPEN_BYTES / (1024 * 1024)));
+    }
+    let name = b.name.rsplit(['/', '\\']).next().unwrap_or(&b.name).to_string();
+    open_doc(&app, name, format!("{parent} › {}", b.name), bytes).await
+}
+
+#[derive(Deserialize)]
+pub struct DecompileQuery {
+    token: String,
+    #[serde(default)]
+    min: usize,
+    /// Also include plain ASCII / UTF-16 runs (the Strings tab has those already).
+    #[serde(default)]
+    all: bool,
+}
+
+/// hydradragondecompiler (decompiler-lite): strings the code references by address,
+/// strings built on the stack and characteristic opcode patterns (API hashing, PEB
+/// walks, indirect syscalls).
+pub async fn handle_decompile(Query(q): Query<DecompileQuery>) -> Response {
+    let Some((_, data)) = doc(&q.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    let all = q.all;
+    let min = if q.min == 0 { 5 } else { q.min.clamp(2, 64) };
+    let r = tokio::task::spawn_blocking(move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let opts = hydradragondecompiler::ExtractOptions { min_len: min, ascii: all, wide: all, max_strings: 50_000, ..Default::default() };
+            hydradragondecompiler::extract_strings(&data, &opts)
+        }))
+    })
+    .await;
+    match r {
+        Ok(Ok(list)) => {
+            let mut counts = std::collections::BTreeMap::<String, usize>::new();
+            let items: Vec<serde_json::Value> = list
+                .into_iter()
+                .map(|s| {
+                    let kind = format!("{:?}", s.kind);
+                    *counts.entry(kind.clone()).or_default() += 1;
+                    serde_json::json!({"kind": kind, "text": s.text, "offset": s.offset})
+                })
+                .collect();
+            Json(serde_json::json!({"ok": true, "counts": counts, "items": items})).into_response()
+        }
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, "the decompiler failed on this file"),
+    }
+}
+
+/// Unicorn PE emulation (hydradragonunicorn, the engine's own unpacker): runs the
+/// file in the emulator, dumps the memory image and opens it as a new document.
+pub async fn handle_unpack(State(app): State<Arc<AppState>>, Json(b): Json<TokenBody>) -> Response {
+    let Some((name, data)) = doc(&b.token) else { return err(StatusCode::NOT_FOUND, "file is not open any more, open it again") };
+    if !data.starts_with(b"MZ") {
+        return err(StatusCode::BAD_REQUEST, "the Unicorn unpacker runs PE files only");
+    }
+    let started = std::time::Instant::now();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(Vec<u8>, String), String>>();
+    // The emulator needs a big stack (as in the engine's scan threads).
+    let spawned = std::thread::Builder::new().name("alyzer-unicorn".into()).stack_size(64 * 1024 * 1024).spawn(move || {
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(Vec<u8>, String), String> {
+            use hydradragonunicorn::unpacker::engine::{Sample, UnpackerEngine};
+            let sample = Sample::from_bytes(&data).map_err(|e| format!("not loadable: {e}"))?;
+            let mut un = UnpackerEngine::new(sample, "memory");
+            un.init_uc().map_err(|e| format!("emulator setup failed: {e}"))?;
+            let status = match un.emu() {
+                Ok(()) => "emulation finished".to_string(),
+                Err(e) => format!("emulation stopped: {e}"),
+            };
+            let dumped = un.dump_bytes().map_err(|e| format!("{status}; dump failed: {e}"))?;
+            Ok((dumped, status))
+        }))
+        .unwrap_or_else(|_| Err("the emulator crashed on this file".into()));
+        let _ = tx.send(r);
+    });
+    if let Err(e) = spawned {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+    let (dumped, status) = match rx.await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => return err(StatusCode::BAD_REQUEST, e),
+        Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "the emulator thread ended without an answer"),
+    };
+    let original = doc(&b.token).map(|(_, d)| d);
+    if dumped.is_empty() || original.as_deref().is_some_and(|o| o.as_slice() == dumped.as_slice()) {
+        return Json(serde_json::json!({"ok": false, "message": format!("{status} in {} ms; the memory image is the same as the file (nothing unpacked)", started.elapsed().as_millis())})).into_response();
+    }
+    let mut resp = open_doc(&app, format!("{name}.unpacked.bin"), format!("{name} › Unicorn unpack ({status}, {} ms)", started.elapsed().as_millis()), dumped).await;
+    resp.headers_mut().insert("X-Unpack-Status", axum::http::HeaderValue::from_str(&status.chars().filter(|c| c.is_ascii() && !c.is_control()).collect::<String>()).unwrap_or(axum::http::HeaderValue::from_static("done")));
+    resp
+}
+
+#[derive(Deserialize)]
 pub struct SearchQuery {
     token: String,
     /// Hex bytes to find, e.g. "4d5a90" (the page turns ASCII / UTF-16 text into hex).
@@ -358,6 +573,9 @@ pub async fn handle_scan(State(app): State<Arc<AppState>>, Json(b): Json<TokenBo
         Ok(Ok(r)) => Json(serde_json::json!({
             "ok": true, "verdict": r.verdict, "threat": r.threat, "detail": r.detail,
             "score": r.score, "ms": r.scan_ms, "signer": r.signer,
+            // What the engine itself pulled out: archive members, Unicorn-unpacked PE,
+            // overlay, stripped buffers, each with its own verdict.
+            "extracted_objects": r.extracted_objects,
         }))
         .into_response(),
         Ok(Err(e)) => err(StatusCode::SERVICE_UNAVAILABLE, e),

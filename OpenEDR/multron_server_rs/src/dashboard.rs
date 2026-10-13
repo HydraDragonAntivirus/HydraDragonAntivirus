@@ -301,6 +301,11 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/alyzer/bytes", get(crate::alyzer::handle_bytes))
         .route("/api/alyzer/search", get(crate::alyzer::handle_search))
         .route("/api/alyzer/strings", get(crate::alyzer::handle_strings))
+        .route("/api/alyzer/disasm", get(crate::alyzer::handle_disasm))
+        .route("/api/alyzer/archive", get(crate::alyzer::handle_archive))
+        .route("/api/alyzer/archive/open", post(crate::alyzer::handle_archive_open))
+        .route("/api/alyzer/decompile", get(crate::alyzer::handle_decompile))
+        .route("/api/alyzer/unpack", post(crate::alyzer::handle_unpack))
         .route("/api/alyzer/scan", post(crate::alyzer::handle_scan))
         .route("/api/alyzer/save", post(crate::alyzer::handle_save).route_layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
         .route("/api/events/ecs", get(handle_events_ecs))
@@ -369,9 +374,10 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
 }
 
 /// Dashboard calls that change nothing in the mirrored data (archive mode).
-const ARCHIVE_ALLOWED: [&str; 12] = [
+const ARCHIVE_ALLOWED: [&str; 14] = [
     "/api/start", "/api/stop", "/api/maintenance", "/api/limits", "/api/limits/reset", "/api/unban",
     "/api/alyzer/open", "/api/alyzer/bytes", "/api/alyzer/search", "/api/alyzer/strings", "/api/alyzer/list", "/api/fs/list",
+    "/api/alyzer/archive/open", "/api/alyzer/unpack",
 ];
 
 async fn guard_middleware(req: Request<axum::body::Body>, next: Next) -> Response {
