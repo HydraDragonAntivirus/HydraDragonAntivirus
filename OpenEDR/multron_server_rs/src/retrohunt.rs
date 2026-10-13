@@ -5,6 +5,10 @@
 //! verdict, the threat name, the TLSH rules and a human verdict apply as for a client
 //! scan.
 //!
+//! On the archive server (read-only, no engine) a hunt only matches: the analyst
+//! picks a rule in the signature room and every file of the mirrored work folder is
+//! matched against it; nothing is rescanned or written, the current verdict is shown.
+//!
 //! Hunts run one at a time on a background thread, one file at a time; signatures
 //! saved while a hunt runs wait in the queue. The newest `HISTORY` hunts are kept in
 //! memory for the dashboard.
@@ -68,6 +72,8 @@ pub struct Hunt {
     pub changed: usize,
     /// Kept files that could not be read.
     pub unreadable: usize,
+    /// Archive server: matched only, not rescanned.
+    pub match_only: bool,
     pub matches: Vec<HuntMatch>,
 }
 
@@ -75,6 +81,8 @@ struct Job {
     id: u64,
     kind: SigKind,
     source: String,
+    /// Rescan each match with the full engine (false on the archive server).
+    rescan: bool,
 }
 
 #[derive(Default)]
@@ -178,6 +186,15 @@ fn now() -> String {
 /// Queues a retrohunt for one saved signature document and starts the worker if it is
 /// idle. Returns the hunt number.
 pub fn start(server: &Arc<ScanServer>, kind: SigKind, name: &str, source: &str) -> u64 {
+    start_with(server, kind, name, source, true)
+}
+
+/// Archive server: a hunt that only matches (no engine, nothing written).
+pub fn start_match_only(server: &Arc<ScanServer>, kind: SigKind, name: &str, source: &str) -> u64 {
+    start_with(server, kind, name, source, false)
+}
+
+fn start_with(server: &Arc<ScanServer>, kind: SigKind, name: &str, source: &str, rescan: bool) -> u64 {
     let rh = &server.retrohunt;
     let id = rh.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     {
@@ -196,6 +213,7 @@ pub fn start(server: &Arc<ScanServer>, kind: SigKind, name: &str, source: &str) 
             matched: 0,
             changed: 0,
             unreadable: 0,
+            match_only: !rescan,
             matches: Vec::new(),
         });
         // Drop the oldest finished hunts beyond the history size.
@@ -208,7 +226,7 @@ pub fn start(server: &Arc<ScanServer>, kind: SigKind, name: &str, source: &str) 
             }
         }
     }
-    rh.queue.lock().unwrap().push_back(Job { id, kind, source: source.to_string() });
+    rh.queue.lock().unwrap().push_back(Job { id, kind, source: source.to_string(), rescan });
     if !rh.worker.swap(true, Ordering::SeqCst) {
         let srv = Arc::clone(server);
         let spawned = std::thread::Builder::new()
@@ -317,17 +335,23 @@ fn run(srv: &Arc<ScanServer>, job: &Job) {
             detail: None,
             error: None,
         };
-        // Full engine with the current settings: the new signature is already live.
-        match crate::rescan::rescan_logged(srv, &sha, "retrohunt", 0) {
-            Ok(c) => {
-                m.old_verdict = c.old_verdict;
-                m.new_verdict = c.new_verdict;
-                m.threat = c.threat;
-                m.detail = c.detail;
+        if job.rescan {
+            // Full engine with the current settings: the new signature is already live.
+            match crate::rescan::rescan_logged(srv, &sha, "retrohunt", 0) {
+                Ok(c) => {
+                    m.old_verdict = c.old_verdict;
+                    m.new_verdict = c.new_verdict;
+                    m.threat = c.threat;
+                    m.detail = c.detail;
+                }
+                Err(e) => m.error = Some(e),
             }
-            Err(e) => m.error = Some(e),
+        } else {
+            // Match only: the current verdict stays as it is.
+            m.new_verdict = m.old_verdict.clone();
+            m.threat = srv.threat_intel.get(&sha).and_then(|i| i.threat_name);
         }
-        let changed = m.error.is_none() && m.old_verdict != m.new_verdict;
+        let changed = job.rescan && m.error.is_none() && m.old_verdict != m.new_verdict;
         rh.update(job.id, |h| {
             h.done += 1;
             h.matched += 1;
@@ -341,7 +365,11 @@ fn run(srv: &Arc<ScanServer>, job: &Job) {
     rh.update(job.id, |h| {
         h.state = if stopped { "stopped" } else { "done" };
         h.finished_at = Some(now());
-        summary = format!("{} of {} files, {} matched, {} verdicts changed", h.done, h.total, h.matched, h.changed);
+        summary = if h.match_only {
+            format!("{} of {} files, {} matched (match only)", h.done, h.total, h.matched)
+        } else {
+            format!("{} of {} files, {} matched, {} verdicts changed", h.done, h.total, h.matched, h.changed)
+        };
     });
     srv.log_info(format!("retrohunt #{} {}: {name}: {summary}", job.id, if stopped { "stopped" } else { "finished" }));
 }

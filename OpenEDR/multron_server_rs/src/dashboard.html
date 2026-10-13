@@ -482,6 +482,7 @@
             <button class="primary" id="sigSave">Compile &amp; save</button>
             <button class="danger" id="sigDelete">Delete rule</button>
           </div>
+          <button class="primary" id="sigHuntArchive" hidden style="margin-top:8px" title="Matches the rule in the editor against every file of the archive (match only: nothing is rescanned or saved)">Hunt in archive</button>
           <div id="sigMsg" class="error"></div>
         </div>
       </div>
@@ -1419,6 +1420,7 @@
         (arch.data_as_of ? `, last copied ${new Date(arch.data_as_of).toLocaleString()}` : ", not copied yet") +
         (arch.last_reload ? ` · read ${new Date(arch.last_reload).toLocaleTimeString()}` : "") + ` · ${arch.insights || 0} files. Changes are made on the main server.`;
     } else ban.hidden = true;
+    $("sigHuntArchive").hidden = !arch;
     if (document.activeElement !== $("mrTarget") && !$("mrTarget").dataset.dirty) $("mrTarget").value = m.target || "";
     $("mrRun").disabled = !!m.running || !m.target || !!arch;
     $("mrDedupe").disabled = !!m.running || !m.target || !!arch;
@@ -2189,6 +2191,14 @@
       if (r.retrohunt) { rhOpen.add(r.retrohunt); rhLoad(); }
     } catch (err) { $("sigMsg").textContent = err.message; }
   };
+  $("sigHuntArchive").onclick = async () => {
+    $("sigMsg").style.color = ""; $("sigMsg").textContent = "";
+    try {
+      const r = await post("/api/retrohunt/archive", { kind: $("sigKind").value, name: nbCurrent || "", source: $("sigSource").value });
+      $("sigMsg").style.color = "var(--green)"; $("sigMsg").textContent = `Archive retrohunt #${r.retrohunt} queued (match only).`;
+      rhOpen.add(r.retrohunt); rhLoad();
+    } catch (err) { $("sigMsg").textContent = err.message; }
+  };
   $("sigDelete").onclick = async () => {
     if (!nbCurrent) return;
     if (!confirm(`Delete ${nbCurrent}? It stays loaded until the next engine reload.`)) return;
@@ -2213,7 +2223,7 @@
           <td class="mono" title="${rsEsc(m.sha256)}">${rsEsc(m.sha256.slice(0, 16))}…</td>
           <td>${rsEsc(m.category.replace("_", " "))}</td>
           <td class="mono">${rsEsc(m.rule)}</td>
-          <td style="white-space:nowrap">${rsV(m.old_verdict)} &rarr; ${m.error ? '<span class="tag t-malicious">FAILED</span>' : rsV(m.new_verdict)}</td>
+          <td style="white-space:nowrap">${h.match_only ? rsV(m.old_verdict) : `${rsV(m.old_verdict)} &rarr; ${m.error ? '<span class="tag t-malicious">FAILED</span>' : rsV(m.new_verdict)}`}</td>
           <td class="rsd">${m.error ? rsEsc(m.error) : (m.threat ? "<b>" + rsEsc(m.threat) + "</b>" : "—") + (m.detail ? `<div class="engd">${rsEsc(m.detail)}</div>` : "")}</td>
           <td class="num">${rsSize(m.size)}</td>
           <td style="white-space:nowrap"><a href="https://www.virustotal.com/gui/file/${rsEsc(m.sha256)}" target="_blank" rel="noopener" style="color:var(--accent)">VT&nbsp;&#8599;</a>
@@ -2221,9 +2231,9 @@
         </tr>`).join("");
       return `<div class="ha-item" style="display:block;margin-top:8px">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <b>#${h.id} ${rsEsc(h.name)}</b> <span class="tag t-unknown">${rsEsc(h.kind)}</span>
+          <b>#${h.id} ${rsEsc(h.name)}</b> <span class="tag t-unknown">${rsEsc(h.kind)}</span>${h.match_only ? ' <span class="tag t-unknown">ARCHIVE · MATCH ONLY</span>' : ""}
           <span class="tag ${rhStateTag[h.state] || "t-unknown"}">${rsEsc(h.state.toUpperCase())}</span>
-          <span style="color:var(--muted)">${h.done}/${h.total} files (${pct}%) · <b>${h.matched}</b> matched · ${h.changed} verdicts changed${h.unreadable ? ` · ${h.unreadable} unreadable` : ""}${h.started_at ? " · " + new Date(h.started_at).toLocaleString() : ""}</span>
+          <span style="color:var(--muted)">${h.done}/${h.total} files (${pct}%) · <b>${h.matched}</b> matched${h.match_only ? "" : ` · ${h.changed} verdicts changed`}${h.unreadable ? ` · ${h.unreadable} unreadable` : ""}${h.started_at ? " · " + new Date(h.started_at).toLocaleString() : ""}</span>
           ${h.matched ? `<button class="ghost" onclick="rhToggle(${h.id})">${open ? "Hide" : "Show"} matches</button>` : ""}
         </div>
         ${h.error ? `<div class="error">${rsEsc(h.error)}</div>` : ""}

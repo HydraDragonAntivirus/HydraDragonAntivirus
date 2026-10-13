@@ -367,6 +367,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/bans/remove", post(handle_ban_remove))
         .route("/api/retrohunt", get(handle_retrohunt_status))
         .route("/api/retrohunt/stop", post(handle_retrohunt_stop))
+        .route("/api/retrohunt/archive", post(handle_retrohunt_archive))
         .route("/api/naming", get(handle_naming_check))
         .route("/api/companies", get(handle_companies_get).post(handle_companies_save))
         .layer(middleware::from_fn(guard_middleware))
@@ -374,10 +375,10 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
 }
 
 /// Dashboard calls that change nothing in the mirrored data (archive mode).
-const ARCHIVE_ALLOWED: [&str; 14] = [
+const ARCHIVE_ALLOWED: [&str; 16] = [
     "/api/start", "/api/stop", "/api/maintenance", "/api/limits", "/api/limits/reset", "/api/unban",
     "/api/alyzer/open", "/api/alyzer/bytes", "/api/alyzer/search", "/api/alyzer/strings", "/api/alyzer/list", "/api/fs/list",
-    "/api/alyzer/archive/open", "/api/alyzer/unpack",
+    "/api/alyzer/archive/open", "/api/alyzer/unpack", "/api/retrohunt/archive", "/api/retrohunt/stop",
 ];
 
 async fn guard_middleware(req: Request<axum::body::Body>, next: Next) -> Response {
@@ -1814,6 +1815,29 @@ async fn handle_signature_save(
 
 async fn handle_retrohunt_status(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(app.scan_server.retrohunt.status())
+}
+
+/// Archive server: matches a rule (saved or only in the editor) against every file of
+/// the mirrored work folder. Match only: no engine, nothing written.
+async fn handle_retrohunt_archive(State(app): State<Arc<AppState>>, Json(b): Json<SignatureSaveBody>) -> Response {
+    use crate::analyst_engine::SigKind;
+    let bad = |e: &str| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    if !crate::config::is_archive() {
+        return bad("on the main server, saving the signature starts its retrohunt");
+    }
+    let Some(kind) = SigKind::parse(&b.kind) else {
+        return bad("unknown kind (yara | hydradragonsig | clamav_ndb | clamav_ldb)");
+    };
+    if b.source.trim().is_empty() {
+        return bad("the rule is empty");
+    }
+    if b.source.len() > 1024 * 1024 {
+        return bad("rule source over 1 MB");
+    }
+    let name: String = b.name.trim().chars().take(200).collect();
+    let name = if name.is_empty() { "(unsaved rule)".to_string() } else { name };
+    let hunt = crate::retrohunt::start_match_only(&app.scan_server, kind, &name, &b.source);
+    Json(serde_json::json!({ "ok": true, "retrohunt": hunt })).into_response()
 }
 
 async fn handle_retrohunt_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
