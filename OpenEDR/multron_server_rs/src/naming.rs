@@ -225,6 +225,55 @@ pub fn classify(threat: &str) -> Classification {
     Classification { category, platform, family, exact: false }
 }
 
+/// Threat name used when a TLSH blacklist name gives nothing better.
+pub const BLACKLIST_DEFAULT_THREAT: &str = "Generic.Multi.TLSHBlacklist";
+
+/// Threat name (Category.Platform.Family) from a blacklist name: a family
+/// ("AgentTesla", "Smoke Loader") or a sample file name that carries a detection
+/// ("HEUR-Backdoor.MSIL.Androm.gen-0136….vir", "Backdoor.MSIL.Remcos.gen.Trojan.Autorun_2.vir").
+pub fn threat_from_name(name: &str) -> String {
+    // Already a VirusKov name (with its variant): keep it.
+    if let Ok(t) = normalize_threat_name(name.trim()) {
+        return t;
+    }
+    let canon = |list: &[&'static str], s: &str| list.iter().find(|c| c.eq_ignore_ascii_case(s)).copied();
+    let family_ok = |f: &str| (2..=40).contains(&f.len()) && f.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && f.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    // Category.Platform.Family somewhere in the dotted name ("HEUR-" / "Bazaar…__" prefixes
+    // on the category, "-<hash>" suffixes on the family are cut off).
+    let parts: Vec<&str> = name.split('.').collect();
+    for w in parts.windows(3) {
+        let cat = w[0].rsplit(['-', ':', '_', ' ']).next().unwrap_or(w[0]);
+        let fam = w[2].split(['-', ':', ' ', '@', '!']).next().unwrap_or("");
+        if let (Some(c), Some(p)) = (canon(CATEGORIES, cat), canon(PLATFORMS, w[1])) {
+            if family_ok(fam) {
+                if let Ok(t) = normalize_threat_name(&format!("{c}.{p}.{fam}")) {
+                    return t;
+                }
+            }
+        }
+    }
+    // A plain family name: category from its words, platform Multi.
+    if !name.contains('.') {
+        let fam: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        if family_ok(&fam) {
+            let c = classify(name);
+            let cat = if c.category == "Unclassified" { "Generic" } else { c.category };
+            let plat = if c.platform.is_empty() { "Multi" } else { c.platform };
+            if let Ok(t) = normalize_threat_name(&format!("{cat}.{plat}.{fam}")) {
+                return t;
+            }
+        }
+    }
+    // Some other name: at least the category when the words give one.
+    let c = classify(name);
+    if c.category != "Unclassified" {
+        if let Ok(t) = normalize_threat_name(&format!("{}.{}.TLSHBlacklist", c.category, if c.platform.is_empty() { "Multi" } else { c.platform })) {
+            return t;
+        }
+    }
+    BLACKLIST_DEFAULT_THREAT.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,5 +307,17 @@ mod tests {
         assert!(normalize_threat_name("Trojan.Win32.Remcos.TOOLONGVAR").is_err());
         assert_eq!(normalize_threat_name("vuln.windrv.RTCore64").unwrap(), "Vuln.WinDrv.RTCore64");
         assert_eq!(yara_identifier("Trojan.Win32.Remcos.A"), "Trojan_Win32_Remcos_A");
+    }
+
+    #[test]
+    fn threat_from_names() {
+        assert_eq!(threat_from_name("Bazaar.2023.01__HEUR-Backdoor.MSIL.Androm.gen-0136b412091dcc7ab89465b919f8b2efa89b23050345f6fefe6eedbf60d393c4.vir"), "Backdoor.MSIL.Androm");
+        assert_eq!(threat_from_name("Backdoor.MSIL.Remcos.gen.Trojan.Autorun_2.vir"), "Backdoor.MSIL.Remcos");
+        assert_eq!(threat_from_name("Adware.Gator.444.Trojan.Autorun_1.Worm.Win32.Convagent.gen.vir"), "Worm.Win32.Convagent");
+        assert_eq!(threat_from_name("AgentTesla"), "Generic.Multi.AgentTesla");
+        assert_eq!(threat_from_name("RedLineStealer"), "Stealer.Multi.RedLineStealer");
+        assert_eq!(threat_from_name("Smoke Loader"), "Loader.Multi.SmokeLoader");
+        assert_eq!(threat_from_name("Trojan.Win32.Remcos.A"), "Trojan.Win32.Remcos.A");
+        assert_eq!(threat_from_name("invoice.exe"), BLACKLIST_DEFAULT_THREAT);
     }
 }

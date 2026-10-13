@@ -30,16 +30,8 @@ echo [4/7] JavaScript benign TLSH...
 echo [5/7] JavaScript malware TLSH...
 "%TB%" %J% --resume hash "%W%\js_mal.lst" --jsonl -o "%W%\js_malware.jsonl" || goto :fail
 
-echo [6/7] Blacklist...
-set "MERGE_DB="
-if exist "%W%\tlsh_db" (
-  set "MERGE_DB=--merge %W%\tlsh_db"
-) else if exist "C:\Program Files\7-Zip\7z.exe" (
-  "C:\Program Files\7-Zip\7z.exe" e "hash\tlsh_db.xz" -o"%W%" -y >nul && set "MERGE_DB=--merge %W%\tlsh_db"
-) else (
-  echo   7-Zip not found: hash\tlsh_db.xz is skipped. Extract it to %W%\tlsh_db and run again to include it.
-)
-"%TB%" blacklist --merge "%W%\malware_refs.jsonl" --merge "%W%\js_malware.jsonl" %MERGE_DB% -o "%W%\tlsh_blacklist.txt" || goto :fail
+echo [6/7] Blacklist (tlsh_db is never merged)...
+"%TB%" blacklist --merge "%W%\malware_refs.jsonl" --merge "%W%\js_malware.jsonl" -o "%W%\tlsh_blacklist.jsonl" || goto :fail
 
 echo [7/7] Tune (full rule: distance + injection guard)...
 "%TB%" tune --clean "%W%\benign_refs.jsonl" --malware "%W%\malware_refs.jsonl" --report "%W%\close_calls.csv" > "%W%\tune.txt" || goto :fail
@@ -55,7 +47,7 @@ if errorlevel 1 (
 )
 if not exist "%AS%" mkdir "%AS%"
 copy /y "%W%\benign_refs.jsonl"  "%AS%\tlsh_whitelist_refs.jsonl" >nul || goto :fail
-copy /y "%W%\tlsh_blacklist.txt" "%AS%\tlsh_blacklist.txt" >nul || goto :fail
+copy /y "%W%\tlsh_blacklist.jsonl" "%AS%\tlsh_blacklist.jsonl" >nul || goto :fail
 echo.
 echo INSTALLED to %AS%
 echo Now press "Reload engines" on the multron_server dashboard.

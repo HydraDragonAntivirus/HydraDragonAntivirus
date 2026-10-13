@@ -3,6 +3,8 @@
 //! Subcommands:
 //!   hash       Hash files/folders -> CSV (sha256,tlsh,size,path) or JSONL (tlsh_index.jsonl format)
 //!   blacklist  Hash a malware folder (and/or MalwareBazaar full.csv) -> tlsh_blacklist.txt
+//!              (JSON lines {"tlsh","file_name","virus","sha256","size"}; the virus name is the
+//!              MalwareBazaar signature or comes from the file name, as Category.Platform.Family)
 //!   compare    Closest digests in a database to a file or a TLSH string
 //!   refs       Hash + structural fingerprint of every PE / APK -> tlsh_whitelist_refs.jsonl
 //!              (the smart-whitelist reference corpus loaded by multron_server)
@@ -29,6 +31,10 @@ mod analyzer;
 #[allow(dead_code)]
 #[path = "../../OpenEDR/multron_server_rs/src/fingerprint.rs"]
 mod fingerprint;
+// Virus names for the blacklist, the same way the server makes them.
+#[allow(dead_code)]
+#[path = "../../OpenEDR/multron_server_rs/src/naming.rs"]
+mod naming;
 #[allow(dead_code)]
 #[path = "../../OpenEDR/multron_server_rs/src/apk.rs"]
 mod apk;
@@ -76,7 +82,8 @@ enum Cmd {
         #[arg(long, default_value_t = 100)]
         max_mb: u64,
     },
-    /// Build a TLSH blacklist (one digest per line) for tlsh_signatures/tlsh_blacklist.txt
+    /// Build a TLSH blacklist for tlsh_signatures/tlsh_blacklist.jsonl: one JSON object per line
+    /// {"tlsh","file_name","virus","sha256","size"}
     Blacklist {
         /// Malware folders to hash (recursive)
         paths: Vec<PathBuf>,
@@ -86,7 +93,7 @@ enum Cmd {
         /// Existing TLSH lists to merge (one digest per line; repeatable)
         #[arg(long = "merge")]
         merge: Vec<PathBuf>,
-        #[arg(short, long, default_value = "tlsh_blacklist.txt")]
+        #[arg(short, long, default_value = "tlsh_blacklist.jsonl")]
         output: PathBuf,
         #[arg(long, default_value_t = 100)]
         max_mb: u64,
@@ -139,6 +146,8 @@ struct Rec {
     path: String,
     /// PE or APK structure (from `refs` JSONL), for the full-rule test in `tune`.
     st: Option<Structure>,
+    /// Virus name from a merged blacklist line (empty = none).
+    virus: String,
 }
 
 // ------------------------------------------------------------------ hashing
@@ -186,6 +195,7 @@ fn hash_file_opt(p: &Path, max_bytes: u64, dex: bool) -> Option<Rec> {
         size: data.len() as u64,
         path: p.display().to_string(),
         st: None,
+        virus: String::new(),
     })
 }
 
@@ -341,16 +351,33 @@ fn load_db(path: &Path) -> Vec<Rec> {
                     sha256: v["sha256"].as_str().unwrap_or("").to_ascii_lowercase(),
                     tlsh: t,
                     size: v["size"].as_u64().or(size).unwrap_or(0),
-                    path: v["path"].as_str().unwrap_or("").to_string(),
+                    // refs/hash JSONL: "path"; a blacklist JSONL: "file_name" and "virus"
+                    path: v["path"].as_str().or(v["file_name"].as_str()).unwrap_or("").to_string(),
                     st,
+                    virus: v["virus"].as_str().unwrap_or("").to_string(),
                 });
             }
             continue;
         }
-        let cols: Vec<&str> = line.split([',', '\t', ':', ' ']).collect();
+        // Blacklist lines: "T1<digest>:<file name>:<virus name>", or abuse.ch tlsh_db
+        // "T1<digest>:<virus name>"; names may contain spaces or commas.
+        let (head, name, virus) = match line.find([':', '\t']) {
+            Some(i) if parse_tlsh(&line[..i]).is_some() => {
+                let sep = line.as_bytes()[i] as char;
+                let rest = line[i + 1..].trim();
+                match rest.split_once(sep) {
+                    Some((f, v)) => (&line[..i], f.trim(), v.trim()),
+                    None => (&line[..i], "", rest),
+                }
+            }
+            _ => (line, "", ""),
+        };
+        let na = |x: &str| if x.eq_ignore_ascii_case("n/a") { String::new() } else { x.to_string() };
+        let (name, virus) = (na(name), na(virus));
+        let cols: Vec<&str> = head.split([',', '\t', ':', ' ']).collect();
         if let Some(t) = cols.iter().find_map(|c| (c.trim().trim_matches('"').len() >= 70).then(|| parse_tlsh(c)).flatten()) {
             let sha = cols.iter().map(|c| c.trim().trim_matches('"')).find(|c| c.len() == 64 && c.chars().all(|x| x.is_ascii_hexdigit())).unwrap_or("");
-            out.push(Rec { sha256: sha.to_ascii_lowercase(), tlsh: t, size: 0, path: String::new(), st: None });
+            out.push(Rec { sha256: sha.to_ascii_lowercase(), tlsh: t, size: 0, path: name, st: None, virus });
         }
     }
     out
@@ -405,48 +432,141 @@ fn cmd_hash(paths: &[PathBuf], output: &Option<PathBuf>, jsonl: bool, dex: bool,
     }
 }
 
+/// CSV fields, with "quoted, fields" and "" escapes.
+fn csv_fields(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' if quoted && chars.peek() == Some(&'"') => {
+                cur.push('"');
+                chars.next();
+            }
+            '"' => quoted = !quoted,
+            ',' if !quoted => out.push(std::mem::take(&mut cur).trim().to_string()),
+            _ => cur.push(c),
+        }
+    }
+    out.push(cur.trim().to_string());
+    out
+}
+
 /// MalwareBazaar full.csv: the TLSH column is found by shape (T1 + 70 hex), so column
-/// order changes do not matter.
-fn read_mb_csv(path: &Path) -> Vec<Tlsh> {
+/// order changes do not matter; returns (digest, `file_name`, `signature`, `sha256_hash`) with the
+/// columns found from the header (a `# "first_seen_utc",...` line).
+fn read_mb_csv(path: &Path) -> Vec<(Tlsh, String, String, String)> {
     let Ok(f) = File::open(path) else { return Vec::new() };
-    BufReader::new(f)
-        .lines()
-        .map_while(Result::ok)
-        .filter(|l| !l.starts_with('#'))
-        .filter_map(|l| {
-            l.split(',')
-                .map(|c| c.trim().trim_matches('"').trim())
-                .find(|c| c.len() == 72 && (c.starts_with("T1") || c.starts_with("t1")))
-                .and_then(parse_tlsh)
-        })
-        .collect()
+    let mut sig_col: Option<usize> = None;
+    let mut sha_col: Option<usize> = None;
+    let mut name_col: Option<usize> = None;
+    let mut out = Vec::new();
+    for l in BufReader::new(f).lines().map_while(Result::ok) {
+        if let Some(h) = l.strip_prefix('#') {
+            if name_col.is_none() && sig_col.is_none() {
+                let cols = csv_fields(h);
+                sig_col = cols.iter().position(|c| c.eq_ignore_ascii_case("signature"));
+                sha_col = cols.iter().position(|c| c.eq_ignore_ascii_case("sha256_hash"));
+                name_col = cols.iter().position(|c| c.eq_ignore_ascii_case("file_name"));
+            }
+            continue;
+        }
+        let cols = csv_fields(&l);
+        let Some(t) = cols.iter().find(|c| c.len() == 72 && (c.starts_with("T1") || c.starts_with("t1"))).and_then(|c| parse_tlsh(c)) else {
+            continue;
+        };
+        let named = |i: Option<usize>| i.and_then(|i| cols.get(i)).filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("n/a")).cloned();
+        out.push((t, named(name_col).unwrap_or_default(), named(sig_col).unwrap_or_default(), named(sha_col).unwrap_or_default()));
+    }
+    out
+}
+
+/// A name for a blacklist line: the file name without its folder, no control
+/// characters, at most 260 characters.
+fn clean_name(n: &str) -> String {
+    let base = n.rsplit(['/', '\\']).next().unwrap_or(n);
+    base.chars().map(|c| if c.is_control() { ' ' } else { c }).take(260).collect::<String>().trim().to_string()
 }
 
 fn cmd_blacklist(paths: &[PathBuf], mb_csv: &[PathBuf], merge: &[PathBuf], output: &Path, max_mb: u64) {
-    let mut set: HashSet<String> = HashSet::new();
+    // digest -> (file name, virus name). The file name is the sample's own name, else its
+    // SHA-256, else the name of the list it came from. The virus name is the given one
+    // (MalwareBazaar signature, a merged list's virus name), else made from the file
+    // name; both as `naming::threat_from_name` makes them (Category.Platform.Family).
+    // A real file / virus name replaces a fallback.
+    struct Line {
+        file: String,
+        file_real: bool,
+        virus: String,
+        virus_real: bool,
+        sha256: String,
+        size: u64,
+    }
+    let mut map: std::collections::BTreeMap<String, Line> = std::collections::BTreeMap::new();
+    let mut add = |t: String, file: &str, file_fallback: &str, virus: &str, sha256: &str, size: u64| {
+        let real = |x: &str| !x.trim().is_empty() && !x.trim().eq_ignore_ascii_case("n/a");
+        let file = clean_name(file);
+        let file_real = real(&file);
+        let file = if file_real { file } else { clean_name(file_fallback) };
+        let virus_real = real(virus);
+        let virus = naming::threat_from_name(if virus_real { virus.trim() } else { &file });
+        let e = map.entry(t).or_insert_with(|| Line { file: file.clone(), file_real, virus: virus.clone(), virus_real, sha256: String::new(), size: 0 });
+        if e.sha256.is_empty() && sha256.len() == 64 {
+            e.sha256 = sha256.to_ascii_lowercase();
+        }
+        if e.size == 0 {
+            e.size = size;
+        }
+        if file_real && !e.file_real {
+            e.file = file;
+            e.file_real = true;
+            if !e.virus_real {
+                e.virus = naming::threat_from_name(&e.file);
+            }
+        }
+        if virus_real && !e.virus_real {
+            e.virus = virus;
+            e.virus_real = true;
+        }
+    };
     if !paths.is_empty() {
         for r in hash_paths(paths, max_mb) {
-            set.insert(r.tlsh.to_string());
+            add(r.tlsh.to_string(), &r.path, &r.sha256, "", &r.sha256, r.size);
         }
     }
     for p in mb_csv {
         let v = read_mb_csv(p);
         eprintln!("[tlsh] {} digests from {}", v.len(), p.display());
-        set.extend(v.into_iter().map(|t| t.to_string()));
+        let list = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        for (t, file, sig, sha) in v {
+            add(t.to_string(), &file, if sha.is_empty() { &list } else { &sha }, &sig, &sha, 0);
+        }
     }
     for p in merge {
         let v = load_db(p);
         eprintln!("[tlsh] {} digests merged from {}", v.len(), p.display());
-        set.extend(v.into_iter().map(|r| r.tlsh.to_string()));
+        let list = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        for r in v {
+            let fb = if r.sha256.is_empty() { list.clone() } else { r.sha256.clone() };
+            add(r.tlsh.to_string(), &r.path, &fb, &r.virus, &r.sha256, r.size);
+        }
     }
-    let mut lines: Vec<String> = set.into_iter().collect();
-    lines.sort();
     let mut w = BufWriter::new(File::create(output).expect("cannot create output"));
-    writeln!(w, "# TLSH blacklist for tlsh_signatures/tlsh_blacklist.txt ({} digests)", lines.len()).unwrap();
-    for l in &lines {
-        writeln!(w, "{l}").unwrap();
+    for (t, l) in &map {
+        // Fixed key order (tlsh first) for reading the file by eye.
+        let js = |x: &str| serde_json::to_string(x).unwrap_or_default();
+        let mut o = format!("{{\"tlsh\":{},\"file_name\":{},\"virus\":{}", js(t), js(&l.file), js(&l.virus));
+        if !l.sha256.is_empty() {
+            o.push_str(&format!(",\"sha256\":{}", js(&l.sha256)));
+        }
+        if l.size > 0 {
+            o.push_str(&format!(",\"size\":{}", l.size));
+        }
+        o.push('}');
+        writeln!(w, "{o}").unwrap();
     }
-    eprintln!("[tlsh] wrote {} unique digests to {}", lines.len(), output.display());
+    eprintln!("[tlsh] wrote {} unique digests to {}", map.len(), output.display());
 }
 
 fn cmd_compare(target: &str, dbs: &[PathBuf], max_dist: u32, top: usize) {

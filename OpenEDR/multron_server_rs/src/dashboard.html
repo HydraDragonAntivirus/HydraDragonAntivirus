@@ -1835,7 +1835,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       const d = await (await fetch("/api/reviews/similar/" + sha, { cache: "no-store" })).json();
       if (haCur !== sha || !$("haSimilar")) return;
       const sim = d.similar || [];
-      $("haSimilar").innerHTML = sim.length ? "TLSH neighbours: " + sim.map(x => `<span class="tag ${haTag(x.verdict)}" title="${haEsc(x.sha256 || "")}">d=${x.distance}${x.threat_name ? " " + haEsc(x.threat_name) : ""}</span>`).join(" ") : "No similar files (TLSH).";
+      $("haSimilar").innerHTML = sim.length ? "TLSH neighbours: " + sim.map(x => `<span class="tag ${haTag(x.verdict)}" title="${haEsc(x.sha256 || (x.verdict_source === "tlsh_blacklist" ? "TLSH blacklist " + x.tlsh : ""))}">d=${x.distance}${x.threat_name ? " " + haEsc(x.threat_name) : ""}${x.file_name ? " · " + haEsc(x.file_name) : ""}</span>`).join(" ") : "No similar files (TLSH).";
     } catch (_) { if ($("haSimilar")) $("haSimilar").textContent = ""; }
   };
   window.haFill = (sha, verdict, threat, note, internal) => {

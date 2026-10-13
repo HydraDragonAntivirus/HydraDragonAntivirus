@@ -3,8 +3,16 @@
 //!
 //! * Every analysed file's TLSH goes into `tlsh_index.jsonl` (sha256, tlsh, size) and an
 //!   in-memory list; a linear scan of a million digests takes a few milliseconds.
-//! * Known-malware digests without a hash of their own (e.g. MalwareBazaar's tlsh list)
-//!   can be dropped into `tlsh_signatures/tlsh_blacklist.txt`, one per line.
+//! * Known-malware digests without a hash of their own go into
+//!   `tlsh_signatures/tlsh_blacklist*.jsonl` (or `.txt`), one JSON object per line:
+//!   `{"tlsh":"T1…","file_name":"…","virus":"Category.Platform.Family","sha256":"…","size":N}`
+//!   (`tlsh_builder blacklist` writes this). A file the engine did not detect that is
+//!   within `ANALYST_TLSH_MAX_DIST` of a digest (and, when `size` is known, within
+//!   `ANALYST_TLSH_SIZE_FACTOR` of its size) is flagged malicious with that virus name
+//!   (made `Category.Platform.Family` by `naming::threat_from_name` when it is not).
+//!   Plain lines are read too: `T1…:<file name>:<virus name>`, abuse.ch tlsh_db
+//!   `T1…:<virus name>`; a digest without a virus name (or `n/a`) only shows up in
+//!   "similar files".
 //!
 //! Smart whitelist: an `unknown` PE becomes `clean` only when it is very close
 //! (TLSH distance <= `SMART_WL_MAX_DIST`) to a file an ANALYST marked clean, and
@@ -83,6 +91,79 @@ struct CorpusRef {
     st: Structure,
 }
 
+/// One blacklist digest: the sample's file name and the threat name (None = no virus
+/// name: shown only).
+struct KnownTlsh {
+    tlsh: Tlsh,
+    file: Option<String>,
+    threat: Option<String>,
+    /// Sample size in bytes; 0 = unknown (no size check).
+    size: u64,
+}
+
+/// A match against a TLSH blacklist digest with a virus name.
+#[derive(Debug, Clone)]
+pub struct BlacklistMatch {
+    pub threat: String,
+    pub distance: u32,
+    pub tlsh: String,
+    /// The sample's file name stored with the digest (empty when the list has none).
+    pub file: String,
+}
+
+/// One parsed blacklist line.
+struct BlacklistLine {
+    tlsh: Tlsh,
+    file: Option<String>,
+    virus: Option<String>,
+    size: u64,
+}
+
+/// One blacklist line: a JSON object (`tlsh`, `file_name`, `virus`, `size`), or plain
+/// `T1…:<file name>:<virus name>` / `T1…:<virus name>` / a bare digest. `n/a` or
+/// empty = none.
+fn parse_blacklist_line(l: &str) -> Option<BlacklistLine> {
+    let l = l.trim();
+    if l.is_empty() || l.starts_with('#') {
+        return None;
+    }
+    let field = |x: &str| {
+        let n: String = x.trim().chars().filter(|c| !c.is_control()).take(260).collect();
+        (!n.is_empty() && !n.eq_ignore_ascii_case("n/a")).then_some(n)
+    };
+    let digest = |head: &str| {
+        let head = head.trim();
+        let t = if head.len() == 70 { format!("T1{head}") } else { head.to_string() };
+        t.to_ascii_uppercase().parse::<Tlsh>().ok()
+    };
+    if l.starts_with('{') {
+        let v: Value = serde_json::from_str(l).ok()?;
+        let s = |k: &str| v.get(k).and_then(|x| x.as_str()).and_then(field);
+        return Some(BlacklistLine {
+            tlsh: digest(v.get("tlsh")?.as_str()?)?,
+            file: s("file_name"),
+            virus: s("virus"),
+            size: v.get("size").and_then(|x| x.as_u64()).unwrap_or(0),
+        });
+    }
+    let cut = l.find([':', '\t', ',', ' ']).unwrap_or(l.len());
+    let (head, rest) = l.split_at(cut);
+    let tlsh = digest(head)?;
+    // Only ':' (or TAB) separates fields; old lists with other comma columns have none.
+    let sep = match rest.chars().next() {
+        Some(c @ (':' | '\t')) => c,
+        _ => return Some(BlacklistLine { tlsh, file: None, virus: None, size: 0 }),
+    };
+    let rest = &rest[1..];
+    let (file, virus) = match rest.split_once(sep) {
+        // file name : virus name (a file name has no ':'; the virus name may)
+        Some((file, virus)) => (field(file), field(virus)),
+        // abuse.ch tlsh_db: the one name is the family
+        None => (None, field(rest)),
+    };
+    Some(BlacklistLine { tlsh, file, virus, size: 0 })
+}
+
 #[derive(Default)]
 pub struct SimilarityIndex {
     /// Verified benign corpus (`tlsh_signatures/tlsh_whitelist_refs.jsonl`).
@@ -91,7 +172,7 @@ pub struct SimilarityIndex {
     corpus_shas: RwLock<HashSet<String>>,
     files: RwLock<Vec<Entry>>,
     seen: RwLock<HashSet<String>>,
-    known_malware: RwLock<Vec<Tlsh>>,
+    known_malware: RwLock<Vec<KnownTlsh>>,
     analyst_sigs: RwLock<Vec<AnalystSig>>,
     writer: Mutex<Option<std::fs::File>>,
 }
@@ -107,6 +188,9 @@ pub struct SimilarFile {
     pub verdict: String,
     pub verdict_source: String,
     pub threat_name: Option<String>,
+    /// TLSH blacklist entries: the sample's file name stored with the digest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_name: Option<String>,
 }
 
 /// Generated TLSH data (`tlsh_builder` output), next to the other rule folders and
@@ -278,22 +362,77 @@ impl SimilarityIndex {
         n
     }
 
-    /// (Re)reads `tlsh_signatures/tlsh_blacklist.txt` (one digest per line; extra
-    /// comma/tab-separated columns are ignored).
+    /// (Re)reads every `tlsh_signatures/tlsh_blacklist*.txt` (see the module docs).
     pub fn reload_known_malware(&self) -> usize {
-        let path = tlsh_file("tlsh_blacklist.txt");
-        let list: Vec<Tlsh> = std::fs::read_to_string(path)
-            .unwrap_or_default()
-            .lines()
-            .filter_map(|l| {
-                let t = l.split([',', '\t', ' ', ':']).find(|p| p.trim().len() >= 70)?.trim();
-                let t = if t.len() == 70 { format!("T1{t}") } else { t.to_string() };
-                t.to_ascii_uppercase().parse::<Tlsh>().ok()
-            })
-            .collect();
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        for name in ["tlsh_blacklist.jsonl", "tlsh_blacklist.txt"] {
+            let p = tlsh_file(name);
+            if p.exists() {
+                files.push(p);
+            }
+        }
+        if let Ok(rd) = std::fs::read_dir(tlsh_dir()) {
+            let mut more: Vec<_> = rd
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    let n = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                    n.starts_with("tlsh_blacklist")
+                        && (n.ends_with(".txt") || n.ends_with(".jsonl"))
+                        && n != "tlsh_blacklist.txt"
+                        && n != "tlsh_blacklist.jsonl"
+                })
+                .collect();
+            more.sort();
+            files.extend(more);
+        }
+        let mut threats: HashMap<String, Option<String>> = HashMap::new(); // virus name -> threat
+        let mut list: Vec<KnownTlsh> = Vec::new();
+        for path in files {
+            let before = list.len();
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            for b in text.lines().filter_map(parse_blacklist_line) {
+                let threat = b.virus.as_ref().and_then(|v| threats.entry(v.clone()).or_insert_with(|| Some(crate::naming::threat_from_name(v))).clone());
+                list.push(KnownTlsh { tlsh: b.tlsh, file: b.file, threat, size: b.size });
+            }
+            let named = list[before..].iter().filter(|k| k.threat.is_some()).count();
+            eprintln!(
+                "[similarity] {}: {} digests, {named} with a virus name (flag matches)",
+                path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                list.len() - before
+            );
+        }
         let n = list.len();
         *self.known_malware.write().unwrap() = list;
         n
+    }
+
+    /// Closest blacklist digest with a virus name within `ANALYST_TLSH_MAX_DIST` and,
+    /// when its size is known, `ANALYST_TLSH_SIZE_FACTOR` (trailing 00 padding
+    /// stripped, as for analyst TLSH signatures).
+    pub fn blacklist_match(&self, data: &[u8]) -> Option<BlacklistMatch> {
+        let list = self.known_malware.read().unwrap();
+        if !list.iter().any(|k| k.threat.is_some()) {
+            return None;
+        }
+        let body = trim_trailing_padding(data);
+        let q = crate::analyzer::tlsh_digest(body)?.parse::<Tlsh>().ok()?;
+        let len = body.len() as f64;
+        list.iter()
+            .filter(|k| k.threat.is_some())
+            .filter(|k| k.size == 0 || {
+                let sz = k.size as f64;
+                len.max(sz) <= len.min(sz) * ANALYST_TLSH_SIZE_FACTOR
+            })
+            .map(|k| (k, q.compare(&k.tlsh)))
+            .filter(|(_, d)| *d <= ANALYST_TLSH_MAX_DIST)
+            .min_by_key(|(_, d)| *d)
+            .map(|(k, d)| BlacklistMatch {
+                threat: k.threat.clone().unwrap_or_default(),
+                distance: d,
+                tlsh: k.tlsh.to_string(),
+                file: k.file.clone().unwrap_or_default(),
+            })
     }
 
     /// The file itself (same SHA-256) is in the verified benign corpus.
@@ -340,20 +479,22 @@ impl SimilarityIndex {
                     verdict: String::new(),
                     verdict_source: String::new(),
                     threat_name: None,
+                    file_name: None,
                 })
             })
             .collect();
         for k in self.known_malware.read().unwrap().iter() {
-            let d = q.compare(k);
+            let d = q.compare(&k.tlsh);
             if d <= max_dist {
                 out.push(SimilarFile {
                     sha256: String::new(),
                     distance: d,
-                    tlsh: k.to_string(),
+                    tlsh: k.tlsh.to_string(),
                     size: 0,
                     verdict: "malicious".into(),
                     verdict_source: "tlsh_blacklist".into(),
-                    threat_name: None,
+                    threat_name: k.threat.clone(),
+                    file_name: k.file.clone(),
                 });
             }
         }
@@ -439,5 +580,27 @@ pub fn fill_verdicts(list: &mut [SimilarFile], lookup: VerdictLookup<'_>) {
         s.verdict = v.0;
         s.verdict_source = v.1;
         s.threat_name = v.2;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blacklist_lines() {
+        let t = "T1AAB36A0A33D420FDD0575274CDB69A15D3B2BC2A4274934F27A47B6A1F733926D2E722";
+        assert_eq!(t.len(), 72);
+        let b = parse_blacklist_line(&format!("{{\"tlsh\":\"{t}\",\"file_name\":\"fatura: ocak.exe\",\"virus\":\"Spyware.Win32.AgentTesla\",\"size\":1234}}")).unwrap();
+        assert_eq!((b.file.as_deref(), b.virus.as_deref(), b.size), (Some("fatura: ocak.exe"), Some("Spyware.Win32.AgentTesla"), 1234));
+        let b = parse_blacklist_line(&format!("{t}:fatura ocak.exe:Spyware.Win32.AgentTesla\r")).unwrap();
+        assert_eq!((b.file.as_deref(), b.virus.as_deref()), (Some("fatura ocak.exe"), Some("Spyware.Win32.AgentTesla")));
+        let b = parse_blacklist_line(&format!("{t}:AgentTesla")).unwrap();
+        assert_eq!((b.file, b.virus.as_deref()), (None, Some("AgentTesla")));
+        assert_eq!(parse_blacklist_line(&format!("{t}:n/a")).unwrap().virus, None);
+        assert_eq!(parse_blacklist_line(t).unwrap().virus, None);
+        assert!(parse_blacklist_line(&format!("# {t}")).is_none());
+        assert!(parse_blacklist_line("not a digest:x.exe:Trojan.Win32.X").is_none());
+        assert!(parse_blacklist_line("{\"tlsh\":\"bad\",\"virus\":\"X\"}").is_none());
     }
 }

@@ -1076,7 +1076,13 @@ fn verdict_rank(v: &str) -> u8 {
 /// ECS fields the clients read (`antivirus`, `rule`, `threat`, `event.kind`) in sync.
 pub fn apply_analyst_hit(res: &mut ResultMessage, hit: &crate::analyst_engine::AnalystHit) {
     // Listed even when it does not raise the verdict: it matched.
-    let d = crate::threat_intel::DetectionRef { layer: format!("Analyst {}", hit.engine), name: hit.name.clone() };
+    let layer = match hit.engine {
+        "tlsh_blacklist" => "TLSH blacklist".to_string(),
+        "analyst_tlsh" => "Analyst TLSH".to_string(),
+        "company_blocklist" => "Analyst company block-list".to_string(),
+        e => format!("Analyst {e}"),
+    };
+    let d = crate::threat_intel::DetectionRef { layer, name: hit.name.clone() };
     if !res.detections.contains(&d) {
         res.detections.insert(0, d);
     }

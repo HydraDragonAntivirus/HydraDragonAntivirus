@@ -1384,6 +1384,7 @@ async fn handle_scan(
                 let mut report = None;
                 let r = engine.scan_blocking_with(&data, &job_name, &job_sha, |res| {
                     apply_analyst_tlsh(&ti, &data, res);
+                    apply_tlsh_blacklist(&ti, &data, res);
                     report = apply_smart_whitelist(&ti, &data, &job_name, res);
                 });
                 let _ = rtx.send(r);
@@ -1675,6 +1676,40 @@ pub fn apply_analyst_tlsh(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8
         "Analyst TLSH signature: distance {d} to {} (marked malicious by {})",
         sig.sha256,
         if sig.analyst.is_empty() { "an analyst" } else { sig.analyst.as_str() }
+    );
+    res.detail = Some(detail.clone());
+    if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {
+        o.insert("detail".into(), serde_json::json!(detail));
+    }
+}
+
+/// TLSH blacklist digests with a virus name (`tlsh_signatures/tlsh_blacklist*.txt`,
+/// `T1…:<file name>:<virus name>`,
+/// see `similarity`): same limits as analyst TLSH signatures — only raises unknown /
+/// possible_clean / suspicious results, never an engine-clean file or one an analyst
+/// marked clean.
+pub fn apply_tlsh_blacklist(ti: &crate::threat_intel::ThreatIntelStore, data: &[u8], res: &mut ResultMessage) {
+    if !matches!(res.verdict.as_str(), "unknown" | "possible_clean" | "suspicious") {
+        return;
+    }
+    if ti.reviews.completed(&res.sha256).and_then(|r| r.verdict).as_deref() == Some("clean") {
+        return;
+    }
+    let Some(m) = ti.similarity.blacklist_match(data) else { return };
+    let before = res.verdict.clone();
+    crate::engine_adapter::apply_analyst_hit(
+        res,
+        &crate::analyst_engine::AnalystHit { engine: "tlsh_blacklist", name: m.threat.clone(), verdict: "malicious" },
+    );
+    if res.verdict == before {
+        return;
+    }
+    let detail = format!(
+        "TLSH blacklist: {} — distance {} to {}{}",
+        m.threat,
+        m.distance,
+        m.tlsh,
+        if m.file.is_empty() { String::new() } else { format!(" ({})", m.file) }
     );
     res.detail = Some(detail.clone());
     if let Some(o) = res.antivirus.as_mut().and_then(|a| a.as_object_mut()) {

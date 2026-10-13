@@ -139,6 +139,7 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
     let mut report = None;
     let res = server.engine.scan_blocking_opts(&data, &kept.name, &sha_up, false, |res| {
         crate::scan_server::apply_analyst_tlsh(&ti, &data, res);
+        crate::scan_server::apply_tlsh_blacklist(&ti, &data, res);
         report = crate::scan_server::apply_smart_whitelist(&ti, &data, &kept.name, res);
     })?;
 

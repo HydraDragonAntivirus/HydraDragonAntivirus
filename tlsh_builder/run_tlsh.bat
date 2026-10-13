@@ -4,7 +4,7 @@ chcp 65001 >nul
 rem ==== TLSH smart-whitelist training (tlsh_builder): PE + APK ====
 rem Stop any time with Ctrl+C; run again and it continues where it left off (--resume).
 rem Optional: limit CPU cores, e.g.  run_tlsh.bat 4
-rem The old 2024 hash\tlsh_db is NOT used unless you run:  set USE_TLSH_DB=1 ^& run_tlsh.bat
+rem The abuse.ch hash\tlsh_db is never merged into the blacklist.
 
 set "REPO=C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAntivirus"
 set "DATA=C:\Users\semae\OneDrive\Belgeler\usbdosyalar"
@@ -42,17 +42,10 @@ echo [7/9] APK references (DEX TLSH + signer + manifest)...
 "%TB%" %J% --resume refs "%W%\apk_mal.lst" -o "%W%\apk_malware_refs.jsonl" || goto :fail
 
 :blacklist
-echo [8/9] Blacklist (similar-files display only)...
-set "MERGE_DB="
-if "%USE_TLSH_DB%"=="1" (
-  if not exist "%W%\tlsh_db" "C:\Program Files\7-Zip\7z.exe" e "hash\tlsh_db.xz" -o"%W%" -y >nul
-  if exist "%W%\tlsh_db" set "MERGE_DB=--merge %W%\tlsh_db"
-) else (
-  echo   tlsh_db skipped.
-)
+echo [8/9] Blacklist (TLSH:file name; named digests flag matches)...
 set "MERGE_APK="
 if exist "%W%\apk_malware_refs.jsonl" set "MERGE_APK=--merge %W%\apk_malware_refs.jsonl"
-"%TB%" blacklist --merge "%W%\malware_refs.jsonl" --merge "%W%\js_malware.jsonl" %MERGE_APK% %MERGE_DB% -o "%W%\tlsh_blacklist.txt" || goto :fail
+"%TB%" blacklist --merge "%W%\malware_refs.jsonl" --merge "%W%\js_malware.jsonl" %MERGE_APK% -o "%W%\tlsh_blacklist.jsonl" || goto :fail
 
 echo [9/9] Tune (full rule: distance + injection guard, PE and APK)...
 set "CLEAN_APK="
@@ -76,7 +69,7 @@ if exist "%W%\apk_benign_refs.jsonl" (
 ) else (
   copy /y "%W%\benign_refs.jsonl" "%AS%\tlsh_whitelist_refs.jsonl" >nul || goto :fail
 )
-copy /y "%W%\tlsh_blacklist.txt" "%AS%\tlsh_blacklist.txt" >nul || goto :fail
+copy /y "%W%\tlsh_blacklist.jsonl" "%AS%\tlsh_blacklist.jsonl" >nul || goto :fail
 echo.
 echo INSTALLED to %AS%
 echo Rebuild multron_server (new fingerprint/apk code), then press "Reload engines" on the dashboard.
