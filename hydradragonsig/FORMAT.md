@@ -155,6 +155,7 @@ require the whole function name, or `kernel32.dll!VirtualAlloc` to pin the DLL.
 | `hash_sha256` / `hash_md5` | `value` | The file hash equals `value` (case-insensitive). |
 | `path_regex` | `pattern` | The regex matches the scanned path (as given; memory scans use `memory://<id>`, archive members `archive://<parent>!<member>`). |
 | `feature_gte` | `name`, `value` | A numeric feature is ≥ `value` (section 9). |
+| `feature_lte` | `name`, `value` | A numeric feature is ≤ `value` (section 9), e.g. `pe_import_count` ≤ 10 for a thin stub. |
 
 ### 5.4 Bytes
 
@@ -218,7 +219,54 @@ rules:
         ids: [HELPER-INJECT]
 ```
 
-### 5.6 Icons and images
+### 5.6 Parent comparison (unpacked dumps, extracted payloads)
+
+A scan can carry a summary of the file the buffer came from: the packed
+original of a Unicorn dump, the dropper of an extracted payload, the archive of
+a zip member. The conditions below compare the scanned file with it. Without a
+parent they never match, so ordinary scans are unaffected.
+
+Where the parent comes from:
+
+- library: `ScanOptions { parent: Some(ParentInfo::from_bytes(name, &bytes)), .. }`
+  (or `ParentInfo::from_report(&report)` when the parent was scanned already);
+- HydraDragonAV: the disinfector passes the packed original to the scan of the
+  Unicorn dump, and the dump to the scan of every file extracted from it
+  (`Pipeline::scan_bytes_with_parent`);
+- CLI: `hydradragonsig --rules r.yaml --parent packed.exe dump.exe`;
+- zip members get their archive as parent automatically.
+
+| Type | Keys | Matches when |
+|---|---|---|
+| `has_parent` | | The scan has a parent. |
+| `parent_feature_gte` / `parent_feature_lte` | `name`, `value` | A parent feature is ≥ / ≤ `value`. Parent features: `file_entropy_bits_per_byte`, `pe_import_count`, `pe_export_count`, `pe_section_count`, `pe_suspicious_import_count` (PE ones only when the parent is a PE). |
+| `feature_delta_gte` | `name`, `value` | This file's feature minus the parent's is ≥ `value`, e.g. `pe_suspicious_import_count` grew by 5 after unpacking. Both sides must have the feature. |
+| `new_import_set` | `names`, `min` (default **1**) | At least `min` names match an import of this file that the parent does **not** import (same suffix matching as `import_set`). PE condition. |
+
+Example: a packed shell with a handful of imports whose dump imports
+process-hollowing APIs.
+
+```yaml
+- id: CRYPTER-BY-DIFF
+  title: "Unpacked payload reveals hidden injection"
+  severity: high
+  verdict: malware
+  family: "Trojan.Win32.Crypter.B"
+  logic: all
+  conditions:
+    - type: has_parent
+    - type: parent_feature_lte
+      name: pe_import_count
+      value: 30
+    - type: new_import_set
+      min: 3
+      names: ["!VirtualAllocEx", "!WriteProcessMemory", "!SetThreadContext", "!NtUnmapViewOfSection"]
+```
+
+A clean packed program (a UPX-packed tool) also gains imports when unpacked:
+combine the diff with a malicious capability before giving `verdict: malware`.
+
+### 5.7 Icons and images
 
 | Type | Keys | Matches when |
 |---|---|---|
@@ -297,7 +345,8 @@ signature room uses it). Problems reported:
 - invalid regexes, byte patterns and native expressions; atom ids that do not exist;
 - conditions that can never match (empty lists, `min` larger than the list,
   `threshold` larger than the condition count, all encodings off, no conditions);
-- unknown `file_type` values and `feature_gte` names, malformed hashes and icon
+- unknown `file_type` values, `feature_gte` / `feature_lte` / `feature_delta_gte`
+  and `parent_feature_*` names, malformed hashes and icon
   fingerprints;
 - duplicate rule ids; `rule_match` ids not defined earlier.
 
@@ -318,7 +367,7 @@ is written `''`.
 `broken_*`: the file starts with the format's magic but its header does not
 parse (for example `MZ` without a valid PE header).
 
-## 9. Features (`feature_gte`)
+## 9. Features (`feature_gte`, `feature_lte`, `feature_delta_gte`)
 
 `string_count`, `decoded_string_count`, `env_hit_count`,
 `file_entropy_bits_per_byte`, `pe_import_count`, `pe_export_count`,

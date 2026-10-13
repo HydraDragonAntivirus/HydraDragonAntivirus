@@ -52,6 +52,12 @@ pub const CONDITION_KEYS: &[(&str, &[&str])] = &[
     ("hash_sha256", &["value"]),
     ("hash_md5", &["value"]),
     ("feature_gte", &["name", "value"]),
+    ("feature_lte", &["name", "value"]),
+    ("has_parent", &[]),
+    ("parent_feature_gte", &["name", "value"]),
+    ("parent_feature_lte", &["name", "value"]),
+    ("feature_delta_gte", &["name", "value"]),
+    ("new_import_set", &["names", "min"]),
     ("byte_pattern", &["pattern", "scope", "excludes"]),
     ("byte_set", &["patterns", "min", "scope", "excludes"]),
     ("rule_match", &["ids", "min"]),
@@ -74,6 +80,15 @@ pub const FEATURES: &[&str] = &[
     "string_count",
     "decoded_string_count",
     "env_hit_count",
+    "file_entropy_bits_per_byte",
+    "pe_import_count",
+    "pe_export_count",
+    "pe_section_count",
+    "pe_suspicious_import_count",
+];
+
+/// Features a parent summary always carries (`ParentInfo::from_bytes`).
+pub const PARENT_FEATURES: &[&str] = &[
     "file_entropy_bits_per_byte",
     "pe_import_count",
     "pe_export_count",
@@ -289,6 +304,19 @@ fn check_condition(cond: &RuleCondition, rules: &[Rule], own_id: &str, known_ids
         }
         RuleCondition::HashSha256 { value } if !hex_len(value.trim(), 64) => out.push("sha256 must be 64 hex characters".into()),
         RuleCondition::HashMd5 { value } if !hex_len(value.trim(), 32) => out.push("md5 must be 32 hex characters".into()),
+        RuleCondition::FeatureGte { name, .. }
+        | RuleCondition::FeatureLte { name, .. }
+        | RuleCondition::FeatureDeltaGte { name, .. }
+            if !FEATURES.contains(&name.as_str()) =>
+        {
+            out.push(format!("unknown feature `{name}` (known: {})", FEATURES.join(", ")));
+        }
+        RuleCondition::ParentFeatureGte { name, .. } | RuleCondition::ParentFeatureLte { name, .. }
+            if !PARENT_FEATURES.contains(&name.as_str()) =>
+        {
+            out.push(format!("unknown parent feature `{name}` (known: {})", PARENT_FEATURES.join(", ")));
+        }
+        RuleCondition::NewImportSet { names, min } => list_problems("names", names, *min, &mut out),
         RuleCondition::FeatureGte { name, .. } if !FEATURES.contains(&name.as_str()) => {
             out.push(format!("unknown feature `{name}` (known: {})", FEATURES.join(", ")));
         }
@@ -382,12 +410,14 @@ mod tests {
             "native_signature" => "        atoms: []\n        expression: x\n",
             "suspicious_import_count" | "file_entropy" | "section_entropy" => "        min: 1\n",
             "file_size_gte" | "file_size_lte" => "        bytes: 1\n",
-            "feature_gte" => "        name: x\n        value: 1\n",
+            "feature_gte" | "feature_lte" | "parent_feature_gte" | "parent_feature_lte" | "feature_delta_gte" => {
+                "        name: x\n        value: 1\n"
+            }
             "byte_set" => "        patterns: [x]\n",
             "rule_match" => "        ids: [x]\n",
             "unpacker_any" => "        signatures: []\n",
             "image_fuzzy_hash_any" => "        hashes: []\n",
-            "packed_pe" | "env_reference" | "pe_icon_any" => "",
+            "packed_pe" | "env_reference" | "pe_icon_any" | "has_parent" => "",
             _ => "        names: [x]\n",
         }
     }

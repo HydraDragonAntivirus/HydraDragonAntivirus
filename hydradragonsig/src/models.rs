@@ -484,6 +484,71 @@ pub struct MemoryScanContext {
     pub base_address: Option<u64>,
 }
 
+/// Summary of the file a scanned buffer came from: the packed original of an
+/// unpacked dump, the archive of an extracted member, the dropper of an
+/// extracted payload. Rules compare the child against it with `has_parent`,
+/// `parent_feature_gte` / `parent_feature_lte`, `feature_delta_gte` and
+/// `new_import_set`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ParentInfo {
+    /// Path or label of the parent (output only).
+    pub identifier: String,
+    pub file_size: u64,
+    pub is_pe: bool,
+    /// Parent imports as `dll!function`, lowercased.
+    pub imports: Vec<String>,
+    /// Numeric features of the parent, same names as `feature_gte`.
+    pub features: BTreeMap<String, f64>,
+}
+
+impl ParentInfo {
+    /// Build the summary straight from the parent's bytes (PE parse + entropy only:
+    /// cheap enough to call before scanning every unpacked dump).
+    pub fn from_bytes(identifier: impl Into<String>, bytes: &[u8]) -> Self {
+        let mut info = ParentInfo {
+            identifier: identifier.into(),
+            file_size: bytes.len() as u64,
+            ..Default::default()
+        };
+        info.features.insert(
+            "file_entropy_bits_per_byte".into(),
+            crate::utils::entropy::byte_entropy(bytes),
+        );
+        if let Some(pe) = crate::scanner::pe::scan_pe(bytes) {
+            info.is_pe = true;
+            info.set_pe(&pe);
+        }
+        info
+    }
+
+    /// Build the summary from a finished report of the parent.
+    pub fn from_report(report: &ScanReport) -> Self {
+        let mut info = ParentInfo {
+            identifier: report.path.display().to_string(),
+            file_size: report.file_size,
+            is_pe: report.pe.is_some(),
+            ..Default::default()
+        };
+        for (name, value) in &report.features {
+            if let Some(v) = value.as_f64() {
+                info.features.insert(name.clone(), v);
+            }
+        }
+        if let Some(pe) = &report.pe {
+            info.set_pe(pe);
+        }
+        info
+    }
+
+    fn set_pe(&mut self, pe: &PeInfo) {
+        self.imports = pe.imports.iter().map(|i| i.to_ascii_lowercase()).collect();
+        self.features.insert("pe_import_count".into(), pe.imports.len() as f64);
+        self.features.insert("pe_export_count".into(), pe.exports.len() as f64);
+        self.features.insert("pe_section_count".into(), pe.sections.len() as f64);
+        self.features.insert("pe_suspicious_import_count".into(), pe.suspicious_imports.len() as f64);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanReport {
     pub path: PathBuf,
@@ -524,6 +589,10 @@ pub struct ScanReport {
     /// MITRE ATT&CK techniques mapped from static analysis findings
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre_techniques: Vec<MitreTechnique>,
+
+    /// The file this buffer came from (unpacked dump, extracted member), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ParentInfo>,
 }
 
 impl Default for ScanReport {
@@ -553,6 +622,7 @@ impl Default for ScanReport {
             archive_members: Vec::new(),
             threat_name: None,
             mitre_techniques: Vec::new(),
+            parent: None,
         }
     }
 }

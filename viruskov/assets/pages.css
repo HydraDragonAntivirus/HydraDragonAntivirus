@@ -98,3 +98,68 @@
 .p-keyrow { display: flex; gap: 6px; }
 .p-keyrow input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--bg-terminal); color: var(--text-main); font-family: var(--font-mono); font-size: 0.74rem; }
 .p-note { font-size: 0.76rem; color: var(--text-dim); }
+
+/* =========================================================
+   v5 refinements — shared by file/ and feed.html
+   ========================================================= */
+.p-main { padding: 72px 0 112px; }
+
+/* search row, same look as the scanner field */
+.p-search {
+  padding: 6px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-terminal);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.p-search:focus-within { border-color: #4a525c; box-shadow: 0 0 0 4px rgba(255,255,255,0.03); }
+.p-search input { border: 0 !important; background: transparent !important; height: 42px; font-size: 0.86rem; }
+.p-search .vk-btn { height: 42px; padding: 0 18px; }
+@media (max-width: 560px) { .p-search { flex-wrap: wrap; } .p-search input { flex-basis: 100%; } .p-search .vk-btn { flex: 1; justify-content: center; } }
+
+/* file page intro (only while no hash is open) */
+.f-intro { margin-bottom: 36px; }
+.f-intro .vk-eyebrow { margin-bottom: 20px; }
+.f-intro .vk-h2 { margin-bottom: 18px; }
+.f-intro .vk-lead { max-width: 62ch; }
+.f-cards {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 8px;
+  border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--bg-surface); overflow: hidden;
+}
+.f-card { padding: 26px 26px 28px; min-width: 0; }
+.f-card + .f-card { border-left: 1px solid var(--border-subtle); }
+.f-card-n { display: block; font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-red); margin-bottom: 18px; }
+.f-card .vk-h3 { margin-bottom: 8px; }
+.f-card .vk-body { font-size: 0.9rem; }
+.f-links { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin: 28px 0 0; }
+body.p-has-sha .f-intro, body.p-has-sha .f-cards, body.p-has-sha .f-links { display: none; }
+@media (max-width: 860px) {
+  .f-cards { grid-template-columns: 1fr; }
+  .f-card + .f-card { border-left: 0; border-top: 1px solid var(--border-subtle); }
+}
+
+/* feed: head on top, controls as a toolbar */
+.p-head { grid-template-columns: minmax(0, 1fr); gap: 28px; margin-bottom: 20px; }
+.p-head .vk-h2 { margin: 20px 0 18px; }
+.p-head .vk-lead { max-width: 64ch; }
+.p-controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0;
+  padding: 10px; border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--bg-surface);
+}
+.p-controls input[type="date"] { flex: 0 0 auto; width: 170px; height: 38px; border-radius: 9px; }
+.p-controls .p-select { flex: 0 1 220px; height: 38px; border-radius: 9px; padding: 0 10px; cursor: pointer; }
+.p-controls .p-check { padding: 0 6px; }
+.p-controls .p-dl { margin-left: auto; align-items: center; }
+.p-controls .p-dl::before {
+  content: ""; width: 16px; height: 16px; margin-right: 4px; opacity: .55;
+  background: currentColor; color: var(--text-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6'%3E%3Cpath d='M10 3v9m-4-4 4 4 4-4M4 14v2h12v-2'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6'%3E%3Cpath d='M10 3v9m-4-4 4 4 4-4M4 14v2h12v-2'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.p-dl a { border-radius: 7px; padding: 6px 10px; }
+@media (max-width: 760px) {
+  .p-controls input[type="date"], .p-controls .p-select { flex: 1 1 140px; width: auto; }
+  .p-controls .p-dl { margin-left: 0; width: 100%; }
+}
+.p-table tbody tr:hover td { background: rgba(255,255,255,0.015); }
+.p-controls input[type="date"] { order: 1; }
+.p-controls .p-select { order: 2; }
+.p-controls .p-check { order: 3; }
+.p-controls .p-dl { order: 4; }

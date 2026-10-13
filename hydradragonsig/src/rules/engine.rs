@@ -1544,7 +1544,10 @@ fn evaluate_rule_with_matches(
                 }
             }
             RuleCondition::EnvReference { .. } => view.ensure_env(report, bytes),
-            RuleCondition::FeatureGte { .. } => view.ensure_features(report, bytes),
+            RuleCondition::FeatureGte { .. }
+            | RuleCondition::FeatureLte { .. }
+            | RuleCondition::FeatureDeltaGte { .. } => view.ensure_features(report, bytes),
+            RuleCondition::NewImportSet { .. } => view.ensure_pe(report, bytes),
             RuleCondition::RuleMatch { ids, min } => {
                 let needed = set_needed(*min, ids.len());
                 let found: Vec<&str> = ids
@@ -1965,6 +1968,47 @@ fn evaluate_condition(
         RuleCondition::FeatureGte { name, value } => {
             let current = report.features.get(name)?.as_f64()?;
             (current >= *value).then(|| format!("feature {}={} >= {}", name, current, value))
+        }
+        RuleCondition::FeatureLte { name, value } => {
+            let current = report.features.get(name)?.as_f64()?;
+            (current <= *value).then(|| format!("feature {}={} <= {}", name, current, value))
+        }
+        RuleCondition::HasParent => {
+            let parent = report.parent.as_ref()?;
+            Some(format!("scanned as child of `{}`", parent.identifier))
+        }
+        RuleCondition::ParentFeatureGte { name, value } => {
+            let current = *report.parent.as_ref()?.features.get(name)?;
+            (current >= *value).then(|| format!("parent feature {}={} >= {}", name, current, value))
+        }
+        RuleCondition::ParentFeatureLte { name, value } => {
+            let current = *report.parent.as_ref()?.features.get(name)?;
+            (current <= *value).then(|| format!("parent feature {}={} <= {}", name, current, value))
+        }
+        RuleCondition::FeatureDeltaGte { name, value } => {
+            let parent = *report.parent.as_ref()?.features.get(name)?;
+            let current = report.features.get(name)?.as_f64()?;
+            let delta = current - parent;
+            (delta >= *value).then(|| {
+                format!("feature {} grew {} -> {} (+{}) >= +{}", name, parent, current, delta, value)
+            })
+        }
+        RuleCondition::NewImportSet { names, min } => {
+            let parent = report.parent.as_ref()?;
+            let pe = report.pe.as_ref()?;
+            let needed = min.unwrap_or(1).max(1);
+            let mut found = Vec::new();
+            for name in names {
+                let needle = name.to_ascii_lowercase();
+                let in_child = view.imports_lower.iter().position(|imp| imp.ends_with(&needle));
+                let in_parent = parent.imports.iter().any(|imp| imp.ends_with(&needle));
+                if let (Some(idx), false) = (in_child, in_parent) {
+                    found.push(pe.imports[idx].clone());
+                }
+            }
+            (found.len() >= needed).then(|| {
+                format!("new_import_set {}/{} not in parent: {}", found.len(), needed, found.join(", "))
+            })
         }
         RuleCondition::BytePattern {
             pattern,

@@ -1,0 +1,251 @@
+/* =========================================================
+   VIRUSKOV — Documentation pages
+   wiki/index.html, wiki/hydradragonsig.html, eula.html
+   Re-skins legacy article markup onto the vk.css system.
+   ========================================================= */
+
+/* ---------- Reading progress ---------- */
+.dc-progress {
+  position: fixed; top: 0; left: 0; height: 2px; width: 100%; z-index: 1001; pointer-events: none;
+  transform-origin: 0 50%; transform: scaleX(var(--p, 0));
+  background: linear-gradient(90deg, var(--accent-red), #ff6b78);
+}
+
+/* ---------- Layout ---------- */
+body.vk-legacy .wiki-layout { grid-template-columns: 248px minmax(0, 1fr) !important; gap: 64px !important; padding-top: 56px !important; padding-bottom: 112px !important; }
+@media (max-width: 1060px) { body.vk-legacy .wiki-layout { grid-template-columns: 1fr !important; gap: 28px !important; padding-top: 40px !important; } }
+body.vk-legacy main { padding-top: 0; }
+article { max-width: 820px; }
+
+/* ---------- Table of contents ---------- */
+.toc {
+  position: sticky; top: 92px !important; overflow-y: auto; background: transparent !important; border: 0 !important; border-radius: 0;
+  padding: 0 !important; max-height: calc(100vh - 120px) !important; font-family: var(--font-body) !important; font-size: 0.84rem !important;
+  scrollbar-width: thin;
+}
+.toc-title {
+  font-family: var(--font-mono); font-size: 0.66rem !important; font-weight: 500 !important; letter-spacing: .14em !important;
+  color: var(--text-dim) !important; margin-bottom: 14px !important;
+}
+.toc a {
+  padding: 6px 0 6px 14px !important; border-left: 1px solid var(--border-subtle) !important; color: var(--text-muted) !important;
+  line-height: 1.4 !important; font-size: 0.84rem;
+}
+.toc a:hover { color: var(--text-main) !important; border-left-color: var(--text-dim) !important; }
+.toc a.sub { padding-left: 26px !important; font-size: 0.78rem !important; color: var(--text-dim) !important; }
+.toc a.is-active { color: var(--text-main) !important; border-left: 1px solid var(--accent-red) !important; box-shadow: inset 1px 0 0 var(--accent-red); }
+.toc-sep { margin: 16px 0 !important; }
+@media (max-width: 1060px) {
+  .toc { border: 1px solid var(--border-subtle) !important; border-radius: 14px; padding: 18px 18px 12px !important; background: var(--bg-surface) !important; }
+  .toc a.sub { display: none !important; }
+}
+
+/* ---------- Wiki hub (page switcher) ---------- */
+.wiki-hub { font-family: var(--font-body) !important; font-size: 0.82rem !important; letter-spacing: 0 !important; margin-bottom: 36px !important;
+  padding: 4px; border: 1px solid var(--border-subtle); border-radius: 12px; display: inline-flex !important; gap: 4px !important; }
+.wiki-hub span { display: none; }
+.wiki-hub-link { border: 0 !important; border-radius: 8px !important; padding: 8px 12px !important; }
+.wiki-hub-link.on { background: rgba(255,255,255,0.07) !important; }
+.wiki-hub-link:hover { background: rgba(255,255,255,0.03); }
+
+/* ---------- Article head ---------- */
+.crumb { font-size: 0.68rem !important; letter-spacing: .12em !important; color: var(--text-dim) !important; margin-bottom: 18px !important; }
+.article-title {
+  font-family: var(--font-display) !important; font-weight: 600 !important; text-transform: none !important;
+  font-size: clamp(2.1rem, 4.4vw, 3.4rem) !important; line-height: 1.04 !important; letter-spacing: -0.04em !important;
+  margin-bottom: 20px !important; overflow-wrap: anywhere;
+}
+.article-sub { font-size: 0.76rem !important; line-height: 1.9 !important; color: var(--text-muted) !important; margin-bottom: 28px !important; }
+.article-sub code { color: var(--text-main); }
+.article-rule { height: 1px !important; width: 100% !important; background: var(--border-subtle) !important; margin-bottom: 36px !important; }
+.hero-lead {
+  font-size: 1.12rem !important; line-height: 1.75 !important; color: var(--text-muted) !important;
+  background: transparent !important; border: 0 !important; padding: 0 !important; margin-bottom: 40px !important;
+}
+.hero-lead strong { color: var(--text-main) !important; font-weight: 600; }
+
+/* ---------- Headings & body copy ---------- */
+h2.wiki-h2 {
+  font-family: var(--font-display); font-size: clamp(1.45rem, 2.6vw, 1.9rem) !important; font-weight: 600 !important;
+  letter-spacing: -0.03em !important; text-transform: none !important; line-height: 1.15;
+  margin: 72px 0 20px !important; padding: 28px 0 0 !important; border-bottom: 0 !important; border-top: 1px solid var(--border-subtle);
+  flex-direction: column; gap: 10px !important; align-items: flex-start !important;
+}
+h2.wiki-h2 .num {
+  font-size: 0.68rem !important; font-weight: 500 !important; letter-spacing: .08em; color: var(--accent-red) !important;
+}
+h3.wiki-h3 { font-family: var(--font-display); font-size: 1.15rem !important; font-weight: 600 !important; letter-spacing: -0.015em; color: var(--text-main) !important; margin: 36px 0 12px !important; }
+h4.wiki-h4 {
+  font-size: 0.68rem !important; font-weight: 500 !important; letter-spacing: .12em !important; color: var(--text-dim) !important; margin: 26px 0 10px !important;
+}
+article p { font-size: 1rem !important; line-height: 1.75; color: var(--text-muted); margin-bottom: 16px; }
+article p strong, article li strong { color: var(--text-main); font-weight: 600; }
+article p em { color: var(--text-main) !important; }
+article ul, article ol { font-size: 0.98rem !important; line-height: 1.7; }
+article ul li::before { content: "" !important; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--accent-red); margin: 0 12px 0 0 !important; vertical-align: middle; position: relative; top: -2px; }
+article a { color: var(--text-main) !important; text-decoration: none; border-bottom: 1px solid var(--text-dim); transition: border-color .15s, color .15s; }
+article a:hover { color: var(--accent-red) !important; border-bottom-color: var(--accent-red); }
+article a.wiki-hub-link, article .btn, article .mailbox { border-bottom: 0; }
+article code {
+  font-size: 0.84em !important; color: var(--text-main) !important; background: rgba(255,255,255,0.05) !important;
+  border: 1px solid var(--border-subtle) !important; border-radius: 5px; padding: 1px 6px !important;
+}
+.c-cyan { color: var(--accent-cyan) !important; }
+.c-green { color: var(--accent-green) !important; }
+
+/* ---------- Spec sheet / tables ---------- */
+.spec-card { border: 1px solid var(--border-subtle) !important; border-top: 1px solid var(--border-subtle) !important; border-radius: 14px; overflow: hidden; background: var(--bg-surface) !important; }
+.spec-key { background: transparent !important; color: var(--text-dim) !important; font-size: 0.66rem !important; }
+.spec-val { font-size: 0.82rem !important; }
+.table-wrap { border-radius: 14px; background: var(--bg-surface); }
+article thead th {
+  background: transparent !important; color: var(--text-dim) !important; font-weight: 500 !important; font-size: 0.64rem !important;
+  border-bottom: 1px solid var(--border-subtle) !important; padding: 13px 16px !important;
+}
+article tbody td { padding: 12px 16px !important; font-size: 0.9rem; line-height: 1.55; }
+article tbody tr:hover td { background: rgba(255,255,255,0.015) !important; }
+article tbody td:first-child { color: var(--text-main); }
+
+/* ---------- Code ---------- */
+.code-block { border: 1px solid var(--border-subtle) !important; border-left: 1px solid var(--border-subtle) !important; border-radius: 12px; background: var(--bg-terminal) !important; margin: 20px 0 26px !important; }
+.code-head { background: rgba(255,255,255,0.02) !important; border-bottom: 1px solid var(--border-subtle) !important; padding: 10px 16px !important; font-size: 0.64rem !important; }
+.code-head::before { content: ""; width: 34px; height: 8px; flex-shrink: 0; margin-right: 4px;
+  background: radial-gradient(circle at 4px 4px, #2a2f36 3.5px, transparent 4px), radial-gradient(circle at 17px 4px, #2a2f36 3.5px, transparent 4px), radial-gradient(circle at 30px 4px, #2a2f36 3.5px, transparent 4px); }
+.code-head .src, .code-block .code-head .src { color: var(--text-muted) !important; }
+.code-head > *:first-child { margin-right: auto; }
+.code-block pre { padding: 18px 20px !important; font-size: 0.8rem !important; line-height: 1.7 !important; color: #c9ced6 !important; }
+.tok-key { color: #9ec5ff !important; }
+.tok-str { color: #e9c37a !important; }
+.tok-num { color: var(--accent-violet) !important; }
+.tok-op { color: #ff8b97 !important; }
+.tok-cm { color: #5d636b !important; font-style: italic; }
+.pipeline { border: 1px solid var(--border-subtle) !important; border-radius: 12px; background: var(--bg-terminal) !important; color: var(--text-muted) !important; padding: 22px 24px !important; }
+
+/* ---------- Callouts ---------- */
+.callout {
+  --co: var(--accent-cyan);
+  border: 1px solid color-mix(in srgb, var(--co) 22%, var(--border-subtle)) !important; border-left: 1px solid color-mix(in srgb, var(--co) 22%, var(--border-subtle)) !important;
+  border-radius: 12px; padding: 18px 20px 18px 22px !important; position: relative; overflow: hidden;
+  background: color-mix(in srgb, var(--co) 5%, var(--bg-surface)) !important; font-size: 0.94rem !important;
+}
+.callout::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--co); }
+.callout.warn { --co: var(--accent-amber); }
+.callout.danger { --co: var(--accent-red); }
+.callout.ok { --co: var(--accent-green); }
+.callout.violet { --co: var(--accent-violet); }
+.callout .co-title { color: var(--co) !important; font-weight: 500 !important; font-size: 0.66rem !important; letter-spacing: .12em !important; }
+
+/* ---------- Stages, filters, reasons, stats, FAQ ---------- */
+.stage {
+  --st: var(--border-strong);
+  border: 1px solid var(--border-subtle) !important; border-left: 1px solid var(--border-subtle) !important; border-radius: 14px;
+  background: var(--bg-surface) !important; padding: 22px 24px !important; position: relative; overflow: hidden;
+}
+.stage::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--st); }
+.stage.active { --st: var(--accent-red); }
+.stage.cyan { --st: var(--accent-cyan); }
+.stage.green { --st: var(--accent-green); }
+.stage-num { border-radius: 6px; font-weight: 500 !important; background: transparent !important; }
+.stage-title { font-family: var(--font-display); font-weight: 600 !important; font-size: 1.05rem !important; }
+
+.filter-card { border-radius: 12px; background: var(--bg-surface) !important; }
+.filter-idx { border-radius: 6px; font-weight: 500 !important; background: var(--accent-red-dim) !important; color: var(--accent-red) !important; border: 1px solid rgba(255,51,68,0.3); }
+.filter-name { font-weight: 500 !important; }
+
+.reason-grid { gap: 0 !important; border: 1px solid var(--border-subtle); border-radius: 14px; overflow: hidden; background: var(--bg-surface); }
+.reason-card { border: 0 !important; border-top: 0 !important; background: transparent !important; padding: 24px !important; box-shadow: inset -1px -1px 0 var(--border-subtle); }
+.reason-idx { font-weight: 500 !important; }
+.reason-title { font-family: var(--font-display); font-weight: 600 !important; }
+
+article .stat-grid { gap: 0 !important; border: 1px solid var(--border-subtle); border-radius: 14px; overflow: hidden; background: var(--bg-surface); }
+article .stat-box { border: 0 !important; background: transparent !important; padding: 20px !important; box-shadow: inset -1px -1px 0 var(--border-subtle); }
+article .stat-num { font-family: var(--font-display) !important; font-weight: 500 !important; font-size: 1.9rem !important; letter-spacing: -0.035em; color: var(--text-main) !important; line-height: 1.05; }
+article .stat-lbl { color: var(--text-dim) !important; margin-top: 8px !important; font-size: 0.64rem !important; }
+
+.faq-item { border-radius: 12px; background: var(--bg-surface) !important; padding: 20px 22px !important; }
+.faq-q { font-family: var(--font-display); font-weight: 600 !important; font-size: 1.02rem !important; }
+.faq-q .q-mark { color: var(--accent-red) !important; }
+
+.support-panel {
+  border: 1px solid var(--border-subtle) !important; border-left: 1px solid var(--border-subtle) !important; border-radius: 16px;
+  background: radial-gradient(500px 220px at 100% 0%, rgba(255,51,68,0.08), transparent 70%), var(--bg-surface) !important;
+  padding: 32px !important; margin-top: 64px !important;
+}
+.support-title { font-family: var(--font-display); font-weight: 600 !important; font-size: 1.4rem !important; letter-spacing: -0.02em; }
+.mailbox { border: 0 !important; border-bottom: 1px solid var(--text-dim) !important; background: transparent !important; color: var(--text-main) !important;
+  padding: 0 0 4px !important; font-family: var(--font-display) !important; font-size: 1.5rem !important; font-weight: 500 !important; letter-spacing: -0.02em; }
+.mailbox:hover { transform: none !important; border-bottom-color: var(--accent-red) !important; }
+article .btn {
+  font-family: var(--font-body) !important; text-transform: none !important; letter-spacing: -0.005em !important; font-weight: 600 !important;
+  border-radius: 8px !important; height: 38px; padding: 0 14px !important; box-shadow: none !important; transform: none !important;
+}
+article .btn-ghost { background: rgba(255,255,255,0.03) !important; border: 1px solid var(--border-strong) !important; color: var(--text-main) !important; }
+article .btn-red { background: var(--accent-red) !important; border-color: var(--accent-red) !important; }
+article .btn-amber { background: var(--text-main) !important; color: #0a0b0d !important; border-color: transparent !important; }
+.article-nav { margin-top: 64px !important; }
+.tag, .badge-pill { border-radius: 6px; }
+
+/* =========================================================
+   EULA
+   ========================================================= */
+body.vk-legacy .eula-hero { padding: 72px 0 40px !important; border-bottom: 0 !important; margin-bottom: 0 !important; }
+.eula-tag { font-family: var(--font-mono); font-size: 0.7rem !important; font-weight: 500 !important; letter-spacing: .12em !important; color: var(--text-muted) !important; display: inline-flex; align-items: center; gap: 10px; margin-bottom: 20px !important; }
+.eula-tag > span:first-child { display: inline-block; width: 18px; height: 1px; background: var(--accent-red); }
+.eula-title {
+  font-family: var(--font-display) !important; font-weight: 600 !important; font-size: clamp(2.1rem, 4.4vw, 3.4rem) !important;
+  letter-spacing: -0.04em !important; line-height: 1.04 !important; max-width: 20ch; margin-bottom: 20px !important;
+}
+.eula-desc { font-size: clamp(1.05rem, 1.4vw, 1.2rem) !important; line-height: 1.6 !important; color: var(--text-muted) !important; max-width: 62ch !important; }
+.scope-box {
+  border: 1px solid var(--border-subtle) !important; border-left: 1px solid var(--border-subtle) !important; border-radius: 16px !important;
+  background: var(--bg-surface) !important; padding: 28px !important;
+}
+.scope-title { font-family: var(--font-display) !important; font-size: 1.15rem !important; font-weight: 600 !important; text-transform: none !important; letter-spacing: -0.01em !important; color: var(--text-main) !important; }
+.scope-title > span:first-child:empty { display: none; }
+.scope-body { color: var(--text-muted) !important; font-size: 0.95rem !important; line-height: 1.65; }
+.scope-app-card { border-radius: 12px !important; background: var(--bg-base) !important; border: 1px solid var(--border-subtle) !important; }
+.scope-app-head { font-family: var(--font-body) !important; font-weight: 600 !important; color: var(--text-main) !important; font-size: 0.9rem !important; }
+.scope-app-head > span:first-child:empty { display: none; }
+
+.eula-layout { display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 64px; align-items: start; margin: 56px 0 112px; }
+.eula-layout .sections-grid { margin: 0 !important; gap: 0 !important; max-width: 820px; }
+.eula-layout .toc { position: sticky; }
+@media (max-width: 1060px) { .eula-layout { grid-template-columns: 1fr; gap: 28px; margin-top: 40px; } }
+.eula-card {
+  background: transparent !important; border: 0 !important; border-top: 1px solid var(--border-subtle) !important; border-radius: 0 !important;
+  padding: 32px 0 36px !important; box-shadow: none !important; transform: none !important; scroll-margin-top: 96px;
+}
+.eula-card:first-child { border-top: 0 !important; padding-top: 0 !important; }
+.eula-card.highlight { border-left: 0 !important; }
+.eula-card.highlight .eula-card-title::after {
+  content: "!"; display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 10px; vertical-align: middle; position: relative; top: -2px;
+  border-radius: 50%; font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-amber); border: 1px solid rgba(242,180,65,0.45);
+}
+.eula-card-num { font-family: var(--font-mono); font-size: 0.68rem !important; font-weight: 500 !important; letter-spacing: .1em !important; color: var(--accent-red) !important; margin-bottom: 10px !important; }
+.eula-card-title { font-family: var(--font-display) !important; font-size: clamp(1.3rem, 2.2vw, 1.6rem) !important; font-weight: 600 !important; letter-spacing: -0.025em !important; margin-bottom: 14px !important; }
+.eula-card-body { font-size: 1rem !important; line-height: 1.75 !important; color: var(--text-muted) !important; }
+.eula-card-body strong, .eula-card-body b { color: var(--text-main) !important; font-weight: 600 !important; }
+.eula-card-body a { color: var(--text-main) !important; border-bottom: 1px solid var(--text-dim); text-decoration: none !important; }
+
+/* fixes */
+.container.wiki-layout { max-width: var(--vk-max) !important; padding-left: 24px !important; padding-right: 24px !important; margin: 0 auto; }
+@media (max-width: 560px) { .container.wiki-layout { padding-left: 16px !important; padding-right: 16px !important; } }
+article .crumb a { border-bottom: 0; color: var(--text-muted) !important; }
+article ol { margin-left: 0 !important; padding-left: 28px !important; }
+article ol li { padding-left: 4px; }
+article ol li::marker { font-size: 0.8em; color: var(--accent-red); }
+
+/* base TOC rules (EULA has no legacy TOC styles) */
+.toc a { display: block; text-decoration: none; transition: color .15s, border-color .15s; }
+.toc-title { display: flex; align-items: center; gap: 8px; text-transform: uppercase; }
+.toc-sep { height: 1px; background: var(--border-subtle); }
+@media (max-width: 1060px) { .toc { position: static !important; max-height: none !important; } }
+@media (max-width: 560px) { .article-title, .eula-title { font-size: 1.8rem !important; } }
+/* collapsible TOC on narrow screens */
+@media (max-width: 1060px) {
+  .toc .toc-title { cursor: pointer; margin-bottom: 0 !important; padding: 2px 0 8px; user-select: none; }
+  .toc .toc-title::after { content: "+"; margin-left: auto; font-size: 1rem; color: var(--text-muted); }
+  .toc:not(.is-collapsed) .toc-title { margin-bottom: 12px !important; }
+  .toc:not(.is-collapsed) .toc-title::after { content: "\2212"; }
+  .toc.is-collapsed > :not(.toc-title) { display: none !important; }
+}

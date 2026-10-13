@@ -97,7 +97,8 @@ impl Rule {
                 | RuleCondition::DllAny { .. }
                 | RuleCondition::DllRegex { .. }
                 | RuleCondition::SuspiciousImportCount { .. }
-                |                 RuleCondition::SectionEntropy { .. }
+                | RuleCondition::NewImportSet { .. }
+                | RuleCondition::SectionEntropy { .. }
                 | RuleCondition::SectionNameRegex { .. }
                 | RuleCondition::PackedPe => {
                     if !types.contains(&"pe".to_string()) {
@@ -317,6 +318,36 @@ pub enum RuleCondition {
     FeatureGte {
         name: String,
         value: f64,
+    },
+    FeatureLte {
+        name: String,
+        value: f64,
+    },
+
+    // --- Parent comparison (unpacked dumps, extracted members) ---------------
+    /// The buffer was scanned with a parent summary (`ScanOptions::parent`).
+    HasParent,
+    /// A numeric feature of the parent is >= value.
+    ParentFeatureGte {
+        name: String,
+        value: f64,
+    },
+    /// A numeric feature of the parent is <= value.
+    ParentFeatureLte {
+        name: String,
+        value: f64,
+    },
+    /// This file's feature minus the parent's feature is >= value.
+    FeatureDeltaGte {
+        name: String,
+        value: f64,
+    },
+    /// At least `min` of `names` are imported by this file and NOT by the parent
+    /// (same suffix matching as `import_set`).
+    NewImportSet {
+        names: Vec<String>,
+        #[serde(default)]
+        min: Option<usize>,
     },
 
     /// Hex byte pattern. Supports `{ 4D 5A ?? 90 E8 }` and nibble wildcards like `4?`.

@@ -7,7 +7,7 @@
   <title>VIRUSKOV &mdash; Canlı Tehdit Telemetrisi &amp; Tarama İstatistikleri</title>
   <meta name="description" content="VirusKov EDR & Antivirus küresel tehdit telemetrisi, canlı hash gözlemleri, algılama oranları ve Elasticsearch ECS 9.5.4 oturum tarama geçmişi.">
   <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg?v=20261014">
-  <script src="i18n.js?v=11"></script>
+  <script src="i18n.js?v=12"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -314,6 +314,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@400;500;600;700&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/vk.css?v=6">
+  <link rel="stylesheet" href="assets/stats.css?v=1">
   <script src="assets/vk.js?v=5" defer></script>
 </head>
 <body class="vk-legacy">
@@ -339,7 +340,7 @@
           <button type="button" class="lang-btn" data-lang="en">EN</button>
         </div>
         <a class="vk-icon-btn vk-gh" href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener" aria-label="GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
-        <a class="vk-btn vk-btn-primary" href="scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+        <a class="vk-btn vk-btn-primary" href="scan/index.html#file" data-i18n="vk.cta.scan">Dosya tara</a>
         <button type="button" class="vk-icon-btn vk-menu-btn" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button>
       </div>
     </div>
@@ -352,17 +353,18 @@
     <a href="wiki/index.html" data-i18n="vk.nav.wiki">Wiki</a>
     <a href="about.html" data-i18n="vk.nav.about">Hikaye</a>
     <a href="https://github.com/HydraDragonAntivirus/HydraDragonAntivirus" target="_blank" rel="noopener">GitHub</a>
-    <a class="vk-btn vk-btn-primary vk-btn-lg" href="scan/index.html" data-i18n="vk.cta.scan">Dosya tara</a>
+    <a class="vk-btn vk-btn-primary vk-btn-lg" href="scan/index.html#file" data-i18n="vk.cta.scan">Dosya tara</a>
   </div>
 
 
   <main class="container">
     <!-- HERO -->
     <div class="hero-strip">
-      <h1 class="hero-title" data-i18n="stats.title">Tehdit Telemetrisi &amp; Canlı İstatistikler</h1>
-      <p class="hero-desc" data-i18n="stats.desc">
-        VirusKov küresel telemetri ağı, tersine mühendislik motoru, entropi analizi ve davranışsal kurallarla elde edilen canlı tehdit metrikleri.
-      </p>
+      <div class="st-head">
+        <span class="vk-eyebrow" data-i18n="st.eyebrow">Tehdit telemetrisi</span>
+        <h1 class="vk-h2" data-i18n="st.title">Ağda ne görülüyor, <span class="vk-serif">canlı.</span></h1>
+        <p class="vk-lead" data-i18n="st.lead">VIRUSKOV uç noktalarından gelen yaygınlık verisi, motor kararlarının dağılımı ve analist masasının sayıları. Veriler birkaç saniyede bir yenilenir.</p>
+      </div>
 
       <!-- STAT CARDS -->
       <div class="stat-grid">
@@ -397,7 +399,7 @@
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
-          <span></span> <span data-i18n="ratio.title">Global Tehdit Dağılım Oranları</span>
+          <span data-i18n="ratio.title">Global Tehdit Dağılım Oranları</span>
         </div>
         <div class="mono" style="font-size:0.8rem; color:var(--text-muted);" id="statTotalSightings">
           Toplam Gözlem: 0
@@ -467,7 +469,7 @@
     <div class="panel" id="typesPanel">
       <div class="panel-header">
         <div>
-          <div class="panel-title"><span></span> <span data-i18n="types.title">Zararlı Türleri</span></div>
+          <div class="panel-title"><span data-i18n="types.title">Zararlı Türleri</span></div>
           <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="types.desc">Zararlı ve şüpheli dosyalar türlerine göre.</div>
         </div>
         <div class="types-tabs">
@@ -485,7 +487,7 @@
     <div class="panel" id="humanPanel">
       <div class="panel-header">
         <div>
-          <div class="panel-title"><span></span> <span data-i18n="ha.title">İnsan Analizi (Human Analysis)</span></div>
+          <div class="panel-title"><span data-i18n="ha.title">İnsan Analizi (Human Analysis)</span></div>
           <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="ha.desc">Motorun emin olamadığı dosyaları VirusKov analistleri tek tek inceliyor. Bu sayılar insanların verdiği kararlardır.</div>
         </div>
       </div>
@@ -513,7 +515,7 @@
       <div class="panel-header">
         <div>
           <div class="panel-title">
-            <span></span> <span data-i18n="history.title">Yerel Oturum Tarama Geçmişi &amp; Raporları</span>
+            <span data-i18n="history.title">Yerel Oturum Tarama Geçmişi &amp; Raporları</span>
           </div>
           <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="history.desc">
             Bu tarayıcı üzerinden taranan dosyaların kaydedilen sonuçları, skorları ve ECS logları.
@@ -578,7 +580,7 @@
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
-          <span></span> <span data-i18n="lookup.title">Anlık Telemetri Hash Sorgulayıcı (OpenTIP)</span>
+          <span data-i18n="lookup.title">Anlık Telemetri Hash Sorgulayıcı (OpenTIP)</span>
         </div>
         <div style="font-size:0.8rem; color:var(--text-muted);" data-i18n="lookup.desc">
           SHA-256 sorgulayarak VirusKov telemetri havuzundaki anlık kaydı kontrol edin.
@@ -590,7 +592,7 @@
           data-i18n-placeholder="lookup.placeholder"
           style="flex: 1; min-width: 280px; padding: 10px 14px; background: var(--bg-terminal); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; border-radius: 4px; outline: none;">
         <button id="quickSearchBtn" class="btn btn-red" style="padding: 10px 20px;">
-          <span data-i18n="lookup.btn">SORGULA &nearr;</span>
+          <span data-i18n="sc.hash_btn">Sorgula</span> <span class="vk-arrow" aria-hidden="true">&rarr;</span>
         </button>
       </div>
 

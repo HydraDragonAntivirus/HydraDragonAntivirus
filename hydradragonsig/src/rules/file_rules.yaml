@@ -8,3 +8,4 @@ version: "1.0"
 
 !include heuristic_rules.yaml
 !include ransomware_rules.yaml
+!include generic_pe_rules.yaml

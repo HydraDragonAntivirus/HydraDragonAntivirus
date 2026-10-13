@@ -7,7 +7,7 @@ pub mod utils;
 
 use anyhow::{Context, Result};
 use models::{
-    ArchiveMemberResult, CoreData, CoreInitOptions, Finding, MemoryScanContext,
+    ArchiveMemberResult, CoreData, CoreInitOptions, Finding, MemoryScanContext, ParentInfo,
     ScanReport, ScanResultCode, UnpackConfig, Verdict,
 };
 use rules::{aggregate_verdict, RuleEvalOptions, RuleSet};
@@ -31,6 +31,11 @@ pub struct ScanOptions {
     pub core_options: CoreInitOptions,
     /// SDK-inspired unpacking configuration
     pub unpack_config: UnpackConfig,
+    /// The file this buffer came from (packed original of an unpacked dump,
+    /// dropper of an extracted payload). Enables the parent-comparison
+    /// conditions; `None` for ordinary scans. Archive members get their
+    /// archive as parent automatically.
+    pub parent: Option<ParentInfo>,
 }
 
 impl Default for ScanOptions {
@@ -46,6 +51,7 @@ impl Default for ScanOptions {
             compute_entropy: false,
             core_options: CoreInitOptions::default(),
             unpack_config: UnpackConfig::default(),
+            parent: None,
         }
     }
 }
@@ -151,17 +157,23 @@ fn finalize_scan_context(
     let post_scan_start = Instant::now();
     let bytes = std::mem::take(&mut ctx.bytes);
     let mut report = report::build_report(ctx);
+    report.parent = options.parent.clone();
     evaluate_rules(&mut report, &bytes, rules, options);
     // Strings / PE data may have been loaded lazily by the rules.
     report::refresh_features(&mut report);
     finalize_report_metadata(&mut report, &bytes, rules, options);
 
     if should_scan_archive(&report, &bytes, options, archive_depth) {
+        // Members are compared against the archive that carried them.
+        let member_options = ScanOptions {
+            parent: Some(ParentInfo::from_report(&report)),
+            ..options.clone()
+        };
         let archive_scan = scan_archive_members_from_bytes(
             &report.path,
             &bytes,
             rules,
-            options,
+            &member_options,
             scanner_config,
             archive_depth + 1,
         )?;

@@ -223,6 +223,12 @@ struct Cli {
     #[arg(long)]
     no_decode: bool,
 
+    /// Scan the PATHs as children of this file (e.g. the packed original of an
+    /// unpacked dump). Enables has_parent / parent_feature_* / feature_delta_gte /
+    /// new_import_set conditions.
+    #[arg(long, value_name = "FILE")]
+    parent: Option<PathBuf>,
+
     /// Disable in-memory ZIP/JAR/APK member scanning.
     #[arg(long)]
     no_archive_scan: bool,
@@ -420,6 +426,16 @@ fn main() -> Result<()> {
         compute_entropy: cli.entropy,
         core_options,
         unpack_config,
+        parent: match &cli.parent {
+            Some(p) => match std::fs::read(p) {
+                Ok(bytes) => Some(hydradragonsig::models::ParentInfo::from_bytes(p.display().to_string(), &bytes)),
+                Err(e) => {
+                    eprintln!("cannot read --parent {}: {e}", p.display());
+                    std::process::exit(2);
+                }
+            },
+            None => None,
+        },
     };
 
     let use_sequential_files = cli.no_parallel_files || cli.stop_scan_on_detection;

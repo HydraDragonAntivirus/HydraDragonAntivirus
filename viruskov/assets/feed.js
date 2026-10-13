@@ -27,6 +27,7 @@
   dateEl.value = /^\d{4}-\d{2}-\d{2}$/.test(q.get('date') || '') ? q.get('date') : today;
   dateEl.max = today;
   allEl.checked = q.get('all') === '1';
+  if (typeEl && !typeEl.options.length) typeEl.innerHTML = '<option value="">' + esc(t().anyType) + '</option>';
 
   function url(fmt) {
     return API + '/feed/daily?date=' + dateEl.value + (allEl.checked ? '&all=1' : '') + (fmt ? '&format=' + fmt : '');

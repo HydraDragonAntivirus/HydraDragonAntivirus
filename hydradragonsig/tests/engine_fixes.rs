@@ -200,3 +200,63 @@ fn remove_ids_drops_rules() {
     assert_eq!(set.remove_ids(&ids), 1);
     assert_eq!(scan_with(&set, b"aaaa bbbb", all()), vec!["B"]);
 }
+
+fn with_parent(features: &[(&str, f64)], imports: &[&str]) -> ScanOptions {
+    let parent = hydradragonsig::models::ParentInfo {
+        identifier: "packed.exe".into(),
+        file_size: 1000,
+        is_pe: true,
+        imports: imports.iter().map(|s| s.to_ascii_lowercase()).collect(),
+        features: features.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+    };
+    ScanOptions { parent: Some(parent), ..ScanOptions::default() }
+}
+
+#[test]
+fn feature_lte_matches_at_or_below() {
+    let set = one("      - type: feature_lte\n        name: string_count\n        value: 1\n");
+    assert_eq!(scan(&set, b"only-one-string"), vec!["R"]);
+    assert!(scan(&set, b"first-string\x00second-string\x00third-string").is_empty());
+}
+
+#[test]
+fn parent_conditions_need_a_parent() {
+    let set = one("      - type: has_parent\n");
+    assert!(scan(&set, b"payload").is_empty(), "no parent given");
+    assert_eq!(scan_with(&set, b"payload", with_parent(&[], &[])), vec!["R"]);
+
+    let set = one("      - type: parent_feature_lte\n        name: pe_import_count\n        value: 10\n");
+    assert!(scan(&set, b"payload").is_empty());
+    assert_eq!(scan_with(&set, b"payload", with_parent(&[("pe_import_count", 4.0)], &[])), vec!["R"]);
+    assert!(scan_with(&set, b"payload", with_parent(&[("pe_import_count", 40.0)], &[])).is_empty());
+
+    let set = one("      - type: parent_feature_gte\n        name: file_entropy_bits_per_byte\n        value: 7.5\n");
+    assert_eq!(scan_with(&set, b"x", with_parent(&[("file_entropy_bits_per_byte", 7.9)], &[])), vec!["R"]);
+}
+
+#[test]
+fn feature_delta_compares_child_with_parent() {
+    // string_count of the child (3) minus the parent's (1) = +2.
+    let set = one("      - type: feature_delta_gte\n        name: string_count\n        value: 2\n");
+    let data = b"first-string\x00second-string\x00third-string";
+    assert_eq!(scan_with(&set, data, with_parent(&[("string_count", 1.0)], &[])), vec!["R"]);
+    assert!(scan_with(&set, data, with_parent(&[("string_count", 2.0)], &[])).is_empty());
+    assert!(scan(&set, data).is_empty(), "no parent, no delta");
+}
+
+#[test]
+fn new_import_set_is_pe_only_and_validated() {
+    let set = one("      - type: new_import_set\n        min: 1\n        names: ['!WriteProcessMemory']\n");
+    // Not a PE: the rule is gated out even with a parent.
+    assert!(scan_with(&set, b"WriteProcessMemory", with_parent(&[], &[])).is_empty());
+    let bad = RuleSet::from_yaml_str(
+        "rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: new_import_set\n        min: 3\n        names: [a, b]\n",
+    )
+    .unwrap();
+    assert!(!bad.warnings().is_empty(), "min larger than list must warn");
+    let bad = RuleSet::from_yaml_str(
+        "rules:\n  - id: R\n    title: t\n    severity: low\n    conditions:\n      - type: parent_feature_lte\n        name: string_count\n        value: 1\n",
+    )
+    .unwrap();
+    assert!(bad.warnings().iter().any(|w| w.contains("parent feature")), "{:?}", bad.warnings());
+}

@@ -93,6 +93,7 @@
   function load(sha) {
     state.sha = sha;
     if (input) input.value = sha;
+    document.body.classList.toggle('p-has-sha', !!sha);
     if (!/^[0-9a-f]{64}$/.test(sha)) {
       root.innerHTML = sha ? '<div class="p-error">' + esc(t().invalid) + '</div>' : '';
       return;
