@@ -14,11 +14,11 @@ use crate::scan::decode_at;
 use crate::{ExtractOptions, ExtractedString, StringKind, is_printable_ascii};
 
 /// A single section laid out so we can map virtual addresses back to file offsets.
-struct CodeSection {
+struct CodeSection<'a> {
     /// File offset of the section's raw data.
     file_off: usize,
-    /// Raw bytes of the section.
-    bytes: Vec<u8>,
+    /// Raw bytes of the section (borrowed from the file buffer).
+    bytes: &'a [u8],
     /// Virtual address (RVA + image base) of the section start.
     va: u64,
     /// Whether this section is executable and should be disassembled.
@@ -33,7 +33,7 @@ pub(crate) fn scan_pe(
     data: &[u8],
     opts: &ExtractOptions,
     min_len: usize,
-    known: &HashSet<String>,
+    known: &HashSet<&str>,
     out: &mut Vec<ExtractedString>,
 ) {
     // Parse only as PE; anything else is out of scope here.
@@ -60,7 +60,7 @@ pub(crate) fn scan_pe(
             || (section.characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE) != 0);
         sections.push(CodeSection {
             file_off: start,
-            bytes: data[start..end].to_vec(),
+            bytes: &data[start..end],
             va: image_base.wrapping_add(section.virtual_address as u64),
             is_exec,
         });
@@ -131,36 +131,37 @@ pub(crate) fn scan_pe(
                 continue;
             }
 
+            // One decoding pass, nothing stored per instruction (a .NET or large
+            // native image decodes to millions of instructions). Code references are
+            // emitted as found; stack-string runs and opcode tags are collected and
+            // emitted after the section, in the same order as separate passes would.
             let mut decoder =
-                Decoder::with_ip(bitness, &section.bytes, section.va, DecoderOptions::NONE);
-
-            let mut insns: Vec<Instruction> = Vec::new();
+                Decoder::with_ip(bitness, section.bytes, section.va, DecoderOptions::NONE);
+            let mut insn = Instruction::default();
+            let mut stack = StackStrings::default();
+            let mut patterns = OpcodePatterns::default();
             while decoder.can_decode() {
-                let mut insn = Instruction::default();
                 decoder.decode_out(&mut insn);
-                insns.push(insn);
-            }
-
-            if opts.code_refs {
-                for insn in &insns {
-                    code_ref_for_insn(
-                        insn, data, &sections, min_len, known, &mut emitted, out,
-                    );
+                if opts.code_refs {
+                    code_ref_for_insn(&insn, data, &sections, min_len, known, &mut emitted, out);
+                }
+                if opts.stack_strings {
+                    stack.step(&insn, min_len);
+                }
+                if opts.opcode_patterns {
+                    patterns.step(&insn);
                 }
             }
-
             if opts.stack_strings {
-                stack_strings_in_section(
-                    &insns,
-                    min_len,
-                    known,
-                    &mut emitted,
-                    out,
-                );
+                stack.finish(min_len);
+                for run in stack.runs {
+                    emit_stack_run(&run, min_len, known, &mut emitted, out);
+                }
             }
-
-            if opts.opcode_patterns {
-                detect_opcode_patterns(&insns, &mut emitted, out);
+            for (tag, offset) in patterns.tags {
+                if emitted.insert(tag.to_string()) {
+                    out.push(ExtractedString { text: tag.to_string(), kind: StringKind::OpcodePattern, offset: Some(offset) });
+                }
             }
         }
     }
@@ -172,7 +173,7 @@ fn code_ref_for_insn(
     data: &[u8],
     sections: &[CodeSection],
     min_len: usize,
-    known: &HashSet<String>,
+    known: &HashSet<&str>,
     emitted: &mut HashSet<String>,
     out: &mut Vec<ExtractedString>,
 ) {
@@ -202,7 +203,7 @@ fn code_ref_for_insn(
         };
 
         if let Some((text, kind)) = decode_at(data, off, min_len) {
-            if known.contains(&text) || !emitted.insert(text.clone()) {
+            if known.contains(text.as_str()) || !emitted.insert(text.clone()) {
                 continue;
             }
             let _ = kind;
@@ -215,117 +216,87 @@ fn code_ref_for_insn(
     }
 }
 
-/// Recover strings built on the stack via immediate-to-memory `mov` runs.
-fn stack_strings_in_section(
-    insns: &[Instruction],
-    min_len: usize,
-    known: &HashSet<String>,
-    emitted: &mut HashSet<String>,
-    out: &mut Vec<ExtractedString>,
-) {
-    let mut fragments: Vec<(Register, i64, u8)> = Vec::new();
+/// Recovers strings built on the stack via immediate-to-memory `mov` runs, one
+/// instruction at a time. `runs` collects the candidate texts (long enough) in order.
+#[derive(Default)]
+struct StackStrings {
+    fragments: Vec<(Register, i64, u8)>,
+    runs: Vec<String>,
+}
 
-    let flush = |frags: &mut Vec<(Register, i64, u8)>,
-                 emitted: &mut HashSet<String>,
-                 out: &mut Vec<ExtractedString>| {
-        if frags.is_empty() {
+impl StackStrings {
+    fn step(&mut self, insn: &Instruction, min_len: usize) {
+        if insn.mnemonic() != Mnemonic::Mov || insn.op_count() != 2 || insn.op0_kind() != OpKind::Memory {
+            self.finish(min_len);
             return;
         }
-        reconstruct_stack_string(frags, min_len, known, emitted, out);
-        frags.clear();
-    };
-
-    for insn in insns {
-        if insn.mnemonic() != Mnemonic::Mov {
-            flush(&mut fragments, emitted, out);
-            continue;
-        }
-
-        if insn.op_count() != 2 || insn.op0_kind() != OpKind::Memory {
-            flush(&mut fragments, emitted, out);
-            continue;
-        }
-
         let base = insn.memory_base();
-        let index = insn.memory_index();
-        if base == Register::None || index != Register::None {
-            flush(&mut fragments, emitted, out);
-            continue;
+        if base == Register::None || insn.memory_index() != Register::None {
+            self.finish(min_len);
+            return;
         }
-
         let (imm, width) = match insn.op1_kind() {
-            OpKind::Immediate8
-            | OpKind::Immediate8to16
-            | OpKind::Immediate8to32
-            | OpKind::Immediate8to64 => (insn.immediate8() as u64, 1),
+            OpKind::Immediate8 | OpKind::Immediate8to16 | OpKind::Immediate8to32 | OpKind::Immediate8to64 => (insn.immediate8() as u64, 1),
             OpKind::Immediate16 => (insn.immediate16() as u64, 2),
             OpKind::Immediate32 | OpKind::Immediate32to64 => (insn.immediate32() as u64, 4),
             OpKind::Immediate64 => (insn.immediate64(), 8),
             _ => {
-                flush(&mut fragments, emitted, out);
-                continue;
+                self.finish(min_len);
+                return;
             }
         };
-
-        let mut all_printable = true;
         let mut bytes = [0u8; 8];
         for (i, slot) in bytes.iter_mut().enumerate().take(width) {
             *slot = ((imm >> (8 * i)) & 0xff) as u8;
             if !is_printable_ascii(*slot) {
-                all_printable = false;
-                break;
+                self.finish(min_len);
+                return;
             }
         }
-        if !all_printable {
-            flush(&mut fragments, emitted, out);
-            continue;
-        }
-
         let disp = insn.memory_displacement64() as i64;
         for (i, &b) in bytes.iter().enumerate().take(width) {
-            fragments.push((base, disp + i as i64, b));
+            self.fragments.push((base, disp + i as i64, b));
         }
     }
 
-    flush(&mut fragments, emitted, out);
-}
-
-/// Reconstruct one or more strings from collected `(base, disp, byte)` fragments.
-fn reconstruct_stack_string(
-    frags: &mut [(Register, i64, u8)],
-    min_len: usize,
-    known: &HashSet<String>,
-    emitted: &mut HashSet<String>,
-    out: &mut Vec<ExtractedString>,
-) {
-    frags.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-
-    let mut i = 0;
-    while i < frags.len() {
-        let base = frags[i].0;
-        let mut run = String::new();
-        let mut prev_disp: Option<i64> = None;
-        while i < frags.len() && frags[i].0 == base {
-            let (_, disp, byte) = frags[i];
-            match prev_disp {
-                Some(p) if disp == p => {
-                    run.pop();
-                    run.push(byte as char);
-                }
-                Some(p) if disp == p + 1 => {
-                    run.push(byte as char);
-                }
-                Some(_) => {
-                    emit_stack_run(&run, min_len, known, emitted, out);
-                    run.clear();
-                    run.push(byte as char);
-                }
-                None => run.push(byte as char),
-            }
-            prev_disp = Some(disp);
-            i += 1;
+    /// The end of a `mov` run: reconstruct its strings.
+    fn finish(&mut self, min_len: usize) {
+        if self.fragments.is_empty() {
+            return;
         }
-        emit_stack_run(&run, min_len, known, emitted, out);
+        let frags = &mut self.fragments;
+        frags.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+        let push = |run: &str, runs: &mut Vec<String>| {
+            if run.chars().count() >= min_len {
+                runs.push(run.to_string());
+            }
+        };
+        let mut i = 0;
+        while i < frags.len() {
+            let base = frags[i].0;
+            let mut run = String::new();
+            let mut prev_disp: Option<i64> = None;
+            while i < frags.len() && frags[i].0 == base {
+                let (_, disp, byte) = frags[i];
+                match prev_disp {
+                    Some(p) if disp == p => {
+                        run.pop();
+                        run.push(byte as char);
+                    }
+                    Some(p) if disp == p + 1 => run.push(byte as char),
+                    Some(_) => {
+                        push(&run, &mut self.runs);
+                        run.clear();
+                        run.push(byte as char);
+                    }
+                    None => run.push(byte as char),
+                }
+                prev_disp = Some(disp);
+                i += 1;
+            }
+            push(&run, &mut self.runs);
+        }
+        frags.clear();
     }
 }
 
@@ -333,7 +304,7 @@ fn reconstruct_stack_string(
 fn emit_stack_run(
     run: &str,
     min_len: usize,
-    known: &HashSet<String>,
+    known: &HashSet<&str>,
     emitted: &mut HashSet<String>,
     out: &mut Vec<ExtractedString>,
 ) {
@@ -341,7 +312,7 @@ fn emit_stack_run(
         return;
     }
     let text = run.to_string();
-    if known.contains(&text) || !emitted.insert(text.clone()) {
+    if known.contains(text.as_str()) || !emitted.insert(text.clone()) {
         return;
     }
     out.push(ExtractedString {
@@ -374,7 +345,7 @@ fn arm64_code_ref(
     data: &[u8],
     sections: &[CodeSection],
     min_len: usize,
-    known: &HashSet<String>,
+    known: &HashSet<&str>,
     emitted: &mut HashSet<String>,
     out: &mut Vec<ExtractedString>,
 ) {
@@ -390,7 +361,7 @@ fn arm64_code_ref(
                     };
                     if let Some(off) = va_to_file_off(target_va, sections, data.len()) {
                         if let Some((text, kind)) = decode_at(data, off, min_len) {
-                            if !known.contains(&text) && emitted.insert(text.clone()) {
+                            if !known.contains(text.as_str()) && emitted.insert(text.clone()) {
                                 let _ = kind;
                                 out.push(ExtractedString {
                                     text,
@@ -414,7 +385,7 @@ fn arm32_code_ref(
     data: &[u8],
     sections: &[CodeSection],
     min_len: usize,
-    known: &HashSet<String>,
+    known: &HashSet<&str>,
     emitted: &mut HashSet<String>,
     out: &mut Vec<ExtractedString>,
 ) {
@@ -434,7 +405,7 @@ fn arm32_code_ref(
                 let target_va = (curr_va + 8).wrapping_add(disp as u64);
                 if let Some(off) = va_to_file_off(target_va, sections, data.len()) {
                     if let Some((text, kind)) = decode_at(data, off, min_len) {
-                        if !known.contains(&text) && emitted.insert(text.clone()) {
+                        if !known.contains(text.as_str()) && emitted.insert(text.clone()) {
                             let _ = kind;
                             out.push(ExtractedString {
                                 text,
@@ -449,66 +420,54 @@ fn arm32_code_ref(
     }
 }
 
-/// Detect characteristic or obfuscated opcode patterns (PEB lookup, direct syscalls, API hashing).
-fn detect_opcode_patterns(
-    insns: &[Instruction],
-    emitted: &mut HashSet<String>,
-    out: &mut Vec<ExtractedString>,
-) {
-    let mut i = 0;
-    while i < insns.len() {
-        let insn = &insns[i];
+/// Characteristic or obfuscated opcode patterns (PEB lookup, direct syscalls, API
+/// hashing), one instruction at a time. `tags` lists them in the order a pass over
+/// the section in instruction order finds them (an API-hash ROR/ROL counts at its
+/// own address when an ADD/XOR follows within 3 instructions).
+#[derive(Default)]
+struct OpcodePatterns {
+    tags: Vec<(&'static str, usize)>,
+    /// ROR/ROL instructions waiting for an ADD/XOR: (address, instructions left).
+    pending_ror: Vec<(usize, u8)>,
+}
 
+impl OpcodePatterns {
+    /// Only the first of each tag can be emitted (the text is the dedup key).
+    fn push(&mut self, (tag, ip): (&'static str, usize)) {
+        if !self.tags.iter().any(|t| t.0 == tag) {
+            self.tags.push((tag, ip));
+        }
+    }
+
+    fn step(&mut self, insn: &Instruction) {
+        let m = insn.mnemonic();
+        // A ROR/ROL before this one, with this instruction in its window.
+        if !self.pending_ror.is_empty() {
+            if m == Mnemonic::Add || m == Mnemonic::Xor {
+                let ip = self.pending_ror[0].0;
+                self.push(("opc:api_hash_ror", ip));
+                self.pending_ror.remove(0);
+            }
+            for p in &mut self.pending_ror {
+                p.1 -= 1;
+            }
+            self.pending_ror.retain(|p| p.1 > 0);
+        }
         // 1. PEB lookup: fs:[0x30] in x86 or gs:[0x60] in x64
         if insn.op_count() >= 2 && insn.op1_kind() == OpKind::Memory {
             let seg = insn.segment_prefix();
             let disp = insn.memory_displacement64();
-            if (seg == Register::FS && (disp == 0x30 || disp == 0x18))
-                || (seg == Register::GS && (disp == 0x60 || disp == 0x30))
-            {
-                let tag = "opc:peb_lookup".to_string();
-                if emitted.insert(tag.clone()) {
-                    out.push(ExtractedString {
-                        text: tag,
-                        kind: StringKind::OpcodePattern,
-                        offset: Some(insn.ip() as usize),
-                    });
-                }
+            if (seg == Register::FS && (disp == 0x30 || disp == 0x18)) || (seg == Register::GS && (disp == 0x60 || disp == 0x30)) {
+                self.push(("opc:peb_lookup", insn.ip() as usize));
             }
         }
-
         // 2. Direct Syscall / Sysenter stub
-        if insn.mnemonic() == Mnemonic::Syscall || insn.mnemonic() == Mnemonic::Sysenter {
-            let tag = "opc:direct_syscall".to_string();
-            if emitted.insert(tag.clone()) {
-                out.push(ExtractedString {
-                    text: tag,
-                    kind: StringKind::OpcodePattern,
-                    offset: Some(insn.ip() as usize),
-                });
-            }
+        if m == Mnemonic::Syscall || m == Mnemonic::Sysenter {
+            self.push(("opc:direct_syscall", insn.ip() as usize));
         }
-
         // 3. API Hashing ROR/ROL loop
-        if insn.mnemonic() == Mnemonic::Ror || insn.mnemonic() == Mnemonic::Rol {
-            let end_look = (i + 4).min(insns.len());
-            for next in &insns[i + 1..end_look] {
-                if next.mnemonic() == Mnemonic::Add || next.mnemonic() == Mnemonic::Xor {
-                    let tag = "opc:api_hash_ror".to_string();
-                    if emitted.insert(tag.clone()) {
-                        out.push(ExtractedString {
-                            text: tag,
-                            kind: StringKind::OpcodePattern,
-                            offset: Some(insn.ip() as usize),
-                        });
-                    }
-                    break;
-                }
-            }
+        if m == Mnemonic::Ror || m == Mnemonic::Rol {
+            self.pending_ror.push((insn.ip() as usize, 3));
         }
-
-        i += 1;
     }
 }
-
-

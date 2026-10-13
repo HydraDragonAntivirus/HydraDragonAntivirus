@@ -8,65 +8,38 @@ use crate::{ExtractedString, StringKind, is_printable_ascii};
 
 /// Emit every contiguous run of printable ASCII of length >= `min_len`.
 pub(crate) fn scan_ascii(data: &[u8], min_len: usize, out: &mut Vec<ExtractedString>) {
-    let mut start = 0usize;
+    let n = data.len();
     let mut i = 0usize;
-    while i < data.len() {
-        if is_printable_ascii(data[i]) {
-            if i == start || !is_printable_ascii(data[i - 1]) {
-                start = i;
-            }
+    while i < n {
+        while i < n && !is_printable_ascii(data[i]) {
             i += 1;
-            continue;
         }
-        flush_ascii(data, start, i, min_len, out);
-        i += 1;
-        start = i;
-    }
-    flush_ascii(data, start, data.len(), min_len, out);
-}
-
-/// Helper: emit `data[start..end]` as an ASCII string if it is long enough.
-fn flush_ascii(
-    data: &[u8],
-    start: usize,
-    end: usize,
-    min_len: usize,
-    out: &mut Vec<ExtractedString>,
-) {
-    if end <= start {
-        return;
-    }
-    let run = &data[start..end];
-    if run.len() < min_len {
-        return;
-    }
-    if let Ok(text) = std::str::from_utf8(run) {
-        out.push(ExtractedString {
-            text: text.to_string(),
-            kind: StringKind::Ascii,
-            offset: Some(start),
-        });
+        let start = i;
+        while i < n && is_printable_ascii(data[i]) {
+            i += 1;
+        }
+        if i - start >= min_len {
+            // Printable ASCII is always valid UTF-8.
+            let text: String = data[start..i].iter().map(|&b| b as char).collect();
+            out.push(ExtractedString { text, kind: StringKind::Ascii, offset: Some(start) });
+        }
     }
 }
 
 /// Emit every run of `printable_ascii, 0x00` UTF-16LE pairs of length
 /// (in characters) >= `min_len`.
 pub(crate) fn scan_wide(data: &[u8], min_len: usize, out: &mut Vec<ExtractedString>) {
+    let n = data.len();
     let mut i = 0usize;
-    while i + 1 < data.len() {
+    while i + 1 < n {
         if is_printable_ascii(data[i]) && data[i + 1] == 0x00 {
             let start = i;
-            let mut text = String::new();
-            while i + 1 < data.len() && is_printable_ascii(data[i]) && data[i + 1] == 0x00 {
-                text.push(data[i] as char);
+            while i + 1 < n && is_printable_ascii(data[i]) && data[i + 1] == 0x00 {
                 i += 2;
             }
-            if text.chars().count() >= min_len {
-                out.push(ExtractedString {
-                    text,
-                    kind: StringKind::Wide,
-                    offset: Some(start),
-                });
+            if (i - start) / 2 >= min_len {
+                let text: String = data[start..i].iter().step_by(2).map(|&b| b as char).collect();
+                out.push(ExtractedString { text, kind: StringKind::Wide, offset: Some(start) });
             }
         } else {
             i += 1;
@@ -76,32 +49,27 @@ pub(crate) fn scan_wide(data: &[u8], min_len: usize, out: &mut Vec<ExtractedStri
 
 /// Decode the bytes starting at `data[off..]` as an ASCII or UTF-16LE string,
 /// returning the text if it reaches `min_len` printable characters before a
-/// terminator. Used by the code-ref pass to read a referenced target.
+/// terminator. Used by the code-ref pass to read a referenced target (most targets
+/// are not text, so the length is measured before anything is allocated).
 pub(crate) fn decode_at(data: &[u8], off: usize, min_len: usize) -> Option<(String, StringKind)> {
     if off >= data.len() {
         return None;
     }
 
     // Try ASCII first: a NUL-terminated or run-bounded printable sequence.
-    let mut ascii = String::new();
-    let mut j = off;
-    while j < data.len() && is_printable_ascii(data[j]) {
-        ascii.push(data[j] as char);
-        j += 1;
-    }
-    if ascii.chars().count() >= min_len {
-        return Some((ascii, StringKind::Ascii));
+    let tail = &data[off..];
+    let n = tail.iter().position(|&b| !is_printable_ascii(b)).unwrap_or(tail.len());
+    if n >= min_len {
+        return Some((tail[..n].iter().map(|&b| b as char).collect(), StringKind::Ascii));
     }
 
     // Try UTF-16LE.
-    let mut wide = String::new();
-    let mut k = off;
-    while k + 1 < data.len() && is_printable_ascii(data[k]) && data[k + 1] == 0x00 {
-        wide.push(data[k] as char);
+    let mut k = 0;
+    while k + 1 < tail.len() && is_printable_ascii(tail[k]) && tail[k + 1] == 0x00 {
         k += 2;
     }
-    if wide.chars().count() >= min_len {
-        return Some((wide, StringKind::Wide));
+    if k / 2 >= min_len {
+        return Some((tail[..k].iter().step_by(2).map(|&b| b as char).collect(), StringKind::Wide));
     }
 
     None

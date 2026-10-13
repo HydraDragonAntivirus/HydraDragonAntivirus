@@ -123,9 +123,12 @@ pub fn extract_strings(data: &[u8], opts: &ExtractOptions) -> Vec<ExtractedStrin
     if opts.code_refs || opts.stack_strings || opts.opcode_patterns {
         // The text of plain ASCII/wide finds, so code-ref strings that merely
         // re-discover an already-listed run get deduped away.
-        let known: std::collections::HashSet<String> =
-            out.iter().map(|s| s.text.clone()).collect();
-        pe::scan_pe(data, opts, min_len, &known, &mut out);
+        let mut extra: Vec<ExtractedString> = Vec::new();
+        {
+            let known: std::collections::HashSet<&str> = out.iter().map(|s| s.text.as_str()).collect();
+            pe::scan_pe(data, opts, min_len, &known, &mut extra);
+        }
+        out.append(&mut extra);
     }
 
     dedup_sort_cap(&mut out, opts.max_strings);
@@ -134,9 +137,13 @@ pub fn extract_strings(data: &[u8], opts: &ExtractOptions) -> Vec<ExtractedStrin
 
 /// Deduplicate by `(kind, text)`, sort by `(offset, text)`, and cap the length.
 fn dedup_sort_cap(out: &mut Vec<ExtractedString>, max_strings: usize) {
-    let mut seen: std::collections::HashSet<(StringKindTag, String)> =
-        std::collections::HashSet::new();
-    out.retain(|s| seen.insert((StringKindTag::from(&s.kind), s.text.clone())));
+    // The first of each (kind, text) stays.
+    let keep: Vec<bool> = {
+        let mut seen: std::collections::HashSet<(StringKindTag, &str)> = std::collections::HashSet::with_capacity(out.len());
+        out.iter().map(|s| seen.insert((StringKindTag::from(&s.kind), s.text.as_str()))).collect()
+    };
+    let mut k = keep.into_iter();
+    out.retain(|_| k.next().unwrap_or(false));
 
     out.sort_by(|a, b| {
         // `None` offsets (stack strings) sort after known offsets.
