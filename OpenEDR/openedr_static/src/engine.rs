@@ -37,6 +37,9 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
 pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
 
+/// Score from which a single detection makes a file Malicious (the verdict cut-off).
+pub const MALICIOUS_SCORE: f32 = 0.85;
+
 /// Score of a ClamAV `PUA.*` signature, a YARA-X `PUA_*` rule or a PUA signer (potentially unwanted: adware, bundlers,
 /// packers, hack tools). Between the Suspicious (0.50) and Malicious (0.85) cut-offs,
 /// so a PUA hit alone gives Suspicious / PUA; another malicious layer still wins.
@@ -863,20 +866,28 @@ impl StaticEngine {
         }
     }
 
-    /// Every signature byte range in `data` - ClamAV, YARA-X and HydraDragonSig - as
-    /// `(engine, rule, start, end)`, at most `limit`. For in-place disinfection only:
-    /// the same engines as `scan_bytes_core` on the top-level file, no extraction.
+    /// Byte ranges in `data` of the signatures that alone make a file Malicious -
+    /// ClamAV and YARA-X without `PUA` ones, HydraDragonSig with a score >= 85 - as
+    /// `(engine, rule, start, end)`, at most `limit`. PUA and low-score heuristics are
+    /// left out: they give Suspicious at most, and zeroing what they matched (an API
+    /// name, a common string) breaks files without removing anything malicious. For
+    /// in-place disinfection only: the same engines as `scan_bytes_core` on the
+    /// top-level file, no extraction.
     pub fn match_ranges(&self, data: &[u8], name: &str, limit: usize) -> Vec<(&'static str, String, usize, usize)> {
         let mut out: Vec<(&'static str, String, usize, usize)> = Vec::new();
         if data.is_empty() || limit == 0 {
             return out;
         }
         for (rule, s, e) in self.clam.match_ranges(data, name, limit) {
-            out.push(("ClamAV", rule, s, e));
+            if clam_score(&rule) >= MALICIOUS_SCORE {
+                out.push(("ClamAV", rule, s, e));
+            }
         }
         let yara_slice: &[u8] = if data.len() > 32 * 1024 * 1024 { &data[..32 * 1024 * 1024] } else { data };
         for (rule, s, e) in self.yara.match_ranges(yara_slice, limit.saturating_sub(out.len())) {
-            out.push(("YARA", rule, s, e));
+            if yara_score(&rule) >= MALICIOUS_SCORE {
+                out.push(("YARA", rule, s, e));
+            }
         }
         let is_pe = data.starts_with(b"MZ") && pefile_rs::PE::parse(data).is_ok();
         let capped: &[u8] = if data.len() > 16 * 1024 * 1024 { &data[..16 * 1024 * 1024] } else { data };
@@ -887,6 +898,9 @@ impl StaticEngine {
             hex::encode(hasher.finalize())
         };
         for hit in self.string_rules.scan_bytes(data, name, &sha256_hex, &strings, is_pe, false, 10, None) {
+            if hit.score < 85 {
+                continue;
+            }
             let left = limit.saturating_sub(out.len());
             if left == 0 {
                 break;

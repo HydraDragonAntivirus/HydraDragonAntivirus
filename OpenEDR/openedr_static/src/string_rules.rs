@@ -206,10 +206,11 @@ impl PeStringRules {
 /// in-place disinfection. Evidence names what matched as "`value` at 0x..":
 ///
 /// * byte patterns (`4D 5A ?? 90`): the offset is exact, the length is the token count;
-/// * regexes: the regex is run over the file;
-/// * text (literal, string_contains, xor'd text): every occurrence in the file, as
-///   ASCII (case-insensitive) and UTF-16LE. String-based conditions get offset 0
-///   from this adapter, so the offset is not trusted for text.
+/// * regexes and text (literal, string_contains, xor'd text, ASCII case-insensitive
+///   or UTF-16LE): ONLY when the value is found at the reported offset. Other
+///   occurrences are never touched: the same text often also sits somewhere
+///   legitimate. Evidence without a real location (offset 0 while the value is
+///   elsewhere, e.g. a decoded or stack string) gives no range.
 ///
 /// Values shorter than 4 bytes are skipped (they would wipe headers such as `MZ`).
 /// At most `limit` ranges.
@@ -221,7 +222,6 @@ pub fn evidence_ranges(data: &[u8], evidence: &[String], limit: usize) -> Vec<(u
             if out.len() >= limit {
                 break;
             }
-            let left = limit - out.len();
             let lower = line.to_ascii_lowercase();
             let xor_key = lower
                 .find("xor(0x")
@@ -237,21 +237,28 @@ pub fn evidence_ranges(data: &[u8], evidence: &[String], limit: usize) -> Vec<(u
                     continue;
                 }
             }
+            let Some(at) = data.get(offset..).filter(|r| !r.is_empty()) else { continue };
             if lower.contains("regex") {
-                if let Ok(re) = regex::bytes::Regex::new(&value) {
-                    out.extend(re.find_iter(data).filter(|m| m.end() - m.start() >= MIN_LEN).take(left).map(|m| (m.start(), m.end())));
+                // Anchored at the reported offset: a match elsewhere is not this evidence.
+                if let Ok(re) = regex::bytes::Regex::new(&format!("^(?:{value})")) {
+                    if let Some(m) = re.find(at).filter(|m| m.end() >= MIN_LEN) {
+                        out.push((offset, offset + m.end()));
+                    }
                 }
             } else if value.len() >= MIN_LEN {
                 let ascii: Vec<u8> = match xor_key {
                     Some(k) => value.bytes().map(|b| b ^ k).collect(),
                     None => value.as_bytes().to_vec(),
                 };
-                let mut found = find_all_nocase(data, &ascii, xor_key.is_none(), left);
-                if found.len() < left && xor_key.is_none() {
-                    let wide: Vec<u8> = value.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
-                    found.extend(find_all_nocase(data, &wide, true, left - found.len()));
+                let wide: Vec<u8> = value.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+                let starts = |needle: &[u8], nocase: bool| {
+                    at.get(..needle.len()).is_some_and(|w| if nocase { w.eq_ignore_ascii_case(needle) } else { w == needle })
+                };
+                if starts(&ascii, xor_key.is_none()) {
+                    out.push((offset, offset + ascii.len()));
+                } else if xor_key.is_none() && starts(&wide, true) {
+                    out.push((offset, offset + wide.len()));
                 }
-                out.extend(found);
             }
         }
     }
@@ -308,28 +315,6 @@ fn hex_pattern_matches(data: &[u8], offset: usize, pattern: &str) -> bool {
     let Some(tokens) = hex_tokens(pattern) else { return false };
     let Some(window) = data.get(offset..offset.saturating_add(tokens.len())) else { return false };
     window.len() == tokens.len() && tokens.iter().zip(window).all(|(t, b)| t.is_none_or(|t| t == *b))
-}
-
-fn find_all_nocase(hay: &[u8], needle: &[u8], nocase: bool, limit: usize) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    if needle.is_empty() || needle.len() > hay.len() || limit == 0 {
-        return out;
-    }
-    let mut i = 0;
-    while i + needle.len() <= hay.len() {
-        let w = &hay[i..i + needle.len()];
-        let hit = if nocase { w.eq_ignore_ascii_case(needle) } else { w == needle };
-        if hit {
-            out.push((i, i + needle.len()));
-            if out.len() >= limit {
-                break;
-            }
-            i += needle.len();
-        } else {
-            i += 1;
-        }
-    }
-    out
 }
 
 /// 32 or 64 from the PE optional header magic (0x10b / 0x20b).
@@ -411,16 +396,22 @@ mod evidence_tests {
         data.extend([0x4D, 0x5A, 0x90, 0x00, 0x03]);
         let n = data.len();
         let ev = vec!["string_contains `evil.example` at 0x0".to_string()];
-        assert_eq!(evidence_ranges(&data, &ev, 64), vec![(11, 23), (27, 39), (41, 65)]);
+        assert!(evidence_ranges(&data, &ev, 64).is_empty(), "text not at its offset: no range, not every occurrence");
+        let ev = vec!["string_contains `evil.example` at 0x1b".to_string()];
+        assert_eq!(evidence_ranges(&data, &ev, 64), vec![(27, 39)], "only the located occurrence (case-insensitive)");
+        let ev = vec!["string_contains `evil.example` at 0x29".to_string()];
+        assert_eq!(evidence_ranges(&data, &ev, 64), vec![(41, 65)], "UTF-16LE at its offset");
         let ev = vec![format!("byte_pattern `4D 5A ?? 00` at 0x{:x}", n - 5)];
         assert_eq!(evidence_ranges(&data, &ev, 64), vec![(n - 5, n - 1)]);
         let ev = vec!["byte_pattern `4D 5A 91 00` at 0x0".to_string()];
         assert!(evidence_ranges(&data, &ev, 64).is_empty(), "bytes must match at the offset");
         let ev = vec!["string_regex `http://[a-z.]+/x` at 0x0".to_string()];
+        assert!(evidence_ranges(&data, &ev, 64).is_empty(), "regex not matching at its offset");
+        let ev = vec!["string_regex `http://[a-z.]+/x` at 0x4".to_string()];
         assert_eq!(evidence_ranges(&data, &ev, 64), vec![(4, 25)]);
         let ev = vec!["literal `MZ` at 0x0".to_string(), "pe imports kernel32".to_string()];
         assert!(evidence_ranges(&data, &ev, 64).is_empty(), "short values and lines without offsets");
-        let ev = vec!["`evil.example` at 0x0, `http://` at 0x0".to_string()];
+        let ev = vec!["`evil.example` at 0x1b, `http://` at 0x4, `EVIL.EXAMPLE` at 0xb".to_string()];
         assert_eq!(evidence_ranges(&data, &ev, 2).len(), 2, "limit");
     }
 
@@ -462,6 +453,7 @@ rules:
         let mut ranges: Vec<(usize, usize)> =
             hits.iter().flat_map(|h| super::evidence_ranges(&data, &h.evidence, 16)).collect();
         ranges.sort();
+        // hydradragonsig locates the string in the file: only that occurrence is used.
         assert_eq!(ranges, vec![(text_at, text_at + "drivers\\etc\\hosts".len()), (bytes_at, bytes_at + 6)], "{hits:?}");
     }
 
