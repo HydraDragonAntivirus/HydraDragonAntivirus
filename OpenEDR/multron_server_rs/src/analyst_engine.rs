@@ -105,6 +105,28 @@ pub enum CompanyDecision {
     Block(String),
 }
 
+/// Every distinct name a signed file answers to, in the order an analyst is
+/// most likely to have written it: the publisher first, then the things behind
+/// it. Matching stays whole-line and case-insensitive, exactly as it always was;
+/// only the set of candidate strings grew.
+fn identity_labels(s: &openedr_static::report::SignerDetails) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for v in [
+        s.signer_name.as_deref(),
+        s.issuer.as_deref(),
+        s.timestamp_signer.as_deref(),
+        s.thumbprint.as_deref(),
+    ] {
+        let v = v.map(str::trim).filter(|v| !v.is_empty());
+        if let Some(v) = v {
+            if !out.iter().any(|e| e.eq_ignore_ascii_case(v)) {
+                out.push(v.to_string());
+            }
+        }
+    }
+    out
+}
+
 fn read_list(file: &str) -> Vec<String> {
     std::fs::read_to_string(crate::human_review::analyst_dir().join(file))
         .unwrap_or_default()
@@ -257,19 +279,37 @@ impl AnalystEngine {
         self.companies.read().unwrap().clone()
     }
 
-    /// Block wins over allow. Allow needs a valid, trusted signature: a name alone (or
-    /// a broken signature) never makes a file clean.
-    pub fn company_decision(&self, signer: Option<&str>, trusted: bool) -> Option<CompanyDecision> {
-        let signer = signer?.trim();
-        if signer.is_empty() {
+    /// Block wins over allow, over everything a signed file can be named by:
+    /// publisher, issuing CA, the countersigning authority and the leaf
+    /// thumbprint. A compromised CA signs for whatever subject it is asked for,
+    /// and a revoked-but-still-trusted leaf has an ordinary-looking publisher,
+    /// so matching the publisher alone misses both.
+    ///
+    /// Allow needs a valid, trusted signature: a name alone (or a broken
+    /// signature) never makes a file clean.
+    ///
+    /// This stays the server's own layer: it does not consult `signer_rules/`
+    /// and does not duplicate the engine's `SignerRule` detections.
+    pub fn company_decision_for(
+        &self,
+        s: &openedr_static::report::SignerDetails,
+    ) -> Option<CompanyDecision> {
+        let labels = identity_labels(s);
+        if labels.is_empty() {
             return None;
         }
         let lists = self.companies.read().unwrap();
-        if lists.block.iter().any(|c| c.eq_ignore_ascii_case(signer)) {
-            return Some(CompanyDecision::Block(signer.to_string()));
+        for l in &labels {
+            if lists.block.iter().any(|c| c.eq_ignore_ascii_case(l)) {
+                return Some(CompanyDecision::Block(l.clone()));
+            }
         }
-        if trusted && lists.allow.iter().any(|c| c.eq_ignore_ascii_case(signer)) {
-            return Some(CompanyDecision::Allow(signer.to_string()));
+        if s.is_signed && s.is_trusted {
+            for l in &labels {
+                if lists.allow.iter().any(|c| c.eq_ignore_ascii_case(l)) {
+                    return Some(CompanyDecision::Allow(l.clone()));
+                }
+            }
         }
         None
     }

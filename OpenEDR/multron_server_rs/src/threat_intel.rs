@@ -86,6 +86,78 @@ pub struct SignerSummary {
     pub catalog: bool,
     #[serde(default)]
     pub status: String,
+
+    // Certificate identity, mirrored from `openedr_static::report::SignerDetails`.
+    // Every field is defaulted so insight files written before these existed
+    // still load; an absent field reads as "not reported", never as "clean".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub chain_len: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_before: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_after: Option<i64>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamped: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_signer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_time: Option<i64>,
+}
+
+fn is_zero(v: &usize) -> bool {
+    *v == 0
+}
+
+impl SignerSummary {
+    /// Certificate expired, or not yet valid, against the wall clock.
+    ///
+    /// `None` rather than `false` when no validity window was reported, so a
+    /// file scanned before this field existed is not treated as a clean cert.
+    pub fn validity_problem(&self, now: i64) -> Option<bool> {
+        if self.not_before.is_some_and(|from| from > now) {
+            return Some(true);
+        }
+        if self.not_after.is_some_and(|to| to < now) {
+            return Some(true);
+        }
+        None
+    }
+
+    /// One line for the dashboard, or `None` when there is nothing to add
+    /// beyond the publisher name already shown.
+    pub fn certificate_detail(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if let Some(issuer) = self.issuer.as_deref().filter(|s| !s.trim().is_empty()) {
+            parts.push(format!("issued by {issuer}"));
+        }
+        if let Some(tp) = self.thumbprint.as_deref().filter(|s| !s.trim().is_empty()) {
+            parts.push(format!("cert {tp}"));
+        }
+        match self.timestamped {
+            Some(true) => parts.push("timestamped".to_string()),
+            Some(false) => parts.push("no countersignature".to_string()),
+            None => {}
+        }
+        if let Some(tsa) = self
+            .timestamp_signer
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            parts.push(format!("timestamped by {tsa}"));
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(", "))
+        }
+    }
 }
 
 impl ThreatInsight {

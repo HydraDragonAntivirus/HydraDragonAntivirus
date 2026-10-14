@@ -515,11 +515,17 @@ mod tests {
     fn honours_the_scan_cap() {
         const LATE: &[u8] = b"https://late.tld/a";
         let mut data = vec![b' '; SCAN_CAP + 4096];
-        // Starts inside the scanned window, but only its first byte can be:
-        // `SCAN_CAP` + 16 is past the cap, so the pass must never reach it.
-        let at = SCAN_CAP - LATE.len();
-        data[at..at + LATE.len()].copy_from_slice(LATE);
-        assert!(extract_urls(&data).is_empty(), "no URL before the cap");
+
+        // One URL comfortably inside the window and one comfortably past it.
+        // Asserting both sides is the point: a pass that simply found nothing
+        // would satisfy the original one-sided check too.
+        let inside = SCAN_CAP - 4096;
+        data[inside..inside + LATE.len()].copy_from_slice(LATE);
+        let outside = SCAN_CAP + 16;
+        data[outside..outside + LATE.len()].copy_from_slice(LATE);
+
+        let hosts: Vec<String> = extract_urls(&data).into_iter().map(|u| u.host).collect();
+        assert_eq!(hosts, vec!["late.tld"], "only the URL before the cap");
     }
 
     #[test]
@@ -542,6 +548,30 @@ mod tests {
             .map(|u| u.host)
             .collect();
         assert_eq!(hosts, vec!["a8f7d9a.xyz"]);
+    }
+
+    #[test]
+    fn accepts_either_eol_form_before_the_stream_keyword() {
+        use std::io::Write;
+
+        let body = b"BT (https://eol.tld/x) Tj ET";
+        let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        enc.write_all(body).unwrap();
+        let z = enc.finish().unwrap();
+
+        for (name, sep) in [("none", &b""[..]), ("lf", &b"\n"[..]), ("crlf", &b"\r\n"[..])] {
+            let mut pdf = b"%PDF-1.7\n<< /Length 999 /Filter /FlateDecode >>".to_vec();
+            pdf.extend_from_slice(sep);
+            pdf.extend_from_slice(b"stream\n");
+            pdf.extend_from_slice(&z);
+            pdf.extend_from_slice(b"\nendstream\n%%EOF");
+
+            let hosts: Vec<String> = extract_urls_from_streams(&pdf)
+                .into_iter()
+                .map(|u| u.host)
+                .collect();
+            assert_eq!(hosts, vec!["eol.tld"], "{name} separator before `stream`");
+        }
     }
 
     #[test]

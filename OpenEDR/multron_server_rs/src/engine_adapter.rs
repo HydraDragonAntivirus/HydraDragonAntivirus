@@ -807,11 +807,13 @@ impl EngineAdapter {
         let mut res = build_result(&report, sha);
         self.apply_xorfilter(&engine, &mut res, sha);
         // Analyst company lists (Authenticode signer): allow -> clean, block -> malicious.
-        let signer = report.signer_info.as_ref();
-        match self.analyst.company_decision(
-            signer.and_then(|s| s.signer_name.as_deref()),
-            signer.is_some_and(|s| s.is_signed && s.is_trusted),
-        ) {
+        // Matched against the publisher, the issuing CA, the countersigning
+        // authority and the leaf thumbprint, not the publisher alone.
+        match report
+            .signer_info
+            .as_ref()
+            .and_then(|s| self.analyst.company_decision_for(s))
+        {
             Some(crate::analyst_engine::CompanyDecision::Block(company)) => apply_analyst_hit(
                 &mut res,
                 &crate::analyst_engine::AnalystHit {
@@ -1286,6 +1288,18 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
             trusted: s.is_trusted,
             catalog: s.is_catalog_signed,
             status: s.status.clone(),
+            issuer: s.issuer.clone().filter(|n| !n.trim().is_empty()),
+            chain_len: s.chain_len,
+            thumbprint: s.thumbprint.clone().filter(|n| !n.trim().is_empty()),
+            not_before: s.not_before,
+            not_after: s.not_after,
+            // `Option<bool>`, not `bool`: "no PKCS#7 of its own" and "PKCS#7
+            // with no countersignature" are different facts, and an insight
+            // file from before this existed knows neither.
+            timestamped: Some(s.timestamped),
+            timestamp_kind: s.timestamp_kind.clone(),
+            timestamp_signer: s.timestamp_signer.clone().filter(|n| !n.trim().is_empty()),
+            timestamp_time: s.timestamp_time,
         }),
         detections: report
             .detections
@@ -1311,6 +1325,21 @@ fn build_result(report: &StaticScanReport, sha: &str) -> ResultMessage {
             if let Some(ref name) = signer.signer_name {
                 detail_parts.push(format!("Signed by {}", name));
             }
+        }
+    }
+
+    // Certificate identity, so the issuer/TSA/thumbprint an analyst block-list
+    // can now name is visible without opening the raw report.
+    if let Some(ref sg) = res.signer {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if let Some(detail) = sg.certificate_detail() {
+            detail_parts.push(format!("Certificate: {}", detail));
+        }
+        if sg.validity_problem(now) == Some(true) {
+            detail_parts.push("Signer certificate outside its validity window".to_string());
         }
     }
 
