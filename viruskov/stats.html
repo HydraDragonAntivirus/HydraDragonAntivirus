@@ -7,7 +7,7 @@
   <title>VIRUSKOV &mdash; Canlı Tehdit Telemetrisi &amp; Tarama İstatistikleri</title>
   <meta name="description" content="VirusKov EDR & Antivirus küresel tehdit telemetrisi, canlı hash gözlemleri, algılama oranları ve Elasticsearch ECS 9.5.4 oturum tarama geçmişi.">
   <link rel="icon" type="image/svg+xml" href="viruskov-fav.svg?v=20261014">
-  <script src="i18n.js?v=12"></script>
+  <script src="i18n.js?v=13"></script>
   <style>
     :root {
       --bg-base: #06090a;
@@ -264,6 +264,16 @@
     .ha-days span { flex: 1; min-width: 0; text-align: center; overflow: hidden; }
     .ha-note { font-size: 0.8rem; color: var(--text-muted); margin-top: 12px; line-height: 1.5; }
     @media (max-width: 600px) { .ha-days span:nth-child(odd) { visibility: hidden; } }
+    /* ML dataset panel */
+    .ds-filters { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+    .ds-filters .types-tabs { flex-wrap: wrap; }
+    .ds-tab { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); font-family: var(--font-mono); font-size: 0.72rem; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+    .ds-tab.active { color: #fff; border-color: var(--accent-red); }
+    .ratio-seg.ds-o, .ha-day > i.ds-o, .legend-dot.ds-o { background: var(--accent-cyan); }
+    .ratio-seg.ds-p, .ha-day > i.ds-p, .legend-dot.ds-p { background: var(--accent-amber); }
+    .ratio-seg.ds-b, .ha-day > i.ds-b, .legend-dot.ds-b { background: #a78bfa; }
+    /* One label every 5 days: let it overflow its narrow column, centred. */
+    #dsDays span { display: flex; justify-content: center; overflow: visible; white-space: nowrap; visibility: visible; }
 
     /* Table */
     .table-container {
@@ -508,6 +518,44 @@
       <div class="ha-chart" id="haChart" aria-label="Daily human verdicts"></div>
       <div class="ha-days" id="haDays"></div>
       <div class="ha-note" id="haBulkNote"></div>
+    </div>
+
+    <!-- ML DATASET PANEL (counts only: no paths, names or hashes) -->
+    <div class="panel" id="datasetPanel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title"><span data-i18n="ds.title">Eğitim Veri Seti</span></div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="ds.desc">ML ve imza eğitiminde kullanılan benzersiz dosyalar. Her dosya SHA-256 ile bir kez sayılır: yalnızca kendi topladıklarımızda, yalnızca herkese açık veri setlerinde ya da ikisinde de.</div>
+        </div>
+        <div class="ds-filters">
+          <div class="types-tabs" id="dsPlatformTabs">
+            <button type="button" class="ds-tab active" data-platform="all" data-i18n="ds.all">Hepsi</button>
+            <button type="button" class="ds-tab" data-platform="windows" data-i18n="ds.windows">Windows</button>
+            <button type="button" class="ds-tab" data-platform="android" data-i18n="ds.android">Android</button>
+            <button type="button" class="ds-tab" data-platform="javascript" data-i18n="ds.javascript">JavaScript</button>
+          </div>
+          <div class="types-tabs" id="dsLabelTabs">
+            <button type="button" class="ds-tab active" data-label="all" data-i18n="ds.all">Hepsi</button>
+            <button type="button" class="ds-tab" data-label="malware" data-i18n="ds.malware">Virüs</button>
+            <button type="button" class="ds-tab" data-label="clean" data-i18n="ds.clean">Temiz</button>
+          </div>
+        </div>
+      </div>
+      <div class="ratio-bar" aria-label="Own / public / both">
+        <div id="dsBarOwn" class="ratio-seg ds-o" style="width: 0%;"></div>
+        <div id="dsBarPublic" class="ratio-seg ds-p" style="width: 0%;"></div>
+        <div id="dsBarBoth" class="ratio-seg ds-b" style="width: 0%;"></div>
+      </div>
+      <div class="ratio-legend" style="margin-bottom:10px">
+        <div class="legend-item"><span class="legend-dot ds-o"></span><span style="color:var(--text-muted);" data-i18n="ds.own">Yalnızca kendi</span><b style="color:var(--accent-cyan); margin-left:auto;" id="dsOwn">—</b></div>
+        <div class="legend-item"><span class="legend-dot ds-p"></span><span style="color:var(--text-muted);" data-i18n="ds.public">Yalnızca herkese açık</span><b style="color:var(--accent-amber); margin-left:auto;" id="dsPublic">—</b></div>
+        <div class="legend-item"><span class="legend-dot ds-b"></span><span style="color:var(--text-muted);" data-i18n="ds.both">İkisinde de</span><b style="color:#a78bfa; margin-left:auto;" id="dsBoth">—</b></div>
+        <div class="legend-item"><span style="color:var(--text-muted);" data-i18n="ds.total">Toplam</span><b style="color:#fff; margin-left:auto;" id="dsTotal">—</b></div>
+      </div>
+      <div class="spec-lbl" data-i18n="ds.chart">Son 30 gün — günlük eklenen dosyalar</div>
+      <div class="ha-chart" id="dsChart" aria-label="Daily dataset additions"></div>
+      <div class="ha-days" id="dsDays"></div>
+      <div class="ha-note" id="dsNote"></div>
     </div>
 
     <!-- LOCAL SCAN HISTORY PANEL -->
@@ -784,6 +832,77 @@
         if (res.ok) { const d = await res.json(); renderHuman(d.human_analysis); }
       } catch (_) {}
     }
+
+    // ML dataset (own / public / both). Fetched once per page load: this endpoint is
+    // under the per-IP REST quota, and the server refreshes it at most once a minute.
+    let dsData = null, dsState = 'loading', dsPlatform = 'all', dsLabel = 'all';
+    function renderDataset() {
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      const note = document.getElementById('dsNote');
+      const cell = dsData && dsData.stats && dsData.stats[dsPlatform] ? dsData.stats[dsPlatform][dsLabel] : null;
+      if (!cell) {
+        ['dsOwn', 'dsPublic', 'dsBoth', 'dsTotal'].forEach(id => set(id, '—'));
+        ['dsBarOwn', 'dsBarPublic', 'dsBarBoth'].forEach(id => { const el = document.getElementById(id); if (el) el.style.width = '0%'; });
+        const chart = document.getElementById('dsChart'), days = document.getElementById('dsDays');
+        if (chart) chart.innerHTML = '';
+        if (days) days.innerHTML = '';
+        const msg = { unavailable: ['ds.unavailable', 'Veri seti istatistikleri şu an kullanılamıyor.'],
+                      indexing: ['ds.indexing', 'Veri seti indeksleniyor; sayılar birazdan görünecek.'],
+                      rate_limited: ['ds.rate_limited', 'Sorgu sınırına ulaşıldı, lütfen daha sonra tekrar deneyin.'] }[dsState];
+        if (note) note.textContent = msg ? haT(msg[0], msg[1]) : '';
+        return;
+      }
+      const n = (x) => Number(x || 0).toLocaleString();
+      const total = cell.total || 0;
+      set('dsOwn', n(cell.own_only));
+      set('dsPublic', n(cell.public_only));
+      set('dsBoth', n(cell.both));
+      set('dsTotal', n(total));
+      const pct = (v) => total ? (v / total * 100).toFixed(2) + '%' : '0%';
+      const lOwn = haT('ds.own', 'Yalnızca kendi'), lPub = haT('ds.public', 'Yalnızca herkese açık'), lBoth = haT('ds.both', 'İkisinde de');
+      [['dsBarOwn', cell.own_only, lOwn], ['dsBarPublic', cell.public_only, lPub], ['dsBarBoth', cell.both, lBoth]].forEach(([id, v, l]) => {
+        const el = document.getElementById(id);
+        if (el) { el.style.width = pct(v || 0); el.title = `${l}: ${n(v)} (${pct(v || 0)})`; }
+      });
+      const days = cell.daily || [];
+      const max = Math.max(1, ...days.map(d => d.own_only + d.public_only + d.both));
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const chart = document.getElementById('dsChart'), labels = document.getElementById('dsDays');
+      if (chart) {
+        chart.innerHTML = days.map(d => {
+          const h = (v) => (v / max * 100).toFixed(2) + '%';
+          const tip = esc(`${d.date}: ${d.own_only + d.public_only + d.both} · ${lOwn} ${d.own_only} · ${lPub} ${d.public_only} · ${lBoth} ${d.both}`);
+          return `<div class="ha-day" title="${tip}"><i class="ds-o" style="height:${h(d.own_only)}"></i><i class="ds-p" style="height:${h(d.public_only)}"></i><i class="ds-b" style="height:${h(d.both)}"></i></div>`;
+        }).join('');
+      }
+      // A label every 5 days (counting back from today) keeps 30 columns readable.
+      if (labels) labels.innerHTML = days.map((d, i) => `<span>${(days.length - 1 - i) % 5 === 0 ? esc(d.date.slice(8, 10) + '.' + d.date.slice(5, 7)) : ''}</span>`).join('');
+      if (note) note.textContent = total ? '' : haT('ds.empty', 'Bu filtre için dosya yok.');
+    }
+    async function fetchDataset() {
+      try {
+        const res = await fetch('https://api.viruskov.com/api/v1/dataset/stats');
+        if (res.status === 429) { dsState = 'rate_limited'; }
+        else if (res.ok) {
+          const d = await res.json();
+          if (d.status === 'success' && d.ready && d.stats) { dsData = d; dsState = 'ready'; }
+          else dsState = d.enabled ? 'indexing' : 'unavailable';
+        } else dsState = 'unavailable';
+      } catch (_) { dsState = 'unavailable'; }
+      renderDataset();
+    }
+    document.querySelectorAll('#dsPlatformTabs .ds-tab').forEach(b => b.addEventListener('click', () => {
+      dsPlatform = b.dataset.platform;
+      document.querySelectorAll('#dsPlatformTabs .ds-tab').forEach(x => x.classList.toggle('active', x === b));
+      renderDataset();
+    }));
+    document.querySelectorAll('#dsLabelTabs .ds-tab').forEach(b => b.addEventListener('click', () => {
+      dsLabel = b.dataset.label;
+      document.querySelectorAll('#dsLabelTabs .ds-tab').forEach(x => x.classList.toggle('active', x === b));
+      renderDataset();
+    }));
+    window.addEventListener('viruskov_lang_changed', renderDataset);
+    fetchDataset();
 
     fetchTelemetry();
     setInterval(fetchTelemetry, 8000);

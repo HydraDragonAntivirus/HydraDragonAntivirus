@@ -280,7 +280,8 @@ fn inflate_stream(compressed: &[u8], cap: usize) -> Option<Vec<u8>> {
 /// The `>>` requirement is what makes this safe to run on arbitrary bytes: only
 /// a dictionary-closing token can precede a real stream, so the word "stream"
 /// appearing in document text (or inside `endstream`) is never mistaken for
-/// one.
+/// one. An EOL may sit between the two — PDF allows it and producers emit it —
+/// but nothing wider than CR/LF, so the guard is not loosened.
 ///
 /// Bounded on all three axes — stream count, per-stream inflated size, total
 /// inflated size. Streams that fail to inflate are skipped silently; the `>>`
@@ -297,7 +298,16 @@ pub fn extract_urls_from_streams(data: &[u8]) -> Vec<EmbeddedUrl> {
             break;
         };
         i = kw + b"stream".len();
-        if kw < 2 || &buf[kw - 2..kw] != b">>" {
+        // PDF puts an EOL between the dictionary's closing token and the
+        // keyword, so `>>\nstream` is as valid as `>>stream`. Step back over
+        // the EOL bytes instead of assuming the token touches the keyword:
+        // without this every newline-separated stream is skipped, which is
+        // exactly how a real phishing PDF gets past this pass.
+        let mut back = kw;
+        while back > 0 && matches!(buf[back - 1], b'\r' | b'\n') {
+            back -= 1;
+        }
+        if back < 2 || &buf[back - 2..back] != b">>" {
             continue;
         }
         // Skip the EOL after the keyword; PDF mandates one.
@@ -503,10 +513,13 @@ mod tests {
 
     #[test]
     fn honours_the_scan_cap() {
+        const LATE: &[u8] = b"https://late.tld/a";
         let mut data = vec![b' '; SCAN_CAP + 4096];
-        let at = SCAN_CAP + 16;
-        data[at..at + 20].copy_from_slice(b"https://late.tld/a");
-        assert!(extract_urls(&data).is_empty());
+        // Starts inside the scanned window, but only its first byte can be:
+        // `SCAN_CAP` + 16 is past the cap, so the pass must never reach it.
+        let at = SCAN_CAP - LATE.len();
+        data[at..at + LATE.len()].copy_from_slice(LATE);
+        assert!(extract_urls(&data).is_empty(), "no URL before the cap");
     }
 
     #[test]

@@ -424,6 +424,7 @@ impl ScanServer {
             .route("/health", get(Self::handle_health))
             .route("/api/v1/insights/:sha256", get(handle_hash_insights))
             .route("/api/v1/insights/stats", get(handle_insights_stats))
+            .route("/api/v1/dataset/stats", get(handle_dataset_stats))
             .route("/api/v1/reviews", get(handle_public_reviews))
             .route("/api/v1/report/:sha256", get(handle_file_report))
             .route("/api/v1/similar/:sha256", get(handle_similar))
@@ -2606,4 +2607,49 @@ async fn handle_similar(
         serde_json::json!({ "status": "success", "sha256": sha, "max_distance": crate::similarity::SIMILAR_MAX_DIST, "similar": list }),
         "public, max-age=60",
     )
+}
+
+/// Public ML dataset numbers, rebuilt at most once a minute (one pass over the index).
+/// Counts only: no folder, file name or hash ever leaves the server.
+fn cached_dataset_stats(server: &ScanServer) -> serde_json::Value {
+    static CACHE: StdMutex<Option<(std::time::Instant, serde_json::Value)>> = StdMutex::new(None);
+    let mut g = CACHE.lock().unwrap();
+    if let Some((t, v)) = g.as_ref() {
+        if t.elapsed() < Duration::from_secs(60) {
+            return v.clone();
+        }
+    }
+    let v = match server.engine.dataset.as_ref() {
+        None => serde_json::json!({ "status": "success", "enabled": false, "ready": false }),
+        Some(ds) => match ds.public_stats() {
+            None => serde_json::json!({ "status": "success", "enabled": true, "ready": false }),
+            Some(st) => serde_json::json!({
+                "status": "success",
+                "enabled": true,
+                "ready": true,
+                "generated_at": chrono::Utc::now().to_rfc3339(),
+                "days": st.days,
+                "stats": st.cells,
+            }),
+        },
+    };
+    *g = Some((std::time::Instant::now(), v.clone()));
+    v
+}
+
+async fn handle_dataset_stats(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+) -> Response {
+    let ip = extract_client_ip(addr, &headers);
+    let key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
+    if let Err(retry) = server.rest_limiter.check(&ip, key) {
+        return json_response(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({"status": "error", "retry_after_seconds": retry}), "no-store");
+    }
+    let s2 = Arc::clone(&server);
+    match tokio::task::spawn_blocking(move || cached_dataset_stats(&s2)).await {
+        Ok(v) => json_response(StatusCode::OK, v, "public, max-age=60"),
+        Err(_) => json_response(StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({"status": "error"}), "no-store"),
+    }
 }

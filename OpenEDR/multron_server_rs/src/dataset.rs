@@ -14,9 +14,22 @@
 //! }
 //! ```
 //!
-//! A file is copied as `<SHA256>.<ext>` into the folder of its platform (APK -> android,
-//! PE -> windows, JavaScript -> javascript) and label, ONLY when the label comes from a
-//! reliable source, so the models never learn the engine's own mistakes:
+//! Every key also takes a source tag and/or several folders. `"own"` is your own
+//! collection, `"public"` a public dataset you downloaded; a plain path is `"own"`:
+//!
+//! ```json
+//! {
+//!   "windows_malware": [
+//!     "C:\\...\\usbdosyalar\\datamaliciousorder",
+//!     { "path": "D:\\public\\some_public_set\\malware", "source": "public" }
+//!   ],
+//!   "windows_clean": { "path": "C:\\...\\usbdosyalar\\data2", "source": "own" }
+//! }
+//! ```
+//!
+//! A file is copied as `<SHA256>.<ext>` into the (first "own") folder of its platform
+//! (APK -> android, PE -> windows, JavaScript -> javascript) and label, ONLY when the
+//! label comes from a reliable source, so the models never learn the engine's own mistakes:
 //!
 //! * an analyst verdict (human review) - malicious or clean;
 //! * analyst signatures / the analyst company allow-list;
@@ -43,8 +56,12 @@
 //!
 //! Copies that arrive while the index is still being built wait in memory (up to
 //! `PENDING_MAX_BYTES`) and are written once it is ready.
+//!
+//! `Dataset::public_stats` counts the unique hashes per platform and label that are only
+//! in "own" folders, only in "public" folders, or in both, plus the last 30 days of
+//! additions. It holds counts only - never a folder, file name or hash.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -57,20 +74,81 @@ use crate::engine_adapter::ResultMessage;
 /// Copies waiting for the index, at most this many bytes in memory.
 const PENDING_MAX_BYTES: usize = 256 * 1024 * 1024;
 
+/// Days of additions in `public_stats`.
+pub const STATS_DAYS: usize = 30;
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct DatasetPaths {
     #[serde(default)]
-    pub windows_malware: Option<PathBuf>,
+    pub windows_malware: FolderList,
     #[serde(default)]
-    pub windows_clean: Option<PathBuf>,
+    pub windows_clean: FolderList,
     #[serde(default)]
-    pub android_malware: Option<PathBuf>,
+    pub android_malware: FolderList,
     #[serde(default)]
-    pub android_clean: Option<PathBuf>,
+    pub android_clean: FolderList,
     #[serde(default)]
-    pub javascript_malware: Option<PathBuf>,
+    pub javascript_malware: FolderList,
     #[serde(default)]
-    pub javascript_clean: Option<PathBuf>,
+    pub javascript_clean: FolderList,
+}
+
+/// Where the files of a folder come from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    /// Your own collection (the default, and where the server writes its copies).
+    #[default]
+    Own,
+    /// A public dataset.
+    Public,
+}
+
+/// One folder in `dataset_paths.json`: a plain path ("own") or `{ "path", "source" }`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum FolderSpec {
+    Path(PathBuf),
+    Tagged {
+        path: PathBuf,
+        #[serde(default)]
+        source: Source,
+    },
+}
+
+impl FolderSpec {
+    fn into_pair(self) -> (PathBuf, Source) {
+        match self {
+            FolderSpec::Path(p) => (p, Source::Own),
+            FolderSpec::Tagged { path, source } => (path, source),
+        }
+    }
+}
+
+/// The folders of one platform + label: `null`, one folder or an array of folders.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FolderList(pub Vec<(PathBuf, Source)>);
+
+impl FolderList {
+    pub fn own(path: impl Into<PathBuf>) -> Self {
+        FolderList(vec![(path.into(), Source::Own)])
+    }
+}
+
+impl<'de> Deserialize<'de> for FolderList {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum OneOrMany {
+            One(FolderSpec),
+            Many(Vec<FolderSpec>),
+        }
+        Ok(match Option::<OneOrMany>::deserialize(d)? {
+            None => FolderList::default(),
+            Some(OneOrMany::One(f)) => FolderList(vec![f.into_pair()]),
+            Some(OneOrMany::Many(v)) => FolderList(v.into_iter().map(FolderSpec::into_pair).collect()),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -88,7 +166,30 @@ pub enum Label {
     Clean,
 }
 
+impl Platform {
+    pub const ALL: [Platform; 3] = [Platform::Windows, Platform::Android, Platform::JavaScript];
+
+    /// Key in the public stats.
+    pub fn key(self) -> &'static str {
+        match self {
+            Platform::Windows => "windows",
+            Platform::Android => "android",
+            Platform::JavaScript => "javascript",
+        }
+    }
+}
+
 impl Label {
+    pub const ALL: [Label; 2] = [Label::Malware, Label::Clean];
+
+    /// Key in the public stats.
+    pub fn key(self) -> &'static str {
+        match self {
+            Label::Malware => "malware",
+            Label::Clean => "clean",
+        }
+    }
+
     fn other(self) -> Self {
         match self {
             Label::Malware => Label::Clean,
@@ -106,25 +207,38 @@ impl DatasetPaths {
         !self.folders().is_empty()
     }
 
-    pub fn dir(&self, platform: Platform, label: Label) -> Option<&Path> {
-        let p = match (platform, label) {
+    fn list(&self, platform: Platform, label: Label) -> &FolderList {
+        match (platform, label) {
             (Platform::Windows, Label::Malware) => &self.windows_malware,
             (Platform::Windows, Label::Clean) => &self.windows_clean,
             (Platform::Android, Label::Malware) => &self.android_malware,
             (Platform::Android, Label::Clean) => &self.android_clean,
             (Platform::JavaScript, Label::Malware) => &self.javascript_malware,
             (Platform::JavaScript, Label::Clean) => &self.javascript_clean,
-        };
-        p.as_deref().filter(|p| !p.as_os_str().is_empty())
+        }
     }
 
-    /// Every configured folder with its platform and label.
-    pub fn folders(&self) -> Vec<(Platform, Label, PathBuf)> {
-        let mut out = Vec::new();
-        for platform in [Platform::Windows, Platform::Android, Platform::JavaScript] {
-            for label in [Label::Malware, Label::Clean] {
-                if let Some(d) = self.dir(platform, label) {
-                    out.push((platform, label, d.to_path_buf()));
+    /// Folder the server writes its copies to: the first "own" folder of that
+    /// platform and label (public datasets are never written to).
+    pub fn dir(&self, platform: Platform, label: Label) -> Option<&Path> {
+        self.list(platform, label)
+            .0
+            .iter()
+            .find(|(p, s)| *s == Source::Own && !p.as_os_str().is_empty())
+            .map(|(p, _)| p.as_path())
+    }
+
+    /// Every configured folder with its platform, label and source (a folder listed
+    /// twice under the same key is walked once).
+    pub fn folders(&self) -> Vec<(Platform, Label, Source, PathBuf)> {
+        let mut out: Vec<(Platform, Label, Source, PathBuf)> = Vec::new();
+        for platform in Platform::ALL {
+            for label in Label::ALL {
+                for (p, source) in &self.list(platform, label).0 {
+                    if p.as_os_str().is_empty() || out.iter().any(|f| f.0 == platform && f.1 == label && f.3 == *p) {
+                        continue;
+                    }
+                    out.push((platform, label, *source, p.clone()));
                 }
             }
         }
@@ -140,6 +254,10 @@ struct Entry {
     path: PathBuf,
     /// `<SHA256>.<ext>` written by this server (only those are ever removed).
     ours: bool,
+    /// Own collection or public dataset (from the folder).
+    source: Source,
+    /// When the file arrived (creation time, else modification time; Unix seconds).
+    added: u64,
 }
 
 /// Line of `dataset_index.jsonl` (digest cache).
@@ -180,6 +298,55 @@ pub struct DatasetStatus {
     pub written: u64,
     pub duplicates_skipped: u64,
     pub conflicts: u64,
+}
+
+/// Unique hashes by where they are: only own folders, only public folders, or both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct SourceCounts {
+    pub own_only: u64,
+    pub public_only: u64,
+    pub both: u64,
+}
+
+impl SourceCounts {
+    fn bump(&mut self, own: bool, public: bool) {
+        match (own, public) {
+            (true, true) => self.both += 1,
+            (true, false) => self.own_only += 1,
+            (false, true) => self.public_only += 1,
+            (false, false) => {}
+        }
+    }
+
+    pub fn total(&self) -> u64 {
+        self.own_only + self.public_only + self.both
+    }
+}
+
+/// Hashes first seen on one UTC day (`YYYY-MM-DD`), by where they are now.
+#[derive(Debug, Clone, Serialize)]
+pub struct DayCounts {
+    pub date: String,
+    #[serde(flatten)]
+    pub counts: SourceCounts,
+}
+
+/// One platform + label filter (either may be "all").
+#[derive(Debug, Clone, Serialize)]
+pub struct StatsCell {
+    #[serde(flatten)]
+    pub counts: SourceCounts,
+    pub total: u64,
+    /// The last `STATS_DAYS` days, oldest first, zero days included.
+    pub daily: Vec<DayCounts>,
+}
+
+/// Counts only - no folder, file name or hash. `cells[platform][label]` with
+/// platform in all/windows/android/javascript and label in all/malware/clean.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicStats {
+    pub days: usize,
+    pub cells: BTreeMap<&'static str, BTreeMap<&'static str, StatsCell>>,
 }
 
 pub struct Dataset {
@@ -247,6 +414,92 @@ impl Dataset {
         }
     }
 
+    /// Public counts per platform and label (None until the index is ready).
+    pub fn public_stats(&self) -> Option<PublicStats> {
+        if !self.ready.load(Ordering::Relaxed) {
+            return None;
+        }
+        Some(self.public_stats_at(now_secs()))
+    }
+
+    /// Every hash is counted once per filter: "own_only" when all its files in the
+    /// filter are in own folders, "public_only" when all are in public folders, "both"
+    /// otherwise. A hash's day is the earliest arrival of its files in the filter.
+    fn public_stats_at(&self, now: u64) -> PublicStats {
+        const PLATFORMS: [Option<Platform>; 4] =
+            [None, Some(Platform::Windows), Some(Platform::Android), Some(Platform::JavaScript)];
+        const LABELS: [Option<Label>; 3] = [None, Some(Label::Malware), Some(Label::Clean)];
+        let today = now / 86_400;
+        let first = today + 1 - STATS_DAYS as u64;
+        let mut acc = vec![(SourceCounts::default(), vec![SourceCounts::default(); STATS_DAYS]); 12];
+        {
+            let index = self.index.lock().unwrap();
+            for entries in index.values() {
+                // (in own, in public, earliest arrival) per platform x label.
+                let mut cell = [(false, false, u64::MAX); 6];
+                for e in entries {
+                    let c = &mut cell[platform_idx(e.platform) * 2 + label_idx(e.label)];
+                    match e.source {
+                        Source::Own => c.0 = true,
+                        Source::Public => c.1 = true,
+                    }
+                    c.2 = c.2.min(e.added);
+                }
+                for (pi, pf) in PLATFORMS.iter().enumerate() {
+                    for (li, lf) in LABELS.iter().enumerate() {
+                        let (mut own, mut public, mut added) = (false, false, u64::MAX);
+                        for p in Platform::ALL {
+                            if pf.is_some_and(|x| x != p) {
+                                continue;
+                            }
+                            for l in Label::ALL {
+                                if lf.is_some_and(|x| x != l) {
+                                    continue;
+                                }
+                                let c = cell[platform_idx(p) * 2 + label_idx(l)];
+                                own |= c.0;
+                                public |= c.1;
+                                added = added.min(c.2);
+                            }
+                        }
+                        if !own && !public {
+                            continue;
+                        }
+                        let a = &mut acc[pi * 3 + li];
+                        a.0.bump(own, public);
+                        let day = added / 86_400;
+                        if (first..=today).contains(&day) {
+                            a.1[(day - first) as usize].bump(own, public);
+                        }
+                    }
+                }
+            }
+        }
+        let dates: Vec<String> = (0..STATS_DAYS as u64)
+            .map(|i| {
+                chrono::DateTime::from_timestamp(((first + i) * 86_400) as i64, 0)
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let mut cells: BTreeMap<&'static str, BTreeMap<&'static str, StatsCell>> = BTreeMap::new();
+        for (pi, pf) in PLATFORMS.iter().enumerate() {
+            for (li, lf) in LABELS.iter().enumerate() {
+                let (counts, days) = &acc[pi * 3 + li];
+                let daily = dates
+                    .iter()
+                    .zip(days)
+                    .map(|(date, c)| DayCounts { date: date.clone(), counts: *c })
+                    .collect();
+                cells.entry(pf.map_or("all", Platform::key)).or_default().insert(
+                    lf.map_or("all", Label::key),
+                    StatsCell { counts: *counts, total: counts.total(), daily },
+                );
+            }
+        }
+        PublicStats { days: STATS_DAYS, cells }
+    }
+
     /// `dataset_conflicts.jsonl`: one JSON object per conflict, newest last.
     pub fn conflicts_file(&self) -> PathBuf {
         self.state_dir.join("dataset_conflicts.jsonl")
@@ -278,15 +531,15 @@ impl Dataset {
         let mut fresh: Vec<CacheLine> = Vec::new();
         let mut map: HashMap<String, Vec<Entry>> = HashMap::new();
         let mut hashed = 0u64;
-        for (platform, label, dir) in self.paths.folders() {
+        for (platform, label, source, dir) in self.paths.folders() {
             for path in walk_files(&dir) {
                 let Ok(meta) = std::fs::metadata(&path) else { continue };
                 let size = meta.len();
-                let mtime = meta
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map_or(0, |d| d.as_secs());
+                let mtime = unix_secs(meta.modified().ok());
+                let added = match unix_secs(meta.created().ok()) {
+                    0 => mtime,
+                    c => c,
+                };
                 let key = path.to_string_lossy().into_owned();
                 let sha = match cache.get(&key) {
                     Some((s, m, h)) if *s == size && *m == mtime => h.clone(),
@@ -300,7 +553,7 @@ impl Dataset {
                 };
                 fresh.push(CacheLine { p: key, s: size, m: mtime, h: sha.clone() });
                 let ours = is_ours(&path, &sha);
-                map.entry(sha).or_default().push(Entry { platform, label, path, ours });
+                map.entry(sha).or_default().push(Entry { platform, label, path, ours, source, added });
                 let n = self.indexed_files.fetch_add(1, Ordering::Relaxed) + 1;
                 if n % 20_000 == 0 {
                     eprintln!("[dataset] indexing: {n} files ({hashed} hashed)");
@@ -317,7 +570,7 @@ impl Dataset {
         }
         // Conflicts already in the data: the same content under both labels.
         for (sha, entries) in &map {
-            for platform in [Platform::Windows, Platform::Android, Platform::JavaScript] {
+            for platform in Platform::ALL {
                 let mal: Vec<&Entry> = entries.iter().filter(|e| e.platform == platform && e.label == Label::Malware).collect();
                 let cln: Vec<&Entry> = entries.iter().filter(|e| e.platform == platform && e.label == Label::Clean).collect();
                 if !mal.is_empty() && !cln.is_empty() {
@@ -415,13 +668,13 @@ impl Dataset {
             let _ = std::fs::remove_file(&tmp);
             if target.exists() {
                 // Same name, so same content (the name is the SHA-256).
-                entries.push(Entry { platform, label, path: target.clone(), ours: true });
+                entries.push(Entry { platform, label, path: target.clone(), ours: true, source: Source::Own, added: now_secs() });
                 self.duplicates_skipped.fetch_add(1, Ordering::Relaxed);
                 return ExportOutcome::AlreadyPresent(target);
             }
             return ExportOutcome::Skipped;
         }
-        entries.push(Entry { platform, label, path: target.clone(), ours: true });
+        entries.push(Entry { platform, label, path: target.clone(), ours: true, source: Source::Own, added: now_secs() });
         drop(index);
         self.written.fetch_add(1, Ordering::Relaxed);
         self.indexed_files.fetch_add(1, Ordering::Relaxed);
@@ -429,11 +682,7 @@ impl Dataset {
             std::fs::metadata(&target),
             std::fs::OpenOptions::new().create(true).append(true).open(self.cache_file()),
         ) {
-            let mtime = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_secs());
+            let mtime = unix_secs(meta.modified().ok());
             let line = CacheLine { p: target.to_string_lossy().into_owned(), s: meta.len(), m: mtime, h: sha };
             if let Ok(s) = serde_json::to_string(&line) {
                 let _ = writeln!(f, "{s}");
@@ -458,6 +707,29 @@ impl Dataset {
             let _ = writeln!(f, "{line}");
         }
     }
+}
+
+fn platform_idx(p: Platform) -> usize {
+    match p {
+        Platform::Windows => 0,
+        Platform::Android => 1,
+        Platform::JavaScript => 2,
+    }
+}
+
+fn label_idx(l: Label) -> usize {
+    match l {
+        Label::Malware => 0,
+        Label::Clean => 1,
+    }
+}
+
+fn unix_secs(t: Option<std::time::SystemTime>) -> u64 {
+    t.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())
+}
+
+fn now_secs() -> u64 {
+    unix_secs(Some(std::time::SystemTime::now()))
 }
 
 /// `<SHA256>.<ext>` named after its own content: a copy this server wrote.
@@ -597,8 +869,8 @@ mod tests {
         std::fs::create_dir_all(root.join("clean")).unwrap();
         std::fs::create_dir_all(root.join("state")).unwrap();
         let paths = DatasetPaths {
-            windows_malware: Some(root.join("mal")),
-            windows_clean: Some(root.join("clean")),
+            windows_malware: FolderList::own(root.join("mal")),
+            windows_clean: FolderList::own(root.join("clean")),
             ..Default::default()
         };
         let ds = Dataset::new(paths, root.join("state"));
@@ -697,5 +969,166 @@ mod tests {
         r.rule = Some(serde_json::json!({ "ruleset": "benign_corpus/sha256" }));
         assert_eq!(reliable_label(&r).map(|x| x.0), Some(Label::Clean));
         assert_eq!(human_label("suspicious"), None);
+    }
+
+    #[test]
+    fn old_config_format_is_own() {
+        let p: DatasetPaths =
+            serde_json::from_str(r#"{ "windows_malware": "C:\\data\\mal", "android_clean": null }"#).unwrap();
+        assert_eq!(p.windows_malware, FolderList::own("C:\\data\\mal"));
+        assert_eq!(p.android_clean, FolderList::default());
+        assert_eq!(p.dir(Platform::Windows, Label::Malware), Some(Path::new("C:\\data\\mal")));
+        assert_eq!(p.folders(), vec![(Platform::Windows, Label::Malware, Source::Own, PathBuf::from("C:\\data\\mal"))]);
+        assert!(p.any());
+    }
+
+    #[test]
+    fn new_config_format_sources_and_several_folders() {
+        let p: DatasetPaths = serde_json::from_str(
+            r#"{
+                "windows_malware": [
+                    { "path": "pub1", "source": "public" },
+                    "own1",
+                    { "path": "own2" },
+                    { "path": "pub2", "source": "public" },
+                    "own1"
+                ],
+                "windows_clean": { "path": "c", "source": "own" },
+                "javascript_clean": [{ "path": "jp", "source": "public" }]
+            }"#,
+        )
+        .unwrap();
+        let mal: Vec<_> = p.folders().into_iter().filter(|f| f.1 == Label::Malware).map(|f| (f.2, f.3)).collect();
+        assert_eq!(
+            mal,
+            vec![
+                (Source::Public, PathBuf::from("pub1")),
+                (Source::Own, PathBuf::from("own1")),
+                (Source::Own, PathBuf::from("own2")),
+                (Source::Public, PathBuf::from("pub2")),
+            ],
+            "a folder listed twice is walked once"
+        );
+        // Copies go to the first own folder, never to a public one.
+        assert_eq!(p.dir(Platform::Windows, Label::Malware), Some(Path::new("own1")));
+        assert_eq!(p.dir(Platform::Windows, Label::Clean), Some(Path::new("c")));
+        assert_eq!(p.dir(Platform::JavaScript, Label::Clean), None);
+        assert!(serde_json::from_str::<DatasetPaths>(r#"{ "windows_malware": { "path": "x", "source": "mine" } }"#).is_err());
+    }
+
+    /// own + public folders for windows malware / clean and an own android folder.
+    fn setup_sources(name: &str) -> (PathBuf, Dataset) {
+        let root = std::env::temp_dir().join(format!("multron_dataset_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for d in ["mal_own", "mal_pub", "mal_pub2", "clean_own", "clean_pub", "apk_own", "state"] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        let paths = DatasetPaths {
+            windows_malware: FolderList(vec![
+                (root.join("mal_pub"), Source::Public),
+                (root.join("mal_own"), Source::Own),
+                (root.join("mal_pub2"), Source::Public),
+            ]),
+            windows_clean: FolderList(vec![(root.join("clean_own"), Source::Own), (root.join("clean_pub"), Source::Public)]),
+            android_malware: FolderList::own(root.join("apk_own")),
+            ..Default::default()
+        };
+        let ds = Dataset::new(paths, root.join("state"));
+        (root, ds)
+    }
+
+    fn counts(st: &PublicStats, platform: &str, label: &str) -> (u64, u64, u64, u64) {
+        let c = &st.cells[platform][label];
+        (c.counts.own_only, c.counts.public_only, c.counts.both, c.total)
+    }
+
+    #[test]
+    fn stats_count_every_hash_once() {
+        let (root, ds) = setup_sources("stats");
+        let (a, b, c, d) = (pe(10), pe(11), pe(12), pe(13));
+        // a: own + public malware (and twice in own, under two names) -> both.
+        std::fs::write(root.join("mal_own").join("a1.exe"), &a).unwrap();
+        std::fs::write(root.join("mal_own").join("a2.bin"), &a).unwrap();
+        std::fs::write(root.join("mal_pub").join("a.exe"), &a).unwrap();
+        // b: two public malware folders -> public only.
+        std::fs::write(root.join("mal_pub").join("b.exe"), &b).unwrap();
+        std::fs::write(root.join("mal_pub2").join("b.exe"), &b).unwrap();
+        // c: own clean, public malware -> per label one side, all labels both.
+        std::fs::write(root.join("clean_own").join("c.exe"), &c).unwrap();
+        std::fs::write(root.join("mal_pub").join("c.exe"), &c).unwrap();
+        // d: android own.
+        std::fs::write(root.join("apk_own").join("d.apk"), &d).unwrap();
+        assert!(ds.public_stats().is_none(), "nothing before the index");
+        ds.build_index();
+        let st = ds.public_stats().unwrap();
+        assert_eq!(counts(&st, "windows", "malware"), (0, 2, 1, 3));
+        assert_eq!(counts(&st, "windows", "clean"), (1, 0, 0, 1));
+        assert_eq!(counts(&st, "windows", "all"), (0, 1, 2, 3));
+        assert_eq!(counts(&st, "android", "malware"), (1, 0, 0, 1));
+        assert_eq!(counts(&st, "android", "clean"), (0, 0, 0, 0));
+        assert_eq!(counts(&st, "javascript", "all"), (0, 0, 0, 0));
+        assert_eq!(counts(&st, "all", "malware"), (1, 2, 1, 4));
+        assert_eq!(counts(&st, "all", "clean"), (1, 0, 0, 1));
+        assert_eq!(counts(&st, "all", "all"), (1, 1, 2, 4));
+        assert_eq!(st.cells.len(), 4);
+        assert!(st.cells.values().all(|m| m.len() == 3));
+
+        // A copy written by the server is "own": e becomes own only.
+        let e = pe(14);
+        let ExportOutcome::Written(path) = ds.export(&sha(&e), &e, "e.exe", Label::Malware) else { panic!() };
+        assert!(path.starts_with(root.join("mal_own")), "written to the own folder, not a public one");
+        assert_eq!(counts(&ds.public_stats().unwrap(), "windows", "malware"), (1, 2, 1, 4));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stats_daily_last_30_days() {
+        let (root, ds) = setup_sources("daily");
+        std::fs::write(root.join("mal_own").join("a.exe"), pe(20)).unwrap();
+        std::fs::write(root.join("mal_pub").join("a.exe"), pe(20)).unwrap();
+        std::fs::write(root.join("clean_pub").join("b.exe"), pe(21)).unwrap();
+        ds.build_index();
+        let now = now_secs();
+        let st = ds.public_stats_at(now);
+        let cell = &st.cells["all"]["all"];
+        assert_eq!(st.days, STATS_DAYS);
+        assert_eq!(cell.daily.len(), STATS_DAYS);
+        let today = chrono::DateTime::from_timestamp(now as i64, 0).unwrap().format("%Y-%m-%d").to_string();
+        let last = cell.daily.last().unwrap();
+        assert_eq!(last.date, today, "newest day last");
+        assert_eq!((last.counts.own_only, last.counts.public_only, last.counts.both), (0, 1, 1));
+        assert!(cell.daily[..STATS_DAYS - 1].iter().all(|d| d.counts.total() == 0));
+        assert!(cell.daily.windows(2).all(|w| w[0].date < w[1].date));
+        // 40 days later: the totals stay, the files are out of the window.
+        let later = ds.public_stats_at(now + 40 * 86_400);
+        assert_eq!(later.cells["all"]["all"].total, 2);
+        assert!(later.cells["all"]["all"].daily.iter().all(|d| d.counts.total() == 0));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stats_json_has_no_paths_names_or_hashes() {
+        let (root, ds) = setup_sources("leak");
+        let a = pe(30);
+        std::fs::write(root.join("mal_own").join("secret_name.exe"), &a).unwrap();
+        std::fs::write(root.join("clean_pub").join("other_secret.exe"), pe(31)).unwrap();
+        ds.build_index();
+        let json = serde_json::to_string(&ds.public_stats().unwrap()).unwrap();
+        let root_s = root.to_string_lossy();
+        assert!(!json.contains(root_s.as_ref()));
+        for needle in ["secret_name", "other_secret", "mal_own", "clean_pub", "multron_dataset", ".exe"] {
+            assert!(!json.contains(needle), "{needle} leaked");
+        }
+        assert!(!json.contains(&sha(&a)) && !json.contains(&sha(&a).to_ascii_lowercase()));
+        // Only counts, dates and the fixed keys.
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let cell = &v["cells"]["windows"]["malware"];
+        let mut keys: Vec<&str> = cell.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, ["both", "daily", "own_only", "public_only", "total"]);
+        let mut day_keys: Vec<&str> = cell["daily"][0].as_object().unwrap().keys().map(String::as_str).collect();
+        day_keys.sort();
+        assert_eq!(day_keys, ["both", "date", "own_only", "public_only"]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
