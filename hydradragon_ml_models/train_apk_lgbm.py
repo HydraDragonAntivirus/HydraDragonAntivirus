@@ -26,6 +26,8 @@ import lightgbm as lgb
 import onnxmltools
 from onnxmltools.convert.common.data_types import FloatTensorType
 
+import dataset_paths
+
 # Import feature extractor from OpenEDR/openedr_web/tools/apk_train.py
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 TOOLS_DIR = os.path.join(REPO_ROOT, "OpenEDR", "openedr_web", "tools")
@@ -64,16 +66,21 @@ def extract_apk_chunks_to_disk(file_list: List[str], label_name: str, label_val:
     os.makedirs(chunk_dir, exist_ok=True)
     total_files = len(file_list)
     print(f"[*] Extracting {label_name} APKs ({total_files} files) into chunks of {chunk_size} to {chunk_dir} with {workers} workers...")
-    
+    manifest = dataset_paths.ChunkManifest(chunk_dir)
+    prefix = f"chunk_apk_{label_name.lower()}_"
+    names = []
+
     chunk_idx = 0
     total_valid = 0
     
     for i in range(0, total_files, chunk_size):
         chunk_files = file_list[i : i + chunk_size]
-        chunk_path = os.path.join(chunk_dir, f"chunk_apk_{label_name.lower()}_{chunk_idx:04d}.joblib")
-        
-        if os.path.exists(chunk_path):
-            print(f"  [>] Chunk {chunk_idx:04d} already exists on disk, skipping.")
+        chunk_path = os.path.join(chunk_dir, f"{prefix}{chunk_idx:04d}.joblib")
+        names.append(os.path.basename(chunk_path))
+
+        # Reused only when built from exactly these files (folders added or changed -> rebuilt).
+        if manifest.is_current(chunk_path, chunk_files):
+            print(f"  [>] Chunk {chunk_idx:04d} already exists on disk for the same files, skipping.")
             chunk_idx += 1
             continue
             
@@ -88,20 +95,24 @@ def extract_apk_chunks_to_disk(file_list: List[str], label_name: str, label_val:
             X_chunk = np.array(feats, dtype=np.float32)
             y_chunk = np.full(len(feats), label_val, dtype=np.int32)
             joblib.dump({"X": X_chunk, "y": y_chunk}, chunk_path, compress=3)
+            manifest.record(chunk_path, chunk_files)
             total_valid += len(feats)
             print(f"  [+] Saved {chunk_path}: {len(feats)} valid APKs (Processed {min(i + chunk_size, total_files)}/{total_files})")
         else:
             print(f"  [-] Chunk {chunk_idx:04d} had 0 valid APKs.")
-            
+            names.pop()
+
         del feats
         gc.collect()
         chunk_idx += 1
         
+    manifest.keep_only(prefix, names)
     print(f"[+] Total {label_name} APK samples extracted: {total_valid}")
     return total_valid
 
 def load_apk_chunks_balanced(chunk_dir: str):
-    chunk_files = glob.glob(os.path.join(chunk_dir, "chunk_apk_*.joblib"))
+    chunk_files = dataset_paths.ChunkManifest(chunk_dir).chunk_files(
+        chunk_dir, "chunk_apk_", glob.glob(os.path.join(chunk_dir, "chunk_apk_*.joblib")))
     if not chunk_files:
         raise RuntimeError(f"No APK chunk files found in {chunk_dir}")
         
@@ -147,8 +158,7 @@ def load_apk_chunks_balanced(chunk_dir: str):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train LightGBM APK Model and Export to ONNX + Bin")
-    parser.add_argument("--malicious", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware", help="Directory of malware APKs")
-    parser.add_argument("--benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\benign", help="Directory of benign APKs")
+    dataset_paths.add_args(parser, "android")
     parser.add_argument("--output-onnx", type=str, default="apk_model.onnx", help="Output ONNX model path")
     parser.add_argument("--output-bin", type=str, default="apk_trees.bin", help="Output 25-byte tree bundle path")
     parser.add_argument("--max-samples-per-class", type=int, default=30000, help="Max samples to scan from each class")
@@ -167,8 +177,9 @@ def main():
 
     if not args.train_only:
         print("[*] Discovering APK files...")
-        mal_files = find_apk_files(args.malicious, args.max_samples_per_class)
-        ben_files = find_apk_files(args.benign, args.max_samples_per_class)
+        mal_files, ben_files = dataset_paths.collect(
+            args, "android", keep=lambda p: p.lower().endswith((".apk", ".zip")),
+            max_per_class=args.max_samples_per_class)
         print(f"[+] Discovered {len(mal_files)} malicious APKs and {len(ben_files)} benign APKs.")
 
         extract_apk_chunks_to_disk(mal_files, "MALICIOUS", 1, args.chunk_dir, args.chunk_size)

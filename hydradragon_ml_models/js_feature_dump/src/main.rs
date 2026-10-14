@@ -1,6 +1,10 @@
 //! js_feature_dump — JavaScript ML features with the engine's own extractor.
 //!
 //!   js_feature_dump <malicious_dir> <benign_dir> <out.csv> [max_per_class]
+//!   js_feature_dump @<malicious.lst> @<benign.lst> <out.csv> [max_per_class]
+//!
+//! A `@` argument is a UTF-8 list of files, one path per line (train_js_lgbm.py writes
+//! them from every folder in dataset_paths.json, duplicates already removed).
 //!
 //! Includes OpenEDR/openedr_static/src/ml/{features,js_features}.rs by path, so the
 //! features train_js_lgbm.py learns from are byte for byte what the engine computes at
@@ -33,8 +37,7 @@ fn walk(dir: &Path, max: usize) -> Vec<PathBuf> {
             if p.is_dir() {
                 stack.push(p);
             } else {
-                let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
-                if EXTS.contains(&ext.as_str()) {
+                if has_js_ext(&p) {
                     out.push(p);
                     if out.len() >= max {
                         return out;
@@ -44,6 +47,31 @@ fn walk(dir: &Path, max: usize) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+fn has_js_ext(p: &Path) -> bool {
+    let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+    EXTS.contains(&ext.as_str())
+}
+
+/// Files of a folder (`dir`) or of a list file (`@list`), at most `max`.
+fn inputs(arg: &str, max: usize) -> Vec<PathBuf> {
+    match arg.strip_prefix('@') {
+        Some(list) => {
+            let text = std::fs::read_to_string(list).unwrap_or_else(|e| {
+                eprintln!("cannot read file list {list}: {e}");
+                std::process::exit(2);
+            });
+            text.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(PathBuf::from)
+                .filter(|p| has_js_ext(p))
+                .take(max)
+                .collect()
+        }
+        None => walk(Path::new(arg), max),
+    }
 }
 
 fn extract(files: &[PathBuf], label: u8) -> Vec<(u8, String, [f32; 51])> {
@@ -81,13 +109,13 @@ fn main() {
 fn run() {
     let a: Vec<String> = std::env::args().collect();
     if a.len() < 4 {
-        eprintln!("usage: js_feature_dump <malicious_dir> <benign_dir> <out.csv> [max_per_class]");
+        eprintln!("usage: js_feature_dump <malicious_dir|@list> <benign_dir|@list> <out.csv> [max_per_class]");
         std::process::exit(2);
     }
     std::panic::set_hook(Box::new(|_| {})); // parser panics on odd input: skip the file quietly
     let max = a.get(4).and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
-    let mal = walk(Path::new(&a[1]), max);
-    let ben = walk(Path::new(&a[2]), max);
+    let mal = inputs(&a[1], max);
+    let ben = inputs(&a[2], max);
     eprintln!("[+] {} malicious, {} benign files", mal.len(), ben.len());
     let mut rows = extract(&mal, 1);
     rows.extend(extract(&ben, 0));

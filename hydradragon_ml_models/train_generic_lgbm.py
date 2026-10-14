@@ -3,24 +3,19 @@ r"""
 HydraDragon Generic Whole-Buffer Pure Byte, Padding & Entropy ML Trainer
 Category-based 50% / 50% Balanced Training (NO SAMPLE LIMITS, NO DOWNLOADS):
 
-Categories:
-  1. PE / Windows:
-     - Benign:    C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2
-     - Malicious: C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder
-     -> Balanced 50% / 50% internally.
-  2. JavaScript:
-     - Benign:    C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\data2
-     - Malicious: C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder
-     -> Balanced 50% / 50% internally.
-  3. Mobile / Android:
-     - Benign:    C:\Users\semae\OneDrive\Belgeler\Github\HydraDragonAV-Mobile\dataset\benign
-     - Malicious: C:\Users\semae\OneDrive\Belgeler\Github\HydraDragonAV-Mobile\dataset\malware
-     -> Balanced 50% / 50% internally.
+Categories (folders from dataset_paths.json, every folder of each key; see dataset_paths.py):
+  1. PE / Windows:      windows_clean / windows_malware
+  2. JavaScript:        javascript_clean / javascript_malware
+  3. Mobile / Android:  android_clean (only its F-Droid subfolder) / android_malware
+  Each category is balanced 50% / 50% internally.
+
+    python train_generic_lgbm.py [--dataset-paths FILE] [--sources own|public|all] [--no-dedupe]
 
 ZERO keyword lists, ZERO string regexes.
 Features match generic_features.rs EXACTLY (20 features).
 """
 
+import argparse
 import os
 import math
 import struct
@@ -34,6 +29,8 @@ import joblib
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
+
+import dataset_paths
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -345,23 +342,15 @@ def export_bin(clf, out_path: str):
 
 def main():
     print("=== HydraDragon Pure Byte/Evasion Category-Wise ML Trainer ===", flush=True)
+    ap = argparse.ArgumentParser(description="Generic whole-buffer byte/entropy model -> generic_trees.bin")
+    dataset_paths.add_common_args(ap)
+    args = ap.parse_args()
 
     categories = [
-        {
-            "name": "PE / Windows Binaries",
-            "benign": r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2",
-            "malicious": r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder",
-        },
-        {
-            "name": "JavaScript Scripts",
-            "benign": r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\data2",
-            "malicious": r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder",
-        },
-        {
-            "name": "Mobile / Android APKs",
-            "benign": r"C:\Users\semae\OneDrive\Belgeler\Github\HydraDragonAV-Mobile\dataset\benign\F-Droid",
-            "malicious": r"C:\Users\semae\OneDrive\Belgeler\Github\HydraDragonAV-Mobile\dataset\malware",
-        },
+        {"name": "PE / Windows Binaries", "platform": "windows"},
+        {"name": "JavaScript Scripts", "platform": "javascript"},
+        # Benign APKs: only the F-Droid subfolder of android_clean.
+        {"name": "Mobile / Android APKs", "platform": "android", "benign_subdir": "F-Droid"},
     ]
 
     workers = max(1, (os.cpu_count() or 4) - 1)
@@ -373,8 +362,7 @@ def main():
     for cat in categories:
         cname = cat["name"]
         print(f"--- Processing Category: {cname} ---", flush=True)
-        ben_files = collect_all_files(cat["benign"])
-        mal_files = collect_all_files(cat["malicious"])
+        mal_files, ben_files = dataset_paths.collect(args, cat["platform"], benign_subdir=cat.get("benign_subdir"))
 
         if not ben_files or not mal_files:
             print(f"[!] Skipping {cname}: empty benign ({len(ben_files)}) or malicious ({len(mal_files)})", flush=True)

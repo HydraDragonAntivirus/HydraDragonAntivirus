@@ -7,8 +7,12 @@ OpenEDR/openedr_static/src/ml/js_features.rs by path, so training and scanning u
 exact same extractor. There is no Python re-implementation to drift from it.
 
     python train_js_lgbm.py
-    python train_js_lgbm.py --malicious D:\\js\\bad --benign D:\\js\\good
+    python train_js_lgbm.py --malicious D:\\js\\bad D:\\js\\bad2 --benign D:\\js\\good
+    python train_js_lgbm.py --dataset-paths C:\\multron\\dataset_paths.json
     python train_js_lgbm.py --reuse-csv          # retrain from the last js_features.csv
+
+Folders: javascript_malware / javascript_clean in dataset_paths.json (every folder, see
+dataset_paths.py), or --malicious / --benign (one or more each).
 
 Writes js_trees.bin here and copies it to OpenEDR/openedr_static/models and
 OpenMalwareScannerPortable/models (skip with --no-sync).
@@ -27,11 +31,12 @@ import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 
+import dataset_paths
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 DUMP_CRATE = os.path.join(BASE_DIR, "js_feature_dump")
 ENGINE_THRESHOLD = 0.90  # JS_TREE_THRESHOLD in OpenEDR/openedr_static/src/engine.rs
-DATA = r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript"
 
 # JsFeatureVector::to_array order (OpenEDR/openedr_static/src/ml/features.rs).
 JS_FEATURE_NAMES = [
@@ -52,8 +57,7 @@ JS_FEATURE_NAMES = [
 
 def parse_args():
     ap = argparse.ArgumentParser(description="Train js_trees.bin from the engine's own JS features")
-    ap.add_argument("--malicious", default=os.path.join(DATA, "datamaliciousorder"))
-    ap.add_argument("--benign", default=os.path.join(DATA, "data2"))
+    dataset_paths.add_args(ap, "javascript")
     ap.add_argument("--features-csv", default=os.path.join(BASE_DIR, "js_features.csv"))
     ap.add_argument("--reuse-csv", action="store_true", help="Train from an existing --features-csv, no extraction")
     ap.add_argument("--max-samples-per-class", type=int, default=50000)
@@ -64,9 +68,19 @@ def parse_args():
 
 def dump_features(args):
     """Builds and runs js_feature_dump (Rust, the engine's extractor) -> CSV."""
+    # Same extensions js_feature_dump accepts (EXTS in js_feature_dump/src/main.rs).
+    exts = {"js", "jse", "vbs", "html", "htm", "txt", ""}
+    keep = lambda p: os.path.splitext(p)[1].lower().lstrip(".") in exts
+    mal, ben = dataset_paths.collect(args, "javascript", keep=keep, max_per_class=args.max_samples_per_class)
+    lists = []
+    for name, files in (("js_malicious.lst", mal), ("js_benign.lst", ben)):
+        path = os.path.join(BASE_DIR, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(files) + "\n")
+        lists.append("@" + path)
     print("[*] Extracting features with js_feature_dump (OpenEDR js_features.rs)...", flush=True)
     cmd = ["cargo", "run", "--release", "--manifest-path", os.path.join(DUMP_CRATE, "Cargo.toml"), "--",
-           args.malicious, args.benign, args.features_csv, str(args.max_samples_per_class)]
+           lists[0], lists[1], args.features_csv, str(args.max_samples_per_class)]
     if subprocess.run(cmd).returncode != 0:
         sys.exit("js_feature_dump failed")
 

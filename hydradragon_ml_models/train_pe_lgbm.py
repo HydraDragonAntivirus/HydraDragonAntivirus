@@ -23,6 +23,8 @@ from sklearn.metrics import classification_report, confusion_matrix
 import onnxmltools
 from onnxmltools.convert.common.data_types import FloatTensorType
 
+import dataset_paths
+
 FEATURE_NAMES = [
     "size_of_optional_header", "coff_characteristics", "machine",
     "major_linker_version", "minor_linker_version", "size_of_code",
@@ -338,8 +340,7 @@ def export_standard_tree_bundle(clf, out_path: str):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train LightGBM PE Model and Export to ONNX")
-    parser.add_argument("--malicious", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\datamaliciousorder", help="Directory of malicious PEs")
-    parser.add_argument("--benign", type=str, default=r"C:\Users\semae\OneDrive\Belgeler\usbdosyalar\data2", help="Directory of benign PEs")
+    dataset_paths.add_args(parser, "windows")
     parser.add_argument("--output-onnx", type=str, default="pe_model.onnx", help="Output ONNX model path")
     parser.add_argument("--output-bin", type=str, default="pe_trees.bin", help="Output binary tree bundle (openedr_static format)")
     parser.add_argument("--max-samples-per-class", type=int, default=0, help="Max samples to train from each class (0 = unlimited)")
@@ -370,16 +371,21 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
     os.makedirs(chunk_dir, exist_ok=True)
     total_files = len(file_list)
     print(f"[*] Extracting {label_name} PEs ({total_files} files) into chunks of {chunk_size} to {chunk_dir}...")
-    
+    manifest = dataset_paths.ChunkManifest(chunk_dir)
+    prefix = f"chunk_pe_{label_name.lower()}_"
+    names = []
+
     chunk_idx = 0
     total_valid = 0
     
     for i in range(0, total_files, chunk_size):
         chunk_files = file_list[i : i + chunk_size]
-        chunk_path = os.path.join(chunk_dir, f"chunk_pe_{label_name.lower()}_{chunk_idx:04d}.joblib")
-        
-        if os.path.exists(chunk_path):
-            print(f"  [>] Chunk {chunk_idx:04d} already exists on disk, skipping.")
+        chunk_path = os.path.join(chunk_dir, f"{prefix}{chunk_idx:04d}.joblib")
+        names.append(os.path.basename(chunk_path))
+
+        # Reused only when built from exactly these files (folders added or changed -> rebuilt).
+        if manifest.is_current(chunk_path, chunk_files):
+            print(f"  [>] Chunk {chunk_idx:04d} already exists on disk for the same files, skipping.")
             chunk_idx += 1
             continue
             
@@ -388,16 +394,19 @@ def extract_chunks_to_disk(file_list, executor, label_name, label_val, chunk_dir
             X_chunk = np.array(feats, dtype=np.float32)
             y_chunk = np.full(len(feats), label_val, dtype=np.int32)
             joblib.dump({"X": X_chunk, "y": y_chunk}, chunk_path, compress=3)
+            manifest.record(chunk_path, chunk_files)
             total_valid += len(feats)
             print(f"  [+] Saved {chunk_path}: {len(feats)} valid samples (Processed {min(i + chunk_size, total_files)}/{total_files})")
         else:
             print(f"  [-] Chunk {chunk_idx:04d} had 0 valid PE files.")
-            
+            names.pop()
+
         del feats
         import gc
         gc.collect()
         chunk_idx += 1
         
+    manifest.keep_only(prefix, names)
     print(f"[+] Total {label_name} PE samples extracted: {total_valid}")
     return total_valid
 
@@ -407,7 +416,8 @@ def load_chunks(chunk_dir, balance=False, max_benign_ratio=0.0):
     Exact duplicate feature rows are removed, and rows that occur in BOTH classes
     (label noise) are dropped."""
     import glob
-    chunk_files = glob.glob(os.path.join(chunk_dir, "chunk_pe_*.joblib"))
+    chunk_files = dataset_paths.ChunkManifest(chunk_dir).chunk_files(
+        chunk_dir, "chunk_pe_", glob.glob(os.path.join(chunk_dir, "chunk_pe_*.joblib")))
     if not chunk_files:
         raise RuntimeError(f"No PE chunk files found in {chunk_dir}")
 
@@ -468,8 +478,7 @@ def main():
 
     if not args.train_only:
         print(f"[*] Discovering PE files...")
-        mal_files = find_files(args.malicious, args.max_samples_per_class) if os.path.exists(args.malicious) else []
-        ben_files = find_files(args.benign, args.max_samples_per_class) if os.path.exists(args.benign) else []
+        mal_files, ben_files = dataset_paths.collect(args, "windows", max_per_class=args.max_samples_per_class)
         print(f"[+] Discovered {len(mal_files)} malicious PEs and {len(ben_files)} benign PEs.")
         
         with ProcessPoolExecutor(max_workers=args.workers) as executor:

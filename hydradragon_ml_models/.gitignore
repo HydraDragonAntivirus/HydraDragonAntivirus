@@ -1,0 +1,5 @@
+# Written by the trainers (dataset_paths.py, train_js_lgbm.py)
+dataset_hash_cache.jsonl
+dataset_label_conflicts.txt
+js_malicious.lst
+js_benign.lst

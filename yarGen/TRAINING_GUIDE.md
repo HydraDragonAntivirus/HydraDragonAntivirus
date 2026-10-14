@@ -9,8 +9,8 @@ This guide details how to train **HydraDragonSig** threat signatures against all
 | Platform / Format | Benign Dataset | Benign DB Files (`yarGen/dbs/`) | Target Malware Dataset |
 | :--- | :--- | :--- | :--- |
 | **PE (Windows)** | `...\usbdosyalar\data2` (200,000+ files) | `good-strings-part*.db`<br>`good-opcodes-part*.db`<br>`good-strings-benign_data2.db` | `...\usbdosyalar\datamaliciousorder`<br>`...\datamalicioussmall` |
-| **JavaScript** | `...\usbdosyalar\javascript\data2` (53,000+ files) | `good-strings-benign_javascript_data2.db`<br>`good-opcodes-benign_javascript_data2.db` | `...\usbdosyalar\javascript\malicious` |
-| **APK (Android)** | `...\HydraDragonAV-Mobile\dataset\benign` | `good-strings-benign_apk.db`<br>`good-opcodes-benign_apk.db` | `...\HydraDragonAV-Mobile\dataset\malicious` |
+| **JavaScript** | `...\usbdosyalar\javascript\data2` (53,000+ files) | `good-strings-benign_javascript_data2.db`<br>`good-opcodes-benign_javascript_data2.db` | `...\usbdosyalar\javascript\datamaliciousorder` |
+| **APK (Android)** | `...\HydraDragonAV-Mobile\dataset\benign` | `good-strings-benign_apk.db`<br>`good-opcodes-benign_apk.db` | `...\HydraDragonAV-Mobile\dataset\malware` |
 
 ### 1.1. Filling the datasets from the cloud (multron_server_rs)
 
@@ -22,9 +22,9 @@ server can add the files it receives to them. Put `dataset_paths.json` next to
 {
   "windows_malware":    "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\datamaliciousorder",
   "windows_clean":      "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\data2",
-  "android_malware":    "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAV-Mobile\\dataset\\malicious",
+  "android_malware":    "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAV-Mobile\\dataset\\malware",
   "android_clean":      "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAV-Mobile\\dataset\\benign",
-  "javascript_malware": "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\javascript\\malicious",
+  "javascript_malware": "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\javascript\\datamaliciousorder",
   "javascript_clean":   "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\javascript\\data2"
 }
 ```
@@ -35,8 +35,26 @@ server can add the files it receives to them. Put `dataset_paths.json` next to
 | `android_malware` / `android_clean` | APK (ZIP with `AndroidManifest.xml`) | malware / clean | APK ML model, yarGen APK (3.4), APK smart whitelist |
 | `javascript_malware` / `javascript_clean` | `.js` `.mjs` `.cjs` `.jse` text | malware / clean | JS ML model, yarGen JS (3.3) |
 
+These are the real folder names: `dataset\malware` (not `malicious`) for APKs and
+`javascript\datamaliciousorder` for JS. The server creates a folder that does not exist,
+so a wrong name does not fail: the copies silently go to a new folder no training reads.
+
 A missing key (or an empty path) turns only that folder off; without the file nothing is
-copied. Files are written as `<SHA256>.<ext>` (`exe`/`dll`/`sys`..., `apk`, `js`).
+copied. Files are written as `<SHA256>.<ext>` (`exe`/`dll`/`sys`..., `apk`, `js`) into
+the FIRST `"own"` folder of the key.
+
+Every key also takes several folders and a source tag (`"own"` = your collection, the
+default; `"public"` = a downloaded public set, never written to):
+
+```json
+{
+  "windows_malware": [
+    "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\datamaliciousorder",
+    { "path": "D:\\public\\some_public_set\\malware", "source": "public" }
+  ],
+  "windows_clean": { "path": "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\data2", "source": "own" }
+}
+```
 
 **Duplicates are decided by content, not by name.** At start the server hashes every file
 already in the six folders, whatever it is called (`dataset_index.jsonl` next to the
@@ -83,6 +101,44 @@ Collection on the server (both on by default, dashboard -> *Engine & limits*):
   `multron_incoming/xorfilter_clean/` or `xorfilter_malicious/` until an analyst confirms
   it. An engine rescan does not move it out; an analyst verdict does (and copies it into
   the dataset).
+
+### 1.2. ML training reads the same file (every folder)
+
+The ML trainers in `hydradragon_ml_models` (`train_pe_lgbm.py`, `train_js_lgbm.py`,
+`train_apk_lgbm.py`, `train_generic_lgbm.py`) read **every folder** of their keys from the
+same `dataset_paths.json` (`hydradragon_ml_models/dataset_paths.py`). The file is found in
+this order:
+
+1. `--dataset-paths C:\path\to\dataset_paths.json`
+2. the `HYDRADRAGON_DATASET_PATHS` environment variable
+3. `hydradragon_ml_models\dataset_paths.json`
+4. next to a locally built server (`OpenEDR\multron_server_rs\target\release` or `debug`)
+
+Without one, the real folders of the table in section 1 are used. Keys missing from the
+file fall back to those folders too.
+
+```powershell
+cd hydradragon_ml_models
+python train_pe_lgbm.py --dataset-paths "C:\multron\dataset_paths.json"
+python train_pe_lgbm.py --sources own                      # only "own" folders
+python train_js_lgbm.py --malicious D:\js\bad D:\js\bad2 --benign D:\js\good   # folders by hand
+```
+
+* `--malicious` / `--benign` (one or more folders each) override the file for that run.
+* **Duplicates by content:** a file already seen in an earlier folder of the same label
+  is skipped. A file under BOTH labels is left out of training and listed in
+  `hydradragon_ml_models\dataset_label_conflicts.txt` so you can fix its label.
+  Digests are cached in `dataset_hash_cache.jsonl` by path + size + modification time
+  (the server's `dataset_index.jsonl` is reused when it sits next to the
+  `dataset_paths.json`), so only the first run hashes everything. `--no-dedupe` skips it.
+* Nothing in the dataset folders is moved, changed or deleted.
+* PE and APK feature chunks (`cache_chunks_pe`, `cache_chunks_apk`) now record the file
+  list each chunk was built from (`chunk_manifest.json`). A chunk is reused only for the
+  same files, so adding or changing folders rebuilds what changed, and stale chunks from an
+  older, longer list are not loaded. The first run after this change rebuilds the chunks once.
+* `train_generic_lgbm.py` reads only the `F-Droid` subfolder of every `android_clean`
+  folder for benign APKs (the APK trainer reads the whole folder). Clean APKs the server
+  writes go to the root of the first `"own"` folder, so the generic model does not use them.
 
 ---
 
@@ -139,7 +195,7 @@ For web threats, malicious loaders, and obfuscated scripts:
 
 ```powershell
 python yarGen/yargen_sig.py `
-  -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\malicious" `
+  -m "C:\Users\semae\OneDrive\Belgeler\usbdosyalar\javascript\datamaliciousorder" `
   --sig-yaml "OpenMalwareScannerPortable\hydradragonsig_rules\js_threat_signatures.yaml" `
   --excludegood `
   --meaningful-words-only `
@@ -153,7 +209,7 @@ For Android malware with DEX analysis, manifest permissions, and tree model feat
 
 ```powershell
 python yarGen/yargen_sig.py `
-  -m "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malicious" `
+  -m "C:\Users\semae\OneDrive\Belgeler\GitHub\HydraDragonAV-Mobile\dataset\malware" `
   --sig-yaml "OpenMalwareScannerPortable\hydradragonsig_rules\apk_threat_signatures.yaml" `
   --excludegood `
   --meaningful-words-only `
