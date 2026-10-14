@@ -6,7 +6,7 @@ Category-based 50% / 50% Balanced Training (NO SAMPLE LIMITS, NO DOWNLOADS):
 Categories (folders from dataset_paths.json, every folder of each key; see dataset_paths.py):
   1. PE / Windows:      windows_clean / windows_malware
   2. JavaScript:        javascript_clean / javascript_malware
-  3. Mobile / Android:  android_clean (only its F-Droid subfolder) / android_malware
+  3. Mobile / Android:  android_clean / android_malware
   Each category is balanced 50% / 50% internally.
 
     python train_generic_lgbm.py [--dataset-paths FILE] [--sources own|public|all] [--no-dedupe]
@@ -349,8 +349,7 @@ def main():
     categories = [
         {"name": "PE / Windows Binaries", "platform": "windows"},
         {"name": "JavaScript Scripts", "platform": "javascript"},
-        # Benign APKs: only the F-Droid subfolder of android_clean.
-        {"name": "Mobile / Android APKs", "platform": "android", "benign_subdir": "F-Droid"},
+        {"name": "Mobile / Android APKs", "platform": "android"},
     ]
 
     workers = max(1, (os.cpu_count() or 4) - 1)
@@ -362,7 +361,8 @@ def main():
     for cat in categories:
         cname = cat["name"]
         print(f"--- Processing Category: {cname} ---", flush=True)
-        mal_files, ben_files = dataset_paths.collect(args, cat["platform"], benign_subdir=cat.get("benign_subdir"))
+        # Every configured folder; folders starting with "." (.cache, .git) are skipped.
+        mal_files, ben_files = dataset_paths.collect(args, cat["platform"])
 
         if not ben_files or not mal_files:
             print(f"[!] Skipping {cname}: empty benign ({len(ben_files)}) or malicious ({len(mal_files)})", flush=True)

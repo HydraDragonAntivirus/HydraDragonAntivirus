@@ -51,7 +51,7 @@ pub struct VerdictCache {
     max: usize,
     ttl_secs: i64,
     unknown_ttl_secs: i64,
-    writer: Option<mpsc::Sender<String>>,
+    writer: Option<mpsc::Sender<CacheMsg>>,
     /// Verdicts produced before this Unix second are ignored (set after a rule reload).
     invalidated_before: AtomicI64,
 }
@@ -181,11 +181,18 @@ impl VerdictCache {
         Some(v)
     }
 
+    /// Writes the buffered lines to disk now (seamless update: before the hand-over).
+    pub fn flush(&self, timeout: Duration) -> bool {
+        let Some(w) = &self.writer else { return true };
+        let (tx, rx) = mpsc::sync_channel(1);
+        w.send(CacheMsg::Flush(tx)).is_ok() && rx.recv_timeout(timeout).is_ok()
+    }
+
     pub fn put(&self, sha: Sha, v: CachedVerdict) {
         if let Some(w) = &self.writer {
             let line = Line { s: hex::encode_upper(sha), v: v.clone() };
             if let Ok(s) = serde_json::to_string(&line) {
-                let _ = w.send(s);
+                let _ = w.send(CacheMsg::Line(s));
             }
         }
         let mut g = self.inner.lock().unwrap();
@@ -211,17 +218,27 @@ impl VerdictCache {
     }
 }
 
-fn start_writer(path: PathBuf) -> Option<mpsc::Sender<String>> {
+/// Message to the cache writer: a line, or "flush now and tell me".
+enum CacheMsg {
+    Line(String),
+    Flush(mpsc::SyncSender<()>),
+}
+
+fn start_writer(path: PathBuf) -> Option<mpsc::Sender<CacheMsg>> {
     let file = OpenOptions::new().create(true).append(true).open(&path).ok()?;
-    let (tx, rx) = mpsc::channel::<String>();
+    let (tx, rx) = mpsc::channel::<CacheMsg>();
     std::thread::Builder::new()
         .name("cache-writer".into())
         .spawn(move || {
             let mut w = BufWriter::new(file);
             loop {
                 match rx.recv_timeout(Duration::from_secs(2)) {
-                    Ok(line) => {
+                    Ok(CacheMsg::Line(line)) => {
                         let _ = writeln!(w, "{line}");
+                    }
+                    Ok(CacheMsg::Flush(done)) => {
+                        let _ = w.flush();
+                        let _ = done.send(());
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         let _ = w.flush();

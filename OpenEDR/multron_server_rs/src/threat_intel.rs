@@ -268,7 +268,7 @@ pub struct ThreatIntelStats {
 
 pub struct ThreatIntelStore {
     map: RwLock<HashMap<Sha, ThreatInsight>>,
-    writer: Option<mpsc::Sender<ThreatInsight>>,
+    writer: Option<mpsc::Sender<WriterMsg>>,
     /// Human analysis queue and verdicts (override the engine verdict).
     pub reviews: HumanReviewStore,
     /// TLSH index of analysed files (smart whitelist, similar files).
@@ -303,6 +303,13 @@ impl ThreatIntelStore {
             reviews,
             similarity: crate::similarity::SimilarityIndex::load(),
         })
+    }
+
+    /// Writes every buffered insight to disk now (seamless update: before the hand-over).
+    pub fn flush(&self, timeout: Duration) -> bool {
+        let Some(w) = &self.writer else { return true };
+        let (tx, rx) = mpsc::sync_channel(1);
+        w.send(WriterMsg::Flush(tx)).is_ok() && rx.recv_timeout(timeout).is_ok()
     }
 
     pub fn record(
@@ -377,7 +384,7 @@ impl ThreatIntelStore {
         };
 
         if let Some(writer) = &self.writer {
-            let _ = writer.send(updated_insight);
+            let _ = writer.send(WriterMsg::Item(updated_insight));
         }
     }
 
@@ -406,7 +413,7 @@ impl ThreatIntelStore {
             entry.clone()
         };
         if let Some(writer) = &self.writer {
-            let _ = writer.send(updated);
+            let _ = writer.send(WriterMsg::Item(updated));
         }
     }
 
@@ -423,7 +430,7 @@ impl ThreatIntelStore {
             entry.clone()
         };
         if let Some(writer) = &self.writer {
-            let _ = writer.send(updated);
+            let _ = writer.send(WriterMsg::Item(updated));
         }
     }
 
@@ -445,7 +452,7 @@ impl ThreatIntelStore {
             entry.clone()
         };
         if let Some(writer) = &self.writer {
-            let _ = writer.send(updated);
+            let _ = writer.send(WriterMsg::Item(updated));
         }
     }
 
@@ -462,7 +469,7 @@ impl ThreatIntelStore {
             entry.clone()
         };
         if let Some(writer) = &self.writer {
-            let _ = writer.send(updated);
+            let _ = writer.send(WriterMsg::Item(updated));
         }
     }
 
@@ -783,8 +790,14 @@ impl ThreatIntelStore {
     }
 }
 
-fn start_batch_writer(path: PathBuf) -> mpsc::Sender<ThreatInsight> {
-    let (tx, rx) = mpsc::channel::<ThreatInsight>();
+/// Message to the insight writer: a line, or "write everything now and tell me".
+enum WriterMsg {
+    Item(ThreatInsight),
+    Flush(mpsc::SyncSender<()>),
+}
+
+fn start_batch_writer(path: PathBuf) -> mpsc::Sender<WriterMsg> {
+    let (tx, rx) = mpsc::channel::<WriterMsg>();
 
     std::thread::Builder::new()
         .name("threat_intel_writer".into())
@@ -796,7 +809,13 @@ fn start_batch_writer(path: PathBuf) -> mpsc::Sender<ThreatInsight> {
                 // Wake up at least every 2 s so a lone update is not left unflushed
                 // until the next one arrives (it would be lost on restart).
                 match rx.recv_timeout(Duration::from_secs(2)) {
-                    Ok(item) => buffer.push(item),
+                    Ok(WriterMsg::Item(item)) => buffer.push(item),
+                    Ok(WriterMsg::Flush(done)) => {
+                        flush_insights(&path, &mut buffer);
+                        last_flush = std::time::Instant::now();
+                        let _ = done.send(());
+                        continue;
+                    }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         if !buffer.is_empty() {
                             flush_insights(&path, &mut buffer);
@@ -809,7 +828,14 @@ fn start_batch_writer(path: PathBuf) -> mpsc::Sender<ThreatInsight> {
 
                 // Drain remaining queued items non-blockingly
                 while let Ok(more) = rx.try_recv() {
-                    buffer.push(more);
+                    match more {
+                        WriterMsg::Item(item) => buffer.push(item),
+                        WriterMsg::Flush(done) => {
+                            flush_insights(&path, &mut buffer);
+                            last_flush = std::time::Instant::now();
+                            let _ = done.send(());
+                        }
+                    }
                     if buffer.len() >= 512 {
                         break;
                     }

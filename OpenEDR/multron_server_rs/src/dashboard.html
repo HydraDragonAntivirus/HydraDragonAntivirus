@@ -292,8 +292,10 @@
         <option value="off">Off (scans accepted)</option>
         <option value="maintenance">Maintenance</option>
         <option value="updating">Updating server</option>
+        <option value="getting_updated" disabled>Getting updated (scans continue)</option>
+        <option value="switching" disabled>Switching to the new version</option>
       </select>
-      <div class="hint" id="mtMsg">New scans are refused with "Under maintenance. Try again later." (or, while updating, "Under maintenance: the server is being updated. Try again in a few minutes."); scans in progress finish and hash lookups keep working. Normal maintenance stays on after a restart. Multron Updater sets "Updating server" by itself before it replaces the server, and the updated server starts with it off.</div>
+      <div class="hint" id="mtMsg">New scans are refused with "Under maintenance. Try again later." (or, while updating, "Under maintenance: the server is being updated. Try again in a few minutes."); scans in progress finish and hash lookups keep working. Normal maintenance stays on after a restart. Multron Updater sets "Updating server" by itself before it replaces the server, and the updated server starts with it off. With a seamless update the new version loads next to this one: "Getting updated" keeps every scan going and only the last few seconds ("Switching") refuse new ones.</div>
       <div id="listenError" class="error"></div>
 
       <label>Client address (this PC)</label>
@@ -1061,7 +1063,9 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     running = state.server.running;
     const s = state.server;
     if (document.activeElement !== $("mtMode")) $("mtMode").value = s.maintenanceMode || "off";
-    if (running && s.maintenance) setPill($("serverPill"), "wait", (s.maintenanceMode === "updating" ? "Updating server" : "Maintenance") + ` · ${s.host}:${s.port}${s.path}`);
+    const mtNames = { updating: "Updating server", switching: "Switching to the new version", maintenance: "Maintenance" };
+    if (running && s.maintenance) setPill($("serverPill"), "wait", (mtNames[s.maintenanceMode] || "Maintenance") + ` · ${s.host}:${s.port}${s.path}`);
+    else if (running && s.maintenanceMode === "getting_updated") setPill($("serverPill"), "ok", `Getting updated (scans continue) · ${s.host}:${s.port}${s.path}`);
     else if (running) setPill($("serverPill"), "ok", `Listening on ${s.host}:${s.port}${s.path}`);
     else setPill($("serverPill"), s.error ? "bad" : "", s.error ? "Stopped (error)" : "Stopped");
     const ut = state.uptimeTotal;

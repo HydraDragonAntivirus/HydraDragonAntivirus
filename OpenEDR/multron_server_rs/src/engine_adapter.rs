@@ -103,7 +103,9 @@ pub struct EngineAdapter {
     /// that could not be kept (quota) is not requested again on every check.
     xf_requested: std::sync::Mutex<std::collections::HashSet<String>>,
     /// ML dataset folders (`dataset_paths.json`); None = off. See `dataset.rs`.
-    pub dataset: Option<Arc<crate::dataset::Dataset>>,
+    /// ML datasets (`dataset_paths.json`); set after a seamless-update takeover when the
+    /// server started in standby.
+    pub dataset: OnceLock<Arc<crate::dataset::Dataset>>,
     /// LZMA2-compress kept files when space runs low (dashboard toggle, off by default).
     pub compress_low_disk: AtomicBool,
     pub low_disk_threshold_bytes: u64,
@@ -138,7 +140,15 @@ impl EngineAdapter {
         let mut kept = (0u64, 0i64, 0u64);
         if let Some(ref dir) = work_dir {
             let _ = std::fs::create_dir_all(dir);
-            kept = remove_leftover_uploads(dir);
+            // Standby (seamless update): the running server's uploads in progress are
+            // not leftovers; they are removed after the takeover.
+            kept = remove_leftover_uploads(dir, !crate::config::is_standby());
+        }
+        let dataset = OnceLock::new();
+        if !crate::config::is_standby() {
+            if let Some(d) = crate::dataset::Dataset::load() {
+                let _ = dataset.set(d);
+            }
         }
 
         Arc::new(Self {
@@ -156,7 +166,7 @@ impl EngineAdapter {
             keep_all_unique: AtomicBool::new(true),
             collect_xorfilter: AtomicBool::new(true),
             xf_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
-            dataset: crate::dataset::Dataset::load(),
+            dataset,
             compress_low_disk: AtomicBool::new(compress_low_disk),
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
@@ -204,6 +214,19 @@ impl EngineAdapter {
                 }
             })
             .expect("cannot start engine loader");
+    }
+
+    /// Seamless update, right after the takeover (the old server has exited): its
+    /// temporary uploads are leftovers now, and the ML datasets can be indexed.
+    pub fn after_takeover(&self) {
+        if let Some(dir) = self.work_dir.as_ref() {
+            remove_leftover_uploads(dir, true);
+        }
+        if self.dataset.get().is_none() {
+            if let Some(d) = crate::dataset::Dataset::load() {
+                let _ = self.dataset.set(d);
+            }
+        }
     }
 
     /// Folder the engine loads its rules from (`database/`, `yara_rules/`,
@@ -538,6 +561,11 @@ impl EngineAdapter {
 
     pub async fn is_ready(&self) -> bool {
         self.ready()
+    }
+
+    /// The engine could not be loaded (it will not become ready).
+    pub fn load_failed(&self) -> bool {
+        !self.ready() && !self.error_msg.read().unwrap().is_empty()
     }
 
     pub async fn get_status(&self) -> EngineStatus {
@@ -1493,11 +1521,11 @@ fn category_dir_of(path: &Path) -> Option<&'static str> {
 
 /// At startup: deletes temp files of interrupted scans, creates the category folders
 /// and counts what is kept (bytes outside clean/, files, bytes in clean/).
-fn remove_leftover_uploads(dir: &Path) -> (u64, i64, u64) {
+fn remove_leftover_uploads(dir: &Path, remove: bool) -> (u64, i64, u64) {
     for cat in KeptFile::CATEGORIES {
         let _ = std::fs::create_dir_all(dir.join(cat));
     }
-    if let Ok(entries) = std::fs::read_dir(dir) {
+    if let Some(entries) = remove.then(|| std::fs::read_dir(dir).ok()).flatten() {
         for entry in entries.flatten() {
             let path = entry.path();
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
@@ -1701,7 +1729,11 @@ mod kept_tests {
         std::fs::write(dir.join("00000012_tmp.exe"), b"x").unwrap();
         std::fs::create_dir_all(dir.join("threat")).unwrap();
         std::fs::write(dir.join("threat").join(format!("{}_e.exe", sha('E'))), b"x").unwrap();
-        let (_, n, _) = remove_leftover_uploads(&dir);
+        // Standby (seamless update): the running server's upload is not touched.
+        let (_, n, _) = remove_leftover_uploads(&dir, false);
+        assert_eq!(n, 5);
+        assert!(dir.join("00000012_tmp.exe").exists());
+        let (_, n, _) = remove_leftover_uploads(&dir, true);
         assert_eq!(n, 5);
         assert!(!dir.join("00000012_tmp.exe").exists());
         let ad = EngineAdapter::new(Some(dir.clone()), false, true, 1, true, false, 1, false, 1);

@@ -49,12 +49,25 @@ default; `"public"` = a downloaded public set, never written to):
 ```json
 {
   "windows_malware": [
-    "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\datamaliciousorder",
-    { "path": "D:\\public\\some_public_set\\malware", "source": "public" }
+    { "path": "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\datamaliciousorder", "name": "usbdosyalar" },
+    { "path": "D:\\public\\some_public_set\\malware", "source": "public", "name": "Public set" }
   ],
-  "windows_clean": { "path": "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\data2", "source": "own" }
+  "windows_clean": { "path": "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\data2", "source": "own", "name": "usbdosyalar" },
+  "android_clean": [
+    { "path": "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAV-Mobile\\dataset\\benign", "name": "Own APKs" },
+    { "path": "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAV-Mobile\\dataset\\benign\\F-Droid", "source": "public", "name": "F-Droid" }
+  ]
 }
 ```
+
+`"name"` (optional) is a display name for the statistics: the website's training-dataset
+panel lists every named folder on its own line (unique files, and how many were added in
+the last 30 days) next to the own / public / both totals. The name is published; the path
+never is. The same name on several keys (e.g. "usbdosyalar" for malware and clean) is one
+line that follows the platform / label filter. A folder inside another one
+(`benign\F-Droid`) keeps its own source and name: the server reads it once, as itself, so
+F-Droid files count as "public only", not "both". Folders starting with `.` (`.cache`,
+`.git`) are never read.
 
 **Duplicates are decided by content, not by name.** At start the server hashes every file
 already in the six folders, whatever it is called (`dataset_index.jsonl` next to the
@@ -136,9 +149,12 @@ python train_js_lgbm.py --malicious D:\js\bad D:\js\bad2 --benign D:\js\good   #
   list each chunk was built from (`chunk_manifest.json`). A chunk is reused only for the
   same files, so adding or changing folders rebuilds what changed, and stale chunks from an
   older, longer list are not loaded. The first run after this change rebuilds the chunks once.
-* `train_generic_lgbm.py` reads only the `F-Droid` subfolder of every `android_clean`
-  folder for benign APKs (the APK trainer reads the whole folder). Clean APKs the server
-  writes go to the root of the first `"own"` folder, so the generic model does not use them.
+* Folders whose name starts with `.` (`.cache`, `.git`, ...) are never read, by the
+  trainers or by the server. Every trainer (`train_generic_lgbm.py` included) reads the
+  whole `android_clean` folder(s).
+* A folder listed inside another one of the same key (`dataset\benign\F-Droid` inside
+  `dataset\benign`) is read once, as itself: its own `source` counts (`--sources public`
+  takes only F-Droid, `--sources own` everything else in `benign`).
 
 ---
 

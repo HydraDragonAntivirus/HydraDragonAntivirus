@@ -12,8 +12,11 @@ trainers and yarGen all use the same folders:
       ...
     }
 
-Every key takes a plain path ("own"), `{ "path", "source" }` ("own" or "public"), or a
-list of those. Missing keys fall back to the folders below.
+Every key takes a plain path ("own"), `{ "path", "source", "name" }` ("own" or "public";
+the name is only for the server's statistics), or a list of those. Missing keys fall
+back to the folders below. A configured folder inside another one of the same key
+(`benign\\F-Droid` inside `benign`) is read once, as itself: `--sources` then picks it by
+its own source. Folders whose name starts with `.` (`.cache`, `.git`, ...) are never read.
 
 Which `dataset_paths.json` is used, first found:
   1. `--dataset-paths <file>`
@@ -139,6 +142,19 @@ def add_args(parser: argparse.ArgumentParser, platform: str) -> None:
                    help=f"Benign folder(s); overrides {platform}_clean in dataset_paths.json")
 
 
+def _key(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path)).rstrip("\\/")
+
+
+def configured(args, platform: str) -> Tuple[List[str], List[str]]:
+    """Every folder of the platform that is read on its own: the --malicious / --benign
+    folders when given, else every folder of dataset_paths.json (any source)."""
+    cfg = load_config(find_config(getattr(args, "dataset_paths", None)))
+    mal = getattr(args, "malicious", None) or [p for p, _ in cfg[f"{platform}_malware"]]
+    ben = getattr(args, "benign", None) or [p for p, _ in cfg[f"{platform}_clean"]]
+    return list(mal), list(ben)
+
+
 def resolve(args, platform: str) -> Tuple[List[str], List[str]]:
     """(malicious folders, benign folders) for a platform, printed."""
     cfg_path = find_config(getattr(args, "dataset_paths", None))
@@ -161,11 +177,14 @@ def resolve(args, platform: str) -> Tuple[List[str], List[str]]:
 
 # --------------------------------------------------------------------------- files
 
-def walk(folder: str, skip_hidden: bool = True) -> Iterator[str]:
-    """Every file under `folder` (sorted, so the order is the same on every run)."""
+def walk(folder: str, skip_hidden: bool = True, skip_dirs: Iterable[str] = ()) -> Iterator[str]:
+    """Every file under `folder` (sorted, so the order is the same on every run).
+    Folders starting with `.` and the `skip_dirs` (configured folders nested in this
+    one, read on their own) are not entered."""
+    skip = {_key(d) for d in skip_dirs} - {_key(folder)}
     for root, dirs, files in os.walk(folder):
-        if skip_hidden:
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__"]
+        dirs[:] = [d for d in dirs
+                   if not (skip_hidden and d.startswith(".")) and _key(os.path.join(root, d)) not in skip]
         dirs.sort()
         for f in sorted(files):
             yield os.path.join(root, f)
@@ -222,7 +241,8 @@ class HashCache:
 
 
 def _take(folders: Iterable[str], keep: Callable[[str], bool], max_files: int,
-          cache: Optional[HashCache], skip_hidden: bool) -> Tuple[List[Tuple[str, Optional[str]]], int]:
+          cache: Optional[HashCache], skip_hidden: bool,
+          nested: Iterable[str] = ()) -> Tuple[List[Tuple[str, Optional[str]]], int]:
     """[(path, sha256 or None)] in folder order, duplicates by content skipped."""
     out: List[Tuple[str, Optional[str]]] = []
     seen_hash, seen_path = set(), set()
@@ -230,7 +250,7 @@ def _take(folders: Iterable[str], keep: Callable[[str], bool], max_files: int,
     for folder in folders:
         if not os.path.isdir(folder):
             continue
-        for path in walk(folder, skip_hidden):
+        for path in walk(folder, skip_hidden, nested):
             if max_files and len(out) >= max_files:
                 return out, dups
             key = os.path.normcase(os.path.abspath(path))
@@ -251,16 +271,11 @@ def _take(folders: Iterable[str], keep: Callable[[str], bool], max_files: int,
 
 
 def collect(args, platform: str, keep: Optional[Callable[[str], bool]] = None, max_per_class: int = 0,
-            skip_hidden: bool = True, benign_subdir: Optional[str] = None) -> Tuple[List[str], List[str]]:
+            skip_hidden: bool = True) -> Tuple[List[str], List[str]]:
     """(malicious files, benign files) of a platform: every configured folder, in order,
-    content duplicates and files present under both labels removed. `benign_subdir`:
-    read only that subfolder of every benign folder (e.g. "F-Droid")."""
+    content duplicates and files present under both labels removed."""
     mal_dirs, ben_dirs = resolve(args, platform)
-    if benign_subdir:
-        ben_dirs = [os.path.join(d, benign_subdir) for d in ben_dirs]
-        print(f"[*] Benign: only the {benign_subdir} subfolder of each folder:", flush=True)
-        for d in ben_dirs:
-            print(f"      benign    {d}{'' if os.path.isdir(d) else '   (MISSING)'}", flush=True)
+    all_mal, all_ben = configured(args, platform)
     keep = keep or (lambda _p: True)
     cache = None
     if not getattr(args, "no_dedupe", False):
@@ -269,8 +284,8 @@ def collect(args, platform: str, keep: Optional[Callable[[str], bool]] = None, m
         cache = HashCache(server_index)
         print("[*] Hashing files for duplicate / label-conflict removal (cached; --no-dedupe skips it)...", flush=True)
     try:
-        mal, mal_dups = _take(mal_dirs, keep, max_per_class, cache, skip_hidden)
-        ben, ben_dups = _take(ben_dirs, keep, max_per_class, cache, skip_hidden)
+        mal, mal_dups = _take(mal_dirs, keep, max_per_class, cache, skip_hidden, all_mal)
+        ben, ben_dups = _take(ben_dirs, keep, max_per_class, cache, skip_hidden, all_ben)
     finally:
         if cache is not None:
             cache.flush()

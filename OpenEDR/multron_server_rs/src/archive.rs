@@ -611,6 +611,34 @@ impl Tail {
         Self { path, offset: 0, check: Vec::new(), fresh: true }
     }
 
+    /// Follows only what is added after the first `len` bytes (seamless update: the
+    /// file was loaded up to there). Starts at the last complete line before `len`, so
+    /// a line being written at that moment is read again (ingesting is idempotent).
+    /// Without a line break in the last MiB before `len`, the whole file is read again.
+    pub fn after(path: PathBuf, len: u64) -> Self {
+        let mut t = Self::new(path);
+        let Ok(mut f) = File::open(&t.path) else {
+            // Not there yet: whatever appears later is new.
+            t.fresh = false;
+            return t;
+        };
+        let start = len.saturating_sub(1 << 20);
+        let mut buf = Vec::new();
+        if f.seek(SeekFrom::Start(start)).is_err() || (&mut f).take(len - start).read_to_end(&mut buf).is_err() {
+            return t;
+        }
+        match buf.iter().rposition(|&b| b == b'\n') {
+            Some(i) => {
+                t.offset = start + i as u64 + 1;
+                t.check = buf[(i + 1).saturating_sub(64)..=i].to_vec();
+                t.fresh = false;
+            }
+            None if start == 0 => t.fresh = false,
+            None => {}
+        }
+        t
+    }
+
     pub fn read(&mut self) -> TailRead {
         let mut reset = std::mem::take(&mut self.fresh);
         let Ok(mut f) = File::open(&self.path) else {
@@ -666,7 +694,7 @@ impl Tail {
 }
 
 /// (length, mtime) of every file under these paths, to see that something changed.
-fn fingerprint(paths: &[PathBuf]) -> Vec<(PathBuf, u64, u128)> {
+pub(crate) fn fingerprint(paths: &[PathBuf]) -> Vec<(PathBuf, u64, u128)> {
     let mut out = Vec::new();
     for p in paths {
         if p.is_dir() {

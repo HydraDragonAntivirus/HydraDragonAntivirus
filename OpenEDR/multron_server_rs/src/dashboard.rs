@@ -324,6 +324,9 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/start", post(handle_start))
         .route("/api/stop", post(handle_stop))
         .route("/api/maintenance", get(handle_maintenance_status).post(handle_maintenance))
+        .route("/api/handoff/begin", post(handle_handoff_begin))
+        .route("/api/handoff/cancel", post(handle_handoff_cancel))
+        .route("/api/handoff/release", post(handle_handoff_release))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
         .route("/api/keep-clean", post(handle_keep_clean))
         .route("/api/keep-all-unique", post(handle_keep_all_unique))
@@ -390,8 +393,9 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
 }
 
 /// Dashboard calls that change nothing in the mirrored data (archive mode).
-const ARCHIVE_ALLOWED: [&str; 16] = [
+const ARCHIVE_ALLOWED: [&str; 19] = [
     "/api/start", "/api/stop", "/api/maintenance", "/api/limits", "/api/limits/reset", "/api/unban",
+    "/api/handoff/begin", "/api/handoff/cancel", "/api/handoff/release",
     "/api/alyzer/open", "/api/alyzer/bytes", "/api/alyzer/search", "/api/alyzer/strings", "/api/alyzer/list", "/api/fs/list",
     "/api/alyzer/archive/open", "/api/alyzer/unpack", "/api/retrohunt/archive", "/api/retrohunt/stop",
 ];
@@ -532,7 +536,7 @@ async fn handle_state(
             "keepPossibleClean": app.engine.keep_possible_clean.load(std::sync::atomic::Ordering::Relaxed),
             "keepAllUnique": app.engine.keep_all_unique.load(std::sync::atomic::Ordering::Relaxed),
             "collectXorfilter": app.engine.collect_xorfilter.load(std::sync::atomic::Ordering::Relaxed),
-            "dataset": app.engine.dataset.as_ref().map(|d| d.status()),
+            "dataset": app.engine.dataset.get().map(|d| d.status()),
             "compressLowDisk": app.engine.compress_low_disk.load(std::sync::atomic::Ordering::Relaxed),
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },
@@ -624,7 +628,7 @@ async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
 /// An analyst verdict is a reliable label: copy the kept file into the ML dataset
 /// folder for it (dataset_paths.json), moving it if the label flipped.
 fn export_human_label(engine: &crate::engine_adapter::EngineAdapter, sha: &str, verdict: &str) {
-    let (Some(ds), Some(label)) = (engine.dataset.as_ref(), crate::dataset::human_label(verdict)) else { return };
+    let (Some(ds), Some(label)) = (engine.dataset.get(), crate::dataset::human_label(verdict)) else { return };
     let Some(k) = engine.find_kept(&sha.to_ascii_uppercase()) else { return };
     if let Some(bytes) = k.read() {
         ds.export(sha, &bytes, &k.name, label);
@@ -650,7 +654,7 @@ async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): J
 /// ML dataset label conflicts (same content already in the other label folder in a
 /// file the server did not write), newest first.
 async fn handle_dataset_conflicts(State(app): State<Arc<AppState>>) -> impl IntoResponse {
-    match app.engine.dataset.as_ref() {
+    match app.engine.dataset.get() {
         Some(ds) => {
             let ds = Arc::clone(ds);
             let list = tokio::task::spawn_blocking(move || ds.recent_conflicts(500)).await.unwrap_or_default();
@@ -1064,8 +1068,12 @@ fn maintenance_json(app: &AppState) -> serde_json::Value {
         "ok": true,
         "maintenance": srv.maintenance(),
         "mode": srv.maintenance_mode(),
-        "message": if srv.maintenance() { srv.maintenance_message() } else { "" },
+        "message": if srv.maintenance_mode() != "off" { srv.maintenance_message() } else { "" },
         "activeWork": active_work(app),
+        // Seamless update: the updater sees the switch by the pid changing.
+        "pid": std::process::id(),
+        "handoff": srv.handoff.status_json(),
+        "seamlessUpdate": true,
     })
 }
 
@@ -1099,6 +1107,99 @@ async fn handle_maintenance(
         },
     );
     Json(maintenance_json(&app))
+}
+
+#[derive(Deserialize)]
+struct HandoffReq {
+    #[serde(default)]
+    pid: u32,
+    #[serde(default, rename = "drainSeconds")]
+    drain_seconds: Option<u64>,
+}
+
+/// Seamless update: the new version started next to this one and loads its engine.
+/// Scans go on ("getting updated"); called again every few seconds as a heartbeat.
+async fn handle_handoff_begin(State(app): State<Arc<AppState>>, Json(req): Json<HandoffReq>) -> impl IntoResponse {
+    if app.scan_server.handoff.begin(&app.scan_server, req.pid) {
+        info_event(&app, format!("getting updated: the new version (pid {}) is loading next to this one; scans continue", req.pid));
+    }
+    let listening = app.listener_handle.lock().await.is_some();
+    Json(serde_json::json!({ "ok": true, "pid": std::process::id(), "listening": listening, "mode": app.scan_server.maintenance_mode() }))
+}
+
+/// Seamless update abandoned by the new version (it could not load).
+async fn handle_handoff_cancel(State(app): State<Arc<AppState>>, Json(req): Json<HandoffReq>) -> impl IntoResponse {
+    if app.scan_server.handoff.standby_pid() == Some(req.pid) {
+        app.scan_server.handoff.abandon(&app.scan_server, false);
+        info_event(&app, format!("seamless update cancelled by the new version (pid {}); back to normal", req.pid));
+    }
+    Json(maintenance_json(&app))
+}
+
+/// Seamless update, last step: refuse new scans for a moment, let the ones in progress
+/// finish, close the sessions, let the writers flush, answer and exit, so the new
+/// version can bind the ports.
+async fn handle_handoff_release(State(app): State<Arc<AppState>>, Json(req): Json<HandoffReq>) -> Response {
+    let standby = app.scan_server.handoff.standby_pid();
+    if standby != Some(req.pid) {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "ok": false, "error": format!("no seamless update from pid {} (standby: {:?})", req.pid, standby) })),
+        )
+            .into_response();
+    }
+    let started = std::time::Instant::now();
+    let listening = app.listener_handle.lock().await.is_some();
+    if app.scan_server.maintenance_mode() != "maintenance" {
+        app.scan_server.set_maintenance("switching");
+    }
+    info_event(&app, format!("seamless update: handing over to pid {}; finishing the scans in progress", req.pid));
+    let limit = std::time::Duration::from_secs(req.drain_seconds.unwrap_or(30).min(300));
+    while active_work(&app) > 0 && started.elapsed() < limit {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    let left = active_work(&app);
+    app.stop_listener(false).await;
+    // Background jobs stop here (start them again on the new version if needed), then
+    // everything buffered goes to disk before the new version reads the last lines.
+    let srv = Arc::clone(&app.scan_server);
+    srv.rescan.request_stop();
+    srv.retrohunt.stop_all();
+    srv.offload.request_stop();
+    srv.mirror.request_stop();
+    let flushed = tokio::task::spawn_blocking(move || {
+        let t = std::time::Duration::from_secs(10);
+        srv.threat_intel.flush(t) & srv.cache.flush(t)
+    })
+    .await
+    .unwrap_or(false);
+    if !flushed {
+        // A writer did not answer: fall back to its own 2 s flush.
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    }
+    crate::uptime::save_now();
+    eprintln!(
+        "[handoff] handed over to pid {} after {} ms ({left} scan(s) cut off); exiting",
+        req.pid,
+        started.elapsed().as_millis()
+    );
+    tokio::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        std::process::exit(0);
+    });
+    Json(serde_json::json!({ "ok": true, "released": true, "listening": listening, "pid": std::process::id(), "cutOff": left })).into_response()
+}
+
+/// Leaves "getting updated" when the new version stopped calling (it crashed).
+pub fn spawn_handoff_watchdog(app: Arc<AppState>) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(crate::handoff::BEAT_EVERY).await;
+            if let Some(pid) = app.scan_server.handoff.abandon(&app.scan_server, true) {
+                info_event(&app, format!("seamless update abandoned: the new version (pid {pid}) stopped answering; back to normal"));
+            }
+        }
+    });
 }
 
 fn info_event(app: &AppState, message: String) {

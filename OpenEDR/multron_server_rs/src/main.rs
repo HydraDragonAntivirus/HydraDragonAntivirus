@@ -24,6 +24,7 @@ mod retrohunt;
 mod sample_zip;
 mod similarity;
 mod events;
+mod handoff;
 mod limits;
 mod liveness;
 mod ratelimit;
@@ -50,7 +51,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     args.enforce_limits();
     args.archive = args.archive || config::archive_in_settings();
     config::set_archive(args.archive);
-    uptime::start();
+    let ui_addr: SocketAddr = args
+        .ui
+        .parse()
+        .map_err(|e| format!("invalid --ui address '{}': {}", args.ui, e))?;
+
+    // Seamless update (`--handoff`, started by Multron Updater next to the running
+    // server): load everything while the running server keeps scanning, then take over.
+    let mut handoff_from: Option<u32> = None;
+    if args.handoff {
+        match handoff::begin(ui_addr).await {
+            handoff::Begin::Accepted { pid } => {
+                eprintln!("[handoff] standby: the running server (pid {pid}) keeps scanning while this version loads");
+                config::set_standby(true);
+                handoff_from = Some(pid);
+            }
+            handoff::Begin::NoServer => eprintln!("[handoff] no server is running on {ui_addr}: normal start"),
+            handoff::Begin::Unsupported => {
+                eprintln!("[handoff] the running server does not support seamless updates; exiting (the updater restarts it the usual way)");
+                std::process::exit(handoff::EXIT_UNSUPPORTED);
+            }
+        }
+    }
+    let standby = handoff_from.is_some();
+    if !standby {
+        uptime::start();
+    }
     if args.archive {
         eprintln!("[archive] read-only archive server: data comes from the main server's mirror in {}", app_dir().display());
     }
@@ -86,26 +112,75 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine.start_loading(custom_rules);
     }
 
+    let lengths = standby.then(handoff::lengths);
     let threat_intel = threat_intel::ThreatIntelStore::new(None);
-    if !args.archive {
+
+    // Standby: wait for the engine (calling the running server every few seconds and
+    // following what it writes), then ask it to hand over and take its ports.
+    let mut early_dashboard: Option<tokio::net::TcpListener> = None;
+    let mut old_listening = false;
+    let mut switch_started: Option<std::time::Instant> = None;
+    if let (Some(old_pid), Some(lengths)) = (handoff_from, lengths) {
+        let mut follow = handoff::Follow::new(lengths);
+        let mut last_beat = std::time::Instant::now();
+        let waited = std::time::Instant::now();
+        while !args.archive && !engine.is_ready().await {
+            if engine.load_failed() {
+                eprintln!("[handoff] the engine failed to load; the running server stays (update cancelled)");
+                handoff::cancel(ui_addr).await;
+                std::process::exit(1);
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            if last_beat.elapsed() >= handoff::BEAT_EVERY {
+                last_beat = std::time::Instant::now();
+                if let handoff::Begin::NoServer = handoff::begin(ui_addr).await {
+                    eprintln!("[handoff] the running server is gone; taking over when the engine is ready");
+                }
+                tokio::task::block_in_place(|| follow.catch_up(&threat_intel));
+            }
+        }
+        eprintln!("[handoff] ready after {} s; asking pid {old_pid} to hand over", waited.elapsed().as_secs());
+        let switch = std::time::Instant::now();
+        switch_started = Some(switch);
+        match handoff::release(ui_addr, args.handoff_drain_secs).await {
+            Ok(r) => old_listening = r.listening,
+            Err(e) if e.starts_with("release refused") => {
+                eprintln!("[handoff] {e}; the running server stays (update cancelled)");
+                handoff::cancel(ui_addr).await;
+                std::process::exit(1);
+            }
+            // No answer (it may be gone already): the free port decides.
+            Err(e) => {
+                eprintln!("[handoff] release: {e}; waiting for the port");
+                old_listening = true;
+            }
+        }
+        match handoff::bind_when_free(ui_addr, Duration::from_secs(60)).await {
+            Ok(l) => early_dashboard = Some(l),
+            Err(e) => {
+                eprintln!("[handoff] {e}; exiting");
+                std::process::exit(1);
+            }
+        }
+        // The old process has exited: everything it wrote is on disk now.
+        config::set_standby(false);
+        let lines = tokio::task::block_in_place(|| follow.catch_up(&threat_intel));
+        engine.after_takeover();
+        uptime::start();
+        eprintln!("[handoff] took over from pid {old_pid} ({lines} new lines read, {} ms since the hand-over started)", switch.elapsed().as_millis());
+    }
+
+    if standby && !args.archive {
+        // Upkeep the old server already did at its start: in the background, so the
+        // listener comes up at once. Analyst signatures may have changed meanwhile.
         let ti = Arc::clone(&threat_intel);
-        engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
-        // Kept files follow human verdicts (e.g. bulk whitelists made by older builds).
-        let queued = ti.sync_review_queue();
-        if queued > 0 {
-            eprintln!("[review] {queued} open files added to the human analysis queue");
-        }
-        let moved = engine.relabel_many(&ti.reviews.completed_verdicts());
-        if moved > 0 {
-            eprintln!("[engine] {moved} kept files moved to the folder of their human verdict");
-        }
-        let (dups, bytes) = engine.dedupe_kept(|sha| {
-            let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
-            (source != "unseen").then_some(verdict)
+        let eng = Arc::clone(&engine);
+        let _ = std::thread::Builder::new().name("handoff-upkeep".into()).spawn(move || {
+            eng.analyst.reload();
+            startup_upkeep(&eng, &ti);
         });
-        if dups > 0 {
-            eprintln!("[engine] {dups} duplicate kept files removed ({:.1} MB)", bytes as f64 / 1048576.0);
-        }
+    } else if !args.archive {
+        startup_upkeep(&engine, &threat_intel);
     }
     let scan_server = ScanServer::new(
         args.clone(),
@@ -135,12 +210,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&threat_intel),
     )
     .await;
+    dashboard::spawn_handoff_watchdog(Arc::clone(&app_state));
+
+    // Seamless update: the old server's scan listener was up, so this one starts now
+    // (the port was freed with the old process; retried briefly in case it lingers).
+    if standby {
+        let settings = app_state.settings.read().await.clone();
+        if old_listening || settings.autostart {
+            let started = std::time::Instant::now();
+            loop {
+                match app_state.start_listener(settings.clone()).await {
+                    Ok(()) => {
+                        let ms = switch_started.map_or(0, |t| t.elapsed().as_millis());
+                        eprintln!("[handoff] scanning on {}:{} again, {ms} ms after the hand-over started", settings.host, settings.port);
+                        break;
+                    }
+                    Err(e) if started.elapsed() < Duration::from_secs(15) => {
+                        let _ = e;
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                    Err(e) => {
+                        eprintln!("[handoff] the scan listener could not start: {e}");
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     // Background watcher for engine ready -> auto-start scan server if configured
     let app_clone = Arc::clone(&app_state);
     let engine_clone = Arc::clone(&engine);
     let archive = args.archive;
     tokio::spawn(async move {
+        if standby {
+            return; // started above
+        }
         while !archive && !engine_clone.is_ready().await {
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
@@ -168,17 +273,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Start Dashboard HTTP Server on UI port (default 127.0.0.1:9440)
-    let ui_addr: SocketAddr = args
-        .ui
-        .parse()
-        .map_err(|e| format!("invalid --ui address '{}': {}", args.ui, e))?;
-
-    let dash_listener = tokio::net::TcpListener::bind(ui_addr).await?;
+    // Start Dashboard HTTP Server on UI port (default 127.0.0.1:9440); after a
+    // seamless-update takeover it is already bound.
+    let dash_listener = match early_dashboard {
+        Some(l) => l,
+        None => tokio::net::TcpListener::bind(ui_addr).await?,
+    };
     let dash_url = format!("http://{}/", dash_listener.local_addr()?);
     eprintln!("dashboard: {}", dash_url);
 
-    if !args.no_browser {
+    if !args.no_browser && !standby {
         #[cfg(target_os = "windows")]
         {
             let _ = std::process::Command::new("rundll32")
@@ -203,4 +307,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     serve_fut.await?;
     Ok(())
+}
+
+/// Kept-file and review-queue upkeep at start (legacy layouts, human verdicts,
+/// duplicates). After a seamless-update takeover it runs in the background.
+fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatIntelStore>) {
+    engine.sort_legacy_kept(|sha| ti.get(sha).map(|i| i.verdict));
+    // Kept files follow human verdicts (e.g. bulk whitelists made by older builds).
+    let queued = ti.sync_review_queue();
+    if queued > 0 {
+        eprintln!("[review] {queued} open files added to the human analysis queue");
+    }
+    let moved = engine.relabel_many(&ti.reviews.completed_verdicts());
+    if moved > 0 {
+        eprintln!("[engine] {moved} kept files moved to the folder of their human verdict");
+    }
+    let (dups, bytes) = engine.dedupe_kept(|sha| {
+        let (verdict, source, _) = ti.effective(&sha.to_ascii_lowercase());
+        (source != "unseen").then_some(verdict)
+    });
+    if dups > 0 {
+        eprintln!("[engine] {dups} duplicate kept files removed ({:.1} MB)", bytes as f64 / 1048576.0);
+    }
 }

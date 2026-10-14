@@ -274,6 +274,15 @@
     .ratio-seg.ds-b, .ha-day > i.ds-b, .legend-dot.ds-b { background: #a78bfa; }
     /* One label every 5 days: let it overflow its narrow column, centred. */
     #dsDays span { display: flex; justify-content: center; overflow: visible; white-space: nowrap; visibility: visible; }
+    /* Per named folder (dataset_paths.json "name"): total and last-30-days additions. */
+    .ds-groups { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .ds-group { display: grid; grid-template-columns: minmax(90px, 1fr) 2fr auto; gap: 10px; align-items: center; font-size: 0.8rem; }
+    .ds-group .gname { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ds-group .gbar { height: 8px; border-radius: 4px; background: var(--border-subtle); overflow: hidden; }
+    .ds-group .gbar > i { display: block; height: 100%; background: var(--accent-cyan); }
+    .ds-group .gnum { font-family: var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+    .ds-group .gnum b { color: #fff; }
+    @media (max-width: 600px) { .ds-group { grid-template-columns: 1fr auto; } .ds-group .gbar { grid-column: 1 / -1; grid-row: 2; } }
 
     /* Table */
     .table-container {
@@ -555,6 +564,11 @@
       <div class="spec-lbl" data-i18n="ds.chart">Son 30 gün — günlük eklenen dosyalar</div>
       <div class="ha-chart" id="dsChart" aria-label="Daily dataset additions"></div>
       <div class="ha-days" id="dsDays"></div>
+      <div id="dsGroupsWrap" hidden>
+        <div class="spec-lbl" style="margin-top:16px" data-i18n="ds.groups">Klasörlere göre</div>
+        <div class="ds-groups" id="dsGroups"></div>
+        <div class="ha-note" data-i18n="ds.groups_note">Bir dosya birden fazla klasörde varsa her birinde sayılır; toplam her dosyayı bir kez sayar.</div>
+      </div>
       <div class="ha-note" id="dsNote"></div>
     </div>
 
@@ -840,6 +854,7 @@
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
       const note = document.getElementById('dsNote');
       const cell = dsData && dsData.stats && dsData.stats[dsPlatform] ? dsData.stats[dsPlatform][dsLabel] : null;
+      renderDatasetGroups();
       if (!cell) {
         ['dsOwn', 'dsPublic', 'dsBoth', 'dsTotal'].forEach(id => set(id, '—'));
         ['dsBarOwn', 'dsBarPublic', 'dsBarBoth'].forEach(id => { const el = document.getElementById(id); if (el) el.style.width = '0%'; });
@@ -878,6 +893,28 @@
       // A label every 5 days (counting back from today) keeps 30 columns readable.
       if (labels) labels.innerHTML = days.map((d, i) => `<span>${(days.length - 1 - i) % 5 === 0 ? esc(d.date.slice(8, 10) + '.' + d.date.slice(5, 7)) : ''}</span>`).join('');
       if (note) note.textContent = total ? '' : haT('ds.empty', 'Bu filtre için dosya yok.');
+    }
+    // Named folders (e.g. "F-Droid"): one row each for the current filter, beside the totals.
+    function renderDatasetGroups() {
+      const wrap = document.getElementById('dsGroupsWrap'), list = document.getElementById('dsGroups');
+      if (!wrap || !list) return;
+      const groups = (dsData && dsData.groups) || {};
+      const rows = Object.keys(groups)
+        .map(name => ({ name, cell: groups[name][dsPlatform] && groups[name][dsPlatform][dsLabel] }))
+        .filter(r => r.cell && r.cell.total > 0)
+        .sort((a, b) => b.cell.total - a.cell.total);
+      wrap.hidden = rows.length === 0;
+      if (!rows.length) { list.innerHTML = ''; return; }
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const n = (x) => Number(x || 0).toLocaleString();
+      const max = Math.max(1, ...rows.map(r => r.cell.total));
+      const last30 = haT('ds.last30', 'son 30 gün');
+      list.innerHTML = rows.map(r => {
+        const recent = (r.cell.daily || []).reduce((a, v) => a + v, 0);
+        return `<div class="ds-group"><span class="gname" title="${esc(r.name)}">${esc(r.name)}</span>` +
+          `<span class="gbar"><i style="width:${(r.cell.total / max * 100).toFixed(2)}%"></i></span>` +
+          `<span class="gnum"><b>${n(r.cell.total)}</b> · +${n(recent)} ${esc(last30)}</span></div>`;
+      }).join('');
     }
     async function fetchDataset() {
       try {

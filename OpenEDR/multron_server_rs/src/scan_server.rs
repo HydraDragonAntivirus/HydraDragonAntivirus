@@ -203,8 +203,13 @@ pub struct ScanServer {
     /// scans are refused with a message while in-flight work finishes.
     /// Unlike stop, clients get an answer instead of a refused connection.
     /// 0 = off, 1 = maintenance, 2 = updating (set by Multron Updater before it
-    /// replaces the exe; not saved, so the updated server starts without it).
+    /// replaces the exe; not saved, so the updated server starts without it),
+    /// 3 = getting updated (seamless update: the new version loads next to this one,
+    /// scans go on as usual), 4 = switching (the last seconds of a seamless update:
+    /// in-flight work finishes, then the new version takes over).
     pub maintenance: std::sync::atomic::AtomicU8,
+    /// Seamless update: the new version waiting to take over (see `handoff`).
+    pub handoff: crate::handoff::OldSide,
     /// Process boot time for uptime reporting.
     pub boot_time: std::time::Instant,
     /// Background rescan of kept files (dashboard).
@@ -359,6 +364,7 @@ impl ScanServer {
             total_errors: AtomicI64::new(0),
             active_connections: AtomicUsize::new(0),
             maintenance: std::sync::atomic::AtomicU8::new(0),
+            handoff: crate::handoff::OldSide::default(),
             boot_time: std::time::Instant::now(),
             rescan: crate::rescan::BulkRescan::default(),
             retrohunt: crate::retrohunt::RetroHunt::default(),
@@ -373,38 +379,42 @@ impl ScanServer {
         self.boot_time.elapsed().as_secs()
     }
 
-    /// Maintenance flag: true while the operator holds new scans for updates.
+    /// True while new scans are refused (maintenance, updating, switching). The
+    /// "getting updated" mode of a seamless update does NOT refuse scans.
     pub fn maintenance(&self) -> bool {
-        self.maintenance.load(Ordering::Relaxed) != 0
+        matches!(self.maintenance.load(Ordering::Relaxed), 1 | 2 | 4)
     }
 
-    /// "off", "maintenance" or "updating".
+    /// The server is being updated (classic or seamless).
+    pub fn updating(&self) -> bool {
+        matches!(self.maintenance.load(Ordering::Relaxed), 2..=4)
+    }
+
+    /// "off", "maintenance", "updating", "getting_updated" or "switching".
     pub fn maintenance_mode(&self) -> &'static str {
         match self.maintenance.load(Ordering::Relaxed) {
             0 => "off",
             2 => "updating",
+            3 => "getting_updated",
+            4 => "switching",
             _ => "maintenance",
         }
     }
 
-    /// What clients are told while scans are refused.
+    /// What clients are told (scans refused, or the seamless update notice).
     pub fn maintenance_message(&self) -> &'static str {
-        if self.maintenance.load(Ordering::Relaxed) == 2 {
-            "Under maintenance: the server is being updated. Try again in a few minutes."
-        } else {
-            "Under maintenance. Try again later."
+        match self.maintenance.load(Ordering::Relaxed) {
+            2 => "Under maintenance: the server is being updated. Try again in a few minutes.",
+            3 => "The server is being updated in the background; scans continue as usual.",
+            4 => "The server is switching to its updated version. Try again in a few seconds.",
+            _ => "Under maintenance. Try again later.",
         }
     }
 
     /// Flip maintenance mode. In-flight scans finish; new ones are refused
-    /// with a message until it is switched back off.
+    /// with a message until it is switched back off ("getting_updated" refuses nothing).
     pub fn set_maintenance(&self, mode: &str) {
-        let v = match mode {
-            "updating" => 2,
-            "maintenance" => 1,
-            _ => 0,
-        };
-        self.maintenance.store(v, Ordering::Relaxed);
+        self.maintenance.store(Self::maintenance_code(mode), Ordering::Relaxed);
     }
 
     pub fn router(self: &Arc<Self>, path: &str) -> Router {
@@ -442,12 +452,24 @@ impl ScanServer {
             .with_state(Arc::clone(self))
     }
 
+/// Numeric code of a maintenance mode name (unknown names = off).
+pub fn maintenance_code(mode: &str) -> u8 {
+    match mode {
+        "maintenance" => 1,
+        "updating" => 2,
+        "getting_updated" => 3,
+        "switching" => 4,
+        _ => 0,
+    }
+}
+
 async fn handle_health(State(server): State<Arc<ScanServer>>) -> impl IntoResponse {
     axum::Json(serde_json::json!({
         "status": if server.maintenance() { "maintenance" } else { "ok" },
         "maintenance": server.maintenance(),
         "maintenanceMode": server.maintenance_mode(),
-        "message": if server.maintenance() { server.maintenance_message() } else { "" },
+        "updating": server.updating(),
+        "message": if server.maintenance_mode() != "off" { server.maintenance_message() } else { "" },
         "uptimeSecs": server.uptime_secs(),
         "uptimeTotal": crate::uptime::json(),
         "engine": ENGINE_NAME,
@@ -1077,6 +1099,9 @@ async fn session_loop(
             "maxMB": server.limits.max_mb(),
             // Compressed uploads the client may use (it falls back to raw otherwise).
             "encodings": ["br"],
+            // Seamless update in progress: scans go on; the connection is moved to the
+            // new version in a few seconds (reconnect when it closes).
+            "updating": server.updating(),
         }),
     );
 
@@ -1395,7 +1420,7 @@ async fn handle_scan(
                 });
                 // Reliable labels (analyst signatures, benign corpus, trusted signer) feed
                 // the ML datasets of dataset_paths.json; engine guesses never do.
-                if let (Ok(res), Some(ds)) = (&r, engine.dataset.as_ref()) {
+                if let (Ok(res), Some(ds)) = (&r, engine.dataset.get()) {
                     if let Some((label, _source)) = crate::dataset::reliable_label(res) {
                         ds.export(&job_sha, &data, &job_name, label);
                     }
@@ -2645,7 +2670,7 @@ fn cached_dataset_stats(server: &ScanServer) -> serde_json::Value {
             return v.clone();
         }
     }
-    let v = match server.engine.dataset.as_ref() {
+    let v = match server.engine.dataset.get() {
         None => serde_json::json!({ "status": "success", "enabled": false, "ready": false }),
         Some(ds) => match ds.public_stats() {
             None => serde_json::json!({ "status": "success", "enabled": true, "ready": false }),
@@ -2656,6 +2681,8 @@ fn cached_dataset_stats(server: &ScanServer) -> serde_json::Value {
                 "generated_at": chrono::Utc::now().to_rfc3339(),
                 "days": st.days,
                 "stats": st.cells,
+                // Named folders (`name` in dataset_paths.json): groups[name][platform][label].
+                "groups": st.groups,
             }),
         },
     };

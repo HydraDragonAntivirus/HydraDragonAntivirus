@@ -14,14 +14,23 @@
 //! }
 //! ```
 //!
-//! Every key also takes a source tag and/or several folders. `"own"` is your own
-//! collection, `"public"` a public dataset you downloaded; a plain path is `"own"`:
+//! Every key also takes a source tag, a display name and/or several folders. `"own"` is
+//! your own collection, `"public"` a public dataset you downloaded; a plain path is
+//! `"own"`. `"name"` (e.g. "F-Droid") shows the folder as its own line in the public
+//! statistics, next to the totals (the name is published, the path never is). A
+//! configured folder inside another one (`benign\F-Droid` inside `benign`) keeps its
+//! own source and name: the outer folder's walk skips it. Folders whose name starts
+//! with `.` (`.cache`, `.git`, ...) are never read:
 //!
 //! ```json
 //! {
 //!   "windows_malware": [
 //!     "C:\\...\\usbdosyalar\\datamaliciousorder",
-//!     { "path": "D:\\public\\some_public_set\\malware", "source": "public" }
+//!     { "path": "D:\\public\\some_public_set\\malware", "source": "public", "name": "Public set" }
+//!   ],
+//!   "android_clean": [
+//!     { "path": "C:\\...\\dataset\\benign", "source": "own", "name": "Own APKs" },
+//!     { "path": "C:\\...\\dataset\\benign\\F-Droid", "source": "public", "name": "F-Droid" }
 //!   ],
 //!   "windows_clean": { "path": "C:\\...\\usbdosyalar\\data2", "source": "own" }
 //! }
@@ -104,7 +113,9 @@ pub enum Source {
     Public,
 }
 
-/// One folder in `dataset_paths.json`: a plain path ("own") or `{ "path", "source" }`.
+/// One folder in `dataset_paths.json`: a plain path ("own") or
+/// `{ "path", "source", "name" }`. `name` is a display name for the statistics
+/// (e.g. "F-Droid"); it is shown on the website, the path never is.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 enum FolderSpec {
@@ -113,25 +124,36 @@ enum FolderSpec {
         path: PathBuf,
         #[serde(default)]
         source: Source,
+        #[serde(default)]
+        name: Option<String>,
     },
 }
 
 impl FolderSpec {
-    fn into_pair(self) -> (PathBuf, Source) {
+    fn into_parts(self) -> ((PathBuf, Source), Option<String>) {
         match self {
-            FolderSpec::Path(p) => (p, Source::Own),
-            FolderSpec::Tagged { path, source } => (path, source),
+            FolderSpec::Path(p) => ((p, Source::Own), None),
+            FolderSpec::Tagged { path, source, name } => {
+                let name = name.map(|n| n.trim().chars().take(48).collect::<String>()).filter(|n| !n.is_empty());
+                ((path, source), name)
+            }
         }
     }
 }
 
-/// The folders of one platform + label: `null`, one folder or an array of folders.
+/// The folders of one platform + label: `null`, one folder or an array of folders,
+/// with the display name of each (same order).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct FolderList(pub Vec<(PathBuf, Source)>);
+pub struct FolderList(pub Vec<(PathBuf, Source)>, pub Vec<Option<String>>);
+
+fn folder_list(specs: Vec<FolderSpec>) -> FolderList {
+    let (folders, names) = specs.into_iter().map(FolderSpec::into_parts).unzip();
+    FolderList(folders, names)
+}
 
 impl FolderList {
     pub fn own(path: impl Into<PathBuf>) -> Self {
-        FolderList(vec![(path.into(), Source::Own)])
+        FolderList(vec![(path.into(), Source::Own)], vec![None])
     }
 }
 
@@ -145,8 +167,8 @@ impl<'de> Deserialize<'de> for FolderList {
         }
         Ok(match Option::<OneOrMany>::deserialize(d)? {
             None => FolderList::default(),
-            Some(OneOrMany::One(f)) => FolderList(vec![f.into_pair()]),
-            Some(OneOrMany::Many(v)) => FolderList(v.into_iter().map(FolderSpec::into_pair).collect()),
+            Some(OneOrMany::One(f)) => folder_list(vec![f]),
+            Some(OneOrMany::Many(v)) => folder_list(v),
         })
     }
 }
@@ -228,6 +250,18 @@ impl DatasetPaths {
             .map(|(p, _)| p.as_path())
     }
 
+    /// Display name of a configured folder (`name` in dataset_paths.json).
+    pub fn name_of(&self, platform: Platform, label: Label, dir: &Path) -> Option<String> {
+        let l = self.list(platform, label);
+        l.0.iter().position(|(p, _)| p == dir).and_then(|i| l.1.get(i).cloned().flatten())
+    }
+
+    /// Configured folders of the same platform and label that lie inside `dir`: their
+    /// files belong to them (their own source and name), not to `dir`.
+    pub fn nested_in(&self, platform: Platform, label: Label, dir: &Path) -> Vec<PathBuf> {
+        self.list(platform, label).0.iter().filter(|(p, _)| is_inside(p, dir)).map(|(p, _)| p.clone()).collect()
+    }
+
     /// Every configured folder with its platform, label and source (a folder listed
     /// twice under the same key is walked once).
     pub fn folders(&self) -> Vec<(Platform, Label, Source, PathBuf)> {
@@ -258,6 +292,8 @@ struct Entry {
     source: Source,
     /// When the file arrived (creation time, else modification time; Unix seconds).
     added: u64,
+    /// Display name of its folder (statistics), if the folder has one.
+    group: Option<Arc<str>>,
 }
 
 /// Line of `dataset_index.jsonl` (digest cache).
@@ -347,6 +383,19 @@ pub struct StatsCell {
 pub struct PublicStats {
     pub days: usize,
     pub cells: BTreeMap<&'static str, BTreeMap<&'static str, StatsCell>>,
+    /// Per folder display name (`name` in dataset_paths.json; unnamed folders are not
+    /// listed): `groups[name][platform][label]`, unique hashes, same filters and days
+    /// as `cells`. A hash in two named folders counts in both.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub groups: BTreeMap<String, BTreeMap<&'static str, BTreeMap<&'static str, GroupCell>>>,
+}
+
+/// Unique hashes of one named folder group for one platform + label filter.
+#[derive(Debug, Clone, Serialize)]
+pub struct GroupCell {
+    pub total: u64,
+    /// The last `STATS_DAYS` days, oldest first (same dates as `cells`).
+    pub daily: Vec<u64>,
 }
 
 pub struct Dataset {
@@ -432,9 +481,48 @@ impl Dataset {
         let today = now / 86_400;
         let first = today + 1 - STATS_DAYS as u64;
         let mut acc = vec![(SourceCounts::default(), vec![SourceCounts::default(); STATS_DAYS]); 12];
+        let mut gacc: BTreeMap<Arc<str>, Vec<(u64, Vec<u64>)>> = BTreeMap::new();
         {
             let index = self.index.lock().unwrap();
             for entries in index.values() {
+                // Named groups: earliest arrival per platform x label, per group.
+                let mut gcells: Vec<(Arc<str>, [u64; 6])> = Vec::new();
+                for e in entries {
+                    let Some(g) = e.group.as_ref() else { continue };
+                    let i = match gcells.iter().position(|(n, _)| n == g) {
+                        Some(i) => i,
+                        None => {
+                            gcells.push((Arc::clone(g), [u64::MAX; 6]));
+                            gcells.len() - 1
+                        }
+                    };
+                    let c = &mut gcells[i].1[platform_idx(e.platform) * 2 + label_idx(e.label)];
+                    *c = (*c).min(e.added);
+                }
+                for (name, cell) in &gcells {
+                    let a = gacc.entry(Arc::clone(name)).or_insert_with(|| vec![(0, vec![0; STATS_DAYS]); 12]);
+                    for (pi, pf) in PLATFORMS.iter().enumerate() {
+                        for (li, lf) in LABELS.iter().enumerate() {
+                            let mut added = u64::MAX;
+                            for p in Platform::ALL {
+                                for l in Label::ALL {
+                                    if pf.is_none_or(|x| x == p) && lf.is_none_or(|x| x == l) {
+                                        added = added.min(cell[platform_idx(p) * 2 + label_idx(l)]);
+                                    }
+                                }
+                            }
+                            if added == u64::MAX {
+                                continue;
+                            }
+                            let slot = &mut a[pi * 3 + li];
+                            slot.0 += 1;
+                            let day = added / 86_400;
+                            if (first..=today).contains(&day) {
+                                slot.1[(day - first) as usize] += 1;
+                            }
+                        }
+                    }
+                }
                 // (in own, in public, earliest arrival) per platform x label.
                 let mut cell = [(false, false, u64::MAX); 6];
                 for e in entries {
@@ -497,7 +585,22 @@ impl Dataset {
                 );
             }
         }
-        PublicStats { days: STATS_DAYS, cells }
+        let mut groups: BTreeMap<String, BTreeMap<&'static str, BTreeMap<&'static str, GroupCell>>> = BTreeMap::new();
+        for (name, a) in gacc {
+            let g = groups.entry(name.to_string()).or_default();
+            for (pi, pf) in PLATFORMS.iter().enumerate() {
+                for (li, lf) in LABELS.iter().enumerate() {
+                    let (total, daily) = &a[pi * 3 + li];
+                    if *total == 0 {
+                        continue;
+                    }
+                    g.entry(pf.map_or("all", Platform::key))
+                        .or_default()
+                        .insert(lf.map_or("all", Label::key), GroupCell { total: *total, daily: daily.clone() });
+                }
+            }
+        }
+        PublicStats { days: STATS_DAYS, cells, groups }
     }
 
     /// `dataset_conflicts.jsonl`: one JSON object per conflict, newest last.
@@ -532,7 +635,11 @@ impl Dataset {
         let mut map: HashMap<String, Vec<Entry>> = HashMap::new();
         let mut hashed = 0u64;
         for (platform, label, source, dir) in self.paths.folders() {
-            for path in walk_files(&dir) {
+            // A configured folder inside this one is walked on its own (its source and
+            // name win), so its files are not counted twice.
+            let nested = self.paths.nested_in(platform, label, &dir);
+            let group: Option<Arc<str>> = self.paths.name_of(platform, label, &dir).map(Arc::from);
+            for path in walk_files(&dir, &nested) {
                 let Ok(meta) = std::fs::metadata(&path) else { continue };
                 let size = meta.len();
                 let mtime = unix_secs(meta.modified().ok());
@@ -553,7 +660,7 @@ impl Dataset {
                 };
                 fresh.push(CacheLine { p: key, s: size, m: mtime, h: sha.clone() });
                 let ours = is_ours(&path, &sha);
-                map.entry(sha).or_default().push(Entry { platform, label, path, ours, source, added });
+                map.entry(sha).or_default().push(Entry { platform, label, path, ours, source, added, group: group.clone() });
                 let n = self.indexed_files.fetch_add(1, Ordering::Relaxed) + 1;
                 if n % 20_000 == 0 {
                     eprintln!("[dataset] indexing: {n} files ({hashed} hashed)");
@@ -619,6 +726,7 @@ impl Dataset {
     fn export_indexed(&self, sha256: &str, data: &[u8], name: &str, label: Label, source: &str) -> ExportOutcome {
         let Some(platform) = platform_of(data, name) else { return ExportOutcome::Skipped };
         let Some(dir) = self.paths.dir(platform, label) else { return ExportOutcome::Skipped };
+        let group: Option<Arc<str>> = self.paths.name_of(platform, label, dir).map(Arc::from);
         let sha = sha256.to_ascii_uppercase();
         // One lock for check + write + index update: two copies of the same file
         // arriving together cannot both be written.
@@ -668,13 +776,13 @@ impl Dataset {
             let _ = std::fs::remove_file(&tmp);
             if target.exists() {
                 // Same name, so same content (the name is the SHA-256).
-                entries.push(Entry { platform, label, path: target.clone(), ours: true, source: Source::Own, added: now_secs() });
+                entries.push(Entry { platform, label, path: target.clone(), ours: true, source: Source::Own, added: now_secs(), group: group.clone() });
                 self.duplicates_skipped.fetch_add(1, Ordering::Relaxed);
                 return ExportOutcome::AlreadyPresent(target);
             }
             return ExportOutcome::Skipped;
         }
-        entries.push(Entry { platform, label, path: target.clone(), ours: true, source: Source::Own, added: now_secs() });
+        entries.push(Entry { platform, label, path: target.clone(), ours: true, source: Source::Own, added: now_secs(), group: group.clone() });
         drop(index);
         self.written.fetch_add(1, Ordering::Relaxed);
         self.indexed_files.fetch_add(1, Ordering::Relaxed);
@@ -754,7 +862,9 @@ fn sha256_file(path: &Path) -> Option<String> {
 }
 
 /// Regular files under `dir` (not following links), skipping our `.part` temp files.
-fn walk_files(dir: &Path) -> Vec<PathBuf> {
+/// Files under `dir`. Folders whose name starts with `.` (`.cache`, `.git`, ...) and the
+/// `skip` folders (configured folders nested in this one) are not entered.
+fn walk_files(dir: &Path, skip: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
@@ -763,6 +873,9 @@ fn walk_files(dir: &Path) -> Vec<PathBuf> {
             let Ok(ft) = e.file_type() else { continue };
             let p = e.path();
             if ft.is_dir() {
+                if e.file_name().to_string_lossy().starts_with('.') || skip.iter().any(|s| same_path(s, &p)) {
+                    continue;
+                }
                 stack.push(p);
             } else if ft.is_file() && !p.extension().is_some_and(|x| x == "part") {
                 out.push(p);
@@ -770,6 +883,22 @@ fn walk_files(dir: &Path) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// Path text for comparisons: `/` separators, no trailing one, lower case (Windows
+/// paths are case-insensitive).
+fn path_key(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase()
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    path_key(a) == path_key(b)
+}
+
+/// `child` is a folder strictly inside `parent`.
+fn is_inside(child: &Path, parent: &Path) -> bool {
+    let (c, p) = (path_key(child), path_key(parent));
+    !p.is_empty() && c.len() > p.len() + 1 && c.starts_with(&p) && c.as_bytes()[p.len()] == b'/'
 }
 
 /// Label of an engine result when (and only when) it comes from a reliable source.
@@ -1024,12 +1153,15 @@ mod tests {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
         let paths = DatasetPaths {
-            windows_malware: FolderList(vec![
-                (root.join("mal_pub"), Source::Public),
-                (root.join("mal_own"), Source::Own),
-                (root.join("mal_pub2"), Source::Public),
-            ]),
-            windows_clean: FolderList(vec![(root.join("clean_own"), Source::Own), (root.join("clean_pub"), Source::Public)]),
+            windows_malware: FolderList(
+                vec![
+                    (root.join("mal_pub"), Source::Public),
+                    (root.join("mal_own"), Source::Own),
+                    (root.join("mal_pub2"), Source::Public),
+                ],
+                vec![None; 3],
+            ),
+            windows_clean: FolderList(vec![(root.join("clean_own"), Source::Own), (root.join("clean_pub"), Source::Public)], vec![None; 2]),
             android_malware: FolderList::own(root.join("apk_own")),
             ..Default::default()
         };
@@ -1130,5 +1262,55 @@ mod tests {
         day_keys.sort();
         assert_eq!(day_keys, ["both", "date", "own_only", "public_only"]);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn nested_folder_keeps_its_own_source_and_name_and_dot_folders_are_skipped() {
+        let root = std::env::temp_dir().join(format!("multron_dataset_nested_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let benign = root.join("dataset").join("benign");
+        let fdroid = benign.join("F-Droid");
+        for d in [benign.join("Play"), fdroid.join("repo"), fdroid.join(".cache"), benign.join(".git"), root.join("state")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let json = serde_json::json!({
+            "android_clean": [
+                { "path": benign, "source": "own", "name": "Own benign" },
+                { "path": fdroid, "source": "public", "name": "F-Droid" }
+            ]
+        });
+        let paths: DatasetPaths = serde_json::from_value(json).unwrap();
+        assert_eq!(paths.name_of(Platform::Android, Label::Clean, &fdroid).as_deref(), Some("F-Droid"));
+        assert_eq!(paths.nested_in(Platform::Android, Label::Clean, &benign), vec![fdroid.clone()]);
+        assert!(paths.nested_in(Platform::Android, Label::Clean, &fdroid).is_empty());
+        std::fs::write(benign.join("Play").join("a.apk"), pe(40)).unwrap();
+        std::fs::write(fdroid.join("repo").join("b.apk"), pe(41)).unwrap();
+        // Same content in both: own and public -> "both", counted once per group.
+        std::fs::write(benign.join("Play").join("c.apk"), pe(42)).unwrap();
+        std::fs::write(fdroid.join("repo").join("c.apk"), pe(42)).unwrap();
+        // Hidden folders are never read.
+        std::fs::write(fdroid.join(".cache").join("x.apk"), pe(43)).unwrap();
+        std::fs::write(benign.join(".git").join("y.apk"), pe(44)).unwrap();
+        let ds = Dataset::new(paths, root.join("state"));
+        ds.build_index();
+        let st = ds.public_stats().unwrap();
+        assert_eq!(counts(&st, "android", "clean"), (1, 1, 1, 3), "F-Droid files are public, not 'both'");
+        assert_eq!(ds.status().indexed_files, 4, "each file indexed once; .cache / .git skipped");
+        let g = |name: &str| st.groups[name]["android"]["clean"].total;
+        assert_eq!((g("Own benign"), g("F-Droid")), (2, 2));
+        assert_eq!(st.groups["F-Droid"]["all"]["all"].total, 2);
+        assert_eq!(st.groups["F-Droid"]["android"]["clean"].daily.len(), STATS_DAYS);
+        assert!(!st.groups["F-Droid"].contains_key("windows"), "empty filters are left out");
+        let json = serde_json::to_string(&st).unwrap();
+        assert!(!json.contains("dataset") && !json.contains("repo"), "names only, never paths");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn path_nesting_is_case_and_separator_insensitive() {
+        assert!(is_inside(Path::new("C:\\Data\\Benign\\F-Droid"), Path::new("c:/data/benign/")));
+        assert!(!is_inside(Path::new("C:\\Data\\Benign2"), Path::new("C:\\Data\\Benign")));
+        assert!(!is_inside(Path::new("C:\\Data\\Benign"), Path::new("C:\\Data\\Benign")));
+        assert!(same_path(Path::new("C:\\Data\\x\\"), Path::new("c:/data/X")));
     }
 }

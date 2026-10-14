@@ -194,6 +194,18 @@ pub struct CliArgs {
     /// dashboard setting.
     #[arg(long, default_value = "")]
     pub archive_mirror: String,
+
+    /// Seamless update (started by Multron Updater next to the running server): load the
+    /// engine and the data while the running server keeps scanning ("getting updated"
+    /// mode), then take its ports over in a few seconds. Without a running server this
+    /// is a normal start.
+    #[arg(long)]
+    pub handoff: bool,
+
+    /// Seamless update: seconds the old server may take to finish the scans in progress
+    /// before it hands over (default 30).
+    #[arg(long, default_value_t = 30)]
+    pub handoff_drain_secs: u64,
 }
 
 /// Hard ceiling for one uploaded file. --max-mb can lower it, never raise it.
@@ -349,6 +361,18 @@ pub fn archive_in_settings() -> bool {
 
 pub fn set_archive(on: bool) {
     ARCHIVE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+static STANDBY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Seamless update, before the takeover: another server process owns the work folder
+/// and the data files, so nothing may be removed, rewritten or indexed yet.
+pub fn is_standby() -> bool {
+    STANDBY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_standby(on: bool) {
+    STANDBY.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn app_dir() -> PathBuf {
