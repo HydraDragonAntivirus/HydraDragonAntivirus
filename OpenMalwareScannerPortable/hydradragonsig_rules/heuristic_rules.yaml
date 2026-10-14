@@ -189,8 +189,8 @@ rules:
       - type: byte_pattern
         pattern: "{ 4c 5a 55 4b 03 00 00 00 00 00 00 00 }"
         scope:
-          offset: 0
-          length: 16
+          start: 0
+          end: 16
       - type: file_size_lte
         bytes: 32768
 
