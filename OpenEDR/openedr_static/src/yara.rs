@@ -68,6 +68,37 @@ impl YaraScanner {
         hits
     }
 
+    /// Rule name and file byte range `[start, end)` of every pattern match (rules
+    /// turned off by the `.ign2` lists are skipped), at most `limit`. For in-place
+    /// disinfection; condition-only rules have no ranges.
+    pub fn match_ranges(&self, data: &[u8], limit: usize) -> Vec<(String, usize, usize)> {
+        let mut out = Vec::new();
+        if data.is_empty() {
+            return out;
+        }
+        for rules in &self.rules {
+            let mut scanner = Scanner::new(rules);
+            let Ok(results) = scanner.scan(data) else { continue };
+            for rule in results.matching_rules() {
+                if self.ignored.contains(rule.identifier()) {
+                    continue;
+                }
+                for pattern in rule.patterns() {
+                    for m in pattern.matches() {
+                        if out.len() >= limit {
+                            return out;
+                        }
+                        let r = m.range();
+                        if r.start < r.end {
+                            out.push((rule.identifier().to_string(), r.start, r.end));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     pub fn is_loaded(&self) -> bool {
         !self.rules.is_empty()
     }

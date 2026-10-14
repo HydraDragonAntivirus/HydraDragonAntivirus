@@ -2461,7 +2461,8 @@ const DISINFECT_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Default, Deserialize)]
 struct DisinfectQuery {
-    /// `repaired`: answer with the repaired file instead of the JSON report.
+    /// `repaired`: answer with the repaired file instead of the JSON report;
+    /// `generic`: the generic repair (never recommended).
     download: Option<String>,
     /// Client path of the file (same as the `X-File-Path` header).
     path: Option<String>,
@@ -2507,7 +2508,7 @@ async fn handle_disinfect(
     let ti = Arc::clone(&server.threat_intel);
     let engine = Arc::clone(&server.engine);
     let res = tokio::task::spawn_blocking(move || crate::disinfect::run(&ti, &engine, &body, &path)).await;
-    let Ok((report, repaired)) = res else {
+    let Ok((report, repaired, generic)) = res else {
         return json_response(StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({"status": "error", "error": "disinfection failed"}), "no-store");
     };
     if q.download.as_deref() == Some("repaired") {
@@ -2524,6 +2525,31 @@ async fn handle_disinfect(
                 ("Content-Type", "application/octet-stream".to_string()),
                 ("Content-Disposition", format!("attachment; filename=\"{}.repaired.bin\"", report.sha256)),
                 ("X-Malware-Name", report.malware_name.clone().unwrap_or_default()),
+                ("X-Recommended-Action", serde_json::to_value(report.recommended_action).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()),
+                ("Cache-Control", "no-store".to_string()),
+            ],
+            bytes,
+        )
+            .into_response();
+    }
+    if q.download.as_deref() == Some("generic") {
+        // Generic repair (signature ranges / clean-relative diff): never recommended,
+        // the header says so too.
+        let Some(bytes) = generic else {
+            return json_response(
+                StatusCode::NOT_FOUND,
+                serde_json::json!({"status": "error", "error": "no generic repair for this file", "report": report}),
+                "no-store",
+            );
+        };
+        let method = report.generic_repair.as_ref().map(|g| g.method).unwrap_or_default();
+        return (
+            StatusCode::OK,
+            [
+                ("Content-Type", "application/octet-stream".to_string()),
+                ("Content-Disposition", format!("attachment; filename=\"{}.generic.bin\"", report.sha256)),
+                ("X-Generic-Method", method.to_string()),
+                ("X-Recommended", "false".to_string()),
                 ("X-Recommended-Action", serde_json::to_value(report.recommended_action).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()),
                 ("Cache-Control", "no-store".to_string()),
             ],

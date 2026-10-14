@@ -863,6 +863,41 @@ impl StaticEngine {
         }
     }
 
+    /// Every signature byte range in `data` - ClamAV, YARA-X and HydraDragonSig - as
+    /// `(engine, rule, start, end)`, at most `limit`. For in-place disinfection only:
+    /// the same engines as `scan_bytes_core` on the top-level file, no extraction.
+    pub fn match_ranges(&self, data: &[u8], name: &str, limit: usize) -> Vec<(&'static str, String, usize, usize)> {
+        let mut out: Vec<(&'static str, String, usize, usize)> = Vec::new();
+        if data.is_empty() || limit == 0 {
+            return out;
+        }
+        for (rule, s, e) in self.clam.match_ranges(data, name, limit) {
+            out.push(("ClamAV", rule, s, e));
+        }
+        let yara_slice: &[u8] = if data.len() > 32 * 1024 * 1024 { &data[..32 * 1024 * 1024] } else { data };
+        for (rule, s, e) in self.yara.match_ranges(yara_slice, limit.saturating_sub(out.len())) {
+            out.push(("YARA", rule, s, e));
+        }
+        let is_pe = data.starts_with(b"MZ") && pefile_rs::PE::parse(data).is_ok();
+        let capped: &[u8] = if data.len() > 16 * 1024 * 1024 { &data[..16 * 1024 * 1024] } else { data };
+        let strings = pe_strings::extract_strings(capped);
+        let sha256_hex = {
+            let mut hasher = Sha256::new();
+            hasher.update(data);
+            hex::encode(hasher.finalize())
+        };
+        for hit in self.string_rules.scan_bytes(data, name, &sha256_hex, &strings, is_pe, false, 10, None) {
+            let left = limit.saturating_sub(out.len());
+            if left == 0 {
+                break;
+            }
+            for (s, e) in crate::string_rules::evidence_ranges(data, &hit.evidence, left) {
+                out.push(("HydraSig", hit.rule.clone(), s, e));
+            }
+        }
+        out
+    }
+
     /// Global multi-engine evaluation over any in-memory byte slice.
     /// Evaluates ClamAV, YARA-X, HydraDragonSig (strings + PE imports/exports),
     /// and ML models uniformly, with automatic origin-prefix tagging.

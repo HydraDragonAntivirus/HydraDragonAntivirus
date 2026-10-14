@@ -482,6 +482,61 @@ impl Engine {
 
     /// Same as `scan_bytes_named` but also returns a per-engine timing breakdown
     /// (ClamAV + each YARA ruleset) in nanoseconds.
+    /// File byte ranges `[start, end)` that produced `m`, for in-place
+    /// disinfection. Only the matched signature's own patterns are re-run (the
+    /// scan path is untouched), at most `limit` ranges. Empty for matches that
+    /// are not byte patterns of the top-level file: container, phishing, YARA,
+    /// heuristic, archive members, and PCRE / byte-compare / fuzzy subsigs.
+    pub fn match_ranges(&self, data: &[u8], m: &ScanMatch, limit: usize) -> Vec<(usize, usize)> {
+        let data = &data[..data.len().min(ScanOptions::default().max_scan_bytes)];
+        let pe = if data.starts_with(b"MZ") { parse_pe(data) } else { None };
+        let mut out: Vec<(usize, usize)> = Vec::new();
+        let push = |offset: Option<&crate::database::OffsetSpec>, patterns: &[Pattern], out: &mut Vec<(usize, usize)>| {
+            let vinfo = offset.is_some_and(|o| matches!(o.anchor, OffsetAnchor::VersionInfo));
+            let ranges = match offset {
+                None => vec![(0, data.len())],
+                Some(_) if vinfo => vec![(0, data.len())],
+                Some(o) => o.scan_ranges(data.len(), pe.as_ref()),
+            };
+            if ranges.is_empty() {
+                return;
+            }
+            for pattern in patterns {
+                if out.len() >= limit {
+                    return;
+                }
+                for hit in pattern.find_all(data, &ranges, limit - out.len()) {
+                    if vinfo && pe.as_ref().is_none_or(|p| p.vinfo.binary_search(&(hit.start as u32)).is_err()) {
+                        continue;
+                    }
+                    if hit.start < hit.end {
+                        out.push((hit.start, hit.end.min(data.len())));
+                    }
+                }
+            }
+        };
+        match m.kind {
+            SignatureKind::Extended => {
+                if let Some(sig) = self.database.extended.iter().find(|s| s.source == m.source) {
+                    push(Some(&sig.offset), &sig.patterns, &mut out);
+                }
+            }
+            SignatureKind::Logical => {
+                if let Some(sig) = self.database.logical.iter().find(|s| s.source == m.source) {
+                    for sub in &sig.subsignatures {
+                        if let Subsignature::Body { offset, patterns } = sub {
+                            push(offset.as_deref(), patterns, &mut out);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     pub fn scan_bytes_named_with_breakdown(
         &self,
         data: &[u8],
@@ -2155,6 +2210,39 @@ mod tests {
         assert_eq!(found[0].source, source);
         assert_eq!(found[0].object_path, "root");
         assert_eq!(found[0].view, ScanView::Raw);
+    }
+
+    #[test]
+    fn match_ranges_extended_and_logical() {
+        let source = SourceLocation {
+            path: std::sync::Arc::from(std::path::Path::new("test.ndb")),
+            line: 1,
+        };
+        let mut name_arena = String::new();
+        let database = Database {
+            extended: vec![ExtendedSignature {
+                name: crate::database::intern_name(&mut name_arena, "Test.Signature"),
+                target: Some(0),
+                offset: OffsetSpec::any(),
+                patterns: compile_pattern_variants("414243", Modifiers::default()).unwrap().into(),
+                source: source.clone(),
+            }],
+            name_arena,
+            ..Default::default()
+        };
+        let atomfilter_db = crate::atomfilter_build::AtomFilterBuilder::build(&database);
+        let engine = Engine { database, atomfilter_db, yara: Vec::new() };
+        let data = b"xxABCyyABCz";
+        let found = engine.scan_bytes(data, ScanOptions::default());
+        assert_eq!(found.len(), 1);
+        assert_eq!(engine.match_ranges(data, &found[0], 64), vec![(2, 5), (7, 10)]);
+        assert_eq!(engine.match_ranges(data, &found[0], 1), vec![(2, 5)], "limit");
+
+        let (engine, _) = engine_with_logical("Test.Logical;Target:0;0&1;64656164;62656566");
+        let data = b"..dead....beef..";
+        let found = engine.scan_bytes(data, ScanOptions::default());
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(engine.match_ranges(data, &found[0], 64), vec![(2, 6), (10, 14)]);
     }
 
     #[test]

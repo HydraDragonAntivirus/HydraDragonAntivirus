@@ -340,4 +340,37 @@ impl AnalystEngine {
         }
         hits
     }
+
+    /// Byte ranges `(engine, signature, start, end)` behind the analyst ClamAV and
+    /// HydraDragonSig matches, at most `limit`. For in-place disinfection only.
+    pub fn match_ranges(&self, data: &[u8], name: &str, limit: usize) -> Vec<(&'static str, String, usize, usize)> {
+        let mut out = Vec::new();
+        let name = if name.is_empty() { "file" } else { name };
+        if let Some(clam) = self.clam.read().unwrap().as_ref() {
+            for m in clam.scan_bytes_named(data, name, ClamScanOptions::default(), &[]) {
+                if m.object_path != name {
+                    continue; // an extracted member: its offsets are not file offsets
+                }
+                for (s, e) in clam.match_ranges(data, &m, limit.saturating_sub(out.len())) {
+                    out.push(("analyst-clamav", m.name.clone(), s, e));
+                }
+            }
+        }
+        if let Some(rules) = self.sig.read().unwrap().as_ref() {
+            let ctx = MemoryScanContext { buffer: data.to_vec(), identifier: name.to_string(), base_address: None };
+            if let Ok(report) = hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
+                for f in report.findings.iter().filter(|f| matches!(f.verdict, SigVerdict::Malware | SigVerdict::Pua | SigVerdict::Suspicious)) {
+                    let left = limit.saturating_sub(out.len());
+                    if left == 0 {
+                        break;
+                    }
+                    for (s, e) in openedr_static::string_rules::evidence_ranges(data, &f.evidence, left) {
+                        out.push(("analyst-hydradragonsig", f.rule_id.clone(), s, e));
+                    }
+                }
+            }
+        }
+        out.truncate(limit);
+        out
+    }
 }

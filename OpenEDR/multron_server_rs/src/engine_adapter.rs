@@ -212,6 +212,18 @@ impl EngineAdapter {
         self.rules_dir.read().unwrap().clone()
     }
 
+    /// Every signature byte range in `data` (shipped ClamAV / YARA-X / HydraDragonSig
+    /// and the analyst signatures) as `(engine, signature, start, end)`, at most
+    /// `limit`. For in-place disinfection; empty while the engine loads.
+    pub fn match_ranges(&self, data: &[u8], name: &str, limit: usize) -> Vec<(&'static str, String, usize, usize)> {
+        let mut out = match self.engine.get().and_then(|e| e.read().ok()) {
+            Some(e) => e.match_ranges(data, name, limit),
+            None => Vec::new(),
+        };
+        out.extend(self.analyst.match_ranges(data, name, limit.saturating_sub(out.len())));
+        out
+    }
+
     pub fn ready(&self) -> bool {
         self.engine.get().is_some()
     }

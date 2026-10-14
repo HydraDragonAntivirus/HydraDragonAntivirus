@@ -47,4 +47,26 @@ impl ClamScanner {
 
         matches
     }
+
+    /// Signature name and file byte range `[start, end)` of every byte-pattern match
+    /// in `data` itself (archive members are not file offsets), at most `limit`.
+    /// For in-place disinfection.
+    pub fn match_ranges(&self, data: &[u8], file_name: &str, limit: usize) -> Vec<(String, usize, usize)> {
+        let Some(ref engine) = self.engine else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for m in engine.scan_bytes_named(data, file_name, ScanOptions::default(), &[]) {
+            if out.len() >= limit {
+                break;
+            }
+            if m.object_path != file_name {
+                continue; // an extracted member, its offsets are not file offsets
+            }
+            for (s, e) in engine.match_ranges(data, &m, limit - out.len()) {
+                out.push((m.name.clone(), s, e));
+            }
+        }
+        out
+    }
 }
