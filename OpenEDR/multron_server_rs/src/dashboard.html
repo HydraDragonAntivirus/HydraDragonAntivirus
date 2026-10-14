@@ -1696,14 +1696,21 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   let haPend = [], haRecentList = [], haCur = null, haExt = "", haPendTotal = 0, haPage = 0;
   const haSel = new Set();
   const haName = (r) => r.file_name || (r.file_names || [])[0] || "";
-  // Authenticode signer the engine saw at the last real scan.
+// Authenticode signer the engine saw at the last real scan.
   const haSigner = (r, long) => {
     const s = r.signer;
     if (!s) return long ? '<span class="k">not checked (hash-only verdict or not a PE)</span>' : "";
+    // The publisher is what the verdict hinged on, so it stays the label; the
+    // CA and the countersigner go in the tooltip, where they help without
+    // crowding a table row.
+    const bits = [s.status || "trusted"];
+    if (s.issuer) bits.push("issued by " + s.issuer);
+    if (s.timestamp_signer) bits.push("timestamped by " + s.timestamp_signer);
+    const tip = haEsc(bits.filter(Boolean).join(" — "));
     const who = s.name ? haEsc(s.name) : (s.signed ? "unknown signer" : "");
-    if (s.signed && s.trusted) return `<span class="sg ok" title="${haEsc(s.status || "trusted")}">&#10003; ${who}${s.catalog ? " (catalog)" : ""}</span>`;
-    if (s.signed) return `<span class="sg warn" title="${haEsc(s.status || "")}">&#9888; ${who} · not trusted${long && s.status ? " (" + haEsc(s.status) + ")" : ""}</span>`;
-    return `<span class="sg none" title="${haEsc(s.status || "")}">unsigned</span>`;
+    if (s.signed && s.trusted) return `<span class="sg ok" title="${tip}">&#10003; ${who}${s.catalog ? " (catalog)" : ""}</span>`;
+    if (s.signed) return `<span class="sg warn" title="${tip}">&#9888; ${who} — not trusted${long && s.status ? " (" + haEsc(s.status) + ")" : ""}</span>`;
+    return `<span class="sg none" title="${tip}">unsigned</span>`;
   };
   const haFolder = (r) => (r.folders || [])[0] || "";
 
@@ -2561,10 +2568,41 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   // ---------------- overview ----------------
   function kv(rows) { return `<div class="va-kv">${rows.filter(Boolean).map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${v}</div>`).join("")}</div>`; }
   const copyBtn = (t) => `<a href="#" class="va-copy" data-copy="${esc(t)}" style="color:var(--accent);font-family:Segoe UI,sans-serif;font-size:11px;margin-left:6px">copy</a>`;
+// Certificate identity, so the dashboard shows what the engine actually
+  // compared rather than only the publisher name: a signer rule — or an
+  // analyst allow/block list — can name the issuing CA, the leaf certificate
+  // or the countersigning authority just as well as the publisher.
+  const sgDate = (v) => (typeof v === "number" && v > 0) ? new Date(v * 1000).toLocaleString() : "";
+  const sgYesNo = (v) => v === true ? "yes" : v === false ? "no" : "";
+  const signerHeadline = (sg) => !sg.signed ? "unsigned"
+    : sg.trusted ? `<span style="color:var(--green)">&#10003; ${esc(sg.name || "signed")}${sg.catalog ? " (catalog)" : ""}</span>`
+    : `<span style="color:var(--orange)">&#9888; ${esc(sg.name || "signed")} &#9888; not trusted (${esc(sg.status || "")})</span>`;
+  function signerRows(sg) {
+    if (!sg) return [["Signer", '<span class="hint" style="margin:0">not checked yet (Scan with engine)</span>']];
+    const rows = [["Signer", signerHeadline(sg)]];
+    if (sg.issuer) rows.push(["Issuing CA", esc(sg.issuer)]);
+    if (sg.thumbprint) rows.push(["Certificate", `<span class="mono">${esc(sg.thumbprint)}</span>` + copyBtn(sg.thumbprint)]);
+    const nb = sgDate(sg.not_before), na = sgDate(sg.not_after);
+    if (nb || na) {
+      const expired = sg.not_after && sg.not_after * 1000 < Date.now();
+      rows.push(["Valid", `${esc(nb || "?")} &rarr; ${esc(na || "?")}` + (expired ? ' <span class="tag t-suspicious">expired</span>' : "")]);
+    }
+    if (sg.chain_len) rows.push(["Chain length", `${sg.chain_len}`]);
+    // `timestamped` is null/absent for files scanned before countersignatures
+    // were read, and for ones with no embedded PKCS#7 at all. Absent must not
+    // render as "no".
+    if (sg.timestamped !== undefined && sg.timestamped !== null) {
+      let v = sgYesNo(sg.timestamped) + (sg.timestamp_kind ? ` (${esc(sg.timestamp_kind)})` : "");
+      if (sg.timestamped && sg.timestamp_signer) v += ` &mdash; ${esc(sg.timestamp_signer)}`;
+      const t = sgDate(sg.timestamp_time);
+      if (t) v += `<br><span class="hint" style="margin:0">${esc(t)}</span>`;
+      rows.push(["Timestamped", v]);
+    }
+    return rows;
+  }
   function renderOverview() {
     const d = doc, r = d.report || {}, h = r.hashes || {};
     const sg = d.signer;
-    const signer = !sg ? '<span class="hint" style="margin:0">not checked yet (Scan with engine)</span>' : sg.signed && sg.trusted ? `<span style="color:var(--green)">&#10003; ${esc(sg.name || "signed")}${sg.catalog ? " (catalog)" : ""}</span>` : sg.signed ? `<span style="color:var(--orange)">&#9888; ${esc(sg.name || "signed")} · not trusted (${esc(sg.status || "")})</span>` : "unsigned";
     const ind = (r.indicators || []);
     $("vaPaneOverview").innerHTML = `<div class="va-grid">
       <div><h3 class="va-h" style="margin-top:0">File</h3>${kv([
@@ -2581,7 +2619,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
         d.engine && d.engine.detections && d.engine.detections.length && ["Signatures", sigChips(d.engine.detections)],
         d.engine_detail && ["Detected by", esc(d.engine_detail)],
         d.human && d.human.verdict && ["Human verdict", vtag(d.human.verdict) + (d.human.threat_name ? ` <b>${esc(d.human.threat_name)}</b>` : "") + (d.human.analyst ? ` · ${esc(d.human.analyst)}` : "")],
-        ["Signer", signer],
+        ...signerRows(sg),
         d.engine && ["Seen", `${d.engine.seen}× · first ${esc(new Date(d.engine.first_seen).toLocaleString())}`],
         d.engine && d.engine.full_folders && d.engine.full_folders.length && ["Full paths", d.engine.full_folders.map(esc).join("<br>")],
         d.engine && d.engine.folders && d.engine.folders.length && ["Folders", d.engine.folders.map(esc).join("<br>")],
