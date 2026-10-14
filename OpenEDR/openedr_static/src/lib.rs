@@ -1,4 +1,5 @@
 pub mod apk;
+pub mod auth_timestamp;
 pub mod cidr;
 pub mod clam;
 pub mod diagnostics;
@@ -794,12 +795,12 @@ pub extern "C" fn openedr_static_check_file_signature(
     // the engine made every per-module trust check queue behind the full load,
     // which is what turned the enrichment pool into a wait at startup.
     if let Some(db) = signers_db() {
-        let (is_signed, win_trust_trusted, name, _status, _is_catalog) =
-            crate::signers::verify_authenticode(Path::new(path_str));
-        if is_signed {
+        let info = crate::signers::verify_authenticode(Path::new(path_str));
+        if info.is_signed {
             flags |= 1;
         }
-        signer = name;
+        let win_trust_trusted = info.is_trusted;
+        signer = info.signer_name;
         if let Some(ref s) = signer {
             if win_trust_trusted && db.is_trusted(s) {
                 flags |= 2;

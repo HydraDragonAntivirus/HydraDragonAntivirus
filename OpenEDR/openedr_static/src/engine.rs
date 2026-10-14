@@ -1140,11 +1140,10 @@ impl StaticEngine {
         // 1. Authenticode & Signer Check
         let mut signer_details = None;
         if let Some(p) = disk_path {
-            let (is_signed, is_trusted, signer_name, status, is_catalog_signed) =
-                verify_authenticode(p);
+            let info = verify_authenticode(p);
             let mut trusted_by_yaml = false;
 
-            if let Some(ref signer) = signer_name {
+            if let Some(ref signer) = info.signer_name {
                 if self.signers.is_malicious(signer) {
                     detections.push(DetectionItem {
                         layer: "SignerRule".to_string(),
@@ -1163,23 +1162,126 @@ impl StaticEngine {
                         details: Some("Matched pua_vendors.yaml".to_string()),
                     });
                     max_score = max_score.max(CLAM_PUA_SCORE);
-                } else if is_trusted && self.signers.is_trusted(signer) {
+                } else if info.is_trusted && self.signers.is_trusted(signer) {
                     trusted_by_yaml = true;
                 }
             }
 
+            // A certificate is abused by its issuing CA, not by the publisher
+            // name it happens to carry: one compromised CA mints certificates
+            // for arbitrary subjects, so a publisher-substring rule never sees
+            // them. These two checks run on top of the publisher list rather
+            // than instead of it.
+            if let Some(ref issuer) = info.issuer {
+                if self.signers.is_malicious_issuer(issuer) {
+                    detections.push(DetectionItem {
+                        layer: "SignerRule".to_string(),
+                        name: format!("MaliciousCertIssuer: {issuer}"),
+                        score: Some(1.0),
+                        details: Some(
+                            "Matched malicious_vendors.yaml (signature_issuer_*)".to_string(),
+                        ),
+                    });
+                    max_score = max_score.max(1.0);
+                } else if self.signers.is_pua_issuer(issuer) {
+                    detections.push(DetectionItem {
+                        layer: "SignerRule".to_string(),
+                        name: format!("PuaCertIssuer: {issuer}"),
+                        score: Some(CLAM_PUA_SCORE),
+                        details: Some("Matched pua_vendors.yaml (signature_issuer_*)".to_string()),
+                    });
+                    max_score = max_score.max(CLAM_PUA_SCORE);
+                }
+            }
+
+            if let Some(ref tp) = info.thumbprint {
+                if self.signers.is_pinned_thumbprint(tp) {
+                    detections.push(DetectionItem {
+                        layer: "SignerRule".to_string(),
+                        name: format!("PinnedCertificate: {tp}"),
+                        score: Some(1.0),
+                        details: Some(
+                            "Matched malicious_vendors.yaml (signature_thumbprint_any)"
+                                .to_string(),
+                        ),
+                    });
+                    max_score = max_score.max(1.0);
+                }
+            }
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            if info.is_signed && (info.is_expired(now) || info.is_not_yet_valid(now)) {
+                let which = if info.is_expired(now) { "expired" } else { "not-yet-valid" };
+                detections.push(DetectionItem {
+                    layer: "SignerRule".to_string(),
+                    name: format!("SignerCertificate {which}"),
+                    score: Some(CLAM_PUA_SCORE),
+                    details: Some(format!(
+                        "validity {}..{}",
+                        info.not_before.unwrap_or(0),
+                        info.not_after.unwrap_or(0)
+                    )),
+                });
+                max_score = max_score.max(CLAM_PUA_SCORE);
+            }
 
             // A binary is ONLY treated as trusted if:
             // 1. Its cryptographic signature passed WinVerifyTrust / Catalog verification (is_trusted == true).
             // 2. AND its signer is explicitly verified against trusted_signers.yaml (trusted_by_yaml == true).
-            let is_fully_trusted = is_trusted && trusted_by_yaml;
+            let is_fully_trusted = info.is_trusted && trusted_by_yaml;
+
+            // Signed with an embedded PKCS#7 that carries no countersignature.
+            // A revoked certificate then looks exactly as valid as a current one,
+            // so this is a signal on its own - and it stays quiet on
+            // catalog-signed files, which have no PKCS#7 to date.
+            if info.is_undated() {
+                detections.push(DetectionItem {
+                    layer: "SignerRule".to_string(),
+                    name: "UndatedSignature".to_string(),
+                    score: Some(CLAM_PUA_SCORE),
+                    details: Some(format!(
+                        "embedded Authenticode without countersignature, signer={}",
+                        info.signer_name.as_deref().unwrap_or("<none>")
+                    )),
+                });
+                max_score = max_score.max(CLAM_PUA_SCORE);
+            }
+
+            // A timestamp authority the rules name as abusive is the
+            // certificate-abuse case one layer down from the code signer.
+            if let Some(ref tsa) = info.timestamp_signer {
+                if self.signers.is_malicious_tsa(tsa) {
+                    detections.push(DetectionItem {
+                        layer: "SignerRule".to_string(),
+                        name: format!("MaliciousTimestampSigner: {tsa}"),
+                        score: Some(1.0),
+                        details: Some(
+                            "Matched malicious_vendors.yaml (signature_timestamp_signer_*)"
+                                .to_string(),
+                        ),
+                    });
+                    max_score = max_score.max(1.0);
+                }
+            }
 
             signer_details = Some(SignerDetails {
-                is_signed,
+                is_signed: info.is_signed,
                 is_trusted: is_fully_trusted,
-                signer_name,
-                status,
-                is_catalog_signed,
+                signer_name: info.signer_name,
+                status: info.status,
+                is_catalog_signed: info.is_catalog_signed,
+                issuer: info.issuer,
+                chain_len: info.chain_len,
+                thumbprint: info.thumbprint,
+                not_before: info.not_before,
+                not_after: info.not_after,
+                timestamped: info.timestamped,
+                timestamp_kind: info.timestamp_kind,
+                timestamp_signer: info.timestamp_signer,
+                timestamp_time: info.timestamp_time,
             });
         }
 

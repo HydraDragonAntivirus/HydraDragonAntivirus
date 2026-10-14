@@ -29,6 +29,78 @@ pub struct SignerCondition {
     pub nocase: bool,
 }
 
+/// Everything the engine needs to know about a file's Authenticode signature.
+///
+/// Replaces the positional tuple this used to return: five fields were already
+/// the limit, and the certificate identity (issuer, chain, thumbprint,
+/// validity) needs more than that.
+#[derive(Debug, Clone, Default)]
+pub struct AuthenticodeInfo {
+    /// A signature exists and WinVerifyTrust (or the catalog fallback) could
+    /// read a chain from it.
+    pub is_signed: bool,
+    /// WinVerifyTrust returned `ERROR_SUCCESS` for the embedded or catalog
+    /// signature. Independent of `signer_rules/`.
+    pub is_trusted: bool,
+    /// Publisher display name of the leaf certificate.
+    pub signer_name: Option<String>,
+    /// Display name of the CA that issued the leaf.
+    pub issuer: Option<String>,
+    /// `trusted` / `signed_untrusted` / `unsigned`, or an error string.
+    pub status: String,
+    /// Signed through the Windows Catalog rather than an embedded PKCS#7.
+    pub is_catalog_signed: bool,
+    /// Certificates in the verified chain, leaf first.
+    pub chain_len: usize,
+    /// SHA-1 of the leaf certificate, lowercase hex.
+    pub thumbprint: Option<String>,
+    /// Leaf certificate validity window, Unix seconds.
+    pub not_before: Option<i64>,
+    pub not_after: Option<i64>,
+    /// The signature carries a countersignature - RFC 3161 or legacy PKCS#9.
+    /// Malware routinely strips or re-mints these so a certificate looks
+    /// permanently fresh, which makes "signed but never timestamped" a signal
+    /// in its own right.
+    pub timestamped: bool,
+    /// `rfc3161` or `pkcs9`.
+    pub timestamp_kind: Option<String>,
+    /// Common name of the TSA / countersigner.
+    pub timestamp_signer: Option<String>,
+    /// `genTime` of the RFC 3161 token, Unix seconds. Always `None` for a
+    /// legacy PKCS#9 countersignature, which carries no timestamp value.
+    pub timestamp_time: Option<i64>,
+}
+
+impl AuthenticodeInfo {
+    /// Placeholder verdict for platforms without WinTrust. Only the
+    /// `#[cfg(not(windows))]` stub builds it.
+    #[cfg_attr(windows, allow(dead_code))]
+    fn unsupported(reason: &str) -> Self {
+        Self { status: reason.to_string(), ..Default::default() }
+    }
+
+    /// True when the leaf certificate was past `not_after` at scan time.
+    /// WinVerifyTrust already fails an expired leaf, so this only ever fires on
+    /// the `signed_untrusted` path — which is exactly the interesting one.
+    pub fn is_expired(&self, now: i64) -> bool {
+        self.not_after.map(|t| now > t).unwrap_or(false)
+    }
+
+    /// True when the leaf certificate is not valid yet.
+    pub fn is_not_yet_valid(&self, now: i64) -> bool {
+        self.not_before.map(|t| now < t).unwrap_or(false)
+    }
+
+    /// Signed, trusted, and carrying no countersignature at all.
+    ///
+    /// Only meaningful for embedded signatures: a catalog-signed file has no
+    /// PKCS#7 of its own, so the catalog is not "missing" a timestamp and this
+    /// must not fire on it.
+    pub fn is_undated(&self) -> bool {
+        self.is_signed && !self.timestamped && !self.is_catalog_signed
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PatternItem {
     pub value: String,
@@ -40,6 +112,20 @@ pub struct SignerDb {
     trusted: Vec<PatternItem>,
     malicious: Vec<PatternItem>,
     pua: Vec<PatternItem>,
+    /// Issuing CAs. A certificate is abused by the CA that minted it, not by
+    /// the publisher string it carries, so these lists are matched against
+    /// `AuthenticodeInfo::issuer` and catch certificates whose subject has
+    /// nothing to do with the abusive CA.
+    malicious_issuers: Vec<PatternItem>,
+    pua_issuers: Vec<PatternItem>,
+    /// Timestamp authorities behind the countersignature. A separate trust
+    /// domain from the code-signing certificate: an attacker who cannot get a
+    /// code-signing cert can still occasionally talk a friendly TSA into dating
+    /// a signature.
+    malicious_tsas: Vec<PatternItem>,
+    /// Leaf certificate SHA-1 fingerprints, lowercase hex. Pins one exact
+    /// certificate - the only way to name a revoked-but-still-trusted one.
+    pinned_thumbprints: Vec<String>,
     /// SHA-256 benign whitelist (BinaryFuse16 `.xf`). Owned by the signer side on
     /// purpose: this is the file-identity trust table, and it sits next to the
     /// vendor lists so `SignerDb` stays the single authority for "is this file
@@ -71,9 +157,17 @@ impl SignerDb {
             return db;
         }
 
-        db.trusted = Self::load_file(&dir.join("trusted_signers.yaml"));
-        db.malicious = Self::load_file(&dir.join("malicious_vendors.yaml"));
-        db.pua = Self::load_file(&dir.join("pua_vendors.yaml"));
+        let trusted = Self::load_file(&dir.join("trusted_signers.yaml"));
+        let malicious = Self::load_file(&dir.join("malicious_vendors.yaml"));
+        let pua = Self::load_file(&dir.join("pua_vendors.yaml"));
+
+        db.trusted = trusted.names;
+        db.malicious = malicious.names;
+        db.malicious_issuers = malicious.issuers;
+        db.malicious_tsas = malicious.tsas;
+        db.pinned_thumbprints = malicious.thumbprints;
+        db.pua = pua.names;
+        db.pua_issuers = pua.issuers;
         db
     }
 
@@ -120,36 +214,25 @@ impl SignerDb {
             None => false,
         }
     }
+}
 
-    fn load_file(path: &Path) -> Vec<PatternItem> {
-        if !path.is_file() {
-            return Vec::new();
-        }
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => return Vec::new(),
-        };
-        let file: SignerRuleFile = match serde_yaml::from_str(&content) {
-            Ok(f) => f,
-            Err(_) => return Vec::new(),
-        };
+/// Condition values collected from one `signer_rules/*.yaml` file.
+///
+/// `signature_signer_*` addresses the publisher (the leaf subject);
+/// `signature_issuer_*` addresses the CA that minted the certificate. They are
+/// kept apart because a compromised CA signs for arbitrary subjects, so a rule
+/// written only against publishers never sees it.
+#[derive(Default)]
+struct LoadedConditions {
+    names: Vec<PatternItem>,
+    issuers: Vec<PatternItem>,
+    /// Timestamp authorities behind the countersignature.
+    tsas: Vec<PatternItem>,
+    /// Leaf SHA-1 fingerprints, colon-stripped and lowercased.
+    thumbprints: Vec<String>,
+}
 
-        let mut out = Vec::new();
-        for rule in file.rules {
-            for cond in rule.conditions {
-                if (cond.cond_type == "signature_signer_contains" || cond.cond_type == "signature_signer_equals")
-                    && !cond.value.is_empty()
-                {
-                    out.push(PatternItem {
-                        value: cond.value.to_lowercase(),
-                        is_exact: cond.cond_type == "signature_signer_equals",
-                    });
-                }
-            }
-        }
-        out
-    }
-
+impl SignerDb {
     pub fn is_malicious(&self, signer: &str) -> bool {
         Self::matches_list(&self.malicious, signer)
     }
@@ -163,6 +246,40 @@ impl SignerDb {
             return false;
         }
         Self::matches_list(&self.trusted, signer)
+    }
+
+    /// Issuing CA is listed as a malware certificate source.
+    pub fn is_malicious_issuer(&self, issuer: &str) -> bool {
+        Self::matches_list(&self.malicious_issuers, issuer)
+    }
+
+    /// Issuing CA is listed as a PUA / unwanted-software certificate source.
+    pub fn is_pua_issuer(&self, issuer: &str) -> bool {
+        Self::matches_list(&self.pua_issuers, issuer)
+    }
+
+    /// Leaf certificate is pinned by exact SHA-1.
+    pub fn is_pinned_thumbprint(&self, thumbprint: &str) -> bool {
+        if self.pinned_thumbprints.is_empty() || thumbprint.is_empty() {
+            return false;
+        }
+        let t = thumbprint.trim().to_ascii_lowercase();
+        self.pinned_thumbprints.iter().any(|p| *p == t)
+    }
+
+    /// Timestamp authority behind the countersignature is listed as abusive.
+    ///
+    /// The TSA is a different trust domain from the code-signing certificate:
+    /// an attacker who cannot get a code-signing cert can still occasionally
+    /// talk a friendly TSA into dating a signature.
+    pub fn is_malicious_tsa(&self, tsa: &str) -> bool {
+        Self::matches_list(&self.malicious_tsas, tsa)
+    }
+
+    /// `(publisher, issuer, pinned fingerprints)` sizes of the loaded corpus,
+    /// for diagnostics.
+    pub fn issuer_counts(&self) -> (usize, usize, usize) {
+        (self.malicious_issuers.len(), self.pua_issuers.len(), self.pinned_thumbprints.len())
     }
 
     fn matches_list(list: &[PatternItem], signer: &str) -> bool {
@@ -180,6 +297,57 @@ impl SignerDb {
             }
         }
         false
+    }
+
+    fn load_file(path: &Path) -> LoadedConditions {
+        let mut out = LoadedConditions::default();
+        if !path.is_file() {
+            return out;
+        }
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return out,
+        };
+        let file: SignerRuleFile = match serde_yaml::from_str(&content) {
+            Ok(f) => f,
+            Err(_) => return out,
+        };
+
+        for rule in file.rules {
+            for cond in rule.conditions {
+                if cond.value.is_empty() {
+                    continue;
+                }
+                let value = cond.value.to_lowercase();
+                let item = PatternItem { value, is_exact: cond.cond_type.ends_with("_equals") };
+                match cond.cond_type.as_str() {
+                    "signature_signer_contains" | "signature_signer_equals" => {
+                        out.names.push(item);
+                    }
+                    "signature_issuer_contains" | "signature_issuer_equals" => {
+                        out.issuers.push(item);
+                    }
+                    "signature_timestamp_signer_contains"
+                    | "signature_timestamp_signer_equals" => {
+                        out.tsas.push(item);
+                    }
+                    "signature_thumbprint_any" | "signature_thumbprint_equals" => {
+                        // Accept `aa:bb:cc`, `aa bb cc` and bare hex.
+                        let hex: String = cond
+                            .value
+                            .chars()
+                            .filter(|c| c.is_ascii_hexdigit())
+                            .collect::<String>()
+                            .to_ascii_lowercase();
+                        if hex.len() == 40 {
+                            out.thumbprints.push(hex);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        out
     }
 }
 
@@ -307,8 +475,66 @@ use std::sync::OnceLock;
 use windows::Win32::Foundation::{ERROR_SUCCESS, HANDLE, HWND};
 #[cfg(windows)]
 use windows::Win32::Security::Cryptography::{
-    CertGetNameStringW, CERT_NAME_SIMPLE_DISPLAY_TYPE,
+    CertGetCertificateContextProperty, CertGetNameStringW, CERT_CONTEXT,
+    CERT_NAME_SIMPLE_DISPLAY_TYPE,
 };
+
+/// `CERT_SHA1_HASH_PROP_ID`. Not exported by the `windows` crate.
+#[cfg(windows)]
+const CERT_SHA1_HASH_PROP_ID: u32 = 3;
+
+/// `FILETIME` (100 ns ticks since 1601-01-01) to Unix seconds.
+#[cfg(windows)]
+fn filetime_to_unix(ft: windows::Win32::Foundation::FILETIME) -> i64 {
+    let ticks = ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64;
+    (ticks as i64 - 116_444_736_000_000_000) / 10_000_000
+}
+
+/// Everything `signer_subject_from_state` could see in the verified chain, and a
+/// little more. Read while the `WTD_STATEACTION_VERIFY` state is still open —
+/// the state is closed right after, so this is the only window onto the chain.
+#[cfg(windows)]
+#[derive(Debug, Clone, Default)]
+pub struct ChainInfo {
+    /// Simple display name of the leaf, i.e. the publisher.
+    pub subject: Option<String>,
+    /// Simple display name of the CA that issued the leaf.
+    pub issuer: Option<String>,
+    /// Certificates in the chain, leaf first.
+    pub chain_len: usize,
+    /// SHA-1 of the leaf certificate, lowercase hex.
+    pub thumbprint: Option<String>,
+    pub not_before: Option<i64>,
+    pub not_after: Option<i64>,
+}
+
+/// SHA-1 of a certificate context, as the lowercase hex everyone publishes.
+#[cfg(windows)]
+unsafe fn cert_thumbprint(cert: *const CERT_CONTEXT) -> Option<String> {
+    if cert.is_null() {
+        return None;
+    }
+    let mut size: u32 = 0;
+    let ok = unsafe {
+        CertGetCertificateContextProperty(cert, CERT_SHA1_HASH_PROP_ID, None, &mut size as *mut u32)
+    };
+    if ok.is_err() || size == 0 {
+        return None;
+    }
+    let mut buf = vec![0u8; size as usize];
+    let ok = unsafe {
+        CertGetCertificateContextProperty(
+            cert,
+            CERT_SHA1_HASH_PROP_ID,
+            Some(buf.as_mut_ptr() as *mut std::ffi::c_void),
+            &mut size as *mut u32,
+        )
+    };
+    if ok.is_err() {
+        return None;
+    }
+    Some(buf.iter().take(size as usize).map(|b| format!("{:02x}", b)).collect())
+}
 #[cfg(windows)]
 use windows::Win32::Security::WinTrust::{
     WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_CATALOG_INFO, WINTRUST_DATA,
@@ -326,7 +552,7 @@ use windows::Win32::Security::WinTrust::{
 #[derive(Clone, Debug)]
 struct AuthenticodeCacheEntry {
     key: String,
-    result: (bool, bool, Option<String>, String, bool),
+    result: AuthenticodeInfo,
 }
 
 /// Bounded FIFO-ish cache: 4096 entries is far beyond the working set of
@@ -352,7 +578,7 @@ fn file_identity(path: &Path) -> Option<(u64, u64)> {
 #[cfg(windows)]
 fn authenticate_cached(
     path: &Path,
-) -> Option<(bool, bool, Option<String>, String, bool)> {
+) -> Option<AuthenticodeInfo> {
     let (size, mtime) = file_identity(path)?;
     let key = format!("{}\u{0}{size}\u{0}{mtime}", path.to_string_lossy().to_lowercase());
     if let Ok(cache) = authenticode_cache().lock() {
@@ -366,7 +592,7 @@ fn authenticate_cached(
 #[cfg(windows)]
 fn authenticate_store(
     path: &Path,
-    result: (bool, bool, Option<String>, String, bool),
+    result: AuthenticodeInfo,
 ) {
     let Some((size, mtime)) = file_identity(path) else {
         return;
@@ -388,7 +614,7 @@ fn authenticate_store(
 }
 
 #[cfg(windows)]
-pub fn verify_authenticode(path: &Path) -> (bool, bool, Option<String>, String, bool) {
+pub fn verify_authenticode(path: &Path) -> AuthenticodeInfo {
     if let Some(hit) = authenticate_cached(path) {
         return hit;
     }
@@ -397,12 +623,17 @@ pub fn verify_authenticode(path: &Path) -> (bool, bool, Option<String>, String, 
     result
 }
 
-/// Display name of the certificate that actually signed the file, taken from the
-/// chain WinVerifyTrust just built.
+/// Publisher display name of the certificate that actually signed the file.
+#[cfg(windows)]
+unsafe fn signer_subject_from_state(state: HANDLE) -> Option<String> {
+    unsafe { cert_chain_from_state(state) }.and_then(|c| c.subject)
+}
+
+/// Read the verified chain while the WinTrust state is still open.
 ///
-/// This used to be `CertEnumCertificatesInStore(store, None)` on a store opened
-/// with `CryptQueryObject(..., PKCS7_SIGNED_EMBED, ...)`, which returns
-/// whichever certificate happens to sit first in the store - the CA/issuer, not
+/// The publisher name used to be `CertEnumCertificatesInStore(store, None)` on a
+/// store opened with `CryptQueryObject(..., PKCS7_SIGNED_EMBED, ...)`, which
+/// returns whichever certificate happens to sit first in the store - the CA, not
 /// the publisher. Every Microsoft binary therefore reported "Microsoft Windows
 /// Production PCA 2011" instead of "Microsoft Windows", so no entry in
 /// `signer_rules/trusted_signers.yaml` could ever match and the signer field was
@@ -416,7 +647,7 @@ pub fn verify_authenticode(path: &Path) -> (bool, bool, Option<String>, String, 
 /// Safety: `state` must be the live `hWVTStateData` of a `WTD_STATEACTION_VERIFY`
 /// WinVerifyTrust call that has not yet been closed with `WTD_STATEACTION_CLOSE`.
 #[cfg(windows)]
-unsafe fn signer_subject_from_state(state: HANDLE) -> Option<String> {
+unsafe fn cert_chain_from_state(state: HANDLE) -> Option<ChainInfo> {
     if state.is_invalid() {
         return None;
     }
@@ -433,33 +664,71 @@ unsafe fn signer_subject_from_state(state: HANDLE) -> Option<String> {
         if sgnr.pasCertChain.is_null() || sgnr.csCertChain == 0 {
             return None;
         }
-        let signer_cert = &*sgnr.pasCertChain;
-        if signer_cert.pCert.is_null() {
+        let leaf = &*sgnr.pasCertChain;
+        if leaf.pCert.is_null() {
             return None;
         }
 
+        let mut info = ChainInfo { chain_len: sgnr.csCertChain as usize, ..Default::default() };
+
         let mut name_buf = [0u16; 256];
         let len = CertGetNameStringW(
-            signer_cert.pCert,
+            leaf.pCert,
             CERT_NAME_SIMPLE_DISPLAY_TYPE,
             0,
             None,
             Some(&mut name_buf),
         );
         if len > 1 {
-            Some(String::from_utf16_lossy(&name_buf[..(len as usize - 1)]))
-        } else {
-            None
+            info.subject = Some(String::from_utf16_lossy(&name_buf[..(len as usize - 1)]));
         }
+
+        // The issuer is the next certificate up when the chain has one. A
+        // self-signed or single-certificate chain has no such neighbour, and
+        // naming the leaf's own issuer string is the only thing left to report.
+        if sgnr.csCertChain > 1 {
+            let next = &*sgnr.pasCertChain.add(1);
+            if !next.pCert.is_null() {
+                let mut issuer_buf = [0u16; 256];
+                let len = CertGetNameStringW(
+                    next.pCert,
+                    CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                    0,
+                    None,
+                    Some(&mut issuer_buf),
+                );
+                if len > 1 {
+                    info.issuer = Some(String::from_utf16_lossy(&issuer_buf[..(len as usize - 1)]));
+                }
+            }
+        }
+
+        info.thumbprint = cert_thumbprint(leaf.pCert);
+
+        // `CRYPT_PROVIDER_CERT` has no certificate-info pointer; the validity
+        // window lives on the certificate context itself.
+        if !leaf.pCert.is_null() {
+            let cert_info = (*leaf.pCert).pCertInfo;
+            if !cert_info.is_null() {
+                let cert_info = &*cert_info;
+                info.not_before = Some(filetime_to_unix(cert_info.NotBefore));
+                info.not_after = Some(filetime_to_unix(cert_info.NotAfter));
+            }
+        }
+
+        Some(info)
     }
 }
 
 #[cfg(windows)]
-fn verify_authenticode_uncached(path: &Path) -> (bool, bool, Option<String>, String, bool) {
+fn verify_authenticode_uncached(path: &Path) -> AuthenticodeInfo {
     use std::os::windows::ffi::OsStrExt;
 
     if !path.is_file() {
-        return (false, false, None, "File not found".to_string(), false);
+        return AuthenticodeInfo {
+            status: "File not found".to_string(),
+            ..Default::default()
+        };
     }
 
     let path_wide: Vec<u16> = path
@@ -504,10 +773,12 @@ fn verify_authenticode_uncached(path: &Path) -> (bool, bool, Option<String>, Str
 
     let mut is_trusted = result == ERROR_SUCCESS.0 as i32;
 
-    // Extract the publisher name from the chain WinVerifyTrust just verified,
-    // then release the state. The state was previously never closed on this
-    // path, leaking a handle per verified file.
-    let mut signer_name = unsafe { signer_subject_from_state(win_trust_data.hWVTStateData) };
+    // Read the whole verified chain while the state is still open: publisher,
+    // issuing CA, depth, leaf thumbprint and validity all come out of the same
+    // `pasCertChain` walk, so this costs no extra I/O. The state is then closed;
+    // it used to be left open on this path, leaking a handle per verified file.
+    let chain = unsafe { cert_chain_from_state(win_trust_data.hWVTStateData) };
+    let mut signer_name = chain.as_ref().and_then(|c| c.subject.clone());
     if !win_trust_data.hWVTStateData.is_invalid() {
         win_trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
         let _ = unsafe {
@@ -545,7 +816,46 @@ fn verify_authenticode_uncached(path: &Path) -> (bool, bool, Option<String>, Str
         "unsigned".to_string()
     };
 
-    (is_signed, is_trusted, signer_name, status, is_catalog_signed)
+    // Countersignature, read from the file's own embedded PKCS#7. Skipped for
+    // catalog-signed files: they carry no PKCS#7, so the catalog is not
+    // "missing" a timestamp. `is_undated()` respects that too.
+    let mut timestamped = false;
+    let mut timestamp_kind = None;
+    let mut timestamp_signer = None;
+    let mut timestamp_time = None;
+    if let Ok(bytes) = std::fs::read(path) {
+        if let Some(pkcs7) = crate::auth_timestamp::embedded_pkcs7(&bytes) {
+            if let Some(ts) = crate::auth_timestamp::parse_authenticode_timestamp(pkcs7) {
+                timestamped = true;
+                timestamp_kind = Some(
+                    match ts.kind {
+                        crate::auth_timestamp::TimestampKind::Rfc3161 => "rfc3161",
+                        crate::auth_timestamp::TimestampKind::Pkcs9 => "pkcs9",
+                    }
+                    .to_string(),
+                );
+                timestamp_signer = ts.signer;
+                timestamp_time = ts.time;
+            }
+        }
+    }
+
+    AuthenticodeInfo {
+        is_signed,
+        is_trusted,
+        signer_name,
+        issuer: chain.as_ref().and_then(|c| c.issuer.clone()),
+        status,
+        is_catalog_signed,
+        chain_len: chain.as_ref().map_or(0, |c| c.chain_len),
+        thumbprint: chain.as_ref().and_then(|c| c.thumbprint.clone()),
+        not_before: chain.as_ref().and_then(|c| c.not_before),
+        not_after: chain.as_ref().and_then(|c| c.not_after),
+        timestamped,
+        timestamp_kind,
+        timestamp_signer,
+        timestamp_time,
+    }
 }
 
 #[repr(C)]
@@ -721,8 +1031,8 @@ unsafe fn verify_catalog_signature(path_wide: &[u16]) -> Option<String> {
 }
 
 #[cfg(not(windows))]
-pub fn verify_authenticode(_path: &Path) -> (bool, bool, Option<String>, String, bool) {
-    (false, false, None, "unsupported_platform".to_string(), false)
+pub fn verify_authenticode(_path: &Path) -> AuthenticodeInfo {
+    AuthenticodeInfo::unsupported("unsupported_platform")
 }
 
 #[cfg(test)]
@@ -811,5 +1121,206 @@ mod tests {
             BinaryFuse16Filter::key("000027cd05cdf4f81da50a0be2b719d7ffc80f886e85387d0e467a2056aa9cf2"),
             0xcb7f_4c3d_3da9_f5a1,
         );
+    }
+
+    /// Write a throwaway `signer_rules` directory and load it.
+    fn db_from_yaml(tag: &str, malicious: &str) -> (SignerDb, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "openedr-signer-rules-{}-{}",
+            std::process::id(),
+            tag
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        std::fs::write(dir.join("malicious_vendors.yaml"), malicious).expect("write rules");
+        let db = SignerDb::load_from_dir(&dir);
+        (db, dir)
+    }
+
+    #[test]
+    fn issuer_rules_are_kept_apart_from_publisher_rules() {
+        // A compromised CA mints certificates for arbitrary publisher names, so
+        // the two lists must not bleed into each other.
+        let (db, dir) = db_from_yaml("issuer_rules_are_kept_apart_from_publisher_rules", 
+            r#"
+name: t
+rules:
+  - id: issuer-abuse
+    title: "Abusive CA"
+    conditions:
+      - type: signature_issuer_contains
+        value: "ReviverSoft Root"
+      - type: signature_signer_contains
+        value: "Some Publisher"
+"#,
+        );
+
+        assert!(db.is_malicious_issuer("ReviverSoft Root CA"));
+        assert!(db.is_malicious_issuer("reviversoft root ca")); // case-insensitive
+        assert!(!db.is_malicious("ReviverSoft Root CA")); // publisher list unaffected
+        assert!(db.is_malicious("Some Publisher Ltd"));
+        assert!(!db.is_malicious_issuer("DigiCert Assured ID Root CA"));
+        assert_eq!(db.issuer_counts().0, 1);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn thumbprints_accept_colons_spaces_and_case() {
+        let (db, dir) = db_from_yaml("thumbprints_accept_colons_spaces_and_case", 
+            r#"
+name: t
+rules:
+  - id: pinned
+    title: "Revoked leaf"
+    conditions:
+      - type: signature_thumbprint_any
+        value: "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd"
+"#,
+        );
+        let want = "aabbccddeeff00112233445566778899aabbccdd";
+        assert!(db.is_pinned_thumbprint(want));
+        assert!(db.is_pinned_thumbprint(&want.to_ascii_uppercase()));
+        assert!(db.is_pinned_thumbprint(&format!("{} ", want)));
+        assert!(!db.is_pinned_thumbprint(&"ff".repeat(20)));
+        assert!(!db.is_pinned_thumbprint(""));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_thumbprint_that_is_not_sha1_is_dropped() {
+        // 32 hex chars is a truncated digest, not a certificate thumbprint;
+        // silently accepting it would pin nothing.
+        let (db, dir) = db_from_yaml("a_thumbprint_that_is_not_sha1_is_dropped", 
+            r#"
+name: t
+rules:
+  - id: bad
+    title: "bad"
+    conditions:
+      - type: signature_thumbprint_any
+        value: "aabbccdd"
+"#,
+        );
+        assert!(!db.is_pinned_thumbprint("aabbccdd"));
+        assert_eq!(db.issuer_counts().2, 0);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn signer_equals_does_not_match_a_longer_subject() {
+        let (db, dir) = db_from_yaml("signer_equals_does_not_match_a_longer_subject", 
+            r#"
+name: t
+rules:
+  - id: exact
+    title: "exact"
+    conditions:
+      - type: signature_signer_equals
+        value: "Contoso Ltd"
+"#,
+        );
+        assert!(db.is_malicious("Contoso Ltd"));
+        assert!(!db.is_malicious("Contoso Ltd Evil Corp"));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cert_validity_window_is_reported() {
+        let info = AuthenticodeInfo {
+            is_signed: true,
+            not_before: Some(1_600_000_000),
+            not_after: Some(1_700_000_000),
+            ..Default::default()
+        };
+        assert!(!info.is_expired(1_650_000_000));
+        assert!(info.is_expired(1_700_000_001));
+        assert!(!info.is_not_yet_valid(1_650_000_000));
+        assert!(info.is_not_yet_valid(1_500_000_000));
+
+        // No window reported (catalog-signed, or a chain we could not read)
+        // must not be read as "expired".
+        let unknown = AuthenticodeInfo { is_signed: true, ..Default::default() };
+        assert!(!unknown.is_expired(i64::MAX));
+        assert!(!unknown.is_not_yet_valid(0));
+    }
+
+    /// End-to-end against a real signed binary: the publisher, the issuing CA,
+    /// the leaf thumbprint, the chain depth and the validity window must all come
+    /// out of one `WinVerifyTrust` call.
+    ///
+    /// Only meaningful on Windows with the target present, so it asserts the
+    /// shape of the answer rather than any particular value.
+    #[test]
+    fn reads_certificate_identity_from_a_real_signed_binary() {
+        let Ok(info) = std::fs::metadata("C:\\Windows\\System32\\kernel32.dll") else {
+            eprintln!("kernel32.dll not reachable, skipping");
+            return;
+        };
+        assert!(info.is_file());
+        let info = verify_authenticode(Path::new("C:\\Windows\\System32\\kernel32.dll"));
+        assert!(info.is_signed, "a shipping system binary must read as signed");
+        assert!(info.is_trusted, "and as trusted");
+
+        let signer = info.signer_name.clone().expect("publisher");
+        assert!(!signer.is_empty());
+        assert!(!signer.contains("Production PCA"),
+            "leaf, not the CA: got {signer:?}");
+
+        assert!(info.issuer.is_some(), "issuing CA is now reported");
+        assert!(info.chain_len >= 2, "leaf plus at least one CA, got {}", info.chain_len);
+
+        let tp = info.thumbprint.clone().expect("leaf thumbprint");
+        assert_eq!(tp.len(), 40, "lowercase SHA-1 hex");
+        assert!(tp.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+
+        assert!(info.not_before.unwrap_or(0) > 0);
+        assert!(info.not_after.unwrap_or(0) > info.not_before.unwrap_or(0));
+    }
+
+    /// The countersignature has to survive the whole path, not just the parser:
+    /// PE table -> PKCS#7 -> TSA name -> rule match.
+    #[test]
+    fn a_real_binary_is_timestamped_and_matches_a_tsa_rule() {
+        let Ok(meta) = std::fs::metadata("C:\\Windows\\System32\\kernel32.dll") else {
+            eprintln!("kernel32.dll not reachable, skipping");
+            return;
+        };
+        assert!(meta.is_file());
+        let info = verify_authenticode(Path::new("C:\\Windows\\System32\\kernel32.dll"));
+
+        assert!(info.timestamped, "a shipping system binary is countersigned");
+        assert!(info.timestamp_kind.is_some());
+        assert!(info.timestamp_time.is_some(), "RFC 3161 carries a genTime");
+        let tsa = info.timestamp_signer.clone().expect("TSA common name");
+        assert!(!tsa.is_empty());
+        // Not undated: the distinction is what the UndatedSignature rule reads.
+        assert!(!info.is_undated());
+
+        let (db, dir) = db_from_yaml(
+            "a_real_binary_is_timestamped_and_matches_a_tsa_rule",
+            &format!(
+                r#"
+name: t
+rules:
+  - id: bad-tsa
+    title: "Abusive TSA"
+    conditions:
+      - type: signature_timestamp_signer_contains
+        value: "{tsa}"
+"#
+            ),
+        );
+        assert!(db.is_malicious_tsa(&tsa));
+        assert!(db.is_malicious_tsa(&tsa.to_lowercase()), "case-insensitive");
+        assert!(!db.is_malicious_tsa("Some Other Authority"),
+            "the publisher list must not be reused for TSAs");
+        assert!(!db.is_malicious(&tsa),
+            "a TSA is not the publisher of the file");
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

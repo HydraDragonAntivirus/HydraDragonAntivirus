@@ -18,6 +18,50 @@ pub struct SignerDetails {
     pub status: String,
     #[serde(default)]
     pub is_catalog_signed: bool,
+
+    // --- certificate identity -------------------------------------------------
+    // All taken from the chain WinVerifyTrust already built, so they cost one
+    // pass over `pasCertChain` and no extra I/O. Kept optional/defaulted so
+    // older reports and the web build keep deserializing unchanged.
+
+    /// Issuing CA of the signer certificate. Certificate abuse is a property of
+    /// the CA, not of the publisher name: one abused CA hands out certificates
+    /// for arbitrary publisher strings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+
+    /// Certificates in the verified chain, leaf first (leaf + intermediates).
+    #[serde(default)]
+    pub chain_len: usize,
+
+    /// SHA-1 of the signer certificate, lowercase hex. Pins one exact leaf,
+    /// which is how a revoked-but-still-trusted certificate is named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbprint: Option<String>,
+
+    /// Signer certificate validity window, Unix seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_before: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_after: Option<i64>,
+
+    // --- countersignature ------------------------------------------------------
+    // Malware strips or re-mints Authenticode countersignatures so a revoked
+    // certificate keeps looking current, so "signed and never timestamped" is
+    // worth reporting on its own. Catalog-signed files have no PKCS#7 of their
+    // own and are therefore never "undated".
+
+    /// The signature carries a countersignature.
+    #[serde(default)]
+    pub timestamped: bool,
+    /// `rfc3161` or `pkcs9`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_signer: Option<String>,
+    /// `genTime` of the RFC 3161 token, Unix seconds. `None` for PKCS#9.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_time: Option<i64>,
 }
 
 /// A first-class in-memory object to be scanned by the engine.

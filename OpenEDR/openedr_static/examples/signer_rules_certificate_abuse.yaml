@@ -1,0 +1,131 @@
+# Certificate-abuse signer rules — example corpus.
+#
+# Documentation only: the engine loads `trusted_signers.yaml`,
+# `malicious_vendors.yaml` and `pua_vendors.yaml` from `signer_rules/`, and this
+# file is not one of them. Copy the entries you want into
+# `HydraDragonAVPortable/hydradragonsig_rules/malicious_vendors.yaml` (the
+# canonical copy the installer ships from).
+#
+# Every value here is a placeholder. Replace them with CAs and certificates you
+# have actually observed before shipping any of it.
+
+name: HydraDragonSig Certificate Abuse Examples
+version: "1"
+
+rules:
+  # --- the whole point: a CA that signs for arbitrary publishers --------------
+  - id: malicious-cert-issuer-abused-ca
+    title: "Malicious Cert Issuer: Example Abused CA"
+    description: >
+      The issuing CA is listed rather than the publisher, because an abused CA
+      signs for whatever subject it is asked for. A publisher-only rule would
+      never see these binaries.
+    severity: high
+    verdict: malware
+    confidence: 90
+    score: 50
+    family: "Trojan.Certificate-Abuse.A"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+    logic: any
+    conditions:
+      - type: signature_issuer_contains
+        value: "Example Abused Code Signing CA"
+
+  # --- one exact certificate ---------------------------------------------------
+  # The publisher and the issuer can both look ordinary after the CA is cleaned
+  # up; only the leaf identifies the abused certificate. 40 hex chars, and the
+  # colons are optional.
+  - id: malicious-pinned-certificate
+    title: "Malicious Certificate: pinned leaf"
+    description: >
+      Pins one revoked-but-still-trusted certificate. Use this when the CA has
+      been fixed and only the leaf is still worth naming.
+    severity: high
+    verdict: malware
+    confidence: 95
+    score: 50
+    family: "Trojan.Certificate-Abuse.B"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+    logic: any
+    conditions:
+      - type: signature_thumbprint_any
+        value: "00112233445566778899aabbccddeeff00112233"
+
+  # --- PUA issuer --------------------------------------------------------------
+  - id: pua-cert-issuer
+    title: "PUA Cert Issuer: Example Adware CA"
+    description: >
+      Certificates from this CA are wanted-software, not malware. Scores 0.85,
+      below the 0.85 malware cut-off, so the file lands on "suspicious".
+    severity: medium
+    verdict: pua
+    confidence: 80
+    score: 25
+    tags:
+      - signature
+      - pua
+      - certificate-abuse
+    logic: any
+    conditions:
+      - type: signature_issuer_contains
+        value: "Example Adware Signing CA"
+
+  # --- exact publisher, not a substring ---------------------------------------
+  # Without `_equals`, a rule for "Contoso Ltd" also fires on
+  # "Contoso Ltd Evil Corp". Reach for `_equals` when the value is a complete
+  # publisher name and an extension must not inherit it.
+  - id: malicious-signer-exact
+    title: "Malicious Signer: exact publisher match"
+    severity: high
+    verdict: malware
+    confidence: 85
+    score: 40
+    logic: any
+    conditions:
+      - type: signature_signer_equals
+        value: "Contoso Ltd"
+
+  # --- the timestamp authority --------------------------------------------------
+  # The publisher can be clean and the certificate still unexpired while the
+  # countersignature comes from a TSA that hands out tokens to anyone. The TSA
+  # is named here rather than the publisher because the publisher is exactly the
+  # part that looks fine.
+  - id: malicious-timestamp-authority
+    title: "Malicious Timestamp Signer: Example Free TSA"
+    description: >
+      Rules out binaries countersigned by a TSA that issues without checking
+      who is asking. Scored as malware: a free TSA is the last thing a payload
+      author wants a trusted signature to depend on.
+    severity: high
+    verdict: malware
+    confidence: 80
+    score: 50
+    family: "Trojan.Certificate-Abuse.C"
+    tags:
+      - signature
+      - malware
+      - certificate-abuse
+      - countersignature
+    logic: any
+    conditions:
+      - type: signature_timestamp_signer_contains
+        value: "Example Free Timestamping Authority"
+
+  # Use `_equals` when the name is a complete TSA name, for the same reason
+  # `signature_signer_equals` exists above.
+  - id: malicious-timestamp-authority-exact
+    title: "Malicious Timestamp Signer: exact TSA match"
+    severity: high
+    verdict: malware
+    confidence: 85
+    score: 50
+    logic: any
+    conditions:
+      - type: signature_timestamp_signer_equals
+        value: "Example Free Timestamping Authority"
