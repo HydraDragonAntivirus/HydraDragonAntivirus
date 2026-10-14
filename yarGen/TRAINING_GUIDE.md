@@ -36,14 +36,31 @@ server can add the files it receives to them. Put `dataset_paths.json` next to
 | `javascript_malware` / `javascript_clean` | `.js` `.mjs` `.cjs` `.jse` text | malware / clean | JS ML model, yarGen JS (3.3) |
 
 A missing key (or an empty path) turns only that folder off; without the file nothing is
-copied. Files are written as `<SHA256>.<ext>` (`exe`/`dll`/`sys`..., `apk`, `js`), so the
-same file is never added twice.
+copied. Files are written as `<SHA256>.<ext>` (`exe`/`dll`/`sys`..., `apk`, `js`).
+
+**Duplicates are decided by content, not by name.** At start the server hashes every file
+already in the six folders, whatever it is called (`dataset_index.jsonl` next to the
+server caches the digests by path + size + modification time, so only new or changed
+files are hashed again; the first start over a large dataset takes a while, the
+dashboard shows *indexing*). Copies that arrive meanwhile wait in memory (up to 256 MB)
+and are written when the index is ready.
+
+| Case | What happens |
+| :--- | :--- |
+| Same name, different SHA-256 (two different `setup.exe`) | Both are written: `<HASH1>.exe`, `<HASH2>.exe`. |
+| Same SHA-256 already under the same label, any name or extension (your `notepad.exe`, or our `<HASH>.dll`) | Nothing is written (*duplicates skipped*). |
+| Same SHA-256 under the other label, in a `<HASH>.<ext>` the server wrote | The analyst flipped the verdict: that copy is removed and the file is written under the new label. |
+| Same SHA-256 under the other label, in **your** file | Nothing is written, moved or deleted. The case goes to `dataset_conflicts.jsonl` and the dashboard (*label conflicts*, `/api/dataset/conflicts`); you decide. |
+| Same SHA-256 in both label folders already (found while indexing) | Reported the same way (`"kind":"existing"`). |
+| A dataset file deleted by hand | Noticed on the next copy of that hash; the copy is written again. |
+
+The server never deletes or moves a file it did not write.
 
 **Only reliable labels are copied**, so the models never learn the engine's own mistakes:
 
 * an analyst verdict (dashboard review or bulk verdict): `malicious` -> malware,
-  `clean` -> clean. If a later verdict flips the label, the copy is moved to the other
-  folder;
+  `clean` -> clean. If a later verdict flips the label, the server's copy is moved to
+  the other folder (see the table above for your own files);
 * analyst signatures (`analyst_signatures/`) -> malware; the analyst company allow-list
   -> clean;
 * an exact SHA-256 match in the verified benign reference corpus -> clean;

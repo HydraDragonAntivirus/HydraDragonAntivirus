@@ -1091,7 +1091,11 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     for (const [k, v] of [["Engine", eng.name], ["Engine threads", l.workers],
                           ["Signature check", l.signatureCheck ? "on" : "off (memory only)"], ["Verdict cache", l.cache ? "on" : "off"],
                           ["Token", l.token ? "required" : "off"],
-                          ["Hash whitelist", l.hashWhitelist ? "on" : "off"], ["Hash signatures", l.hashSignatures]]) {
+                          ["Hash whitelist", l.hashWhitelist ? "on" : "off"], ["Hash signatures", l.hashSignatures],
+                          ["ML datasets", !l.dataset ? "off (no dataset_paths.json)"
+                            : (l.dataset.ready ? "ready" : "indexing") + ` · ${l.dataset.indexed_files} files · +${l.dataset.written} written · ${l.dataset.duplicates_skipped} duplicates skipped`
+                              + (l.dataset.pending ? ` · ${l.dataset.pending} waiting` : "")
+                              + (l.dataset.conflicts ? ` · ${l.dataset.conflicts} label conflicts (/api/dataset/conflicts)` : "")]]) {
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;

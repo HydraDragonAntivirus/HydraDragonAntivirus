@@ -103,7 +103,7 @@ pub struct EngineAdapter {
     /// that could not be kept (quota) is not requested again on every check.
     xf_requested: std::sync::Mutex<std::collections::HashSet<String>>,
     /// ML dataset folders (`dataset_paths.json`); None = off. See `dataset.rs`.
-    pub dataset: Option<crate::dataset::DatasetPaths>,
+    pub dataset: Option<Arc<crate::dataset::Dataset>>,
     /// LZMA2-compress kept files when space runs low (dashboard toggle, off by default).
     pub compress_low_disk: AtomicBool,
     pub low_disk_threshold_bytes: u64,
@@ -156,7 +156,7 @@ impl EngineAdapter {
             keep_all_unique: AtomicBool::new(true),
             collect_xorfilter: AtomicBool::new(true),
             xf_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
-            dataset: crate::dataset::DatasetPaths::load(),
+            dataset: crate::dataset::Dataset::load(),
             compress_low_disk: AtomicBool::new(compress_low_disk),
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,

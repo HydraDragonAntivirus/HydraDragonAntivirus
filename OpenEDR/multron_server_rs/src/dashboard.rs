@@ -328,6 +328,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/keep-clean", post(handle_keep_clean))
         .route("/api/keep-all-unique", post(handle_keep_all_unique))
         .route("/api/collect-xorfilter", post(handle_collect_xorfilter))
+        .route("/api/dataset/conflicts", get(handle_dataset_conflicts))
         .route("/api/compress-low-disk", post(handle_compress_low_disk))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
@@ -531,7 +532,7 @@ async fn handle_state(
             "keepPossibleClean": app.engine.keep_possible_clean.load(std::sync::atomic::Ordering::Relaxed),
             "keepAllUnique": app.engine.keep_all_unique.load(std::sync::atomic::Ordering::Relaxed),
             "collectXorfilter": app.engine.collect_xorfilter.load(std::sync::atomic::Ordering::Relaxed),
-            "datasetExport": app.engine.dataset.is_some(),
+            "dataset": app.engine.dataset.as_ref().map(|d| d.status()),
             "compressLowDisk": app.engine.compress_low_disk.load(std::sync::atomic::Ordering::Relaxed),
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },
@@ -644,6 +645,19 @@ async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): J
     app.save_settings().await;
     info_event(&app, format!("keep possible_clean files: {}", if t.enabled { "on" } else { "off" }));
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+/// ML dataset label conflicts (same content already in the other label folder in a
+/// file the server did not write), newest first.
+async fn handle_dataset_conflicts(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+    match app.engine.dataset.as_ref() {
+        Some(ds) => {
+            let ds = Arc::clone(ds);
+            let list = tokio::task::spawn_blocking(move || ds.recent_conflicts(500)).await.unwrap_or_default();
+            Json(serde_json::json!({ "ok": true, "enabled": true, "conflicts": list }))
+        }
+        None => Json(serde_json::json!({ "ok": true, "enabled": false, "conflicts": [] })),
+    }
 }
 
 /// Keep every unique file (any category, any type; quotas still apply).
