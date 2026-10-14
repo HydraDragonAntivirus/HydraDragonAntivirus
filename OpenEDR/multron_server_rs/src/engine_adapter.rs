@@ -90,6 +90,20 @@ pub struct EngineAdapter {
     /// Keep files the TLSH smart whitelist called `possible_clean` (default on; dashboard
     /// toggle, saved in multron_server.json, `--no-keep-possible-clean`).
     pub keep_possible_clean: AtomicBool,
+    /// Keep every file once, whatever its verdict or type: the only filter is that its
+    /// SHA-256 is not kept yet, in any category (default on; dashboard toggle, saved;
+    /// `--no-keep-all-unique`). The disk quotas still apply.
+    pub keep_all_unique: AtomicBool,
+    /// XOR-filter (BinaryFuse16) hash verdicts - the benign SHA-256 whitelist and the
+    /// malicious hash filter - can be false positives. Their files are asked for once
+    /// and kept in `xorfilter_clean/` / `xorfilter_malicious/` until an analyst confirms
+    /// them (default on; dashboard toggle, saved; `--no-collect-xorfilter`).
+    pub collect_xorfilter: AtomicBool,
+    /// XOR-filter hits already asked for during this run (lower-case SHA-256), so a file
+    /// that could not be kept (quota) is not requested again on every check.
+    xf_requested: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// ML dataset folders (`dataset_paths.json`); None = off. See `dataset.rs`.
+    pub dataset: Option<crate::dataset::DatasetPaths>,
     /// LZMA2-compress kept files when space runs low (dashboard toggle, off by default).
     pub compress_low_disk: AtomicBool,
     pub low_disk_threshold_bytes: u64,
@@ -139,6 +153,10 @@ impl EngineAdapter {
             keep_threats,
             keep_clean: AtomicBool::new(keep_clean),
             keep_possible_clean: AtomicBool::new(true),
+            keep_all_unique: AtomicBool::new(true),
+            collect_xorfilter: AtomicBool::new(true),
+            xf_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
+            dataset: crate::dataset::DatasetPaths::load(),
             compress_low_disk: AtomicBool::new(compress_low_disk),
             low_disk_threshold_bytes: low_disk_gb * 1024 * 1024 * 1024,
             keep_limit_bytes: keep_unknown_gb * 1024 * 1024 * 1024,
@@ -290,8 +308,13 @@ impl EngineAdapter {
 
     /// Moves a kept upload to the folder of its new verdict (after a rescan).
     pub fn relabel_kept(&self, sha_upper: &str, verdict: &str) {
+        self.relabel_kept_to(sha_upper, KeptFile::category_for(verdict));
+    }
+
+    /// Moves a kept file to the folder `cat` (see `KeptFile::category_for_result`).
+    pub fn relabel_kept_to(&self, sha_upper: &str, cat: &'static str) {
         if let Some(k) = self.find_kept(sha_upper) {
-            self.move_kept(&k, KeptFile::category_for(verdict));
+            self.move_kept(&k, cat);
         }
     }
 
@@ -629,6 +652,9 @@ impl EngineAdapter {
         }
         if let Some(ref filter) = *self.malicious_xf.read().unwrap() {
             if filter.contains(sha_hex) {
+                if self.want_xorfilter_upload(sha_hex) {
+                    return None;
+                }
                 return Some(hash_result("malicious", Some("Malware.Hash.XorFilter"), "Matched malicious SHA-256 (XOR Filter)", 1.0, sha_hex, "hash"));
             }
         }
@@ -636,12 +662,55 @@ impl EngineAdapter {
             if let Some(engine) = self.engine.get() {
                 if let Ok(guard) = engine.read() {
                     if guard.is_benign(sha_hex) {
+                        if self.want_xorfilter_upload(sha_hex) {
+                            return None;
+                        }
                         return Some(hash_result("clean", None, "Known benign file (whitelist)", 0.0, sha_hex, "whitelist"));
                     }
                 }
             }
         }
         None
+    }
+
+    /// An XOR-filter hit whose file is not kept yet: ask for the upload once (this run)
+    /// so it can be collected and checked; the scan gives it the same verdict.
+    fn want_xorfilter_upload(&self, sha_hex: &str) -> bool {
+        const MAX_REQUESTED: usize = 1_000_000;
+        if !self.collect_xorfilter.load(Ordering::Relaxed) || self.work_dir.is_none() {
+            return false;
+        }
+        if self.find_kept(&sha_hex.to_ascii_uppercase()).is_some() {
+            return false;
+        }
+        let mut g = self.xf_requested.lock().unwrap();
+        g.len() < MAX_REQUESTED && g.insert(sha_hex.to_ascii_lowercase())
+    }
+
+    /// The XOR-filter verdicts `hash_lookup` gives without the file, applied to a full
+    /// scan (a collected file must not lose its hash verdict) and tagged with the
+    /// `xorfilter/...` ruleset so it is kept in its own folder.
+    fn apply_xorfilter(&self, engine: &StaticEngine, res: &mut ResultMessage, sha: &str) {
+        let sha_l = sha.to_ascii_lowercase();
+        let malicious_hit = self.malicious_xf.read().unwrap().as_ref().is_some_and(|f| f.contains(&sha_l));
+        if malicious_hit {
+            if res.verdict != "malicious" {
+                let h = hash_result("malicious", Some("Malware.Hash.XorFilter"), "Matched malicious SHA-256 (XOR Filter)", 1.0, &sha_l, "hash");
+                res.verdict = h.verdict;
+                res.threat = h.threat;
+                res.detail = h.detail;
+                res.score = h.score;
+                res.event = h.event;
+                res.antivirus = h.antivirus;
+                res.threat_indicator = h.threat_indicator;
+                res.rule = Some(serde_json::json!({ "name": "Malware.Hash.XorFilter", "verdict": "malicious", "ruleset": XORFILTER_MALICIOUS }));
+            }
+            return;
+        }
+        if self.whitelist_enabled && res.verdict == "clean" && engine.is_benign(&sha_l) {
+            let name = res.rule.as_ref().and_then(|r| r["name"].as_str()).unwrap_or("").to_string();
+            res.rule = Some(serde_json::json!({ "name": name, "verdict": "clean", "ruleset": XORFILTER_BENIGN }));
+        }
     }
 
     /// Runs on an engine thread. The file is written to the work folder first so the
@@ -736,6 +805,7 @@ impl EngineAdapter {
         }
 
         let mut res = build_result(&report, sha);
+        self.apply_xorfilter(&engine, &mut res, sha);
         // Analyst company lists (Authenticode signer): allow -> clean, block -> malicious.
         let signer = report.signer_info.as_ref();
         match self.analyst.company_decision(
@@ -780,14 +850,18 @@ impl EngineAdapter {
         let is_unknown = res.verdict == "unknown";
         let is_clean = res.verdict == "clean";
         let is_possible_clean = res.verdict == "possible_clean";
+        let category = KeptFile::category_for_result(res);
+        let is_xorfilter = category.starts_with("xorfilter_");
 
-        let (used, limit) = if is_clean {
+        let (used, limit) = if category == "clean" {
             (&self.kept_clean_bytes, self.keep_clean_limit_bytes)
         } else {
             (&self.kept_bytes, self.keep_limit_bytes)
         };
         let should_keep = !data.is_empty()
-            && ((self.keep_threats && is_threat)
+            && (self.keep_all_unique.load(Ordering::Relaxed)
+                || (is_xorfilter && self.collect_xorfilter.load(Ordering::Relaxed))
+                || (self.keep_threats && is_threat)
                 || (self.keep_unknown && is_unknown)
                 || (is_clean && self.keep_clean.load(Ordering::Relaxed) && is_pe_or_apk(data, name))
                 || (self.keep_possible_clean.load(Ordering::Relaxed) && is_possible_clean))
@@ -798,7 +872,11 @@ impl EngineAdapter {
             // moved to the folder of this verdict, instead of storing a second one.
             if let Some(existing) = self.kept_path_of(sha) {
                 if let Some(k) = KeptFile::parse(existing.clone(), category_dir_of(&existing)) {
-                    self.move_kept(&k, KeptFile::category_for(&res.verdict));
+                    // A file waiting for xorfilter verification stays there until an
+                    // analyst decides (an engine rescan does not move it out).
+                    if !k.category.starts_with("xorfilter_") || is_xorfilter {
+                        self.move_kept(&k, category);
+                    }
                 }
                 if let Some(p) = temp {
                     let _ = std::fs::remove_file(p);
@@ -807,7 +885,7 @@ impl EngineAdapter {
             }
             if let Some(dir) = &self.work_dir {
                 let name = if name.is_empty() { "file" } else { name };
-                let cat_dir = dir.join(KeptFile::category_for(&res.verdict));
+                let cat_dir = dir.join(category);
                 let _ = std::fs::create_dir_all(&cat_dir);
                 let low_disk = self.compress_low_disk.load(Ordering::Relaxed)
                     && is_disk_space_low(
@@ -902,7 +980,8 @@ pub struct KeptFile {
 }
 
 impl KeptFile {
-    pub const CATEGORIES: [&'static str; 5] = ["unknown", "possible_clean", "suspicious", "malicious", "clean"];
+    pub const CATEGORIES: [&'static str; 7] =
+        ["unknown", "possible_clean", "suspicious", "malicious", "clean", "xorfilter_clean", "xorfilter_malicious"];
     /// Folder of an earlier build for malicious + suspicious together.
     pub const LEGACY_THREAT_DIR: &'static str = "threat";
     /// Old file name prefixes. `threat_` did not tell malicious from suspicious: such files
@@ -938,6 +1017,19 @@ impl KeptFile {
             legacy: category_dir_of(&path).is_none(),
             path,
         })
+    }
+
+    /// Folder for a scan result: XOR-filter verdicts go to `xorfilter_clean/` and
+    /// `xorfilter_malicious/` (to be verified), everything else by verdict.
+    pub fn category_for_result(res: &ResultMessage) -> &'static str {
+        if is_xorfilter_result(res) {
+            match res.verdict.as_str() {
+                "clean" => return "xorfilter_clean",
+                "malicious" | "suspicious" => return "xorfilter_malicious",
+                _ => {}
+            }
+        }
+        Self::category_for(&res.verdict)
     }
 
     pub fn category_for(verdict: &str) -> &'static str {
@@ -1133,6 +1225,18 @@ fn apply_company_allow(res: &mut ResultMessage, company: &str) {
 }
 
 /// Rewrites a result as clean (keeps the ECS fields the clients read in sync).
+/// Ruleset of results that come from an XOR (BinaryFuse16) hash filter.
+pub const XORFILTER_BENIGN: &str = "xorfilter/benign_sha256";
+pub const XORFILTER_MALICIOUS: &str = "xorfilter/malicious_sha256";
+
+/// The verdict comes from an XOR-filter hash hit (probabilistic: may be a false positive).
+pub fn is_xorfilter_result(res: &ResultMessage) -> bool {
+    res.rule
+        .as_ref()
+        .and_then(|r| r["ruleset"].as_str())
+        .is_some_and(|s| s.starts_with("xorfilter/"))
+}
+
 pub fn mark_clean(res: &mut ResultMessage, detail: String, ruleset: &str) {
     res.verdict = "clean".into();
     res.threat = None;

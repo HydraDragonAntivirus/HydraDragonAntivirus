@@ -337,6 +337,16 @@
       </label>
       <div class="hint">On by default. Saved in multron_server.json; <code>--no-keep-possible-clean</code> turns it off at start.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <input type="checkbox" id="keepAllUnique" style="width:auto">
+        Keep <b>every unique file</b> (each SHA-256 once, all categories, any file type)
+      </label>
+      <div class="hint">On by default. The only filter is that the file is not kept yet; the disk quotas still apply. <code>--no-keep-all-unique</code> turns it off at start.</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <input type="checkbox" id="collectXorfilter" style="width:auto">
+        Collect <b>XOR-filter</b> hash hits in <code>xorfilter_clean/</code> and <code>xorfilter_malicious/</code>
+      </label>
+      <div class="hint">On by default. The SHA-256 whitelist and the malicious hash filter are XOR (BinaryFuse16) filters and can be wrong: their files are asked for once and kept until an analyst confirms them. <code>--no-collect-xorfilter</code> turns it off at start.</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
         <input type="checkbox" id="keepClean" style="width:auto">
         Keep <b>clean</b> PE / APK files in <code>multron_incoming/clean/</code>
       </label>
@@ -365,6 +375,8 @@
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="suspicious" checked style="width:auto"> Suspicious</label>
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="malicious" checked style="width:auto"> Malicious</label>
         <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="clean" checked style="width:auto"> Clean</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="xorfilter_clean" style="width:auto"> XOR-filter clean</label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="ofCat" value="xorfilter_malicious" style="width:auto"> XOR-filter malicious</label>
       </div>
       <div class="row2" style="margin-top:8px">
         <button class="ghost" id="ofStart">Move now</button>
@@ -898,7 +910,9 @@
             <label class="chkl"><input type="checkbox" class="rsCat" value="possible_clean" checked> Possible clean</label>
             <label class="chkl"><input type="checkbox" class="rsCat" value="suspicious"> Suspicious</label>
             <label class="chkl"><input type="checkbox" class="rsCat" value="malicious"> Malicious</label>
-            <label class="chkl"><input type="checkbox" class="rsCat" value="clean"> Clean (kept only with "Keep clean")</label>
+            <label class="chkl"><input type="checkbox" class="rsCat" value="clean"> Clean</label>
+            <label class="chkl"><input type="checkbox" class="rsCat" value="xorfilter_clean"> XOR-filter clean</label>
+            <label class="chkl"><input type="checkbox" class="rsCat" value="xorfilter_malicious"> XOR-filter malicious</label>
           </div>
           <label class="chkl" style="margin-top:8px"><input type="checkbox" id="rsAfterReload"> After every engine reload, rescan kept unknown / possible clean files automatically</label>
         </div>
@@ -1081,6 +1095,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       limits.append(el("span", null, k), el("span", null, String(v)));
     }
     if (document.activeElement !== $("keepPossibleClean")) $("keepPossibleClean").checked = !!l.keepPossibleClean;
+    if (document.activeElement !== $("keepAllUnique")) $("keepAllUnique").checked = !!l.keepAllUnique;
+    if (document.activeElement !== $("collectXorfilter")) $("collectXorfilter").checked = !!l.collectXorfilter;
     if (document.activeElement !== $("keepClean")) $("keepClean").checked = !!l.keepClean;
     if (document.activeElement !== $("compressLowDisk")) $("compressLowDisk").checked = !!l.compressLowDisk;
     if (l.lowDiskThresholdGB != null) $("lowDiskGb").textContent = l.lowDiskThresholdGB;
@@ -1124,7 +1140,7 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       $("aHuman").textContent = n(at.humanVerdicts);
       $("aQueue").textContent = n(at.humanQueue);
       const k = at.kept || {};
-      const names = { unknown: "Unknown", possible_clean: "Possible clean", suspicious: "Suspicious", malicious: "Malicious", clean: "Clean" };
+      const names = { unknown: "Unknown", possible_clean: "Possible clean", suspicious: "Suspicious", malicious: "Malicious", clean: "Clean", xorfilter_clean: "XOR-filter clean (to verify)", xorfilter_malicious: "XOR-filter malicious (to verify)" };
       const gb = (x) => x >= 0.01 ? Number(x).toFixed(2) + " GB" : (x * 1024).toFixed(1) + " MB";
       $("aKept").innerHTML = Object.keys(names).filter(c => k[c]).map(c => `<span style="white-space:nowrap">${names[c]}: <b>${n(k[c].files)}</b> files (${gb(k[c].gb)})</span>`).join(" &nbsp;|&nbsp; ");
     }
@@ -1520,6 +1536,14 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
 
   $("keepPossibleClean").onchange = async (e) => {
     try { await post("/api/keep-possible-clean", { enabled: e.target.checked }); }
+    catch (_) { e.target.checked = !e.target.checked; }
+  };
+  $("keepAllUnique").onchange = async (e) => {
+    try { await post("/api/keep-all-unique", { enabled: e.target.checked }); }
+    catch (_) { e.target.checked = !e.target.checked; }
+  };
+  $("collectXorfilter").onchange = async (e) => {
+    try { await post("/api/collect-xorfilter", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
   };
 

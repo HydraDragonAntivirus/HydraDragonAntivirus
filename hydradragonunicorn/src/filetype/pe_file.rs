@@ -278,6 +278,18 @@ impl Pe32File {
         Ok(())
     }
 
+    /// Overwrite bytes at a file offset (used to put back the original
+    /// entry-point code during disinfection).
+    pub fn write_at(&mut self, file_offset: usize, bytes: &[u8]) -> AvResult<()> {
+        let end = file_offset.checked_add(bytes.len()).filter(|&e| e <= self.data.len()).ok_or_else(|| {
+            AvError::MalformedPe {
+                reason: format!("write of {} bytes at 0x{:x} is outside the file", bytes.len(), file_offset),
+            }
+        })?;
+        self.data[file_offset..end].copy_from_slice(bytes);
+        Ok(())
+    }
+
     /// Truncate sections from `section_index` to end of file.
     pub fn truncate_section_until_eof(&mut self, section_index: usize) -> AvResult<()> {
         let s = self.section_header(section_index)?.clone();

@@ -157,6 +157,17 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_keep_possible_clean: bool,
 
+    /// Do not keep every unique file (by default each SHA-256 is kept once, in any
+    /// category and of any type; the disk quotas still apply). Also a dashboard toggle.
+    #[arg(long)]
+    pub no_keep_all_unique: bool,
+
+    /// Do not collect files whose verdict comes from an XOR-filter hash hit (benign
+    /// whitelist / malicious hash filter). They are collected by default into
+    /// xorfilter_clean/ and xorfilter_malicious/ because such filters can be wrong.
+    #[arg(long)]
+    pub no_collect_xorfilter: bool,
+
     /// Compress kept files with LZMA2 max (.xz) when disk space or the keep quota runs
     /// low (off by default; also switchable from the dashboard)
     #[arg(long)]
@@ -256,6 +267,12 @@ pub struct SavedSettings {
     /// Keep `possible_clean` files (TLSH smart whitelist) in the work folder.
     #[serde(default = "default_true")]
     pub keep_possible_clean: bool,
+    /// Keep every unique file (SHA-256 not kept yet), in every category (default on).
+    #[serde(default = "default_true")]
+    pub keep_all_unique: bool,
+    /// Collect XOR-filter (benign whitelist / malicious hash) hits for checking (default on).
+    #[serde(default = "default_true")]
+    pub collect_xorfilter: bool,
     /// Folder kept files are moved to (empty = off) and whether that happens
     /// automatically when space runs low.
     #[serde(default)]
@@ -298,6 +315,8 @@ impl Default for SavedSettings {
             keep_threats: true,
             keep_clean: false,
             keep_possible_clean: true,
+            keep_all_unique: true,
+            collect_xorfilter: true,
             rescan_after_reload: true,
             offload_target: String::new(),
             offload_auto: false,

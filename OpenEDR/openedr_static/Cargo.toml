@@ -42,7 +42,6 @@ evtx = { git = "https://github.com/Yamato-Security/hayabusa-evtx.git", rev = "17
 nested = "0.1"
 tokio = { version = "1", features = ["rt", "macros"] }
 compact_str = "0.10"
-sha1collisiondetection = "0.3.4"
 # Web parity: APK ZIP inflation (pure-Rust, no OS) + shared BinaryFuse16 .xf
 flate2 = "1"
 generic-array = "0.14.9"

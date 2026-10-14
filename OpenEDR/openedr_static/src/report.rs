@@ -28,6 +28,9 @@ pub struct ScanObject {
     pub bytes: Vec<u8>,
     pub depth: u32,
     pub origin_type: String, // "ArchiveMember", "UnpackedPE", "Overlay", "Stripped"
+    /// The file this object came from (packed original of an unpacked PE).
+    /// HydraDragonSig rules compare the object with it.
+    pub parent: Option<hydradragonsig::models::ParentInfo>,
 }
 
 impl ScanObject {
@@ -44,7 +47,14 @@ impl ScanObject {
             bytes,
             depth,
             origin_type: origin_type.into(),
+            parent: None,
         }
+    }
+
+    /// Attach the parent summary built from the bytes this object came out of.
+    pub fn with_parent(mut self, identifier: impl Into<String>, parent_bytes: &[u8]) -> Self {
+        self.parent = Some(hydradragonsig::models::ParentInfo::from_bytes(identifier, parent_bytes));
+        self
     }
 }
 

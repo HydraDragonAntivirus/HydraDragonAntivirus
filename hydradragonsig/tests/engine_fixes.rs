@@ -260,3 +260,31 @@ fn new_import_set_is_pe_only_and_validated() {
     .unwrap();
     assert!(bad.warnings().iter().any(|w| w.contains("parent feature")), "{:?}", bad.warnings());
 }
+
+#[test]
+fn xor_and_base64_atoms_skip_the_plain_text() {
+    let stub = "This program cannot be run in DOS mode";
+    let xor = one(&format!(
+        "      - type: native_signature\n        expression: '$a'\n        atoms:\n          - id: a\n            value: '{stub}'\n            xor: true\n"
+    ));
+    // `xor` alone is YARA xor(0-255): the plain text matches too.
+    assert_eq!(scan(&xor, stub.as_bytes()), vec!["R"]);
+    let xor = one(&format!(
+        "      - type: native_signature\n        expression: '$a'\n        atoms:\n          - id: a\n            value: '{stub}'\n            xor: true\n            xor_min: 1\n"
+    ));
+    // With xor_min: 1 (YARA xor(1-255)) the plain stub of a PE header must not match.
+    assert!(scan(&xor, format!("MZ....{stub}....").as_bytes()).is_empty());
+    let encoded: Vec<u8> = stub.bytes().map(|b| b ^ 0x37).collect();
+    assert_eq!(scan(&xor, &[b"MZ....".as_slice(), &encoded].concat()), vec!["R"]);
+    // xor_min: 0 is the explicit form of the default.
+    let xor0 = one(&format!(
+        "      - type: native_signature\n        expression: '$a'\n        atoms:\n          - id: a\n            value: '{stub}'\n            xor: true\n            xor_min: 0\n"
+    ));
+    assert_eq!(scan(&xor0, stub.as_bytes()), vec!["R"]);
+
+    let b64 = one(&format!(
+        "      - type: native_signature\n        expression: '$a'\n        atoms:\n          - id: a\n            value: '{stub}'\n            base64: true\n"
+    ));
+    assert!(scan(&b64, stub.as_bytes()).is_empty(), "base64 atom must not match plain text");
+    assert_eq!(scan(&b64, b"VGhpcyBwcm9ncmFtIGNhbm5vdCBiZSBydW4gaW4gRE9TIG1vZGU="), vec!["R"]);
+}

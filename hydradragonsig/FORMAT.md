@@ -309,8 +309,8 @@ Atom keys:
 | `ascii` / `wide` | ascii on unless only `wide` is set | Encodings searched (text). |
 | `nocase` | false | ASCII case folding (text, regex). |
 | `fullword` | false | The match must not touch letters, digits or `_` on either side (text). |
-| `xor` | false | Also search the value XORed with every key from `xor_min` (1) to `xor_max` (255). Fixed-width byte patterns only for `bytes`. |
-| `base64` / `base64wide` | false | Also search the base64 form of the value (ASCII / UTF-16LE), at any of the three alignments. |
+| `xor` | false | Also search the value XORed with every key from `xor_min` (1) to `xor_max` (255). As in YARA, `xor` alone (= `xor(0-255)`) also matches the plain value; an explicit `xor_min: 1` or more (= `xor(1-255)`) searches **only** XORed forms, e.g. a hidden DOS stub without hitting the file's own header. Fixed-width byte patterns only for `bytes`. |
+| `base64` / `base64wide` | false | Search the base64 form of the value (ASCII / UTF-16LE), at any of the three alignments, **instead of** the plain value (as YARA). |
 | `decoded` | false | Also search decoded strings. |
 
 `text` and `bytes` atoms are searched in the raw file; `regex` atoms in the

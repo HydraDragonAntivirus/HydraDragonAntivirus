@@ -265,6 +265,57 @@ impl SalityModule {
     }
 
     // ------------------------------------------------------------------
+    // Repair (shared by the VFS module and the in-memory API)
+    // ------------------------------------------------------------------
+
+    /// Put back the original entry-point code, point the entry point at it and
+    /// cut the Sality body off the end of the file (ports the CKillVirus repair).
+    fn repair(pe: &mut Pe32File, detection: &SalityDetection) -> AvResult<()> {
+        if detection.oep_addr == 0 || detection.oep_code.is_empty() {
+            return Err(AvError::MalformedPe { reason: "no original entry-point code recovered".into() });
+        }
+        let file_offset = pe.va_to_file_offset(detection.oep_addr)? as usize;
+        pe.write_at(file_offset, &detection.oep_code)?;
+        pe.set_va_to_entry_point(detection.oep_addr)?;
+        // Original: m_parser->Truncate(m_salityEp - 0x1116)
+        if detection.sality_ep != 0 {
+            pe.truncate(detection.sality_ep.wrapping_sub(0x1116), false).ok();
+        }
+        Ok(())
+    }
+
+    /// Detect and disinfect W32.Sality.PE in memory: nothing is written anywhere.
+    pub fn disinfect_bytes(raw: &[u8]) -> AvResult<crate::disinfect::DisinfectOutcome> {
+        use crate::disinfect::DisinfectOutcome;
+        let Ok(mut pe) = Pe32File::parse(raw.to_vec()) else {
+            return Ok(DisinfectOutcome::NotInfected);
+        };
+        let detection = Self::run_sality_emulation(&pe)?;
+        if !detection.detected {
+            return Ok(DisinfectOutcome::NotInfected);
+        }
+        let name = "W32.Sality.PE".to_string();
+        // Patient zero: no original code to put back, only deletion is safe.
+        if detection.oep_code_size <= 1 {
+            return Ok(DisinfectOutcome::NotRepairable {
+                malware_name: name,
+                reason: "patient zero: no original entry-point code to restore".into(),
+            });
+        }
+        match Self::repair(&mut pe, &detection) {
+            Ok(()) => {
+                let data = pe.raw_data().to_vec();
+                Ok(DisinfectOutcome::Disinfected {
+                    malware_name: name,
+                    removed_bytes: raw.len().saturating_sub(data.len()),
+                    data,
+                })
+            }
+            Err(e) => Ok(DisinfectOutcome::NotRepairable { malware_name: name, reason: e.to_string() }),
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Detect + optional disinfect (ports CKillVirus::Scan body)
     // ------------------------------------------------------------------
 
@@ -334,25 +385,15 @@ impl SalityModule {
         }
 
         // --- Disinfect in-place ---
-        if detection.oep_addr != 0 && !detection.oep_code.is_empty() {
-            let file_offset = pe.va_to_file_offset(detection.oep_addr)?;
-
+        // The repair is done on the parsed copy (OEP code, entry point, virus body
+        // cut off) and the whole repaired image is written back. Writing only the
+        // OEP code to the stream left the entry point on the virus and its body in
+        // the file: the EP patch and the truncation only touched the copy.
+        if Self::repair(&mut pe, &detection).is_ok() {
             let mut ws = file.open_stream()?;
-
-            // Restore original entry-point code at file offset
-            ws.seek(SeekFrom::Start(file_offset as u64))?;
-            ws.write_all(&detection.oep_code)?;
-
-            // Fix the PE entry-point field
-            pe.set_va_to_entry_point(detection.oep_addr)?;
-
-            // Truncate the Sality virus body
-            // Original: m_parser->Truncate(m_salityEp - 0x1116)
-            if detection.sality_ep != 0 {
-                pe.truncate(detection.sality_ep.wrapping_sub(0x1116), false)
-                    .ok();
-            }
-
+            ws.seek(SeekFrom::Start(0))?;
+            ws.write_all(pe.raw_data())?;
+            ws.shrink()?;
             result.clean_verdict = CleanVerdict::CleanSucceeded;
         } else {
             result.clean_verdict = CleanVerdict::CleanDenied;

@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use hydradragonsig::models::{
-    FileTypeInfo, Hashes, ScanReport, ScanResultCode, ScanStatistics, StringHit as HydraStringHit,
+    FileTypeInfo, Hashes, ParentInfo, ScanReport, ScanResultCode, ScanStatistics, StringHit as HydraStringHit,
     Verdict,
 };
 use hydradragonsig::rules::{aggregate_verdict, RuleEvalOptions, RuleSet};
@@ -67,6 +67,9 @@ impl PeStringRules {
     /// Evaluate loaded rules over extracted strings. `is_pe` tags the file
     /// for `FileType` conditions (no other classification is done here).
     /// `is_apk` tags Android packages (APK/ZIP/DEX) the same way.
+    /// `parent` is the file this buffer came from (packed original of a Unicorn
+    /// dump): it enables the parent-comparison conditions (`has_parent`,
+    /// `parent_feature_lte`, `feature_delta_gte`, `new_import_set`).
     pub fn scan_bytes(
         &self,
         data: &[u8],
@@ -76,6 +79,7 @@ impl PeStringRules {
         is_pe: bool,
         is_apk: bool,
         cap: usize,
+        parent: Option<&ParentInfo>,
     ) -> Vec<Hit> {
         let rs = match self.ruleset.as_ref() {
             Some(rs) if !strings.is_empty() && cap > 0 => rs,
@@ -171,6 +175,7 @@ impl PeStringRules {
             archive_members: Vec::new(),
             threat_name: None,
             mitre_techniques: Vec::new(),
+            parent: parent.cloned(),
         };
         let options = RuleEvalOptions {
             profile_rules: false,

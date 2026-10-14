@@ -145,7 +145,11 @@ pub fn rescan_one(server: &Arc<ScanServer>, sha_hex: &str) -> Result<Change, Str
 
     // The kept file sits in the folder of the effective verdict: a human verdict wins.
     let human = server.threat_intel.reviews.completed(&sha_up).and_then(|r| r.verdict);
-    server.engine.relabel_kept(&sha_up, human.as_deref().unwrap_or(&res.verdict));
+    match human.as_deref() {
+        Some(v) => server.engine.relabel_kept(&sha_up, v),
+        // Engine verdict: XOR-filter hits stay in their folder until an analyst decides.
+        None => server.engine.relabel_kept_to(&sha_up, crate::engine_adapter::KeptFile::category_for_result(&res)),
+    }
     server.remember(sha, &res);
     if server.threat_intel.get(&sha_up).is_none() {
         // Kept on disk but missing from the list (e.g. telemetry lost): add it, so it is
@@ -243,7 +247,7 @@ pub fn rescan_logged(server: &Arc<ScanServer>, sha_hex: &str, source: &'static s
 /// Kept-file categories (folders in multron_incoming) a bulk rescan can cover:
 /// "unknown", "possible_clean", "suspicious", "malicious" and "clean". "threat" is
 /// accepted for malicious + suspicious.
-pub const CATEGORIES: [&str; 5] = crate::engine_adapter::KeptFile::CATEGORIES;
+pub const CATEGORIES: [&str; 7] = crate::engine_adapter::KeptFile::CATEGORIES;
 /// Used after an engine reload and when no category is given.
 pub const DEFAULT_CATEGORIES: [&str; 2] = ["unknown", "possible_clean"];
 

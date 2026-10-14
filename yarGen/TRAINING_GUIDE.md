@@ -12,6 +12,61 @@ This guide details how to train **HydraDragonSig** threat signatures against all
 | **JavaScript** | `...\usbdosyalar\javascript\data2` (53,000+ files) | `good-strings-benign_javascript_data2.db`<br>`good-opcodes-benign_javascript_data2.db` | `...\usbdosyalar\javascript\malicious` |
 | **APK (Android)** | `...\HydraDragonAV-Mobile\dataset\benign` | `good-strings-benign_apk.db`<br>`good-opcodes-benign_apk.db` | `...\HydraDragonAV-Mobile\dataset\malicious` |
 
+### 1.1. Filling the datasets from the cloud (multron_server_rs)
+
+The same six folders are used by the ML training and by HydraDragonSig/yarGen. The cloud
+server can add the files it receives to them. Put `dataset_paths.json` next to
+`multron_server.exe` (the folder of `multron_server.json`) and restart the server:
+
+```json
+{
+  "windows_malware":    "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\datamaliciousorder",
+  "windows_clean":      "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\data2",
+  "android_malware":    "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAV-Mobile\\dataset\\malicious",
+  "android_clean":      "C:\\Users\\semae\\OneDrive\\Belgeler\\GitHub\\HydraDragonAV-Mobile\\dataset\\benign",
+  "javascript_malware": "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\javascript\\malicious",
+  "javascript_clean":   "C:\\Users\\semae\\OneDrive\\Belgeler\\usbdosyalar\\javascript\\data2"
+}
+```
+
+| Key | Platform | Label | Training that reads it |
+| :--- | :--- | :--- | :--- |
+| `windows_malware` / `windows_clean` | PE (`MZ` + `PE\0\0`) | malware / clean | PE ML model, yarGen PE (3.1, 3.2), `tlsh_builder` |
+| `android_malware` / `android_clean` | APK (ZIP with `AndroidManifest.xml`) | malware / clean | APK ML model, yarGen APK (3.4), APK smart whitelist |
+| `javascript_malware` / `javascript_clean` | `.js` `.mjs` `.cjs` `.jse` text | malware / clean | JS ML model, yarGen JS (3.3) |
+
+A missing key (or an empty path) turns only that folder off; without the file nothing is
+copied. Files are written as `<SHA256>.<ext>` (`exe`/`dll`/`sys`..., `apk`, `js`), so the
+same file is never added twice.
+
+**Only reliable labels are copied**, so the models never learn the engine's own mistakes:
+
+* an analyst verdict (dashboard review or bulk verdict): `malicious` -> malware,
+  `clean` -> clean. If a later verdict flips the label, the copy is moved to the other
+  folder;
+* analyst signatures (`analyst_signatures/`) -> malware; the analyst company allow-list
+  -> clean;
+* an exact SHA-256 match in the verified benign reference corpus -> clean;
+* a valid, trusted Authenticode signature with a clean verdict -> clean.
+
+Never copied: ML / heuristic / YARA / ClamAV verdicts on their own, `suspicious`,
+`possible_clean` (TLSH look-alikes) and XOR-filter hash verdicts (see below). An analyst
+verdict on such a file copies it then.
+
+Collection on the server (both on by default, dashboard -> *Engine & limits*):
+
+* **Keep every unique file** (`--no-keep-all-unique` turns it off): every SHA-256 is
+  kept once in `multron_incoming/<category>/`, whatever its verdict or file type; the
+  only filter is that the file is not kept yet. The disk quotas (`--keep-unknown-gb`,
+  `--keep-clean-gb`) still apply.
+* **Collect XOR-filter hits** (`--no-collect-xorfilter`): the SHA-256 benign whitelist
+  and the malicious hash filter are BinaryFuse16 XOR filters, which can answer "yes" for
+  a file that is not in them. The server asks for such a file once (instead of answering
+  from the hash alone), gives it the same verdict and keeps it in
+  `multron_incoming/xorfilter_clean/` or `xorfilter_malicious/` until an analyst confirms
+  it. An engine rescan does not move it out; an analyst verdict does (and copies it into
+  the dataset).
+
 ---
 
 ## 🛠️ 2. Creating & Updating Benign Databases (Benign DBs)

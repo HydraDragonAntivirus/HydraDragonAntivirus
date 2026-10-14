@@ -1,7 +1,6 @@
 pub mod apk;
 pub mod cidr;
 pub mod clam;
-pub mod crypto;
 pub mod diagnostics;
 pub mod embedded_url;
 pub mod engine;

@@ -19,7 +19,8 @@ use sha2::{Digest, Sha256};
 use crate::engine_adapter::{EngineAdapter, KeptFile, Pressure};
 
 /// Move order: the first category goes first.
-const MOVE_ORDER: [&str; 5] = ["clean", "possible_clean", "malicious", "suspicious", "unknown"];
+const MOVE_ORDER: [&str; 7] =
+    ["clean", "xorfilter_clean", "possible_clean", "malicious", "xorfilter_malicious", "suspicious", "unknown"];
 
 #[derive(Default)]
 pub struct Offload {
@@ -310,6 +311,6 @@ mod tests {
         // Shared quota still at 70 % does not keep a clean-quota move going.
         let now = Pressure { clean: false, shared: true, disk: false };
         assert!(!now.still(&clean_only));
-        assert!(MOVE_ORDER[0] == "clean" && MOVE_ORDER[4] == "unknown");
+        assert!(MOVE_ORDER[0] == "clean" && MOVE_ORDER[MOVE_ORDER.len() - 1] == "unknown");
     }
 }

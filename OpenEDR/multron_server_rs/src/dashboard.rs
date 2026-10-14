@@ -87,6 +87,16 @@ impl AppState {
             settings.keep_possible_clean = false;
         }
         engine.keep_possible_clean.store(settings.keep_possible_clean, std::sync::atomic::Ordering::Relaxed);
+        // Keeping every unique file / collecting XOR-filter hits: saved dashboard choice
+        // (both on by default), unless the command line turns them off.
+        if cfg.no_keep_all_unique {
+            settings.keep_all_unique = false;
+        }
+        engine.keep_all_unique.store(settings.keep_all_unique, std::sync::atomic::Ordering::Relaxed);
+        if cfg.no_collect_xorfilter {
+            settings.collect_xorfilter = false;
+        }
+        engine.collect_xorfilter.store(settings.collect_xorfilter, std::sync::atomic::Ordering::Relaxed);
         // Keeping clean PE / APK files: saved dashboard choice; `--keep-clean` turns it on.
         if cfg.keep_clean {
             settings.keep_clean = true;
@@ -225,6 +235,8 @@ impl AppState {
             s.limits = g.limits.take();
             // Not part of the listener form: keep the current choice.
             s.keep_possible_clean = g.keep_possible_clean;
+            s.keep_all_unique = g.keep_all_unique;
+            s.collect_xorfilter = g.collect_xorfilter;
             s.keep_clean = g.keep_clean;
             s.lzma_low_disk = g.lzma_low_disk;
             s.rescan_after_reload = g.rescan_after_reload;
@@ -314,6 +326,8 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/maintenance", get(handle_maintenance_status).post(handle_maintenance))
         .route("/api/keep-possible-clean", post(handle_keep_possible_clean))
         .route("/api/keep-clean", post(handle_keep_clean))
+        .route("/api/keep-all-unique", post(handle_keep_all_unique))
+        .route("/api/collect-xorfilter", post(handle_collect_xorfilter))
         .route("/api/compress-low-disk", post(handle_compress_low_disk))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
@@ -515,6 +529,9 @@ async fn handle_state(
             "keepCleanGB": app.engine.keep_clean_limit_bytes / (1024 * 1024 * 1024),
             "keptCleanGB": app.engine.kept_clean_bytes.load(std::sync::atomic::Ordering::Relaxed) as f64 / (1024.0 * 1024.0 * 1024.0),
             "keepPossibleClean": app.engine.keep_possible_clean.load(std::sync::atomic::Ordering::Relaxed),
+            "keepAllUnique": app.engine.keep_all_unique.load(std::sync::atomic::Ordering::Relaxed),
+            "collectXorfilter": app.engine.collect_xorfilter.load(std::sync::atomic::Ordering::Relaxed),
+            "datasetExport": app.engine.dataset.is_some(),
             "compressLowDisk": app.engine.compress_low_disk.load(std::sync::atomic::Ordering::Relaxed),
             "lowDiskThresholdGB": app.engine.low_disk_threshold_bytes / (1024 * 1024 * 1024),
         },
@@ -603,6 +620,16 @@ async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(serde_json::json!({"ok": true}))
 }
 
+/// An analyst verdict is a reliable label: copy the kept file into the ML dataset
+/// folder for it (dataset_paths.json), moving it if the label flipped.
+fn export_human_label(engine: &crate::engine_adapter::EngineAdapter, sha: &str, verdict: &str) {
+    let (Some(ds), Some(label)) = (engine.dataset.as_ref(), crate::dataset::human_label(verdict)) else { return };
+    let Some(k) = engine.find_kept(&sha.to_ascii_uppercase()) else { return };
+    if let Some(bytes) = k.read() {
+        ds.export(sha, &bytes, &k.name, label);
+    }
+}
+
 #[derive(Deserialize)]
 struct KeepToggle {
     #[serde(default)]
@@ -616,6 +643,24 @@ async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): J
     app.settings.write().await.keep_possible_clean = t.enabled;
     app.save_settings().await;
     info_event(&app, format!("keep possible_clean files: {}", if t.enabled { "on" } else { "off" }));
+    Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+/// Keep every unique file (any category, any type; quotas still apply).
+async fn handle_keep_all_unique(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
+    app.engine.keep_all_unique.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+    app.settings.write().await.keep_all_unique = t.enabled;
+    app.save_settings().await;
+    info_event(&app, format!("keep every unique file: {}", if t.enabled { "on" } else { "off" }));
+    Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+/// Collect XOR-filter hash hits (benign whitelist / malicious hash filter) for checking.
+async fn handle_collect_xorfilter(State(app): State<Arc<AppState>>, Json(t): Json<KeepToggle>) -> impl IntoResponse {
+    app.engine.collect_xorfilter.store(t.enabled, std::sync::atomic::Ordering::Relaxed);
+    app.settings.write().await.collect_xorfilter = t.enabled;
+    app.save_settings().await;
+    info_event(&app, format!("collect XOR-filter hits: {}", if t.enabled { "on" } else { "off" }));
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
 }
 
@@ -1537,6 +1582,9 @@ async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(mut b): Json
             }
         }
         let moved = engine.relabel_many(&relabel);
+        for (sha, v) in &relabel {
+            export_human_label(&engine, sha, v);
+        }
         serde_json::json!({
             "ok": true,
             "moved_kept": moved,
@@ -1640,6 +1688,7 @@ async fn handle_review_save(
                 tokio::task::spawn_blocking(move || {
                     eng.relabel_kept(&sha.to_ascii_uppercase(), &v);
                     sync_analyst_tlsh(&eng, &ti, &sha, &v, threat.as_deref(), &analyst);
+                    export_human_label(&eng, &sha, &v);
                 });
             }
             info_event(

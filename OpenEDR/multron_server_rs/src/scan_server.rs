@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{ConnectInfo, Path, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -429,6 +429,11 @@ impl ScanServer {
             .route("/api/v1/similar/:sha256", get(handle_similar))
             .route("/api/v1/feed/daily", get(handle_daily_feed))
             .route("/api/v1/sample/:sha256", get(handle_sample_download))
+            .route(
+                "/api/v1/disinfect",
+                post(handle_disinfect).route_layer(DefaultBodyLimit::max(DISINFECT_MAX_BYTES)),
+            )
+            .route("/api/v1/restore/:sha256", get(handle_restore_download))
             .route("/api/v1/reviews/request/:sha256", post(handle_review_request))
             .route("/api/v1/scan/url", post(handle_scan_url).get(handle_scan_url_get))
             .layer(axum::middleware::from_fn_with_state(Arc::clone(self), ban_guard))
@@ -1387,6 +1392,13 @@ async fn handle_scan(
                     apply_tlsh_blacklist(&ti, &data, res);
                     report = apply_smart_whitelist(&ti, &data, &job_name, res);
                 });
+                // Reliable labels (analyst signatures, benign corpus, trusted signer) feed
+                // the ML datasets of dataset_paths.json; engine guesses never do.
+                if let (Ok(res), Some(ds)) = (&r, engine.dataset.as_ref()) {
+                    if let Some((label, _source)) = crate::dataset::reliable_label(res) {
+                        ds.export(&job_sha, &data, &job_name, label);
+                    }
+                }
                 let _ = rtx.send(r);
                 // VirusKovAlyzer static report, after the verdict went out (the client is
                 // not kept waiting unless the smart whitelist needed it). Stored once per hash.
@@ -2442,6 +2454,124 @@ async fn handle_sample_download(
         .into_response()
 }
 
+
+/// Largest file `/api/v1/disinfect` accepts.
+const DISINFECT_MAX_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Debug, Default, Deserialize)]
+struct DisinfectQuery {
+    /// `repaired`: answer with the repaired file instead of the JSON report.
+    download: Option<String>,
+    /// Client path of the file (same as the `X-File-Path` header).
+    path: Option<String>,
+}
+
+/// The researcher API key check shared by the sample, disinfect and restore endpoints.
+fn require_sample_key(server: &ScanServer, addr: SocketAddr, headers: &HeaderMap) -> Result<(), Response> {
+    let err = |code: StatusCode, msg: &str| json_response(code, serde_json::json!({"status": "error", "error": msg}), "no-store");
+    let Some(keys) = sample_keys() else {
+        return Err(err(StatusCode::FORBIDDEN, "this endpoint is disabled on this server (no sample_api_keys.txt)"));
+    };
+    let provided = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if !keys.iter().any(|k| constant_time_eq(k.as_bytes(), provided.as_bytes())) {
+        server.limiter.strike(&extract_client_ip(addr, headers));
+        return Err(err(StatusCode::UNAUTHORIZED, "a valid X-API-Key header is required"));
+    }
+    Ok(())
+}
+
+/// Signature-based disinfection + cloud restoration (see `disinfect.rs`).
+/// Body: the infected file. `X-File-Path` (or `?path=`): where it is on the client,
+/// used to tell Windows system files apart. Disinfection is only the recommended
+/// action for system files; the repaired bytes are returned with `?download=repaired`.
+async fn handle_disinfect(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Query(q): Query<DisinfectQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    if let Err(resp) = require_sample_key(&server, addr, &headers) {
+        return resp;
+    }
+    if body.is_empty() {
+        return json_response(StatusCode::BAD_REQUEST, serde_json::json!({"status": "error", "error": "empty body: send the file"}), "no-store");
+    }
+    let path = headers
+        .get("x-file-path")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or(q.path.clone())
+        .unwrap_or_default();
+    let ti = Arc::clone(&server.threat_intel);
+    let engine = Arc::clone(&server.engine);
+    let res = tokio::task::spawn_blocking(move || crate::disinfect::run(&ti, &engine, &body, &path)).await;
+    let Ok((report, repaired)) = res else {
+        return json_response(StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({"status": "error", "error": "disinfection failed"}), "no-store");
+    };
+    if q.download.as_deref() == Some("repaired") {
+        let Some(bytes) = repaired else {
+            return json_response(
+                StatusCode::NOT_FOUND,
+                serde_json::json!({"status": "error", "error": "nothing was repaired", "report": report}),
+                "no-store",
+            );
+        };
+        return (
+            StatusCode::OK,
+            [
+                ("Content-Type", "application/octet-stream".to_string()),
+                ("Content-Disposition", format!("attachment; filename=\"{}.repaired.bin\"", report.sha256)),
+                ("X-Malware-Name", report.malware_name.clone().unwrap_or_default()),
+                ("X-Recommended-Action", serde_json::to_value(report.recommended_action).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()),
+                ("Cache-Control", "no-store".to_string()),
+            ],
+            bytes,
+        )
+            .into_response();
+    }
+    json_response(StatusCode::OK, serde_json::json!({"status": "success", "result": report}), "no-store")
+}
+
+/// Clean copy for cloud restoration: only files known clean (analyst-verified clean
+/// or in the verified benign corpus) and kept on this server, raw bytes.
+async fn handle_restore_download(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(server): State<Arc<ScanServer>>,
+    Path(sha256): Path<String>,
+) -> Response {
+    let err = |code: StatusCode, msg: &str| json_response(code, serde_json::json!({"status": "error", "error": msg}), "no-store");
+    if let Err(resp) = require_sample_key(&server, addr, &headers) {
+        return resp;
+    }
+    let Some(sha) = valid_sha(&sha256) else {
+        return err(StatusCode::BAD_REQUEST, "invalid sha256");
+    };
+    if crate::disinfect::known_clean_source(&server.threat_intel, &sha).is_none() {
+        return err(StatusCode::FORBIDDEN, "only known-clean files are served for restoration");
+    }
+    let engine = Arc::clone(&server.engine);
+    let sha_upper = sha.to_ascii_uppercase();
+    let data = tokio::task::spawn_blocking(move || engine.read_kept_sample(&sha_upper)).await.ok().flatten();
+    let Some(data) = data else {
+        return err(StatusCode::NOT_FOUND, "the file is not stored on this server");
+    };
+    let actual: String = Sha256::digest(&data).encode_hex::<String>();
+    if actual != sha {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, "stored file does not match its hash");
+    }
+    (
+        StatusCode::OK,
+        [
+            ("Content-Type", "application/octet-stream".to_string()),
+            ("Content-Disposition", format!("attachment; filename=\"{sha}.bin\"")),
+            ("Cache-Control", "no-store".to_string()),
+        ],
+        data,
+    )
+        .into_response()
+}
 
 /// Closest files by TLSH (from the static report, or the index), with verdicts.
 pub fn similar_files(ti: &crate::threat_intel::ThreatIntelStore, sha: &str, limit: usize) -> Vec<crate::similarity::SimilarFile> {

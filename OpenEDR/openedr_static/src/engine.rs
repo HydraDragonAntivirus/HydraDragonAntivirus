@@ -1,10 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use sha1collisiondetection::Sha1CD;
 use sha2::{Sha256, Digest as Sha256Digest};
 
 use crate::apk;
-use crate::crypto;
 use crate::clam::ClamScanner;
 use crate::diagnostics;
 use crate::ml::filetype;
@@ -876,6 +874,7 @@ impl StaticEngine {
         layer_prefix: &str,
         detections: &mut Vec<DetectionItem>,
         max_score: &mut f32,
+        parent: Option<&hydradragonsig::models::ParentInfo>,
     ) {
         if bytes.is_empty() {
             return;
@@ -943,6 +942,7 @@ impl StaticEngine {
             is_pe,
             false,
             10,
+            parent,
         ) {
             let rule_name = if hit.rule.is_empty() {
                 "HydraSig.Match".to_string()
@@ -1031,6 +1031,7 @@ impl StaticEngine {
             "",
             &mut obj_detections,
             &mut obj_max_score,
+            object.parent.as_ref(),
         );
 
         // PE-specific heuristics on the extracted object
@@ -1092,11 +1093,6 @@ impl StaticEngine {
 
         let file_size = data.len() as u64;
 
-        let mut sha1_hasher = Sha1CD::default();
-        sha1_hasher.update(data);
-        let mut sha1_digest = sha1collisiondetection::Output::default();
-        let is_sha1_collision = sha1_hasher.finalize_into_dirty_cd(&mut sha1_digest).is_err();
-
         let mut sha256_hasher = Sha256::new();
         sha256_hasher.update(data);
         let sha256_hex = hex::encode(sha256_hasher.finalize());
@@ -1104,26 +1100,6 @@ impl StaticEngine {
         let mut detections = Vec::new();
         let mut max_score: f32 = 0.0;
         let mut extracted_objects: Vec<ExtractedObject> = Vec::new();
-
-        if is_sha1_collision {
-            detections.push(DetectionItem {
-                layer: "Crypto_Integrity".to_string(),
-                name: "Crypto.SHA1.CollisionAttackDetected".to_string(),
-                score: Some(1.0),
-                details: Some("Marc Stevens sha1dc counter-cryptanalysis detected SHA-1 collision attack (SHAttered / Chosen-Prefix) in payload".to_string()),
-            });
-            max_score = max_score.max(1.0);
-        }
-
-        if let Some(md5_hit) = crypto::detect_md5_collision(data) {
-            detections.push(DetectionItem {
-                layer: "Crypto_Integrity".to_string(),
-                name: md5_hit.name.to_string(),
-                score: Some(1.0),
-                details: Some(md5_hit.details),
-            });
-            max_score = max_score.max(1.0);
-        }
 
         // File-type gate FIRST: unclassifiable content is not scanned at
         // all — verdict Unknown, straight out. No signer/YARA/ClamAV/ML/unicorn
@@ -1318,6 +1294,7 @@ impl StaticEngine {
                     false,
                     true,
                     10,
+                    None,
                 ) {
                     let name = if hit.rule.is_empty() {
                         "HydraSig.Match".to_string()
@@ -1391,7 +1368,7 @@ impl StaticEngine {
             let strings = pe_strings::extract_strings(capped);
             for hit in
                 self.string_rules
-                    .scan_bytes(data, target_name, &sha256_hex, &strings, is_pe, false, 10)
+                    .scan_bytes(data, target_name, &sha256_hex, &strings, is_pe, false, 10, None)
             {
                 let name = if hit.rule.is_empty() {
                     "HydraSig.Match".to_string()
@@ -1490,13 +1467,16 @@ impl StaticEngine {
                     if let Ok(dumped) = unpacker.dump_bytes() {
                         if !dumped.is_empty() && dumped != data {
                             eprintln!("[unicorn] successfully unpacked {} bytes payload for {}", dumped.len(), target_name);
+                            // The packed original is the parent: rules can see which
+                            // APIs the shell hid (crypter by diff).
                             let obj = ScanObject::new(
                                 format!("{target_name}.unpacked.bin"),
                                 format!("{target_name} -> [Unicorn:Unpacked]"),
                                 dumped,
                                 1,
                                 "UnpackedPE",
-                            );
+                            )
+                            .with_parent(target_name, data);
                             let extracted = self.scan_object(&obj);
 
                             max_score = max_score.max(extracted.max_threat_score);
@@ -1710,7 +1690,8 @@ impl StaticEngine {
                                                 sub_dumped,
                                                 2,
                                                 "UnpackedPE",
-                                            );
+                                            )
+                                            .with_parent(entry.name.clone(), &entry.data);
                                             let sub_extracted = self.scan_object(&sub_obj);
                                             max_score = max_score.max(sub_extracted.max_threat_score);
                                             for d in &sub_extracted.detections {

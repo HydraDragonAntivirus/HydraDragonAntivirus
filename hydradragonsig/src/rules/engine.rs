@@ -229,7 +229,7 @@ fn build_xor_text_ac(atom: &SignatureAtom) -> Option<Arc<XorTextAc>> {
         return None;
     }
 
-    let mut patterns: Vec<Vec<u8>> = Vec::with_capacity(variants.len() * (hi - lo + 1) as usize);
+    let mut patterns: Vec<Vec<u8>> = Vec::with_capacity(variants.len() * (hi as usize - lo as usize + 1));
     let mut meta: Vec<(u8, &'static str)> = Vec::with_capacity(patterns.capacity());
 
     for k in lo..=hi {
@@ -2495,7 +2495,11 @@ fn atom_all_offsets(bytes: &[u8], atom: &SignatureAtom) -> Vec<usize> {
     let mut out = Vec::new();
     match atom.kind {
         SignatureAtomKind::Text => {
-            let mut needles: Vec<(Vec<u8>, bool)> = text_atom_raw_variants(atom).into_iter().map(|(_, n)| (n, atom.nocase)).collect();
+            let mut needles: Vec<(Vec<u8>, bool)> = if text_atom_matches_plain(atom) {
+                text_atom_raw_variants(atom).into_iter().map(|(_, n)| (n, atom.nocase)).collect()
+            } else {
+                Vec::new()
+            };
             if atom.base64 {
                 needles.extend(base64_needles(atom.value.as_bytes()).into_iter().map(|n| (n, false)));
             }
@@ -2676,80 +2680,83 @@ fn match_text_atom(
     // Fast normal extracted-string path. This covers ASCII and UTF-16LE strings
     // because the scanner normalizes UTF-16LE into StringHit values.
     let mut out = AtomMatch::default();
-    if atom.nocase {
-        let needle = atom.value.to_ascii_lowercase();
-        for (hit, hay) in report.strings.iter().zip(&view.strings_lower) {
-            if let Some(pos) = find_literal(hay, &needle, atom.fullword) {
-                out.matched = true;
-                out.offsets.push(hit.offset + pos);
-                out.evidence.push(format!(
-                    "${} text `{}` at 0x{:x}",
-                    atom.id,
-                    truncate_for_evidence(&atom.value, 80),
-                    hit.offset + pos
-                ));
-                return out;
-            }
-        }
-        if atom.decoded {
-            for (hit, hay) in report.decoded_strings.iter().zip(&view.decoded_lower) {
-                if find_literal(hay, &needle, atom.fullword).is_some() {
+    // Plain text only when no modifier excludes it (base64-only / xor without key 0).
+    if text_atom_matches_plain(atom) {
+        if atom.nocase {
+            let needle = atom.value.to_ascii_lowercase();
+            for (hit, hay) in report.strings.iter().zip(&view.strings_lower) {
+                if let Some(pos) = find_literal(hay, &needle, atom.fullword) {
                     out.matched = true;
+                    out.offsets.push(hit.offset + pos);
                     out.evidence.push(format!(
-                        "${} decoded text `{}` via {}",
+                        "${} text `{}` at 0x{:x}",
                         atom.id,
                         truncate_for_evidence(&atom.value, 80),
-                        hit.method
+                        hit.offset + pos
                     ));
                     return out;
                 }
             }
-        }
-    } else {
-        for hit in &report.strings {
-            if let Some(pos) = find_literal(&hit.value, &atom.value, atom.fullword) {
-                out.matched = true;
-                out.offsets.push(hit.offset + pos);
-                out.evidence.push(format!(
-                    "${} text `{}` at 0x{:x}",
-                    atom.id,
-                    truncate_for_evidence(&atom.value, 80),
-                    hit.offset + pos
-                ));
-                return out;
+            if atom.decoded {
+                for (hit, hay) in report.decoded_strings.iter().zip(&view.decoded_lower) {
+                    if find_literal(hay, &needle, atom.fullword).is_some() {
+                        out.matched = true;
+                        out.evidence.push(format!(
+                            "${} decoded text `{}` via {}",
+                            atom.id,
+                            truncate_for_evidence(&atom.value, 80),
+                            hit.method
+                        ));
+                        return out;
+                    }
+                }
             }
-        }
-        if atom.decoded {
-            for hit in &report.decoded_strings {
-                if find_literal(&hit.decoded, &atom.value, atom.fullword).is_some() {
+        } else {
+            for hit in &report.strings {
+                if let Some(pos) = find_literal(&hit.value, &atom.value, atom.fullword) {
                     out.matched = true;
+                    out.offsets.push(hit.offset + pos);
                     out.evidence.push(format!(
-                        "${} decoded text `{}` via {}",
+                        "${} text `{}` at 0x{:x}",
                         atom.id,
                         truncate_for_evidence(&atom.value, 80),
-                        hit.method
+                        hit.offset + pos
                     ));
                     return out;
                 }
             }
+            if atom.decoded {
+                for hit in &report.decoded_strings {
+                    if find_literal(&hit.decoded, &atom.value, atom.fullword).is_some() {
+                        out.matched = true;
+                        out.evidence.push(format!(
+                            "${} decoded text `{}` via {}",
+                            atom.id,
+                            truncate_for_evidence(&atom.value, 80),
+                            hit.method
+                        ));
+                        return out;
+                    }
+                }
+            }
         }
-    }
 
-    // Raw-byte modifier path for Yamdle equivalents of YARA ascii/wide/xor/base64/base64wide.
-    // These are kept here so no external YARA runtime is required.
-    let variants = text_atom_raw_variants(atom);
-    for (label, needle) in variants {
-        if let Some(offset) = find_text_bytes(bytes, &needle, atom.nocase, atom.fullword) {
-            out.matched = true;
-            out.offsets.push(offset);
-            out.evidence.push(format!(
-                "${} {} text `{}` at 0x{:x}",
-                atom.id,
-                label,
-                truncate_for_evidence(&atom.value, 80),
-                offset
-            ));
-            return out;
+        // Raw-byte modifier path for Yamdle equivalents of YARA ascii/wide/xor/base64/base64wide.
+        // These are kept here so no external YARA runtime is required.
+        let variants = text_atom_raw_variants(atom);
+        for (label, needle) in variants {
+            if let Some(offset) = find_text_bytes(bytes, &needle, atom.nocase, atom.fullword) {
+                out.matched = true;
+                out.offsets.push(offset);
+                out.evidence.push(format!(
+                    "${} {} text `{}` at 0x{:x}",
+                    atom.id,
+                    label,
+                    truncate_for_evidence(&atom.value, 80),
+                    offset
+                ));
+                return out;
+            }
         }
     }
 
@@ -2885,7 +2892,7 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
             // and do a single O(file_len) pass — same strategy as text XOR above.
             if pattern.tokens.iter().all(|t| t.mask == 0xff) {
                 let plain: Vec<u8> = pattern.tokens.iter().map(|t| t.value).collect();
-                let mut patvals: Vec<(Vec<u8>, u32)> = Vec::with_capacity((hi - lo + 1) as usize);
+                let mut patvals: Vec<(Vec<u8>, u32)> = Vec::with_capacity(hi as usize - lo as usize + 1);
                 let mut keys: Vec<u8> = Vec::with_capacity(patvals.capacity());
                 for k in lo..=hi {
                     let encoded: Vec<u8> = plain.iter().map(|b| b ^ k).collect();
@@ -2940,6 +2947,17 @@ fn match_byte_atom(bytes: &[u8], atom: &SignatureAtom) -> AtomMatch {
         }
     }
     out
+}
+
+/// YARA semantics: `base64` / `base64wide` search only the encoded forms.
+/// `xor` alone is YARA `xor` = xor(0x00-0xff), which includes the plain text;
+/// an explicit `xor_min` >= 1 is YARA `xor(1-255)` and searches only XORed
+/// forms, so an atom on the DOS stub text does not hit every PE header.
+fn text_atom_matches_plain(atom: &SignatureAtom) -> bool {
+    if atom.base64 || atom.base64wide {
+        return false;
+    }
+    !(atom.xor && atom.xor_min.is_some_and(|m| m > 0))
 }
 
 fn text_atom_raw_variants(atom: &SignatureAtom) -> Vec<(&'static str, Vec<u8>)> {

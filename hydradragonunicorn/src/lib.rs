@@ -10,6 +10,7 @@
 //
 // Nothing in this crate touches the existing hydradragonav scanner.
 
+pub mod disinfect;
 pub mod emulator;
 pub mod error;
 pub mod extract;
@@ -32,6 +33,7 @@ pub use fs::{
     MemoryVirtualFs, VirtualFs,
 };
 pub use module::{Module, ModuleInfo, ModuleRegistry, ModuleType};
+pub use disinfect::{disinfect_bytes, DisinfectOutcome};
 pub use sality::SalityModule;
 pub use scanner::{
     CleanVerdict, LogScanObserver, NullScanObserver, ScanModule, ScanObserver, ScanResult,

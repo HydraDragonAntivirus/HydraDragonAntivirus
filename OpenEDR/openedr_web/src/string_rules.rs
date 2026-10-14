@@ -154,6 +154,7 @@ impl PeStringRules {
             archive_members: Vec::new(),
             threat_name: None,
             mitre_techniques: Vec::new(),
+            parent: None,
         };
         let options = RuleEvalOptions {
             profile_rules: false,

@@ -2,6 +2,8 @@ mod budget;
 mod cache;
 mod config;
 mod dashboard;
+mod dataset;
+mod disinfect;
 mod disasm;
 mod engine_adapter;
 mod apk;
