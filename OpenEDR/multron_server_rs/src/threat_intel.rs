@@ -518,6 +518,19 @@ impl ThreatIntelStore {
         }
     }
 
+    /// Every hash users sent (effective verdict: a completed human review first), for
+    /// the public ML dataset numbers.
+    pub fn user_files(&self) -> Vec<crate::dataset::UserFile> {
+        let guard = self.map.read().unwrap();
+        guard
+            .iter()
+            .map(|(sha, i)| {
+                let human = self.reviews.completed_verdict_raw(sha);
+                crate::dataset::UserFile::new(&i.sha256, human.as_deref().unwrap_or(&i.verdict), &i.file_names, &i.first_seen)
+            })
+            .collect()
+    }
+
     pub fn get(&self, sha256_hex: &str) -> Option<ThreatInsight> {
         let sha_bytes = parse_sha(sha256_hex)?;
         self.map.read().unwrap().get(&sha_bytes).cloned()

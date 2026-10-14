@@ -242,8 +242,9 @@ class HashCache:
 
 def _take(folders: Iterable[str], keep: Callable[[str], bool], max_files: int,
           cache: Optional[HashCache], skip_hidden: bool,
-          nested: Iterable[str] = ()) -> Tuple[List[Tuple[str, Optional[str]]], int]:
-    """[(path, sha256 or None)] in folder order, duplicates by content skipped."""
+          nested: Iterable[str] = (), stats: Optional[Dict[str, int]] = None) -> Tuple[List[Tuple[str, Optional[str]]], int]:
+    """[(path, sha256 or None)] in folder order, duplicates by content and empty files
+    (0 bytes: a failed copy or download, no sample) skipped."""
     out: List[Tuple[str, Optional[str]]] = []
     seen_hash, seen_path = set(), set()
     dups = 0
@@ -257,6 +258,13 @@ def _take(folders: Iterable[str], keep: Callable[[str], bool], max_files: int,
             if key in seen_path or not keep(path):
                 continue
             seen_path.add(key)
+            try:
+                if os.path.getsize(path) == 0:
+                    if stats is not None:
+                        stats["empty"] = stats.get("empty", 0) + 1
+                    continue
+            except OSError:
+                continue
             sha = None
             if cache is not None:
                 sha = cache.sha256(path)
@@ -283,9 +291,10 @@ def collect(args, platform: str, keep: Optional[Callable[[str], bool]] = None, m
         server_index = os.path.join(os.path.dirname(cfg_path), "dataset_index.jsonl") if cfg_path else None
         cache = HashCache(server_index)
         print("[*] Hashing files for duplicate / label-conflict removal (cached; --no-dedupe skips it)...", flush=True)
+    empty: Dict[str, int] = {}
     try:
-        mal, mal_dups = _take(mal_dirs, keep, max_per_class, cache, skip_hidden, all_mal)
-        ben, ben_dups = _take(ben_dirs, keep, max_per_class, cache, skip_hidden, all_ben)
+        mal, mal_dups = _take(mal_dirs, keep, max_per_class, cache, skip_hidden, all_mal, empty)
+        ben, ben_dups = _take(ben_dirs, keep, max_per_class, cache, skip_hidden, all_ben, empty)
     finally:
         if cache is not None:
             cache.flush()
@@ -305,6 +314,8 @@ def collect(args, platform: str, keep: Optional[Callable[[str], bool]] = None, m
         print(f"[*] Hashed {cache.hashed} new/changed files; skipped {mal_dups} malicious and {ben_dups} benign "
               f"duplicates; {conflicts} files in both labels left out"
               + (f" (listed in {CONFLICTS_FILE})" if conflicts else ""), flush=True)
+    if empty.get("empty"):
+        print(f"[*] Skipped {empty['empty']} empty (0-byte) files", flush=True)
     print(f"[+] {platform}: {len(mal)} malicious, {len(ben)} benign files", flush=True)
     return [p for p, _ in mal], [p for p, _ in ben]
 

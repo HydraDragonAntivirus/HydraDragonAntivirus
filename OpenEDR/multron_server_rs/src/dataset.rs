@@ -336,12 +336,14 @@ pub struct DatasetStatus {
     pub conflicts: u64,
 }
 
-/// Unique hashes by where they are: only own folders, only public folders, or both.
+/// Unique hashes by where they are: only own folders, only public folders, both, or
+/// only sent by users (scanned by the server, in no dataset folder).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct SourceCounts {
     pub own_only: u64,
     pub public_only: u64,
     pub both: u64,
+    pub users_only: u64,
 }
 
 impl SourceCounts {
@@ -355,7 +357,48 @@ impl SourceCounts {
     }
 
     pub fn total(&self) -> u64 {
-        self.own_only + self.public_only + self.both
+        self.own_only + self.public_only + self.both + self.users_only
+    }
+}
+
+/// One file users sent (threat intel): platform from its file name, label from its
+/// verdict (None = unknown, suspicious or possible clean: counted under "all" only).
+#[derive(Debug, Clone)]
+pub struct UserFile {
+    /// SHA-256, any case.
+    pub sha256: String,
+    pub platform: Option<Platform>,
+    pub label: Option<Label>,
+    /// First seen (Unix seconds).
+    pub added: u64,
+}
+
+/// Group name of the files users sent in `PublicStats::groups` (the site translates it).
+pub const USERS_GROUP: &str = "@users";
+
+impl UserFile {
+    /// From a threat-intel record: effective verdict (human first) and file names.
+    pub fn new(sha256: &str, verdict: &str, names: &[String], first_seen: &str) -> Self {
+        UserFile {
+            sha256: sha256.to_string(),
+            platform: names.iter().find_map(|n| platform_of_name(n)),
+            label: human_label(verdict),
+            added: chrono::DateTime::parse_from_rfc3339(first_seen).map_or(0, |d| d.timestamp().max(0) as u64),
+        }
+    }
+}
+
+/// Platform of a file known only by name (no content): PE, APK or JavaScript extensions.
+pub fn platform_of_name(name: &str) -> Option<Platform> {
+    let lower = name.to_ascii_lowercase();
+    let ext = lower.rsplit_once('.').map(|(_, e)| e)?;
+    match ext {
+        "exe" | "dll" | "sys" | "scr" | "ocx" | "cpl" | "drv" | "efi" | "mui" | "com" | "ax" | "acm" | "pyd" | "node" => {
+            Some(Platform::Windows)
+        }
+        "apk" | "xapk" | "apks" => Some(Platform::Android),
+        "js" | "mjs" | "cjs" | "jse" => Some(Platform::JavaScript),
+        _ => None,
     }
 }
 
@@ -463,18 +506,21 @@ impl Dataset {
         }
     }
 
-    /// Public counts per platform and label (None until the index is ready).
-    pub fn public_stats(&self) -> Option<PublicStats> {
+    /// Public counts per platform and label (None until the index is ready). `users`:
+    /// every file users sent, counted as "users_only" where no dataset folder has it.
+    pub fn public_stats(&self, users: &[UserFile]) -> Option<PublicStats> {
         if !self.ready.load(Ordering::Relaxed) {
             return None;
         }
-        Some(self.public_stats_at(now_secs()))
+        Some(self.public_stats_at(now_secs(), users))
     }
 
     /// Every hash is counted once per filter: "own_only" when all its files in the
     /// filter are in own folders, "public_only" when all are in public folders, "both"
     /// otherwise. A hash's day is the earliest arrival of its files in the filter.
-    fn public_stats_at(&self, now: u64) -> PublicStats {
+    /// A hash users sent that is in no dataset folder of the filter is "users_only"
+    /// (day: first seen); all of them also form the `USERS_GROUP` group.
+    fn public_stats_at(&self, now: u64, users: &[UserFile]) -> PublicStats {
         const PLATFORMS: [Option<Platform>; 4] =
             [None, Some(Platform::Windows), Some(Platform::Android), Some(Platform::JavaScript)];
         const LABELS: [Option<Label>; 3] = [None, Some(Label::Malware), Some(Label::Clean)];
@@ -561,6 +607,47 @@ impl Dataset {
                         }
                     }
                 }
+            }
+            // Files users sent. Several records of one hash count once.
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::with_capacity(users.len());
+            let mut uacc = vec![(0u64, vec![0u64; STATS_DAYS]); 12];
+            for u in users {
+                let sha = u.sha256.to_ascii_uppercase();
+                if !seen.insert(sha.clone()) {
+                    continue;
+                }
+                let entries = index.get(&sha);
+                let day = u.added / 86_400;
+                let day = (first..=today).contains(&day).then(|| (day - first) as usize);
+                for (pi, pf) in PLATFORMS.iter().enumerate() {
+                    if pf.is_some_and(|x| Some(x) != u.platform) {
+                        continue;
+                    }
+                    for (li, lf) in LABELS.iter().enumerate() {
+                        if lf.is_some_and(|x| Some(x) != u.label) {
+                            continue;
+                        }
+                        let g = &mut uacc[pi * 3 + li];
+                        g.0 += 1;
+                        if let Some(d) = day {
+                            g.1[d] += 1;
+                        }
+                        let in_dataset = entries.is_some_and(|es| {
+                            es.iter().any(|e| pf.is_none_or(|x| x == e.platform) && lf.is_none_or(|x| x == e.label))
+                        });
+                        if in_dataset {
+                            continue;
+                        }
+                        let a = &mut acc[pi * 3 + li];
+                        a.0.users_only += 1;
+                        if let Some(d) = day {
+                            a.1[d].users_only += 1;
+                        }
+                    }
+                }
+            }
+            if !seen.is_empty() {
+                gacc.insert(Arc::from(USERS_GROUP), uacc);
             }
         }
         let dates: Vec<String> = (0..STATS_DAYS as u64)
@@ -1190,9 +1277,9 @@ mod tests {
         std::fs::write(root.join("mal_pub").join("c.exe"), &c).unwrap();
         // d: android own.
         std::fs::write(root.join("apk_own").join("d.apk"), &d).unwrap();
-        assert!(ds.public_stats().is_none(), "nothing before the index");
+        assert!(ds.public_stats(&[]).is_none(), "nothing before the index");
         ds.build_index();
-        let st = ds.public_stats().unwrap();
+        let st = ds.public_stats(&[]).unwrap();
         assert_eq!(counts(&st, "windows", "malware"), (0, 2, 1, 3));
         assert_eq!(counts(&st, "windows", "clean"), (1, 0, 0, 1));
         assert_eq!(counts(&st, "windows", "all"), (0, 1, 2, 3));
@@ -1209,7 +1296,7 @@ mod tests {
         let e = pe(14);
         let ExportOutcome::Written(path) = ds.export(&sha(&e), &e, "e.exe", Label::Malware) else { panic!() };
         assert!(path.starts_with(root.join("mal_own")), "written to the own folder, not a public one");
-        assert_eq!(counts(&ds.public_stats().unwrap(), "windows", "malware"), (1, 2, 1, 4));
+        assert_eq!(counts(&ds.public_stats(&[]).unwrap(), "windows", "malware"), (1, 2, 1, 4));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1221,7 +1308,7 @@ mod tests {
         std::fs::write(root.join("clean_pub").join("b.exe"), pe(21)).unwrap();
         ds.build_index();
         let now = now_secs();
-        let st = ds.public_stats_at(now);
+        let st = ds.public_stats_at(now, &[]);
         let cell = &st.cells["all"]["all"];
         assert_eq!(st.days, STATS_DAYS);
         assert_eq!(cell.daily.len(), STATS_DAYS);
@@ -1232,7 +1319,7 @@ mod tests {
         assert!(cell.daily[..STATS_DAYS - 1].iter().all(|d| d.counts.total() == 0));
         assert!(cell.daily.windows(2).all(|w| w[0].date < w[1].date));
         // 40 days later: the totals stay, the files are out of the window.
-        let later = ds.public_stats_at(now + 40 * 86_400);
+        let later = ds.public_stats_at(now + 40 * 86_400, &[]);
         assert_eq!(later.cells["all"]["all"].total, 2);
         assert!(later.cells["all"]["all"].daily.iter().all(|d| d.counts.total() == 0));
         let _ = std::fs::remove_dir_all(&root);
@@ -1245,7 +1332,7 @@ mod tests {
         std::fs::write(root.join("mal_own").join("secret_name.exe"), &a).unwrap();
         std::fs::write(root.join("clean_pub").join("other_secret.exe"), pe(31)).unwrap();
         ds.build_index();
-        let json = serde_json::to_string(&ds.public_stats().unwrap()).unwrap();
+        let json = serde_json::to_string(&ds.public_stats(&[]).unwrap()).unwrap();
         let root_s = root.to_string_lossy();
         assert!(!json.contains(root_s.as_ref()));
         for needle in ["secret_name", "other_secret", "mal_own", "clean_pub", "multron_dataset", ".exe"] {
@@ -1257,10 +1344,10 @@ mod tests {
         let cell = &v["cells"]["windows"]["malware"];
         let mut keys: Vec<&str> = cell.as_object().unwrap().keys().map(String::as_str).collect();
         keys.sort();
-        assert_eq!(keys, ["both", "daily", "own_only", "public_only", "total"]);
+        assert_eq!(keys, ["both", "daily", "own_only", "public_only", "total", "users_only"]);
         let mut day_keys: Vec<&str> = cell["daily"][0].as_object().unwrap().keys().map(String::as_str).collect();
         day_keys.sort();
-        assert_eq!(day_keys, ["both", "date", "own_only", "public_only"]);
+        assert_eq!(day_keys, ["both", "date", "own_only", "public_only", "users_only"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1293,7 +1380,7 @@ mod tests {
         std::fs::write(benign.join(".git").join("y.apk"), pe(44)).unwrap();
         let ds = Dataset::new(paths, root.join("state"));
         ds.build_index();
-        let st = ds.public_stats().unwrap();
+        let st = ds.public_stats(&[]).unwrap();
         assert_eq!(counts(&st, "android", "clean"), (1, 1, 1, 3), "F-Droid files are public, not 'both'");
         assert_eq!(ds.status().indexed_files, 4, "each file indexed once; .cache / .git skipped");
         let g = |name: &str| st.groups[name]["android"]["clean"].total;
@@ -1303,6 +1390,36 @@ mod tests {
         assert!(!st.groups["F-Droid"].contains_key("windows"), "empty filters are left out");
         let json = serde_json::to_string(&st).unwrap();
         assert!(!json.contains("dataset") && !json.contains("repo"), "names only, never paths");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn files_from_users_join_the_totals_once() {
+        let (root, ds) = setup_sources("users");
+        let (a, b) = (pe(30), pe(31));
+        std::fs::write(root.join("mal_own").join("a.exe"), &a).unwrap();
+        ds.build_index();
+        let now = now_secs();
+        let first_seen = chrono::DateTime::from_timestamp(now as i64, 0).unwrap().to_rfc3339();
+        let users = vec![
+            // Already in the own malware folder: not counted again.
+            UserFile::new(&sha(&a), "malicious", &["a.exe".into()], &first_seen),
+            UserFile::new(&sha(&b).to_ascii_lowercase(), "malicious", &["b.dll".into()], &first_seen),
+            UserFile::new(&sha(&b), "malicious", &["b.dll".into()], &first_seen),
+            UserFile::new(&"C".repeat(64), "unknown", &["photo.jpg".into()], &first_seen),
+            UserFile::new(&"D".repeat(64), "clean", &["app.apk".into()], "not a date"),
+        ];
+        let st = ds.public_stats_at(now, &users);
+        let c = |p: &str, l: &str| (st.cells[p][l].counts.own_only, st.cells[p][l].counts.users_only, st.cells[p][l].total);
+        assert_eq!(c("windows", "malware"), (1, 1, 2), "a once (own), b once (users)");
+        assert_eq!(c("all", "all"), (1, 3, 4), "unknown and unnamed platforms count under all");
+        assert_eq!(c("android", "clean"), (0, 1, 1));
+        assert_eq!(c("android", "malware"), (0, 0, 0));
+        assert_eq!(st.cells["all"]["all"].daily.last().unwrap().counts.users_only, 2, "today; the bad date is not");
+        assert_eq!(st.groups[USERS_GROUP]["all"]["all"].total, 4, "the users group has every hash they sent");
+        assert_eq!(st.groups[USERS_GROUP]["windows"]["malware"].total, 2);
+        assert_eq!(platform_of_name("Setup.EXE"), Some(Platform::Windows));
+        assert_eq!(platform_of_name("readme"), None);
         let _ = std::fs::remove_dir_all(&root);
     }
 

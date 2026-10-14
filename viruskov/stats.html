@@ -272,6 +272,7 @@
     .ratio-seg.ds-o, .ha-day > i.ds-o, .legend-dot.ds-o { background: var(--accent-cyan); }
     .ratio-seg.ds-p, .ha-day > i.ds-p, .legend-dot.ds-p { background: var(--accent-amber); }
     .ratio-seg.ds-b, .ha-day > i.ds-b, .legend-dot.ds-b { background: #a78bfa; }
+    .ratio-seg.ds-u, .ha-day > i.ds-u, .legend-dot.ds-u { background: #34d399; }
     /* One label every 5 days: let it overflow its narrow column, centred. */
     #dsDays span { display: flex; justify-content: center; overflow: visible; white-space: nowrap; visibility: visible; }
     /* Per named folder (dataset_paths.json "name"): total and last-30-days additions. */
@@ -534,7 +535,7 @@
       <div class="panel-header">
         <div>
           <div class="panel-title"><span data-i18n="ds.title">Eğitim Veri Seti</span></div>
-          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="ds.desc">ML ve imza eğitiminde kullanılan benzersiz dosyalar. Her dosya SHA-256 ile bir kez sayılır: yalnızca kendi topladıklarımızda, yalnızca herkese açık veri setlerinde ya da ikisinde de.</div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;" data-i18n="ds.desc">Elimizdeki tüm benzersiz dosyalar: kendi topladıklarımız, herkese açık veri setleri ve kullanıcıların gönderdikleri. Her dosya SHA-256 ile bir kez sayılır. Kullanıcı dosyalarında platform dosya adından, etiket karardan gelir; bilinmeyen ve şüpheli dosyalar yalnızca “Hepsi” altında sayılır.</div>
         </div>
         <div class="ds-filters">
           <div class="types-tabs" id="dsPlatformTabs">
@@ -554,11 +555,13 @@
         <div id="dsBarOwn" class="ratio-seg ds-o" style="width: 0%;"></div>
         <div id="dsBarPublic" class="ratio-seg ds-p" style="width: 0%;"></div>
         <div id="dsBarBoth" class="ratio-seg ds-b" style="width: 0%;"></div>
+        <div id="dsBarUsers" class="ratio-seg ds-u" style="width: 0%;"></div>
       </div>
       <div class="ratio-legend" style="margin-bottom:10px">
         <div class="legend-item"><span class="legend-dot ds-o"></span><span style="color:var(--text-muted);" data-i18n="ds.own">Yalnızca kendi</span><b style="color:var(--accent-cyan); margin-left:auto;" id="dsOwn">—</b></div>
         <div class="legend-item"><span class="legend-dot ds-p"></span><span style="color:var(--text-muted);" data-i18n="ds.public">Yalnızca herkese açık</span><b style="color:var(--accent-amber); margin-left:auto;" id="dsPublic">—</b></div>
         <div class="legend-item"><span class="legend-dot ds-b"></span><span style="color:var(--text-muted);" data-i18n="ds.both">İkisinde de</span><b style="color:#a78bfa; margin-left:auto;" id="dsBoth">—</b></div>
+        <div class="legend-item"><span class="legend-dot ds-u"></span><span style="color:var(--text-muted);" data-i18n="ds.users">Yalnızca kullanıcılardan</span><b style="color:#34d399; margin-left:auto;" id="dsUsers">—</b></div>
         <div class="legend-item"><span style="color:var(--text-muted);" data-i18n="ds.total">Toplam</span><b style="color:#fff; margin-left:auto;" id="dsTotal">—</b></div>
       </div>
       <div class="spec-lbl" data-i18n="ds.chart">Son 30 gün — günlük eklenen dosyalar</div>
@@ -856,8 +859,8 @@
       const cell = dsData && dsData.stats && dsData.stats[dsPlatform] ? dsData.stats[dsPlatform][dsLabel] : null;
       renderDatasetGroups();
       if (!cell) {
-        ['dsOwn', 'dsPublic', 'dsBoth', 'dsTotal'].forEach(id => set(id, '—'));
-        ['dsBarOwn', 'dsBarPublic', 'dsBarBoth'].forEach(id => { const el = document.getElementById(id); if (el) el.style.width = '0%'; });
+        ['dsOwn', 'dsPublic', 'dsBoth', 'dsUsers', 'dsTotal'].forEach(id => set(id, '—'));
+        ['dsBarOwn', 'dsBarPublic', 'dsBarBoth', 'dsBarUsers'].forEach(id => { const el = document.getElementById(id); if (el) el.style.width = '0%'; });
         const chart = document.getElementById('dsChart'), days = document.getElementById('dsDays');
         if (chart) chart.innerHTML = '';
         if (days) days.innerHTML = '';
@@ -872,22 +875,24 @@
       set('dsOwn', n(cell.own_only));
       set('dsPublic', n(cell.public_only));
       set('dsBoth', n(cell.both));
+      set('dsUsers', n(cell.users_only));
       set('dsTotal', n(total));
       const pct = (v) => total ? (v / total * 100).toFixed(2) + '%' : '0%';
-      const lOwn = haT('ds.own', 'Yalnızca kendi'), lPub = haT('ds.public', 'Yalnızca herkese açık'), lBoth = haT('ds.both', 'İkisinde de');
-      [['dsBarOwn', cell.own_only, lOwn], ['dsBarPublic', cell.public_only, lPub], ['dsBarBoth', cell.both, lBoth]].forEach(([id, v, l]) => {
+      const lOwn = haT('ds.own', 'Yalnızca kendi'), lPub = haT('ds.public', 'Yalnızca herkese açık'), lBoth = haT('ds.both', 'İkisinde de'), lUsers = haT('ds.users', 'Yalnızca kullanıcılardan');
+      [['dsBarOwn', cell.own_only, lOwn], ['dsBarPublic', cell.public_only, lPub], ['dsBarBoth', cell.both, lBoth], ['dsBarUsers', cell.users_only, lUsers]].forEach(([id, v, l]) => {
         const el = document.getElementById(id);
         if (el) { el.style.width = pct(v || 0); el.title = `${l}: ${n(v)} (${pct(v || 0)})`; }
       });
       const days = cell.daily || [];
-      const max = Math.max(1, ...days.map(d => d.own_only + d.public_only + d.both));
+      const sum = (d) => d.own_only + d.public_only + d.both + (d.users_only || 0);
+      const max = Math.max(1, ...days.map(sum));
       const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       const chart = document.getElementById('dsChart'), labels = document.getElementById('dsDays');
       if (chart) {
         chart.innerHTML = days.map(d => {
           const h = (v) => (v / max * 100).toFixed(2) + '%';
-          const tip = esc(`${d.date}: ${d.own_only + d.public_only + d.both} · ${lOwn} ${d.own_only} · ${lPub} ${d.public_only} · ${lBoth} ${d.both}`);
-          return `<div class="ha-day" title="${tip}"><i class="ds-o" style="height:${h(d.own_only)}"></i><i class="ds-p" style="height:${h(d.public_only)}"></i><i class="ds-b" style="height:${h(d.both)}"></i></div>`;
+          const tip = esc(`${d.date}: ${sum(d)} · ${lOwn} ${d.own_only} · ${lPub} ${d.public_only} · ${lBoth} ${d.both} · ${lUsers} ${d.users_only || 0}`);
+          return `<div class="ha-day" title="${tip}"><i class="ds-o" style="height:${h(d.own_only)}"></i><i class="ds-p" style="height:${h(d.public_only)}"></i><i class="ds-b" style="height:${h(d.both)}"></i><i class="ds-u" style="height:${h(d.users_only || 0)}"></i></div>`;
         }).join('');
       }
       // A label every 5 days (counting back from today) keeps 30 columns readable.
@@ -909,9 +914,11 @@
       const n = (x) => Number(x || 0).toLocaleString();
       const max = Math.max(1, ...rows.map(r => r.cell.total));
       const last30 = haT('ds.last30', 'son 30 gün');
+      const usersName = haT('ds.group_users', 'Kullanıcılardan gelen');
       list.innerHTML = rows.map(r => {
         const recent = (r.cell.daily || []).reduce((a, v) => a + v, 0);
-        return `<div class="ds-group"><span class="gname" title="${esc(r.name)}">${esc(r.name)}</span>` +
+        const name = r.name === '@users' ? usersName : r.name;
+        return `<div class="ds-group"><span class="gname" title="${esc(name)}">${esc(name)}</span>` +
           `<span class="gbar"><i style="width:${(r.cell.total / max * 100).toFixed(2)}%"></i></span>` +
           `<span class="gnum"><b>${n(r.cell.total)}</b> · +${n(recent)} ${esc(last30)}</span></div>`;
       }).join('');
