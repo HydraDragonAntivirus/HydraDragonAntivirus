@@ -2186,22 +2186,101 @@ fn builtin_type_name(d: &[u8]) -> Option<&'static str> {
     if d.len() >= 3 && (d[0] == b'F' || d[0] == b'C' || d[0] == b'Z') && d[1] == b'W' && d[2] == b'S' {
         return Some("CL_TYPE_SWF");
     }
-    if d.starts_with(&[0xff, 0xfe]) {
-        return Some("CL_TYPE_TEXT_UTF16LE");
-    }
-    if d.starts_with(&[0xfe, 0xff]) {
-        return Some("CL_TYPE_TEXT_UTF16BE");
-    }
     if looks_like_html(d) {
         return Some("CL_TYPE_HTML");
     }
-    if d.starts_with(&[0xef, 0xbb, 0xbf]) {
-        return Some("CL_TYPE_TEXT_UTF8");
+    // No magic matched: ClamAV's `cli_texttype` (textdet.c) on the first
+    // MAGIC_BUFFER_SIZE bytes. Binary data stays unknown (None).
+    text_type(&d[..d.len().min(1028)])
+}
+
+/// libclamav textdet.c `text_chars`: 0 = never in text, 1 = plain ASCII text,
+/// 2 = ISO-8859 text, 3 = non-ISO extended ASCII (Mac, IBM PC).
+fn text_char(c: u8) -> u8 {
+    match c {
+        7..=10 | 12 | 13 | 27 | 0x20..=0x7e | 0x85 => 1,
+        0x80..=0x9f => 3,
+        0xa0..=0xff => 2,
+        _ => 0,
     }
-    if looks_like_ascii_text(d) {
+}
+
+/// libclamav `cli_texttype`: ASCII (incl. ISO-8859 / extended bytes, so any
+/// 8-bit code page and UTF-8 text count), then UTF-8, then UTF-16.
+fn text_type(buf: &[u8]) -> Option<&'static str> {
+    if buf.is_empty() {
+        return None;
+    }
+    if buf.iter().all(|&c| text_char(c) != 0) {
         return Some("CL_TYPE_TEXT_ASCII");
     }
-    None
+    if td_isutf8(buf) {
+        return Some("CL_TYPE_TEXT_UTF8");
+    }
+    match td_isutf16(buf) {
+        1 => Some("CL_TYPE_TEXT_UTF16LE"),
+        2 => Some("CL_TYPE_TEXT_UTF16BE"),
+        _ => None,
+    }
+}
+
+fn td_isutf8(buf: &[u8]) -> bool {
+    let (mut i, mut gotone) = (0usize, false);
+    while i < buf.len() {
+        let c = buf[i];
+        if c & 0x80 == 0 {
+            if text_char(c) != 1 {
+                return false;
+            }
+        } else if c & 0x40 == 0 {
+            return false;
+        } else {
+            let following = if c & 0x20 == 0 { 1 } else if c & 0x10 == 0 { 2 } else if c & 0x08 == 0 { 3 } else if c & 0x04 == 0 { 4 } else if c & 0x02 == 0 { 5 } else { return false };
+            for _ in 0..following {
+                i += 1;
+                if i >= buf.len() {
+                    return gotone;
+                }
+                if buf[i] & 0x80 == 0 || buf[i] & 0x40 != 0 {
+                    return false;
+                }
+            }
+            gotone = true;
+        }
+        i += 1;
+    }
+    gotone
+}
+
+/// 0 = not UTF-16, 1 = UTF-16LE, 2 = UTF-16BE (no BOM is read as BE, as in ClamAV).
+fn td_isutf16(buf: &[u8]) -> u8 {
+    if buf.len() < 2 {
+        return 0;
+    }
+    let (be, nobom) = match (buf[0], buf[1]) {
+        (0xff, 0xfe) => (false, false),
+        (0xfe, 0xff) => (true, false),
+        _ => (true, true),
+    };
+    let mut bad = 0usize;
+    let mut i = 2;
+    while i + 1 < buf.len() {
+        let c = if be { buf[i + 1] as u32 + 256 * buf[i] as u32 } else { buf[i] as u32 + 256 * buf[i + 1] as u32 };
+        if c == 0xfffe {
+            return 0;
+        }
+        if c < 128 && text_char(c as u8) != 1 {
+            if nobom {
+                return 0;
+            }
+            bad += 1;
+        }
+        i += 2;
+    }
+    if !nobom && bad >= buf.len() / 2 {
+        return 0;
+    }
+    1 + be as u8
 }
 
 fn clamav_type_to_target(clamav_type: &str) -> Option<u32> {
@@ -2468,6 +2547,16 @@ mod tests {
     };
     use crate::logical::parse_logical_signature;
     use crate::pattern::{compile_pattern_variants, Modifiers};
+
+    #[test]
+    fn text_type_follows_clamav_textdet() {
+        assert_eq!(text_type(b"hello\r\n"), Some("CL_TYPE_TEXT_ASCII"));
+        // UTF-8 Turkish / Cyrillic and 8-bit code pages are "ASCII" for ClamAV.
+        assert_eq!(text_type("Merhaba dünya, şöyle böyle, ğüşıöç ĞÜŞİÖÇ привет мир".as_bytes()), Some("CL_TYPE_TEXT_ASCII"));
+        assert_eq!(text_type(b"\xfe\xfc\xf0 ok"), Some("CL_TYPE_TEXT_ASCII"));
+        assert_eq!(text_type(b"\xff\xfeh\x00i\x00"), Some("CL_TYPE_TEXT_UTF16LE"));
+        assert_eq!(text_type(b"\x7fELF\x02\x01\x01\x00\x00\x00"), None);
+    }
 
     #[test]
     fn scans_extended_signature() {
