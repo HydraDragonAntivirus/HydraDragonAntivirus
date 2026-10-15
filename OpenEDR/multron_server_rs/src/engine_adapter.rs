@@ -341,27 +341,14 @@ impl EngineAdapter {
         (removed, bytes)
     }
 
-    /// Kept uploads (multron_incoming) whose content is already in the ML dataset
-    /// folders: counted (`dry_run`) or removed; the dataset copy stays. Err while the
-    /// dataset is off or still indexing. Returns (files, bytes).
-    pub fn remove_kept_in_dataset(&self, dry_run: bool) -> Result<(u64, u64), String> {
+    /// ML dataset copies of kept uploads: the server-written `<SHA256>.<ext>` copies in
+    /// the dataset folders whose content is in multron_incoming (which keeps the file
+    /// with its telemetry). Counted (`dry_run`) or removed; multron_incoming is not
+    /// touched. Err while the dataset is off or still indexing. Returns (files, bytes).
+    pub fn remove_dataset_copies_of_kept(&self, dry_run: bool) -> Result<(u64, u64), String> {
         let ds = self.dataset.get().ok_or("ML datasets are off (no dataset_paths.json)")?;
-        let (mut files, mut bytes) = (0u64, 0u64);
-        for k in self.list_kept() {
-            if ds.contains(&k.sha256).ok_or("the ML dataset is still indexing, try again in a moment")? {
-                if dry_run {
-                    files += 1;
-                    bytes += std::fs::metadata(&k.path).map(|m| m.len()).unwrap_or(0);
-                } else if let Some(n) = self.forget_kept(&k) {
-                    files += 1;
-                    bytes += n;
-                }
-            }
-        }
-        if !dry_run {
-            *self.kept_index.lock().unwrap() = None;
-        }
-        Ok((files, bytes))
+        let kept: std::collections::HashSet<String> = self.list_kept().into_iter().map(|k| k.sha256.to_ascii_uppercase()).collect();
+        ds.remove_copies_of_kept(&kept, dry_run).ok_or_else(|| "the ML dataset is still indexing, try again in a moment".to_string())
     }
 
     /// Moves a kept upload to the folder of its new verdict (after a rescan).
@@ -923,10 +910,7 @@ impl EngineAdapter {
         } else {
             (&self.kept_bytes, self.keep_limit_bytes)
         };
-        // Already in the ML dataset folders: that copy is enough.
-        let in_dataset = self.dataset.get().and_then(|d| d.contains(sha)).unwrap_or(false);
         let should_keep = !data.is_empty()
-            && !in_dataset
             && (self.keep_all_unique.load(Ordering::Relaxed)
                 || (is_xorfilter && self.collect_xorfilter.load(Ordering::Relaxed))
                 || (self.keep_threats && is_threat)
