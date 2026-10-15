@@ -333,6 +333,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/collect-xorfilter", post(handle_collect_xorfilter))
         .route("/api/dataset/conflicts", get(handle_dataset_conflicts))
         .route("/api/dataset/remove-incoming-duplicates", post(handle_remove_incoming_duplicates))
+        .route("/api/kept/sort-by-type", post(handle_sort_kept_by_type))
         .route("/api/compress-low-disk", post(handle_compress_low_disk))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
@@ -653,6 +654,20 @@ async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): J
     app.save_settings().await;
     info_event(&app, format!("keep possible_clean files: {}", if t.enabled { "on" } else { "off" }));
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+/// Sorts multron_incoming by file type: `<category>/pe|js|apk/`.
+async fn handle_sort_kept_by_type(State(app): State<Arc<AppState>>) -> Response {
+    let eng = Arc::clone(&app.engine);
+    match tokio::task::spawn_blocking(move || eng.sort_kept_by_type()).await {
+        Ok(counts) => {
+            let other = counts.get("other").copied().unwrap_or(0);
+            let moved: Vec<String> = counts.iter().filter(|(k, _)| **k != "other").map(|(k, n)| format!("{n} {k}")).collect();
+            info_event(&app, format!("multron_incoming sorted by type: {} moved; {other} files of no known type stay", if moved.is_empty() { "nothing".to_string() } else { moved.join(", ") }));
+            Json(serde_json::json!({ "ok": true, "moved": counts })).into_response()
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": "failed" }))).into_response(),
+    }
 }
 
 #[derive(Deserialize)]

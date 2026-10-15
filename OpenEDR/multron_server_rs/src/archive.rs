@@ -386,7 +386,12 @@ fn sample_sha(rel_or_name: &str) -> Option<String> {
 }
 
 fn category_of(p: &Path) -> Option<&'static str> {
-    let dir = p.parent()?.file_name()?.to_string_lossy().to_string();
+    // `<category>/<name>` or, sorted by type, `<category>/pe|js|apk/<name>`.
+    let mut parent = p.parent()?;
+    if crate::engine_adapter::kind_dir_of(p).is_some() {
+        parent = parent.parent()?;
+    }
+    let dir = parent.file_name()?.to_string_lossy().to_string();
     crate::engine_adapter::KeptFile::CATEGORIES.into_iter().find(|c| *c == dir)
 }
 
