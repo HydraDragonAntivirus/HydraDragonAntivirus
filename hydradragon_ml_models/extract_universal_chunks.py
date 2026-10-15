@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 HydraDragon Universal Multi-Modal String & IOC Feature Extractor
 Extracts 32 lexical and Shannon entropy features part-by-part to disk
 to eliminate RAM bottlenecks (stays strictly under 1.5 - 2 GB RAM).
@@ -395,7 +395,9 @@ def main():
     if os.path.isdir(mobile_benign_dir):
         print(f"  [+] Scanning Mobile Benign APKs in: {mobile_benign_dir}...")
         apk_count = 0
-        for root, _, files in os.walk(mobile_benign_dir):
+        for root, _dirs, files in os.walk(mobile_benign_dir):
+            # never the server's backup folders (deleted_from_*: duplicates moved out) or hidden dirs
+            _dirs[:] = [d for d in _dirs if not d.startswith(".") and not d.lower().startswith("deleted_from_")]
             for file in files:
                 fpath = os.path.join(root, file)
                 for s in extract_strings_from_binary_file(fpath, max_strings=100):
@@ -457,7 +459,9 @@ def main():
     if os.path.isdir(args.usb_dir):
         print(f"  [-] Extracting from USB Malware Samples: {args.usb_dir}...")
         sample_count = 0
-        for root, _, files in os.walk(args.usb_dir):
+        for root, _dirs, files in os.walk(args.usb_dir):
+            # never the server's backup folders (deleted_from_*: duplicates moved out) or hidden dirs
+            _dirs[:] = [d for d in _dirs if not d.startswith(".") and not d.lower().startswith("deleted_from_")]
             # Skip massive archives directly
             for file in files:
                 if file.endswith((".7z", ".zip", ".rar", ".tar", ".gz")):
@@ -478,7 +482,9 @@ def main():
     if os.path.isdir(mobile_malware_dir) and writer.total_malicious < quota_malicious:
         print(f"  [-] Extracting from Mobile Malware APKs: {mobile_malware_dir}...")
         apk_count = 0
-        for root, _, files in os.walk(mobile_malware_dir):
+        for root, _dirs, files in os.walk(mobile_malware_dir):
+            # never the server's backup folders (deleted_from_*: duplicates moved out) or hidden dirs
+            _dirs[:] = [d for d in _dirs if not d.startswith(".") and not d.lower().startswith("deleted_from_")]
             for file in files:
                 fpath = os.path.join(root, file)
                 for s in extract_strings_from_binary_file(fpath, max_strings=150):
