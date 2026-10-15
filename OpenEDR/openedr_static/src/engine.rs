@@ -96,6 +96,11 @@ pub struct StaticEngine {
 }
 
 impl StaticEngine {
+    /// ClamAV file type (`CL_TYPE_*`) of `data`, by content only.
+    pub fn clamav_file_type(&self, data: &[u8]) -> Option<String> {
+        self.clam.file_type(data)
+    }
+
     /// Initialize the static engine using a root directory containing rule subfolders:
     /// - `database/` for ClamAV
     /// - `yara_rules/` for YARA (.yar, .yara, .yrc)

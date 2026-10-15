@@ -154,6 +154,8 @@ pub struct FileTypeMagic {
     pub offset: OffsetSpec,
     pub patterns: Box<[Pattern]>,
     pub clamav_type: Box<str>,
+    /// Description field of the record ("MP3", "SQLite database", ...).
+    pub name: Box<str>,
     pub source: SourceLocation,
 }
 
@@ -667,6 +669,7 @@ fn parse_ftm(line: &str, source: SourceLocation) -> Result<FileTypeMagic, String
         offset,
         patterns: patterns.into_boxed_slice(),
         clamav_type: parts[5].trim().into(),
+        name: parts[3].trim().into(),
         source,
     })
 }

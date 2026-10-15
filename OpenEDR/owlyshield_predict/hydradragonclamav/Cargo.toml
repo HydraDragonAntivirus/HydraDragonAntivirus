@@ -16,6 +16,14 @@ regex = "1"
 # SIMD substring search for the per-pattern literal pre-check (pure Rust).
 memchr = "2"
 
+# PDF layer: FlateDecode streams (src/pdf.rs).
+flate2 = "1"
+# PDF layer: empty-password decryption (RC4 / AES-128 / AES-256, src/pdf.rs).
+aes = "0.9"
+cbc = "0.2"
+md-5 = "0.11"
+sha2 = "0.11"
+
 # Aho-Corasick automaton for the atom prefilter — one pass over the buffer,
 # matching every atom simultaneously. Upstream crates.io daachorse 5.x
 # (DoubleArrayAhoCorasick, built-in 2-gram prefilter) — NOT the custom fork.

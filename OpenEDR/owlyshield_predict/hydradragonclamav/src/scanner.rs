@@ -77,6 +77,18 @@ pub struct ScanOptions {
     /// file's own `max_scan_bytes`). Default 100 MiB total; 0 disables
     /// archive recursion entirely (top-level scan only).
     pub max_archive_bytes: usize,
+    /// PDF layer (libclamav pdf.c): decoded streams, object streams and
+    /// JavaScript are scanned as child objects, with ClamAV's PDF heuristics.
+    /// Default on.
+    pub scan_pdf: bool,
+    /// `Heuristics.Encrypted.PDF` for encrypted PDFs (ClamAV
+    /// `--alert-encrypted-doc`). Default off, as in ClamAV.
+    pub heuristic_encrypted_pdf: bool,
+    /// ClamAV normalization: HTML is also scanned as its `nocomment`,
+    /// `notags` and `javascript` views (target 3, JS also as target 7) and
+    /// rfc2397 `data:` URIs as child objects; text files are also scanned as
+    /// their textnorm view (target 7). Default on, as in ClamAV.
+    pub normalize: bool,
 }
 
 impl Default for ScanOptions {
@@ -90,6 +102,9 @@ impl Default for ScanOptions {
             blank_skip: 1024 * 1024,
             zero_pad_heuristic: 50 * 1024 * 1024,
             max_archive_bytes: 100 * 1024 * 1024,
+            scan_pdf: true,
+            heuristic_encrypted_pdf: false,
+            normalize: true,
         }
     }
 }
@@ -195,6 +210,15 @@ pub enum SignatureKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScanView {
     Raw,
+    /// ClamAV `nocomment.html`: HTML with comments stripped, lowercased,
+    /// whitespace collapsed, entities decoded (scanned as target 3).
+    HtmlNormalized,
+    /// ClamAV `notags.html`: the HTML's text only (scanned as target 3).
+    HtmlNoTags,
+    /// ClamAV `javascript`: normalized script blocks (scanned as targets 3 and 7).
+    JavaScript,
+    /// ClamAV textnorm view of a text file (scanned as target 7).
+    TextNormalized,
 }
 
 pub(crate) struct ScanContext<'a> {
@@ -622,7 +646,7 @@ impl Engine {
         container_size_real: Option<u64>,
         container_file_pos: Option<u64>,
         container_entry_name: Option<String>,
-        _depth: usize,
+        depth: usize,
         options: ScanOptions,
         module_meta: &[(&str, &[u8])],
         state: &mut ScanState,
@@ -702,42 +726,22 @@ impl Engine {
             if confident_target.is_some() && clamav_target_allowed(confident_target)
                 || confident_target.is_none() && is_text_like(data)
             {
-                // Chunk-by-chunk: long `00…` runs are cut out by `plan_chunks`
-                // and the rest is scanned in bounded pieces. Offsets stay in
-                // FILE coordinates (`scan_ranges_chunk`), so anchored
-                // signatures keep exact semantics.
-                let chunks = plan_chunks(data.len(), data, options.chunk_size, options.blank_skip);
-                let multi = chunks.len() > 1;
-                for (base, end) in chunks {
-                    let ctx = ScanContext {
-                        data: &data[base..end],
-                        full: data,
-                        base_offset: base,
-                        total_len: data.len(),
-                        detected_target,
-                        builtin_target,
-                        object_path,
-                        view: ScanView::Raw,
-                        container_type,
-                        container_size_real,
-                        container_file_pos,
-                        container_entry_name: container_entry_name.clone(),
-                        image_fuzzy_hash: Default::default(),
-                        pe: pe_shared.clone(),
-                    };
-                    // Time ClamAV scan_context
-                    let t_clamav = timing.as_ref().map(|_| Instant::now());
-                    self.scan_context(&ctx, &mut state.matches);
-                    if let (Some(t), Some(bt)) = (t_clamav, timing.as_mut()) {
-                        bt.clamav_ns = bt.clamav_ns.saturating_add(t.elapsed().as_nanos());
-                    }
-                }
-                // Overlap regions are scanned twice, so one signature can hit
-                // once per chunk — collapse back to at-most-once per signature,
-                // matching the single-buffer semantics.
-                if multi {
-                    dedup_matches(&mut state.matches);
-                }
+                self.scan_clamav_view(
+                    data, object_path, detected_target, builtin_target, ScanView::Raw,
+                    container_type, container_size_real, container_file_pos,
+                    &container_entry_name, &pe_shared, options, timing, &mut state.matches,
+                );
+            }
+
+            // ClamAV normalization (cli_scanhtml / cli_scanscript): target-3 and
+            // target-7 signatures are written against the normalized views, so
+            // they only match there.
+            if options.normalize {
+                self.scan_normalized(
+                    data, object_path, confident_target, container_type, container_size_real,
+                    container_file_pos, &container_entry_name, depth, options, module_meta,
+                    state, timing, skip_yara,
+                );
             }
 
             // Phishing heuristic: harvest `<a href>` link pairs from HTML/email and
@@ -795,6 +799,14 @@ impl Engine {
             }
         }
 
+        // PDF layer (libclamav pdf.c): the decoded streams, object-stream members
+        // and JavaScript are scanned as child objects, plus ClamAV's PDF
+        // heuristics. Not an archive walk: a PDF's active content only exists
+        // after decoding, so the caller's extractor never sees it.
+        if options.scan_pdf && depth < options.max_recursion && crate::pdf::header_offset(data).is_some() {
+            self.scan_pdf(data, object_path, depth, options, module_meta, state, timing, skip_clamav, skip_yara);
+        }
+
         // NOTE: ZIP member extraction is deliberately NOT done here anymore.
         // The caller (hydradragonandroid's collect_buffers) already walks every
         // archive recursively via hydradragonextractor and hands each extracted
@@ -804,6 +816,194 @@ impl Engine {
         // member, producing a flood of near-empty scan_context calls for tiny
         // entries instead of one scan per whole buffer. Each buffer is now
         // scanned as a single whole context, exactly once.
+    }
+
+    /// One ClamAV pass over `data` (prefilter + extended + logical), chunk by
+    /// chunk: long `00…` runs are cut out by `plan_chunks` and the rest is
+    /// scanned in bounded pieces. Offsets stay in FILE coordinates
+    /// (`scan_ranges_chunk`), so anchored signatures keep exact semantics.
+    #[allow(clippy::too_many_arguments)]
+    fn scan_clamav_view(
+        &self,
+        data: &[u8],
+        object_path: &str,
+        detected_target: Option<u32>,
+        builtin_target: Option<u32>,
+        view: ScanView,
+        container_type: Option<&'static str>,
+        container_size_real: Option<u64>,
+        container_file_pos: Option<u64>,
+        container_entry_name: &Option<String>,
+        pe_shared: &Option<std::sync::Arc<PeInfo>>,
+        options: ScanOptions,
+        timing: &mut Option<&mut TimingBreakdown>,
+        out: &mut Vec<ScanMatch>,
+    ) {
+        let chunks = plan_chunks(data.len(), data, options.chunk_size, options.blank_skip);
+        let multi = chunks.len() > 1;
+        for (base, end) in chunks {
+            let ctx = ScanContext {
+                data: &data[base..end],
+                full: data,
+                base_offset: base,
+                total_len: data.len(),
+                detected_target,
+                builtin_target,
+                object_path,
+                view,
+                container_type,
+                container_size_real,
+                container_file_pos,
+                container_entry_name: container_entry_name.clone(),
+                image_fuzzy_hash: Default::default(),
+                pe: pe_shared.clone(),
+            };
+            let t_clamav = timing.as_ref().map(|_| Instant::now());
+            self.scan_context(&ctx, out);
+            if let (Some(t), Some(bt)) = (t_clamav, timing.as_mut()) {
+                bt.clamav_ns = bt.clamav_ns.saturating_add(t.elapsed().as_nanos());
+            }
+        }
+        // Overlap regions are scanned twice, so one signature can hit once per
+        // chunk — collapse back to at-most-once per signature, matching the
+        // single-buffer semantics.
+        if multi {
+            dedup_matches(out);
+        }
+    }
+
+    /// ClamAV's normalized views (libclamav `cli_scanhtml`, `cli_scanscript`).
+    ///
+    /// HTML (`CL_TYPE_HTML`): `nocomment` and `notags` are scanned as target 3,
+    /// the `javascript` view as target 3 and again as target 7, and decoded
+    /// rfc2397 `data:` URIs as child objects. Text files: the textnorm view as
+    /// target 7. Generic (target 0) signatures apply to every view, as in
+    /// ClamAV. A signature already found in the raw bytes is not reported a
+    /// second time from a view.
+    #[allow(clippy::too_many_arguments)]
+    fn scan_normalized(
+        &self,
+        data: &[u8],
+        object_path: &str,
+        confident_target: Option<u32>,
+        container_type: Option<&'static str>,
+        container_size_real: Option<u64>,
+        container_file_pos: Option<u64>,
+        container_entry_name: &Option<String>,
+        depth: usize,
+        options: ScanOptions,
+        module_meta: &[(&str, &[u8])],
+        state: &mut ScanState,
+        timing: &mut Option<&mut TimingBreakdown>,
+        skip_yara: bool,
+    ) {
+        use crate::normalize as norm;
+        let is_html = match confident_target {
+            Some(3) => true,
+            None => looks_like_html(data),
+            _ => false,
+        };
+        let is_text = !is_html
+            && match confident_target {
+                Some(7) => true,
+                None => is_text_like(data) || data.starts_with(&[0xFF, 0xFE]) || data.starts_with(&[0xFE, 0xFF]),
+                _ => false,
+            };
+        let mut views: Vec<(Vec<u8>, u32, ScanView)> = Vec::new();
+        let mut data_uris = Vec::new();
+        if is_html && data.len() <= norm::MAX_HTML_NORMALIZE {
+            let v = norm::html(data);
+            if !v.nocomment.is_empty() {
+                views.push((v.nocomment, 3, ScanView::HtmlNormalized));
+            }
+            if data.len() <= norm::MAX_HTML_NOTAGS && !v.notags.is_empty() {
+                views.push((v.notags, 3, ScanView::HtmlNoTags));
+            }
+            if !v.javascript.is_empty() {
+                views.push((v.javascript.clone(), 3, ScanView::JavaScript));
+                views.push((v.javascript, 7, ScanView::JavaScript));
+            }
+            data_uris = v.data_uris;
+        } else if is_text && data.len() <= norm::MAX_SCRIPT_NORMALIZE {
+            let t = norm::text(data);
+            if !t.is_empty() {
+                views.push((t, 7, ScanView::TextNormalized));
+            }
+        }
+
+        for (bytes, target, view) in views {
+            let mut found = Vec::new();
+            self.scan_clamav_view(
+                &bytes, object_path, Some(target), Some(target), view, container_type,
+                container_size_real, container_file_pos, container_entry_name, &None,
+                options, timing, &mut found,
+            );
+            for m in found {
+                let dup = state.matches.iter().any(|e| {
+                    e.name == m.name && e.object_path == m.object_path && e.kind == m.kind
+                });
+                if !dup {
+                    state.matches.push(m);
+                }
+            }
+        }
+
+        if depth < options.max_recursion {
+            for (i, uri) in data_uris.iter().enumerate() {
+                let child = format!("{object_path}/rfc2397:{i}");
+                self.scan_object(
+                    uri, &child, Some("CL_TYPE_HTML"), Some(data.len() as u64), None, None,
+                    depth + 1, options, module_meta, state, timing, false, skip_yara,
+                );
+            }
+        }
+    }
+
+    /// PDF layer, see `crate::pdf`. Children are scanned with the same engines
+    /// (`skip_clamav` / `skip_yara` as for the PDF itself), one level deeper.
+    #[allow(clippy::too_many_arguments)]
+    fn scan_pdf(
+        &self,
+        data: &[u8],
+        object_path: &str,
+        depth: usize,
+        options: ScanOptions,
+        module_meta: &[(&str, &[u8])],
+        state: &mut ScanState,
+        timing: &mut Option<&mut TimingBreakdown>,
+        skip_clamav: bool,
+        skip_yara: bool,
+    ) {
+        let budget = if options.max_archive_bytes == 0 { options.max_scan_bytes } else { options.max_archive_bytes };
+        let pdf = crate::pdf::analyze(data, budget);
+        if !skip_clamav {
+            let mut heuristic = |name: &str| {
+                state.matches.push(ScanMatch {
+                    name: name.to_string(),
+                    kind: SignatureKind::Heuristic,
+                    source: crate::database::SourceLocation {
+                        path: std::sync::Arc::from(std::path::PathBuf::from("heuristic")),
+                        line: 0,
+                    },
+                    object_path: object_path.to_string(),
+                    view: ScanView::Raw,
+                });
+            };
+            // e.g. /Fl#61te#44#65#63#6f#64#65 instead of /FlateDecode.
+            if pdf.escaped_common_name {
+                heuristic("Heuristics.PDF.ObfuscatedNameObject");
+            }
+            // Only when a password is needed: the empty password opened the rest.
+            if options.heuristic_encrypted_pdf && pdf.encrypted && !pdf.decryptable {
+                heuristic("Heuristics.Encrypted.PDF");
+            }
+        }
+        for child in pdf.children {
+            let path = format!("{object_path}/pdf:{}", child.name);
+            self.scan_object(
+                &child.data, &path, None, None, None, None, depth + 1, options, module_meta, state, timing, skip_clamav, skip_yara,
+            );
+        }
     }
 
     /// Run the phishing heuristic over an HTML/email object's link pairs,
@@ -825,6 +1025,37 @@ impl Engine {
         }
     }
 
+    /// ClamAV file type name (`CL_TYPE_*`) of `data`, from the content only (the
+    /// file name is never used): the loaded `.ftm` magic first, as the scanner
+    /// types files, then the built-in typing for what `.ftm` does not cover (PE,
+    /// ELF, PDF, DEX, APK, SWF, graphics, HTML, text). None when unknown.
+    pub fn file_type_name(&self, data: &[u8]) -> Option<String> {
+        if data.is_empty() {
+            return None;
+        }
+        if let Some(magic) = self.detect_file_type_magic(data) {
+            let t = &*magic.clamav_type;
+            if t == "CL_TYPE_ZIP" && is_apk_zip(data) {
+                return Some("CL_TYPE_APK".to_string());
+            }
+            // One type for many formats ClamAV does not scan (MP3, Ogg, SQLite...):
+            // the record's description tells them apart.
+            if t == "CL_TYPE_IGNORED" {
+                let name: String = magic
+                    .name
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+                    .collect();
+                let name = name.split('_').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("_");
+                if !name.is_empty() {
+                    return Some(format!("CL_TYPE_IGNORED_{name}"));
+                }
+            }
+            return Some(t.to_string());
+        }
+        builtin_type_name(data).map(str::to_string)
+    }
+
     /// Identify the ClamAV file type (`CL_TYPE_*`) of `data` via `.ftm` magic.
     /// Detect the ClamAV target type of `data` using the loaded file-type magic
     /// database — the exact same detection the scanner uses internally. Returns
@@ -837,6 +1068,11 @@ impl Engine {
     }
 
     fn detect_clamav_type(&self, data: &[u8]) -> Option<&str> {
+        self.detect_file_type_magic(data).map(|m| &*m.clamav_type)
+    }
+
+    /// The first `.ftm` record whose magic matches `data`.
+    fn detect_file_type_magic(&self, data: &[u8]) -> Option<&crate::database::FileTypeMagic> {
         for magic in &self.database.file_type_magic {
             // `.ftm` offsets are absolute/body patterns, never PE-anchored.
             let ranges = magic.offset.scan_ranges(data.len(), None);
@@ -848,7 +1084,7 @@ impl Engine {
                 .iter()
                 .any(|pattern| !pattern.find_all(data, &ranges, 1).is_empty())
             {
-                return Some(&magic.clamav_type);
+                return Some(magic);
             }
         }
         None
@@ -1923,6 +2159,51 @@ fn detect_builtin_target(ctx: &ScanContext<'_>) -> Option<u32> {
     None
 }
 
+/// `CL_TYPE_*` by built-in magic, for files the `.ftm` database does not type
+/// (same checks as `detect_builtin_target`, by name).
+fn builtin_type_name(d: &[u8]) -> Option<&'static str> {
+    if d.len() >= 0x40 && d.starts_with(b"MZ") {
+        let off = u32::from_le_bytes([d[0x3c], d[0x3d], d[0x3e], d[0x3f]]) as usize;
+        if d.get(off..off.saturating_add(4)) == Some(b"PE\0\0".as_slice()) {
+            return Some("CL_TYPE_MSEXE");
+        }
+    }
+    if d.starts_with(b"\x7fELF") {
+        return Some("CL_TYPE_ELF");
+    }
+    if d.starts_with(b"%PDF") {
+        return Some("CL_TYPE_PDF");
+    }
+    if d.starts_with(b"GIF8") || d.starts_with(&[0x89, b'P', b'N', b'G']) || d.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some("CL_TYPE_GRAPHICS");
+    }
+    if d.len() >= 4 && d[..4] == [0x64, 0x65, 0x78, 0x0a] {
+        return Some("CL_TYPE_DEX");
+    }
+    if d.len() >= 4 && d[..4] == [0x50, 0x4b, 0x03, 0x04] {
+        return Some(if is_apk_zip(d) { "CL_TYPE_APK" } else { "CL_TYPE_ZIP" });
+    }
+    if d.len() >= 3 && (d[0] == b'F' || d[0] == b'C' || d[0] == b'Z') && d[1] == b'W' && d[2] == b'S' {
+        return Some("CL_TYPE_SWF");
+    }
+    if d.starts_with(&[0xff, 0xfe]) {
+        return Some("CL_TYPE_TEXT_UTF16LE");
+    }
+    if d.starts_with(&[0xfe, 0xff]) {
+        return Some("CL_TYPE_TEXT_UTF16BE");
+    }
+    if looks_like_html(d) {
+        return Some("CL_TYPE_HTML");
+    }
+    if d.starts_with(&[0xef, 0xbb, 0xbf]) {
+        return Some("CL_TYPE_TEXT_UTF8");
+    }
+    if looks_like_ascii_text(d) {
+        return Some("CL_TYPE_TEXT_ASCII");
+    }
+    None
+}
+
 fn clamav_type_to_target(clamav_type: &str) -> Option<u32> {
     // OLE2/MSOLE2 have no arm: legacy MS Office documents aren't scanned —
     // target 2 isn't in `CLAMAV_ALLOWED_TARGETS`, so mapping it would be
@@ -2166,6 +2447,10 @@ fn kind_rank(k: SignatureKind) -> u8 {
 fn view_rank(v: ScanView) -> u8 {
     match v {
         ScanView::Raw => 0,
+        ScanView::HtmlNormalized => 1,
+        ScanView::HtmlNoTags => 2,
+        ScanView::JavaScript => 3,
+        ScanView::TextNormalized => 4,
     }
 }
 
@@ -2423,6 +2708,7 @@ mod tests {
             },
             patterns: compile_pattern_variants("52494646", Modifiers::default()).unwrap().into(),
             clamav_type: "CL_TYPE_RIFF".into(),
+            name: "RIFF".into(),
             source: SourceLocation {
                 path: std::sync::Arc::from(std::path::Path::new("t.ftm")),
                 line: 1,

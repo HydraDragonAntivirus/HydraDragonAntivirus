@@ -17,6 +17,12 @@ impl ClamScanner {
         }
     }
 
+    /// ClamAV file type (`CL_TYPE_*`) of `data`, by content (see
+    /// `Engine::file_type_name`). None while the database is not loaded.
+    pub fn file_type(&self, data: &[u8]) -> Option<String> {
+        self.engine.as_ref()?.file_type_name(data)
+    }
+
     pub fn is_loaded(&self) -> bool {
         self.engine.is_some()
     }

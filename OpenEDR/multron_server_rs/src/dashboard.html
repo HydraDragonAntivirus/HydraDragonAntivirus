@@ -338,10 +338,10 @@
         <span class="hint" id="rmIncomingMsg"></span>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
-        <button type="button" id="sortKeptByType">Sort multron_incoming by file type</button>
+        <button type="button" id="sortKeptByType">Sort multron_incoming by file type (HydraDragonSig / ClamAV)</button>
         <span class="hint" id="sortKeptMsg"></span>
       </div>
-      <div class="hint">Moves each kept file into a type folder inside its category: <code>pe</code>, <code>js</code>, <code>apk</code>, <code>elf</code>, <code>macho</code>, <code>dex</code>, <code>java</code>, <code>msi</code>, <code>office</code>, <code>pdf</code>, <code>archive</code>, <code>iso</code>, <code>lnk</code>, <code>powershell</code>, <code>vbscript</code>, <code>batch</code>, <code>html</code>, <code>python</code>, <code>shell</code>, <code>image</code>, <code>flash</code>, <code>script</code>. Binary types by content (<code>.xz</code> files are unpacked to check), scripts by extension. Files of no known type stay in the category folder. New files are sorted this way when they are kept.</div>
+      <div class="hint">Moves each kept file into a folder named after its file type: the HydraDragonSig type first (<code>javascript</code>, <code>powershell</code>, <code>batch</code>, <code>vbs</code>, <code>python</code>, <code>pe32</code>/<code>pe64</code>, <code>elf64</code>, <code>apk</code>, <code>jar</code>, <code>dex</code>, <code>pdf</code>, <code>zip</code>, ...), then the ClamAV type (hydradragonclamav <code>.ftm</code> magic: <code>rar</code>, <code>html</code>, <code>text_ascii</code>, ...) where HydraDragonSig only says text or archive. The content decides, never the file name; <code>.xz</code> files are unpacked to check. Files of unknown type stay in the category folder. New files are sorted this way when they are kept.</div>
       <div class="hint">Moves the copies the server wrote into the ML dataset folders (<code>&lt;SHA256&gt;.exe</code> etc.) whose file is in <code>multron_incoming/</code> to a backup folder next to the dataset folder (<code>deleted_from_data2_pe</code>, ...). Nothing is deleted; training never reads the backup folders. <code>multron_incoming</code> keeps the file with its telemetry; your own and public dataset files are never touched. Logged in <code>dataset_moves.jsonl</code>.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <input type="checkbox" id="keepPossibleClean" style="width:auto">
@@ -1559,8 +1559,8 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
     try {
       const r = await post("/api/kept/sort-by-type", {});
       const m = r.moved || {};
-      const parts = Object.entries(m).filter(([k]) => k !== "other").map(([k, n]) => `${n} ${k}`);
-      msg.textContent = `Moved ${parts.length ? parts.join(", ") : "nothing"}; ${m.other || 0} files of no known type stay.`;
+      const parts = Object.entries(m).filter(([k]) => k !== "unchanged" && k !== "other").map(([k, n]) => `${n} ${k}`);
+      msg.textContent = `Moved ${parts.length ? parts.join(", ") : "nothing"}` + (m.other ? `; ${m.other} of unknown type back to the category folder` : "") + `; ${m.unchanged || 0} already in place.`;
     } catch (e) { msg.textContent = "Error: " + e.message; }
     finally { btn.disabled = false; }
   };

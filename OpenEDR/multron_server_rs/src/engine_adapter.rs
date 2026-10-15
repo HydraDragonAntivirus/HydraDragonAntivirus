@@ -260,9 +260,9 @@ impl EngineAdapter {
             if let Ok(rd) = std::fs::read_dir(dir.join(cat)) {
                 out.extend(rd.flatten().filter_map(|e| KeptFile::parse(e.path(), Some(cat))));
             }
-            // Sorted by file type (`sort_kept_by_type`): `<category>/pe|js|apk/`.
-            for kind in KeptFile::KIND_DIRS {
-                if let Ok(rd) = std::fs::read_dir(dir.join(cat).join(kind)) {
+            // Sorted by ClamAV file type: `<category>/<type>/` (`sort_kept_by_type`).
+            for sub in type_dirs(&dir.join(cat)) {
+                if let Ok(rd) = std::fs::read_dir(sub) {
                     out.extend(rd.flatten().filter_map(|e| KeptFile::parse(e.path(), Some(cat))));
                 }
             }
@@ -357,43 +357,68 @@ impl EngineAdapter {
         ds.remove_copies_of_kept(&kept, dry_run).ok_or_else(|| "the ML dataset is still indexing, try again in a moment".to_string())
     }
 
-    /// Sorts the kept uploads by file type inside their category folder
-    /// (`<category>/<type>/`, see `KeptFile::kind_for`), by content: `.xz` files are
-    /// unpacked to look. Files of no known type stay where they are; nothing is
-    /// overwritten. Returns how many moved per type, plus "other" for those that stay.
-    pub fn sort_kept_by_type(&self) -> std::collections::BTreeMap<&'static str, u64> {
-        let mut counts: std::collections::BTreeMap<&'static str, u64> = std::collections::BTreeMap::new();
-        let Some(dir) = self.work_dir.as_ref() else { return counts };
+    /// Type folder for `data`, from the content only (never the file name):
+    /// the HydraDragonSig file type first (`javascript`, `powershell`, `pe64`, `apk`,
+    /// `jar`, ...), then, where HydraDragonSig only says text / archive / unknown, the
+    /// ClamAV file type (hydradragonclamav `.ftm` magic and built-in typing: `msexe`,
+    /// `rar`, `html`, `text_ascii`, ...). None for an unknown type.
+    fn file_type_folder(&self, data: &[u8]) -> Option<String> {
+        if let Some(t) = hydradragonsig_type(data) {
+            return Some(t);
+        }
+        let engine = self.engine.get()?.read().ok()?;
+        type_folder(&engine.clamav_file_type(data)?)
+    }
+
+    /// Sorts every kept upload into `<category>/<type>/` by its HydraDragonSig /
+    /// ClamAV file type (`file_type_folder`; `.xz` files are unpacked to look). Files already in the
+    /// right folder stay; a file of unknown type moves back to the category folder.
+    /// Nothing is overwritten. Returns how many files moved per type folder ("other"
+    /// = unknown type) and how many were already in place ("unchanged").
+    pub fn sort_kept_by_type(&self) -> Result<std::collections::BTreeMap<String, u64>, String> {
+        let mut counts: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+        let Some(dir) = self.work_dir.as_ref() else { return Ok(counts) };
+        if self.engine.get().is_none() {
+            return Err("the engine is still loading, try again in a moment".into());
+        }
         for k in self.list_kept() {
-            if k.legacy || k.kind_dir().is_some() {
+            if k.legacy {
                 continue;
             }
-            let head = if k.xz {
+            let data = if k.xz {
                 k.read()
             } else {
                 use std::io::Read;
                 std::fs::File::open(&k.path).ok().and_then(|f| {
                     let mut buf = Vec::new();
-                    f.take(8 * 1024 * 1024).read_to_end(&mut buf).ok().map(|_| buf)
+                    f.take(16 * 1024 * 1024).read_to_end(&mut buf).ok().map(|_| buf)
                 })
             };
-            // Unreadable: the file name decides.
-            let kind = KeptFile::kind_for(head.as_deref().unwrap_or(&[]), &k.name);
-            let Some(kind) = kind else {
-                *counts.entry("other").or_default() += 1;
+            let kind = data.as_deref().and_then(|d| self.file_type_folder(d));
+            if kind == k.kind_dir() {
+                *counts.entry("unchanged".into()).or_default() += 1;
                 continue;
+            }
+            let to = match &kind {
+                Some(t) => dir.join(k.category).join(t),
+                None => dir.join(k.category),
             };
-            let to = dir.join(k.category).join(kind);
             let _ = std::fs::create_dir_all(&to);
             let target = to.join(k.file_name());
             if target.exists() || std::fs::rename(&k.path, &target).is_err() {
-                *counts.entry("other").or_default() += 1;
+                *counts.entry("unchanged".into()).or_default() += 1;
                 continue;
             }
             self.kept_index_set(&k.sha256, &target);
-            *counts.entry(kind).or_default() += 1;
+            // The type folder it left, if now empty (remove_dir fails when not).
+            if k.kind_dir().is_some() {
+                if let Some(old) = k.path.parent() {
+                    let _ = std::fs::remove_dir(old);
+                }
+            }
+            *counts.entry(kind.unwrap_or_else(|| "other".into())).or_default() += 1;
         }
-        counts
+        Ok(counts)
     }
 
     /// Moves a kept upload to the folder of its new verdict (after a rescan).
@@ -986,8 +1011,8 @@ impl EngineAdapter {
             }
             if let Some(dir) = &self.work_dir {
                 let name = if name.is_empty() { "file" } else { name };
-                // PE, JavaScript and APK files go to `<category>/pe|js|apk/`.
-                let cat_dir = match KeptFile::kind_for(data, name) {
+                // By ClamAV file type: `<category>/<type>/` (e.g. `malicious/msexe/`).
+                let cat_dir = match self.file_type_folder(data) {
                     Some(kind) => dir.join(category).join(kind),
                     None => dir.join(category),
                 };
@@ -1089,108 +1114,8 @@ impl KeptFile {
         ["unknown", "possible_clean", "suspicious", "malicious", "clean", "xorfilter_clean", "xorfilter_malicious"];
     /// Folder of an earlier build for malicious + suspicious together.
     pub const LEGACY_THREAT_DIR: &'static str = "threat";
-    /// File type folders inside a category (see `kind_for`).
-    pub const KIND_DIRS: [&'static str; 22] = [
-        "pe", "js", "apk", "elf", "macho", "dex", "java", "msi", "office", "pdf", "archive", "iso", "lnk",
-        "powershell", "vbscript", "batch", "html", "python", "shell", "image", "flash", "script",
-    ];
-
-    /// Type folder for a file: by content first (magic bytes), then by extension for
-    /// text formats; None for an unknown type (it stays in the category folder).
-    /// `data` may be empty (unreadable file): then only the name decides.
-    pub fn kind_for(data: &[u8], name: &str) -> Option<&'static str> {
-        let lower = name.to_ascii_lowercase();
-        let ext = lower.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
-        if !data.is_empty() {
-            if let Some(p) = crate::dataset::platform_of(data, name) {
-                return Some(match p {
-                    crate::dataset::Platform::Windows => "pe",
-                    crate::dataset::Platform::JavaScript => "js",
-                    crate::dataset::Platform::Android => "apk",
-                });
-            }
-            let m = |sig: &[u8]| data.starts_with(sig);
-            if m(b"MZ") {
-                return Some("pe"); // DOS / damaged PE
-            }
-            if m(b"\x7fELF") {
-                return Some("elf");
-            }
-            if m(&[0xFE, 0xED, 0xFA, 0xCE]) || m(&[0xFE, 0xED, 0xFA, 0xCF]) || m(&[0xCE, 0xFA, 0xED, 0xFE]) || m(&[0xCF, 0xFA, 0xED, 0xFE]) {
-                return Some("macho");
-            }
-            if m(&[0xCA, 0xFE, 0xBA, 0xBE]) {
-                // Java class and universal Mach-O share the magic.
-                return Some(if ext == "class" { "java" } else { "macho" });
-            }
-            if m(b"dex\n") {
-                return Some("dex");
-            }
-            if m(b"%PDF") {
-                return Some("pdf");
-            }
-            if m(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
-                return Some(if ext == "msi" || ext == "msp" { "msi" } else { "office" });
-            }
-            if m(b"{\\rtf") {
-                return Some("office");
-            }
-            if m(b"PK\x03\x04") || m(b"PK\x05\x06") {
-                let head = &data[..data.len().min(64 * 1024)];
-                let has_h = |n: &[u8]| head.windows(n.len()).any(|w| w == n);
-                if ext == "jar" || ext == "war" || has_h(b"META-INF/MANIFEST.MF") {
-                    return Some("java");
-                }
-                if has_h(b"[Content_Types].xml") || matches!(ext, "docx" | "docm" | "xlsx" | "xlsm" | "pptx" | "pptm" | "odt" | "ods") {
-                    return Some("office");
-                }
-                return Some("archive");
-            }
-            if m(b"Rar!") || m(&[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) || m(&[0x1F, 0x8B]) || m(b"MSCF")
-                || m(&[0xFD, b'7', b'z', b'X', b'Z', 0x00]) || m(b"BZh") || data.get(257..262) == Some(b"ustar")
-            {
-                return Some("archive");
-            }
-            if data.get(0x8001..0x8006) == Some(b"CD001") {
-                return Some("iso");
-            }
-            if m(&[0x4C, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00]) {
-                return Some("lnk");
-            }
-            if m(b"FWS") || m(b"CWS") || m(b"ZWS") {
-                return Some("flash");
-            }
-            if m(&[0x89, b'P', b'N', b'G']) || m(&[0xFF, 0xD8, 0xFF]) || m(b"GIF8")
-                || (m(b"BM") && matches!(ext, "bmp" | "dib"))
-                || (m(&[0, 0, 1, 0]) && ext == "ico")
-                || (m(b"RIFF") && data.get(8..12) == Some(b"WEBP"))
-            {
-                return Some("image");
-            }
-        }
-        // Text formats: the extension (a script is plain text, no magic).
-        let text = data.is_empty() || !data[..data.len().min(4096)].contains(&0);
-        let by_ext = match ext {
-            "exe" | "dll" | "sys" | "scr" | "ocx" | "cpl" | "drv" | "efi" | "mui" | "com" if data.is_empty() => Some("pe"),
-            "apk" | "xapk" if data.is_empty() => Some("apk"),
-            "js" | "mjs" | "cjs" | "jse" => Some("js"),
-            "ps1" | "psm1" | "psd1" => Some("powershell"),
-            "vbs" | "vbe" | "wsf" | "wsh" => Some("vbscript"),
-            "bat" | "cmd" => Some("batch"),
-            "hta" | "html" | "htm" | "xhtml" | "svg" => Some("html"),
-            "py" | "pyw" => Some("python"),
-            "sh" | "bash" | "zsh" => Some("shell"),
-            "pl" | "rb" | "php" | "lua" | "au3" | "ahk" | "applescript" => Some("script"),
-            _ => None,
-        };
-        if by_ext.is_some() && (text || data.is_empty() || matches!(by_ext, Some("pe") | Some("apk"))) {
-            return by_ext;
-        }
-        None
-    }
-
-    /// Type folder the file is in now, if any.
-    pub fn kind_dir(&self) -> Option<&'static str> {
+    /// Type folder the file is in now (`<category>/<type>/`), if any.
+    pub fn kind_dir(&self) -> Option<String> {
         kind_dir_of(&self.path)
     }
     /// Old file name prefixes. `threat_` did not tell malicious from suspicious: such files
@@ -1690,15 +1615,54 @@ fn category_dir_of(path: &Path) -> Option<&'static str> {
     KeptFile::CATEGORIES.iter().copied().find(|c| *c == parent)
 }
 
-/// "pe" / "js" / "apk" when the file is in such a folder inside a category folder.
-pub fn kind_dir_of(path: &Path) -> Option<&'static str> {
+/// Type folder (`<category>/<type>/`, a ClamAV file type such as `msexe`) the file
+/// is in, if any.
+pub fn kind_dir_of(path: &Path) -> Option<String> {
     let parent = path.parent()?;
     let kind = parent.file_name()?.to_str()?;
     let cat = parent.parent()?.file_name()?.to_str()?;
-    if !KeptFile::CATEGORIES.contains(&cat) {
+    KeptFile::CATEGORIES.contains(&cat).then(|| kind.to_string())
+}
+
+/// Type folders inside a category folder.
+fn type_dirs(cat_dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(cat_dir)
+        .map(|rd| rd.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).map(|e| e.path()).collect())
+        .unwrap_or_default()
+}
+
+/// HydraDragonSig file type of `data` by content (`classify_bytes_only`: no file
+/// name), or None when it says only text / archive / binary / unknown (ClamAV then
+/// decides). Script kinds win over the plain "text" primary.
+fn hydradragonsig_type(data: &[u8]) -> Option<String> {
+    if data.is_empty() {
         return None;
     }
-    KeptFile::KIND_DIRS.iter().copied().find(|k| *k == kind)
+    let info = hydradragonsig::scanner::filetype::classify_bytes_only(data);
+    for (is, name) in [
+        (info.is_javascript, "javascript"),
+        (info.is_powershell, "powershell"),
+        (info.is_batch, "batch"),
+        (info.is_vbs, "vbs"),
+        (info.is_python, "python"),
+    ] {
+        if is {
+            return Some(name.to_string());
+        }
+    }
+    if info.is_script {
+        return Some(if info.tags.iter().any(|t| t == "shell") { "shell" } else { "script" }.to_string());
+    }
+    match info.primary.as_str() {
+        "unknown" | "text" | "plain_text" | "binary" | "archive" => None,
+        p => type_folder(p),
+    }
+}
+
+/// Folder name for a ClamAV file type: `CL_TYPE_MSEXE` -> `msexe`.
+fn type_folder(cl_type: &str) -> Option<String> {
+    let name = cl_type.strip_prefix("CL_TYPE_").unwrap_or(cl_type).to_ascii_lowercase();
+    (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')).then_some(name)
 }
 
 /// At startup: deletes temp files of interrupted scans, creates the category folders
@@ -1735,8 +1699,8 @@ fn remove_leftover_uploads(dir: &Path, remove: bool) -> (u64, i64, u64) {
         if let Ok(rd) = std::fs::read_dir(dir.join(cat)) {
             count(rd, Some(cat));
         }
-        for kind in KeptFile::KIND_DIRS {
-            if let Ok(rd) = std::fs::read_dir(dir.join(cat).join(kind)) {
+        for sub in type_dirs(&dir.join(cat)) {
+            if let Ok(rd) = std::fs::read_dir(sub) {
                 count(rd, Some(cat));
             }
         }
