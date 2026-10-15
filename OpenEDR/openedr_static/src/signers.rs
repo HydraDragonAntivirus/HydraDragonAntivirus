@@ -91,6 +91,26 @@ impl AuthenticodeInfo {
         self.not_before.map(|t| now < t).unwrap_or(false)
     }
 
+    /// Expired, and no timestamp keeps the signature valid. A timestamped
+    /// (countersigned) signature made while the certificate was valid stays valid
+    /// after the certificate expires; Windows accepts it the same way. So this
+    /// fires only without a timestamp, or with a timestamp outside the
+    /// certificate's validity window (signed after it expired, or before it was
+    /// issued). A legacy PKCS#9 countersignature carries no time: accepted, as
+    /// Windows does.
+    pub fn is_expired_untimestamped(&self, now: i64) -> bool {
+        if !self.is_expired(now) {
+            return false;
+        }
+        if !self.timestamped {
+            return true;
+        }
+        match self.timestamp_time {
+            Some(t) => self.not_after.is_some_and(|to| t > to) || self.not_before.is_some_and(|from| t < from),
+            None => false,
+        }
+    }
+
     /// Signed, trusted, and carrying no countersignature at all.
     ///
     /// Only meaningful for embedded signatures: a catalog-signed file has no
@@ -1240,6 +1260,23 @@ rules:
         assert!(info.is_expired(1_700_000_001));
         assert!(!info.is_not_yet_valid(1_650_000_000));
         assert!(info.is_not_yet_valid(1_500_000_000));
+
+        // Expired but timestamped while valid: still valid (no detection).
+        let ts = |t: Option<i64>| AuthenticodeInfo {
+            is_signed: true,
+            not_before: Some(1_600_000_000),
+            not_after: Some(1_700_000_000),
+            timestamped: true,
+            timestamp_time: t,
+            ..Default::default()
+        };
+        let now = 1_800_000_000;
+        assert!(info.is_expired_untimestamped(now), "expired, no timestamp");
+        assert!(!ts(Some(1_650_000_000)).is_expired_untimestamped(now), "timestamped inside the window");
+        assert!(!ts(None).is_expired_untimestamped(now), "legacy countersignature without a time");
+        assert!(ts(Some(1_750_000_000)).is_expired_untimestamped(now), "timestamped after expiry");
+        assert!(ts(Some(1_500_000_000)).is_expired_untimestamped(now), "timestamped before issue");
+        assert!(!info.is_expired_untimestamped(1_650_000_000), "not expired yet");
 
         // No window reported (catalog-signed, or a chain we could not read)
         // must not be read as "expired".

@@ -179,12 +179,15 @@ def resolve(args, platform: str) -> Tuple[List[str], List[str]]:
 
 def walk(folder: str, skip_hidden: bool = True, skip_dirs: Iterable[str] = ()) -> Iterator[str]:
     """Every file under `folder` (sorted, so the order is the same on every run).
-    Folders starting with `.` and the `skip_dirs` (configured folders nested in this
+    Folders starting with `.`, the server's backup folders (`deleted_from_*`: duplicates
+    moved out of the datasets) and the `skip_dirs` (configured folders nested in this
     one, read on their own) are not entered."""
     skip = {_key(d) for d in skip_dirs} - {_key(folder)}
     for root, dirs, files in os.walk(folder):
         dirs[:] = [d for d in dirs
-                   if not (skip_hidden and d.startswith(".")) and _key(os.path.join(root, d)) not in skip]
+                   if not (skip_hidden and d.startswith("."))
+                   and not d.lower().startswith("deleted_from_")
+                   and _key(os.path.join(root, d)) not in skip]
         dirs.sort()
         for f in sorted(files):
             yield os.path.join(root, f)

@@ -1262,8 +1262,11 @@ impl StaticEngine {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
-            if info.is_signed && (info.is_expired(now) || info.is_not_yet_valid(now)) {
-                let which = if info.is_expired(now) { "expired" } else { "not-yet-valid" };
+            // A timestamped signature made while the certificate was valid stays
+            // valid after it expires (as on Windows): only an expired certificate
+            // without such a timestamp is a finding.
+            if info.is_signed && (info.is_expired_untimestamped(now) || info.is_not_yet_valid(now)) {
+                let which = if info.is_expired_untimestamped(now) { "expired" } else { "not-yet-valid" };
                 detections.push(DetectionItem {
                     layer: "SignerRule".to_string(),
                     name: format!("SignerCertificate {which}"),

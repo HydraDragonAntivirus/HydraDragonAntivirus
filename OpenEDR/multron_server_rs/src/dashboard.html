@@ -333,6 +333,11 @@
     <section class="card">
       <h2>Engine &amp; limits</h2>
       <div class="limits" id="limits"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+        <button type="button" id="rmIncomingDups">Move ML copies of incoming files to backup</button>
+        <span class="hint" id="rmIncomingMsg"></span>
+      </div>
+      <div class="hint">Moves the copies the server wrote into the ML dataset folders (<code>&lt;SHA256&gt;.exe</code> etc.) whose file is in <code>multron_incoming/</code> to a backup folder next to the dataset folder (<code>deleted_from_data2_pe</code>, ...). Nothing is deleted; training never reads the backup folders. <code>multron_incoming</code> keeps the file with its telemetry; your own and public dataset files are never touched. Logged in <code>dataset_moves.jsonl</code>.</div>
       <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <input type="checkbox" id="keepPossibleClean" style="width:auto">
         Keep <b>possible clean</b> files (TLSH smart whitelist) in <code>multron_incoming/possible_clean/</code>
@@ -1540,6 +1545,21 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   $("keepClean").onchange = async (e) => {
     try { await post("/api/keep-clean", { enabled: e.target.checked }); }
     catch (_) { e.target.checked = !e.target.checked; }
+  };
+
+  $("rmIncomingDups").onclick = async () => {
+    const btn = $("rmIncomingDups"), msg = $("rmIncomingMsg");
+    const mb = (n) => (n / 1048576).toFixed(1) + " MB";
+    btn.disabled = true;
+    try {
+      const d = await post("/api/dataset/remove-incoming-duplicates", { dry_run: true });
+      if (!d.files) { msg.textContent = "No duplicates: the ML folders hold no server copies of multron_incoming files."; return; }
+      if (!confirm(`Move ${d.files} copies (${mb(d.bytes)}) out of the ML dataset folders into the deleted_from_* backup folders? The files stay in multron_incoming with their telemetry.`)) { msg.textContent = ""; return; }
+      msg.textContent = "Moving…";
+      const r = await post("/api/dataset/remove-incoming-duplicates", { dry_run: false });
+      msg.textContent = `Moved ${r.files} files (${mb(r.bytes)}) to the backup folders.`;
+    } catch (e) { msg.textContent = "Error: " + e.message; }
+    finally { btn.disabled = false; }
   };
 
   $("keepPossibleClean").onchange = async (e) => {

@@ -332,6 +332,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/keep-all-unique", post(handle_keep_all_unique))
         .route("/api/collect-xorfilter", post(handle_collect_xorfilter))
         .route("/api/dataset/conflicts", get(handle_dataset_conflicts))
+        .route("/api/dataset/remove-incoming-duplicates", post(handle_remove_incoming_duplicates))
         .route("/api/compress-low-disk", post(handle_compress_low_disk))
         .route("/api/rescan", post(handle_rescan_one))
         .route("/api/rescan/bulk", get(handle_rescan_status).post(handle_rescan_bulk))
@@ -625,10 +626,13 @@ async fn handle_stop(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(serde_json::json!({"ok": true}))
 }
 
-/// An analyst verdict is a reliable label: copy the kept file into the ML dataset
-/// folder for it (dataset_paths.json), moving it if the label flipped.
+/// An analyst verdict is a reliable label: files with this content already in the ML
+/// dataset folders under the other label move to the verdict's folder (nothing is
+/// lost, see `Dataset::apply_human_verdict`), then the kept file is copied there if
+/// the dataset does not have it yet.
 fn export_human_label(engine: &crate::engine_adapter::EngineAdapter, sha: &str, verdict: &str) {
     let (Some(ds), Some(label)) = (engine.dataset.get(), crate::dataset::human_label(verdict)) else { return };
+    ds.apply_human_verdict(sha, label);
     let Some(k) = engine.find_kept(&sha.to_ascii_uppercase()) else { return };
     if let Some(bytes) = k.read() {
         ds.export(sha, &bytes, &k.name, label);
@@ -649,6 +653,29 @@ async fn handle_keep_possible_clean(State(app): State<Arc<AppState>>, Json(t): J
     app.save_settings().await;
     info_event(&app, format!("keep possible_clean files: {}", if t.enabled { "on" } else { "off" }));
     Json(serde_json::json!({ "ok": true, "enabled": t.enabled }))
+}
+
+#[derive(Deserialize)]
+struct DryRun {
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// ML dataset copies of files in multron_incoming (server-written `<SHA256>.<ext>`):
+/// `dry_run` counts them, otherwise they are removed. multron_incoming stays.
+async fn handle_remove_incoming_duplicates(State(app): State<Arc<AppState>>, Json(b): Json<DryRun>) -> Response {
+    let eng = Arc::clone(&app.engine);
+    let dry = b.dry_run;
+    match tokio::task::spawn_blocking(move || eng.remove_dataset_copies_of_kept(dry)).await {
+        Ok(Ok((files, bytes))) => {
+            if !dry && files > 0 {
+                info_event(&app, format!("moved {files} ML dataset copies of multron_incoming files to the deleted_from_* backup folders ({:.1} MB)", bytes as f64 / 1048576.0));
+            }
+            Json(serde_json::json!({ "ok": true, "dry_run": dry, "files": files, "bytes": bytes })).into_response()
+        }
+        Ok(Err(e)) => (StatusCode::CONFLICT, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": "failed" }))).into_response(),
+    }
 }
 
 /// ML dataset label conflicts (same content already in the other label folder in a

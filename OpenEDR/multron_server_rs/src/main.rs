@@ -329,4 +329,8 @@ fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatInte
     if dups > 0 {
         eprintln!("[engine] {dups} duplicate kept files removed ({:.1} MB)", bytes as f64 / 1048576.0);
     }
+    // ML dataset files follow human verdicts too (applied when the index is ready).
+    if let Some(ds) = engine.dataset.get() {
+        ds.apply_human_verdicts(&ti.reviews.completed_verdicts());
+    }
 }

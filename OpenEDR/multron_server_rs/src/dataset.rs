@@ -86,6 +86,14 @@ const PENDING_MAX_BYTES: usize = 256 * 1024 * 1024;
 /// Days of additions in `public_stats`.
 pub const STATS_DAYS: usize = 30;
 
+/// Backup folders of files taken out of the datasets (`deleted_from_data2_pe`, ...):
+/// never indexed or used for training.
+pub const BACKUP_PREFIX: &str = "deleted_from_";
+
+/// SHA-256 of an empty file. Empty files carry no sample (a failed copy or download):
+/// never indexed, exported, counted or reported as a label conflict.
+pub const EMPTY_SHA256: &str = "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855";
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct DatasetPaths {
     #[serde(default)]
@@ -334,6 +342,11 @@ pub struct DatasetStatus {
     pub written: u64,
     pub duplicates_skipped: u64,
     pub conflicts: u64,
+    /// Files moved to the folder of their human verdict, or removed as duplicates of a
+    /// file already there (`dataset_moves.jsonl`).
+    pub moved_by_human: u64,
+    /// Copies of the same content in the dataset folders removed at indexing.
+    pub duplicates_removed: u64,
 }
 
 /// Unique hashes by where they are: only own folders, only public folders, both, or
@@ -452,6 +465,14 @@ pub struct Dataset {
     duplicates_skipped: AtomicU64,
     conflicts: AtomicU64,
     tmp_seq: AtomicU64,
+    /// Human verdicts that arrived before the index was ready (applied when it is).
+    pending_human: Mutex<Vec<(String, Label)>>,
+    /// Files moved to the folder of their human verdict, or removed there as duplicates.
+    moved_by_human: AtomicU64,
+    /// Copies of the same content (same platform and label) removed by the indexer.
+    duplicates_removed: AtomicU64,
+    /// Off only in tests that count duplicates on purpose.
+    remove_dups: AtomicBool,
     /// Where conflicts and the digest cache go (app_dir normally; a temp dir in tests).
     state_dir: PathBuf,
 }
@@ -491,6 +512,10 @@ impl Dataset {
             duplicates_skipped: AtomicU64::new(0),
             conflicts: AtomicU64::new(0),
             tmp_seq: AtomicU64::new(0),
+            pending_human: Mutex::new(Vec::new()),
+            moved_by_human: AtomicU64::new(0),
+            duplicates_removed: AtomicU64::new(0),
+            remove_dups: AtomicBool::new(true),
             state_dir,
         }
     }
@@ -503,7 +528,73 @@ impl Dataset {
             written: self.written.load(Ordering::Relaxed),
             duplicates_skipped: self.duplicates_skipped.load(Ordering::Relaxed),
             conflicts: self.conflicts.load(Ordering::Relaxed),
+            moved_by_human: self.moved_by_human.load(Ordering::Relaxed),
+            duplicates_removed: self.duplicates_removed.load(Ordering::Relaxed),
         }
+    }
+
+    /// Copies this server wrote into the dataset folders (`<SHA256>.<ext>`) whose
+    /// content is in `kept` (upper-case SHA-256 of the multron_incoming files, which
+    /// carry the telemetry): counted (`dry_run`) or moved to the backup folder
+    /// (`backup_dir`; nothing is deleted). Files that were in the
+    /// dataset folders before (your own and public collections) are never touched.
+    /// Each removal is a "duplicate_removed" line in `dataset_moves.jsonl`.
+    /// None until the index is ready. Returns (files, bytes).
+    pub fn remove_copies_of_kept(&self, kept: &std::collections::HashSet<String>, dry_run: bool) -> Option<(u64, u64)> {
+        if !self.ready.load(Ordering::Relaxed) {
+            return None;
+        }
+        let (mut files, mut bytes) = (0u64, 0u64);
+        let mut log = if dry_run { None } else { std::fs::OpenOptions::new().create(true).append(true).open(self.moves_file()).ok() };
+        let mut index = self.index.lock().unwrap();
+        for (sha, entries) in index.iter_mut() {
+            if !kept.contains(sha) {
+                continue;
+            }
+            entries.retain(|e| {
+                if !e.ours {
+                    return true;
+                }
+                let len = std::fs::metadata(&e.path).map(|m| m.len()).unwrap_or(0);
+                if dry_run {
+                    files += 1;
+                    bytes += len;
+                    return true;
+                }
+                let backup = match self.to_backup(e.platform, e.label, &e.path, sha) {
+                    Ok(b) => b,
+                    Err(err) => {
+                        eprintln!("[dataset] could not move {} to the backup folder: {err}", e.path.display());
+                        return true;
+                    }
+                };
+                files += 1;
+                bytes += len;
+                if let Some(f) = log.as_mut() {
+                    let line = serde_json::json!({
+                        "time": chrono::Utc::now().to_rfc3339(),
+                        "action": "duplicate_removed",
+                        "sha256": sha,
+                        "platform": e.platform,
+                        "from_label": e.label,
+                        "to_label": e.label,
+                        "from": e.path.display().to_string(),
+                        "backup": backup.display().to_string(),
+                        "duplicate_of": "multron_incoming",
+                        "reason": "copy of a multron_incoming file",
+                    });
+                    let _ = writeln!(f, "{line}");
+                }
+                false
+            });
+        }
+        index.retain(|_, v| !v.is_empty());
+        drop(index);
+        if !dry_run && files > 0 {
+            self.indexed_files.fetch_sub(files, Ordering::Relaxed);
+            self.duplicates_removed.fetch_add(files, Ordering::Relaxed);
+        }
+        Some((files, bytes))
     }
 
     /// Public counts per platform and label (None until the index is ready). `users`:
@@ -613,7 +704,7 @@ impl Dataset {
             let mut uacc = vec![(0u64, vec![0u64; STATS_DAYS]); 12];
             for u in users {
                 let sha = u.sha256.to_ascii_uppercase();
-                if !seen.insert(sha.clone()) {
+                if sha == EMPTY_SHA256 || !seen.insert(sha.clone()) {
                     continue;
                 }
                 let entries = index.get(&sha);
@@ -703,7 +794,34 @@ impl Dataset {
     /// The last `limit` conflicts (newest first) for the dashboard.
     pub fn recent_conflicts(&self, limit: usize) -> Vec<serde_json::Value> {
         let Ok(text) = std::fs::read_to_string(self.conflicts_file()) else { return Vec::new() };
-        text.lines().rev().filter_map(|l| serde_json::from_str(l).ok()).take(limit).collect()
+        text.lines()
+            .rev()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .filter(|v| !v["sha256"].as_str().is_some_and(|h| h.eq_ignore_ascii_case(EMPTY_SHA256)))
+            .take(limit)
+            .collect()
+    }
+
+    /// Drops the "existing" conflicts of earlier index builds (each build finds them
+    /// again) and lines about empty files; conflicts from exports stay.
+    fn prune_conflicts(&self) {
+        let path = self.conflicts_file();
+        let Ok(text) = std::fs::read_to_string(&path) else { return };
+        let kept: Vec<&str> = text
+            .lines()
+            .filter(|l| {
+                serde_json::from_str::<serde_json::Value>(l).is_ok_and(|v| {
+                    v["kind"] != "existing" && !v["sha256"].as_str().is_some_and(|h| h.eq_ignore_ascii_case(EMPTY_SHA256))
+                })
+            })
+            .collect();
+        if kept.len() != text.lines().count() {
+            let mut out = kept.join("\n");
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            let _ = std::fs::write(&path, out);
+        }
     }
 
     /// Hashes every file in the configured folders (reusing cached digests), records
@@ -721,6 +839,7 @@ impl Dataset {
         let mut fresh: Vec<CacheLine> = Vec::new();
         let mut map: HashMap<String, Vec<Entry>> = HashMap::new();
         let mut hashed = 0u64;
+        let mut empty = 0u64;
         for (platform, label, source, dir) in self.paths.folders() {
             // A configured folder inside this one is walked on its own (its source and
             // name win), so its files are not counted twice.
@@ -729,6 +848,10 @@ impl Dataset {
             for path in walk_files(&dir, &nested) {
                 let Ok(meta) = std::fs::metadata(&path) else { continue };
                 let size = meta.len();
+                if size == 0 {
+                    empty += 1;
+                    continue;
+                }
                 let mtime = unix_secs(meta.modified().ok());
                 let added = match unix_secs(meta.created().ok()) {
                     0 => mtime,
@@ -762,7 +885,12 @@ impl Dataset {
                 }
             }
         }
+        let removed = if self.remove_dups.load(Ordering::Relaxed) { self.remove_duplicates(&mut map) } else { 0 };
+        if removed > 0 {
+            eprintln!("[dataset] {removed} duplicate files removed (same content, same platform and label; dataset_moves.jsonl)");
+        }
         // Conflicts already in the data: the same content under both labels.
+        self.prune_conflicts();
         for (sha, entries) in &map {
             for platform in Platform::ALL {
                 let mal: Vec<&Entry> = entries.iter().filter(|e| e.platform == platform && e.label == Label::Malware).collect();
@@ -777,10 +905,16 @@ impl Dataset {
         *self.index.lock().unwrap() = map;
         self.ready.store(true, Ordering::Relaxed);
         eprintln!(
-            "[dataset] index ready: {total} files ({hashed} hashed, {} from cache) in {:.1}s",
+            "[dataset] index ready: {total} files ({hashed} hashed, {} from cache, {empty} empty files skipped) in {:.1}s",
             total.saturating_sub(hashed),
             started.elapsed().as_secs_f64()
         );
+        // Human verdicts first: the queued copies then find their files in place.
+        let human = std::mem::take(&mut *self.pending_human.lock().unwrap());
+        let moved: usize = human.iter().map(|(sha, label)| self.apply_human_verdict(sha, *label)).sum();
+        if moved > 0 {
+            eprintln!("[dataset] {moved} files moved to the folder of their human verdict (dataset_moves.jsonl)");
+        }
         let waiting = std::mem::take(&mut self.pending.lock().unwrap().0);
         for p in waiting {
             self.export_indexed(&p.sha, &p.data, &p.name, p.label, "queued");
@@ -788,8 +922,288 @@ impl Dataset {
         self.pending.lock().unwrap().1 = 0;
     }
 
+    /// Human verdicts (sha256, verdict) for files that may be in the datasets, e.g.
+    /// every completed review at start. Returns how many files were moved (0 while the
+    /// index is not ready: they are applied when it is).
+    pub fn apply_human_verdicts(&self, verdicts: &[(String, String)]) -> usize {
+        let labelled = verdicts.iter().filter_map(|(sha, v)| Some((sha.clone(), human_label(v)?)));
+        if !self.ready.load(Ordering::Relaxed) {
+            let mut g = self.pending_human.lock().unwrap();
+            if !self.ready.load(Ordering::Relaxed) {
+                g.extend(labelled);
+                return 0;
+            }
+        }
+        labelled.map(|(sha, label)| self.apply_human_verdict(&sha, label)).sum()
+    }
+
+    /// A human verdict wins over the dataset folders, without loss and without
+    /// duplicates: per platform, one file with this content ends up under the verdict's
+    /// label. A file under the other label is moved (not copied) to a folder of the
+    /// verdict's label: the folder with the same display name if there is one, else
+    /// the first own folder. When that label already has the same content, the copy
+    /// under the other label is a duplicate and goes to the backup folder instead
+    /// (`backup_dir`; nothing is deleted). The file name is kept (" (2)" etc. when the name is
+    /// taken by other content); across drives the copy is checked by SHA-256 before
+    /// the original is removed. Each step is a line in `dataset_moves.jsonl`: "moved"
+    /// (undo: move `to` back to `from`) or "duplicate_removed" (`from` had the same
+    /// content as `duplicate_of`). Returns how many files moved or were removed.
+    pub fn apply_human_verdict(&self, sha256: &str, label: Label) -> usize {
+        let sha = sha256.to_ascii_uppercase();
+        if sha == EMPTY_SHA256 {
+            return 0;
+        }
+        if !self.ready.load(Ordering::Relaxed) {
+            let mut g = self.pending_human.lock().unwrap();
+            if !self.ready.load(Ordering::Relaxed) {
+                g.push((sha, label));
+                return 0;
+            }
+        }
+        let mut moved = 0;
+        let mut index = self.index.lock().unwrap();
+        let Some(entries) = index.get_mut(&sha) else { return 0 };
+        entries.retain(|e| e.path.exists());
+        let mut i = 0;
+        while i < entries.len() {
+            if entries[i].label != label.other() {
+                i += 1;
+                continue;
+            }
+            let platform = entries[i].platform;
+            // Already under the verdict's label: this copy is a duplicate.
+            if let Some(k) = entries.iter().position(|x| x.platform == platform && x.label == label) {
+                let (dup, original) = (entries[i].path.clone(), entries[k].path.clone());
+                let backup = match self.to_backup(platform, label.other(), &dup, &sha) {
+                    Ok(b) => b,
+                    Err(err) => {
+                        eprintln!("[dataset] human verdict {sha}: could not move duplicate {} to the backup folder: {err}", dup.display());
+                        i += 1;
+                        continue;
+                    }
+                };
+                let line = serde_json::json!({
+                    "time": chrono::Utc::now().to_rfc3339(),
+                    "action": "duplicate_removed",
+                    "sha256": sha,
+                    "platform": platform,
+                    "from_label": label.other(),
+                    "to_label": label,
+                    "from": dup.display().to_string(),
+                    "backup": backup.display().to_string(),
+                    "duplicate_of": original.display().to_string(),
+                    "reason": "human verdict",
+                });
+                eprintln!("[dataset] human verdict: {} -> {} (same content as {})", dup.display(), backup.display(), original.display());
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.moves_file()) {
+                    let _ = writeln!(f, "{line}");
+                }
+                entries.remove(i);
+                moved += 1;
+                continue;
+            }
+            let e = &mut entries[i];
+            i += 1;
+            let Some((dir, source, group)) = self.human_target(e.platform, label, e.group.as_deref()) else {
+                eprintln!("[dataset] human verdict {sha}: no {} folder for {}; {} left in place", label.key(), e.platform.key(), e.path.display());
+                continue;
+            };
+            let Some(name) = e.path.file_name().map(|n| n.to_os_string()) else { continue };
+            let target = match free_name(&dir, Path::new(&name)) {
+                Some(t) => t,
+                None => continue,
+            };
+            if let Err(err) = move_verified(&e.path, &target, &sha) {
+                eprintln!("[dataset] human verdict {sha}: could not move {}: {err}", e.path.display());
+                continue;
+            }
+            let line = serde_json::json!({
+                "time": chrono::Utc::now().to_rfc3339(),
+                "action": "moved",
+                "sha256": sha,
+                "platform": e.platform,
+                "from_label": e.label,
+                "to_label": label,
+                "from": e.path.display().to_string(),
+                "to": target.display().to_string(),
+                "reason": "human verdict",
+            });
+            eprintln!("[dataset] human verdict: {} -> {}", e.path.display(), target.display());
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.moves_file()) {
+                let _ = writeln!(f, "{line}");
+            }
+            if let (Ok(meta), Ok(mut f)) = (
+                std::fs::metadata(&target),
+                std::fs::OpenOptions::new().create(true).append(true).open(self.cache_file()),
+            ) {
+                let c = CacheLine { p: target.to_string_lossy().into_owned(), s: meta.len(), m: unix_secs(meta.modified().ok()), h: sha.clone() };
+                if let Ok(s) = serde_json::to_string(&c) {
+                    let _ = writeln!(f, "{s}");
+                }
+            }
+            e.ours = is_ours(&target, &sha);
+            e.path = target;
+            e.label = label;
+            e.source = source;
+            e.group = group;
+            moved += 1;
+        }
+        drop(index);
+        if moved > 0 {
+            self.moved_by_human.fetch_add(moved as u64, Ordering::Relaxed);
+            self.drop_conflicts_for(&sha);
+        }
+        moved
+    }
+
+    /// One file per content, platform and label: the other copies are moved to the
+    /// backup folder (`backup_dir`, nothing is deleted; the content stays in the kept one). Kept: a public dataset file first (it would come
+    /// back with the next download), then a file with its original name over a
+    /// `<SHA256>.<ext>` copy this server wrote, then the oldest. Each removal is a
+    /// "duplicate_removed" line in `dataset_moves.jsonl`. Same content under two labels
+    /// is a conflict, not a duplicate: left alone (a human verdict settles it).
+    fn remove_duplicates(&self, map: &mut HashMap<String, Vec<Entry>>) -> usize {
+        let mut removed = 0;
+        let mut log = std::fs::OpenOptions::new().create(true).append(true).open(self.moves_file()).ok();
+        for (sha, entries) in map.iter_mut() {
+            if entries.len() < 2 {
+                continue;
+            }
+            for platform in Platform::ALL {
+                for label in Label::ALL {
+                    let mut same: Vec<usize> =
+                        (0..entries.len()).filter(|&i| entries[i].platform == platform && entries[i].label == label).collect();
+                    if same.len() < 2 {
+                        continue;
+                    }
+                    same.sort_by_key(|&i| {
+                        let e = &entries[i];
+                        (e.source != Source::Public, e.ours, e.added, e.path.as_os_str().len())
+                    });
+                    let keep = entries[same[0]].path.clone();
+                    let mut gone: Vec<usize> = Vec::new();
+                    for &i in &same[1..] {
+                        let dup = &entries[i].path;
+                        let backup = match self.to_backup(platform, label, dup, sha) {
+                            Ok(b) => b,
+                            Err(err) => {
+                                eprintln!("[dataset] could not move duplicate {} to the backup folder: {err}", dup.display());
+                                continue;
+                            }
+                        };
+                        if let Some(f) = log.as_mut() {
+                            let line = serde_json::json!({
+                                "time": chrono::Utc::now().to_rfc3339(),
+                                "action": "duplicate_removed",
+                                "sha256": sha,
+                                "platform": platform,
+                                "from_label": label,
+                                "to_label": label,
+                                "from": dup.display().to_string(),
+                                "backup": backup.display().to_string(),
+                                "duplicate_of": keep.display().to_string(),
+                                "reason": "duplicate in dataset",
+                            });
+                            let _ = writeln!(f, "{line}");
+                        }
+                        gone.push(i);
+                    }
+                    removed += gone.len();
+                    gone.sort_unstable_by(|a, b| b.cmp(a));
+                    for i in gone {
+                        entries.remove(i);
+                    }
+                }
+            }
+        }
+        if removed > 0 {
+            self.duplicates_removed.fetch_add(removed as u64, Ordering::Relaxed);
+            self.indexed_files.fetch_sub(removed as u64, Ordering::Relaxed);
+        }
+        removed
+    }
+
+    /// Where a file goes for a human verdict: same platform and label, the folder with
+    /// the same display name first, else the first own folder, else the first folder.
+    fn human_target(&self, platform: Platform, label: Label, group: Option<&str>) -> Option<(PathBuf, Source, Option<Arc<str>>)> {
+        let l = self.paths.list(platform, label);
+        let folders: Vec<(&PathBuf, Source, Option<&String>)> = l
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_, (p, _))| !p.as_os_str().is_empty())
+            .map(|(i, (p, s))| (p, *s, l.1.get(i).and_then(|n| n.as_ref())))
+            .collect();
+        let pick = group
+            .and_then(|g| folders.iter().find(|f| f.2.is_some_and(|n| n == g)))
+            .or_else(|| folders.iter().find(|f| f.1 == Source::Own))
+            .or_else(|| folders.first())?;
+        Some((pick.0.clone(), pick.1, pick.2.map(|n| Arc::from(n.as_str()))))
+    }
+
+    /// Backup folder for files taken out of a dataset folder (duplicates): next to the
+    /// configured folder they were in, `deleted_from_<folder>_<pe|apk|js>` (e.g.
+    /// `usbdosyalar\deleted_from_data2_pe`). Never read by the indexer or the training.
+    fn backup_dir(&self, platform: Platform, label: Label, path: &Path) -> PathBuf {
+        let root = self
+            .paths
+            .list(platform, label)
+            .0
+            .iter()
+            .map(|(p, _)| p)
+            .filter(|p| !p.as_os_str().is_empty() && is_inside(path, p))
+            .max_by_key(|p| p.as_os_str().len())
+            .cloned()
+            .or_else(|| path.parent().map(Path::to_path_buf))
+            .unwrap_or_default();
+        let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "dataset".into());
+        let kind = match platform {
+            Platform::Windows => "pe",
+            Platform::Android => "apk",
+            Platform::JavaScript => "js",
+        };
+        root.parent().unwrap_or(&root).join(format!("{BACKUP_PREFIX}{name}_{kind}"))
+    }
+
+    /// Moves a dataset file to its backup folder (nothing is deleted). Returns where.
+    fn to_backup(&self, platform: Platform, label: Label, path: &Path, sha_upper: &str) -> Result<PathBuf, String> {
+        let dir = self.backup_dir(platform, label, path);
+        let name = path.file_name().ok_or("no file name")?;
+        let target = free_name(&dir, Path::new(name)).ok_or("no free name in the backup folder")?;
+        move_verified(path, &target, sha_upper)?;
+        Ok(target)
+    }
+
+    /// `dataset_moves.jsonl`: files moved to follow a human verdict.
+    pub fn moves_file(&self) -> PathBuf {
+        self.state_dir.join("dataset_moves.jsonl")
+    }
+
+    /// Conflict lines about a hash a human verdict has settled.
+    fn drop_conflicts_for(&self, sha: &str) {
+        let path = self.conflicts_file();
+        let Ok(text) = std::fs::read_to_string(&path) else { return };
+        let kept: Vec<&str> = text
+            .lines()
+            .filter(|l| {
+                !serde_json::from_str::<serde_json::Value>(l)
+                    .is_ok_and(|v| v["sha256"].as_str().is_some_and(|h| h.eq_ignore_ascii_case(sha)))
+            })
+            .collect();
+        if kept.len() != text.lines().count() {
+            let mut out = kept.join("\n");
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            let _ = std::fs::write(&path, out);
+        }
+    }
+
     /// Copies `data` into the folder for its platform and `label`, by content.
     pub fn export(&self, sha256: &str, data: &[u8], name: &str, label: Label) -> ExportOutcome {
+        if data.is_empty() {
+            return ExportOutcome::Skipped;
+        }
         let Some(platform) = platform_of(data, name) else { return ExportOutcome::Skipped };
         if self.paths.dir(platform, label).is_none() {
             return ExportOutcome::Skipped;
@@ -928,6 +1342,41 @@ fn now_secs() -> u64 {
 }
 
 /// `<SHA256>.<ext>` named after its own content: a copy this server wrote.
+/// `dir/name`, or `dir/stem (2).ext`, `(3)`, ... when the name is taken (nothing is
+/// ever overwritten).
+fn free_name(dir: &Path, name: &Path) -> Option<PathBuf> {
+    std::fs::create_dir_all(dir).ok()?;
+    let first = dir.join(name);
+    if !first.exists() {
+        return Some(first);
+    }
+    let stem = name.file_stem()?.to_string_lossy().into_owned();
+    let ext = name.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    (2..10_000).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists())
+}
+
+/// Moves `from` to `to` without losing it: a rename, or across drives a copy that is
+/// checked (SHA-256) before the original is removed. If the original cannot be removed
+/// both copies stay.
+fn move_verified(from: &Path, to: &Path, sha_upper: &str) -> Result<(), String> {
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    std::fs::copy(from, to).map_err(|e| e.to_string())?;
+    match sha256_file(to) {
+        Some(h) if h.eq_ignore_ascii_case(sha_upper) => {
+            if let Err(e) = std::fs::remove_file(from) {
+                eprintln!("[dataset] copied to {} but could not remove {}: {e}", to.display(), from.display());
+            }
+            Ok(())
+        }
+        _ => {
+            let _ = std::fs::remove_file(to);
+            Err("the copy does not match the original".into())
+        }
+    }
+}
+
 fn is_ours(path: &Path, sha_upper: &str) -> bool {
     path.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case(sha_upper))
 }
@@ -960,7 +1409,8 @@ fn walk_files(dir: &Path, skip: &[PathBuf]) -> Vec<PathBuf> {
             let Ok(ft) = e.file_type() else { continue };
             let p = e.path();
             if ft.is_dir() {
-                if e.file_name().to_string_lossy().starts_with('.') || skip.iter().any(|s| same_path(s, &p)) {
+                let n = e.file_name().to_string_lossy().to_ascii_lowercase();
+                if n.starts_with('.') || n.starts_with(BACKUP_PREFIX) || skip.iter().any(|s| same_path(s, &p)) {
                     continue;
                 }
                 stack.push(p);
@@ -1264,6 +1714,7 @@ mod tests {
     #[test]
     fn stats_count_every_hash_once() {
         let (root, ds) = setup_sources("stats");
+        ds.remove_dups.store(false, Ordering::Relaxed); // counts copies on purpose
         let (a, b, c, d) = (pe(10), pe(11), pe(12), pe(13));
         // a: own + public malware (and twice in own, under two names) -> both.
         std::fs::write(root.join("mal_own").join("a1.exe"), &a).unwrap();
@@ -1303,6 +1754,7 @@ mod tests {
     #[test]
     fn stats_daily_last_30_days() {
         let (root, ds) = setup_sources("daily");
+        ds.remove_dups.store(false, Ordering::Relaxed); // counts copies on purpose
         std::fs::write(root.join("mal_own").join("a.exe"), pe(20)).unwrap();
         std::fs::write(root.join("mal_pub").join("a.exe"), pe(20)).unwrap();
         std::fs::write(root.join("clean_pub").join("b.exe"), pe(21)).unwrap();
@@ -1379,6 +1831,7 @@ mod tests {
         std::fs::write(fdroid.join(".cache").join("x.apk"), pe(43)).unwrap();
         std::fs::write(benign.join(".git").join("y.apk"), pe(44)).unwrap();
         let ds = Dataset::new(paths, root.join("state"));
+        ds.remove_dups.store(false, Ordering::Relaxed); // counts copies on purpose
         ds.build_index();
         let st = ds.public_stats(&[]).unwrap();
         assert_eq!(counts(&st, "android", "clean"), (1, 1, 1, 3), "F-Droid files are public, not 'both'");
@@ -1420,6 +1873,102 @@ mod tests {
         assert_eq!(st.groups[USERS_GROUP]["windows"]["malware"].total, 2);
         assert_eq!(platform_of_name("Setup.EXE"), Some(Platform::Windows));
         assert_eq!(platform_of_name("readme"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn empty_files_are_not_samples_or_conflicts() {
+        let (root, ds) = setup_sources("empty");
+        std::fs::write(root.join("mal_own").join("x.vir"), b"").unwrap();
+        std::fs::write(root.join("clean_own").join("y.efi"), b"").unwrap();
+        std::fs::write(root.join("state").join("dataset_conflicts.jsonl"), format!(
+            "{{\"kind\":\"existing\",\"sha256\":\"{EMPTY_SHA256}\"}}\n{{\"kind\":\"label\",\"sha256\":\"AB\"}}\n"
+        )).unwrap();
+        ds.build_index();
+        assert_eq!(ds.status().indexed_files, 0);
+        assert_eq!(ds.status().conflicts, 0, "two empty files under both labels are no conflict");
+        let left = ds.recent_conflicts(10);
+        assert_eq!(left.len(), 1, "old empty-file line pruned, export conflict kept");
+        assert_eq!(left[0]["sha256"], "AB");
+        assert_eq!(ds.export(EMPTY_SHA256, b"", "e.exe", Label::Malware), ExportOutcome::Skipped);
+        let users = [UserFile::new(&EMPTY_SHA256.to_ascii_lowercase(), "unknown", &[], "")];
+        assert_eq!(ds.public_stats(&users).unwrap().cells["all"]["all"].total, 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn human_verdict_moves_the_file_to_its_label_without_loss() {
+        let (root, ds) = setup_sources("human");
+        ds.remove_dups.store(false, Ordering::Relaxed); // counts copies on purpose
+        let a = pe(40);
+        // Same content: two files in the public malware folders, one name already
+        // taken in the own clean folder (different content).
+        std::fs::write(root.join("mal_pub").join("x.exe"), &a).unwrap();
+        std::fs::write(root.join("mal_pub2").join("y.exe"), &a).unwrap();
+        std::fs::write(root.join("clean_own").join("x.exe"), pe(41)).unwrap();
+        std::fs::write(root.join("state").join("dataset_conflicts.jsonl"), format!("{{\"kind\":\"label\",\"sha256\":\"{}\"}}\n", sha(&a))).unwrap();
+        // Before the index: queued, applied when it is ready.
+        assert_eq!(ds.apply_human_verdicts(&[(sha(&a).to_ascii_lowercase(), "clean".into())]), 0);
+        ds.build_index();
+        assert!(!root.join("mal_pub").join("x.exe").exists() && !root.join("mal_pub2").join("y.exe").exists());
+        assert_eq!(std::fs::read(root.join("clean_own").join("x (2).exe")).unwrap(), a, "name taken: suffixed, not overwritten");
+        assert!(!root.join("clean_own").join("y.exe").exists(), "second copy: a duplicate, removed");
+        assert_eq!(std::fs::read(root.join("clean_own").join("x.exe")).unwrap(), pe(41));
+        let clean_files = std::fs::read_dir(root.join("clean_own")).unwrap().count();
+        assert_eq!(clean_files, 2, "exactly one file per content");
+        assert_eq!(ds.status().moved_by_human, 2);
+        assert!(ds.recent_conflicts(10).is_empty(), "settled conflict removed");
+        let moves = std::fs::read_to_string(ds.moves_file()).unwrap();
+        assert_eq!(moves.lines().count(), 2);
+        assert!(moves.contains("\"action\":\"moved\"") && moves.contains("\"action\":\"duplicate_removed\"") && moves.contains("duplicate_of"));
+        let st = ds.public_stats(&[]).unwrap();
+        assert_eq!(st.cells["windows"]["malware"].total, 0);
+        assert_eq!(st.cells["windows"]["clean"].counts.own_only, 2, "x.exe (41) and the moved content");
+        // Again, or "suspicious": nothing to do.
+        assert_eq!(ds.apply_human_verdict(&sha(&a), Label::Clean), 0);
+        assert_eq!(ds.apply_human_verdicts(&[(sha(&a), "suspicious".into())]), 0);
+        // Flipped back to malware: the one file moves to the own malware folder.
+        assert_eq!(ds.apply_human_verdict(&sha(&a), Label::Malware), 1);
+        assert_eq!(std::fs::read(root.join("mal_own").join("x (2).exe")).unwrap(), a);
+        // Content already under the verdict's label: the other copy is removed, not moved.
+        let (root2, ds2) = setup_sources("human2");
+        std::fs::write(root2.join("mal_own").join("m.exe"), &a).unwrap();
+        std::fs::write(root2.join("clean_own").join("c.exe"), &a).unwrap();
+        ds2.build_index();
+        assert_eq!(ds2.apply_human_verdict(&sha(&a), Label::Clean), 1);
+        assert!(!root2.join("mal_own").join("m.exe").exists());
+        assert_eq!(std::fs::read(root2.join("clean_own").join("c.exe")).unwrap(), a, "the existing copy stays");
+        assert_eq!(std::fs::read_dir(root2.join("clean_own")).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(&root2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn copies_of_the_same_content_are_removed_once_indexed() {
+        let (root, ds) = setup_sources("dups");
+        let (a, b, c) = (pe(50), pe(51), pe(52));
+        // a: twice in own (original names), once public -> the public one stays.
+        std::fs::write(root.join("mal_own").join("Trojan.A.vir"), &a).unwrap();
+        std::fs::write(root.join("mal_own").join("Bazaar.A.vir"), &a).unwrap();
+        std::fs::write(root.join("mal_pub").join("a.exe"), &a).unwrap();
+        // b: an original name and a <SHA>.exe copy the server wrote -> the original stays.
+        std::fs::write(root.join("mal_own").join("original.exe"), &b).unwrap();
+        std::fs::write(root.join("mal_own").join(format!("{}.exe", sha(&b))), &b).unwrap();
+        // c: under both labels -> a conflict, nothing removed.
+        std::fs::write(root.join("mal_own").join("c.exe"), &c).unwrap();
+        std::fs::write(root.join("clean_own").join("c.exe"), &c).unwrap();
+        ds.build_index();
+        assert!(root.join("mal_pub").join("a.exe").exists());
+        assert!(!root.join("mal_own").join("Trojan.A.vir").exists() && !root.join("mal_own").join("Bazaar.A.vir").exists());
+        assert!(root.join("mal_own").join("original.exe").exists());
+        assert!(!root.join("mal_own").join(format!("{}.exe", sha(&b))).exists());
+        assert!(root.join("mal_own").join("c.exe").exists() && root.join("clean_own").join("c.exe").exists());
+        assert_eq!(ds.status().duplicates_removed, 3);
+        assert_eq!(ds.status().indexed_files, 4);
+        let log = std::fs::read_to_string(ds.moves_file()).unwrap();
+        assert_eq!(log.lines().filter(|l| l.contains("\"action\":\"duplicate_removed\"")).count(), 3);
+        assert!(log.contains("Trojan.A.vir") && log.contains("duplicate_of"));
+        assert_eq!(counts(&ds.public_stats(&[]).unwrap(), "windows", "malware"), (2, 1, 0, 3));
         let _ = std::fs::remove_dir_all(&root);
     }
 

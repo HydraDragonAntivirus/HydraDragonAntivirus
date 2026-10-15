@@ -125,6 +125,12 @@ impl SignerSummary {
             return Some(true);
         }
         if self.not_after.is_some_and(|to| to < now) {
+            // Timestamped while the certificate was valid: the signature still is
+            // (Windows accepts it). A legacy countersignature has no time: accepted.
+            let in_window = |t: i64| self.not_after.is_none_or(|to| t <= to) && self.not_before.is_none_or(|from| t >= from);
+            if self.timestamped == Some(true) && self.timestamp_time.is_none_or(in_window) {
+                return None;
+            }
             return Some(true);
         }
         None
