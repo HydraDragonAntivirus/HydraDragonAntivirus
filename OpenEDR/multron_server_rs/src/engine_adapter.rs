@@ -471,7 +471,7 @@ impl EngineAdapter {
             if !already {
                 used.fetch_add(data.len() as u64, Ordering::Relaxed);
             }
-            let _ = used.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_sub(xz_len)));
+            sub_u64(used, xz_len);
             r.unpacked += 1;
             r.bytes_added += (data.len() as u64).saturating_sub(xz_len);
         }
@@ -1702,7 +1702,6 @@ fn is_pe_or_apk(data: &[u8], name: &str) -> bool {
     lower.ends_with(".apk") || lower.ends_with(".xapk") || data.windows(11).any(|w| w == b"classes.dex")
 }
 
-/// Category folder (`unknown`, `malicious`, ...) a kept file is in, if any.
 /// `v -= n`, never below 0 (a compare-exchange loop: `fetch_update` is deprecated in
 /// newer Rust and its replacement `try_update` does not exist in older versions).
 fn sub_u64(v: &AtomicU64, n: u64) {
@@ -1720,6 +1719,7 @@ fn dec_i64(v: &AtomicI64) {
     }
 }
 
+/// Category folder (`unknown`, `malicious`, ...) a kept file is in, if any.
 fn category_dir_of(path: &Path) -> Option<&'static str> {
     let mut parent = path.parent()?;
     if kind_dir_of(path).is_some() {

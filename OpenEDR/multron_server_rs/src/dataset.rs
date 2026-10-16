@@ -160,6 +160,7 @@ fn folder_list(specs: Vec<FolderSpec>) -> FolderList {
 }
 
 impl FolderList {
+    #[cfg(test)]
     pub fn own(path: impl Into<PathBuf>) -> Self {
         FolderList(vec![(path.into(), Source::Own)], vec![None])
     }
