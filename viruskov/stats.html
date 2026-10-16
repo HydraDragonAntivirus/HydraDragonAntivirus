@@ -528,6 +528,7 @@
       <div class="ha-chart" id="haChart" aria-label="Daily human verdicts"></div>
       <div class="ha-days" id="haDays"></div>
       <div class="ha-note" id="haBulkNote"></div>
+      <div class="ha-note" id="haAiNote"></div>
     </div>
 
     <!-- ML DATASET PANEL (counts only: no paths, names or hashes) -->
@@ -840,6 +841,16 @@
       if (note) {
         note.textContent = h.bulk_verdicts
           ? haT('ha.bulk_note', 'Ayrıca {n} dosya toplu olarak (ör. doğrulanmış yazılım klasörleri) beyaz listeye alındı; bunlar yukarıdaki sayılara dahil değildir.').replace('{n}', n(h.bulk_verdicts))
+          : '';
+      }
+      // Verdicts given by an AI model, never counted as human decisions above.
+      const ai = h.ai_assisted || {};
+      const aiNote = document.getElementById('haAiNote');
+      if (aiNote) {
+        const v = ai.verdicts || {};
+        aiNote.textContent = ai.reviewed
+          ? haT('ha.ai_note', 'Ayrıca {n} dosya yapay zekâ destekli analizle karara bağlandı ({c} temiz, {s} şüpheli / PUA, {m} zararlı); bunlar yukarıdaki insan kararlarına dahil değildir.')
+              .replace('{n}', n(ai.reviewed)).replace('{c}', n(v.clean)).replace('{s}', n(v.suspicious)).replace('{m}', n(v.malicious))
           : '';
       }
     }

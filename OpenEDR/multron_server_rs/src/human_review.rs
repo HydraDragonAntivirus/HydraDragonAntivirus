@@ -11,7 +11,7 @@
 //! `"deleted": true` removes it. Malicious verdicts must carry a threat name in the
 //! VirusKov naming convention (see `naming.rs`), so they work as hash signatures.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -197,29 +197,41 @@ pub fn analyst_dir() -> std::path::PathBuf {
 /// every dashboard call that writes a human verdict or changes what decides a verdict
 /// needs `X-Multron-Analyst-Key`, and the analyst name stored with it is the key's
 /// owner, whatever the request says. No file (or no keys): open, as before.
-pub fn analyst_keys() -> Vec<(String, String)> {
+/// A name ending in `[ai]` (`<key> Claude [ai]`) marks an AI analyst: its verdicts are
+/// counted apart in the public statistics (`public_stats` → `ai_assisted`).
+/// Returns `(key, name without the tag, ai)`.
+pub fn analyst_keys() -> Vec<(String, String, bool)> {
     match std::fs::read_to_string(crate::config::app_dir().join("analyst_keys.txt")) {
         Ok(text) => parse_analyst_keys(&text),
         Err(_) => Vec::new(),
     }
 }
 
-fn parse_analyst_keys(text: &str) -> Vec<(String, String)> {
+fn parse_analyst_keys(text: &str) -> Vec<(String, String, bool)> {
     text.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .filter_map(|l| {
             let (key, name) = l.split_once(char::is_whitespace)?;
             let name = name.trim();
-            (key.len() >= 16 && !name.is_empty()).then(|| (key.to_string(), name.chars().take(64).collect()))
+            let (name, ai) = match name.strip_suffix("[ai]").or_else(|| name.strip_suffix("[AI]")) {
+                Some(n) => (n.trim(), true),
+                None => (name, false),
+            };
+            (key.len() >= 16 && !name.is_empty()).then(|| (key.to_string(), name.chars().take(64).collect(), ai))
         })
         .collect()
 }
 
+/// Names of the AI analysts (`[ai]` keys), compared case-insensitively.
+pub fn ai_analyst_names() -> HashSet<String> {
+    analyst_keys().into_iter().filter(|k| k.2).map(|k| k.1.to_lowercase()).collect()
+}
+
 /// Analyst name of `key` (constant-time compare against every key).
-pub fn analyst_for_key(keys: &[(String, String)], key: &str) -> Option<String> {
+pub fn analyst_for_key(keys: &[(String, String, bool)], key: &str) -> Option<String> {
     let mut found = None;
-    for (k, name) in keys {
+    for (k, name, _) in keys {
         if crate::scan_server::constant_time_eq(k.as_bytes(), key.as_bytes()) {
             found = Some(name.clone());
         }
@@ -553,15 +565,46 @@ impl HumanReviewStore {
     /// are counted apart: more than `BULK_PER_SECOND` verdicts saved in the same second
     /// cannot be one person looking at files, so "reviewed" only counts the rest.
     pub fn public_stats(&self) -> serde_json::Value {
+        self.public_stats_with(&ai_analyst_names())
+    }
+
+    /// `public_stats` with the AI analyst names given (lower case). Verdicts by an AI
+    /// analyst are left out of every human number and counted in `ai_assisted`.
+    fn public_stats_with(&self, ai_names: &HashSet<String>) -> serde_json::Value {
         const BULK_PER_SECOND: usize = 20;
         let g = self.map.read().unwrap();
         let now = Utc::now();
         let today = now.date_naive();
-        let done: Vec<(&HumanReview, Option<DateTime<Utc>>)> = g
-            .values()
-            .filter(|r| r.is_completed())
-            .map(|r| (r, r.reviewed_at.as_deref().and_then(parse_time)))
-            .collect();
+        let (mut ai_clean, mut ai_suspicious, mut ai_malicious, mut ai_7d, mut ai_fp, mut ai_missed) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+        let mut ai_daily: HashMap<chrono::NaiveDate, usize> = HashMap::new();
+        let mut done: Vec<(&HumanReview, Option<DateTime<Utc>>)> = Vec::new();
+        for r in g.values().filter(|r| r.is_completed()) {
+            let t = r.reviewed_at.as_deref().and_then(parse_time);
+            if !ai_names.is_empty() && ai_names.contains(&r.analyst.trim().to_lowercase()) {
+                let v = r.verdict.as_deref().unwrap_or("");
+                let engine = r.engine_verdict.as_deref().unwrap_or("");
+                match v {
+                    "clean" => ai_clean += 1,
+                    "suspicious" => ai_suspicious += 1,
+                    "malicious" => ai_malicious += 1,
+                    _ => {}
+                }
+                if v == "clean" && matches!(engine, "malicious" | "suspicious") {
+                    ai_fp += 1;
+                }
+                if v == "malicious" && matches!(engine, "clean" | "possible_clean" | "unknown") {
+                    ai_missed += 1;
+                }
+                if let Some(t) = t {
+                    if now - t < chrono::Duration::days(7) {
+                        ai_7d += 1;
+                    }
+                    *ai_daily.entry(t.date_naive()).or_default() += 1;
+                }
+                continue;
+            }
+            done.push((r, t));
+        }
         let mut per_second: HashMap<i64, usize> = HashMap::new();
         for (_, t) in &done {
             if let Some(t) = t {
@@ -636,8 +679,17 @@ impl HumanReviewStore {
             "avg_response_secs": avg(&resp),
             "median_response_secs": median(&mut resp),
             "daily": days.iter().map(|d| serde_json::json!({
-                "date": d.0.to_string(), "clean": d.1, "suspicious": d.2, "malicious": d.3, "bulk": d.4
+                "date": d.0.to_string(), "clean": d.1, "suspicious": d.2, "malicious": d.3, "bulk": d.4,
+                "ai": ai_daily.get(&d.0).copied().unwrap_or(0),
             })).collect::<Vec<_>>(),
+            // Verdicts by AI analysts (`[ai]` keys): not in any number above.
+            "ai_assisted": {
+                "reviewed": ai_clean + ai_suspicious + ai_malicious,
+                "reviewed_7d": ai_7d,
+                "verdicts": { "clean": ai_clean, "suspicious": ai_suspicious, "malicious": ai_malicious },
+                "false_positives_corrected": ai_fp,
+                "missed_threats_found": ai_missed,
+            },
         })
     }
 
@@ -751,8 +803,11 @@ mod timing_tests {
 
     #[test]
     fn analyst_keys_parsed_and_matched() {
-        let keys = parse_analyst_keys("# analysts\nk3y-0123456789abcdef  Emirhan Uçan\nshort bob\n\nanother-key-0123456789 alice\nnoname-0123456789abcdef\n");
-        assert_eq!(keys.len(), 2, "short keys and keys without a name are ignored");
+        let keys = parse_analyst_keys("# analysts\nk3y-0123456789abcdef  Emirhan Uçan\nshort bob\n\nanother-key-0123456789 alice\nnoname-0123456789abcdef\nai-key-0123456789abcdef Claude [ai]\n");
+        assert_eq!(keys.len(), 3, "short keys and keys without a name are ignored");
+        assert_eq!(keys[2], ("ai-key-0123456789abcdef".to_string(), "Claude".to_string(), true));
+        assert!(!keys[0].2);
+        assert_eq!(analyst_for_key(&keys, "ai-key-0123456789abcdef").as_deref(), Some("Claude"), "the tag is not part of the name");
         assert_eq!(analyst_for_key(&keys, "k3y-0123456789abcdef").as_deref(), Some("Emirhan Uçan"));
         assert_eq!(analyst_for_key(&keys, "another-key-0123456789").as_deref(), Some("alice"));
         assert_eq!(analyst_for_key(&keys, "k3y-0123456789abcdeX"), None);
@@ -814,6 +869,29 @@ mod public_probe {
         assert_eq!(v["bulk_verdicts"], 40);
         assert_eq!(v["false_positives_corrected"], 1);
         assert_eq!(v["queue"]["pending"], 1);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_verdicts_counted_apart() {
+        let path = std::env::temp_dir().join(format!("hr_ai_{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let st = HumanReviewStore::new(&path);
+        let h = |i: u32| format!("{:064x}", i);
+        st.enqueue(&h(1), "auto", Some("malicious"), Some("a.exe")).unwrap();
+        st.complete(&h(1), "clean", None, "", "", "Claude").unwrap();
+        st.complete(&h(2), "malicious", Some("Trojan.Win32.Agent"), "", "", "Emirhan").unwrap();
+        st.complete(&h(3), "clean", None, "", "", "claude").unwrap();
+        let ai: HashSet<String> = ["claude".to_string()].into();
+        let v = st.public_stats_with(&ai);
+        assert_eq!(v["reviewed"], 1, "only the human verdict");
+        assert_eq!(v["verdicts"]["clean"], 0);
+        assert_eq!(v["false_positives_corrected"], 0);
+        assert_eq!(v["ai_assisted"]["reviewed"], 2);
+        assert_eq!(v["ai_assisted"]["verdicts"]["clean"], 2);
+        assert_eq!(v["ai_assisted"]["false_positives_corrected"], 1);
+        // no AI keys: everything is human, as before
+        assert_eq!(st.public_stats_with(&HashSet::new())["reviewed"], 3);
         let _ = std::fs::remove_file(&path);
     }
 }
