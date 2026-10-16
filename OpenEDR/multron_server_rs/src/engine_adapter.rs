@@ -351,9 +351,17 @@ impl EngineAdapter {
     /// the dataset folders whose content is in multron_incoming (which keeps the file
     /// with its telemetry). Counted (`dry_run`) or removed; multron_incoming is not
     /// touched. Err while the dataset is off or still indexing. Returns (files, bytes).
-    pub fn remove_dataset_copies_of_kept(&self, dry_run: bool) -> Result<(u64, u64), String> {
+    /// `human`: SHA-256 of samples with an analyst verdict (clean / malicious). Their
+    /// ML dataset copies are the human labels the models train on, so they are never
+    /// moved out, even though the same file is also in multron_incoming.
+    pub fn remove_dataset_copies_of_kept(&self, dry_run: bool, human: &std::collections::HashSet<String>) -> Result<(u64, u64), String> {
         let ds = self.dataset.get().ok_or("ML datasets are off (no dataset_paths.json)")?;
-        let kept: std::collections::HashSet<String> = self.list_kept().into_iter().map(|k| k.sha256.to_ascii_uppercase()).collect();
+        let kept: std::collections::HashSet<String> = self
+            .list_kept()
+            .into_iter()
+            .map(|k| k.sha256.to_ascii_uppercase())
+            .filter(|s| !human.contains(s))
+            .collect();
         ds.remove_copies_of_kept(&kept, dry_run).ok_or_else(|| "the ML dataset is still indexing, try again in a moment".to_string())
     }
 

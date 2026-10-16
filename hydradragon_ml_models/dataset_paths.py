@@ -23,6 +23,10 @@ Which `dataset_paths.json` is used, first found:
   2. the HYDRADRAGON_DATASET_PATHS environment variable
   3. `dataset_paths.json` next to these scripts
   4. `dataset_paths.json` next to a locally built multron_server (target/release, debug)
+  5. `dataset_paths.json` of the deployed server (C:\\viruskov_archive, or MULTRON_DIR)
+Benign data also includes the server's sorted clean uploads,
+multron_incoming\\clean\\{javascript | pe32, pe64, msexe | apk} (read only;
+MULTRON_INCOMING_TRAIN=0 leaves them out).
 `--malicious` / `--benign` on the command line (one or more folders each) override it.
 
 Files are de-duplicated by CONTENT (SHA-256) across all folders of a platform: a file
@@ -50,6 +54,17 @@ CONFLICTS_FILE = os.path.join(BASE_DIR, "dataset_label_conflicts.txt")
 PLATFORMS = ("windows", "android", "javascript")
 
 _BELGELER = r"C:\Users\semae\OneDrive\Belgeler"
+# Folder of the deployed multron_server.exe (its dataset_paths.json is used when no
+# other one is found). Override with the MULTRON_DIR environment variable.
+SERVER_DIR = os.environ.get("MULTRON_DIR", r"C:\viruskov_archive")
+# Type folders of multron_incoming/clean ("Sort multron_incoming by file type" names:
+# HydraDragonSig first, then ClamAV) read as benign data for each platform. Set
+# MULTRON_INCOMING_TRAIN=0 to leave them out.
+INCOMING_CLEAN_TYPES: Dict[str, List[str]] = {
+    "windows_clean": ["pe32", "pe64", "msexe"],
+    "android_clean": ["apk"],
+    "javascript_clean": ["javascript"],
+}
 # The real folders on the training PC (used for keys missing from dataset_paths.json).
 DEFAULT_FOLDERS: Dict[str, List[str]] = {
     "windows_malware": [_BELGELER + r"\usbdosyalar\datamaliciousorder"],
@@ -79,6 +94,9 @@ def find_config(explicit: Optional[str] = None) -> Optional[str]:
         os.path.join(BASE_DIR, "dataset_paths.json"),
         os.path.join(server, "release", "dataset_paths.json"),
         os.path.join(server, "debug", "dataset_paths.json"),
+        # The running server's own file (next to multron_server.exe): the folders
+        # it writes analyst-verdict samples to.
+        os.path.join(SERVER_DIR, "dataset_paths.json"),
     ):
         if os.path.isfile(p):
             return p
@@ -116,6 +134,15 @@ def load_config(path: Optional[str]) -> Dict[str, List[Tuple[str, str]]]:
     out = {}
     for key, folders in DEFAULT_FOLDERS.items():
         out[key] = parse_folder_list(raw[key]) if key in raw else [(f, "own") for f in folders]
+    # The server's clean uploads, sorted by type (multron_incoming/clean/<type>/): every
+    # clean-verdict sample there is benign training data too. Read only, never changed.
+    if os.environ.get("MULTRON_INCOMING_TRAIN", "1") != "0":
+        clean_root = os.path.join(SERVER_DIR, "multron_incoming", "clean")
+        for key, types in INCOMING_CLEAN_TYPES.items():
+            for t in types:
+                d = os.path.join(clean_root, t)
+                if os.path.isdir(d) and all(_key(d) != _key(p) for p, _ in out[key]):
+                    out[key].append((d, "own"))
     return out
 
 

@@ -681,11 +681,21 @@ struct DryRun {
 }
 
 /// ML dataset copies of files in multron_incoming (server-written `<SHA256>.<ext>`):
-/// `dry_run` counts them, otherwise they are removed. multron_incoming stays.
+/// `dry_run` counts them, otherwise they are moved to the backup folders.
+/// multron_incoming stays. Copies of samples with an analyst verdict (clean /
+/// malicious) always stay: they are the human labels the models train on.
 async fn handle_remove_incoming_duplicates(State(app): State<Arc<AppState>>, Json(b): Json<DryRun>) -> Response {
     let eng = Arc::clone(&app.engine);
     let dry = b.dry_run;
-    match tokio::task::spawn_blocking(move || eng.remove_dataset_copies_of_kept(dry)).await {
+    let human: std::collections::HashSet<String> = app
+        .threat_intel
+        .reviews
+        .completed_verdicts()
+        .into_iter()
+        .filter(|(_, v)| crate::dataset::human_label(v).is_some())
+        .map(|(s, _)| s.to_ascii_uppercase())
+        .collect();
+    match tokio::task::spawn_blocking(move || eng.remove_dataset_copies_of_kept(dry, &human)).await {
         Ok(Ok((files, bytes))) => {
             if !dry && files > 0 {
                 info_event(&app, format!("moved {files} ML dataset copies of multron_incoming files to the deleted_from_* backup folders ({:.1} MB)", bytes as f64 / 1048576.0));

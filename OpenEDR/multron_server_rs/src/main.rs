@@ -333,4 +333,33 @@ fn startup_upkeep(engine: &Arc<EngineAdapter>, ti: &Arc<threat_intel::ThreatInte
     if let Some(ds) = engine.dataset.get() {
         ds.apply_human_verdicts(&ti.reviews.completed_verdicts());
     }
+    // Every analyst-verdict sample (clean / malicious) kept in multron_incoming is in
+    // the ML dataset under its label, so the models always train on the human labels
+    // (also brings back copies moved to a backup folder by an earlier build). Runs once
+    // the index is ready; content already there is skipped (AlreadyPresent).
+    if engine.dataset.get().is_some() {
+        let engine = Arc::clone(engine);
+        let verdicts = ti.reviews.completed_verdicts();
+        std::thread::spawn(move || {
+            let Some(ds) = engine.dataset.get() else { return };
+            while !ds.status().ready {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+            // One walk of multron_incoming, not one per verdict.
+            let mut kept: std::collections::HashMap<String, _> =
+                engine.list_kept().into_iter().map(|k| (k.sha256.to_ascii_uppercase(), k)).collect();
+            let mut written = 0u64;
+            for (sha, verdict) in verdicts {
+                let Some(label) = crate::dataset::human_label(&verdict) else { continue };
+                let Some(k) = kept.remove(&sha.to_ascii_uppercase()) else { continue };
+                let Some(bytes) = k.read() else { continue };
+                if matches!(ds.export(&sha, &bytes, &k.name, label), crate::dataset::ExportOutcome::Written(_)) {
+                    written += 1;
+                }
+            }
+            if written > 0 {
+                eprintln!("[dataset] {written} analyst-verdict samples added to the ML dataset folders");
+            }
+        });
+    }
 }

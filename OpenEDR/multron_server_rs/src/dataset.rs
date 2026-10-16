@@ -1462,11 +1462,14 @@ pub fn human_label(verdict: &str) -> Option<Label> {
     }
 }
 
-pub fn platform_of(data: &[u8], name: &str) -> Option<Platform> {
-    let lower = name.to_ascii_lowercase();
+/// Platform of a sample by CONTENT only (the name is never used to decide): an APK
+/// is a ZIP holding AndroidManifest.xml and classes*.dex, a PE has a valid PE header,
+/// JavaScript is text the HydraDragonSig JS parser (OXC) accepts. A JS file submitted
+/// as `.txt` or without an extension still reaches the JS dataset.
+pub fn platform_of(data: &[u8], _name: &str) -> Option<Platform> {
     if data.starts_with(b"PK\x03\x04") {
         let head = &data[..data.len().min(8 * 1024 * 1024)];
-        if lower.ends_with(".apk") || (contains(head, b"AndroidManifest.xml") && contains(head, b"classes")) {
+        if contains(head, b"AndroidManifest.xml") && contains(head, b"classes") {
             return Some(Platform::Android);
         }
         return None;
@@ -1474,8 +1477,7 @@ pub fn platform_of(data: &[u8], name: &str) -> Option<Platform> {
     if is_pe(data) {
         return Some(Platform::Windows);
     }
-    let js_ext = [".js", ".mjs", ".cjs", ".jse"].iter().any(|e| lower.ends_with(e));
-    if js_ext && !data.is_empty() && !data[..data.len().min(4096)].contains(&0) {
+    if !data.is_empty() && !data[..data.len().min(4096)].contains(&0) && hydradragonsig::scanner::filetype::is_javascript(data) {
         return Some(Platform::JavaScript);
     }
     None
@@ -1549,7 +1551,8 @@ mod tests {
         assert_eq!(platform_of(b"PK\x03\x04...AndroidManifest.xml...classes.dex", "x.zip"), Some(Platform::Android));
         assert_eq!(platform_of(b"PK\x03\x04 plain zip", "x.zip"), None);
         assert_eq!(platform_of(b"var a = 1;", "a.js"), Some(Platform::JavaScript));
-        assert_eq!(platform_of(b"var a = 1;", "a.txt"), None);
+        assert_eq!(platform_of(b"var a = 1;", "a.txt"), Some(Platform::JavaScript), "content, not the name");
+        assert_eq!(platform_of(b"just some words here", "a.js"), None);
         assert_eq!(platform_of(b"MZ not a pe", "a.exe"), None);
     }
 
