@@ -2701,10 +2701,32 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
       const r = await api("/api/alyzer/scan", { token: doc.token });
       doc.signer = r.signer || doc.signer;
       renderOverview();
-      box().innerHTML = `<div class="hint" style="margin:0 0 4px">Engine scan just now (${r.ms} ms, nothing kept):</div>${vtag(r.verdict)} ${r.threat ? "<b>" + esc(r.threat) + "</b>" : ""}<div style="font-size:12px;margin-top:4px">${esc(r.detail || "")}</div>` + sigChips(r.detections) + extractedHtml(r.extracted_objects || []);
+      box().innerHTML = `<div class="hint" style="margin:0 0 4px">Engine scan just now (${r.ms} ms, nothing kept):</div>${vtag(r.verdict)} ${r.threat ? "<b>" + esc(r.threat) + "</b>" : ""}<div style="font-size:12px;margin-top:4px">${esc(r.detail || "")}</div>` + sigChips(r.detections) + whyHtml(r.matches || []) + extractedHtml(r.extracted_objects || []);
     } catch (e) { box().innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
     $("vaScan").disabled = false;
   };
+
+  // Why it was detected: every matching signature, its definition and the bytes.
+  function whyHtml(list) {
+    if (!list.length) return "";
+    const hexSp = (h) => h.replace(/(..)/g, "$1 ").trim();
+    const scoreTag = (sc) => sc >= 0.85 ? '<span class="tag t-malicious">malicious</span>' : sc >= 0.5 ? '<span class="tag t-suspicious">suspicious / PUA</span>' : '<span class="tag t-unknown">low</span>';
+    const where = (m) => {
+      const parts = [];
+      if (m.object_path && doc && m.object_path !== doc.name) parts.push("in " + esc(m.object_path));
+      if (m.view && m.view !== "Raw") parts.push("ClamAV view <b>" + esc(m.view) + "</b>");
+      return parts.join(" · ");
+    };
+    const rows = list.map(m => {
+      const rng = (m.ranges || []).map(r => `<div class="mono" style="font-size:11.5px;margin:2px 0"><a href="#" data-go="${r.start}" data-len="${r.len}" style="color:var(--accent)">0x${r.start.toString(16).toUpperCase()}</a> +${r.len}: <span title="matched bytes">${esc(hexSp(r.hex))}${r.truncated ? " …" : ""}</span><br><span class="hint" style="margin:0">${esc(r.before)}</span><b style="background:var(--accent-bg,rgba(255,200,0,.25))">${esc(r.ascii)}</b><span class="hint" style="margin:0">${esc(r.after)}</span></div>`).join("");
+      const noRange = !(m.ranges || []).length ? `<div class="hint" style="margin:2px 0">${where(m) ? "Matched there, not in the raw bytes of this file." : "No byte range: condition, hash, PE structure, heuristic or regex match."}</div>` : "";
+      const ev = (m.evidence || []).length ? `<div style="font-size:11.5px;margin-top:3px">${m.engine.includes("YARA") ? "Patterns: " : "Evidence: "}${m.evidence.slice(0, 12).map(x => `<code>${esc(x)}</code>`).join(" ")}</div>` : "";
+      const src = m.source ? `<div class="hint" style="margin:2px 0">${esc(m.source)}${m.line ? ":" + m.line : ""}</div>` : "";
+      const def = m.definition ? `<details style="margin-top:3px"><summary style="cursor:pointer;font-size:11.5px">Signature</summary><pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:240px;overflow:auto;margin:4px 0">${esc(m.definition)}</pre></details>` : "";
+      return `<tr><td>${esc(m.engine)}</td><td><b>${esc(m.rule)}</b> ${scoreTag(m.score)}<div class="hint" style="margin:2px 0">${esc(m.kind || "")}${where(m) ? " · " + where(m) : ""}</div>${src}${def}</td><td>${rng}${noRange}${ev}</td></tr>`;
+    }).join("");
+    return `<h3 class="va-h">Why it was detected (${list.length})</h3><div class="hint" style="margin:0 0 4px">Every signature that matched, strongest first. Click an offset to select the matched bytes in the hex view.</div><div class="tablewrap" style="max-height:420px"><table><thead><tr><th>Engine</th><th>Signature</th><th>Matched bytes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
 
   function extractedHtml(list) {
     if (!list.length) return "";

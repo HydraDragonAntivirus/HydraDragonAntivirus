@@ -247,6 +247,34 @@ impl EngineAdapter {
         out
     }
 
+    /// Why `data` is detected: every shipped and analyst signature match explained
+    /// (`StaticEngine::explain_matches`, `AnalystEngine::explain`), YARA rules with
+    /// their rule file / line and source text from `yara_rules/`. Empty while the
+    /// engine loads.
+    pub fn explain_matches(&self, data: &[u8], name: &str, max_ranges: usize) -> Vec<openedr_static::engine::MatchExplain> {
+        let mut out = match self.engine.get().and_then(|e| e.read().ok()) {
+            Some(e) => e.explain_matches(data, name, max_ranges),
+            None => Vec::new(),
+        };
+        out.extend(self.analyst.explain(data, name, max_ranges));
+        if let Some(dir) = self.rules_dir() {
+            let wanted: Vec<String> = out.iter().filter(|m| m.engine == "YARA").map(|m| m.rule.clone()).collect();
+            if !wanted.is_empty() {
+                let found = find_yara_rules(&dir, &wanted);
+                for m in out.iter_mut().filter(|m| m.engine == "YARA") {
+                    if let Some((file, line, text)) = found.get(&m.rule) {
+                        m.source = Some(file.clone());
+                        m.line = Some(*line);
+                        m.definition = Some(text.clone());
+                    }
+                }
+            }
+        }
+        // Strongest first: what decided the verdict is at the top.
+        out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        out
+    }
+
     pub fn ready(&self) -> bool {
         self.engine.get().is_some()
     }
@@ -1706,6 +1734,53 @@ pub fn kind_dir_of(path: &Path) -> Option<String> {
     KeptFile::CATEGORIES.contains(&cat).then(|| kind.to_string())
 }
 
+/// Source of the named YARA rules: `rule -> (file, 1-based line, rule text up to
+/// 8 KB)`, from the `.yar` / `.yara` files under `<rules>/` (searched once per call).
+fn find_yara_rules(rules_dir: &Path, wanted: &[String]) -> std::collections::HashMap<String, (String, usize, String)> {
+    let mut found = std::collections::HashMap::new();
+    let mut stack = vec![rules_dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+            if ext != "yar" && ext != "yara" {
+                continue;
+            }
+            let Ok(text) = std::fs::read(&p) else { continue };
+            let text = String::from_utf8_lossy(&text);
+            let lines: Vec<&str> = text.lines().collect();
+            for (i, l) in lines.iter().enumerate() {
+                let t = l.trim_start();
+                let t = t.strip_prefix("private ").or_else(|| t.strip_prefix("global ")).unwrap_or(t);
+                let Some(rest) = t.strip_prefix("rule ") else { continue };
+                let ident: String = rest.trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+                if !wanted.contains(&ident) || found.contains_key(&ident) {
+                    continue;
+                }
+                // The rule text: from its header to the first line that is just `}`.
+                let mut body = String::new();
+                for l2 in &lines[i..] {
+                    body.push_str(l2);
+                    body.push('\n');
+                    if l2.trim() == "}" || body.len() > 8 * 1024 {
+                        break;
+                    }
+                }
+                found.insert(ident, (p.display().to_string(), i + 1, body));
+            }
+            if found.len() == wanted.len() {
+                return found;
+            }
+        }
+    }
+    found
+}
+
 /// Type folders inside a category folder.
 fn type_dirs(cat_dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(cat_dir)
@@ -1924,6 +1999,20 @@ mod pc_test {
 #[cfg(test)]
 mod kept_tests {
     use super::*;
+
+    #[test]
+    fn yara_rule_source_found() {
+        let dir = std::env::temp_dir().join(format!("yar_src_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("yara_rules")).unwrap();
+        std::fs::write(dir.join("yara_rules").join("a.yar"), "import \"pe\"\n\nprivate rule Helper { condition: true }\nrule Evil_One : tag\n{\n  strings:\n    $a = \"evil\"\n  condition:\n    $a\n}\n").unwrap();
+        let f = find_yara_rules(&dir, &["Evil_One".to_string(), "Helper".to_string()]);
+        let (_, line, text) = &f["Evil_One"];
+        assert_eq!(*line, 4);
+        assert!(text.contains("$a = \"evil\"") && text.trim_end().ends_with('}'));
+        assert_eq!(f["Helper"].1, 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn xz_unpacked_verified_and_removed() {

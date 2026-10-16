@@ -37,6 +37,32 @@ pub const JS_TREE_THRESHOLD: f32 = 0.90;
 /// Malicious cutoff to hold FPR down. Retune on generic retrain.
 pub const GENERIC_TREE_THRESHOLD: f32 = 0.85;
 
+/// One signature match explained for the analyst view (`StaticEngine::explain_matches`).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MatchExplain {
+    /// "ClamAV", "YARA", "HydraSig" (the server adds "Analyst").
+    pub engine: &'static str,
+    pub rule: String,
+    /// ClamAV signature type (`Extended`, `Logical`, ...), "YARA-X rule", or the
+    /// HydraDragonSig rule title.
+    pub kind: String,
+    /// The score this match alone gives (0.85+ = Malicious, 0.60 = PUA).
+    pub score: f32,
+    /// Database / rule file and 1-based line, when known.
+    pub source: Option<String>,
+    pub line: Option<usize>,
+    /// The signature text itself, when known.
+    pub definition: Option<String>,
+    /// Where it matched when not the file's raw bytes (archive member, PDF stream,
+    /// data URI) and the ClamAV view (`Raw`, `HtmlNormalized`, `JavaScript`, ...).
+    pub object_path: Option<String>,
+    pub view: Option<String>,
+    /// YARA: matched pattern identifiers; HydraDragonSig: evidence lines.
+    pub evidence: Vec<String>,
+    /// File byte ranges `[start, end)` that matched.
+    pub ranges: Vec<(usize, usize)>,
+}
+
 /// Score from which a single detection makes a file Malicious (the verdict cut-off).
 pub const MALICIOUS_SCORE: f32 = 0.85;
 
@@ -913,6 +939,74 @@ impl StaticEngine {
             for (s, e) in crate::string_rules::evidence_ranges(data, &hit.evidence, left) {
                 out.push(("HydraSig", hit.rule.clone(), s, e));
             }
+        }
+        out
+    }
+
+    /// Why a file is detected, for the analyst view: every ClamAV (PUA included,
+    /// extracted members and normalized views too), YARA-X and HydraDragonSig match of
+    /// `data` with its score, signature source and definition where known, evidence,
+    /// and the file byte ranges it matched (at most `max_ranges` per match). Read-only,
+    /// nothing is cached or kept.
+    pub fn explain_matches(&self, data: &[u8], name: &str, max_ranges: usize) -> Vec<MatchExplain> {
+        let mut out = Vec::new();
+        if data.is_empty() {
+            return out;
+        }
+        for c in self.clam.explain(data, name, max_ranges) {
+            out.push(MatchExplain {
+                engine: "ClamAV",
+                score: clam_score(&c.name),
+                rule: c.name,
+                kind: c.kind,
+                source: Some(c.source),
+                line: Some(c.line),
+                definition: c.definition,
+                object_path: Some(c.object_path),
+                view: Some(c.view),
+                evidence: Vec::new(),
+                ranges: c.ranges,
+            });
+        }
+        let yara_slice: &[u8] = if data.len() > 32 * 1024 * 1024 { &data[..32 * 1024 * 1024] } else { data };
+        for (rule, patterns, ranges) in self.yara.explain(yara_slice, max_ranges) {
+            out.push(MatchExplain {
+                engine: "YARA",
+                score: yara_score(&rule),
+                rule,
+                kind: "YARA-X rule".to_string(),
+                source: None,
+                line: None,
+                definition: None,
+                object_path: None,
+                view: None,
+                evidence: patterns,
+                ranges,
+            });
+        }
+        let is_pe = data.starts_with(b"MZ") && pefile_rs::PE::parse(data).is_ok();
+        let capped: &[u8] = if data.len() > 16 * 1024 * 1024 { &data[..16 * 1024 * 1024] } else { data };
+        let strings = pe_strings::extract_strings(capped);
+        let sha256_hex = {
+            let mut hasher = Sha256::new();
+            hasher.update(data);
+            hex::encode(hasher.finalize())
+        };
+        for hit in self.string_rules.scan_bytes(data, name, &sha256_hex, &strings, is_pe, false, 10, None) {
+            let ranges = crate::string_rules::evidence_ranges(data, &hit.evidence, max_ranges);
+            out.push(MatchExplain {
+                engine: "HydraSig",
+                score: hit.score as f32 / 100.0,
+                kind: hit.title.clone(),
+                rule: hit.rule,
+                source: None,
+                line: None,
+                definition: None,
+                object_path: None,
+                view: None,
+                evidence: hit.evidence,
+                ranges,
+            });
         }
         out
     }

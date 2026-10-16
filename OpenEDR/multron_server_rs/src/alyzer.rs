@@ -567,11 +567,14 @@ pub async fn handle_scan(State(app): State<Arc<AppState>>, Json(b): Json<TokenBo
     let eng = Arc::clone(&app.engine);
     let res = tokio::task::spawn_blocking(move || {
         let sha = hex::encode_upper(Sha256::digest(data.as_slice()));
-        eng.scan_blocking_opts(&data, &name, &sha, false, |_| {})
+        let r = eng.scan_blocking_opts(&data, &name, &sha, false, |_| {});
+        (r, explain_json(&eng.explain_matches(&data, &name, MAX_EXPLAIN_RANGES), &data))
     })
     .await;
     match res {
-        Ok(Ok(r)) => Json(serde_json::json!({
+        Ok((Ok(r), matches)) => Json(serde_json::json!({
+            // Why: every signature that matched, with its definition and the bytes.
+            "matches": matches,
             "ok": true, "verdict": r.verdict, "threat": r.threat, "detail": r.detail,
             "score": r.score, "ms": r.scan_ms, "signer": r.signer,
             // What the engine itself pulled out: archive members, Unicorn-unpacked PE,
@@ -580,9 +583,42 @@ pub async fn handle_scan(State(app): State<Arc<AppState>>, Json(b): Json<TokenBo
             "detections": r.detections,
         }))
         .into_response(),
-        Ok(Err(e)) => err(StatusCode::SERVICE_UNAVAILABLE, e),
+        Ok((Err(e), _)) => err(StatusCode::SERVICE_UNAVAILABLE, e),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
+}
+
+/// Byte ranges shown per match, and bytes shown per range (plus context each side).
+const MAX_EXPLAIN_RANGES: usize = 16;
+const EXPLAIN_BYTES: usize = 64;
+const EXPLAIN_CONTEXT: usize = 16;
+
+/// `MatchExplain` list as JSON, each range with the matched bytes (hex + ASCII, at most
+/// `EXPLAIN_BYTES`) and a little context before and after.
+fn explain_json(list: &[openedr_static::engine::MatchExplain], data: &[u8]) -> Vec<serde_json::Value> {
+    let ascii = |b: &[u8]| b.iter().map(|&c| if (0x20..0x7f).contains(&c) { c as char } else { '.' }).collect::<String>();
+    list.iter()
+        .map(|m| {
+            let ranges: Vec<serde_json::Value> = m
+                .ranges
+                .iter()
+                .filter(|(s, e)| s < e && *e <= data.len())
+                .map(|&(s, e)| {
+                    let shown = &data[s..e.min(s + EXPLAIN_BYTES)];
+                    let before = &data[s.saturating_sub(EXPLAIN_CONTEXT)..s];
+                    let after = &data[e..(e + EXPLAIN_CONTEXT).min(data.len())];
+                    serde_json::json!({
+                        "start": s, "end": e, "len": e - s,
+                        "hex": hex::encode_upper(shown), "ascii": ascii(shown), "truncated": e - s > EXPLAIN_BYTES,
+                        "before": ascii(before), "after": ascii(after),
+                    })
+                })
+                .collect();
+            let mut v = serde_json::to_value(m).unwrap_or_default();
+            v["ranges"] = serde_json::Value::Array(ranges);
+            v
+        })
+        .collect()
 }
 
 /// Currently open files (for the page's "recent" list).
@@ -597,6 +633,23 @@ pub async fn handle_list() -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explain_shows_matched_bytes_with_context() {
+        let data = b"....hello EVILCODE world....";
+        let m = openedr_static::engine::MatchExplain {
+            engine: "ClamAV", rule: "Win.Test-1".into(), kind: "Extended".into(), score: 1.0,
+            source: Some("db/test.ndb".into()), line: Some(3), definition: Some("Win.Test-1:0:*:4556494c434f4445".into()),
+            object_path: Some("x".into()), view: Some("Raw".into()), evidence: vec![], ranges: vec![(10, 18), (5, 999)],
+        };
+        let v = explain_json(&[m], data);
+        let r = v[0]["ranges"].as_array().unwrap();
+        assert_eq!(r.len(), 1, "out-of-file range dropped");
+        assert_eq!(r[0]["ascii"], "EVILCODE");
+        assert_eq!(r[0]["hex"], "4556494C434F4445");
+        assert_eq!(r[0]["after"], " world....");
+        assert_eq!(v[0]["definition"], "Win.Test-1:0:*:4556494c434f4445");
+    }
 
     #[test]
     fn find_forward_and_back() {

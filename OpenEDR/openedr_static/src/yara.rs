@@ -99,6 +99,42 @@ impl YaraScanner {
         out
     }
 
+    /// Every matching rule (`.ign2`-ignored ones skipped) with the byte ranges of its
+    /// pattern matches (at most `max_ranges` per rule; condition-only rules have none)
+    /// and the matched pattern identifiers.
+    pub fn explain(&self, data: &[u8], max_ranges: usize) -> Vec<(String, Vec<String>, Vec<(usize, usize)>)> {
+        let mut out = Vec::new();
+        if data.is_empty() {
+            return out;
+        }
+        for rules in &self.rules {
+            let mut scanner = Scanner::new(rules);
+            let Ok(results) = scanner.scan(data) else { continue };
+            for rule in results.matching_rules() {
+                if self.ignored.contains(rule.identifier()) {
+                    continue;
+                }
+                let mut ranges = Vec::new();
+                let mut patterns = Vec::new();
+                for pattern in rule.patterns() {
+                    let mut any = false;
+                    for m in pattern.matches() {
+                        any = true;
+                        let r = m.range();
+                        if r.start < r.end && ranges.len() < max_ranges {
+                            ranges.push((r.start, r.end));
+                        }
+                    }
+                    if any {
+                        patterns.push(pattern.identifier().to_string());
+                    }
+                }
+                out.push((rule.identifier().to_string(), patterns, ranges));
+            }
+        }
+        out
+    }
+
     pub fn is_loaded(&self) -> bool {
         !self.rules.is_empty()
     }

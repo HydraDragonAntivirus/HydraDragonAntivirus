@@ -341,6 +341,56 @@ impl AnalystEngine {
         hits
     }
 
+    /// Every analyst ClamAV and HydraDragonSig match of `data` (PUA and low ones
+    /// included) explained: signature, score, source file / line and its text,
+    /// evidence and file byte ranges (at most `max_ranges` per match).
+    pub fn explain(&self, data: &[u8], name: &str, max_ranges: usize) -> Vec<openedr_static::engine::MatchExplain> {
+        use openedr_static::engine::MatchExplain;
+        let mut out = Vec::new();
+        let name = if name.is_empty() { "file" } else { name };
+        if let Some(clam) = self.clam.read().unwrap().as_ref() {
+            for m in clam.scan_bytes_named(data, name, ClamScanOptions::default(), &[]) {
+                let raw = m.object_path == name && matches!(m.view, hydradragonclamav::ScanView::Raw);
+                let ranges = if raw { clam.match_ranges(data, &m, max_ranges) } else { Vec::new() };
+                let pua = m.name.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("PUA."));
+                out.push(MatchExplain {
+                    engine: "Analyst ClamAV",
+                    score: if pua { 0.60 } else { 1.0 },
+                    kind: format!("{:?}", m.kind),
+                    source: Some(m.source.path.display().to_string()),
+                    line: Some(m.source.line),
+                    definition: openedr_static::clam::database_line(&m.source.path, m.source.line),
+                    object_path: Some(m.object_path.clone()),
+                    view: Some(format!("{:?}", m.view)),
+                    evidence: Vec::new(),
+                    ranges,
+                    rule: m.name,
+                });
+            }
+        }
+        if let Some(rules) = self.sig.read().unwrap().as_ref() {
+            let ctx = MemoryScanContext { buffer: data.to_vec(), identifier: name.to_string(), base_address: None };
+            if let Ok(report) = hydradragonsig::scan_memory_owned(ctx, rules, &hydradragonsig::ScanOptions::default()) {
+                for f in report.findings {
+                    out.push(MatchExplain {
+                        engine: "Analyst HydraSig",
+                        score: f.score as f32 / 100.0,
+                        kind: format!("{} ({:?})", f.title, f.verdict),
+                        source: None,
+                        line: None,
+                        definition: (!f.description.is_empty()).then(|| f.description.clone()),
+                        object_path: None,
+                        view: None,
+                        ranges: openedr_static::string_rules::evidence_ranges(data, &f.evidence, max_ranges),
+                        evidence: f.evidence,
+                        rule: f.rule_id,
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// Byte ranges `(engine, signature, start, end)` behind the analyst ClamAV and
     /// HydraDragonSig matches that are malware (not `PUA.*`, not Pua / Suspicious
     /// findings), at most `limit`. For in-place disinfection only.
