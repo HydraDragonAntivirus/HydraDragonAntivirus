@@ -1525,24 +1525,115 @@ async fn handle_scan_queue(State(app): State<Arc<AppState>>, Query(q): Query<All
     }))
 }
 
-async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<AllQuery>) -> impl IntoResponse {
+/// `/api/reviews` paging and filters. Without any of them: the oldest 5000 pending
+/// files (`all=1`: every one), as before.
+#[derive(Deserialize, Default)]
+struct ReviewsQuery {
+    #[serde(default)]
+    all: Option<String>,
+    /// Skip this many (after filtering), oldest first.
+    #[serde(default)]
+    offset: Option<usize>,
+    /// Page size (default 5000; `all=1` = no limit).
+    #[serde(default)]
+    limit: Option<usize>,
+    /// Extensions, comma separated, lower case without the dot ("exe,dll"; "-" = none).
+    #[serde(default)]
+    ext: Option<String>,
+    /// Extensions to leave out, comma separated.
+    #[serde(default)]
+    not_ext: Option<String>,
+    /// Current engine verdicts, comma separated (malicious, suspicious, unknown, clean, possible_clean).
+    #[serde(default)]
+    engine_verdict: Option<String>,
+    /// Only files whose name or a folder contains this text (case-insensitive).
+    #[serde(default)]
+    folder: Option<String>,
+    /// Leave out files whose name or a folder contains any of these (comma separated,
+    /// case-insensitive): "found.000,\\temp\\,wp-content".
+    #[serde(default)]
+    not_folder: Option<String>,
+    /// Include the 200 most recent verdicts ("0" leaves them out; default on the
+    /// first page only).
+    #[serde(default)]
+    recent: Option<String>,
+}
+
+fn csv_lower(v: &Option<String>) -> Vec<String> {
+    v.as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(|s| s.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<ReviewsQuery>) -> impl IntoResponse {
     // Open files that are not queued yet (e.g. removed by hand, or seen before
     // auto-queueing) are added before listing.
     let ti = Arc::clone(&app.threat_intel);
     let _ = tokio::task::spawn_blocking(move || ti.sync_review_queue()).await;
     let r = &app.threat_intel.reviews;
-    let pending: Vec<serde_json::Value> = r
-        .pending(if q.all() { usize::MAX } else { 5000 })
-        .iter()
-        .map(|rv| {
+    let all = q.all.as_deref().is_some_and(|v| v == "1" || v == "true");
+    let offset = q.offset.unwrap_or(0);
+    let limit = if all { usize::MAX } else { q.limit.unwrap_or(5000).max(1) };
+    let exts = csv_lower(&q.ext);
+    let not_exts = csv_lower(&q.not_ext);
+    let verdicts = csv_lower(&q.engine_verdict);
+    let folder = q.folder.as_deref().map(|f| f.trim().to_lowercase()).filter(|f| !f.is_empty());
+    let not_folders = csv_lower(&q.not_folder);
+    let filtered = !exts.is_empty() || !not_exts.is_empty() || !verdicts.is_empty() || folder.is_some() || !not_folders.is_empty();
+    // Filter first (cheap fields only), then page, then build the full JSON for the page.
+    let mut matched = 0usize;
+    let mut page: Vec<(crate::human_review::HumanReview, Option<_>, String)> = Vec::new();
+    for rv in r.pending(usize::MAX) {
+        let ins = app.threat_intel.get(&rv.sha256);
+        let name = rv
+            .file_name
+            .clone()
+            .or_else(|| ins.as_ref().and_then(|i| i.file_names.first().cloned()))
+            .unwrap_or_default();
+        let ext = file_ext(&name);
+        if filtered {
+            let ext_key = if ext.is_empty() { "-".to_string() } else { ext.clone() };
+            if !exts.is_empty() && !exts.contains(&ext_key) {
+                continue;
+            }
+            if not_exts.contains(&ext_key) {
+                continue;
+            }
+            if !verdicts.is_empty() {
+                let v = ins.as_ref().map(|i| i.verdict.to_ascii_lowercase()).unwrap_or_else(|| "unknown".into());
+                if !verdicts.contains(&v) {
+                    continue;
+                }
+            }
+            if folder.is_some() || !not_folders.is_empty() {
+                let mut hay = name.to_lowercase();
+                if let Some(i) = &ins {
+                    for f in i.folders.iter().chain(i.full_folders.iter()).chain(i.file_names.iter()) {
+                        hay.push('\n');
+                        hay.push_str(&f.to_lowercase());
+                    }
+                }
+                if folder.as_ref().is_some_and(|f| !hay.contains(f.as_str())) {
+                    continue;
+                }
+                if not_folders.iter().any(|f| hay.contains(f.as_str())) {
+                    continue;
+                }
+            }
+        }
+        matched += 1;
+        if matched > offset && page.len() < limit {
+            page.push((rv, ins, ext));
+        }
+    }
+    let pending: Vec<serde_json::Value> = page
+        .into_iter()
+        .map(|(rv, ins, ext)| {
             let mut v = rv.to_dashboard_json();
-            let ins = app.threat_intel.get(&rv.sha256);
-            let name = rv
-                .file_name
-                .clone()
-                .or_else(|| ins.as_ref().and_then(|i| i.file_names.first().cloned()))
-                .unwrap_or_default();
-            v["ext"] = serde_json::json!(file_ext(&name));
+            v["ext"] = serde_json::json!(ext);
             if let Some(ins) = ins {
                 v["seen_count"] = serde_json::json!(ins.seen_count);
                 v["file_names"] = serde_json::json!(ins.file_names);
@@ -1565,8 +1656,12 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<A
             v
         })
         .collect();
+    let with_recent = match q.recent.as_deref() {
+        Some(v) => v != "0" && v != "false",
+        None => offset == 0,
+    };
     let recent: Vec<serde_json::Value> = r
-        .recent_completed(200)
+        .recent_completed(if with_recent { 200 } else { 0 })
         .iter()
         .map(|rv| {
             let mut v = rv.to_dashboard_json();
@@ -1579,6 +1674,12 @@ async fn handle_reviews_list(State(app): State<Arc<AppState>>, Query(q): Query<A
         "ok": true,
         "stats": r.stats(),
         "coverage": app.threat_intel.queue_coverage(),
+        // Paging: `matched` pending files pass the filters; this page starts at
+        // `offset`; `next_offset` is null on the last page.
+        "matched": matched,
+        "offset": offset,
+        "returned": pending.len(),
+        "next_offset": if offset.saturating_add(pending.len()) < matched { serde_json::json!(offset + pending.len()) } else { serde_json::Value::Null },
         "pending": pending,
         "recent": recent,
     }))

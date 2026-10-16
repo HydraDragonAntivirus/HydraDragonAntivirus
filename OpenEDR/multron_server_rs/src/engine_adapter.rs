@@ -399,6 +399,10 @@ impl EngineAdapter {
     /// ClamAV file type (hydradragonclamav `.ftm` magic and built-in typing: `msexe`,
     /// `rar`, `html`, `text_ascii`, ...). None for an unknown type.
     fn file_type_folder(&self, data: &[u8]) -> Option<String> {
+        // YARA rule source: the engine's own YARA-X parser check (whole file parses).
+        if openedr_static::engine::is_yara_rule_source(data, "") {
+            return Some("yara_rules".to_string());
+        }
         if let Some(t) = hydradragonsig_type(data) {
             return Some(t);
         }
