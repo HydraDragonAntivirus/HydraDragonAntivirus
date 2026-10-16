@@ -245,6 +245,22 @@
   #clientsWrap { max-height: 260px; }
 </style>
 <script>
+  // Analyst key (analyst_keys.txt on the server): sent with every dashboard API call,
+  // kept only in this browser profile.
+  (() => {
+    const orig = window.fetch.bind(window);
+    window.fetch = (url, init) => {
+      let key = "";
+      try { key = localStorage.getItem("multron_analyst_key") || ""; } catch (_) {}
+      if (key && typeof url === "string" && url.startsWith("/api/")) {
+        init = Object.assign({}, init || {});
+        const h = new Headers(init.headers || {});
+        h.set("X-Multron-Analyst-Key", key);
+        init.headers = h;
+      }
+      return orig(url, init);
+    };
+  })();
   let theme = localStorage.getItem("theme");
   if (!theme) theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", theme);
@@ -656,6 +672,11 @@
             <div>
               <label for="haAnalyst">Analyst</label>
               <input id="haAnalyst" type="text" placeholder="name or handle">
+            </div>
+            <div>
+              <label for="haAnalystKey">Analyst key</label>
+              <input id="haAnalystKey" type="password" autocomplete="off" placeholder="from analyst_keys.txt">
+              <div class="hint" id="haKeyMsg" style="margin:2px 0 0"></div>
             </div>
           </div>
           <label for="haThreat">Threat name (required for malicious)</label>
@@ -1744,6 +1765,26 @@ window.sigKey = (list) => list && list.length ? `${list[0].layer}: ${list[0].nam
   const haVTag = (v) => `<span class="tag ${haTag(v)}">${haEsc((v || "unknown").replace("_", " ").toUpperCase())}</span>`;
   try { $("haAnalyst").value = localStorage.getItem("multron_analyst") || ""; } catch (_) {}
   const haAnalystName = () => { const a = $("haAnalyst").value.trim(); try { localStorage.setItem("multron_analyst", a); } catch (_) {} return a; };
+  try { $("haAnalystKey").value = localStorage.getItem("multron_analyst_key") || ""; } catch (_) {}
+  async function haWhoami() {
+    try {
+      const d = await (await fetch("/api/analyst/whoami", { cache: "no-store" })).json();
+      const msg = $("haKeyMsg");
+      if (d.analyst) {
+        $("haAnalyst").value = d.analyst; $("haAnalyst").readOnly = true;
+        msg.textContent = "Signed in as " + d.analyst; msg.style.color = "";
+      } else {
+        $("haAnalyst").readOnly = false;
+        msg.textContent = d.enforced ? ($("haAnalystKey").value ? "Unknown key" : "Key required to save verdicts") : "Keys are off (no analyst_keys.txt)";
+        msg.style.color = d.enforced ? "var(--red)" : "";
+      }
+    } catch (_) {}
+  }
+  $("haAnalystKey").addEventListener("change", () => {
+    try { localStorage.setItem("multron_analyst_key", $("haAnalystKey").value.trim()); } catch (_) {}
+    haWhoami();
+  });
+  haWhoami();
 
   // Tabs
   document.querySelectorAll("#haTabs button").forEach(b => b.onclick = () => {

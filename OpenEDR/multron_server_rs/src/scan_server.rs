@@ -1001,7 +1001,7 @@ async fn handle_socket(socket: WebSocket, server: Arc<ScanServer>, client_ip: St
         .add(simple_event("disconnect", Some(session_id), Some(client_ip), Some(msg)));
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

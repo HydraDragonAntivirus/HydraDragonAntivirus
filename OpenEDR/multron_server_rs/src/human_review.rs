@@ -192,6 +192,41 @@ pub fn analyst_dir() -> std::path::PathBuf {
     dir
 }
 
+/// Analyst keys: `analyst_keys.txt` next to the executable, one `<key> <analyst name>`
+/// per line (`#` comments; keys of at least 16 characters). When the file has keys,
+/// every dashboard call that writes a human verdict or changes what decides a verdict
+/// needs `X-Multron-Analyst-Key`, and the analyst name stored with it is the key's
+/// owner, whatever the request says. No file (or no keys): open, as before.
+pub fn analyst_keys() -> Vec<(String, String)> {
+    match std::fs::read_to_string(crate::config::app_dir().join("analyst_keys.txt")) {
+        Ok(text) => parse_analyst_keys(&text),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn parse_analyst_keys(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            let (key, name) = l.split_once(char::is_whitespace)?;
+            let name = name.trim();
+            (key.len() >= 16 && !name.is_empty()).then(|| (key.to_string(), name.chars().take(64).collect()))
+        })
+        .collect()
+}
+
+/// Analyst name of `key` (constant-time compare against every key).
+pub fn analyst_for_key(keys: &[(String, String)], key: &str) -> Option<String> {
+    let mut found = None;
+    for (k, name) in keys {
+        if crate::scan_server::constant_time_eq(k.as_bytes(), key.as_bytes()) {
+            found = Some(name.clone());
+        }
+    }
+    found
+}
+
 pub fn virustotal_url(sha256: &str) -> String {
     format!("https://www.virustotal.com/gui/file/{}", sha256.to_lowercase())
 }
@@ -713,6 +748,16 @@ impl HumanReviewStore {
 #[cfg(test)]
 mod timing_tests {
     use super::*;
+
+    #[test]
+    fn analyst_keys_parsed_and_matched() {
+        let keys = parse_analyst_keys("# analysts\nk3y-0123456789abcdef  Emirhan Uçan\nshort bob\n\nanother-key-0123456789 alice\nnoname-0123456789abcdef\n");
+        assert_eq!(keys.len(), 2, "short keys and keys without a name are ignored");
+        assert_eq!(analyst_for_key(&keys, "k3y-0123456789abcdef").as_deref(), Some("Emirhan Uçan"));
+        assert_eq!(analyst_for_key(&keys, "another-key-0123456789").as_deref(), Some("alice"));
+        assert_eq!(analyst_for_key(&keys, "k3y-0123456789abcdeX"), None);
+        assert_eq!(analyst_for_key(&keys, ""), None);
+    }
 
     #[test]
     fn start_wait_analysis() {

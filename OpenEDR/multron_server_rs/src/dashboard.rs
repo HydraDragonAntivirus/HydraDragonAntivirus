@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Extension, Path, Query, State};
 use axum::http::header::HeaderMap;
 use axum::http::{Method, Request, StatusCode};
 use axum::middleware::{self, Next};
@@ -391,6 +391,7 @@ pub fn dashboard_router(state: Arc<AppState>) -> Router {
         .route("/api/retrohunt/archive", post(handle_retrohunt_archive))
         .route("/api/naming", get(handle_naming_check))
         .route("/api/companies", get(handle_companies_get).post(handle_companies_save))
+        .route("/api/analyst/whoami", get(handle_analyst_whoami))
         .layer(middleware::from_fn(guard_middleware))
         .with_state(state)
 }
@@ -403,19 +404,55 @@ const ARCHIVE_ALLOWED: [&str; 19] = [
     "/api/alyzer/archive/open", "/api/alyzer/unpack", "/api/retrohunt/archive", "/api/retrohunt/stop",
 ];
 
-async fn guard_middleware(req: Request<axum::body::Body>, next: Next) -> Response {
-    let headers = req.headers();
+/// `Host` header names this computer: `localhost`, `127.0.0.1` or `[::1]` / `::1`,
+/// with or without a port.
+fn is_local_host(host: &str) -> bool {
+    let name = match host.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None if host.matches(':').count() > 1 => host, // bare IPv6, no port
+        None => host.split(':').next().unwrap_or(""),
+    };
+    name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
 
-    // Check Host header: must be localhost or loopback
-    if let Some(host_val) = headers.get("host").and_then(|h| h.to_str().ok()) {
-        let host = host_val.split(':').next().unwrap_or(host_val);
-        if host != "localhost" && host != "127.0.0.1" && host != "::1" {
-            return (
-                StatusCode::FORBIDDEN,
-                "dashboard is only available on this computer",
-            )
-                .into_response();
-        }
+/// Dashboard calls that write human verdicts or change what decides a verdict (rules,
+/// FP lists, company lists, bans): with `analyst_keys.txt` in place they need a valid
+/// `X-Multron-Analyst-Key` (see `human_review::analyst_keys`).
+const ANALYST_PATHS: [&str; 14] = [
+    "/api/review", "/api/review/start", "/api/review/release", "/api/review/delete",
+    "/api/reviews/bulk", "/api/reviews/requeue", "/api/signatures", "/api/signatures/delete",
+    "/api/fp/ignore", "/api/fp/unignore", "/api/companies", "/api/rules", "/api/bans/add", "/api/bans/remove",
+];
+
+/// The analyst a request was made by: the owner of its `X-Multron-Analyst-Key`.
+#[derive(Clone, Debug)]
+pub struct AnalystId(pub String);
+
+/// With a key, the stored analyst name is the key's owner, not what the body says.
+fn apply_analyst(id: &Option<Extension<AnalystId>>, field: &mut String) {
+    if let Some(Extension(a)) = id {
+        *field = a.0.clone();
+    }
+}
+
+async fn guard_middleware(mut req: Request<axum::body::Body>, next: Next) -> Response {
+    let forbidden = || (StatusCode::FORBIDDEN, "dashboard is only available on this computer").into_response();
+
+    // The connection itself must come from this computer (the Host header alone is
+    // sent by the client and proves nothing). No peer address = refuse.
+    let peer_local = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .is_some_and(|c| c.0.ip().is_loopback());
+    if !peer_local {
+        return forbidden();
+    }
+
+    // Host header must name this computer too (stops DNS rebinding from a web page);
+    // a request without one is refused.
+    let headers = req.headers();
+    if !headers.get("host").and_then(|h| h.to_str().ok()).is_some_and(is_local_host) {
+        return forbidden();
     }
 
     // Archive server: read-only. Only running the listener and viewing files are allowed.
@@ -431,6 +468,25 @@ async fn guard_middleware(req: Request<axum::body::Body>, next: Next) -> Respons
     if req.method() == Method::POST {
         if headers.get("X-Multron-Dashboard").and_then(|v| v.to_str().ok()) != Some("1") {
             return (StatusCode::FORBIDDEN, "forbidden").into_response();
+        }
+    }
+
+    // Analyst keys (when `analyst_keys.txt` has any): who is calling.
+    let keys = crate::human_review::analyst_keys();
+    if !keys.is_empty() {
+        let who = headers
+            .get("X-Multron-Analyst-Key")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|k| crate::human_review::analyst_for_key(&keys, k.trim()));
+        if req.method() == Method::POST && ANALYST_PATHS.contains(&req.uri().path()) && who.is_none() {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"ok": false, "error": "analyst key required: enter your analyst key in Human analysis (X-Multron-Analyst-Key)"})),
+            )
+                .into_response();
+        }
+        if let Some(name) = who {
+            req.extensions_mut().insert(AnalystId(name));
         }
     }
 
@@ -1806,7 +1862,8 @@ const BULK_MAX: usize = 100_000;
 /// hashing (`folder_job`). `verdict` = malicious | suspicious | clean | dismiss
 /// (dismiss = remove pending entries). A malicious verdict needs `threat_name`.
 /// `dry_run` only reports what would change.
-async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, Json(mut b): Json<ReviewBulkBody>) -> Response {
+async fn handle_reviews_bulk(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<ReviewBulkBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
     if b.folder_job {
         if crate::folder_wl::JOB.is_running() {
             return (StatusCode::CONFLICT, Json(serde_json::json!({"error": "the folder is still being hashed"}))).into_response();
@@ -2025,8 +2082,10 @@ fn sync_analyst_tlsh(
 /// the verdict's label.
 async fn handle_review_save(
     State(app): State<Arc<AppState>>,
-    Json(b): Json<ReviewSaveBody>,
+    who: Option<Extension<AnalystId>>,
+    Json(mut b): Json<ReviewSaveBody>,
 ) -> Response {
+    apply_analyst(&who, &mut b.analyst);
     let threat = if b.threat_name.trim().is_empty() { None } else { Some(b.threat_name.as_str()) };
     match app.threat_intel.reviews.complete(b.sha256.trim(), &b.verdict, threat, &b.note, &b.internal_note, &b.analyst) {
         Ok(r) => {
@@ -2065,7 +2124,8 @@ struct ReviewStartBody {
 }
 
 /// "Start analysis" (Valkyrie-style start date): marks the hash as being analysed.
-async fn handle_review_start(State(app): State<Arc<AppState>>, Json(b): Json<ReviewStartBody>) -> Response {
+async fn handle_review_start(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<ReviewStartBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
     match app.threat_intel.reviews.start(b.sha256.trim(), &b.analyst, b.take_over) {
         Ok(r) => {
             info_event(&app, format!("human analysis started: {} by {}", r.sha256, if r.started_by.is_empty() { "analyst" } else { &r.started_by }));
@@ -2293,6 +2353,13 @@ async fn handle_signature_delete(
 // ---------------- Company (signer) allow / block lists ----------------
 
 /// The company (signer) allow and block lists.
+/// Who the dashboard is talking to: `enforced` = `analyst_keys.txt` has keys (verdicts
+/// then need `X-Multron-Analyst-Key`), `analyst` = owner of the key sent, if valid.
+async fn handle_analyst_whoami(who: Option<Extension<AnalystId>>) -> impl IntoResponse {
+    let enforced = !crate::human_review::analyst_keys().is_empty();
+    Json(serde_json::json!({ "ok": true, "enforced": enforced, "analyst": who.map(|Extension(a)| a.0) }))
+}
+
 async fn handle_companies_get(State(app): State<Arc<AppState>>) -> impl IntoResponse {
     Json(serde_json::json!({ "ok": true, "lists": app.engine.analyst.company_lists() }))
 }
@@ -2411,7 +2478,8 @@ struct BanBody {
 }
 
 /// Bans an IP or CIDR range on every public route and closes its open sessions.
-async fn handle_ban_add(State(app): State<Arc<AppState>>, Json(b): Json<BanBody>) -> Response {
+async fn handle_ban_add(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<BanBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
     match app.scan_server.ip_bans.add(&b.ip, &b.reason, &b.analyst, b.minutes) {
         Ok(ban) => {
             let closed = app.scan_server.close_banned_sessions().await;
@@ -2466,7 +2534,8 @@ struct FpIgnoreBody {
 
 /// Adds a signature to a false-positive ignore list (`kind` = clamav | hydrasig | yara)
 /// with reason, analyst and the file it was seen on.
-async fn handle_fp_ignore(State(app): State<Arc<AppState>>, Json(b): Json<FpIgnoreBody>) -> Response {
+async fn handle_fp_ignore(State(app): State<Arc<AppState>>, who: Option<Extension<AnalystId>>, Json(mut b): Json<FpIgnoreBody>) -> Response {
+    apply_analyst(&who, &mut b.analyst);
     let bad = |e: String| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
     let Some(kind) = crate::fp_ignore::Kind::parse(&b.kind) else {
         return bad("kind must be clamav, hydrasig or yara".into());
@@ -2516,5 +2585,78 @@ async fn handle_fp_unignore(State(app): State<Arc<AppState>>, Json(b): Json<FpUn
             Json(serde_json::json!({"ok": true, "note": "Removed. Active after the next engine reload."})).into_response()
         }
         Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn local_host_names() {
+        for h in ["localhost", "localhost:9440", "LOCALHOST", "127.0.0.1", "127.0.0.1:9440", "[::1]:9440", "[::1]", "::1", "127.0.0.2"] {
+            assert!(is_local_host(h), "{h}");
+        }
+        for h in ["", "evil.com", "evil.com:9440", "localhost.evil.com", "192.168.1.5:9440", "[fe80::1]:9440", "10.0.0.1"] {
+            assert!(!is_local_host(h), "{h}");
+        }
+    }
+
+    async fn status(addr: std::net::SocketAddr, raw: &str) -> String {
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        s.write_all(raw.as_bytes()).await.unwrap();
+        let mut buf = vec![0u8; 256];
+        let n = s.read(&mut buf).await.unwrap();
+        String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or("").to_string()
+    }
+
+    #[tokio::test]
+    async fn guard_checks_host_and_header() {
+        let app = Router::new()
+            .route("/x", get(|| async { "ok" }).post(|| async { "ok" }))
+            .layer(middleware::from_fn(guard_middleware));
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(l, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+        });
+        let get = |host: &str| format!("GET /x HTTP/1.1\r\n{host}Connection: close\r\n\r\n");
+        assert!(status(addr, &get("Host: localhost\r\n")).await.contains("200"));
+        assert!(status(addr, &get("Host: evil.com\r\n")).await.contains("403"), "DNS rebinding");
+        assert!(status(addr, "GET /x HTTP/1.0\r\n\r\n").await.contains("403"), "no Host header");
+        let post = |hdr: &str| format!("POST /x HTTP/1.1\r\nHost: 127.0.0.1\r\n{hdr}Content-Length: 0\r\nConnection: close\r\n\r\n");
+        assert!(status(addr, &post("")).await.contains("403"), "POST without the dashboard header");
+        assert!(status(addr, &post("X-Multron-Dashboard: 1\r\n")).await.contains("200"));
+    }
+
+    #[tokio::test]
+    async fn analyst_key_required_and_names_the_analyst() {
+        let file = crate::config::app_dir().join("analyst_keys.txt");
+        assert!(!file.exists(), "test would overwrite a real analyst_keys.txt");
+        std::fs::write(&file, "test-key-0123456789abcdef Test Analyst\n").unwrap();
+        let app = Router::new()
+            .route("/api/review", post(|who: Option<Extension<AnalystId>>| async move { who.map(|Extension(a)| a.0).unwrap_or_default() }))
+            .layer(middleware::from_fn(guard_middleware));
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(l, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+        });
+        let req = |key: &str| format!("POST /api/review HTTP/1.1\r\nHost: localhost\r\nX-Multron-Dashboard: 1\r\n{key}Content-Length: 0\r\nConnection: close\r\n\r\n");
+        let full = |raw: String| async move {
+            let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+            s.write_all(raw.as_bytes()).await.unwrap();
+            let mut out = String::new();
+            s.read_to_string(&mut out).await.unwrap();
+            out
+        };
+        let no_key = full(req("")).await;
+        let bad_key = full(req("X-Multron-Analyst-Key: wrong-key-0123456789\r\n")).await;
+        let good = full(req("X-Multron-Analyst-Key: test-key-0123456789abcdef\r\n")).await;
+        let _ = std::fs::remove_file(&file);
+        assert!(no_key.starts_with("HTTP/1.1 401"), "{no_key}");
+        assert!(bad_key.starts_with("HTTP/1.1 401"), "{bad_key}");
+        assert!(good.starts_with("HTTP/1.1 200") && good.ends_with("Test Analyst"), "{good}");
     }
 }

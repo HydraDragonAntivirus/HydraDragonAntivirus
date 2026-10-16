@@ -11,7 +11,8 @@ Every endpoint is listed in the [reference](#reference) below, generated from th
 
 ## Dashboard API: access rules
 
-- **Only from this computer.** The `Host` header must be `localhost`, `127.0.0.1` or `::1`; anything else gets `403 dashboard is only available on this computer`.
+- **Only from this computer.** The connection must come from a loopback address (127.0.0.1 / ::1) *and* the `Host` header must name this computer (`localhost`, `127.0.0.1`, `[::1]`, with or without a port); a missing `Host` header is refused too. Anything else gets `403 dashboard is only available on this computer`. The server refuses to start with a non-loopback `--ui` address.
+- **Analyst keys.** When `analyst_keys.txt` next to `multron_server.exe` has keys (one `<key> <analyst name>` per line, keys of 16+ characters, `#` comments), the calls that write human verdicts or change what decides a verdict — `/api/review`, `/api/review/start`, `/api/review/release`, `/api/review/delete`, `/api/reviews/bulk`, `/api/reviews/requeue`, `/api/signatures`, `/api/signatures/delete`, `/api/fp/ignore`, `/api/fp/unignore`, `/api/companies`, `/api/rules`, `/api/bans/add`, `/api/bans/remove` — need `X-Multron-Analyst-Key: <key>` (else `401`). The analyst name stored with a verdict is then the key's owner; an `analyst` field in the body is ignored. Without the file (or with no keys) these calls stay open, as before. The dashboard has an "Analyst key" field in Human analysis (kept in that browser profile only); `GET /api/analyst/whoami` says whether keys are on and whose key was sent. Keep the file readable only by the Windows account that runs the server.
 - **POST needs `X-Multron-Dashboard: 1`.** Every state-changing call (all `POST`s) must send this header, otherwise `403 forbidden`. `GET`s need nothing. This keeps a web page in a browser from changing the server.
 - **Archive server (read-only mode):** on the archive copy only `GET`s and a few calls (`/api/start`, `/api/stop`, `/api/maintenance`, `/api/limits`, the alyzer viewer, retrohunt on the archive, …) are allowed; the rest answer `403` with `{"ok": false, "error": "archive server: read-only …"}`.
 - **Bodies are JSON** (`Content-Type: application/json`). Answers are JSON: `{"ok": true, …}` on success, `{"error": "…"}` (sometimes with `"ok": false`) and a 4xx/5xx status on failure.
@@ -31,7 +32,8 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:9440/api/review" `
 import requests
 BASE = "http://127.0.0.1:9440"
 H = {"X-Multron-Dashboard": "1"}
-requests.post(f"{BASE}/api/review", headers=H, json={"sha256": sha, "verdict": "clean", "analyst": "emirhan"})
+H["X-Multron-Analyst-Key"] = "<your key from analyst_keys.txt>"   # when keys are on
+requests.post(f"{BASE}/api/review", headers=H, json={"sha256": sha, "verdict": "clean"})
 ```
 
 ## Reviews: paging and filters
@@ -1079,7 +1081,7 @@ Query parameters:
 
 #### `GET /api/companies`
 
-The company (signer) allow and block lists.
+(No doc comment on the handler yet.)
 
 <sub>Handler: `src/dashboard.rs` → `handle_companies_get`</sub>
 
@@ -1095,6 +1097,12 @@ JSON body:
 | `block` | `array of string` | no |  |
 
 <sub>Handler: `src/dashboard.rs` → `handle_companies_save`</sub>
+
+#### `GET /api/analyst/whoami`
+
+The company (signer) allow and block lists. Who the dashboard is talking to: `enforced` = `analyst_keys.txt` has keys (verdicts then need `X-Multron-Analyst-Key`), `analyst` = owner of the key sent, if valid.
+
+<sub>Handler: `src/dashboard.rs` → `handle_analyst_whoami`</sub>
 
 
 ### Scan server (port 5306, public through the tunnel)

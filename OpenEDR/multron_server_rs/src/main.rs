@@ -55,6 +55,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ui
         .parse()
         .map_err(|e| format!("invalid --ui address '{}': {}", args.ui, e))?;
+    // The dashboard can give human verdicts and change the server: this computer only.
+    if !ui_addr.ip().is_loopback() {
+        return Err(format!(
+            "--ui {ui_addr}: the dashboard only listens on this computer (127.0.0.1 or [::1]), not on the network"
+        )
+        .into());
+    }
 
     // Seamless update (`--handoff`, started by Multron Updater next to the running
     // server): load everything while the running server keeps scanning, then take over.
