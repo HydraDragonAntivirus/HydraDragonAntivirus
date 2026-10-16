@@ -17,3 +17,4 @@ unrar = { package = "unrar-ng", git = "https://github.com/HydraDragonAntivirus/u
 thiserror = "2"
 tempfile = "3"
 isomage = "2"
+cab = "0.6"

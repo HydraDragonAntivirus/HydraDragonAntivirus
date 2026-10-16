@@ -1263,49 +1263,15 @@ impl StaticEngine {
                 }
             }
 
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            // A timestamped signature made while the certificate was valid stays
-            // valid after it expires (as on Windows): only an expired certificate
-            // without such a timestamp is a finding.
-            if info.is_signed && (info.is_expired_untimestamped(now) || info.is_not_yet_valid(now)) {
-                let which = if info.is_expired_untimestamped(now) { "expired" } else { "not-yet-valid" };
-                detections.push(DetectionItem {
-                    layer: "SignerRule".to_string(),
-                    name: format!("SignerCertificate {which}"),
-                    score: Some(CLAM_PUA_SCORE),
-                    details: Some(format!(
-                        "validity {}..{}",
-                        info.not_before.unwrap_or(0),
-                        info.not_after.unwrap_or(0)
-                    )),
-                });
-                max_score = max_score.max(CLAM_PUA_SCORE);
-            }
+            // Certificate validity (expired / not yet valid) and missing
+            // countersignatures are NOT detections: legitimately signed scripts
+            // (Python venv Activate.ps1, PSF / DigiCert, no timestamp) hit them.
+            // The dashboard still shows the validity window as information.
 
             // A binary is ONLY treated as trusted if:
             // 1. Its cryptographic signature passed WinVerifyTrust / Catalog verification (is_trusted == true).
             // 2. AND its signer is explicitly verified against trusted_signers.yaml (trusted_by_yaml == true).
             let is_fully_trusted = info.is_trusted && trusted_by_yaml;
-
-            // Signed with an embedded PKCS#7 that carries no countersignature.
-            // A revoked certificate then looks exactly as valid as a current one,
-            // so this is a signal on its own - and it stays quiet on
-            // catalog-signed files, which have no PKCS#7 to date.
-            if info.is_undated() {
-                detections.push(DetectionItem {
-                    layer: "SignerRule".to_string(),
-                    name: "UndatedSignature".to_string(),
-                    score: Some(CLAM_PUA_SCORE),
-                    details: Some(format!(
-                        "embedded Authenticode without countersignature, signer={}",
-                        info.signer_name.as_deref().unwrap_or("<none>")
-                    )),
-                });
-                max_score = max_score.max(CLAM_PUA_SCORE);
-            }
 
             // A timestamp authority the rules name as abusive is the
             // certificate-abuse case one layer down from the code signer.

@@ -2313,6 +2313,7 @@ fn cl_type_to_format(cl_type: &str) -> Option<&'static str> {
         "CL_TYPE_GZ" => "gz",
         "CL_TYPE_XZ" => "xz",
         "CL_TYPE_7Z" => "7z",
+        "CL_TYPE_MSCAB" => "cab",
         "CL_TYPE_POSIX_TAR" | "CL_TYPE_OLD_TAR" | "CL_TYPE_TAR" => "tar",
         _ => return None,
     })

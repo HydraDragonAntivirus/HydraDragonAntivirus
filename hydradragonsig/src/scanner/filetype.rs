@@ -52,6 +52,7 @@ pub fn classify_bytes(path: &Path, data: &[u8]) -> FileTypeInfo {
     let validation = inspect_binary_formats(data);
     apply_binary_validation(&mut info, validation);
     apply_archive_markers(&mut info, data);
+    apply_known_formats(&mut info, data);
     apply_language_and_text_markers(&mut info, path, data);
     finalize_file_type(&mut info);
     info
@@ -119,6 +120,15 @@ pub fn known_file_type_aliases() -> &'static [&'static str] {
         "ole",
         "compound",
         "microsoft_compound",
+        "mscab",
+        "cab",
+        "installshield_cab",
+        "ico",
+        "cur",
+        "evtx",
+        "evt",
+        "registry_hive",
+        "der",
         "binary",
         "unknown",
         "broken",
@@ -437,6 +447,145 @@ fn apply_language_and_text_markers(info: &mut FileTypeInfo, path: &Path, data: &
         push_tag(info, "asar");
         push_tag(info, "archive");
     }
+}
+
+/// Formats identified by their content only (magic + structure checks, never the
+/// file name). CAB / InstallShield CAB are marked as archives so the extractor
+/// path picks them up.
+fn apply_known_formats(info: &mut FileTypeInfo, data: &[u8]) {
+    if info.is_pe || info.is_elf || info.is_macho || info.primary != "unknown" {
+        return;
+    }
+    let Some(kind) = known_format(data) else { return };
+    if matches!(kind, "mscab" | "installshield_cab") {
+        info.is_archive = true;
+        push_tag(info, "cab");
+        push_tag(info, "archive");
+    }
+    set_primary_if_unknown(info, kind);
+    push_tag(info, kind);
+}
+
+fn le16(d: &[u8], o: usize) -> Option<u32> {
+    d.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]) as u32)
+}
+
+fn le32(d: &[u8], o: usize) -> Option<u32> {
+    d.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+/// ICO (type 1) / CUR (type 2): header + every directory entry must fit the
+/// file. `00 00 01 00` alone also starts ETW traces, so the entries are checked.
+fn icon_kind(d: &[u8]) -> Option<&'static str> {
+    if d.len() < 22 || d[0] != 0 || d[1] != 0 || d[3] != 0 {
+        return None;
+    }
+    let kind = match d[2] {
+        1 => "ico",
+        2 => "cur",
+        _ => return None,
+    };
+    let count = le16(d, 4)? as usize;
+    if count == 0 || count > 256 {
+        return None;
+    }
+    let dir_end = 6 + 16 * count;
+    if d.len() < dir_end {
+        return None;
+    }
+    for i in 0..count {
+        let e = 6 + 16 * i;
+        if d[e + 3] != 0 {
+            return None;
+        }
+        if kind == "ico" && (le16(d, e + 4)? > 1 || !matches!(le16(d, e + 6)?, 0 | 1 | 2 | 4 | 8 | 16 | 24 | 32)) {
+            return None;
+        }
+        let (size, off) = (le32(d, e + 8)? as usize, le32(d, e + 12)? as usize);
+        if size == 0 || off < dir_end || off.checked_add(size)? > d.len() {
+            return None;
+        }
+    }
+    Some(kind)
+}
+
+fn known_format(d: &[u8]) -> Option<&'static str> {
+    let at = |o: usize, m: &[u8]| d.get(o..o + m.len()) == Some(m);
+    // Microsoft Cabinet: "MSCF", reserved 0, format version 1.3.
+    if at(0, b"MSCF\0\0\0\0") && d.get(24..26) == Some(&[3, 1][..]) {
+        return Some("mscab");
+    }
+    if at(0, b"ISc(") {
+        return Some("installshield_cab");
+    }
+    if let Some(k) = icon_kind(d) {
+        return Some(k);
+    }
+    if at(0, b"ElfFile\0") {
+        return Some("evtx");
+    }
+    if at(4, b"LfLe") && le32(d, 0) == Some(0x30) {
+        return Some("evt");
+    }
+    if at(0, b"regf") && d.len() >= 4096 {
+        return Some("registry_hive");
+    }
+    if at(0, b"mrm_pri") {
+        return Some("windows_pri");
+    }
+    if at(0, b"XBF\0") {
+        return Some("xaml_binary");
+    }
+    if at(0, b"PKCX") {
+        return Some("appx_signature");
+    }
+    if at(0, b"qv4cdata") {
+        return Some("qt_qmlc");
+    }
+    if at(0, &[0x3C, 0xB8, 0x64, 0x18, 0xCA, 0xEF, 0x9C, 0x95, 0xCD, 0x21, 0x1C, 0xBF, 0x60, 0xA1, 0xBD, 0xDD]) {
+        return Some("qt_qm");
+    }
+    if at(0, b"qres\0\0\0") {
+        return Some("qt_rcc");
+    }
+    if at(0, b"wOFF") {
+        return Some("woff");
+    }
+    if at(0, b"wOF2") {
+        return Some("woff2");
+    }
+    if at(0, b"OTTO") || at(0, b"ttcf") {
+        return Some("font");
+    }
+    // TrueType: version 1.0, then a sane table count and a printable first tag.
+    if at(0, &[0, 1, 0, 0]) && d.len() >= 6 {
+        let tables = u16::from_be_bytes([d[4], d[5]]) as usize;
+        if (1..=64).contains(&tables) && d.len() >= 12 + 16 * tables && d[12..16].iter().all(|c| c.is_ascii_graphic() || *c == b' ') {
+            return Some("font");
+        }
+    }
+    if at(4, b"ftyp") && d.len() >= 12 && d[8..12].iter().all(|c| c.is_ascii_alphanumeric() || *c == b' ') {
+        return Some("mp4");
+    }
+    // MPEG transport stream: sync byte every 188 bytes.
+    if d.len() >= 377 && d[0] == 0x47 && d[188] == 0x47 && d[376] == 0x47 {
+        return Some("mpeg_ts");
+    }
+    if at(0, b"DBPF") {
+        return Some("dbpf");
+    }
+    // One DER-encoded ASN.1 SEQUENCE spanning exactly the file (X.509, PKCS#7, ...).
+    if d.len() >= 4 && d[0] == 0x30 {
+        let total = match d[1] {
+            0x82 => Some(u16::from_be_bytes([d[2], d[3]]) as usize + 4),
+            0x83 if d.len() >= 5 => Some(((d[2] as usize) << 16 | (d[3] as usize) << 8 | d[4] as usize) + 5),
+            _ => None,
+        };
+        if total == Some(d.len()) {
+            return Some("der");
+        }
+    }
+    None
 }
 
 fn finalize_file_type(info: &mut FileTypeInfo) {
@@ -790,6 +939,32 @@ pub fn is_javascript(data: &[u8]) -> bool {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn detects_formats_by_content() {
+        let ty = |d: &[u8]| classify_bytes_only(d).primary;
+        let mut cab = b"MSCF\0\0\0\0".to_vec();
+        cab.resize(36, 0);
+        cab[24] = 3;
+        cab[25] = 1;
+        assert_eq!(ty(&cab), "mscab");
+        assert!(classify_bytes_only(&cab).is_archive);
+        let mut ico = vec![0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0];
+        ico.extend_from_slice(&40u32.to_le_bytes());
+        ico.extend_from_slice(&22u32.to_le_bytes());
+        ico.resize(62, 0);
+        assert_eq!(ty(&ico), "ico");
+        // ETW traces also start with 00 00 01 00: not an icon.
+        let mut etl = vec![0, 0, 1, 0, 0xd0, 2];
+        etl.resize(4096, 0);
+        assert_ne!(ty(&etl), "ico");
+        let mut evtx = b"ElfFile\0".to_vec();
+        evtx.resize(128, 0);
+        assert_eq!(ty(&evtx), "evtx");
+        let mut der = vec![0x30, 0x82, 0x00, 0x04];
+        der.extend_from_slice(&[2, 2, 1, 1]);
+        assert_eq!(ty(&der), "der");
+    }
 
     #[test]
     fn detects_plain_text() {

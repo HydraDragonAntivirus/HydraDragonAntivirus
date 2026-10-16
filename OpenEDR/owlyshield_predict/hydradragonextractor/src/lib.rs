@@ -29,6 +29,8 @@ const XZ_MAGIC: [u8; 6] = [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00];
 const BZ2_MAGIC: [u8; 3] = [0x42, 0x5a, 0x68];
 pub(crate) const SEVENZ_MAGIC: [u8; 6] = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c];
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
+/// Microsoft Cabinet: "MSCF" + reserved 0; format version 1.3 at offset 24.
+const CAB_MAGIC: [u8; 8] = *b"MSCF\0\0\0\0";
 /// ISO 9660 has "CD001" at sector 16 offset 1 (byte 32769).
 const ISO_MAGIC_OFFSET: usize = 32769;
 const ISO_MAGIC: [u8; 5] = *b"CD001";
@@ -97,6 +99,8 @@ pub fn detect_format(data: &[u8]) -> Option<&'static str> {
         Some("tar")
     } else if is_iso(data) {
         Some("iso")
+    } else if is_cab(data) {
+        Some("cab")
     } else {
         None
     }
@@ -105,6 +109,10 @@ pub fn detect_format(data: &[u8]) -> Option<&'static str> {
 pub(crate) fn is_tar(data: &[u8]) -> bool {
     data.len() > TAR_USTAR_OFFSET + 5
         && data[TAR_USTAR_OFFSET..TAR_USTAR_OFFSET + 5] == TAR_USTAR_MAGIC
+}
+
+pub(crate) fn is_cab(data: &[u8]) -> bool {
+    data.starts_with(&CAB_MAGIC) && data.get(24..26) == Some(&[3, 1][..])
 }
 
 pub(crate) fn is_rar(data: &[u8]) -> bool {
@@ -299,6 +307,9 @@ pub fn list_entries(data: &[u8]) -> Result<Vec<EntryInfo>> {
     if is_iso(data) {
         return iso_list_entries(data);
     }
+    if is_cab(data) {
+        return cab_list_entries(data);
+    }
     Err(ExtractError::OperationFailed {
         reason: "listing not supported for this format".to_string(),
     })
@@ -334,6 +345,9 @@ pub fn extract_entry(data: &[u8], name: &str) -> Result<Vec<u8>> {
     if is_iso(data) {
         return iso_extract_entry(data, name);
     }
+    if is_cab(data) {
+        return cab_extract_entry(data, name);
+    }
     Err(ExtractError::OperationFailed {
         reason: "extraction not supported for this format".to_string(),
     })
@@ -366,6 +380,9 @@ fn extract_to_memory(data: &[u8], relevant_only: bool) -> Result<Vec<ExtractedEn
     }
     if is_iso(data) {
         return iso_to_memory(data);
+    }
+    if is_cab(data) {
+        return cab_to_memory(data);
     }
     Err(ExtractError::OperationFailed {
         reason: "unsupported or unknown archive format".to_string(),
@@ -841,6 +858,90 @@ fn iso_extract_entry(data: &[u8], name: &str) -> Result<Vec<u8>> {
 }
 
 // ---------------------------------------------------------------------------
+// Microsoft Cabinet (CAB): stored, MSZIP and LZX folders (`cab` crate).
+// Quantum-compressed folders are rare and not supported: their files are
+// skipped, the rest of the cabinet is still extracted.
+// ---------------------------------------------------------------------------
+
+/// (name as stored, `\` separators kept for lookup; uncompressed size)
+fn cab_names(data: &[u8]) -> Result<Vec<(String, u64)>> {
+    let cabinet = cab::Cabinet::new(Cursor::new(data)).map_err(map_err)?;
+    let mut names = Vec::new();
+    for folder in cabinet.folder_entries() {
+        for file in folder.file_entries() {
+            names.push((file.name().to_string(), file.uncompressed_size() as u64));
+        }
+    }
+    Ok(names)
+}
+
+fn cab_read(cabinet: &mut cab::Cabinet<Cursor<&[u8]>>, name: &str, compressed_len: usize) -> Result<Vec<u8>> {
+    let reader = cabinet.read_file(name).map_err(map_err)?;
+    let mut buf = Vec::new();
+    reader
+        .take(MAX_DECOMPRESSED_SIZE as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(map_err)?;
+    if is_decompression_bomb(compressed_len, buf.len()) {
+        return Err(ExtractError::DecompressionBomb { format: "cab" });
+    }
+    Ok(buf)
+}
+
+fn cab_to_memory(data: &[u8]) -> Result<Vec<ExtractedEntry>> {
+    let names = cab_names(data)?;
+    let mut cabinet = cab::Cabinet::new(Cursor::new(data)).map_err(map_err)?;
+    let mut out = Vec::new();
+    let mut total = 0usize;
+    let mut last_err = None;
+    for (name, size) in names {
+        if out.len() >= MAX_ARCHIVE_ENTRIES {
+            break;
+        }
+        match cab_read(&mut cabinet, &name, data.len()) {
+            Ok(content) => {
+                total += content.len();
+                if is_decompression_bomb(data.len(), total) {
+                    return Err(ExtractError::DecompressionBomb { format: "cab" });
+                }
+                if !content.is_empty() {
+                    out.push(ExtractedEntry {
+                        name: name.replace('\\', "/"),
+                        size_real: size,
+                        file_pos: 0,
+                        data: content,
+                    });
+                }
+            }
+            Err(e @ ExtractError::DecompressionBomb { .. }) => return Err(e),
+            // A damaged or Quantum folder: skip its files, keep the others.
+            Err(e) => last_err = Some(e),
+        }
+    }
+    match (out.is_empty(), last_err) {
+        (true, Some(e)) => Err(e),
+        _ => Ok(out),
+    }
+}
+
+fn cab_list_entries(data: &[u8]) -> Result<Vec<EntryInfo>> {
+    Ok(cab_names(data)?
+        .into_iter()
+        .map(|(name, size)| EntryInfo { name: name.replace('\\', "/"), size })
+        .collect())
+}
+
+fn cab_extract_entry(data: &[u8], name: &str) -> Result<Vec<u8>> {
+    let stored = cab_names(data)?
+        .into_iter()
+        .map(|(n, _)| n)
+        .find(|n| n == name || n.replace('\\', "/") == name)
+        .ok_or_else(|| ExtractError::OperationFailed { reason: format!("entry not found in cab: {name}") })?;
+    let mut cabinet = cab::Cabinet::new(Cursor::new(data)).map_err(map_err)?;
+    cab_read(&mut cabinet, &stored, data.len())
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -1123,6 +1224,28 @@ mod tests {
     }
 
     // ── Unsupported formats ─────────────────────────────────────
+
+    #[test]
+    fn cab_roundtrip_mszip() {
+        let mut builder = cab::CabinetBuilder::new();
+        let folder = builder.add_folder(cab::CompressionType::MsZip);
+        folder.add_file("dir\\evil.exe");
+        folder.add_file("readme.txt");
+        let mut writer = builder.build(Cursor::new(Vec::new())).unwrap();
+        while let Some(mut w) = writer.next_file().unwrap() {
+            use std::io::Write;
+            let body: &[u8] = if w.file_name() == "readme.txt" { b"hello cab" } else { b"MZ fake exe body" };
+            w.write_all(body).unwrap();
+        }
+        let data = writer.finish().unwrap().into_inner();
+        assert_eq!(detect_format(&data), Some("cab"));
+        let entries = extract_archive_from_bytes(&data, false).unwrap();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["dir/evil.exe", "readme.txt"]);
+        assert_eq!(entries[1].data, b"hello cab");
+        assert_eq!(list_entries(&data).unwrap().len(), 2);
+        assert_eq!(extract_entry(&data, "dir/evil.exe").unwrap(), b"MZ fake exe body");
+    }
 
     #[test]
     fn detect_unknown_format_returns_none() {

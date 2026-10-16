@@ -515,6 +515,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cab"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "171228650e6721d5acc0868a462cd864f49ac5f64e4a42cde270406e64e404d2"
+dependencies = [
+ "byteorder",
+ "flate2",
+ "lzxd",
+ "time",
+]
+
+[[package]]
 name = "camino"
 version = "1.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2024,11 +2036,16 @@ dependencies = [
 name = "hydradragonclamav"
 version = "0.1.0"
 dependencies = [
+ "aes 0.9.3",
+ "cbc 0.2.1",
  "daachorse",
+ "flate2",
  "image",
+ "md-5 0.11.0",
  "memchr",
  "regex",
  "rustdct",
+ "sha2 0.11.0",
  "yara-x",
 ]
 
@@ -2051,6 +2068,7 @@ name = "hydradragonextractor"
 version = "0.1.0"
 dependencies = [
  "bzip2",
+ "cab",
  "flate2",
  "isomage",
  "lzma-rust2 0.21.0",
@@ -2784,6 +2802,12 @@ checksum = "fde178a3caf126c440fa15628147772d8ee590a39477d711353fbe2e58a73a5b"
 dependencies = [
  "sha2 0.11.0",
 ]
+
+[[package]]
+name = "lzxd"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c17f346186eccb574ba5581acefc514f0c70a642db4f96e245034a0a158a7168"
 
 [[package]]
 name = "mach2"
